@@ -1,0 +1,16205 @@
+namespace NSharpLang.Compiler.Columnar
+
+import System
+import System.Buffers
+import System.Collections
+import System.Collections.Generic
+import System.Diagnostics
+import System.IO
+import System.Linq
+import System.Reflection
+import System.Reflection.Emit
+import System.Runtime.CompilerServices
+import System.Runtime.InteropServices
+import System.Text
+import System.Text.Json
+import System.Threading
+import System.Threading.Tasks
+import YamlDotNet.Core
+import YamlDotNet.Core.Events
+import YamlDotNet.Serialization
+
+
+type ColumnarTypeParameterDictionary = Dictionary<string, Type>
+
+/// <summary>
+/// COLUMNAR PIPELINE IL emit host (docs/design/roadmap-to-done.md): emits real .NET assemblies DIRECTLY from
+/// the columnar statement/expression tables with no object AST. Grown from the original stage-4 spike into the
+/// production columnar backend; unsupported shapes return false (a precise decline — never a silent fallback).
+/// </summary>
+public sealed class ColumnarIlEmitter {
+    private _nodes: ColumnarNodeTable
+    private _source: string
+    private readonly _paramOrdinals: Dictionary<string, int>
+    private readonly _paramTypes: Dictionary<string, Type>
+    private readonly _returnType: Type
+    private readonly _tupleNamesByVariable: Dictionary<string, string[]>
+    private readonly _siblingReturnTupleNames: IReadOnlyDictionary<string, string[]>?
+    private _protectedResult: LocalBuilder?
+    private _protectedDone: Label
+    private _protectedDoneCreated: bool
+    private _inProtectedRegion: bool
+    private readonly _asyncReturnType: Type?
+    private readonly _asyncResultType: Type?
+    private readonly _asyncReturnsValueTask: bool
+    private readonly _asyncBareReturnDeclines: bool
+    private _inFinallyRegion: bool
+    private _overflowCheckingEnabled: bool
+    private readonly _il: ILGenerator
+    private readonly _codePlan: ColumnarCodePlan
+    private readonly _siblings: IReadOnlyDictionary<string, ColumnarSiblingMethodDefinition>
+    private _siblingCallFacts: Dictionary<string, ColumnarSiblingCallFacts>?
+    private readonly _genericInterfaceConstraints: IReadOnlyDictionary<Type, Type[]>
+    private readonly _enumRegistry: Dictionary<string, ColumnarEnumDef>
+    private readonly _typeResolutionEnums: ColumnarSemanticRegistry<ColumnarEnumDef>
+    private readonly _structRegistry: IReadOnlyDictionary<string, ColumnarStructDef>
+    private readonly _typeResolutionStructs: ColumnarSemanticRegistry<ColumnarStructDef>
+    private readonly _unionRegistry: IReadOnlyDictionary<string, ColumnarUnionDef>
+    private readonly _typeResolutionUnions: ColumnarSemanticRegistry<ColumnarUnionDef>
+    private readonly _unionCaseRegistry: IReadOnlyDictionary<string, ColumnarUnionCaseDef>
+    private readonly _typeParameters: Dictionary<string, Type>
+    private readonly _referenceAssemblyPaths: IReadOnlyList<string>?
+    private readonly _currentStruct: ColumnarStructDef?
+    private readonly _enclosingType: ColumnarStructDef?
+    private readonly _locals: Dictionary<string, LocalBuilder>
+    private readonly _loopLabels: Stack<(Break: Label, Continue: Label, InProtectedRegion: bool, InFinallyRegion: bool)>
+    private static readonly s_sumInt32Reduction: MethodInfo = ResolveSimdReductionHelper(nameof(NSharpLang.Runtime.SimdReductions.SumInt32))
+    private static readonly s_sumUInt32Reduction: MethodInfo = ResolveSimdReductionHelper(nameof(NSharpLang.Runtime.SimdReductions.SumUInt32))
+    private static readonly s_sumInt64Reduction: MethodInfo = ResolveSimdReductionHelper(nameof(NSharpLang.Runtime.SimdReductions.SumInt64))
+    private static readonly s_sumUInt64Reduction: MethodInfo = ResolveSimdReductionHelper(nameof(NSharpLang.Runtime.SimdReductions.SumUInt64))
+    private static readonly s_countInRangeInt32: MethodInfo = ResolveSimdReductionHelper(nameof(NSharpLang.Runtime.SimdReductions.CountInRangeInt32))
+    private static readonly s_minInt32Reduction: MethodInfo = ResolveSimdReductionHelper(nameof(NSharpLang.Runtime.SimdReductions.MinInt32))
+    private static readonly s_maxInt32Reduction: MethodInfo = ResolveSimdReductionHelper(nameof(NSharpLang.Runtime.SimdReductions.MaxInt32))
+    private static readonly s_minMaxInt32Reduction: MethodInfo = ResolveSimdReductionHelper(nameof(NSharpLang.Runtime.SimdReductions.MinMaxInt32))
+    private static readonly s_countTransitionsInt32: MethodInfo = ResolveSimdReductionHelper(nameof(NSharpLang.Runtime.SimdReductions.CountTransitionsInt32))
+    private static readonly s_valueTupleItem1: FieldInfo = ResolveValueTupleField("Item1")
+    private static readonly s_valueTupleItem2: FieldInfo = ResolveValueTupleField("Item2")
+    private readonly _isConstructorBody: bool
+    private readonly _isSynthesizedInitializerBody: bool
+    private readonly _programType: TypeBuilder?
+    private readonly _lambdaCounter: int[]?
+    private readonly _displayClasses: List<TypeBuilder>?
+    private _bodyRoot: int
+    private readonly _enclosingBindingNames: HashSet<string>
+    private static readonly s_noEnclosingBindings: HashSet<string> = CreateNoEnclosingBindings()
+    private static readonly s_noGenericInterfaceConstraints: IReadOnlyDictionary<Type, Type[]> = CreateNoGenericInterfaceConstraints()
+    private static readonly s_noTypeParameters: Dictionary<string, Type> = CreateNoTypeParameters()
+    private _liftedCandidates: HashSet<string>?
+    private readonly _liftedLocals: Dictionary<string, (Box: LocalBuilder, ValueType: Type)>
+    private readonly _localFuncs: Dictionary<string, (Method: MethodBuilder, ParamTypes: Type[], ReturnType: Type)>?
+    private readonly _declaredLocalFuncNodes: Dictionary<int, string>?
+    private readonly _visibleLocalFuncs: HashSet<string>
+    private readonly _boxedCaptures: Dictionary<string, (BoxField: FieldInfo, ValueType: Type)>?
+
+
+
+
+
+
+    // Tuple ELEMENT NAMES per tuple-typed variable (`t.x` -> ItemN): seeded from named param annotations,
+    // grown at `:=`/typed-local declarations whose initializers/annotations carry names. The CLR erases
+    // tuple names (ValueTuple<> is positional), so this is the only name source at member-access time.
+
+    // Sibling functions' RETURN tuple element names (for `mk().x` and `t := mk()` name derivation).
+
+    // Exceptions E2: while emitting INSIDE a protected region (try/catch bodies), `return` may not emit
+    // `ret` — it stores the value into ProtectedResult (value functions) and `leave`s to ProtectedDone;
+    // EmitBody appends the single `done: [ldloc result;] ret` tail when any leave-return occurred. One
+    // shared pair per body (every try in the body leaves to the same tail). Spike-proven (/tmp/try-spike).
+
+
+
+
+    // ASYNC (synchronous lowering; real state machines deferred): non-null = this body's
+    // WRAPPED CLR return (ValueTask/ValueTask<T>; Task/Task<T>
+    // for `main`). _returnType holds the INNER declared type so every return-value check works
+    // unchanged; returns WRAP before storing into the protected slot; the whole body runs inside
+    // the fault guard (EmitBody) whose catch converts the exception to a faulted task.
+
+
+
+    // True when the async unit-ness came from an EXPLICIT `: Task`/`: ValueTask` annotation — a
+    // bare `return` is then a pipeline NL305 (the unit-task exemption covers fall-through only).
+
+    // Set while a FINALLY handler's statements emit: control transfers OUT of a finally (return, or
+    // break/continue to a loop outside it) are illegal IL. The analyzer now rejects those shapes with
+    // NL319 (known defect #20 fixed front-door), so they cannot reach any emitter on the production
+    // path — the declines below remain as this emitter's own contract guards. Loops OPENED inside the
+    // finally still break/continue freely.
+
+    // Set by kind-57 checked/unchecked expression wrappers while their child emits. Checked arithmetic swaps the
+    // integral +, -, and * opcodes to their overflow-checking variants; nested unchecked restores wrapping behavior.
+
+
+
+    // Sibling top-level functions callable from this body, by name -> (declared method, param types, return
+    // type). All are declared (pass 1) before any body emits (pass 2), so forward/self calls resolve to
+    // MethodBuilders whose tokens bake at CreateType/Save; includes this function itself (direct recursion).
+    // Param/return types are carried (not reflected) because MethodBuilder.GetParameters()/ReturnType is
+    // unsupported pre-bake — and a Call type-checks each argument (int/bool are both i4; a mismatch would
+    // otherwise produce verifiable-but-wrong IL rather than declining).
+
+    // The N# direct-call planner owns bare sibling calls; it consults these routed facts to plan
+    // the ordinary fixed-arity shape. Projected once from _siblings (the MethodBuilder handle plus
+    // the carried signature, param-modifier, and generic-arity facts) and reused per body.
+
+
+    // User-defined enums in this program, by name -> (finalized enum Type, member->value). Lets member access
+    // `Enum.Member` and enum match patterns resolve their underlying-int constant, and types resolve `Color` to a
+    // baked type that can close runtime generics.
+
+    // Source spellings inside a body resolve through the owning file's exact N# semantic view.
+    // The global registries remain available only for mechanical identity walks and planner facts.
+
+    // User-defined structs in this program, by name -> (TypeBuilder, field->FieldBuilder). Lets object-initializer
+    // construction and field access resolve their FieldBuilders, and types resolve `Point` to its TypeBuilder.
+
+
+    // User-defined unions in this program, by name -> (abstract base + cases). Lets `Union` resolve to its base type
+    // (the match-scrutinee / param type) and the exhaustiveness check enumerate the cases.
+
+
+    // Union CASES by qualified "Union.Case" name -> case. Lets object-initializer construction (`new Union.Case {…}`)
+    // and union-case patterns (`Union.Case { f }`) resolve a case's ctor/fields/base directly by its dotted name.
+
+    // Method/type generic parameters visible to this body. Signature resolution already uses these in pass 1;
+    // body-side type nodes (`new List<T>()`, typed locals, explicit generic call args) need the same map.
+
+
+    // When emitting a struct INSTANCE method body, the struct whose fields are accessible by BARE name (resolved to
+    // `ldarg.0; ldfld`, since `this` is arg 0). Null for top-level functions (no implicit `this`/fields).
+
+    // The struct/record/class whose MEMBER body (instance method, STATIC method, constructor, or accessor) is being
+    // emitted — null for a top-level function body. Unlike `_currentStruct` (the INSTANCE-context marker, null in a
+    // static method so no implicit-`this` path can fire), this is set for static bodies too: it anchors bare
+    // STATIC-method resolution (`Seven()` inside any member of the type resolves on the type's own chain).
+
+    // `:=` locals declared so far, by name. Each local's type is its LocalBuilder.LocalType (inferred from the
+    // initializer), so the type-aware emitter checks assignments and reads against it.
+
+    // Enclosing loops' break/continue targets (innermost on top; outside any loop declines), plus WHERE the
+    // loop was entered relative to exception regions: a break/continue from INSIDE a protected region whose
+    // loop began OUTSIDE it crosses the region boundary — `br` is invalid IL there; it must `leave` (which
+    // also runs an intervening finally). A loop wholly inside the region branches with a plain `br`
+    // (probe-pinned both ways). A branch out of a FINALLY is illegal IL entirely — those decline.
+
+
+    private static func ResolveSimdReductionHelper(name: string): MethodInfo {
+        result := typeof(NSharpLang.Runtime.SimdReductions).GetMethod(name)
+        if result == null {
+            throw new InvalidOperationException($"NSharpLang.Runtime.SimdReductions.{name} not found.")
+        }
+        return result
+    }
+
+    private static func ResolveValueTupleField(name: string): FieldInfo {
+        result := typeof(ValueTuple<int, int>).GetField(name)
+        if result == null {
+            throw new InvalidOperationException("ValueTuple<int,int>." + name + " not found.")
+        }
+        return result
+    }
+
+
+
+
+
+
+
+
+
+
+
+
+
+     // `func*`; must mirror Modifiers.Generator
+
+
+
+
+
+    private static func CreateNoEnclosingBindings(): HashSet<string> => new HashSet<string>(StringComparer.Ordinal)
+
+    private static func CreateNoGenericInterfaceConstraints(): IReadOnlyDictionary<Type, Type[]> => new Dictionary<Type, Type[]>(0)
+
+    private static func CreateNoTypeParameters(): Dictionary<string, Type> => new Dictionary<string, Type>(StringComparer.Ordinal)
+
+    private func Decline(siteId: string, message: string, nodeIdx: int): bool => DeclineMember(siteId, message, nodeIdx, "")
+
+    private func DeclineMember(siteId: string, message: string, nodeIdx: int, memberName: string): bool {
+        spanStart := -1
+        spanLength := 0
+        if (nodeIdx >= 0) {
+            spanStart = _nodes.SpanStart(nodeIdx)
+            spanLength = _nodes.SpanLength(nodeIdx)
+        }
+
+        ColumnarDeclineTrace.Record(siteId, message, spanStart, spanLength, memberName)
+        return false
+    }
+
+    private static func DeclineStatic(siteId: string, message: string, memberName: string, spanStart: int, spanLength: int): bool {
+        ColumnarDeclineTrace.Record(siteId, message, spanStart, spanLength, memberName)
+        return false
+    }
+
+    // True when this emitter is producing a CONSTRUCTOR body. In a VALUE-TYPE ctor, `this` (arg 0)
+    // is the managed pointer to the caller's storage (newobj passes the new value's address), so
+    // bare field WRITES are correct there — unlike struct METHODS, whose receiver is a spilled
+    // temp copy (mutation would write the copy; those stay declined).
+
+    // True only for the constructor body synthesized from a primary class/record/struct declaration. Its
+    // generated assignments are `Field = parameter`; when the field and parameter share a name, the left side
+    // must bind to the field even though ordinary explicit-constructor assignments keep parameter shadowing.
+
+
+    private constructor(nodes: ColumnarNodeTable, source: string, paramOrdinals: Dictionary<string, int>, paramTypes: Dictionary<string, Type>, returnType: Type, il: ILGenerator, siblings: IReadOnlyDictionary<string, ColumnarSiblingMethodDefinition>, enumRegistry: Dictionary<string, ColumnarEnumDef>, structRegistry: IReadOnlyDictionary<string, ColumnarStructDef>, unionRegistry: IReadOnlyDictionary<string, ColumnarUnionDef>, unionCaseRegistry: IReadOnlyDictionary<string, ColumnarUnionCaseDef>, currentStruct: ColumnarStructDef?, enclosingType: ColumnarStructDef? = null, isConstructorBody: bool = false, isSynthesizedInitializerBody: bool = false, programType: TypeBuilder? = null, lambdaCounter: int[]? = null, displayClasses: List<TypeBuilder>? = null, boxedCaptures: Dictionary<string, (BoxField: FieldInfo, ValueType: Type)>? = null, localFuncs: Dictionary<string, (Method: MethodBuilder, ParamTypes: Type[], ReturnType: Type)>? = null, declaredLocalFuncNodes: Dictionary<int, string>? = null, visibleLocalFuncs: IEnumerable<string>? = null, siblingReturnTupleNames: IReadOnlyDictionary<string, string[]>? = null, paramTupleNames: IReadOnlyDictionary<string, string[]>? = null, enclosingBindingNames: HashSet<string>? = null, asyncReturnType: Type? = null, asyncBareReturnDeclines: bool = false, referenceAssemblyPaths: IReadOnlyList<string>? = null, genericInterfaceConstraints: IReadOnlyDictionary<Type, Type[]>? = null, typeParameters: IReadOnlyDictionary<string, Type>? = null, typeResolutionEnums: ColumnarSemanticRegistry<ColumnarEnumDef>? = null, typeResolutionStructs: ColumnarSemanticRegistry<ColumnarStructDef>? = null, typeResolutionUnions: ColumnarSemanticRegistry<ColumnarUnionDef>? = null) {
+        // CLR object storage starts zeroed before instance field initializers run. Spell the non-nullable
+        // fields explicitly so N# constructor validation sees the same initial state on every path.
+        _protectedDone = new Label()
+        _protectedDoneCreated = false
+        _inProtectedRegion = false
+        _asyncReturnsValueTask = false
+        _inFinallyRegion = false
+        _overflowCheckingEnabled = false
+        _tupleNamesByVariable = new Dictionary<string, string[]>(StringComparer.Ordinal)
+        _codePlan = new ColumnarCodePlan()
+        _locals = new Dictionary<string, LocalBuilder>(StringComparer.Ordinal)
+        _loopLabels = new Stack<(Break: Label, Continue: Label, InProtectedRegion: bool, InFinallyRegion: bool)>()
+        _bodyRoot = -1
+        _liftedLocals = new Dictionary<string, (Box: LocalBuilder, ValueType: Type)>(StringComparer.Ordinal)
+        _visibleLocalFuncs = new HashSet<string>(StringComparer.Ordinal)
+        _isConstructorBody = isConstructorBody
+        _isSynthesizedInitializerBody = isSynthesizedInitializerBody
+        _asyncReturnType = asyncReturnType
+        _asyncBareReturnDeclines = asyncBareReturnDeclines
+        if (asyncReturnType != null) {
+            if (returnType == ColumnarTypeOfPlanner.RequiredVoidType()) {
+                _asyncResultType = null
+            } else {
+                _asyncResultType = returnType
+            }
+            asyncReturnsValueTask := false
+            if (asyncReturnType == typeof(System.Threading.Tasks.ValueTask)) {
+                asyncReturnsValueTask = true
+            } else {
+                asyncReturnIsGeneric := asyncReturnType.get_IsGenericType()
+                if (asyncReturnIsGeneric) {
+                    asyncReturnDefinition := asyncReturnType.GetGenericTypeDefinition()
+                    valueTaskDefinition := typeof(System.Threading.Tasks.ValueTask<int>).GetGenericTypeDefinition()
+                    asyncReturnsValueTask = asyncReturnDefinition == valueTaskDefinition
+                }
+            }
+            _asyncReturnsValueTask = asyncReturnsValueTask
+        }
+        _enclosingBindingNames = enclosingBindingNames ?? s_noEnclosingBindings
+        _nodes = nodes
+        _source = source
+        _paramOrdinals = paramOrdinals
+        _paramTypes = paramTypes
+        _returnType = returnType
+        _siblingReturnTupleNames = siblingReturnTupleNames
+        if (paramTupleNames != null) {
+            for columnarKeyValuePair0 in paramTupleNames {
+                tupleParamName := columnarKeyValuePair0.Key
+                tupleParamElementNames := columnarKeyValuePair0.Value
+                _tupleNamesByVariable[tupleParamName] = tupleParamElementNames}
+        }
+        _il = il
+        _siblings = siblings
+        _genericInterfaceConstraints = genericInterfaceConstraints ?? s_noGenericInterfaceConstraints
+        _enumRegistry = enumRegistry
+        _structRegistry = structRegistry
+        _unionRegistry = unionRegistry
+        _typeResolutionEnums = typeResolutionEnums
+        if _typeResolutionEnums == null { throw new ArgumentNullException(nameof(typeResolutionEnums)) }
+        _typeResolutionStructs = typeResolutionStructs
+        if _typeResolutionStructs == null { throw new ArgumentNullException(nameof(typeResolutionStructs)) }
+        _typeResolutionUnions = typeResolutionUnions
+        if _typeResolutionUnions == null { throw new ArgumentNullException(nameof(typeResolutionUnions)) }
+        _unionCaseRegistry = unionCaseRegistry
+        let selectedTypeParameters: Dictionary<string, Type>? = typeParameters as ColumnarTypeParameterDictionary
+        if (selectedTypeParameters == null) {
+            if (typeParameters == null) {
+                selectedTypeParameters = s_noTypeParameters
+            } else {
+                selectedTypeParameters = new Dictionary<string, Type>(typeParameters, StringComparer.Ordinal)
+            }
+        }
+        _typeParameters = selectedTypeParameters
+        _referenceAssemblyPaths = referenceAssemblyPaths
+        _currentStruct = currentStruct
+        _enclosingType = enclosingType ?? currentStruct
+        _programType = programType
+        _lambdaCounter = lambdaCounter
+        _displayClasses = displayClasses
+        _boxedCaptures = boxedCaptures
+        _localFuncs = localFuncs
+        _declaredLocalFuncNodes = declaredLocalFuncNodes
+        if (visibleLocalFuncs != null) {_visibleLocalFuncs.UnionWith(visibleLocalFuncs)}
+    }
+
+    private func TryResolveBodyType(canonical: string, out columnarResolvedType: Type): bool => ColumnarCanonicalTypeResolver.TryResolveTypeWithTypeParams(
+            canonical,
+            _typeParameters,
+            _typeResolutionEnums,
+            _typeResolutionStructs,
+            _typeResolutionUnions,
+            out columnarResolvedType)
+
+    // LAMBDA support (L1b): the Program TypeBuilder hosts synthesized `<Lambda>_{n}` static methods (null in
+    // contexts that do not model lambdas, e.g. the single-function wrapper — a kind-39 node then declines);
+    // the counter is a one-element box SHARED across every emitter instance of one program so names never
+    // collide (a lambda body's sub-emitter can itself synthesize nested lambdas).
+
+
+    // CAPTURING lambdas (L3a): display-class TypeBuilders collected here bake BEFORE the Program type at
+    // finalization (the legacy emitter's closure-types-first order). Shared across the program's emitter instances
+    // like the counter; null in contexts that do not model lambdas.
+
+    // The current body's root statement (set by EmitBody) — anchors the L3a never-mutated capture scan.
+
+    // NL316 ACROSS NESTED-BODY BOUNDARIES: every binding name visible in the ENCLOSING function when this nested
+    // body (lambda/local function) was reached. The pipeline rejects ANY nested binding that shadows an enclosing
+    // one, but a sub-emitter's own maps cannot see the parent's names, so every binding site must ALSO check this
+    // set (probe-found over-accepts across lambda/local-func/catch bindings). Lambdas get the parent's LIVE
+    // snapshot; local functions the STRUCTURAL superset (safe under-acceptance). Empty for top-level bodies.
+
+
+
+
+    private func ExactSourceTypesForBody(): Dictionary<string, Type> => _typeResolutionStructs.Resolver.ExactSourceTypes
+
+    // MUTATED captures (L3b): names that are captured by some lambda in this body AND mutated via
+    // bare-identifier assignment get LIFTED into a shared StrongBox<T> (the legacy emitter's box-lift model) —
+    // the box reference is what closures snapshot, so mutation is shared in both directions.
+    // _liftedCandidates is the EmitBody pre-scan verdict (drives DECLARATION shape); _liftedLocals holds
+    // the live boxes (drives every read/write — checked BEFORE locals/params). Structural writes
+    // (foreach vars, deconstructions) and member/index-receiver uses are NOT lifted: those names simply
+    // never enter _liftedLocals, and their capture or usage declines exactly as in L3a.
+
+
+    // LOCAL FUNCTIONS (L4-i): name -> the synthesized `<parent>g__{n}` static (declared before the body
+    // emits, so self/mutual recursion and parent calls all forward-reference MethodBuilders that bake at
+    // Save). Checked in the bare-call order BEFORE siblings — a local function SHADOWS a same-named
+    // sibling (probe-pinned: the pipeline calls the local). _declaredLocalFuncNodes holds the kind-41
+    // body-node indices that were declared; any other kind-41 (a nested-block declaration) declines.
+
+
+    // Local-function VISIBILITY is strictly TEXTUAL (probe-pinned: the pipeline NL412s a call before the
+    // declaration, in the parent AND between locals — so true mutual recursion is impossible; only
+    // self-recursion and backward calls). A name enters this set when its kind-41 statement is reached;
+    // the call tier requires it. Local bodies start pre-populated with declarations up to themselves.
+
+    // In a CLOSURE emitter: captured-and-lifted names -> the display field holding the shared box. Reads
+    // emit `ldarg.0; ldfld boxField; ldfld Value`, writes `ldarg.0; ldfld boxField; <v>; stfld Value` —
+    // checked before every other resolution tier (a boxed name is never also a lambda param or local).
+
+
+    private static func TryResolveResultReadableProperty(receiverType: Type, member: string, out getter: MethodInfo, out propertyType: Type): bool {
+        getter = null
+        propertyType = null
+        if (!ColumnarTypeOfPlanner.IsSupportedResultType(receiverType)) {return false}
+        args := receiverType.GetGenericArguments()
+        if (member == "IsOk" || member == "IsErr") {
+            propertyType = typeof(bool)
+        } else if (member == "OkValue" || member == "OkValueUnchecked") {
+            propertyType = args[0]
+        } else if (member == "ErrValue" || member == "ErrValueUnchecked") {
+            propertyType = args[1]
+        } else {
+            propertyType = null
+        }
+        if (propertyType == null) {return false}
+        columnarConditionalProperty0 := typeof(NSharpLang.Runtime.Result<int, int>).GetGenericTypeDefinition()
+            .GetProperty(member, BindingFlags.Public | BindingFlags.Instance)
+        openGetter: System.Reflection.MethodInfo? = null
+        if columnarConditionalProperty0 != null {
+            openGetter = columnarConditionalProperty0.GetGetMethod()
+        }
+        if (openGetter == null) {return false}
+        getter = ResolveClosedGenericMethod(receiverType, openGetter)
+        return true
+    }
+
+    private static func TryResolveMemoryReadableProperty(receiverType: Type, member: string, out getter: MethodInfo, out propertyType: Type): bool {
+        getter = null
+        propertyType = null
+        if (ColumnarTypeOfPlanner.IsSupportedMemoryOwnerType(receiverType) && member == "Memory") {
+            columnarConditionalProperty1 := typeof(System.Buffers.IMemoryOwner<int>).GetGenericTypeDefinition()
+                .GetProperty("Memory", BindingFlags.Public | BindingFlags.Instance)
+            openGetter: System.Reflection.MethodInfo? = null
+            if columnarConditionalProperty1 != null {
+                openGetter = columnarConditionalProperty1.GetGetMethod()
+            }
+            if (openGetter == null) {return false}
+            getter = ResolveClosedGenericMethod(receiverType, openGetter)
+            propertyType = typeof(Memory<byte>)
+            return true
+        }
+        if (ColumnarTypeOfPlanner.IsSupportedMemoryType(receiverType) && member == "Span") {
+            columnarConditionalProperty2 := typeof(Memory<int>).GetGenericTypeDefinition()
+                .GetProperty("Span", BindingFlags.Public | BindingFlags.Instance)
+            openGetter: System.Reflection.MethodInfo? = null
+            if columnarConditionalProperty2 != null {
+                openGetter = columnarConditionalProperty2.GetGetMethod()
+            }
+            if (openGetter == null) {return false}
+            getter = ResolveClosedGenericMethod(receiverType, openGetter)
+            propertyType = typeof(Span<byte>)
+            return true
+        }
+        return false
+    }
+
+    private static func ResolveSpanLikeItemGetter(spanType: Type): MethodInfo? {
+        if (!ColumnarTypeOfPlanner.IsSupportedSpanLikeType(spanType)) {return null}
+        columnarConditionalProperty3 := spanType.GetGenericTypeDefinition().GetProperty("Item")
+        openGetter: System.Reflection.MethodInfo? = null
+        if columnarConditionalProperty3 != null {
+            openGetter = columnarConditionalProperty3.GetGetMethod()
+        }
+        if (openGetter == null) {return null}
+        return ResolveClosedGenericMethod(spanType, openGetter)
+    }
+
+    private static func TryRegisterEnumAlias(registry: Dictionary<string, ColumnarEnumDef>, name: string, def: ColumnarEnumDef): void {
+        shortName := ColumnarTypeCanonicalizer.UnqualifiedTypeName(name)
+        if (!registry.ContainsKey(shortName)) {registry[shortName] = def}
+    }
+
+    private static func TryRegisterStructAlias(registry: Dictionary<string, ColumnarStructDef>, name: string, def: ColumnarStructDef): void {
+        shortName := ColumnarTypeCanonicalizer.UnqualifiedTypeName(name)
+        if (!registry.ContainsKey(shortName)) {registry[shortName] = def}
+    }
+
+    private static func TryRegisterUnionAlias(registry: Dictionary<string, ColumnarUnionDef>, name: string, def: ColumnarUnionDef): void {
+        shortName := ColumnarTypeCanonicalizer.UnqualifiedTypeName(name)
+        if (!registry.ContainsKey(shortName)) {registry[shortName] = def}
+    }
+
+    private static func ShortUnionCaseKey(qualifiedCase: string): string {
+        lastDot := qualifiedCase.LastIndexOf('.')
+        if (lastDot <= 0 || lastDot + 1 >= qualifiedCase.Length) {return qualifiedCase}
+        unionName := qualifiedCase.Substring(0, lastDot)
+        caseName := qualifiedCase.Substring(lastDot + 1)
+        return ColumnarTypeCanonicalizer.UnqualifiedTypeName(unionName) + "." + caseName
+    }
+
+    private static func IsSupportedIndexableCollectionType(t: Type): bool {
+        if (!ColumnarTypeOfPlanner.IsSupportedCollectionType(t)) {return false}
+        def := t.GetGenericTypeDefinition()
+        return def == typeof(List<int>).GetGenericTypeDefinition() || ColumnarGenericCallBindingPlanner.IsDictionaryLikeCollectionDefinition(def)
+    }
+
+    // The indexer READ set: everything writable plus the read-only dictionary head, whose get_Item exists
+    // while its set_Item does not. The write paths keep using IsSupportedIndexableCollectionType.
+    private static func IsSupportedReadableIndexedCollectionType(t: Type): bool {
+        if (!ColumnarTypeOfPlanner.IsSupportedCollectionType(t)) {return false}
+        def := t.GetGenericTypeDefinition()
+        return def == typeof(List<int>).GetGenericTypeDefinition() || ColumnarGenericCallBindingPlanner.IsAnyDictionaryCollectionDefinition(def)
+    }
+
+    private static func TryResolveCollectionCountGetter(t: Type, out getter: MethodInfo): bool {
+        getter = null
+        if (!ColumnarTypeOfPlanner.IsSupportedCollectionType(t)) {return false}
+        def := t.GetGenericTypeDefinition()
+        if (def == typeof(IEnumerable<int>).GetGenericTypeDefinition()) {return false}
+        countOwner := t
+        if (def == typeof(IReadOnlyList<int>).GetGenericTypeDefinition() || def == typeof(IReadOnlySet<int>).GetGenericTypeDefinition()) {countOwner = typeof(IReadOnlyCollection<int>).GetGenericTypeDefinition().MakeGenericType([t.GetGenericArguments()[0]])}
+        else {if (ColumnarGenericCallBindingPlanner.IsReadOnlyDictionaryCollectionDefinition(def)) {countOwner = typeof(IReadOnlyCollection<int>).GetGenericTypeDefinition().MakeGenericType(
+                [typeof(KeyValuePair<int, int>).GetGenericTypeDefinition().MakeGenericType(t.GetGenericArguments())])}}
+        columnarConditionalProperty4 := countOwner.GetGenericTypeDefinition().GetProperty("Count")
+        openGetter: System.Reflection.MethodInfo? = null
+        if columnarConditionalProperty4 != null {
+            openGetter = columnarConditionalProperty4.GetGetMethod()
+        }
+        if (openGetter == null) {return false}
+        getter = ResolveClosedGenericMethod(countOwner, openGetter)
+        return true
+    }
+
+    // Resolve a member of a CLOSED BCL generic instantiation from its OPEN definition's member handle:
+    // builder-bound instantiations rebind via TypeBuilder.GetMethod/GetConstructor (the only legal member
+    // resolution on a TypeBuilderInstantiation — the legacy emitter's TryGetDeclaredGeneratedRuntimeMethod /
+    // BindRuntimeConstructorCall idiom); fully baked instantiations resolve the closed runtime handle.
+    private static func ResolveClosedGenericMethod(closedType: Type, openMethod: MethodInfo): MethodInfo => ColumnarClosedGenericMemberResolver.ResolveMethod(closedType, openMethod)
+
+    private static func ResolveClosedGenericCtor(closedType: Type, openCtor: ConstructorInfo): ConstructorInfo {
+        if (ColumnarTypeOfPlanner.ContainsBuilderBoundType(closedType)) {
+            return TypeBuilder.GetConstructor(closedType, openCtor)
+        }
+        resolved := MethodBase.GetMethodFromHandle(openCtor.get_MethodHandle(), closedType.get_TypeHandle())
+        resolvedObject: object? = resolved
+        return (ConstructorInfo)resolvedObject
+    }
+
+    private static func IsSupportedContextualDelegateType(t: Type): bool {
+        let columnarDiscard0: System.Type = null
+        let columnarDiscard1: System.Type[] = null
+        let columnarDiscard2: System.Reflection.ConstructorInfo = null
+        return TryGetSupportedDelegateSignature(t,  true, out columnarDiscard0, out columnarDiscard1, out columnarDiscard2)
+    }
+
+    private static func TryGetSupportedDelegateSignature(t: Type, allowBuilderBoundArguments: bool, out returnType: Type, out parameterTypes: Type[], out delegateCtor: ConstructorInfo): bool {
+        returnType = null
+        parameterTypes = System.Array.Empty<Type>()
+        delegateCtor = null
+
+        if (t == typeof(Action)) {
+            returnType = ColumnarTypeOfPlanner.RequiredVoidType()
+            delegateCtor = typeof(Action).GetConstructor([typeof(object), typeof(IntPtr)])
+            return delegateCtor != null
+        }
+
+        typeBuilderType := t as TypeBuilder
+        if (typeBuilderType != null) {return false}
+        enumBuilderType := t as EnumBuilder
+        if (enumBuilderType != null) {return false}
+        if (!t.get_IsGenericType()) {return false}
+        if (t.get_IsGenericTypeDefinition()) {return false}
+        let def: System.Type = null
+            def = t.GetGenericTypeDefinition()
+        args := t.GetGenericArguments()
+
+        if (def == typeof(Action<int>).GetGenericTypeDefinition() || def == typeof(Action<int, int>).GetGenericTypeDefinition() || def == typeof(Action<int, int, int>).GetGenericTypeDefinition() || def == typeof(Action<int, int, int, int>).GetGenericTypeDefinition()) {
+            returnType = ColumnarTypeOfPlanner.RequiredVoidType()
+            parameterTypes = args
+        }
+        else {if (def == typeof(Func<int>).GetGenericTypeDefinition() || def == typeof(Func<int, int>).GetGenericTypeDefinition() || def == typeof(Func<int, int, int>).GetGenericTypeDefinition() || def == typeof(Func<int, int, int, int>).GetGenericTypeDefinition()
+                 || def == typeof(Func<int, int, int, int, int>).GetGenericTypeDefinition()) {
+            returnType = args[^1]
+            parameterTypes = new Type[args.Length - 1]
+            System.Array.Copy(args, parameterTypes, args.Length - 1)
+        }
+        else {
+            return false
+        }}
+
+        for arg in args {
+            // Stored delegate slots keep the original baked-only guarantee. Contextual lambdas passed directly to
+            // modeled calls may close over builder-bound N# types because the synthesized method is emitted in the
+            // same module and the delegate never has to be reflected as a stable product API surface.
+            if (!allowBuilderBoundArguments) {
+                argumentAssemblyBuilder := arg.get_Assembly() as AssemblyBuilder
+                if (argumentAssemblyBuilder != null || ColumnarTypeOfPlanner.ContainsBuilderBoundType(arg)) {return false}
+            }
+            if (!ColumnarTypeOfPlanner.IsSupportedType(arg)) {return false}
+        }
+
+        openCtor := def.GetConstructor([typeof(object), typeof(IntPtr)])
+        if (openCtor == null) {return false}
+        delegateCtor = ColumnarTypeOfPlanner.ContainsBuilderBoundType(t) ? TypeBuilder.GetConstructor(t, openCtor) : t.GetConstructor([typeof(object), typeof(IntPtr)])
+        return delegateCtor != null
+    }
+
+    private static func AddInstanceMethod(def: ColumnarStructDef, name: string, method: ColumnarInstanceMethodDef): void {
+        if (!def.Methods.ContainsKey(name)) {def.Methods[name] = method}
+        let overloads: System.Collections.Generic.List<NSharpLang.Compiler.Columnar.ColumnarInstanceMethodDef>? = null
+        if (!def.MethodOverloads.TryGetValue(name, out  overloads)) {
+            overloads = new List<ColumnarInstanceMethodDef>()
+            def.MethodOverloads[name] = overloads
+        }
+        overloads.Add(method)
+    }
+
+
+    private static func TryFindPropertyOnChain(def: ColumnarStructDef, name: string, out property: ColumnarPropertyDef): bool {
+        let columnarDiscard3: NSharpLang.Compiler.Columnar.ColumnarStructDef = null
+        return TryFindPropertyOnChain(def, name, out columnarDiscard3, out property)
+    }
+
+    private static func TryFindPropertyOnChain(def: ColumnarStructDef, name: string, out owner: ColumnarStructDef, out property: ColumnarPropertyDef): bool {
+        for d := def; d != null; d = d.BaseDef {
+            let found: NSharpLang.Compiler.Columnar.ColumnarPropertyDef? = null
+            if (d.Properties.TryGetValue(name, out  found)) {
+                owner = d
+                property = found
+                return true
+            }
+        }
+        owner = null
+        property = null
+        return false
+    }
+
+    // Emit a NON-CAPTURING expression-bodied LAMBDA literal (kind 39 — L1b): synthesize an Assembly|Static
+    // `<Lambda>_{n}` method on Program typed from the delegate's Invoke (params are contextually typed — the legacy
+    // GetLambdaSignature), emit the body via a SUB-emitter scoped to ONLY the lambda params (an enclosing-binding
+    // read fails to resolve = the no-captures rule; sibling calls still work), then `ldnull; ldftn; newobj
+    // <delegate>(object, IntPtr)` at the use site (legacy EmitStaticDelegate minus the unobservable cache).
+    // Interleaved DefineMethod + forward-ldftn baking is spike-proven; a void delegate needs a void body (decline).
+    private func TryEmitLambdaLiteral(lambdaIdx: int, expectedDelegateType: Type): bool {
+        let delegateReturnType: System.Type? = null
+        let delegateParamTypes: System.Type[]? = null
+        let delegateCtor: System.Reflection.ConstructorInfo? = null
+        if (_programType == null || _lambdaCounter == null
+            || !TryGetSupportedDelegateSignature(
+                expectedDelegateType,  true, out  delegateReturnType, out  delegateParamTypes, out  delegateCtor)) {return false}
+        // N# owns the contextual-lambda signature binding: each lambda parameter name takes the target
+        // delegate's parameter type positionally, and the arity, identifier-node, duplicate-name, and
+        // NL316 enclosing-shadow rules are enforced there. Delegate decomposition and construction stay
+        // mechanical here; the recursive body sub-emitter remains C# lowering debt.
+        lambdaSignature := ColumnarLambdaPlacementPlanner.PlanContextualSignature(
+            _nodes, _source, lambdaIdx, delegateParamTypes, ColumnarClosureBindingPlanner.VisibleBindingNamesSnapshot(_enclosingBindingNames, _locals, _paramOrdinals, _liftedLocals, _boxedCaptures))
+        if (lambdaSignature == null) {return false}
+        ordinals := lambdaSignature.Ordinals
+        paramTypeMap := lambdaSignature.ParameterTypesByName
+        signatureTypes := delegateParamTypes
+        bodyNode := lambdaSignature.BodyNode
+
+        // CAPTURE SET (L3a): N# reads the live local/parameter/lifted maps, builds the exact enclosing union,
+        // performs the parameter-aware AST scan, and returns names in the legacy SortedSet order. The host
+        // consumes the result below; an empty set is the L1b static lowering, while display-class
+        // definition and recursive body emission remain C# lowering debt.
+        captures := ColumnarClosureBindingPlanner.PlanOrderedCaptureSet(
+            _nodes, _source, bodyNode, ordinals, _locals, _paramOrdinals, _liftedLocals)
+
+        if (captures.Count == 0) {
+            // THIS-capture detection (bare-field/instance-member references in an INSTANCE method's lambda):
+            // a kind-6 name that is neither bound nor a sibling but resolves on the enclosing type's chain
+            // means the lambda needs `this`. N# resolves that fact and owns the placement decision it drives:
+            // a this-referencing body becomes a private instance method on the enclosing
+            // reference type (the delegate binds directly to the current instance, true reference capture),
+            // every other non-capturing body an assembly-static method on the program type.
+            hasThisCapture := _currentStruct != null
+                && ColumnarClosureBindingPlanner.BodyReferencesEnclosingChain(
+                    _nodes, _source, bodyNode, new HashSet<string>(ordinals.Keys, StringComparer.Ordinal),
+                    _currentStruct, _locals, _liftedLocals, _paramOrdinals, _siblings)
+            // N# selects the owning type, the generated method identity, and the exact visibility that keeps
+            // a cross-type ldftn verifiable, and defines the synthesized method. C# only emits the recursive
+            // body and constructs the delegate over the exact method N# selected.
+            placement := ColumnarLambdaPlacementPlanner.PlanNonCapturingPlacement(
+                _programType, _currentStruct, _lambdaCounter, _isConstructorBody,
+                _typeParameters, delegateReturnType, signatureTypes, hasThisCapture)
+            if (placement == null) {return false}
+            bodyIl := placement.Method.GetILGenerator()
+            bodyOrdinals := ordinals
+            if (placement.OrdinalShift != 0) {
+                bodyOrdinals = new Dictionary<string, int>(StringComparer.Ordinal)
+                for pair in ordinals {bodyOrdinals[pair.Key] = pair.Value + placement.OrdinalShift}
+            }
+            subEmitter := new ColumnarIlEmitter(
+                _nodes,
+                _source,
+                bodyOrdinals,
+                paramTypeMap,
+                delegateReturnType,
+                bodyIl,
+                _siblings,
+                _enumRegistry,
+                _structRegistry,
+                _unionRegistry,
+                _unionCaseRegistry,
+                placement.CurrentStructForBody,
+                null,
+                false,
+                false,
+                _programType,
+                _lambdaCounter,
+                _displayClasses,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                ColumnarClosureBindingPlanner.VisibleBindingNamesSnapshot(_enclosingBindingNames, _locals, _paramOrdinals, _liftedLocals, _boxedCaptures),
+                null,
+                false,
+                _referenceAssemblyPaths,
+                _genericInterfaceConstraints,
+                placement.TypeParametersForBody,
+                _typeResolutionEnums.ForSynthesizedMethod(placement.OwnerTypeForBody),
+                _typeResolutionStructs.ForSynthesizedMethod(placement.OwnerTypeForBody),
+                _typeResolutionUnions.ForSynthesizedMethod(placement.OwnerTypeForBody)
+            )
+            if (!subEmitter.EmitLambdaBody(bodyIl, bodyNode, delegateReturnType)) {return DeclineMember("emit.body", "lambda body emission declined", bodyNode, "lambda")}
+            if (placement.Mode == ColumnarLambdaPlacementMode.InstanceThis) {
+                _il.Emit(OpCodes.Ldarg_0)
+                _il.Emit(
+                    OpCodes.Ldftn,
+                    ColumnarSemanticTypeRegistryBridge.BindMethodToDeclaringTypeGenericContext(
+                        placement.OwnerTypeForBody, placement.Method))
+            }
+            else {
+                _il.Emit(OpCodes.Ldnull)
+                _il.Emit(OpCodes.Ldftn, placement.Method)
+            }
+            _il.Emit(OpCodes.Newobj, delegateCtor)
+            return true
+        }
+
+        // CAPTURING lambda (L3a snapshot + L3b boxed): each capture is either LIFTED (its name lives in a
+        // shared StrongBox — the display class snapshots the BOX reference, so mutation is shared in both
+        // directions, the legacy emitter's box-lift model) or NEVER-WRITTEN (a by-value snapshot is then
+        // semantics-identical to the legacy emitter, which only box-lifts mutated captures). A written-but-unlifted
+        // capture declines (structural writes, unliftable types, use-before-declaration). The whole-body
+        // write scan needs the body root — null inside an EXPRESSION-bodied lambda's sub-emitter, so those
+        // nested chains decline (block-bodied sub-emitters set it via EmitBody). The capture scan reads
+        // kind-6 nodes positionally, so kinds whose children are NOT ordinary expressions (match arms,
+        // object initializers) decline the capturing branch outright.
+        if (_displayClasses == null || ColumnarClosureBindingPlanner.ContainsCaptureOpaqueKind(_nodes, bodyNode)) {return false}
+        snapshotNames := new List<string>()
+        snapshotTypes := new List<Type>()
+        boxedNames := new List<string>()
+        boxedSources := new List<(Box: LocalBuilder, ValueType: Type)>()
+        for captureName in captures {
+            let liftedSourceBox: System.Reflection.Emit.LocalBuilder? = null
+            let liftedSourceValueType: System.Type? = null
+            let liftedSource: (Box: System.Reflection.Emit.LocalBuilder, ValueType: System.Type) = (liftedSourceBox, liftedSourceValueType)
+            if (_liftedLocals.TryGetValue(captureName, out  liftedSource)) {
+                if (!ColumnarSemanticTypeRegistryBridge.IsValidSynthesizedMethodSignatureType(liftedSource.ValueType, _programType)) {return false}
+                boxedNames.Add(captureName)
+                boxedSources.Add(liftedSource)
+                continue
+            }
+            if (_bodyRoot < 0) {return false}
+            writtenCaptureNames := new SortedSet<string>(StringComparer.Ordinal)
+            writtenCaptureNames.Add(captureName)
+            if (ColumnarClosureBindingPlanner.IsAnyNameWritten(_nodes, _source, _bodyRoot, writtenCaptureNames)) {return false} // written but unlifted (structural write / unliftable / pre-declaration use).
+            let capturedLocal: System.Reflection.Emit.LocalBuilder? = null
+            if (_locals.TryGetValue(captureName, out  capturedLocal)) {
+                captureType := capturedLocal.get_LocalType()
+                if (!ColumnarTypeOfPlanner.IsSupportedType(captureType)
+                    || !ColumnarSemanticTypeRegistryBridge.IsValidSynthesizedMethodSignatureType(captureType, _programType)) {return false}
+                snapshotNames.Add(captureName)
+                snapshotTypes.Add(captureType)
+                continue
+            }
+            captureType := _paramTypes[captureName]
+            // A capture typed by (or embedding) a generic METHOD parameter would put an out-of-context
+            // MVAR into the display class's field signature — unencodable CLI metadata that saves but
+            // throws TypeLoadException at load (adversarial-review finding, probe-confirmed). Decline.
+            if (!ColumnarTypeOfPlanner.IsSupportedType(captureType)
+                || !ColumnarSemanticTypeRegistryBridge.IsValidSynthesizedMethodSignatureType(captureType, _programType)) {return false}
+            snapshotNames.Add(captureName)
+            snapshotTypes.Add(captureType)
+        }
+        programTypeAsType: Type = _programType
+        moduleObject: object? = programTypeAsType.get_Module()
+        moduleBuilder := (ModuleBuilder)moduleObject
+        lambdaCounterForDisplay := _lambdaCounter
+        displayOrdinal := lambdaCounterForDisplay[0]
+        lambdaCounterForDisplay[0] = displayOrdinal + 1
+        displayOrdinalText := displayOrdinal.ToString()
+        displayTypeName := "<>c__DisplayClass" + displayOrdinalText
+        display := moduleBuilder.DefineType(
+            displayTypeName,
+            TypeAttributes.NotPublic | TypeAttributes.Class | TypeAttributes.Sealed)
+        if (!ColumnarSemanticTypeRegistryBridge.IsValidSynthesizedMethodSignature(delegateReturnType, signatureTypes, display)) {return false}
+        displayCtor := display.DefineDefaultConstructor(MethodAttributes.Public)
+        // SNAPSHOT fields go into the synthetic def (the closure's `_currentStruct` field-chain fallback IS
+        // the snapshot-read emission); BOX fields are deliberately kept OUT of it — boxed names route
+        // through the closure's _boxedCaptures map, which dereferences `.Value` (a plain field read of the
+        // box object would be type-wrong).
+        displayFields := new Dictionary<string, FieldBuilder>(StringComparer.Ordinal)
+        for f := 0; f < snapshotNames.Count; f++ {displayFields[snapshotNames[f]] = display.DefineField(snapshotNames[f], snapshotTypes[f], FieldAttributes.Public)}
+        boxedCaptureMap := new Dictionary<string, (BoxField: FieldInfo, ValueType: Type)>(StringComparer.Ordinal)
+        boxedFields := new FieldBuilder[boxedNames.Count]
+        for b := 0; b < boxedNames.Count; b++ {
+            openBoxFieldType := typeof(System.Runtime.CompilerServices.StrongBox<int>).GetGenericTypeDefinition()
+            boxFieldTypeArguments := new Type[1]
+            boxFieldValueType: Type = boxedSources[b].Item2
+            boxFieldTypeArguments[0] = boxFieldValueType
+            boxFieldType := openBoxFieldType.MakeGenericType(boxFieldTypeArguments)
+            boxedFields[b] = display.DefineField(boxedNames[b], boxFieldType, FieldAttributes.Public)
+            boxedCaptureMapTarget := boxedCaptureMap
+            boxedCaptureName := boxedNames[b]
+            boxedCaptureField: FieldInfo = boxedFields[b]
+            boxedCaptureValueType: Type = boxedSources[b].Item2
+            let boxedCaptureValue: (BoxField: FieldInfo, ValueType: Type) = (boxedCaptureField, boxedCaptureValueType)
+            boxedCaptureMapTarget[boxedCaptureName] = boxedCaptureValue
+        }
+        displayDefBuilder := display
+        displayDefFieldOrder := snapshotNames.ToArray()
+        displayDefFields := displayFields
+        displayDefIsReference := true
+        displayDefIsRecord := false
+        displayDefIsClosureDisplay := true
+        displayAsTypeForName: Type = display
+        displayNameCandidate: string? = displayAsTypeForName.get_Name()
+        displayDeclaredTypeName := ""
+        if (displayNameCandidate != null) {displayDeclaredTypeName = displayNameCandidate}
+        displayDef := new ColumnarStructDef(
+            displayDefBuilder,
+            displayDefFieldOrder,
+            displayDefFields,
+            displayDefIsReference,
+            displayDefIsRecord,
+            displayDefIsClosureDisplay,
+            displayDeclaredTypeName
+        )
+        // The lambda becomes an INSTANCE method on the display class: arg 0 is the closure, so parameter
+        // ordinals shift +1; snapshot names fall through the sub-emitter's locals/params to the
+        // `_currentStruct` field chain, boxed names resolve through _boxedCaptures.
+        shiftedOrdinals := new Dictionary<string, int>(StringComparer.Ordinal)
+        for pair in ordinals {shiftedOrdinals[pair.Key] = pair.Value + 1}
+        closureMethod := display.DefineMethod(
+            "<Lambda>", MethodAttributes.Public | MethodAttributes.HideBySig, delegateReturnType, signatureTypes)
+        closureIl := closureMethod.GetILGenerator()
+        closureBoxedCaptures: Dictionary<string, (BoxField: FieldInfo, ValueType: Type)>? = null
+        if (boxedCaptureMap.Count > 0) {closureBoxedCaptures = boxedCaptureMap}
+        closureEmitter := new ColumnarIlEmitter(
+            _nodes,
+            _source,
+            shiftedOrdinals,
+            paramTypeMap,
+            delegateReturnType,
+            closureIl,
+            _siblings,
+            _enumRegistry,
+            _structRegistry,
+            _unionRegistry,
+            _unionCaseRegistry,
+            displayDef,
+            null,
+            false,
+            false,
+            _programType,
+            _lambdaCounter,
+            _displayClasses,
+            closureBoxedCaptures,
+            null,
+            null,
+            null,
+            null,
+            null,
+            ColumnarClosureBindingPlanner.VisibleBindingNamesSnapshot(_enclosingBindingNames, _locals, _paramOrdinals, _liftedLocals, _boxedCaptures),
+            null,
+            false,
+            _referenceAssemblyPaths,
+            _genericInterfaceConstraints,
+            null,
+            _typeResolutionEnums.ForSynthesizedMethod(display),
+            _typeResolutionStructs.ForSynthesizedMethod(display),
+            _typeResolutionUnions.ForSynthesizedMethod(display)
+        )
+        if (!closureEmitter.EmitLambdaBody(closureIl, bodyNode, delegateReturnType)) {return DeclineMember("emit.body", "capturing lambda body emission declined", bodyNode, "lambda")}
+        _displayClasses.Add(display)
+        // Use site: construct the closure; snapshot captures copy the VALUE, boxed captures copy the BOX
+        // reference; bind the delegate to the closure.
+        _il.Emit(OpCodes.Newobj, displayCtor)
+        for f := 0; f < snapshotNames.Count; f++ {
+            _il.Emit(OpCodes.Dup)
+            let sourceLocal: System.Reflection.Emit.LocalBuilder? = null
+            if (_locals.TryGetValue(snapshotNames[f], out  sourceLocal)) {_il.Emit(OpCodes.Ldloc, sourceLocal)}
+            else {ColumnarArgumentInstructionEmitter.EmitLoad(_il, _paramOrdinals[snapshotNames[f]])}
+            snapshotStoreIl := _il
+            snapshotStoreOpcode := OpCodes.Stfld
+            snapshotStoreName := snapshotNames[f]
+            snapshotStoreField: FieldInfo = displayFields[snapshotStoreName]
+            snapshotStoreIl.Emit(snapshotStoreOpcode, snapshotStoreField)
+        }
+        for b := 0; b < boxedNames.Count; b++ {
+            _il.Emit(OpCodes.Dup)
+            _il.Emit(OpCodes.Ldloc, boxedSources[b].Item1)
+            _il.Emit(OpCodes.Stfld, boxedFields[b])
+        }
+        _il.Emit(OpCodes.Ldftn, closureMethod)
+        _il.Emit(OpCodes.Newobj, delegateCtor)
+        return true
+    }
+
+    // Emit a lambda's BODY into its synthesized method: a statement BLOCK (kind 25 — `x => { ... }`)
+    // flows through EmitBody, which owns always-returns checking for value lambdas and the trailing `ret`
+    // for void ones (exactly a function body); an EXPRESSION body emits, type-checks against Invoke's
+    // return, and appends the `ret`.
+    private func EmitLambdaBody(lambdaIl: ILGenerator, bodyNode: int, returnType: Type): bool {
+        bodyNodeKind := _nodes.Kind(bodyNode)
+        if (bodyNodeKind == 25) {return EmitBody(bodyNode, returnType == ColumnarTypeOfPlanner.RequiredVoidType())}
+        let bodyType: System.Type? = null
+        if (!EmitExpression(bodyNode, out  bodyType)) {return false}
+        if (!TypesEquivalent(bodyType, returnType)
+            && !TryEmitImplicitWidening(bodyType, returnType)
+            && !ColumnarReferenceCoercionPlanner.TryEmitInterfaceUpcast(bodyType, returnType, _structRegistry, _il)
+            && !ColumnarReferenceConversionFacts.TryEmitReferenceConversion(bodyType, returnType)
+            && !ColumnarReferenceCoercionPlanner.TryEmitObjectConversion(bodyType, returnType, _structRegistry, _il)
+            && !TryEmitAnonymousUnionConversion(bodyType, returnType)
+            && !TryEmitUserDefinedConversion(bodyType, returnType,  false)) {return false}
+        lambdaIl.Emit(OpCodes.Ret)
+        return true
+    }
+
+
+    // Emit a ZERO-PARAM expression-bodied lambda with a BODY-INFERRED return type (`zero := () => 99` —
+    // L1c): no expected delegate type exists at a `:=` declaration, but a zero-param lambda has no
+    // inference gap — the synthesized method is defined signature-LESS, its body emits first (yielding the
+    // return type), and SetReturnType/SetParameters run AFTER (spike-proven on PersistedAssemblyBuilder).
+    // A void body yields Action; otherwise Func<bodyType> — which must be a modeled delegate (a
+    // builder-typed body would produce a builder-arg delegate; IsSupportedDelegateType refuses it).
+    // Param-ful `:=` lambdas have no inference source and are pipeline-rejected (NL203) — decline.
+    private func TryEmitInferredZeroParamLambda(lambdaIdx: int, out delegateType: Type): bool {
+        delegateType = null
+        if (_programType == null || _lambdaCounter == null || _nodes.ChildCount(lambdaIdx) != 1) {return false}
+        lambdaCounterForMethod := _lambdaCounter
+        lambdaMethodOrdinal := lambdaCounterForMethod[0]
+        lambdaCounterForMethod[0] = lambdaMethodOrdinal + 1
+        lambdaMethodOrdinalText := lambdaMethodOrdinal.ToString()
+        lambdaMethodName := "<Lambda>_" + lambdaMethodOrdinalText
+        lambdaMethod := _programType.DefineMethod(
+            lambdaMethodName, MethodAttributes.Assembly | MethodAttributes.Static)
+        lambdaIl := lambdaMethod.GetILGenerator()
+        subEmitter := new ColumnarIlEmitter(
+            _nodes,
+            _source,
+            new Dictionary<string, int>(StringComparer.Ordinal),
+            new Dictionary<string, Type>(StringComparer.Ordinal),
+            ColumnarTypeOfPlanner.RequiredVoidType(),
+            lambdaIl,
+            _siblings,
+            _enumRegistry,
+            _structRegistry,
+            _unionRegistry,
+            _unionCaseRegistry,
+            null,
+            null,
+            false,
+            false,
+            _programType,
+            _lambdaCounter,
+            _displayClasses,
+            null,
+            null,
+            null,
+            null,
+            null,
+            null,
+            ColumnarClosureBindingPlanner.VisibleBindingNamesSnapshot(_enclosingBindingNames, _locals, _paramOrdinals, _liftedLocals, _boxedCaptures),
+            null,
+            false,
+            _referenceAssemblyPaths,
+            _genericInterfaceConstraints,
+            null,
+            _typeResolutionEnums.ForSynthesizedMethod(_programType),
+            _typeResolutionStructs.ForSynthesizedMethod(_programType),
+            _typeResolutionUnions.ForSynthesizedMethod(_programType)
+        )
+        let bodyType: System.Type? = null
+        if (!subEmitter.EmitExpression(Child(lambdaIdx, 0), out  bodyType)) {return DeclineMember("emit.body", "inferred zero-parameter lambda body emission declined", Child(lambdaIdx, 0), "lambda")}
+        if (!ColumnarSemanticTypeRegistryBridge.IsValidSynthesizedMethodSignatureType(bodyType, _programType)) {return false}
+        lambdaIl.Emit(OpCodes.Ret)
+        delegateType = bodyType == ColumnarTypeOfPlanner.RequiredVoidType() ? typeof(Action) : typeof(Func<int>).GetGenericTypeDefinition().MakeGenericType([bodyType])
+        if (!ColumnarTypeOfPlanner.IsSupportedDelegateType(delegateType)) {return false}
+        lambdaMethod.SetReturnType(bodyType)
+        lambdaMethodForParameters := lambdaMethod
+        emptyLambdaParameterTypes: Type[] = Type.EmptyTypes
+        lambdaMethodForParameters.SetParameters(emptyLambdaParameterTypes)
+        delegateCtor := delegateType.GetConstructor([typeof(object), typeof(IntPtr)])
+        if (delegateCtor == null) {return false}
+        _il.Emit(OpCodes.Ldnull)
+        _il.Emit(OpCodes.Ldftn, lambdaMethod)
+        _il.Emit(OpCodes.Newobj, delegateCtor)
+        return true
+    }
+
+    // Invoke a DELEGATE-typed local or parameter (`t(v)` where `t: Func<int,int>` — L1a): load the delegate
+    // value, emit each argument exactly typed against Invoke's parameters, `callvirt Invoke`. Fires ONLY when
+    // no method tier carries the name (the pipeline's pinned method-beats-local order — the caller checks);
+    // a non-delegate-typed value declines. Invoke resolves by plain GetMethod — sound because
+    // IsSupportedDelegateType admits closed Func/Action over BAKED runtime types only (the legacy emitter's
+    // TryGetDelegateInvokeMethod does the same for runtime delegate types).
+    private func TryEmitDelegateInvoke(callIdx: int, name: string, out columnarResolvedType: Type): bool {
+        columnarResolvedType = null
+        let delegateType: System.Type = null
+        // L3b: a lifted (or boxed-captured) delegate's CURRENT value lives in the StrongBox — loading the
+        // plain slot would invoke a STALE delegate (adversarial-review finding, both pipelines accept but
+        // values diverge). Checked before every other tier.
+        let boxedDelegateBoxField: System.Reflection.FieldInfo? = null
+        let boxedDelegateValueType: System.Type? = null
+        let boxedDelegate: (BoxField: System.Reflection.FieldInfo, ValueType: System.Type) = (boxedDelegateBoxField, boxedDelegateValueType)
+        if (_boxedCaptures != null && _boxedCaptures.TryGetValue(name, out  boxedDelegate)) {
+            if (!ColumnarTypeOfPlanner.IsSupportedDelegateType(boxedDelegate.ValueType)) {return false}
+            delegateType = boxedDelegate.ValueType
+            _il.Emit(OpCodes.Ldarg_0)
+            _il.Emit(OpCodes.Ldfld, boxedDelegate.BoxField)
+            _il.Emit(OpCodes.Ldfld, ColumnarClosureBindingPlanner.StrongBoxValueField(boxedDelegate.ValueType))
+        }
+        else {let liftedDelegateBox: System.Reflection.Emit.LocalBuilder? = null
+            let liftedDelegateValueType: System.Type? = null
+            let liftedDelegate: (Box: System.Reflection.Emit.LocalBuilder, ValueType: System.Type) = (liftedDelegateBox, liftedDelegateValueType)
+        if (_liftedLocals.TryGetValue(name, out  liftedDelegate)) {
+            if (!ColumnarTypeOfPlanner.IsSupportedDelegateType(liftedDelegate.ValueType)) {return false}
+            delegateType = liftedDelegate.ValueType
+            _il.Emit(OpCodes.Ldloc, liftedDelegate.Box)
+            _il.Emit(OpCodes.Ldfld, ColumnarClosureBindingPlanner.StrongBoxValueField(liftedDelegate.ValueType))
+        }
+        else {let local: System.Reflection.Emit.LocalBuilder? = null
+        if (_locals.TryGetValue(name, out  local)) {
+            if (!ColumnarTypeOfPlanner.IsSupportedDelegateType(local.get_LocalType())) {return false}
+            delegateType = local.get_LocalType()
+            _il.Emit(OpCodes.Ldloc, local)
+        }
+        else {let ordinal: int = 0
+        if (_paramOrdinals.TryGetValue(name, out  ordinal)) {
+            paramType := _paramTypes[name]
+            if (!ColumnarTypeOfPlanner.IsSupportedDelegateType(paramType)) {return false}
+            delegateType = paramType
+            ColumnarArgumentInstructionEmitter.EmitLoad(_il, ordinal)
+        }
+        else {
+            return false
+        }}}}
+        invoke := delegateType.GetMethod("Invoke")
+        if (invoke == null) {return false}
+        invokeParams := invoke.GetParameters()
+        argCount := _nodes.ChildCount(callIdx) - 1
+        if (argCount != invokeParams.Length) {return false}
+        for a := 1; a <= argCount; a++ {
+            let argType: System.Type? = null
+            if (!EmitExpression(Child(callIdx, a), out  argType)) {return false}
+            invokeParameter := invokeParams[a - 1]
+            invokeParameterType := invokeParameter.get_ParameterType()
+            if (argType != invokeParameterType) {return false}
+        }
+        _il.Emit(OpCodes.Callvirt, invoke)
+        columnarResolvedType = invoke.get_ReturnType()
+        return true
+    }
+
+    // Emit a call to a GENERIC top-level sibling: emit the args while unifying the declared parameter shapes
+    // (T / T[] / concrete) against the emitted argument types — `binding` starts EMPTY for an inferred call
+    // (Identity(42)) or PRE-SEEDED for explicit type arguments (Identity<int>(42); the unify loop then verifies
+    // each argument against the seeded binding instead of binding it). Conflicting bindings (Same(1, "x")),
+    // unbound parameters, composed shapes over T, and user TypeBuilder/EnumBuilder bindings decline. The call
+    // binds via MakeGenericMethod on the open MethodBuilder (the de-risking spike's pattern); the result type
+    // substitutes the binding into the declared return shape.
+    private func TryEmitGenericSiblingCall(callIdx: int, target: ColumnarSiblingMethodDefinition, binding: Type[], out columnarResolvedType: Type): bool {
+        columnarResolvedType = null
+        argCount := _nodes.ChildCount(callIdx) - 1
+        if (ShouldUseExpandedParamsArrayCall(callIdx, target.ParamTypes, target.ParamModifierKinds)
+            && TryEmitGenericSiblingExpandedParamsArrayCall(callIdx, target, binding, out columnarResolvedType)) {return true}
+        if (argCount != target.ParamTypes.Length) {return false}
+        for a := 1; a <= argCount; a++ {
+            let gArgType: System.Type? = null
+            if (!EmitExpression(Child(callIdx, a), out  gArgType)) {return false}
+            declared := target.ParamTypes[a - 1]
+            if (!ColumnarGenericCallBindingPlanner.TryUnifyGenericCallArgument(target.TypeParams, binding, declared, gArgType)) {return false}
+        }
+        boundArgs := new Type[binding.Length]
+        for b := 0; b < binding.Length; b++ {
+            if (binding[b] == null) {return false} // an unbound type parameter (no argument mentions it, no explicit arg) declines.
+            boundArgs[b] = binding[b]
+        }
+        if (!ColumnarGenericConstraintPlanner.TryValidateGenericSiblingConstraints(
+                target.TypeParams,
+                target.SpecialConstraints,
+                target.BaseConstraints,
+                target.InterfaceConstraints,
+                binding,
+                boundArgs,
+                _structRegistry)) {return false}
+        genericMethodValue := target.Method
+        let genericMethodBuilder: MethodBuilder? = null
+        if (genericMethodValue != null) {
+            genericMethodBuilder = genericMethodValue as MethodBuilder
+            if (genericMethodBuilder == null) {throw new InvalidCastException()}
+        }
+        genericMethodArguments := boundArgs
+        if (genericMethodBuilder == null) {throw new NullReferenceException()}
+        genericMethod: MethodInfo = genericMethodBuilder
+        instantiated := genericMethod.MakeGenericMethod(genericMethodArguments)
+        _il.Emit(OpCodes.Call, instantiated)
+        return ColumnarGenericCallBindingPlanner.TrySubstituteReturnType(target.TypeParams, binding, target.ReturnType, out columnarResolvedType)
+    }
+
+    private func ShouldUseExpandedParamsArrayCall(callIdx: int, paramTypes: Type[], paramModifierKinds: int[]): bool {
+        if (!HasTrailingParamsArray(paramTypes, paramModifierKinds)) {return false}
+        argCount := _nodes.ChildCount(callIdx) - 1
+        fixedCount := paramTypes.Length - 1
+        if (argCount < fixedCount) {return false}
+        if (argCount != paramTypes.Length) {return true}
+        let lastArgType: System.Type? = null
+        return !TryGetPreflightExpressionType(Child(callIdx, argCount), out  lastArgType)
+               || !IsSzArrayType(lastArgType)
+    }
+
+    private func ShouldUseExpandedParamsCall(callIdx: int, paramTypes: Type[], paramModifierKinds: int[]): bool {
+        if (!HasTrailingParamsParameter(paramTypes, paramModifierKinds)) {return false}
+        argCount := _nodes.ChildCount(callIdx) - 1
+        fixedCount := paramTypes.Length - 1
+        if (argCount < fixedCount) {return false}
+        if (argCount != paramTypes.Length) {return true}
+        return !CanDeclaredCallArgumentMatch(Child(callIdx, argCount), paramTypes[^1],  true)
+    }
+
+    private static func HasTrailingParamsParameter(paramTypes: Type[], paramModifierKinds: int[]): bool => paramTypes.Length > 0
+           && paramModifierKinds.Length >= paramTypes.Length
+           && paramModifierKinds[paramTypes.Length - 1] == 3
+
+    private static func HasTrailingParamsArray(paramTypes: Type[], paramModifierKinds: int[]): bool => paramTypes.Length > 0
+           && paramModifierKinds.Length >= paramTypes.Length
+           && paramModifierKinds[paramTypes.Length - 1] == 3
+           && IsSzArrayType(paramTypes[paramTypes.Length - 1])
+
+    private func TryEmitGenericSiblingExpandedParamsArrayCall(callIdx: int, target: ColumnarSiblingMethodDefinition, binding: Type[], out columnarResolvedType: Type): bool {
+        columnarResolvedType = null
+        if (!HasTrailingParamsArray(target.ParamTypes, target.ParamModifierKinds)) {return false}
+        argCount := _nodes.ChildCount(callIdx) - 1
+        fixedCount := target.ParamTypes.Length - 1
+        if (argCount < fixedCount) {return false}
+        paramsElementDeclared := target.ParamTypes[^1].GetElementType()
+        for a := 1; a <= fixedCount; a++ {
+            if (!CanGenericCallArgumentMatch(target.TypeParams, binding, target.ParamTypes[a - 1], Child(callIdx, a),  true)) {return false}
+        }
+        for a := fixedCount + 1; a <= argCount; a++ {
+            if (!CanGenericCallArgumentMatch(target.TypeParams, binding, paramsElementDeclared, Child(callIdx, a),  true)) {return false}
+        }
+        boundArgs := new Type[binding.Length]
+        for b := 0; b < binding.Length; b++ {
+            if (binding[b] == null) {return false}
+            boundArgs[b] = binding[b]
+        }
+        if (!ColumnarGenericConstraintPlanner.TryValidateGenericSiblingConstraints(
+                target.TypeParams,
+                target.SpecialConstraints,
+                target.BaseConstraints,
+                target.InterfaceConstraints,
+                binding,
+                boundArgs,
+                _structRegistry)) {return false}
+        for p := 0; p < fixedCount; p++ {
+            let fixedParamType: System.Type? = null
+            if (!ColumnarGenericConstraintPlanner.TrySubstituteGenericTypeArguments(target.TypeParams, binding, target.ParamTypes[p], out  fixedParamType)
+                || !EmitDeclaredCallArgument(Child(callIdx, p + 1), fixedParamType,  true)) {return false}
+        }
+        let paramsElementType: System.Type? = null
+        if (!ColumnarGenericConstraintPlanner.TrySubstituteGenericTypeArguments(target.TypeParams, binding, paramsElementDeclared, out  paramsElementType)
+            || !ColumnarTypeOfPlanner.IsSupportedElementType(paramsElementType)) {return false}
+        expandedCount := argCount - fixedCount
+        _il.Emit(OpCodes.Ldc_I4, expandedCount)
+        _il.Emit(OpCodes.Newarr, paramsElementType)
+        for i := 0; i < expandedCount; i++ {
+            _il.Emit(OpCodes.Dup)
+            _il.Emit(OpCodes.Ldc_I4, i)
+            let columnarDiscard4: System.Type = null
+            if (!TryEmitAssignableValue(Child(callIdx, fixedCount + 1 + i), paramsElementType, out columnarDiscard4)
+                || !EmitArrayElementStore(paramsElementType)) {return false}
+        }
+        genericMethodValue := target.Method
+        let genericMethodBuilder: MethodBuilder? = null
+        if (genericMethodValue != null) {
+            genericMethodBuilder = genericMethodValue as MethodBuilder
+            if (genericMethodBuilder == null) {throw new InvalidCastException()}
+        }
+        genericMethodArguments := boundArgs
+        if (genericMethodBuilder == null) {throw new NullReferenceException()}
+        genericMethod: MethodInfo = genericMethodBuilder
+        instantiated := genericMethod.MakeGenericMethod(genericMethodArguments)
+        _il.Emit(OpCodes.Call, instantiated)
+        return ColumnarGenericCallBindingPlanner.TrySubstituteReturnType(target.TypeParams, binding, target.ReturnType, out columnarResolvedType)
+    }
+
+    private func TryEmitSiblingExpandedParamsCall(callIdx: int, target: ColumnarSiblingMethodDefinition, out columnarResolvedType: Type): bool {
+        columnarResolvedType = null
+        if (!TryEmitExpandedParamsCallArguments(callIdx, target.ParamTypes, target.ParamModifierKinds,  true)) {return false}
+        _il.Emit(OpCodes.Call, target.Method)
+        columnarResolvedType = target.ReturnType
+        return true
+    }
+
+    private func TryEmitStaticExpandedParamsCall(callIdx: int, target: ColumnarStaticMethodDef, out columnarResolvedType: Type): bool {
+        columnarResolvedType = null
+        if (!TryEmitExpandedParamsCallArguments(callIdx, target.ParamTypes, target.ParamModifierKinds,  true)) {return false}
+        _il.Emit(OpCodes.Call, target.Builder)
+        columnarResolvedType = target.ReturnType
+        return true
+    }
+
+    private func TryEmitExpandedParamsCallArguments(callIdx: int, paramTypes: Type[], paramModifierKinds: int[], allowLambdaLiteral: bool): bool {
+        if (!HasTrailingParamsParameter(paramTypes, paramModifierKinds)) {return false}
+        argCount := _nodes.ChildCount(callIdx) - 1
+        fixedCount := paramTypes.Length - 1
+        let paramsElementType: System.Type? = null
+        if (argCount < fixedCount
+            || !TryGetExpandedParamsElementType(paramTypes[^1], out  paramsElementType)) {return false}
+        for a := 1; a <= fixedCount; a++ {
+            if (!CanDeclaredCallArgumentMatch(Child(callIdx, a), paramTypes[a - 1], allowLambdaLiteral)) {return false}
+        }
+        for a := fixedCount + 1; a <= argCount; a++ {
+            if (!CanEmitAssignableValueAsType(Child(callIdx, a), paramsElementType)) {return false}
+        }
+        for p := 0; p < fixedCount; p++ {
+            if (!EmitDeclaredCallArgument(Child(callIdx, p + 1), paramTypes[p], allowLambdaLiteral)) {return false}
+        }
+        return TryEmitExpandedParamsValue(callIdx, fixedCount, argCount, paramTypes[^1], paramsElementType)
+    }
+
+    private static func TryGetExpandedParamsElementType(paramsType: Type, out elementType: Type): bool {
+        elementType = null
+        if (IsSzArrayType(paramsType)) {
+            arrayElementType := TryGetElementType(paramsType)
+            if (arrayElementType == null) {return false}
+            elementType = arrayElementType
+            return ColumnarTypeOfPlanner.IsSupportedElementType(elementType)
+        }
+        if (ColumnarTypeOfPlanner.IsSupportedSpanLikeType(paramsType)) {
+            elementType = paramsType.GetGenericArguments()[0]
+            return ColumnarTypeOfPlanner.IsSupportedReadOnlySpanElement(elementType)
+        }
+        if (!ColumnarTypeOfPlanner.IsSupportedCollectionType(paramsType)) {return false}
+        def := paramsType.GetGenericTypeDefinition()
+        if (def != typeof(List<int>).GetGenericTypeDefinition()
+            && def != typeof(IReadOnlyList<int>).GetGenericTypeDefinition()
+            && def != typeof(IReadOnlyCollection<int>).GetGenericTypeDefinition()
+            && def != typeof(IEnumerable<int>).GetGenericTypeDefinition()) {return false}
+        elementType = paramsType.GetGenericArguments()[0]
+        return ColumnarTypeOfPlanner.IsAdmissibleCollectionElement(elementType)
+    }
+
+    private func TryEmitExpandedParamsValue(callIdx: int, fixedCount: int, argCount: int, paramsType: Type, paramsElementType: Type): bool {
+        if (IsSzArrayType(paramsType)) {return TryEmitExpandedParamsArrayValue(callIdx, fixedCount, argCount, paramsElementType)}
+        if (ColumnarTypeOfPlanner.IsSupportedSpanLikeType(paramsType)) {
+            if (!TryEmitExpandedParamsArrayValue(callIdx, fixedCount, argCount, paramsElementType)) {return false}
+            arrayType := paramsElementType.MakeArrayType()
+            ctor := paramsType.GetConstructor([arrayType])
+            if (ctor == null) {return false}
+            _il.Emit(OpCodes.Newobj, ctor)
+            return true
+        }
+        if (!ColumnarTypeOfPlanner.IsSupportedCollectionType(paramsType)) {return false}
+        def := paramsType.GetGenericTypeDefinition()
+        if (def != typeof(List<int>).GetGenericTypeDefinition()
+            && def != typeof(IReadOnlyList<int>).GetGenericTypeDefinition()
+            && def != typeof(IReadOnlyCollection<int>).GetGenericTypeDefinition()
+            && def != typeof(IEnumerable<int>).GetGenericTypeDefinition()) {return false}
+        listType := typeof(List<int>).GetGenericTypeDefinition().MakeGenericType([paramsElementType])
+        openCtor := typeof(List<int>).GetGenericTypeDefinition().GetConstructor(Type.EmptyTypes)
+        openAdd := typeof(List<int>).GetGenericTypeDefinition().GetMethod("Add")
+        if (openCtor == null || openAdd == null) {return false}
+        ctorInfo := ResolveClosedGenericCtor(listType, openCtor)
+        addMethod := ResolveClosedGenericMethod(listType, openAdd)
+        _il.Emit(OpCodes.Newobj, ctorInfo)
+        expandedCount := argCount - fixedCount
+        for i := 0; i < expandedCount; i++ {
+            _il.Emit(OpCodes.Dup)
+            let columnarDiscard5: System.Type = null
+            if (!TryEmitAssignableValue(Child(callIdx, fixedCount + 1 + i), paramsElementType, out columnarDiscard5)) {return false}
+            _il.Emit(OpCodes.Callvirt, addMethod)
+        }
+        return true
+    }
+
+    private func TryEmitExpandedParamsArrayValue(callIdx: int, fixedCount: int, argCount: int, paramsElementType: Type): bool {
+        if (!ColumnarTypeOfPlanner.IsSupportedElementType(paramsElementType)) {return false}
+        expandedCount := argCount - fixedCount
+        _il.Emit(OpCodes.Ldc_I4, expandedCount)
+        _il.Emit(OpCodes.Newarr, paramsElementType)
+        for i := 0; i < expandedCount; i++ {
+            _il.Emit(OpCodes.Dup)
+            _il.Emit(OpCodes.Ldc_I4, i)
+            let columnarDiscard6: System.Type = null
+            if (!TryEmitAssignableValue(Child(callIdx, fixedCount + 1 + i), paramsElementType, out columnarDiscard6)
+                || !EmitArrayElementStore(paramsElementType)) {return false}
+        }
+        return true
+    }
+
+    private func CanGenericCallArgumentMatch(typeParams: Type[], binding: Type[], declared: Type, argNode: int, allowLambdaLiteral: bool): bool {
+        let expected: System.Type? = null
+        if (ColumnarGenericConstraintPlanner.TrySubstituteGenericTypeArguments(typeParams, binding, declared, out  expected)
+            && CanDeclaredCallArgumentMatch(argNode, expected, allowLambdaLiteral)) {return true}
+
+        let argType: System.Type? = null
+        return TryGetPreflightExpressionType(argNode, out  argType)
+               && ColumnarGenericCallBindingPlanner.TryUnifyGenericCallArgument(typeParams, binding, declared, argType)
+    }
+
+    // Emit a bare (implicit-`this`) INSTANCE method call: `ldarg.0; <args>; call/callvirt`. Used by tiers 1 and 4
+    // of the bare-call resolution (own-declared and inherited instance methods). Declines on an arity or arg-type
+    // mismatch. A reference `this` calls via callvirt (matching the external-receiver path); a value-type `this`
+    // is a managed pointer -> `call`.
+    private func EmitImplicitThisCall(callIdx: int, method: ColumnarInstanceMethodDef, out columnarResolvedType: Type): bool {
+        columnarResolvedType = null
+        argCount := _nodes.ChildCount(callIdx) - 1
+        if (argCount != method.ParamTypes.Length) {return false}
+        _il.Emit(OpCodes.Ldarg_0)
+        for a := 1; a <= argCount; a++ {
+            if (!EmitDeclaredCallArgument(Child(callIdx, a), method.ParamTypes[a - 1],  true)) {return false}
+        }
+        implicitCallIl := _il
+        implicitCallOpcode := match _currentStruct.IsReference {
+            true => OpCodes.Callvirt,
+            _ => OpCodes.Call
+        }
+        implicitCallMethod := method.Builder
+        implicitCallIl.Emit(implicitCallOpcode, implicitCallMethod)
+        columnarResolvedType = method.ReturnType
+        return true
+    }
+
+
+    // Resolve a STATIC method call on `def`'s chain by name + ARG COUNT, nearest declaration first. A type whose
+    // overload set carries the name but has
+    // no matching arity does NOT stop the walk — a base overload of the right arity still binds. (Same-arity
+    // overload sets were declined in PASS 0b, so an arity match is unique per type.) The arg TYPES are checked at
+    // the emit site (a mismatch declines because implicit conversions are not modelled here).
+    private static func TryFindStaticMethodOnChain(def: ColumnarStructDef, name: string, argCount: int, out method: ColumnarStaticMethodDef): bool {
+        for d := def; d != null; d = d.BaseDef {
+            let overloads: System.Collections.Generic.List<NSharpLang.Compiler.Columnar.ColumnarStaticMethodDef>? = null
+            if (!d.StaticMethods.TryGetValue(name, out  overloads)) {continue}
+            for candidate in overloads {
+                if (candidate.ParamTypes.Length == argCount) {
+                    method = candidate
+                    return true
+                }
+            }
+        }
+        method = null
+        return false
+    }
+
+    private func TryFindStaticExpandedParamsMethodOnChain(def: ColumnarStructDef, name: string, callIdx: int, out method: ColumnarStaticMethodDef): bool {
+        for d := def; d != null; d = d.BaseDef {
+            let overloads: System.Collections.Generic.List<NSharpLang.Compiler.Columnar.ColumnarStaticMethodDef>? = null
+            if (!d.StaticMethods.TryGetValue(name, out  overloads)) {continue}
+            selected := false
+            method = null
+            for candidate in overloads {
+                if (!ShouldUseExpandedParamsCall(callIdx, candidate.ParamTypes, candidate.ParamModifierKinds)) {continue}
+                if (selected) {
+                    method = null
+                    return false
+                }
+                method = candidate
+                selected = true
+            }
+            if (selected) {return true}
+        }
+        method = null
+        return false
+    }
+
+    private func TryEmitUserDefinedConversion(source: Type, target: Type, allowExplicit: bool): bool {
+        let implicitConversion: NSharpLang.Compiler.Columnar.ColumnarStaticMethodDef? = null
+        if (TryFindUserDefinedConversion(source, target, "op_Implicit", out  implicitConversion)
+            || (allowExplicit && TryFindUserDefinedConversion(source, target, "op_Explicit", out implicitConversion))) {
+            _il.Emit(OpCodes.Call, implicitConversion.Builder)
+            return true
+        }
+
+        return false
+    }
+
+    private func TryEmitResultFactoryCall(callIdx: int, name: string, out columnarResolvedType: Type): bool {
+        columnarResolvedType = null
+        if (name != "Ok" && name != "Err") {return false}
+        resultReturnTypeForGenericCheck := _returnType
+        if (!resultReturnTypeForGenericCheck.get_IsGenericType()) {return false}
+        resultReturnTypeForDefinition := _returnType
+        resultReturnDefinition := resultReturnTypeForDefinition.GetGenericTypeDefinition()
+        openResultReturnType := typeof(NSharpLang.Runtime.Result<int, int>)
+        openResultReturnDefinition := openResultReturnType.GetGenericTypeDefinition()
+        if (resultReturnDefinition != openResultReturnDefinition) {return false}
+        if (_nodes.ChildCount(callIdx) != 2 || !ColumnarTypeOfPlanner.IsSupportedResultType(_returnType)) {return false}
+
+        resultArgs := _returnType.GetGenericArguments()
+        expectedPayloadType := name == "Ok" ? resultArgs[0] : resultArgs[1]
+        if (!EmitDeclaredCallArgument(Child(callIdx, 1), expectedPayloadType,  true)) {return false}
+
+        openMethod := typeof(NSharpLang.Runtime.Result<int, int>).GetGenericTypeDefinition().GetMethod(name, BindingFlags.Public | BindingFlags.Static)
+        if (openMethod == null) {return false}
+        _il.Emit(OpCodes.Call, ResolveClosedGenericMethod(_returnType, openMethod))
+        columnarResolvedType = _returnType
+        return true
+    }
+
+    private func TryFindUserDefinedConversion(source: Type, target: Type, methodName: string, out method: ColumnarStaticMethodDef): bool {
+        sourceDef := FindDefByType(source)
+        if (sourceDef != null
+            && TryFindUserDefinedConversionOnType(sourceDef, source, target, methodName, out method)) {
+            return true
+        }
+
+        targetDef := FindDefByType(target)
+        if (targetDef != null
+            && !Object.ReferenceEquals(targetDef, FindDefByType(source))
+            && TryFindUserDefinedConversionOnType(targetDef, source, target, methodName, out method)) {
+            return true
+        }
+
+        method = null
+        return false
+    }
+
+    private static func TryFindUserDefinedConversionOnType(def: ColumnarStructDef, source: Type, target: Type, methodName: string, out method: ColumnarStaticMethodDef): bool {
+        for d := def; d != null; d = d.BaseDef {
+            let overloads: System.Collections.Generic.List<NSharpLang.Compiler.Columnar.ColumnarStaticMethodDef>? = null
+            if (!d.StaticMethods.TryGetValue(methodName, out  overloads)) {continue}
+            for candidate in overloads {
+                if (candidate.ParamTypes.Length == 1
+                    && TypesEquivalent(candidate.ParamTypes[0], source)
+                    && TypesEquivalent(candidate.ReturnType, target)) {
+                    method = candidate
+                    return true
+                }
+            }
+        }
+
+        method = null
+        return false
+    }
+
+    // Preserve the established host signature while N# owns the complete synchronous declaration and
+    // body-realization sequence. Ambient decline tracing remains at this existing caller boundary.
+    private static func TryEmitIteratorStateMachine(module: ModuleBuilder, fn: ColumnarFunctionInput, funcOrdinal: int, functionSource: string, typeResolution: ColumnarSemanticTypeResolution, factoryIl: ILGenerator, synthesizedTypes: List<TypeBuilder>, methodTypeParams: Type[], precomputedShape: ColumnarIteratorShape? = null, memberLabel: string = "", enclosingType: Type? = null, enclosingFieldNames: string[]? = null, enclosingFields: FieldInfo[]? = null, enclosingFieldCanonicals: string[]? = null, enclosingMethodNames: string[]? = null, enclosingMethods: MethodInfo[]? = null): bool {
+        result := ColumnarIteratorRealization.EmitSync(
+            module, fn, funcOrdinal, functionSource, typeResolution, factoryIl, synthesizedTypes,
+            methodTypeParams, precomputedShape, memberLabel, enclosingType, enclosingFieldNames,
+            enclosingFields, enclosingFieldCanonicals, enclosingMethodNames, enclosingMethods)
+        if (result.Succeeded) {return true}
+        return DeclineStatic(result.DeclineSite, result.DeclineMessage, result.DeclineMember, -1, 0)
+    }
+
+    // Preserve the established host signature while N# owns the complete asynchronous realization.
+    private static func TryEmitAsyncIteratorStateMachine(module: ModuleBuilder, fn: ColumnarFunctionInput, funcOrdinal: int, functionSource: string, typeResolution: ColumnarSemanticTypeResolution, factoryIl: ILGenerator, synthesizedTypes: List<TypeBuilder>): bool {
+        result := ColumnarIteratorRealization.EmitAsync(
+            module, fn, funcOrdinal, functionSource, typeResolution, factoryIl, synthesizedTypes)
+        if (result.Succeeded) {return true}
+        return DeclineStatic(result.DeclineSite, result.DeclineMessage, result.DeclineMember, -1, 0)
+    }
+
+    // A type-member generator: a STATIC method rides the top-level host directly; an INSTANCE method
+    // supplies the enclosing type's public member facts (exact canonicals from the struct INPUT, handles
+    // from the def) so the planner hoists `<>__this` and resolves member reads / member-call sources.
+    private static func TryEmitMemberIterator(module: ModuleBuilder, structDef: ColumnarStructDef, method: ColumnarFunctionInput, builder: MethodBuilder, isStatic: bool, program: ColumnarProgramInput, typeResolution: ColumnarSemanticTypeResolution, methodSource: string, synthesizedTypes: List<TypeBuilder>, ordinalCounter: int[]): bool {
+        result := ColumnarIteratorRealization.EmitMember(
+            module, structDef, method, builder, isStatic, program, typeResolution,
+            methodSource, synthesizedTypes, ordinalCounter)
+        if (result.Succeeded) {return true}
+        return DeclineStatic(result.DeclineSite, result.DeclineMessage, result.DeclineMember, -1, 0)
+    }
+
+    private static func EmitInlineInstanceInitializers(constructorIl: ILGenerator, def: ColumnarStructDef, program: ColumnarProgramInput, typeResolutionCatalog: ColumnarSemanticTypeResolutionCatalog, siblings: IReadOnlyDictionary<string, ColumnarSiblingMethodDefinition>, enumRegistry: Dictionary<string, ColumnarEnumDef>, structRegistry: Dictionary<string, ColumnarStructDef>, unionRegistry: Dictionary<string, ColumnarUnionDef>, unionCaseRegistry: Dictionary<string, ColumnarUnionCaseDef>, columnarResolvedType: TypeBuilder, lambdaCounter: int[], displayClasses: List<TypeBuilder>, referenceAssemblyPaths: IReadOnlyList<string>?): bool {
+        inlinePlan := def.InstanceInitializerPlan
+        if (inlinePlan == null || inlinePlan.InlineOrdinals.Length == 0) {return true}
+        initCtor := def.InstanceInitializerCtor
+        initSource := program.GetSourceForFileId(initCtor.Body.SourceFileId)
+        initTypeResolution := typeResolutionCatalog.For(
+            initCtor.Body.SourceFileId,
+            def.GenericParameters,
+            def.DeclaredTypeName)
+        inlineEmitter := new ColumnarIlEmitter(
+            initCtor.Body.BodyNodes,
+            initSource,
+            new Dictionary<string, int>(StringComparer.Ordinal),
+            new Dictionary<string, Type>(StringComparer.Ordinal),
+            ColumnarTypeOfPlanner.RequiredVoidType(),
+            constructorIl,
+            siblings,
+            enumRegistry,
+            structRegistry,
+            unionRegistry,
+            unionCaseRegistry,
+            def,
+            null,
+            false,
+            true,
+            columnarResolvedType,
+            lambdaCounter,
+            displayClasses,
+            null,
+            null,
+            null,
+            null,
+            null,
+            null,
+            null,
+            null,
+            false,
+            referenceAssemblyPaths,
+            null,
+            def.GenericParameters,
+            initTypeResolution.Enums,
+            initTypeResolution.Structs,
+            initTypeResolution.Unions
+        )
+        ColumnarDeclineTrace.SetSourceFileId(initCtor.Body.SourceFileId)
+        inlineResult := false
+        try {
+            inlineResult = inlineEmitter.EmitSelectedInitializerStatements(initCtor.Body.BodyRoot, inlinePlan.InlineOrdinals)
+        }
+        finally {
+            ColumnarDeclineTrace.ClearSourceFileId()
+        }
+        return inlineResult
+    }
+
+    /// <summary>
+    /// Build a single assembly from one parsed columnar program bundle.
+    /// </summary>
+    public static func TryEmitColumnarAssembly(assemblyName: string, typeName: string, program: ColumnarProgramInput, isExecutable: bool, out assembly: byte[], assemblyVersion: Version? = null, referenceAssemblyPaths: IReadOnlyList<string>? = null): bool {
+        assembly = Array.Empty<byte>()
+        funcs := program.Functions
+        enums := program.Enums
+        structs := program.Structs
+        unions := program.Unions
+        interfaces := program.Interfaces
+        if (funcs.Count == 0 && enums.Count == 0 && structs.Count == 0 && unions.Count == 0 && interfaces.Count == 0) {
+            testsForEmptyProgram := program.Tests
+            if (testsForEmptyProgram == null || testsForEmptyProgram.Count <= 0) {return DeclineStatic("emit.program.empty", "columnar program has no modeled declarations", "", -1, 0)}
+        }
+
+        // 023/2 S2.1(a): assembly, module and enums are ROWS (ColumnarDeclarationPlan) and this walk executes
+        // them; the resolved exact name and the composed TypeAttributes word moved to ColumnarDeclarationPlanner,
+        // since a second executor would otherwise recompute them. Row ORDER now carries what position used to.
+        declarationPlan := ColumnarDeclarationPlanner.BuildAssemblyAndEnums(program, assemblyName)
+        assemblyIdentity := new AssemblyName(declarationPlan.AssemblyName)
+        if (assemblyVersion != null) {assemblyIdentity.set_Version(assemblyVersion)}
+        persistedAssemblyIdentity := assemblyIdentity
+        coreObjectType := typeof(object)
+        coreObjectAssembly := coreObjectType.get_Assembly()
+        persistedCustomAttributes: IEnumerable<CustomAttributeBuilder>? = null
+        builder := new PersistedAssemblyBuilder(persistedAssemblyIdentity, coreObjectAssembly, persistedCustomAttributes)
+        module := builder.DefineDynamicModule(declarationPlan.ModuleName)
+        program.PrepareExternalTypeBindings(referenceAssemblyPaths)
+        enumRegistry := new Dictionary<string, ColumnarEnumDef>(StringComparer.Ordinal)
+        for e := 0; e < declarationPlan.EnumCount; e++ {
+            exactEnumName := declarationPlan.EnumExactNames[e]
+            memberNames := declarationPlan.EnumMemberNames[e]
+            enumAttributes := (TypeAttributes)declarationPlan.EnumTypeAttributes[e]
+            if (declarationPlan.EnumIsStringBacked[e]) {
+                stringConstants := new Dictionary<string, string>(StringComparer.Ordinal)
+                tb := module.DefineType(exactEnumName, enumAttributes)
+                for m := 0; m < memberNames.Length; m++ {
+                    field := tb.DefineField(memberNames[m],
+                        typeof(string),
+                        FieldAttributes.Public | FieldAttributes.Static | FieldAttributes.Literal | FieldAttributes.HasDefault)
+                    field.SetConstant(declarationPlan.EnumMemberStringValues[e][m])
+                    stringConstants[memberNames[m]] = declarationPlan.EnumMemberStringValues[e][m]
+                }
+
+                _ = tb.CreateType()
+                stringEnumDef := new ColumnarEnumDef(
+                    typeof(string),
+                    new Dictionary<string, int>(StringComparer.Ordinal),
+                    stringConstants,
+                    exactEnumName
+                )
+                enumRegistry[exactEnumName] = stringEnumDef
+                TryRegisterEnumAlias(enumRegistry, exactEnumName, stringEnumDef)
+                continue
+            }
+
+            eb := module.DefineEnum(exactEnumName, enumAttributes, typeof(int))
+            constants := new Dictionary<string, int>(StringComparer.Ordinal)
+            for m := 0; m < memberNames.Length; m++ {
+                eb.DefineLiteral(memberNames[m], declarationPlan.EnumMemberValues[e][m])
+                constants[memberNames[m]] = declarationPlan.EnumMemberValues[e][m]
+            }
+            enumType := eb.CreateType()
+            enumDef := new ColumnarEnumDef(
+                enumType,
+                constants,
+                null,
+                exactEnumName
+            )
+            enumRegistry[exactEnumName] = enumDef
+            TryRegisterEnumAlias(enumRegistry, exactEnumName, enumDef)
+        }
+
+        // Union registries — declared empty here (populated in the union PASS below, after structs) so the struct/
+        // function type-resolution calls can reference them. `unionCaseRegistry` is keyed by qualified "Union.Case".
+        unionRegistry := new Dictionary<string, ColumnarUnionDef>(StringComparer.Ordinal)
+        unionCaseRegistry := new Dictionary<string, ColumnarUnionCaseDef>(StringComparer.Ordinal)
+        unionBaseBuilders := new List<TypeBuilder>()
+        unionCaseBuilders := new List<TypeBuilder>()
+
+        // PASS 0 (structs): define every user struct as a module-level VALUE TYPE — System.ValueType base, attributes
+        // `Public | Sealed` with NO explicit layout (default auto) — plus a public instance field per declared field.
+        // The FieldBuilder handles are stored in the registry and
+        // used DIRECTLY for ldfld/stfld/construction (never GetField, which throws on an un-finalized TypeBuilder).
+        // Field types resolve via TryResolveType (single builtins in this slice). Defined after enums so a struct may
+        // have an enum-typed field; a struct-typed field resolves only if that struct was declared earlier.
+        structRegistry := new Dictionary<string, ColumnarStructDef>(StringComparer.Ordinal)
+
+        // PASS 0i (interfaces): define every user interface (Public|Abstract|Interface), register it
+        // in the STRUCT registry with IsInterface=true, then wire base-interface inheritance and abstract
+        // method members. All interface TypeBuilders are registered before any base list or signature
+        // resolves, so interface inheritance is order-insensitive.
+        interfaceDefsInOrder := new List<ColumnarStructDef>(interfaces.Count)
+        interfaceMethodJobs := new List<ValueTuple<ColumnarStructDef, ColumnarFunctionInput, MethodBuilder, Type, Dictionary<string, int>, Dictionary<string, Type>>>()
+        for i := 0; i < declarationPlan.TypeDefs.InterfaceCount; i++ {
+            iface := interfaces[i]
+            exactInterfaceName := declarationPlan.TypeDefs.InterfaceExactNames[i]
+            interfaceModule := module
+            interfaceTypeName := exactInterfaceName
+            interfaceAttributeWord := declarationPlan.TypeDefs.InterfaceTypeAttributes[i]
+            interfaceAttributes := (TypeAttributes)interfaceAttributeWord
+            interfaceTb := interfaceModule.DefineType(interfaceTypeName, interfaceAttributes)
+            interfaceTypeParams: Dictionary<string, Type>? = null
+            ifaceTypeParamNamesForCondition := iface.TypeParamNames
+            if (ifaceTypeParamNamesForCondition != null && ifaceTypeParamNamesForCondition.Length > 0) {
+                interfaceTypeParams = new Dictionary<string, Type>(StringComparer.Ordinal)
+                declaredParams := interfaceTb.DefineGenericParameters(iface.TypeParamNames)
+                for tp := 0; tp < declaredParams.Length; tp++ {interfaceTypeParams[iface.TypeParamNames[tp]] = declaredParams[tp]}
+            }
+            interfaceDefValue := new ColumnarStructDef(
+                interfaceTb,
+                Array.Empty<string>(),
+                new Dictionary<string, FieldBuilder>(StringComparer.Ordinal),
+                true,
+                false,
+                false,
+                exactInterfaceName
+            )
+            interfaceDefValue.IsInterface = true
+            interfaceDefValue.GenericParameters = interfaceTypeParams
+            interfaceDef := interfaceDefValue
+            structRegistry[exactInterfaceName] = interfaceDef
+            TryRegisterStructAlias(structRegistry, exactInterfaceName, interfaceDef)
+            interfaceDefsInOrder.Add(interfaceDef)
+        }
+
+        structBuilders := new TypeBuilder[structs.Count]
+        structDefsInOrder := new ColumnarStructDef[structs.Count]
+        for s := 0; s < structs.Count; s++ {
+            st := structs[s]
+            exactStructName := declarationPlan.TypeDefs.StructExactNames[s]
+            // A RECORD is a reference type (class with `object` base + a public default ctor for object-init via
+            // `newobj`); a struct is a `System.ValueType`-based value type. Fields are defined in the next pass
+            // after every type name is in the registry, so field signatures can reference later-declared types.
+            typeAttributes := (TypeAttributes)declarationPlan.TypeDefs.StructTypeAttributes[s]
+            exactEnclosingName := declarationPlan.TypeDefs.StructEnclosingExactNames[s]
+            let tb: System.Reflection.Emit.TypeBuilder = null
+            if (exactEnclosingName.Length == 0) {
+                structModule := module
+                structTypeName := exactStructName
+                structTypeAttributeValue := typeAttributes
+                structIsReference := st.IsReference
+                structParentType := match structIsReference {
+                    true => typeof(object),
+                    _ => typeof(ValueType)
+                }
+                tb = structModule.DefineType(structTypeName, structTypeAttributeValue, structParentType)
+            }
+            else {
+                let enclosingDef: NSharpLang.Compiler.Columnar.ColumnarStructDef? = null
+                if (!structRegistry.TryGetValue(exactEnclosingName, out enclosingDef)) {return DeclineStatic("emit.declaration.nested-owner", "nested type owner could not be resolved for '" + exactStructName + "'", st.Name, -1, 0)}
+                enclosingGenericParameters := enclosingDef.GenericParameters
+                if (enclosingGenericParameters != null && enclosingGenericParameters.Count > 0) {return DeclineStatic("emit.declaration.nested-owner", "nested type owner could not be resolved for '" + exactStructName + "'", st.Name, -1, 0)}
+                nestedStructBuilder := enclosingDef.Builder
+                nestedStructName := st.Name
+                nestedStructTypeAttributes := typeAttributes
+                nestedStructIsReference := st.IsReference
+                nestedStructParentType := match nestedStructIsReference {
+                    true => typeof(object),
+                    _ => typeof(ValueType)
+                }
+                tb = nestedStructBuilder.DefineNestedType(nestedStructName, nestedStructTypeAttributes, nestedStructParentType)
+            }
+            if (declarationPlan.CustomAttributes.StructByRefLikeBlobs[s].Length > 0) {
+                byRefLikeCtor := typeof(System.Runtime.CompilerServices.IsByRefLikeAttribute).GetConstructor(Type.EmptyTypes)
+                if (byRefLikeCtor == null) {return false}
+                ColumnarAttributeBlobs.ApplyToType(tb, byRefLikeCtor, declarationPlan.CustomAttributes.StructByRefLikeBlobs[s])
+            }
+
+            // Generic type parameters (`class Box<T>`): declared on the builder before any member signature
+            // resolves (a member type naming T needs the GenericTypeParameterBuilder). Duplicate names decline in
+            // the product parser wrapper before this point.
+            typeGenericParams: Dictionary<string, Type>? = null
+            structTypeParamNamesForCondition := st.TypeParamNames
+            if (structTypeParamNamesForCondition != null && structTypeParamNamesForCondition.Length > 0) {
+                typeGenericParams = new Dictionary<string, Type>(StringComparer.Ordinal)
+                declaredParams := tb.DefineGenericParameters(st.TypeParamNames)
+                for tp := 0; tp < declaredParams.Length; tp++ {typeGenericParams[st.TypeParamNames[tp]] = declaredParams[tp]}
+            }
+
+            fields := new Dictionary<string, FieldBuilder>(StringComparer.Ordinal)
+            newDefValue := new ColumnarStructDef(
+                tb,
+                Array.Empty<string>(),
+                fields,
+                st.IsReference,
+                st.IsRecord,
+                false,
+                exactStructName
+            )
+            newDefValue.IsNewtype = st.IsNewtype
+            newDefValue.GenericParameters = typeGenericParams
+            newDef := newDefValue
+            structBuilders[s] = tb
+            structDefsInOrder[s] = newDef
+            structRegistry[exactStructName] = newDef
+            if (st.EnclosingTypeName.Length == 0) {TryRegisterStructAlias(structRegistry, exactStructName, newDef)}
+        }
+
+        // Union BASE types must be known before struct/record fields resolve: records like
+        // `TaskItem { Status: Status }` can reference a union declared in the same package. Cases are populated
+        // later, after all struct TypeBuilders are registered, but the field signature only needs the base type.
+        unionExactNames := new string[unions.Count]
+        for u := 0; u < unions.Count; u++ {
+            un := unions[u]
+            exactUnionName := program.ExactTypeNameForFile(un.Name, un.SourceFileId)
+            unionExactNames[u] = exactUnionName
+            if (un.IsValueStruct) {
+                structTb := module.DefineType(
+                    exactUnionName,
+                    TypeAttributes.Public | TypeAttributes.Sealed | TypeAttributes.SequentialLayout,
+                    typeof(ValueType))
+                valueStructDefValue := new ColumnarUnionDef(
+                    structTb,
+                    0,
+                    exactUnionName
+                )
+                valueStructDefValue.IsValueStruct = true
+                valueStructDef := valueStructDefValue
+                unionRegistry[exactUnionName] = valueStructDef
+                TryRegisterUnionAlias(unionRegistry, exactUnionName, valueStructDef)
+                unionBaseBuilders.Add(structTb)
+                continue
+            }
+
+            baseTb := module.DefineType(exactUnionName, TypeAttributes.Public | TypeAttributes.Class | TypeAttributes.Abstract, typeof(object))
+            if (un.TypeParamNames.Length > 0) {baseTb.DefineGenericParameters(un.TypeParamNames)}
+            unionDef := new ColumnarUnionDef(
+                baseTb,
+                un.TypeParamNames.Length,
+                exactUnionName
+            )
+            unionRegistry[exactUnionName] = unionDef
+            TryRegisterUnionAlias(unionRegistry, exactUnionName, unionDef)
+            unionBaseBuilders.Add(baseTb)
+        }
+
+        typeResolutionCatalog := new ColumnarSemanticTypeResolutionCatalog(
+            program, enumRegistry, structRegistry, unionRegistry)
+
+        for i := 0; i < interfaces.Count; i++ {
+            iface := interfaces[i]
+            interfaceDef := interfaceDefsInOrder[i]
+            typeResolution := typeResolutionCatalog.For(
+                iface.SourceFileId,
+                interfaceDef.GenericParameters,
+                interfaceDef.DeclaredTypeName)
+            if (!ColumnarGenericConstraintPlanner.TryApplyDeclaredTypeConstraints(iface.TypeParamNames, interfaceDef.GenericParameters, iface.TypeParamSpecialConstraints, iface.TypeParamTypeConstraints, typeResolution)) {return DeclineStatic("emit.type.generic-constraint", "generic constraints on '" + iface.Name + "' are not modeled", iface.Name, -1, 0)}
+            for baseInterfaceName in iface.BaseInterfaceNames {
+                let baseInterface: NSharpLang.Compiler.Columnar.ColumnarStructDef? = null
+                if (!typeResolution.Structs.TryGetValue(baseInterfaceName, out  baseInterface)
+                    || !baseInterface.IsInterface
+                    || Object.ReferenceEquals(baseInterface, interfaceDef)) {return false}
+                interfaceDef.InterfaceBases.Add(baseInterface)
+                interfaceDef.Builder.AddInterfaceImplementation(baseInterface.Builder)
+            }
+            for m := 0; m < iface.MethodNames.Length; m++ {
+                let memberReturn: System.Type = null
+                if (iface.MethodReturnCanonicals[m] == "void") {memberReturn = ColumnarTypeOfPlanner.RequiredVoidType()}
+                else {if (!(interfaceDef.GenericParameters != null
+                             ? ColumnarCanonicalTypeResolver.TryResolveTypeWithTypeParams(iface.MethodReturnCanonicals[m], interfaceDef.GenericParameters, typeResolution.Enums, typeResolution.Structs, typeResolution.Unions, out memberReturn)
+                             : ColumnarCanonicalTypeResolver.TryResolveType(iface.MethodReturnCanonicals[m], typeResolution.Enums, typeResolution.Structs, typeResolution.Unions, out memberReturn))
+                    || !ColumnarTypeOfPlanner.IsSupportedType(memberReturn)) {return false}}
+                memberParams := new Type[iface.MethodParamCanonicals[m].Length]
+                memberParamModifierKinds := iface.MethodParamModifierKinds[m]
+                if (memberParamModifierKinds.Length != 0 && memberParamModifierKinds.Length != memberParams.Length) {return false}
+                for p := 0; p < memberParams.Length; p++ {
+                    let resolvedMemberParam: System.Type = null
+                    memberParamResolved := interfaceDef.GenericParameters != null
+                        ? ColumnarCanonicalTypeResolver.TryResolveTypeWithTypeParams(iface.MethodParamCanonicals[m][p], interfaceDef.GenericParameters, typeResolution.Enums, typeResolution.Structs, typeResolution.Unions, out resolvedMemberParam)
+                        : ColumnarCanonicalTypeResolver.TryResolveType(iface.MethodParamCanonicals[m][p], typeResolution.Enums, typeResolution.Structs, typeResolution.Unions, out resolvedMemberParam)
+                    memberParams[p] = resolvedMemberParam
+                    if (!memberParamResolved) {return false}
+                    if (!ColumnarInterfaceRealization.IsSupportedParameterType(memberParams[p])) {return false}
+                }
+                hasDefaultBody := iface.MethodBodies[m] != null
+                methodAttributes := (MethodAttributes)declarationPlan.Methods.InterfaceMethodAttributeWords[i][m]
+                abstractMethod := interfaceDef.Builder.DefineMethod(
+                    iface.MethodNames[m],
+                    methodAttributes,
+                    memberReturn, memberParams)
+                if (!ColumnarParameterDefaultEmitter.DefineMethodParameterMetadata(abstractMethod, memberParams, iface.MethodParamNames[m], memberParamModifierKinds, Array.Empty<int>(), Array.Empty<string?>(), typeResolution.Enums)) {return false}
+                AddInstanceMethod(interfaceDef, iface.MethodNames[m],
+                    new ColumnarInstanceMethodDef(abstractMethod, memberParams, memberParamModifierKinds, memberReturn))
+                if (hasDefaultBody) {
+                    interfaceDef.DefaultInterfaceMethodNames.Add(iface.MethodNames[m])
+                    memberOrdinals := new Dictionary<string, int>(StringComparer.Ordinal)
+                    memberParamTypes := new Dictionary<string, Type>(StringComparer.Ordinal)
+                    for p := 0; p < memberParams.Length; p++ {
+                        memberOrdinals[iface.MethodParamNames[m][p]] = p + 1
+                        memberParamTypes[iface.MethodParamNames[m][p]] = memberParams[p]
+                    }
+                    interfaceMethodJobsForAdd := interfaceMethodJobs
+                    interfaceJobOwner := interfaceDef
+                    interfaceJobMethod := iface.MethodBodies[m]
+                    interfaceJobBuilder := abstractMethod
+                    interfaceJobReturnType := memberReturn
+                    interfaceJobOrdinals := memberOrdinals
+                    interfaceJobParamTypes := memberParamTypes
+                    interfaceMethodJobsForAdd.Add(new ValueTuple<ColumnarStructDef, ColumnarFunctionInput, MethodBuilder, Type, Dictionary<string, int>, Dictionary<string, Type>>(interfaceJobOwner, interfaceJobMethod, interfaceJobBuilder, interfaceJobReturnType, interfaceJobOrdinals, interfaceJobParamTypes))
+                }
+            }
+        }
+        let interfaceDepths: int[]? = null
+        if (!ColumnarInterfaceRealization.TryComputeInterfaceDepths(interfaceDefsInOrder, out  interfaceDepths)) {return false} // interface inheritance cycle.
+        pendingStaticFieldInits := new List<ColumnarStaticFieldInitializer>()
+        structTypeResolutions := new ColumnarSemanticTypeResolution[structs.Count]
+        for s := 0; s < structs.Count; s++ {
+            st := structs[s]
+            tb := structBuilders[s]
+            def := structDefsInOrder[s]
+            typeGenericParams := def.GenericParameters
+            typeResolution := typeResolutionCatalog.For(
+                st.SourceFileId,
+                typeGenericParams,
+                def.DeclaredTypeName)
+            structTypeResolutions[s] = typeResolution
+            if (!ColumnarGenericConstraintPlanner.TryApplyDeclaredTypeConstraints(st.TypeParamNames, typeGenericParams, st.TypeParamSpecialConstraints, st.TypeParamTypeConstraints, typeResolution)) {return DeclineStatic("emit.type.generic-constraint", "generic constraints on '" + st.Name + "' are not modeled", st.Name, -1, 0)}
+            fields := def.Fields
+            fieldRows := declarationPlan.Fields
+            instanceFieldNames := new List<string>(st.FieldNames.Length)
+            for fi := 0; fi < st.FieldNames.Length; fi++ {
+                // Field types resolve the type's own generic parameters FIRST (item: T), then the registries.
+                let fieldType: System.Type? = null
+                fieldTypeResolved := typeGenericParams != null
+                    ? ColumnarCanonicalTypeResolver.TryResolveTypeWithTypeParams(st.FieldTypeCanonicals[fi], typeGenericParams, typeResolution.Enums, typeResolution.Structs, typeResolution.Unions, out  fieldType)
+                    : ColumnarCanonicalTypeResolver.TryResolveType(st.FieldTypeCanonicals[fi], typeResolution.Enums, typeResolution.Structs, typeResolution.Unions, out fieldType)
+                if (!fieldTypeResolved || !ColumnarTypeOfPlanner.IsSupportedType(fieldType)) {
+                    return DeclineStatic("emit.declaration.field-type", "field type '" + st.FieldTypeCanonicals[fi] + "' could not be resolved for '" + st.Name + "." + st.FieldNames[fi] + "'", st.Name, -1, 0)
+                }
+                // STATIC fields typed by a generic parameter decline: `static count: T` has no single CLR
+                // storage across instantiations the modelled surface can express (the legacy emitter's behavior for
+                // these shapes is unprobed — decline-safe).
+                if (fieldRows.FieldIsStatic[s][fi] && typeof(GenericTypeParameterBuilder).IsInstanceOfType(fieldType)) {return false}
+                fieldName := fieldRows.FieldNames[s][fi]
+                fieldAttributes := (FieldAttributes)fieldRows.FieldAttributeWords[s][fi]
+                if (fieldRows.FieldIsStatic[s][fi]) {
+                    sfb := ColumnarFieldMetadataEmitter.Define(tb, fieldName, fieldType, (int)fieldAttributes, fieldRows.FieldIsThreadStatic[s][fi])
+                    def.StaticFields[fieldName] = sfb
+                    initKind := st.FieldInitKinds[fi]
+                    if (initKind >= 0) {pendingStaticFieldInits.Add(new ColumnarStaticFieldInitializer(
+                            def, sfb, fieldType, initKind, st.FieldInitTexts[fi]))}
+                    continue
+                }
+                // An INSTANCE field initializer is not modelled (the kernel declines it; defensive here).
+                if (st.FieldInitKinds[fi] >= 0) {return DeclineStatic("emit.declaration.field-initializer", "instance field initializer is not modeled for '" + st.Name + "." + fieldName + "'", st.Name, -1, 0)}
+                fields[fieldName] = ColumnarFieldMetadataEmitter.Define(tb, fieldName, fieldType, (int)fieldAttributes, fieldRows.FieldIsThreadStatic[s][fi])
+                if (fieldRows.FieldIsNullable[s][fi]) {def.NullableFields.Add(fieldName)}
+                instanceFieldNames.Add(fieldName)
+            }
+            def.SetFieldOrder(instanceFieldNames.ToArray())
+        }
+
+        // PASS 0a' (base/interface lists): resolve each colon-list name. Any interface becomes a directly
+        // implemented interface (and contributes its inherited interfaces to metadata); at most one class may
+        // become the parent, and only for a CLASS. A base on a value type, record inheritance, a record
+        // base, an unknown/non-type name, multiple class bases, and inheritance
+        // cycles all decline rather than silently changing type identity or emitting unloadable IL.
+        for s := 0; s < structs.Count; s++ {
+            def := structDefsInOrder[s]
+            typeResolution := structTypeResolutions[s]
+            // N# owns the base/interface classification: source-vs-runtime interface, source base,
+            // and external runtime base — with accessibility and the exact TypeBuilder metadata.
+            // C# only resolves each spelling to a live handle and reports the outcome.
+            basePlanner := new ColumnarBaseTypePlanner(def, typeResolution.Structs.Values)
+            for baseName in structs[s].BaseNames {
+                let resolvedBaseType: System.Type? = null
+                baseTypeResolved := def.GenericParameters != null
+                    ? ColumnarCanonicalTypeResolver.TryResolveTypeWithTypeParams(baseName, def.GenericParameters, typeResolution.Enums, typeResolution.Structs, typeResolution.Unions, out  resolvedBaseType)
+                    : ColumnarCanonicalTypeResolver.TryResolveType(baseName, typeResolution.Enums, typeResolution.Structs, typeResolution.Unions, out resolvedBaseType)
+                if (!baseTypeResolved) {return DeclineStatic("emit.declaration.base-type", "base/interface type '" + baseName + "' could not be resolved for '" + structs[s].Name + "'", structs[s].Name, -1, 0)}
+                baseOutcome := basePlanner.Apply(resolvedBaseType)
+                if (baseOutcome == ColumnarBaseTypeApplyOutcome.Reject) {return false}
+                if (baseOutcome == ColumnarBaseTypeApplyOutcome.Unresolvable) {return DeclineStatic("emit.declaration.base-type", "base/interface type '" + baseName + "' could not be resolved for '" + structs[s].Name + "'", structs[s].Name, -1, 0)}
+            }
+        }
+
+        // PASS 0a'' (duck interfaces): N# owns the complete structural registration pass.
+        ColumnarInterfaceRealization.RegisterDuckInterfaces(
+            structs,
+            structDefsInOrder,
+            structTypeResolutions,
+            interfaceDefsInOrder)
+
+        // Chain-depth per type: 0 for no base, base's depth + 1 otherwise. A chain longer than the type count is a
+        // CYCLE (A: B, B: A) — decline before any IL references the malformed hierarchy.
+        structDepths := new int[structs.Count]
+        for s := 0; s < structs.Count; s++ {
+            depth := 0
+            for d := structDefsInOrder[s].BaseDef; d != null; d = d.BaseDef {
+                depth++
+                if (depth > structs.Count) {return false} // inheritance cycle.
+            }
+            structDepths[s] = depth
+        }
+
+        // PASS 0b (struct methods): with all struct TYPES defined, DECLARE each struct's methods (second pass so
+        // returns may reference any struct). INSTANCE methods: `this` = arg 0, user param ordinals shift +1 (void
+        // instance methods decline — later slice). STATIC methods: MethodAttributes.Static, unshifted ordinals,
+        // void allowed, OVERLOADS by distinct PARAM COUNT only (same-arity sets are parser declines; columnar
+        // static-call resolution is arity-based). The N# struct parser wrapper rejects field/method and
+        // static/instance name collisions before this pass. Builders + param types stored; bodies emit in PASS 2.
+        structMethodJobs := new List<ValueTuple<ColumnarStructDef, ColumnarFunctionInput, MethodBuilder, Type, Type, Type, Dictionary<string, int>, ValueTuple<Dictionary<string, Type>, bool>>>()
+        for s := 0; s < structs.Count; s++ {
+            def := structDefsInOrder[s]
+            typeResolution := structTypeResolutions[s]
+            // Reference-type (record/class) instance methods are supported: the body emit (bare field -> `ldarg.0;
+            // ldfld`) is identical to a value type's (ldfld works on both a managed pointer and an object ref), and
+            // the instance CALL branches on IsReference (ldloc + callvirt for a ref receiver vs ldloca + call for a
+            // value receiver) — see TryEmitInstanceCall. Slice-1a methods READ fields (no field WRITE in a body yet).
+            for mi := 0; mi < structs[s].Methods.Count; mi++ {
+                m := structs[s].Methods[mi]
+                if (m.IsStatic) {
+                    let sReturn: System.Type = null
+                    sAsyncWrappedReturn: Type? = null
+                    if (m.IsAsync) {
+                        if (m.TypeParamNames.Length > 0) {return DeclineStatic("emit.declaration.method-return", "generic async static method is not modeled for '" + structs[s].Name + "." + m.Name + "'", structs[s].Name, -1, 0)}
+                        if (!ColumnarInterfaceRealization.TryComputeAsyncReturnShape(m.Name, m.ReturnCanonical, typeResolution.Enums, typeResolution.Structs, typeResolution.Unions, out sReturn, out sAsyncWrappedReturn)) {
+                            return DeclineStatic("emit.declaration.method-return", "async static method return type '" + m.ReturnCanonical + "' could not be resolved for '" + structs[s].Name + "." + m.Name + "'", structs[s].Name, -1, 0)
+                        }
+                    }
+                    else {if (m.ReturnCanonical == "void") {sReturn = ColumnarTypeOfPlanner.RequiredVoidType()}
+                    else {if (!ColumnarCanonicalTypeResolver.TryResolveType(m.ReturnCanonical, typeResolution.Enums, typeResolution.Structs, typeResolution.Unions, out sReturn) || !ColumnarTypeOfPlanner.IsSupportedType(sReturn)) {
+                        return DeclineStatic("emit.declaration.method-return", "static method return type '" + m.ReturnCanonical + "' could not be resolved for '" + structs[s].Name + "." + m.Name + "'", structs[s].Name, -1, 0)
+                    }}}
+                    // No implicit `this`: param ordinals are NOT shifted (arg 0 is the first parameter).
+                    sParamTypes := new Type[m.ParamNames.Length]
+                    sOrdinals := new Dictionary<string, int>(StringComparer.Ordinal)
+                    sParamTypeMap := new Dictionary<string, Type>(StringComparer.Ordinal)
+                    for i := 0; i < m.ParamNames.Length; i++ {
+                        let pt: System.Type? = null
+                        if (!ColumnarCanonicalTypeResolver.TryResolveType(m.ParamCanonicals[i], typeResolution.Enums, typeResolution.Structs, typeResolution.Unions, out  pt) || !ColumnarInterfaceRealization.IsSupportedParameterType(pt)) {
+                            return DeclineStatic("emit.declaration.method-param", "static method parameter type '" + m.ParamCanonicals[i] + "' could not be resolved for '" + structs[s].Name + "." + m.Name + "'", structs[s].Name, -1, 0)
+                        }
+                        sParamTypes[i] = pt
+                        sOrdinals[m.ParamNames[i]] = i
+                        sParamTypeMap[m.ParamNames[i]] = pt
+                    }
+                    let overloads: System.Collections.Generic.List<NSharpLang.Compiler.Columnar.ColumnarStaticMethodDef>? = null
+                    if (!def.StaticMethods.TryGetValue(m.Name, out  overloads)) {
+                        overloads = new List<ColumnarStaticMethodDef>()
+                        def.StaticMethods[m.Name] = overloads
+                    }
+                    staticMethodAttributes := (MethodAttributes)declarationPlan.Methods.StructMethodAttributeWords[s][mi]
+                    sSignatureReturn := sAsyncWrappedReturn ?? sReturn
+                    nativeImport := declarationPlan.PInvokes.Methods[s][mi]
+                    if (nativeImport != null) {
+                        if (!nativeImport.IsValid) {return DeclineStatic(nativeImport.DeclineCode, nativeImport.DeclineMessage, nativeImport.DeclineOwnerName, -1, 0)}
+                        pinvokeTypeBuilder := def.Builder
+                        pinvokeMethodName := nativeImport.MethodName
+                        pinvokeLibraryName := nativeImport.LibraryName
+                        pinvokeEntryPointName := nativeImport.EntryPointName
+                        pinvokeMethodAttributeWord := nativeImport.MethodAttributes
+                        pinvokeMethodAttributes := (MethodAttributes)pinvokeMethodAttributeWord
+                        pinvokeManagedCallingConventionWord := nativeImport.ManagedCallingConvention
+                        pinvokeManagedCallingConvention := (CallingConventions)pinvokeManagedCallingConventionWord
+                        pinvokeReturnType := sSignatureReturn
+                        pinvokeParameterTypes := sParamTypes
+                        pinvokeUnmanagedCallingConventionWord := nativeImport.UnmanagedCallingConvention
+                        pinvokeUnmanagedCallingConvention := (CallingConvention)pinvokeUnmanagedCallingConventionWord
+                        pinvokeCharacterSetWord := nativeImport.CharacterSet
+                        pinvokeCharacterSet := (CharSet)pinvokeCharacterSetWord
+                        pmb := pinvokeTypeBuilder.DefinePInvokeMethod(
+                            pinvokeMethodName,
+                            pinvokeLibraryName,
+                            pinvokeEntryPointName,
+                            pinvokeMethodAttributes,
+                            pinvokeManagedCallingConvention,
+                            pinvokeReturnType,
+                            pinvokeParameterTypes,
+                            pinvokeUnmanagedCallingConvention,
+                            pinvokeCharacterSet)
+                        pinvokeMethodForSetFlags := pmb
+                        pinvokeImportForMergeFlags := nativeImport
+                        pinvokeMethodForGetFlags := pmb
+                        pinvokeCurrentImplementationFlags := pinvokeMethodForGetFlags.GetMethodImplementationFlags()
+                        pinvokeCurrentImplementationFlagWord := (int)pinvokeCurrentImplementationFlags
+                        pinvokeMergedImplementationFlagWord := pinvokeImportForMergeFlags.MergeImplementationFlags(pinvokeCurrentImplementationFlagWord)
+                        pinvokeMergedImplementationFlags := (MethodImplAttributes)pinvokeMergedImplementationFlagWord
+                        pinvokeMethodForSetFlags.SetImplementationFlags(pinvokeMergedImplementationFlags)
+                        if (!ColumnarParameterDefaultEmitter.DefineMethodParameterMetadata(pmb, sParamTypes, m.ParamNames, m.ParamModifierKinds, m.ParamDefaultKinds, m.ParamDefaultTexts, typeResolution.Enums)) {return false}
+                        overloads.Add(new ColumnarStaticMethodDef(pmb, sParamTypes, m.ParamModifierKinds, sSignatureReturn))
+                        continue
+                    }
+
+                    smb := def.Builder.DefineMethod(m.Name, staticMethodAttributes, sSignatureReturn, sParamTypes)
+                    if (!ColumnarParameterDefaultEmitter.DefineMethodParameterMetadata(smb, sParamTypes, m.ParamNames, m.ParamModifierKinds, m.ParamDefaultKinds, m.ParamDefaultTexts, typeResolution.Enums)) {return false}
+                    overloads.Add(new ColumnarStaticMethodDef(smb, sParamTypes, m.ParamModifierKinds, sSignatureReturn))
+                    structMethodJobs.Add(new ValueTuple<ColumnarStructDef, ColumnarFunctionInput, MethodBuilder, Type, Type, Type, Dictionary<string, int>, ValueTuple<Dictionary<string, Type>, bool>>(def, m, smb, sSignatureReturn, sReturn, sAsyncWrappedReturn, sOrdinals, new ValueTuple<Dictionary<string, Type>, bool>(sParamTypeMap, true)))
+                    continue
+                }
+                let mReturn: System.Type = null
+                mAsyncWrappedReturn: Type? = null
+                if (m.IsAsync) {
+                    if (m.TypeParamNames.Length > 0) {return DeclineStatic("emit.declaration.method-return", "generic async method is not modeled for '" + structs[s].Name + "." + m.Name + "'", structs[s].Name, -1, 0)}
+                    if (!ColumnarInterfaceRealization.TryComputeAsyncReturnShape(m.Name, m.ReturnCanonical, typeResolution.Enums, typeResolution.Structs, typeResolution.Unions, out mReturn, out mAsyncWrappedReturn)) {
+                        return DeclineStatic("emit.declaration.method-return", "async method return type '" + m.ReturnCanonical + "' could not be resolved for '" + structs[s].Name + "." + m.Name + "'", structs[s].Name, -1, 0)
+                    }
+                }
+                else {if (m.ReturnCanonical == "void") {mReturn = ColumnarTypeOfPlanner.RequiredVoidType()}
+                else {if (!ColumnarCanonicalTypeResolver.TryResolveMemberType(m.ReturnCanonical, def, typeResolution.Enums, typeResolution.Structs, typeResolution.Unions, out mReturn) || !ColumnarTypeOfPlanner.IsSupportedType(mReturn)) {
+                    return DeclineStatic("emit.declaration.method-return", "method return type '" + m.ReturnCanonical + "' could not be resolved for '" + structs[s].Name + "." + m.Name + "'", structs[s].Name, -1, 0)
+                }}}
+                mSignatureReturn := mAsyncWrappedReturn ?? mReturn
+                // Resolve param types; ordinals shift by +1 because arg 0 is the value-type `this`.
+                mParamTypes := new Type[m.ParamNames.Length]
+                mOrdinals := new Dictionary<string, int>(StringComparer.Ordinal)
+                mParamTypeMap := new Dictionary<string, Type>(StringComparer.Ordinal)
+                for i := 0; i < m.ParamNames.Length; i++ {
+                    let pt: System.Type? = null
+                    if (!ColumnarCanonicalTypeResolver.TryResolveMemberType(m.ParamCanonicals[i], def, typeResolution.Enums, typeResolution.Structs, typeResolution.Unions, out  pt) || !ColumnarInterfaceRealization.IsSupportedParameterType(pt)) {
+                        return DeclineStatic("emit.declaration.method-param", "method parameter type '" + m.ParamCanonicals[i] + "' could not be resolved for '" + structs[s].Name + "." + m.Name + "'", structs[s].Name, -1, 0)
+                    }
+                    mParamTypes[i] = pt
+                    mOrdinals[m.ParamNames[i]] = i + 1
+                    mParamTypeMap[m.ParamNames[i]] = pt
+                }
+                // Resolution remains at the declaration phase because source builders and closed handles
+                // do not exist when the initial rows are planned. N# owns target deduplication, final
+                // attributes, base-target resolution and application order.
+                methodOverride := declarationPlan.MethodOverrides.Methods[s][mi]
+                for implementedInterface in def.ImplementedInterfaces {
+                    methodOverride.TryAddSourceInterfaceTarget(
+                        implementedInterface,
+                        m.Name,
+                        mSignatureReturn,
+                        mParamTypes,
+                        typeResolution.Structs.StructuralTypeReferences)
+                }
+                for implementedInterfaceType in def.ImplementedInterfaceTypes {
+                    let implementedInterfaceDef: NSharpLang.Compiler.Columnar.ColumnarStructDef? = null
+                    implementedInterfaceTypeForGenericCheck := implementedInterfaceType
+                    if (!implementedInterfaceTypeForGenericCheck.get_IsGenericType()) {continue}
+                    implementedInterfaceTypeForDefinitionCheck := implementedInterfaceType
+                    if (implementedInterfaceTypeForDefinitionCheck.get_IsGenericTypeDefinition()) {continue}
+                    if (!ColumnarSourceDefinitionResolver.TryResolveInterface(implementedInterfaceType, typeResolution.Structs.Values, out  implementedInterfaceDef)) {continue}
+                    methodOverride.TryAddClosedSourceInterfaceTarget(
+                        implementedInterfaceType,
+                        implementedInterfaceDef,
+                        m.Name,
+                        mSignatureReturn,
+                        mParamTypes,
+                        typeResolution.Structs.StructuralTypeReferences)
+                }
+                ColumnarExternalInterfaceMethodResolver.AddMatchingTargets(
+                    methodOverride,
+                    def.ExternalInterfaces,
+                    m.Name,
+                    mSignatureReturn,
+                    mParamTypes,
+                    typeResolution.Structs.StructuralTypeReferences)
+                methodOverrideCompletion := methodOverride.Complete(def.ExactBaseType, m.Name, mSignatureReturn, mParamTypes, typeResolution.Structs.StructuralTypeReferences)
+                if (!methodOverrideCompletion.IsValid) {return DeclineStatic(methodOverrideCompletion.DeclineCode, methodOverrideCompletion.DeclineMessage, methodOverrideCompletion.DeclineOwnerName, -1, 0)}
+                mb := methodOverrideCompletion.DefineMethod(def.Builder)
+                if (!ColumnarParameterDefaultEmitter.DefineMethodParameterMetadata(mb, mParamTypes, m.ParamNames, m.ParamModifierKinds, m.ParamDefaultKinds, m.ParamDefaultTexts, typeResolution.Enums)) {return false}
+                methodOverrideCompletion.Apply(def.Builder, mb, typeResolution.Structs.StructuralTypeReferences)
+                AddInstanceMethod(def, m.Name,
+                    new ColumnarInstanceMethodDef(mb, mParamTypes, m.ParamModifierKinds, mSignatureReturn))
+                structMethodJobs.Add(new ValueTuple<ColumnarStructDef, ColumnarFunctionInput, MethodBuilder, Type, Type, Type, Dictionary<string, int>, ValueTuple<Dictionary<string, Type>, bool>>(def, m, mb, mSignatureReturn, mReturn, mAsyncWrappedReturn, mOrdinals, new ValueTuple<Dictionary<string, Type>, bool>(mParamTypeMap, false)))
+            }
+        }
+
+        // COMPLETENESS: N# validates source, closed-generic, default, and external interface members.
+        if (!ColumnarInterfaceRealization.InterfacesSatisfied(structs, structDefsInOrder, structRegistry)) {return false}
+
+        // PASS 0b' (property accessors): declare each computed property as a `get_Name` instance
+        // method (no params, returning the property type) and — when the property has a setter — a `set_Name` method
+        // (one param "value": property type, returning void). The accessor bodies read/write fields exactly like a
+        // method, so they emit via the same structMethodJobs path in PASS 2. The property is registered for
+        // `receiver.Name` read (case 8 -> callvirt get_Name) + `receiver.Name = v` write (case 23 -> callvirt
+        // set_Name). Same-declaration property source-name and synthesized get_Name/set_Name collisions are rejected
+        // by the N# struct parser before rows reach this pass.
+        for s := 0; s < structs.Count; s++ {
+            if (structs[s].Properties.Count == 0) {continue}
+            def := structDefsInOrder[s]
+            typeResolution := structTypeResolutions[s]
+            for pi := 0; pi < structs[s].Properties.Count; pi++ {
+                prop := structs[s].Properties[pi]
+                let propType: System.Type? = null
+                if (!ColumnarCanonicalTypeResolver.TryResolveMemberType(prop.TypeCanonical, def, typeResolution.Enums, typeResolution.Structs, typeResolution.Unions, out  propType) || !ColumnarTypeOfPlanner.IsSupportedType(propType)) {return false}
+                if (prop.IsStatic) {
+                    // STATIC property: CLR-static accessors — get_Name takes no args at all; set_Name's `value`
+                    // is arg 0 (no implicit `this`). The bodies are STATIC contexts (PASS 2 runs them with
+                    // `_currentStruct` null), so a bare backing-field reference inside an accessor declines
+                    // exactly where the N# pipeline reports NL103 — the backing access must be `TypeName.field`.
+                    staticAccessorAttributes := (MethodAttributes)declarationPlan.Properties.AccessorWords[s][pi]
+                    staticPropertyOwner := def.Builder
+                    staticPropertyGetterName := declarationPlan.Properties.GetterNames[s][pi]
+                    staticPropertyGetterAttributes := staticAccessorAttributes
+                    staticPropertyType := propType
+                    let staticPropertySetterName: string? = null
+                    if (declarationPlan.Properties.HasSetter[s][pi]) {staticPropertySetterName = declarationPlan.Properties.SetterNames[s][pi]}
+                    staticPropertySetterAttributes := staticAccessorAttributes
+                    staticAccessors := ColumnarPropertyDef.Define(
+                        staticPropertyOwner,
+                        staticPropertyGetterName,
+                        staticPropertyGetterAttributes,
+                        staticPropertyType,
+                        staticPropertySetterName,
+                        staticPropertySetterAttributes)
+                    staticGetter := staticAccessors.Getter
+                    structMethodJobs.Add(new ValueTuple<ColumnarStructDef, ColumnarFunctionInput, MethodBuilder, Type, Type, Type, Dictionary<string, int>, ValueTuple<Dictionary<string, Type>, bool>>(def, prop.Getter, staticGetter, propType, propType, null, new Dictionary<string, int>(StringComparer.Ordinal), new ValueTuple<Dictionary<string, Type>, bool>(new Dictionary<string, Type>(StringComparer.Ordinal), true)))
+                    staticProperty := def.Builder.DefineProperty(prop.Name, PropertyAttributes.None, propType, Type.EmptyTypes)
+                    staticProperty.SetGetMethod(staticGetter)
+                    staticSetter := staticAccessors.Setter
+                    if (prop.Setter != null) {
+                        exactStaticSetter := staticSetter
+                        if (!ColumnarParameterDefaultEmitter.DefineMethodParameterMetadata(exactStaticSetter, [propType], ["value"], Array.Empty<int>(), Array.Empty<int>(), Array.Empty<string?>(), typeResolution.Enums)) {return false}
+                        staticSetOrdinals := new Dictionary<string, int>(StringComparer.Ordinal)
+                        staticSetOrdinals["value"] = declarationPlan.Properties.ValueOrdinals[s][pi]
+                        staticSetParamTypes := new Dictionary<string, Type>(StringComparer.Ordinal)
+                        staticSetParamTypes["value"] = propType
+                        structMethodJobs.Add(new ValueTuple<ColumnarStructDef, ColumnarFunctionInput, MethodBuilder, Type, Type, Type, Dictionary<string, int>, ValueTuple<Dictionary<string, Type>, bool>>(def, prop.Setter, exactStaticSetter, ColumnarTypeOfPlanner.RequiredVoidType(), ColumnarTypeOfPlanner.RequiredVoidType(), null, staticSetOrdinals, new ValueTuple<Dictionary<string, Type>, bool>(staticSetParamTypes, true)))
+                        staticProperty.SetSetMethod(exactStaticSetter)
+                    }
+                    def.StaticProperties[prop.Name] = staticAccessors
+                    continue
+                }
+                accessorAttributes := (MethodAttributes)declarationPlan.Properties.AccessorWords[s][pi]
+                propertyOwner := def.Builder
+                propertyGetterName := declarationPlan.Properties.GetterNames[s][pi]
+                propertyGetterAttributes := accessorAttributes
+                propertyType := propType
+                let propertySetterName: string? = null
+                if (declarationPlan.Properties.HasSetter[s][pi]) {propertySetterName = declarationPlan.Properties.SetterNames[s][pi]}
+                propertySetterAttributes := accessorAttributes
+                accessors := ColumnarPropertyDef.Define(
+                    propertyOwner,
+                    propertyGetterName,
+                    propertyGetterAttributes,
+                    propertyType,
+                    propertySetterName,
+                    propertySetterAttributes)
+                getter := accessors.Getter
+                structMethodJobs.Add(new ValueTuple<ColumnarStructDef, ColumnarFunctionInput, MethodBuilder, Type, Type, Type, Dictionary<string, int>, ValueTuple<Dictionary<string, Type>, bool>>(def, prop.Getter, getter, propType, propType, null, new Dictionary<string, int>(StringComparer.Ordinal), new ValueTuple<Dictionary<string, Type>, bool>(new Dictionary<string, Type>(StringComparer.Ordinal), false)))
+                property := def.Builder.DefineProperty(prop.Name, PropertyAttributes.None, propType, Type.EmptyTypes)
+                property.SetGetMethod(getter)
+                setter := accessors.Setter
+                if (prop.Setter != null) {
+                    exactSetter := setter
+                    if (!ColumnarParameterDefaultEmitter.DefineMethodParameterMetadata(exactSetter, [propType], ["value"], Array.Empty<int>(), Array.Empty<int>(), Array.Empty<string?>(), typeResolution.Enums)) {return false}
+                    // The body assigns fields via the reference-type field-write path (a void structMethodJob).
+                    setOrdinals := new Dictionary<string, int>(StringComparer.Ordinal)
+                    setOrdinals["value"] = declarationPlan.Properties.ValueOrdinals[s][pi]
+                    setParamTypes := new Dictionary<string, Type>(StringComparer.Ordinal)
+                    setParamTypes["value"] = propType
+                    structMethodJobs.Add(new ValueTuple<ColumnarStructDef, ColumnarFunctionInput, MethodBuilder, Type, Type, Type, Dictionary<string, int>, ValueTuple<Dictionary<string, Type>, bool>>(def, prop.Setter, exactSetter, ColumnarTypeOfPlanner.RequiredVoidType(), ColumnarTypeOfPlanner.RequiredVoidType(), null, setOrdinals, new ValueTuple<Dictionary<string, Type>, bool>(setParamTypes, false)))
+                    property.SetSetMethod(exactSetter)
+                }
+                def.Properties[prop.Name] = accessors
+            }
+        }
+
+        // PASS 0b'' (inherited-member shadowing): with every field/method/property declared, decline any member of
+        // a derived type whose name SHADOWS an inherited member — EXCEPT a method over an inherited METHOD of the
+        // SAME kind (instance over instance, static over static), which the N# pipeline accepts as hiding (the
+        // nearest declaration wins; chain-walking resolution models exactly that. Field-over-anything,
+        // method-over-field/property, property-over-anything, and MIXED static/instance method shadowing is NOT
+        // modelled, so this backend declines rather than risk a resolution divergence.
+        for s := 0; s < structs.Count; s++ {
+            def := structDefsInOrder[s]
+            if (def.BaseDef == null) {continue}
+            for chain := def.BaseDef; chain != null; chain = chain.BaseDef {
+                fieldNamesForShadowing := def.Fields.get_Keys()
+                fieldNamesEnumerator := fieldNamesForShadowing.GetEnumerator()
+                try {
+                    while fieldNamesEnumerator.MoveNext() {
+                        fieldName := fieldNamesEnumerator.get_Current()
+                        if (chain.Fields.ContainsKey(fieldName)) {return false}
+                        if (chain.StaticFields.ContainsKey(fieldName)) {return false}
+                        if (chain.Methods.ContainsKey(fieldName)) {return false}
+                        if (chain.StaticMethods.ContainsKey(fieldName)) {return false}
+                        if (chain.Properties.ContainsKey(fieldName)) {return false}
+                        if (chain.StaticProperties.ContainsKey(fieldName)) {return false}
+                    }
+                } finally {
+                    fieldNamesEnumerator.Dispose()
+                }
+                // A derived STATIC FIELD/PROPERTY shadowing ANY inherited member (incl. its own kind) is
+                // unverified against the legacy emitter — decline every shape (unlike methods, no static-member hiding
+                // is modelled for data members).
+                staticFieldNamesForShadowing := def.StaticFields.get_Keys()
+                staticFieldNamesEnumerator := staticFieldNamesForShadowing.GetEnumerator()
+                try {
+                    while staticFieldNamesEnumerator.MoveNext() {
+                        staticFieldName := staticFieldNamesEnumerator.get_Current()
+                        if (chain.Fields.ContainsKey(staticFieldName)) {return false}
+                        if (chain.StaticFields.ContainsKey(staticFieldName)) {return false}
+                        if (chain.Methods.ContainsKey(staticFieldName)) {return false}
+                        if (chain.StaticMethods.ContainsKey(staticFieldName)) {return false}
+                        if (chain.Properties.ContainsKey(staticFieldName)) {return false}
+                        if (chain.StaticProperties.ContainsKey(staticFieldName)) {return false}
+                    }
+                } finally {
+                    staticFieldNamesEnumerator.Dispose()
+                }
+                staticPropertyNamesForShadowing := def.StaticProperties.get_Keys()
+                staticPropertyNamesEnumerator := staticPropertyNamesForShadowing.GetEnumerator()
+                try {
+                    while staticPropertyNamesEnumerator.MoveNext() {
+                        staticPropName := staticPropertyNamesEnumerator.get_Current()
+                        if (chain.Fields.ContainsKey(staticPropName)) {return false}
+                        if (chain.StaticFields.ContainsKey(staticPropName)) {return false}
+                        if (chain.Methods.ContainsKey(staticPropName)) {return false}
+                        if (chain.StaticMethods.ContainsKey(staticPropName)) {return false}
+                        if (chain.Properties.ContainsKey(staticPropName)) {return false}
+                        if (chain.StaticProperties.ContainsKey(staticPropName)) {return false}
+                    }
+                } finally {
+                    staticPropertyNamesEnumerator.Dispose()
+                }
+                methodNamesForShadowing := def.Methods.get_Keys()
+                methodNamesEnumerator := methodNamesForShadowing.GetEnumerator()
+                try {
+                    while methodNamesEnumerator.MoveNext() {
+                        methodName := methodNamesEnumerator.get_Current()
+                        if (chain.Fields.ContainsKey(methodName)) {return false}
+                        if (chain.StaticFields.ContainsKey(methodName)) {return false}
+                        if (chain.StaticMethods.ContainsKey(methodName)) {return false}
+                        if (chain.Properties.ContainsKey(methodName)) {return false}
+                        if (chain.StaticProperties.ContainsKey(methodName)) {return false}
+                    }
+                } finally {
+                    methodNamesEnumerator.Dispose()
+                }
+                staticMethodNamesForShadowing := def.StaticMethods.get_Keys()
+                staticMethodNamesEnumerator := staticMethodNamesForShadowing.GetEnumerator()
+                try {
+                    while staticMethodNamesEnumerator.MoveNext() {
+                        staticName := staticMethodNamesEnumerator.get_Current()
+                        if (chain.Fields.ContainsKey(staticName)) {return false}
+                        if (chain.StaticFields.ContainsKey(staticName)) {return false}
+                        if (chain.Methods.ContainsKey(staticName)) {return false}
+                        if (chain.Properties.ContainsKey(staticName)) {return false}
+                        if (chain.StaticProperties.ContainsKey(staticName)) {return false}
+                    }
+                } finally {
+                    staticMethodNamesEnumerator.Dispose()
+                }
+                propertyNamesForShadowing := def.Properties.get_Keys()
+                propertyNamesEnumerator := propertyNamesForShadowing.GetEnumerator()
+                try {
+                    while propertyNamesEnumerator.MoveNext() {
+                        propName := propertyNamesEnumerator.get_Current()
+                        if (chain.Fields.ContainsKey(propName)) {return false}
+                        if (chain.StaticFields.ContainsKey(propName)) {return false}
+                        if (chain.Methods.ContainsKey(propName)) {return false}
+                        if (chain.StaticMethods.ContainsKey(propName)) {return false}
+                        if (chain.Properties.ContainsKey(propName)) {return false}
+                        if (chain.StaticProperties.ContainsKey(propName)) {return false}
+                    }
+                } finally {
+                    propertyNamesEnumerator.Dispose()
+                }
+            }
+        }
+
+        // PASS 0c/0d (constructors): N# owns user-constructor declaration, field-initializer
+        // placement state, default-constructor synthesis, and the three deferred job queues. The
+        // remaining host loops consume those exact live jobs while lowering their expression bodies.
+        constructorDeclaration := ColumnarConstructorDeclarationPlanner.Declare(
+            program, structs, structDefsInOrder, structTypeResolutions, structDepths)
+        if (!constructorDeclaration.Succeeded) {return false}
+        objectCtor := constructorDeclaration.ObjectConstructor
+        structCtorJobs := constructorDeclaration.ConstructorJobs
+        structInitializerJobs := constructorDeclaration.InitializerJobs
+        structDefaultCtorJobs := constructorDeclaration.DefaultConstructorJobs
+
+        // PASS 0e (record value members): synthesize Equals(object) / GetHashCode() / `<Clone>$` on each
+        // NON-GENERIC records get a `<Clone>$` wrapper for `with`. Equals/GetHashCode are synthesized only
+        // when every field type is a baked runtime type: EqualityComparer<T>.Default cannot be reflected over
+        // emitted builders at emit time. Classes get NONE of these: a class `.Equals` is the pipeline's NL103
+        // (probe-pinned) — parity by rejection. A USER method already named Equals/GetHashCode keeps ownership
+        // (the pinned `hsh` behavior): that member's synthesis is skipped and resolution finds the user method
+        // as before.
+        ColumnarRecordValueMemberPlanner.EmitRecordValueMembers(
+            structs, structDefsInOrder, typeResolutionCatalog.StructuralTypeReferences)
+
+        // PASS 0 (unions): each user union = ABSTRACT base class (protected Family parameterless ctor chaining
+        // object::.ctor) + one SEALED nested case class per case (public parameterless ctor chaining base, public
+        // field per case field; trivial ctor bodies emitted INLINE). Case fields resolve via TryResolveType;
+        // defined after structs so case fields may be enums/structs; nested cases finalize BEFORE their base
+        // (deepest-first — see finalization below). A GENERIC union mirrors the legacy d1c41b6e machinery: the
+        // base declares the parameters, every case REDECLARES them by name (CLR metadata does not inherit generic
+        // parameters into nested types) and SetParent()s to the base CLOSED over its own copies (Some<T> : Opt<T>);
+        // the case ctor's base-ctor call REBINDS onto that instantiation via TypeBuilder.GetConstructor.
+        for u := 0; u < unions.Count; u++ {
+            un := unions[u]
+            exactUnionName := unionExactNames[u]
+
+            // VALUE-STRUCT union (mirrors the previous parity baseline's DeclareValueStructUnion): a small, closed, payload-free,
+            // non-generic union emits as a SEALED readonly tag struct (over System.ValueType) instead of a class
+            // hierarchy, preserving the public allocation-free value-struct ABI (IsValueType==true). Shape: a private
+            // `int _tag` (InitOnly) discriminator, a private `U(int)` ctor, a public `Tag` getter, and per case a
+            // nested sealed-abstract marker type carrying a `public const int Tag` (reflection/tooling parity, never
+            // instantiated) plus a public static `Create_<Case>()` factory (`new U(tag)` — no allocation).
+            // Selected by the N# ColumnarUnionIsValueStructEmittable kernel.
+            if (un.IsValueStruct) {
+                let valueStructDef: NSharpLang.Compiler.Columnar.ColumnarUnionDef? = null
+                if (!unionRegistry.TryGetValue(exactUnionName, out valueStructDef)) {return DeclineStatic("emit.union.predeclare", "value-struct union base was not predeclared for '" + un.Name + "'", un.Name, -1, 0)}
+                valueStructBase := valueStructDef.Base
+                if (!typeof(TypeBuilder).IsInstanceOfType(valueStructBase)) {return DeclineStatic("emit.union.predeclare", "value-struct union base was not predeclared for '" + un.Name + "'", un.Name, -1, 0)}
+                structTb := (TypeBuilder)valueStructBase
+                readOnlyCtor := typeof(System.Runtime.CompilerServices.IsReadOnlyAttribute).GetConstructor(Type.EmptyTypes)
+                if (readOnlyCtor != null) {ColumnarAttributeBlobs.ApplyToType(structTb, readOnlyCtor, declarationPlan.CustomAttributes.UnionReadOnlyBlobs[u])}
+
+                tagField := structTb.DefineField("_tag", typeof(int), FieldAttributes.Private | FieldAttributes.InitOnly)
+                tagCtor := structTb.DefineConstructor(
+                    MethodAttributes.Private | MethodAttributes.HideBySig | MethodAttributes.SpecialName | MethodAttributes.RTSpecialName,
+                    CallingConventions.Standard,
+                    [typeof(int)])
+                tcil := tagCtor.GetILGenerator()
+                tcil.Emit(OpCodes.Ldarg_0)
+                tcil.Emit(OpCodes.Ldarg_1)
+                tcil.Emit(OpCodes.Stfld, tagField)
+                tcil.Emit(OpCodes.Ret)
+
+                tagGetter := structTb.DefineMethod(
+                    "get_Tag",
+                    MethodAttributes.Public | MethodAttributes.HideBySig | MethodAttributes.SpecialName,
+                    typeof(int),
+                    Type.EmptyTypes)
+                tgil := tagGetter.GetILGenerator()
+                tgil.Emit(OpCodes.Ldarg_0)
+                tgil.Emit(OpCodes.Ldfld, tagField)
+                tgil.Emit(OpCodes.Ret)
+                tagProp := structTb.DefineProperty("Tag", PropertyAttributes.None, typeof(int), Type.EmptyTypes)
+                tagProp.SetGetMethod(tagGetter)
+
+                valueStructDef.TagGetter = tagGetter
+
+                for vc := 0; vc < un.CaseNames.Length; vc++ {
+                    vsCaseName := un.CaseNames[vc]
+                    markerTb := structTb.DefineNestedType(
+                        vsCaseName,
+                        TypeAttributes.NestedPublic | TypeAttributes.Class | TypeAttributes.Sealed | TypeAttributes.Abstract,
+                        typeof(object))
+                    caseTagConst := markerTb.DefineField("Tag", typeof(int), FieldAttributes.Public | FieldAttributes.Static | FieldAttributes.Literal)
+                    caseTagConst.SetConstant(vc)
+
+                    factory := structTb.DefineMethod(
+                        "Create_" + vsCaseName,
+                        MethodAttributes.Public | MethodAttributes.Static | MethodAttributes.HideBySig,
+                        structTb,
+                        Type.EmptyTypes)
+                    fil := factory.GetILGenerator()
+                    fil.Emit(OpCodes.Ldc_I4, vc)
+                    fil.Emit(OpCodes.Newobj, tagCtor)
+                    fil.Emit(OpCodes.Ret)
+
+                    valueStructCaseDefValue := new ColumnarUnionCaseDef(
+                        markerTb, tagCtor, Array.Empty<string>(), new Dictionary<string, FieldBuilder>(StringComparer.Ordinal), structTb)
+                    valueStructCaseDefValue.IsValueStruct = true
+                    valueStructCaseDefValue.ValueStructTag = vc
+                    valueStructCaseDefValue.ValueStructFactory = factory
+                    valueStructCaseDefValue.ValueStructTagGetter = tagGetter
+                    valueStructCaseDef := valueStructCaseDefValue
+                    vsQualified := exactUnionName + "." + vsCaseName
+                    valueStructDef.Cases[vsQualified] = valueStructCaseDef
+                    unionCaseRegistry[vsQualified] = valueStructCaseDef
+                    unionCaseBuilders.Add(markerTb)
+                }
+                continue
+            }
+
+            isGenericUnion := un.TypeParamNames.Length > 0
+            let unionDef: NSharpLang.Compiler.Columnar.ColumnarUnionDef? = null
+            if (!unionRegistry.TryGetValue(exactUnionName, out unionDef)) {return DeclineStatic("emit.union.predeclare", "union base was not predeclared for '" + un.Name + "'", un.Name, -1, 0)}
+            unionBase := unionDef.Base
+            if (!typeof(TypeBuilder).IsInstanceOfType(unionBase)) {return DeclineStatic("emit.union.predeclare", "union base was not predeclared for '" + un.Name + "'", un.Name, -1, 0)}
+            baseTb := (TypeBuilder)unionBase
+            baseCtor := baseTb.DefineConstructor(MethodAttributes.Family, CallingConventions.Standard, Type.EmptyTypes)
+            bcil := baseCtor.GetILGenerator()
+            bcil.Emit(OpCodes.Ldarg_0)
+            bcil.Emit(OpCodes.Call, typeof(object).GetConstructor(Type.EmptyTypes))
+            bcil.Emit(OpCodes.Ret)
+            // A union is TWO owners: the base and every nested case, which REDECLARES the same parameters.
+            // Both must carry the constraints — the CLR refuses to load a case less constrained than its base.
+            if (isGenericUnion) {
+                baseMap := new Dictionary<string, Type>(StringComparer.Ordinal)
+                baseParams := baseTb.GetGenericArguments()
+                for g := 0; g < baseParams.Length; g++ {baseMap[un.TypeParamNames[g]] = baseParams[g]}
+                if (!ColumnarGenericConstraintPlanner.TryApplyDeclaredTypeConstraints(un.TypeParamNames, baseMap, un.TypeParamSpecialConstraints, un.TypeParamTypeConstraints, typeResolutionCatalog.For(un.SourceFileId, baseMap, unionDef.DeclaredTypeName))) {return DeclineStatic("emit.type.generic-constraint", "generic constraints on '" + un.Name + "' are not modeled", un.Name, -1, 0)}
+            }
+
+            for c := 0; c < un.CaseNames.Length; c++ {
+                caseName := un.CaseNames[c]
+                let caseTb: System.Reflection.Emit.TypeBuilder = null
+                caseParamMap: Dictionary<string, Type>? = null
+                if (isGenericUnion) {
+                    // Define with NO parent, redeclare the parameters, THEN parent to the closed base —
+                    // the legacy emitter's DeclareUnion order (the parent type references the case's own parameters,
+                    // which must exist first).
+                    caseTb = baseTb.DefineNestedType(caseName, TypeAttributes.NestedPublic | TypeAttributes.Class | TypeAttributes.Sealed)
+                    caseParams := caseTb.DefineGenericParameters(un.TypeParamNames)
+                    caseTypeForParent := caseTb
+                    unionBaseBuilderForCaseParent := baseTb
+                    unionBaseForCaseParent: Type = unionBaseBuilderForCaseParent
+                    caseParametersForParent: Type[] = caseParams
+                    closedUnionBaseForCaseParent := unionBaseForCaseParent.MakeGenericType(caseParametersForParent)
+                    caseTypeForParent.SetParent(closedUnionBaseForCaseParent)
+                    caseParamMap = new Dictionary<string, Type>(StringComparer.Ordinal)
+                    for g := 0; g < caseParams.Length; g++ {caseParamMap[un.TypeParamNames[g]] = caseParams[g]}
+                }
+                else {
+                    caseTb = baseTb.DefineNestedType(caseName, TypeAttributes.NestedPublic | TypeAttributes.Class | TypeAttributes.Sealed, baseTb)
+                }
+                typeResolution := typeResolutionCatalog.RegisterUnionCase(
+                    un.SourceFileId,
+                    unionDef.DeclaredTypeName,
+                    caseName,
+                    c,
+                    caseTb,
+                    caseParamMap)
+                if (!ColumnarGenericConstraintPlanner.TryApplyDeclaredTypeConstraints(un.TypeParamNames, caseParamMap, un.TypeParamSpecialConstraints, un.TypeParamTypeConstraints, typeResolution)) {return DeclineStatic("emit.type.generic-constraint", "generic constraints on '" + un.Name + "." + caseName + "' are not modeled", caseName, -1, 0)}
+                caseFieldNames := un.CaseFieldNames[c]
+                caseFieldTypes := un.CaseFieldTypeCanonicals[c]
+                caseFields := new Dictionary<string, FieldBuilder>(StringComparer.Ordinal)
+                for fi := 0; fi < caseFieldNames.Length; fi++ {
+                    // The union's type parameters shadow same-named registered types within the case's
+                    // field signatures (the legacy emitter scopes them the same way).
+                    let caseFieldType: System.Type? = null
+                    fieldResolved := caseParamMap != null
+                        ? ColumnarCanonicalTypeResolver.TryResolveTypeWithTypeParams(caseFieldTypes[fi], caseParamMap, typeResolution.Enums, typeResolution.Structs, typeResolution.Unions, out  caseFieldType)
+                        : ColumnarCanonicalTypeResolver.TryResolveType(caseFieldTypes[fi], typeResolution.Enums, typeResolution.Structs, typeResolution.Unions, out caseFieldType)
+                    if (!fieldResolved || !ColumnarTypeOfPlanner.IsSupportedType(caseFieldType)) {return false}
+                    cfb := caseTb.DefineField(caseFieldNames[fi], caseFieldType, FieldAttributes.Public)
+                    caseFields[caseFieldNames[fi]] = cfb
+                }
+                caseCtor := caseTb.DefineConstructor(MethodAttributes.Public, CallingConventions.Standard, Type.EmptyTypes)
+                ccil := caseCtor.GetILGenerator()
+                ccil.Emit(OpCodes.Ldarg_0)
+                if (isGenericUnion) {
+                    caseCtorIlForBaseCall := ccil
+                    caseBaseCallOpcode := OpCodes.Call
+                    unionBaseBuilderForCtorCall := baseTb
+                    unionBaseTypeForCtorCall: Type = unionBaseBuilderForCtorCall
+                    caseBuilderForCtorCall := caseTb
+                    caseArgumentsForCtorCall := caseBuilderForCtorCall.GetGenericArguments()
+                    closedUnionBaseForCtorCall := unionBaseTypeForCtorCall.MakeGenericType(caseArgumentsForCtorCall)
+                    unionBaseCtorForCtorCall := baseCtor
+                    reboundUnionBaseCtor := TypeBuilder.GetConstructor(closedUnionBaseForCtorCall, unionBaseCtorForCtorCall)
+                    caseCtorIlForBaseCall.Emit(caseBaseCallOpcode, reboundUnionBaseCtor)
+                }
+                else {ccil.Emit(OpCodes.Call, baseCtor)} // chain to the abstract base's ctor.
+                ccil.Emit(OpCodes.Ret)
+
+                caseDef := new ColumnarUnionCaseDef(caseTb, caseCtor, caseFieldNames, caseFields, baseTb)
+                qualified := exactUnionName + "." + caseName
+                unionDef.Cases[qualified] = caseDef
+                unionCaseRegistry[qualified] = caseDef
+                unionCaseBuilders.Add(caseTb)
+            }
+        }
+
+        columnarResolvedType := module.DefineType(typeName, TypeAttributes.Public | TypeAttributes.Class)
+
+        // Pass 1: resolve every signature (int-only) and declare all methods up front. Build the sibling map
+        // (name -> declared method + param count) so pass-2 bodies can `call` any function — including forward
+        // references and self-recursion — resolving to a MethodBuilder whose body is not yet emitted.
+        methods := new MethodBuilder[funcs.Count]
+        ordinalsByFunc := new Dictionary<string, int>[funcs.Count]
+        paramTypesByFunc := new Dictionary<string, Type>[funcs.Count]
+        returnTypeByFunc := new Type[funcs.Count]
+        // ASYNC: the per-function WRAPPED CLR return (the real method signature siblings call) —
+        // null for non-async. returnTypeByFunc holds the wrapped type for async funcs (call sites
+        // must see ValueTask<int>, never the inner int); the INNER type rides asyncInnerByFunc and
+        // becomes the body emitter's _returnType so return-value checks work unchanged.
+        asyncWrappedByFunc := new Type[funcs.Count]
+        asyncInnerByFunc := new Type[funcs.Count]
+        typeResolutionsByFunc := new ColumnarSemanticTypeResolution[funcs.Count]
+        siblings := new Dictionary<string, ColumnarSiblingMethodDefinition>(StringComparer.Ordinal)
+        interfaceConstraintsByFunc := new Type[][][](funcs.Count)
+        // Sibling RETURN tuple element names (a `(x: int, y: int)` return) — drives `t := mk()` / `mk().x`
+        // name derivation; canonicals stay name-erased.
+        siblingReturnTupleNames := new Dictionary<string, string[]>(StringComparer.Ordinal)
+        for f := 0; f < funcs.Count; f++ {
+            fn := funcs[f]
+            // A GENERIC function (`func Identity<T>(x: T): T`) declares a REAL CLR generic method — one
+            // definition with open type parameters, instantiated per call site via MakeGenericMethod — exactly
+            // the legacy emitter's primary strategy. DefineGenericParameters must run BEFORE the signature is set so the
+            // param/return types can reference the GenericTypeParameterBuilders (the de-risking spike's order).
+            fnTypeParams: Type[] = System.Array.Empty<Type>()
+            fnSpecialConstraints := System.Array.Empty<int>()
+            fnBaseConstraints := System.Array.Empty<Type?>()
+            fnInterfaceConstraints := System.Array.Empty<Type[]>()
+            let typeParamMap: Dictionary<string, Type>? = null
+            typeResolution: ColumnarSemanticTypeResolution? = null
+            if (fn.TypeParamNames.Length > 0) {
+                genericMethodOwner := columnarResolvedType
+                genericMethodName := fn.Name
+                genericMethodAttributes := (MethodAttributes)declarationPlan.Methods.FunctionAttributeWords[f]
+                let genericMethodInitialReturnType: Type? = null
+                let genericMethodInitialParameterTypes: Type[]? = null
+                methods[f] = genericMethodOwner.DefineMethod(genericMethodName, genericMethodAttributes, genericMethodInitialReturnType, genericMethodInitialParameterTypes)
+                gpBuilders := methods[f].DefineGenericParameters(fn.TypeParamNames)
+                typeParamMap = new Dictionary<string, Type>(StringComparer.Ordinal)
+                fnTypeParams = new Type[gpBuilders.Length]
+                for g := 0; g < gpBuilders.Length; g++ {
+                    typeParamMap[fn.TypeParamNames[g]] = gpBuilders[g]
+                    genericParameterForTypeArray := gpBuilders[g]
+                    genericParameterTypeForTypeArray: Type = genericParameterForTypeArray
+                    fnTypeParams[g] = genericParameterTypeForTypeArray
+                }
+                typeResolution = typeResolutionCatalog.ForSourceMethod(fn.SourceFileId, typeParamMap, f)
+                // Applied AFTER the full typeParamMap exists, so a constraint can name another of this
+                // function's own parameters (`where T: U`). The interface constraints are carried into pass 2,
+                // where a constrained interface call needs the closed slot metadata.
+                if (!ColumnarGenericConstraintPlanner.TryApplyGenericParameterConstraints(gpBuilders, fn.TypeParamSpecialConstraints, fn.TypeParamTypeConstraints, typeParamMap, fnTypeParams, typeResolution, out fnSpecialConstraints, out fnBaseConstraints, out fnInterfaceConstraints)) {return false}
+            }
+            else {if (fn.TypeParamSpecialConstraints.Length > 0 || fn.TypeParamTypeConstraints.Length > 0) {
+                // Constraint rows on a non-generic function are malformed — decline (defensive; the adapter
+                // already refuses them).
+                return false
+            }}
+            if (typeResolution == null) {
+                nonGenericTypeResolution := typeResolutionCatalog.For(fn.SourceFileId, null, null)
+                typeResolution = nonGenericTypeResolution
+            }
+            typeResolutionsByFunc[f] = typeResolution
+            // The return type may be `void` (a procedure — its body need not always-return and `return` takes
+            // no value); otherwise it must be a supported VALUE type. `void` is valid ONLY as a return type, so
+            // it is handled here and NOT admitted by `ColumnarTypeOfPlanner.IsSupportedType` (which gates
+            // params/locals/arrays/values).
+            let returnType: System.Type = null
+            asyncWrappedReturn: Type? = null
+            if (fn.IsAsync && (fn.ModifierFlags & 4096) != 0) {
+                // `async func*` is an ASYNC ITERATOR: its declared return IS IAsyncEnumerable<element>, never
+                // a Task/ValueTask wrap; the body pass emits it via TryEmitAsyncIteratorStateMachine.
+                asyncShape := ColumnarIteratorPlanner.AnalyzeShape(
+                    fn.BodyNodes, program.GetSourceForFileId(fn.SourceFileId), fn.BodyRoot, fn.Name, f,
+                    fn.ReturnCanonical, fn.ParamNames, fn.ParamCanonicals, fn.TypeParamNames,
+                     false, "", null, null, null, null, true)
+                if (!asyncShape.Supported) {return DeclineStatic(asyncShape.DeclineSite, asyncShape.DeclineMessage, fn.Name, -1, 0)}
+                let asyncElement: System.Type? = null
+                if (!ColumnarCanonicalTypeResolver.TryResolveType(asyncShape.ElementCanonical, typeResolution.Enums, typeResolution.Structs, typeResolution.Unions, out  asyncElement) || !ColumnarTypeOfPlanner.IsSupportedType(asyncElement)) {return DeclineStatic(
+                        "emit.iterator.element-type",
+                        "iterator element type '" + asyncShape.ElementCanonical + "' could not be resolved for '" + fn.Name + "'",
+                        fn.Name, -1, 0)}
+                returnType = typeof(IAsyncEnumerable<int>).GetGenericTypeDefinition().MakeGenericType([asyncElement])
+            }
+            else {if (fn.IsAsync) {
+                // ASYNC (the sync-lowering mirror): generic async declines; the declared return
+                // resolves to the INNER type and the METHOD signature wraps it — ValueTask(/T) by
+                // default, Task(/T) for `main` (the legacy emitter's entry-point rule), explicit task-like
+                // annotations keep their declared family.
+                if (fn.TypeParamNames.Length > 0) {return false}
+                if (!ColumnarInterfaceRealization.TryComputeAsyncReturnShape(fn.Name, fn.ReturnCanonical, typeResolution.Enums, typeResolution.Structs, typeResolution.Unions, out returnType, out asyncWrappedReturn)) {return DeclineStatic("emit.declaration.function-return", "async function return type '" + fn.ReturnCanonical + "' could not be resolved for '" + fn.Name + "'", fn.Name, -1, 0)}
+            }
+            else {if (fn.ReturnCanonical == "void") {returnType = ColumnarTypeOfPlanner.RequiredVoidType()}
+            else {if (typeParamMap != null && (fn.ModifierFlags & 4096) != 0) {
+                // A GENERIC generator returns IEnumerable<element> with the element resolved in the
+                // method's type-parameter scope (the general resolver has no IEnumerable<param> surface).
+                // An unlowerable return classifies through the planner for the precise iterator site.
+                generatorElement := ColumnarIteratorPlanner.EnumerableElementCanonicalOf(fn.ReturnCanonical)
+                let generatorElementType: System.Type? = null
+                if (generatorElement.Length == 0
+                    || !ColumnarCanonicalTypeResolver.TryResolveTypeWithTypeParams(generatorElement, typeParamMap, typeResolution.Enums, typeResolution.Structs, typeResolution.Unions, out  generatorElementType)) {
+                    generatorShape := ColumnarIteratorPlanner.AnalyzeShape(
+                        fn.BodyNodes, program.GetSourceForFileId(fn.SourceFileId), fn.BodyRoot, fn.Name, f,
+                        fn.ReturnCanonical, fn.ParamNames, fn.ParamCanonicals, fn.TypeParamNames,
+                        false, "", null, null, null, null, false)
+                    return DeclineStatic(
+                        generatorShape.Supported ? "emit.declaration.function-return" : generatorShape.DeclineSite,
+                        generatorShape.Supported
+                            ? "generic iterator return type '" + fn.ReturnCanonical + "' could not be resolved for '" + fn.Name + "'"
+                            : generatorShape.DeclineMessage,
+                        fn.Name, -1, 0)
+                }
+                returnType = typeof(IEnumerable<int>).GetGenericTypeDefinition().MakeGenericType([generatorElementType])
+            }
+            else {if (typeParamMap != null) {
+                genericReturnResolved := ColumnarCanonicalTypeResolver.TryResolveTypeWithTypeParams(fn.ReturnCanonical, typeParamMap, typeResolution.Enums, typeResolution.Structs, typeResolution.Unions, out returnType)
+                genericReturnSupported := false
+                if (genericReturnResolved) {
+                    genericReturnIsParameter := returnType.get_IsGenericParameter()
+                    if (genericReturnIsParameter) {genericReturnSupported = true}
+                    else {
+                        genericReturnIsParameterArray := false
+                        genericReturnIsSzArray := returnType.get_IsSZArray()
+                        if (genericReturnIsSzArray) {
+                            genericReturnElement := returnType.GetElementType()
+                            genericReturnIsParameterArray = genericReturnElement.get_IsGenericParameter()
+                        }
+                        if (genericReturnIsParameterArray) {genericReturnSupported = true}
+                        else {genericReturnSupported = ColumnarTypeOfPlanner.IsSupportedType(returnType)}
+                    }
+                }
+                if (!genericReturnResolved || !genericReturnSupported) {return DeclineStatic("emit.declaration.function-return", "generic function return type '" + fn.ReturnCanonical + "' could not be resolved for '" + fn.Name + "'", fn.Name, -1, 0)}
+            }
+            else {if (!ColumnarCanonicalTypeResolver.TryResolveType(fn.ReturnCanonical, typeResolution.Enums, typeResolution.Structs, typeResolution.Unions, out returnType) || !ColumnarTypeOfPlanner.IsSupportedType(returnType)) {return DeclineStatic("emit.declaration.function-return", "function return type '" + fn.ReturnCanonical + "' could not be resolved for '" + fn.Name + "'", fn.Name, -1, 0)}}}}}}
+            paramTypes := new Type[fn.ParamNames.Length]
+            ordinals := new Dictionary<string, int>(StringComparer.Ordinal)
+            paramTypeMap := new Dictionary<string, Type>(StringComparer.Ordinal)
+            for i := 0; i < fn.ParamNames.Length; i++ {
+                let pt: System.Type = null
+                if (typeParamMap != null) {
+                    genericParameterResolved := ColumnarCanonicalTypeResolver.TryResolveTypeWithTypeParams(fn.ParamCanonicals[i], typeParamMap, typeResolution.Enums, typeResolution.Structs, typeResolution.Unions, out pt)
+                    genericParameterSupported := false
+                    if (genericParameterResolved) {
+                        genericParameterIsTypeParameter := pt.get_IsGenericParameter()
+                        if (genericParameterIsTypeParameter) {genericParameterSupported = true}
+                        else {
+                            genericParameterIsParameterArray := false
+                            genericParameterIsSzArray := pt.get_IsSZArray()
+                            if (genericParameterIsSzArray) {
+                                genericParameterElement := pt.GetElementType()
+                                genericParameterIsParameterArray = genericParameterElement.get_IsGenericParameter()
+                            }
+                            if (genericParameterIsParameterArray) {genericParameterSupported = true}
+                            else {genericParameterSupported = ColumnarInterfaceRealization.IsSupportedParameterType(pt)}
+                        }
+                    }
+                    if (!genericParameterResolved || !genericParameterSupported) {return DeclineStatic("emit.declaration.function-param", "generic function parameter type '" + fn.ParamCanonicals[i] + "' could not be resolved for '" + fn.Name + "'", fn.Name, -1, 0)}
+                }
+                else {if (!ColumnarCanonicalTypeResolver.TryResolveType(fn.ParamCanonicals[i], typeResolution.Enums, typeResolution.Structs, typeResolution.Unions, out pt) || !ColumnarInterfaceRealization.IsSupportedParameterType(pt)) {return DeclineStatic("emit.declaration.function-param", "function parameter type '" + fn.ParamCanonicals[i] + "' could not be resolved for '" + fn.Name + "'", fn.Name, -1, 0)}}
+                paramTypes[i] = pt
+                ordinals[fn.ParamNames[i]] = i
+                paramTypeMap[fn.ParamNames[i]] = pt
+            }
+            if (fn.TypeParamNames.Length > 0) {
+                methods[f].SetReturnType(returnType)
+                methods[f].SetParameters(paramTypes)
+            }
+            else {
+                nonGenericMethodSlots := methods
+                nonGenericMethodSlot := f
+                nonGenericMethodOwner := columnarResolvedType
+                nonGenericMethodName := fn.Name
+                nonGenericMethodAttributes := (MethodAttributes)declarationPlan.Methods.FunctionAttributeWords[f]
+                let nonGenericMethodReturnType: Type = null
+                nonGenericMethodWrappedReturn := asyncWrappedReturn
+                if (nonGenericMethodWrappedReturn != null) {nonGenericMethodReturnType = nonGenericMethodWrappedReturn}
+                else {nonGenericMethodReturnType = returnType}
+                nonGenericMethodParameterTypes := paramTypes
+                nonGenericMethodSlots[nonGenericMethodSlot] = nonGenericMethodOwner.DefineMethod(
+                    nonGenericMethodName, nonGenericMethodAttributes, nonGenericMethodReturnType, nonGenericMethodParameterTypes)
+            }
+            if (!ColumnarParameterDefaultEmitter.DefineMethodParameterMetadata(methods[f], paramTypes, fn.ParamNames, fn.ParamModifierKinds, fn.ParamDefaultKinds, fn.ParamDefaultTexts, typeResolution.Enums)) {return false}
+            ordinalsByFunc[f] = ordinals
+            paramTypesByFunc[f] = paramTypeMap
+            returnTypeByFunc[f] = asyncWrappedReturn ?? returnType // call sites see the WRAPPED type.
+            asyncWrappedByFunc[f] = asyncWrappedReturn
+            asyncInnerByFunc[f] = returnType
+            interfaceConstraintsByFunc[f] = fnInterfaceConstraints
+            if (fn.ReturnTupleElementNames != null) {siblingReturnTupleNames[fn.Name] = fn.ReturnTupleElementNames}
+            siblingName := fn.Name
+            siblingDefinition := new ColumnarSiblingMethodDefinition(
+                methods[f], paramTypes, fn.ParamModifierKinds, asyncWrappedReturn ?? returnType,
+                fnTypeParams, fnSpecialConstraints, fnBaseConstraints, fnInterfaceConstraints)
+            siblings[siblingName] = siblingDefinition
+        }
+
+        if (!ColumnarStaticFieldInitializerEmitter.TryEmitAll(
+                structDefsInOrder, pendingStaticFieldInits, siblings)) {return false}
+
+        // Pass 2: emit each body into its declared method's IL stream. The Program TypeBuilder + a shared
+        // lambda counter ride along so bodies can synthesize `<Lambda>_{n}` static methods (L1b — interleaved
+        // DefineMethod and forward ldftn both bake at Save, spike-proven).
+        lambdaCounter := new int[1]
+        displayClasses := new List<TypeBuilder>()
+        for f := 0; f < funcs.Count; f++ {
+            fn := funcs[f]
+            typeResolution := typeResolutionsByFunc[f]
+            il := methods[f].GetILGenerator()
+            // GENERATOR functions (`func*`, modifier bit 4096) never emit a statement body: the N# iterator
+            // planner owns every structural decision (shape facts + schema-4 member body plans) and this host
+            // realizes them mechanically (sub-slice 3b-ii). Unsupported shapes decline at the planner's site.
+            if ((fn.ModifierFlags & 4096) != 0) {
+                ColumnarDeclineTrace.SetSourceFileId(fn.SourceFileId)
+                try {
+                    if (fn.IsAsync
+                        ? !TryEmitAsyncIteratorStateMachine(
+                            module, fn, f, program.GetSourceForFileId(fn.SourceFileId), typeResolution, il, displayClasses)
+                        : !TryEmitIteratorStateMachine(
+                            module, fn, f, program.GetSourceForFileId(fn.SourceFileId), typeResolution, il, displayClasses,
+                            siblings[fn.Name].TypeParams,
+                            null, "", null, null, null, null, null, null)) {return false}
+                }
+                finally {
+                    ColumnarDeclineTrace.ClearSourceFileId()
+                }
+                continue
+            }
+            // LOCAL FUNCTIONS (L4-i): declare each root-block local function as a `<parent>g__{n}` static
+            // BEFORE the parent body emits (forward calls bake at Save); bodies emit after the parent's.
+            // Product parser routing only materializes non-generic, non-nested local functions here; resolvable
+            // signatures only, duplicate names decline. A local function SHADOWS a same-named sibling at call
+            // sites (probe-pinned), so the map is its own resolution tier.
+            localFuncs: Dictionary<string, (Method: MethodBuilder, ParamTypes: Type[], ReturnType: Type)>? = null
+            declaredLocalFuncNodes: Dictionary<int, string>? = null
+            if (fn.LocalFunctions != null) {
+                localFuncs = new Dictionary<string, (MethodBuilder, Type[], Type)>(StringComparer.Ordinal)
+                declaredLocalFuncNodes = new Dictionary<int, string>()
+                for localFunction in fn.LocalFunctions {
+                    nodeIndex := localFunction.NodeIndex
+                    localFn := localFunction.Function
+                    let localReturn: System.Type = null
+                    if (localFn.ReturnCanonical == "void") {localReturn = ColumnarTypeOfPlanner.RequiredVoidType()}
+                    else {if (!ColumnarCanonicalTypeResolver.TryResolveType(localFn.ReturnCanonical, typeResolution.Enums, typeResolution.Structs, typeResolution.Unions, out localReturn) || !ColumnarTypeOfPlanner.IsSupportedType(localReturn)) {return false}}
+                    localParams := new Type[localFn.ParamNames.Length]
+                    for lp := 0; lp < localParams.Length; lp++ {
+                        let localParamType: Type = null
+                        localParamResolved := ColumnarCanonicalTypeResolver.TryResolveType(localFn.ParamCanonicals[lp], typeResolution.Enums, typeResolution.Structs, typeResolution.Unions, out localParamType)
+                        localParams[lp] = localParamType
+                        if (!localParamResolved || !ColumnarTypeOfPlanner.IsSupportedType(localParamType)) {return false}
+                    }
+                    if (!ColumnarSemanticTypeRegistryBridge.IsValidSynthesizedMethodSignature(localReturn, localParams, columnarResolvedType)) {return false}
+                    localMethodOwner := columnarResolvedType
+                    localMethodParentName := fn.Name
+                    localMethodCounter := lambdaCounter
+                    localMethodOrdinal := localMethodCounter[0]
+                    localMethodCounter[0] = localMethodOrdinal + 1
+                    localMethodOrdinalText := localMethodOrdinal.ToString()
+                    localMethodName := "<" + localMethodParentName + ">g__" + localMethodOrdinalText
+                    localMethodAttributes := MethodAttributes.Private | MethodAttributes.Static
+                    localMethodReturnType := localReturn
+                    localMethodParameterTypes := localParams
+                    localMethod := localMethodOwner.DefineMethod(
+                        localMethodName, localMethodAttributes, localMethodReturnType, localMethodParameterTypes)
+                    if (!ColumnarParameterDefaultEmitter.DefineMethodParameterMetadata(localMethod, localParams, localFn.ParamNames, localFn.ParamModifierKinds, localFn.ParamDefaultKinds, localFn.ParamDefaultTexts, typeResolution.Enums)) {return false}
+                    localFuncs[localFn.Name] = (localMethod, localParams, localReturn)
+                    declaredLocalFuncNodes[nodeIndex] = localFn.Name
+                }
+            }
+            fnParamTupleNames: Dictionary<string, string[]>? = null
+            if (fn.ParamTupleElementNames != null) {
+                for pn := 0; pn < fn.ParamNames.Length && pn < fn.ParamTupleElementNames.Length; pn++ {
+                    paramElementNames := fn.ParamTupleElementNames[pn]
+                    if (paramElementNames != null) {
+                        if (fnParamTupleNames == null) {fnParamTupleNames = new Dictionary<string, string[]>(StringComparer.Ordinal)}
+                        fnParamTupleNames[fn.ParamNames[pn]] = paramElementNames
+                    }
+                }
+            }
+            // ASYNC bodies check return values against the INNER type; the method's CLR signature
+            // (and every sibling call site) sees the WRAPPED type.
+            bodyReturnType := asyncWrappedByFunc[f] != null ? asyncInnerByFunc[f] : returnTypeByFunc[f]
+            functionSource := program.GetSourceForFileId(fn.SourceFileId)
+            currentSibling := siblings[fn.Name]
+            genericInterfaceConstraintTypeParams := currentSibling.TypeParams
+            genericInterfaceConstraintRows := interfaceConstraintsByFunc[f]
+            genericInterfaceConstraintEmptyMap := ColumnarIlEmitter.s_noGenericInterfaceConstraints
+            genericInterfaceConstraintMap := ColumnarGenericConstraintPlanner.BuildGenericInterfaceConstraintMap(
+                genericInterfaceConstraintTypeParams,
+                genericInterfaceConstraintRows,
+                genericInterfaceConstraintEmptyMap)
+            bodyTypeParamMap: Dictionary<string, Type>? = null
+            if (fn.TypeParamNames.Length > 0) {
+                bodyTypeParamMap = new Dictionary<string, Type>(StringComparer.Ordinal)
+                for tp := 0; tp < fn.TypeParamNames.Length && tp < currentSibling.TypeParams.Length; tp++ {bodyTypeParamMap[fn.TypeParamNames[tp]] = currentSibling.TypeParams[tp]}
+            }
+            emitter := new ColumnarIlEmitter(
+                fn.BodyNodes,
+                functionSource,
+                ordinalsByFunc[f],
+                paramTypesByFunc[f],
+                bodyReturnType,
+                il,
+                siblings,
+                enumRegistry,
+                structRegistry,
+                unionRegistry,
+                unionCaseRegistry,
+                null,
+                null,
+                false,
+                false,
+                columnarResolvedType,
+                lambdaCounter,
+                displayClasses,
+                null,
+                localFuncs,
+                declaredLocalFuncNodes,
+                null,
+                siblingReturnTupleNames,
+                fnParamTupleNames,
+                null,
+                asyncWrappedByFunc[f],
+                match fn.ReturnCanonical {
+                    "Task" => true,
+                    "ValueTask" => true,
+                    _ => false
+                },
+                referenceAssemblyPaths,
+                genericInterfaceConstraintMap,
+                bodyTypeParamMap,
+                typeResolution.Enums,
+                typeResolution.Structs,
+                typeResolution.Unions
+            )
+            ColumnarDeclineTrace.SetSourceFileId(fn.SourceFileId)
+            try {
+                if (!emitter.EmitBody(fn.BodyRoot, bodyReturnType == ColumnarTypeOfPlanner.RequiredVoidType())) {return DeclineStatic("emit.body", "function body emission declined", fn.Name, -1, 0)}
+            }
+            finally {
+                ColumnarDeclineTrace.ClearSourceFileId()
+            }
+            if (fn.LocalFunctions != null) {
+                // NL316 across the local-function boundary: the pipeline rejects a local-func PARAM or
+                // body binding that shadows a parent binding. Local bodies emit AFTER the parent's, so no
+                // live snapshot exists — use the parent's STRUCTURAL binding superset (params + every name
+                // any parent statement binds; extra declines are safe under-acceptance).
+                parentBindings := new HashSet<string>(ordinalsByFunc[f].Keys, StringComparer.Ordinal)
+                ColumnarClosureBindingPlanner.CollectBindingNames(fn.BodyNodes, functionSource, fn.BodyRoot, parentBindings)
+                visiblePrefix := new List<string>()
+                for localFunction in fn.LocalFunctions {
+                    localFn := localFunction.Function
+                    visiblePrefix.Add(localFn.Name)
+                    target := localFuncs[localFn.Name]
+                    localOrdinals := new Dictionary<string, int>(StringComparer.Ordinal)
+                    localParamTypes := new Dictionary<string, Type>(StringComparer.Ordinal)
+                    for lp := 0; lp < localFn.ParamNames.Length; lp++ {
+                        localOrdinals[localFn.ParamNames[lp]] = lp
+                        if (parentBindings.Contains(localFn.ParamNames[lp])) {return false} // a local-func param shadowing a parent binding — NL316.
+                        localParamTypesForWrite := localParamTypes
+                        localParamNameForWrite := localFn.ParamNames[lp]
+                        targetParamTypesForRead := target.Item2
+                        targetParamIndexForRead := lp
+                        targetParamTypeForWrite := targetParamTypesForRead[targetParamIndexForRead]
+                        localParamTypesForWrite[localParamNameForWrite] = targetParamTypeForWrite
+                    }
+                    targetMethodForLocalBody := target.Item1
+                    localIl := targetMethodForLocalBody.GetILGenerator()
+                    // The local body shares the SAME localFuncs map (self/mutual recursion + the parent's
+                    // other local functions); outer locals/params are NOT in scope — captures decline.
+                    localFunctionSource := program.GetSourceForFileId(localFn.SourceFileId)
+                    localEmitter := new ColumnarIlEmitter(
+                        localFn.BodyNodes,
+                        localFunctionSource,
+                        localOrdinals,
+                        localParamTypes,
+                        target.Item3,
+                        localIl,
+                        siblings,
+                        enumRegistry,
+                        structRegistry,
+                        unionRegistry,
+                        unionCaseRegistry,
+                        null,
+                        null,
+                        false,
+                        false,
+                        columnarResolvedType,
+                        lambdaCounter,
+                        displayClasses,
+                        null,
+                        localFuncs,
+                        null,
+                        visiblePrefix,
+                        null,
+                        null,
+                        parentBindings,
+                        null,
+                        false,
+                        referenceAssemblyPaths,
+                        null,
+                        null,
+                        typeResolution.Enums.ForSynthesizedMethod(columnarResolvedType),
+                        typeResolution.Structs.ForSynthesizedMethod(columnarResolvedType),
+                        typeResolution.Unions.ForSynthesizedMethod(columnarResolvedType)
+                    )
+                    ColumnarDeclineTrace.SetSourceFileId(localFn.SourceFileId)
+                    try {
+                        if (!localEmitter.EmitBody(localFn.BodyRoot, target.Item3 == ColumnarTypeOfPlanner.RequiredVoidType())) {return DeclineStatic("emit.body", "local function body emission declined", fn.Name + "." + localFn.Name, -1, 0)}
+                    }
+                    finally {
+                        ColumnarDeclineTrace.ClearSourceFileId()
+                    }
+                }
+            }
+        }
+
+        // Emit default interface method bodies (before finalizing interface types). The body runs with
+        // `_currentStruct` set to the interface def, so bare calls to other interface members lower through the
+        // same implicit-this call path as class/struct instance methods.
+        for job in interfaceMethodJobs {
+            mil := job.Item3.GetILGenerator()
+            methodSource := program.GetSourceForFileId(job.Item2.SourceFileId)
+            bodyTypeResolution := typeResolutionCatalog.For(
+                job.Item2.SourceFileId,
+                job.Item1.GenericParameters,
+                job.Item1.DeclaredTypeName)
+            emitter := new ColumnarIlEmitter(
+                job.Item2.BodyNodes,
+                methodSource,
+                job.Item5,
+                job.Item6,
+                job.Item4,
+                mil,
+                siblings,
+                enumRegistry,
+                structRegistry,
+                unionRegistry,
+                unionCaseRegistry,
+                job.Item1,
+                job.Item1,
+                false,
+                false,
+                columnarResolvedType,
+                lambdaCounter,
+                displayClasses,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                false,
+                referenceAssemblyPaths,
+                null,
+                job.Item1.GenericParameters,
+                bodyTypeResolution.Enums,
+                bodyTypeResolution.Structs,
+                bodyTypeResolution.Unions
+            )
+            ColumnarDeclineTrace.SetSourceFileId(job.Item2.SourceFileId)
+            try {
+                if (!emitter.EmitBody(job.Item2.BodyRoot, job.Item4 == ColumnarTypeOfPlanner.RequiredVoidType())) {
+                    interfaceDeclineInterface := job.Item1
+                    interfaceDeclineBuilder := interfaceDeclineInterface.Builder
+                    interfaceDeclineBuilderName := interfaceDeclineBuilder.get_Name()
+                    interfaceDeclinePrefix := interfaceDeclineBuilderName + "."
+                    interfaceDeclineMethod := job.Item2
+                    interfaceDeclineMethodName := interfaceDeclineMethod.Name
+                    interfaceDeclineMember := interfaceDeclinePrefix + interfaceDeclineMethodName
+                    return DeclineStatic("emit.body", "default interface method body emission declined", interfaceDeclineMember, -1, 0)
+                }
+            }
+            finally {
+                ColumnarDeclineTrace.ClearSourceFileId()
+            }
+        }
+
+        // Emit the `<InitializeFields>$` helper before the constructors that call it. The N# constructor parser
+        // builds these bodies as assignment statements (`field = initializer`) using the same columnar node shape
+        // as constructor bodies; the helper carries ONLY the mutable-field stores (ColumnarFieldInitPlanner's
+        // HelperOrdinals) — readonly stores are emitted inline in each constructor instead, since an initonly
+        // store is unverifiable outside a `.ctor`. N# declares and schedules the helper; recursive expression/body
+        // lowering for each scheduled ordinal remains C# compiler debt in this pass.
+        for job in structInitializerJobs {
+            mil := job.Builder.GetILGenerator()
+            ctorSource := program.GetSourceForFileId(job.Ctor.Body.SourceFileId)
+            bodyTypeResolution := typeResolutionCatalog.For(
+                job.Ctor.Body.SourceFileId,
+                job.Struct.GenericParameters,
+                job.Struct.DeclaredTypeName)
+            emitter := new ColumnarIlEmitter(
+                job.Ctor.Body.BodyNodes,
+                ctorSource,
+                new Dictionary<string, int>(StringComparer.Ordinal),
+                new Dictionary<string, Type>(StringComparer.Ordinal),
+                ColumnarTypeOfPlanner.RequiredVoidType(),
+                mil,
+                siblings,
+                enumRegistry,
+                structRegistry,
+                unionRegistry,
+                unionCaseRegistry,
+                job.Struct,
+                null,
+                false,
+                true,
+                columnarResolvedType,
+                lambdaCounter,
+                displayClasses,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                false,
+                referenceAssemblyPaths,
+                null,
+                job.Struct.GenericParameters,
+                bodyTypeResolution.Enums,
+                bodyTypeResolution.Structs,
+                bodyTypeResolution.Unions
+            )
+            ColumnarDeclineTrace.SetSourceFileId(job.Ctor.Body.SourceFileId)
+            try {
+                if (!emitter.EmitSelectedInitializerStatements(job.Ctor.Body.BodyRoot, job.Struct.InstanceInitializerPlan.HelperOrdinals)) {
+                    initializerDeclineStruct := job.Struct
+                    initializerDeclineBuilder := initializerDeclineStruct.Builder
+                    initializerDeclineBuilderName := initializerDeclineBuilder.get_Name()
+                    initializerDeclineMember := initializerDeclineBuilderName + ".<InitializeFields>$"
+                    return DeclineStatic("emit.body", "instance field initializer emission declined", initializerDeclineMember, -1, 0)
+                }
+                mil.Emit(OpCodes.Ret)
+            }
+            finally {
+                ColumnarDeclineTrace.ClearSourceFileId()
+            }
+        }
+
+        // Emit struct method bodies (before finalizing the struct types). An INSTANCE body runs with
+        // `_currentStruct` set so bare field names resolve to `ldarg.0; ldfld` (`this` is arg 0). A STATIC body
+        // runs with `_currentStruct` NULL — there is no instance, so every implicit-`this` path (bare fields, bare
+        // instance-method calls) structurally cannot fire and such programs decline (the N# pipeline rejects them)
+        // — while `_enclosingType` still anchors bare STATIC-method resolution on the type's own chain. Methods may
+        // `call` top-level funcs (siblings); a forward `call` to any MethodBuilder resolves at Save.
+        for job in structMethodJobs {
+            mil := job.Item3.GetILGenerator()
+            methodSource := program.GetSourceForFileId(job.Item2.SourceFileId)
+            // TYPE-MEMBER GENERATORS (a body containing `yield`; method modifier facts do not carry the
+            // generator bit, so the planner's structural scan detects them): lower through the member
+            // iterator host — the `this` receiver hoists as a captured field and the method body becomes
+            // the factory. Unsupported shapes decline at the planner's site.
+            if (ColumnarIteratorPlanner.ContainsYield(job.Item2.BodyNodes, job.Item2.BodyRoot)) {
+                bodyTypeResolution2 := typeResolutionCatalog.For(job.Item2.SourceFileId, null, null)
+                ColumnarDeclineTrace.SetSourceFileId(job.Item2.SourceFileId)
+                try {
+                    if (!TryEmitMemberIterator(
+                        module, job.Item1, job.Item2, job.Item3, job.Rest.Item2, program,
+                        bodyTypeResolution2, methodSource, displayClasses, lambdaCounter)) {return false}
+                }
+                finally {
+                    ColumnarDeclineTrace.ClearSourceFileId()
+                }
+                continue
+            }
+            bodyTypeResolution := typeResolutionCatalog.For(
+                job.Item2.SourceFileId,
+                job.Item1.GenericParameters,
+                job.Item1.DeclaredTypeName)
+            methodJobNodes := job.Item2.BodyNodes
+            methodJobSource := methodSource
+            methodJobOrdinals := job.Item7
+            methodJobParamTypes := job.Rest.Item1
+            methodJobBodyReturnType := job.Item5
+            methodJobIl := mil
+            methodJobSiblings := siblings
+            methodJobEnumRegistry := enumRegistry
+            methodJobStructRegistry := structRegistry
+            methodJobUnionRegistry := unionRegistry
+            methodJobUnionCaseRegistry := unionCaseRegistry
+            let methodJobCurrentStruct: ColumnarStructDef? = null
+            methodJobIsStatic := job.Rest.Item2
+            if (!methodJobIsStatic) {
+                methodJobCurrentStruct = job.Item1
+            }
+            emitter := new ColumnarIlEmitter(
+                methodJobNodes,
+                methodJobSource,
+                methodJobOrdinals,
+                methodJobParamTypes,
+                methodJobBodyReturnType,
+                methodJobIl,
+                methodJobSiblings,
+                methodJobEnumRegistry,
+                methodJobStructRegistry,
+                methodJobUnionRegistry,
+                methodJobUnionCaseRegistry,
+                methodJobCurrentStruct,
+                job.Item1,
+                false,
+                false,
+                columnarResolvedType,
+                lambdaCounter,
+                displayClasses,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                job.Item6,
+                match job.Item2.ReturnCanonical {
+                    "Task" => true,
+                    "ValueTask" => true,
+                    _ => false
+                },
+                referenceAssemblyPaths,
+                null,
+                job.Item1.GenericParameters,
+                bodyTypeResolution.Enums,
+                bodyTypeResolution.Structs,
+                bodyTypeResolution.Unions
+            )
+            // A property SETTER body is void (it assigns a field and falls through); a method/getter is a value
+            // function (always-returns). EmitBody handles both — pass isVoid by the job's declared return type.
+            ColumnarDeclineTrace.SetSourceFileId(job.Item2.SourceFileId)
+            try {
+                if (!emitter.EmitBody(job.Item2.BodyRoot, job.Item5 == ColumnarTypeOfPlanner.RequiredVoidType())) {
+                    memberDeclineStruct := job.Item1
+                    memberDeclineBuilder := memberDeclineStruct.Builder
+                    memberDeclineBuilderName := memberDeclineBuilder.get_Name()
+                    memberDeclinePrefix := memberDeclineBuilderName + "."
+                    memberDeclineMethod := job.Item2
+                    memberDeclineMethodName := memberDeclineMethod.Name
+                    memberDeclineMember := memberDeclinePrefix + memberDeclineMethodName
+                    return DeclineStatic("emit.body", "member body emission declined", memberDeclineMember, -1, 0)
+                }
+            }
+            finally {
+                ColumnarDeclineTrace.ClearSourceFileId()
+            }
+        }
+
+        // Emit the deferred synthesized default constructors (PASS 0d). Each chains to its base (or object),
+        // runs inline readonly initializers, then calls the mutable-field helper when one exists.
+        for job in structDefaultCtorJobs {
+            dcil := job.Builder.GetILGenerator()
+            ColumnarConstructorDeclarationPlanner.EmitCtorBaseChain(dcil, job.Struct, objectCtor)
+            if (!EmitInlineInstanceInitializers(dcil, job.Struct, program, typeResolutionCatalog, siblings, enumRegistry, structRegistry, unionRegistry, unionCaseRegistry, columnarResolvedType, lambdaCounter, displayClasses, referenceAssemblyPaths)) {
+                defaultCtorDeclineStruct := job.Struct
+                defaultCtorDeclineBuilder := defaultCtorDeclineStruct.Builder
+                defaultCtorDeclineBuilderName := defaultCtorDeclineBuilder.get_Name()
+                defaultCtorDeclineMember := defaultCtorDeclineBuilderName + ".constructor"
+                return DeclineStatic("emit.body", "default constructor inline field initializer emission declined", defaultCtorDeclineMember, -1, 0)
+            }
+            ColumnarConstructorDeclarationPlanner.EmitInstanceInitializerCall(dcil, job.Struct)
+            dcil.Emit(OpCodes.Ret)
+        }
+
+        // Emit user-constructor bodies. Each chains to the base `object` ctor first (`ldarg.0; call object::.ctor()`),
+        // then emits the ctor body (field assignments via the reference-type field-write path), with `_currentStruct`
+        // set and the ctor's param ordinals (arg 0 = `this`). The body is VOID (no return value), so EmitBody(isVoid:
+        // true) appends a trailing `ret` where control falls through.
+        for job in structCtorJobs {
+            cil := job.Builder.GetILGenerator()
+            ctorSource := program.GetSourceForFileId(job.Ctor.Body.SourceFileId)
+            bodyTypeResolution := typeResolutionCatalog.For(
+                job.Ctor.Body.SourceFileId,
+                job.Struct.GenericParameters,
+                job.Struct.DeclaredTypeName)
+            emitter := new ColumnarIlEmitter(
+                job.Ctor.Body.BodyNodes,
+                ctorSource,
+                job.Ordinals,
+                job.ParamTypes,
+                ColumnarTypeOfPlanner.RequiredVoidType(),
+                cil,
+                siblings,
+                enumRegistry,
+                structRegistry,
+                unionRegistry,
+                unionCaseRegistry,
+                job.Struct,
+                null,
+                true,
+                job.Ctor.IsSynthesizedInitializer,
+                columnarResolvedType,
+                lambdaCounter,
+                displayClasses,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                false,
+                referenceAssemblyPaths,
+                null,
+                job.Struct.GenericParameters,
+                bodyTypeResolution.Enums,
+                bodyTypeResolution.Structs,
+                bodyTypeResolution.Unions
+            )
+            ColumnarDeclineTrace.SetSourceFileId(job.Ctor.Body.SourceFileId)
+            try {
+                if (job.Ctor.ChainInitKind != 0) {
+                    // A `: this(...)` (kind 1) or `: base(...)` (kind 2) CHAINING constructor delegates field assignment
+                    // to the chained ctor, so the NL304 all-fields-assigned check does NOT apply (empirically pinned for
+                    // BOTH kinds against the N# pipeline) — but `return` is still forbidden (NL103). Emit the chained
+                    // call (resolved by chain-arg count among the same type's / the base type's ctors) in place of the
+                    // base object ctor, then the body.
+                    if (ColumnarMethodBodyPlanner.ContainsReturnStatement(job.Ctor.Body.BodyNodes, job.Ctor.Body.BodyRoot)) {return false}
+                    if (!ColumnarConstructorDeclarationPlanner.EmitChainedConstructorCall(
+                            job.Ctor, job.Builder, job.Struct, job.Ordinals, job.ParamTypes,
+                            bodyTypeResolution.Structs, structRegistry, cil)) {return false}
+                    // A `: base(...)` ctor runs field initializers (readonly inline, then the mutable helper); a
+                    // `: this(...)` ctor does not — the delegated-to ctor already ran them.
+                    if (job.Ctor.ChainInitKind == 2) {
+                        if (!EmitInlineInstanceInitializers(cil, job.Struct, program, typeResolutionCatalog, siblings, enumRegistry, structRegistry, unionRegistry, unionCaseRegistry, columnarResolvedType, lambdaCounter, displayClasses, referenceAssemblyPaths)) {
+                            chainedCtorDeclineStruct := job.Struct
+                            chainedCtorDeclineBuilder := chainedCtorDeclineStruct.Builder
+                            chainedCtorDeclineBuilderName := chainedCtorDeclineBuilder.get_Name()
+                            chainedCtorDeclineMember := chainedCtorDeclineBuilderName + ".constructor"
+                            return DeclineStatic("emit.body", "constructor inline field initializer emission declined", chainedCtorDeclineMember, -1, 0)
+                        }
+                        ColumnarConstructorDeclarationPlanner.EmitInstanceInitializerCall(cil, job.Struct)
+                    }
+                }
+                else {if (job.Struct.IsReference) {
+                    // A non-chaining ctor must (1) contain no `return` (NL103) and (2) assign every OWN field (NL304 —
+                    // inherited fields are the base ctor's responsibility). Synthesized initializer constructors
+                    // produced from class/record declarations may leave fields at their CLR defaults; explicit
+                    // constructors keep the all-fields-assigned check. Validate BEFORE emitting — declining here discards
+                    // the whole assembly (→ N# backend path). Then chain implicitly: to the declared base's parameterless
+                    // ctor when the type has one (decline when the base offers only parameterized ctors — ECMA-335
+                    // requires chaining to the DIRECT base, and the N# pipeline rejects the implicit chain), else to the
+                    // `object` ctor.
+                    if (job.Ctor.IsSynthesizedInitializer
+                        ? ColumnarMethodBodyPlanner.ContainsReturnStatement(job.Ctor.Body.BodyNodes, job.Ctor.Body.BodyRoot)
+                        : !ColumnarConstructorDeclarationPlanner.IsValidReferenceCtorBody(
+                            job.Ctor.Body.BodyNodes, ctorSource, job.Struct, job.Ctor.Body.BodyRoot)) {return false}
+                    if (job.Struct.BaseDef != null && ColumnarConstructorDeclarationPlanner.ResolveParameterlessCtor(job.Struct.BaseDef) == null) {return false} // base has only parameterized ctors — `: base(...)` is required.
+                    ColumnarConstructorDeclarationPlanner.EmitCtorBaseChain(cil, job.Struct, objectCtor)
+                    // Readonly initializers inline (verifiable only in a `.ctor`), then the mutable-field helper.
+                    if (!EmitInlineInstanceInitializers(cil, job.Struct, program, typeResolutionCatalog, siblings, enumRegistry, structRegistry, unionRegistry, unionCaseRegistry, columnarResolvedType, lambdaCounter, displayClasses, referenceAssemblyPaths)) {
+                        implicitCtorDeclineStruct := job.Struct
+                        implicitCtorDeclineBuilder := implicitCtorDeclineStruct.Builder
+                        implicitCtorDeclineBuilderName := implicitCtorDeclineBuilder.get_Name()
+                        implicitCtorDeclineMember := implicitCtorDeclineBuilderName + ".constructor"
+                        return DeclineStatic("emit.body", "constructor inline field initializer emission declined", implicitCtorDeclineMember, -1, 0)
+                    }
+                    ColumnarConstructorDeclarationPlanner.EmitInstanceInitializerCall(cil, job.Struct)
+                }
+                else {
+                    // VALUE-TYPE ctor: no base chain (value types don't chain), and NO all-fields-assigned
+                    // validation — the legacy emitter ACCEPTS partial assignment in struct ctors (probed: unassigned
+                    // fields keep the zero-initialized value). Only `return` is forbidden (NL103).
+                    if (ColumnarMethodBodyPlanner.ContainsReturnStatement(job.Ctor.Body.BodyNodes, job.Ctor.Body.BodyRoot)) {return false}
+                }}
+                // A synthesized NEWTYPE ctor has an empty body; it assigns its single parameter
+                // to the Value field directly (the legacy synthetic record's primary-ctor contract).
+                let newtypeValueField: System.Reflection.Emit.FieldBuilder? = null
+                if (job.Struct.IsNewtype && job.Struct.Fields.TryGetValue("Value", out  newtypeValueField)) {
+                    cil.Emit(OpCodes.Ldarg_0)
+                    cil.Emit(OpCodes.Ldarg_1)
+                    cil.Emit(OpCodes.Stfld, newtypeValueField)
+                }
+                if (!emitter.EmitBody(job.Ctor.Body.BodyRoot,  true)) {
+                    ctorBodyDeclineStruct := job.Struct
+                    ctorBodyDeclineBuilder := ctorBodyDeclineStruct.Builder
+                    ctorBodyDeclineBuilderName := ctorBodyDeclineBuilder.get_Name()
+                    ctorBodyDeclineMember := ctorBodyDeclineBuilderName + ".constructor"
+                    return DeclineStatic("emit.body", "constructor body emission declined", ctorBodyDeclineMember, -1, 0)
+                }
+            }
+            finally {
+                ColumnarDeclineTrace.ClearSourceFileId()
+            }
+        }
+
+        // Finalize the struct types before the Program type (the spike's ordering). Struct fields are already
+        // defined, so CreateType bakes the type metadata; methods that reference un-finalized builders resolve to
+        // the finalized types at Save. Enums were baked in pass 0 because no later user type can affect them.
+        // Interfaces bake BEFORE their implementers, and base interfaces bake before derived interfaces.
+        ColumnarInterfaceRealization.FinalizeInterfaces(interfaces, interfaceDefsInOrder, interfaceDepths)
+        // Struct/class types bake BASE-BEFORE-DERIVED (depth ascending): CreateType on a derived TypeBuilder
+        // requires its parent to be created first. Depth 0 (no base) covers every value-type struct and standalone
+        // class, so the no-inheritance ordering is unchanged.
+        for depth := 0; depth < structs.Count; depth++ {
+            for s := 0; s < structs.Count; s++ {
+                if (structDepths[s] == depth) {structBuilders[s].CreateType()}
+            }
+        }
+        // Union types: a NESTED case must be finalized BEFORE its enclosing base (deepest-first),
+        // so create every case, then every base.
+        for caseTb in unionCaseBuilders {caseTb.CreateType()}
+        for baseTb in unionBaseBuilders {baseTb.CreateType()}
+
+        // Display classes (capturing lambdas) bake BEFORE the Program type (closure-types-first; their
+        // instance methods are ldftn'd from Program bodies). Executable finalization — the legacy SaveAssembly
+        // rule: an exe serializes through ManagedPEBuilder with the entry-point token set (Save never writes
+        // one); an async `main` cannot BE the entry point (returns Task/Task<T>), so a sync __NSharpEntryPoint
+        // wrapper blocks on GetAwaiter().GetResult(), declared BEFORE CreateType() so it bakes with Program.
+        // TEST DECLARATIONS consume planned attributes and the standard body emitter.
+        if (declarationPlan.CustomAttributes.TestBlobs.Length > 0) {
+            let factAttributeType: System.Type = null
+            let traitAttributeType: System.Type = null
+            try {
+                factAttributeType = ColumnarCompilerReferenceResolver.ResolveTestFrameworkType("Xunit.FactAttribute", referenceAssemblyPaths, ["xunit.core", "xunit.v3.core"])
+                traitAttributeType = ColumnarCompilerReferenceResolver.ResolveTestFrameworkType("Xunit.TraitAttribute", referenceAssemblyPaths, ["xunit.core", "xunit.v3.core"])
+            }
+            catch ignoredTestFrameworkResolution: InvalidOperationException {
+                return DeclineStatic("emit.tests.framework", "xunit attribute types were not resolvable in this emit host", "NSharpTests", -1, 0)
+            }
+
+            traitCtor := traitAttributeType.GetConstructor([typeof(string), typeof(string)])
+            factCtor := factAttributeType.GetConstructor(Type.EmptyTypes)
+            if (traitCtor == null || factCtor == null) {return DeclineStatic("emit.tests.framework", "xunit attribute constructors were not resolvable", "NSharpTests", -1, 0)}
+
+            testType := module.DefineType("NSharpTests", TypeAttributes.Public | TypeAttributes.Class)
+            usedTestMethodNames := new HashSet<string>(StringComparer.Ordinal)
+            for testIndex := 0; testIndex < declarationPlan.CustomAttributes.TestBlobs.Length; testIndex++ {
+                testInput := program.Tests[testIndex]
+                methodName := TestDescriptionToMethodName(testInput.Description)
+                if (!usedTestMethodNames.Add(methodName)) {
+                    suffix := 2
+                    uniqueTestMethodNameAdded := false
+                    while (!uniqueTestMethodNameAdded) {
+                        uniqueTestMethodNames := usedTestMethodNames
+                        uniqueTestMethodNameCandidate := methodName + "_" + suffix.ToString()
+                        uniqueTestMethodNameAdded = uniqueTestMethodNames.Add(uniqueTestMethodNameCandidate)
+                        if (!uniqueTestMethodNameAdded) {suffix++}
+                    }
+                    methodName = methodName + "_" + suffix.ToString()
+                }
+
+                testMethod := testType.DefineMethod(methodName, MethodAttributes.Public | MethodAttributes.HideBySig, ColumnarTypeOfPlanner.RequiredVoidType(), Type.EmptyTypes)
+                ColumnarAttributeBlobs.ApplyToTestMethod(testMethod, traitCtor, factCtor, declarationPlan.CustomAttributes.TestConstructorSlots, declarationPlan.CustomAttributes.TestBlobs[testIndex])
+
+                testBody := testInput.Body
+                testIl := testMethod.GetILGenerator()
+                testSource := program.GetSourceForFileId(testBody.SourceFileId)
+                testTypeResolution := typeResolutionCatalog.For(testBody.SourceFileId, null, null)
+                testEmitter := new ColumnarIlEmitter(
+                    testBody.BodyNodes,
+                    testSource,
+                    new Dictionary<string, int>(StringComparer.Ordinal),
+                    new Dictionary<string, Type>(StringComparer.Ordinal),
+                    ColumnarTypeOfPlanner.RequiredVoidType(),
+                    testIl,
+                    siblings,
+                    enumRegistry,
+                    structRegistry,
+                    unionRegistry,
+                    unionCaseRegistry,
+                    null,
+                    null,
+                    false,
+                    false,
+                    columnarResolvedType,
+                    lambdaCounter,
+                    displayClasses,
+                    null,
+                    null,
+                    null,
+                    null,
+                    siblingReturnTupleNames,
+                    null,
+                    null,
+                    null,
+                    false,
+                    referenceAssemblyPaths,
+                    null,
+                    null,
+                    testTypeResolution.Enums,
+                    testTypeResolution.Structs,
+                    testTypeResolution.Unions
+                )
+                ColumnarDeclineTrace.SetSourceFileId(testBody.SourceFileId)
+                try {
+                    if (!testEmitter.EmitBody(testBody.BodyRoot, true)) {return DeclineStatic("emit.tests.body", "test body emission declined", "test " + testInput.Description, -1, 0)}
+                }
+                finally {
+                    ColumnarDeclineTrace.ClearSourceFileId()
+                }
+            }
+
+            testType.CreateType()
+        }
+
+        entryPointMethod: MethodBuilder? = null
+        if (!ColumnarEntryPointRealization.TryEmit(
+            isExecutable,
+            funcs,
+            methods,
+            asyncWrappedByFunc,
+            paramTypesByFunc,
+            asyncInnerByFunc,
+            columnarResolvedType,
+            structRegistry,
+            typeResolutionCatalog,
+            out entryPointMethod)) {
+            return false
+        }
+
+        for displayTb in displayClasses {displayTb.CreateType()}
+        columnarResolvedType.CreateType()
+        stream := new MemoryStream()
+        try {
+            if (entryPointMethod != null) {
+                let ilStream: System.Reflection.Metadata.BlobBuilder? = null
+                let mappedFieldData: System.Reflection.Metadata.BlobBuilder? = null
+                metadataBuilder := builder.GenerateMetadata(out  ilStream, out  mappedFieldData)
+                peHeader := System.Reflection.PortableExecutable.PEHeaderBuilder.CreateExecutableHeader()
+                peMetadataRoot := new System.Reflection.Metadata.Ecma335.MetadataRootBuilder(metadataBuilder, null, false)
+                peIlStream := ilStream
+                peMappedFieldData := mappedFieldData
+                peEntryPointToken := entryPointMethod.get_MetadataToken()
+                peEntryPointHandle := System.Reflection.Metadata.Ecma335.MetadataTokens.MethodDefinitionHandle(peEntryPointToken)
+                peBuilder := new System.Reflection.PortableExecutable.ManagedPEBuilder(
+                    peHeader,
+                    peMetadataRoot,
+                    peIlStream,
+                    peMappedFieldData,
+                    null,
+                    null,
+                    null,
+                    128,
+                    peEntryPointHandle,
+                    System.Reflection.PortableExecutable.CorFlags.ILOnly,
+                    null
+                )
+                peBlob := new System.Reflection.Metadata.BlobBuilder(256)
+                peBuilder.Serialize(peBlob)
+                peOutputStream: System.IO.Stream = stream
+                peBlob.WriteContentTo(peOutputStream)
+            }
+            else {
+                builder.Save(stream)
+            }
+
+            assembly = stream.ToArray()
+        }
+        finally {
+            stream.Dispose()
+        }
+        return true
+    }
+
+    // Emit a function body. A VALUE function (non-void) must always-return on every path (NL305) — else the IL
+    // would fall off the end with no `ret`; decline to the analyzer-validated product path. A VOID function (procedure) need not
+    // always-return: emit the body, then a trailing `ret` IFF control can fall through to the method end (when
+    // the body already always-returns via value-less `return`s, no trailing `ret` is emitted, so there is no
+    // unreachable code).
+    private func EmitBody(bodyRoot: int, isVoid: bool): bool {
+        // BODY FRONT DOOR (015-B3, widened in B4, B5, B6 and B7): the ORDINARY USER bodies the plan-row
+        // IR claims end to end — the void arity, and a run of `:=` declarations ending in a return of a
+        // literal, a bool, an identifier, a unary over a literal, a `nameof`, or a CALL. Offered ahead of
+        // every field below: no shape ColumnarMethodBodyPlanner accepts holds a lambda, a branch or a
+        // region, and its LOCALS live in the plan's own pool, so none of this emitter's live maps is
+        // written. The claim is total — the planner produces every byte or declines and this method emits
+        // as ever. ASYNC is excluded: its returns wrap and leave to a shared tail (below).
+        if (_asyncReturnType == null) {
+            bodyPlan := new ColumnarCodePlan()
+            if (ColumnarMethodBodyPlanner.TryPlanBody(
+                    _nodes, _source, bodyRoot, _returnType, isVoid, _paramOrdinals, _paramTypes, _locals,
+                    _enumRegistry, _liftedLocals, _boxedCaptures, _currentStruct, _enclosingType,
+                    _structRegistry.get_Values(), _unionRegistry.get_Values(), _tupleNamesByVariable,
+                    _enclosingBindingNames, _siblings.get_Keys(), _visibleLocalFuncs, _typeParameters,
+                    ExactSourceTypesForBody(), _overflowCheckingEnabled, SiblingCallFacts(), bodyPlan,
+                    _typeResolutionStructs.StructuralTypeReferences)) {
+                ColumnarCodePlanExecutor.Execute(bodyPlan, _il)
+                return true
+            }
+        }
+        // The body root anchors the never-mutated capture scan (L3a): a lambda may capture an enclosing
+        // local/param only when NOTHING in this whole body writes it. Null inside a lambda's own
+        // sub-emitter (EmitExpression is entered directly), so nested capture chains decline.
+        _bodyRoot = bodyRoot
+        // L3b pre-scan: names captured by some lambda AND bare-assigned somewhere become LIFTED candidates
+        // (declared as shared StrongBox<T>); lifted PARAMS box-init here so every later read/write — in
+        // the body or any closure — goes through the one box.
+        liftedCandidates := _liftedCandidates
+        try {
+            ColumnarClosureBindingPlanner.ComputeLiftedCandidates(_nodes, _source, bodyRoot, ref liftedCandidates)
+        } finally {
+            _liftedCandidates = liftedCandidates
+        }
+        if (_liftedCandidates != null) {
+            for liftedParam in _liftedCandidates {
+                let liftedOrdinal: int = 0
+                if (!_paramOrdinals.TryGetValue(liftedParam, out  liftedOrdinal)) {continue}
+                liftedParamType := _paramTypes[liftedParam]
+                if (!ColumnarClosureBindingPlanner.IsLiftableValueType(liftedParamType)) {continue} // stays a plain param; a later capture of it declines (written, unlifted).
+                boxType := typeof(System.Runtime.CompilerServices.StrongBox<int>).GetGenericTypeDefinition().MakeGenericType([liftedParamType])
+                boxLocal := _il.DeclareLocal(boxType)
+                ColumnarArgumentInstructionEmitter.EmitLoad(_il, liftedOrdinal)
+                _il.Emit(OpCodes.Newobj, boxType.GetConstructor([liftedParamType]))
+                _il.Emit(OpCodes.Stloc, boxLocal)
+                _liftedLocals[liftedParam] = (boxLocal, liftedParamType)
+            }
+        }
+        if (_asyncReturnType != null) {
+            // ASYNC FAULT GUARD (the legacy emitter's BeginAsyncFaultGuard/EndAsyncFaultGuard): the whole
+            // body is ONE protected region — every return WRAPS its value and leaves to the shared
+            // tail; a UNIT body falling off the end wraps the completed task; the catch converts
+            // the thrown exception into a faulted task (Task.FromException, + the ValueTask ctor).
+            // Value bodies must still always-return (the analyzer's rule — unit-task asyncs are
+            // exempt). Nested try/lock statements decline via _inProtectedRegion (one region per
+            // body — the existing rung scope), so the guard's region nesting stays flat.
+            if (_asyncResultType != null && !AlwaysReturns(bodyRoot)) {return false}
+            _protectedResult = _il.DeclareLocal(_asyncReturnType)
+            _protectedDone = _il.DefineLabel()
+            _protectedDoneCreated = true
+            _inProtectedRegion = true
+            _il.BeginExceptionBlock()
+            asyncFallsThrough := _asyncResultType == null && !AlwaysReturns(bodyRoot)
+            if (!EmitStatement(bodyRoot)) {return false}
+            if (asyncFallsThrough) {
+                EmitWrappedAsyncCompletedReturn( false)
+                _il.Emit(OpCodes.Stloc, _protectedResult)
+                _il.Emit(OpCodes.Leave, _protectedDone)
+            }
+            _il.BeginCatchBlock(typeof(Exception))
+            EmitFaultedAsyncReturnMirror()
+            _il.Emit(OpCodes.Stloc, _protectedResult)
+            _il.Emit(OpCodes.Leave, _protectedDone)
+            _il.EndExceptionBlock()
+            _inProtectedRegion = false
+            _il.MarkLabel(_protectedDone)
+            _il.Emit(OpCodes.Ldloc, _protectedResult)
+            _il.Emit(OpCodes.Ret)
+            return true
+        }
+        if (!isVoid) {
+            if (!AlwaysReturns(bodyRoot)) {
+                return false
+            }
+            if (!EmitStatement(bodyRoot)) {return false}
+            EmitProtectedReturnTail( false)
+            return true
+        }
+        fallsThrough := !AlwaysReturns(bodyRoot)
+        if (!EmitStatement(bodyRoot)) {return false}
+        if (fallsThrough) {_il.Emit(OpCodes.Ret)}
+        EmitProtectedReturnTail( true)
+        return true
+    }
+
+    // Emit ONLY the selected top-level statements of a synthesized instance-field-initializer block, in the
+    // given order, into this emitter's IL stream — without any trailing `ret`. The placement is owned by N#
+    // (ColumnarFieldInitPlanner): the initonly-field initializers emitted inline in each constructor, or the
+    // mutable-field initializers emitted into the shared helper. The caller (a constructor body or the helper
+    // method) supplies the ILGenerator and appends its own control flow. Each selected statement is a
+    // top-level `field = value` assignment, so it lowers to `ldarg.0; <value>; stfld <field>`.
+    private func EmitSelectedInitializerStatements(bodyRoot: int, ordinals: IReadOnlyList<int>): bool {
+        if (_nodes.Kind(bodyRoot) != 25) {return false}
+        _bodyRoot = bodyRoot
+        liftedCandidates := _liftedCandidates
+        try {
+            ColumnarClosureBindingPlanner.ComputeLiftedCandidates(_nodes, _source, bodyRoot, ref liftedCandidates)
+        } finally {
+            _liftedCandidates = liftedCandidates
+        }
+        for i := 0; i < ordinals.Count; i++ {
+            ordinal := ordinals[i]
+            if (ordinal < 0 || ordinal >= _nodes.ChildCount(bodyRoot)) {return false}
+            if (!EmitStatement(Child(bodyRoot, ordinal))) {return false}
+        }
+        return true
+    }
+
+    // ASYNC mirror of the legacy emitter's EmitWrapCurrentAsyncReturn: wraps the (already-emitted) return
+    // value — or, with no value, the completed unit task — into the wrapped CLR return type.
+    // Unit + ValueTask -> default(ValueTask); unit + Task -> Task.CompletedTask;
+    // T + ValueTask<T> -> newobj ValueTask<T>(T); T + Task<T> -> Task.FromResult<T>(T).
+    private func EmitWrappedAsyncCompletedReturn(hasValueOnStack: bool): void {
+        if (_asyncResultType == null) {
+            if (_asyncReturnsValueTask) {
+                unitTemp := _il.DeclareLocal(typeof(System.Threading.Tasks.ValueTask))
+                _il.Emit(OpCodes.Ldloca, unitTemp)
+                _il.Emit(OpCodes.Initobj, typeof(System.Threading.Tasks.ValueTask))
+                _il.Emit(OpCodes.Ldloc, unitTemp)
+            }
+            else {
+                _il.Emit(OpCodes.Call,
+                    typeof(System.Threading.Tasks.Task).GetProperty(nameof(System.Threading.Tasks.Task.CompletedTask)).GetGetMethod())
+            }
+            return
+        }
+        if (!hasValueOnStack) {throw new InvalidOperationException("async value return requires the value on the stack")}
+        if (_asyncReturnsValueTask) {
+            _il.Emit(OpCodes.Newobj, _asyncReturnType.GetConstructor([_asyncResultType]))
+        }
+        else {
+            _il.Emit(OpCodes.Call, FindTaskStaticMethod("FromResult",  true).MakeGenericMethod([_asyncResultType]))
+        }
+    }
+
+    private static func FindTaskStaticMethod(methodName: string, generic: bool): MethodInfo {
+        for m in typeof(System.Threading.Tasks.Task).GetMethods(BindingFlags.Public | BindingFlags.Static) {
+            if (m.get_Name() == methodName && m.get_IsGenericMethodDefinition() == generic && m.GetParameters().Length == 1) {return m}
+        }
+        throw new InvalidOperationException($"Could not resolve Task.{methodName}")
+    }
+
+    // ASYNC mirror of the legacy emitter's EmitFaultedAsyncReturn: with an Exception on the stack, leaves a
+    // FAULTED task of the wrapped return type carrying it (Task.FromException(<T>), then the
+    // ValueTask(<T>) Task-wrapping ctor when the family is ValueTask).
+    private func EmitFaultedAsyncReturnMirror(): void {
+        if (_asyncResultType == null) {
+            _il.Emit(OpCodes.Call, FindTaskStaticMethod("FromException",  false))
+            if (_asyncReturnsValueTask) {_il.Emit(OpCodes.Newobj, typeof(System.Threading.Tasks.ValueTask).GetConstructor([typeof(System.Threading.Tasks.Task)]))}
+            return
+        }
+        _il.Emit(OpCodes.Call, FindTaskStaticMethod("FromException",  true).MakeGenericMethod([_asyncResultType]))
+        if (_asyncReturnsValueTask) {
+            taskOfT := typeof(System.Threading.Tasks.Task<int>).GetGenericTypeDefinition().MakeGenericType([_asyncResultType])
+            _il.Emit(OpCodes.Newobj, _asyncReturnType.GetConstructor([taskOfT]))
+        }
+    }
+
+    // ASYNC mirror of the legacy emitter's EmitAwaiterGetResult — the BLOCKING await: ValueTask(/T) spills
+    // and converts via AsTask() first; Task(/T) goes callvirt GetAwaiter() then the STRUCT awaiter
+    // spills for `call GetResult()`. Only the four BCL task shapes are modelled — any other
+    // awaitable declines (the legacy emitter's general GetAwaiter pattern is a later rung).
+    private func TryEmitBlockingAwait(awaitableType: Type, out resultType: Type): bool {
+        resultType = null
+        if (awaitableType == typeof(System.Threading.Tasks.ValueTask)) {
+            vtLocal := _il.DeclareLocal(awaitableType)
+            _il.Emit(OpCodes.Stloc, vtLocal)
+            _il.Emit(OpCodes.Ldloca, vtLocal)
+            _il.Emit(OpCodes.Call, awaitableType.GetMethod(nameof(System.Threading.Tasks.ValueTask.AsTask), Type.EmptyTypes))
+            return TryEmitBlockingAwait(typeof(System.Threading.Tasks.Task), out resultType)
+        }
+        if (awaitableType.get_IsGenericType() && !awaitableType.get_IsGenericTypeDefinition()
+            && awaitableType.GetGenericTypeDefinition() == typeof(System.Threading.Tasks.ValueTask<int>).GetGenericTypeDefinition()) {
+            vtLocal := _il.DeclareLocal(awaitableType)
+            _il.Emit(OpCodes.Stloc, vtLocal)
+            _il.Emit(OpCodes.Ldloca, vtLocal)
+            _il.Emit(OpCodes.Call,
+                ResolveClosedGenericMethod(awaitableType, typeof(System.Threading.Tasks.ValueTask<int>).GetGenericTypeDefinition().GetMethod("AsTask", Type.EmptyTypes)))
+            return TryEmitBlockingAwait(
+                typeof(System.Threading.Tasks.Task<int>).GetGenericTypeDefinition().MakeGenericType([awaitableType.GetGenericArguments()[0]]), out resultType)
+        }
+        if (awaitableType == typeof(System.Threading.Tasks.Task)) {
+            _il.Emit(OpCodes.Callvirt, awaitableType.GetMethod("GetAwaiter", Type.EmptyTypes))
+            awaiterType := typeof(System.Runtime.CompilerServices.TaskAwaiter)
+            awaiterLocal := _il.DeclareLocal(awaiterType)
+            _il.Emit(OpCodes.Stloc, awaiterLocal)
+            _il.Emit(OpCodes.Ldloca, awaiterLocal)
+            _il.Emit(OpCodes.Call, awaiterType.GetMethod("GetResult", Type.EmptyTypes))
+            resultType = ColumnarTypeOfPlanner.RequiredVoidType()
+            return true
+        }
+        if (awaitableType.get_IsGenericType() && !awaitableType.get_IsGenericTypeDefinition()
+            && awaitableType.GetGenericTypeDefinition() == typeof(System.Threading.Tasks.Task<int>).GetGenericTypeDefinition()) {
+            taskResult := awaitableType.GetGenericArguments()[0]
+            if (!ColumnarTypeOfPlanner.IsSupportedType(taskResult)) {return false}
+            _il.Emit(OpCodes.Callvirt,
+                ResolveClosedGenericMethod(awaitableType, typeof(System.Threading.Tasks.Task<int>).GetGenericTypeDefinition().GetMethod("GetAwaiter", Type.EmptyTypes)))
+            awaiterType := typeof(System.Runtime.CompilerServices.TaskAwaiter<int>).GetGenericTypeDefinition().MakeGenericType([taskResult])
+            awaiterLocal := _il.DeclareLocal(awaiterType)
+            _il.Emit(OpCodes.Stloc, awaiterLocal)
+            _il.Emit(OpCodes.Ldloca, awaiterLocal)
+            _il.Emit(OpCodes.Call,
+                ResolveClosedGenericMethod(awaiterType, typeof(System.Runtime.CompilerServices.TaskAwaiter<int>).GetGenericTypeDefinition().GetMethod("GetResult", Type.EmptyTypes)))
+            resultType = taskResult
+            return true
+        }
+        return false
+    }
+
+    // The single body-level tail every protected-region `return` leaves to (E2): `done: [ldloc result;] ret`.
+    // Emitted whenever ANY try exists — not only when a protected return targeted it: Reflection.Emit's
+    // implicit `leave`s (BeginCatchBlock/EndExceptionBlock) make the post-block position reachable in the
+    // JIT's view even when every region exits via `throw`, so an all-throws try/catch without this tail
+    // falls off a reachable method end (InvalidProgramException — probe-found, both pipelines).
+    private func EmitProtectedReturnTail(isVoid: bool): void {
+        if (!_protectedDoneCreated) {return}
+        _il.MarkLabel(_protectedDone)
+        if (!isVoid) {_il.Emit(OpCodes.Ldloc, _protectedResult)}
+        _il.Emit(OpCodes.Ret)
+    }
+
+    private func EmitStatement(idx: int): bool {
+        columnarSwitchValue0 := _nodes.Kind(idx)
+            if columnarSwitchValue0 == 25 { // Block — emit each statement in order.
+
+                // Block scoping: a `:=` local declared in this block leaves scope when the block ends, so a
+                // later reference (e.g. a loop-body local read after the loop) correctly resolves to nothing
+                // and declines, rather than reading a method-level slot that may be unassigned (invalid IL).
+                outerLocals := new HashSet<string>(_locals.Keys, StringComparer.Ordinal)
+                outerLifted := new HashSet<string>(_liftedLocals.Keys, StringComparer.Ordinal)
+                for n := 0; n < _nodes.ChildCount(idx); n++ {
+                    child := Child(idx, n)
+                    if (!EmitStatement(child)) {
+                        childOrdinalText := n.ToString()
+                        failedChildKind := _nodes.Kind(child)
+                        failedChildKindText := failedChildKind.ToString()
+                        return Decline(
+                            "emit.statement.block-child",
+                            "block child " + childOrdinalText + " (node kind " + failedChildKindText + ") could not be emitted",
+                            child)
+                    }
+                    // A statement that unconditionally transfers control — always-returns, or a direct
+                    // `break`/`continue` — must be the LAST in its block; anything after it is unreachable (an
+                    // NL312 diagnostic). Decline rather than emit code after the transfer `ret`/`br`, keeping the
+                    // analyzer-validated product path authoritative. (A break/continue nested inside an `if` is
+                    // conditional, so only a DIRECT break/continue child counts here.)
+                    transfers := AlwaysReturns(child) || _nodes.Kind(child) == 21 || _nodes.Kind(child) == 22
+                    if (transfers && n != _nodes.ChildCount(idx) - 1) {
+                        return Decline("emit.statement.unreachable-after-transfer", "block contains a statement after an unconditional transfer", child)
+                    }
+                }
+
+                blockLocals := new List<string>()
+                blockLocalKeys := _locals.get_Keys()
+                blockLocalEnumerator := blockLocalKeys.GetEnumerator()
+                try {
+                    while blockLocalEnumerator.MoveNext() {
+                        name := blockLocalEnumerator.get_Current()
+                        if (!outerLocals.Contains(name)) {blockLocals.Add(name)}
+                    }
+                } finally {
+                    blockLocalEnumerator.Dispose()
+                }
+
+                for name in blockLocals {_locals.Remove(name)}
+                blockLifted := new List<string>()
+                blockLiftedKeys := _liftedLocals.get_Keys()
+                blockLiftedEnumerator := blockLiftedKeys.GetEnumerator()
+                try {
+                    while blockLiftedEnumerator.MoveNext() {
+                        name := blockLiftedEnumerator.get_Current()
+                        if (!outerLifted.Contains(name)) {blockLifted.Add(name)}
+                    }
+                } finally {
+                    blockLiftedEnumerator.Dispose()
+                }
+                for name in blockLifted {_liftedLocals.Remove(name)}
+                return true
+
+
+            } else if columnarSwitchValue0 == 49 { // TryStatement [tryBlock, catch1..catchN] — each catch a kind-50 CatchClause (value
+                    // span = exception TYPE name, -1 = bare; children [nameIdent?, block]). The clauses
+                     // emit as sequential BeginCatchBlock(type) regions — first-match-in-declaration-order
+                     // natively (probe-pinned, incl. base-before-derived). BeginCatchBlock implicitly leaves
+                     // the prior region and PUSHES the typed exception — stloc the bound variable (fresh
+                     // block-scoped local; shadowing = NL316 decline) or Pop when unbound. Unknown/non-
+                     // whitelist exception types decline (the pipeline's catch-all defect #16 and dead-clause
+                     // defect #17 are inherited by neither). Returns inside any region go through the leave
+                     // tail; an optional trailing kind-25 child is the FINALLY block (E4); break/continue emit
+                     // `leave` when crossing the boundary. NESTED try declines (one level this rung).
+                if (_nodes.ChildCount(idx) < 2 || _inProtectedRegion) {return false}
+                if (_protectedResult == null && _returnType != ColumnarTypeOfPlanner.RequiredVoidType()) {_protectedResult = _il.DeclareLocal(_returnType)}
+                if (!_protectedDoneCreated) {
+                    _protectedDone = _il.DefineLabel()
+                    _protectedDoneCreated = true
+                }
+                _inProtectedRegion = true
+                _il.BeginExceptionBlock()
+                if (!EmitStatement(Child(idx, 0))) {return false}
+                for c := 1; c < _nodes.ChildCount(idx); c++ {
+                    clause := Child(idx, c)
+                    if (_nodes.Kind(clause) == 25) {
+                        // The FINALLY block (E4) — always the LAST child. BeginFinallyBlock implicitly
+                        // ends the prior region; EndExceptionBlock implicitly ends the handler.
+                        if (c != _nodes.ChildCount(idx) - 1) {return false}
+                        _il.BeginFinallyBlock()
+                        _inFinallyRegion = true
+                        finallyOk := EmitStatement(clause)
+                        _inFinallyRegion = false
+                        if (!finallyOk) {return false}
+                        break
+                    }
+                    if (_nodes.Kind(clause) != 50) {return false}
+                    let catchType: System.Type? = null
+                    if (!ColumnarCanonicalTypeResolver.TryResolveCatchType(_nodes, _source, clause, out  catchType)) {return false}
+                    _il.BeginCatchBlock(catchType)
+                    hasBinding := _nodes.ChildCount(clause) == 2
+                    catchVarName: string? = null
+                    if (hasBinding) {
+                        catchVarName = ColumnarNodeTextFacts.Text(_nodes, _source, Child(clause, 0))
+                        // Shadowing an existing binding — incl. one in an ENCLOSING function when this is a
+                        // nested body — is the pipeline's NL316 error; `_` is the discard spelling. Both
+                        // decline rather than model unverified semantics.
+                        if (catchVarName == "_" || ColumnarClosureBindingPlanner.IsVisibleBindingName(catchVarName, _locals, _paramOrdinals, _liftedLocals, _boxedCaptures, _enclosingBindingNames)) {return false}
+                        catchLocal := _il.DeclareLocal(catchType)
+                        _il.Emit(OpCodes.Stloc, catchLocal)
+                        _locals[catchVarName] = catchLocal
+                    }
+                    else {
+                        _il.Emit(OpCodes.Pop) // unbound catch discards the exception object.
+                    }
+                    if (!EmitStatement(Child(clause, _nodes.ChildCount(clause) - 1))) {return false}
+                    if (catchVarName != null) {_locals.Remove(catchVarName)} // the binding is scoped to its own clause.
+                }
+                _il.EndExceptionBlock()
+                _inProtectedRegion = false
+                return true
+
+
+            } else if columnarSwitchValue0 == 51 { // LockStatement [lockee, body] — `Monitor.Enter(obj); try { body } finally
+                    // { Monitor.Exit(obj) }`, the legacy emitter's EmitLock verbatim. The lockee must be a
+                     // REFERENCE value: the analyzer rejects value-type lockees with NL320 (legacy emitter
+                     // defect #21 fixed front-door; the CS0185 analog), so none can reach emit on the
+                     // production path — the decline below stays as this emitter's contract guard.
+                     // One protected region per body (nested forms decline), exactly as for try.
+                if (_nodes.ChildCount(idx) != 2 || _inProtectedRegion) {return false}
+                let lockeeType: System.Type? = null
+                if (!EmitExpression(Child(idx, 0), out  lockeeType)) {return false}
+                if (lockeeType.get_IsValueType() || lockeeType == ColumnarTypeOfPlanner.RequiredVoidType()) {return false} // value lockees are analyzer-rejected (NL320) — decline as a guard.
+                if (_protectedResult == null && _returnType != ColumnarTypeOfPlanner.RequiredVoidType()) {_protectedResult = _il.DeclareLocal(_returnType)}
+                if (!_protectedDoneCreated) {
+                    _protectedDone = _il.DefineLabel()
+                    _protectedDoneCreated = true
+                }
+                lockLocal := _il.DeclareLocal(typeof(object))
+                _il.Emit(OpCodes.Stloc, lockLocal)
+                _il.Emit(OpCodes.Ldloc, lockLocal)
+                _il.Emit(OpCodes.Call, typeof(System.Threading.Monitor).GetMethod(nameof(System.Threading.Monitor.Enter), [typeof(object)]))
+                _inProtectedRegion = true
+                _il.BeginExceptionBlock()
+                if (!EmitStatement(Child(idx, 1))) {return false}
+                _il.BeginFinallyBlock()
+                _inFinallyRegion = true
+                _il.Emit(OpCodes.Ldloc, lockLocal)
+                _il.Emit(OpCodes.Call, typeof(System.Threading.Monitor).GetMethod(nameof(System.Threading.Monitor.Exit), [typeof(object)]))
+                _inFinallyRegion = false
+                _il.EndExceptionBlock()
+                _inProtectedRegion = false
+                return true
+
+
+            } else if columnarSwitchValue0 == 48 { // Throw [exception] — `throw <expr>`: emit the exception REFERENCE and `throw`. The
+                    // expression must produce a System.Exception-derived reference (the whitelisted BCL
+                     // exception constructions; anything else declines — the analyzer's type rule stays
+                     // with the N# backend path).
+                let thrownType: System.Type? = null
+                if (_nodes.ChildCount(idx) != 1 || !EmitExpression(Child(idx, 0), out  thrownType)) {return false}
+                if (!typeof(Exception).IsAssignableFrom(thrownType)) {return false}
+                _il.Emit(OpCodes.Throw)
+                return true
+
+
+            } else if columnarSwitchValue0 == 56 { // Print [value] — `print <expr>`: evaluate the value, box a value type, and call
+                    // Console.WriteLine(object) — the legacy emitter's single canonical lowering
+                     // (EmitPrint parity: no per-type overload selection).
+                if (_nodes.ChildCount(idx) != 1) {return Decline("emit.print.shape", "print statement has an unsupported shape", idx)}
+                let printedType: System.Type? = null
+                if (!EmitExpression(Child(idx, 0), out  printedType)) {return Decline("emit.print.expression", "print expression could not be emitted", Child(idx, 0))}
+                if (printedType == ColumnarTypeOfPlanner.RequiredVoidType() || printedType.get_IsByRef() || printedType.get_IsPointer()) {return Decline("emit.print.type", "print expression type is not printable", Child(idx, 0))}
+                if (printedType.get_IsValueType()) {_il.Emit(OpCodes.Box, printedType)}
+                _il.Emit(OpCodes.Call, typeof(Console).GetMethod(nameof(Console.WriteLine), [typeof(object)]))
+                return true
+
+
+            } else if columnarSwitchValue0 == 20 { // Return [value?] — in a VOID function a value-less `return` emits a bare `ret`; in a VALUE
+                    // function a value is REQUIRED (a value-less `ret` with an empty stack is invalid IL) and its
+                     // type must match the declared return type (TypesEquivalent — two closed instantiations of one
+                     // user generic are distinct TypeBuilderInstantiation objects). A value-bearing `return` in a
+                     // void function, or a value-less one in a value function, declines (mismatched arity). A
+                     // generic-union case construction with NO type args ADOPTS the return type's arguments here
+                     // (`return new Opt.None` on `(): Opt<int>` — one of the two pipeline-accepted adoption sites).
+                if (_inFinallyRegion) {return false} // a return cannot leave a finally handler (illegal IL) — analyzer-
+                                  // rejected with NL319 (defect #20 fixed); decline as a guard.
+                if (_returnType == ColumnarTypeOfPlanner.RequiredVoidType()) {
+                    if (_nodes.ChildCount(idx) != 0) {return false}
+                    if (_inProtectedRegion) {
+                        if (_asyncReturnType != null) {
+                            // a bare `return` in a UNIT async body — legal ONLY when the unit-ness
+                            // is IMPLICIT (no annotation): the pipeline's NL305 unit-task exemption
+                            // covers fall-through bodies, and a bare return under an EXPLICIT
+                            // Task/ValueTask annotation is rejected as a non-value return path
+                            // (review-probe-pinned boundary). Wrap and route through the async tail.
+                            if (_asyncBareReturnDeclines) {return false}
+                            EmitWrappedAsyncCompletedReturn( false)
+                            _il.Emit(OpCodes.Stloc, _protectedResult)
+                        }
+                        _il.Emit(OpCodes.Leave, _protectedDone)
+                        return true
+                    }
+                    _il.Emit(OpCodes.Ret)
+                    return true
+                }
+                if (_nodes.ChildCount(idx) == 0) {return false}
+                retNode := Child(idx, 0)
+                let retType: System.Type = null
+                if (IsAdoptableUnionConstruction(retNode, _returnType)) {
+                    if (!EmitAdoptedUnionConstruction(retNode, _returnType, out retType)) {return false}
+                }
+                else {if (TryEmitTargetTypedNewAsType(retNode, _returnType, out retType)) {
+                    // `return new(args)` adopts the declared return type.
+                }
+                else {if (TryEmitIntLiteralAsType(retNode, _returnType, out retType)) {
+                    // `return 50` on a byte/uint/long/ulong function — the literal adopts the return type.
+                }
+                else {if (TryEmitCollectionLiteralAsType(retNode, _returnType, out retType)) {
+                    // target-typed collection literal return.
+                }
+                else {if (TryEmitArrayLiteralAsType(retNode, _returnType, out retType)) {
+                    // target-typed array literal return.
+                }
+                else {if (TryEmitNullLiteralAsType(retNode, _returnType, out retType)) {
+                    // `return null` on a reference-typed function.
+                }
+                else {if (ColumnarTypeOfPlanner.IsSupportedNullable(_returnType)) {
+                    // `return 5` / `return null` / `return n` on an int? function — the lifted
+                    // conversion OWNS the emission; failure declines the whole program.
+                    if (!TryEmitValueAsNullable(retNode, _returnType, out retType)) {
+                        return false
+                    }
+                }
+                else {if (!EmitExpression(retNode, out retType)) {
+                    return Decline("emit.return.expression", "return expression could not be emitted", retNode)
+                }}}}}}}}
+                if (!TypesEquivalent(retType, _returnType) && !TryEmitImplicitWidening(retType, _returnType) && !ColumnarReferenceCoercionPlanner.TryEmitInterfaceUpcast(retType, _returnType, _structRegistry, _il) && !ColumnarReferenceConversionFacts.TryEmitReferenceConversion(retType, _returnType) && !ColumnarReferenceCoercionPlanner.TryEmitObjectConversion(retType, _returnType, _structRegistry, _il) && !TryEmitAnonymousUnionConversion(retType, _returnType) && !TryEmitUserDefinedConversion(retType, _returnType,  false)) {
+                    return Decline("emit.return.type-mismatch", "return expression type '" + retType.FullName + "' does not match declared return type '" + _returnType.FullName + "'", retNode)
+                }
+                if (_inProtectedRegion) {
+                    // ASYNC: the INNER value wraps into the completed task before the store (the
+                    // legacy emitter's EmitWrapCurrentAsyncReturn before its structured return).
+                    if (_asyncReturnType != null) {EmitWrappedAsyncCompletedReturn( true)}
+                    // E2: `ret` is invalid inside try/catch — store + leave to the body tail (spike rule 1).
+                    _il.Emit(OpCodes.Stloc, _protectedResult)
+                    _il.Emit(OpCodes.Leave, _protectedDone)
+                    return true
+                }
+                _il.Emit(OpCodes.Ret)
+                return true
+
+
+            } else if columnarSwitchValue0 == 24 { // VariableDeclaration (`:=`): emit the initializer, declare a local of the initializer's
+                    // type (inferred), store into it.
+                name := ColumnarNodeTextFacts.Text(_nodes, _source, idx)
+                // Decline a local that shadows a parameter or redeclares a local — incl. a binding in an
+                // ENCLOSING function when this is a nested (lambda/local-func) body: N# treats shadowing as
+                // a diagnostic (NL316; a same-`:=` redeclaration as an error), which the spike does not
+                // model — declining keeps the analyzer-validated product path authoritative.
+                if (ColumnarClosureBindingPlanner.IsVisibleBindingName(name, _locals, _paramOrdinals, _liftedLocals, _boxedCaptures, _enclosingBindingNames)) {return Decline("emit.local.redeclaration-or-shadowing", "local declaration shadows or redeclares a visible binding '" + name + "'", idx)}
+                if (_nodes.ChildCount(idx) == 0) {return Decline("emit.local.missing-initializer", "local declaration has no modeled initializer", idx)}
+                // A ZERO-PARAM lambda initializer (`zero := () => 99` — L1c): the only `:=` lambda shape with
+                // no inference gap (param-ful `:=` lambdas are pipeline-rejected with NL203). The return type
+                // is INFERRED from the body, so the synthesized method's signature is set AFTER the body emits
+                // (spike-proven order); the local's type is Func<bodyType> (or Action for a void body).
+                if (_nodes.Kind(Child(idx, 0)) == 39) {
+                    let lambdaType: System.Type? = null
+                    if (!TryEmitInferredZeroParamLambda(Child(idx, 0), out  lambdaType)) {return Decline("emit.local.lambda-inference", "local lambda initializer could not be inferred", Child(idx, 0))}
+                    lambdaLocal := _il.DeclareLocal(lambdaType)
+                    _il.Emit(OpCodes.Stloc, lambdaLocal)
+                    _locals[name] = lambdaLocal
+                    return true
+                }
+                // A local of an open generic-parameter type (`y := x` inside a generic function, x: T) is legal —
+                // DeclareLocal over a GenericTypeParameterBuilder works (spike-proven) and loads/stores/returns
+                // of T flow by reference equality. T[] locals likewise.
+                let initType: System.Type? = null
+                if (!EmitExpression(Child(idx, 0), out  initType)) {
+                    return Decline("emit.local.initializer", "local initializer expression emission declined for '" + name + "'", Child(idx, 0))
+                }
+                if (!(initType.get_IsGenericParameter() || (initType.get_IsSZArray() && initType.GetElementType().get_IsGenericParameter()) || ColumnarTypeOfPlanner.IsSupportedType(initType))) {
+                    return Decline("emit.local.unsupported-type", "local initializer type is not supported for '" + name + "': " + initType.FullName, idx)
+                }
+                // L3b: a lifted candidate (captured by some lambda AND bare-assigned) declares as a shared
+                // StrongBox<T> — the init value is on the stack; wrap it. A non-liftable type stays plain
+                // (a later capture of it declines — written, unlifted).
+                if (_liftedCandidates != null && _liftedCandidates.Contains(name) && ColumnarClosureBindingPlanner.IsLiftableValueType(initType)) {
+                    liftBoxType := typeof(System.Runtime.CompilerServices.StrongBox<int>).GetGenericTypeDefinition().MakeGenericType([initType])
+                    liftBox := _il.DeclareLocal(liftBoxType)
+                    _il.Emit(OpCodes.Newobj, liftBoxType.GetConstructor([initType]))
+                    _il.Emit(OpCodes.Stloc, liftBox)
+                    _liftedLocals[name] = (liftBox, initType)
+                    return true
+                }
+                local := _il.DeclareLocal(initType)
+                _il.Emit(OpCodes.Stloc, local)
+                _locals[name] = local
+                // Tuple ELEMENT NAMES derived from the initializer (a named literal, an identifier copy,
+                // or a sibling call with a named return type) carry onto the local for member access.
+                inferredTupleNames := TupleNamesOfExpressionNode(Child(idx, 0))
+                if (inferredTupleNames != null) {_tupleNamesByVariable[name] = inferredTupleNames}
+                return true
+
+
+            } else if columnarSwitchValue0 == 40 { // TypedLocalDeclaration (`[let] name: Type = init` — L2): the DECLARED type's source
+                    // span rides in the value slot (whitespace-stripped to the canonical — canonicals never
+                     // contain spaces); children = [name Identifier, init]. A kind-39 lambda initializer is
+                     // typed CONTEXTUALLY from the declared delegate type (the L1b machinery — this is what
+                     // unlocks `let f: Func<int, int> = x => x + 1`); any other initializer must emit exactly
+                     // the declared type (a mismatch is pipeline-rejected NL202 — decline). `let` locals are
+                     // MUTABLE in N# (probe-pinned: `let n: int = 5  n = 6` runs), so a plain local suffices.
+                if (_nodes.ChildCount(idx) != 2 || _nodes.Kind(Child(idx, 0)) != 6) {return Decline("emit.typed-local.shape", "typed local declaration has an unsupported shape", idx)}
+                declaredName := ColumnarNodeTextFacts.Text(_nodes, _source, Child(idx, 0))
+                if (ColumnarClosureBindingPlanner.IsVisibleBindingName(declaredName, _locals, _paramOrdinals, _liftedLocals, _boxedCaptures, _enclosingBindingNames)) {return Decline("emit.typed-local.redeclaration-or-shadowing", "typed local declaration shadows or redeclares a visible binding '" + declaredName + "'", idx)}
+                typeCanonical := ColumnarTypeCanonicalizer.RemoveWhitespace(ColumnarNodeTextFacts.Text(_nodes, _source, idx))
+                // A NAMED tuple annotation (`let t: (x: int, y: int) = ...`) strips to the positional
+                // canonical for resolution; the names are recorded for member access below. (The BARE
+                // form with a tuple type is a production-grammar parse error — the kernel refuses it.)
+                tupleStrip := ColumnarTypeCanonicalizer.StripTupleElementNames(typeCanonical)
+                typeCanonical = tupleStrip.Canonical
+                declaredTupleNames := tupleStrip.Names
+                let declaredType: System.Type? = null
+                if (!TryResolveBodyType(typeCanonical, out  declaredType)
+                    || !ColumnarTypeOfPlanner.IsSupportedType(declaredType)) {return Decline("emit.typed-local.unsupported-type", "typed local declaration type is not supported for '" + declaredName + "': " + typeCanonical, idx)}
+                declaredInit := Child(idx, 1)
+                if (_nodes.Kind(declaredInit) == 39) {
+                    if (!TryEmitLambdaLiteral(declaredInit, declaredType)) {return false}
+                }
+                // A generic-union case construction with NO type args ADOPTS the declared type's arguments
+                // (`n: Opt<int> = new Opt.Some { value: 5 }` — the second pipeline-accepted adoption site).
+                else {if (IsAdoptableUnionConstruction(declaredInit, declaredType)) {
+                    let adoptedType: System.Type? = null
+                    if (!EmitAdoptedUnionConstruction(declaredInit, declaredType, out  adoptedType)
+                        || !TypesEquivalent(adoptedType, declaredType)) {return Decline("emit.typed-local.union-adoption", "typed local union construction could not adopt declared type for '" + declaredName + "'", declaredInit)}
+                }
+                else {let columnarDiscard7: System.Type = null
+                if (TryEmitTargetTypedNewAsType(declaredInit, declaredType, out columnarDiscard7)) {
+                    // `value: T = new(args)` adopts the declared type.
+                }
+                else {let columnarDiscard8: System.Type = null
+                if (TryEmitIntLiteralAsType(declaredInit, declaredType, out columnarDiscard8)) {
+                    // `b: byte = 200` / `u: ulong = 10` — the in-range literal adopts the declared type.
+                }
+                else {let columnarDiscard9: System.Type = null
+                if (TryEmitCollectionLiteralAsType(declaredInit, declaredType, out columnarDiscard9)) {
+                    // `values: List<T> = [a, b]` — the target collection type owns the element type.
+                }
+                else {let columnarDiscard10: System.Type = null
+                if (TryEmitArrayLiteralAsType(declaredInit, declaredType, out columnarDiscard10)) {
+                    // `values: T[] = [a, b]` — the target array type owns the element type.
+                }
+                else {let columnarDiscard11: System.Type = null
+                if (TryEmitNullLiteralAsType(declaredInit, declaredType, out columnarDiscard11)) {
+                    // `s: string? = null` (a `?`-annotated reference resolves to its element type).
+                }
+                else {if (ColumnarTypeOfPlanner.IsSupportedNullable(declaredType)) {
+                    // `n: int? = 5` / `= null` / `= v` — the lifted conversion owns the emission.
+                    let columnarDiscard12: System.Type = null
+                    if (!TryEmitValueAsNullable(declaredInit, declaredType, out columnarDiscard12)) {return Decline("emit.typed-local.nullable-conversion", "typed local nullable initializer could not convert for '" + declaredName + "'", declaredInit)}
+                }
+                else {
+                    let declaredInitType: System.Type? = null
+                    if (!EmitExpression(declaredInit, out  declaredInitType)) {return Decline("emit.typed-local.initializer", "typed local initializer expression emission declined for '" + declaredName + "'", declaredInit)}
+                    if (!TypesEquivalent(declaredInitType, declaredType) && !TryEmitImplicitWidening(declaredInitType, declaredType) && !ColumnarReferenceCoercionPlanner.TryEmitInterfaceUpcast(declaredInitType, declaredType, _structRegistry, _il) && !ColumnarReferenceConversionFacts.TryEmitReferenceConversion(declaredInitType, declaredType) && !ColumnarReferenceCoercionPlanner.TryEmitObjectConversion(declaredInitType, declaredType, _structRegistry, _il) && !TryEmitAnonymousUnionConversion(declaredInitType, declaredType) && !TryEmitUserDefinedConversion(declaredInitType, declaredType,  false)) {return Decline("emit.typed-local.type-mismatch", "typed local initializer type '" + declaredInitType.FullName + "' does not match declared type '" + declaredType.FullName + "' for '" + declaredName + "'", declaredInit)}
+                }}}}}}}}
+                // L3b: a lifted candidate declares as a shared StrongBox<T> (the L3b lift; lambda-typed
+                // initializers stay unlifted — a reassigned-and-captured delegate local declines later).
+                if (_nodes.Kind(declaredInit) != 39 && _liftedCandidates != null && _liftedCandidates.Contains(declaredName)
+                    && ColumnarClosureBindingPlanner.IsLiftableValueType(declaredType)) {
+                    typedBoxType := typeof(System.Runtime.CompilerServices.StrongBox<int>).GetGenericTypeDefinition().MakeGenericType([declaredType])
+                    typedBox := _il.DeclareLocal(typedBoxType)
+                    _il.Emit(OpCodes.Newobj, typedBoxType.GetConstructor([declaredType]))
+                    _il.Emit(OpCodes.Stloc, typedBox)
+                    _liftedLocals[declaredName] = (typedBox, declaredType)
+                    return true
+                }
+                declaredLocal := _il.DeclareLocal(declaredType)
+                _il.Emit(OpCodes.Stloc, declaredLocal)
+                _locals[declaredName] = declaredLocal
+                if (declaredTupleNames != null) {_tupleNamesByVariable[declaredName] = declaredTupleNames}
+                else {if (_nodes.Kind(declaredInit) != 39) {
+                    typedInitNames := TupleNamesOfExpressionNode(declaredInit)
+                    if (typedInitNames != null) {_tupleNamesByVariable[declaredName] = typedInitNames}
+                }}
+                return true
+
+
+            } else if columnarSwitchValue0 == 41 { // LocalFunctionDeclaration — the declaration itself emits NO IL (the method was
+                     // pre-declared before the body walk); reaching it makes the NAME visible (textual
+                     // scoping, probe-pinned). A kind-41 node NOT in the declared map is a nested-block
+                     // local function (scoping is a later rung) — decline.
+                let declaredLocalName: string? = null
+                if (_declaredLocalFuncNodes == null || !_declaredLocalFuncNodes.TryGetValue(idx, out  declaredLocalName)) {return false}
+                _visibleLocalFuncs.Add(declaredLocalName)
+                return true
+
+            } else if columnarSwitchValue0 == 27 { // If [condition, then, else?] — general form covering all four then/else
+                    // fall-through-vs-return combinations, with a fall-through merge label.
+                childCount := _nodes.ChildCount(idx)
+                if (childCount != 2 && childCount != 3) {return Decline("emit.if.shape", "if statement has an unsupported shape", idx)}
+                if (!EmitCondition(Child(idx, 0))) {return Decline("emit.if.condition", "if condition could not be emitted as a bool", Child(idx, 0))}
+
+                thenStmt := Child(idx, 1)
+                elseLabel := _il.DefineLabel()
+                _il.Emit(OpCodes.Brfalse, elseLabel)   // condition false -> else branch (or the merge end if no else)
+
+                // then-branch. Scope its `:=` locals so a BRACELESS `:=` does not leak past the if (a Block
+                // then-branch already self-scopes; this also covers the braceless single-statement form).
+                beforeThen := new HashSet<string>(_locals.Keys, StringComparer.Ordinal)
+                if (!EmitStatement(thenStmt)) {return Decline("emit.if.then", "if then-branch could not be emitted", thenStmt)}
+                columnarStringKeySnapshot0 := new List<string>(_locals.Keys)
+                for name in columnarStringKeySnapshot0 {
+                    if (!beforeThen.Contains(name)) {_locals.Remove(name)}
+                }
+
+                if (childCount == 2) {
+                    // if-WITHOUT-else (a guard clause): the brfalse already targets the merge. Both edges
+                    // reach it with an empty stack (a fall-through then-branch is net-zero; a returning
+                    // then-branch ends in `ret` and never reaches it).
+                    _il.MarkLabel(elseLabel)
+                    return true
+                }
+
+                // if-WITH-else. The unconditional branch over the else-block (and the end label it targets)
+                // are emitted ONLY when the then-branch can FALL THROUGH to them — exactly the EmitIf fix.
+                // If the then-branch always returns, that `br` is dead and would mark a label that could
+                // land at the bare method end (the EmitIf/EmitSwitch hazard). The function-level
+                // always-returns gate guarantees that when the if itself falls through (both branches
+                // fall, or one falls), a later statement follows, so the merge is never the bare method end.
+                thenFallsThrough := !AlwaysReturns(thenStmt)
+                endLabel := _il.DefineLabel()
+                if (thenFallsThrough) {_il.Emit(OpCodes.Br, endLabel)}
+                _il.MarkLabel(elseLabel)
+
+                elseStmt := Child(idx, 2)
+                beforeElse := new HashSet<string>(_locals.Keys, StringComparer.Ordinal)
+                if (!EmitStatement(elseStmt)) {return Decline("emit.if.else", "if else-branch could not be emitted", elseStmt)}
+                columnarStringKeySnapshot1 := new List<string>(_locals.Keys)
+                for name in columnarStringKeySnapshot1 {
+                    if (!beforeElse.Contains(name)) {_locals.Remove(name)}
+                }
+
+                if (thenFallsThrough) {_il.MarkLabel(endLabel)}
+                return true
+
+
+            } else if columnarSwitchValue0 == 23 { // ExpressionStatement — a SIMPLE `=` assignment (kind 14) to a `:=` local OR an array
+                    // element `a[i] = value`, OR a bare CALL statement (a void BCL call such as `Array.Fill(...)`,
+                     // `Array.Clear(...)`, `Array.Copy(...)`, `Array.Resize(...)`, `Array.Sort(...)`,
+                     // `Array.Reverse(...)`,
+                     // or a sibling/BCL call whose non-void result is discarded), OR a COMPOUND assignment
+                     // (`+=` `-=` `*=` `/=` on a bare local/param — lowered to load/op/store below).
+                expr := UnwrapParenthesizedNode(Child(idx, 0))
+
+                if (_nodes.Kind(expr) == 44) // a bare `n++` / `n--` statement — the stepped value is not kept.
+                {
+                    let columnarDiscard13: System.Type = null
+                    return TryEmitPostfixUnary(expr,  false, out columnarDiscard13)
+                }
+
+                if (_nodes.Kind(expr) == 9) // a bare call statement.
+                {
+                    // Emit the call. A void call (e.g. Array.Fill/Array.Clear/Array.Copy) leaves nothing on the stack; a
+                    // NON-void call leaves its result, which is unused in statement position — discard it with `pop` (exactly
+                    // what the N# backend path emits for a discarded call result, so the side effects + result are
+                    // identical). This is the `helper(args)`-as-statement idiom (e.g. LinterImports.nl clearing
+                    // flags for its side effect and ignoring the returned count).
+                    let callType: System.Type? = null
+                    if (!EmitExpression(expr, out  callType)) {
+                        return Decline("emit.expression-statement.call", "call expression statement could not be emitted", expr)
+                    }
+                    if (callType != ColumnarTypeOfPlanner.RequiredVoidType()) {_il.Emit(OpCodes.Pop)}
+                    return true
+                }
+
+                if (_nodes.Kind(expr) == 53) // `await expr` as a statement — legal in N# (the await-statement rule).
+                {
+                    // The blocking await of a UNIT task leaves nothing; a value task's awaited result is
+                    // discarded with `pop`, exactly like a bare call statement.
+                    let awaitStmtType: System.Type? = null
+                    if (!EmitExpression(expr, out  awaitStmtType)) {return Decline("emit.expression-statement.await", "await expression statement could not be emitted", expr)}
+                    if (awaitStmtType != ColumnarTypeOfPlanner.RequiredVoidType()) {_il.Emit(OpCodes.Pop)}
+                    return true
+                }
+
+                if (_nodes.Kind(expr) != 14) {return Decline("emit.expression-statement.unsupported", "expression statement is not a modeled assignment, call, await, or postfix mutation", expr)}
+                assignOp := ColumnarNodeTextFacts.Text(_nodes, _source, expr)
+                // COMPOUND assignment `target op= value` (`+=` `-=` `*=` `/=`) on a bare LOCAL/PARAM target —
+                // lowered to load/op/store with the binary operator's exact opcode selection (ulong divides
+                // unsigned; string `+=` is Concat; both sides must share one type). Lifted/boxed captures,
+                // member/index targets, `%=` (unparsed) and `??=` (nullability slice) decline.
+                if (assignOp == "+=" || assignOp == "-=" || assignOp == "*=" || assignOp == "/=") {
+                    compoundTarget := UnwrapParenthesizedNode(Child(expr, 0))
+                    // A COLLECTION indexer compound target (`d[k] += v` / `lst[i] += 1` — probe-pinned
+                    // working legacy-emitter side): receiver and index evaluate ONCE into temps (N#'s
+                    // single-evaluation semantics), then get_Item, the op, set_Item.
+                    if (_nodes.Kind(compoundTarget) == 10) {
+                        let idxRecvType: System.Type? = null
+                        if (!EmitExpression(Child(compoundTarget, 0), out  idxRecvType)
+                            || !IsSupportedIndexableCollectionType(idxRecvType)) {return false}
+                        // Builder-bound collections never have the scalar/string elements compound
+                        // assignment requires — decline BEFORE reflecting (plain GetMethod below
+                        // throws NotSupportedException on a TypeBuilderInstantiation).
+                        if (ColumnarTypeOfPlanner.ContainsBuilderBoundType(idxRecvType)) {return false}
+                        idxRecvDef := idxRecvType.GetGenericTypeDefinition()
+                        idxKeyType := idxRecvDef == typeof(List<int>).GetGenericTypeDefinition() ? typeof(int) : idxRecvType.GetGenericArguments()[0]
+                        idxElemType := idxRecvDef == typeof(List<int>).GetGenericTypeDefinition() ? idxRecvType.GetGenericArguments()[0] : idxRecvType.GetGenericArguments()[1]
+                        idxRecvTemp := _il.DeclareLocal(idxRecvType)
+                        _il.Emit(OpCodes.Stloc, idxRecvTemp)
+                        if (!EmitArg(compoundTarget, 1, idxKeyType)) {return false}
+                        idxKeyTemp := _il.DeclareLocal(idxKeyType)
+                        _il.Emit(OpCodes.Stloc, idxKeyTemp)
+                        _il.Emit(OpCodes.Ldloc, idxRecvTemp)
+                        _il.Emit(OpCodes.Ldloc, idxKeyTemp)
+                        _il.Emit(OpCodes.Ldloc, idxRecvTemp)
+                        _il.Emit(OpCodes.Ldloc, idxKeyTemp)
+                        _il.Emit(OpCodes.Callvirt, ResolveClosedGenericMethod(idxRecvType, idxRecvDef.GetMethod("get_Item")))
+                        let idxRhsType: System.Type? = null
+                        if (TryEmitIntLiteralAsType(Child(expr, 1), idxElemType, out  idxRhsType)) {
+                            // constant adoption (`lst[0] += 1` on a small-int element).
+                        }
+                        else {if (!EmitExpression(Child(expr, 1), out idxRhsType)) {
+                            return false
+                        }}
+                        if (!TypesEquivalent(idxRhsType, idxElemType)) {return false}
+                        if (idxElemType == typeof(string)) {
+                            if (assignOp != "+=") {return false}
+                            _il.Emit(OpCodes.Call, typeof(string).GetMethod(nameof(string.Concat), [typeof(string), typeof(string)]))
+                        }
+                        else {if (idxElemType == typeof(int) || idxElemType == typeof(long) || idxElemType == typeof(ulong)
+                            || idxElemType == typeof(double) || idxElemType == typeof(float)) {
+                            idxCompoundIl := _il
+                            idxCompoundOpCode :=
+                                assignOp == "+=" ? OpCodes.Add :
+                                assignOp == "-=" ? OpCodes.Sub :
+                                assignOp == "*=" ? OpCodes.Mul :
+                                idxElemType == typeof(ulong) ? OpCodes.Div_Un : OpCodes.Div
+                            idxCompoundIl.Emit(idxCompoundOpCode)
+                        }
+                        else {
+                            return false
+                        }}
+                        _il.Emit(OpCodes.Callvirt, ResolveClosedGenericMethod(idxRecvType, idxRecvDef.GetMethod("set_Item")))
+                        return true
+                    }
+                    // A MEMBER compound target (`s.X += 1`, `c.X += 1`, `o.i.X += 3` — the post-#22
+                    // legacy emitter shape): locator; dup; ldfld; value; op; stfld — the dup'd locator (an
+                    // address for value links, an object ref for reference links) makes the
+                    // read-modify-write hit the SAME storage. The scalar/string op set matches the
+                    // bare-local arm; decimal member compounds decline (unprobed — fallback).
+                    if (_nodes.Kind(compoundTarget) == 8) {
+                        let compoundChain: NSharpLang.Compiler.Columnar.ColumnarMemberWriteChain = new NSharpLang.Compiler.Columnar.ColumnarMemberWriteChain(null, -1, null, null, null)
+                        let compoundMemberField: System.Reflection.Emit.FieldBuilder? = null
+                        if (!TryResolveMemberWriteChain(Child(compoundTarget, 0), out  compoundChain)) {return false}
+                        compoundOwnerTb := compoundChain.ReceiverType as TypeBuilder
+                        if (compoundOwnerTb == null) {return false}
+                        compoundOwnerDef := ColumnarSourceDefinitionResolver.FindByBuilderIdentity(_structRegistry.get_Values(), compoundOwnerTb)
+                        if (compoundOwnerDef == null
+                            || !ColumnarSourceMemberChainResolver.TryFindFieldOnChain(compoundOwnerDef, ColumnarNodeTextFacts.Text(_nodes, _source, compoundTarget), out  compoundMemberField)) {return false}
+                        compoundMemberType := compoundMemberField.get_FieldType()
+                        if (compoundMemberType != typeof(string) && compoundMemberType != typeof(int)
+                            && compoundMemberType != typeof(long) && compoundMemberType != typeof(ulong)
+                            && compoundMemberType != typeof(double) && compoundMemberType != typeof(float)) {return false}
+                        EmitMemberWriteLocator(compoundChain)
+                        _il.Emit(OpCodes.Dup)
+                        _il.Emit(OpCodes.Ldfld, compoundMemberField)
+                        let compoundMemberValueType: System.Type? = null
+                        if (!TryEmitIntLiteralAsType(Child(expr, 1), compoundMemberType, out  compoundMemberValueType)
+                            && (!EmitExpression(Child(expr, 1), out compoundMemberValueType)
+                                || !TypesEquivalent(compoundMemberValueType, compoundMemberType))) {return false}
+                        if (compoundMemberType == typeof(string)) {
+                            if (assignOp != "+=") {return false}
+                            _il.Emit(OpCodes.Call, typeof(string).GetMethod(nameof(string.Concat), [typeof(string), typeof(string)]))
+                        }
+                        else {
+                            compoundMemberIl := _il
+                            compoundMemberOpCode :=
+                                assignOp == "+=" ? OpCodes.Add :
+                                assignOp == "-=" ? OpCodes.Sub :
+                                assignOp == "*=" ? OpCodes.Mul :
+                                compoundMemberType == typeof(ulong) ? OpCodes.Div_Un : OpCodes.Div
+                            compoundMemberIl.Emit(compoundMemberOpCode)
+                        }
+                        _il.Emit(OpCodes.Stfld, compoundMemberField)
+                        return true
+                    }
+                    if (_nodes.Kind(compoundTarget) != 6) {return false}
+                    compoundName := ColumnarNodeTextFacts.Text(_nodes, _source, compoundTarget)
+                    if (_liftedLocals.ContainsKey(compoundName)
+                        || (_boxedCaptures != null && _boxedCaptures.ContainsKey(compoundName))) {return false}
+                    compoundLocal: LocalBuilder? = null
+                    compoundParamOrdinal := -1
+                    let compoundType: System.Type = null
+                    let compoundFound: System.Reflection.Emit.LocalBuilder? = null
+                    if (_locals.TryGetValue(compoundName, out  compoundFound)) {
+                        compoundLocal = compoundFound
+                        compoundType = compoundFound.get_LocalType()
+                    }
+                    else {let compoundOrdinal: int = 0
+                    if (_paramOrdinals.TryGetValue(compoundName, out  compoundOrdinal)) {
+                        compoundParamOrdinal = compoundOrdinal
+                        compoundType = _paramTypes[compoundName]
+                    }
+                    else {
+                        return false
+                    }}
+
+                    if (compoundLocal != null) {_il.Emit(OpCodes.Ldloc, compoundLocal)}
+                    else {ColumnarArgumentInstructionEmitter.EmitLoad(_il, compoundParamOrdinal)}
+                    // `u /= 3` — an in-range int literal adopts the target's type (N# constant conversion).
+                    let compoundValueType: System.Type? = null
+                    if (!TryEmitIntLiteralAsType(Child(expr, 1), compoundType, out  compoundValueType)
+                        && (!EmitExpression(Child(expr, 1), out compoundValueType) || !TypesEquivalent(compoundValueType, compoundType))) {return false}
+
+                    if (compoundType == typeof(string)) {
+                        if (assignOp != "+=") {return false}
+                        _il.Emit(OpCodes.Call, typeof(string).GetMethod(nameof(string.Concat), [typeof(string), typeof(string)]))
+                    }
+                    else {if (compoundType == typeof(decimal)) {
+                        compoundDecimalIl := _il
+                        compoundDecimalOpCode := OpCodes.Call
+                        compoundDecimalType := typeof(decimal)
+                        compoundDecimalMethodName :=
+                            assignOp == "+=" ? "op_Addition" : assignOp == "-=" ? "op_Subtraction"
+                            : assignOp == "*=" ? "op_Multiply" : "op_Division"
+                        compoundDecimalParameterTypes := [typeof(decimal), typeof(decimal)]
+                        compoundDecimalMethod := compoundDecimalType.GetMethod(compoundDecimalMethodName, compoundDecimalParameterTypes)
+                        compoundDecimalIl.Emit(compoundDecimalOpCode, compoundDecimalMethod)
+                    }
+                    else {if (compoundType == typeof(int) || compoundType == typeof(long) || compoundType == typeof(ulong)
+                        || compoundType == typeof(double) || compoundType == typeof(float)) {
+                        compoundScalarIl := _il
+                        compoundScalarOpCode :=
+                            assignOp == "+=" ? OpCodes.Add :
+                            assignOp == "-=" ? OpCodes.Sub :
+                            assignOp == "*=" ? OpCodes.Mul :
+                            compoundType == typeof(ulong) ? OpCodes.Div_Un : OpCodes.Div
+                        compoundScalarIl.Emit(compoundScalarOpCode)
+                    }
+                    else {
+                        return false
+                    }}}
+
+                    if (compoundLocal != null) {_il.Emit(OpCodes.Stloc, compoundLocal)}
+                    else {ColumnarArgumentInstructionEmitter.EmitStore(_il, compoundParamOrdinal)}
+                    return true
+                }
+                if (assignOp != "=") {return false}
+                target := UnwrapParenthesizedNode(Child(expr, 0))
+
+                if (_nodes.Kind(target) == 10) // array element write: a[i] = value
+                {
+                    let arrayType: System.Type? = null
+                    if (!EmitExpression(Child(target, 0), out  arrayType)) {return false}
+                    // A closed List<T>/Dictionary<K,V>/SortedDictionary<K,V> indexer WRITE — callvirt set_Item(int|K, T|V)
+                    // (the dominant Dictionary shape `d[k] = v`, probe-pinned incl. overwrite);
+                    // resolved from the open definition so builder-bound receivers rebind.
+                    if (IsSupportedIndexableCollectionType(arrayType)) {
+                        setDef := arrayType.GetGenericTypeDefinition()
+                        setIdxType := setDef == typeof(List<int>).GetGenericTypeDefinition()
+                            ? typeof(int)
+                            : arrayType.GetGenericArguments()[0]
+                        setValType := setDef == typeof(List<int>).GetGenericTypeDefinition()
+                            ? arrayType.GetGenericArguments()[0]
+                            : arrayType.GetGenericArguments()[1]
+                        if (!EmitArg(target, 1, setIdxType)) {return false}
+                        let setValueType: System.Type? = null
+                        if (!EmitExpression(Child(expr, 1), out  setValueType)
+                            || (!TypesEquivalent(setValueType, setValType) && !ColumnarReferenceConversionFacts.TryEmitReferenceConversion(setValueType, setValType) && !ColumnarReferenceCoercionPlanner.TryEmitObjectConversion(setValueType, setValType, _structRegistry, _il) && !TryEmitAnonymousUnionConversion(setValueType, setValType))) {return false}
+                        _il.Emit(OpCodes.Callvirt, ResolveClosedGenericMethod(arrayType, setDef.GetMethod("set_Item")))
+                        return true
+                    }
+                    if (ColumnarTypeOfPlanner.IsSupportedSpanType(arrayType)) {
+                        spanElementType := arrayType.GetGenericArguments()[0]
+                        itemGetter := ResolveSpanLikeItemGetter(arrayType)
+                        if (itemGetter == null || !ColumnarTypeOfPlanner.IsSupportedElementType(spanElementType)) {return false}
+                        spanTemp := _il.DeclareLocal(arrayType)
+                        _il.Emit(OpCodes.Stloc, spanTemp)
+                        let spanIndexType: System.Type? = null
+                        if (!EmitExpression(Child(target, 1), out  spanIndexType) || spanIndexType != typeof(int)) {return false}
+                        spanIndexTemp := _il.DeclareLocal(typeof(int))
+                        _il.Emit(OpCodes.Stloc, spanIndexTemp)
+                        let columnarDiscard14: System.Type = null
+                        if (!TryEmitAssignableValue(Child(expr, 1), spanElementType, out columnarDiscard14)) {return false}
+                        valueTemp := _il.DeclareLocal(spanElementType)
+                        _il.Emit(OpCodes.Stloc, valueTemp)
+                        _il.Emit(OpCodes.Ldloca, spanTemp)
+                        _il.Emit(OpCodes.Ldloc, spanIndexTemp)
+                        _il.Emit(OpCodes.Call, itemGetter)
+                        _il.Emit(OpCodes.Ldloc, valueTemp)
+                        EmitStoreByRefElement(spanElementType)
+                        return true
+                    }
+                    if (!arrayType.get_IsSZArray()) {return false}
+                    // Stelem order is (array, index, value): emit the array ref, the int index, the value, store.
+                    elementType := arrayType.GetElementType()
+                    let indexType: System.Type? = null
+                    if (!EmitExpression(Child(target, 1), out  indexType) || indexType != typeof(int)) {return false}
+                    // 023/1e — THROUGH THE SEAM, LIKE THE SPAN STORE TWENTY LINES ABOVE.
+                    // This was the ONE value-flow position of nineteen that called `EmitExpression` and
+                    // then demanded exact type equality, so `b[0] = 65` on a `byte[]` declined while
+                    // `v: byte = 65` and `Take(65)` into a `byte` parameter both worked. The rule was
+                    // never missing — this site just did not ask for it.
+                    let elementValueType: System.Type? = null
+                    if (!TryEmitAssignableValue(Child(expr, 1), elementType, out  elementValueType)
+                        || !TypesEquivalent(elementValueType, elementType)) {return false}
+                    if (!EmitArrayElementStore(elementType)) {return false}
+                    return true
+                }
+
+                if (_nodes.Kind(target) == 8) // a member-access target: a class PROPERTY setter OR a value-type struct field.
+                {
+                    fieldReceiver := Child(target, 0)
+                    memberName := ColumnarNodeTextFacts.Text(_nodes, _source, target)
+                    // STATIC member write `TypeName.member = value`: the receiver names a registered TYPE (not
+                    // shadowed by a local/param/sibling) — chain-walk its static FIELDS (`<value>; stsfld`) then
+                    // static PROPERTIES (`<value>; call set_Name`; a get-only static property declines). A
+                    // type-name receiver whose member is NEITHER declines (a type name is not a value).
+                    if (_nodes.Kind(fieldReceiver) == 6) {
+                        staticRecvName := ColumnarNodeTextFacts.Text(_nodes, _source, fieldReceiver)
+                        let staticWriteOwner: NSharpLang.Compiler.Columnar.ColumnarStructDef? = null
+                        if (!_locals.ContainsKey(staticRecvName) && !_liftedLocals.ContainsKey(staticRecvName) && !_paramOrdinals.ContainsKey(staticRecvName) && !_siblings.ContainsKey(staticRecvName)
+                            && _typeResolutionStructs.TryGetValue(staticRecvName, out  staticWriteOwner)) {
+                            let staticFieldWrite: System.Reflection.Emit.FieldBuilder? = null
+                            if (ColumnarSourceMemberChainResolver.TryFindStaticFieldOnChain(staticWriteOwner, memberName, out  staticFieldWrite)) {
+                                let columnarDiscard15: System.Type = null
+                                if (!TryEmitAssignableValue(Child(expr, 1), staticFieldWrite.get_FieldType(), out columnarDiscard15)) {return false}
+                                _il.Emit(OpCodes.Stsfld, staticFieldWrite)
+                                return true
+                            }
+                            let staticPropWrite: NSharpLang.Compiler.Columnar.ColumnarPropertyDef? = null
+                            if (ColumnarSourceMemberChainResolver.TryFindStaticPropertyOnChain(staticWriteOwner, memberName, out  staticPropWrite) && staticPropWrite.Setter != null) {
+                                let columnarDiscard16: System.Type = null
+                                if (!TryEmitAssignableValue(Child(expr, 1), staticPropWrite.PropertyType, out columnarDiscard16)) {return false}
+                                _il.Emit(OpCodes.Call, staticPropWrite.Setter)
+                                return true
+                            }
+                            return false
+                        }
+                    }
+                    if (TryEmitSupportedBclPropertyAssignment(fieldReceiver, memberName, Child(expr, 1))) {return true}
+
+                    // MEMBER WRITES through a resolved receiver CHAIN (D-18b): roots are bare LOCALS and
+                    // PARAMS; hops are instance FIELDS (`p.X = v`, `o.i.X = v`, `a.b.s.X = v`). The chain
+                    // resolves BEFORE any emission. A FIELD write emits locator; value; stfld — stfld takes
+                    // an object ref OR a managed pointer, so value links use ldloca/ldarga/ldflda, reference
+                    // links ldloc/ldarg/ldfld, and the chain composes uniformly. A PROPERTY write needs a
+                    // REFERENCE final receiver (value-type properties decline): locator; value; callvirt
+                    // setter. Record fields are NOT init-only here (probe-pinned `r.X = 5` -> 5). DECLINES:
+                    // indexer/call-result receivers (pipeline-rejected NL322), lifted/captured roots
+                    // (conservative), and closed-generic receivers (a later rebind rung).
+                    let writeChain: NSharpLang.Compiler.Columnar.ColumnarMemberWriteChain = new NSharpLang.Compiler.Columnar.ColumnarMemberWriteChain(null, -1, null, null, null)
+                    if (TryResolveMemberWriteChain(fieldReceiver, out  writeChain)) {
+                        writeOwnerTb := writeChain.ReceiverType as TypeBuilder
+                        let writeOwnerDef: ColumnarStructDef? = null
+                        if (writeOwnerTb != null) {writeOwnerDef = ColumnarSourceDefinitionResolver.FindByBuilderIdentity(_structRegistry.get_Values(), writeOwnerTb)}
+                        if (writeOwnerDef != null) {
+                            let writeField: System.Reflection.Emit.FieldBuilder? = null
+                            if (ColumnarSourceMemberChainResolver.TryFindFieldOnChain(writeOwnerDef, memberName, out  writeField)) {
+                            EmitMemberWriteLocator(writeChain)
+                            let writeValueType: System.Type = null
+                            if (TryEmitIntLiteralAsType(Child(expr, 1), writeField.get_FieldType(), out writeValueType)) {
+                                // constant adoption (`s.B = 5` on a small-int field).
+                            }
+                            else {if (TryEmitNullLiteralAsType(Child(expr, 1), writeField.get_FieldType(), out writeValueType)) {
+                                // `c.name = null` on a reference-typed field.
+                            }
+                            else {if (!EmitExpression(Child(expr, 1), out writeValueType)) {
+                                return false
+                            }}}
+                            if (!TypesEquivalent(writeValueType, writeField.get_FieldType())
+                                && !TryEmitImplicitWidening(writeValueType, writeField.get_FieldType()) && !ColumnarReferenceCoercionPlanner.TryEmitInterfaceUpcast(writeValueType, writeField.get_FieldType(), _structRegistry, _il) && !ColumnarReferenceConversionFacts.TryEmitReferenceConversion(writeValueType, writeField.get_FieldType()) && !ColumnarReferenceCoercionPlanner.TryEmitObjectConversion(writeValueType, writeField.get_FieldType(), _structRegistry, _il) && !TryEmitAnonymousUnionConversion(writeValueType, writeField.get_FieldType()) && !TryEmitUserDefinedConversion(writeValueType, writeField.get_FieldType(),  false)) {return false}
+                                _il.Emit(OpCodes.Stfld, writeField)
+                                return true
+                            }
+                            let writeProp: NSharpLang.Compiler.Columnar.ColumnarPropertyDef? = null
+                            if (writeOwnerDef.IsReference
+                                && TryFindPropertyOnChain(writeOwnerDef, memberName, out  writeProp)
+                                && writeProp.Setter != null) {
+                                EmitMemberWriteLocator(writeChain)
+                                let writePropValueType: System.Type? = null
+                                if (!EmitExpression(Child(expr, 1), out  writePropValueType)
+                                    || !TypesEquivalent(writePropValueType, writeProp.PropertyType)) {return false}
+                                _il.Emit(OpCodes.Callvirt, writeProp.Setter)
+                                return true
+                            }
+                        }
+                    }
+                    return false
+                }
+
+                if (_nodes.Kind(target) != 6) {return false}
+                targetName := ColumnarNodeTextFacts.Text(_nodes, _source, target)
+                if (ColumnarExpressionSyntaxFacts.IsExplicitThisIdentifier(_nodes, _source, target)) {
+                    if (_currentStruct == null || (!_currentStruct.IsReference && !_isConstructorBody)) {return false}
+                    let explicitThisFieldTarget: System.Reflection.Emit.FieldBuilder? = null
+                    if (ColumnarSourceMemberChainResolver.TryFindFieldOnChain(_currentStruct, targetName, out  explicitThisFieldTarget)) {
+                        _il.Emit(OpCodes.Ldarg_0)
+                        let columnarDiscard17: System.Type = null
+                        if (!TryEmitAssignableValue(Child(expr, 1), explicitThisFieldTarget.get_FieldType(), out columnarDiscard17)) {return false}
+                        _il.Emit(OpCodes.Stfld, explicitThisFieldTarget)
+                        return true
+                    }
+                    let explicitThisPropertyTarget: NSharpLang.Compiler.Columnar.ColumnarPropertyDef? = null
+                    if (_currentStruct.IsReference
+                        && TryFindPropertyOnChain(_currentStruct, targetName, out  explicitThisPropertyTarget)
+                        && explicitThisPropertyTarget.Setter != null) {
+                        _il.Emit(OpCodes.Ldarg_0)
+                        let columnarDiscard18: System.Type = null
+                        if (!TryEmitAssignableValue(Child(expr, 1), explicitThisPropertyTarget.PropertyType, out columnarDiscard18)) {return false}
+                        _il.Emit(OpCodes.Callvirt, explicitThisPropertyTarget.Setter)
+                        return true
+                    }
+                    return false
+                }
+                // L3b: writes to a BOXED capture (closure body) or a LIFTED local/param store through the
+                // shared StrongBox's Value — checked before every other tier.
+                if (targetName == "_") {
+                    let discardValueType: System.Type? = null
+                    if (!EmitExpression(Child(expr, 1), out  discardValueType)) {return false}
+                    if (discardValueType != ColumnarTypeOfPlanner.RequiredVoidType()) {_il.Emit(OpCodes.Pop)}
+                    return true
+                }
+                let boxedWriteBoxField: System.Reflection.FieldInfo? = null
+                let boxedWriteValueType: System.Type? = null
+                let boxedWrite: (BoxField: System.Reflection.FieldInfo, ValueType: System.Type) = (boxedWriteBoxField, boxedWriteValueType)
+                if (_boxedCaptures != null && _boxedCaptures.TryGetValue(targetName, out  boxedWrite)) {
+                    _il.Emit(OpCodes.Ldarg_0)
+                    _il.Emit(OpCodes.Ldfld, boxedWrite.BoxField)
+                    let boxedValueType: System.Type? = null
+                    if (!EmitExpression(Child(expr, 1), out  boxedValueType) || boxedValueType != boxedWrite.ValueType) {return false}
+                    _il.Emit(OpCodes.Stfld, ColumnarClosureBindingPlanner.StrongBoxValueField(boxedWrite.ValueType))
+                    return true
+                }
+                let liftedWriteBox: System.Reflection.Emit.LocalBuilder? = null
+                let liftedWriteValueType: System.Type? = null
+                let liftedWrite: (Box: System.Reflection.Emit.LocalBuilder, ValueType: System.Type) = (liftedWriteBox, liftedWriteValueType)
+                if (_liftedLocals.TryGetValue(targetName, out  liftedWrite)) {
+                    _il.Emit(OpCodes.Ldloc, liftedWrite.Box)
+                    let liftedValueType: System.Type? = null
+                    if (!EmitExpression(Child(expr, 1), out  liftedValueType) || liftedValueType != liftedWrite.ValueType) {return false}
+                    _il.Emit(OpCodes.Stfld, ColumnarClosureBindingPlanner.StrongBoxValueField(liftedWrite.ValueType))
+                    return true
+                }
+                let assignTarget: System.Reflection.Emit.LocalBuilder? = null
+                if (_locals.TryGetValue(targetName, out  assignTarget)) {
+                    // `local = expr` — store into the `:=` local (value type must match the local's type;
+                    // TypesEquivalent — closed user-generic instantiations are referentially distinct). A
+                    // generic-union case construction with no type args ADOPTS the local's declared type
+                    // (`o = new Opt.None` on an Opt<int> local — probe-pinned).
+                    let valueType: System.Type = null
+                    if (IsAdoptableUnionConstruction(Child(expr, 1), assignTarget.get_LocalType())) {
+                        if (!EmitAdoptedUnionConstruction(Child(expr, 1), assignTarget.get_LocalType(), out valueType)) {return false}
+                    }
+                    else {if (TryEmitTargetTypedNewAsType(Child(expr, 1), assignTarget.get_LocalType(), out valueType)) {
+                        // `local = new(args)` adopts the local's type.
+                    }
+                    else {if (TryEmitIntLiteralAsType(Child(expr, 1), assignTarget.get_LocalType(), out valueType)) {
+                        // `b = 5` on a byte/uint/long/ulong local — constant conversion.
+                    }
+                    else {if (TryEmitArrayLiteralAsType(Child(expr, 1), assignTarget.get_LocalType(), out valueType)) {
+                        // target-typed array literal re-store.
+                    }
+                    else {if (TryEmitNullLiteralAsType(Child(expr, 1), assignTarget.get_LocalType(), out valueType)) {
+                        // `s = null` on a reference-typed local.
+                    }
+                    else {if (ColumnarTypeOfPlanner.IsSupportedNullable(assignTarget.get_LocalType())) {
+                        // lifted re-store onto an int? local (owns the emission).
+                        if (!TryEmitValueAsNullable(Child(expr, 1), assignTarget.get_LocalType(), out valueType)) {return false}
+                    }
+                    else {if (!EmitExpression(Child(expr, 1), out valueType)) {
+                        return false
+                    }}}}}}}
+                    if (!TypesEquivalent(valueType, assignTarget.get_LocalType()) && !TryEmitImplicitWidening(valueType, assignTarget.get_LocalType()) && !ColumnarReferenceCoercionPlanner.TryEmitInterfaceUpcast(valueType, assignTarget.get_LocalType(), _structRegistry, _il) && !ColumnarReferenceConversionFacts.TryEmitReferenceConversion(valueType, assignTarget.get_LocalType()) && !ColumnarReferenceCoercionPlanner.TryEmitObjectConversion(valueType, assignTarget.get_LocalType(), _structRegistry, _il) && !TryEmitAnonymousUnionConversion(valueType, assignTarget.get_LocalType()) && !TryEmitUserDefinedConversion(valueType, assignTarget.get_LocalType(),  false)) {return false}
+                    _il.Emit(OpCodes.Stloc, assignTarget)
+                    return true
+                }
+                let synthesizedFieldTarget: System.Reflection.Emit.FieldBuilder? = null
+                if (_isSynthesizedInitializerBody
+                    && _currentStruct != null
+                    && ColumnarSourceMemberChainResolver.TryFindFieldOnChain(_currentStruct, targetName, out  synthesizedFieldTarget)) {
+                    _il.Emit(OpCodes.Ldarg_0)
+                    let columnarDiscard19: System.Type = null
+                    if (!TryEmitAssignableValue(Child(expr, 1), synthesizedFieldTarget.get_FieldType(), out columnarDiscard19)) {return false}
+                    _il.Emit(OpCodes.Stfld, synthesizedFieldTarget)
+                    return true
+                }
+                let paramOrdinal: int = 0
+                if (_paramOrdinals.TryGetValue(targetName, out  paramOrdinal)) {
+                    declaredParamType := _paramTypes[targetName]
+                    if (declaredParamType.get_IsByRef()) {
+                        paramElementType := declaredParamType.GetElementType()
+                        ColumnarArgumentInstructionEmitter.EmitLoad(_il, paramOrdinal)
+                        let byRefParamValueType: System.Type = null
+                        if (IsAdoptableUnionConstruction(Child(expr, 1), paramElementType)) {
+                            if (!EmitAdoptedUnionConstruction(Child(expr, 1), paramElementType, out byRefParamValueType)) {return false}
+                        }
+                        else {if (TryEmitTargetTypedNewAsType(Child(expr, 1), paramElementType, out byRefParamValueType)) {
+                            // `out value = new(args)` adopts the byref element type.
+                        }
+                        else {if (TryEmitIntLiteralAsType(Child(expr, 1), paramElementType, out byRefParamValueType)) {
+                            // constant conversion onto the byref parameter's element type.
+                        }
+                        else {if (TryEmitNullLiteralAsType(Child(expr, 1), paramElementType, out byRefParamValueType)) {
+                            // `out value = null` on a reference-typed byref parameter.
+                        }
+                        else {if (ColumnarTypeOfPlanner.IsSupportedNullable(paramElementType)) {
+                            if (!TryEmitValueAsNullable(Child(expr, 1), paramElementType, out byRefParamValueType)) {return false}
+                        }
+                        else {if (!EmitExpression(Child(expr, 1), out byRefParamValueType)) {
+                            return false
+                        }}}}}}
+                        if (!TypesEquivalent(byRefParamValueType, paramElementType)
+                            && !TryEmitImplicitWidening(byRefParamValueType, paramElementType)
+                            && !ColumnarReferenceCoercionPlanner.TryEmitInterfaceUpcast(byRefParamValueType, paramElementType, _structRegistry, _il)
+                            && !ColumnarReferenceConversionFacts.TryEmitReferenceConversion(byRefParamValueType, paramElementType)
+                            && !ColumnarReferenceCoercionPlanner.TryEmitObjectConversion(byRefParamValueType, paramElementType, _structRegistry, _il)
+                            && !TryEmitAnonymousUnionConversion(byRefParamValueType, paramElementType)
+                            && !TryEmitUserDefinedConversion(byRefParamValueType, paramElementType,  false)) {return false}
+                        EmitStoreByRefElement(paramElementType)
+                        return true
+                    }
+                    // `param = expr` — store into the argument slot (`starg`). N# permits mutating a parameter
+                    // (value params have value semantics, so the mutation is method-local, matching the N# backend path).
+                    // The value's type must match the parameter's declared type; adoption applies as for locals.
+                    let paramValueType: System.Type = null
+                    if (IsAdoptableUnionConstruction(Child(expr, 1), _paramTypes[targetName])) {
+                        if (!EmitAdoptedUnionConstruction(Child(expr, 1), _paramTypes[targetName], out paramValueType)) {return false}
+                    }
+                    else {if (TryEmitTargetTypedNewAsType(Child(expr, 1), _paramTypes[targetName], out paramValueType)) {
+                        // `param = new(args)` adopts the parameter's declared type.
+                    }
+                    else {if (TryEmitIntLiteralAsType(Child(expr, 1), _paramTypes[targetName], out paramValueType)) {
+                        // constant conversion onto the param's declared type.
+                    }
+                    else {if (TryEmitNullLiteralAsType(Child(expr, 1), _paramTypes[targetName], out paramValueType)) {
+                        // `s = null` on a reference-typed param.
+                    }
+                    else {if (ColumnarTypeOfPlanner.IsSupportedNullable(_paramTypes[targetName])) {
+                        // lifted re-store onto an int? param (owns the emission).
+                        if (!TryEmitValueAsNullable(Child(expr, 1), _paramTypes[targetName], out paramValueType)) {return false}
+                    }
+                    else {if (!EmitExpression(Child(expr, 1), out paramValueType)) {
+                        return false
+                    }}}}}}
+                    if (!TypesEquivalent(paramValueType, _paramTypes[targetName]) && !TryEmitImplicitWidening(paramValueType, _paramTypes[targetName]) && !ColumnarReferenceCoercionPlanner.TryEmitInterfaceUpcast(paramValueType, _paramTypes[targetName], _structRegistry, _il) && !ColumnarReferenceConversionFacts.TryEmitReferenceConversion(paramValueType, _paramTypes[targetName]) && !ColumnarReferenceCoercionPlanner.TryEmitObjectConversion(paramValueType, _paramTypes[targetName], _structRegistry, _il) && !TryEmitAnonymousUnionConversion(paramValueType, _paramTypes[targetName]) && !TryEmitUserDefinedConversion(paramValueType, _paramTypes[targetName],  false)) {return false}
+                    ColumnarArgumentInstructionEmitter.EmitStore(_il, paramOrdinal)
+                    return true
+                }
+                // `field = expr` inside a REFERENCE-type instance method/constructor body: a bare name that is neither
+                // a local nor a param falls back to a FIELD of the current type (`this.field = expr`). `this` is arg 0
+                // (the object ref), so emit `ldarg.0; <value>; stfld <FieldBuilder>`. (Checked AFTER locals/params so a
+                // local/param shadows a field — matching the bare-field READ in EmitExpression's identifier case.)
+                // GATED to reference types: a VALUE-type (struct) instance call spills the receiver to a TEMP COPY
+                // (TryEmitInstanceCall), so a struct method's field mutation would write the copy, not the caller's
+                // variable — diverging from N#'s in-place value semantics. Struct field-mutation-in-method therefore
+                // DECLINES until the call site addresses the receiver's own storage (a later slice). A class/record
+                // ref is shared through the temp, so the mutation persists correctly. Resolution walks the BASE
+                // chain (nearest first) so a derived member may assign an INHERITED field.
+                let thisFieldTarget: System.Reflection.Emit.FieldBuilder? = null
+                if (_currentStruct != null && (_currentStruct.IsReference || _isConstructorBody) && ColumnarSourceMemberChainResolver.TryFindFieldOnChain(_currentStruct, targetName, out  thisFieldTarget)) {
+                    _il.Emit(OpCodes.Ldarg_0)
+                    let columnarDiscard20: System.Type = null
+                    if (!TryEmitAssignableValue(Child(expr, 1), thisFieldTarget.get_FieldType(), out columnarDiscard20)) {return false}
+                    _il.Emit(OpCodes.Stfld, thisFieldTarget)
+                    return true
+                }
+                let thisPropertyTarget: NSharpLang.Compiler.Columnar.ColumnarPropertyDef? = null
+                if (_currentStruct != null
+                    && _currentStruct.IsReference
+                    && TryFindPropertyOnChain(_currentStruct, targetName, out  thisPropertyTarget)
+                    && thisPropertyTarget.Setter != null) {
+                    _il.Emit(OpCodes.Ldarg_0)
+                    let columnarDiscard21: System.Type = null
+                    if (!TryEmitAssignableValue(Child(expr, 1), thisPropertyTarget.PropertyType, out columnarDiscard21)) {return false}
+                    _il.Emit(OpCodes.Callvirt, thisPropertyTarget.Setter)
+                    return true
+                }
+                // Bare STATIC-field write inside an INSTANCE member body (`count = expr` where count is a static
+                // field on the chain). The N# pipeline's pinned ASYMMETRY: bare static-field access resolves in
+                // INSTANCE contexts only — a STATIC method body must qualify (`TypeName.field`), so this is gated
+                // on `_currentStruct` (null in static bodies → declines exactly where the pipeline errors). No
+                // receiver: `<value>; stsfld`. (Statics need no address, so value-type enclosing types are fine.)
+                let bareStaticTarget: System.Reflection.Emit.FieldBuilder? = null
+                if (_currentStruct != null && ColumnarSourceMemberChainResolver.TryFindStaticFieldOnChain(_currentStruct, targetName, out  bareStaticTarget)) {
+                    let columnarDiscard22: System.Type = null
+                    if (!TryEmitAssignableValue(Child(expr, 1), bareStaticTarget.get_FieldType(), out columnarDiscard22)) {return false}
+                    _il.Emit(OpCodes.Stsfld, bareStaticTarget)
+                    return true
+                }
+                return false
+
+
+            } else if columnarSwitchValue0 == 26 { // While [condition, body] — emit `check: cond; brfalse end; body; [br check]; end:`. The
+                    // stack is empty at both merge labels (cond pushes a bool, brfalse pops it; the body is
+                     // net-zero), so it is stack-consistent.
+                if (TryEmitVectorizedReductionWhile(idx)) {return true}
+                if (TryEmitVectorizedRangeCountWhile(idx)) {return true}
+                if (TryEmitVectorizedMinMaxWhile(idx)) {return true}
+                if (TryEmitVectorizedCountTransitionsWhile(idx)) {return true}
+                body := Child(idx, 1)
+                checkLabel := _il.DefineLabel()
+                endLabel := _il.DefineLabel()
+                _il.MarkLabel(checkLabel)
+                if (!EmitCondition(Child(idx, 0))) {return false}
+                _il.Emit(OpCodes.Brfalse, endLabel)
+                // Scope the body's `:=` locals so they leave scope at the loop end. A Block body self-scopes;
+                // this also covers a BRACELESS single-statement body (e.g. a bare `:=`), which is not a Block.
+                outerLocals := new HashSet<string>(_locals.Keys, StringComparer.Ordinal)
+                outerLifted := new HashSet<string>(_liftedLocals.Keys, StringComparer.Ordinal)
+                // `break` exits to endLabel, `continue` re-tests at checkLabel; both reach their target with an
+                // empty stack (the body up to the transfer is net-zero), so they are stack-consistent.
+                _loopLabels.Push((endLabel, checkLabel, _inProtectedRegion, _inFinallyRegion))
+                bodyEmitted := EmitStatement(body)
+                _loopLabels.Pop()
+                if (!bodyEmitted) {return false}
+                bodyLocals := new List<string>()
+                bodyLocalKeys := _locals.get_Keys()
+                bodyLocalEnumerator := bodyLocalKeys.GetEnumerator()
+                try {
+                    while bodyLocalEnumerator.MoveNext() {
+                        name := bodyLocalEnumerator.get_Current()
+                        if (!outerLocals.Contains(name)) {bodyLocals.Add(name)}
+                    }
+                } finally {
+                    bodyLocalEnumerator.Dispose()
+                }
+
+                for name in bodyLocals {_locals.Remove(name)}
+                columnarStringKeySnapshot2 := new List<string>(_liftedLocals.Keys)
+                for name in columnarStringKeySnapshot2 {
+                    if (!outerLifted.Contains(name)) {_liftedLocals.Remove(name)}
+                }
+                // The bottom back-edge is reachable ONLY if the body can FALL THROUGH to it. If the body always
+                // transfers on every path (a scan loop that `continue`s otherwise + `return`s, or a degenerate
+                // run-once `{ return X }` body), it never falls through, so the bottom `br check` would be dead
+                // code — skip it (the `continue`s already branch to checkLabel directly, so the loop still
+                // iterates). This both AVOIDS unreachable IL and ADMITS the common scan-loop pattern that the
+                // old blanket `AlwaysReturns(body)` decline wrongly rejected.
+                if (!AlwaysReturns(body)) {_il.Emit(OpCodes.Br, checkLabel)}
+                _il.MarkLabel(endLabel)
+                return true
+
+
+            } else if columnarSwitchValue0 == 28 { // For [init, cond, incr, body] — C-style: emit `init; check: cond; brfalse end; body;
+                    // cont: incr; br check; end:`. `break` -> end, `continue` -> cont (the increment, THEN the
+                     // re-test), matching N# for-loop semantics. The loop's own locals (the `init` declaration's
+                     // variable + any body `:=` locals) are scoped to the loop and removed at its end.
+                columnarInitValue := Child(idx, 0)
+                cond := Child(idx, 1)
+                incr := Child(idx, 2)
+                body := Child(idx, 3)
+
+                // A for-body that always transfers on every path (never falls through) would make the increment +
+                // back-edge unreachable (a `continue` aside) — a degenerate shape; decline it to the N# backend path. A
+                // normal counting loop falls through, and a `continue` body still falls through on its other path.
+                if (AlwaysReturns(body)) {return false}
+
+                outerLocals := new HashSet<string>(_locals.Keys, StringComparer.Ordinal)
+                outerLifted := new HashSet<string>(_liftedLocals.Keys, StringComparer.Ordinal)
+                if (!EmitStatement(columnarInitValue)) // runs once before the loop; declares the loop variable.
+                    {return false}
+
+                if (TryEmitVectorizedReductionFor(cond, incr, body)) {
+                    columnarStringKeySnapshot3 := new List<string>(_locals.Keys)
+                    for name in columnarStringKeySnapshot3 {
+                        if (!outerLocals.Contains(name)) {_locals.Remove(name)}
+                    }
+                    columnarStringKeySnapshot4 := new List<string>(_liftedLocals.Keys)
+                    for name in columnarStringKeySnapshot4 {
+                        if (!outerLifted.Contains(name)) {_liftedLocals.Remove(name)}
+                    }
+                    return true
+                }
+
+                if (TryEmitVectorizedRangeCountFor(cond, incr, body)) {
+                    columnarStringKeySnapshot5 := new List<string>(_locals.Keys)
+                    for name in columnarStringKeySnapshot5 {
+                        if (!outerLocals.Contains(name)) {_locals.Remove(name)}
+                    }
+                    columnarStringKeySnapshot6 := new List<string>(_liftedLocals.Keys)
+                    for name in columnarStringKeySnapshot6 {
+                        if (!outerLifted.Contains(name)) {_liftedLocals.Remove(name)}
+                    }
+                    return true
+                }
+
+                if (TryEmitVectorizedMinMaxFor(cond, incr, body)) {
+                    columnarStringKeySnapshot7 := new List<string>(_locals.Keys)
+                    for name in columnarStringKeySnapshot7 {
+                        if (!outerLocals.Contains(name)) {_locals.Remove(name)}
+                    }
+                    columnarStringKeySnapshot8 := new List<string>(_liftedLocals.Keys)
+                    for name in columnarStringKeySnapshot8 {
+                        if (!outerLifted.Contains(name)) {_liftedLocals.Remove(name)}
+                    }
+                    return true
+                }
+
+                if (TryEmitVectorizedCountTransitionsFor(cond, incr, body)) {
+                    columnarStringKeySnapshot9 := new List<string>(_locals.Keys)
+                    for name in columnarStringKeySnapshot9 {
+                        if (!outerLocals.Contains(name)) {_locals.Remove(name)}
+                    }
+                    columnarStringKeySnapshot10 := new List<string>(_liftedLocals.Keys)
+                    for name in columnarStringKeySnapshot10 {
+                        if (!outerLifted.Contains(name)) {_liftedLocals.Remove(name)}
+                    }
+                    return true
+                }
+
+                checkLabel := _il.DefineLabel()
+                contLabel := _il.DefineLabel()
+                endLabel := _il.DefineLabel()
+                _il.MarkLabel(checkLabel)
+                if (!EmitCondition(cond)) {return false}
+                _il.Emit(OpCodes.Brfalse, endLabel)
+
+                _loopLabels.Push((endLabel, contLabel, _inProtectedRegion, _inFinallyRegion))
+                forBodyEmitted := EmitStatement(body)
+                _loopLabels.Pop()
+                if (!forBodyEmitted) {return false}
+
+                _il.MarkLabel(contLabel)     // `continue` lands here -> run the increment, then re-test.
+                if (!EmitStatement(incr)) {return false}
+                _il.Emit(OpCodes.Br, checkLabel)
+                _il.MarkLabel(endLabel)
+
+                columnarStringKeySnapshot11 := new List<string>(_locals.Keys)
+
+                for name in columnarStringKeySnapshot11 {
+                    if (!outerLocals.Contains(name)) {_locals.Remove(name)}
+                }
+                columnarStringKeySnapshot12 := new List<string>(_liftedLocals.Keys)
+                for name in columnarStringKeySnapshot12 {
+                    if (!outerLifted.Contains(name)) {_liftedLocals.Remove(name)}
+                }
+                return true
+
+
+            } else if columnarSwitchValue0 == 29 { // Foreach [collection, body] — arrays lower to an index loop; supported BCL
+                    // collections lower through the interface-enumerator shape. Everything else
+                     // declines. The var name is in the value span.
+                collectionNode := Child(idx, 0)
+                body := Child(idx, 1)
+                varName := ColumnarNodeTextFacts.Text(_nodes, _source, idx)
+
+                // A body that always transfers on every path makes the increment unreachable -> decline (as for/while).
+                if (AlwaysReturns(body)) {return false}
+                // The loop variable must not shadow an existing binding — own OR enclosing (NL316).
+                if (ColumnarClosureBindingPlanner.IsVisibleBindingName(varName, _locals, _paramOrdinals, _liftedLocals, _boxedCaptures, _enclosingBindingNames)) {return false}
+
+                outerLocals := new HashSet<string>(_locals.Keys, StringComparer.Ordinal)
+                outerLifted := new HashSet<string>(_liftedLocals.Keys, StringComparer.Ordinal)
+
+                // Evaluate the collection; a List<T>/Dictionary<K,V>/SortedDictionary<K,V>/HashSet<T> takes the enumerator branch,
+                // a single-dim array the index loop; everything else declines.
+                let collectionType: System.Type? = null
+                if (!EmitExpression(collectionNode, out  collectionType)) {return false}
+                if (ColumnarTypeOfPlanner.IsSupportedCollectionType(collectionType)) {
+                    collectionDef := collectionType.GetGenericTypeDefinition()
+                    listElementType := ColumnarGenericCallBindingPlanner.IsAnyDictionaryCollectionDefinition(collectionDef)
+                        ? typeof(KeyValuePair<int, int>).GetGenericTypeDefinition().MakeGenericType(collectionType.GetGenericArguments())
+                        : collectionType.GetGenericArguments()[0]
+                    if (!ColumnarTypeOfPlanner.IsSupportedType(listElementType) && !ColumnarTypeOfPlanner.IsSupportedKeyValuePairType(listElementType)) {return false}
+                    enumerableInterface := typeof(IEnumerable<int>).GetGenericTypeDefinition().MakeGenericType([listElementType])
+                    enumeratorInterface := typeof(IEnumerator<int>).GetGenericTypeDefinition().MakeGenericType([listElementType])
+                    _il.Emit(OpCodes.Callvirt, ResolveClosedGenericMethod(enumerableInterface, typeof(IEnumerable<int>).GetGenericTypeDefinition().GetMethod("GetEnumerator")))
+                    enumeratorLocal := _il.DeclareLocal(enumeratorInterface)
+                    _il.Emit(OpCodes.Stloc, enumeratorLocal)
+
+                    listLoopStart := _il.DefineLabel()
+                    disposeLabel := _il.DefineLabel()
+                    _il.MarkLabel(listLoopStart)
+                    _il.Emit(OpCodes.Ldloc, enumeratorLocal)
+                    _il.Emit(OpCodes.Callvirt, typeof(System.Collections.IEnumerator).GetMethod(nameof(System.Collections.IEnumerator.MoveNext)))
+                    _il.Emit(OpCodes.Brfalse, disposeLabel)
+                    _il.Emit(OpCodes.Ldloc, enumeratorLocal)
+                    _il.Emit(OpCodes.Callvirt, ResolveClosedGenericMethod(enumeratorInterface, typeof(IEnumerator<int>).GetGenericTypeDefinition().GetProperty("Current").GetGetMethod()))
+                    listLoopVar := _il.DeclareLocal(listElementType)
+                    _il.Emit(OpCodes.Stloc, listLoopVar)
+                    _locals[varName] = listLoopVar
+
+                    _loopLabels.Push((disposeLabel, listLoopStart, _inProtectedRegion, _inFinallyRegion))
+                    listBodyEmitted := EmitStatement(body)
+                    _loopLabels.Pop()
+                    if (!listBodyEmitted) {return false}
+                    _il.Emit(OpCodes.Br, listLoopStart)
+                    _il.MarkLabel(disposeLabel)
+                    _il.Emit(OpCodes.Ldloc, enumeratorLocal)
+                    _il.Emit(OpCodes.Callvirt, typeof(IDisposable).GetMethod(nameof(IDisposable.Dispose)))
+
+                    columnarStringKeySnapshot13 := new List<string>(_locals.Keys)
+
+                    for name in columnarStringKeySnapshot13 {
+                        if (!outerLocals.Contains(name)) {_locals.Remove(name)}
+                    }
+                    columnarStringKeySnapshot14 := new List<string>(_liftedLocals.Keys)
+                    for name in columnarStringKeySnapshot14 {
+                        if (!outerLifted.Contains(name)) {_liftedLocals.Remove(name)}
+                    }
+                    return true
+                }
+                if (!collectionType.get_IsSZArray()) {return false}
+                elementType := collectionType.GetElementType()
+                if (!ColumnarTypeOfPlanner.IsSupportedElementType(elementType)) {return false}
+                arrayLocal := _il.DeclareLocal(collectionType)
+                _il.Emit(OpCodes.Stloc, arrayLocal)
+                indexLocal := _il.DeclareLocal(typeof(int))
+                _il.Emit(OpCodes.Ldc_I4_0)
+                _il.Emit(OpCodes.Stloc, indexLocal)
+
+                checkLabel := _il.DefineLabel()
+                contLabel := _il.DefineLabel()
+                endLabel := _il.DefineLabel()
+                _il.MarkLabel(checkLabel)
+                _il.Emit(OpCodes.Ldloc, indexLocal)
+                _il.Emit(OpCodes.Ldloc, arrayLocal)
+                _il.Emit(OpCodes.Ldlen)
+                _il.Emit(OpCodes.Conv_I4)
+                _il.Emit(OpCodes.Bge, endLabel) // index >= length -> exit
+
+                // <var> := arr[index]  (declare the loop variable of the element type, store the current element).
+                _il.Emit(OpCodes.Ldloc, arrayLocal)
+                _il.Emit(OpCodes.Ldloc, indexLocal)
+                EmitArrayElementLoad(elementType)
+                loopVar := _il.DeclareLocal(elementType)
+                _il.Emit(OpCodes.Stloc, loopVar)
+                _locals[varName] = loopVar
+
+                _loopLabels.Push((endLabel, contLabel, _inProtectedRegion, _inFinallyRegion))
+                foreachBodyEmitted := EmitStatement(body)
+                _loopLabels.Pop()
+                if (!foreachBodyEmitted) {return false}
+
+                _il.MarkLabel(contLabel)   // `continue` lands here -> increment the index, then re-test.
+                _il.Emit(OpCodes.Ldloc, indexLocal)
+                _il.Emit(OpCodes.Ldc_I4_1)
+                _il.Emit(OpCodes.Add)
+                _il.Emit(OpCodes.Stloc, indexLocal)
+                _il.Emit(OpCodes.Br, checkLabel)
+                _il.MarkLabel(endLabel)
+
+                columnarStringKeySnapshot15 := new List<string>(_locals.Keys)
+
+                for name in columnarStringKeySnapshot15 {
+                    if (!outerLocals.Contains(name)) {_locals.Remove(name)}
+                }
+                columnarStringKeySnapshot16 := new List<string>(_liftedLocals.Keys)
+                for name in columnarStringKeySnapshot16 {
+                    if (!outerLifted.Contains(name)) {_liftedLocals.Remove(name)}
+                }
+                return true
+
+
+            } else if columnarSwitchValue0 == 73 { // AwaitForeach [collection, body] — consumer-side `await foreach <var> in <stream>`:
+                    // GetAsyncEnumerator(default)/MoveNextAsync/Current/DisposeAsync driving, each
+                     // ValueTask resolved through the blocking-await model exactly like this pipeline's
+                     // other awaits (real async-func state machines are a later slice). `break` exits
+                     // through the disposal tail; `continue` re-drives MoveNextAsync.
+                streamNode := Child(idx, 0)
+                awaitBody := Child(idx, 1)
+                awaitVarName := ColumnarNodeTextFacts.Text(_nodes, _source, idx)
+                if (AlwaysReturns(awaitBody) || ColumnarClosureBindingPlanner.IsVisibleBindingName(awaitVarName, _locals, _paramOrdinals, _liftedLocals, _boxedCaptures, _enclosingBindingNames)) {return false}
+                outerAwaitLocals := new HashSet<string>(_locals.Keys, StringComparer.Ordinal)
+                outerAwaitLifted := new HashSet<string>(_liftedLocals.Keys, StringComparer.Ordinal)
+                let streamType: System.Type? = null
+                if (!EmitExpression(streamNode, out  streamType)) {return false}
+                if (!streamType.get_IsGenericType() || streamType.get_IsGenericTypeDefinition()
+                    || streamType.GetGenericTypeDefinition() != typeof(IAsyncEnumerable<int>).GetGenericTypeDefinition()
+                    || ColumnarTypeOfPlanner.ContainsBuilderBoundType(streamType)) {return Decline("emit.statement.await-foreach", "await foreach requires an IAsyncEnumerable<T> source", streamNode)}
+                streamElementType := streamType.GetGenericArguments()[0]
+                if (!ColumnarTypeOfPlanner.IsSupportedType(streamElementType)) {return false}
+                asyncEnumeratorType := typeof(IAsyncEnumerator<int>).GetGenericTypeDefinition().MakeGenericType([streamElementType])
+                tokenLocal := _il.DeclareLocal(typeof(System.Threading.CancellationToken))
+                _il.Emit(OpCodes.Ldloca, tokenLocal)
+                _il.Emit(OpCodes.Initobj, typeof(System.Threading.CancellationToken))
+                _il.Emit(OpCodes.Ldloc, tokenLocal)
+                _il.Emit(OpCodes.Callvirt, ResolveClosedGenericMethod(streamType, typeof(IAsyncEnumerable<int>).GetGenericTypeDefinition().GetMethod("GetAsyncEnumerator")))
+                asyncEnumeratorLocal := _il.DeclareLocal(asyncEnumeratorType)
+                _il.Emit(OpCodes.Stloc, asyncEnumeratorLocal)
+                awaitLoopStart := _il.DefineLabel()
+                awaitDisposeLabel := _il.DefineLabel()
+                _il.MarkLabel(awaitLoopStart)
+                _il.Emit(OpCodes.Ldloc, asyncEnumeratorLocal)
+                _il.Emit(OpCodes.Callvirt, ResolveClosedGenericMethod(asyncEnumeratorType, typeof(IAsyncEnumerator<int>).GetGenericTypeDefinition().GetMethod("MoveNextAsync")))
+                let columnarDiscard23: System.Type = null
+                if (!TryEmitBlockingAwait(typeof(System.Threading.Tasks.ValueTask<bool>), out columnarDiscard23)) {return false}
+                _il.Emit(OpCodes.Brfalse, awaitDisposeLabel)
+                _il.Emit(OpCodes.Ldloc, asyncEnumeratorLocal)
+                _il.Emit(OpCodes.Callvirt, ResolveClosedGenericMethod(asyncEnumeratorType, typeof(IAsyncEnumerator<int>).GetGenericTypeDefinition().GetProperty("Current").GetGetMethod()))
+                awaitLoopVar := _il.DeclareLocal(streamElementType)
+                _il.Emit(OpCodes.Stloc, awaitLoopVar)
+                _locals[awaitVarName] = awaitLoopVar
+                _loopLabels.Push((awaitDisposeLabel, awaitLoopStart, _inProtectedRegion, _inFinallyRegion))
+                awaitBodyEmitted := EmitStatement(awaitBody)
+                _loopLabels.Pop()
+                if (!awaitBodyEmitted) {return false}
+                _il.Emit(OpCodes.Br, awaitLoopStart)
+                _il.MarkLabel(awaitDisposeLabel)
+                _il.Emit(OpCodes.Ldloc, asyncEnumeratorLocal)
+                _il.Emit(OpCodes.Callvirt, typeof(IAsyncDisposable).GetMethod(nameof(IAsyncDisposable.DisposeAsync)))
+                let columnarDiscard24: System.Type = null
+                if (!TryEmitBlockingAwait(typeof(System.Threading.Tasks.ValueTask), out columnarDiscard24)) {return false}
+                columnarStringKeySnapshot17 := new List<string>(_locals.Keys)
+                for name in columnarStringKeySnapshot17 {
+                    if (!outerAwaitLocals.Contains(name)) {_locals.Remove(name)}
+                }
+                columnarStringKeySnapshot18 := new List<string>(_liftedLocals.Keys)
+                for name in columnarStringKeySnapshot18 {
+                    if (!outerAwaitLifted.Contains(name)) {_liftedLocals.Remove(name)}
+                }
+                return true
+
+
+            } else if columnarSwitchValue0 == 30 { // TupleDeconstruction [name0, ..., nameN-1, value] — `n0, n1, ... := <tuple>`. Emit the value
+                    // (a ValueTuple), store to a temp, then for each non-`_` name declare a local of the element
+                     // type and store the matching ItemN. Mirrors the tuple deconstruction emitter (plain path).
+                childCount := _nodes.ChildCount(idx)
+                if (childCount < 3) // at least 2 names + the value.
+                    {return false}
+                nameCount := childCount - 1
+                valueNode := Child(idx, nameCount)
+
+                // The Go-style error capture, whose shape `AnalyzerVariableDeclaration
+                // .IsErrorCaptureForm` owns: v = default(T); err = null;
+                // try { v = <call> } catch (Exception e) { err = e }. The initializer is a single
+                // expression, so no control transfer can cross the protected region.
+                if (AnalyzerVariableDeclaration.IsErrorCaptureForm(nameCount, ColumnarNodeTextFacts.Text(_nodes, _source, Child(idx, nameCount - 1)))) {
+                    if (_inProtectedRegion || _inFinallyRegion) {return false}
+                    errResultName := ColumnarNodeTextFacts.Text(_nodes, _source, Child(idx, 0))
+                    if (ColumnarClosureBindingPlanner.IsVisibleBindingName("err", _locals, _paramOrdinals, _liftedLocals, _boxedCaptures, _enclosingBindingNames) || (errResultName != "_" && ColumnarClosureBindingPlanner.IsVisibleBindingName(errResultName, _locals, _paramOrdinals, _liftedLocals, _boxedCaptures, _enclosingBindingNames))) {return false}
+
+                    errResultLocal: LocalBuilder? = null
+                    errResultType: Type? = null
+                    if (errResultName != "_") {
+                        if (!TryGetPreflightExpressionType(valueNode, out errResultType) || errResultType == ColumnarTypeOfPlanner.RequiredVoidType()) {return Decline("emit.tuple-error.preflight", "error-tuple value expression type could not be preflighted", valueNode)}
+                        errResultLocal = _il.DeclareLocal(errResultType)
+                        if (!TryEmitDefaultValue(errResultType)) {return Decline("emit.tuple-error.default", "error-tuple result default value could not be emitted", valueNode)}
+                        _il.Emit(OpCodes.Stloc, errResultLocal)
+                    }
+
+                    errLocal := _il.DeclareLocal(typeof(Exception))
+                    _il.Emit(OpCodes.Ldnull)
+                    _il.Emit(OpCodes.Stloc, errLocal)
+
+                    _il.BeginExceptionBlock()
+                    _inProtectedRegion = true
+                    let errValueType: System.Type? = null
+                    errValueOk := EmitExpression(valueNode, out  errValueType)                  _inProtectedRegion = false
+                    if (!errValueOk) {return Decline("emit.tuple-error.value", "error-tuple value expression could not be emitted", valueNode)}
+                    if (errResultLocal != null) {
+                        if (!TypesEquivalent(errValueType, errResultType)) {return Decline("emit.tuple-error.type-mismatch", "error-tuple value expression type '" + errValueType.FullName + "' does not match preflighted type '" + errResultType.FullName + "'", valueNode)}
+                        _il.Emit(OpCodes.Stloc, errResultLocal)
+                    }
+                    else {if (errValueType != ColumnarTypeOfPlanner.RequiredVoidType()) {
+                        _il.Emit(OpCodes.Pop)
+                    }}
+                    _il.BeginCatchBlock(typeof(Exception))
+                    _il.Emit(OpCodes.Stloc, errLocal)
+                    _il.EndExceptionBlock()
+
+                    if (errResultLocal != null) {_locals[errResultName] = errResultLocal}
+                    _locals["err"] = errLocal
+                    return true
+                }
+
+                let tupleType: System.Type? = null
+                if (!EmitExpression(valueNode, out  tupleType) || !ColumnarTypeOfPlanner.IsSupportedValueTuple(tupleType)) {return false}
+                tupleArgs := tupleType.GetGenericArguments()
+                if (tupleArgs.Length != nameCount) // the tuple arity must match the number of targets.
+                    {return false}
+
+                tupleLocal := _il.DeclareLocal(tupleType)
+                _il.Emit(OpCodes.Stloc, tupleLocal)
+
+                for i := 0; i < nameCount; i++ {
+                    name := ColumnarNodeTextFacts.Text(_nodes, _source, Child(idx, i))
+                    if (name == "_") // discard — the element is not bound.
+                        {continue}
+                    if (ColumnarClosureBindingPlanner.IsVisibleBindingName(name, _locals, _paramOrdinals, _liftedLocals, _boxedCaptures, _enclosingBindingNames)) {return false} // redeclaration / shadow — own OR enclosing (NL316) — is not modelled.
+                    tupleFieldOwner := tupleType
+                    tupleFieldOrdinal := i + 1
+                    tupleFieldOrdinalText := tupleFieldOrdinal.ToString()
+                    tupleFieldName := "Item" + tupleFieldOrdinalText
+                    field := tupleFieldOwner.GetField(tupleFieldName, BindingFlags.Public | BindingFlags.Instance)
+                    if (field == null) {
+                        return false
+                    }
+                    nameLocal := _il.DeclareLocal(field.get_FieldType())
+                    _il.Emit(OpCodes.Ldloca, tupleLocal) // value-type field load: address of the tuple, then ldfld.
+                    _il.Emit(OpCodes.Ldfld, field)
+                    _il.Emit(OpCodes.Stloc, nameLocal)
+                    _locals[name] = nameLocal
+                }
+
+                return true
+
+
+            } else if columnarSwitchValue0 == 21 { // Break — branch to the innermost loop's end label. From inside a protected region
+                    // whose loop began OUTSIDE it, the branch crosses the boundary: `leave` (which also
+                     // runs an intervening finally — probe-pinned against the fixed legacy emitter). Out of a
+                     // FINALLY itself is illegal IL — analyzer-rejected with NL319 (defect #20 fixed);
+                     // the decline stays as this emitter's contract guard.
+                if (_loopLabels.Count == 0) {return false}
+                breakTarget := _loopLabels.Peek()
+                if (_inFinallyRegion && !breakTarget.Item4) {return false}
+                breakIl := _il
+                breakOpCode := _inProtectedRegion && !breakTarget.Item3 ? OpCodes.Leave : OpCodes.Br
+                breakLabel := breakTarget.Item1
+                breakIl.Emit(breakOpCode, breakLabel)
+                return true
+
+
+            } else if columnarSwitchValue0 == 22 { // Continue — branch to the innermost loop's condition-check label (same region rules
+                    // as break).
+                if (_loopLabels.Count == 0) {return false}
+                continueTarget := _loopLabels.Peek()
+                if (_inFinallyRegion && !continueTarget.Item4) {return false}
+                continueIl := _il
+                continueOpCode := _inProtectedRegion && !continueTarget.Item3 ? OpCodes.Leave : OpCodes.Br
+                continueLabel := continueTarget.Item2
+                continueIl.Emit(continueOpCode, continueLabel)
+                return true
+
+
+            } else if columnarSwitchValue0 == 61 { // AssertStatement [condition, message?] — the legacy emitter's EmitAssert: brtrue past
+                    // a `throw new InvalidOperationException(<message text or "Assertion failed">)`.
+                assertChildCount := _nodes.ChildCount(idx)
+                if (assertChildCount != 1 && assertChildCount != 2) {return false}
+                let assertCondType: System.Type? = null
+                if (!EmitExpression(Child(idx, 0), out  assertCondType) || assertCondType != typeof(bool)) {return false}
+                assertOk := _il.DefineLabel()
+                _il.Emit(OpCodes.Brtrue, assertOk)
+                if (_nodes.ChildCount(idx) == 2) {
+                    let assertMessageType: System.Type? = null
+                    if (!EmitExpression(Child(idx, 1), out  assertMessageType)) {return false}
+                    if (assertMessageType != typeof(string)) {
+                        if (assertMessageType.get_IsValueType()) {_il.Emit(OpCodes.Box, assertMessageType)}
+                        _il.Emit(OpCodes.Callvirt, typeof(object).GetMethod(nameof(ToString), Type.EmptyTypes))
+                    }
+                }
+                else {
+                    _il.Emit(OpCodes.Ldstr, "Assertion failed")
+                }
+                _il.Emit(OpCodes.Newobj, typeof(InvalidOperationException).GetConstructor([typeof(string)]))
+                _il.Emit(OpCodes.Throw)
+                _il.MarkLabel(assertOk)
+                return true
+
+
+            } else if columnarSwitchValue0 == 62 { // AssertThrowsStatement [body] — legacy EmitAssertThrows: run the body in a try; a
+                    // fall-through throws "Expected exception ... was not thrown"; catching the expected
+                     // type pops it. Control transfers out of the body (return/break/continue) and nesting
+                     // inside another protected region decline (the try arm's conservative discipline).
+                if (_nodes.ChildCount(idx) != 1 || _inProtectedRegion || _inFinallyRegion) {return false}
+                let expectedExceptionType: System.Type? = null
+                if (!ColumnarCanonicalTypeResolver.TryResolveBclExceptionType(ColumnarNodeTextFacts.Text(_nodes, _source, idx), out  expectedExceptionType)) {return false}
+                assertThrowsBody := Child(idx, 0)
+                if (ColumnarMethodBodyPlanner.ContainsReturnStatement(_nodes, assertThrowsBody) || ContainsControlTransfer(assertThrowsBody)) {return false}
+                // A missed-flag local set after the body keeps the failure throw OUTSIDE the
+                // protected region (the legacy emitter threw inside the try, so an expected type of
+                // InvalidOperationException swallowed its own failure signal — a false pass).
+                assertThrowsMissed := _il.DeclareLocal(typeof(bool))
+                _il.Emit(OpCodes.Ldc_I4_0)
+                _il.Emit(OpCodes.Stloc, assertThrowsMissed)
+                _il.BeginExceptionBlock()
+                _inProtectedRegion = true
+                assertThrowsBodyOk := EmitStatement(assertThrowsBody)
+                _inProtectedRegion = false
+                if (!assertThrowsBodyOk) {return false}
+                _il.Emit(OpCodes.Ldc_I4_1)
+                _il.Emit(OpCodes.Stloc, assertThrowsMissed)
+                _il.BeginCatchBlock(expectedExceptionType)
+                _il.Emit(OpCodes.Pop)
+                _il.EndExceptionBlock()
+                assertThrowsOk := _il.DefineLabel()
+                _il.Emit(OpCodes.Ldloc, assertThrowsMissed)
+                _il.Emit(OpCodes.Brfalse, assertThrowsOk)
+                _il.Emit(OpCodes.Ldstr, "Expected exception of type " + expectedExceptionType.Name + " was not thrown")
+                _il.Emit(OpCodes.Newobj, typeof(InvalidOperationException).GetConstructor([typeof(string)]))
+                _il.Emit(OpCodes.Throw)
+                _il.MarkLabel(assertThrowsOk)
+                return true
+
+
+            } else if columnarSwitchValue0 == 72 { // YieldStatement (`yield <value>` / `yield break`) — the func*/yield iterator shape now
+                     // PARSES into the columnar node table (kind 72), but state-machine lowering is owned by
+                     // the N# iterator planner in a later ownership slice. Decline at a precise site until then.
+                return Decline(
+                    "emit.statement.yield-unsupported",
+                    "synchronous iterator lowering (func*/yield) is not yet emitted; this shape lands in a later N# ownership slice",
+                    idx)
+
+            } else {
+                return Decline(
+                    "emit.statement.unhandled-kind",
+                    "unsupported statement (node kind " + _nodes.Kind(idx).ToString() + ")",
+                    idx)
+        }
+    }
+
+    // default(T) on the stack: null for reference types, ldc zero for the primitive scalars,
+    // initobj through a temp for other value types.
+    private func TryEmitDefaultValue(columnarResolvedType: Type): bool {
+        if (!columnarResolvedType.get_IsValueType()) {
+            _il.Emit(OpCodes.Ldnull)
+            return true
+        }
+        if (columnarResolvedType == typeof(int) || columnarResolvedType == typeof(bool) || columnarResolvedType == typeof(char)
+            || columnarResolvedType == typeof(byte) || columnarResolvedType == typeof(sbyte) || columnarResolvedType == typeof(short) || columnarResolvedType == typeof(ushort)
+            || columnarResolvedType == typeof(uint)) {
+            _il.Emit(OpCodes.Ldc_I4_0)
+            return true
+        }
+        if (columnarResolvedType == typeof(long) || columnarResolvedType == typeof(ulong)) {
+            _il.Emit(OpCodes.Ldc_I8, 0L)
+            return true
+        }
+        if (columnarResolvedType == typeof(double)) {
+            _il.Emit(OpCodes.Ldc_R8, 0.0)
+            return true
+        }
+        if (columnarResolvedType == typeof(float)) {
+            _il.Emit(OpCodes.Ldc_R4, 0.0f)
+            return true
+        }
+        if (columnarResolvedType is TypeBuilder || ColumnarTypeOfPlanner.ContainsBuilderBoundType(columnarResolvedType)) {
+            builderTemp := _il.DeclareLocal(columnarResolvedType)
+            _il.Emit(OpCodes.Ldloca, builderTemp)
+            _il.Emit(OpCodes.Initobj, columnarResolvedType)
+            _il.Emit(OpCodes.Ldloc, builderTemp)
+            return true
+        }
+        temp := _il.DeclareLocal(columnarResolvedType)
+        _il.Emit(OpCodes.Ldloca, temp)
+        _il.Emit(OpCodes.Initobj, columnarResolvedType)
+        _il.Emit(OpCodes.Ldloc, temp)
+        return true
+    }
+
+    // Whether the subtree rooted at `idx` contains a direct break/continue (kinds 21/22) anywhere —
+    // used by regions that cannot route transfers across their boundary (assert throws).
+    private func ContainsControlTransfer(idx: int): bool {
+        controlTransferKind := _nodes.Kind(idx)
+        if (controlTransferKind == 21 || controlTransferKind == 22) {return true}
+        for c := 0; c < _nodes.ChildCount(idx); c++ {
+            if (ContainsControlTransfer(Child(idx, c))) {return true}
+        }
+        return false
+    }
+
+    // Phase P-1 (columnar): canonical counted integer reduction lowering for
+    // the columnar node tables, without materializing the object AST. The matched loop is:
+    //   while i < bound { acc = acc + a[i]; i = i + 1 }
+    // or, after the for initializer has already executed:
+    //   for i := start; i < bound; i++ { acc = acc + a[i] }
+    // and the lowering is:
+    //   acc += SimdReductions.Sum...(a, i, bound); i = max(i, bound)
+    // False positives must be impossible; a non-match simply falls through to the scalar loop.
+    private func TryEmitVectorizedReductionWhile(whileNode: int): bool {
+        let shape: NSharpLang.Compiler.Columnar.ColumnarReductionShape? = null
+        if (!TryMatchWhileReduction(whileNode, out  shape)) {return false}
+        return EmitVectorizedReduction(shape)
+    }
+
+    private func TryEmitVectorizedReductionFor(conditionNode: int, iteratorStatementNode: int, bodyNode: int): bool {
+        let shape: NSharpLang.Compiler.Columnar.ColumnarReductionShape? = null
+        if (!TryMatchForReduction(conditionNode, iteratorStatementNode, bodyNode, out  shape)) {return false}
+        return EmitVectorizedReduction(shape)
+    }
+
+    private func TryMatchWhileReduction(whileNode: int, out shape: ColumnarReductionShape): bool {
+        shape = null
+        if (_nodes.ChildCount(whileNode) != 2) {return false}
+        let indexNode: int = 0
+        let indexName: string? = null
+        let boundNode: int = 0
+        if (!TryMatchReductionCondition(Child(whileNode, 0), out  indexNode, out  indexName, out  boundNode)) {return false}
+
+        body := Child(whileNode, 1)
+        if (_nodes.Kind(body) != 25 || _nodes.ChildCount(body) != 2) {return false}
+        let update: int = 0
+        let increment: int = 0
+        if (!TryGetExpressionStatementExpression(Child(body, 0), out  update)
+            || !TryGetExpressionStatementExpression(Child(body, 1), out  increment)) {return false}
+        let accumulatorNode: int = 0
+        let accumulatorName: string? = null
+        let arrayNode: int = 0
+        let arrayName: string? = null
+        if (!TryMatchReductionUpdate(update, indexName, out  accumulatorNode, out  accumulatorName, out  arrayNode, out  arrayName)) {return false}
+        // The while-form detector accepts assignment-style increments here; postfix ++ is a
+        // for-iterator surface in the current corpus and is kept out of this mirror.
+        if (!TryMatchUnitIndexIncrement(increment, indexName,  false)) {return false}
+        return TryBuildReductionShape(accumulatorNode, arrayNode, indexNode, boundNode, accumulatorName, arrayName, indexName, out shape)
+    }
+
+    private func TryMatchForReduction(conditionNode: int, iteratorStatementNode: int, bodyNode: int, out shape: ColumnarReductionShape): bool {
+        shape = null
+        let indexNode: int = 0
+        let indexName: string? = null
+        let boundNode: int = 0
+        if (!TryMatchReductionCondition(conditionNode, out  indexNode, out  indexName, out  boundNode)) {return false}
+        let iterator: int = 0
+        if (!TryGetExpressionStatementExpression(iteratorStatementNode, out  iterator)
+            || !TryMatchUnitIndexIncrement(iterator, indexName,  true)) {return false}
+        let bodyStatement: int = 0
+        let update: int = 0
+        if (!TryGetSingleReductionBodyStatement(bodyNode, out  bodyStatement)
+            || !TryGetExpressionStatementExpression(bodyStatement, out  update)) {return false}
+        let accumulatorNode: int = 0
+        let accumulatorName: string? = null
+        let arrayNode: int = 0
+        let arrayName: string? = null
+        if (!TryMatchReductionUpdate(update, indexName, out  accumulatorNode, out  accumulatorName, out  arrayNode, out  arrayName)) {return false}
+        return TryBuildReductionShape(accumulatorNode, arrayNode, indexNode, boundNode, accumulatorName, arrayName, indexName, out shape)
+    }
+
+    private func TryBuildReductionShape(accumulatorNode: int, arrayNode: int, indexNode: int, boundNode: int, accumulatorName: string, arrayName: string, indexName: string, out shape: ColumnarReductionShape): bool {
+        shape = null
+        if (accumulatorName == arrayName || accumulatorName == indexName || arrayName == indexName) {return false}
+        if (BoundReadsIdentifier(boundNode, accumulatorName)) {return false}
+        let columnarDiscard27: string = null
+        let columnarDiscard26: string = null
+        let columnarDiscard25: string = null
+        let accumulatorType: System.Type? = null
+        let arrayType: System.Type? = null
+        let indexType: System.Type? = null
+        if (!TryGetPureLocalOrParameterType(accumulatorNode, out columnarDiscard25, out  accumulatorType)
+            || !TryGetPureLocalOrParameterType(arrayNode, out columnarDiscard26, out  arrayType)
+            || !TryGetPureLocalOrParameterType(indexNode, out columnarDiscard27, out  indexType)) {return false}
+        if (indexType != typeof(int) || !ColumnarTypeEquivalenceFacts.IsSafeSzArrayType(arrayType)) {return false}
+        elementType := arrayType.GetElementType()
+        helper := ReductionHelperForColumnarElementType(elementType)
+        if (helper == null || accumulatorType != elementType) {return false}
+        if (!IsSideEffectFreeInt32Bound(boundNode, indexName)) {return false}
+
+        shape = new ColumnarReductionShape(
+            accumulatorNode, arrayNode, indexNode, boundNode,
+            accumulatorName, arrayName, indexName, elementType, helper)
+        return true
+    }
+
+    private func EmitVectorizedReduction(shape: ColumnarReductionShape): bool {
+        boundLocal := _il.DeclareLocal(typeof(int))
+        let boundType: System.Type? = null
+        if (!EmitExpression(shape.BoundNode, out  boundType) || boundType != typeof(int)) {return false}
+        _il.Emit(OpCodes.Stloc, boundLocal)
+
+        // acc = acc + Sum...(array, index, bound)
+        let accumulatorType: System.Type? = null
+        if (!EmitExpression(shape.AccumulatorNode, out  accumulatorType) || accumulatorType != shape.ElementType) {return false}
+        let arrayType: System.Type? = null
+        if (!EmitExpression(shape.ArrayNode, out  arrayType) || !ColumnarTypeEquivalenceFacts.IsSafeSzArrayType(arrayType) || arrayType.GetElementType() != shape.ElementType) {return false}
+        let indexType: System.Type? = null
+        if (!EmitExpression(shape.IndexNode, out  indexType) || indexType != typeof(int)) {return false}
+        _il.Emit(OpCodes.Ldloc, boundLocal)
+        _il.Emit(OpCodes.Call, shape.Helper)
+        _il.Emit(OpCodes.Add)
+        if (!StoreReductionIdentifier(shape.Accumulator)) {return false}
+
+        // The scalar loop exits with index == max(start, bound), not unconditionally bound (empty /
+        // negative ranges leave the index unchanged). Preserve that observable post-loop value.
+        if (!EmitExpression(shape.IndexNode, out indexType) || indexType != typeof(int)) {return false}
+        _il.Emit(OpCodes.Ldloc, boundLocal)
+        keepIndexLabel := _il.DefineLabel()
+        _il.Emit(OpCodes.Bge, keepIndexLabel)
+        _il.Emit(OpCodes.Ldloc, boundLocal)
+        if (!StoreReductionIdentifier(shape.Index)) {return false}
+        _il.MarkLabel(keepIndexLabel)
+        return true
+    }
+
+    private static func ReductionHelperForColumnarElementType(elementType: Type): MethodInfo? {
+        if (elementType == typeof(int)) {return ColumnarIlEmitter.s_sumInt32Reduction}
+        if (elementType == typeof(uint)) {return ColumnarIlEmitter.s_sumUInt32Reduction}
+        if (elementType == typeof(long)) {return ColumnarIlEmitter.s_sumInt64Reduction}
+        if (elementType == typeof(ulong)) {return ColumnarIlEmitter.s_sumUInt64Reduction}
+        return null
+    }
+
+    // Phase P-2 (columnar): masked-SIMD range-predicate count lowering for the
+    // columnar node tables. The matched loop is:
+    //   [value := a[i]]
+    //   if subject >= lo && subject <= hi { count++ }
+    // with a unit-stride counted loop around it. The lowering is:
+    //   count += SimdReductions.CountInRangeInt32(array, index, bound, lo, hi); index = max(index, bound)
+    private func TryEmitVectorizedRangeCountWhile(whileNode: int): bool {
+        let shape: NSharpLang.Compiler.Columnar.ColumnarRangeCountShape? = null
+        if (!TryMatchWhileRangeCount(whileNode, out  shape)) {return false}
+        return EmitVectorizedRangeCount(shape)
+    }
+
+    private func TryEmitVectorizedRangeCountFor(conditionNode: int, iteratorStatementNode: int, bodyNode: int): bool {
+        let shape: NSharpLang.Compiler.Columnar.ColumnarRangeCountShape? = null
+        if (!TryMatchForRangeCount(conditionNode, iteratorStatementNode, bodyNode, out  shape)) {return false}
+        return EmitVectorizedRangeCount(shape)
+    }
+
+    private func TryMatchWhileRangeCount(whileNode: int, out shape: ColumnarRangeCountShape): bool {
+        shape = null
+        if (_nodes.ChildCount(whileNode) != 2) {return false}
+        let indexNode: int = 0
+        let indexName: string? = null
+        let boundNode: int = 0
+        if (!TryMatchReductionCondition(Child(whileNode, 0), out  indexNode, out  indexName, out  boundNode)) {return false}
+
+        body := Child(whileNode, 1)
+        if (_nodes.Kind(body) != 25) {return false}
+
+        let tempStatement: int = 0
+        let ifStatement: int = 0
+        let incrementStatement: int = 0
+        columnarSwitchValue1 := _nodes.ChildCount(body)
+            if columnarSwitchValue1 == 2 {
+                tempStatement = -1
+                ifStatement = Child(body, 0)
+                incrementStatement = Child(body, 1)
+
+            } else if columnarSwitchValue1 == 3 {
+                tempStatement = Child(body, 0)
+                ifStatement = Child(body, 1)
+                incrementStatement = Child(body, 2)
+
+            } else {
+                return false
+        }
+
+        let increment: int = 0
+        if (!TryGetExpressionStatementExpression(incrementStatement, out  increment)
+            || !TryMatchUnitIndexIncrement(increment, indexName,  true)) {return false}
+        return TryMatchRangeCountBody(tempStatement, ifStatement, indexNode, indexName, boundNode, out shape)
+    }
+
+    private func TryMatchForRangeCount(conditionNode: int, iteratorStatementNode: int, bodyNode: int, out shape: ColumnarRangeCountShape): bool {
+        shape = null
+        let indexNode: int = 0
+        let indexName: string? = null
+        let boundNode: int = 0
+        if (!TryMatchReductionCondition(conditionNode, out  indexNode, out  indexName, out  boundNode)) {return false}
+        let iterator: int = 0
+        if (!TryGetExpressionStatementExpression(iteratorStatementNode, out  iterator)
+            || !TryMatchUnitIndexIncrement(iterator, indexName,  true)) {return false}
+
+        let tempStatement: int = 0
+        let ifStatement: int = 0
+        if (_nodes.Kind(bodyNode) == 27) {
+            tempStatement = -1
+            ifStatement = bodyNode
+        }
+        else {if (_nodes.Kind(bodyNode) == 25 && _nodes.ChildCount(bodyNode) == 1) {
+            tempStatement = -1
+            ifStatement = Child(bodyNode, 0)
+        }
+        else {if (_nodes.Kind(bodyNode) == 25 && _nodes.ChildCount(bodyNode) == 2) {
+            tempStatement = Child(bodyNode, 0)
+            ifStatement = Child(bodyNode, 1)
+        }
+        else {
+            return false
+        }}}
+
+        return TryMatchRangeCountBody(tempStatement, ifStatement, indexNode, indexName, boundNode, out shape)
+    }
+
+    private func TryMatchRangeCountBody(tempStatementNode: int, ifStatementNode: int, indexNode: int, indexName: string, boundNode: int, out shape: ColumnarRangeCountShape): bool {
+        shape = null
+        if (_nodes.Kind(ifStatementNode) != 27 || _nodes.ChildCount(ifStatementNode) != 2) {return false}
+        predicate := Child(ifStatementNode, 0)
+        if (_nodes.Kind(predicate) != 12 || _nodes.ChildCount(predicate) != 2 || ColumnarNodeTextFacts.Text(_nodes, _source, predicate) != "&&") {return false}
+        ge := Child(predicate, 0)
+        le := Child(predicate, 1)
+        if (_nodes.Kind(ge) != 12 || _nodes.ChildCount(ge) != 2 || ColumnarNodeTextFacts.Text(_nodes, _source, ge) != ">="
+            || _nodes.Kind(le) != 12 || _nodes.ChildCount(le) != 2 || ColumnarNodeTextFacts.Text(_nodes, _source, le) != "<=") {return false}
+
+        let arrayNode: int = 0
+        let arrayName: string = null
+        tempName: string? = null
+        if (tempStatementNode >= 0) {
+            if (_nodes.Kind(tempStatementNode) != 24 || _nodes.ChildCount(tempStatementNode) != 1) {return false}
+            tempName = ColumnarNodeTextFacts.Text(_nodes, _source, tempStatementNode)
+            if (ColumnarClosureBindingPlanner.IsVisibleBindingName(tempName, _locals, _paramOrdinals, _liftedLocals, _boxedCaptures, _enclosingBindingNames)) {return false}
+            if (!TryMatchArrayIndexByIdentifier(Child(tempStatementNode, 0), indexName, out arrayNode, out arrayName)) {return false}
+            let geSubject: string? = null
+            if (!TryGetIdentifierName(Child(ge, 0), out  geSubject) || geSubject != tempName) {return false}
+            let leSubject: string? = null
+            if (!TryGetIdentifierName(Child(le, 0), out  leSubject) || leSubject != tempName) {return false}
+        }
+        else {
+            if (!TryMatchArrayIndexByIdentifier(Child(ge, 0), indexName, out arrayNode, out arrayName)) {return false}
+            let columnarDiscard28: int = 0
+            let secondArrayName: string? = null
+            if (!TryMatchArrayIndexByIdentifier(Child(le, 0), indexName, out columnarDiscard28, out  secondArrayName)
+                || secondArrayName != arrayName) {return false}
+        }
+
+        loNode := Child(ge, 1)
+        hiNode := Child(le, 1)
+        let thenStatement: int = 0
+        let counterIncrement: int = 0
+        let counterNode: int = 0
+        let counterName: string? = null
+        if (!TryGetSingleRangeBodyStatement(Child(ifStatementNode, 1), out  thenStatement)
+            || !TryGetExpressionStatementExpression(thenStatement, out  counterIncrement)
+            || !TryMatchUnitCounterIncrement(counterIncrement, out  counterNode, out  counterName)) {return false}
+
+        if (!IsInvariantRangeOperand(loNode, indexName, tempName, counterName)
+            || !IsInvariantRangeOperand(hiNode, indexName, tempName, counterName)) {return false}
+        if (counterName == arrayName || counterName == indexName || arrayName == indexName) {return false}
+        if (tempName != null && (tempName == counterName || tempName == arrayName || tempName == indexName)) {return false}
+        if (BoundReadsIdentifier(boundNode, counterName)
+            || (tempName != null && BoundReadsIdentifier(boundNode, tempName))) {return false}
+
+        return TryBuildRangeCountShape(counterNode, arrayNode, indexNode, boundNode, loNode, hiNode, counterName, indexName, out shape)
+    }
+
+    private func TryBuildRangeCountShape(counterNode: int, arrayNode: int, indexNode: int, boundNode: int, loNode: int, hiNode: int, counterName: string, indexName: string, out shape: ColumnarRangeCountShape): bool {
+        shape = null
+        let columnarDiscard31: string = null
+        let columnarDiscard30: string = null
+        let columnarDiscard29: string = null
+        let counterType: System.Type? = null
+        let arrayType: System.Type? = null
+        let indexType: System.Type? = null
+        if (!TryGetPureLocalOrParameterType(counterNode, out columnarDiscard29, out  counterType)
+            || !TryGetPureLocalOrParameterType(arrayNode, out columnarDiscard30, out  arrayType)
+            || !TryGetPureLocalOrParameterType(indexNode, out columnarDiscard31, out  indexType)) {return false}
+        if (counterType != typeof(int) || arrayType != typeof(int[]) || indexType != typeof(int)) {return false}
+        if (!IsSideEffectFreeInt32Bound(boundNode, indexName)
+            || !IsSideEffectFreeInt32Operand(loNode)
+            || !IsSideEffectFreeInt32Operand(hiNode)) {return false}
+
+        shape = new ColumnarRangeCountShape(
+            counterNode, arrayNode, indexNode, boundNode, loNode, hiNode,
+            counterName, indexName)
+        return true
+    }
+
+    private func EmitVectorizedRangeCount(shape: ColumnarRangeCountShape): bool {
+        boundLocal := _il.DeclareLocal(typeof(int))
+        let boundType: System.Type? = null
+        if (!EmitExpression(shape.BoundNode, out  boundType) || boundType != typeof(int)) {return false}
+        _il.Emit(OpCodes.Stloc, boundLocal)
+
+        loLocal := _il.DeclareLocal(typeof(int))
+        let loType: System.Type? = null
+        if (!EmitExpression(shape.LoNode, out  loType) || loType != typeof(int)) {return false}
+        _il.Emit(OpCodes.Stloc, loLocal)
+
+        hiLocal := _il.DeclareLocal(typeof(int))
+        let hiType: System.Type? = null
+        if (!EmitExpression(shape.HiNode, out  hiType) || hiType != typeof(int)) {return false}
+        _il.Emit(OpCodes.Stloc, hiLocal)
+
+        // count = count + CountInRangeInt32(array, index, bound, lo, hi)
+        let counterType: System.Type? = null
+        if (!EmitExpression(shape.CounterNode, out  counterType) || counterType != typeof(int)) {return false}
+        let arrayType: System.Type? = null
+        if (!EmitExpression(shape.ArrayNode, out  arrayType) || arrayType != typeof(int[])) {return false}
+        let indexType: System.Type? = null
+        if (!EmitExpression(shape.IndexNode, out  indexType) || indexType != typeof(int)) {return false}
+        _il.Emit(OpCodes.Ldloc, boundLocal)
+        _il.Emit(OpCodes.Ldloc, loLocal)
+        _il.Emit(OpCodes.Ldloc, hiLocal)
+        _il.Emit(OpCodes.Call, ColumnarIlEmitter.s_countInRangeInt32)
+        _il.Emit(OpCodes.Add)
+        if (!StoreReductionIdentifier(shape.Counter)) {return false}
+
+        if (!EmitExpression(shape.IndexNode, out indexType) || indexType != typeof(int)) {return false}
+        _il.Emit(OpCodes.Ldloc, boundLocal)
+        keepIndexLabel := _il.DefineLabel()
+        _il.Emit(OpCodes.Bge, keepIndexLabel)
+        _il.Emit(OpCodes.Ldloc, boundLocal)
+        if (!StoreReductionIdentifier(shape.Index)) {return false}
+        _il.MarkLabel(keepIndexLabel)
+        return true
+    }
+
+    // Phase P-3 (columnar): lane-wise min/max reduction lowering, including the fused
+    // single-pass MinMaxInt32 helper for exactly one min and one max reduction over the same int[] scan.
+    private func TryEmitVectorizedMinMaxWhile(whileNode: int): bool {
+        let shape: NSharpLang.Compiler.Columnar.ColumnarMinMaxShape? = null
+        if (!TryMatchWhileMinMax(whileNode, out  shape)) {return false}
+        return EmitVectorizedMinMax(shape)
+    }
+
+    private func TryEmitVectorizedMinMaxFor(conditionNode: int, iteratorStatementNode: int, bodyNode: int): bool {
+        let shape: NSharpLang.Compiler.Columnar.ColumnarMinMaxShape? = null
+        if (!TryMatchForMinMax(conditionNode, iteratorStatementNode, bodyNode, out  shape)) {return false}
+        return EmitVectorizedMinMax(shape)
+    }
+
+    private func TryMatchWhileMinMax(whileNode: int, out shape: ColumnarMinMaxShape): bool {
+        shape = null
+        if (_nodes.ChildCount(whileNode) != 2) {return false}
+        let indexNode: int = 0
+        let indexName: string? = null
+        let boundNode: int = 0
+        if (!TryMatchReductionCondition(Child(whileNode, 0), out  indexNode, out  indexName, out  boundNode)) {return false}
+
+        body := Child(whileNode, 1)
+        if (_nodes.Kind(body) != 25 || _nodes.ChildCount(body) < 2) {return false}
+        incrementStatement := Child(body, _nodes.ChildCount(body) - 1)
+        let increment: int = 0
+        if (!TryGetExpressionStatementExpression(incrementStatement, out  increment)
+            || !TryMatchUnitIndexIncrement(increment, indexName,  true)) {return false}
+
+        statements := new int[_nodes.ChildCount(body) - 1]
+        for i := 0; i < statements.Length; i++ {statements[i] = Child(body, i)}
+        return TryMatchMinMaxBody(statements, indexNode, indexName, boundNode, out shape)
+    }
+
+    private func TryMatchForMinMax(conditionNode: int, iteratorStatementNode: int, bodyNode: int, out shape: ColumnarMinMaxShape): bool {
+        shape = null
+        let indexNode: int = 0
+        let indexName: string? = null
+        let boundNode: int = 0
+        if (!TryMatchReductionCondition(conditionNode, out  indexNode, out  indexName, out  boundNode)) {return false}
+        let iterator: int = 0
+        if (!TryGetExpressionStatementExpression(iteratorStatementNode, out  iterator)
+            || !TryMatchUnitIndexIncrement(iterator, indexName,  true)) {return false}
+
+        let statements: int[] = null
+        if (_nodes.Kind(bodyNode) == 27) {
+            statements = [bodyNode]
+        }
+        else {if (_nodes.Kind(bodyNode) == 25) {
+            statements = new int[_nodes.ChildCount(bodyNode)]
+            for i := 0; i < statements.Length; i++ {statements[i] = Child(bodyNode, i)}
+        }
+        else {
+            return false
+        }}
+
+        return TryMatchMinMaxBody(statements, indexNode, indexName, boundNode, out shape)
+    }
+
+    private func TryMatchMinMaxBody(statementNodes: IReadOnlyList<int>, indexNode: int, indexName: string, boundNode: int, out shape: ColumnarMinMaxShape): bool {
+        shape = null
+        if (statementNodes.Count < 1 || statementNodes.Count > 3) {return false}
+
+        ifStart := 0
+        tempName: string? = null
+        arrayNode := -1
+        arrayName := ""
+        if (_nodes.Kind(statementNodes[0]) == 24) {
+            tempStatement := statementNodes[0]
+            if (_nodes.ChildCount(tempStatement) != 1) {return false}
+            tempName = ColumnarNodeTextFacts.Text(_nodes, _source, tempStatement)
+            if (ColumnarClosureBindingPlanner.IsVisibleBindingName(tempName, _locals, _paramOrdinals, _liftedLocals, _boxedCaptures, _enclosingBindingNames)) {return false}
+            if (!TryMatchArrayIndexByIdentifier(Child(tempStatement, 0), indexName, out arrayNode, out arrayName)) {return false}
+            ifStart = 1
+        }
+
+        ifCount := statementNodes.Count - ifStart
+        if (ifCount < 1 || ifCount > 2) {return false}
+
+        reductions := new List<ColumnarMinMaxReduction>(ifCount)
+        seenAccumulators := new HashSet<string>(StringComparer.Ordinal)
+        for i := ifStart; i < statementNodes.Count; i++ {
+            let reduction: NSharpLang.Compiler.Columnar.ColumnarMinMaxReduction? = null
+            if (!TryMatchMinMaxIf(statementNodes[i], indexName, tempName, ref arrayNode, ref arrayName, out  reduction)) {return false}
+            if (!seenAccumulators.Add(reduction.Accumulator)) {return false}
+            reductions.Add(reduction)
+        }
+
+        if (arrayNode < 0 || arrayName == indexName) {return false}
+        if (tempName != null && (tempName == arrayName || tempName == indexName)) {return false}
+        for reduction in reductions {
+            if (reduction.Accumulator == arrayName || reduction.Accumulator == indexName || reduction.Accumulator == tempName) {return false}
+            if (BoundReadsIdentifier(boundNode, reduction.Accumulator)) {return false}
+        }
+        if (tempName != null && BoundReadsIdentifier(boundNode, tempName)) {return false}
+
+        return TryBuildMinMaxShape(arrayNode, indexNode, boundNode, indexName, reductions, out shape)
+    }
+
+    private func TryMatchMinMaxIf(ifStatementNode: int, indexName: string, tempName: string?, ref arrayNode: int, ref arrayName: string, out reduction: ColumnarMinMaxReduction): bool {
+        reduction = null
+        if (_nodes.Kind(ifStatementNode) != 27 || _nodes.ChildCount(ifStatementNode) != 2) {return false}
+        let thenStatement: int = 0
+        let assignment: int = 0
+        if (!TryGetSingleReductionBodyStatement(Child(ifStatementNode, 1), out  thenStatement)
+            || !TryGetExpressionStatementExpression(thenStatement, out  assignment)
+            || _nodes.Kind(assignment) != 14
+            || _nodes.ChildCount(assignment) != 2
+            || ColumnarNodeTextFacts.Text(_nodes, _source, assignment) != "=") {return false}
+        accumulatorNode := Child(assignment, 0)
+        let accumulatorName: string? = null
+        if (!TryGetIdentifierName(accumulatorNode, out  accumulatorName)) {return false}
+        if (!TryMatchMinMaxSubject(Child(assignment, 1), indexName, tempName, ref arrayNode, ref arrayName)) {return false}
+
+        condition := Child(ifStatementNode, 0)
+        if (_nodes.Kind(condition) != 12 || _nodes.ChildCount(condition) != 2) {return false}
+        minMaxOperator := ColumnarNodeTextFacts.Text(_nodes, _source, condition)
+        if (minMaxOperator != "<" && minMaxOperator != ">") {return false}
+        left := Child(condition, 0)
+        right := Child(condition, 1)
+        let leftName: string? = null
+        leftIsAccumulator := TryGetIdentifierName(left, out  leftName) && leftName == accumulatorName
+        let rightName: string? = null
+        rightIsAccumulator := TryGetIdentifierName(right, out  rightName) && rightName == accumulatorName
+        leftIsSubject := IsMinMaxSubject(left, indexName, tempName, arrayName)
+        rightIsSubject := IsMinMaxSubject(right, indexName, tempName, arrayName)
+
+        let isMin: bool = false
+        if (leftIsSubject && rightIsAccumulator) {isMin = ColumnarNodeTextFacts.Text(_nodes, _source, condition) == "<"}
+        else {if (leftIsAccumulator && rightIsSubject) {isMin = ColumnarNodeTextFacts.Text(_nodes, _source, condition) == ">"}
+        else {return false}}
+
+        reduction = new ColumnarMinMaxReduction(accumulatorNode, accumulatorName, isMin)
+        return true
+    }
+
+    private func TryMatchMinMaxSubject(node: int, indexName: string, tempName: string?, ref arrayNode: int, ref arrayName: string): bool {
+        if (tempName != null) {let name: string? = null
+            return TryGetIdentifierName(node, out  name) && name == tempName}
+        let candidateArrayNode: int = 0
+        let candidateArrayName: string? = null
+        if (!TryMatchArrayIndexByIdentifier(node, indexName, out  candidateArrayNode, out  candidateArrayName)) {return false}
+        if (arrayNode < 0) {
+            arrayNode = candidateArrayNode
+            arrayName = candidateArrayName
+            return true
+        }
+
+        return candidateArrayName == arrayName
+    }
+
+    private func IsMinMaxSubject(node: int, indexName: string, tempName: string?, arrayName: string): bool {
+        if (tempName != null) {let name: string? = null
+            return TryGetIdentifierName(node, out  name) && name == tempName}
+        let columnarDiscard32: int = 0
+        let candidateArrayName: string? = null
+        return TryMatchArrayIndexByIdentifier(node, indexName, out columnarDiscard32, out  candidateArrayName)
+               && candidateArrayName == arrayName
+    }
+
+    private func TryBuildMinMaxShape(arrayNode: int, indexNode: int, boundNode: int, indexName: string, reductions: IReadOnlyList<ColumnarMinMaxReduction>, out shape: ColumnarMinMaxShape): bool {
+        shape = null
+        let columnarDiscard34: string = null
+        let columnarDiscard33: string = null
+        let arrayType: System.Type? = null
+        let indexType: System.Type? = null
+        if (!TryGetPureLocalOrParameterType(arrayNode, out columnarDiscard33, out  arrayType)
+            || !TryGetPureLocalOrParameterType(indexNode, out columnarDiscard34, out  indexType)) {return false}
+        if (arrayType != typeof(int[]) || indexType != typeof(int)) {return false}
+        if (!IsSideEffectFreeInt32Bound(boundNode, indexName)) {return false}
+        for reduction in reductions {
+            let columnarDiscard35: string = null
+            let accumulatorType: System.Type? = null
+            if (!TryGetPureLocalOrParameterType(reduction.AccumulatorNode, out columnarDiscard35, out  accumulatorType)
+                || accumulatorType != typeof(int)) {return false}
+        }
+
+        shape = new ColumnarMinMaxShape(arrayNode, indexNode, boundNode, indexName, reductions)
+        return true
+    }
+
+    private func EmitVectorizedMinMax(shape: ColumnarMinMaxShape): bool {
+        boundLocal := _il.DeclareLocal(typeof(int))
+        let boundType: System.Type? = null
+        if (!EmitExpression(shape.BoundNode, out  boundType) || boundType != typeof(int)) {return false}
+        _il.Emit(OpCodes.Stloc, boundLocal)
+
+        let minReduction: NSharpLang.Compiler.Columnar.ColumnarMinMaxReduction? = null
+        let maxReduction: NSharpLang.Compiler.Columnar.ColumnarMinMaxReduction? = null
+        if (TryGetMinMaxPair(shape.Reductions, out  minReduction, out  maxReduction)) {
+            tupleLocal := _il.DeclareLocal(typeof(ValueTuple<int, int>))
+            let arrayType: System.Type? = null
+            if (!EmitExpression(shape.ArrayNode, out  arrayType) || arrayType != typeof(int[])) {return false}
+            let indexType: System.Type? = null
+            if (!EmitExpression(shape.IndexNode, out  indexType) || indexType != typeof(int)) {return false}
+            _il.Emit(OpCodes.Ldloc, boundLocal)
+            let minType: System.Type? = null
+            if (!EmitExpression(minReduction.AccumulatorNode, out  minType) || minType != typeof(int)) {return false}
+            let maxType: System.Type? = null
+            if (!EmitExpression(maxReduction.AccumulatorNode, out  maxType) || maxType != typeof(int)) {return false}
+            _il.Emit(OpCodes.Call, ColumnarIlEmitter.s_minMaxInt32Reduction)
+            _il.Emit(OpCodes.Stloc, tupleLocal)
+
+            _il.Emit(OpCodes.Ldloca, tupleLocal)
+            _il.Emit(OpCodes.Ldfld, ColumnarIlEmitter.s_valueTupleItem1)
+            if (!StoreReductionIdentifier(minReduction.Accumulator)) {return false}
+            _il.Emit(OpCodes.Ldloca, tupleLocal)
+            _il.Emit(OpCodes.Ldfld, ColumnarIlEmitter.s_valueTupleItem2)
+            if (!StoreReductionIdentifier(maxReduction.Accumulator)) {return false}
+        }
+        else {
+            for reduction in shape.Reductions {
+                let arrayType: System.Type? = null
+                if (!EmitExpression(shape.ArrayNode, out  arrayType) || arrayType != typeof(int[])) {return false}
+                let indexType: System.Type? = null
+                if (!EmitExpression(shape.IndexNode, out  indexType) || indexType != typeof(int)) {return false}
+                _il.Emit(OpCodes.Ldloc, boundLocal)
+                let accumulatorType: System.Type? = null
+                if (!EmitExpression(reduction.AccumulatorNode, out  accumulatorType) || accumulatorType != typeof(int)) {return false}
+                reductionCallIl := _il
+                reductionCallOpCode := OpCodes.Call
+                reductionCallMethod := reduction.IsMin ? ColumnarIlEmitter.s_minInt32Reduction : ColumnarIlEmitter.s_maxInt32Reduction
+                reductionCallIl.Emit(reductionCallOpCode, reductionCallMethod)
+                if (!StoreReductionIdentifier(reduction.Accumulator)) {return false}
+            }
+        }
+
+        let terminalIndexType: System.Type? = null
+        if (!EmitExpression(shape.IndexNode, out  terminalIndexType) || terminalIndexType != typeof(int)) {return false}
+        _il.Emit(OpCodes.Ldloc, boundLocal)
+        keepIndexLabel := _il.DefineLabel()
+        _il.Emit(OpCodes.Bge, keepIndexLabel)
+        _il.Emit(OpCodes.Ldloc, boundLocal)
+        if (!StoreReductionIdentifier(shape.Index)) {return false}
+        _il.MarkLabel(keepIndexLabel)
+        return true
+    }
+
+    private static func TryGetMinMaxPair(reductions: IReadOnlyList<ColumnarMinMaxReduction>, out min: ColumnarMinMaxReduction, out max: ColumnarMinMaxReduction): bool {
+        min = null
+        max = null
+        if (reductions.Count != 2 || reductions[0].IsMin == reductions[1].IsMin) {return false}
+        min = reductions[0].IsMin ? reductions[0] : reductions[1]
+        max = reductions[0].IsMin ? reductions[1] : reductions[0]
+        return true
+    }
+
+    // Phase P-4 (columnar): shifted-compare adjacent-transition count lowering.
+    // The matched body is exactly:
+    //   current := a[i]
+    //   if current != previous { count++ }
+    //   previous = current
+    // and the helper restores both count and the carried previous value.
+    private func TryEmitVectorizedCountTransitionsWhile(whileNode: int): bool {
+        let shape: NSharpLang.Compiler.Columnar.ColumnarCountTransitionsShape? = null
+        if (!TryMatchWhileCountTransitions(whileNode, out  shape)) {return false}
+        return EmitVectorizedCountTransitions(shape)
+    }
+
+    private func TryEmitVectorizedCountTransitionsFor(conditionNode: int, iteratorStatementNode: int, bodyNode: int): bool {
+        let shape: NSharpLang.Compiler.Columnar.ColumnarCountTransitionsShape? = null
+        if (!TryMatchForCountTransitions(conditionNode, iteratorStatementNode, bodyNode, out  shape)) {return false}
+        return EmitVectorizedCountTransitions(shape)
+    }
+
+    private func TryMatchWhileCountTransitions(whileNode: int, out shape: ColumnarCountTransitionsShape): bool {
+        shape = null
+        if (_nodes.ChildCount(whileNode) != 2) {return false}
+        let indexNode: int = 0
+        let indexName: string? = null
+        let boundNode: int = 0
+        if (!TryMatchReductionCondition(Child(whileNode, 0), out  indexNode, out  indexName, out  boundNode)) {return false}
+        body := Child(whileNode, 1)
+        if (_nodes.Kind(body) != 25 || _nodes.ChildCount(body) != 4) {return false}
+        let increment: int = 0
+        if (!TryGetExpressionStatementExpression(Child(body, 3), out  increment)
+            || !TryMatchUnitIndexIncrement(increment, indexName,  true)) {return false}
+        return TryMatchCountTransitionsBody(Child(body, 0), Child(body, 1), Child(body, 2), indexNode, indexName, boundNode, out shape)
+    }
+
+    private func TryMatchForCountTransitions(conditionNode: int, iteratorStatementNode: int, bodyNode: int, out shape: ColumnarCountTransitionsShape): bool {
+        shape = null
+        let indexNode: int = 0
+        let indexName: string? = null
+        let boundNode: int = 0
+        if (!TryMatchReductionCondition(conditionNode, out  indexNode, out  indexName, out  boundNode)) {return false}
+        let iterator: int = 0
+        if (!TryGetExpressionStatementExpression(iteratorStatementNode, out  iterator)
+            || !TryMatchUnitIndexIncrement(iterator, indexName,  true)) {return false}
+        if (_nodes.Kind(bodyNode) != 25 || _nodes.ChildCount(bodyNode) != 3) {return false}
+        return TryMatchCountTransitionsBody(Child(bodyNode, 0), Child(bodyNode, 1), Child(bodyNode, 2), indexNode, indexName, boundNode, out shape)
+    }
+
+    private func TryMatchCountTransitionsBody(tempStatementNode: int, ifStatementNode: int, carryStatementNode: int, indexNode: int, indexName: string, boundNode: int, out shape: ColumnarCountTransitionsShape): bool {
+        shape = null
+
+        if (_nodes.Kind(tempStatementNode) != 24 || _nodes.ChildCount(tempStatementNode) != 1) {return false}
+        currentName := ColumnarNodeTextFacts.Text(_nodes, _source, tempStatementNode)
+        if (ColumnarClosureBindingPlanner.IsVisibleBindingName(currentName, _locals, _paramOrdinals, _liftedLocals, _boxedCaptures, _enclosingBindingNames)) {return false}
+        let arrayNode: int = 0
+        let arrayName: string? = null
+        if (!TryMatchArrayIndexByIdentifier(Child(tempStatementNode, 0), indexName, out  arrayNode, out  arrayName)) {return false}
+
+        if (_nodes.Kind(ifStatementNode) != 27 || _nodes.ChildCount(ifStatementNode) != 2) {return false}
+        condition := Child(ifStatementNode, 0)
+        if (_nodes.Kind(condition) != 12 || _nodes.ChildCount(condition) != 2 || ColumnarNodeTextFacts.Text(_nodes, _source, condition) != "!=") {return false}
+        let previousNode: int = 0
+        let previousName: string? = null
+        if (!TryResolvePreviousForTransition(condition, currentName, out  previousNode, out  previousName)) {return false}
+        let thenStatement: int = 0
+        let counterIncrement: int = 0
+        let counterNode: int = 0
+        let counterName: string? = null
+        if (!TryGetSingleReductionBodyStatement(Child(ifStatementNode, 1), out  thenStatement)
+            || !TryGetExpressionStatementExpression(thenStatement, out  counterIncrement)
+            || !TryMatchUnitCounterIncrement(counterIncrement, out  counterNode, out  counterName)) {return false}
+
+        let carry: int = 0
+        let carryTarget: string? = null
+        let carryValue: string? = null
+        if (!TryGetExpressionStatementExpression(carryStatementNode, out  carry)
+            || _nodes.Kind(carry) != 14
+            || _nodes.ChildCount(carry) != 2
+            || ColumnarNodeTextFacts.Text(_nodes, _source, carry) != "="
+            || !TryGetIdentifierName(Child(carry, 0), out  carryTarget)
+            || carryTarget != previousName
+            || !TryGetIdentifierName(Child(carry, 1), out  carryValue)
+            || carryValue != currentName) {return false}
+
+        if (!AllDistinct(counterName, arrayName, indexName, previousName, currentName)) {return false}
+        if (BoundReadsIdentifier(boundNode, counterName)
+            || BoundReadsIdentifier(boundNode, previousName)
+            || BoundReadsIdentifier(boundNode, currentName)) {return false}
+
+        return TryBuildCountTransitionsShape(counterNode, arrayNode, indexNode, previousNode, boundNode, counterName, indexName, previousName, out shape)
+    }
+
+    private func TryResolvePreviousForTransition(compareNode: int, currentName: string, out previousNode: int, out previousName: string): bool {
+        previousNode = -1
+        previousName = ""
+        left := Child(compareNode, 0)
+        right := Child(compareNode, 1)
+        let leftName: string? = null
+        if (TryGetIdentifierName(left, out  leftName) && leftName == currentName
+            && TryGetIdentifierName(right, out previousName)) {
+            previousNode = right
+            return true
+        }
+        let rightName: string? = null
+        if (TryGetIdentifierName(right, out  rightName) && rightName == currentName
+            && TryGetIdentifierName(left, out previousName)) {
+            previousNode = left
+            return true
+        }
+
+        return false
+    }
+
+    private static func AllDistinct(a: string, b: string, c: string, d: string, e: string): bool => a != b && a != c && a != d && a != e
+           && b != c && b != d && b != e
+           && c != d && c != e
+           && d != e
+
+    private func TryBuildCountTransitionsShape(counterNode: int, arrayNode: int, indexNode: int, previousNode: int, boundNode: int, counterName: string, indexName: string, previousName: string, out shape: ColumnarCountTransitionsShape): bool {
+        shape = null
+        let columnarDiscard39: string = null
+        let columnarDiscard38: string = null
+        let columnarDiscard37: string = null
+        let columnarDiscard36: string = null
+        let counterType: System.Type? = null
+        let arrayType: System.Type? = null
+        let indexType: System.Type? = null
+        let previousType: System.Type? = null
+        if (!TryGetPureLocalOrParameterType(counterNode, out columnarDiscard36, out  counterType)
+            || !TryGetPureLocalOrParameterType(arrayNode, out columnarDiscard37, out  arrayType)
+            || !TryGetPureLocalOrParameterType(indexNode, out columnarDiscard38, out  indexType)
+            || !TryGetPureLocalOrParameterType(previousNode, out columnarDiscard39, out  previousType)) {return false}
+        if (counterType != typeof(int) || arrayType != typeof(int[]) || indexType != typeof(int) || previousType != typeof(int)) {return false}
+        if (!IsSideEffectFreeInt32Bound(boundNode, indexName)) {return false}
+
+        shape = new ColumnarCountTransitionsShape(
+            counterNode, arrayNode, indexNode, previousNode, boundNode,
+            counterName, indexName, previousName)
+        return true
+    }
+
+    private func EmitVectorizedCountTransitions(shape: ColumnarCountTransitionsShape): bool {
+        boundLocal := _il.DeclareLocal(typeof(int))
+        let boundType: System.Type? = null
+        if (!EmitExpression(shape.BoundNode, out  boundType) || boundType != typeof(int)) {return false}
+        _il.Emit(OpCodes.Stloc, boundLocal)
+
+        tupleLocal := _il.DeclareLocal(typeof(ValueTuple<int, int>))
+        let arrayType: System.Type? = null
+        if (!EmitExpression(shape.ArrayNode, out  arrayType) || arrayType != typeof(int[])) {return false}
+        let indexType: System.Type? = null
+        if (!EmitExpression(shape.IndexNode, out  indexType) || indexType != typeof(int)) {return false}
+        _il.Emit(OpCodes.Ldloc, boundLocal)
+        let previousType: System.Type? = null
+        if (!EmitExpression(shape.PreviousNode, out  previousType) || previousType != typeof(int)) {return false}
+        _il.Emit(OpCodes.Call, ColumnarIlEmitter.s_countTransitionsInt32)
+        _il.Emit(OpCodes.Stloc, tupleLocal)
+
+        let counterType: System.Type? = null
+        if (!EmitExpression(shape.CounterNode, out  counterType) || counterType != typeof(int)) {return false}
+        _il.Emit(OpCodes.Ldloca, tupleLocal)
+        _il.Emit(OpCodes.Ldfld, ColumnarIlEmitter.s_valueTupleItem1)
+        _il.Emit(OpCodes.Add)
+        if (!StoreReductionIdentifier(shape.Counter)) {return false}
+
+        _il.Emit(OpCodes.Ldloca, tupleLocal)
+        _il.Emit(OpCodes.Ldfld, ColumnarIlEmitter.s_valueTupleItem2)
+        if (!StoreReductionIdentifier(shape.Previous)) {return false}
+
+        if (!EmitExpression(shape.IndexNode, out indexType) || indexType != typeof(int)) {return false}
+        _il.Emit(OpCodes.Ldloc, boundLocal)
+        keepIndexLabel := _il.DefineLabel()
+        _il.Emit(OpCodes.Bge, keepIndexLabel)
+        _il.Emit(OpCodes.Ldloc, boundLocal)
+        if (!StoreReductionIdentifier(shape.Index)) {return false}
+        _il.MarkLabel(keepIndexLabel)
+        return true
+    }
+
+    private func TryMatchReductionCondition(conditionNode: int, out indexNode: int, out indexName: string, out boundNode: int): bool {
+        indexNode = -1
+        indexName = ""
+        boundNode = -1
+        if (_nodes.Kind(conditionNode) != 12 || _nodes.ChildCount(conditionNode) != 2 || ColumnarNodeTextFacts.Text(_nodes, _source, conditionNode) != "<") {return false}
+        left := Child(conditionNode, 0)
+        right := Child(conditionNode, 1)
+        if (!TryGetIdentifierName(left, out indexName)) {return false}
+        if (!IsSideEffectFreeInt32Bound(right, indexName)) {return false}
+        indexNode = left
+        boundNode = right
+        return true
+    }
+
+    private func TryMatchReductionUpdate(updateNode: int, indexName: string, out accumulatorNode: int, out accumulatorName: string, out arrayNode: int, out arrayName: string): bool {
+        accumulatorNode = -1
+        accumulatorName = ""
+        arrayNode = -1
+        arrayName = ""
+        if (_nodes.Kind(updateNode) != 14 || _nodes.ChildCount(updateNode) != 2) {return false}
+        target := Child(updateNode, 0)
+        if (!TryGetIdentifierName(target, out accumulatorName)) {return false}
+
+        op := ColumnarNodeTextFacts.Text(_nodes, _source, updateNode)
+        if (op == "=") {
+            value := Child(updateNode, 1)
+            if (_nodes.Kind(value) != 12 || _nodes.ChildCount(value) != 2 || ColumnarNodeTextFacts.Text(_nodes, _source, value) != "+") {return false}
+            left := Child(value, 0)
+            right := Child(value, 1)
+            let leftName: string? = null
+            if (!TryGetIdentifierName(left, out  leftName) || leftName != accumulatorName) {return false}
+            if (!TryMatchArrayIndexByIdentifier(right, indexName, out arrayNode, out arrayName)) {return false}
+        }
+        else {if (op == "+=") {
+            if (!TryMatchArrayIndexByIdentifier(Child(updateNode, 1), indexName, out arrayNode, out arrayName)) {return false}
+        }
+        else {
+            return false
+        }}
+
+        accumulatorNode = target
+        return true
+    }
+
+    private func TryMatchArrayIndexByIdentifier(node: int, indexName: string, out arrayNode: int, out arrayName: string): bool {
+        arrayNode = -1
+        arrayName = ""
+        if (_nodes.Kind(node) != 10 || _nodes.ChildCount(node) != 2) {return false}
+        receiver := Child(node, 0)
+        index := Child(node, 1)
+        let actualIndex: string? = null
+        if (!TryGetIdentifierName(receiver, out arrayName)
+            || !TryGetIdentifierName(index, out  actualIndex)
+            || actualIndex != indexName) {return false}
+        arrayNode = receiver
+        return true
+    }
+
+    private func TryMatchUnitIndexIncrement(node: int, indexName: string, allowPostfix: bool): bool {
+        if (_nodes.Kind(node) == 14 && _nodes.ChildCount(node) == 2) {
+            target := Child(node, 0)
+            let targetName: string? = null
+            if (!TryGetIdentifierName(target, out  targetName) || targetName != indexName) {return false}
+            op := ColumnarNodeTextFacts.Text(_nodes, _source, node)
+            if (op == "+=") {return IsLiteralOne(Child(node, 1))}
+            if (op != "=") {return false}
+            value := Child(node, 1)
+            let leftName: string? = null
+            return _nodes.Kind(value) == 12
+                && _nodes.ChildCount(value) == 2
+                && ColumnarNodeTextFacts.Text(_nodes, _source, value) == "+"
+                && TryGetIdentifierName(Child(value, 0), out  leftName)
+                && leftName == indexName
+                && IsLiteralOne(Child(value, 1))
+        }
+
+        if (allowPostfix && _nodes.Kind(node) == 44 && _nodes.ChildCount(node) == 1 && ColumnarNodeTextFacts.Text(_nodes, _source, node) == "++") {let targetName: string? = null
+            return TryGetIdentifierName(Child(node, 0), out  targetName) && targetName == indexName}
+
+        return false
+    }
+
+    private func TryGetExpressionStatementExpression(statementNode: int, out expressionNode: int): bool {
+        expressionNode = -1
+        if (_nodes.Kind(statementNode) != 23 || _nodes.ChildCount(statementNode) != 1) {return false}
+        expressionNode = Child(statementNode, 0)
+        return true
+    }
+
+    private func TryGetSingleReductionBodyStatement(bodyNode: int, out statementNode: int): bool {
+        statementNode = -1
+        if (_nodes.Kind(bodyNode) == 25) {
+            if (_nodes.ChildCount(bodyNode) != 1) {return false}
+            statementNode = Child(bodyNode, 0)
+            return true
+        }
+
+        if (_nodes.Kind(bodyNode) == 23) {
+            statementNode = bodyNode
+            return true
+        }
+
+        return false
+    }
+
+    private func TryMatchUnitCounterIncrement(node: int, out counterNode: int, out counterName: string): bool {
+        counterNode = -1
+        counterName = ""
+        if (_nodes.Kind(node) == 44 && _nodes.ChildCount(node) == 1 && ColumnarNodeTextFacts.Text(_nodes, _source, node) == "++") {
+            target := Child(node, 0)
+            if (!TryGetIdentifierName(target, out counterName)) {return false}
+            counterNode = target
+            return true
+        }
+
+        if (_nodes.Kind(node) != 14 || _nodes.ChildCount(node) != 2) {return false}
+        assignmentTarget := Child(node, 0)
+        if (!TryGetIdentifierName(assignmentTarget, out counterName)) {return false}
+        op := ColumnarNodeTextFacts.Text(_nodes, _source, node)
+        if (op == "+=") {
+            if (!IsLiteralOne(Child(node, 1))) {return false}
+            counterNode = assignmentTarget
+            return true
+        }
+        if (op != "=") {return false}
+        value := Child(node, 1)
+        let leftName: string? = null
+        if (_nodes.Kind(value) != 12
+            || _nodes.ChildCount(value) != 2
+            || ColumnarNodeTextFacts.Text(_nodes, _source, value) != "+"
+            || !TryGetIdentifierName(Child(value, 0), out  leftName)
+            || leftName != counterName
+            || !IsLiteralOne(Child(value, 1))) {return false}
+        counterNode = assignmentTarget
+        return true
+    }
+
+    private func TryGetSingleRangeBodyStatement(bodyNode: int, out statementNode: int): bool => TryGetSingleReductionBodyStatement(bodyNode, out statementNode)
+
+    private func IsInvariantRangeOperand(node: int, indexName: string, tempName: string?, counterName: string): bool {
+        let name: string? = null
+        if (TryGetIdentifierName(node, out  name)) {return name != indexName && name != counterName && name != tempName}
+        return IsInt32Literal(node)
+    }
+
+    private func IsSideEffectFreeInt32Bound(node: int, indexName: string): bool {
+        let name: string? = null
+        if (TryGetIdentifierName(node, out  name)) {
+            if (name == indexName) {return false}
+            let columnarDiscard40: string = null
+            let columnarResolvedType: System.Type? = null
+            return TryGetPureLocalOrParameterType(node, out columnarDiscard40, out  columnarResolvedType) && columnarResolvedType == typeof(int)
+        }
+        if (IsInt32Literal(node)) {return true}
+        if (_nodes.Kind(node) == 8 && _nodes.ChildCount(node) == 1 && ColumnarNodeTextFacts.Text(_nodes, _source, node) == "Length") {
+            receiver := Child(node, 0)
+            let columnarDiscard41: string = null
+            let receiverType: System.Type? = null
+            return TryGetPureLocalOrParameterType(receiver, out columnarDiscard41, out  receiverType) && ColumnarTypeEquivalenceFacts.IsSafeSzArrayType(receiverType)
+        }
+
+        return false
+    }
+
+    private func IsSideEffectFreeInt32Operand(node: int): bool {
+        let columnarDiscard42: string = null
+        if (TryGetIdentifierName(node, out columnarDiscard42)) {let columnarDiscard43: string = null
+            let columnarResolvedType: System.Type? = null
+            return TryGetPureLocalOrParameterType(node, out columnarDiscard43, out  columnarResolvedType) && columnarResolvedType == typeof(int)}
+        return IsInt32Literal(node)
+    }
+
+    private func BoundReadsIdentifier(node: int, name: string): bool {
+        let id: string? = null
+        if (TryGetIdentifierName(node, out  id)) {return id == name}
+        let receiver: string? = null
+        return _nodes.Kind(node) == 8
+            && _nodes.ChildCount(node) == 1
+            && ColumnarNodeTextFacts.Text(_nodes, _source, node) == "Length"
+            && TryGetIdentifierName(Child(node, 0), out  receiver)
+            && receiver == name
+    }
+
+    private func TryGetPureLocalOrParameterType(node: int, out name: string, out columnarResolvedType: Type): bool {
+        columnarResolvedType = null
+        if (!TryGetIdentifierName(node, out name)) {return false}
+        if (_liftedLocals.ContainsKey(name) || (_boxedCaptures != null && _boxedCaptures.ContainsKey(name))) {return false}
+        let local: System.Reflection.Emit.LocalBuilder? = null
+        if (_locals.TryGetValue(name, out  local)) {
+            columnarResolvedType = local.get_LocalType()
+            return true
+        }
+        if (_paramTypes.TryGetValue(name, out columnarResolvedType)) {return _paramOrdinals.ContainsKey(name)}
+        return false
+    }
+
+    private func StoreReductionIdentifier(name: string): bool {
+        if (_liftedLocals.ContainsKey(name) || (_boxedCaptures != null && _boxedCaptures.ContainsKey(name))) {return false}
+        let local: System.Reflection.Emit.LocalBuilder? = null
+        if (_locals.TryGetValue(name, out  local)) {
+            _il.Emit(OpCodes.Stloc, local)
+            return true
+        }
+        let ordinal: int = 0
+        if (_paramOrdinals.TryGetValue(name, out  ordinal)) {
+            ColumnarArgumentInstructionEmitter.EmitStore(_il, ordinal)
+            return true
+        }
+        return false
+    }
+
+    private func TryGetIdentifierName(node: int, out name: string): bool {
+        name = ""
+        if (_nodes.Kind(node) != 6 || _nodes.ValueStart(node) < 0) {return false}
+        name = ColumnarNodeTextFacts.Text(_nodes, _source, node)
+        return true
+    }
+
+    private func IsInt32Literal(node: int): bool {
+        let columnarDiscard44: int = 0
+        if (_nodes.Kind(node) != 0 || _nodes.ValueStart(node) < 0
+            || ColumnarNodeTextFacts.Text(_nodes, _source, node).Length == 0) {return false}
+        suffix := ColumnarNodeTextFacts.Text(_nodes, _source, node)[^1]
+        if (suffix == 'u' || suffix == 'U' || suffix == 'l' || suffix == 'L' || suffix == 'm' || suffix == 'M') {return false}
+        return int.TryParse(ColumnarNodeTextFacts.Text(_nodes, _source, node), out columnarDiscard44)
+    }
+
+    private func IsLiteralOne(node: int): bool => _nodes.Kind(node) == 0 && _nodes.ValueStart(node) >= 0 && ColumnarNodeTextFacts.Text(_nodes, _source, node) == "1"
+
+    /// <summary>
+    /// Emit an `if`/`while` CONDITION as a bool (i4 0/1) on the stack for a following <c>brfalse</c>/<c>brtrue</c>.
+    /// Now that the expression emitter is type-aware, a condition is ANY bool expression — a comparison, a bool
+    /// literal/local/param, a bool-returning call, or a logical-not — verified by its reported type, so a
+    /// non-bool (e.g. an int) can never reach a branch. Anything that is not statically bool declines.
+    /// </summary>
+    private func EmitCondition(idx: int): bool {
+        let columnarResolvedType: System.Type? = null
+        if (!EmitExpression(idx, out  columnarResolvedType)) {
+            return false
+        }
+        if (columnarResolvedType != typeof(bool)) {
+            return false
+        }
+        return true
+    }
+
+    /// <summary>
+    /// Whether this statement always exits via a return. The rule is N#-owned
+    /// (ColumnarMethodBodyPlanner.AlwaysReturns) — the columnar mirror of the diagnostics pass's
+    /// AnalyzerStatementTermination.AlwaysReturns, which asks the same question of AST statements.
+    /// </summary>
+    private func AlwaysReturns(idx: int): bool => ColumnarMethodBodyPlanner.AlwaysReturns(_nodes, idx)
+
+    private func FindDefByType(columnarResolvedType: Type): ColumnarStructDef? => ColumnarSourceDefinitionResolver.FindDirectType(_structRegistry, columnarResolvedType)
+
+    // The BCL exception types a typed catch clause may name (E3). Each simple name must resolve to the
+    // SAME runtime type the pipeline's ResolveType binds — all are System-namespace exceptions reachable
+    // by simple name on the previous baseline path. Anything else declines: the pipeline silently resolves UNKNOWN
+    // names to a catch-all (known defect #16) and accepts non-exception types as dead clauses (#17);
+    // declining inherits neither wrongness. User-defined exception classes are not modelled (a columnar
+    // class cannot derive a BCL base yet).
+    // Legacy TestDescriptionToMethodName: PascalCase the description words, keep letters/digits/
+    // underscores, prefix Test_ when the result would not start with a letter.
+    private static func TestDescriptionToMethodName(description: string): string {
+        words := description.Split([' ', '-', '_'], StringSplitOptions.RemoveEmptyEntries)
+        builder := new System.Text.StringBuilder()
+        for word in words {
+            builder.Append(char.ToUpperInvariant(word[0]))
+            builder.Append(word, 1, word.Length - 1)
+        }
+
+        filtered := new System.Text.StringBuilder(builder.Length)
+        for c := 0; c < builder.Length; c++ {
+            if (char.IsLetterOrDigit(builder.get_Chars(c))) {
+                filtered.Append(builder.get_Chars(c))
+            } else if (builder.get_Chars(c) == '_') {
+                filtered.Append(builder.get_Chars(c))
+            }
+        }
+
+        result := filtered.ToString()
+        if (result.Length == 0 || !char.IsLetter(result[0])) {
+            result = "Test_" + result
+        }
+
+        return result
+    }
+
+    private static func TryGetSupportedBclReadableProperty(receiverType: Type, member: string, out property: PropertyInfo): bool {
+        property = null
+        if (receiverType == typeof(Process) && (member == nameof(Process.ExitCode) || member == nameof(Process.StandardOutput) || member == nameof(Process.StandardError))) {
+            resolvedProperty := typeof(Process).GetProperty(member)
+            property = resolvedProperty
+            return resolvedProperty.get_GetMethod() != null
+        }
+        if (member == nameof(Exception.Message) && typeof(Exception).IsAssignableFrom(receiverType)) {
+            resolvedProperty := typeof(Exception).GetProperty(nameof(Exception.Message))
+            property = resolvedProperty
+            return resolvedProperty.get_GetMethod() != null
+        }
+        if (receiverType.get_IsGenericType()
+            && !receiverType.get_IsGenericTypeDefinition()
+            && receiverType.GetGenericTypeDefinition() == typeof(System.Threading.Tasks.Task<int>).GetGenericTypeDefinition()
+            && member == "Result"
+            && ColumnarTypeOfPlanner.IsSupportedType(receiverType.GetGenericArguments()[0])) {
+            resolvedProperty := receiverType.GetProperty("Result")
+            property = resolvedProperty
+            return resolvedProperty.get_GetMethod() != null
+        }
+        if (receiverType == typeof(IList) && member == "Count") {
+            resolvedProperty := typeof(ICollection).GetProperty("Count")
+            property = resolvedProperty
+            return resolvedProperty.get_GetMethod() != null
+        }
+        if (receiverType == typeof(Assembly) && (member == nameof(Assembly.IsDynamic) || member == nameof(Assembly.IsCollectible))) {
+            resolvedProperty := typeof(Assembly).GetProperty(member)
+            property = resolvedProperty
+            return resolvedProperty.get_GetMethod() != null
+        }
+        if (receiverType == typeof(JsonDocument) && member == nameof(JsonDocument.RootElement)) {
+            resolvedProperty := typeof(JsonDocument).GetProperty(nameof(JsonDocument.RootElement))
+            property = resolvedProperty
+            return resolvedProperty.get_GetMethod() != null
+        }
+        if (receiverType == typeof(JsonElement) && member == nameof(JsonElement.ValueKind)) {
+            resolvedProperty := typeof(JsonElement).GetProperty(nameof(JsonElement.ValueKind))
+            property = resolvedProperty
+            return resolvedProperty.get_GetMethod() != null
+        }
+        if (ColumnarRuntimeInstanceMemberResolver.IsSupportedAspNetReceiver(receiverType)) {
+            resolvedProperty := receiverType.GetProperty(member, BindingFlags.Public | BindingFlags.Instance)
+            property = resolvedProperty
+            if (resolvedProperty == null || resolvedProperty.get_GetMethod() == null) {
+                return false
+            }
+            return ColumnarTypeOfPlanner.IsSupportedType(resolvedProperty.get_PropertyType())
+        }
+        return false
+    }
+
+    private static func TryGetSupportedBclWritableProperty(receiverType: Type, member: string, out property: PropertyInfo): bool {
+        property = null
+        if (receiverType == typeof(ProcessStartInfo)
+            && (member == nameof(ProcessStartInfo.FileName)
+                || member == nameof(ProcessStartInfo.Arguments)
+                || member == nameof(ProcessStartInfo.WorkingDirectory)
+                || member == nameof(ProcessStartInfo.RedirectStandardOutput)
+                || member == nameof(ProcessStartInfo.RedirectStandardError)
+                || member == nameof(ProcessStartInfo.UseShellExecute))) {
+            resolvedProperty := typeof(ProcessStartInfo).GetProperty(member)
+            property = resolvedProperty
+            return resolvedProperty.get_SetMethod() != null
+        }
+        if (ColumnarRuntimeInstanceMemberResolver.IsSupportedAspNetReceiver(receiverType)) {
+            resolvedProperty := receiverType.GetProperty(member, BindingFlags.Public | BindingFlags.Instance)
+            property = resolvedProperty
+            if (resolvedProperty == null || resolvedProperty.get_SetMethod() == null) {
+                return false
+            }
+            return ColumnarTypeOfPlanner.IsSupportedType(resolvedProperty.get_PropertyType())
+        }
+        return false
+    }
+
+    // Whether the subtree rooted at `idx` contains a Return statement (kind 20) anywhere — the ctor
+    // paths' `return`-is-forbidden guard. A pure node-table statement-shape predicate, so it is owned
+    // by ColumnarMethodBodyPlanner beside the termination rule (015-B4).
+    // Emit `idx` as a value on the stack and report its CLR type via `type`. Returns false (declining the whole
+    // function) on any unsupported form or a type mismatch the spike does not model. The reported type drives
+    // correct opcode selection and prevents cross-type mixing (e.g. a bool leaking into int arithmetic) that
+    // would diverge from N#'s type rules.
+    private func EmitExpression(idx: int, out columnarResolvedType: Type): bool => EmitExpressionCore(idx, out columnarResolvedType)
+
+    private func EmitExpressionWithOverflowChecking(idx: int, enabled: bool, out columnarResolvedType: Type): bool {
+        previous := _overflowCheckingEnabled
+        _overflowCheckingEnabled = enabled
+        let emitted: bool = false
+        try {
+            emitted = EmitExpression(Child(idx, 0), out columnarResolvedType)
+        }
+        finally {
+            _overflowCheckingEnabled = previous
+        }
+        return emitted
+    }
+
+    // Route the sibling signature facts to the N# planner. This is pure projection of _siblings —
+    // the planner alone decides which siblings it may own — cached so a body's many expressions
+    // share one dictionary.
+    private func SiblingCallFacts(): Dictionary<string, ColumnarSiblingCallFacts> {
+        if (_siblingCallFacts != null) {return _siblingCallFacts}
+        facts := new Dictionary<string, ColumnarSiblingCallFacts>(StringComparer.Ordinal)
+        for entry in _siblings {
+            sibling := entry.Value
+            facts[entry.Key] = new ColumnarSiblingCallFacts(
+                sibling.Method,
+                sibling.ParamTypes,
+                sibling.ParamModifierKinds,
+                sibling.ReturnType,
+                sibling.TypeParams.Length)
+        }
+        _siblingCallFacts = facts
+        return facts
+    }
+
+    private func EmitExpressionCore(idx: int, out columnarResolvedType: Type): bool {
+        columnarResolvedType = null
+        if (ColumnarBooleanLiteralPlanner.TryEmit(_nodes, _source, idx, _codePlan, _il, out columnarResolvedType)) {return true}
+        if (ColumnarUnaryLiteralPlanner.TryEmit(_nodes, _source, idx, _codePlan, _il, out columnarResolvedType)) {return true}
+        if (ColumnarScalarLiteralPlanner.TryEmit(_nodes, _source, idx, _codePlan, _il, out columnarResolvedType)) {return true}
+        if (ColumnarNameOfPlanner.TryEmit(_nodes, _source, idx, _codePlan, _il, out columnarResolvedType)) {return true}
+        let nsharpOwned: bool = false
+        let legacyWholeSubtreePlanning: bool = false
+        if (ColumnarRangeIndexPlanner.TryEmitFromFacts(
+                _nodes,
+                _source,
+                idx,
+                _paramOrdinals,
+                _paramTypes,
+                _locals,
+                _enumRegistry,
+                _liftedLocals,
+                _boxedCaptures,
+                _currentStruct,
+                _enclosingType,
+                _structRegistry.get_Values(),
+                _unionRegistry.get_Values(),
+                _tupleNamesByVariable,
+                _enclosingBindingNames,
+                _siblings.get_Keys(),
+                _visibleLocalFuncs,
+                _typeParameters,
+                ExactSourceTypesForBody(),
+                _overflowCheckingEnabled,
+                SiblingCallFacts(),
+                _codePlan,
+                _il,
+                out  nsharpOwned,
+                out  legacyWholeSubtreePlanning,
+                out columnarResolvedType,
+                _typeResolutionStructs.StructuralTypeReferences)) {return true}
+        if (nsharpOwned) {return false}
+        columnarSwitchValue2 := _nodes.Kind(idx)
+            if columnarSwitchValue2 == 6 { // N# owns ordinary lexical/current-instance reads. The mechanical host retains only
+                    // address dereference for ref/out parameters plus the separate bare-static fallback.
+
+                name := ColumnarNodeTextFacts.Text(_nodes, _source, idx)
+                let ordinal: int = 0
+                if (_paramOrdinals.TryGetValue(name, out  ordinal)) {
+                    paramType := _paramTypes[name]
+                    if (paramType.get_IsByRef()) {
+                        ColumnarArgumentInstructionEmitter.EmitLoad(_il, ordinal)
+                        columnarResolvedType = paramType.GetElementType()
+                        EmitLoadByRefElement(columnarResolvedType)
+                        return true
+                    }
+                }
+
+                // Bare STATIC-member read inside an INSTANCE member body. The N# pipeline's pinned ASYMMETRY: bare
+                // static-member access resolves in INSTANCE contexts only (a static body must qualify with the type
+                // name) — gated on `_currentStruct`, which is null in static bodies, so those decline exactly
+                // where the pipeline errors. No receiver: `ldsfld` for a field, `call get_Name` for a property.
+                let bareStaticField: System.Reflection.Emit.FieldBuilder? = null
+                if (_currentStruct != null && ColumnarSourceMemberChainResolver.TryFindStaticFieldOnChain(_currentStruct, name, out  bareStaticField)) {
+                    _il.Emit(OpCodes.Ldsfld, bareStaticField)
+                    columnarResolvedType = bareStaticField.get_FieldType()
+                    return true
+                }
+                let bareStaticProp: NSharpLang.Compiler.Columnar.ColumnarPropertyDef? = null
+                if (_currentStruct != null && ColumnarSourceMemberChainResolver.TryFindStaticPropertyOnChain(_currentStruct, name, out  bareStaticProp)) {
+                    _il.Emit(OpCodes.Call, bareStaticProp.Getter)
+                    columnarResolvedType = bareStaticProp.PropertyType
+                    return true
+                }
+
+                return false
+
+
+            } else if columnarSwitchValue2 == 0 { // Decimal literals remain on the contextual reflection-backed lowering path.
+
+                text := ColumnarNodeTextFacts.Text(_nodes, _source, idx)
+                if (text.Length > 0) {
+                    suffix := text[text.Length - 1]
+                    if (suffix == 'm' || suffix == 'M') {
+                        return TryEmitDecimalLiteral(text.Substring(0, text.Length - 1), out columnarResolvedType)
+                    }
+                }
+                return false
+
+
+            } else if columnarSwitchValue2 == 1 { // Decimal literals remain on the contextual reflection-backed lowering path.
+
+                raw := ColumnarNodeTextFacts.Text(_nodes, _source, idx)
+                last := raw.Length > 0 ? raw[raw.Length - 1] : '\0'
+                if (last == 'm' || last == 'M') {return TryEmitDecimalLiteral(raw.Substring(0, raw.Length - 1), out columnarResolvedType)} // `2.5m`
+                return false
+
+
+            } else if columnarSwitchValue2 == 3 { // StringLiteral
+
+                stringText := ColumnarNodeTextFacts.Text(_nodes, _source, idx)
+                if (stringText.Length > 0 && stringText[0] == '$') {return TryEmitInterpolatedString(stringText, out columnarResolvedType)}
+                return false
+
+
+            } else if columnarSwitchValue2 == 7 { // Parenthesized — emit the inner expression, propagating its type.
+                return EmitExpression(Child(idx, 0), out columnarResolvedType)
+
+            } else if columnarSwitchValue2 == 53 { // AwaitExpression [operand] — the legacy emitter's SYNC lowering (no state machine in
+                    // EITHER pipeline): a blocking GetAwaiter().GetResult() on the four BCL task
+                     // shapes (ValueTask(/T) converts via AsTask() first). Awaits are legal in
+                     // NON-async functions too (probe-pinned: no await-outside-async diagnostic
+                     // exists; the lowering is identical). Other awaitables decline.
+                let awaitableType: System.Type? = null
+                if (_nodes.ChildCount(idx) != 1 || !EmitExpression(Child(idx, 0), out  awaitableType)) {return false}
+                return TryEmitBlockingAwait(awaitableType, out columnarResolvedType)
+
+
+            } else if columnarSwitchValue2 == 57 { // CheckedContextExpression [value] — `checked(expr)` / `unchecked(expr)`.
+
+                if (_nodes.ChildCount(idx) != 1) {return false}
+                return match ColumnarNodeTextFacts.Text(_nodes, _source, idx) {
+                    "checked" => EmitExpressionWithOverflowChecking(idx,  true, out columnarResolvedType),
+                    "unchecked" => EmitExpressionWithOverflowChecking(idx,  false, out columnarResolvedType),
+                    _ => false,
+                }
+
+
+            } else if columnarSwitchValue2 == 64 { // SpreadArgumentExpression [value] — `...expr` in a call argument list.
+
+                return _nodes.ChildCount(idx) == 1 && EmitExpression(Child(idx, 0), out columnarResolvedType)
+
+
+            } else if columnarSwitchValue2 == 11 { // Unary [operand] — int/long prefix `-`/`~`, or bool `!`. Index-from-end `^` and every
+                    // range/index read are owned by ColumnarRangeIndexPlanner ahead of this switch.
+                let operandType: System.Type? = null
+                if (!EmitExpression(Child(idx, 0), out  operandType)) {return false}
+                sourceUnarySelection := ColumnarSourceOperatorResolver.ResolveUnary(
+                    ColumnarNodeTextFacts.Text(_nodes, _source, idx), operandType, _typeResolutionStructs.Values)
+                if (sourceUnarySelection.IsSelected
+                    && sourceUnarySelection.Method != null) {
+                    _il.Emit(OpCodes.Call, sourceUnarySelection.Method)
+                    columnarResolvedType = sourceUnarySelection.ReturnType
+                    return true
+                }
+                columnarSwitchValue3 := ColumnarNodeTextFacts.Text(_nodes, _source, idx)
+                    if columnarSwitchValue3 == "-" { // negate — Neg works on i4/i8/r8/r4; result is the operand's numeric type. N# forbids ulong.
+                              // IEEE double/float negation preserves signed zero; decimal uses op_UnaryNegation.
+                        if (operandType == typeof(decimal)) {
+                            _il.Emit(OpCodes.Call, typeof(decimal).GetMethod("op_UnaryNegation", [typeof(decimal)]))
+                            columnarResolvedType = typeof(decimal) return true
+                        }
+                        if (operandType != typeof(int) && operandType != typeof(long) && operandType != typeof(double) && operandType != typeof(float)) {return false}
+                        if (_overflowCheckingEnabled && (operandType == typeof(int) || operandType == typeof(long))) {
+                            negOperand := _il.DeclareLocal(operandType)
+                            _il.Emit(OpCodes.Stloc, negOperand)
+                            if (operandType == typeof(long)) {_il.Emit(OpCodes.Ldc_I8, 0L)}
+                            else {_il.Emit(OpCodes.Ldc_I4_0)}
+                            _il.Emit(OpCodes.Ldloc, negOperand)
+                            _il.Emit(OpCodes.Sub_Ovf)
+                            columnarResolvedType = operandType
+                            return true
+                        }
+                        _il.Emit(OpCodes.Neg) columnarResolvedType = operandType return true
+                    } else if columnarSwitchValue3 == "~" { // bitwise not — Not works on i4 and i8 (and on ulong's u8 bit pattern).
+                        if (operandType != typeof(int) && operandType != typeof(long) && operandType != typeof(ulong)) {return false}
+                        _il.Emit(OpCodes.Not) columnarResolvedType = operandType return true
+                    } else if columnarSwitchValue3 == "!" { // logical not on a bool: x == false.
+                        if (operandType != typeof(bool)) {return false}
+                        _il.Emit(OpCodes.Ldc_I4_0) _il.Emit(OpCodes.Ceq) columnarResolvedType = typeof(bool) return true
+                    } else { return false
+                }
+
+
+            } else if columnarSwitchValue2 == 12 { // Binary [left, right] — int/long arithmetic & bitwise, short-circuit `&&`/`||`, or a
+                    // comparison producing bool. Most operators need both operands the SAME type.
+                op := ColumnarNodeTextFacts.Text(_nodes, _source, idx)
+
+                // FENCED WHOLE-SUBTREE RESIDUAL — short-circuit `&&`/`||` (task 007). The N# conditional planner
+                // owns every FULLY-PLANNABLE `&&`/`||` at the front door; this arm serves ONLY the residual whose
+                // OPERAND is non-plannable (task-006 residual equality `x == null`/`s == "lit"`, member chains on
+                // call results, dictionary indexers). Mirrors the planner's lowering byte-for-byte, keeping
+                // short-circuit safety (`i < n && a[i] == x`); operands recurse via EmitExpression.
+                if (op == "&&" || op == "||") {
+                    let shortLeftType: System.Type? = null
+                    if (!EmitExpression(Child(idx, 0), out  shortLeftType) || shortLeftType != typeof(bool)) {return false}
+                    shortLabel := _il.DefineLabel()
+                    endLabel := _il.DefineLabel()
+                    // `&&` short-circuits to false when left is false; `||` to true when left is true.
+                    shortBranchEmitter := _il
+                    shortBranchOpcode := op == "&&" ? OpCodes.Brfalse : OpCodes.Brtrue
+                    shortBranchEmitter.Emit(shortBranchOpcode, shortLabel)
+                    let shortRightType: System.Type? = null
+                    if (!EmitExpression(Child(idx, 1), out  shortRightType) || shortRightType != typeof(bool)) {return false}
+                    _il.Emit(OpCodes.Br, endLabel)
+                    _il.MarkLabel(shortLabel)
+                    shortConstantEmitter := _il
+                    shortConstantOpcode := op == "&&" ? OpCodes.Ldc_I4_0 : OpCodes.Ldc_I4_1
+                    shortConstantEmitter.Emit(shortConstantOpcode)
+                    _il.MarkLabel(endLabel)
+                    columnarResolvedType = typeof(bool)
+                    return true
+                }
+
+                // NULL comparisons (`s == null` / `s != null`) and `??` COALESCING on REFERENCE types:
+                // handled BEFORE the operand pair (a bare null has no self-type to unify). The null
+                // literal as a LEFT operand (`null == s`) also works — both orders emit ldnull + ceq.
+                if ((op == "==" || op == "!=") && (_nodes.Kind(Child(idx, 0)) == 5 || _nodes.Kind(Child(idx, 1)) == 5)) {
+                    valueNode := _nodes.Kind(Child(idx, 0)) == 5 ? Child(idx, 1) : Child(idx, 0)
+                    let nullCmpType: System.Type? = null
+                    if (!EmitExpression(valueNode, out  nullCmpType)) {return false}
+                    if (ColumnarTypeOfPlanner.IsSupportedNullable(nullCmpType)) {
+                        // `n == null` on a Nullable<T> is !HasValue (and != null is HasValue) — the nullable lowering.
+                        nullableTemp := _il.DeclareLocal(nullCmpType)
+                        _il.Emit(OpCodes.Stloc, nullableTemp)
+                        _il.Emit(OpCodes.Ldloca, nullableTemp)
+                        _il.Emit(OpCodes.Call, nullCmpType.GetMethod("get_HasValue"))
+                        if (op == "==") {
+                            _il.Emit(OpCodes.Ldc_I4_0)
+                            _il.Emit(OpCodes.Ceq)
+                        }
+                        columnarResolvedType = typeof(bool)
+                        return true
+                    }
+                    if (nullCmpType.get_IsValueType()) {return false} // plain value types never compare to null (the pipeline rejects).
+                    _il.Emit(OpCodes.Ldnull)
+                    _il.Emit(OpCodes.Ceq)
+                    if (op == "!=") {
+                        _il.Emit(OpCodes.Ldc_I4_0)
+                        _il.Emit(OpCodes.Ceq)
+                    }
+                    columnarResolvedType = typeof(bool)
+                    return true
+                }
+                if (op == "??") {
+                    // `a ?? b` — REFERENCE left: `<a>; dup; brtrue end; pop; <b>; end:`. NULLABLE<T>
+                    // left (N2): `tmp = a; tmp.HasValue ? tmp.GetValueOrDefault() : <b as T>` — both the
+                    // exact nullable lowerings. The Nullable form's RESULT is the ELEMENT type.
+                    let coalesceLeft: System.Type? = null
+                    if (!EmitExpression(Child(idx, 0), out  coalesceLeft)) {return false}
+                    if (ColumnarTypeOfPlanner.IsSupportedNullable(coalesceLeft)) {
+                        coalesceElement := coalesceLeft.GetGenericArguments()[0]
+                        nullableLocal := _il.DeclareLocal(coalesceLeft)
+                        _il.Emit(OpCodes.Stloc, nullableLocal)
+                        elseLabel2 := _il.DefineLabel()
+                        endLabel2 := _il.DefineLabel()
+                        _il.Emit(OpCodes.Ldloca, nullableLocal)
+                        _il.Emit(OpCodes.Call, coalesceLeft.GetMethod("get_HasValue"))
+                        _il.Emit(OpCodes.Brfalse, elseLabel2)
+                        _il.Emit(OpCodes.Ldloca, nullableLocal)
+                        _il.Emit(OpCodes.Call, coalesceLeft.GetMethod("GetValueOrDefault", Type.EmptyTypes))
+                        _il.Emit(OpCodes.Br, endLabel2)
+                        _il.MarkLabel(elseLabel2)
+                        let columnarDiscard45: System.Type = null
+                        if (!TryEmitIntLiteralAsType(Child(idx, 1), coalesceElement, out columnarDiscard45)) {
+                            // emit-then-check is decline-safe: a false return abandons the program.
+                            let coalesceRightType: System.Type? = null
+                            if (!EmitExpression(Child(idx, 1), out  coalesceRightType)
+                                || !TypesEquivalent(coalesceRightType, coalesceElement)) {return false}
+                        }
+                        _il.MarkLabel(endLabel2)
+                        columnarResolvedType = coalesceElement
+                        return true
+                    }
+                    if (coalesceLeft.get_IsValueType()) {return false}
+                    coalesceEnd := _il.DefineLabel()
+                    _il.Emit(OpCodes.Dup)
+                    _il.Emit(OpCodes.Brtrue, coalesceEnd)
+                    _il.Emit(OpCodes.Pop)
+                    if (_nodes.Kind(Child(idx, 1)) == 5) {_il.Emit(OpCodes.Ldnull)}
+                    else {let coalesceRight: System.Type? = null
+                    if (!EmitExpression(Child(idx, 1), out  coalesceRight) || !TypesEquivalent(coalesceRight, coalesceLeft)) {return false}}
+                    _il.MarkLabel(coalesceEnd)
+                    columnarResolvedType = coalesceLeft
+                    return true
+                }
+
+                if (TryEmitMixedNumericBinary(idx, op, out columnarResolvedType)) {return true}
+
+                let leftType: System.Type? = null
+                if (!EmitExpression(Child(idx, 0), out  leftType)) {
+                    return false
+                }
+                let rightType: System.Type? = null
+                if (!EmitExpression(Child(idx, 1), out  rightType)) {
+                    return false
+                }
+                if (op == "+" && TryEmitStringCharConcat(leftType, rightType, out columnarResolvedType)) {return true}
+                sourceBinarySelection := ColumnarSourceOperatorResolver.ResolveBinary(
+                    op, leftType, rightType, _typeResolutionStructs.Values)
+                if (sourceBinarySelection.IsSelected
+                    && sourceBinarySelection.Method != null) {
+                    _il.Emit(OpCodes.Call, sourceBinarySelection.Method)
+                    columnarResolvedType = sourceBinarySelection.ReturnType
+                    return true
+                }
+
+                // FENCED WHOLE-SUBTREE RESIDUAL: serves ONLY binaries ColumnarPrimitiveBinaryPlanner declined
+                // as a whole subtree because an operand is outside its plannable surface (contextual-lambda
+                // call operands — task 010; member chains on call results; unary-negated call operands;
+                // dictionary-indexer reads; string-typed operands — task 015 grows that surface). Mirrors the
+                // planner's promotion/arithmetic/ordering/equality selection for the operator families a residual
+                // subtree actually reaches, keeps two-operand string concat and the never-planner-owned
+                // non-numeric equality families (string, System.Type, reference-identity on user reference types),
+                // so a residual binary emits byte-identical IL. Shifts, the decimal op_* table, right-literal
+                // adoption, bitwise (`&`/`|`/`^`), and record-struct structural equality are NOT restored: no
+                // whole-subtree residual across the corpus, native, unit, and self-emit surfaces reaches them.
+                let opType: System.Type = null
+                if (leftType == rightType) {opType = leftType}
+                else {if (ColumnarNumericFacts.IsIntPromotable(leftType) && ColumnarNumericFacts.IsIntPromotable(rightType)) {opType = typeof(int)}
+                else {
+                    return false
+                }}
+                // Two-operand string CONCATENATION `s1 + s2` -> String.Concat(string, string). Retained in the
+                // residual because a residual-carrying string concat (e.g. `"x" + Status.Active` where the
+                // right is an enum string-constant member access) reaches here; nested `+` chains recurse
+                // through this pair concat. The N# planner owns fully-plannable string-pair concat at the front door.
+                if (op == "+" && opType == typeof(string)) {
+                    _il.Emit(OpCodes.Call, typeof(string).GetMethod(nameof(string.Concat), [typeof(string), typeof(string)]))
+                    columnarResolvedType = typeof(string)
+                    return true
+                }
+                columnarSwitchValue4 := op
+                    if columnarSwitchValue4 == "+" || columnarSwitchValue4 == "-" || columnarSwitchValue4 == "*" || columnarSwitchValue4 == "/" || columnarSwitchValue4 == "%" {
+                        // Add/Sub/Mul/Div/Rem work on i4, i8, and r8 (double); the result is `opType`'s numeric type.
+                        // Div/Rem are SIGNED for int/long (UNSIGNED Div_Un/Rem_Un for ulong/uint); on DOUBLE the same
+                        // `div`/`rem` opcodes do IEEE FP division/remainder. A CHAR/small-int result promotes to INT.
+                        if (!ColumnarNumericFacts.IsIntPromotable(opType) && opType != typeof(long) && opType != typeof(ulong) && opType != typeof(uint) && opType != typeof(double) && opType != typeof(float)) {return false}
+                        unsignedArithmetic := opType == typeof(ulong) || opType == typeof(uint)
+                        checkedIntegralArithmetic := _overflowCheckingEnabled
+                            && (op == "+" || op == "-" || op == "*")
+                            && (ColumnarNumericFacts.IsIntPromotable(opType) || opType == typeof(long) || opType == typeof(ulong) || opType == typeof(uint))
+                        arithmeticEmitter := _il
+                        arithmeticOpcode :=
+                            op == "+" ? (checkedIntegralArithmetic ? (unsignedArithmetic ? OpCodes.Add_Ovf_Un : OpCodes.Add_Ovf) : OpCodes.Add) :
+                            op == "-" ? (checkedIntegralArithmetic ? (unsignedArithmetic ? OpCodes.Sub_Ovf_Un : OpCodes.Sub_Ovf) : OpCodes.Sub) :
+                            op == "*" ? (checkedIntegralArithmetic ? (unsignedArithmetic ? OpCodes.Mul_Ovf_Un : OpCodes.Mul_Ovf) : OpCodes.Mul) :
+                            op == "/" ? (unsignedArithmetic ? OpCodes.Div_Un : OpCodes.Div) :
+                            (unsignedArithmetic ? OpCodes.Rem_Un : OpCodes.Rem)
+                        arithmeticEmitter.Emit(arithmeticOpcode)
+                        columnarResolvedType = ColumnarNumericFacts.IsIntPromotable(opType) ? typeof(int) : opType
+                        return true
+                    } else if columnarSwitchValue4 == "<" || columnarSwitchValue4 == ">" || columnarSwitchValue4 == "<=" || columnarSwitchValue4 == ">=" {
+                        // Ordering on int, long, char (signed), ulong/uint (UNSIGNED compares), or double/float
+                        // (ORDERED Clt/Cgt for `<`/`>`; UNORDERED complement for `<=`/`>=` so a NaN yields false).
+                        if (!ColumnarNumericFacts.IsIntPromotable(opType) && opType != typeof(long) && opType != typeof(ulong) && opType != typeof(uint) && opType != typeof(double) && opType != typeof(float)) {return false}
+                        EmitComparison(op, opType == typeof(ulong) || opType == typeof(uint), opType == typeof(double) || opType == typeof(float))
+                        columnarResolvedType = typeof(bool)
+                        return true
+                    } else if columnarSwitchValue4 == "==" || columnarSwitchValue4 == "!=" {
+                        if (opType == typeof(string)) {
+                            // String equality is VALUE equality (String.op_Equality), NOT `ceq`. `!=` negates.
+                            _il.Emit(OpCodes.Call, typeof(string).GetMethod("op_Equality", [typeof(string), typeof(string)]))
+                            if (op == "!=") { _il.Emit(OpCodes.Ldc_I4_0) _il.Emit(OpCodes.Ceq) }
+                            columnarResolvedType = typeof(bool)
+                            return true
+                        }
+                        if (opType == typeof(Type)) {
+                            typeEqualityOwner := typeof(Type)
+                            typeEqualityName := op == "==" ? "op_Equality" : "op_Inequality"
+                            typeEqualityParameterTypes := [typeof(Type), typeof(Type)]
+                            typeEquality := typeEqualityOwner.GetMethod(typeEqualityName, typeEqualityParameterTypes)
+                            if (typeEquality != null) {_il.Emit(OpCodes.Call, typeEquality)}
+                            else {EmitComparison(op, false, false)}
+                            columnarResolvedType = typeof(bool)
+                            return true
+                        }
+                        // REFERENCE identity on registered user reference types (records AND classes): `==`/`!=`
+                        // on user reference values is reference equality (record VALUE equality is in `.Equals`).
+                        if (typeof(TypeBuilder).IsInstanceOfType(opType)) {
+                            eqOperandTb := opType as TypeBuilder
+                            eqOperandDef := ColumnarSourceDefinitionResolver.FindByBuilderIdentity(_structRegistry.get_Values(), eqOperandTb)
+                            if (eqOperandDef != null && eqOperandDef.IsReference) {
+                                EmitComparison(op, false, false)
+                                columnarResolvedType = typeof(bool)
+                                return true
+                            }
+                        }
+                        // Equality on int, long, ulong, uint, bool, char, double, float, or a baked i4 enum
+                        // (Ceq is bit-identical signed/unsigned; on double/float it is the IEEE ordered equal).
+                        if (!ColumnarNumericFacts.IsIntPromotable(opType) && opType != typeof(long) && opType != typeof(ulong) && opType != typeof(uint) && opType != typeof(bool) && opType != typeof(double) && opType != typeof(float) && !IsKnownEnumType(opType)) {
+                            return false
+                        }
+                        EmitComparison(op, false, false)
+                        columnarResolvedType = typeof(bool)
+                        return true
+                    } else { return false
+                }
+
+
+            } else if columnarSwitchValue2 == 9 { // Calls not terminally owned by the N# direct-call planner.
+
+                callee := Child(idx, 0)
+                if (_nodes.Kind(callee) == 6) // bare identifier -> resolved in the N# pipeline's EMPIRICALLY PINNED order.
+                {
+                    name := ColumnarNodeTextFacts.Text(_nodes, _source, callee)
+                    // Values invoke only when delegate-typed; any same-named method tier remains terminal.
+                    if (_locals.ContainsKey(name) || _paramOrdinals.ContainsKey(name)
+                        || _liftedLocals.ContainsKey(name) || (_boxedCaptures != null && _boxedCaptures.ContainsKey(name))) {
+                        let columnarDiscard47: NSharpLang.Compiler.Columnar.ColumnarStaticMethodDef = null
+                        let columnarDiscard46: NSharpLang.Compiler.Columnar.ColumnarInstanceMethodDef = null
+                        if (_siblings.ContainsKey(name)
+                            || (_currentStruct != null && ColumnarSourceMemberChainResolver.TryFindMethodOnChain(_currentStruct, name, out columnarDiscard46))
+                            || (_enclosingType != null && TryFindStaticMethodOnChain(_enclosingType, name, _nodes.ChildCount(idx) - 1, out columnarDiscard47))) {return false}
+                        return TryEmitDelegateInvoke(idx, name, out columnarResolvedType)
+                    }
+                    let localTargetMethod: System.Reflection.Emit.MethodBuilder? = null
+                    let localTargetParamTypes: System.Type[]? = null
+                    let localTargetReturnType: System.Type? = null
+                    let localTarget: (Method: System.Reflection.Emit.MethodBuilder, ParamTypes: System.Type[], ReturnType: System.Type) = (localTargetMethod, localTargetParamTypes, localTargetReturnType)
+                    if (_localFuncs != null && _visibleLocalFuncs.Contains(name)
+                        && _localFuncs.TryGetValue(name, out  localTarget)) {
+                        localArgCount := _nodes.ChildCount(idx) - 1
+                        if (localArgCount != localTarget.ParamTypes.Length) {return false}
+                        for a := 1; a <= localArgCount; a++ {
+                            localArgNode := Child(idx, a)
+                            if (_nodes.Kind(localArgNode) == 39) {return false}
+                            let localArgType: System.Type? = null
+                            if (!EmitExpression(localArgNode, out  localArgType) || !TypesEquivalent(localArgType, localTarget.ParamTypes[a - 1])) {return false}
+                        }
+                        _il.Emit(OpCodes.Call, localTarget.Method)
+                        columnarResolvedType = localTarget.ReturnType
+                        return true
+                    }
+                    let target: NSharpLang.Compiler.Columnar.ColumnarSiblingMethodDefinition? = null
+                    if (_siblings.TryGetValue(name, out  target)) {
+                        argCount := _nodes.ChildCount(idx) - 1
+                        useExpandedParams := ShouldUseExpandedParamsCall(idx, target.ParamTypes, target.ParamModifierKinds)
+                        if (argCount != target.ParamTypes.Length && !useExpandedParams) {return false}
+                        if (target.TypeParams.Length > 0) {
+                            // Generic sibling inference remains a separate owner.
+                            return TryEmitGenericSiblingCall(idx, target, new Type[target.TypeParams.Length], out columnarResolvedType)
+                        }
+                        if (useExpandedParams) {return TryEmitSiblingExpandedParamsCall(idx, target, out columnarResolvedType)}
+                        // Contextual lambdas and method groups remain on this legacy-only tier.
+                        for a := 1; a <= argCount; a++ {
+                            if (!EmitDeclaredCallArgument(Child(idx, a), target.ParamTypes[a - 1],  true)) {return false}
+                        }
+                        _il.Emit(OpCodes.Call, target.Method)
+                        columnarResolvedType = target.ReturnType
+                        return true
+                    }
+                    let ownMethod: NSharpLang.Compiler.Columnar.ColumnarInstanceMethodDef? = null
+                    if (_currentStruct != null && TrySelectInstanceMethodOnChain(_currentStruct, name, idx, out  ownMethod)) {
+                        if (!legacyWholeSubtreePlanning && !ColumnarSourceDirectCallResolver.IsExcludedInstanceDefinition(ownMethod)) {return false}
+                        return EmitImplicitThisCall(idx, ownMethod, out columnarResolvedType)
+                    }
+                    let ownStatic: NSharpLang.Compiler.Columnar.ColumnarStaticMethodDef? = null
+                    if (_enclosingType != null && TryFindStaticMethodOnChain(_enclosingType, name, _nodes.ChildCount(idx) - 1, out  ownStatic)) {
+                        if (!legacyWholeSubtreePlanning && !ColumnarSourceDirectCallResolver.IsExcludedStaticDefinition(ownStatic)) {return false}
+                        // No receiver: just the args, then a direct `call` to the declaring type's static.
+                        staticArgCount := _nodes.ChildCount(idx) - 1
+                        for a := 1; a <= staticArgCount; a++ {
+                            if (!EmitDeclaredCallArgument(Child(idx, a), ownStatic.ParamTypes[a - 1],  true)) {
+                                return Decline("emit.call.static-argument", "static call argument " + a.ToString() + " for '" + name + "' could not be emitted", Child(idx, a))
+                            }
+                        }
+                        _il.Emit(OpCodes.Call, ownStatic.Builder)
+                        columnarResolvedType = ownStatic.ReturnType
+                        return true
+                    }
+                    if (TryEmitResultFactoryCall(idx, name, out columnarResolvedType)) {return true}
+                    // CALL-STYLE newtype construction (`UserId(42)`): newtypes ONLY (the legacy
+                    // emitter's RecordsTopLevelNewtypeNames gate) — resolve the synthesized
+                    // single-parameter constructor and newobj it.
+                    let newtypeDef: NSharpLang.Compiler.Columnar.ColumnarStructDef? = null
+                    if (_typeResolutionStructs.TryGetValue(name, out  newtypeDef) && newtypeDef.IsNewtype) {
+                        newtypeArgCount := _nodes.ChildCount(idx) - 1
+                        newtypeConstructors := newtypeDef.Constructors
+                        newtypeConstructorEnumerator := newtypeConstructors.GetEnumerator()
+                        try {
+                            while newtypeConstructorEnumerator.MoveNext() {
+                                constructorDefinition := newtypeConstructorEnumerator.get_Current()
+                                ctorBuilder := constructorDefinition.Builder
+                                ctorParamTypes := constructorDefinition.ParamTypes
+                                constructorDefaultKinds := constructorDefinition.DefaultKinds
+                                constructorDefaultTexts := constructorDefinition.DefaultTexts
+                                if (ctorParamTypes.Length != newtypeArgCount) {continue}
+                                for a := 1; a <= newtypeArgCount; a++ {
+                                    if (!EmitDeclaredCallArgument(Child(idx, a), ctorParamTypes[a - 1],  false)) {return false}
+                                }
+                                _il.Emit(OpCodes.Newobj, ctorBuilder)
+                                columnarResolvedType = newtypeDef.Builder
+                                return true
+                            }
+                        } finally {
+                            newtypeConstructorEnumerator.Dispose()
+                        }
+                        return false
+                    }
+                    return Decline("emit.call.bare-unresolved", "bare call '" + name + "' with " + (_nodes.ChildCount(idx) - 1).ToString() + " argument(s) could not be resolved", idx)
+                }
+                if (_nodes.Kind(callee) == 38) // GenericCallee — an EXPLICIT generic call `F<T1, T2>(args)`.
+                {
+                    if (TryEmitJsonSerializerSerializeGenericCall(idx, callee, out columnarResolvedType)) {return true}
+                    if (TryEmitJsonSerializerDeserializeGenericCall(idx, callee, out columnarResolvedType)) {return true}
+                    if (TryEmitExplicitEnumerableExtensionGenericCall(idx, callee, out columnarResolvedType)) {return true}
+                    gName := ColumnarNodeTextFacts.Text(_nodes, _source, callee)
+                    // The callee resolves exactly like a bare identifier: locals/params shadow-decline; only a
+                    // GENERIC top-level sibling binds (explicit type args on a non-generic are pipeline-rejected).
+                    if (_locals.ContainsKey(gName) || _paramOrdinals.ContainsKey(gName)) {return Decline("emit.call.generic-shadowed", "generic call '" + gName + "' is shadowed by a value binding", idx)}
+                    let gTarget: NSharpLang.Compiler.Columnar.ColumnarSiblingMethodDefinition? = null
+                    if (!_siblings.TryGetValue(gName, out  gTarget) || gTarget.TypeParams.Length == 0) {return Decline("emit.call.generic-unresolved", "generic call '" + gName + "' with " + (_nodes.ChildCount(idx) - 1).ToString() + " argument(s) could not be resolved", idx)}
+                    if (_nodes.ChildCount(callee) != gTarget.TypeParams.Length) {return false} // an explicit-argument ARITY mismatch is pipeline-rejected — decline.
+                    // Resolve each explicit type argument from its TYPE-kernel subtree. The resolved type
+                    // must be bindable, and the PRE-SEEDED binding then flows through the shared emission
+                    // helper, whose unify loop VERIFIES each argument against it (Identity<string>(5) declines).
+                    explicitBinding := new Type[gTarget.TypeParams.Length]
+                    for ta := 0; ta < gTarget.TypeParams.Length; ta++ {
+                        typeArgNode := Child(callee, ta)
+                        let canonicalTypeArg: string? = null
+                        let taType: System.Type? = null
+                        if (!TryBuildTypeNodeCanonical(typeArgNode, out  canonicalTypeArg)
+                            || !TryResolveBodyType(canonicalTypeArg, out  taType)) {return false}
+                        if (!ColumnarTypeOfPlanner.IsSupportedType(taType)) {return false}
+                        explicitBinding[ta] = taType
+                    }
+                    return TryEmitGenericSiblingCall(idx, gTarget, explicitBinding, out columnarResolvedType)
+                }
+                if (_nodes.Kind(callee) == 8) // MemberAccess callee -> a BCL instance/static method call.
+                    {return TryEmitBclMethodCall(idx, callee, legacyWholeSubtreePlanning, out columnarResolvedType)}
+                return false
+
+
+            } else if columnarSwitchValue2 == 8 { // MemberAccess [receiver] — an ENUM CONSTANT (e.g. StringComparison.Ordinal), or `.Length` on
+                   // an array/string/StringBuilder (-> int). The member name is the value span.
+                memberAccessReceiver := Child(idx, 0)
+                let enumReceiverName: string? = null
+                let enumReceiverRoot: string? = null
+                let dottedUserEnum: NSharpLang.Compiler.Columnar.ColumnarEnumDef? = null
+                if (TryGetDottedMemberAccessName(memberAccessReceiver, out  enumReceiverName, out  enumReceiverRoot)
+                    && _typeResolutionEnums.TryGetValue(enumReceiverName, out  dottedUserEnum)
+                    && !_locals.ContainsKey(enumReceiverRoot) && !_liftedLocals.ContainsKey(enumReceiverRoot) && !_paramOrdinals.ContainsKey(enumReceiverRoot) && !_siblings.ContainsKey(enumReceiverRoot)) {
+                    if (dottedUserEnum.StringConstants != null) {
+                        let stringValue: string? = null
+                        if (!dottedUserEnum.StringConstants.TryGetValue(ColumnarNodeTextFacts.Text(_nodes, _source, idx), out  stringValue)) {return false}
+                        _il.Emit(OpCodes.Ldstr, stringValue)
+                        columnarResolvedType = typeof(string)
+                        return true
+                    }
+                    let memberValue: int = 0
+                    if (!dottedUserEnum.Constants.TryGetValue(ColumnarNodeTextFacts.Text(_nodes, _source, idx), out  memberValue)) {return false}
+                    _il.Emit(OpCodes.Ldc_I4, memberValue)
+                    columnarResolvedType = dottedUserEnum.EnumType
+                    return true
+                }
+                if (_nodes.Kind(memberAccessReceiver) == 6) {
+                    receiverIdent := ColumnarNodeTextFacts.Text(_nodes, _source, memberAccessReceiver)
+                    // A USER-DEFINED enum constant: the receiver names a registered enum TYPE (not shadowed by a
+                    // local/param/sibling) and the member is one of its constants -> load the underlying int. The
+                    // reported type is the same finalized enum Type used for params/returns and collection elements.
+                    let userEnum: NSharpLang.Compiler.Columnar.ColumnarEnumDef? = null
+                    if (_typeResolutionEnums.TryGetValue(receiverIdent, out  userEnum)
+                        && !_locals.ContainsKey(receiverIdent) && !_liftedLocals.ContainsKey(receiverIdent) && !_paramOrdinals.ContainsKey(receiverIdent) && !_siblings.ContainsKey(receiverIdent)) {
+                        if (userEnum.StringConstants != null) {
+                            let stringValue: string? = null
+                            if (!userEnum.StringConstants.TryGetValue(ColumnarNodeTextFacts.Text(_nodes, _source, idx), out  stringValue)) {return false}
+                            _il.Emit(OpCodes.Ldstr, stringValue)
+                            columnarResolvedType = typeof(string)
+                            return true
+                        }
+                        let memberValue: int = 0
+                        if (!userEnum.Constants.TryGetValue(ColumnarNodeTextFacts.Text(_nodes, _source, idx), out  memberValue)) {return false}
+                        _il.Emit(OpCodes.Ldc_I4, memberValue)
+                        columnarResolvedType = userEnum.EnumType
+                        return true
+                    }
+                    // A USER-TYPE STATIC member read `TypeName.member`: the receiver names a registered struct/
+                    // record/class TYPE (not shadowed by a local/param/sibling) — chain-walk its static FIELDS
+                    // then static PROPERTIES (nearest declaration first; `Derived.count` binds a base-declared
+                    // static, matching the fixed legacy emitter): `ldsfld` for a field, `call get_Name` for a property.
+                    // A member that is NEITHER declines (a type name is not a value — nothing to fall through to).
+                    let staticOwner: NSharpLang.Compiler.Columnar.ColumnarStructDef? = null
+                    if (_typeResolutionStructs.TryGetValue(receiverIdent, out  staticOwner)
+                        && !_locals.ContainsKey(receiverIdent) && !_liftedLocals.ContainsKey(receiverIdent) && !_paramOrdinals.ContainsKey(receiverIdent) && !_siblings.ContainsKey(receiverIdent)) {
+                        let staticFieldRead: System.Reflection.Emit.FieldBuilder? = null
+                        if (ColumnarSourceMemberChainResolver.TryFindStaticFieldOnChain(staticOwner, ColumnarNodeTextFacts.Text(_nodes, _source, idx), out  staticFieldRead)) {
+                            _il.Emit(OpCodes.Ldsfld, staticFieldRead)
+                            columnarResolvedType = staticFieldRead.get_FieldType()
+                            return true
+                        }
+                        let staticPropRead: NSharpLang.Compiler.Columnar.ColumnarPropertyDef? = null
+                        if (ColumnarSourceMemberChainResolver.TryFindStaticPropertyOnChain(staticOwner, ColumnarNodeTextFacts.Text(_nodes, _source, idx), out  staticPropRead)) {
+                            _il.Emit(OpCodes.Call, staticPropRead.Getter)
+                            columnarResolvedType = staticPropRead.PropertyType
+                            return true
+                        }
+                        return false
+                    }
+                }
+                // Instance member access: `.Length` (array/string/StringBuilder -> int) or `.ItemN` (a tuple
+                // element). Anything else declines BEFORE the receiver is emitted (no wasted side effects).
+                member := ColumnarNodeTextFacts.Text(_nodes, _source, idx)
+                // A NAMED tuple element (`t.x` on a receiver whose declared names contain x) rewrites to the
+                // positional ItemN spelling BEFORE the accessor gate — names come from the per-variable map
+                // (annotated params, named-literal/call-derived locals), never the erased CLR type.
+                member = MaybeRewriteTupleMemberName(Child(idx, 0), member)
+                // `.ItemN` is a tuple element accessor only if a DIGIT follows "Item" (so `.Items`/`.ItemFoo`
+                // decline early without emitting the receiver); the actual element is still gated by GetField below.
+                isTupleItem := member.Length > 4 && member.StartsWith("Item", StringComparison.Ordinal) && char.IsDigit(member[4])
+                directReadReceiver := UnwrapParenthesizedNode(Child(idx, 0))
+                let directReadChain: NSharpLang.Compiler.Columnar.ColumnarMemberWriteChain = new NSharpLang.Compiler.Columnar.ColumnarMemberWriteChain(null, 0, null, null, null)
+                if (_nodes.Kind(directReadReceiver) == 8 && TryResolveMemberWriteChain(directReadReceiver, out  directReadChain)) {
+                    directReadOwnerTb := directReadChain.ReceiverType as TypeBuilder
+                    if (directReadOwnerTb != null) {
+                        directReadOwnerDef := ColumnarSourceDefinitionResolver.FindByBuilderIdentity(_structRegistry.get_Values(), directReadOwnerTb)
+                        if (directReadOwnerDef != null) {
+                            let directReadField: System.Reflection.Emit.FieldBuilder? = null
+                            if (ColumnarSourceMemberChainResolver.TryFindFieldOnChain(directReadOwnerDef, member, out  directReadField)) {
+                                EmitMemberWriteLocator(directReadChain)
+                                _il.Emit(OpCodes.Ldfld, directReadField)
+                                columnarResolvedType = directReadField.get_FieldType()
+                                return true
+                            }
+                            let directReadProperty: NSharpLang.Compiler.Columnar.ColumnarPropertyDef? = null
+                            if (TryFindPropertyOnChain(directReadOwnerDef, member, out  directReadProperty)) {
+                                EmitMemberWriteLocator(directReadChain)
+                                directReadPropertyEmitter := _il
+                                directReadPropertyOpcode := directReadOwnerDef.IsReference ? OpCodes.Callvirt : OpCodes.Call
+                                directReadPropertyEmitter.Emit(directReadPropertyOpcode, directReadProperty.Getter)
+                                columnarResolvedType = directReadProperty.PropertyType
+                                return true
+                            }
+                        }
+                    }
+                }
+                if (member != "Length" && !isTupleItem) {
+                    // Other supported receivers fall back to the emitted-receiver path for BCL members,
+                    // closed generics, and reference-type properties.
+                    let structReceiverType: System.Type? = null
+                    if (!EmitExpression(Child(idx, 0), out  structReceiverType)) {
+                        return false
+                    }
+                    if (structReceiverType == typeof(Version) && (member == "Major" || member == "Minor" || member == "Build" || member == "Revision")) {
+                        _il.Emit(OpCodes.Callvirt, typeof(Version).GetProperty(member).GetGetMethod())
+                        columnarResolvedType = typeof(int)
+                        return true
+                    }
+                    if (structReceiverType == typeof(TimeSpan) && member == nameof(TimeSpan.TotalMilliseconds)) {
+                        timeSpanTemp := _il.DeclareLocal(typeof(TimeSpan))
+                        _il.Emit(OpCodes.Stloc, timeSpanTemp)
+                        _il.Emit(OpCodes.Ldloca, timeSpanTemp)
+                        _il.Emit(OpCodes.Call, typeof(TimeSpan).GetProperty(nameof(TimeSpan.TotalMilliseconds)).GetGetMethod())
+                        columnarResolvedType = typeof(double)
+                        return true
+                    }
+                    if (structReceiverType == typeof(DateTime)) {
+                        dateTimeProperty := typeof(DateTime).GetProperty(member, BindingFlags.Public | BindingFlags.Instance)
+                        if (dateTimeProperty != null && dateTimeProperty.get_GetMethod() != null && ColumnarTypeOfPlanner.IsSupportedType(dateTimeProperty.get_PropertyType())) {
+                            dateTimeTemp := _il.DeclareLocal(typeof(DateTime))
+                            _il.Emit(OpCodes.Stloc, dateTimeTemp)
+                            _il.Emit(OpCodes.Ldloca, dateTimeTemp)
+                            _il.Emit(OpCodes.Call, dateTimeProperty.get_GetMethod())
+                            columnarResolvedType = dateTimeProperty.get_PropertyType()
+                            return true
+                        }
+                    }
+                    if (structReceiverType == typeof(JsonElement) && member == nameof(JsonElement.ValueKind)) {
+                        jsonElementTemp := _il.DeclareLocal(typeof(JsonElement))
+                        _il.Emit(OpCodes.Stloc, jsonElementTemp)
+                        _il.Emit(OpCodes.Ldloca, jsonElementTemp)
+                        _il.Emit(OpCodes.Call, typeof(JsonElement).GetProperty(nameof(JsonElement.ValueKind)).GetGetMethod())
+                        columnarResolvedType = typeof(JsonValueKind)
+                        return true
+                    }
+                    if (structReceiverType == typeof(JsonElement.ArrayEnumerator) && member == nameof(JsonElement.ArrayEnumerator.Current)) {
+                        enumeratorTemp := _il.DeclareLocal(typeof(JsonElement.ArrayEnumerator))
+                        _il.Emit(OpCodes.Stloc, enumeratorTemp)
+                        _il.Emit(OpCodes.Ldloca, enumeratorTemp)
+                        _il.Emit(OpCodes.Call, typeof(JsonElement.ArrayEnumerator).GetProperty(nameof(JsonElement.ArrayEnumerator.Current)).GetGetMethod())
+                        columnarResolvedType = typeof(JsonElement)
+                        return true
+                    }
+                    if (structReceiverType == typeof(JsonElement.ObjectEnumerator) && member == nameof(JsonElement.ObjectEnumerator.Current)) {
+                        enumeratorTemp := _il.DeclareLocal(typeof(JsonElement.ObjectEnumerator))
+                        _il.Emit(OpCodes.Stloc, enumeratorTemp)
+                        _il.Emit(OpCodes.Ldloca, enumeratorTemp)
+                        _il.Emit(OpCodes.Call, typeof(JsonElement.ObjectEnumerator).GetProperty(nameof(JsonElement.ObjectEnumerator.Current)).GetGetMethod())
+                        columnarResolvedType = typeof(JsonProperty)
+                        return true
+                    }
+                    if (structReceiverType == typeof(JsonProperty) && (member == nameof(JsonProperty.Name) || member == nameof(JsonProperty.Value))) {
+                        propertyTemp := _il.DeclareLocal(typeof(JsonProperty))
+                        _il.Emit(OpCodes.Stloc, propertyTemp)
+                        _il.Emit(OpCodes.Ldloca, propertyTemp)
+                        property := typeof(JsonProperty).GetProperty(member)
+                        if ((property == null || property.get_GetMethod() == null)) {return false}
+                        _il.Emit(OpCodes.Call, property.get_GetMethod())
+                        columnarResolvedType = property.get_PropertyType()
+                        return true
+                    }
+                    if (structReceiverType == typeof(Type) && (member == nameof(Type.Name) || member == nameof(Type.FullName) || member == nameof(Type.Namespace) || member == nameof(Type.IsNested))) {
+                        property := typeof(Type).GetProperty(member)
+                        if ((property == null || property.get_GetMethod() == null)) {return false}
+                        _il.Emit(OpCodes.Callvirt, property.get_GetMethod())
+                        columnarResolvedType = property.get_PropertyType()
+                        return true
+                    }
+                    if (structReceiverType == typeof(YamlDotNet.Core.IParser) && member == nameof(YamlDotNet.Core.IParser.Current)) {
+                        _il.Emit(OpCodes.Callvirt, typeof(YamlDotNet.Core.IParser).GetProperty(nameof(YamlDotNet.Core.IParser.Current)).GetGetMethod())
+                        columnarResolvedType = typeof(ParsingEvent)
+                        return true
+                    }
+                    if (structReceiverType == typeof(Scalar) && member == nameof(Scalar.Value)) {
+                        _il.Emit(OpCodes.Callvirt, typeof(Scalar).GetProperty(nameof(Scalar.Value)).GetGetMethod())
+                        columnarResolvedType = typeof(string)
+                        return true
+                    }
+                    let bclPropertyRead: System.Reflection.PropertyInfo? = null
+                    if (TryGetSupportedBclReadableProperty(structReceiverType, member, out  bclPropertyRead)) {
+                        _il.Emit(OpCodes.Callvirt, bclPropertyRead.get_GetMethod())
+                        columnarResolvedType = bclPropertyRead.get_PropertyType()
+                        return true
+                    }
+                    if (ColumnarTypeOfPlanner.IsSupportedNullable(structReceiverType) && (member == "HasValue" || member == "Value")) {
+                        nullableTemp := _il.DeclareLocal(structReceiverType)
+                        _il.Emit(OpCodes.Stloc, nullableTemp)
+                        _il.Emit(OpCodes.Ldloca, nullableTemp)
+                        if (member == "HasValue") {
+                            _il.Emit(OpCodes.Call, structReceiverType.GetProperty("HasValue").GetGetMethod())
+                            columnarResolvedType = typeof(bool)
+                            return true
+                        }
+                        _il.Emit(OpCodes.Call, structReceiverType.GetProperty("Value").GetGetMethod())
+                        columnarResolvedType = structReceiverType.GetGenericArguments()[0]
+                        return true
+                    }
+                    let resultGetter: System.Reflection.MethodInfo? = null
+                    let resultPropertyType: System.Type? = null
+                    if (TryResolveResultReadableProperty(structReceiverType, member, out  resultGetter, out  resultPropertyType)) {
+                        resultTemp := _il.DeclareLocal(structReceiverType)
+                        _il.Emit(OpCodes.Stloc, resultTemp)
+                        _il.Emit(OpCodes.Ldloca, resultTemp)
+                        _il.Emit(OpCodes.Call, resultGetter)
+                        columnarResolvedType = resultPropertyType
+                        return true
+                    }
+                    let memoryGetter: System.Reflection.MethodInfo? = null
+                    let memoryPropertyType: System.Type? = null
+                    if (TryResolveMemoryReadableProperty(structReceiverType, member, out  memoryGetter, out  memoryPropertyType)) {
+                        if (structReceiverType.get_IsValueType()) {
+                            memoryTemp := _il.DeclareLocal(structReceiverType)
+                            _il.Emit(OpCodes.Stloc, memoryTemp)
+                            _il.Emit(OpCodes.Ldloca, memoryTemp)
+                            _il.Emit(OpCodes.Call, memoryGetter)
+                        }
+                        else {
+                            _il.Emit(OpCodes.Callvirt, memoryGetter)
+                        }
+                        columnarResolvedType = memoryPropertyType
+                        return true
+                    }
+                    // `.Count` on a closed List<T>/Dictionary<K,V>/SortedDictionary<K,V>/HashSet<T> — callvirt get_Count -> int
+                    // (resolved from the open definition so builder-bound receivers rebind).
+                    let countGetter: System.Reflection.MethodInfo? = null
+                    if (member == "Count" && TryResolveCollectionCountGetter(structReceiverType, out  countGetter)) {
+                        _il.Emit(OpCodes.Callvirt, countGetter)
+                        columnarResolvedType = typeof(int)
+                        return true
+                    }
+                    // `kvp.Key` / `kvp.Value` on a KeyValuePair<K,V> (the Dictionary foreach loop
+                    // variable) — a VALUE-type receiver: spill, ldloca, call the non-virtual getter.
+                    // The result type comes from the CLOSED arguments, never the getter's ReturnType:
+                    // a REBOUND getter reports the OPEN TKey/TValue (spike-proven) — propagating that
+                    // would leak an open generic parameter into downstream typing (wrong-IL hazard).
+                    if ((member == "Key" || member == "Value") && ColumnarTypeOfPlanner.IsSupportedKeyValuePairType(structReceiverType)) {
+                        kvpTemp := _il.DeclareLocal(structReceiverType)
+                        _il.Emit(OpCodes.Stloc, kvpTemp)
+                        _il.Emit(OpCodes.Ldloca, kvpTemp)
+                        openKvpGetter := typeof(KeyValuePair<int, int>).GetGenericTypeDefinition().GetProperty(member).GetGetMethod()
+                        _il.Emit(OpCodes.Call, ResolveClosedGenericMethod(structReceiverType, openKvpGetter))
+                        columnarResolvedType = structReceiverType.GetGenericArguments()[member == "Key" ? 0 : 1]
+                        return true
+                    }
+                    fieldStruct := ColumnarSourceDefinitionResolver.FindByBuilderIdentity(_structRegistry.get_Values(), structReceiverType)
+                    if (fieldStruct == null) {
+                        // A CLOSED user-generic receiver (`Box<int>`): resolve on the OPEN definition (own
+                        // type only — generic bases decline at declaration), rebind the token via
+                        // TypeBuilder.GetField/GetMethod (reflection member queries throw on
+                        // TypeBuilderInstantiation), and substitute the closed type arguments into the
+                        // member type (b.item on Box<int> is int).
+                        let closedFieldDef: NSharpLang.Compiler.Columnar.ColumnarStructDef? = null
+                        let closedFieldArgs: System.Type[]? = null
+                        if (TryGetClosedReceiverDef(structReceiverType, out  closedFieldDef, out  closedFieldArgs)) {
+                            let openField: System.Reflection.Emit.FieldBuilder? = null
+                            if (closedFieldDef.Fields.TryGetValue(member, out  openField)) {
+                                if (closedFieldDef.IsReference) {
+                                    _il.Emit(OpCodes.Ldfld, TypeBuilder.GetField(structReceiverType, openField))
+                                }
+                                else {
+                                    closedFieldTemp := _il.DeclareLocal(structReceiverType)
+                                    _il.Emit(OpCodes.Stloc, closedFieldTemp)
+                                    _il.Emit(OpCodes.Ldloca, closedFieldTemp)
+                                    _il.Emit(OpCodes.Ldfld, TypeBuilder.GetField(structReceiverType, openField))
+                                }
+                                columnarResolvedType = ColumnarRuntimeInstanceMemberResolver.SubstituteClosedTypeArguments(openField.get_FieldType(), closedFieldArgs)
+                                return true
+                            }
+                            let openProp: NSharpLang.Compiler.Columnar.ColumnarPropertyDef? = null
+                            if (closedFieldDef.Properties.TryGetValue(member, out  openProp)) {
+                                closedGetter := TypeBuilder.GetMethod(structReceiverType, openProp.Getter)
+                                if (closedFieldDef.IsReference) {
+                                    _il.Emit(OpCodes.Callvirt, closedGetter)
+                                }
+                                else {
+                                    closedPropertyTemp := _il.DeclareLocal(structReceiverType)
+                                    _il.Emit(OpCodes.Stloc, closedPropertyTemp)
+                                    _il.Emit(OpCodes.Ldloca, closedPropertyTemp)
+                                    _il.Emit(OpCodes.Call, closedGetter)
+                                }
+                                columnarResolvedType = ColumnarRuntimeInstanceMemberResolver.SubstituteClosedTypeArguments(openProp.PropertyType, closedFieldArgs)
+                                return true
+                            }
+                        }
+                        return false
+                    }
+                    // Resolution walks the BASE chain (nearest first) so a derived receiver exposes INHERITED
+                    // fields/properties (`d.X` where X is declared on Base).
+                    let structField: System.Reflection.Emit.FieldBuilder? = null
+                    if (ColumnarSourceMemberChainResolver.TryFindFieldOnChain(fieldStruct, member, out  structField)) {
+                        if (fieldStruct.IsReference) {
+                            // RECORD/CLASS (reference type): the receiver is the object ref already on the stack.
+                            _il.Emit(OpCodes.Ldfld, structField)
+                        }
+                        else {
+                            // VALUE-TYPE struct: ldfld needs the value's ADDRESS — spill to a temp and ldloca.
+                            fieldTemp := _il.DeclareLocal(structReceiverType)
+                            _il.Emit(OpCodes.Stloc, fieldTemp)
+                            _il.Emit(OpCodes.Ldloca, fieldTemp)
+                            _il.Emit(OpCodes.Ldfld, structField)
+                        }
+                        columnarResolvedType = structField.get_FieldType()
+                        return true
+                    }
+                    let propAccessor: NSharpLang.Compiler.Columnar.ColumnarPropertyDef? = null
+                    if (TryFindPropertyOnChain(fieldStruct, member, out  propAccessor)) {
+                        if (fieldStruct.IsReference) {
+                            // Reference receiver: the object ref is already on the stack.
+                            _il.Emit(OpCodes.Callvirt, propAccessor.Getter)
+                        }
+                        else {
+                            // Value receiver: instance accessors need the receiver address.
+                            propertyTemp := _il.DeclareLocal(structReceiverType)
+                            _il.Emit(OpCodes.Stloc, propertyTemp)
+                            _il.Emit(OpCodes.Ldloca, propertyTemp)
+                            _il.Emit(OpCodes.Call, propAccessor.Getter)
+                        }
+                        columnarResolvedType = propAccessor.PropertyType
+                        return true
+                    }
+                    return false
+                }
+                let receiverType: System.Type? = null
+                if (!EmitExpression(Child(idx, 0), out  receiverType)) {return false}
+                if (member == "Length") {
+                    if (receiverType.get_IsSZArray()) {
+                        _il.Emit(OpCodes.Ldlen)     // pushes the array length as a native int...
+                        _il.Emit(OpCodes.Conv_I4)   // ...narrowed to int (N# array length is int).
+                        columnarResolvedType = typeof(int)
+                        return true
+                    }
+                    if (receiverType == typeof(string)) {
+                        _il.Emit(OpCodes.Callvirt, typeof(string).GetProperty(nameof(string.Length)).GetGetMethod())
+                        columnarResolvedType = typeof(int)
+                        return true
+                    }
+                    if (receiverType == typeof(System.Text.StringBuilder)) {
+                        _il.Emit(OpCodes.Callvirt, typeof(System.Text.StringBuilder).GetProperty(nameof(System.Text.StringBuilder.Length)).GetGetMethod())
+                        columnarResolvedType = typeof(int)
+                        return true
+                    }
+                    if (ColumnarTypeOfPlanner.IsSupportedSpanLikeType(receiverType)) {
+                        spanTemp := _il.DeclareLocal(receiverType)
+                        _il.Emit(OpCodes.Stloc, spanTemp)
+                        _il.Emit(OpCodes.Ldloca, spanTemp)
+                        _il.Emit(OpCodes.Call, receiverType.GetProperty("Length").GetGetMethod())
+                        columnarResolvedType = typeof(int)
+                        return true
+                    }
+                    return false
+                }
+                // `t.ItemN` on a ValueTuple -> ldfld the element (ItemN is a public instance FIELD of ValueTuple).
+                // The receiver value (a value type) is already on the stack; ldfld reads the field from it.
+                if (ColumnarTypeOfPlanner.IsSupportedValueTuple(receiverType)) {
+                    itemField := receiverType.GetField(member, BindingFlags.Public | BindingFlags.Instance)
+                    if (itemField == null) {
+                        return false
+                    }
+                    _il.Emit(OpCodes.Ldfld, itemField)
+                    columnarResolvedType = itemField.get_FieldType()
+                    return true
+                }
+                return false
+
+
+            } else if columnarSwitchValue2 == 10 { // IndexAccess [object, index] — ordinary Int32 element READ over arrays, strings, and
+                    // collections. Every Index (`^`) and Range (`..`) read is owned by
+                     // ColumnarRangeIndexPlanner ahead of this switch.
+                let indexedType: System.Type? = null
+                if (!EmitExpression(Child(idx, 0), out  indexedType)) {return false}
+                indexNode := Child(idx, 1)
+                if (indexedType == typeof(string)) {
+                    let stringIndexType: System.Type? = null
+                    if (!EmitExpression(indexNode, out  stringIndexType)
+                        || stringIndexType != typeof(int)) {return false}
+                    _il.Emit(OpCodes.Callvirt, typeof(string).GetMethod("get_Chars", [typeof(int)]))
+                    columnarResolvedType = typeof(char)
+                    return true
+                }
+                // A closed List<T>/Dictionary<K,V>/SortedDictionary<K,V> indexer READ — callvirt get_Item(int|K) -> T|V (the
+                // runtime throws ArgumentOutOfRangeException / KeyNotFoundException exactly as the
+                // pipeline's emit does — probe-pinned exception parity). The result type comes from the
+                // CLOSED arguments: a REBOUND get_Item reports the OPEN T/TValue as ReturnType
+                // (spike-proven) — propagating that would leak an open parameter into downstream typing.
+                if (IsSupportedReadableIndexedCollectionType(indexedType)) {
+                    indexedDef := indexedType.GetGenericTypeDefinition()
+                    idxParamType := indexedDef == typeof(List<int>).GetGenericTypeDefinition()
+                        ? typeof(int)
+                        : indexedType.GetGenericArguments()[0]
+                    if (!EmitArg(idx, 1, idxParamType)) {return false}
+                    _il.Emit(OpCodes.Callvirt, ResolveClosedGenericMethod(indexedType, indexedDef.GetMethod("get_Item")))
+                    columnarResolvedType = indexedDef == typeof(List<int>).GetGenericTypeDefinition()
+                        ? indexedType.GetGenericArguments()[0]
+                        : indexedType.GetGenericArguments()[1]
+                    return true
+                }
+                if (indexedType.get_IsGenericType() && !indexedType.get_IsGenericTypeDefinition()
+                    && indexedType.GetGenericTypeDefinition() == typeof(IReadOnlyList<int>).GetGenericTypeDefinition()) {
+                    if (!EmitArg(idx, 1, typeof(int))) {return false}
+                    itemGetter := typeof(IReadOnlyList<int>).GetGenericTypeDefinition().GetProperty("Item").GetGetMethod()
+                    _il.Emit(OpCodes.Callvirt, ResolveClosedGenericMethod(indexedType, itemGetter))
+                    columnarResolvedType = indexedType.GetGenericArguments()[0]
+                    return true
+                }
+                if (indexedType == typeof(IList)) {
+                    if (!EmitArg(idx, 1, typeof(int))) {return false}
+                    _il.Emit(OpCodes.Callvirt, typeof(IList).GetProperty("Item").GetGetMethod())
+                    columnarResolvedType = typeof(object)
+                    return true
+                }
+                if (ColumnarTypeOfPlanner.IsSupportedReadOnlySpanType(indexedType)) {
+                    spanElementType := indexedType.GetGenericArguments()[0]
+                    spanSlice := indexedType.GetMethod("Slice", [typeof(int), typeof(int)])
+                    asBytesCandidates := typeof(System.Runtime.InteropServices.MemoryMarshal).GetMethods(BindingFlags.Public | BindingFlags.Static)
+                    let asBytes: System.Reflection.MethodInfo? = null
+                    for method in asBytesCandidates {
+                        if (method.get_Name() != nameof(System.Runtime.InteropServices.MemoryMarshal.AsBytes) || !method.get_IsGenericMethodDefinition()) {continue}
+                        parameters := method.GetParameters()
+                        if (parameters.Length == 1
+                            && parameters[0].get_ParameterType().get_IsGenericType()
+                            && parameters[0].get_ParameterType().GetGenericTypeDefinition() == typeof(ReadOnlySpan<int>).GetGenericTypeDefinition()) {
+                            asBytes = method
+                            break
+                        }
+                    }
+                    memoryReadCandidates := typeof(System.Runtime.InteropServices.MemoryMarshal).GetMethods(BindingFlags.Public | BindingFlags.Static)
+                    let memoryRead: System.Reflection.MethodInfo? = null
+                    for method in memoryReadCandidates {
+                        if (method.get_Name() != nameof(System.Runtime.InteropServices.MemoryMarshal.Read) || !method.get_IsGenericMethodDefinition()) {continue}
+                        parameters := method.GetParameters()
+                        if (parameters.Length == 1 && parameters[0].get_ParameterType() == typeof(ReadOnlySpan<byte>)) {
+                            memoryRead = method
+                            break
+                        }
+                    }
+                    if (spanSlice == null || asBytes == null || memoryRead == null) {return false}
+                    spanTemp := _il.DeclareLocal(indexedType)
+                    _il.Emit(OpCodes.Stloc, spanTemp)
+                    _il.Emit(OpCodes.Ldloca, spanTemp)
+                    let spanIndexType: System.Type? = null
+                    if (!EmitExpression(Child(idx, 1), out  spanIndexType) || spanIndexType != typeof(int)) {return false}
+                    _il.Emit(OpCodes.Ldc_I4_1)
+                    _il.Emit(OpCodes.Call, spanSlice)
+                    _il.Emit(OpCodes.Call, asBytes.MakeGenericMethod([spanElementType]))
+                    _il.Emit(OpCodes.Call, memoryRead.MakeGenericMethod([spanElementType]))
+                    columnarResolvedType = spanElementType
+                    return true
+                }
+                if (ColumnarTypeOfPlanner.IsSupportedSpanType(indexedType)) {
+                    spanElementType := indexedType.GetGenericArguments()[0]
+                    itemGetter := ResolveSpanLikeItemGetter(indexedType)
+                    if (itemGetter == null || !ColumnarTypeOfPlanner.IsSupportedElementType(spanElementType)) {return false}
+                    spanTemp := _il.DeclareLocal(indexedType)
+                    _il.Emit(OpCodes.Stloc, spanTemp)
+                    let spanIndexType: System.Type? = null
+                    if (!EmitExpression(Child(idx, 1), out  spanIndexType) || spanIndexType != typeof(int)) {return false}
+                    spanIndexTemp := _il.DeclareLocal(typeof(int))
+                    _il.Emit(OpCodes.Stloc, spanIndexTemp)
+                    _il.Emit(OpCodes.Ldloca, spanTemp)
+                    _il.Emit(OpCodes.Ldloc, spanIndexTemp)
+                    _il.Emit(OpCodes.Call, itemGetter)
+                    EmitLoadByRefElement(spanElementType)
+                    columnarResolvedType = spanElementType
+                    return true
+                }
+                if (!indexedType.get_IsSZArray()) {return false}
+                let arrayIndexType: System.Type? = null
+                if (!EmitExpression(indexNode, out  arrayIndexType)) {return false}
+                elementType := indexedType.GetElementType()
+                if (arrayIndexType != typeof(int)) {return false}
+                if (!elementType.get_IsGenericParameter()) {
+                    elementTypeBuilder := elementType as TypeBuilder
+                    if (elementTypeBuilder == null
+                        && elementType.get_IsValueType()
+                        && !ColumnarTypeOfPlanner.IsSupportedType(elementType)) {return false} // other element types arrive with their type slices.
+                }
+                EmitArrayElementLoad(elementType)
+                columnarResolvedType = elementType
+                return true
+
+
+            } else if columnarSwitchValue2 == 15 { // New [type, args...] — `new T[](size)` array allocation, OR `new string(char[], int, int)`
+                    // (the String(char[],int,int) constructor). child[0] is a TYPE subtree (2 = Array, 0 = Simple).
+                typeNode := Child(idx, 0)
+                if (_nodes.Kind(typeNode) == 0) // a Simple type -> a constructor call (string or StringBuilder).
+                {
+                    newTypeName := ColumnarNodeTextFacts.Text(_nodes, _source, typeNode)
+                    // Alias/namespace-QUALIFIED user type (`Ids.UserId`): normalize to the
+                    // registry's short name — unless the qualifier is a UNION, whose dotted
+                    // spelling is case construction and resolves on its own path.
+                    if (newTypeName.Contains('.')) {
+                        newTypeQualifier := newTypeName.Substring(0, newTypeName.IndexOf('.'))
+                        newTypeTail := ColumnarTypeCanonicalizer.UnqualifiedTypeName(newTypeName)
+                        if (!_unionRegistry.ContainsKey(newTypeQualifier)
+                            && (_structRegistry.ContainsKey(newTypeTail) || _enumRegistry.ContainsKey(newTypeTail))) {newTypeName = newTypeTail}
+                    }
+                    if (newTypeName == "string") {
+                        if (_nodes.ChildCount(idx) == 3) {
+                            if (!EmitArg(idx, 1, typeof(char)) || !EmitArg(idx, 2, typeof(int))) {return false}
+                            repeatCtor := typeof(string).GetConstructor([typeof(char), typeof(int)])
+                            if (repeatCtor == null) {return false}
+                            _il.Emit(OpCodes.Newobj, repeatCtor)
+                            columnarResolvedType = typeof(string)
+                            return true
+                        }
+                        // `new string(char[] value, int startIndex, int length)` — copy a char[] slice into a
+                        // string. Emit the char[] then the two int args, then `newobj` the String ctor.
+                        if (_nodes.ChildCount(idx) != 4) {return false}
+                        let charArrType: System.Type? = null
+                        if (!EmitExpression(Child(idx, 1), out  charArrType)
+                            || !charArrType.get_IsSZArray() || charArrType.GetElementType() != typeof(char)) {return false}
+                        if (!EmitArg(idx, 2, typeof(int)) || !EmitArg(idx, 3, typeof(int))) {return false}
+                        stringCtor := typeof(string).GetConstructor([typeof(char[]), typeof(int), typeof(int)])
+                        if (stringCtor == null) {return false}
+                        _il.Emit(OpCodes.Newobj, stringCtor)
+                        columnarResolvedType = typeof(string)
+                        return true
+                    }
+                    if (newTypeName == "StringBuilder") {
+                        // `new System.Text.StringBuilder()` or `new StringBuilder(int capacity)`. (Other ctor overloads
+                        // decline.)
+                        ctorArgCount := _nodes.ChildCount(idx) - 1
+                        let sbCtor: System.Reflection.ConstructorInfo? = null
+                        if (ctorArgCount == 0) {sbCtor = typeof(System.Text.StringBuilder).GetConstructor(Type.EmptyTypes)}
+                        else {if (ctorArgCount == 1) {
+                            if (EmitArg(idx, 1, typeof(int))) {
+                                sbCtor = typeof(System.Text.StringBuilder).GetConstructor([typeof(int)])
+                            } else {
+                                sbCtor = null
+                            }
+                        }
+                        else {return false}}
+                        if (sbCtor == null) {return false}
+                        _il.Emit(OpCodes.Newobj, sbCtor)
+                        columnarResolvedType = typeof(System.Text.StringBuilder)
+                        return true
+                    }
+                    if (newTypeName == "Version") {
+                        if (_nodes.ChildCount(idx) != 5
+                            || !EmitArg(idx, 1, typeof(int))
+                            || !EmitArg(idx, 2, typeof(int))
+                            || !EmitArg(idx, 3, typeof(int))
+                            || !EmitArg(idx, 4, typeof(int))) {return false}
+                        _il.Emit(OpCodes.Newobj, typeof(Version).GetConstructor([typeof(int), typeof(int), typeof(int), typeof(int)]))
+                        columnarResolvedType = typeof(Version)
+                        return true
+                    }
+                    if (newTypeName == "object") {
+                        if (_nodes.ChildCount(idx) != 1) {return false}
+                        _il.Emit(OpCodes.Newobj, typeof(object).GetConstructor(Type.EmptyTypes))
+                        columnarResolvedType = typeof(object)
+                        return true
+                    }
+                    if (newTypeName == "ProcessStartInfo" || newTypeName == "Process") {
+                        if (_nodes.ChildCount(idx) != 1) {return false}
+                        bclCtorType := newTypeName == "ProcessStartInfo" ? typeof(ProcessStartInfo) : typeof(Process)
+                        _il.Emit(OpCodes.Newobj, bclCtorType.GetConstructor(Type.EmptyTypes))
+                        columnarResolvedType = bclCtorType
+                        return true
+                    }
+                    if (newTypeName == "JsonSerializerOptions") {
+                        if (_nodes.ChildCount(idx) != 1) {return false}
+                        _il.Emit(OpCodes.Newobj, typeof(JsonSerializerOptions).GetConstructor(Type.EmptyTypes))
+                        columnarResolvedType = typeof(JsonSerializerOptions)
+                        return true
+                    }
+                    if (newTypeName == "StreamReader") {
+                        if (_nodes.ChildCount(idx) != 2 || !EmitArg(idx, 1, typeof(Stream))) {return false}
+                        _il.Emit(OpCodes.Newobj, typeof(StreamReader).GetConstructor([typeof(Stream)]))
+                        columnarResolvedType = typeof(StreamReader)
+                        return true
+                    }
+                    if (newTypeName == "JsonElement") {
+                        if (_nodes.ChildCount(idx) != 1) {return false}
+                        jsonElement := _il.DeclareLocal(typeof(JsonElement))
+                        _il.Emit(OpCodes.Ldloca, jsonElement)
+                        _il.Emit(OpCodes.Initobj, typeof(JsonElement))
+                        _il.Emit(OpCodes.Ldloc, jsonElement)
+                        columnarResolvedType = typeof(JsonElement)
+                        return true
+                    }
+                    if (newTypeName == "DeserializerBuilder") {
+                        if (_nodes.ChildCount(idx) != 1) {return false}
+                        _il.Emit(OpCodes.Newobj, typeof(DeserializerBuilder).GetConstructor(Type.EmptyTypes))
+                        columnarResolvedType = typeof(DeserializerBuilder)
+                        return true
+                    }
+                    if (newTypeName == "Scalar") {
+                        if (_nodes.ChildCount(idx) != 2 || !EmitArg(idx, 1, typeof(string))) {return false}
+                        _il.Emit(OpCodes.Newobj, typeof(Scalar).GetConstructor([typeof(string)]))
+                        columnarResolvedType = typeof(Scalar)
+                        return true
+                    }
+                    if (newTypeName == "MappingStart" || newTypeName == "MappingEnd") {
+                        if (_nodes.ChildCount(idx) != 1) {return false}
+                        eventType := newTypeName == "MappingStart" ? typeof(MappingStart) : typeof(MappingEnd)
+                        _il.Emit(OpCodes.Newobj, eventType.GetConstructor(Type.EmptyTypes))
+                        columnarResolvedType = eventType
+                        return true
+                    }
+                    // WHITELISTED exception constructions (E1/E3): parameterless, one-string, and two-string
+                    // ctors of the same exception types accepted by typed catches and BootstrapServices throws.
+                    let exceptionType: System.Type? = null
+                    if (ColumnarCanonicalTypeResolver.TryResolveBclExceptionType(newTypeName, out  exceptionType)) {
+                        exceptionArgCount := _nodes.ChildCount(idx) - 1
+                        let exceptionCtor: System.Reflection.ConstructorInfo? = null
+                        if (exceptionArgCount == 0) {
+                            exceptionCtor = exceptionType.GetConstructor(Type.EmptyTypes)
+                        }
+                        else {if (exceptionArgCount == 1) {
+                            exceptionCtor = exceptionType.GetConstructor([typeof(string)])
+                            if (exceptionCtor == null || !EmitArg(idx, 1, typeof(string))) {return false}
+                        }
+                        else {if (exceptionArgCount == 2) {
+                            exceptionCtor = exceptionType.GetConstructor([typeof(string), typeof(string)])
+                            if (exceptionCtor == null || !EmitArg(idx, 1, typeof(string)) || !EmitArg(idx, 2, typeof(string))) {return false}
+                        }
+                        else {
+                            return false
+                        }}}
+                        if (exceptionCtor == null) {return false}
+                        _il.Emit(OpCodes.Newobj, exceptionCtor)
+                        columnarResolvedType = exceptionType
+                        return true
+                    }
+                    let columnarDiscard48: string = null
+                    let positionalCaseDef: NSharpLang.Compiler.Columnar.ColumnarUnionCaseDef? = null
+                    if (TryGetUnionCaseByKey(newTypeName, out columnarDiscard48, out  positionalCaseDef)) {
+                        if (positionalCaseDef.UnionBase.get_IsGenericTypeDefinition()) {return false}
+                        return TryEmitUnionCasePositionalConstruction(positionalCaseDef, Type.EmptyTypes, idx, _nodes.ChildCount(idx) - 1, out columnarResolvedType)
+                    }
+                    let defaultCtorDef: NSharpLang.Compiler.Columnar.ColumnarStructDef? = null
+                    if (_structRegistry.TryGetValue(newTypeName, out  defaultCtorDef)
+                        && defaultCtorDef.IsReference
+                        && defaultCtorDef.DefaultCtor != null
+                        && _nodes.ChildCount(idx) == 1) {
+                        _il.Emit(OpCodes.Newobj, defaultCtorDef.DefaultCtor)
+                        columnarResolvedType = defaultCtorDef.Builder
+                        return true
+                    }
+                    let defaultValueStructDef: NSharpLang.Compiler.Columnar.ColumnarStructDef? = null
+                    if (_structRegistry.TryGetValue(newTypeName, out  defaultValueStructDef)
+                        && !defaultValueStructDef.IsReference
+                        && defaultValueStructDef.Constructors.Count == 0
+                        && _nodes.ChildCount(idx) == 1) {
+                        valueStructLocal := _il.DeclareLocal(defaultValueStructDef.Builder)
+                        _il.Emit(OpCodes.Ldloca, valueStructLocal)
+                        _il.Emit(OpCodes.Initobj, defaultValueStructDef.Builder)
+                        _il.Emit(OpCodes.Ldloc, valueStructLocal)
+                        columnarResolvedType = defaultValueStructDef.Builder
+                        return true
+                    }
+                    // A user type with a positional constructor: `new T(args)` — resolve by arg COUNT first,
+                    // then a conservative type preflight when overloads share an arity; emit each type-checked
+                    // arg, then `newobj <ctor>`. (`newobj` on a VALUE type zero-initializes, runs the ctor, and
+                    // pushes the value — the probed semantics for partially-assigning struct ctors; fields-only
+                    // value structs construct via object-init.)
+                    let ctorDef: NSharpLang.Compiler.Columnar.ColumnarStructDef? = null
+                    if (_structRegistry.TryGetValue(newTypeName, out  ctorDef) && ctorDef.Constructors.Count > 0) {
+                        let chosenCtor: System.Reflection.Emit.ConstructorBuilder? = null
+                        let chosenParamTypes: System.Type[]? = null
+                        let chosenDefaultKinds: int[]? = null
+                        let chosenDefaultTexts: string[]? = null
+                        if (!TrySelectUserConstructor(idx, ctorDef, out  chosenCtor, out  chosenParamTypes, out  chosenDefaultKinds, out  chosenDefaultTexts)) {
+                            return false
+                        }
+                        providedCtorArgCount := _nodes.ChildCount(idx) - 1
+                        for a := 0; a < chosenParamTypes.Length; a++ {
+                            if (a >= providedCtorArgCount) {
+                                let columnarDiscard49: System.Type = null
+                                if (!ColumnarParameterDefaultEmitter.TryEmitConstructorDefaultArgument(
+                                        _il,
+                                        chosenParamTypes[a],
+                                        chosenDefaultKinds[a],
+                                        chosenDefaultTexts[a],
+                                        _typeResolutionEnums,
+                                        out columnarDiscard49)) {return false}
+                                continue
+                            }
+
+                            ctorArgNode := Child(idx, 1 + a)
+                            let ctorArgType: System.Type = null
+                            if (TryEmitIntLiteralAsType(ctorArgNode, chosenParamTypes[a], out ctorArgType)) {
+                                // Unsuffixed integer literal adopted to the declared constructor parameter type.
+                            }
+                            else {if (TryEmitNullLiteralAsType(ctorArgNode, chosenParamTypes[a], out ctorArgType)) {
+                                // Null adopted to the declared reference/nullable constructor parameter type.
+                            }
+                            else {if (!EmitExpression(ctorArgNode, out ctorArgType)) {
+                                return false
+                            }}}
+                            // exact match, or the INTERFACE upcast (an implementer into an
+                            // interface-typed ctor param — boxes value implementers, IF-1).
+                            if (!TypesEquivalent(ctorArgType, chosenParamTypes[a])
+                                && !TryEmitImplicitWidening(ctorArgType, chosenParamTypes[a])
+                                && !ColumnarReferenceCoercionPlanner.TryEmitInterfaceUpcast(ctorArgType, chosenParamTypes[a], _structRegistry, _il)
+                                && !TryEmitSpanConversion(ctorArgType, chosenParamTypes[a])
+                                && !ColumnarReferenceConversionFacts.TryEmitReferenceConversion(ctorArgType, chosenParamTypes[a])
+                                && !ColumnarReferenceCoercionPlanner.TryEmitObjectConversion(ctorArgType, chosenParamTypes[a], _structRegistry, _il)
+                                && !TryEmitAnonymousUnionConversion(ctorArgType, chosenParamTypes[a])) {
+                                return false
+                            }
+                        }
+                        _il.Emit(OpCodes.Newobj, chosenCtor)
+                        columnarResolvedType = ctorDef.Builder
+                        return true
+                    }
+                    return false // other Simple-type constructors are a host boundary; decline.
+                }
+                // `new Box<int>(args)` — CLOSED construction of a user generic type (type node kind 1).
+                // Canonicalize the generic subtree, resolve it (MakeGenericType over the open TypeBuilder),
+                // bind the user ctor by ARG COUNT on the OPEN definition, check each arg against the
+                // POSITIONALLY SUBSTITUTED param type (v: T on Box<int> expects int), then `newobj` the
+                // ctor REBOUND onto the closed type (TypeBuilder.GetConstructor — the same machinery the
+                // previous parity baseline uses; reflection member queries throw on TypeBuilderInstantiation).
+                if (_nodes.Kind(typeNode) == 1) {
+                    // CLOSED GENERIC UNION CASE: `new Option.Some<int>(value)` — a Generic type root whose
+                    // dotted head names a registered union case. The case fields define positional argument
+                    // order, and each expected field type substitutes the case arguments.
+                    let columnarDiscard50: string = null
+                    let genericPositionalCaseDef: NSharpLang.Compiler.Columnar.ColumnarUnionCaseDef? = null
+                    if (TryGetUnionCaseByKey(ColumnarNodeTextFacts.Text(_nodes, _source, typeNode), out columnarDiscard50, out  genericPositionalCaseDef)) {
+                        let explicitCaseArgs: System.Type[]? = null
+                        if (!genericPositionalCaseDef.UnionBase.get_IsGenericTypeDefinition()
+                            || !TryResolveUnionCaseTypeArgs(typeNode, genericPositionalCaseDef, out  explicitCaseArgs)) {return false}
+                        return TryEmitUnionCasePositionalConstruction(genericPositionalCaseDef, explicitCaseArgs, idx, _nodes.ChildCount(idx) - 1, out columnarResolvedType)
+                    }
+
+                    let closedCanonical: string? = null
+                    if (!TryBuildTypeNodeCanonical(typeNode, out  closedCanonical)) {
+                        return false
+                    }
+                    let closedType: System.Type? = null
+                    if (!TryResolveBodyType(closedCanonical, out  closedType)) {
+                        return false
+                    }
+                    // A closed BCL COLLECTION (`new List<int>()`, `new Dictionary<string,int>(10)`, ..., incl.
+                    // `new List<Pt>()` over a user TypeBuilder): newobj the parameterless or int-capacity ctor
+                    // (both probe-pinned) resolved from the OPEN definition so builder-bound instantiations
+                    // rebind; other overloads decline. (`new List<T>()` inside a generic BODY never reaches
+                    // here — the typeParams-less canonical resolution declines body-side construction, pinned.)
+                    if (ColumnarTypeOfPlanner.IsSupportedCollectionType(closedType)) {
+                        collectionOpenDef := closedType.GetGenericTypeDefinition()
+                        collectionCtorArgs := _nodes.ChildCount(idx) - 1
+                        if (collectionCtorArgs == 0) {
+                            _il.Emit(OpCodes.Newobj, ResolveClosedGenericCtor(closedType, collectionOpenDef.GetConstructor(Type.EmptyTypes)))
+                            columnarResolvedType = closedType
+                            return true
+                        }
+                        let capacityArgumentNode: int = 0
+                        if (collectionCtorArgs == 1
+                            && TryGetCollectionCapacityConstructorArgument(Child(idx, 1), out  capacityArgumentNode)
+                            && CanEmitConstructorArgumentAs(capacityArgumentNode, typeof(int))
+                            && EmitConstructorArgumentValueAs(capacityArgumentNode, typeof(int))) {
+                            openCapacityCtor := collectionOpenDef.GetConstructor([typeof(int)])
+                            if (openCapacityCtor == null) {return false}
+                            _il.Emit(OpCodes.Newobj, ResolveClosedGenericCtor(closedType, openCapacityCtor))
+                            columnarResolvedType = closedType
+                            return true
+                        }
+                        if (collectionCtorArgs == 1
+                            && (collectionOpenDef == typeof(Dictionary<int, int>).GetGenericTypeDefinition() || collectionOpenDef == typeof(HashSet<int>).GetGenericTypeDefinition())) {
+                            keyOrElementType := closedType.GetGenericArguments()[0]
+                            comparerType := typeof(IEqualityComparer<int>).GetGenericTypeDefinition().MakeGenericType([keyOrElementType])
+                            openComparerCandidates := collectionOpenDef.GetConstructors()
+                            let openComparerCtor: System.Reflection.ConstructorInfo? = null
+                            for ctor in openComparerCandidates {
+                                parameters := ctor.GetParameters()
+                                if (parameters.Length == 1
+                                    && parameters[0].get_ParameterType().get_IsGenericType()
+                                    && parameters[0].get_ParameterType().GetGenericTypeDefinition() == typeof(IEqualityComparer<int>).GetGenericTypeDefinition()) {
+                                    openComparerCtor = ctor
+                                    break
+                                }
+                            }
+                            if (openComparerCtor == null || !EmitArg(idx, 1, comparerType)) {return false}
+                            _il.Emit(OpCodes.Newobj, ResolveClosedGenericCtor(closedType, openComparerCtor))
+                            columnarResolvedType = closedType
+                            return true
+                        }
+                        return false
+                    }
+                    if (ColumnarTypeOfPlanner.IsSupportedValueTuple(closedType)) {
+                        tupleArgTypes := closedType.GetGenericArguments()
+                        if (_nodes.ChildCount(idx) - 1 != tupleArgTypes.Length) {return false}
+                        for i := 0; i < tupleArgTypes.Length; i++ {
+                            if (!EmitArg(idx, i + 1, tupleArgTypes[i])) {return false}
+                        }
+                        tupleCtor := closedType.GetConstructor(tupleArgTypes)
+                        if (tupleCtor == null) {return false}
+                        _il.Emit(OpCodes.Newobj, tupleCtor)
+                        columnarResolvedType = closedType
+                        return true
+                    }
+                    if (!ColumnarTypeOfPlanner.IsClosedSourceGeneric(closedType)) {return false}
+                    let openGenericDef: NSharpLang.Compiler.Columnar.ColumnarStructDef? = null
+                    if (!_structRegistry.TryGetValue(ColumnarNodeTextFacts.Text(_nodes, _source, typeNode), out  openGenericDef)
+                        || openGenericDef.Constructors.Count == 0) {return false} // 0-ctor generic types decline (object-init on closed generics is unmodelled).
+
+                    closedCtorArgCount := _nodes.ChildCount(idx) - 1
+                    chosenOpenCtor: ConstructorBuilder? = null
+                    chosenOpenParamTypes: Type[]? = null
+                    closedAmbiguous := false
+                    openGenericConstructors := openGenericDef.Constructors
+                    openGenericConstructorEnumerator := openGenericConstructors.GetEnumerator()
+                    try {
+                        while openGenericConstructorEnumerator.MoveNext() {
+                            constructorDefinition := openGenericConstructorEnumerator.get_Current()
+                            cb := constructorDefinition.Builder
+                            cpt := constructorDefinition.ParamTypes
+                            constructorDefaultKinds := constructorDefinition.DefaultKinds
+                            constructorDefaultTexts := constructorDefinition.DefaultTexts
+                            if (cpt.Length != closedCtorArgCount) {continue}
+                            if (chosenOpenCtor != null) { closedAmbiguous = true break }
+                            chosenOpenCtor = cb
+                            chosenOpenParamTypes = cpt
+                        }
+                    } finally {
+                        openGenericConstructorEnumerator.Dispose()
+                    }
+                    if (chosenOpenCtor == null || closedAmbiguous) {return false}
+
+                    closedTypeArguments := closedType.GetGenericArguments()
+                    for a := 0; a < closedCtorArgCount; a++ {
+                        expectedArgType := ColumnarRuntimeInstanceMemberResolver.SubstituteClosedTypeArguments(chosenOpenParamTypes[a], closedTypeArguments)
+                        let closedArgType: System.Type? = null
+                        if (!EmitExpression(Child(idx, 1 + a), out  closedArgType) || !TypesEquivalent(closedArgType, expectedArgType)) {return false}
+                    }
+                    _il.Emit(OpCodes.Newobj, TypeBuilder.GetConstructor(closedType, chosenOpenCtor))
+                    columnarResolvedType = closedType
+                    return true
+                }
+                if (_nodes.ChildCount(idx) != 2 || _nodes.Kind(typeNode) != 2) // array alloc: exactly one ctor arg; type must be Array.
+                    {return false}
+                elementNode := Child(typeNode, 0) // the array's element type subtree.
+                let elementCanonical: string? = null
+                let newElementType: System.Type? = null
+                if (!TryBuildTypeNodeCanonical(elementNode, out  elementCanonical)
+                    || !TryResolveBodyType(elementCanonical, out  newElementType)
+                    || !ColumnarTypeOfPlanner.IsSupportedElementType(newElementType)) {return false}
+                let sizeType: System.Type? = null
+                if (!EmitExpression(Child(idx, 1), out  sizeType) || sizeType != typeof(int)) // length: int.
+                    {return false}
+                _il.Emit(OpCodes.Newarr, newElementType)
+                columnarResolvedType = newElementType.MakeArrayType()
+                return true
+
+
+            } else if columnarSwitchValue2 == 58 { // ArrayLiteral [elements...] — inferred homogeneous array literal.
+
+                let literalElementType: System.Type? = null
+                if (!TryInferArrayLiteralElementType(idx, out  literalElementType)) {return false}
+                return TryEmitArrayLiteralAsType(idx, literalElementType.MakeArrayType(), out columnarResolvedType)
+
+
+            } else if columnarSwitchValue2 == 16 { // Cast [type, operand] — explicit numeric conversion among int/long/char. child[0] is a
+                    // TYPE subtree (Simple); child[1] is the operand. Other casts (to/from string, bool, etc.)
+                     // decline (the N# backend path stays authoritative).
+                castTypeNode := Child(idx, 0)
+                if (_nodes.Kind(castTypeNode) != 0) {return false}
+                castTargetName := ColumnarNodeTextFacts.Text(_nodes, _source, castTypeNode)
+                let targetType: System.Type? = null
+                if (!ColumnarCanonicalTypeResolver.TryResolveBuiltin(castTargetName, out  targetType)
+                    && !TryResolveBodyType(castTargetName, out targetType)) {return false}
+                let sourceType: System.Type? = null
+                if (!EmitExpression(Child(idx, 1), out  sourceType)) {return false}
+                if (TypesEquivalent(sourceType, targetType)) {
+                    columnarResolvedType = targetType
+                    return true
+                }
+                if (TryEmitUserDefinedConversion(sourceType, targetType,  true)) {
+                    columnarResolvedType = targetType
+                    return true
+                }
+                if (IsKnownEnumType(targetType)) {
+                    if (IsKnownEnumType(sourceType)) {sourceType = typeof(int)}
+                    if (!ColumnarNumericFacts.IsIntPromotable(sourceType)) {return false}
+                    columnarResolvedType = targetType
+                    return true
+                }
+                if (ColumnarReferenceCoercionPlanner.TryEmitExternalInterfaceUpcast(sourceType, targetType, _structRegistry, _il)) {
+                    columnarResolvedType = targetType
+                    return true
+                }
+                if (!ColumnarNumericFacts.IsCastableScalar(targetType)) {
+                    if (sourceType == typeof(object)) {
+                        targetBuilder := targetType as TypeBuilder
+                        if (targetBuilder != null) {
+                            targetDef := ColumnarSourceDefinitionResolver.FindByBuilderIdentity(_structRegistry.get_Values(), targetBuilder)
+                            if (targetDef != null) {
+                                targetConversionEmitter := _il
+                                targetConversionOpcode := targetDef.IsReference ? OpCodes.Castclass : OpCodes.Unbox_Any
+                                targetConversionEmitter.Emit(targetConversionOpcode, targetBuilder)
+                                columnarResolvedType = targetType
+                                return true
+                            }
+                        }
+                    }
+                    if (sourceType == typeof(object) && !targetType.get_IsValueType()) {
+                        _il.Emit(OpCodes.Castclass, targetType)
+                        columnarResolvedType = targetType
+                        return true
+                    }
+                    return false
+                }
+                // An i4-underlying enum operand is its int on the stack, so `enum as <numeric>` is a cast FROM int:
+                // enum->int is identity (no opcode), enum->long/double/etc. widens exactly like int->long/double. The
+                // N# backend path emits the same (the underlying-int value, then the same numeric conversion).
+                if (ColumnarTypeOfPlanner.IsEnumType(sourceType)) {sourceType = typeof(int)}
+                if (!ColumnarNumericFacts.IsCastableScalar(sourceType)) {return false}
+                // Emit the conversion only when the stack representation differs (char->int and same-type casts
+                // are no-ops). The opcode is TARGET-driven, matching the N# backend path (TryGetNumericConversionOpcode):
+                // -> double = conv.r8, -> float = conv.r4, -> long = conv.i8, -> char = conv.u2, -> int = conv.i4.
+                // float/double->int truncates toward zero exactly as the N# backend path's conv.i4 does (same opcode).
+                if (sourceType != targetType) {
+                    // DECIMAL casts route through System.Decimal's conversion operators (not conv opcodes):
+                    // TO decimal = op_Implicit(int/long/...)/op_Explicit(double/float); FROM decimal =
+                    // op_Explicit(decimal)->target — the exact IL emit.
+                    if (targetType == typeof(decimal) || sourceType == typeof(decimal)) {
+                        conversionName := targetType == typeof(decimal)
+                            && sourceType != typeof(double) && sourceType != typeof(float)
+                            ? "op_Implicit" : "op_Explicit"
+                        fromType := targetType == typeof(decimal)
+                            ? (ColumnarNumericFacts.IsIntPromotable(sourceType) && sourceType != typeof(char) ? typeof(int) : sourceType)
+                            : typeof(decimal)
+                        // (small-int sources are already extended i4 — fromType above maps them to the
+                        // int operator; char keeps its own op_Implicit(char).)
+                        decimalConversion: MethodInfo? = null
+                        for m in typeof(decimal).GetMethods(BindingFlags.Public | BindingFlags.Static) {
+                            if (m.get_Name() != conversionName) {continue}
+                            ps := m.GetParameters()
+                            if (ps.Length == 1 && ps[0].get_ParameterType() == fromType && m.get_ReturnType() == (targetType == typeof(decimal) ? typeof(decimal) : targetType)) {
+                                decimalConversion = m
+                                break
+                            }
+                        }
+                        if (decimalConversion == null) {return false}
+                        _il.Emit(OpCodes.Call, decimalConversion)
+                        columnarResolvedType = targetType
+                        return true
+                    }
+                    if (targetType == typeof(double)) {_il.Emit(OpCodes.Conv_R8)}      // any numeric -> double (widen)
+                    else {if (targetType == typeof(float)) {_il.Emit(OpCodes.Conv_R4)}  // any numeric -> float
+                    else {if (targetType == typeof(long)) {_il.Emit(OpCodes.Conv_I8)}   // i4-slot/double/float -> long (sign-extend)
+                    else {if (targetType == typeof(ulong)) {
+                        uncheckedUInt64Emitter := _il
+                        uncheckedUInt64Opcode := sourceType == typeof(uint) ? OpCodes.Conv_U8 : OpCodes.Conv_I8
+                        uncheckedUInt64Emitter.Emit(uncheckedUInt64Opcode)} // N# unchecked: int sign-extends, uint zero-extends
+                    else {if (targetType == typeof(char)) {_il.Emit(OpCodes.Conv_U2)}   // -> char (truncate)
+                    else {if (targetType == typeof(byte)) {_il.Emit(OpCodes.Conv_U1)}   // -> byte (truncate)
+                    else {if (targetType == typeof(sbyte)) {_il.Emit(OpCodes.Conv_I1)}  // -> sbyte (truncate)
+                    else {if (targetType == typeof(short)) {_il.Emit(OpCodes.Conv_I2)}  // -> short (truncate)
+                    else {if (targetType == typeof(ushort)) {_il.Emit(OpCodes.Conv_U2)} // -> ushort (truncate)
+                    else {if (targetType == typeof(uint) || targetType == typeof(int)) {
+                        // -> int/uint: i8/r8/r4 sources truncate to the i4 slot; i4-slot sources are identity
+                        // (N# unchecked emits nothing for int<->uint<->small-int slot-mates).
+                        if (sourceType == typeof(long) || sourceType == typeof(ulong) || sourceType == typeof(double) || sourceType == typeof(float)) {
+                            uncheckedInt32Emitter := _il
+                            uncheckedInt32Opcode := targetType == typeof(uint) ? OpCodes.Conv_U4 : OpCodes.Conv_I4
+                            uncheckedInt32Emitter.Emit(uncheckedInt32Opcode)
+                        }
+                    }}}}}}}}}}
+                }
+                columnarResolvedType = targetType
+                return true
+
+
+            } else if columnarSwitchValue2 == 17 { // Tuple [e0, e1, ...] — construct a positional System.ValueTuple<...>: emit each element value
+                    // (left-to-right, the ctor's argument order), then `newobj` the matching ValueTuple ctor.
+                     // Arity 2-7 (a 1-tuple is not a tuple; >7 needs the nested TRest form — both decline).
+                arity := _nodes.ChildCount(idx)
+                let openTuple: Type? = null
+                if (arity == 2) {openTuple = typeof(ValueTuple<int, int>).GetGenericTypeDefinition()}
+                else {if (arity == 3) {openTuple = typeof(ValueTuple<int, int, int>).GetGenericTypeDefinition()}
+                else {if (arity == 4) {openTuple = typeof(ValueTuple<int, int, int, int>).GetGenericTypeDefinition()}
+                else {if (arity == 5) {openTuple = typeof(ValueTuple<int, int, int, int, int>).GetGenericTypeDefinition()}
+                else {if (arity == 6) {openTuple = typeof(ValueTuple<int, int, int, int, int, int>).GetGenericTypeDefinition()}
+                else {if (arity == 7) {openTuple = typeof(ValueTuple<int, int, int, int, int, int, int>).GetGenericTypeDefinition()}
+                else {openTuple = null}}}}}}
+                if (openTuple == null) {return false}
+                elementTypes := new Type[arity]
+                for i := 0; i < arity; i++ {
+                    // A NAMED element (kind-43 wrapper, `(x: 1, y: 2)`) emits its VALUE child — names are
+                    // compile-time metadata (the `:=` declaration path records them for member access).
+                    elementNode := Child(idx, i)
+                    if (_nodes.Kind(elementNode) == 43) {elementNode = Child(elementNode, 0)}
+                    // ContainsBuilderBoundType: a builder-bound element (a record, a List<Pt>) would make
+                    // the closed ValueTuple a TypeBuilderInstantiation whose GetConstructor below throws —
+                    // decline cleanly instead (the IsSupportedValueTuple element rule, applied at emission).
+                    let elemType: System.Type? = null
+                    if (!EmitExpression(elementNode, out  elemType) || !ColumnarTypeOfPlanner.IsSupportedType(elemType)
+                        || ColumnarTypeOfPlanner.ContainsBuilderBoundType(elemType)) {return false}
+                    elementTypes[i] = elemType
+                }
+                tupleType := openTuple.MakeGenericType(elementTypes)
+                tupleCtor := tupleType.GetConstructor(elementTypes)
+                if (tupleCtor == null) {return false}
+                _il.Emit(OpCodes.Newobj, tupleCtor)
+                columnarResolvedType = tupleType
+                return true
+
+
+            } else if columnarSwitchValue2 == 42 { // BareNew [typeRoot] — `new <type>` with neither `( args )` nor `{ inits }`. Modelled ONLY for
+                    // UNION CASES (the pipeline's brace-less construction form — fields stay CLR-default, probe-
+                     // pinned): `new Color.Red` (Simple root) and `new Opt.None<int>` (Generic root with explicit
+                     // args). A generic case with NO args is the adoption shape — handled at the return/typed-local
+                     // statement sites; reaching here declines (`:=` is NL207). Every non-union-case type root
+                     // (struct/BCL/array) declines — those bare-new forms are not modelled.
+                bareRoot := Child(idx, 0)
+                let columnarDiscard51: string = null
+                let bareCaseDef: NSharpLang.Compiler.Columnar.ColumnarUnionCaseDef? = null
+                if (_nodes.Kind(bareRoot) == 0 && TryGetUnionCaseByKey(ColumnarNodeTextFacts.Text(_nodes, _source, bareRoot), out columnarDiscard51, out  bareCaseDef)) {
+                    if (bareCaseDef.UnionBase.get_IsGenericTypeDefinition()) {return false}
+                    return TryEmitUnionCaseConstruction(bareCaseDef, Type.EmptyTypes, idx, 0, out columnarResolvedType)
+                }
+                let columnarDiscard52: string = null
+                let bareGenericCaseDef: NSharpLang.Compiler.Columnar.ColumnarUnionCaseDef? = null
+                let bareArgs: System.Type[]? = null
+                if (_nodes.Kind(bareRoot) == 1 && TryGetUnionCaseByKey(ColumnarNodeTextFacts.Text(_nodes, _source, bareRoot), out columnarDiscard52, out  bareGenericCaseDef)
+                    && bareGenericCaseDef.UnionBase.get_IsGenericTypeDefinition()
+                    && TryResolveUnionCaseTypeArgs(bareRoot, bareGenericCaseDef, out  bareArgs)) {
+                    return TryEmitUnionCaseConstruction(bareGenericCaseDef, bareArgs, idx, 0, out columnarResolvedType)
+                }
+                return false
+
+
+            } else if columnarSwitchValue2 == 36 { // ObjectInitializer [typeRoot, name0, value0, ...] — `new Struct { Field: value, ... }`. Build a
+                    // user-struct value: a temp local, `ldloca; initobj` (zero all fields), then per named field
+                     // `ldloca; <value>; stfld <FieldBuilder>`, then `ldloc` the temp. Mirrors the struct
+                     // object-initializer (default + per-field assignment). Only a registered struct type is modelled.
+                     // A `new Union.Case { f: v }` object-init (a reference type like a record) is handled first.
+                typeRootNode := Child(idx, 0)
+                initChildCount := _nodes.ChildCount(idx)
+                if ((initChildCount % 2) != 1) // typeRoot + (name, value) pairs.
+                    {return false}
+                pairCount := (initChildCount - 1) / 2
+
+                if (_nodes.Kind(typeRootNode) == 0) {
+                    bclInitTypeName := ColumnarNodeTextFacts.Text(_nodes, _source, typeRootNode)
+                    let bclInitType: Type? = null
+                    if (bclInitTypeName == "JsonSerializerOptions") {bclInitType = typeof(JsonSerializerOptions)}
+                    else {if (bclInitTypeName == "ProcessStartInfo") {bclInitType = typeof(ProcessStartInfo)}
+                    else {if (bclInitTypeName == "Process") {bclInitType = typeof(Process)}
+                    else {bclInitType = null}}}
+                    if (bclInitType != null) {
+                        defaultCtor := bclInitType.GetConstructor(Type.EmptyTypes)
+                        if (defaultCtor == null) {return false}
+                        _il.Emit(OpCodes.Newobj, defaultCtor)
+                        assignedBclMembers := new HashSet<string>(StringComparer.Ordinal)
+                        for p := 0; p < pairCount; p++ {
+                            nameNode := Child(idx, 1 + (2 * p))
+                            valueNode := Child(idx, 2 + (2 * p))
+                            if (_nodes.Kind(nameNode) != 6) {return false}
+                            memberName := ColumnarNodeTextFacts.Text(_nodes, _source, nameNode)
+                            if (!assignedBclMembers.Add(memberName)) {return false}
+                            property := bclInitType.GetProperty(memberName, BindingFlags.Public | BindingFlags.Instance)
+                            if ((property == null || property.get_SetMethod() == null)) {return false}
+                            _il.Emit(OpCodes.Dup)
+                            propertyType := property.get_PropertyType()
+                            let propertyValueType: System.Type = null
+                            if (TryEmitNullLiteralAsType(valueNode, propertyType, out propertyValueType)) {
+                                // Null adopted to the declared reference property type.
+                            }
+                            else {if (!EmitExpression(valueNode, out propertyValueType)) {
+                                return false
+                            }}
+                            if (!TypesEquivalent(propertyValueType, propertyType)
+                                && !TryEmitImplicitWidening(propertyValueType, propertyType)
+                                && !ColumnarReferenceCoercionPlanner.TryEmitInterfaceUpcast(propertyValueType, propertyType, _structRegistry, _il)
+                                && !ColumnarReferenceConversionFacts.TryEmitReferenceConversion(propertyValueType, propertyType)
+                                && !ColumnarReferenceCoercionPlanner.TryEmitObjectConversion(propertyValueType, propertyType, _structRegistry, _il)
+                                && !TryEmitAnonymousUnionConversion(propertyValueType, propertyType)) {return false}
+                            bclInitializerSetterEmitter := _il
+                            bclInitializerSetterForOpcode := property.get_SetMethod()
+                            bclInitializerSetterOpcode := bclInitializerSetterForOpcode.get_IsVirtual() ? OpCodes.Callvirt : OpCodes.Call
+                            bclInitializerSetterEmitter.Emit(bclInitializerSetterOpcode, property.get_SetMethod())
+                        }
+                        columnarResolvedType = bclInitType
+                        return true
+                    }
+                }
+
+                if (_nodes.Kind(typeRootNode) == 15) {
+                    let constructedType: System.Type? = null
+                    if (!EmitExpression(typeRootNode, out  constructedType)) {return false}
+                    assignedMembers := new HashSet<string>(StringComparer.Ordinal)
+                    for p := 0; p < pairCount; p++ {
+                        nameNode := Child(idx, 1 + (2 * p))
+                        valueNode := Child(idx, 2 + (2 * p))
+                        if (_nodes.Kind(nameNode) != 6) {return false}
+                        memberName := ColumnarNodeTextFacts.Text(_nodes, _source, nameNode)
+                        if (!assignedMembers.Add(memberName)) {return false}
+
+                        constructedUserDef: ColumnarStructDef? = null
+                        constructedClosedArgs := Array.Empty<Type>()
+                        constructedBuilder := constructedType as TypeBuilder
+                        if (constructedBuilder != null) {
+                            constructedUserDef = ColumnarSourceDefinitionResolver.FindByBuilderIdentity(_structRegistry.get_Values(), constructedBuilder)
+                        }
+                        else {let closedConstructedDef: NSharpLang.Compiler.Columnar.ColumnarStructDef? = null
+                        let closedConstructedArgs: System.Type[]? = null
+                        if (TryGetClosedReceiverDef(constructedType, out  closedConstructedDef, out  closedConstructedArgs)) {
+                            constructedUserDef = closedConstructedDef
+                            constructedClosedArgs = closedConstructedArgs
+                        }}
+
+                        if (constructedUserDef != null) {
+                            if (!constructedUserDef.IsReference) {
+                                return false
+                            }
+                            let userInitProperty: NSharpLang.Compiler.Columnar.ColumnarPropertyDef? = null
+                            if (TryFindPropertyOnChain(constructedUserDef, memberName, out  userInitProperty)) {
+                                if (userInitProperty.Setter == null) {
+                                    return false
+                                }
+                                propertyType := constructedClosedArgs.Length == 0
+                                    ? userInitProperty.PropertyType
+                                    : ColumnarRuntimeInstanceMemberResolver.SubstituteClosedTypeArguments(userInitProperty.PropertyType, constructedClosedArgs)
+                                _il.Emit(OpCodes.Dup)
+                                let propertyValueType: System.Type = null
+                                if (TryEmitNullLiteralAsType(valueNode, propertyType, out propertyValueType)) {
+                                    // Null adopted to the declared reference/nullable property type.
+                                }
+                                else {if (!EmitExpression(valueNode, out propertyValueType)) {
+                                    return false
+                                }}
+                                if (!TypesEquivalent(propertyValueType, propertyType)
+                                    && !TryEmitImplicitWidening(propertyValueType, propertyType)
+                                    && !ColumnarReferenceCoercionPlanner.TryEmitInterfaceUpcast(propertyValueType, propertyType, _structRegistry, _il)
+                                    && !ColumnarReferenceConversionFacts.TryEmitReferenceConversion(propertyValueType, propertyType)
+                                    && !ColumnarReferenceCoercionPlanner.TryEmitObjectConversion(propertyValueType, propertyType, _structRegistry, _il)
+                                    && !TryEmitAnonymousUnionConversion(propertyValueType, propertyType)) {
+                                    return false
+                                }
+                                let userSetter: MethodInfo = null
+                                if (constructedClosedArgs.Length == 0) {
+                                    userSetter = userInitProperty.Setter
+                                } else {
+                                    userSetter = TypeBuilder.GetMethod(constructedType, userInitProperty.Setter)
+                                }
+                                _il.Emit(OpCodes.Callvirt, userSetter)
+                                continue
+                            }
+
+                            let userInitField: System.Reflection.Emit.FieldBuilder? = null
+                            if (ColumnarSourceMemberChainResolver.TryFindFieldOnChain(constructedUserDef, memberName, out  userInitField)) {
+                                userFieldType := constructedClosedArgs.Length == 0
+                                    ? userInitField.get_FieldType()
+                                    : ColumnarRuntimeInstanceMemberResolver.SubstituteClosedTypeArguments(userInitField.get_FieldType(), constructedClosedArgs)
+                                _il.Emit(OpCodes.Dup)
+                                let userFieldValueType: System.Type = null
+                                if (TryEmitNullLiteralAsType(valueNode, userFieldType, out userFieldValueType)) {
+                                    // Null adopted to the declared reference/nullable field type.
+                                }
+                                else {if (!EmitExpression(valueNode, out userFieldValueType)) {
+                                    return false
+                                }}
+                                if (!TypesEquivalent(userFieldValueType, userFieldType)
+                                    && !TryEmitImplicitWidening(userFieldValueType, userFieldType)
+                                    && !ColumnarReferenceCoercionPlanner.TryEmitInterfaceUpcast(userFieldValueType, userFieldType, _structRegistry, _il)
+                                    && !ColumnarReferenceConversionFacts.TryEmitReferenceConversion(userFieldValueType, userFieldType)
+                                    && !ColumnarReferenceCoercionPlanner.TryEmitObjectConversion(userFieldValueType, userFieldType, _structRegistry, _il)
+                                    && !TryEmitAnonymousUnionConversion(userFieldValueType, userFieldType)) {
+                                    return false
+                                }
+                                closedInitializerFieldEmitter := _il
+                                closedInitializerFieldOpcode := OpCodes.Stfld
+                                let closedInitializerField: FieldInfo = null
+                                if (constructedClosedArgs.Length == 0) {
+                                    closedInitializerField = userInitField
+                                } else {
+                                    closedInitializerField = TypeBuilder.GetField(constructedType, userInitField)
+                                }
+                                closedInitializerFieldEmitter.Emit(closedInitializerFieldOpcode, closedInitializerField)
+                                continue
+                            }
+                            return false
+                        }
+
+                        _il.Emit(OpCodes.Dup)
+                        property := constructedType.GetProperty(memberName, BindingFlags.Public | BindingFlags.Instance)
+                        if ((property != null && property.get_SetMethod() != null)) {
+                            propertyType := property.get_PropertyType()
+                            let propertyValueType: System.Type = null
+                            if (TryEmitNullLiteralAsType(valueNode, propertyType, out propertyValueType)) {
+                                // Null adopted to the declared reference/nullable property type.
+                            }
+                            else {if (!EmitExpression(valueNode, out propertyValueType)) {
+                                return false
+                            }}
+                            if (!TypesEquivalent(propertyValueType, propertyType)
+                                && !TryEmitImplicitWidening(propertyValueType, propertyType)
+                                && !ColumnarReferenceCoercionPlanner.TryEmitInterfaceUpcast(propertyValueType, propertyType, _structRegistry, _il)
+                                && !ColumnarReferenceConversionFacts.TryEmitReferenceConversion(propertyValueType, propertyType)
+                                && !ColumnarReferenceCoercionPlanner.TryEmitObjectConversion(propertyValueType, propertyType, _structRegistry, _il)
+                                && !TryEmitAnonymousUnionConversion(propertyValueType, propertyType)) {return false}
+                            bclMemberInitializerSetterEmitter := _il
+                            bclMemberInitializerSetterForOpcode := property.get_SetMethod()
+                            bclMemberInitializerSetterOpcode := bclMemberInitializerSetterForOpcode.get_IsVirtual() ? OpCodes.Callvirt : OpCodes.Call
+                            bclMemberInitializerSetterEmitter.Emit(bclMemberInitializerSetterOpcode, property.get_SetMethod())
+                            continue
+                        }
+
+                        field := constructedType.GetField(memberName, BindingFlags.Public | BindingFlags.Instance)
+                        if (field == null) {return false}
+                        fieldType := field.get_FieldType()
+                        let fieldValueType: System.Type = null
+                        if (TryEmitNullLiteralAsType(valueNode, fieldType, out fieldValueType)) {
+                            // Null adopted to the declared reference/nullable field type.
+                        }
+                        else {if (!EmitExpression(valueNode, out fieldValueType)) {
+                            return false
+                        }}
+                        if (!TypesEquivalent(fieldValueType, fieldType)
+                            && !TryEmitImplicitWidening(fieldValueType, fieldType)
+                            && !ColumnarReferenceCoercionPlanner.TryEmitInterfaceUpcast(fieldValueType, fieldType, _structRegistry, _il)
+                            && !ColumnarReferenceConversionFacts.TryEmitReferenceConversion(fieldValueType, fieldType)
+                            && !ColumnarReferenceCoercionPlanner.TryEmitObjectConversion(fieldValueType, fieldType, _structRegistry, _il)
+                            && !TryEmitAnonymousUnionConversion(fieldValueType, fieldType)) {return false}
+                        _il.Emit(OpCodes.Stfld, field)
+                    }
+                    columnarResolvedType = constructedType
+                    return true
+                }
+
+                // CLOSED GENERIC UNION CASE: `new Union.Case<args> { field: value, ... }` — a Generic type root
+                // (kind 1) whose dotted head names a registered union case of a GENERIC union. The explicit
+                // arguments (after the CASE name — the pinned N# surface) close the case and the result's static
+                // type is the BASE closed over the same arguments.
+                let columnarDiscard53: string = null
+                let genericInitCaseDef: NSharpLang.Compiler.Columnar.ColumnarUnionCaseDef? = null
+                if (_nodes.Kind(typeRootNode) == 1 && TryGetUnionCaseByKey(ColumnarNodeTextFacts.Text(_nodes, _source, typeRootNode), out columnarDiscard53, out  genericInitCaseDef)) {
+                    let explicitArgs: System.Type[]? = null
+                    if (!genericInitCaseDef.UnionBase.get_IsGenericTypeDefinition()
+                        || !TryResolveUnionCaseTypeArgs(typeRootNode, genericInitCaseDef, out  explicitArgs)) {return false}
+                    return TryEmitUnionCaseConstruction(genericInitCaseDef, explicitArgs, idx, pairCount, out columnarResolvedType)
+                }
+
+                // CLOSED GENERIC object-init: `new Pair<int> { first: 1, ... }` — a Generic type root
+                // (kind 1) whose head names a registered generic RECORD/default-ctor CLASS or a VALUE
+                // struct. The default ctor (for reference types) and every field handle are REBOUND onto
+                // the instantiation (TypeBuilder.GetConstructor/GetField, the union-construction
+                // machinery's analog) and each field's expected value type substitutes the arguments
+                // positionally (`first: T` on Pair<int> expects int). Value structs mirror the non-generic
+                // struct path: temp local, initobj, then address-based field stores. A user-ctor class has
+                // no default ctor — object-init declines exactly like the non-generic rule below.
+                let closedInitDef: NSharpLang.Compiler.Columnar.ColumnarStructDef? = null
+                if (_nodes.Kind(typeRootNode) == 1 && _structRegistry.TryGetValue(ColumnarNodeTextFacts.Text(_nodes, _source, typeRootNode), out  closedInitDef)
+                    && closedInitDef.Builder.get_IsGenericTypeDefinition()) {
+                    // A user GENERIC type named List/Dictionary/SortedDictionary/HashSet: the pipeline's analyzer binds the BCL
+                    // head for `new List<int> { ... }` and rejects its members (NL303, probe-pinned) —
+                    // the user definition must not claim the construction. Decline (parity by rejection).
+                    typeRootText := ColumnarNodeTextFacts.Text(_nodes, _source, typeRootNode)
+                    if (typeRootText == "List" || typeRootText == "Dictionary" || typeRootText == "SortedDictionary" || typeRootText == "HashSet" || typeRootText == "Stack") {return false}
+                    closedArity := closedInitDef.Builder.GetGenericArguments().Length
+                    if (_nodes.ChildCount(typeRootNode) != closedArity) {return false}
+                    closedInitArgs := new Type[closedArity]
+                    for i := 0; i < closedArity; i++ {
+                        let closedArgCanonical: string? = null
+                        if (!TryBuildTypeNodeCanonical(Child(typeRootNode, i), out  closedArgCanonical)) {return false}
+                        let closedInitArgument: Type? = null
+                        closedInitArgumentResolved := ColumnarCanonicalTypeResolver.TryResolveType(closedArgCanonical, _typeResolutionEnums, _typeResolutionStructs, _typeResolutionUnions, out closedInitArgument)
+                        closedInitArgs[i] = closedInitArgument
+                        if (!closedInitArgumentResolved || !ColumnarTypeOfPlanner.IsSupportedType(closedInitArgs[i])) {return false}
+                    }
+                    closedInitBuilder: Type = closedInitDef.Builder
+                    closedInitType := closedInitBuilder.MakeGenericType(closedInitArgs)
+                    closedAssigned := new HashSet<string>(StringComparer.Ordinal)
+
+                    if (closedInitDef.IsReference) {
+                        if (closedInitDef.DefaultCtor == null) {return false}
+                        _il.Emit(OpCodes.Newobj, TypeBuilder.GetConstructor(closedInitType, closedInitDef.DefaultCtor))
+                        for p := 0; p < pairCount; p++ {
+                            nameNode := Child(idx, 1 + (2 * p))
+                            valueNode := Child(idx, 2 + (2 * p))
+                            if (_nodes.Kind(nameNode) != 6) {return false}
+                            fieldName := ColumnarNodeTextFacts.Text(_nodes, _source, nameNode)
+                            let openInitField: System.Reflection.Emit.FieldBuilder? = null
+                            if (!closedInitDef.Fields.TryGetValue(fieldName, out  openInitField) || !closedAssigned.Add(fieldName)) {return false} // unknown or duplicately-assigned field -> decline.
+                            expectedInitType := ColumnarRuntimeInstanceMemberResolver.SubstituteClosedTypeArguments(openInitField.get_FieldType(), closedInitArgs)
+                            _il.Emit(OpCodes.Dup)
+                            let closedInitValueType: System.Type? = null
+                            if (!EmitExpression(valueNode, out  closedInitValueType)
+                                || (!TypesEquivalent(closedInitValueType, expectedInitType) && !ColumnarReferenceCoercionPlanner.TryEmitInterfaceUpcast(closedInitValueType, expectedInitType, _structRegistry, _il) && !ColumnarReferenceConversionFacts.TryEmitReferenceConversion(closedInitValueType, expectedInitType) && !ColumnarReferenceCoercionPlanner.TryEmitObjectConversion(closedInitValueType, expectedInitType, _structRegistry, _il) && !TryEmitAnonymousUnionConversion(closedInitValueType, expectedInitType))) {return false}
+                            _il.Emit(OpCodes.Stfld, TypeBuilder.GetField(closedInitType, openInitField))
+                        }
+                        columnarResolvedType = closedInitType
+                        return true
+                    }
+
+                    closedStructValue := _il.DeclareLocal(closedInitType)
+                    _il.Emit(OpCodes.Ldloca, closedStructValue)
+                    _il.Emit(OpCodes.Initobj, closedInitType)
+                    for p := 0; p < pairCount; p++ {
+                        nameNode := Child(idx, 1 + (2 * p))
+                        valueNode := Child(idx, 2 + (2 * p))
+                        if (_nodes.Kind(nameNode) != 6) {return false}
+                        fieldName := ColumnarNodeTextFacts.Text(_nodes, _source, nameNode)
+                        let openInitField: System.Reflection.Emit.FieldBuilder? = null
+                        if (!closedInitDef.Fields.TryGetValue(fieldName, out  openInitField) || !closedAssigned.Add(fieldName)) {return false} // unknown or duplicately-assigned field -> decline.
+                        expectedInitType := ColumnarRuntimeInstanceMemberResolver.SubstituteClosedTypeArguments(openInitField.get_FieldType(), closedInitArgs)
+                        _il.Emit(OpCodes.Ldloca, closedStructValue)
+                        let closedInitValueType: System.Type? = null
+                        if (!EmitExpression(valueNode, out  closedInitValueType)
+                            || (!TypesEquivalent(closedInitValueType, expectedInitType) && !ColumnarReferenceCoercionPlanner.TryEmitInterfaceUpcast(closedInitValueType, expectedInitType, _structRegistry, _il) && !ColumnarReferenceConversionFacts.TryEmitReferenceConversion(closedInitValueType, expectedInitType) && !ColumnarReferenceCoercionPlanner.TryEmitObjectConversion(closedInitValueType, expectedInitType, _structRegistry, _il) && !TryEmitAnonymousUnionConversion(closedInitValueType, expectedInitType))) {return false}
+                        _il.Emit(OpCodes.Stfld, TypeBuilder.GetField(closedInitType, openInitField))
+                    }
+                    _il.Emit(OpCodes.Ldloc, closedStructValue)
+                    columnarResolvedType = closedInitType
+                    return true
+                }
+
+                if (_nodes.Kind(typeRootNode) != 0) {return false} // not a Simple type-ref.
+                assigned := new HashSet<string>(StringComparer.Ordinal)
+
+                // UNION CASE: `new Union.Case { field: value, ... }` — the dotted type name resolves to a registered
+                // union case (a sealed reference type). `newobj <case ctor>` then per named field `dup; <value>;
+                // stfld`. The expression's STATIC type is the union BASE (an upcast — the runtime object is the
+                // concrete case), so the result flows wherever a `Union` is expected and a later match recovers it.
+                // A GENERIC union's case with NO explicit arguments is the expected-type ADOPTION shape, modelled
+                // ONLY at the return/typed-local statement sites (which pre-handle it before EmitExpression) — the
+                // pipeline rejects every other argument-less position (`:=` is NL207, call-argument adoption NL103),
+                // so reaching here with a generic case declines.
+                let columnarDiscard54: string = null
+                let initCaseDef: NSharpLang.Compiler.Columnar.ColumnarUnionCaseDef? = null
+                if (TryGetUnionCaseByKey(ColumnarNodeTextFacts.Text(_nodes, _source, typeRootNode), out columnarDiscard54, out  initCaseDef)) {
+                    if (initCaseDef.UnionBase.get_IsGenericTypeDefinition()) {return false}
+                    return TryEmitUnionCaseConstruction(initCaseDef, Type.EmptyTypes, idx, pairCount, out columnarResolvedType)
+                }
+
+                let initStructDef: NSharpLang.Compiler.Columnar.ColumnarStructDef? = null
+                if (!_structRegistry.TryGetValue(ColumnarNodeTextFacts.Text(_nodes, _source, typeRootNode), out  initStructDef)) {return false} // not a registered struct/record/union-case type.
+                if (initStructDef.Builder.get_IsGenericTypeDefinition()) {return false} // a GENERIC type's bare name is an arity error (NL207) — `new Pair { ... }`
+                                  // never constructs the open definition; the closed form is the kind-1 branch.
+                if (initStructDef.IsReference) {
+                    // RECORD/CLASS (reference type): `newobj <default ctor>` then per named field `dup; <value>;
+                    // stfld`. The object ref stays on the stack between assignments (and as the result) via dup —
+                    // mirrors N#'s reference-type object initializer. A class with a USER constructor has NO default
+                    // (parameterless) ctor, so object-init on it declines (it must be constructed positionally).
+                    if (initStructDef.DefaultCtor == null) {return false}
+                    _il.Emit(OpCodes.Newobj, initStructDef.DefaultCtor)
+                    for p := 0; p < pairCount; p++ {
+                        nameNode := Child(idx, 1 + (2 * p))
+                        valueNode := Child(idx, 2 + (2 * p))
+                        if (_nodes.Kind(nameNode) != 6) {return false}
+                        fieldName := ColumnarNodeTextFacts.Text(_nodes, _source, nameNode)
+                        if (!assigned.Add(fieldName)) {return false}
+                        let initProperty: NSharpLang.Compiler.Columnar.ColumnarPropertyDef? = null
+                        if (TryFindPropertyOnChain(initStructDef, fieldName, out  initProperty)) {
+                            if (initProperty.Setter == null) {return false}
+                            _il.Emit(OpCodes.Dup)
+                            let initPropertyValueType: System.Type = null
+                            if (TryEmitNullLiteralAsType(valueNode, initProperty.PropertyType, out initPropertyValueType)) {
+                                // Null adopted to the declared reference/nullable property type.
+                            }
+                            else {if (!EmitExpression(valueNode, out initPropertyValueType)) {
+                                return false
+                            }}
+                            if (!TypesEquivalent(initPropertyValueType, initProperty.PropertyType)
+                                && !TryEmitImplicitWidening(initPropertyValueType, initProperty.PropertyType)
+                                && !ColumnarReferenceCoercionPlanner.TryEmitInterfaceUpcast(initPropertyValueType, initProperty.PropertyType, _structRegistry, _il)
+                                && !ColumnarReferenceConversionFacts.TryEmitReferenceConversion(initPropertyValueType, initProperty.PropertyType)
+                                && !ColumnarReferenceCoercionPlanner.TryEmitObjectConversion(initPropertyValueType, initProperty.PropertyType, _structRegistry, _il)
+                                && !TryEmitAnonymousUnionConversion(initPropertyValueType, initProperty.PropertyType)) {return false}
+                            _il.Emit(OpCodes.Callvirt, initProperty.Setter)
+                            continue
+                        }
+                        let initField: System.Reflection.Emit.FieldBuilder? = null
+                        if (!initStructDef.Fields.TryGetValue(fieldName, out  initField)) {return false}
+                        _il.Emit(OpCodes.Dup)
+                        // TypesEquivalent, not !=: a builder-bound collection field's declared type and the
+                        // init value's type come from independent resolutions (referentially distinct TBIs).
+                        let initValueType: System.Type? = null
+                        if (!EmitExpression(valueNode, out  initValueType)
+                            || (!TypesEquivalent(initValueType, initField.get_FieldType()) && !TryEmitImplicitWidening(initValueType, initField.get_FieldType()) && !ColumnarReferenceCoercionPlanner.TryEmitInterfaceUpcast(initValueType, initField.get_FieldType(), _structRegistry, _il) && !ColumnarReferenceConversionFacts.TryEmitReferenceConversion(initValueType, initField.get_FieldType()) && !ColumnarReferenceCoercionPlanner.TryEmitObjectConversion(initValueType, initField.get_FieldType(), _structRegistry, _il) && !TryEmitAnonymousUnionConversion(initValueType, initField.get_FieldType()))) {return false}
+                        _il.Emit(OpCodes.Stfld, initField)
+                    }
+                    columnarResolvedType = initStructDef.Builder
+                    return true
+                }
+                // VALUE-TYPE struct: a temp local, ldloca; initobj (zero defaults), then per field ldloca; <value>;
+                // stfld, then ldloc the temp.
+                structValue := _il.DeclareLocal(initStructDef.Builder)
+                _il.Emit(OpCodes.Ldloca, structValue)
+                _il.Emit(OpCodes.Initobj, initStructDef.Builder)
+                for p := 0; p < pairCount; p++ {
+                    nameNode := Child(idx, 1 + (2 * p))
+                    valueNode := Child(idx, 2 + (2 * p))
+                    if (_nodes.Kind(nameNode) != 6) {return false}
+                    fieldName := ColumnarNodeTextFacts.Text(_nodes, _source, nameNode)
+                    let initField: System.Reflection.Emit.FieldBuilder? = null
+                    if (!initStructDef.Fields.TryGetValue(fieldName, out  initField) || !assigned.Add(fieldName)) {return false} // unknown or duplicately-assigned field -> decline.
+                    _il.Emit(OpCodes.Ldloca, structValue)
+                    let columnarDiscard55: System.Type = null
+                    if (!TryEmitAssignableValue(valueNode, initField.get_FieldType(), out columnarDiscard55)) {return false}
+                    _il.Emit(OpCodes.Stfld, initField)
+                }
+                _il.Emit(OpCodes.Ldloc, structValue)
+                columnarResolvedType = initStructDef.Builder
+                return true
+
+
+            } else if columnarSwitchValue2 == 52 { // WithExpression [receiver, name0, value0, ...] — `r with { Field: v, ... }`. N# owns
+                    // the clone/copy strategy, the receiver address-versus-value shape, the ordered
+                     // replacement set, the readonly rule, the exact call form, and the result type
+                     // (ColumnarRecordWithPlanner). C# evaluates the receiver and each replacement value via
+                     // the recursive sub-emitter and applies the plan's exact opcode shape: a reference record
+                     // clones through `<Clone>$` then ldloc; stfld per field; a value record copies into a
+                     // local and writes through its address (ldloca; stfld — the verifiable value-type `with`
+                     // shape). Zero pairs is a pure copy. Generic records still decline (a constructed generic
+                     // receiver is not a raw TypeBuilder, so no definition resolves).
+                if ((_nodes.ChildCount(idx) & 1) == 0) {return Decline("emit.with.shape", "with expression has an unsupported shape", idx)}
+                withPairCount := (_nodes.ChildCount(idx) - 1) / 2
+                withNames := new string[withPairCount]
+                for p := 0; p < withPairCount; p++ {
+                    withNameChild := Child(idx, 1 + (2 * p))
+                    if (_nodes.Kind(withNameChild) != 6 || _nodes.ValueStart(withNameChild) < 0) {return Decline("emit.with.field-name", "with expression field name is not modeled", withNameChild)}
+                    withNames[p] = ColumnarNodeTextFacts.Text(_nodes, _source, withNameChild)
+                }
+                let withReceiverType: System.Type? = null
+                if (!EmitExpression(Child(idx, 0), out  withReceiverType)) {return Decline("emit.with.receiver", "with expression receiver could not be emitted", Child(idx, 0))}
+                withTb := withReceiverType as TypeBuilder
+                let withPlan: ColumnarRecordWithPlan? = null
+                if (withTb != null) {
+                    withPlan = ColumnarRecordWithPlanner.PlanRecordWith(ColumnarSourceDefinitionResolver.FindByBuilderIdentity(_structRegistry.get_Values(), withTb), withNames)
+                } else {
+                    withPlan = null
+                }
+                if (withPlan == null) {return Decline("emit.with.plan", "with expression receiver type is not a modeled record whose named members admit a verifiable copy", Child(idx, 0))}
+                withLocal := _il.DeclareLocal(withReceiverType)
+                if (withPlan.Strategy == ColumnarRecordWithStrategy.ReferenceClone) {_il.Emit(OpCodes.Callvirt, withPlan.CloneMethod)}
+                _il.Emit(OpCodes.Stloc, withLocal)
+                for p := 0; p < withPairCount; p++ {
+                    withField := withPlan.Fields[p]
+                    if (withPlan.Strategy == ColumnarRecordWithStrategy.ReferenceClone) {_il.Emit(OpCodes.Ldloc, withLocal)}
+                    else {_il.Emit(OpCodes.Ldloca, withLocal)}
+                    withValueNode := Child(idx, 2 + (2 * p))
+                    let withValueType: System.Type? = null
+                    if (TryEmitIntLiteralAsType(withValueNode, withField.get_FieldType(), out  withValueType)) {
+                        // constant adoption (`with { X: 10 }` on a small-int field).
+                    }
+                    else {if (!EmitExpression(withValueNode, out withValueType)) {
+                        return Decline("emit.with.value", "with expression value for field '" + withField.get_Name() + "' could not be emitted", withValueNode)
+                    }}
+                    if (!TypesEquivalent(withValueType, withField.get_FieldType()) && !TryEmitImplicitWidening(withValueType, withField.get_FieldType()) && !ColumnarReferenceConversionFacts.TryEmitReferenceConversion(withValueType, withField.get_FieldType()) && !ColumnarReferenceCoercionPlanner.TryEmitObjectConversion(withValueType, withField.get_FieldType(), _structRegistry, _il) && !TryEmitAnonymousUnionConversion(withValueType, withField.get_FieldType())) {return Decline("emit.with.type-mismatch", "with expression value type '" + withValueType.get_FullName() + "' does not match field type '" + withField.get_FieldType().get_FullName() + "'", withValueNode)}
+                    _il.Emit(OpCodes.Stfld, withField)
+                }
+                _il.Emit(OpCodes.Ldloc, withLocal)
+                columnarResolvedType = withPlan.ResultType
+                return true
+
+
+            } else if columnarSwitchValue2 == 44 { // PostfixUnary [target] — `n++` / `n--` in EXPRESSION position: N# post-semantics, the
+                    // value is the PRE-step value. Bare LOCAL/PARAM targets of int/long/ulong only (the
+                     // pipeline's double/float `++` silently NO-OPS — an known defect; columnar declines those
+                     // so it never diverges). Lifted/boxed targets decline (capture rung).
+                if (!TryEmitPostfixUnary(idx,  true, out columnarResolvedType)) {return false}
+                return true
+
+
+            } else if columnarSwitchValue2 == 46 || columnarSwitchValue2 == 47 { // bool; AsExpression [value, typeRoot] — `value as Type`: `isinst <T>` keeping the
+                    // target type (null on mismatch). The typeRoot resolves a UNION CASE (closed over a
+                     // generic scrutinee via the match machinery) or a registered REFERENCE TYPE; a value-type
+                     // TARGET and unresolvable targets decline. A value-type OPERAND boxes first — see below.
+                let testedType: System.Type? = null
+                if (_nodes.ChildCount(idx) != 2 || !EmitExpression(Child(idx, 0), out  testedType)) {return false}
+                // A value-struct union has no reference identity: `is U.Case` is an integer tag test and an `is`/`as`
+                // against ANY reference target boxes the value before isinst (N# value-type `as`/`is` semantics). An
+                // isinst against the unboxed struct would be invalid IL. Decline so the previous parity baseline, which owns that
+                // boxing/tag lowering, handles every value-struct-union is/as form uniformly.
+                if (IsValueStructUnionType(testedType)) {return false}
+                isAsTypeRoot := Child(idx, 1)
+                targetTestType: Type? = null
+                if (_nodes.Kind(isAsTypeRoot) == 0) {
+                    isAsName := ColumnarNodeTextFacts.Text(_nodes, _source, isAsTypeRoot)
+                    let columnarDiscard57: NSharpLang.Compiler.Columnar.ColumnarUnionCaseDef = null
+                    let columnarDiscard56: string = null
+                    if (TryGetUnionCaseByKey(isAsName, out columnarDiscard56, out columnarDiscard57)) {
+                        let columnarDiscard59: System.Type[] = null
+                        let columnarDiscard58: NSharpLang.Compiler.Columnar.ColumnarUnionCaseDef = null
+                        if (!TryGetCaseTestType(isAsName, testedType, out columnarDiscard58, out targetTestType, out columnarDiscard59)) {return false} // not a case of the scrutinee's union — the pipeline rejects.
+                    }
+                    else {let plainTarget: System.Type? = null
+                    if (TryResolveBodyType(isAsName, out  plainTarget)
+                        && !plainTarget.get_IsValueType()) {
+                        targetTestType = plainTarget
+                    }}
+                }
+                if (targetTestType == null) {return false}
+                // A VALUE-TYPED OPERAND BOXES BEFORE THE REFERENCE TEST. `isinst` reads the top of the stack
+                // as an object reference, so over an UNBOXED value it is invalid IL: `(colors as object)` read
+                // the enum's integer payload as a pointer and handed back null, and the wider value shapes
+                // faulted outright (`double` -> AccessViolationException, a struct -> SIGSEGV). C# performs the
+                // boxing conversion at exactly this point (`5 as object` IS a `box`), and the box is what makes
+                // the reference the test needs. `is` takes the same box for the same reason, and stays correct
+                // for a Nullable<T> operand, which boxes to null when empty — the "test fails" answer.
+                // REFERENCE operands are untouched: their shape remains the bare isinst.
+                if (ColumnarReferenceCoercionPlanner.RequiresBoxBeforeReferenceTest(testedType, _structRegistry)) {_il.Emit(OpCodes.Box, testedType)}
+                _il.Emit(OpCodes.Isinst, targetTestType)
+                if (_nodes.Kind(idx) == 46) {
+                    _il.Emit(OpCodes.Ldnull)
+                    _il.Emit(OpCodes.Cgt_Un)
+                    columnarResolvedType = typeof(bool)
+                }
+                else {
+                    columnarResolvedType = targetTestType
+                }
+                return true
+
+
+            } else if columnarSwitchValue2 == 45 { // MustExpression [operand] — `must x`, the prefix null-assert (the legacy emitter's
+                    // EmitMustExpression mirror): a NULLABLE<T> unwraps via HasValue/get_Value (throwing
+                     // InvalidOperationException("must unwrap failed: value was null") when empty — the EXACT
+                     // pipeline message); a REFERENCE null-checks dup/brtrue/pop/throw keeping its type; a
+                     // plain VALUE type passes through unchanged (the pipeline's no-op).
+                let mustType: System.Type? = null
+                if (_nodes.ChildCount(idx) != 1 || !EmitExpression(Child(idx, 0), out  mustType)) {return false}
+                if (ColumnarTypeOfPlanner.IsSupportedNullable(mustType)) {
+                    mustElement := mustType.GetGenericArguments()[0]
+                    mustLocal := _il.DeclareLocal(mustType)
+                    _il.Emit(OpCodes.Stloc, mustLocal)
+                    mustOk := _il.DefineLabel()
+                    _il.Emit(OpCodes.Ldloca, mustLocal)
+                    _il.Emit(OpCodes.Call, mustType.GetMethod("get_HasValue"))
+                    _il.Emit(OpCodes.Brtrue, mustOk)
+                    _il.Emit(OpCodes.Ldstr, "must unwrap failed: value was null")
+                    _il.Emit(OpCodes.Newobj, typeof(InvalidOperationException).GetConstructor([typeof(string)]))
+                    _il.Emit(OpCodes.Throw)
+                    _il.MarkLabel(mustOk)
+                    _il.Emit(OpCodes.Ldloca, mustLocal)
+                    _il.Emit(OpCodes.Call, mustType.GetMethod("get_Value"))
+                    columnarResolvedType = mustElement
+                    return true
+                }
+                if (!mustType.get_IsValueType()) {
+                    refOk := _il.DefineLabel()
+                    _il.Emit(OpCodes.Dup)
+                    _il.Emit(OpCodes.Brtrue, refOk)
+                    _il.Emit(OpCodes.Pop)
+                    _il.Emit(OpCodes.Ldstr, "must unwrap failed: value was null")
+                    _il.Emit(OpCodes.Newobj, typeof(InvalidOperationException).GetConstructor([typeof(string)]))
+                    _il.Emit(OpCodes.Throw)
+                    _il.MarkLabel(refOk)
+                    columnarResolvedType = mustType
+                    return true
+                }
+                // a plain VALUE type: the pipeline REJECTS redundant `must` (NL907 — the analyzer
+                // gates it before the emitter's no-op would run) — decline so the N# backend path reports it.
+                return false
+
+
+            } else if columnarSwitchValue2 == 13 { // Ternary [cond, then, else] — a branch/merge with ONE result; both arms must be the SAME
+                    // type (TypesEquivalent — the match-arm unification rule).
+                     //
+                     // FENCED WHOLE-SUBTREE RESIDUAL (task 007). The N# conditional planner owns every
+                     // FULLY-PLANNABLE ternary at the front door; this arm serves ONLY the residual whose CONDITION
+                     // or ARM is non-plannable — a task-006 residual equality condition (`setter == null ? 0 : 1`;
+                     // enum/string equality) or a non-plannable arm (member chains on call results, indexers).
+                     // Mirrors the planner's lowering byte-for-byte; MIXED-type arms decline (widening is a later
+                     // concern), matching the planner's exact-type rule.
+                if (_nodes.ChildCount(idx) != 3) {return false}
+                if (!EmitCondition(Child(idx, 0))) {return false}
+                ternaryElse := _il.DefineLabel()
+                ternaryEnd := _il.DefineLabel()
+                _il.Emit(OpCodes.Brfalse, ternaryElse)
+                let ternaryThenType: System.Type? = null
+                if (!EmitExpression(Child(idx, 1), out  ternaryThenType)) {return false}
+                _il.Emit(OpCodes.Br, ternaryEnd)
+                _il.MarkLabel(ternaryElse)
+                let ternaryElseType: System.Type? = null
+                if (!EmitExpression(Child(idx, 2), out  ternaryElseType) || !TypesEquivalent(ternaryThenType, ternaryElseType)) {return false}
+                _il.MarkLabel(ternaryEnd)
+                columnarResolvedType = ternaryThenType
+                return true
+
+
+            } else if columnarSwitchValue2 == 18 { // Match [value, pat0, res0, pat1, res1, ...] — `match value { p => r, ... }`, lowered to a
+                    // linear chain mirroring the match-expression emitter: eval value -> temp; per case test the
+                     // pattern, on match eval the result + br end; no match -> throw. An EXPRESSION: leaves one
+                     // result on the stack. Patterns: a LITERAL (equality test) or an identifier (`_` discard or a
+                     // binding that always matches and binds the matched value); a pattern may carry a `when` guard
+                     // (kind 19 [pattern, guard]) tested after the pattern; richer patterns decline.
+                childCount := _nodes.ChildCount(idx)
+                if (childCount < 3 || (childCount % 2) == 0) // value + >=1 (pattern, result) pair.
+                    {return false}
+                caseCount := (childCount - 1) / 2
+
+                let matchValueType: System.Type? = null
+                if (!EmitExpression(Child(idx, 0), out  matchValueType) || !IsSupportedMatchValueType(matchValueType)) {return false}
+                matchLocal := _il.DeclareLocal(matchValueType)
+                _il.Emit(OpCodes.Stloc, matchLocal)
+
+                // ENUM EXHAUSTIVENESS: an enum match must cover EVERY member or carry a catch-all (NL501); a
+                // partial match would otherwise compile with a runtime throw for the missing members, so it
+                // DECLINES (not a diagnostic — the emitter declines everything outside its modelled subset).
+                // Coverage counts only TOP-LEVEL UNGUARDED arms: `_`/binding = catch-all, `Enum.Member` (kind 8)
+                // covers that member; guarded and combinator/relational arms do not count (conservative).
+                matchEnumDef: ColumnarEnumDef? = null
+                enumDefinitions := _enumRegistry.get_Values() as IEnumerable
+                if (enumDefinitions == null) {throw new NullReferenceException()}
+                enumEnumerator := enumDefinitions.GetEnumerator()
+                try {
+                    while enumEnumerator.MoveNext() {
+                        def := enumEnumerator.get_Current() as ColumnarEnumDef
+                        if (def == null) {throw new NullReferenceException()}
+                        if (!def.IsStringBacked) {
+                            enumDefinitionType: Type = def.EnumType
+                            if (enumDefinitionType == matchValueType) {
+                                matchEnumDef = def
+                                break
+                            }
+                        }
+                    }
+                } finally {
+                    enumEnumeratorDisposable := enumEnumerator as IDisposable
+                    if (enumEnumeratorDisposable != null) {enumEnumeratorDisposable.Dispose()}
+                }
+                if (matchEnumDef != null) {
+                    covered := new HashSet<string>(StringComparer.Ordinal)
+                    hasCatchAll := false
+                    for c := 0; c < caseCount; c++ {
+                        rawP := Child(idx, 1 + (2 * c))
+                        if (_nodes.Kind(rawP) == 19) // a `when`-guarded arm does not contribute to coverage.
+                            {continue}
+                        if (_nodes.Kind(rawP) == 6) // `_` discard or an unguarded binding -> a catch-all.
+                            {hasCatchAll = true}
+                        else {if (_nodes.Kind(rawP) == 8) // `Enum.Member` -> covers that member (if it is THIS enum's).
+                        {
+                            recv := Child(rawP, 0)
+                            let rd: NSharpLang.Compiler.Columnar.ColumnarEnumDef? = null
+                            if (_nodes.Kind(recv) == 6 && _typeResolutionEnums.TryGetValue(ColumnarNodeTextFacts.Text(_nodes, _source, recv), out  rd)
+                                && rd.EnumType == matchValueType && matchEnumDef.Constants.ContainsKey(ColumnarNodeTextFacts.Text(_nodes, _source, rawP))) {covered.Add(ColumnarNodeTextFacts.Text(_nodes, _source, rawP))}
+                        }}
+                    }
+                    if (!hasCatchAll && !covered.SetEquals(matchEnumDef.Constants.get_Keys())) {return false}
+                }
+
+                // UNION EXHAUSTIVENESS: union matches must cover EVERY case or carry a catch-all (NL501) —
+                // partial matches decline. Coverage counts only TOP-LEVEL UNGUARDED arms: `_`/binding (kind 6)
+                // is a catch-all; a union-case pattern (kind 37 over `Union.Case`) covers that case. A
+                // non-generic union's scrutinee is its open base TypeBuilder; a GENERIC union's is a CLOSED
+                // instantiation whose arguments drive the per-case isinst/field closing in the pattern emitters.
+                matchUnionDef: ColumnarUnionDef? = null
+                let columnarDiscard60: System.Type[] = null
+                let foundUnionDef: NSharpLang.Compiler.Columnar.ColumnarUnionDef? = null
+                if (TryGetUnionDefForMatchValue(matchValueType, out  foundUnionDef, out columnarDiscard60)) {matchUnionDef = foundUnionDef}
+                if (matchUnionDef != null) {
+                    coveredCases := new HashSet<string>(StringComparer.Ordinal)
+                    hasCatchAll := false
+                    for c := 0; c < caseCount; c++ {
+                        rawP := Child(idx, 1 + (2 * c))
+                        if (_nodes.Kind(rawP) == 19) // a `when`-guarded arm does not contribute to coverage.
+                            {continue}
+                        if (_nodes.Kind(rawP) == 6) // `_` discard or an unguarded binding -> a catch-all.
+                            {hasCatchAll = true}
+                        else {if (_nodes.Kind(rawP) == 37) // union-case PROPERTY pattern -> covers that case (if THIS union's).
+                        {
+                            mem := Child(rawP, 0)
+                            if (_nodes.Kind(mem) == 8) {
+                                memRecv := Child(mem, 0)
+                                if (_nodes.Kind(memRecv) == 6) {
+                                    qualified := ColumnarNodeTextFacts.Text(_nodes, _source, memRecv) + "." + ColumnarNodeTextFacts.Text(_nodes, _source, mem)
+                                    let columnarDiscard61: NSharpLang.Compiler.Columnar.ColumnarUnionCaseDef = null
+                                    let primaryCase: string? = null
+                                    if (TryGetUnionCaseByKey(matchUnionDef, qualified, out  primaryCase, out columnarDiscard61)) {coveredCases.Add(primaryCase)}
+                                }
+                            }
+                        }
+                        else {if (_nodes.Kind(rawP) == 8) // bare `Union.Case` TYPE pattern -> covers that case (no binding).
+                        {
+                            bareRecv := Child(rawP, 0)
+                            if (_nodes.Kind(bareRecv) == 6) {
+                                qualified := ColumnarNodeTextFacts.Text(_nodes, _source, bareRecv) + "." + ColumnarNodeTextFacts.Text(_nodes, _source, rawP)
+                                let columnarDiscard62: NSharpLang.Compiler.Columnar.ColumnarUnionCaseDef = null
+                                let primaryCase: string? = null
+                                if (TryGetUnionCaseByKey(matchUnionDef, qualified, out  primaryCase, out columnarDiscard62)) {coveredCases.Add(primaryCase)}
+                            }
+                        }}}
+                    }
+                    if (!hasCatchAll && !coveredCases.SetEquals(matchUnionDef.Cases.get_Keys())) {return false}
+                }
+
+                // ANONYMOUS-UNION EXHAUSTIVENESS: a runtime Union<T0,T1> match must cover both arms with
+                // top-level `Type name` patterns or carry a catch-all. This mirrors analyzer NL501 and prevents
+                // the columnar path from accepting a partial match that would otherwise throw at runtime.
+                if (ColumnarTypeOfPlanner.IsSupportedAnonymousUnionType(matchValueType)) {
+                    unionArmTypes := matchValueType.GetGenericArguments()
+                    coveredArms := new bool[unionArmTypes.Length]
+                    hasCatchAll := false
+                    for c := 0; c < caseCount; c++ {
+                        rawP := Child(idx, 1 + (2 * c))
+                        if (_nodes.Kind(rawP) == 19) // a `when`-guarded arm does not contribute to coverage.
+                            {continue}
+                        if (_nodes.Kind(rawP) == 6) // `_` discard or an unguarded binding -> a catch-all.
+                        {
+                            hasCatchAll = true
+                            continue
+                        }
+                        let columnarDiscard63: string = null
+                        let armType: System.Type? = null
+                        if (_nodes.Kind(rawP) == 61
+                            && TryResolveAnonymousUnionTypeBindingPattern(rawP, matchValueType, out  armType, out columnarDiscard63)) {
+                            for a := 0; a < unionArmTypes.Length; a++ {
+                                if (TypesEquivalent(armType, unionArmTypes[a])) {coveredArms[a] = true}
+                            }
+                        }
+                    }
+
+                    if (!hasCatchAll) {
+                        for a := 0; a < coveredArms.Length; a++ {
+                            if (!coveredArms[a]) {return false}
+                        }
+                    }
+                }
+
+                matchEnd := _il.DefineLabel()
+                matchResultType: Type? = null
+                for c := 0; c < caseCount; c++ {
+                    rawPattern := Child(idx, 1 + (2 * c))
+                    resultNode := Child(idx, 2 + (2 * c))
+                    nextCase := _il.DefineLabel()
+                    armLocals := new HashSet<string>(_locals.get_Keys(), StringComparer.Ordinal)
+
+                    // A `when` guard wraps the pattern in a GuardedPattern (kind 19 [pattern, guard]). Unwrap it:
+                    // the inner pattern is tested exactly as a bare pattern, then the guard (a bool expression with
+                    // the pattern's binding in scope) gates the arm. A guarded catch-all is NOT exhaustive, so the
+                    // trailing no-match throw remains correct.
+                    let patternNode: int = 0
+                    let guardNode: int = 0
+                    if (_nodes.Kind(rawPattern) == 19) {
+                        if (_nodes.ChildCount(rawPattern) != 2) {return false}
+                        patternNode = Child(rawPattern, 0)
+                        guardNode = Child(rawPattern, 1)
+                    }
+                    else {
+                        patternNode = rawPattern
+                        guardNode = -1
+                    }
+
+                    if (_nodes.Kind(patternNode) == 6) // top-level identifier: `_` discard or a binding -> always matches.
+                    {
+                        patName := ColumnarNodeTextFacts.Text(_nodes, _source, patternNode)
+                        if (patName != "_") {
+                            if (ColumnarClosureBindingPlanner.IsVisibleBindingName(patName, _locals, _paramOrdinals, _liftedLocals, _boxedCaptures, _enclosingBindingNames)) {return false} // a binding that shadows (own OR enclosing, NL316) is not modelled.
+                            bindLocal := _il.DeclareLocal(matchValueType)
+                            _il.Emit(OpCodes.Ldloc, matchLocal)
+                            _il.Emit(OpCodes.Stloc, bindLocal)
+                            _locals[patName] = bindLocal
+                        }
+                        // Always matches -> fall through to the guard / result.
+                    }
+                    else {if (_nodes.Kind(patternNode) == 37) // union-case pattern `Union.Case { f }` (top-level only).
+                    {
+                        // isinst-test the case + bind its named fields; on MATCH fall through to the guard/result
+                        // (armBody), on NO-MATCH branch to nextCase. Handled here (not in EmitPatternMatch) because it
+                        // introduces field BINDINGS, valid only at an arm's top level — a union-case pattern nested in
+                        // a combinator declines via EmitPatternMatch's default.
+                        armBody := _il.DefineLabel()
+                        if (!EmitUnionCasePattern(patternNode, matchValueType, matchLocal, armBody, nextCase)) {return false}
+                        _il.MarkLabel(armBody)
+                    }
+                    else {if (_nodes.Kind(patternNode) == 61) // type binding `Type name`.
+                    {
+                        armBody := _il.DefineLabel()
+                        if (!EmitTypeBindingPattern(patternNode, matchValueType, matchLocal, armBody, nextCase)) {return false}
+                        _il.MarkLabel(armBody)
+                    }
+                    else {if (_nodes.Kind(patternNode) == 65) // list pattern `[head, .. rest, tail]` over arrays.
+                    {
+                        armBody := _il.DefineLabel()
+                        if (!EmitArrayListPattern(patternNode, matchValueType, matchLocal, armBody, nextCase)) {return false}
+                        _il.MarkLabel(armBody)
+                    }
+                    else {if (_nodes.Kind(patternNode) == 67) // object/property pattern `{ Field, Field: pat }`.
+                    {
+                        armBody := _il.DefineLabel()
+                        if (!EmitObjectPattern(patternNode, matchValueType, matchLocal, armBody, nextCase)) {return false}
+                        _il.MarkLabel(armBody)
+                    }
+                    else // literal / relational / and-or-not combinator -> recursive pattern test.
+                    {
+                        // On MATCH fall through to the guard/result (armBody); on NO-MATCH branch to nextCase. The
+                        // recursive helper models literals, relational patterns, and `and`/`or`/`not` combinators,
+                        // declining the whole match for anything it cannot emit exactly.
+                        armBody := _il.DefineLabel()
+                        if (!EmitPatternMatch(patternNode, matchValueType, matchLocal, armBody, nextCase)) {return false}
+                        _il.MarkLabel(armBody)
+                    }}}}}
+
+                    // `when` guard: the pattern matched; now require the guard (a bool) to hold. The pattern's
+                    // binding (if any) is already in _locals, so the guard may reference it. False -> next case.
+                    if (guardNode >= 0) {
+                        let guardType: System.Type? = null
+                        if (!EmitExpression(guardNode, out  guardType) || guardType != typeof(bool)) {return false}
+                        _il.Emit(OpCodes.Brfalse, nextCase)
+                    }
+
+                    let armResultType: System.Type? = null
+                    if (!EmitExpression(resultNode, out  armResultType)) {return false}
+                    if (matchResultType == null) {matchResultType = armResultType}
+                    else {if (!TypesEquivalent(armResultType, matchResultType)) // every arm's result must share the match's type.
+                        {return false}}
+                    _il.Emit(OpCodes.Br, matchEnd)
+
+                    _il.MarkLabel(nextCase)
+                    armBindingNames := new List<string>(_locals.get_Keys())
+                    for name in armBindingNames { // drop this arm's binding (if any).
+                        if (!armLocals.Contains(name)) {_locals.Remove(name)}
+                    }
+                }
+
+                // No case matched -> throw (mirrors the N# backend path). Unreachable if a catch-all arm is present.
+                _il.Emit(OpCodes.Ldstr, "No matching case in match expression")
+                _il.Emit(OpCodes.Newobj, typeof(InvalidOperationException).GetConstructor([typeof(string)]))
+                _il.Emit(OpCodes.Throw)
+                _il.MarkLabel(matchEnd)
+                columnarResolvedType = matchResultType
+                return true
+
+
+            } else if columnarSwitchValue2 == 59 { // AnonymousObjectInitializer [name0, value0, ...] — `new { Name: value, ... }`.
+                return TryEmitAnonymousObjectInitializer(idx, out columnarResolvedType)
+
+            } else {
+                return Decline(
+                    "emit.expression.unhandled-kind",
+                    "unsupported expression (node kind " + _nodes.Kind(idx).ToString() + ")",
+                    idx)
+        }
+    }
+
+    private func TryEmitAnonymousObjectInitializer(idx: int, out columnarResolvedType: Type): bool {
+        columnarResolvedType = null
+        if (_programType == null || _lambdaCounter == null || _displayClasses == null) {return false}
+        childCount := _nodes.ChildCount(idx)
+        if ((childCount % 2) != 0) {return false}
+        propertyCount := childCount / 2
+        names := new string[propertyCount]
+        valueNodes := new int[propertyCount]
+        seen := new HashSet<string>(StringComparer.Ordinal)
+        for p := 0; p < propertyCount; p++ {
+            nameNode := Child(idx, 2 * p)
+            if (_nodes.Kind(nameNode) != 6) {return false}
+            name := ColumnarNodeTextFacts.Text(_nodes, _source, nameNode)
+            if (!seen.Add(name)) {return false}
+            names[p] = name
+            valueNodes[p] = Child(idx, (2 * p) + 1)
+        }
+
+        programTypeAsType: Type = _programType
+        moduleObject: object? = programTypeAsType.get_Module()
+        module := (ModuleBuilder)moduleObject
+        lambdaCounterForAnonymousType := _lambdaCounter
+        anonymousTypeOrdinal := lambdaCounterForAnonymousType[0]
+        lambdaCounterForAnonymousType[0] = anonymousTypeOrdinal + 1
+        anonymousTypeOrdinalText := anonymousTypeOrdinal.ToString()
+        anonymousTypeName := "<>f__AnonymousObject" + anonymousTypeOrdinalText
+        anonymousType := module.DefineType(
+            anonymousTypeName,
+            TypeAttributes.NotPublic | TypeAttributes.Class | TypeAttributes.Sealed)
+        ctor := anonymousType.DefineDefaultConstructor(MethodAttributes.Public)
+        setters := new MethodBuilder[propertyCount]
+        for p := 0; p < propertyCount; p++ {
+            field := anonymousType.DefineField("<" + names[p] + ">k__BackingField", typeof(object), FieldAttributes.Private)
+            property := anonymousType.DefineProperty(names[p], PropertyAttributes.None, typeof(object), Type.EmptyTypes)
+            getter := anonymousType.DefineMethod(
+                "get_" + names[p],
+                MethodAttributes.Public | MethodAttributes.HideBySig | MethodAttributes.SpecialName,
+                typeof(object),
+                Type.EmptyTypes)
+            getterIl := getter.GetILGenerator()
+            getterIl.Emit(OpCodes.Ldarg_0)
+            getterIl.Emit(OpCodes.Ldfld, field)
+            getterIl.Emit(OpCodes.Ret)
+
+            setter := anonymousType.DefineMethod(
+                "set_" + names[p],
+                MethodAttributes.Public | MethodAttributes.HideBySig | MethodAttributes.SpecialName,
+                ColumnarTypeOfPlanner.RequiredVoidType(),
+                [typeof(object)])
+            setterIl := setter.GetILGenerator()
+            setterIl.Emit(OpCodes.Ldarg_0)
+            setterIl.Emit(OpCodes.Ldarg_1)
+            setterIl.Emit(OpCodes.Stfld, field)
+            setterIl.Emit(OpCodes.Ret)
+            property.SetGetMethod(getter)
+            property.SetSetMethod(setter)
+            setters[p] = setter
+        }
+        _displayClasses.Add(anonymousType)
+
+        _il.Emit(OpCodes.Newobj, ctor)
+        for p := 0; p < propertyCount; p++ {
+            _il.Emit(OpCodes.Dup)
+            let valueType: System.Type? = null
+            if (!EmitExpression(valueNodes[p], out  valueType)
+                || !ColumnarReferenceCoercionPlanner.TryEmitObjectConversion(valueType, typeof(object), _structRegistry, _il)) {return false}
+            _il.Emit(OpCodes.Callvirt, setters[p])
+        }
+        columnarResolvedType = anonymousType
+        return true
+    }
+
+    // Recursive match-pattern test mirroring the pattern-test emitter structure (success/fail labels), but reading the
+    // matched value from `matchLocal` instead of a stack dup. On MATCH it branches to successLabel; on NO-MATCH to
+    // failLabel. Models literal patterns (kinds 0-4), relational patterns (32), and `and`/`or`/`not` combinators
+    // (33/34/35) over those. It does NOT model bindings: an identifier (kind 6) is only handled at the TOP LEVEL of
+    // an arm, so an identifier inside a combinator declines (returns false) and required columnar emission rejects
+    // the program. A `false` return discards the entire emitted assembly, so a partially-emitted test is harmless.
+    private func EmitNestedPattern(patternNode: int, matchValueType: Type, matchLocal: LocalBuilder, successLabel: Label, failLabel: Label): bool {
+        if (_nodes.Kind(patternNode) == 6) {return EmitPatternBinding(ColumnarNodeTextFacts.Text(_nodes, _source, patternNode), matchValueType, matchLocal, successLabel)}
+        if (_nodes.Kind(patternNode) == 66) {return false}
+        if (_nodes.Kind(patternNode) == 37) {return EmitUnionCasePattern(patternNode, matchValueType, matchLocal, successLabel, failLabel)}
+        if (_nodes.Kind(patternNode) == 65) {return EmitArrayListPattern(patternNode, matchValueType, matchLocal, successLabel, failLabel)}
+        if (_nodes.Kind(patternNode) == 67) {return EmitObjectPattern(patternNode, matchValueType, matchLocal, successLabel, failLabel)}
+        return EmitPatternMatch(patternNode, matchValueType, matchLocal, successLabel, failLabel)
+    }
+
+    private func EmitPatternBinding(name: string, valueType: Type, valueLocal: LocalBuilder, successLabel: Label): bool {
+        if (name != "_") {
+            if (ColumnarClosureBindingPlanner.IsVisibleBindingName(name, _locals, _paramOrdinals, _liftedLocals, _boxedCaptures, _enclosingBindingNames)) {return false}
+            bindLocal := _il.DeclareLocal(valueType)
+            _il.Emit(OpCodes.Ldloc, valueLocal)
+            _il.Emit(OpCodes.Stloc, bindLocal)
+            _locals[name] = bindLocal
+        }
+        _il.Emit(OpCodes.Br, successLabel)
+        return true
+    }
+
+    private func EmitObjectPattern(patternNode: int, matchValueType: Type, matchLocal: LocalBuilder, successLabel: Label, failLabel: Label): bool {
+        if (_nodes.Kind(patternNode) != 67 || !ColumnarTypeOfPlanner.IsSupportedType(matchValueType)) {return false}
+
+        if (!matchValueType.get_IsValueType()) {
+            _il.Emit(OpCodes.Ldloc, matchLocal)
+            _il.Emit(OpCodes.Brfalse, failLabel)
+        }
+
+        for p := 0; p < _nodes.ChildCount(patternNode); p++ {
+            nextProperty := _il.DefineLabel()
+            if (!EmitPropertyPattern(Child(patternNode, p), matchValueType, matchLocal, nextProperty, failLabel)) {return false}
+            _il.MarkLabel(nextProperty)
+        }
+
+        _il.Emit(OpCodes.Br, successLabel)
+        return true
+    }
+
+    private func EmitPropertyPattern(propertyNode: int, ownerType: Type, ownerLocal: LocalBuilder, successLabel: Label, failLabel: Label): bool {
+        if (_nodes.Kind(propertyNode) != 68 || _nodes.ChildCount(propertyNode) > 1) {return false}
+
+        propertyName := ColumnarNodeTextFacts.Text(_nodes, _source, propertyNode)
+        let propertyType: System.Type? = null
+        let propertyLocal: System.Reflection.Emit.LocalBuilder? = null
+        if (!TryEmitReadablePatternMember(ownerType, ownerLocal, propertyName, out  propertyType, out  propertyLocal)) {return false}
+
+        if (_nodes.ChildCount(propertyNode) == 0) {return EmitPatternBinding(propertyName, propertyType, propertyLocal, successLabel)}
+
+        return EmitNestedPattern(Child(propertyNode, 0), propertyType, propertyLocal, successLabel, failLabel)
+    }
+
+    private func TryEmitReadablePatternMember(ownerType: Type, ownerLocal: LocalBuilder, member: string, out memberType: Type, out memberLocal: LocalBuilder): bool {
+        memberType = null
+        memberLocal = null
+
+        ownerBuilder := ownerType as TypeBuilder
+        if (ownerBuilder != null) {
+            ownerDef := ColumnarSourceDefinitionResolver.FindByBuilderIdentity(_structRegistry.get_Values(), ownerBuilder)
+            if (ownerDef != null) {
+                let field: System.Reflection.Emit.FieldBuilder? = null
+                if (ColumnarSourceMemberChainResolver.TryFindFieldOnChain(ownerDef, member, out  field)) {
+                    EmitLoadUserPatternReceiver(ownerLocal, ownerDef.IsReference)
+                    _il.Emit(OpCodes.Ldfld, field)
+                    memberType = field.get_FieldType()
+                    return StoreReadablePatternMember(memberType, out memberLocal)
+                }
+                let property: NSharpLang.Compiler.Columnar.ColumnarPropertyDef? = null
+                if (TryFindPropertyOnChain(ownerDef, member, out  property)) {
+                    EmitLoadUserPatternReceiver(ownerLocal, ownerDef.IsReference)
+                    readablePatternIl := _il
+                    readablePatternOpCode := ownerDef.IsReference ? OpCodes.Callvirt : OpCodes.Call
+                    readablePatternGetter := property.Getter
+                    readablePatternIl.Emit(readablePatternOpCode, readablePatternGetter)
+                    memberType = property.PropertyType
+                    return StoreReadablePatternMember(memberType, out memberLocal)
+                }
+                return false
+            }
+        }
+
+        let closedDef: NSharpLang.Compiler.Columnar.ColumnarStructDef? = null
+        let closedArgs: System.Type[]? = null
+        if (TryGetClosedReceiverDef(ownerType, out  closedDef, out  closedArgs)) {
+            let openField: System.Reflection.Emit.FieldBuilder? = null
+            if (closedDef.Fields.TryGetValue(member, out  openField)) {
+                EmitLoadUserPatternReceiver(ownerLocal, closedDef.IsReference)
+                _il.Emit(OpCodes.Ldfld, TypeBuilder.GetField(ownerType, openField))
+                memberType = ColumnarRuntimeInstanceMemberResolver.SubstituteClosedTypeArguments(openField.get_FieldType(), closedArgs)
+                return StoreReadablePatternMember(memberType, out memberLocal)
+            }
+            let openProperty: NSharpLang.Compiler.Columnar.ColumnarPropertyDef? = null
+            if (closedDef.Properties.TryGetValue(member, out  openProperty)) {
+                EmitLoadUserPatternReceiver(ownerLocal, closedDef.IsReference)
+                closedGetter := TypeBuilder.GetMethod(ownerType, openProperty.Getter)
+                _il.Emit(closedDef.IsReference ? OpCodes.Callvirt : OpCodes.Call, closedGetter)
+                memberType = ColumnarRuntimeInstanceMemberResolver.SubstituteClosedTypeArguments(openProperty.PropertyType, closedArgs)
+                return StoreReadablePatternMember(memberType, out memberLocal)
+            }
+            return false
+        }
+
+        if (ownerType.get_IsSZArray() && member == "Length") {
+            _il.Emit(OpCodes.Ldloc, ownerLocal)
+            _il.Emit(OpCodes.Ldlen)
+            _il.Emit(OpCodes.Conv_I4)
+            memberType = typeof(int)
+            return StoreReadablePatternMember(memberType, out memberLocal)
+        }
+
+        if (ownerType == typeof(string) && member == nameof(string.Length)) {
+            _il.Emit(OpCodes.Ldloc, ownerLocal)
+            _il.Emit(OpCodes.Callvirt, typeof(string).GetProperty(nameof(string.Length)).GetGetMethod())
+            memberType = typeof(int)
+            return StoreReadablePatternMember(memberType, out memberLocal)
+        }
+
+        let countGetter: System.Reflection.MethodInfo? = null
+        if (member == "Count" && TryResolveCollectionCountGetter(ownerType, out  countGetter)) {
+            _il.Emit(OpCodes.Ldloc, ownerLocal)
+            _il.Emit(OpCodes.Callvirt, countGetter)
+            memberType = typeof(int)
+            return StoreReadablePatternMember(memberType, out memberLocal)
+        }
+
+        let bclProperty: System.Reflection.PropertyInfo? = null
+        if (TryGetSupportedBclReadableProperty(ownerType, member, out  bclProperty)) {
+            _il.Emit(OpCodes.Ldloc, ownerLocal)
+            bclPropertyIl := _il
+            bclPropertyMethodForOpcode := bclProperty.get_GetMethod()
+            bclPropertyOpCode := bclPropertyMethodForOpcode.get_IsVirtual() ? OpCodes.Callvirt : OpCodes.Call
+            bclPropertyMethod := bclProperty.get_GetMethod()
+            bclPropertyIl.Emit(bclPropertyOpCode, bclPropertyMethod)
+            memberType = bclProperty.get_PropertyType()
+            return StoreReadablePatternMember(memberType, out memberLocal)
+        }
+
+        return false
+    }
+
+    private func EmitLoadUserPatternReceiver(ownerLocal: LocalBuilder, isReference: bool): void {
+        if (isReference) {_il.Emit(OpCodes.Ldloc, ownerLocal)}
+        else {_il.Emit(OpCodes.Ldloca, ownerLocal)}
+    }
+
+    private func StoreReadablePatternMember(memberType: Type, out memberLocal: LocalBuilder): bool {
+        memberLocal = null
+        if (!ColumnarTypeOfPlanner.IsSupportedType(memberType)) {return false}
+        memberLocal = _il.DeclareLocal(memberType)
+        _il.Emit(OpCodes.Stloc, memberLocal)
+        return true
+    }
+
+    private func EmitArrayListPattern(patternNode: int, matchValueType: Type, matchLocal: LocalBuilder, successLabel: Label, failLabel: Label): bool {
+        if (_nodes.Kind(patternNode) != 65 || !matchValueType.get_IsSZArray()) {return false}
+        elementType := matchValueType.GetElementType()
+        if (!ColumnarTypeOfPlanner.IsSupportedElementType(elementType)) {return false}
+
+        childCount := _nodes.ChildCount(patternNode)
+        sliceIndex := -1
+        for i := 0; i < childCount; i++ {
+            if (_nodes.Kind(Child(patternNode, i)) != 66) {continue}
+            if (sliceIndex >= 0) {return false}
+            sliceIndex = i
+        }
+
+        leadingCount := sliceIndex >= 0 ? sliceIndex : childCount
+        trailingCount := sliceIndex >= 0 ? childCount - sliceIndex - 1 : 0
+        minimumLength := leadingCount + trailingCount
+        lengthLocal := _il.DeclareLocal(typeof(int))
+        _il.Emit(OpCodes.Ldloc, matchLocal)
+        _il.Emit(OpCodes.Ldlen)
+        _il.Emit(OpCodes.Conv_I4)
+        _il.Emit(OpCodes.Stloc, lengthLocal)
+
+        _il.Emit(OpCodes.Ldloc, lengthLocal)
+        _il.Emit(OpCodes.Ldc_I4, sliceIndex >= 0 ? minimumLength : childCount)
+        listLengthBranchIl := _il
+        listLengthBranchOpCode := sliceIndex >= 0 ? OpCodes.Blt : OpCodes.Bne_Un
+        listLengthBranchLabel := failLabel
+        listLengthBranchIl.Emit(listLengthBranchOpCode, listLengthBranchLabel)
+
+        for i := 0; i < leadingCount; i++ {
+            nextElement := _il.DefineLabel()
+            if (!EmitArrayListElementPattern(Child(patternNode, i), elementType, matchLocal, lengthLocal, i,  false, nextElement, failLabel)) {return false}
+            _il.MarkLabel(nextElement)
+        }
+
+        if (sliceIndex >= 0) {
+            sliceNode := Child(patternNode, sliceIndex)
+            if (!EmitArrayListSliceBinding(sliceNode, matchValueType, elementType, matchLocal, lengthLocal, leadingCount, trailingCount)) {return false}
+        }
+
+        for i := 0; i < trailingCount; i++ {
+            nextElement := _il.DefineLabel()
+            patternIndex := sliceIndex + 1 + i
+            if (!EmitArrayListElementPattern(Child(patternNode, patternIndex), elementType, matchLocal, lengthLocal, trailingCount - i,  true, nextElement, failLabel)) {return false}
+            _il.MarkLabel(nextElement)
+        }
+
+        _il.Emit(OpCodes.Br, successLabel)
+        return true
+    }
+
+    private func EmitArrayListElementPattern(elementPattern: int, elementType: Type, arrayLocal: LocalBuilder, lengthLocal: LocalBuilder, indexOrFromEndOffset: int, fromEnd: bool, successLabel: Label, failLabel: Label): bool {
+        elementLocal := _il.DeclareLocal(elementType)
+        _il.Emit(OpCodes.Ldloc, arrayLocal)
+        if (fromEnd) {
+            _il.Emit(OpCodes.Ldloc, lengthLocal)
+            _il.Emit(OpCodes.Ldc_I4, indexOrFromEndOffset)
+            _il.Emit(OpCodes.Sub)
+        }
+        else {
+            _il.Emit(OpCodes.Ldc_I4, indexOrFromEndOffset)
+        }
+        EmitArrayElementLoad(elementType)
+        _il.Emit(OpCodes.Stloc, elementLocal)
+        return EmitListElementPattern(elementPattern, elementType, elementLocal, successLabel, failLabel)
+    }
+
+    private func EmitListElementPattern(patternNode: int, elementType: Type, elementLocal: LocalBuilder, successLabel: Label, failLabel: Label): bool {
+        return EmitNestedPattern(patternNode, elementType, elementLocal, successLabel, failLabel)
+    }
+
+    private func EmitArrayListSliceBinding(sliceNode: int, arrayType: Type, elementType: Type, arrayLocal: LocalBuilder, lengthLocal: LocalBuilder, leadingCount: int, trailingCount: int): bool {
+        if (_nodes.Kind(sliceNode) != 66) {return false}
+        if (_nodes.ValueStart(sliceNode) < 0) {return true}
+        name := ColumnarNodeTextFacts.Text(_nodes, _source, sliceNode)
+        if (name == "_") {return true}
+        if (ColumnarClosureBindingPlanner.IsVisibleBindingName(name, _locals, _paramOrdinals, _liftedLocals, _boxedCaptures, _enclosingBindingNames)) {return false}
+
+        sliceLocal := _il.DeclareLocal(arrayType)
+        sliceLengthLocal := _il.DeclareLocal(typeof(int))
+        _il.Emit(OpCodes.Ldloc, lengthLocal)
+        _il.Emit(OpCodes.Ldc_I4, leadingCount)
+        _il.Emit(OpCodes.Sub)
+        _il.Emit(OpCodes.Ldc_I4, trailingCount)
+        _il.Emit(OpCodes.Sub)
+        _il.Emit(OpCodes.Stloc, sliceLengthLocal)
+
+        _il.Emit(OpCodes.Ldloc, sliceLengthLocal)
+        _il.Emit(OpCodes.Newarr, elementType)
+        _il.Emit(OpCodes.Stloc, sliceLocal)
+
+        copy := typeof(Array).GetMethod(nameof(Array.Copy), [typeof(Array), typeof(int), typeof(Array), typeof(int), typeof(int)])
+        if (copy == null) {return false}
+        _il.Emit(OpCodes.Ldloc, arrayLocal)
+        _il.Emit(OpCodes.Ldc_I4, leadingCount)
+        _il.Emit(OpCodes.Ldloc, sliceLocal)
+        _il.Emit(OpCodes.Ldc_I4_0)
+        _il.Emit(OpCodes.Ldloc, sliceLengthLocal)
+        _il.Emit(OpCodes.Call, copy)
+
+        _locals[name] = sliceLocal
+        return true
+    }
+
+    private func EmitPatternMatch(patternNode: int, matchValueType: Type, matchLocal: LocalBuilder, successLabel: Label, failLabel: Label): bool {
+        columnarSwitchValue5 := _nodes.Kind(patternNode)
+            if columnarSwitchValue5 == 34 { // OrPattern [left, right]: left matches -> success; else fall through and try right.
+
+                if (_nodes.ChildCount(patternNode) != 2) {return false}
+                orNext := _il.DefineLabel()
+                if (!EmitPatternMatch(Child(patternNode, 0), matchValueType, matchLocal, successLabel, orNext)) {return false}
+                _il.MarkLabel(orNext)
+                return EmitPatternMatch(Child(patternNode, 1), matchValueType, matchLocal, successLabel, failLabel)
+
+            } else if columnarSwitchValue5 == 33 { // AndPattern [left, right]: left must match (else fail), then right decides.
+
+                if (_nodes.ChildCount(patternNode) != 2) {return false}
+                andNext := _il.DefineLabel()
+                if (!EmitPatternMatch(Child(patternNode, 0), matchValueType, matchLocal, andNext, failLabel)) {return false}
+                _il.MarkLabel(andNext)
+                return EmitPatternMatch(Child(patternNode, 1), matchValueType, matchLocal, successLabel, failLabel)
+
+            } else if columnarSwitchValue5 == 35 { // NotPattern [inner]: inner matches -> fail, inner fails -> success (just swap the labels).
+
+                if (_nodes.ChildCount(patternNode) != 1) {return false}
+                return EmitPatternMatch(Child(patternNode, 0), matchValueType, matchLocal, failLabel, successLabel)
+
+            } else if columnarSwitchValue5 == 32 { // RelationalPattern `<op> <constant>` -> ordered comparison (the pattern-test emitter mirror).
+
+                if (_nodes.ChildCount(patternNode) != 1 || !ColumnarPatternFacts.IsOrderedMatchType(matchValueType)) {return false}
+                operandNode := Child(patternNode, 0)
+                if (!ColumnarPatternFacts.IsLiteralPatternKind(_nodes.Kind(operandNode))) {return false}
+                _il.Emit(OpCodes.Ldloc, matchLocal)
+                let relType: System.Type? = null
+                if (!EmitExpression(operandNode, out  relType) || relType != matchValueType) {return false}
+                // Plain ordered Clt/Cgt for ALL types (matches  exactly, incl. NaN/large ulong). `<`/`>` take the
+                // arm when the compare is TRUE; `<=`/`>=` are the negations — take when FALSE. Branch to successLabel
+                // when taken, else fall to the `Br failLabel`.
+                columnarSwitchValue6 := ColumnarNodeTextFacts.Text(_nodes, _source, patternNode)
+                    if columnarSwitchValue6 == "<" { _il.Emit(OpCodes.Clt) _il.Emit(OpCodes.Brtrue, successLabel)
+                    } else if columnarSwitchValue6 == ">" { _il.Emit(OpCodes.Cgt) _il.Emit(OpCodes.Brtrue, successLabel)
+                    } else if columnarSwitchValue6 == "<=" { _il.Emit(OpCodes.Cgt) _il.Emit(OpCodes.Brfalse, successLabel)
+                    } else if columnarSwitchValue6 == ">=" { _il.Emit(OpCodes.Clt) _il.Emit(OpCodes.Brfalse, successLabel)
+                    } else { return false
+                }
+                _il.Emit(OpCodes.Br, failLabel)
+                return true
+
+            } else if columnarSwitchValue5 == 8 { // MemberAccess pattern: `Enum.Member` (enum-constant equality) OR `Union.Case` (a bare union TYPE
+                    // pattern — match the case by type, NO destructuring/binding).
+                recv := Child(patternNode, 0)
+                let recvName: string? = null
+                let recvRootName: string? = null
+                if (!TryGetDottedMemberAccessName(recv, out  recvName, out  recvRootName)) {return false}
+                // ENUM constant: the receiver names a REGISTERED enum (not shadowed by a local/param/sibling), the
+                // member is one of its constants, and the match value is THAT enum's type. Underlying-int Ceq.
+                let enumDef: NSharpLang.Compiler.Columnar.ColumnarEnumDef? = null
+                if (_typeResolutionEnums.TryGetValue(recvName, out  enumDef)
+                    && !_locals.ContainsKey(recvRootName) && !_liftedLocals.ContainsKey(recvRootName) && !_paramOrdinals.ContainsKey(recvRootName) && !_siblings.ContainsKey(recvRootName)) {
+                    if (matchValueType != enumDef.EnumType) {return false}
+                    if (enumDef.StringConstants != null) {
+                        let stringValue: string? = null
+                        if (!enumDef.StringConstants.TryGetValue(ColumnarNodeTextFacts.Text(_nodes, _source, patternNode), out  stringValue)) {return false}
+                        _il.Emit(OpCodes.Ldloc, matchLocal)
+                        _il.Emit(OpCodes.Ldstr, stringValue)
+                        _il.Emit(OpCodes.Call, typeof(string).GetMethod("op_Equality", [typeof(string), typeof(string)]))
+                        _il.Emit(OpCodes.Brtrue, successLabel)
+                        _il.Emit(OpCodes.Br, failLabel)
+                        return true
+                    }
+                    let memberValue: int = 0
+                    if (!enumDef.Constants.TryGetValue(ColumnarNodeTextFacts.Text(_nodes, _source, patternNode), out  memberValue)) {return false}
+                    _il.Emit(OpCodes.Ldloc, matchLocal)
+                    _il.Emit(OpCodes.Ldc_I4, memberValue)
+                    _il.Emit(OpCodes.Ceq)             // underlying-int equality (matches N#'s Beq-on-underlying-int).
+                    _il.Emit(OpCodes.Brtrue, successLabel)
+                    _il.Emit(OpCodes.Br, failLabel)
+                    return true
+                }
+                // UNION bare TYPE pattern `Union.Case` (no `{ }`): an `isinst` test against the case's concrete type,
+                // matching WITHOUT binding any field — the idiomatic way to match a payload-free case (where `Case {}`
+                // is NL503), and to match a payload case by type alone. Binds nothing, so it is SAFE inside `and`/`or`/
+                // `not` combinators (unlike the binding property pattern, which is top-level only). The match value
+                // must be THIS union's base (a CLOSED instantiation of it when generic — the isinst target then
+                // closes the case over the scrutinee's arguments). No `dup`/`pop` needed: the isinst result is
+                // consumed by the branch.
+                qualifiedCase := recvName + "." + ColumnarNodeTextFacts.Text(_nodes, _source, patternNode)
+                // VALUE-STRUCT union bare pattern: the scrutinee is a tag struct, so test `scrutinee.Tag == caseTag`
+                // (read via the public get_Tag) instead of an isinst — there is no reference identity to test.
+                let columnarDiscard64: string = null
+                let bareValueStructCase: NSharpLang.Compiler.Columnar.ColumnarUnionCaseDef? = null
+                if (TryGetUnionCaseByKey(qualifiedCase, out columnarDiscard64, out  bareValueStructCase)) {
+                    if (bareValueStructCase.IsValueStruct) {
+                        let bareValueStructUnionBase: Type = bareValueStructCase.UnionBase
+                        if (bareValueStructUnionBase == matchValueType) {
+                            if (bareValueStructCase.ValueStructTagGetter != null) {
+                                if (!_locals.ContainsKey(recvRootName)) {
+                                    if (!_liftedLocals.ContainsKey(recvRootName)) {
+                                        if (!_paramOrdinals.ContainsKey(recvRootName)) {
+                                            if (!_siblings.ContainsKey(recvRootName)) {
+                                                _il.Emit(OpCodes.Ldloca, matchLocal)
+                                                _il.Emit(OpCodes.Call, bareValueStructCase.ValueStructTagGetter)
+                                                _il.Emit(OpCodes.Ldc_I4, bareValueStructCase.ValueStructTag)
+                                                _il.Emit(OpCodes.Ceq)
+                                                _il.Emit(OpCodes.Brtrue, successLabel)
+                                                _il.Emit(OpCodes.Br, failLabel)
+                                                return true
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+                let columnarDiscard66: System.Type[] = null
+                let columnarDiscard65: NSharpLang.Compiler.Columnar.ColumnarUnionCaseDef = null
+                let bareCaseTestType: System.Type? = null
+                if (TryGetCaseTestType(qualifiedCase, matchValueType, out columnarDiscard65, out  bareCaseTestType, out columnarDiscard66)
+                    && !_locals.ContainsKey(recvRootName) && !_liftedLocals.ContainsKey(recvRootName) && !_paramOrdinals.ContainsKey(recvRootName) && !_siblings.ContainsKey(recvRootName)) {
+                    _il.Emit(OpCodes.Ldloc, matchLocal)
+                    _il.Emit(OpCodes.Isinst, bareCaseTestType)
+                    _il.Emit(OpCodes.Brtrue, successLabel)
+                    _il.Emit(OpCodes.Br, failLabel)
+                    return true
+                }
+                return false // not a registered enum constant or union case -> decline.
+
+            } else { // literal pattern (kinds 0-4) -> equality test; any other primary (null/paren/call/index/…) declines.
+
+                if (!ColumnarPatternFacts.IsLiteralPatternKind(_nodes.Kind(patternNode))) {return false}
+                _il.Emit(OpCodes.Ldloc, matchLocal)
+                let patType: System.Type? = null
+                if (!EmitExpression(patternNode, out  patType) || patType != matchValueType) {return false}
+                if (matchValueType == typeof(string)) {_il.Emit(OpCodes.Call, typeof(string).GetMethod("op_Equality", [typeof(string), typeof(string)]))}
+                else {_il.Emit(OpCodes.Ceq)}
+                _il.Emit(OpCodes.Brtrue, successLabel)
+                _il.Emit(OpCodes.Br, failLabel)
+                return true
+
+        }
+    }
+
+    // Resolves the explicit type-argument subtrees of a kind-1 (Generic) type root naming a union case
+    // (`Opt.Some<int>` → [int]) — each argument canonicalized (TryBuildTypeNodeCanonical handles nested
+    // generics/arrays) and resolved against the registries; arity-checked against the union BASE's declared
+    // parameters (cases redeclare them positionally, so one arity governs both).
+    private func TryResolveUnionCaseTypeArgs(typeRootNode: int, caseDef: ColumnarUnionCaseDef, out args: Type[]): bool {
+        args = Type.EmptyTypes
+        arity := caseDef.UnionBase.GetGenericArguments().Length
+        if (_nodes.ChildCount(typeRootNode) != arity) {return false}
+        resolved := new Type[arity]
+        for i := 0; i < arity; i++ {
+            let argCanonical: string? = null
+            if (!TryBuildTypeNodeCanonical(Child(typeRootNode, i), out  argCanonical)) {return false}
+            let resolvedArgument: Type? = null
+            resolvedArgumentSucceeded := TryResolveBodyType(argCanonical, out resolvedArgument)
+            resolved[i] = resolvedArgument
+            if (!resolvedArgumentSucceeded) {return false}
+            if (!ColumnarTypeOfPlanner.IsSupportedType(resolved[i])) {return false}
+        }
+        args = resolved
+        return true
+    }
+
+    // Emits a union-case CONSTRUCTION: `newobj <case ctor>` then per named object-init field `dup; <value>;
+    // stfld`. `typeArgs` empty = a non-generic case (the original D-10 path: open builders directly);
+    // non-empty = a GENERIC case closed over the arguments — the ctor and every field handle are REBOUND
+    // onto the closed instantiation via TypeBuilder.GetConstructor/GetField (reflection member queries throw
+    // on TypeBuilderInstantiation — the legacy emitter's machinery, spike-proven), and each field's expected value
+    // type substitutes the arguments positionally (`value: T` on Opt<int> expects int). `pairCount` 0 emits
+    // the bare/payload-default form (`new Color.Red {}`, brace-less `new Opt.None<int>` — fields stay
+    // CLR-default, the pipeline's probed semantics). The result's static type is the union BASE (closed over
+    // the same arguments when generic) — an upcast; a later match recovers the case.
+    private func TryEmitUnionCaseConstruction(caseDef: ColumnarUnionCaseDef, typeArgs: Type[], initIdx: int, pairCount: int, out columnarResolvedType: Type): bool {
+        columnarResolvedType = null
+
+        // VALUE-STRUCT union case: allocation-free construction through the union's static `Create_<Case>` factory
+        // (`new U(tag)`), mirroring the previous parity baseline. Value-struct unions are non-generic and payload-free, so a `{ }`
+        // with fields (pairCount > 0) or explicit type args never reach here for a valid program — guard and decline.
+        if (caseDef.IsValueStruct) {
+            if (typeArgs.Length != 0 || pairCount != 0 || caseDef.ValueStructFactory == null) {return false}
+            _il.Emit(OpCodes.Call, caseDef.ValueStructFactory)
+            columnarResolvedType = caseDef.UnionBase // the union struct value.
+            return true
+        }
+
+        let resultType: System.Type = null
+        let ctor: System.Reflection.ConstructorInfo = null
+        closedCase: Type? = null
+        if (typeArgs.Length == 0) {
+            if (caseDef.UnionBase.get_IsGenericTypeDefinition()) {return false} // a generic case never constructs open.
+            ctor = caseDef.Ctor
+            resultType = caseDef.UnionBase
+        }
+        else {
+            if (caseDef.UnionBase.GetGenericArguments().Length != typeArgs.Length) {return false}
+            caseTypeDefinition: Type = caseDef.CaseType
+            closedCase = caseTypeDefinition.MakeGenericType(typeArgs)
+            ctor = TypeBuilder.GetConstructor(closedCase, caseDef.Ctor)
+            unionBaseDefinition: Type = caseDef.UnionBase
+            resultType = unionBaseDefinition.MakeGenericType(typeArgs)
+        }
+
+        _il.Emit(OpCodes.Newobj, ctor)
+        assignedFields := new HashSet<string>(StringComparer.Ordinal)
+        for p := 0; p < pairCount; p++ {
+            nameNode := Child(initIdx, 1 + (2 * p))
+            valueNode := Child(initIdx, 2 + (2 * p))
+            if (_nodes.Kind(nameNode) != 6) {return false}
+            fieldName := ColumnarNodeTextFacts.Text(_nodes, _source, nameNode)
+            let openField: System.Reflection.Emit.FieldBuilder? = null
+            if (!caseDef.Fields.TryGetValue(fieldName, out  openField) || !assignedFields.Add(fieldName)) {return false} // unknown or duplicately-assigned field -> decline.
+            expectedFieldType := closedCase == null ? openField.get_FieldType() : ColumnarRuntimeInstanceMemberResolver.SubstituteClosedTypeArguments(openField.get_FieldType(), typeArgs)
+            _il.Emit(OpCodes.Dup)
+            // A FIELD VALUE adopts the substituted field type's arguments (probe-pinned:
+            // `new Opt.Some<Opt<int>> { value: new Opt.None }` adopts Opt<int> from `value: T`).
+            let valueType: System.Type = null
+            if (IsAdoptableUnionConstruction(valueNode, expectedFieldType)) {
+                if (!EmitAdoptedUnionConstruction(valueNode, expectedFieldType, out valueType)) {return false}
+            }
+            else {if (!EmitExpression(valueNode, out valueType)) {
+                return false
+            }}
+            if (!TypesEquivalent(valueType, expectedFieldType)) {return false}
+            fieldEmitter := _il
+            fieldOpCode := OpCodes.Stfld
+            let targetField: System.Reflection.FieldInfo = null
+            if (closedCase == null) {
+                targetField = openField
+            }
+            else {
+                targetField = TypeBuilder.GetField(closedCase, openField)
+            }
+            fieldEmitter.Emit(fieldOpCode, targetField)
+        }
+        columnarResolvedType = resultType // upcast to the union base.
+        return true
+    }
+
+    // True when `exprNode` is the expected-type ADOPTION shape for a GENERIC union case: a `new Union.Case
+    // { ... }` object-init (kind 36), brace-less `new Union.Case` (kind 42), or payload-free call-style
+    // `new Union.Case()` (kind 15) whose Simple type root names a registered case of a GENERIC union, with the
+    // expected type a CLOSED instantiation of THAT union's base (`return new Opt.None` on `(): Opt<int>`;
+    // `n: Opt<int> = new Opt.Some { value: 5 }`). The pipeline adopts the expected type's arguments at FIVE
+    // probe-pinned positions, each with an exact expected type: return statements, typed-local inits, union-case
+    // object-init FIELD VALUES, and local/param REASSIGNMENT — exactly the emitters that consult this before
+    // their normal EmitExpression call. It REJECTS call-argument adoption (NL103 — queued known defect) and `:=`
+    // (NL207, no expected type), so kind-15/36/42 nodes reaching plain EmitExpression with a generic case decline
+    // there.
+    private func IsAdoptableUnionConstruction(exprNode: int, expectedType: Type): bool {
+        if (_nodes.Kind(exprNode) != 15 && _nodes.Kind(exprNode) != 36 && _nodes.Kind(exprNode) != 42) {return false}
+        if (_nodes.Kind(exprNode) == 15 && _nodes.ChildCount(exprNode) != 1) {return false}
+        if (_nodes.Kind(exprNode) == 36 && (_nodes.ChildCount(exprNode) % 2) != 1) {return false}
+        root := Child(exprNode, 0)
+        if (_nodes.Kind(root) != 0) {return false}
+        let columnarDiscard67: string = null
+        let caseDef: NSharpLang.Compiler.Columnar.ColumnarUnionCaseDef? = null
+        if (!TryGetUnionCaseByKey(ColumnarNodeTextFacts.Text(_nodes, _source, root), out columnarDiscard67, out  caseDef)) {return false}
+        if (!caseDef.UnionBase.get_IsGenericTypeDefinition()) {return false}
+        return ColumnarTypeOfPlanner.IsClosedSourceGeneric(expectedType)
+            && Object.ReferenceEquals(expectedType.GetGenericTypeDefinition(), caseDef.UnionBase)
+    }
+
+    // Emits an adoption-shape construction (see IsAdoptableUnionConstruction) closed over the EXPECTED
+    // type's arguments. The caller has already established applicability.
+    private func EmitAdoptedUnionConstruction(exprNode: int, expectedType: Type, out columnarResolvedType: Type): bool {
+        columnarResolvedType = null
+        let columnarDiscard68: string = null
+        let caseDef: NSharpLang.Compiler.Columnar.ColumnarUnionCaseDef? = null
+        if (!TryGetUnionCaseByKey(ColumnarNodeTextFacts.Text(_nodes, _source, Child(exprNode, 0)), out columnarDiscard68, out  caseDef)) {return false}
+        pairCount := _nodes.Kind(exprNode) == 36 ? (_nodes.ChildCount(exprNode) - 1) / 2 : 0
+        return TryEmitUnionCaseConstruction(caseDef, expectedType.GetGenericArguments(), exprNode, pairCount, out columnarResolvedType)
+    }
+
+    // A union-case pattern `Union.Case { f0, f1 }` (kind 37, children [memberAccess, bind0, ...]): an `isinst` type
+    // test against the case's concrete type, and on match a field-binding of each named field to a fresh local. This
+    // is handled ONLY at the TOP LEVEL of a match arm (not inside `and`/`or`/`not` — bindings in a negated/disjoined
+    // pattern are restricted, so a union-case pattern under a combinator declines via EmitPatternMatch's
+    // default). On MATCH it branches to successLabel (with the bindings live in `_locals`, cleaned up per-arm by the
+    // caller); on NO-MATCH to failLabel. Returns false (whole match declines) on any unsupported shape.
+    private func EmitUnionCasePattern(patternNode: int, matchValueType: Type, matchLocal: LocalBuilder, successLabel: Label, failLabel: Label): bool {
+        memberNode := Child(patternNode, 0)
+        if (_nodes.Kind(memberNode) != 8) {return false}
+        caseRecv := Child(memberNode, 0)
+        if (_nodes.Kind(caseRecv) != 6) {return false} // the head must be a bare `Union` identifier (a qualified `Union.Case`).
+        qualifiedCase := ColumnarNodeTextFacts.Text(_nodes, _source, caseRecv) + "." + ColumnarNodeTextFacts.Text(_nodes, _source, memberNode)
+        // The scrutinee must be THIS union (the open base, or a CLOSED instantiation of it when generic —
+        // the case is then isinst-tested CLOSED over the scrutinee's arguments, the legacy emitter's machinery).
+        let caseDef: NSharpLang.Compiler.Columnar.ColumnarUnionCaseDef? = null
+        let caseTestType: System.Type? = null
+        let caseArgs: System.Type[]? = null
+        if (!TryGetCaseTestType(qualifiedCase, matchValueType, out  caseDef, out  caseTestType, out  caseArgs)) {return false} // not a registered case of THIS union -> decline.
+        // A `{ }` PROPERTY pattern on a PAYLOAD-FREE case is rejected by  (NL503 — "doesn't carry any data — you
+        // can't destructure it with property patterns"); a zero-field case is matched as a BARE type pattern instead
+        // (not modelled here). Decline so columnar never accepts a destructuring  refuses.
+        if (caseDef.Fields.Count == 0) {return false}
+
+        // `ldloc value; isinst Case; dup; brtrue ok; pop; br fail; ok: stloc caseLocal`. The dup keeps a copy so the
+        // success path stores the (non-null) case ref; the fail path pops the null before branching — leaving the
+        // stack empty at BOTH labels (matching every other pattern's stack discipline).
+        caseLocal := _il.DeclareLocal(caseTestType)
+        caseOk := _il.DefineLabel()
+        _il.Emit(OpCodes.Ldloc, matchLocal)
+        _il.Emit(OpCodes.Isinst, caseTestType)
+        _il.Emit(OpCodes.Dup)
+        _il.Emit(OpCodes.Brtrue, caseOk)
+        _il.Emit(OpCodes.Pop)
+        _il.Emit(OpCodes.Br, failLabel)
+        _il.MarkLabel(caseOk)
+        _il.Emit(OpCodes.Stloc, caseLocal)
+
+        // Test or bind each listed field. A bare property entry binds the field to a same-named local;
+        // `field: pattern` loads the field into a temp and recursively tests that nested pattern. On a CLOSED
+        // case the field handle is REBOUND via TypeBuilder.GetField and the local type substitutes the
+        // scrutinee's arguments positionally (`value: T` on Opt<int> binds/tests an int local).
+        bindCount := _nodes.ChildCount(patternNode) - 1
+        for b := 0; b < bindCount; b++ {
+            nextProperty := _il.DefineLabel()
+            if (!EmitUnionCasePropertyPattern(Child(patternNode, 1 + b), caseDef, caseArgs, caseTestType, caseLocal, nextProperty, failLabel)) {return false}
+            _il.MarkLabel(nextProperty)
+        }
+        _il.Emit(OpCodes.Br, successLabel)
+        return true
+    }
+
+    private func EmitUnionCasePropertyPattern(propertyNode: int, caseDef: ColumnarUnionCaseDef, caseArgs: Type[], caseTestType: Type, caseLocal: LocalBuilder, successLabel: Label, failLabel: Label): bool {
+        legacyBareBinding := _nodes.Kind(propertyNode) == 6
+        if (!legacyBareBinding && (_nodes.Kind(propertyNode) != 68 || _nodes.ChildCount(propertyNode) > 1)) {return false}
+
+        propertyName := ColumnarNodeTextFacts.Text(_nodes, _source, propertyNode)
+        let field: System.Reflection.Emit.FieldBuilder? = null
+        if (!caseDef.Fields.TryGetValue(propertyName, out  field)) {return false}
+
+        fieldType := caseArgs.Length == 0 ? field.get_FieldType() : ColumnarRuntimeInstanceMemberResolver.SubstituteClosedTypeArguments(field.get_FieldType(), caseArgs)
+        if (!ColumnarTypeOfPlanner.IsSupportedType(fieldType)) {return false}
+
+        fieldLocal := _il.DeclareLocal(fieldType)
+        _il.Emit(OpCodes.Ldloc, caseLocal)
+        fieldEmitter := _il
+        loadFieldOpCode := OpCodes.Ldfld
+        let targetField: System.Reflection.FieldInfo = null
+        if (caseArgs.Length == 0) {
+            targetField = field
+        }
+        else {
+            targetField = TypeBuilder.GetField(caseTestType, field)
+        }
+        fieldEmitter.Emit(loadFieldOpCode, targetField)
+        _il.Emit(OpCodes.Stloc, fieldLocal)
+
+        if (legacyBareBinding || _nodes.ChildCount(propertyNode) == 0) {return EmitPatternBinding(propertyName, fieldType, fieldLocal, successLabel)}
+
+        return EmitNestedPattern(Child(propertyNode, 0), fieldType, fieldLocal, successLabel, failLabel)
+    }
+
+    private func EmitTypeBindingPattern(patternNode: int, matchValueType: Type, matchLocal: LocalBuilder, successLabel: Label, failLabel: Label): bool {
+        if (ColumnarTypeOfPlanner.IsSupportedAnonymousUnionType(matchValueType)) {return EmitAnonymousUnionTypeBindingPattern(patternNode, matchValueType, matchLocal, successLabel, failLabel)}
+
+        let targetType: System.Type? = null
+        let bindName: string? = null
+        if (!TryResolveTypeBindingPattern(patternNode, out  targetType, out  bindName)) {return false}
+
+        if (TypesEquivalent(matchValueType, targetType)) {
+            if (!targetType.get_IsValueType()) {
+                _il.Emit(OpCodes.Ldloc, matchLocal)
+                _il.Emit(OpCodes.Brfalse, failLabel)
+            }
+            return EmitPatternBinding(bindName, targetType, matchLocal, successLabel)
+        }
+
+        if (!targetType.get_IsValueType() && !matchValueType.get_IsValueType()) {
+            typedLocal := _il.DeclareLocal(targetType)
+            typeOk := _il.DefineLabel()
+            _il.Emit(OpCodes.Ldloc, matchLocal)
+            _il.Emit(OpCodes.Isinst, targetType)
+            _il.Emit(OpCodes.Dup)
+            _il.Emit(OpCodes.Brtrue, typeOk)
+            _il.Emit(OpCodes.Pop)
+            _il.Emit(OpCodes.Br, failLabel)
+            _il.MarkLabel(typeOk)
+            _il.Emit(OpCodes.Stloc, typedLocal)
+            return EmitPatternBinding(bindName, targetType, typedLocal, successLabel)
+        }
+
+        return false
+    }
+
+    private func EmitAnonymousUnionTypeBindingPattern(patternNode: int, matchValueType: Type, matchLocal: LocalBuilder, successLabel: Label, failLabel: Label): bool {
+        let armType: System.Type? = null
+        let bindName: string? = null
+        let isMethod: System.Reflection.MethodInfo? = null
+        let asMethod: System.Reflection.MethodInfo? = null
+        if (!TryResolveAnonymousUnionTypeBindingPattern(patternNode, matchValueType, out  armType, out  bindName)
+            || !TryGetAnonymousUnionGenericMethod(matchValueType, "Is", armType, out  isMethod)
+            || !TryGetAnonymousUnionGenericMethod(matchValueType, "As", armType, out  asMethod)) {return false}
+
+        _il.Emit(OpCodes.Ldloca, matchLocal)
+        _il.Emit(OpCodes.Call, isMethod)
+        _il.Emit(OpCodes.Brfalse, failLabel)
+
+        if (bindName != "_") {
+            if (ColumnarClosureBindingPlanner.IsVisibleBindingName(bindName, _locals, _paramOrdinals, _liftedLocals, _boxedCaptures, _enclosingBindingNames)) {return false}
+            bindLocal := _il.DeclareLocal(armType)
+            _il.Emit(OpCodes.Ldloca, matchLocal)
+            _il.Emit(OpCodes.Call, asMethod)
+            _il.Emit(OpCodes.Stloc, bindLocal)
+            _locals[bindName] = bindLocal
+        }
+
+        _il.Emit(OpCodes.Br, successLabel)
+        return true
+    }
+
+    private func TryResolveAnonymousUnionTypeBindingPattern(patternNode: int, matchValueType: Type, out armType: Type, out bindName: string): bool {
+        armType = null
+        bindName = ""
+        if (!ColumnarTypeOfPlanner.IsSupportedAnonymousUnionType(matchValueType)
+            || !TryResolveTypeBindingPattern(patternNode, out armType, out bindName)
+            || !CanUseAnonymousUnionConversion(armType, matchValueType)) {return false}
+
+        return true
+    }
+
+    private func TryResolveTypeBindingPattern(patternNode: int, out targetType: Type, out bindName: string): bool {
+        targetType = null
+        bindName = ""
+        if (_nodes.Kind(patternNode) != 61
+            || _nodes.ChildCount(patternNode) != 2) {return false}
+
+        typeNode := Child(patternNode, 0)
+        bindNode := Child(patternNode, 1)
+        let canonical: string? = null
+        if (_nodes.Kind(bindNode) != 6
+            || !TryBuildTypeNodeCanonical(typeNode, out  canonical)
+            || !TryResolveBodyType(canonical, out targetType)
+            || !ColumnarTypeOfPlanner.IsSupportedType(targetType)) {return false}
+
+        bindName = ColumnarNodeTextFacts.Text(_nodes, _source, bindNode)
+        return true
+    }
+
+    // Types a `match` value may be tested against in the modelled pattern set: the scalars (Ceq equality), string
+    // (op_Equality), a user-defined enum (its underlying-int Ceq, via the MemberAccess pattern case), and a
+    // user-defined UNION base (isinst per union-case pattern). Records/etc. are not modelled, so a match over them
+    // declines to the N# backend path. (Instance — the union base is identified by the union registry.)
+    private func IsSupportedMatchValueType(t: Type): bool {
+        let columnarDiscard69: NSharpLang.Compiler.Columnar.ColumnarUnionDef = null
+        let columnarDiscard70: System.Type[] = null
+        return t == typeof(int) || t == typeof(long) || t == typeof(ulong) || t == typeof(char)
+        || t == typeof(bool) || t == typeof(double) || t == typeof(float) || t == typeof(string)
+        || (t.get_IsSZArray() && ColumnarTypeOfPlanner.IsSupportedElementType(t.GetElementType()))
+        || ColumnarTypeOfPlanner.IsEnumType(t)
+        || t is TypeBuilder
+        || ColumnarTypeOfPlanner.IsClosedSourceGeneric(t)
+        || ColumnarTypeOfPlanner.IsSupportedAnonymousUnionType(t)
+        || TryGetUnionDefForMatchValue(t, out columnarDiscard69, out columnarDiscard70)
+    }
+
+    // True when `type` is the struct of a value-struct (payload-free tag) union. Used to decline `is`/`as` whose
+    // SOURCE is such a union — those need value-type boxing before isinst (owned by the previous parity baseline), which columnar
+    // does not emit.
+    private func IsValueStructUnionType(columnarResolvedType: Type): bool {
+        for unionDef in _unionRegistry.get_Values() {
+            if (unionDef.IsValueStruct) {
+                unionBase: Type = unionDef.Base
+                if (unionBase == columnarResolvedType) {return true}
+            }
+        }
+
+        return false
+    }
+
+    private func TryGetUnionCaseByKey(qualifiedCase: string, out primaryKey: string, out caseDef: ColumnarUnionCaseDef): bool {
+        if (_nodes.BindingScope != null) {
+            let columnarDiscard71: bool = false
+            let semanticKey: string? = null
+            if (TryResolveExactUnionCaseKey(qualifiedCase, out  semanticKey, out columnarDiscard71)
+                && _unionCaseRegistry.TryGetValue(semanticKey, out caseDef)) {
+                primaryKey = semanticKey
+                return true
+            }
+            primaryKey = ""
+            caseDef = null
+            return false
+        }
+        if (_unionCaseRegistry.TryGetValue(qualifiedCase, out caseDef)) {
+            primaryKey = qualifiedCase
+            return true
+        }
+
+        for candidate in _unionCaseRegistry {
+            if (string.Equals(ShortUnionCaseKey(candidate.Key), qualifiedCase, StringComparison.Ordinal)) {
+                primaryKey = candidate.Key
+                caseDef = candidate.Value
+                return true
+            }
+        }
+
+        primaryKey = ""
+        caseDef = null
+        return false
+    }
+
+    private func TryResolveExactUnionCaseKey(qualifiedCase: string, out exactKey: string, out claimed: bool): bool {
+        exactKey = ""
+        claimed = false
+        separator := qualifiedCase.LastIndexOf('.')
+        scope := _nodes.BindingScope
+        if (separator <= 0 || separator >= qualifiedCase.Length - 1 || scope == null) {return false}
+
+        ownerCanonical := qualifiedCase.Substring(0, separator)
+        let ownerType: System.Type? = null
+        resolved := _typeResolutionStructs.Resolver.TryResolve(
+            ownerCanonical, out  ownerType, out claimed)
+        if (!resolved) {
+            return false
+        }
+
+        // A successfully resolved non-union owner is still terminal. It must not be reinterpreted
+        // as an unrelated union's short case key by the retained mechanical fallback below.
+        claimed = true
+        for unionDefinition in _unionRegistry.get_Values() {
+            unionBase: Type = unionDefinition.Base
+            if (Object.ReferenceEquals(unionBase, ownerType)) {
+                exactKey = unionDefinition.DeclaredTypeName
+                    + "."
+                    + qualifiedCase.Substring(separator + 1)
+                return true
+            }
+        }
+        return false
+    }
+
+    private static func TryGetUnionCaseByKey(unionDef: ColumnarUnionDef, qualifiedCase: string, out primaryKey: string, out caseDef: ColumnarUnionCaseDef): bool {
+        if (unionDef.Cases.TryGetValue(qualifiedCase, out caseDef)) {
+            primaryKey = qualifiedCase
+            return true
+        }
+
+        for candidate in unionDef.Cases {
+            if (string.Equals(ShortUnionCaseKey(candidate.Key), qualifiedCase, StringComparison.Ordinal)) {
+                primaryKey = candidate.Key
+                caseDef = candidate.Value
+                return true
+            }
+        }
+
+        primaryKey = ""
+        caseDef = null
+        return false
+    }
+
+    // Resolves a match VALUE type to its union def: the OPEN base TypeBuilder (a non-generic union's
+    // scrutinee) or a CLOSED instantiation of a generic union's base (`Opt<int>`), yielding the
+    // instantiation's type arguments (empty when non-generic) for closing case types and field bindings.
+    // A generic union's OPEN base never types a value — bare generic-union annotations decline at
+    // resolution — so a raw generic-definition TypeBuilder returns false.
+    private func TryGetUnionDefForMatchValue(matchValueType: Type, out unionDef: ColumnarUnionDef, out scrutineeArgs: Type[]): bool {
+        unionDef = null
+        scrutineeArgs = Type.EmptyTypes
+        if (matchValueType is TypeBuilder && !matchValueType.get_IsGenericTypeDefinition()) {
+            for u in _unionRegistry.get_Values() {
+                unionBase: Type = u.Base
+                if (unionBase == matchValueType) {
+                    unionDef = u
+                    return true
+                }
+            }
+            return false
+        }
+        if (ColumnarTypeOfPlanner.IsClosedSourceGeneric(matchValueType)) {
+            definition := matchValueType.GetGenericTypeDefinition()
+            for u in _unionRegistry.get_Values() {
+                unionBase: Type = u.Base
+                if (Object.ReferenceEquals(unionBase, definition)) {
+                    unionDef = u
+                    scrutineeArgs = matchValueType.GetGenericArguments()
+                    return true
+                }
+            }
+        }
+        return false
+    }
+
+    // Maps a match value type + qualified case name to the case def, the CONCRETE type to isinst against
+    // (the case CLOSED over the scrutinee's arguments when generic), and those arguments (empty when
+    // non-generic). False when the case is not a registered case of the scrutinee's union.
+    private func TryGetCaseTestType(qualifiedCase: string, matchValueType: Type, out caseDef: ColumnarUnionCaseDef, out caseTestType: Type, out caseArgs: Type[]): bool {
+        caseTestType = null
+        caseArgs = Type.EmptyTypes
+        let columnarDiscard72: string = null
+        if (!TryGetUnionCaseByKey(qualifiedCase, out columnarDiscard72, out caseDef)) {return false}
+        exactUnionBase: Type = caseDef.UnionBase
+        if (matchValueType == exactUnionBase) {
+            caseTestType = caseDef.CaseType
+            return true
+        }
+        if (ColumnarTypeOfPlanner.IsClosedSourceGeneric(matchValueType)) {
+            genericDefinition := matchValueType.GetGenericTypeDefinition()
+            genericUnionBase: Type = caseDef.UnionBase
+            if (Object.ReferenceEquals(genericDefinition, genericUnionBase)) {
+                caseArgs = matchValueType.GetGenericArguments()
+                caseTypeDefinition: Type = caseDef.CaseType
+                caseTestType = caseTypeDefinition.MakeGenericType(caseArgs)
+                return true
+            }
+        }
+        return false
+    }
+
+    // Emit the comparison opcode(s) for `op` over two like-typed values already on the stack, leaving an i4 bool.
+    // `unsigned` selects the unsigned ordering opcodes (Clt_Un/Cgt_Un) for ulong — equality (Ceq) is identical.
+    // `isFloat` (double) uses the ORDERED Clt/Cgt for `<`/`>` (a NaN operand yields false), but `<=`/`>=` must
+    // negate the UNORDERED complement (Cgt_Un/Clt_Un) so a NaN operand yields false too — matching N#'s float
+    // comparison lowering (`a <= b` is `!(a cgt.un b)`). For int/ulong (no NaN) the complement equals the ordering.
+    private func EmitComparison(op: string, unsigned: bool = false, isFloat: bool = false): void {
+        lt := unsigned ? OpCodes.Clt_Un : OpCodes.Clt
+        gt := unsigned ? OpCodes.Cgt_Un : OpCodes.Cgt
+        ltComplement := isFloat ? OpCodes.Clt_Un : lt
+        gtComplement := isFloat ? OpCodes.Cgt_Un : gt
+        if (op == "<") {_il.Emit(lt)}
+        else if (op == ">") {_il.Emit(gt)}
+        else if (op == "==") {_il.Emit(OpCodes.Ceq)}
+        else if (op == "!=") {
+            _il.Emit(OpCodes.Ceq)
+            _il.Emit(OpCodes.Ldc_I4_0)
+            _il.Emit(OpCodes.Ceq)
+        }
+        else if (op == "<=") {
+            _il.Emit(gtComplement)
+            _il.Emit(OpCodes.Ldc_I4_0)
+            _il.Emit(OpCodes.Ceq) // !(a > b)
+        }
+        else if (op == ">=") {
+            _il.Emit(ltComplement)
+            _il.Emit(OpCodes.Ldc_I4_0)
+            _il.Emit(OpCodes.Ceq) // !(a < b)
+        }
+    }
+
+    private func EmitArrayElementLoad(elementType: Type): void {
+        if (elementType == typeof(bool)) {_il.Emit(OpCodes.Ldelem_U1)}
+        else {if (elementType == typeof(int)) {_il.Emit(OpCodes.Ldelem_I4)}
+        else {if (elementType == typeof(uint)) {_il.Emit(OpCodes.Ldelem_U4)}
+        else {if (elementType == typeof(long) || elementType == typeof(ulong)) {_il.Emit(OpCodes.Ldelem_I8)}
+        else {if (elementType == typeof(char)) {_il.Emit(OpCodes.Ldelem_U2)}
+        else {if (elementType == typeof(double)) {_il.Emit(OpCodes.Ldelem_R8)}
+        else {if (elementType == typeof(float)) {_il.Emit(OpCodes.Ldelem_R4)}
+        else {if (elementType == typeof(string)) {_il.Emit(OpCodes.Ldelem_Ref)}
+        else {if (elementType.get_IsGenericParameter()) {_il.Emit(OpCodes.Ldelem, elementType)}
+        else {if (!elementType.get_IsValueType()) {_il.Emit(OpCodes.Ldelem_Ref)}
+        else {_il.Emit(OpCodes.Ldelem, elementType)}}}}}}}}}}
+    }
+
+    private func TryEmitBclMethodCall(callIdx: int, callee: int, legacyWholeSubtreePlanning: bool, out resolvedClrType: Type): bool {
+        resolvedClrType = null
+        memberName := ColumnarNodeTextFacts.Text(_nodes, _source, callee)
+        receiver := Child(callee, 0)
+        argCount := _nodes.ChildCount(callIdx) - 1
+
+        if (_nodes.Kind(receiver) == 6) // a bare identifier receiver that is NOT a value (local/param/sibling) is a type name.
+        {
+            receiverName := ColumnarNodeTextFacts.Text(_nodes, _source, receiver)
+            if (!_locals.ContainsKey(receiverName) && !_liftedLocals.ContainsKey(receiverName) && !_paramOrdinals.ContainsKey(receiverName) && !_siblings.ContainsKey(receiverName)
+                && !IsCurrentInstanceMemberName(receiverName)) {
+                // CALL-STYLE newtype construction through a file-import ALIAS (`Ids.UserId(42)`):
+                // the member names a synthesized newtype and the receiver is the alias qualifier.
+                aliasQualifiedTypeName := receiverName + "." + memberName
+                aliasNewtypeDef: NSharpLang.Compiler.Columnar.ColumnarStructDef? = null
+                if (_typeResolutionStructs.TryGetValue(aliasQualifiedTypeName, out aliasNewtypeDef) && aliasNewtypeDef.IsNewtype
+                    && !_typeResolutionStructs.ContainsKey(receiverName) && !_typeResolutionEnums.ContainsKey(receiverName) && !_typeResolutionUnions.ContainsKey(receiverName)) {
+                    aliasConstructors := aliasNewtypeDef.Constructors
+                    aliasCtorEnumerator := aliasConstructors.GetEnumerator()
+                    try {
+                        while aliasCtorEnumerator.MoveNext() {
+                            aliasCtor := aliasCtorEnumerator.get_Current()
+                            aliasCtorBuilder := aliasCtor.Builder
+                            aliasCtorParamTypes := aliasCtor.ParamTypes
+                            aliasCtorDefaultKinds := aliasCtor.DefaultKinds
+                            aliasCtorDefaultTexts := aliasCtor.DefaultTexts
+                            if (aliasCtorParamTypes.Length == argCount) {
+                                for a := 1; a <= argCount; a++ {
+                                    if (!EmitDeclaredCallArgument(Child(callIdx, a), aliasCtorParamTypes[a - 1], false)) {return false}
+                                }
+                                _il.Emit(OpCodes.Newobj, aliasCtorBuilder)
+                                resolvedClrType = aliasNewtypeDef.Builder
+                                return true
+                            }
+                        }
+                    } finally {
+                        aliasCtorEnumerator.Dispose()
+                    }
+                    return false
+                }
+                return TryEmitStaticCall(callIdx, receiverName, memberName, argCount, legacyWholeSubtreePlanning, out resolvedClrType)
+            }
+        }
+
+        addressableReceiverType: System.Type? = null
+        if (memberName == nameof(JsonElement.ArrayEnumerator.MoveNext) && argCount == 0
+            && TryGetAddressableTargetType(receiver, out addressableReceiverType)
+            && (addressableReceiverType == typeof(JsonElement.ArrayEnumerator) || addressableReceiverType == typeof(JsonElement.ObjectEnumerator))) {
+            if (!EmitAddressOfByRefTarget(receiver, addressableReceiverType)) {return false}
+            _il.Emit(OpCodes.Call, addressableReceiverType.GetMethod(nameof(JsonElement.ArrayEnumerator.MoveNext), Type.EmptyTypes))
+            resolvedClrType = typeof(bool)
+            return true
+        }
+
+        receiverType: System.Type? = null
+        if (!EmitExpression(receiver, out receiverType)) // instance: receiver value goes on the stack first.
+        {
+            return false
+        }
+        if (!TryEmitInstanceCall(callIdx, receiverType, memberName, argCount, legacyWholeSubtreePlanning, out resolvedClrType)) {
+            return false
+        }
+        return true
+    }
+
+    private func IsCurrentInstanceMemberName(name: string): bool {
+        if (_currentStruct == null) {return false}
+        let currentField: System.Reflection.Emit.FieldBuilder = null
+        if (ColumnarSourceMemberChainResolver.TryFindFieldOnChain(_currentStruct, name, out currentField)) {return true}
+        let currentProperty: NSharpLang.Compiler.Columnar.ColumnarPropertyDef = null
+        return TryFindPropertyOnChain(_currentStruct, name, out currentProperty)
+    }
+
+    private func TryEmitJsonSerializerSerializeGenericCall(callIdx: int, callee: int, out resolvedClrType: Type): bool {
+        resolvedClrType = null
+        calleeName := ColumnarNodeTextFacts.Text(_nodes, _source, callee)
+        if (calleeName != nameof(JsonSerializer.Serialize)
+            && calleeName != "JsonSerializer.Serialize") {return false}
+        if (_nodes.ChildCount(callee) != 1 || _nodes.ChildCount(callIdx) - 1 != 2) {return false}
+        targetCanonical: string? = null
+        targetType: System.Type? = null
+        if (!TryBuildTypeNodeCanonical(Child(callee, 0), out targetCanonical)
+            || !TryResolveBodyType(targetCanonical, out targetType)
+            || !ColumnarTypeOfPlanner.IsSupportedType(targetType)) {return false}
+
+        serialize: MethodInfo? = null
+        serializeCandidates := typeof(JsonSerializer).GetMethods(BindingFlags.Public | BindingFlags.Static)
+        serializeIndex := 0
+        while serializeIndex < serializeCandidates.Length && serialize == null {
+            method := serializeCandidates[serializeIndex]
+            if (method.get_Name() == nameof(JsonSerializer.Serialize)
+                && method.get_IsGenericMethodDefinition()
+                && method.get_ReturnType() == typeof(string)) {
+                parameters := method.GetParameters()
+                if (parameters.Length == 2
+                    && parameters[0].get_ParameterType().get_IsGenericParameter()
+                    && parameters[1].get_ParameterType() == typeof(JsonSerializerOptions)) {
+                    serialize = method
+                }
+            }
+            serializeIndex = serializeIndex + 1
+        }
+        if (serialize == null
+            || !EmitDeclaredCallArgument(Child(callIdx, 1), targetType, false)
+            || !EmitDeclaredCallArgument(Child(callIdx, 2), typeof(JsonSerializerOptions), false)) {return false}
+        _il.Emit(OpCodes.Call, serialize.MakeGenericMethod([targetType]))
+        resolvedClrType = typeof(string)
+        return true
+    }
+
+    private func TryEmitJsonSerializerDeserializeGenericCall(callIdx: int, callee: int, out resolvedClrType: Type): bool {
+        resolvedClrType = null
+        calleeName := ColumnarNodeTextFacts.Text(_nodes, _source, callee)
+        if (calleeName != nameof(JsonSerializer.Deserialize)
+            && calleeName != "JsonSerializer.Deserialize") {return false}
+        if (_nodes.ChildCount(callee) != 1 || _nodes.ChildCount(callIdx) - 1 != 2) {return false}
+        targetCanonical: string? = null
+        targetType: System.Type? = null
+        if (!TryBuildTypeNodeCanonical(Child(callee, 0), out targetCanonical)
+            || !TryResolveBodyType(targetCanonical, out targetType)
+            || !ColumnarTypeOfPlanner.IsSupportedType(targetType)) {return false}
+
+        deserialize: MethodInfo? = null
+        deserializeCandidates := typeof(JsonSerializer).GetMethods(BindingFlags.Public | BindingFlags.Static)
+        deserializeIndex := 0
+        while deserializeIndex < deserializeCandidates.Length && deserialize == null {
+            method := deserializeCandidates[deserializeIndex]
+            if (method.get_Name() == nameof(JsonSerializer.Deserialize)
+                && method.get_IsGenericMethodDefinition()) {
+                parameters := method.GetParameters()
+                if (parameters.Length == 2
+                    && parameters[0].get_ParameterType() == typeof(string)
+                    && parameters[1].get_ParameterType() == typeof(JsonSerializerOptions)) {
+                    deserialize = method
+                }
+            }
+            deserializeIndex = deserializeIndex + 1
+        }
+        if (deserialize == null
+            || !EmitDeclaredCallArgument(Child(callIdx, 1), typeof(string), false)
+            || !EmitDeclaredCallArgument(Child(callIdx, 2), typeof(JsonSerializerOptions), false)) {return false}
+        _il.Emit(OpCodes.Call, deserialize.MakeGenericMethod([targetType]))
+        resolvedClrType = targetType
+        return true
+    }
+
+    private func TryEmitExplicitEnumerableExtensionGenericCall(callIdx: int, callee: int, out resolvedClrType: Type): bool {
+        resolvedClrType = null
+        calleeName := ColumnarNodeTextFacts.Text(_nodes, _source, callee)
+        dot := calleeName.LastIndexOf('.')
+        if (dot <= 0 || dot == calleeName.Length - 1) {return false}
+
+        member := calleeName.Substring(dot + 1)
+        if (member != "Cast" && member != "OfType") {return false}
+
+        if (_nodes.ChildCount(callee) != 1 || _nodes.ChildCount(callIdx) != 1) {return false}
+
+        targetCanonical: string? = null
+        targetType: System.Type? = null
+        if (!TryBuildTypeNodeCanonical(Child(callee, 0), out targetCanonical)
+            || !TryResolveBodyType(targetCanonical, out targetType)
+            || !ColumnarTypeOfPlanner.IsSupportedType(targetType)) {return false}
+
+        receiverChain := calleeName.Substring(0, dot)
+        receiverType: System.Type? = null
+        receiverElementType: System.Type? = null
+        if (!TryGetGenericExtensionReceiverChainType(receiverChain, out receiverType)
+            || !TryGetEnumerableElementType(receiverType, out receiverElementType)) {return false}
+
+        method := FindEnumerableCastOrOfTypeMethod(member)
+        if (method == null) {return false}
+
+        emittedReceiverType: System.Type? = null
+        if (!TryEmitGenericExtensionReceiverChain(receiverChain, out emittedReceiverType)
+            || !TypesEquivalent(emittedReceiverType, receiverType)) {return false}
+
+        _il.Emit(OpCodes.Call, method.MakeGenericMethod([targetType]))
+        resolvedClrType = typeof(IEnumerable<int>).GetGenericTypeDefinition().MakeGenericType([targetType])
+        return true
+    }
+
+    private static func FindEnumerableCastOrOfTypeMethod(name: string): MethodInfo? {
+        result: MethodInfo? = null
+        methods := typeof(System.Linq.Enumerable).GetMethods(BindingFlags.Public | BindingFlags.Static)
+        methodIndex := 0
+        while methodIndex < methods.Length && result == null {
+            method := methods[methodIndex]
+            if (method.get_Name() == name
+                && method.get_IsGenericMethodDefinition()
+                && method.GetGenericArguments().Length == 1) {
+                parameters := method.GetParameters()
+                if (parameters.Length == 1 && parameters[0].get_ParameterType() == typeof(IEnumerable)) {
+                    result = method
+                }
+            }
+            methodIndex = methodIndex + 1
+        }
+        return result
+    }
+
+    private func TryGetGenericExtensionReceiverChainType(receiverChain: string, out resolvedClrType: Type): bool {
+        resolvedClrType = null
+        names: string[]? = null
+        if (!ColumnarStaticFieldInitializerEmitter.IsSupportedGenericExtensionReceiverChainText(receiverChain, out names)) {return false}
+
+        root := names[0]
+        local: System.Reflection.Emit.LocalBuilder? = null
+        if (_locals.TryGetValue(root, out local)) {
+            resolvedClrType = local.get_LocalType()
+        }
+        else {ordinal: int = 0
+        if (_paramOrdinals.TryGetValue(root, out ordinal)) {
+            resolvedClrType = _paramTypes[root]
+            if (resolvedClrType.get_IsByRef()) {resolvedClrType = resolvedClrType.GetElementType()}
+        }
+        else {thisField: System.Reflection.Emit.FieldBuilder? = null
+        if (_currentStruct != null && ColumnarSourceMemberChainResolver.TryFindFieldOnChain(_currentStruct, root, out thisField)) {
+            resolvedClrType = thisField.get_FieldType()
+        }
+        else {thisProperty: NSharpLang.Compiler.Columnar.ColumnarPropertyDef? = null
+        if (_currentStruct != null && TryFindPropertyOnChain(_currentStruct, root, out thisProperty)) {
+            resolvedClrType = thisProperty.PropertyType
+        }
+        else {
+            return false
+        }}}}
+
+        for i := 1; i < names.Length; i++ {
+            member := MaybeRewriteInterpolationTupleMemberName(root, names[i])
+            hop: NSharpLang.Compiler.Columnar.ColumnarInterpolationMemberPlan? = null
+            if (!TryResolveInterpolationMemberPlan(resolvedClrType, member, out hop) || hop.ValueType == null) {return false}
+            resolvedClrType = hop.ValueType
+        }
+
+        return resolvedClrType != ColumnarTypeOfPlanner.RequiredVoidType() && ColumnarTypeOfPlanner.IsSupportedType(resolvedClrType)
+    }
+
+    private func TryEmitGenericExtensionReceiverChain(receiverChain: string, out resolvedClrType: Type): bool {
+        resolvedClrType = null
+        names: string[]? = null
+        if (!ColumnarStaticFieldInitializerEmitter.IsSupportedGenericExtensionReceiverChainText(receiverChain, out names)) {return false}
+
+        root := names[0]
+        stackHasCurrentAddress := false
+        local: System.Reflection.Emit.LocalBuilder? = null
+        if (_locals.TryGetValue(root, out local)) {
+            _il.Emit(OpCodes.Ldloc, local)
+            resolvedClrType = local.get_LocalType()
+        }
+        else {ordinal: int = 0
+        if (_paramOrdinals.TryGetValue(root, out ordinal)) {
+            ColumnarArgumentInstructionEmitter.EmitLoad(_il, ordinal)
+            resolvedClrType = _paramTypes[root]
+            if (resolvedClrType.get_IsByRef()) {
+                resolvedClrType = resolvedClrType.GetElementType()
+                EmitLoadByRefElement(resolvedClrType)
+            }
+        }
+        else {thisField: System.Reflection.Emit.FieldBuilder? = null
+        if (_currentStruct != null && ColumnarSourceMemberChainResolver.TryFindFieldOnChain(_currentStruct, root, out thisField)) {
+            _il.Emit(OpCodes.Ldarg_0)
+            _il.Emit(OpCodes.Ldfld, thisField)
+            resolvedClrType = thisField.get_FieldType()
+        }
+        else {thisProperty: NSharpLang.Compiler.Columnar.ColumnarPropertyDef? = null
+        if (_currentStruct != null && TryFindPropertyOnChain(_currentStruct, root, out thisProperty)) {
+            _il.Emit(OpCodes.Ldarg_0)
+            propertyCallOpcode := OpCodes.Call
+            if (_currentStruct.IsReference) {propertyCallOpcode = OpCodes.Callvirt}
+            _il.Emit(propertyCallOpcode, thisProperty.Getter)
+            resolvedClrType = thisProperty.PropertyType
+        }
+        else {
+            return false
+        }}}}
+
+        for i := 1; i < names.Length; i++ {
+            member := MaybeRewriteInterpolationTupleMemberName(root, names[i])
+            hop: NSharpLang.Compiler.Columnar.ColumnarInterpolationMemberPlan? = null
+            if (!TryResolveInterpolationMemberPlan(resolvedClrType, member, out hop) || hop.ValueType == null) {return false}
+            if (!TryEmitResolvedMemberHop(resolvedClrType, hop, ref stackHasCurrentAddress, out resolvedClrType)) {return false}
+        }
+
+        return resolvedClrType != ColumnarTypeOfPlanner.RequiredVoidType() && ColumnarTypeOfPlanner.IsSupportedType(resolvedClrType)
+    }
+
+    private func TryEmitResolvedMemberHop(current: Type, hop: ColumnarInterpolationMemberPlan, ref stackHasCurrentAddress: bool, out resolvedClrType: Type): bool {
+        resolvedClrType = null
+        if (!IsReferenceWriteLink(current) && !stackHasCurrentAddress) {
+            spill := _il.DeclareLocal(current)
+            _il.Emit(OpCodes.Stloc, spill)
+            _il.Emit(OpCodes.Ldloca, spill)
+            stackHasCurrentAddress = true
+        }
+
+        if (hop.Field != null) {
+            _il.Emit(OpCodes.Ldfld, hop.Field)
+        }
+        else {if (hop.Getter != null) {
+            hopCallOpcode := OpCodes.Call
+            if (IsReferenceWriteLink(current)) {hopCallOpcode = OpCodes.Callvirt}
+            _il.Emit(hopCallOpcode, hop.Getter)
+        }
+        else {
+            return false
+        }}
+
+        resolvedClrType = hop.ValueType
+        stackHasCurrentAddress = false
+        return true
+    }
+
+    private func TryEmitBufferMemoryCopy(callIdx: int, out resolvedClrType: Type): bool {
+        resolvedClrType = null
+        sourceNode: int = 0
+        destinationNode: int = 0
+        destinationSizeType: System.Type? = null
+        byteCountType: System.Type? = null
+        if (!TryGetPtrReceiverNode(Child(callIdx, 1), out sourceNode)
+            || !TryGetPtrReceiverNode(Child(callIdx, 2), out destinationNode)
+            || !TryGetPreflightExpressionType(Child(callIdx, 3), out destinationSizeType)
+            || destinationSizeType != typeof(int)
+            || !TryGetPreflightExpressionType(Child(callIdx, 4), out byteCountType)
+            || byteCountType != typeof(int)) {return false}
+
+        readOnlySpanByte := typeof(ReadOnlySpan<byte>)
+        spanByte := typeof(Span<byte>)
+        slice := readOnlySpanByte.GetMethod("Slice", [typeof(int), typeof(int)])
+        copyTo := readOnlySpanByte.GetMethod("CopyTo", [spanByte])
+        if (slice == null || copyTo == null) {return false}
+
+        if (!EmitDeclaredCallArgument(sourceNode, readOnlySpanByte, false)) {return false}
+        sourceTemp := _il.DeclareLocal(readOnlySpanByte)
+        _il.Emit(OpCodes.Stloc, sourceTemp)
+        _il.Emit(OpCodes.Ldloca, sourceTemp)
+        _il.Emit(OpCodes.Ldc_I4_0)
+        if (!EmitDeclaredCallArgument(Child(callIdx, 4), typeof(int), false)) {return false}
+        _il.Emit(OpCodes.Call, slice)
+
+        slicedTemp := _il.DeclareLocal(readOnlySpanByte)
+        _il.Emit(OpCodes.Stloc, slicedTemp)
+        _il.Emit(OpCodes.Ldloca, slicedTemp)
+        if (!EmitDeclaredCallArgument(destinationNode, spanByte, false)) {return false}
+        _il.Emit(OpCodes.Call, copyTo)
+        resolvedClrType = ColumnarTypeOfPlanner.RequiredVoidType()
+        return true
+    }
+
+    private func TryGetPtrReceiverNode(node: int, out receiverNode: int): bool {
+        node = UnwrapParenthesizedNode(node)
+        if (_nodes.Kind(node) == 8 && ColumnarNodeTextFacts.Text(_nodes, _source, node) == "ptr" && _nodes.ChildCount(node) == 1) {
+            receiverNode = Child(node, 0)
+            return true
+        }
+        receiverNode = -1
+        return false
+    }
+
+    private func TryEmitStaticCall(callIdx: int, typeName: string, member: string, argCount: int, legacyWholeSubtreePlanning: bool, out resolvedClrType: Type): bool {
+        resolvedClrType = null
+        userType: NSharpLang.Compiler.Columnar.ColumnarStructDef? = null
+        if (_typeResolutionStructs.TryGetValue(typeName, out userType)) {
+            useExpandedParams := false
+            userStatic: NSharpLang.Compiler.Columnar.ColumnarStaticMethodDef? = null
+            if (TryFindStaticMethodOnChain(userType, member, argCount, out userStatic)) {
+                useExpandedParams = ShouldUseExpandedParamsCall(callIdx, userStatic.ParamTypes, userStatic.ParamModifierKinds)
+            }
+            else {
+                if (!TryFindStaticExpandedParamsMethodOnChain(userType, member, callIdx, out userStatic)) {return Decline("emit.call.static-user-member-unmodeled", "static call '" + typeName + "." + member + "' with " + argCount.ToString() + " argument(s) is not modeled", callIdx)}
+                useExpandedParams = true
+            }
+            if (useExpandedParams) {return TryEmitStaticExpandedParamsCall(callIdx, userStatic, out resolvedClrType)}
+            if (!legacyWholeSubtreePlanning && !ColumnarSourceDirectCallResolver.IsExcludedStaticDefinition(userStatic)) {return false}
+            if (argCount != userStatic.ParamTypes.Length) {return Decline("emit.call.static-user-member-unmodeled", "static call '" + typeName + "." + member + "' with " + argCount.ToString() + " argument(s) is not modeled", callIdx)}
+            for a := 1; a <= argCount; a++ {
+                if (!EmitDeclaredCallArgument(Child(callIdx, a), userStatic.ParamTypes[a - 1], true)) {return Decline("emit.call.static-user-argument", "static call argument " + a.ToString() + " for '" + typeName + "." + member + "' could not be emitted", Child(callIdx, a))}
+            }
+            _il.Emit(OpCodes.Call, userStatic.Builder)
+            resolvedClrType = userStatic.ReturnType
+            return true
+        }
+        if (_typeResolutionEnums.ContainsKey(typeName) || _typeResolutionUnions.ContainsKey(typeName)) {return false}
+        if (TryEmitPlannedExternalCall(typeName, true, member, callIdx, legacyWholeSubtreePlanning, out resolvedClrType)) {return true}
+        if (!legacyWholeSubtreePlanning) {return false}
+        if (typeName == "Console"
+            && (member == nameof(Console.Write) || member == nameof(Console.WriteLine))
+            && argCount == 1) {
+            method := typeof(Console).GetMethod(member, [typeof(string)])
+            if (method == null || !EmitArg(callIdx, 1, typeof(string))) {return false}
+            _il.Emit(OpCodes.Call, method)
+            resolvedClrType = ColumnarTypeOfPlanner.RequiredVoidType()
+            return true
+        }
+        if ((typeName == "JsonConvert" || typeName == "Newtonsoft.Json.JsonConvert")
+            && member == "SerializeObject"
+            && argCount == 1) {
+            jsonConvert: System.Type? = null
+            if (!ColumnarCompilerReferenceResolver.TryResolveReferencedType(
+                    _referenceAssemblyPaths,
+                    "Newtonsoft.Json",
+                    "Newtonsoft.Json.JsonConvert",
+                    out jsonConvert)) {return false}
+            method: MethodInfo? = null
+            jsonMethods := jsonConvert.GetMethods(BindingFlags.Public | BindingFlags.Static)
+            jsonMethodIndex := 0
+            while jsonMethodIndex < jsonMethods.Length && method == null {
+                candidate := jsonMethods[jsonMethodIndex]
+                if (candidate.get_Name() == "SerializeObject" && candidate.get_ReturnType() == typeof(string)) {
+                    parameters := candidate.GetParameters()
+                    if (parameters.Length == 1 && parameters[0].get_ParameterType() == typeof(object)) {
+                        method = candidate
+                    }
+                }
+                jsonMethodIndex = jsonMethodIndex + 1
+            }
+            if (method == null
+                || !EmitDeclaredCallArgument(Child(callIdx, 1), typeof(object), false)) {return false}
+            _il.Emit(OpCodes.Call, method)
+            resolvedClrType = typeof(string)
+            return true
+        }
+        if ((typeName == "WebApplication" || typeName == "Microsoft.AspNetCore.Builder.WebApplication")
+            && member == "CreateBuilder"
+            && argCount == 1) {
+            webApplication: System.Type? = null
+            if (!ColumnarCompilerReferenceResolver.TryResolveReferencedType(
+                    _referenceAssemblyPaths,
+                    "Microsoft.AspNetCore",
+                    "Microsoft.AspNetCore.Builder.WebApplication",
+                    out webApplication)) {return false}
+            method := webApplication.GetMethod("CreateBuilder", [typeof(string[])])
+            if (method == null || !EmitArg(callIdx, 1, typeof(string[]))) {return false}
+            _il.Emit(OpCodes.Call, method)
+            resolvedClrType = method.get_ReturnType()
+            return true
+        }
+        // The receiver may be the type NAME `Char` (via `using System`) or the builtin alias `char` (the
+        // lowercase keyword) — both bind to System.Char, so accept either.
+        if ((typeName == "Char" || typeName == "char") && argCount == 1) {
+            // Static System.Char methods taking a single char: classifiers (-> bool) and invariant case
+            // transforms (-> char). The result type comes from the resolved method.
+            method: MethodInfo? = null
+            if (member == "IsLetterOrDigit") {method = typeof(char).GetMethod(nameof(char.IsLetterOrDigit), [typeof(char)])}
+            else if (member == "IsLetter") {method = typeof(char).GetMethod(nameof(char.IsLetter), [typeof(char)])}
+            else if (member == "IsDigit") {method = typeof(char).GetMethod(nameof(char.IsDigit), [typeof(char)])}
+            else if (member == "IsWhiteSpace") {method = typeof(char).GetMethod(nameof(char.IsWhiteSpace), [typeof(char)])}
+            else if (member == "IsLower") {method = typeof(char).GetMethod(nameof(char.IsLower), [typeof(char)])}
+            else if (member == "IsUpper") {method = typeof(char).GetMethod(nameof(char.IsUpper), [typeof(char)])}
+            else if (member == "ToLowerInvariant") {method = typeof(char).GetMethod(nameof(char.ToLowerInvariant), [typeof(char)])}
+            else if (member == "ToUpperInvariant") {method = typeof(char).GetMethod(nameof(char.ToUpperInvariant), [typeof(char)])}
+            if (method == null) {return false}
+            if (!EmitArg(callIdx, 1, typeof(char))) {return false}
+            _il.Emit(OpCodes.Call, method)
+            resolvedClrType = method.get_ReturnType()
+            return true
+        }
+        if (typeName == "BitOperations" && member == "PopCount" && argCount == 1) {
+            // System.Numerics.BitOperations.PopCount(ulong) -> int (population count / set-bit count). The arg
+            // is a ulong; emit `call` (static). CliQueryParsing.nl uses it to count packed success bits.
+            method := typeof(System.Numerics.BitOperations).GetMethod(nameof(System.Numerics.BitOperations.PopCount), [typeof(ulong)])
+            if (method == null || !EmitArg(callIdx, 1, typeof(ulong))) {return false}
+            _il.Emit(OpCodes.Call, method)
+            resolvedClrType = typeof(int)
+            return true
+        }
+        if ((typeName == "Interlocked" || typeName == "System.Threading.Interlocked")
+            && member == nameof(System.Threading.Interlocked.Increment)
+            && argCount == 1) {
+            refArg := Child(callIdx, 1)
+            if (_nodes.Kind(refArg) != 54 || _nodes.ChildCount(refArg) != 1 || ColumnarNodeTextFacts.Text(_nodes, _source, refArg) != "ref") {return false}
+            elementType: System.Type? = null
+            if (!TryGetAddressableTargetType(Child(refArg, 0), out elementType)
+                || (elementType != typeof(int) && elementType != typeof(long))) {return false}
+            byRefType := elementType.MakeByRefType()
+            method := typeof(System.Threading.Interlocked).GetMethod(
+                nameof(System.Threading.Interlocked.Increment),
+                [byRefType])
+            if (method == null || !EmitByRefCallArgument(refArg, byRefType)) {return false}
+            _il.Emit(OpCodes.Call, method)
+            resolvedClrType = elementType
+            return true
+        }
+        if ((typeName == "BinaryPrimitives" || typeName == "System.Buffers.Binary.BinaryPrimitives")
+            && member == "ReadInt32LittleEndian"
+            && argCount == 1) {
+            spanByteType := typeof(ReadOnlySpan<byte>)
+            method := typeof(System.Buffers.Binary.BinaryPrimitives).GetMethod(
+                nameof(System.Buffers.Binary.BinaryPrimitives.ReadInt32LittleEndian),
+                [spanByteType])
+            if (method == null || !EmitDeclaredCallArgument(Child(callIdx, 1), spanByteType, false)) {return false}
+            _il.Emit(OpCodes.Call, method)
+            resolvedClrType = typeof(int)
+            return true
+        }
+        if ((typeName == "BinaryPrimitives" || typeName == "System.Buffers.Binary.BinaryPrimitives")
+            && member == "WriteUInt32LittleEndian"
+            && argCount == 2) {
+            spanByteType := typeof(Span<byte>)
+            method := typeof(System.Buffers.Binary.BinaryPrimitives).GetMethod(
+                nameof(System.Buffers.Binary.BinaryPrimitives.WriteUInt32LittleEndian),
+                [spanByteType, typeof(uint)])
+            if (method == null
+                || !EmitDeclaredCallArgument(Child(callIdx, 1), spanByteType, false)
+                || !EmitDeclaredCallArgument(Child(callIdx, 2), typeof(uint), false)) {return false}
+            _il.Emit(OpCodes.Call, method)
+            resolvedClrType = ColumnarTypeOfPlanner.RequiredVoidType()
+            return true
+        }
+        if ((typeName == "Buffer" || typeName == "System.Buffer")
+            && member == nameof(Buffer.MemoryCopy)
+            && argCount == 4) {
+            return TryEmitBufferMemoryCopy(callIdx, out resolvedClrType)
+        }
+        if (typeName == "Math" && member == "Abs" && argCount == 1) {
+            // System.Math.Abs(int) -> int (absolute value). The arg is an int; emit `call` (static). Negative
+            // inputs return the magnitude; int.MinValue throws OverflowException — identical to the N# backend path,
+            // which binds the same overload, so parity holds (the columnar and N# results match, throw included).
+            method := typeof(Math).GetMethod(nameof(Math.Abs), [typeof(int)])
+            if (method == null || !EmitArg(callIdx, 1, typeof(int))) {return false}
+            _il.Emit(OpCodes.Call, method)
+            resolvedClrType = typeof(int)
+            return true
+        }
+        if (typeName == "Math" && member == "Sqrt" && argCount == 1) {
+            method := typeof(Math).GetMethod(nameof(Math.Sqrt), [typeof(double)])
+            if (method == null || !EmitDeclaredCallArgument(Child(callIdx, 1), typeof(double), false)) {return false}
+            _il.Emit(OpCodes.Call, method)
+            resolvedClrType = typeof(double)
+            return true
+        }
+        if (typeName == "Math" && member == "Atan2" && argCount == 2) {
+            method := typeof(Math).GetMethod(nameof(Math.Atan2), [typeof(double), typeof(double)])
+            if (method == null
+                || !EmitDeclaredCallArgument(Child(callIdx, 1), typeof(double), false)
+                || !EmitDeclaredCallArgument(Child(callIdx, 2), typeof(double), false)) {return false}
+            _il.Emit(OpCodes.Call, method)
+            resolvedClrType = typeof(double)
+            return true
+        }
+        if (typeName == "Math" && member == "Max" && argCount == 2) {
+            method := typeof(Math).GetMethod(nameof(Math.Max), [typeof(int), typeof(int)])
+            if (method == null || !EmitArg(callIdx, 1, typeof(int)) || !EmitArg(callIdx, 2, typeof(int))) {return false}
+            _il.Emit(OpCodes.Call, method)
+            resolvedClrType = typeof(int)
+            return true
+        }
+        if (typeName == "Math" && member == "Min" && argCount == 2) {
+            method := typeof(Math).GetMethod(nameof(Math.Min), [typeof(int), typeof(int)])
+            if (method == null || !EmitArg(callIdx, 1, typeof(int)) || !EmitArg(callIdx, 2, typeof(int))) {return false}
+            _il.Emit(OpCodes.Call, method)
+            resolvedClrType = typeof(int)
+            return true
+        }
+        if (typeName == "Path" && member == nameof(Path.GetFullPath) && argCount == 1) {
+            method := typeof(Path).GetMethod(nameof(Path.GetFullPath), [typeof(string)])
+            if (method == null || !EmitArg(callIdx, 1, typeof(string))) {return false}
+            _il.Emit(OpCodes.Call, method)
+            resolvedClrType = typeof(string)
+            return true
+        }
+        if (typeName == "Path" && member == nameof(Path.GetDirectoryName) && argCount == 1) {
+            method := typeof(Path).GetMethod(nameof(Path.GetDirectoryName), [typeof(string)])
+            if (method == null || !EmitArg(callIdx, 1, typeof(string))) {return false}
+            _il.Emit(OpCodes.Call, method)
+            resolvedClrType = typeof(string)
+            return true
+        }
+        if (typeName == "Path" && member == nameof(Path.GetFileName) && argCount == 1) {
+            method := typeof(Path).GetMethod(nameof(Path.GetFileName), [typeof(string)])
+            if (method == null || !EmitArg(callIdx, 1, typeof(string))) {return false}
+            _il.Emit(OpCodes.Call, method)
+            resolvedClrType = typeof(string)
+            return true
+        }
+        if (typeName == "Path" && member == nameof(Path.IsPathRooted) && argCount == 1) {
+            method := typeof(Path).GetMethod(nameof(Path.IsPathRooted), [typeof(string)])
+            if (method == null || !EmitArg(callIdx, 1, typeof(string))) {return false}
+            _il.Emit(OpCodes.Call, method)
+            resolvedClrType = typeof(bool)
+            return true
+        }
+        if (typeName == "Path" && member == nameof(Path.Combine) && argCount == 2) {
+            method := typeof(Path).GetMethod(nameof(Path.Combine), [typeof(string), typeof(string)])
+            if (method == null || !EmitArg(callIdx, 1, typeof(string)) || !EmitArg(callIdx, 2, typeof(string))) {return false}
+            _il.Emit(OpCodes.Call, method)
+            resolvedClrType = typeof(string)
+            return true
+        }
+        if (typeName == "Path" && member == nameof(Path.ChangeExtension) && argCount == 2) {
+            method := typeof(Path).GetMethod(nameof(Path.ChangeExtension), [typeof(string), typeof(string)])
+            if (method == null || !EmitArg(callIdx, 1, typeof(string)) || !EmitArg(callIdx, 2, typeof(string))) {return false}
+            _il.Emit(OpCodes.Call, method)
+            resolvedClrType = typeof(string)
+            return true
+        }
+        if (typeName == "Path" && member == nameof(Path.GetRelativePath) && argCount == 2) {
+            method := typeof(Path).GetMethod(nameof(Path.GetRelativePath), [typeof(string), typeof(string)])
+            if (method == null || !EmitArg(callIdx, 1, typeof(string)) || !EmitArg(callIdx, 2, typeof(string))) {return false}
+            _il.Emit(OpCodes.Call, method)
+            resolvedClrType = typeof(string)
+            return true
+        }
+        if (typeName == "Path" && member == nameof(Path.TrimEndingDirectorySeparator) && argCount == 1) {
+            method := typeof(Path).GetMethod(nameof(Path.TrimEndingDirectorySeparator), [typeof(string)])
+            if (method == null || !EmitArg(callIdx, 1, typeof(string))) {return false}
+            _il.Emit(OpCodes.Call, method)
+            resolvedClrType = typeof(string)
+            return true
+        }
+        if (typeName == "Directory" && member == nameof(Directory.Exists) && argCount == 1) {
+            method := typeof(Directory).GetMethod(nameof(Directory.Exists), [typeof(string)])
+            if (method == null || !EmitArg(callIdx, 1, typeof(string))) {return false}
+            _il.Emit(OpCodes.Call, method)
+            resolvedClrType = typeof(bool)
+            return true
+        }
+        if (typeName == "Directory" && member == nameof(Directory.CreateDirectory) && argCount == 1) {
+            method := typeof(Directory).GetMethod(nameof(Directory.CreateDirectory), [typeof(string)])
+            if (method == null || !EmitArg(callIdx, 1, typeof(string))) {return false}
+            _il.Emit(OpCodes.Call, method)
+            resolvedClrType = typeof(DirectoryInfo)
+            return true
+        }
+        if (typeName == "Directory" && member == nameof(Directory.GetFiles) && argCount == 3) {
+            method := typeof(Directory).GetMethod(nameof(Directory.GetFiles), [typeof(string), typeof(string), typeof(SearchOption)])
+            if (method == null || !EmitArg(callIdx, 1, typeof(string)) || !EmitArg(callIdx, 2, typeof(string)) || !EmitArg(callIdx, 3, typeof(SearchOption))) {return false}
+            _il.Emit(OpCodes.Call, method)
+            resolvedClrType = typeof(string[])
+            return true
+        }
+        if (typeName == "Directory" && member == nameof(Directory.GetDirectories) && argCount == 3) {
+            method := typeof(Directory).GetMethod(nameof(Directory.GetDirectories), [typeof(string), typeof(string), typeof(SearchOption)])
+            if (method == null || !EmitArg(callIdx, 1, typeof(string)) || !EmitArg(callIdx, 2, typeof(string)) || !EmitArg(callIdx, 3, typeof(SearchOption))) {return false}
+            _il.Emit(OpCodes.Call, method)
+            resolvedClrType = typeof(string[])
+            return true
+        }
+        if (typeName == "File" && member == nameof(File.WriteAllText) && argCount == 2) {
+            method := typeof(File).GetMethod(nameof(File.WriteAllText), [typeof(string), typeof(string)])
+            if (method == null || !EmitArg(callIdx, 1, typeof(string)) || !EmitArg(callIdx, 2, typeof(string))) {return false}
+            _il.Emit(OpCodes.Call, method)
+            resolvedClrType = ColumnarTypeOfPlanner.RequiredVoidType()
+            return true
+        }
+        if (typeName == "File" && member == nameof(File.Exists) && argCount == 1) {
+            method := typeof(File).GetMethod(nameof(File.Exists), [typeof(string)])
+            if (method == null || !EmitArg(callIdx, 1, typeof(string))) {return false}
+            _il.Emit(OpCodes.Call, method)
+            resolvedClrType = typeof(bool)
+            return true
+        }
+        if (typeName == "File" && member == nameof(File.ReadAllText) && argCount == 1) {
+            method := typeof(File).GetMethod(nameof(File.ReadAllText), [typeof(string)])
+            if (method == null || !EmitArg(callIdx, 1, typeof(string))) {return false}
+            _il.Emit(OpCodes.Call, method)
+            resolvedClrType = typeof(string)
+            return true
+        }
+        if (typeName == "File" && member == nameof(File.OpenRead) && argCount == 1) {
+            method := typeof(File).GetMethod(nameof(File.OpenRead), [typeof(string)])
+            if (method == null || !EmitArg(callIdx, 1, typeof(string))) {return false}
+            _il.Emit(OpCodes.Call, method)
+            resolvedClrType = typeof(Stream)
+            return true
+        }
+        if (typeName == "File" && member == nameof(File.ReadAllLines) && argCount == 1) {
+            method := typeof(File).GetMethod(nameof(File.ReadAllLines), [typeof(string)])
+            if (method == null || !EmitArg(callIdx, 1, typeof(string))) {return false}
+            _il.Emit(OpCodes.Call, method)
+            resolvedClrType = typeof(string[])
+            return true
+        }
+        if (typeName == "File" && member == nameof(File.ReadAllLinesAsync) && argCount == 1) {
+            method := typeof(File).GetMethod(nameof(File.ReadAllLinesAsync), [typeof(string), typeof(System.Threading.CancellationToken)])
+            if (method == null
+                || !EmitArg(callIdx, 1, typeof(string))
+                || !TryEmitDefaultValue(typeof(System.Threading.CancellationToken))) {return false}
+            _il.Emit(OpCodes.Call, method)
+            resolvedClrType = typeof(System.Threading.Tasks.Task<string[]>)
+            return true
+        }
+        if (typeName == "File" && member == nameof(File.WriteAllLinesAsync) && argCount == 2) {
+            method := typeof(File).GetMethod(nameof(File.WriteAllLinesAsync), [typeof(string), typeof(IEnumerable<string>), typeof(System.Threading.CancellationToken)])
+            if (method == null
+                || !EmitArg(callIdx, 1, typeof(string))
+                || !EmitArg(callIdx, 2, typeof(IEnumerable<string>))
+                || !TryEmitDefaultValue(typeof(System.Threading.CancellationToken))) {return false}
+            _il.Emit(OpCodes.Call, method)
+            resolvedClrType = typeof(System.Threading.Tasks.Task)
+            return true
+        }
+        if (typeName == "File" && member == nameof(File.Copy) && argCount == 3) {
+            method := typeof(File).GetMethod(nameof(File.Copy), [typeof(string), typeof(string), typeof(bool)])
+            if (method == null || !EmitArg(callIdx, 1, typeof(string)) || !EmitArg(callIdx, 2, typeof(string)) || !EmitArg(callIdx, 3, typeof(bool))) {return false}
+            _il.Emit(OpCodes.Call, method)
+            resolvedClrType = ColumnarTypeOfPlanner.RequiredVoidType()
+            return true
+        }
+        if (typeName == "Environment" && member == nameof(Environment.GetEnvironmentVariable) && argCount == 1) {
+            method := typeof(Environment).GetMethod(nameof(Environment.GetEnvironmentVariable), [typeof(string)])
+            if (method == null || !EmitArg(callIdx, 1, typeof(string))) {return false}
+            _il.Emit(OpCodes.Call, method)
+            resolvedClrType = typeof(string)
+            return true
+        }
+        if (typeName == "Environment" && member == nameof(Environment.GetCommandLineArgs) && argCount == 0) {
+            method := typeof(Environment).GetMethod(nameof(Environment.GetCommandLineArgs), Type.EmptyTypes)
+            if (method == null) {return false}
+            _il.Emit(OpCodes.Call, method)
+            resolvedClrType = typeof(string[])
+            return true
+        }
+        if (typeName == "Environment" && member == nameof(Environment.GetFolderPath) && argCount == 1) {
+            method := typeof(Environment).GetMethod(nameof(Environment.GetFolderPath), [typeof(Environment.SpecialFolder)])
+            if (method == null || !EmitArg(callIdx, 1, typeof(Environment.SpecialFolder))) {return false}
+            _il.Emit(OpCodes.Call, method)
+            resolvedClrType = typeof(string)
+            return true
+        }
+        if (typeName == "JsonSerializer" && member == nameof(JsonSerializer.Serialize) && argCount == 2) {
+            valueType: System.Type? = null
+            if (!EmitExpression(Child(callIdx, 1), out valueType)
+                || !EmitArg(callIdx, 2, typeof(JsonSerializerOptions))) {return false}
+            serialize: MethodInfo? = null
+            serializeCandidates := typeof(JsonSerializer).GetMethods(BindingFlags.Public | BindingFlags.Static)
+            serializeIndex := 0
+            while serializeIndex < serializeCandidates.Length && serialize == null {
+                method := serializeCandidates[serializeIndex]
+                if (method.get_Name() == nameof(JsonSerializer.Serialize)
+                    && method.get_IsGenericMethodDefinition()
+                    && method.get_ReturnType() == typeof(string)) {
+                    parameters := method.GetParameters()
+                    if (parameters.Length == 2
+                        && parameters[0].get_ParameterType().get_IsGenericParameter()
+                        && parameters[1].get_ParameterType() == typeof(JsonSerializerOptions)) {
+                        serialize = method
+                    }
+                }
+                serializeIndex = serializeIndex + 1
+            }
+            if (serialize == null) {return false}
+            _il.Emit(OpCodes.Call, serialize.MakeGenericMethod([valueType]))
+            resolvedClrType = typeof(string)
+            return true
+        }
+        if (typeName == "TimeSpan" && member == nameof(TimeSpan.FromMinutes) && argCount == 1) {
+            method := typeof(TimeSpan).GetMethod(nameof(TimeSpan.FromMinutes), [typeof(double)])
+            if (method == null || !EmitDeclaredCallArgument(Child(callIdx, 1), typeof(double), false)) {return false}
+            _il.Emit(OpCodes.Call, method)
+            resolvedClrType = typeof(TimeSpan)
+            return true
+        }
+        if (typeName == "DateTime" && member == nameof(DateTime.Parse) && argCount == 1) {
+            method := typeof(DateTime).GetMethod(nameof(DateTime.Parse), [typeof(string)])
+            if (method == null || !EmitArg(callIdx, 1, typeof(string))) {return false}
+            _il.Emit(OpCodes.Call, method)
+            resolvedClrType = typeof(DateTime)
+            return true
+        }
+        if (typeName == "Convert" && member == nameof(Convert.ToInt32) && argCount == 1) {
+            method := typeof(Convert).GetMethod(nameof(Convert.ToInt32), [typeof(object)])
+            if (method == null || !EmitDeclaredCallArgument(Child(callIdx, 1), typeof(object), false)) {return false}
+            _il.Emit(OpCodes.Call, method)
+            resolvedClrType = typeof(int)
+            return true
+        }
+        if (typeName == "Convert" && member == nameof(Convert.ToUInt64) && argCount == 2) {
+            method := typeof(Convert).GetMethod(nameof(Convert.ToUInt64), [typeof(string), typeof(int)])
+            if (method == null || !EmitArg(callIdx, 1, typeof(string)) || !EmitArg(callIdx, 2, typeof(int))) {return false}
+            _il.Emit(OpCodes.Call, method)
+            resolvedClrType = typeof(ulong)
+            return true
+        }
+        if ((typeName == "UInt64" || typeName == "ulong") && member == nameof(UInt64.Parse) && argCount == 2) {
+            method := typeof(ulong).GetMethod(nameof(ulong.Parse), [typeof(string), typeof(IFormatProvider)])
+            if (method == null || !EmitArg(callIdx, 1, typeof(string)) || !EmitArg(callIdx, 2, typeof(IFormatProvider))) {return false}
+            _il.Emit(OpCodes.Call, method)
+            resolvedClrType = typeof(ulong)
+            return true
+        }
+        if ((typeName == "UInt64" || typeName == "ulong") && member == nameof(UInt64.Parse) && argCount == 3) {
+            method := typeof(ulong).GetMethod(nameof(ulong.Parse), [typeof(string), typeof(System.Globalization.NumberStyles), typeof(IFormatProvider)])
+            if (method == null
+                || !EmitArg(callIdx, 1, typeof(string))
+                || !EmitArg(callIdx, 2, typeof(System.Globalization.NumberStyles))
+                || !EmitArg(callIdx, 3, typeof(IFormatProvider))) {return false}
+            _il.Emit(OpCodes.Call, method)
+            resolvedClrType = typeof(ulong)
+            return true
+        }
+        if (typeName == "Enum" && member == nameof(Enum.GetName) && argCount == 2) {
+            method := typeof(Enum).GetMethod(nameof(Enum.GetName), [typeof(Type), typeof(object)])
+            if (method == null
+                || !EmitArg(callIdx, 1, typeof(Type))
+                || !EmitDeclaredCallArgument(Child(callIdx, 2), typeof(object), false)) {return false}
+            _il.Emit(OpCodes.Call, method)
+            resolvedClrType = typeof(string)
+            return true
+        }
+        if (typeName == "Enum" && member == nameof(Enum.ToObject) && argCount == 2) {
+            method := typeof(Enum).GetMethod(nameof(Enum.ToObject), [typeof(Type), typeof(object)])
+            if (method == null
+                || !EmitArg(callIdx, 1, typeof(Type))
+                || !EmitDeclaredCallArgument(Child(callIdx, 2), typeof(object), false)) {return false}
+            _il.Emit(OpCodes.Call, method)
+            resolvedClrType = typeof(object)
+            return true
+        }
+        if (typeName == "JsonDocument" && member == nameof(JsonDocument.Parse) && argCount == 1) {
+            method := typeof(JsonDocument).GetMethod(nameof(JsonDocument.Parse), [typeof(string), typeof(JsonDocumentOptions)])
+            if (method == null || !EmitArg(callIdx, 1, typeof(string))) {return false}
+            options := _il.DeclareLocal(typeof(JsonDocumentOptions))
+            _il.Emit(OpCodes.Ldloca, options)
+            _il.Emit(OpCodes.Initobj, typeof(JsonDocumentOptions))
+            _il.Emit(OpCodes.Ldloc, options)
+            _il.Emit(OpCodes.Call, method)
+            resolvedClrType = typeof(JsonDocument)
+            return true
+        }
+        if (typeName == "Task" && member == nameof(System.Threading.Tasks.Task.Run) && argCount == 1) {
+            method := typeof(System.Threading.Tasks.Task).GetMethod(nameof(System.Threading.Tasks.Task.Run), [typeof(Action)])
+            if (method == null || !EmitDeclaredCallArgument(Child(callIdx, 1), typeof(Action), true)) {return false}
+            _il.Emit(OpCodes.Call, method)
+            resolvedClrType = typeof(System.Threading.Tasks.Task)
+            return true
+        }
+        if (typeName == "Task" && member == nameof(System.Threading.Tasks.Task.WaitAll) && argCount >= 1) {
+            method := typeof(System.Threading.Tasks.Task).GetMethod(nameof(System.Threading.Tasks.Task.WaitAll), [typeof(System.Threading.Tasks.Task[])])
+            if (method == null) {return false}
+
+            taskArrayType := typeof(System.Threading.Tasks.Task[])
+            directArgType: System.Type? = null
+            if (argCount == 1
+                && TryGetPreflightExpressionType(Child(callIdx, 1), out directArgType)
+                && TypesEquivalent(directArgType, taskArrayType)) {
+                if (!EmitDeclaredCallArgument(Child(callIdx, 1), taskArrayType, false)) {return false}
+            }
+            else {
+                _il.Emit(OpCodes.Ldc_I4, argCount)
+                _il.Emit(OpCodes.Newarr, typeof(System.Threading.Tasks.Task))
+                for a := 1; a <= argCount; a++ {
+                    _il.Emit(OpCodes.Dup)
+                    _il.Emit(OpCodes.Ldc_I4, a - 1)
+                    if (!EmitDeclaredCallArgument(Child(callIdx, a), typeof(System.Threading.Tasks.Task), false)) {return false}
+                    _il.Emit(OpCodes.Stelem_Ref)
+                }
+            }
+
+            _il.Emit(OpCodes.Call, method)
+            resolvedClrType = ColumnarTypeOfPlanner.RequiredVoidType()
+            return true
+        }
+        if (typeName == "ArgumentNullException" && member == nameof(ArgumentNullException.ThrowIfNull) && argCount == 1) {
+            method := typeof(ArgumentNullException).GetMethod(nameof(ArgumentNullException.ThrowIfNull), [typeof(object), typeof(string)])
+            if (method == null || !EmitDeclaredCallArgument(Child(callIdx, 1), typeof(object), false)) {return false}
+            _il.Emit(OpCodes.Ldnull)
+            _il.Emit(OpCodes.Call, method)
+            resolvedClrType = ColumnarTypeOfPlanner.RequiredVoidType()
+            return true
+        }
+        if (typeName == "ArgumentException" && member == nameof(ArgumentException.ThrowIfNullOrWhiteSpace) && argCount == 1) {
+            method := typeof(ArgumentException).GetMethod(nameof(ArgumentException.ThrowIfNullOrWhiteSpace), [typeof(string), typeof(string)])
+            if (method == null || !EmitDeclaredCallArgument(Child(callIdx, 1), typeof(string), false)) {return false}
+            _il.Emit(OpCodes.Ldnull)
+            _il.Emit(OpCodes.Call, method)
+            resolvedClrType = ColumnarTypeOfPlanner.RequiredVoidType()
+            return true
+        }
+        if ((typeName == "String" || typeName == "string") && member == nameof(string.Equals) && argCount == 3) {
+            method := typeof(string).GetMethod(nameof(string.Equals), [typeof(string), typeof(string), typeof(StringComparison)])
+            if (method == null
+                || !EmitArg(callIdx, 1, typeof(string))
+                || !EmitArg(callIdx, 2, typeof(string))
+                || !EmitArg(callIdx, 3, typeof(StringComparison))) {return false}
+            _il.Emit(OpCodes.Call, method)
+            resolvedClrType = typeof(bool)
+            return true
+        }
+        if ((typeName == "String" || typeName == "string") && member == "Compare") {
+            // String.Compare overloads -> int (ordinal/culture comparison sign). Two shapes are modelled:
+            //   3-arg: Compare(string, string, StringComparison)
+            //   6-arg: Compare(string, int, string, int, int, StringComparison)
+            // Both take a StringComparison enum constant as the LAST arg (emitted as its underlying int). The
+            // return is the comparison sign (<0 / 0 / >0), matching the numeric binder's pick of the same overload.
+            if (argCount == 3) {
+                method := typeof(string).GetMethod(nameof(string.Compare),
+                    [typeof(string), typeof(string), typeof(StringComparison)])
+                if (method == null
+                    || !EmitArg(callIdx, 1, typeof(string)) || !EmitArg(callIdx, 2, typeof(string))
+                    || !EmitArg(callIdx, 3, typeof(StringComparison))) {return false}
+                _il.Emit(OpCodes.Call, method)
+                resolvedClrType = typeof(int)
+                return true
+            }
+            if (argCount == 6) {
+                method := typeof(string).GetMethod(nameof(string.Compare),
+                    [typeof(string), typeof(int), typeof(string), typeof(int), typeof(int), typeof(StringComparison)])
+                if (method == null
+                    || !EmitArg(callIdx, 1, typeof(string)) || !EmitArg(callIdx, 2, typeof(int))
+                    || !EmitArg(callIdx, 3, typeof(string)) || !EmitArg(callIdx, 4, typeof(int))
+                    || !EmitArg(callIdx, 5, typeof(int)) || !EmitArg(callIdx, 6, typeof(StringComparison))) {return false}
+                _il.Emit(OpCodes.Call, method)
+                resolvedClrType = typeof(int)
+                return true
+            }
+            return false
+        }
+        if ((typeName == "String" || typeName == "string") && member == nameof(string.CompareOrdinal) && argCount == 2) {
+            // String.CompareOrdinal(string, string) -> int (ordinal comparison sign by UTF-16 code unit).
+            method := typeof(string).GetMethod(nameof(string.CompareOrdinal), [typeof(string), typeof(string)])
+            if (method == null
+                || !EmitArg(callIdx, 1, typeof(string))
+                || !EmitArg(callIdx, 2, typeof(string))) {return false}
+            _il.Emit(OpCodes.Call, method)
+            resolvedClrType = typeof(int)
+            return true
+        }
+        if ((typeName == "String" || typeName == "string") && member == "IsNullOrWhiteSpace" && argCount == 1) {
+            method := typeof(string).GetMethod(nameof(string.IsNullOrWhiteSpace), [typeof(string)])
+            if (method == null || !EmitArg(callIdx, 1, typeof(string))) {return false}
+            _il.Emit(OpCodes.Call, method)
+            resolvedClrType = typeof(bool)
+            return true
+        }
+        if ((typeName == "String" || typeName == "string") && member == "IsNullOrEmpty" && argCount == 1) {
+            method := typeof(string).GetMethod(nameof(string.IsNullOrEmpty), [typeof(string)])
+            if (method == null || !EmitArg(callIdx, 1, typeof(string))) {return false}
+            _il.Emit(OpCodes.Call, method)
+            resolvedClrType = typeof(bool)
+            return true
+        }
+        if ((typeName == "String" || typeName == "string") && member == "Join" && argCount == 2) {
+            // Residual string-element server only. The generic `String.Join<T>` surface (every
+            // non-string primitive element sequence) is owned by the N# front-door plan in
+            // ColumnarExternalBindingPlans.GetStaticCallPlan, so it never reaches this legacy arm.
+            valuesType := typeof(IEnumerable<string>)
+            if (CanDeclaredCallArgumentMatch(Child(callIdx, 2), valuesType, false)) {
+                method := typeof(string).GetMethod(nameof(string.Join), [typeof(string), valuesType])
+                if (method == null || !EmitArg(callIdx, 1, typeof(string)) || !EmitArg(callIdx, 2, valuesType)) {return false}
+                _il.Emit(OpCodes.Call, method)
+                resolvedClrType = typeof(string)
+                return true
+            }
+        }
+        if (typeName == "Array" && member == "Fill" && (argCount == 2 || argCount == 4)) {
+            // Array.Fill<T>(T[] array, T value) and Array.Fill<T>(T[] array, T value, int startIndex, int count)
+            // -> void. The array's element type drives the generic instantiation; the value must match the
+            // element type; ranged fills additionally require int startIndex/count.
+            arrayType: System.Type? = null
+            if (!EmitExpression(Child(callIdx, 1), out arrayType) || !arrayType.get_IsSZArray()) {return false}
+            elementType := arrayType.GetElementType()
+            if (!ColumnarTypeOfPlanner.IsSupportedElementType(elementType)) {return false}
+            if (!EmitArg(callIdx, 2, elementType)) {return false}
+            if (argCount == 4 && (!EmitArg(callIdx, 3, typeof(int)) || !EmitArg(callIdx, 4, typeof(int)))) {return false}
+            fill := ResolveArrayFill(argCount)
+            if (fill == null) {return false}
+            _il.Emit(OpCodes.Call, fill.MakeGenericMethod([elementType]))
+            resolvedClrType = ColumnarTypeOfPlanner.RequiredVoidType()
+            return true
+        }
+        if (typeName == "Array" && member == "Resize" && argCount == 2) {
+            // Array.Resize<T>(ref T[] array, int newSize) -> void. Keep this as an exact ref-to-SZ-array
+            // special case instead of opening general byref reference slots in IsSupportedParameterType.
+            refArg := Child(callIdx, 1)
+            if (_nodes.Kind(refArg) != 54 || _nodes.ChildCount(refArg) != 1 || ColumnarNodeTextFacts.Text(_nodes, _source, refArg) != "ref") {return false}
+            arrayType: System.Type? = null
+            if (!TryGetAddressableTargetType(Child(refArg, 0), out arrayType)
+                || !arrayType.get_IsSZArray()) {return false}
+            elementType := arrayType.GetElementType()
+            if (!ColumnarTypeOfPlanner.IsSupportedElementType(elementType)) {return false}
+            if (!EmitByRefCallArgument(refArg, arrayType.MakeByRefType())
+                || !EmitArg(callIdx, 2, typeof(int))) {return false}
+            resize := ResolveArrayResize()
+            if (resize == null) {return false}
+            _il.Emit(OpCodes.Call, resize.MakeGenericMethod([elementType]))
+            resolvedClrType = ColumnarTypeOfPlanner.RequiredVoidType()
+            return true
+        }
+        if (typeName == "Array" && member == "Sort" && (argCount == 1 || argCount == 2 || argCount == 3 || argCount == 4)) {
+            // Array.Sort<T>(T[] array), Array.Sort<T>(T[] array, IComparer<T> comparer),
+            // Array.Sort<T>(T[] array, int index, int length), and the ranged IComparer<T> overload -> void.
+            // Keep this to one supported SZ array; key/value parallel arrays and comparison-delegate
+            // overloads stay declined.
+            arrayType: System.Type? = null
+            if (!EmitExpression(Child(callIdx, 1), out arrayType) || !arrayType.get_IsSZArray()) {return false}
+            elementType := arrayType.GetElementType()
+            if (!ColumnarTypeOfPlanner.IsSupportedElementType(elementType)) {return false}
+            if (argCount == 2 && !EmitArg(callIdx, 2, typeof(IComparer<int>).GetGenericTypeDefinition().MakeGenericType([elementType]))) {return false}
+            if (argCount == 3 && (!EmitArg(callIdx, 2, typeof(int)) || !EmitArg(callIdx, 3, typeof(int)))) {return false}
+            if (argCount == 4
+                && (!EmitArg(callIdx, 2, typeof(int))
+                    || !EmitArg(callIdx, 3, typeof(int))
+                    || !EmitArg(callIdx, 4, typeof(IComparer<int>).GetGenericTypeDefinition().MakeGenericType([elementType])))) {return false}
+            sort := ResolveArraySort(argCount)
+            if (sort == null) {return false}
+            _il.Emit(OpCodes.Call, sort.MakeGenericMethod([elementType]))
+            resolvedClrType = ColumnarTypeOfPlanner.RequiredVoidType()
+            return true
+        }
+        if (typeName == "Array" && member == "Reverse" && (argCount == 1 || argCount == 3)) {
+            // Array.Reverse<T>(T[] array) and Array.Reverse<T>(T[] array, int index, int length) -> void. Keep
+            // this to one supported SZ array; non-generic Array and unsupported element shapes stay declined.
+            arrayType: System.Type? = null
+            if (!EmitExpression(Child(callIdx, 1), out arrayType) || !arrayType.get_IsSZArray()) {return false}
+            elementType := arrayType.GetElementType()
+            if (!ColumnarTypeOfPlanner.IsSupportedElementType(elementType)) {return false}
+            if (argCount == 3 && (!EmitArg(callIdx, 2, typeof(int)) || !EmitArg(callIdx, 3, typeof(int)))) {return false}
+            reverse := ResolveArrayReverse(argCount)
+            if (reverse == null) {return false}
+            _il.Emit(OpCodes.Call, reverse.MakeGenericMethod([elementType]))
+            resolvedClrType = ColumnarTypeOfPlanner.RequiredVoidType()
+            return true
+        }
+        if (typeName == "Array" && member == "Clear" && (argCount == 1 || argCount == 3)) {
+            // Array.Clear(Array) and Array.Clear(Array, int, int) -> void. The emitted argument remains the
+            // concrete T[] reference; the BCL parameter is System.Array, so no copy or element loop is introduced.
+            arrayType: System.Type? = null
+            if (!EmitExpression(Child(callIdx, 1), out arrayType) || !arrayType.get_IsSZArray()) {return false}
+            elementType := arrayType.GetElementType()
+            if (!ColumnarTypeOfPlanner.IsSupportedElementType(elementType)) {return false}
+
+            clear: MethodInfo? = null
+            if (argCount == 1) {
+                clear = typeof(Array).GetMethod(nameof(Array.Clear), [typeof(Array)])
+            }
+            else {
+                clear = typeof(Array).GetMethod(nameof(Array.Clear), [typeof(Array), typeof(int), typeof(int)])
+                if (!EmitArg(callIdx, 2, typeof(int)) || !EmitArg(callIdx, 3, typeof(int))) {return false}
+            }
+            if (clear == null) {return false}
+            _il.Emit(OpCodes.Call, clear)
+            resolvedClrType = ColumnarTypeOfPlanner.RequiredVoidType()
+            return true
+        }
+        if (typeName == "Array" && member == "Copy" && (argCount == 3 || argCount == 5)) {
+            // Array.Copy(Array, Array, int) and Array.Copy(Array, int, Array, int, int) -> void. Keep this slice
+            // to exact same-element SZ-array copies; wider Array covariance and long-index overloads stay declined.
+            sourceArrayType: System.Type? = null
+            if (!EmitExpression(Child(callIdx, 1), out sourceArrayType) || !sourceArrayType.get_IsSZArray()) {return false}
+
+            copy: MethodInfo? = null
+            if (argCount == 3) {
+                destinationArrayType: System.Type? = null
+                if (!EmitExpression(Child(callIdx, 2), out destinationArrayType)
+                    || !AreSameSupportedArrayType(sourceArrayType, destinationArrayType)
+                    || !EmitArg(callIdx, 3, typeof(int))) {return false}
+                copy = typeof(Array).GetMethod(nameof(Array.Copy), [typeof(Array), typeof(Array), typeof(int)])
+            }
+            else {
+                destinationArrayType: System.Type? = null
+                if (!EmitArg(callIdx, 2, typeof(int))
+                    || !EmitExpression(Child(callIdx, 3), out destinationArrayType)
+                    || !AreSameSupportedArrayType(sourceArrayType, destinationArrayType)
+                    || !EmitArg(callIdx, 4, typeof(int))
+                    || !EmitArg(callIdx, 5, typeof(int))) {return false}
+                copy = typeof(Array).GetMethod(nameof(Array.Copy), [typeof(Array), typeof(int), typeof(Array), typeof(int), typeof(int)])
+            }
+            if (copy == null) {return false}
+            _il.Emit(OpCodes.Call, copy)
+            resolvedClrType = ColumnarTypeOfPlanner.RequiredVoidType()
+            return true
+        }
+        return Decline(
+            "emit.call.static-member-unmodeled",
+            "static call '" + typeName + "." + member + "' with " + argCount.ToString() + " argument(s) is not modeled",
+            callIdx)
+    }
+
+    private static func AreSameSupportedArrayType(sourceArrayType: Type, destinationArrayType: Type): bool {
+        if (!sourceArrayType.get_IsSZArray() || !destinationArrayType.get_IsSZArray()) {return false}
+        sourceElementType := sourceArrayType.GetElementType()
+        destinationElementType := destinationArrayType.GetElementType()
+        return sourceElementType == destinationElementType && ColumnarTypeOfPlanner.IsSupportedElementType(sourceElementType)
+    }
+
+    // System.Array.Fill<T> as a generic method DEFINITION. The caller binds T via MakeGenericMethod(elementType).
+    // Returns null if the requested overload is unexpectedly absent (then the call declines).
+    private static func ResolveArrayFill(parameterCount: int): MethodInfo? {
+        for m in typeof(System.Array).GetMethods(BindingFlags.Public | BindingFlags.Static) {
+            if (m.get_Name() == "Fill" && m.get_IsGenericMethodDefinition() && m.GetParameters().Length == parameterCount) {return m}
+        }
+        return null
+    }
+
+    private static func ResolveMemoryExtensionsAsSpan(argumentCount: int): MethodInfo? {
+        for method in typeof(MemoryExtensions).GetMethods(BindingFlags.Public | BindingFlags.Static) {
+            if (method.get_Name() != nameof(MemoryExtensions.AsSpan)
+                || !method.get_IsGenericMethodDefinition()) {continue}
+            parameters := method.GetParameters()
+            if (argumentCount == 0
+                && parameters.Length == 1
+                && parameters[0].get_ParameterType().get_IsArray()
+                && parameters[0].get_ParameterType().GetElementType().get_IsGenericParameter()) {return method}
+            if (argumentCount == 2
+                && parameters.Length == 3
+                && parameters[0].get_ParameterType().get_IsArray()
+                && parameters[0].get_ParameterType().GetElementType().get_IsGenericParameter()
+                && parameters[1].get_ParameterType() == typeof(int)
+                && parameters[2].get_ParameterType() == typeof(int)) {return method}
+        }
+        return null
+    }
+
+    // System.Array.Resize<T>(ref T[] array, int newSize) as a generic method DEFINITION.
+    private static func ResolveArrayResize(): MethodInfo? {
+        for m in typeof(System.Array).GetMethods(BindingFlags.Public | BindingFlags.Static) {
+            if (m.get_Name() != "Resize" || !m.get_IsGenericMethodDefinition()) {continue}
+            parameters := m.GetParameters()
+            if (parameters.Length == 2 && parameters[0].get_ParameterType().get_IsByRef() && parameters[1].get_ParameterType() == typeof(int)) {return m}
+        }
+        return null
+    }
+
+    // System.Array.Sort<T>(T[] array[, int index, int length][, IComparer<T> comparer]) as a generic method
+    // DEFINITION: 1 = array only, 2 = array + comparer, 3 = array + range, 4 = array + range + comparer.
+    // The single-type-parameter guard keeps the key/value Sort<TKey, TValue> family out of every arity.
+    private static func ResolveArraySort(parameterCount: int): MethodInfo? {
+        methods := typeof(System.Array).GetMethods(BindingFlags.Public | BindingFlags.Static)
+        methodIndex := 0
+        while (methodIndex < methods.Length) {
+            m := methods[methodIndex]
+            if (m.get_Name() == "Sort"
+                && m.get_IsGenericMethodDefinition()
+                && m.GetGenericArguments().Length == 1) {
+                parameters := m.GetParameters()
+                if (parameters.Length == parameterCount
+                    && parameters[0].get_ParameterType().get_IsSZArray()
+                    && parameters[0].get_ParameterType().GetElementType().get_IsGenericParameter()) {
+                    rangeParametersMatch := parameterCount < 3
+                        || (parameters[1].get_ParameterType() == typeof(int)
+                            && parameters[2].get_ParameterType() == typeof(int))
+                    if (rangeParametersMatch) {
+                        comparerMatches := true
+                        if (parameterCount == 2 || parameterCount == 4) {
+                            comparerType := parameters[parameterCount - 1].get_ParameterType()
+                            comparerMatches = comparerType.get_IsGenericType()
+                                && comparerType.GetGenericTypeDefinition() == typeof(IComparer<int>).GetGenericTypeDefinition()
+                        }
+                        if (comparerMatches) {return m}
+                    }
+                }
+            }
+            methodIndex++
+        }
+        return null
+    }
+
+    // System.Array.Reverse<T>(T[] array[, int index, int length]) as a generic method DEFINITION.
+    private static func ResolveArrayReverse(parameterCount: int): MethodInfo? {
+        for m in typeof(System.Array).GetMethods(BindingFlags.Public | BindingFlags.Static) {
+            if (m.get_Name() != "Reverse" || !m.get_IsGenericMethodDefinition()) {continue}
+            parameters := m.GetParameters()
+            if (parameters.Length != parameterCount
+                || !parameters[0].get_ParameterType().get_IsSZArray()
+                || !parameters[0].get_ParameterType().GetElementType().get_IsGenericParameter()) {continue}
+            if (parameterCount == 1
+                || (parameters[1].get_ParameterType() == typeof(int) && parameters[2].get_ParameterType() == typeof(int))) {return m}
+        }
+        return null
+    }
+
+    // ---- Named-tuple element names (the columnar mirror of the legacy emitter's _tupleElementNamesByVariable) ----
+
+    // The tuple element names statically derivable for an expression node: an identifier with tracked
+    // names, a parenthesized wrap, a NAMED tuple literal (kind-17 with kind-43 wrappers), or a direct
+    // sibling call whose declared return type carries names. Null = no names (no rewrite happens).
+    private func TupleNamesOfExpressionNode(node: int): string[]? {
+        nodeKind := _nodes.Kind(node)
+        if (nodeKind == 6) {
+            variableNames: string[]? = null
+            if (_nodes.ValueStart(node) >= 0
+                && _tupleNamesByVariable.TryGetValue(ColumnarNodeTextFacts.Text(_nodes, _source, node), out variableNames)) {
+                return variableNames
+            }
+            return null
+        }
+        if (nodeKind == 7) {
+            if (_nodes.ChildCount(node) == 1) {return TupleNamesOfExpressionNode(Child(node, 0))}
+            return null
+        }
+        if (nodeKind == 17) {
+            if (_nodes.ChildCount(node) == 0 || _nodes.Kind(Child(node, 0)) != 43) {return null}
+            literalNames := new string[](_nodes.ChildCount(node))
+            for i := 0; i < literalNames.Length; i++ {
+                elementNode := Child(node, i)
+                if (_nodes.Kind(elementNode) != 43) {return null} // all-or-nothing by the kernel; defensive.
+                literalNames[i] = ColumnarNodeTextFacts.Text(_nodes, _source, elementNode)
+            }
+            return literalNames
+        }
+        if (nodeKind == 9) {
+            callee := Child(node, 0)
+            returnNames: string[]? = null
+            if (_nodes.Kind(callee) == 6 && _nodes.ValueStart(callee) >= 0 && _siblingReturnTupleNames != null
+                && !_locals.ContainsKey(ColumnarNodeTextFacts.Text(_nodes, _source, callee)) && !_paramOrdinals.ContainsKey(ColumnarNodeTextFacts.Text(_nodes, _source, callee))
+                && _siblingReturnTupleNames.TryGetValue(ColumnarNodeTextFacts.Text(_nodes, _source, callee), out returnNames)) {
+                return returnNames
+            }
+            return null
+        }
+        return null
+    }
+
+    private func TryEmitStringCharConcat(leftType: Type, rightType: Type, out resolvedClrType: Type): bool {
+        resolvedClrType = null
+        if (leftType == typeof(string) && rightType == typeof(char)) {
+            EmitTopCharToString()
+            _il.Emit(OpCodes.Call, typeof(string).GetMethod(nameof(string.Concat), [typeof(string), typeof(string)]))
+            resolvedClrType = typeof(string)
+            return true
+        }
+
+        if (leftType == typeof(char) && rightType == typeof(string)) {
+            right := _il.DeclareLocal(typeof(string))
+            _il.Emit(OpCodes.Stloc, right)
+            EmitTopCharToString()
+            _il.Emit(OpCodes.Ldloc, right)
+            _il.Emit(OpCodes.Call, typeof(string).GetMethod(nameof(string.Concat), [typeof(string), typeof(string)]))
+            resolvedClrType = typeof(string)
+            return true
+        }
+
+        return false
+    }
+
+    private func EmitTopCharToString(): void {
+        value := _il.DeclareLocal(typeof(char))
+        _il.Emit(OpCodes.Stloc, value)
+        _il.Emit(OpCodes.Ldloca, value)
+        _il.Emit(OpCodes.Call, typeof(char).GetMethod(nameof(char.ToString), Type.EmptyTypes))
+    }
+
+    // N#'s implicit NUMERIC widening for the modelled scalars, emitted as a conversion on the value
+    // already on the stack: the int-promotable set (int/char/small ints) -> long (conv.i8), -> double
+    // (conv.r8), -> float (conv.r4), or -> int (identity — the load already extended); long/float ->
+    // double; long -> float. uint/ulong SOURCES are excluded (their extension/precision rules are
+    // subtler — those mixes decline, pinned for a later rung).
+    private func TryEmitImplicitWidening(source: Type, target: Type): bool {
+        if (ColumnarNumericFacts.IsIntPromotable(source)) {
+            if (target == typeof(int)) {return true} // already an extended i4.
+            if (target == typeof(long)) { _il.Emit(OpCodes.Conv_I8) return true }
+            if (target == typeof(double)) { _il.Emit(OpCodes.Conv_R8) return true }
+            if (target == typeof(float)) { _il.Emit(OpCodes.Conv_R4) return true }
+            if (target == typeof(decimal)) {
+                fromType := source == typeof(char) ? typeof(char) : typeof(int)
+                conversion := typeof(decimal).GetMethod("op_Implicit", BindingFlags.Public | BindingFlags.Static, null, [fromType], null)
+                if (conversion == null) {return false}
+                _il.Emit(OpCodes.Call, conversion)
+                return true
+            }
+            return false
+        }
+        if (source == typeof(long)) {
+            if (target == typeof(double)) { _il.Emit(OpCodes.Conv_R8) return true }
+            if (target == typeof(float)) { _il.Emit(OpCodes.Conv_R4) return true }
+            if (target == typeof(decimal)) {
+                conversion := typeof(decimal).GetMethod("op_Implicit", BindingFlags.Public | BindingFlags.Static, null, [typeof(long)], null)
+                if (conversion == null) {return false}
+                _il.Emit(OpCodes.Call, conversion)
+                return true
+            }
+            return false
+        }
+        if (source == typeof(float) && target == typeof(double)) { _il.Emit(OpCodes.Conv_R8) return true }
+        return false
+    }
+
+    private func TryEmitMixedNumericBinary(idx: int, op: string, out resolvedClrType: Type): bool {
+        resolvedClrType = null
+        if (op != "+" && op != "-" && op != "*" && op != "/" && op != "%"
+            && op != "<" && op != ">" && op != "<=" && op != ">=" && op != "==" && op != "!=") {return false}
+
+        leftNode := Child(idx, 0)
+        rightNode := Child(idx, 1)
+        leftType: System.Type? = null
+        rightType: System.Type? = null
+        opType: System.Type? = null
+        if (!TryGetPreflightExpressionType(leftNode, out leftType)
+            || !TryGetPreflightExpressionType(rightNode, out rightType)
+            || TypesEquivalent(leftType, rightType)
+            || !TrySelectMixedNumericCommonType(leftType, rightType, out opType)) {return false}
+
+        emittedLeft: System.Type? = null
+        if (!EmitExpression(leftNode, out emittedLeft)
+            || (!TypesEquivalent(emittedLeft, opType) && !TryEmitImplicitWidening(emittedLeft, opType))) {return false}
+        emittedRight: System.Type? = null
+        if (!EmitExpression(rightNode, out emittedRight)
+            || (!TypesEquivalent(emittedRight, opType) && !TryEmitImplicitWidening(emittedRight, opType))) {return false}
+
+        if (op == "+") {
+            _il.Emit(OpCodes.Add)
+            resolvedClrType = opType
+            return true
+        }
+        if (op == "-") {
+            _il.Emit(OpCodes.Sub)
+            resolvedClrType = opType
+            return true
+        }
+        if (op == "*") {
+            _il.Emit(OpCodes.Mul)
+            resolvedClrType = opType
+            return true
+        }
+        if (op == "/") {
+            _il.Emit(OpCodes.Div)
+            resolvedClrType = opType
+            return true
+        }
+        if (op == "%") {
+            _il.Emit(OpCodes.Rem)
+            resolvedClrType = opType
+            return true
+        }
+        if (op == "<" || op == ">" || op == "<=" || op == ">=") {
+            EmitComparison(op, false, opType == typeof(double) || opType == typeof(float))
+            resolvedClrType = typeof(bool)
+            return true
+        }
+        if (op == "==" || op == "!=") {
+            EmitComparison(op, false, false)
+            resolvedClrType = typeof(bool)
+            return true
+        }
+        return false
+    }
+
+    private static func TrySelectMixedNumericCommonType(left: Type, right: Type, out common: Type): bool {
+        common = null
+        if (left == typeof(double) || right == typeof(double)) {common = typeof(double)}
+        else {if (left == typeof(float) || right == typeof(float)) {common = typeof(float)}
+        else {if (left == typeof(long) || right == typeof(long)) {common = typeof(long)}
+        else {return false}}}
+
+        return CanUseImplicitNumericWidening(left, common)
+            && CanUseImplicitNumericWidening(right, common)
+    }
+
+    private static func CanUseImplicitNumericWidening(source: Type, target: Type): bool {
+        if (TypesEquivalent(source, target)) {return true}
+        if (ColumnarNumericFacts.IsIntPromotable(source)) {return target == typeof(int) || target == typeof(long) || target == typeof(double) || target == typeof(float)}
+        if (source == typeof(long)) {return target == typeof(double) || target == typeof(float)}
+        if (source == typeof(float)) {return target == typeof(double)}
+        return false
+    }
+
+    private func TryEmitAnonymousUnionConversion(source: Type, target: Type): bool {
+        if (!CanUseAnonymousUnionConversion(source, target)) {return false}
+
+        arms := target.GetGenericArguments()
+        for i := 0; i < arms.Length; i++ {
+            if (TypesEquivalent(source, arms[i])) {
+                ctor: System.Reflection.ConstructorInfo? = null
+                if (!TryGetAnonymousUnionArmCtor(target, i, out ctor)) {return false}
+                _il.Emit(OpCodes.Newobj, ctor)
+                return true
+            }
+        }
+
+        return false
+    }
+
+    private static func CanUseAnonymousUnionConversion(source: Type, target: Type): bool {
+        if (source == ColumnarTypeOfPlanner.RequiredVoidType() || !ColumnarTypeOfPlanner.IsSupportedAnonymousUnionType(target)) {return false}
+
+        arms := target.GetGenericArguments()
+        for i := 0; i < arms.Length; i++ {
+            if (TypesEquivalent(source, arms[i])) {return true}
+        }
+
+        return false
+    }
+
+    private static func TryGetAnonymousUnionArmCtor(unionType: Type, armIndex: int, out ctor: ConstructorInfo): bool {
+        ctor = null
+        if (!ColumnarTypeOfPlanner.IsSupportedAnonymousUnionType(unionType)) {return false}
+
+        openCtors := typeof(NSharpLang.Runtime.Union<int, int>).GetGenericTypeDefinition().GetConstructors(BindingFlags.Public | BindingFlags.Instance)
+        for i := 0; i < openCtors.Length; i++ {
+            parameters := openCtors[i].GetParameters()
+            if (parameters.Length == 1
+                && parameters[0].get_ParameterType().get_IsGenericParameter()
+                && parameters[0].get_ParameterType().get_GenericParameterPosition() == armIndex) {
+                ctor = ResolveClosedGenericCtor(unionType, openCtors[i])
+                return true
+            }
+        }
+
+        return false
+    }
+
+    private static func TryGetAnonymousUnionGenericMethod(unionType: Type, name: string, typeArgument: Type, out method: MethodInfo): bool {
+        method = null
+        if (!ColumnarTypeOfPlanner.IsSupportedAnonymousUnionType(unionType)) {return false}
+
+        openMethods := typeof(NSharpLang.Runtime.Union<int, int>).GetGenericTypeDefinition().GetMethods(BindingFlags.Public | BindingFlags.Instance)
+        for i := 0; i < openMethods.Length; i++ {
+            candidate := openMethods[i]
+            if (candidate.get_Name() == name
+                && candidate.get_IsGenericMethodDefinition()
+                && candidate.GetGenericArguments().Length == 1
+                && candidate.GetParameters().Length == 0) {
+                method = ResolveClosedGenericMethod(unionType, candidate).MakeGenericMethod([typeArgument])
+                return true
+            }
+        }
+
+        return false
+    }
+
+    private func TryEmitSupportedBclPropertyAssignment(receiverNode: int, member: string, valueNode: int): bool {
+        receiverNode = UnwrapParenthesizedNode(receiverNode)
+
+        receiverType: Type = null
+        receiverLocal: LocalBuilder? = null
+        receiverOrdinal := -1
+        if (_nodes.Kind(receiverNode) == 6) {
+            receiverName := ColumnarNodeTextFacts.Text(_nodes, _source, receiverNode)
+            if (_liftedLocals.ContainsKey(receiverName) || (_boxedCaptures != null && _boxedCaptures.ContainsKey(receiverName))) {return false}
+            local: System.Reflection.Emit.LocalBuilder? = null
+            if (_locals.TryGetValue(receiverName, out local)) {
+                receiverLocal = local
+                receiverType = local.get_LocalType()
+            }
+            else {ordinal: int = 0
+            if (_paramOrdinals.TryGetValue(receiverName, out ordinal)) {
+                receiverOrdinal = ordinal
+                receiverType = _paramTypes[receiverName]
+            }
+            else {
+                return false
+            }}
+        }
+        else {
+            if (!TryGetPreflightExpressionType(receiverNode, out receiverType)) {return false}
+        }
+
+        property: System.Reflection.PropertyInfo? = null
+        if (!TryGetSupportedBclWritableProperty(receiverType, member, out property)) {return false}
+
+        if (receiverLocal != null) {_il.Emit(OpCodes.Ldloc, receiverLocal)}
+        else {if (receiverOrdinal >= 0) {ColumnarArgumentInstructionEmitter.EmitLoad(_il, receiverOrdinal)}
+        else {emittedReceiverType: System.Type? = null
+        if (!EmitExpression(receiverNode, out emittedReceiverType) || !TypesEquivalent(emittedReceiverType, receiverType)) {return false}}}
+
+        propertyType := property.get_PropertyType()
+        valueType: Type = null
+        if (TryEmitNullLiteralAsType(valueNode, propertyType, out valueType)) {
+            // Null adopted to the declared reference property type.
+        }
+        else {if (!EmitExpression(valueNode, out valueType)) {
+            return false
+        }}
+        if (!TypesEquivalent(valueType, propertyType)
+            && !TryEmitImplicitWidening(valueType, propertyType)
+            && !ColumnarReferenceCoercionPlanner.TryEmitInterfaceUpcast(valueType, propertyType, _structRegistry, _il)
+            && !ColumnarReferenceConversionFacts.TryEmitReferenceConversion(valueType, propertyType)
+            && !ColumnarReferenceCoercionPlanner.TryEmitObjectConversion(valueType, propertyType, _structRegistry, _il)
+            && !TryEmitAnonymousUnionConversion(valueType, propertyType)) {return false}
+
+        _il.Emit(OpCodes.Callvirt, property.get_SetMethod())
+        return true
+    }
+
+    // A DECIMAL literal (`2.5m`, `5m` — suffix already stripped): the IL emit is the bits-decomposed
+    // 5-arg Decimal ctor (lo, mid, hi, isNegative, scale) — exact, never via double.
+    private func TryEmitDecimalLiteral(body: string, out resolvedClrType: Type): bool {
+        resolvedClrType = null
+        value: decimal = 0
+        if (!Decimal.TryParse(body.Replace("_", ""), System.Globalization.CultureInfo.InvariantCulture, out value)) {return false}
+        bits := Decimal.GetBits(value)
+        _il.Emit(OpCodes.Ldc_I4, bits[0])
+        _il.Emit(OpCodes.Ldc_I4, bits[1])
+        _il.Emit(OpCodes.Ldc_I4, bits[2])
+        sign := 0
+        if (bits[3] < 0) {sign = 1}
+        _il.Emit(OpCodes.Ldc_I4, sign)
+        _il.Emit(OpCodes.Ldc_I4, (bits[3] >> 16) & 0xFF)
+        _il.Emit(OpCodes.Newobj, typeof(decimal).GetConstructor([typeof(int), typeof(int), typeof(int), typeof(bool), typeof(byte)]))
+        resolvedClrType = typeof(decimal)
+        return true
+    }
+
+    // LIFTING onto a Nullable<T> target (null N2): a bare NULL emits default(T?) (initobj on a temp);
+    // an already-T? value passes through; a T-typed value (or an int literal adopting T) wraps via
+    // `newobj Nullable<T>(T)` — the exact N# conversions for `n: int? = 5` / `= null` / `= v` / `= m`.
+    // The caller must invoke this ONLY when the target IS a supported Nullable, and a FALSE return is a
+    // WHOLE-PROGRAM decline (the value may already be on the stack — never fall through and re-emit).
+    private func TryEmitValueAsNullable(node: int, target: Type, out resolvedClrType: Type): bool {
+        resolvedClrType = null
+        element := target.GetGenericArguments()[0]
+        if (_nodes.Kind(node) == 5) {
+            defaultLocal := _il.DeclareLocal(target)
+            _il.Emit(OpCodes.Ldloca, defaultLocal)
+            _il.Emit(OpCodes.Initobj, target)
+            _il.Emit(OpCodes.Ldloc, defaultLocal)
+            resolvedClrType = target
+            return true
+        }
+        intLiteralType: System.Type? = null
+        if (TryEmitIntLiteralAsType(node, element, out intLiteralType)) {
+            _il.Emit(OpCodes.Newobj, target.GetConstructor([element]))
+            resolvedClrType = target
+            return true
+        }
+        emitted: System.Type? = null
+        if (!EmitExpression(node, out emitted)) {return false}
+        if (TypesEquivalent(emitted, target)) {
+            resolvedClrType = target // already a T? value — pass through.
+            return true
+        }
+        if (!TypesEquivalent(emitted, element)) {return false} // emitted-but-wrong — the caller declines the whole program (stack abandoned).
+        _il.Emit(OpCodes.Newobj, target.GetConstructor([element]))
+        resolvedClrType = target
+        return true
+    }
+
+    // A bare NULL literal (kind 5) adopts any REFERENCE-typed target (`return null` on a string
+    // function, `s = null`, a null argument) — N#'s null-assignability for the modelled set. Value-typed
+    // targets decline (Nullable<T> is the N2 rung).
+    private func TryEmitNullLiteralAsType(node: int, target: Type, out resolvedClrType: Type): bool {
+        resolvedClrType = null
+        if (_nodes.Kind(node) != 5 || target.get_IsValueType()) {return false}
+        _il.Emit(OpCodes.Ldnull)
+        resolvedClrType = target
+        return true
+    }
+
+    private func TryEmitArrayLiteralAsType(node: int, target: Type, out resolvedClrType: Type): bool {
+        resolvedClrType = null
+        if (!CanUseArrayLiteralAsType(node, target)) {return false}
+        elementType := target.GetElementType()
+        elementCount := _nodes.ChildCount(node)
+        _il.Emit(OpCodes.Ldc_I4, elementCount)
+        _il.Emit(OpCodes.Newarr, elementType)
+        for i := 0; i < elementCount; i++ {
+            _il.Emit(OpCodes.Dup)
+            _il.Emit(OpCodes.Ldc_I4, i)
+            assignedElementType: System.Type? = null
+            if (!TryEmitAssignableValue(Child(node, i), elementType, out assignedElementType)) {return false}
+            if (!EmitArrayElementStore(elementType)) {return false}
+        }
+        resolvedClrType = target
+        return true
+    }
+
+    private func CanUseArrayLiteralAsType(node: int, target: Type): bool {
+        node = UnwrapParenthesizedNode(node)
+        if (_nodes.Kind(node) != 58 || !target.get_IsSZArray()) {return false}
+        elementType := target.GetElementType()
+        if (!ColumnarTypeOfPlanner.IsSupportedElementType(elementType)) {return false}
+        elementCount := _nodes.ChildCount(node)
+        for i := 0; i < elementCount; i++ {
+            if (!CanEmitAssignableValueAsType(Child(node, i), elementType)) {return false}
+        }
+        return true
+    }
+
+    private func TryEmitCollectionLiteralAsType(node: int, target: Type, out resolvedClrType: Type): bool {
+        resolvedClrType = null
+        literalNode := UnwrapParenthesizedNode(node)
+        elementType: System.Type? = null
+        ctor: System.Reflection.ConstructorInfo? = null
+        addMethod: System.Reflection.MethodInfo? = null
+        if (!CanUseCollectionLiteralAsType(literalNode, target)
+            || !TryGetCollectionLiteralTarget(target, out elementType, out ctor, out addMethod)) {return false}
+
+        _il.Emit(OpCodes.Newobj, ctor)
+        elementCount := _nodes.ChildCount(literalNode)
+        for i := 0; i < elementCount; i++ {
+            _il.Emit(OpCodes.Dup)
+            assignedElementType: System.Type? = null
+            if (!TryEmitAssignableValue(Child(literalNode, i), elementType, out assignedElementType)) {return false}
+            _il.Emit(OpCodes.Callvirt, addMethod)
+            if (addMethod.get_ReturnType() != ColumnarTypeOfPlanner.RequiredVoidType()) {_il.Emit(OpCodes.Pop)}
+        }
+        resolvedClrType = target
+        return true
+    }
+
+    private func CanUseCollectionLiteralAsType(node: int, target: Type): bool {
+        node = UnwrapParenthesizedNode(node)
+        elementType: System.Type? = null
+        ignoredCtor: System.Reflection.ConstructorInfo? = null
+        ignoredAddMethod: System.Reflection.MethodInfo? = null
+        if (_nodes.Kind(node) != 58
+            || !TryGetCollectionLiteralTarget(target, out elementType, out ignoredCtor, out ignoredAddMethod)) {return false}
+        elementCount := _nodes.ChildCount(node)
+        for i := 0; i < elementCount; i++ {
+            if (!CanEmitAssignableValueAsType(Child(node, i), elementType)) {return false}
+        }
+        return true
+    }
+
+    private func TryGetCollectionLiteralTarget(target: Type, out elementType: Type, out ctor: ConstructorInfo, out addMethod: MethodInfo): bool {
+        elementType = null
+        ctor = null
+        addMethod = null
+        if (!ColumnarTypeOfPlanner.IsSupportedCollectionType(target)) {return false}
+        collectionDefinition := target.GetGenericTypeDefinition()
+        if (collectionDefinition != typeof(List<int>).GetGenericTypeDefinition() && collectionDefinition != typeof(HashSet<int>).GetGenericTypeDefinition()) {return false}
+        elementType = target.GetGenericArguments()[0]
+        if (!ColumnarTypeOfPlanner.IsSupportedElementType(elementType)
+            && !(collectionDefinition == typeof(HashSet<int>).GetGenericTypeDefinition()
+                ? ColumnarTypeOfPlanner.IsAdmissibleHashSetElement(elementType)
+                : ColumnarTypeOfPlanner.IsAdmissibleCollectionElement(elementType))) {return false}
+        openCtor := collectionDefinition.GetConstructor(Type.EmptyTypes)
+        openAdd := collectionDefinition.GetMethod("Add")
+        if (openCtor == null || openAdd == null) {return false}
+        ctor = ResolveClosedGenericCtor(target, openCtor)
+        addMethod = ResolveClosedGenericMethod(target, openAdd)
+        return true
+    }
+
+    private func CanEmitAssignableValueAsType(valueNode: int, targetType: Type): bool {
+        valueNode = UnwrapParenthesizedNode(valueNode)
+        if (_nodes.Kind(valueNode) == 5) {return !targetType.get_IsValueType() || ColumnarTypeOfPlanner.IsSupportedNullable(targetType)}
+        if (CanUseTargetTypedNewAsType(valueNode, targetType)) {return true}
+        if (CanUseObjectInitializerAsType(valueNode, targetType)) {return true}
+        if (CanAdoptIntLiteralAsType(valueNode, targetType)) {return true}
+        if (CanUseCollectionLiteralAsType(valueNode, targetType)) {return true}
+        if (CanUseArrayLiteralAsType(valueNode, targetType)) {return true}
+        valueType: System.Type? = null
+        if (!TryGetPreflightExpressionType(valueNode, out valueType)) {return false}
+        if (ColumnarTypeOfPlanner.IsSupportedNullable(targetType)) {
+            nullableElement := targetType.GetGenericArguments()[0]
+            return TypesEquivalent(valueType, targetType)
+                   || TypesEquivalent(valueType, nullableElement)
+                   || CanUseImplicitNumericWidening(valueType, nullableElement)
+        }
+        return TypesEquivalent(valueType, targetType)
+               || CanUseImplicitNumericWidening(valueType, targetType)
+               || ColumnarReferenceCoercionPlanner.CanUseInterfaceUpcast(valueType, targetType, _structRegistry)
+               || ColumnarReferenceCoercionPlanner.CanUseExternalInterfaceUpcast(valueType, targetType, _structRegistry)
+               || CanUseSpanConversion(valueType, targetType)
+               || ColumnarReferenceConversionFacts.TryEmitReferenceConversion(valueType, targetType)
+               || ColumnarReferenceCoercionPlanner.CanUseObjectConversion(valueType, targetType)
+               || CanUseAnonymousUnionConversion(valueType, targetType)
+    }
+
+    private func CanUseObjectInitializerAsType(node: int, targetType: Type): bool {
+        node = UnwrapParenthesizedNode(node)
+        if (_nodes.Kind(node) != 36 || (targetType.get_IsValueType() && (targetType as TypeBuilder) == null)) {return false}
+
+        initChildCount := _nodes.ChildCount(node)
+        if ((initChildCount % 2) != 1) {return false}
+
+        initCanonical: string? = null
+        initType: System.Type? = null
+        if (!TryBuildTypeNodeCanonical(Child(node, 0), out initCanonical)
+            || !TryResolveBodyType(initCanonical, out initType)
+            || !TypesEquivalent(initType, targetType)) {return false}
+
+        initDef: ColumnarStructDef? = null
+        closedArgs := Array.Empty<Type>()
+        initBuilder := initType as TypeBuilder
+        if (initBuilder != null) {
+            initDef = ColumnarSourceDefinitionResolver.FindByBuilderIdentity(_structRegistry.get_Values(), initBuilder)
+        }
+        else {closedDef: NSharpLang.Compiler.Columnar.ColumnarStructDef? = null
+        closedReceiverArgs: System.Type[]? = null
+        if (TryGetClosedReceiverDef(initType, out closedDef, out closedReceiverArgs)) {
+            initDef = closedDef
+            closedArgs = closedReceiverArgs
+        }}
+        if (initDef == null) {return false}
+        if (initDef.IsReference && initDef.DefaultCtor == null) {return false}
+
+        assigned := new HashSet<string>(StringComparer.Ordinal)
+        for p := 1; p + 1 < initChildCount; p += 2 {
+            nameNode := Child(node, p)
+            valueNode := Child(node, p + 1)
+            if (_nodes.Kind(nameNode) != 6) {return false}
+            memberName := ColumnarNodeTextFacts.Text(_nodes, _source, nameNode)
+            if (!assigned.Add(memberName)) {return false}
+
+            memberType: Type = null
+            property: NSharpLang.Compiler.Columnar.ColumnarPropertyDef? = null
+            if (TryFindPropertyOnChain(initDef, memberName, out property)) {
+                if (property.Setter == null) {return false}
+                memberType = closedArgs.Length == 0 ? property.PropertyType : ColumnarRuntimeInstanceMemberResolver.SubstituteClosedTypeArguments(property.PropertyType, closedArgs)
+            }
+            else {field: System.Reflection.Emit.FieldBuilder? = null
+            if (ColumnarSourceMemberChainResolver.TryFindFieldOnChain(initDef, memberName, out field)) {
+                memberType = closedArgs.Length == 0 ? field.get_FieldType() : ColumnarRuntimeInstanceMemberResolver.SubstituteClosedTypeArguments(field.get_FieldType(), closedArgs)
+            }
+            else {
+                return false
+            }}
+
+            if (!CanEmitAssignableValueAsType(valueNode, memberType)) {return false}
+        }
+
+        return true
+    }
+
+    private func EmitArrayElementStore(elementType: Type): bool {
+        if (elementType == typeof(bool)) {_il.Emit(OpCodes.Stelem_I1)}
+        else {if (elementType == typeof(int) || elementType == typeof(uint)) {_il.Emit(OpCodes.Stelem_I4)}
+        else {if (elementType == typeof(long) || elementType == typeof(ulong)) {_il.Emit(OpCodes.Stelem_I8)}
+        else {if (elementType == typeof(char)) {_il.Emit(OpCodes.Stelem_I2)}
+        else {if (elementType == typeof(double)) {_il.Emit(OpCodes.Stelem_R8)}
+        else {if (elementType == typeof(float)) {_il.Emit(OpCodes.Stelem_R4)}
+        else {if (elementType == typeof(string)) {_il.Emit(OpCodes.Stelem_Ref)}
+        else {if (elementType.get_IsGenericParameter()) {_il.Emit(OpCodes.Stelem, elementType)}
+        else {if (!elementType.get_IsValueType()) {_il.Emit(OpCodes.Stelem_Ref)}
+        else {if (elementType is TypeBuilder || ColumnarTypeOfPlanner.IsSupportedType(elementType)) {_il.Emit(OpCodes.Stelem, elementType)}
+        else {return false}}}}}}}}}}
+        return true
+    }
+
+    // An UNSUFFIXED int literal ADOPTS a small-int/uint/long/ulong target when its value fits — N#'s
+    // implicit constant conversion (`b: byte = 200`, `u: ulong = 10`, `return 50` on a byte function).
+    // Small ints + uint load as i4 (uint over int.MaxValue wraps the bit pattern, the standard emit);
+    // long/ulong load as i8. Suffixed literals, out-of-range values (the pipeline's NL202), and
+    // non-literal nodes return false — the caller falls through to its normal exact-type path.
+    // 023/1e — THE DECISION MOVED TO N#; THIS KEEPS ONLY THE UNWRAPPING AND THE EMIT.
+    // What lived here was ECMA-334 §10.2.11 spelled as a C# table, MIRRORED in N# by
+    // `ColumnarMethodBodyPlanner` (which reasons about this function's behaviour to decide whether the
+    // N# door may claim a body) and by `ColumnarScalarLiteralPlanner`. One rule, three owners, two
+    // languages. `ConstantConversionFacts` is now the single answer, including the three caps that are
+    // deliberately TIGHTER than the spec (uint and positive long/ulong at int.MaxValue, negatives at the
+    // target's MaxValue magnitude) — carried verbatim so the move does not move the answer.
+    // A NEGATIVE literal arrives as unary minus (kind 11, "-") wrapping the bare literal; the value
+    // emits pre-negated, with no Neg opcode.
+    private func TryEmitIntLiteralAsType(node: int, target: Type, out resolvedClrType: Type): bool {
+        resolvedClrType = null
+        negative := false
+        if (_nodes.Kind(node) == 11 && _nodes.ChildCount(node) == 1 && ColumnarNodeTextFacts.Text(_nodes, _source, node) == "-") {
+            negative = true
+            node = Child(node, 0)
+        }
+        if (_nodes.Kind(node) != 0 || _nodes.ValueStart(node) < 0) {return false}
+        text := ColumnarNodeTextFacts.Text(_nodes, _source, node)
+        // §10.2.4 — the literal ZERO adopts any enum type. The analyzer admits it at the same positions;
+        // an enum's storage is its underlying integer, so zero is an `ldc.i4.0`.
+        if (target.get_IsEnum()) {
+            if (!ConstantConversionFacts.IsLiteralZero(text, negative)) {return false}
+            _il.Emit(OpCodes.Ldc_I4_0)
+            resolvedClrType = target
+            return true
+        }
+        value: long = 0
+        if (!ConstantConversionFacts.TryGetInRangeIntegralConstant(target, text, negative, out value)) {return false}
+        if (ConstantConversionFacts.IsInt64ConstantTarget(target)) {_il.Emit(OpCodes.Ldc_I8, value)}
+        else {_il.Emit(OpCodes.Ldc_I4, unchecked((int)value))}
+        resolvedClrType = target
+        return true
+    }
+
+    // Postfix `++`/`--` (kind 44) on a bare LOCAL/PARAM or field of int/long/ulong: load, step by one, store —
+    // keeping the PRE-step value on the stack when `keepValue` (N# post-semantics; `m := n++` reads the
+    // old n). double/float decline (the pipeline's `++` on them silently no-ops — known defect bundle);
+    // lifted/boxed captures, property targets, and unsupported receivers decline.
+    private func TryEmitPostfixUnary(idx: int, keepValue: bool, out resolvedClrType: Type): bool {
+        resolvedClrType = null
+        if (_nodes.ChildCount(idx) != 1) {return false}
+        target := UnwrapParenthesizedNode(Child(idx, 0))
+        if (_nodes.Kind(target) == 8) {return TryEmitMemberPostfixUnary(idx, target, keepValue, out resolvedClrType)}
+        if (_nodes.Kind(target) != 6 || _nodes.ValueStart(target) < 0) {return false}
+        name := ColumnarNodeTextFacts.Text(_nodes, _source, target)
+        if (_liftedLocals.ContainsKey(name) || (_boxedCaptures != null && _boxedCaptures.ContainsKey(name))) {return false}
+        local: LocalBuilder? = null
+        paramOrdinal := -1
+        targetType: Type = null
+        found: System.Reflection.Emit.LocalBuilder? = null
+        if (_locals.TryGetValue(name, out found)) {
+            local = found
+            targetType = found.get_LocalType()
+        }
+        else {ordinal: int = 0
+        if (_paramOrdinals.TryGetValue(name, out ordinal)) {
+            paramOrdinal = ordinal
+            targetType = _paramTypes[name]
+        }
+        else {thisField: System.Reflection.Emit.FieldBuilder? = null
+        if (_currentStruct != null
+                 && (_currentStruct.IsReference || _isConstructorBody)
+                 && ColumnarSourceMemberChainResolver.TryFindFieldOnChain(_currentStruct, name, out thisField)) {
+            targetType = thisField.get_FieldType()
+            if (targetType != typeof(int) && targetType != typeof(long) && targetType != typeof(ulong)) {return false}
+
+            _il.Emit(OpCodes.Ldarg_0)
+            _il.Emit(OpCodes.Dup)
+            _il.Emit(OpCodes.Ldfld, thisField)
+            oldValue: LocalBuilder? = null
+            if (keepValue) {
+                oldValue = _il.DeclareLocal(targetType)
+                _il.Emit(OpCodes.Dup)
+                _il.Emit(OpCodes.Stloc, oldValue)
+            }
+            EmitPostfixStep(targetType, ColumnarNodeTextFacts.Text(_nodes, _source, idx))
+            _il.Emit(OpCodes.Stfld, thisField)
+            if (oldValue != null) {_il.Emit(OpCodes.Ldloc, oldValue)}
+
+            resolvedClrType = targetType
+            return true
+        }
+        else {
+            return false
+        }}}
+        if (targetType != typeof(int) && targetType != typeof(long) && targetType != typeof(ulong)) {return false}
+
+        if (local != null) {_il.Emit(OpCodes.Ldloc, local)}
+        else {ColumnarArgumentInstructionEmitter.EmitLoad(_il, paramOrdinal)}
+        if (keepValue) {_il.Emit(OpCodes.Dup)}
+        EmitPostfixStep(targetType, ColumnarNodeTextFacts.Text(_nodes, _source, idx))
+        if (local != null) {_il.Emit(OpCodes.Stloc, local)}
+        else {ColumnarArgumentInstructionEmitter.EmitStore(_il, paramOrdinal)}
+        resolvedClrType = targetType
+        return true
+    }
+
+    private func TryEmitMemberPostfixUnary(idx: int, target: int, keepValue: bool, out resolvedClrType: Type): bool {
+        resolvedClrType = null
+        chain := new NSharpLang.Compiler.Columnar.ColumnarMemberWriteChain(null, -1, null, null, null)
+        field: System.Reflection.Emit.FieldBuilder? = null
+        if (!TryResolveMemberWriteChain(Child(target, 0), out chain)) {
+            return false
+        }
+        ownerBuilder := chain.ReceiverType as TypeBuilder
+        if (ownerBuilder == null) {
+            return false
+        }
+        ownerDef := ColumnarSourceDefinitionResolver.FindByBuilderIdentity(_structRegistry.get_Values(), ownerBuilder)
+        if (ownerDef == null
+            || !ColumnarSourceMemberChainResolver.TryFindFieldOnChain(ownerDef, ColumnarNodeTextFacts.Text(_nodes, _source, target), out field)) {
+            return false
+        }
+
+        targetType := field.get_FieldType()
+        if (targetType != typeof(int) && targetType != typeof(long) && targetType != typeof(ulong)) {return false}
+
+        EmitMemberWriteLocator(chain)
+        _il.Emit(OpCodes.Dup)
+        _il.Emit(OpCodes.Ldfld, field)
+        oldValue: LocalBuilder? = null
+        if (keepValue) {
+            oldValue = _il.DeclareLocal(targetType)
+            _il.Emit(OpCodes.Stloc, oldValue)
+            _il.Emit(OpCodes.Ldloc, oldValue)
+        }
+        EmitPostfixStep(targetType, ColumnarNodeTextFacts.Text(_nodes, _source, idx))
+        _il.Emit(OpCodes.Stfld, field)
+        if (oldValue != null) {_il.Emit(OpCodes.Ldloc, oldValue)}
+
+        resolvedClrType = targetType
+        return true
+    }
+
+    private func EmitPostfixStep(targetType: Type, op: string): void {
+        _il.Emit(OpCodes.Ldc_I4_1)
+        if (targetType != typeof(int)) {_il.Emit(OpCodes.Conv_I8)} // long AND ulong step by an i8 one (u8 shares the slot).
+        if (_overflowCheckingEnabled) {
+            isUnsigned := targetType == typeof(ulong)
+            overflowOpcode := OpCodes.Sub_Ovf
+            if (op == "++") {
+                overflowOpcode = isUnsigned ? OpCodes.Add_Ovf_Un : OpCodes.Add_Ovf
+            } else {
+                if (isUnsigned) {overflowOpcode = OpCodes.Sub_Ovf_Un}
+            }
+            _il.Emit(overflowOpcode)
+        }
+        else {
+            stepOpcode := OpCodes.Sub
+            if (op == "++") {stepOpcode = OpCodes.Add}
+            _il.Emit(stepOpcode)
+        }
+    }
+
+    // Rewrites a named tuple member to its ItemN spelling when the receiver's tracked names contain it;
+    // any other shape returns the original member (declining exactly as before this feature).
+    private func MaybeRewriteTupleMemberName(receiverNode: int, member: string): string {
+        names := TupleNamesOfExpressionNode(receiverNode)
+        if (names == null) {return member}
+        for i := 0; i < names.Length; i++ {
+            if (names[i] == member) {return "Item" + (i + 1).ToString()}
+        }
+        return member
+    }
+
+    // Rebuilds the canonical type string from an embedded TYPE subtree in the expression node table
+    // (kind 0 Simple = the name text; kind 1 Generic = name<argCanons>; kind 2 Array = element[],
+    // kind 3 Nullable = element?, kind 4 anonymous union = left|right, kind 6 Tuple = ValueTuple<...>,
+    // kind 7 single-child wrapper = transparent
+    // named/parenthesized type element). Other type-node kinds decline until their consumers own the
+    // corresponding emit path.
+    private func TryBuildTypeNodeCanonical(typeNode: int, out canonical: string): bool {
+        typeNodeKind := _nodes.Kind(typeNode)
+        if (typeNodeKind == 0) {
+            canonical = ColumnarNodeTextFacts.Text(_nodes, _source, typeNode)
+            return true
+        }
+        if (typeNodeKind == 1) {
+            builder := new System.Text.StringBuilder(ColumnarNodeTextFacts.Text(_nodes, _source, typeNode))
+            builder.Append('<')
+            for c := 0; c < _nodes.ChildCount(typeNode); c++ {
+                if (c > 0) {builder.Append(',')}
+                argCanonical: string? = null
+                if (!TryBuildTypeNodeCanonical(Child(typeNode, c), out argCanonical)) {
+                    canonical = ""
+                    return false
+                }
+                builder.Append(argCanonical)
+            }
+            builder.Append('>')
+            canonical = builder.ToString()
+            return true
+        }
+        if (typeNodeKind == 2) {
+            elementCanonical: string? = null
+            if (!TryBuildTypeNodeCanonical(Child(typeNode, 0), out elementCanonical)) {
+                canonical = ""
+                return false
+            }
+            canonical = elementCanonical + "[]"
+            return true
+        }
+        if (typeNodeKind == 3) {
+            elementCanonical: string? = null
+            if (!TryBuildTypeNodeCanonical(Child(typeNode, 0), out elementCanonical)) {
+                canonical = ""
+                return false
+            }
+            canonical = elementCanonical + "?"
+            return true
+        }
+        if (typeNodeKind == 4) {
+            childCount := _nodes.ChildCount(typeNode)
+            if (childCount != 2) {
+                canonical = ""
+                return false
+            }
+            builder := new System.Text.StringBuilder()
+            for c := 0; c < childCount; c++ {
+                if (c > 0) {builder.Append('|')}
+                armCanonical: string? = null
+                if (!TryBuildTypeNodeCanonical(Child(typeNode, c), out armCanonical)) {
+                    canonical = ""
+                    return false
+                }
+                builder.Append(armCanonical)
+            }
+            canonical = builder.ToString()
+            return true
+        }
+        if (typeNodeKind == 6) {
+            childCount := _nodes.ChildCount(typeNode)
+            if (childCount < 2 || childCount > 7) {
+                canonical = ""
+                return false
+            }
+            builder := new System.Text.StringBuilder("ValueTuple<")
+            for c := 0; c < childCount; c++ {
+                if (c > 0) {builder.Append(',')}
+                argCanonical: string? = null
+                if (!TryBuildTypeNodeCanonical(Child(typeNode, c), out argCanonical)) {
+                    canonical = ""
+                    return false
+                }
+                builder.Append(argCanonical)
+            }
+            builder.Append('>')
+            canonical = builder.ToString()
+            return true
+        }
+        if (typeNodeKind == 7) {
+            if (_nodes.ChildCount(typeNode) != 1) {
+                canonical = ""
+                return false
+            }
+            return TryBuildTypeNodeCanonical(Child(typeNode, 0), out canonical)
+        }
+        canonical = ""
+        return false
+    }
+
+    // TYPE EQUIVALENCE IS OWNED BY N#. `ColumnarTypeEquivalenceFacts` (BootstrapServices) holds the
+    // whole five-function rule — the enum, by-ref, SZ-array, TypeBuilder and closed-generic arms plus
+    // every guarded reflection read. These three members are call-shape forwarders so the emitter's 104
+    // existing call sites keep their spelling; there is no second copy of the rule here.
+    private static func TypesEquivalent(a: Type, b: Type): bool => ColumnarTypeEquivalenceFacts.TypesEquivalent(a, b)
+
+    private static func IsSzArrayType(resolvedClrType: Type): bool => ColumnarTypeEquivalenceFacts.IsSzArrayType(resolvedClrType)
+
+    private static func TryGetElementType(resolvedClrType: Type): Type? => ColumnarTypeEquivalenceFacts.TryGetElementType(resolvedClrType)
+
+    private func IsKnownEnumType(resolvedClrType: Type): bool {
+        if (ColumnarTypeOfPlanner.IsEnumType(resolvedClrType)) {return true}
+        enumDefinitions := _enumRegistry.get_Values() as IEnumerable
+        if (enumDefinitions == null) {throw new NullReferenceException()}
+        enumerator := enumDefinitions.GetEnumerator()
+        try {
+            while (enumerator.MoveNext()) {
+                enumDef := enumerator.get_Current() as ColumnarEnumDef
+                if (enumDef == null) {throw new NullReferenceException()}
+                if (!enumDef.IsStringBacked && Object.ReferenceEquals(enumDef.EnumType, resolvedClrType)) {return true}
+            }
+        } finally {
+            disposable := enumerator as IDisposable
+            if (disposable != null) {disposable.Dispose()}
+        }
+        return false
+    }
+
+    private func TrySelectUserConstructorForArgs(argCount: int, argAt: Func<int, int>, def: ColumnarStructDef, typeArguments: Type[], out chosenCtor: ConstructorBuilder, out chosenParamTypes: Type[], out chosenDefaultKinds: int[], out chosenDefaultTexts: string[]): bool {
+        chosenCtor = null
+        chosenParamTypes = null
+        chosenDefaultKinds = null
+        chosenDefaultTexts = null
+        candidates := new List<(ColumnarConstructorDef, Type[])>()
+        for ctor in def.Constructors {
+            if (ctor.ParamTypes.Length < argCount) {
+                continue
+            }
+            parameterTypes := ctor.ParamTypes
+            if (typeArguments.Length > 0) {
+                parameterTypes = new Type[ctor.ParamTypes.Length]
+                for p := 0; p < parameterTypes.Length; p++ {
+                    parameterTypes[p] = ColumnarRuntimeInstanceMemberResolver.SubstituteClosedTypeArguments(
+                        ctor.ParamTypes[p],
+                        typeArguments
+                    )
+                }
+            }
+            hasTrailingDefaults := true
+            for p := argCount; p < parameterTypes.Length; p++ {
+                if (!ColumnarParameterDefaultEmitter.CanUseConstructorDefaultAs(
+                    parameterTypes[p],
+                    ctor.DefaultKinds,
+                    ctor.DefaultTexts,
+                    p,
+                    _typeResolutionEnums
+                )) {
+                    hasTrailingDefaults = false
+                    break
+                }
+            }
+            if (hasTrailingDefaults) {
+                candidates.Add(new ValueTuple<ColumnarConstructorDef, Type[]>(ctor, parameterTypes))
+            }
+        }
+        if (candidates.Count == 0) {
+            return false
+        }
+        exactCandidates := new List<(ColumnarConstructorDef, Type[])>()
+        for candidate in candidates {
+            if (candidate.Item2.Length == argCount) {
+                exactCandidates.Add(candidate)
+            }
+        }
+        if (exactCandidates.Count > 0) {
+            candidates = exactCandidates
+        }
+        if (candidates.Count == 1) {
+            chosenCtor = candidates[0].Item1.Builder
+            chosenParamTypes = candidates[0].Item2
+            chosenDefaultKinds = candidates[0].Item1.DefaultKinds
+            chosenDefaultTexts = candidates[0].Item1.DefaultTexts
+            return true
+        }
+
+        for ctor in candidates {
+            matches := true
+            for a := 0; a < argCount; a++ {
+                if (!CanEmitConstructorArgumentAs(argAt(a), ctor.Item2[a])) {
+                    matches = false
+                    break
+                }
+            }
+            if (!matches) {
+                continue
+            }
+            if (chosenCtor != null) {
+                return false
+            }
+            chosenCtor = ctor.Item1.Builder
+            chosenParamTypes = ctor.Item2
+            chosenDefaultKinds = ctor.Item1.DefaultKinds
+            chosenDefaultTexts = ctor.Item1.DefaultTexts
+        }
+        return chosenCtor != null
+    }
+
+    private func CanUseTargetTypedNewAsType(node: int, target: Type): bool {
+        node = UnwrapParenthesizedNode(node)
+        if (_nodes.Kind(node) != 63) {
+            return false
+        }
+        if (target == ColumnarTypeOfPlanner.RequiredVoidType()) {
+            return false
+        }
+        if (target.get_IsByRef()) {
+            return false
+        }
+        if (target.get_IsPointer()) {
+            return false
+        }
+
+        argCount := _nodes.ChildCount(node)
+        targetBuilder := target as TypeBuilder
+        targetDef: ColumnarStructDef? = null
+        if (targetBuilder != null) {
+            targetDef = ColumnarSourceDefinitionResolver.FindByBuilderIdentity(_structRegistry.get_Values(), targetBuilder)
+        }
+        if (targetDef != null) {
+            if (argCount == 0 && targetDef.IsReference && targetDef.DefaultCtor != null) {
+                return true
+            }
+            if (argCount == 0 && !targetDef.IsReference && targetDef.Constructors.Count == 0) {
+                return true
+            }
+            if (targetDef.Constructors.Count == 0) {
+                return false
+            }
+            nodesForArguments := _nodes
+            argumentAt: Func<int, int> = a => nodesForArguments.Child(node, a)
+            let ignoredCtor: System.Reflection.Emit.ConstructorBuilder? = null
+            let ignoredParamTypes: System.Type[]? = null
+            let ignoredDefaultKinds: int[]? = null
+            let ignoredDefaultTexts: string[]? = null
+            return TrySelectUserConstructorForArgs(
+                argCount,
+                argumentAt,
+                targetDef,
+                Type.EmptyTypes,
+                out ignoredCtor,
+                out ignoredParamTypes,
+                out ignoredDefaultKinds,
+                out ignoredDefaultTexts
+            )
+        }
+
+        openDef: ColumnarStructDef? = null
+        if (ColumnarTypeOfPlanner.IsClosedSourceGeneric(target)) {
+            openBuilder := target.GetGenericTypeDefinition() as TypeBuilder
+            if (openBuilder != null) {
+                openDef = ColumnarSourceDefinitionResolver.FindByBuilderIdentity(_structRegistry.get_Values(), openBuilder)
+            }
+        }
+        if (openDef != null) {
+            selected := false
+            typeArgs := target.GetGenericArguments()
+            for constructorDefinition in openDef.Constructors {
+                let ignoredConstructorBuilder: ConstructorBuilder? = null
+                let openParamTypes: Type[]? = null
+                let ignoredDefaultKinds: int[]? = null
+                let ignoredDefaultTexts: string[]? = null
+                constructorDefinition.Deconstruct(out ignoredConstructorBuilder, out openParamTypes, out ignoredDefaultKinds, out ignoredDefaultTexts)
+                if (openParamTypes.Length != argCount) {
+                    continue
+                }
+                matches := true
+                for a := 0; a < argCount; a++ {
+                    expected := ColumnarRuntimeInstanceMemberResolver.SubstituteClosedTypeArguments(openParamTypes[a], typeArgs)
+                    if (!CanEmitConstructorArgumentAs(Child(node, a), expected)) {
+                        matches = false
+                        break
+                    }
+                }
+                if (!matches) {
+                    continue
+                }
+                if (selected) {
+                    return false
+                }
+                selected = true
+            }
+            return selected
+        }
+
+        if (ColumnarTypeOfPlanner.IsSupportedCollectionType(target)) {
+            if (argCount == 0) {
+                return true
+            }
+            let capacityArgumentNode: int = 0
+            return argCount == 1 && TryGetCollectionCapacityConstructorArgument(Child(node, 0), out capacityArgumentNode) && CanEmitConstructorArgumentAs(capacityArgumentNode, typeof(int))
+        }
+
+        return false
+    }
+
+    private func TryEmitTargetTypedNewAsType(node: int, target: Type, out columnarResolvedType: Type): bool {
+        columnarResolvedType = null
+        node = UnwrapParenthesizedNode(node)
+        if (_nodes.Kind(node) != 63) {
+            return false
+        }
+        if (target == ColumnarTypeOfPlanner.RequiredVoidType()) {
+            return false
+        }
+        if (target.get_IsByRef()) {
+            return false
+        }
+        if (target.get_IsPointer()) {
+            return false
+        }
+
+        argCount := _nodes.ChildCount(node)
+        targetBuilder := target as TypeBuilder
+        targetDef: ColumnarStructDef? = null
+        if (targetBuilder != null) {
+            targetDef = ColumnarSourceDefinitionResolver.FindByBuilderIdentity(_structRegistry.get_Values(), targetBuilder)
+        }
+        if (targetDef != null) {
+            if (argCount == 0 && targetDef.IsReference && targetDef.DefaultCtor != null) {
+                _il.Emit(OpCodes.Newobj, targetDef.DefaultCtor)
+                columnarResolvedType = targetDef.Builder
+                return true
+            }
+            if (argCount == 0 && !targetDef.IsReference && targetDef.Constructors.Count == 0) {
+                valueStructLocal := _il.DeclareLocal(targetDef.Builder)
+                _il.Emit(OpCodes.Ldloca, valueStructLocal)
+                _il.Emit(OpCodes.Initobj, targetDef.Builder)
+                _il.Emit(OpCodes.Ldloc, valueStructLocal)
+                columnarResolvedType = targetDef.Builder
+                return true
+            }
+
+            let chosenCtor: System.Reflection.Emit.ConstructorBuilder? = null
+            let chosenParamTypes: System.Type[]? = null
+            let chosenDefaultKinds: int[]? = null
+            let chosenDefaultTexts: string[]? = null
+            if (targetDef.Constructors.Count == 0) {
+                return false
+            }
+            nodesForArguments := _nodes
+            argumentAt: Func<int, int> = a => nodesForArguments.Child(node, a)
+            if (!TrySelectUserConstructorForArgs(
+                argCount,
+                argumentAt,
+                targetDef,
+                Type.EmptyTypes,
+                out chosenCtor,
+                out chosenParamTypes,
+                out chosenDefaultKinds,
+                out chosenDefaultTexts
+            )) {
+                return false
+            }
+
+            for a := 0; a < chosenParamTypes.Length; a++ {
+                if (a >= argCount) {
+                    let ignoredDefaultResultType: System.Type? = null
+                    if (!ColumnarParameterDefaultEmitter.TryEmitConstructorDefaultArgument(
+                        _il,
+                        chosenParamTypes[a],
+                        chosenDefaultKinds[a],
+                        chosenDefaultTexts[a],
+                        _typeResolutionEnums,
+                        out ignoredDefaultResultType
+                    )) {
+                        return false
+                    }
+                    continue
+                }
+
+                let ignoredArgumentType: System.Type? = null
+                if (!TryEmitAssignableValue(Child(node, a), chosenParamTypes[a], out ignoredArgumentType)) {
+                    return false
+                }
+            }
+            _il.Emit(OpCodes.Newobj, chosenCtor)
+            columnarResolvedType = targetDef.Builder
+            return true
+        }
+
+        openDef: ColumnarStructDef? = null
+        if (ColumnarTypeOfPlanner.IsClosedSourceGeneric(target)) {
+            openBuilder := target.GetGenericTypeDefinition() as TypeBuilder
+            if (openBuilder != null) {
+                openDef = ColumnarSourceDefinitionResolver.FindByBuilderIdentity(_structRegistry.get_Values(), openBuilder)
+            }
+        }
+        if (openDef != null) {
+            chosenOpenCtor: ConstructorBuilder? = null
+            chosenOpenParamTypes: Type[]? = null
+            typeArgs := target.GetGenericArguments()
+            for constructorDefinition in openDef.Constructors {
+                let ctor: ConstructorBuilder? = null
+                let openParamTypes: Type[]? = null
+                let ignoredDefaultKinds: int[]? = null
+                let ignoredDefaultTexts: string[]? = null
+                constructorDefinition.Deconstruct(out ctor, out openParamTypes, out ignoredDefaultKinds, out ignoredDefaultTexts)
+                if (openParamTypes.Length != argCount) {
+                    continue
+                }
+                matches := true
+                for a := 0; a < argCount; a++ {
+                    expected := ColumnarRuntimeInstanceMemberResolver.SubstituteClosedTypeArguments(openParamTypes[a], typeArgs)
+                    if (!CanEmitConstructorArgumentAs(Child(node, a), expected)) {
+                        matches = false
+                        break
+                    }
+                }
+                if (!matches) {
+                    continue
+                }
+                if (chosenOpenCtor != null) {
+                    return false
+                }
+                chosenOpenCtor = ctor
+                chosenOpenParamTypes = openParamTypes
+            }
+            if (chosenOpenCtor == null || chosenOpenParamTypes == null) {
+                return false
+            }
+
+            for a := 0; a < argCount; a++ {
+                expected := ColumnarRuntimeInstanceMemberResolver.SubstituteClosedTypeArguments(chosenOpenParamTypes[a], typeArgs)
+                let ignoredArgumentType: System.Type? = null
+                if (!TryEmitAssignableValue(Child(node, a), expected, out ignoredArgumentType)) {
+                    return false
+                }
+            }
+            _il.Emit(OpCodes.Newobj, TypeBuilder.GetConstructor(target, chosenOpenCtor))
+            columnarResolvedType = target
+            return true
+        }
+
+        if (ColumnarTypeOfPlanner.IsSupportedCollectionType(target)) {
+            collectionOpenDef := target.GetGenericTypeDefinition()
+            if (argCount == 0) {
+                defaultCtor := collectionOpenDef.GetConstructor(Type.EmptyTypes)
+                if (defaultCtor == null) {
+                    return false
+                }
+                _il.Emit(OpCodes.Newobj, ResolveClosedGenericCtor(target, defaultCtor))
+                columnarResolvedType = target
+                return true
+            }
+            let capacityArgumentNode: int = 0
+            if (argCount == 1 && TryGetCollectionCapacityConstructorArgument(Child(node, 0), out capacityArgumentNode) && EmitConstructorArgumentValueAs(capacityArgumentNode, typeof(int))) {
+                capacityCtor := collectionOpenDef.GetConstructor([typeof(int)])
+                if (capacityCtor == null) {
+                    return false
+                }
+                _il.Emit(OpCodes.Newobj, ResolveClosedGenericCtor(target, capacityCtor))
+                columnarResolvedType = target
+                return true
+            }
+        }
+
+        return false
+    }
+
+    private func CanEmitConstructorArgumentAs(argNode: int, expectedType: Type): bool {
+        argNode = UnwrapParenthesizedNode(argNode)
+        if (_nodes.Kind(argNode) == 5) {
+            return !expectedType.get_IsValueType()
+        }
+        if (CanUseTargetTypedNewAsType(argNode, expectedType)) {
+            return true
+        }
+        if (CanAdoptIntLiteralAsType(argNode, expectedType)) {
+            return true
+        }
+        if (CanUseCollectionLiteralAsType(argNode, expectedType)) {
+            return true
+        }
+        if (CanUseArrayLiteralAsType(argNode, expectedType)) {
+            return true
+        }
+        let actualType: System.Type? = null
+        return TryGetPreflightExpressionType(argNode, out actualType) && (TypesEquivalent(actualType, expectedType) || CanUseImplicitNumericWidening(actualType, expectedType) || ColumnarReferenceCoercionPlanner.CanUseInterfaceUpcast(actualType, expectedType, _structRegistry) || CanUseSpanConversion(actualType, expectedType) || ColumnarReferenceConversionFacts.TryEmitReferenceConversion(actualType, expectedType) || ColumnarReferenceCoercionPlanner.CanUseObjectConversion(actualType, expectedType) || CanUseAnonymousUnionConversion(actualType, expectedType))
+    }
+
+    private func TryGetCollectionCapacityConstructorArgument(argNode: int, out valueNode: int): bool {
+        argNode = UnwrapParenthesizedNode(argNode)
+        if (_nodes.Kind(argNode) != 60) {
+            valueNode = argNode
+            return true
+        }
+
+        if (_nodes.ChildCount(argNode) != 1 || ColumnarNodeTextFacts.Text(_nodes, _source, argNode) != "capacity") {
+            valueNode = -1
+            return false
+        }
+
+        valueNode = Child(argNode, 0)
+        return true
+    }
+
+    private func EmitConstructorArgumentValueAs(argNode: int, expected: Type): bool {
+        let argType: System.Type? = null
+        return (TryEmitTargetTypedNewAsType(argNode, expected, out argType) || TryEmitCollectionLiteralAsType(argNode, expected, out argType) || TryEmitArrayLiteralAsType(argNode, expected, out argType) || TryEmitNullLiteralAsType(argNode, expected, out argType) || TryEmitIntLiteralAsType(argNode, expected, out argType) || EmitExpression(argNode, out argType)) && (TypesEquivalent(argType, expected) || TryEmitImplicitWidening(argType, expected) || TryEmitSpanConversion(argType, expected) || ColumnarReferenceCoercionPlanner.TryEmitInterfaceUpcast(argType, expected, _structRegistry, _il) || ColumnarReferenceCoercionPlanner.TryEmitExternalInterfaceUpcast(argType, expected, _structRegistry, _il) || ColumnarReferenceConversionFacts.TryEmitReferenceConversion(argType, expected) || ColumnarReferenceCoercionPlanner.TryEmitObjectConversion(argType, expected, _structRegistry, _il) || TryEmitAnonymousUnionConversion(argType, expected) || TryEmitUserDefinedConversion(argType, expected, false))
+    }
+
+    private func TryGetPreflightExpressionType(node: int, out columnarResolvedType: Type): bool {
+        node = UnwrapParenthesizedNode(node)
+        columnarResolvedType = null
+        if (ColumnarBooleanLiteralPlanner.TryGetType(_nodes, _source, node, _codePlan, out columnarResolvedType)) {
+            return true
+        }
+        if (ColumnarUnaryLiteralPlanner.TryGetType(_nodes, _source, node, _codePlan, out columnarResolvedType)) {
+            return true
+        }
+        if (ColumnarScalarLiteralPlanner.TryGetType(_nodes, _source, node, _codePlan, out columnarResolvedType)) {
+            return true
+        }
+        if (ColumnarNameOfPlanner.TryGetType(_nodes, _source, node, _codePlan, out columnarResolvedType)) {
+            return true
+        }
+        let nsharpOwned: bool = false
+        let legacyWholeSubtreePlanning: bool = false
+        if (ColumnarRangeIndexPlanner.TryGetTypeFromFacts(
+            _nodes,
+            _source,
+            node,
+            _paramOrdinals,
+            _paramTypes,
+            _locals,
+            _enumRegistry,
+            _liftedLocals,
+            _boxedCaptures,
+            _currentStruct,
+            _enclosingType,
+            _structRegistry.get_Values(),
+            _unionRegistry.get_Values(),
+            _tupleNamesByVariable,
+            _enclosingBindingNames,
+            _siblings.get_Keys(),
+            _visibleLocalFuncs,
+            _typeParameters,
+            ExactSourceTypesForBody(),
+            _overflowCheckingEnabled,
+            SiblingCallFacts(),
+            _codePlan,
+            out nsharpOwned,
+            out legacyWholeSubtreePlanning,
+            out columnarResolvedType,
+            _typeResolutionStructs.StructuralTypeReferences
+        )) {
+            return true
+        }
+        if (nsharpOwned) {
+            return false
+        }
+        columnarSwitchValue11 := _nodes.Kind(node)
+        if columnarSwitchValue11 == 0 {
+            text := ColumnarNodeTextFacts.Text(_nodes, _source, node)
+            if (text.Length > 0 && (text[^1] == 'm' || text[^1] == 'M')) {
+                columnarResolvedType = typeof(decimal)
+                return true
+            }
+            return false
+        } else if columnarSwitchValue11 == 1 {
+            raw := ColumnarNodeTextFacts.Text(_nodes, _source, node)
+            last := raw.Length > 0 ? raw[raw.Length - 1] : '\0'
+            if (last == 'm' || last == 'M') {
+                columnarResolvedType = typeof(decimal)
+                return true
+            }
+            return false
+        } else if columnarSwitchValue11 == 3 {
+            text := ColumnarNodeTextFacts.Text(_nodes, _source, node)
+            if (text.Length > 0 && text[0] == '$') {
+                columnarResolvedType = typeof(string)
+                return true
+            }
+            return false
+        } else if columnarSwitchValue11 == 6 {
+            name := ColumnarNodeTextFacts.Text(_nodes, _source, node)
+            let paramType: System.Type? = null
+            if (!ColumnarExpressionSyntaxFacts.IsExplicitThisIdentifier(_nodes, _source, node) && _paramTypes.TryGetValue(name, out paramType) && _paramOrdinals.ContainsKey(name) && paramType.get_IsByRef()) {
+                columnarResolvedType = paramType
+                return true
+            }
+            return false
+        } else if columnarSwitchValue11 == 8 {
+            return TryGetPreflightMemberAccessType(node, out columnarResolvedType)
+        } else if columnarSwitchValue11 == 11 {
+            if (_nodes.ChildCount(node) != 1) {
+                return false
+            }
+            // Index-from-end `^` is owned by ColumnarRangeIndexPlanner ahead of this switch.
+            let unaryOperandType: System.Type? = null
+            if (!TryGetPreflightExpressionType(Child(node, 0), out unaryOperandType)) {
+                return false
+            }
+            columnarSwitchValue12 := ColumnarNodeTextFacts.Text(_nodes, _source, node)
+            if columnarSwitchValue12 == "-" {
+                if (unaryOperandType != typeof(int) && unaryOperandType != typeof(long) && unaryOperandType != typeof(double) && unaryOperandType != typeof(float) && unaryOperandType != typeof(decimal)) {
+                    return false
+                }
+                columnarResolvedType = unaryOperandType
+                return true
+            } else if columnarSwitchValue12 == "~" {
+                if (unaryOperandType != typeof(int) && unaryOperandType != typeof(long) && unaryOperandType != typeof(ulong)) {
+                    return false
+                }
+                columnarResolvedType = unaryOperandType
+                return true
+            } else if columnarSwitchValue12 == "!" {
+                if (unaryOperandType != typeof(bool)) {
+                    return false
+                }
+                columnarResolvedType = typeof(bool)
+                return true
+            } else {
+                return false
+            }
+        } else if columnarSwitchValue11 == 12 {
+            return TryGetPreflightBinaryExpressionType(node, out columnarResolvedType)
+        } else if columnarSwitchValue11 == 15 {
+            return TryGetNewExpressionResultType(node, out columnarResolvedType)
+        } else if columnarSwitchValue11 == 16 {
+            if (_nodes.ChildCount(node) != 2 || _nodes.Kind(Child(node, 0)) != 0) {
+                return false
+            }
+            castTargetName := ColumnarNodeTextFacts.Text(_nodes, _source, Child(node, 0))
+            return (ColumnarCanonicalTypeResolver.TryResolveBuiltin(castTargetName, out columnarResolvedType) || TryResolveBodyType(castTargetName, out columnarResolvedType)) && ColumnarTypeOfPlanner.IsSupportedType(columnarResolvedType)
+        } else if columnarSwitchValue11 == 9 {
+
+            // Preflight a CALL's result type via the bare-call resolution tiers (no emission):
+            // local function -> sibling top-level -> instance chain -> static chain. Shadowed
+            // names and member-access callees stay un-preflighted.
+            callee := Child(node, 0)
+            if (_nodes.Kind(callee) == 8) {
+                receiver := Child(callee, 0)
+                let receiverType: System.Type? = null
+                if (TryGetPreflightExpressionType(receiver, out receiverType) && TryGetPreflightInstanceCallType(receiverType, ColumnarNodeTextFacts.Text(_nodes, _source, callee), node, legacyWholeSubtreePlanning, out columnarResolvedType)) {
+                    return true
+                }
+                return false
+            }
+            if (_nodes.Kind(callee) != 6) {
+                return false
+            }
+            calleeName := ColumnarNodeTextFacts.Text(_nodes, _source, callee)
+            if (_locals.ContainsKey(calleeName) || _paramOrdinals.ContainsKey(calleeName) || _liftedLocals.ContainsKey(calleeName) || (_boxedCaptures != null && _boxedCaptures.ContainsKey(calleeName))) {
+                return false
+            }
+            let localFnMethod: System.Reflection.Emit.MethodBuilder? = null
+            let localFnParamTypes: System.Type[]? = null
+            let localFnReturnType: System.Type? = null
+            let localFn: (Method: System.Reflection.Emit.MethodBuilder, ParamTypes: System.Type[], ReturnType: System.Type) = (localFnMethod, localFnParamTypes, localFnReturnType)
+            if (_localFuncs != null && _visibleLocalFuncs.Contains(calleeName) && _localFuncs.TryGetValue(calleeName, out localFn)) {
+                columnarResolvedType = localFn.ReturnType
+                return true
+            }
+            let sibling: NSharpLang.Compiler.Columnar.ColumnarSiblingMethodDefinition? = null
+            if (_siblings.TryGetValue(calleeName, out sibling) && sibling.TypeParams.Length == 0) {
+                columnarResolvedType = sibling.ReturnType
+                return true
+            }
+            let ownMethod: NSharpLang.Compiler.Columnar.ColumnarInstanceMethodDef? = null
+            if (_currentStruct != null && TrySelectInstanceMethodOnChain(_currentStruct, calleeName, node, out ownMethod)) {
+                if (!legacyWholeSubtreePlanning && !ColumnarSourceDirectCallResolver.IsExcludedInstanceDefinition(ownMethod)) {
+                    return false
+                }
+                columnarResolvedType = ownMethod.ReturnType
+                return true
+            }
+            let ownStatic: NSharpLang.Compiler.Columnar.ColumnarStaticMethodDef? = null
+            if (_enclosingType != null && TryFindStaticMethodOnChain(_enclosingType, calleeName, _nodes.ChildCount(node) - 1, out ownStatic)) {
+                if (!legacyWholeSubtreePlanning && !ColumnarSourceDirectCallResolver.IsExcludedStaticDefinition(ownStatic)) {
+                    return false
+                }
+                columnarResolvedType = ownStatic.ReturnType
+                return true
+            }
+            return false
+        } else if columnarSwitchValue11 == 10 {
+            let indexedType: System.Type? = null
+            if (_nodes.ChildCount(node) != 2 || !TryGetPreflightExpressionType(Child(node, 0), out indexedType)) {
+                return false
+            }
+            indexNode := Child(node, 1)
+            if (indexedType == typeof(string)) {
+                // Index/Range string reads are owned by ColumnarRangeIndexPlanner ahead of this switch.
+                let stringIndexType: System.Type? = null
+                if (!TryGetPreflightExpressionType(indexNode, out stringIndexType)) {
+                    return false
+                }
+                columnarResolvedType = typeof(char)
+                return stringIndexType == typeof(int)
+            }
+            if (IsSupportedReadableIndexedCollectionType(indexedType)) {
+                indexedDef := indexedType.GetGenericTypeDefinition()
+                idxParamType := indexedDef == typeof(List<int>).GetGenericTypeDefinition() ? typeof(int) : indexedType.GetGenericArguments()[0]
+                let indexArgType: System.Type? = null
+                if (!TryGetPreflightExpressionType(indexNode, out indexArgType) || !TypesEquivalent(indexArgType, idxParamType)) {
+                    return false
+                }
+                columnarResolvedType = indexedDef == typeof(List<int>).GetGenericTypeDefinition() ? indexedType.GetGenericArguments()[0] : indexedType.GetGenericArguments()[1]
+                return true
+            }
+            if (indexedType.get_IsGenericType() && !indexedType.get_IsGenericTypeDefinition() && indexedType.GetGenericTypeDefinition() == typeof(IReadOnlyList<int>).GetGenericTypeDefinition()) {
+                let readOnlyIndexType: System.Type? = null
+                if (!TryGetPreflightExpressionType(indexNode, out readOnlyIndexType) || readOnlyIndexType != typeof(int)) {
+                    return false
+                }
+                columnarResolvedType = indexedType.GetGenericArguments()[0]
+                return true
+            }
+            if (indexedType == typeof(IList)) {
+                columnarResolvedType = typeof(object)
+                let listIndexType: System.Type? = null
+                return TryGetPreflightExpressionType(indexNode, out listIndexType) && listIndexType == typeof(int)
+            }
+            if (ColumnarTypeOfPlanner.IsSupportedReadOnlySpanType(indexedType)) {
+                spanElementType := indexedType.GetGenericArguments()[0]
+                let spanIndexType: System.Type? = null
+                if (!TryGetPreflightExpressionType(indexNode, out spanIndexType) || spanIndexType != typeof(int)) {
+                    return false
+                }
+                columnarResolvedType = spanElementType
+                return true
+            }
+            let arrayIndexType: System.Type? = null
+            if (!ColumnarTypeEquivalenceFacts.IsSafeSzArrayType(indexedType) || !TryGetPreflightExpressionType(indexNode, out arrayIndexType)) {
+                return false
+            }
+            // Index/Range array reads are owned by ColumnarRangeIndexPlanner ahead of this switch.
+            if (arrayIndexType != typeof(int)) {
+                return false
+            }
+            elementType := indexedType.GetElementType()
+            if (!elementType.get_IsGenericParameter() && !(elementType is TypeBuilder) && !ColumnarTypeOfPlanner.IsSupportedElementType(elementType) && !ColumnarTypeOfPlanner.IsSupportedType(elementType)) {
+                return false
+            }
+            columnarResolvedType = elementType
+            return true
+        } else if columnarSwitchValue11 == 57 {
+            return _nodes.ChildCount(node) == 1 && TryGetPreflightExpressionType(Child(node, 0), out columnarResolvedType)
+        } else if columnarSwitchValue11 == 64 {
+            return _nodes.ChildCount(node) == 1 && TryGetPreflightExpressionType(Child(node, 0), out columnarResolvedType)
+        } else {
+            return false
+        }
+    }
+
+    private func TryGetPreflightBinaryExpressionType(node: int, out columnarResolvedType: Type): bool {
+        columnarResolvedType = null
+        if (_nodes.Kind(node) != 12 || _nodes.ChildCount(node) != 2) {
+            return false
+        }
+        op := ColumnarNodeTextFacts.Text(_nodes, _source, node)
+        // Short-circuit `&&`/`||` has NO preflight residual (task 007): N# types every plannable `&&`/`||` at
+        // the front door, and a residual one is only ever EMITTED (case-12 arm), never preflight-typed, so the
+        // old `&&`/`||` sub-arm here was dead and is deleted, not fenced.
+        let leftType: System.Type? = null
+        let rightType: System.Type? = null
+        if (!TryGetPreflightExpressionType(Child(node, 0), out leftType) || !TryGetPreflightExpressionType(Child(node, 1), out rightType)) {
+            return false
+        }
+
+        // ColumnarPrimitiveBinaryPlanner owns every numeric/bool/decimal/shift binary type at the
+        // front door; the retained preflight families mirror the fenced whole-subtree emit owner:
+        // string-pair concat and matched-type non-numeric equality (string, System.Type, and the
+        // interpolation-equality set covering enums and record types).
+        if (op == "+" && leftType == typeof(string) && rightType == typeof(string)) {
+            columnarResolvedType = typeof(string)
+            return true
+        }
+
+        if ((op == "==" || op == "!=") && TypesEquivalent(leftType, rightType) && (leftType == typeof(string) || leftType == typeof(Type) || IsSupportedInterpolationEqualityType(leftType))) {
+            columnarResolvedType = typeof(bool)
+            return true
+        }
+
+        return false
+    }
+
+    private func TryGetPlannedExternalCall(ownerTypeName: string, isStatic: bool, member: string, callIdx: int, legacyWholeSubtreePlanning: bool, out plan: ColumnarExternalCallPlan, out method: MethodInfo, out parameterTypes: Type[], out returnType: Type): bool {
+        plan = null
+        method = null
+        parameterTypes = Type.EmptyTypes
+        returnType = null
+        if (!legacyWholeSubtreePlanning) {
+            return false
+        }
+
+        argumentCount := _nodes.ChildCount(callIdx) - 1
+        argumentTypeNames := new string[argumentCount]
+        for i := 0; i < argumentCount; i++ {
+            argumentNode := Child(callIdx, i + 1)
+            let byRefElementType: System.Type? = null
+            let argumentType: System.Type? = null
+            if (_nodes.Kind(argumentNode) == 54 && _nodes.ChildCount(argumentNode) == 1) {
+                argumentModifierText := ColumnarNodeTextFacts.Text(_nodes, _source, argumentNode)
+                if ((argumentModifierText == "ref" || argumentModifierText == "out") && TryGetAddressableTargetType(Child(argumentNode, 0), out byRefElementType)) {
+                    byRefType := byRefElementType.MakeByRefType()
+                    byRefTypeName := byRefType.get_FullName()
+                    argumentTypeNames[i] = ""
+                    if (byRefTypeName != null) {
+                        argumentTypeNames[i] = byRefTypeName
+                    }
+                    continue
+                }
+            }
+            argumentTypeNames[i] = ""
+            if (TryGetPreflightExpressionType(argumentNode, out argumentType)) {
+                argumentTypeName := argumentType.get_FullName()
+                if (argumentTypeName != null) {
+                    argumentTypeNames[i] = argumentTypeName
+                } else {
+                    argumentTypeNames[i] = argumentType.get_Name()
+                }
+            }
+        }
+
+        plan = isStatic ? ColumnarExternalBindingPlans.GetStaticCallPlan(ownerTypeName, member, argumentTypeNames) : ColumnarExternalBindingPlans.GetInstanceCallPlan(ownerTypeName, member, argumentTypeNames)
+        let declaringType: System.Type? = null
+        if (!plan.IsSupported || plan.Kind != (isStatic ? ColumnarExternalCallKind.Call : ColumnarExternalCallKind.CallVirtual) || plan.ParameterTypeNames.Length != argumentCount || !ColumnarCanonicalTypeResolver.TryResolveExactRuntimeType(plan.DeclaringTypeName, out declaringType) || !ColumnarCanonicalTypeResolver.TryResolveExactRuntimeType(plan.ReturnTypeName, out returnType)) {
+            return false
+        }
+
+        parameterTypes = new Type[argumentCount]
+        for i := 0; i < argumentCount; i++ {
+            let resolvedParameterType: System.Type? = null
+            parameterResolved := ColumnarCanonicalTypeResolver.TryResolveExactRuntimeType(plan.ParameterTypeNames[i], out resolvedParameterType)
+            parameterTypes[i] = resolvedParameterType
+            if (!parameterResolved || !CanDeclaredCallArgumentMatch(Child(callIdx, i + 1), parameterTypes[i], false)) {
+                return false
+            }
+        }
+
+        method = declaringType.GetMethod(plan.MemberName, parameterTypes)
+        return method != null && method.get_IsStatic() == isStatic && method.get_ReturnType() == returnType
+    }
+
+    private func TryEmitPlannedExternalCall(ownerTypeName: string, isStatic: bool, member: string, callIdx: int, legacyWholeSubtreePlanning: bool, out columnarResolvedType: Type): bool {
+        columnarResolvedType = null
+        let plan: NSharpLang.Compiler.Columnar.ColumnarExternalCallPlan? = null
+        let method: System.Reflection.MethodInfo? = null
+        let parameterTypes: System.Type[]? = null
+        let returnType: System.Type? = null
+        if (!TryGetPlannedExternalCall(
+            ownerTypeName,
+            isStatic,
+            member,
+            callIdx,
+            legacyWholeSubtreePlanning,
+            out plan,
+            out method,
+            out parameterTypes,
+            out returnType
+        )) {
+            return false
+        }
+
+        for i := 0; i < parameterTypes.Length; i++ {
+            if (!EmitDeclaredCallArgument(Child(callIdx, i + 1), parameterTypes[i], false)) {
+                return false
+            }
+        }
+
+        callOpcode := OpCodes.Call
+        if (plan.Kind == ColumnarExternalCallKind.CallVirtual) {
+            callOpcode = OpCodes.Callvirt
+        }
+        _il.Emit(callOpcode, method)
+        columnarResolvedType = returnType
+        return true
+    }
+
+    private func TryGetPreflightInstanceCallType(receiverType: Type, member: string, callIdx: int, legacyWholeSubtreePlanning: bool, out columnarResolvedType: Type): bool {
+        columnarResolvedType = null
+        receiverBuilder := receiverType as TypeBuilder
+        if (receiverBuilder != null) {
+            def := ColumnarSourceDefinitionResolver.FindByBuilderIdentity(_structRegistry.get_Values(), receiverBuilder)
+            let method: NSharpLang.Compiler.Columnar.ColumnarInstanceMethodDef? = null
+            if (def != null && TrySelectInstanceMethodOnChain(def, member, callIdx, out method)) {
+                if (!legacyWholeSubtreePlanning && !ColumnarSourceDirectCallResolver.IsExcludedInstanceDefinition(method)) {
+                    return false
+                }
+                columnarResolvedType = method.ReturnType
+                return true
+            }
+            if (TryGetPreflightExtensionSiblingCallType(receiverType, member, callIdx, out columnarResolvedType)) {
+                return true
+            }
+            if (TryGetPreflightExtensionStaticMethodCallType(receiverType, member, callIdx, out columnarResolvedType)) {
+                return true
+            }
+            return false
+        }
+
+        let closedDef: NSharpLang.Compiler.Columnar.ColumnarStructDef? = null
+        let closedArgs: System.Type[]? = null
+        let closedMethod: NSharpLang.Compiler.Columnar.ColumnarInstanceMethodDef? = null
+        if (TryGetClosedReceiverDef(receiverType, out closedDef, out closedArgs) && TrySelectInstanceMethodOnChain(closedDef, member, callIdx, out closedMethod)) {
+            if (!legacyWholeSubtreePlanning && !ColumnarSourceDirectCallResolver.IsExcludedInstanceDefinition(closedMethod)) {
+                return false
+            }
+            columnarResolvedType = ColumnarRuntimeInstanceMemberResolver.SubstituteClosedTypeArguments(closedMethod.ReturnType, closedArgs)
+            return true
+        }
+
+        if (TryGetPreflightExtensionSiblingCallType(receiverType, member, callIdx, out columnarResolvedType)) {
+            return true
+        }
+        if (TryGetPreflightExtensionStaticMethodCallType(receiverType, member, callIdx, out columnarResolvedType)) {
+            return true
+        }
+        if (TryGetPreflightEnumerableExtensionCallType(receiverType, member, callIdx, out columnarResolvedType)) {
+            return true
+        }
+        receiverTypeName := receiverType.get_FullName()
+        if (receiverTypeName == null) {
+            receiverTypeName = receiverType.get_Name()
+        }
+        let ignoredPlan: NSharpLang.Compiler.Columnar.ColumnarExternalCallPlan? = null
+        let ignoredMethod: System.Reflection.MethodInfo? = null
+        let ignoredParameterTypes: System.Type[]? = null
+        if (TryGetPlannedExternalCall(
+            receiverTypeName,
+            false,
+            member,
+            callIdx,
+            legacyWholeSubtreePlanning,
+            out ignoredPlan,
+            out ignoredMethod,
+            out ignoredParameterTypes,
+            out columnarResolvedType
+        )) {
+            return true
+        }
+        if (!legacyWholeSubtreePlanning) {
+            return false
+        }
+
+        if (ColumnarTypeOfPlanner.IsSupportedSpanLikeType(receiverType) && member == "Slice" && (_nodes.ChildCount(callIdx) == 2 || _nodes.ChildCount(callIdx) == 3)) {
+            columnarResolvedType = receiverType
+            return true
+        }
+
+        if (ColumnarTypeEquivalenceFacts.IsSafeSzArrayType(receiverType) && receiverType.GetElementType() == typeof(byte) && member == "AsSpan" && (_nodes.ChildCount(callIdx) == 1 || _nodes.ChildCount(callIdx) == 3)) {
+            columnarResolvedType = typeof(Span<byte>)
+            return true
+        }
+
+        if (ColumnarTypeOfPlanner.IsSupportedArrayPoolType(receiverType)) {
+            if (member == "Rent" && _nodes.ChildCount(callIdx) == 2) {
+                columnarResolvedType = typeof(byte[])
+                return true
+            }
+            if (member == "Return" && (_nodes.ChildCount(callIdx) == 2 || _nodes.ChildCount(callIdx) == 3)) {
+                columnarResolvedType = ColumnarTypeOfPlanner.RequiredVoidType()
+                return true
+            }
+        }
+
+        if (ColumnarTypeOfPlanner.IsSupportedMemoryPoolType(receiverType)) {
+            if (member == "Rent" && _nodes.ChildCount(callIdx) == 2) {
+                columnarResolvedType = typeof(System.Buffers.IMemoryOwner<byte>)
+                return true
+            }
+        }
+
+        if (ColumnarTypeOfPlanner.IsSupportedMemoryOwnerType(receiverType) && member == nameof(IDisposable.Dispose) && _nodes.ChildCount(callIdx) == 1) {
+            columnarResolvedType = ColumnarTypeOfPlanner.RequiredVoidType()
+            return true
+        }
+
+        if (receiverType == typeof(Stream)) {
+            if (member == nameof(Stream.Read) && _nodes.ChildCount(callIdx) == 4) {
+                columnarResolvedType = typeof(int)
+                return true
+            }
+            if (member == nameof(Stream.ReadAsync) && _nodes.ChildCount(callIdx) == 4) {
+                columnarResolvedType = typeof(System.Threading.Tasks.Task<int>)
+                return true
+            }
+            if (member == nameof(Stream.Dispose) && _nodes.ChildCount(callIdx) == 1) {
+                columnarResolvedType = ColumnarTypeOfPlanner.RequiredVoidType()
+                return true
+            }
+        }
+
+        return false
+    }
+
+    private func TryGetPreflightEnumerableExtensionCallType(receiverType: Type, member: string, callIdx: int, out columnarResolvedType: Type): bool {
+        columnarResolvedType = null
+        argCount := _nodes.ChildCount(callIdx) - 1
+        let sourceType: System.Type? = null
+        if (!TryGetEnumerableElementType(receiverType, out sourceType)) {
+            return false
+        }
+
+        if (member == "Where" && argCount == 1) {
+            predicateType := typeof(Func<int, int>).GetGenericTypeDefinition().MakeGenericType([sourceType, typeof(bool)])
+            if (!CanDeclaredCallArgumentMatch(Child(callIdx, 1), predicateType, true)) {
+                return false
+            }
+            columnarResolvedType = typeof(IEnumerable<int>).GetGenericTypeDefinition().MakeGenericType([sourceType])
+            return true
+        }
+
+        if (member == "Select" && argCount == 1) {
+            let resultType: System.Type? = null
+            if (!TryInferSingleParameterContextualDelegateReturnType(Child(callIdx, 1), sourceType, out resultType)) {
+                return false
+            }
+            columnarResolvedType = typeof(IEnumerable<int>).GetGenericTypeDefinition().MakeGenericType([resultType])
+            return true
+        }
+
+        if (member == "ToArray" && argCount == 0) {
+            if (!ColumnarTypeOfPlanner.IsSupportedElementType(sourceType)) {
+                return false
+            }
+            columnarResolvedType = sourceType.MakeArrayType()
+            return true
+        }
+
+        if (member == "ToList" && argCount == 0) {
+            columnarResolvedType = typeof(List<int>).GetGenericTypeDefinition().MakeGenericType([sourceType])
+            return true
+        }
+
+        // LOAD-BEARING residual: preflight-types .Min()/.Max() as the outer call of contextual-lambda
+        // chains (Select(v => ...).Min()), which whole-subtree-exit to this legacy path. Plannable
+        // receivers bind in the N# resolver. Retires with lambda-LINQ arc stages 3-4; proof project:
+        // tests/native/lambda-placement.
+        if ((member == "Min" || member == "Max") && argCount == 0 && sourceType == typeof(int)) {
+            columnarResolvedType = typeof(int)
+            return true
+        }
+
+        if (member == "Contains" && argCount == 1) {
+            if (ColumnarTypeOfPlanner.ContainsNonEnumBuilderBoundType(sourceType) || !CanDeclaredCallArgumentMatch(Child(callIdx, 1), sourceType, false)) {
+                return false
+            }
+            columnarResolvedType = typeof(bool)
+            return true
+        }
+
+        return false
+    }
+
+    private func TryGetPreflightExtensionSiblingCallType(receiverType: Type, member: string, callIdx: int, out columnarResolvedType: Type): bool {
+        columnarResolvedType = null
+        argCount := _nodes.ChildCount(callIdx) - 1
+        let target: NSharpLang.Compiler.Columnar.ColumnarSiblingMethodDefinition? = null
+        if (!_siblings.TryGetValue(member, out target) || target.TypeParams.Length > 0 || target.ParamTypes.Length != argCount + 1 || target.ParamModifierKinds.Length == 0 || target.ParamModifierKinds[0] != 4) {
+            return false
+        }
+
+        if (!CanUseExtensionReceiverConversion(receiverType, target.ParamTypes[0])) {
+            return false
+        }
+        for a := 0; a < argCount; a++ {
+            if (!CanDeclaredCallArgumentMatch(Child(callIdx, 1 + a), target.ParamTypes[1 + a], true)) {
+                return false
+            }
+        }
+
+        columnarResolvedType = target.ReturnType
+        return true
+    }
+
+    private func TryGetPreflightExtensionStaticMethodCallType(receiverType: Type, member: string, callIdx: int, out columnarResolvedType: Type): bool {
+        columnarResolvedType = null
+        argCount := _nodes.ChildCount(callIdx) - 1
+        selected := false
+        for def in _structRegistry.get_Values() {
+            let overloads: System.Collections.Generic.List<NSharpLang.Compiler.Columnar.ColumnarStaticMethodDef>? = null
+            if (!def.StaticMethods.TryGetValue(member, out overloads)) {
+                continue
+            }
+            for target in overloads {
+                if (target.ParamTypes.Length != argCount + 1 || target.ParamModifierKinds.Length == 0 || target.ParamModifierKinds[0] != 4 || !CanUseExtensionReceiverConversion(receiverType, target.ParamTypes[0])) {
+                    continue
+                }
+
+                argsMatch := true
+                for a := 0; a < argCount; a++ {
+                    if (!CanDeclaredCallArgumentMatch(Child(callIdx, 1 + a), target.ParamTypes[1 + a], true)) {
+                        argsMatch = false
+                        break
+                    }
+                }
+                if (!argsMatch) {
+                    continue
+                }
+
+                if (selected) {
+                    columnarResolvedType = null
+                    return false
+                }
+                columnarResolvedType = target.ReturnType
+                selected = true
+            }
+        }
+        return selected
+    }
+
+    private func CanUseExtensionReceiverConversion(sourceType: Type, targetType: Type): bool => TypesEquivalent(sourceType, targetType) || CanUseImplicitNumericWidening(sourceType, targetType) || CanUseSpanConversion(sourceType, targetType) || ColumnarReferenceCoercionPlanner.CanUseInterfaceUpcast(sourceType, targetType, _structRegistry) || ColumnarReferenceCoercionPlanner.CanUseExternalInterfaceUpcast(sourceType, targetType, _structRegistry) || ColumnarReferenceConversionFacts.TryEmitReferenceConversion(sourceType, targetType) || ColumnarReferenceCoercionPlanner.CanUseObjectConversion(sourceType, targetType) || CanUseAnonymousUnionConversion(sourceType, targetType)
+
+    private func TryGetPreflightMemberAccessType(node: int, out columnarResolvedType: Type): bool {
+        columnarResolvedType = null
+        receiver := Child(node, 0)
+        member := ColumnarNodeTextFacts.Text(_nodes, _source, node)
+        let resultReceiverType: System.Type? = null
+        let ignoredResultGetter: System.Reflection.MethodInfo? = null
+        if (TryGetPreflightExpressionType(receiver, out resultReceiverType) && TryResolveResultReadableProperty(resultReceiverType, member, out ignoredResultGetter, out columnarResolvedType)) {
+            return true
+        }
+        let memoryReceiverType: System.Type? = null
+        let ignoredMemoryGetter: System.Reflection.MethodInfo? = null
+        if (TryGetPreflightExpressionType(receiver, out memoryReceiverType) && TryResolveMemoryReadableProperty(memoryReceiverType, member, out ignoredMemoryGetter, out columnarResolvedType)) {
+            return true
+        }
+        let instanceReceiverType: System.Type? = null
+        let instanceHop: NSharpLang.Compiler.Columnar.ColumnarInterpolationMemberPlan? = null
+        if (TryGetPreflightExpressionType(receiver, out instanceReceiverType) && TryResolveInterpolationMemberPlan(instanceReceiverType, member, out instanceHop) && ColumnarTypeOfPlanner.IsSupportedType(instanceHop.ValueType)) {
+            columnarResolvedType = instanceHop.ValueType
+            return true
+        }
+
+        let receiverType: System.Type? = null
+        let ignoredCountGetter: System.Reflection.MethodInfo? = null
+        if (member == "Count" && TryGetPreflightExpressionType(receiver, out receiverType) && TryResolveCollectionCountGetter(receiverType, out ignoredCountGetter)) {
+            columnarResolvedType = typeof(int)
+            return true
+        }
+
+        let lengthReceiverType: System.Type? = null
+        if (member == "Length" && TryGetPreflightExpressionType(receiver, out lengthReceiverType) && (ColumnarTypeEquivalenceFacts.IsSafeSzArrayType(lengthReceiverType) || lengthReceiverType == typeof(string) || lengthReceiverType == typeof(System.Text.StringBuilder) || ColumnarTypeOfPlanner.IsSupportedSpanLikeType(lengthReceiverType))) {
+            columnarResolvedType = typeof(int)
+            return true
+        }
+
+        if (_nodes.Kind(receiver) == 6) {
+            receiverIdent := ColumnarNodeTextFacts.Text(_nodes, _source, receiver)
+            isUnshadowedTypeName := !_locals.ContainsKey(receiverIdent) && !_liftedLocals.ContainsKey(receiverIdent) && !_paramOrdinals.ContainsKey(receiverIdent) && !_siblings.ContainsKey(receiverIdent)
+            if (!isUnshadowedTypeName) {
+                return false
+            }
+            let userEnum: NSharpLang.Compiler.Columnar.ColumnarEnumDef? = null
+            if (_typeResolutionEnums.TryGetValue(receiverIdent, out userEnum) && ((userEnum.StringConstants != null && userEnum.StringConstants.ContainsKey(ColumnarNodeTextFacts.Text(_nodes, _source, node))) || userEnum.Constants.ContainsKey(ColumnarNodeTextFacts.Text(_nodes, _source, node)))) {
+                columnarResolvedType = userEnum.EnumType
+                return true
+            }
+            let staticOwner: NSharpLang.Compiler.Columnar.ColumnarStructDef? = null
+            if (_typeResolutionStructs.TryGetValue(receiverIdent, out staticOwner)) {
+                let staticField: System.Reflection.Emit.FieldBuilder? = null
+                if (ColumnarSourceMemberChainResolver.TryFindStaticFieldOnChain(staticOwner, ColumnarNodeTextFacts.Text(_nodes, _source, node), out staticField)) {
+                    columnarResolvedType = staticField.get_FieldType()
+                    return true
+                }
+                let staticProperty: NSharpLang.Compiler.Columnar.ColumnarPropertyDef? = null
+                if (ColumnarSourceMemberChainResolver.TryFindStaticPropertyOnChain(staticOwner, ColumnarNodeTextFacts.Text(_nodes, _source, node), out staticProperty)) {
+                    columnarResolvedType = staticProperty.PropertyType
+                    return true
+                }
+            }
+        }
+        return false
+    }
+
+    private func CanAdoptIntLiteralAsType(node: int, target: Type): bool {
+        negative := false
+        if (_nodes.Kind(node) == 11 && _nodes.ChildCount(node) == 1 && ColumnarNodeTextFacts.Text(_nodes, _source, node) == "-") {
+            negative = true
+            node = Child(node, 0)
+        }
+        if (_nodes.Kind(node) != 0 || _nodes.ValueStart(node) < 0) {
+            return false
+        }
+        text := ColumnarNodeTextFacts.Text(_nodes, _source, node)
+        if (text.Length == 0 || text[^1] == 'u' || text[^1] == 'U' || text[^1] == 'l' || text[^1] == 'L' || text[^1] == 'm' || text[^1] == 'M') {
+            return false
+        }
+        let value: ulong = 0UL
+        if (!UInt64.TryParse(text, out value)) {
+            return false
+        }
+        if (negative) {
+            if (target == typeof(byte) || target == typeof(ushort) || target == typeof(uint) || target == typeof(ulong)) {
+                return false
+            }
+            min := target == typeof(sbyte) ? (ulong)sbyte.MaxValue : target == typeof(short) ? (ulong)short.MaxValue : (ulong)int.MaxValue
+            return value <= min && (target == typeof(sbyte) || target == typeof(short) || target == typeof(int) || target == typeof(long))
+        }
+        if (target == typeof(byte) || target == typeof(sbyte) || target == typeof(short) || target == typeof(ushort) || target == typeof(uint)) {
+            max := target == typeof(byte) ? (ulong)byte.MaxValue : target == typeof(sbyte) ? (ulong)sbyte.MaxValue : target == typeof(short) ? (ulong)short.MaxValue : target == typeof(ushort) ? (ulong)ushort.MaxValue : (ulong)int.MaxValue
+            return value <= max
+        }
+        if (target == typeof(long) || target == typeof(ulong)) {
+            return value <= (ulong)int.MaxValue
+        }
+        return false
+    }
+
+    // Maps a CLOSED user-generic receiver (Box<int>) back to its OPEN definition's registry entry.
+    // Member tokens on the closed type are rebound via TypeBuilder.GetField/GetMethod; member TYPES
+    // substitute the closed arguments positionally.
+    private func TryGetClosedReceiverDef(receiverType: Type, out def: ColumnarStructDef, out closedArguments: Type[]): bool => ColumnarSourceDefinitionResolver.TryResolveClosedReceiver(receiverType, _structRegistry, out def, out closedArguments)
+
+    private static func TryGetEnumerableElementType(receiverType: Type, out elementType: Type): bool {
+        elementType = null
+        if (receiverType.get_IsGenericParameter()) {
+            return false
+        }
+        if (ColumnarTypeEquivalenceFacts.IsSafeSzArrayType(receiverType)) {
+            elementType = receiverType.GetElementType()
+            return ColumnarTypeOfPlanner.IsSupportedElementType(elementType)
+        }
+
+        if (!ColumnarTypeOfPlanner.IsSupportedCollectionType(receiverType)) {
+            return false
+        }
+        collectionDef := receiverType.GetGenericTypeDefinition()
+        if (collectionDef == typeof(Dictionary<int, int>).GetGenericTypeDefinition()) {
+            return false
+        }
+        args := receiverType.GetGenericArguments()
+        if (args.Length != 1) {
+            return false
+        }
+        elementType = args[0]
+        return ColumnarTypeOfPlanner.IsAdmissibleCollectionElement(elementType) || ColumnarTypeOfPlanner.IsSupportedElementType(elementType)
+    }
+
+    private static func FindEnumerableSourceOnlyMethod(name: string): MethodInfo? {
+        for method in typeof(System.Linq.Enumerable).GetMethods(BindingFlags.Public | BindingFlags.Static) {
+            if (method.get_Name() != name || !method.get_IsGenericMethodDefinition() || method.GetGenericArguments().Length != 1) {
+                continue
+            }
+            parameters := method.GetParameters()
+            if (parameters.Length == 1 && parameters[0].get_ParameterType().get_IsGenericType() && parameters[0].get_ParameterType().GetGenericTypeDefinition() == typeof(IEnumerable<int>).GetGenericTypeDefinition()) {
+                return method
+            }
+        }
+        return null
+    }
+
+    private static func FindEnumerableLambdaMethod(name: string, genericArgumentCount: int, delegateDefinition: Type): MethodInfo? {
+        for method in typeof(System.Linq.Enumerable).GetMethods(BindingFlags.Public | BindingFlags.Static) {
+            if (method.get_Name() != name || !method.get_IsGenericMethodDefinition() || method.GetGenericArguments().Length != genericArgumentCount) {
+                continue
+            }
+            parameters := method.GetParameters()
+            if (parameters.Length == 2 && parameters[0].get_ParameterType().get_IsGenericType() && parameters[0].get_ParameterType().GetGenericTypeDefinition() == typeof(IEnumerable<int>).GetGenericTypeDefinition() && parameters[1].get_ParameterType().get_IsGenericType() && parameters[1].get_ParameterType().GetGenericTypeDefinition() == delegateDefinition) {
+                return method
+            }
+        }
+        return null
+    }
+
+    private static func FindEnumerableIntAggregateMethod(name: string): MethodInfo? {
+        for method in typeof(System.Linq.Enumerable).GetMethods(BindingFlags.Public | BindingFlags.Static) {
+            if (method.get_Name() != name || method.get_ReturnType() != typeof(int)) {
+                continue
+            }
+            parameters := method.GetParameters()
+            if (parameters.Length == 1 && parameters[0].get_ParameterType() == typeof(IEnumerable<int>)) {
+                return method
+            }
+        }
+        return null
+    }
+
+    // Preflight a contextual lambda body under a given parameter binding and return its
+    // inferred type when that type is a supported non-void type. The parameter SHAPE decision — kind-39
+    // lambda, arity match against parameterTypes, identifier parameter nodes, duplicate-name malformedness,
+    // and the NL316 enclosing shadow — is owned by N# ColumnarLambdaPlacementPlanner.PlanContextualSignature;
+    // the scoped sub-emitter below performs the expression-type preflight in the selected binding context.
+    // An empty parameterTypes serves a zero-parameter handler body; a single type serves a single-parameter
+    // selector/predicate body.
+    private func TryPreflightContextualLambdaReturnType(lambdaNode: int, parameterTypes: Type[], out returnType: Type): bool {
+        returnType = null
+        if (_nodes.Kind(lambdaNode) != 39) {
+            return false
+        }
+        signature := ColumnarLambdaPlacementPlanner.PlanContextualSignature(
+            _nodes,
+            _source,
+            lambdaNode,
+            parameterTypes,
+            ColumnarClosureBindingPlanner.VisibleBindingNamesSnapshot(_enclosingBindingNames, _locals, _paramOrdinals, _liftedLocals, _boxedCaptures)
+        )
+        if (signature == null) {
+            return false
+        }
+        subEmitter := new ColumnarIlEmitter(
+            _nodes,
+            _source,
+            signature.Ordinals,
+            signature.ParameterTypesByName,
+            ColumnarTypeOfPlanner.RequiredVoidType(),
+            _il,
+            _siblings,
+            _enumRegistry,
+            _structRegistry,
+            _unionRegistry,
+            _unionCaseRegistry,
+            _currentStruct,
+            _enclosingType,
+            false,
+            false,
+            _programType,
+            _lambdaCounter,
+            _displayClasses,
+            null,
+            _localFuncs,
+            _declaredLocalFuncNodes,
+            _visibleLocalFuncs,
+            _siblingReturnTupleNames,
+            null,
+            ColumnarClosureBindingPlanner.VisibleBindingNamesSnapshot(_enclosingBindingNames, _locals, _paramOrdinals, _liftedLocals, _boxedCaptures),
+            null,
+            false,
+            _referenceAssemblyPaths,
+            _genericInterfaceConstraints,
+            _typeParameters,
+            _typeResolutionEnums,
+            _typeResolutionStructs,
+            _typeResolutionUnions
+        )
+        return subEmitter.TryGetPreflightExpressionType(signature.BodyNode, out returnType) && returnType != ColumnarTypeOfPlanner.RequiredVoidType() && ColumnarTypeOfPlanner.IsSupportedType(returnType)
+    }
+
+    // N# owns the single-parameter contextual-delegate return-type SELECTION: the contextual lambda body's
+    // preflighted type takes precedence over a visible local-function method group's return type. Both
+    // candidates are resolved by the remaining C# decision code here — the lambda body preflight above, and the method-group
+    // lookup with its reflection-bound single-parameter equivalence and supported-non-void gate — and
+    // handed to ColumnarLambdaPlacementPlanner.PlanSingleParameterContextualReturnType, whose null result
+    // is the standard inference decline.
+    private func TryInferSingleParameterContextualDelegateReturnType(delegateNode: int, parameterType: Type, out returnType: Type): bool {
+        returnType = null
+        let lambdaReturn: System.Type? = null
+        lambdaCandidate: Type? = null
+        if (TryPreflightContextualLambdaReturnType(delegateNode, [parameterType], out lambdaReturn)) {
+            lambdaCandidate = lambdaReturn
+        }
+        localCandidate: Type? = null
+        let localTargetMethod: System.Reflection.Emit.MethodBuilder? = null
+        let localTargetParamTypes: System.Type[]? = null
+        let localTargetReturnType: System.Type? = null
+        let localTarget: (Method: System.Reflection.Emit.MethodBuilder, ParamTypes: System.Type[], ReturnType: System.Type) = (localTargetMethod, localTargetParamTypes, localTargetReturnType)
+        if (TryGetVisibleLocalFunctionMethodGroup(delegateNode, out localTarget) && localTarget.ParamTypes.Length == 1 && TypesEquivalent(localTarget.ParamTypes[0], parameterType) && localTarget.ReturnType != ColumnarTypeOfPlanner.RequiredVoidType() && ColumnarTypeOfPlanner.IsSupportedType(localTarget.ReturnType)) {
+            localCandidate = localTarget.ReturnType
+        }
+        inferred := ColumnarLambdaPlacementPlanner.PlanSingleParameterContextualReturnType(lambdaCandidate, localCandidate)
+        if (inferred == null) {
+            return false
+        }
+        returnType = inferred
+        return true
+    }
+
+    private func TryEmitAspNetRouteHandler(handlerNode: int, out delegateType: Type): bool {
+        delegateType = null
+        handlerNode = UnwrapParenthesizedNode(handlerNode)
+        if (_nodes.Kind(handlerNode) == 39) {
+            parameterCount := _nodes.ChildCount(handlerNode) - 1
+            if (parameterCount == 0) {
+                let inferredReturn: System.Type? = null
+                returnType := TryPreflightContextualLambdaReturnType(handlerNode, Type.EmptyTypes, out inferredReturn) ? inferredReturn : typeof(object)
+                delegateType = typeof(Func<int>).GetGenericTypeDefinition().MakeGenericType([returnType])
+                return IsSupportedContextualDelegateType(delegateType) && TryEmitLambdaLiteral(handlerNode, delegateType)
+            }
+
+            let httpContextType: System.Type? = null
+            if (parameterCount == 1 && ColumnarCompilerReferenceResolver.TryResolveAspNetHttpContextType(_referenceAssemblyPaths, out httpContextType)) {
+                let inferredReturn: System.Type? = null
+                returnType := TryPreflightContextualLambdaReturnType(handlerNode, [httpContextType], out inferredReturn) ? inferredReturn : typeof(System.Threading.Tasks.Task)
+                delegateType = typeof(Func<int, int>).GetGenericTypeDefinition().MakeGenericType([httpContextType, returnType])
+                return IsSupportedContextualDelegateType(delegateType) && TryEmitLambdaLiteral(handlerNode, delegateType)
+            }
+            return false
+        }
+
+        let contextType: System.Type? = null
+        let method: NSharpLang.Compiler.Columnar.ColumnarInstanceMethodDef? = null
+        if (_nodes.Kind(handlerNode) == 6 && _currentStruct != null && _currentStruct.IsReference && ColumnarCompilerReferenceResolver.TryResolveAspNetHttpContextType(_referenceAssemblyPaths, out contextType) && ColumnarSourceMemberChainResolver.TryFindMethodOnChain(_currentStruct, ColumnarNodeTextFacts.Text(_nodes, _source, handlerNode), 1, out method) && TypesEquivalent(method.ParamTypes[0], contextType) && ColumnarTypeOfPlanner.IsSupportedType(method.ReturnType)) {
+            delegateType = typeof(Func<int, int>).GetGenericTypeDefinition().MakeGenericType([contextType, method.ReturnType])
+            let delegateCtor: System.Reflection.ConstructorInfo? = null
+            let ignoredDelegateReturnType: System.Type? = null
+            let ignoredDelegateParameterTypes: System.Type[]? = null
+            if (!TryGetSupportedDelegateSignature(delegateType, true, out ignoredDelegateReturnType, out ignoredDelegateParameterTypes, out delegateCtor)) {
+                return false
+            }
+            _il.Emit(OpCodes.Ldarg_0)
+            _il.Emit(OpCodes.Ldftn, method.Builder)
+            _il.Emit(OpCodes.Newobj, delegateCtor)
+            return true
+        }
+
+        return false
+    }
+
+    private func TryEmitAspNetMapEndpointCall(callIdx: int, receiverType: Type, member: string, argCount: int, out columnarResolvedType: Type): bool {
+        columnarResolvedType = null
+        if (receiverType.FullName != "Microsoft.AspNetCore.Builder.WebApplication" || (member != "MapGet" && member != "MapPost") || argCount != 2) {
+            return false
+        }
+        let endpointExtensions: System.Type? = null
+        if (!ColumnarCompilerReferenceResolver.TryResolveAspNetReferencedType(
+            _referenceAssemblyPaths,
+            "Microsoft.AspNetCore.Routing",
+            "Microsoft.AspNetCore.Builder.EndpointRouteBuilderExtensions",
+            out endpointExtensions
+        )) {
+            return false
+        }
+
+        let mapMethod: System.Reflection.MethodInfo? = null
+        for candidate in endpointExtensions.GetMethods(BindingFlags.Public | BindingFlags.Static) {
+            if (candidate.get_Name() != member) {
+                continue
+            }
+            parameters := candidate.GetParameters()
+            if (parameters.Length == 3 && parameters[1].get_ParameterType() == typeof(string) && parameters[2].get_ParameterType() == typeof(Delegate)) {
+                mapMethod = candidate
+                break
+            }
+        }
+        let ignoredDelegateType: System.Type? = null
+        if (mapMethod == null || !EmitDeclaredCallArgument(Child(callIdx, 1), typeof(string), false) || !TryEmitAspNetRouteHandler(Child(callIdx, 2), out ignoredDelegateType)) {
+            return false
+        }
+
+        _il.Emit(OpCodes.Call, mapMethod)
+        columnarResolvedType = mapMethod.get_ReturnType()
+        return true
+    }
+
+    private func TryEmitAspNetStaticFilesCall(callIdx: int, receiverType: Type, member: string, argCount: int, out columnarResolvedType: Type): bool {
+        columnarResolvedType = null
+        if (receiverType.FullName != "Microsoft.AspNetCore.Builder.WebApplication") {
+            return false
+        }
+
+        if ((member == "UseDefaultFiles" || member == "UseStaticFiles") && argCount == 0) {
+            extensionTypeName := member == "UseDefaultFiles" ? "Microsoft.AspNetCore.Builder.DefaultFilesExtensions" : "Microsoft.AspNetCore.Builder.StaticFileExtensions"
+            let extensionType: System.Type? = null
+            if (!ColumnarCompilerReferenceResolver.TryResolveAspNetReferencedType(_referenceAssemblyPaths, "Microsoft.AspNetCore.StaticFiles", extensionTypeName, out extensionType)) {
+                return false
+            }
+            let method: System.Reflection.MethodInfo? = null
+            for candidate in extensionType.GetMethods(BindingFlags.Public | BindingFlags.Static) {
+                if (candidate.get_Name() != member) {
+                    continue
+                }
+                parameters := candidate.GetParameters()
+                if (parameters.Length == 1 && parameters[0].get_ParameterType().get_FullName() == "Microsoft.AspNetCore.Builder.IApplicationBuilder") {
+                    method = candidate
+                    break
+                }
+            }
+            if (method == null) {
+                return false
+            }
+            _il.Emit(OpCodes.Call, method)
+            columnarResolvedType = method.get_ReturnType()
+            return true
+        }
+
+        if (member == "MapFallbackToFile" && argCount == 1) {
+            let extensionType: System.Type? = null
+            if (!ColumnarCompilerReferenceResolver.TryResolveAspNetReferencedType(
+                _referenceAssemblyPaths,
+                "Microsoft.AspNetCore.StaticFiles",
+                "Microsoft.AspNetCore.Builder.StaticFilesEndpointRouteBuilderExtensions",
+                out extensionType
+            )) {
+                return false
+            }
+            let method: System.Reflection.MethodInfo? = null
+            for candidate in extensionType.GetMethods(BindingFlags.Public | BindingFlags.Static) {
+                if (candidate.get_Name() != member) {
+                    continue
+                }
+                parameters := candidate.GetParameters()
+                if (parameters.Length == 2 && parameters[0].get_ParameterType().get_FullName() == "Microsoft.AspNetCore.Routing.IEndpointRouteBuilder" && parameters[1].get_ParameterType() == typeof(string)) {
+                    method = candidate
+                    break
+                }
+            }
+            if (method == null || !EmitDeclaredCallArgument(Child(callIdx, 1), typeof(string), false)) {
+                return false
+            }
+            _il.Emit(OpCodes.Call, method)
+            columnarResolvedType = method.get_ReturnType()
+            return true
+        }
+
+        return false
+    }
+
+    private func TryEmitEnumerableExtensionCall(callIdx: int, receiverType: Type, member: string, argCount: int, out columnarResolvedType: Type): bool {
+        columnarResolvedType = null
+        let sourceType: System.Type? = null
+        if (!TryGetEnumerableElementType(receiverType, out sourceType)) {
+            return false
+        }
+
+        if (member == "Where" && argCount == 1) {
+            predicateType := typeof(Func<int, int>).GetGenericTypeDefinition().MakeGenericType([sourceType, typeof(bool)])
+            columnarWhereValue := FindEnumerableLambdaMethod(nameof(System.Linq.Enumerable.Where), 1, typeof(Func<int, int>).GetGenericTypeDefinition())
+            if (columnarWhereValue == null || !IsSupportedContextualDelegateType(predicateType) || !EmitDeclaredCallArgument(Child(callIdx, 1), predicateType, true)) {
+                return false
+            }
+            whereMethod := columnarWhereValue.MakeGenericMethod([sourceType])
+            _il.Emit(OpCodes.Call, whereMethod)
+            columnarResolvedType = typeof(IEnumerable<int>).GetGenericTypeDefinition().MakeGenericType([sourceType])
+            return true
+        }
+
+        if (member == "Select" && argCount == 1) {
+            let resultType: System.Type? = null
+            if (!TryInferSingleParameterContextualDelegateReturnType(Child(callIdx, 1), sourceType, out resultType)) {
+                return false
+            }
+            selectorType := typeof(Func<int, int>).GetGenericTypeDefinition().MakeGenericType([sourceType, resultType])
+            select := FindEnumerableLambdaMethod(nameof(System.Linq.Enumerable.Select), 2, typeof(Func<int, int>).GetGenericTypeDefinition())
+            if (select == null || !IsSupportedContextualDelegateType(selectorType) || !EmitDeclaredCallArgument(Child(callIdx, 1), selectorType, true)) {
+                return false
+            }
+            selectMethod := select.MakeGenericMethod([sourceType, resultType])
+            _il.Emit(OpCodes.Call, selectMethod)
+            columnarResolvedType = typeof(IEnumerable<int>).GetGenericTypeDefinition().MakeGenericType([resultType])
+            return true
+        }
+
+        if (member == "ToArray" && argCount == 0) {
+            toArray := FindEnumerableSourceOnlyMethod(nameof(System.Linq.Enumerable.ToArray))
+            if (toArray == null || !ColumnarTypeOfPlanner.IsSupportedElementType(sourceType)) {
+                return false
+            }
+            toArrayMethod := toArray.MakeGenericMethod([sourceType])
+            _il.Emit(OpCodes.Call, toArrayMethod)
+            columnarResolvedType = sourceType.MakeArrayType()
+            return true
+        }
+
+        if (member == "ToList" && argCount == 0) {
+            toList := FindEnumerableSourceOnlyMethod(nameof(System.Linq.Enumerable.ToList))
+            if (toList == null) {
+                return false
+            }
+            toListMethod := toList.MakeGenericMethod([sourceType])
+            _il.Emit(OpCodes.Call, toListMethod)
+            columnarResolvedType = typeof(List<int>).GetGenericTypeDefinition().MakeGenericType([sourceType])
+            return true
+        }
+
+        // LOAD-BEARING residual: emits .Min()/.Max() as the outer call of contextual-lambda chains
+        // (Select(v => ...).Min()), which whole-subtree-exit to this legacy path. Plannable receivers
+        // bind in the N# resolver. Retires with lambda-LINQ arc stages 3-4; proof project:
+        // tests/native/lambda-placement.
+        if ((member == "Min" || member == "Max") && argCount == 0 && sourceType == typeof(int)) {
+            aggregate := FindEnumerableIntAggregateMethod(member)
+            if (aggregate == null) {
+                return false
+            }
+            _il.Emit(OpCodes.Call, aggregate)
+            columnarResolvedType = typeof(int)
+            return true
+        }
+
+        if (member == "Contains" && argCount == 1) {
+            if (ColumnarTypeOfPlanner.ContainsNonEnumBuilderBoundType(sourceType) || !EmitArg(callIdx, 1, sourceType)) {
+                return false
+            }
+            let contains: System.Reflection.MethodInfo? = null
+            for method in typeof(System.Linq.Enumerable).GetMethods(BindingFlags.Public | BindingFlags.Static) {
+                if (method.get_Name() != nameof(System.Linq.Enumerable.Contains) || !method.get_IsGenericMethodDefinition() || method.GetGenericArguments().Length != 1) {
+                    continue
+                }
+                parameters := method.GetParameters()
+                if (parameters.Length == 2 && parameters[0].get_ParameterType().get_IsGenericType() && parameters[0].get_ParameterType().GetGenericTypeDefinition() == typeof(IEnumerable<int>).GetGenericTypeDefinition() && parameters[1].get_ParameterType().get_IsGenericParameter()) {
+                    contains = method
+                    break
+                }
+            }
+            if (contains == null) {
+                return false
+            }
+            containsMethod := contains.MakeGenericMethod([sourceType])
+            _il.Emit(OpCodes.Call, containsMethod)
+            columnarResolvedType = typeof(bool)
+            return true
+        }
+
+        return false
+    }
+
+    private func TryEmitInstanceCall(callIdx: int, receiverType: Type, member: string, argCount: int, legacyWholeSubtreePlanning: bool, out columnarResolvedType: Type): bool {
+        columnarResolvedType = null
+
+        if (TryEmitPlannedExternalCall(
+            receiverType.FullName ?? receiverType.Name,
+            false,
+            member,
+            callIdx,
+            legacyWholeSubtreePlanning,
+            out columnarResolvedType
+        )) {
+            return true
+        }
+        if (!legacyWholeSubtreePlanning) {
+            return false
+        }
+
+        if (TryEmitAspNetStaticFilesCall(callIdx, receiverType, member, argCount, out columnarResolvedType)) {
+            return true
+        }
+
+        if (TryEmitAspNetMapEndpointCall(callIdx, receiverType, member, argCount, out columnarResolvedType)) {
+            return true
+        }
+
+        if (TryEmitEnumerableExtensionCall(callIdx, receiverType, member, argCount, out columnarResolvedType)) {
+            return true
+        }
+
+        if (TryEmitExtensionSiblingCall(callIdx, receiverType, member, argCount, out columnarResolvedType)) {
+            return true
+        }
+
+        if (TryEmitExtensionStaticMethodCall(callIdx, receiverType, member, argCount, out columnarResolvedType)) {
+            return true
+        }
+
+        if (receiverType.get_IsGenericParameter() && TryEmitGenericParameterConstrainedInterfaceCall(callIdx, receiverType, member, argCount, out columnarResolvedType)) {
+            return true
+        }
+
+        if (receiverType == typeof(DeserializerBuilder)) {
+            if (member == "WithNamingConvention" && argCount == 1) {
+                method := typeof(DeserializerBuilder).GetMethod("WithNamingConvention", [typeof(INamingConvention)])
+                if (method == null || !EmitArg(callIdx, 1, typeof(INamingConvention))) {
+                    return false
+                }
+                _il.Emit(OpCodes.Callvirt, method)
+                columnarResolvedType = typeof(DeserializerBuilder)
+                return true
+            }
+            if (member == "WithTypeConverter" && argCount == 1) {
+                method := typeof(DeserializerBuilder).GetMethod("WithTypeConverter", [typeof(IYamlTypeConverter)])
+                if (method == null || !EmitArg(callIdx, 1, typeof(IYamlTypeConverter))) {
+                    return false
+                }
+                _il.Emit(OpCodes.Callvirt, method)
+                columnarResolvedType = typeof(DeserializerBuilder)
+                return true
+            }
+            if (member == nameof(DeserializerBuilder.IgnoreUnmatchedProperties) && argCount == 0) {
+                _il.Emit(OpCodes.Callvirt, typeof(DeserializerBuilder).GetMethod(nameof(DeserializerBuilder.IgnoreUnmatchedProperties), Type.EmptyTypes))
+                columnarResolvedType = typeof(DeserializerBuilder)
+                return true
+            }
+            if (member == nameof(DeserializerBuilder.Build) && argCount == 0) {
+                _il.Emit(OpCodes.Callvirt, typeof(DeserializerBuilder).GetMethod(nameof(DeserializerBuilder.Build), Type.EmptyTypes))
+                columnarResolvedType = typeof(IDeserializer)
+                return true
+            }
+        }
+        if (receiverType == typeof(IDeserializer) && member == nameof(IDeserializer.Deserialize) && argCount == 2) {
+            method := typeof(IDeserializer).GetMethod(nameof(IDeserializer.Deserialize), [typeof(string), typeof(Type)])
+            if (method == null || !EmitArg(callIdx, 1, typeof(string)) || !EmitArg(callIdx, 2, typeof(Type))) {
+                return false
+            }
+            _il.Emit(OpCodes.Callvirt, method)
+            columnarResolvedType = typeof(object)
+            return true
+        }
+        if (receiverType == typeof(YamlDotNet.Core.IParser) && member == nameof(YamlDotNet.Core.IParser.MoveNext) && argCount == 0) {
+            _il.Emit(OpCodes.Callvirt, typeof(YamlDotNet.Core.IParser).GetMethod(nameof(YamlDotNet.Core.IParser.MoveNext), Type.EmptyTypes))
+            columnarResolvedType = typeof(bool)
+            return true
+        }
+        if (receiverType == typeof(YamlDotNet.Core.IEmitter) && member == nameof(YamlDotNet.Core.IEmitter.Emit) && argCount == 1) {
+            if (!EmitArg(callIdx, 1, typeof(ParsingEvent))) {
+                return false
+            }
+            _il.Emit(OpCodes.Callvirt, typeof(YamlDotNet.Core.IEmitter).GetMethod(nameof(YamlDotNet.Core.IEmitter.Emit), [typeof(ParsingEvent)]))
+            columnarResolvedType = ColumnarTypeOfPlanner.RequiredVoidType()
+            return true
+        }
+        if (receiverType.FullName == "Microsoft.AspNetCore.Builder.WebApplicationBuilder" && member == "Build" && argCount == 0) {
+            method := receiverType.GetMethod("Build", Type.EmptyTypes)
+            if (method == null) {
+                return false
+            }
+            _il.Emit(OpCodes.Callvirt, method)
+            columnarResolvedType = method.get_ReturnType()
+            return true
+        }
+        if (receiverType.FullName == "Microsoft.AspNetCore.Builder.WebApplication" && member == "Run" && argCount == 0) {
+            let method: System.Reflection.MethodInfo? = receiverType.GetMethod("Run", Type.EmptyTypes)
+            if (method == null) {
+                for candidate in receiverType.GetMethods(BindingFlags.Public | BindingFlags.Instance) {
+                    if (candidate.get_Name() != "Run") {
+                        continue
+                    }
+                    parameters := candidate.GetParameters()
+                    if (parameters.Length == 1 && parameters[0].get_ParameterType() == typeof(string) && parameters[0].get_IsOptional()) {
+                        method = candidate
+                        break
+                    }
+                }
+            }
+            if (method == null) {
+                return false
+            }
+            if (method.GetParameters().Length == 1) {
+                _il.Emit(OpCodes.Ldnull)
+            }
+            _il.Emit(OpCodes.Callvirt, method)
+            columnarResolvedType = method.get_ReturnType()
+            return true
+        }
+        if ((receiverType.FullName == "Microsoft.AspNetCore.Hosting.IWebHostEnvironment" || receiverType.FullName == "Microsoft.Extensions.Hosting.IHostEnvironment" || receiverType.FullName == "Microsoft.Extensions.Hosting.IHostingEnvironment") && member == "IsDevelopment" && argCount == 0) {
+            let hostingEnvironmentExtensions: System.Type? = null
+            if (!ColumnarCompilerReferenceResolver.TryResolveReferencedType(
+                _referenceAssemblyPaths,
+                "Microsoft.Extensions.Hosting.Abstractions",
+                "Microsoft.Extensions.Hosting.HostEnvironmentEnvExtensions",
+                out hostingEnvironmentExtensions
+            ) && !ColumnarCompilerReferenceResolver.TryResolveReferencedType(
+                _referenceAssemblyPaths,
+                "Microsoft.Extensions.Hosting.Abstractions",
+                "Microsoft.Extensions.Hosting.HostingEnvironmentExtensions",
+                out hostingEnvironmentExtensions
+            ) && !ColumnarCompilerReferenceResolver.TryResolveReferencedType(
+                _referenceAssemblyPaths,
+                "Microsoft.AspNetCore.Hosting.Abstractions",
+                "Microsoft.AspNetCore.Hosting.HostingEnvironmentExtensions",
+                out hostingEnvironmentExtensions
+            )) {
+                return false
+            }
+            let method: System.Reflection.MethodInfo? = null
+            for candidate in hostingEnvironmentExtensions.GetMethods(BindingFlags.Public | BindingFlags.Static) {
+                if (candidate.get_Name() != "IsDevelopment") {
+                    continue
+                }
+                parameters := candidate.GetParameters()
+                if (parameters.Length != 1) {
+                    continue
+                }
+                parameterFullName := parameters[0].get_ParameterType().get_FullName()
+                if (parameterFullName == "Microsoft.Extensions.Hosting.IHostEnvironment" || parameterFullName == "Microsoft.Extensions.Hosting.IHostingEnvironment") {
+                    method = candidate
+                    break
+                }
+            }
+            if (method == null) {
+                return false
+            }
+            hostingParameterType := method.GetParameters()[0].get_ParameterType()
+            if (!TypesEquivalent(receiverType, hostingParameterType)) {
+                _il.Emit(OpCodes.Castclass, hostingParameterType)
+            }
+            _il.Emit(OpCodes.Call, method)
+            columnarResolvedType = typeof(bool)
+            return true
+        }
+        if (receiverType.FullName == "Microsoft.AspNetCore.Http.HttpResponse" && member == "WriteAsync" && argCount == 1) {
+            let responseWritingExtensions: System.Type? = null
+            if (!ColumnarCompilerReferenceResolver.TryResolveAspNetReferencedType(
+                _referenceAssemblyPaths,
+                "Microsoft.AspNetCore.Http.Abstractions",
+                "Microsoft.AspNetCore.Http.HttpResponseWritingExtensions",
+                out responseWritingExtensions
+            )) {
+                return false
+            }
+            let method: System.Reflection.MethodInfo? = null
+            for candidate in responseWritingExtensions.GetMethods(BindingFlags.Public | BindingFlags.Static) {
+                if (candidate.get_Name() != "WriteAsync" || candidate.get_ReturnType() != typeof(System.Threading.Tasks.Task)) {
+                    continue
+                }
+                parameters := candidate.GetParameters()
+                if ((parameters.Length == 2 || parameters.Length == 3) && parameters[0].get_ParameterType().get_FullName() == "Microsoft.AspNetCore.Http.HttpResponse" && parameters[1].get_ParameterType() == typeof(string) && (parameters.Length == 2 || parameters[2].get_ParameterType() == typeof(System.Threading.CancellationToken))) {
+                    method = candidate
+                    break
+                }
+            }
+            if (method == null || !EmitArg(callIdx, 1, typeof(string))) {
+                return false
+            }
+            if (method.GetParameters().Length == 3 && !TryEmitDefaultValue(typeof(System.Threading.CancellationToken))) {
+                return false
+            }
+            _il.Emit(OpCodes.Call, method)
+            columnarResolvedType = typeof(System.Threading.Tasks.Task)
+            return true
+        }
+        if (receiverType.FullName == "Microsoft.AspNetCore.Http.HttpResponse" && member == "WriteAsJsonAsync" && (argCount == 2 || argCount == 3)) {
+            let responseJsonExtensions: System.Type? = null
+            if (!ColumnarCompilerReferenceResolver.TryResolveAspNetReferencedType(
+                _referenceAssemblyPaths,
+                "Microsoft.AspNetCore.Http.Extensions",
+                "Microsoft.AspNetCore.Http.HttpResponseJsonExtensions",
+                out responseJsonExtensions
+            )) {
+                return false
+            }
+            let method: System.Reflection.MethodInfo? = null
+            for candidate in responseJsonExtensions.GetMethods(BindingFlags.Public | BindingFlags.Static) {
+                if (candidate.get_Name() != "WriteAsJsonAsync" || !candidate.get_IsGenericMethodDefinition() || candidate.get_ReturnType() != typeof(System.Threading.Tasks.Task)) {
+                    continue
+                }
+                parameters := candidate.GetParameters()
+                if (parameters.Length == argCount + 1 && parameters[0].get_ParameterType().get_FullName() == "Microsoft.AspNetCore.Http.HttpResponse" && parameters[1].get_ParameterType().get_IsGenericParameter() && parameters[2].get_ParameterType() == typeof(JsonSerializerOptions) && (argCount == 2 || parameters[3].get_ParameterType() == typeof(System.Threading.CancellationToken))) {
+                    method = candidate
+                    break
+                }
+            }
+            let jsonValueType: System.Type? = null
+            if (method == null || !EmitExpression(Child(callIdx, 1), out jsonValueType) || !EmitArg(callIdx, 2, typeof(JsonSerializerOptions))) {
+                return false
+            }
+            if (argCount == 3 && !EmitArg(callIdx, 3, typeof(System.Threading.CancellationToken))) {
+                return false
+            }
+            jsonMethod := method.MakeGenericMethod([jsonValueType])
+            _il.Emit(OpCodes.Call, jsonMethod)
+            columnarResolvedType = typeof(System.Threading.Tasks.Task)
+            return true
+        }
+        if (receiverType == typeof(JsonElement)) {
+            if (member == nameof(JsonElement.EnumerateArray) && argCount == 0) {
+                receiverTemp := _il.DeclareLocal(typeof(JsonElement))
+                _il.Emit(OpCodes.Stloc, receiverTemp)
+                _il.Emit(OpCodes.Ldloca, receiverTemp)
+                _il.Emit(OpCodes.Call, typeof(JsonElement).GetMethod(nameof(JsonElement.EnumerateArray), Type.EmptyTypes))
+                columnarResolvedType = typeof(JsonElement.ArrayEnumerator)
+                return true
+            }
+            if (member == nameof(JsonElement.EnumerateObject) && argCount == 0) {
+                receiverTemp := _il.DeclareLocal(typeof(JsonElement))
+                _il.Emit(OpCodes.Stloc, receiverTemp)
+                _il.Emit(OpCodes.Ldloca, receiverTemp)
+                _il.Emit(OpCodes.Call, typeof(JsonElement).GetMethod(nameof(JsonElement.EnumerateObject), Type.EmptyTypes))
+                columnarResolvedType = typeof(JsonElement.ObjectEnumerator)
+                return true
+            }
+            if (member == nameof(JsonElement.GetInt32) && argCount == 0) {
+                receiverTemp := _il.DeclareLocal(typeof(JsonElement))
+                _il.Emit(OpCodes.Stloc, receiverTemp)
+                _il.Emit(OpCodes.Ldloca, receiverTemp)
+                _il.Emit(OpCodes.Call, typeof(JsonElement).GetMethod(nameof(JsonElement.GetInt32), Type.EmptyTypes))
+                columnarResolvedType = typeof(int)
+                return true
+            }
+            if (member == nameof(JsonElement.GetString) && argCount == 0) {
+                receiverTemp := _il.DeclareLocal(typeof(JsonElement))
+                _il.Emit(OpCodes.Stloc, receiverTemp)
+                _il.Emit(OpCodes.Ldloca, receiverTemp)
+                _il.Emit(OpCodes.Call, typeof(JsonElement).GetMethod(nameof(JsonElement.GetString), Type.EmptyTypes))
+                columnarResolvedType = typeof(string)
+                return true
+            }
+            if (member == nameof(JsonElement.TryGetProperty) && argCount == 2) {
+                method := typeof(JsonElement).GetMethod(nameof(JsonElement.TryGetProperty), [typeof(string), typeof(JsonElement).MakeByRefType()])
+                if (method == null) {
+                    return false
+                }
+                receiverTemp := _il.DeclareLocal(typeof(JsonElement))
+                _il.Emit(OpCodes.Stloc, receiverTemp)
+                _il.Emit(OpCodes.Ldloca, receiverTemp)
+                if (!EmitArg(callIdx, 1, typeof(string)) || !EmitByRefCallArgument(Child(callIdx, 2), typeof(JsonElement).MakeByRefType())) {
+                    return false
+                }
+                _il.Emit(OpCodes.Call, method)
+                columnarResolvedType = typeof(bool)
+                return true
+            }
+        }
+
+        if (ColumnarTypeOfPlanner.IsSupportedArrayPoolType(receiverType)) {
+            if (member == "Rent" && argCount == 1) {
+                if (!EmitArg(callIdx, 1, typeof(int))) {
+                    return false
+                }
+                _il.Emit(OpCodes.Callvirt, ResolveClosedGenericMethod(receiverType, typeof(System.Buffers.ArrayPool<int>).GetGenericTypeDefinition().GetMethod("Rent")))
+                columnarResolvedType = typeof(byte[])
+                return true
+            }
+            if (member == "Return" && (argCount == 1 || argCount == 2)) {
+                if (!EmitArg(callIdx, 1, typeof(byte[]))) {
+                    return false
+                }
+                if (argCount == 2) {
+                    if (!EmitArg(callIdx, 2, typeof(bool))) {
+                        return false
+                    }
+                } else {
+                    _il.Emit(OpCodes.Ldc_I4_0)
+                }
+                _il.Emit(OpCodes.Callvirt, ResolveClosedGenericMethod(receiverType, typeof(System.Buffers.ArrayPool<int>).GetGenericTypeDefinition().GetMethod("Return")))
+                columnarResolvedType = ColumnarTypeOfPlanner.RequiredVoidType()
+                return true
+            }
+            return false
+        }
+
+        if (ColumnarTypeOfPlanner.IsSupportedMemoryPoolType(receiverType)) {
+            if (member == "Rent" && argCount == 1) {
+                if (!EmitArg(callIdx, 1, typeof(int))) {
+                    return false
+                }
+                _il.Emit(OpCodes.Callvirt, ResolveClosedGenericMethod(receiverType, typeof(System.Buffers.MemoryPool<int>).GetGenericTypeDefinition().GetMethod("Rent")))
+                columnarResolvedType = typeof(System.Buffers.IMemoryOwner<byte>)
+                return true
+            }
+            return false
+        }
+
+        if (ColumnarTypeOfPlanner.IsSupportedMemoryOwnerType(receiverType) && member == nameof(IDisposable.Dispose) && argCount == 0) {
+            _il.Emit(OpCodes.Callvirt, typeof(IDisposable).GetMethod(nameof(IDisposable.Dispose), Type.EmptyTypes))
+            columnarResolvedType = ColumnarTypeOfPlanner.RequiredVoidType()
+            return true
+        }
+
+        // BCL COLLECTION instance methods on a closed List<T>/Dictionary<K,V>/SortedDictionary<K,V>/HashSet<T> (the runtime constructed
+        // type reflects normally; the receiver is already on the stack). The modelled set is the
+        // probe-pinned examples surface: List.Add(T)/Insert(int,T)/RemoveAt(int)/Contains(T)/IndexOf(T)/Remove(T)/Reverse()/Clear(),
+        // Dictionary/SortedDictionary Add(K,V)/ContainsKey(K)/TryGetValue(K,out V)/Remove(K)/Clear(),
+        // Dictionary.TryAdd(K,V)/Remove(K,out V),
+        // HashSet.Add(T)/Contains(T)/Remove(T)/Clear().
+        // Everything else declines.
+        if (ColumnarTypeOfPlanner.IsSupportedCollectionType(receiverType)) {
+            collectionDef := receiverType.GetGenericTypeDefinition()
+            collectionArgs := receiverType.GetGenericArguments()
+            if ((collectionDef == typeof(List<int>).GetGenericTypeDefinition() || collectionDef == typeof(HashSet<int>).GetGenericTypeDefinition() || collectionDef == typeof(Stack<int>).GetGenericTypeDefinition() || collectionDef == typeof(IReadOnlyList<int>).GetGenericTypeDefinition() || collectionDef == typeof(IReadOnlySet<int>).GetGenericTypeDefinition() || collectionDef == typeof(IEnumerable<int>).GetGenericTypeDefinition()) && member == "ToList" && argCount == 0) {
+                let toList: System.Reflection.MethodInfo? = null
+                for method in typeof(System.Linq.Enumerable).GetMethods() {
+                    if (method.get_Name() == nameof(System.Linq.Enumerable.ToList) && method.get_IsGenericMethodDefinition() && method.GetParameters().Length == 1) {
+                        toList = method
+                        break
+                    }
+                }
+                if (toList == null) {
+                    return false
+                }
+                constructedToList := toList.MakeGenericMethod([collectionArgs[0]])
+                _il.Emit(OpCodes.Call, constructedToList)
+                columnarResolvedType = typeof(List<int>).GetGenericTypeDefinition().MakeGenericType([collectionArgs[0]])
+                return true
+            }
+            if (collectionDef == typeof(IReadOnlySet<int>).GetGenericTypeDefinition() && member == "Contains" && argCount == 1) {
+                if (ColumnarTypeOfPlanner.ContainsNonEnumBuilderBoundType(collectionArgs[0]) || !EmitArg(callIdx, 1, collectionArgs[0])) {
+                    return false
+                }
+                _il.Emit(OpCodes.Callvirt, ResolveClosedGenericMethod(receiverType, typeof(IReadOnlySet<int>).GetGenericTypeDefinition().GetMethod("Contains")))
+                columnarResolvedType = typeof(bool)
+                return true
+            }
+            if (collectionDef == typeof(List<int>).GetGenericTypeDefinition() && member == "Add" && argCount == 1) {
+                if (!EmitArg(callIdx, 1, collectionArgs[0])) {
+                    return false
+                }
+                _il.Emit(OpCodes.Callvirt, ResolveClosedGenericMethod(receiverType, typeof(List<int>).GetGenericTypeDefinition().GetMethod("Add")))
+                columnarResolvedType = ColumnarTypeOfPlanner.RequiredVoidType()
+                return true
+            }
+            if (collectionDef == typeof(List<int>).GetGenericTypeDefinition() && member == "AddRange" && argCount == 1) {
+                enumerableType := typeof(IEnumerable<int>).GetGenericTypeDefinition().MakeGenericType([collectionArgs[0]])
+                if (!EmitArg(callIdx, 1, enumerableType)) {
+                    return false
+                }
+                let addRange: System.Reflection.MethodInfo? = null
+                for method in typeof(List<int>).GetGenericTypeDefinition().GetMethods() {
+                    if (method.get_Name() != "AddRange") {
+                        continue
+                    }
+                    if (method.GetParameters().Length == 1 && method.GetParameters()[0].get_ParameterType().get_IsGenericType() && method.GetParameters()[0].get_ParameterType().GetGenericTypeDefinition() == typeof(IEnumerable<int>).GetGenericTypeDefinition()) {
+                        addRange = method
+                        break
+                    }
+                }
+                if (addRange == null) {
+                    return false
+                }
+                _il.Emit(OpCodes.Callvirt, ResolveClosedGenericMethod(receiverType, addRange))
+                columnarResolvedType = ColumnarTypeOfPlanner.RequiredVoidType()
+                return true
+            }
+            if (collectionDef == typeof(List<int>).GetGenericTypeDefinition() && member == "Insert" && argCount == 2) {
+                if (!EmitArg(callIdx, 1, typeof(int)) || !EmitArg(callIdx, 2, collectionArgs[0])) {
+                    return false
+                }
+                _il.Emit(OpCodes.Callvirt, ResolveClosedGenericMethod(receiverType, typeof(List<int>).GetGenericTypeDefinition().GetMethod("Insert")))
+                columnarResolvedType = ColumnarTypeOfPlanner.RequiredVoidType()
+                return true
+            }
+            if (collectionDef == typeof(List<int>).GetGenericTypeDefinition() && member == "RemoveAt" && argCount == 1) {
+                if (!EmitArg(callIdx, 1, typeof(int))) {
+                    return false
+                }
+                _il.Emit(OpCodes.Callvirt, ResolveClosedGenericMethod(receiverType, typeof(List<int>).GetGenericTypeDefinition().GetMethod("RemoveAt")))
+                columnarResolvedType = ColumnarTypeOfPlanner.RequiredVoidType()
+                return true
+            }
+            if (collectionDef == typeof(List<int>).GetGenericTypeDefinition() && member == "Contains" && argCount == 1) {
+                if (ColumnarTypeOfPlanner.ContainsNonEnumBuilderBoundType(collectionArgs[0]) || !EmitArg(callIdx, 1, collectionArgs[0])) {
+                    return false
+                }
+                _il.Emit(OpCodes.Callvirt, ResolveClosedGenericMethod(receiverType, typeof(List<int>).GetGenericTypeDefinition().GetMethod("Contains")))
+                columnarResolvedType = typeof(bool)
+                return true
+            }
+            if (collectionDef == typeof(List<int>).GetGenericTypeDefinition() && member == "IndexOf" && argCount == 1) {
+                if (ColumnarTypeOfPlanner.ContainsNonEnumBuilderBoundType(collectionArgs[0]) || !EmitArg(callIdx, 1, collectionArgs[0])) {
+                    return false
+                }
+                let openIndexOf: System.Reflection.MethodInfo? = null
+                for method in typeof(List<int>).GetGenericTypeDefinition().GetMethods() {
+                    if (method.get_Name() == "IndexOf" && method.GetParameters().Length == 1) {
+                        openIndexOf = method
+                        break
+                    }
+                }
+                _il.Emit(OpCodes.Callvirt, ResolveClosedGenericMethod(receiverType, openIndexOf))
+                columnarResolvedType = typeof(int)
+                return true
+            }
+            if (collectionDef == typeof(List<int>).GetGenericTypeDefinition() && member == "Remove" && argCount == 1) {
+                if (ColumnarTypeOfPlanner.ContainsNonEnumBuilderBoundType(collectionArgs[0]) || !EmitArg(callIdx, 1, collectionArgs[0])) {
+                    return false
+                }
+                _il.Emit(OpCodes.Callvirt, ResolveClosedGenericMethod(receiverType, typeof(List<int>).GetGenericTypeDefinition().GetMethod("Remove")))
+                columnarResolvedType = typeof(bool)
+                return true
+            }
+            if (collectionDef == typeof(List<int>).GetGenericTypeDefinition() && member == "Reverse" && argCount == 0) {
+                _il.Emit(OpCodes.Callvirt, ResolveClosedGenericMethod(receiverType, typeof(List<int>).GetGenericTypeDefinition().GetMethod("Reverse", Type.EmptyTypes)))
+                columnarResolvedType = ColumnarTypeOfPlanner.RequiredVoidType()
+                return true
+            }
+            if (collectionDef == typeof(List<int>).GetGenericTypeDefinition() && member == "Clear" && argCount == 0) {
+                _il.Emit(OpCodes.Callvirt, ResolveClosedGenericMethod(receiverType, typeof(List<int>).GetGenericTypeDefinition().GetMethod("Clear")))
+                columnarResolvedType = ColumnarTypeOfPlanner.RequiredVoidType()
+                return true
+            }
+            if (collectionDef == typeof(List<int>).GetGenericTypeDefinition() && member == "ToArray" && argCount == 0) {
+                _il.Emit(OpCodes.Callvirt, ResolveClosedGenericMethod(receiverType, typeof(List<int>).GetGenericTypeDefinition().GetMethod("ToArray", Type.EmptyTypes)))
+                columnarResolvedType = collectionArgs[0].MakeArrayType()
+                return true
+            }
+            if (ColumnarGenericCallBindingPlanner.IsAnyDictionaryCollectionDefinition(collectionDef) && member == "ContainsKey" && argCount == 1) {
+                if (!EmitArg(callIdx, 1, collectionArgs[0])) {
+                    return false
+                }
+                _il.Emit(OpCodes.Callvirt, ResolveClosedGenericMethod(receiverType, collectionDef.GetMethod("ContainsKey")))
+                columnarResolvedType = typeof(bool)
+                return true
+            }
+            if (ColumnarGenericCallBindingPlanner.IsAnyDictionaryCollectionDefinition(collectionDef) && member == "TryGetValue" && argCount == 2) {
+                valueType := collectionArgs[1]
+                if (!ColumnarCanonicalTypeResolver.IsSupportedByRefElementType(valueType) || !EmitArg(callIdx, 1, collectionArgs[0]) || !EmitByRefCallArgument(Child(callIdx, 2), valueType.MakeByRefType())) {
+                    return false
+                }
+                _il.Emit(OpCodes.Callvirt, ResolveClosedGenericMethod(receiverType, collectionDef.GetMethod("TryGetValue")))
+                columnarResolvedType = typeof(bool)
+                return true
+            }
+            if (ColumnarGenericCallBindingPlanner.IsDictionaryLikeCollectionDefinition(collectionDef) && member == "Add" && argCount == 2) {
+                if (!EmitArg(callIdx, 1, collectionArgs[0]) || !EmitArg(callIdx, 2, collectionArgs[1])) {
+                    return false
+                }
+                _il.Emit(OpCodes.Callvirt, ResolveClosedGenericMethod(receiverType, collectionDef.GetMethod("Add")))
+                columnarResolvedType = ColumnarTypeOfPlanner.RequiredVoidType()
+                return true
+            }
+            if (collectionDef == typeof(Dictionary<int, int>).GetGenericTypeDefinition() && member == "TryAdd" && argCount == 2) {
+                if (!EmitArg(callIdx, 1, collectionArgs[0]) || !EmitArg(callIdx, 2, collectionArgs[1])) {
+                    return false
+                }
+                _il.Emit(OpCodes.Callvirt, ResolveClosedGenericMethod(receiverType, typeof(Dictionary<int, int>).GetGenericTypeDefinition().GetMethod("TryAdd")))
+                columnarResolvedType = typeof(bool)
+                return true
+            }
+            if (ColumnarGenericCallBindingPlanner.IsDictionaryLikeCollectionDefinition(collectionDef) && member == "Remove" && argCount == 1) {
+                if (!EmitArg(callIdx, 1, collectionArgs[0])) {
+                    return false
+                }
+                let openRemove: System.Reflection.MethodInfo? = null
+                for method in collectionDef.GetMethods() {
+                    if (method.get_Name() == "Remove" && method.GetParameters().Length == 1) {
+                        openRemove = method
+                        break
+                    }
+                }
+                _il.Emit(OpCodes.Callvirt, ResolveClosedGenericMethod(receiverType, openRemove))
+                columnarResolvedType = typeof(bool)
+                return true
+            }
+            if (collectionDef == typeof(Dictionary<int, int>).GetGenericTypeDefinition() && member == "Remove" && argCount == 2) {
+                valueType := collectionArgs[1]
+                if (!ColumnarCanonicalTypeResolver.IsSupportedByRefElementType(valueType) || !EmitArg(callIdx, 1, collectionArgs[0]) || !EmitByRefCallArgument(Child(callIdx, 2), valueType.MakeByRefType())) {
+                    return false
+                }
+                let openRemove: System.Reflection.MethodInfo? = null
+                for method in typeof(Dictionary<int, int>).GetGenericTypeDefinition().GetMethods() {
+                    if (method.get_Name() == "Remove" && method.GetParameters().Length == 2) {
+                        openRemove = method
+                        break
+                    }
+                }
+                _il.Emit(OpCodes.Callvirt, ResolveClosedGenericMethod(receiverType, openRemove))
+                columnarResolvedType = typeof(bool)
+                return true
+            }
+            if (ColumnarGenericCallBindingPlanner.IsDictionaryLikeCollectionDefinition(collectionDef) && member == "Clear" && argCount == 0) {
+                _il.Emit(OpCodes.Callvirt, ResolveClosedGenericMethod(receiverType, collectionDef.GetMethod("Clear")))
+                columnarResolvedType = ColumnarTypeOfPlanner.RequiredVoidType()
+                return true
+            }
+            if (collectionDef == typeof(HashSet<int>).GetGenericTypeDefinition() && member == "Add" && argCount == 1) {
+                if (!EmitArg(callIdx, 1, collectionArgs[0])) {
+                    return false
+                }
+                _il.Emit(OpCodes.Callvirt, ResolveClosedGenericMethod(receiverType, typeof(HashSet<int>).GetGenericTypeDefinition().GetMethod("Add")))
+                columnarResolvedType = typeof(bool)
+                return true
+            }
+            if (collectionDef == typeof(HashSet<int>).GetGenericTypeDefinition() && member == "Contains" && argCount == 1) {
+                if (!EmitArg(callIdx, 1, collectionArgs[0])) {
+                    return false
+                }
+                _il.Emit(OpCodes.Callvirt, ResolveClosedGenericMethod(receiverType, typeof(HashSet<int>).GetGenericTypeDefinition().GetMethod("Contains")))
+                columnarResolvedType = typeof(bool)
+                return true
+            }
+            if (collectionDef == typeof(HashSet<int>).GetGenericTypeDefinition() && member == "Remove" && argCount == 1) {
+                if (!EmitArg(callIdx, 1, collectionArgs[0])) {
+                    return false
+                }
+                _il.Emit(OpCodes.Callvirt, ResolveClosedGenericMethod(receiverType, typeof(HashSet<int>).GetGenericTypeDefinition().GetMethod("Remove")))
+                columnarResolvedType = typeof(bool)
+                return true
+            }
+            if (collectionDef == typeof(HashSet<int>).GetGenericTypeDefinition() && member == "Clear" && argCount == 0) {
+                _il.Emit(OpCodes.Callvirt, ResolveClosedGenericMethod(receiverType, typeof(HashSet<int>).GetGenericTypeDefinition().GetMethod("Clear")))
+                columnarResolvedType = ColumnarTypeOfPlanner.RequiredVoidType()
+                return true
+            }
+            if (collectionDef == typeof(Stack<int>).GetGenericTypeDefinition() && member == "Push" && argCount == 1) {
+                if (!EmitArg(callIdx, 1, collectionArgs[0])) {
+                    return false
+                }
+                _il.Emit(OpCodes.Callvirt, ResolveClosedGenericMethod(receiverType, typeof(Stack<int>).GetGenericTypeDefinition().GetMethod("Push")))
+                columnarResolvedType = ColumnarTypeOfPlanner.RequiredVoidType()
+                return true
+            }
+            if (collectionDef == typeof(Stack<int>).GetGenericTypeDefinition() && member == "Pop" && argCount == 0) {
+                _il.Emit(OpCodes.Callvirt, ResolveClosedGenericMethod(receiverType, typeof(Stack<int>).GetGenericTypeDefinition().GetMethod("Pop")))
+                columnarResolvedType = collectionArgs[0]
+                return true
+            }
+            if (collectionDef == typeof(Stack<int>).GetGenericTypeDefinition() && member == "Peek" && argCount == 0) {
+                _il.Emit(OpCodes.Callvirt, ResolveClosedGenericMethod(receiverType, typeof(Stack<int>).GetGenericTypeDefinition().GetMethod("Peek")))
+                columnarResolvedType = collectionArgs[0]
+                return true
+            }
+            if (collectionDef == typeof(Stack<int>).GetGenericTypeDefinition() && member == "Clear" && argCount == 0) {
+                _il.Emit(OpCodes.Callvirt, ResolveClosedGenericMethod(receiverType, typeof(Stack<int>).GetGenericTypeDefinition().GetMethod("Clear")))
+                columnarResolvedType = ColumnarTypeOfPlanner.RequiredVoidType()
+                return true
+            }
+            return false
+        }
+
+        if (receiverType == typeof(object) && member == "GetType" && argCount == 0) {
+            _il.Emit(OpCodes.Callvirt, typeof(object).GetMethod(nameof(object.GetType), Type.EmptyTypes))
+            columnarResolvedType = typeof(Type)
+            return true
+        }
+        if (receiverType == typeof(object) && member == "ToString" && argCount == 0) {
+            _il.Emit(OpCodes.Callvirt, typeof(object).GetMethod(nameof(object.ToString), Type.EmptyTypes))
+            columnarResolvedType = typeof(string)
+            return true
+        }
+        if (receiverType == typeof(Stream)) {
+            if (member == nameof(Stream.Read) && argCount == 3) {
+                method := typeof(Stream).GetMethod(nameof(Stream.Read), [typeof(byte[]), typeof(int), typeof(int)])
+                if (method == null || !EmitArg(callIdx, 1, typeof(byte[])) || !EmitArg(callIdx, 2, typeof(int)) || !EmitArg(callIdx, 3, typeof(int))) {
+                    return false
+                }
+                _il.Emit(OpCodes.Callvirt, method)
+                columnarResolvedType = typeof(int)
+                return true
+            }
+            if (member == nameof(Stream.ReadAsync) && argCount == 3) {
+                method := typeof(Stream).GetMethod(nameof(Stream.ReadAsync), [typeof(byte[]), typeof(int), typeof(int)])
+                if (method == null || !EmitArg(callIdx, 1, typeof(byte[])) || !EmitArg(callIdx, 2, typeof(int)) || !EmitArg(callIdx, 3, typeof(int))) {
+                    return false
+                }
+                _il.Emit(OpCodes.Callvirt, method)
+                columnarResolvedType = typeof(System.Threading.Tasks.Task<int>)
+                return true
+            }
+            if (member == nameof(Stream.Dispose) && argCount == 0) {
+                _il.Emit(OpCodes.Callvirt, typeof(Stream).GetMethod(nameof(Stream.Dispose), Type.EmptyTypes))
+                columnarResolvedType = ColumnarTypeOfPlanner.RequiredVoidType()
+                return true
+            }
+            return false
+        }
+        if (receiverType == typeof(Process) && member == nameof(IDisposable.Dispose) && argCount == 0) {
+            _il.Emit(OpCodes.Callvirt, typeof(IDisposable).GetMethod(nameof(IDisposable.Dispose), Type.EmptyTypes))
+            columnarResolvedType = ColumnarTypeOfPlanner.RequiredVoidType()
+            return true
+        }
+
+        if (receiverType is TypeBuilder) {
+            for d in _structRegistry.get_Values() {
+                builderType: Type = d.Builder
+                if (builderType != receiverType) {
+                    continue
+                }
+                let structMethod: NSharpLang.Compiler.Columnar.ColumnarInstanceMethodDef? = null
+                if (TrySelectInstanceMethodOnChain(d, member, callIdx, out structMethod)) {
+                    if (!legacyWholeSubtreePlanning && !ColumnarSourceDirectCallResolver.IsExcludedInstanceDefinition(structMethod)) {
+                        return false
+                    }
+                    receiverTemp := _il.DeclareLocal(receiverType)
+                    _il.Emit(OpCodes.Stloc, receiverTemp)
+                    receiverLoadOpcode := d.IsReference ? OpCodes.Ldloc : OpCodes.Ldloca
+                    _il.Emit(receiverLoadOpcode, receiverTemp)
+                    for a := 0; a < argCount; a++ {
+                        if (!EmitDeclaredCallArgument(Child(callIdx, 1 + a), structMethod.ParamTypes[a], true)) {
+                            return false
+                        }
+                    }
+                    callOpcode := d.IsReference ? OpCodes.Callvirt : OpCodes.Call
+                    _il.Emit(callOpcode, structMethod.Builder)
+                    columnarResolvedType = structMethod.ReturnType
+                    return true
+                }
+            }
+            return false
+        }
+        // a TypeBuilder receiver with no matching instance method -> decline.
+
+        // The same exclusion fence applies to closed source-generic receivers.
+        let closedDef: NSharpLang.Compiler.Columnar.ColumnarStructDef? = null
+        let closedArgs: System.Type[]? = null
+        if (TryGetClosedReceiverDef(receiverType, out closedDef, out closedArgs)) {
+            let closedMethod: NSharpLang.Compiler.Columnar.ColumnarInstanceMethodDef? = null
+            if (!TrySelectInstanceMethodOnChain(closedDef, member, callIdx, out closedMethod)) {
+                return false
+            }
+            if (!legacyWholeSubtreePlanning && !ColumnarSourceDirectCallResolver.IsExcludedInstanceDefinition(closedMethod)) {
+                return false
+            }
+            closedReceiverTemp := _il.DeclareLocal(receiverType)
+            _il.Emit(OpCodes.Stloc, closedReceiverTemp)
+            _il.Emit(closedDef.IsReference ? OpCodes.Ldloc : OpCodes.Ldloca, closedReceiverTemp)
+            for a := 0; a < argCount; a++ {
+                expectedParam := ColumnarRuntimeInstanceMemberResolver.SubstituteClosedTypeArguments(closedMethod.ParamTypes[a], closedArgs)
+                if (!EmitDeclaredCallArgument(Child(callIdx, 1 + a), expectedParam, true)) {
+                    return false
+                }
+            }
+            _il.Emit(closedDef.IsReference ? OpCodes.Callvirt : OpCodes.Call, TypeBuilder.GetMethod(receiverType, closedMethod.Builder))
+            columnarResolvedType = ColumnarRuntimeInstanceMemberResolver.SubstituteClosedTypeArguments(closedMethod.ReturnType, closedArgs)
+            return true
+        }
+
+        if (ColumnarTypeEquivalenceFacts.IsSafeSzArrayType(receiverType) && receiverType.GetElementType() == typeof(byte) && member == "AsSpan" && (argCount == 0 || argCount == 2)) {
+            method := ResolveMemoryExtensionsAsSpan(argCount)
+            if (method == null) {
+                return false
+            }
+            if (argCount == 2 && (!EmitArg(callIdx, 1, typeof(int)) || !EmitArg(callIdx, 2, typeof(int)))) {
+                return false
+            }
+            closedAsSpanMethod := method.MakeGenericMethod([typeof(byte)])
+            _il.Emit(OpCodes.Call, closedAsSpanMethod)
+            columnarResolvedType = typeof(Span<byte>)
+            return true
+        }
+
+        if (ColumnarTypeOfPlanner.IsSupportedSpanLikeType(receiverType) && member == "Slice" && (argCount == 1 || argCount == 2)) {
+            parameterTypes := argCount == 1 ? [typeof(int)] : [typeof(int), typeof(int)]
+            method := receiverType.GetMethod("Slice", parameterTypes)
+            if (method == null) {
+                return false
+            }
+            spanTemp := _il.DeclareLocal(receiverType)
+            _il.Emit(OpCodes.Stloc, spanTemp)
+            _il.Emit(OpCodes.Ldloca, spanTemp)
+            if (!EmitArg(callIdx, 1, typeof(int))) {
+                return false
+            }
+            if (argCount == 2 && !EmitArg(callIdx, 2, typeof(int))) {
+                return false
+            }
+            _il.Emit(OpCodes.Call, method)
+            columnarResolvedType = receiverType
+            return true
+        }
+
+        if (receiverType == typeof(string) && member == "IndexOf") {
+            // string.IndexOf overloads -> int. 1-arg: IndexOf(char). 2-arg: distinguished by the FIRST arg's
+            // type — IndexOf(char, int) vs IndexOf(string, StringComparison) — so emit arg1, read its type, then
+            // bind the matching overload + arg2.
+            if (argCount == 1) {
+                method1 := typeof(string).GetMethod(nameof(string.IndexOf), [typeof(char)])
+                if (method1 == null || !EmitArg(callIdx, 1, typeof(char))) {
+                    return false
+                }
+                _il.Emit(OpCodes.Callvirt, method1)
+                columnarResolvedType = typeof(int)
+                return true
+            }
+            if (argCount == 2) {
+                let arg1Type: System.Type? = null
+                if (!EmitExpression(Child(callIdx, 1), out arg1Type)) {
+                    return false
+                }
+                if (arg1Type == typeof(char)) {
+                    m := typeof(string).GetMethod(nameof(string.IndexOf), [typeof(char), typeof(int)])
+                    if (m == null || !EmitArg(callIdx, 2, typeof(int))) {
+                        return false
+                    }
+                    _il.Emit(OpCodes.Callvirt, m)
+                    columnarResolvedType = typeof(int)
+                    return true
+                }
+                if (arg1Type == typeof(string)) {
+                    m := typeof(string).GetMethod(nameof(string.IndexOf), [typeof(string), typeof(StringComparison)])
+                    if (m == null || !EmitArg(callIdx, 2, typeof(StringComparison))) {
+                        return false
+                    }
+                    _il.Emit(OpCodes.Callvirt, m)
+                    columnarResolvedType = typeof(int)
+                    return true
+                }
+                return false
+            }
+            if (argCount == 3) {
+                method3 := typeof(string).GetMethod(nameof(string.IndexOf), [typeof(string), typeof(int), typeof(StringComparison)])
+                if (method3 == null || !EmitArg(callIdx, 1, typeof(string)) || !EmitArg(callIdx, 2, typeof(int)) || !EmitArg(callIdx, 3, typeof(StringComparison))) {
+                    return false
+                }
+                _il.Emit(OpCodes.Callvirt, method3)
+                columnarResolvedType = typeof(int)
+                return true
+            }
+            return false
+        }
+        if (receiverType == typeof(string) && (member == "Trim" || member == "TrimEnd") && argCount == 0) {
+            // string.Trim() -> string (strip leading/trailing whitespace). The receiver string is on the stack;
+            // `callvirt` the parameterless overload. DiagnosticClusters.nl: `builder.ToString().Trim()`.
+            method := typeof(string).GetMethod(member, Type.EmptyTypes)
+            if (method == null) {
+                return false
+            }
+            _il.Emit(OpCodes.Callvirt, method)
+            columnarResolvedType = typeof(string)
+            return true
+        }
+        if (receiverType == typeof(string) && member == "Split" && argCount == 1) {
+            let separatorType: System.Type? = null
+            if (!TryGetPreflightExpressionType(Child(callIdx, 1), out separatorType)) {
+                return false
+            }
+            if (separatorType == typeof(char)) {
+                let method: System.Reflection.MethodInfo? = null
+                for candidate in typeof(string).GetMethods() {
+                    if (candidate.get_Name() == nameof(string.Split) && candidate.GetParameters().Length == 1 && candidate.GetParameters()[0].get_ParameterType() == typeof(char[])) {
+                        method = candidate
+                        break
+                    }
+                }
+                if (method == null) {
+                    return false
+                }
+                _il.Emit(OpCodes.Ldc_I4_1)
+                _il.Emit(OpCodes.Newarr, typeof(char))
+                _il.Emit(OpCodes.Dup)
+                _il.Emit(OpCodes.Ldc_I4_0)
+                if (!EmitArg(callIdx, 1, typeof(char))) {
+                    return false
+                }
+                _il.Emit(OpCodes.Stelem_I2)
+                _il.Emit(OpCodes.Callvirt, method)
+                columnarResolvedType = typeof(string[])
+                return true
+            }
+            if (separatorType == typeof(string)) {
+                method := typeof(string).GetMethod(nameof(string.Split), [typeof(string), typeof(StringSplitOptions)])
+                if (method == null || !EmitArg(callIdx, 1, typeof(string))) {
+                    return false
+                }
+                _il.Emit(OpCodes.Ldc_I4_0)
+                _il.Emit(OpCodes.Callvirt, method)
+                columnarResolvedType = typeof(string[])
+                return true
+            }
+            return false
+        }
+        if (receiverType == typeof(int) && member == "ToString" && argCount == 1) {
+            // int.ToString(string format) -> string (e.g. .ToString("x") for lowercase hex). Int32.ToString is a
+            // VALUE-TYPE instance method, so `this` must be a managed pointer: spill the receiver int (already on
+            // the stack) to a temp local and `ldloca` its address, then push the format string and `call`. The
+            // N# backend path binds the same Int32.ToString(string) overload, so the formatted text matches exactly.
+            method := typeof(int).GetMethod(nameof(int.ToString), [typeof(string)])
+            if (method == null) {
+                return false
+            }
+            temp := _il.DeclareLocal(typeof(int))
+            _il.Emit(OpCodes.Stloc, temp)
+            _il.Emit(OpCodes.Ldloca, temp)
+            if (!EmitArg(callIdx, 1, typeof(string))) {
+                return false
+            }
+            _il.Emit(OpCodes.Call, method)
+            columnarResolvedType = typeof(string)
+            return true
+        }
+        if (receiverType == typeof(string) && member == "Substring" && argCount == 2) {
+            method := typeof(string).GetMethod(nameof(string.Substring), [typeof(int), typeof(int)])
+            if (method == null || !EmitArg(callIdx, 1, typeof(int)) || !EmitArg(callIdx, 2, typeof(int))) {
+                return false
+            }
+            _il.Emit(OpCodes.Callvirt, method)
+            columnarResolvedType = typeof(string)
+            return true
+        }
+        // string.Substring(int) — the 1-arg overload (the match-positions ROUTE-ONLY gap, flipped by the
+        // strings slice).
+        if (receiverType == typeof(string) && member == "Substring" && argCount == 1) {
+            method := typeof(string).GetMethod(nameof(string.Substring), [typeof(int)])
+            if (method == null || !EmitArg(callIdx, 1, typeof(int))) {
+                return false
+            }
+            _il.Emit(OpCodes.Callvirt, method)
+            columnarResolvedType = typeof(string)
+            return true
+        }
+        if (receiverType == typeof(string) && member == nameof(string.CompareTo) && argCount == 1) {
+            method := typeof(string).GetMethod(nameof(string.CompareTo), [typeof(string)])
+            if (method == null || !EmitArg(callIdx, 1, typeof(string))) {
+                return false
+            }
+            _il.Emit(OpCodes.Callvirt, method)
+            columnarResolvedType = typeof(int)
+            return true
+        }
+        // Parameterless string members: casing transforms, ToString (identity, but the pipeline accepts it), and
+        // GetHashCode for emitted value-semantics helpers.
+        if (receiverType == typeof(string) && argCount == 0 && (member == "ToUpper" || member == "ToLower" || member == "ToUpperInvariant" || member == "ToLowerInvariant" || member == "ToString" || member == "GetHashCode")) {
+            method := typeof(string).GetMethod(member, Type.EmptyTypes)
+            if (method == null) {
+                return false
+            }
+            _il.Emit(OpCodes.Callvirt, method)
+            columnarResolvedType = member == "GetHashCode" ? typeof(int) : typeof(string)
+            return true
+        }
+        // 1-arg string predicates/transforms over string arguments — exact overloads, both pipelines bind
+        // identically: Contains/StartsWith/EndsWith(string) -> bool.
+        if (receiverType == typeof(string) && argCount == 1 && (member == "Contains" || member == "StartsWith" || member == "EndsWith")) {
+            method := typeof(string).GetMethod(member, [typeof(string)])
+            if (method == null || !EmitArg(callIdx, 1, typeof(string))) {
+                return false
+            }
+            _il.Emit(OpCodes.Callvirt, method)
+            columnarResolvedType = typeof(bool)
+            return true
+        }
+        if (receiverType == typeof(string) && argCount == 2 && (member == "Contains" || member == "StartsWith" || member == "EndsWith")) {
+            method := typeof(string).GetMethod(member, [typeof(string), typeof(StringComparison)])
+            if (method == null || !EmitArg(callIdx, 1, typeof(string)) || !EmitArg(callIdx, 2, typeof(StringComparison))) {
+                return false
+            }
+            _il.Emit(OpCodes.Callvirt, method)
+            columnarResolvedType = typeof(bool)
+            return true
+        }
+        if (receiverType == typeof(string) && argCount == 2 && member == "Replace") {
+            let firstArgType: System.Type? = null
+            if (!EmitExpression(Child(callIdx, 1), out firstArgType)) {
+                return false
+            }
+            if (firstArgType == typeof(char)) {
+                method := typeof(string).GetMethod(nameof(string.Replace), [typeof(char), typeof(char)])
+                if (method == null || !EmitArg(callIdx, 2, typeof(char))) {
+                    return false
+                }
+                _il.Emit(OpCodes.Callvirt, method)
+                columnarResolvedType = typeof(string)
+                return true
+            }
+            if (firstArgType == typeof(string)) {
+                method := typeof(string).GetMethod(nameof(string.Replace), [typeof(string), typeof(string)])
+                if (method == null || !EmitArg(callIdx, 2, typeof(string))) {
+                    return false
+                }
+                _il.Emit(OpCodes.Callvirt, method)
+                columnarResolvedType = typeof(string)
+                return true
+            }
+            return false
+        }
+        if (receiverType == typeof(string) && (member == "PadLeft" || member == "PadRight") && argCount == 1) {
+            method := typeof(string).GetMethod(member, [typeof(int)])
+            if (method == null || !EmitArg(callIdx, 1, typeof(int))) {
+                return false
+            }
+            _il.Emit(OpCodes.Callvirt, method)
+            columnarResolvedType = typeof(string)
+            return true
+        }
+        if (receiverType == typeof(DateTime)) {
+            if (member == nameof(DateTime.AddDays) && argCount == 1) {
+                method := typeof(DateTime).GetMethod(nameof(DateTime.AddDays), [typeof(double)])
+                if (method == null) {
+                    return false
+                }
+                temp := _il.DeclareLocal(typeof(DateTime))
+                _il.Emit(OpCodes.Stloc, temp)
+                _il.Emit(OpCodes.Ldloca, temp)
+                if (!EmitDeclaredCallArgument(Child(callIdx, 1), typeof(double), false)) {
+                    return false
+                }
+                _il.Emit(OpCodes.Call, method)
+                columnarResolvedType = typeof(DateTime)
+                return true
+            }
+            if (member == nameof(DateTime.ToString) && (argCount == 0 || argCount == 1)) {
+                method := typeof(DateTime).GetMethod(
+                    nameof(DateTime.ToString),
+                    argCount == 0 ? Type.EmptyTypes : [typeof(string)]
+                )
+                if (method == null) {
+                    return false
+                }
+                temp := _il.DeclareLocal(typeof(DateTime))
+                _il.Emit(OpCodes.Stloc, temp)
+                _il.Emit(OpCodes.Ldloca, temp)
+                if (argCount == 1 && !EmitArg(callIdx, 1, typeof(string))) {
+                    return false
+                }
+                _il.Emit(OpCodes.Call, method)
+                columnarResolvedType = typeof(string)
+                return true
+            }
+        }
+        // Parameterless ToString() on the VALUE scalars (the match-positions ROUTE-ONLY gap): a value-type
+        // instance call — spill the receiver, `ldloca`, `call` the type's OWN ToString overload (never the
+        // object virtual — the N# backend path binds the same concrete method, so the text matches exactly,
+        // culture and all).
+        if (member == "ToString" && argCount == 0 && (receiverType == typeof(int) || receiverType == typeof(long) || receiverType == typeof(ulong) || receiverType == typeof(uint) || receiverType == typeof(short) || receiverType == typeof(ushort) || receiverType == typeof(byte) || receiverType == typeof(sbyte) || receiverType == typeof(double) || receiverType == typeof(float) || receiverType == typeof(bool) || receiverType == typeof(char) || receiverType == typeof(decimal) || receiverType == typeof(TimeSpan))) {
+            method := receiverType.GetMethod(nameof(object.ToString), Type.EmptyTypes)
+            if (method == null) {
+                return false
+            }
+            temp := _il.DeclareLocal(receiverType)
+            _il.Emit(OpCodes.Stloc, temp)
+            _il.Emit(OpCodes.Ldloca, temp)
+            _il.Emit(OpCodes.Call, method)
+            columnarResolvedType = typeof(string)
+            return true
+        }
+        if (receiverType == typeof(System.Text.StringBuilder)) {
+            // Mutating-builder instance methods (the receiver builder is already on the stack):
+            //   .Append(char|string|int) -> StringBuilder (fluent; result usually discarded as a statement)
+            //   .Clear()                 -> StringBuilder
+            //   .ToString()              -> string
+            sb := typeof(System.Text.StringBuilder)
+            if (member == "ToString" && argCount == 0) {
+                _il.Emit(OpCodes.Callvirt, sb.GetMethod(nameof(object.ToString), Type.EmptyTypes))
+                columnarResolvedType = typeof(string)
+                return true
+            }
+            if (member == "Clear" && argCount == 0) {
+                _il.Emit(OpCodes.Callvirt, sb.GetMethod(nameof(System.Text.StringBuilder.Clear), Type.EmptyTypes))
+                columnarResolvedType = sb
+                return true
+            }
+            if (member == "AppendLine" && argCount == 0) {
+                _il.Emit(OpCodes.Callvirt, sb.GetMethod(nameof(System.Text.StringBuilder.AppendLine), Type.EmptyTypes))
+                columnarResolvedType = sb
+                return true
+            }
+            if (member == "AppendLine" && argCount == 1) {
+                if (!EmitArg(callIdx, 1, typeof(string))) {
+                    return false
+                }
+                _il.Emit(OpCodes.Callvirt, sb.GetMethod(nameof(System.Text.StringBuilder.AppendLine), [typeof(string)]))
+                columnarResolvedType = sb
+                return true
+            }
+            if (member == "Append" && argCount == 1) {
+                // Resolve the overload by the ARGUMENT'S type (char/string/int): emit the arg, then bind
+                // Append(thatType). (The receiver is already on the stack, so the arg goes on top — correct order.)
+                let appendArgType: System.Type? = null
+                if (!EmitExpression(Child(callIdx, 1), out appendArgType)) {
+                    return false
+                }
+                if (appendArgType != typeof(char) && appendArgType != typeof(string) && appendArgType != typeof(int)) {
+                    return false
+                }
+                append := sb.GetMethod(nameof(System.Text.StringBuilder.Append), [appendArgType])
+                if (append == null) {
+                    return false
+                }
+                _il.Emit(OpCodes.Callvirt, append)
+                columnarResolvedType = sb
+                return true
+            }
+            return false
+        }
+        return Decline(
+            "emit.call.instance-member-unmodeled",
+            "instance call '" + receiverType.Name + "." + member + "' with " + argCount.ToString() + " argument(s) is not modeled",
+            callIdx
+        )
+    }
+
+    private func TryEmitExtensionSiblingCall(callIdx: int, receiverType: Type, member: string, argCount: int, out columnarResolvedType: Type): bool {
+        columnarResolvedType = null
+        let target: NSharpLang.Compiler.Columnar.ColumnarSiblingMethodDefinition? = null
+        if (!_siblings.TryGetValue(member, out target) || target.TypeParams.Length > 0 || target.ParamTypes.Length != argCount + 1 || target.ParamModifierKinds.Length == 0 || target.ParamModifierKinds[0] != 4) {
+            return false
+        }
+
+        if (!TryConvertAlreadyEmittedValue(receiverType, target.ParamTypes[0])) {
+            return false
+        }
+        for a := 0; a < argCount; a++ {
+            if (!EmitDeclaredCallArgument(Child(callIdx, 1 + a), target.ParamTypes[1 + a], true)) {
+                return false
+            }
+        }
+        _il.Emit(OpCodes.Call, target.Method)
+        columnarResolvedType = target.ReturnType
+        return true
+    }
+
+    private func TryEmitExtensionStaticMethodCall(callIdx: int, receiverType: Type, member: string, argCount: int, out columnarResolvedType: Type): bool {
+        columnarResolvedType = null
+        selectedBuilder: MethodBuilder? = null
+        selectedParamTypes: Type[]? = null
+        selectedReturnType: Type? = null
+        found := false
+        for def in _structRegistry.get_Values() {
+            let overloads: System.Collections.Generic.List<NSharpLang.Compiler.Columnar.ColumnarStaticMethodDef>? = null
+            if (!def.StaticMethods.TryGetValue(member, out overloads)) {
+                continue
+            }
+            for target in overloads {
+                if (target.ParamTypes.Length != argCount + 1 || target.ParamModifierKinds.Length == 0 || target.ParamModifierKinds[0] != 4 || !CanUseExtensionReceiverConversion(receiverType, target.ParamTypes[0])) {
+                    continue
+                }
+
+                argsMatch := true
+                for a := 0; a < argCount; a++ {
+                    if (!CanDeclaredCallArgumentMatch(Child(callIdx, 1 + a), target.ParamTypes[1 + a], true)) {
+                        argsMatch = false
+                        break
+                    }
+                }
+                if (!argsMatch) {
+                    continue
+                }
+
+                if (found) {
+                    return false
+                }
+                selectedBuilder = target.Builder
+                selectedParamTypes = target.ParamTypes
+                selectedReturnType = target.ReturnType
+                found = true
+            }
+        }
+
+        if (!found || selectedBuilder == null || selectedParamTypes == null || selectedReturnType == null) {
+            return false
+        }
+        if (!TryConvertAlreadyEmittedValue(receiverType, selectedParamTypes[0])) {
+            return false
+        }
+        for a := 0; a < argCount; a++ {
+            if (!EmitDeclaredCallArgument(Child(callIdx, 1 + a), selectedParamTypes[1 + a], true)) {
+                return false
+            }
+        }
+        _il.Emit(OpCodes.Call, selectedBuilder)
+        columnarResolvedType = selectedReturnType
+        return true
+    }
+
+    private func TryConvertAlreadyEmittedValue(sourceType: Type, targetType: Type): bool => TypesEquivalent(sourceType, targetType) || TryEmitImplicitWidening(sourceType, targetType) || TryEmitSpanConversion(sourceType, targetType) || ColumnarReferenceCoercionPlanner.TryEmitInterfaceUpcast(sourceType, targetType, _structRegistry, _il) || ColumnarReferenceCoercionPlanner.TryEmitExternalInterfaceUpcast(sourceType, targetType, _structRegistry, _il) || ColumnarReferenceConversionFacts.TryEmitReferenceConversion(sourceType, targetType) || ColumnarReferenceCoercionPlanner.TryEmitObjectConversion(sourceType, targetType, _structRegistry, _il) || TryEmitAnonymousUnionConversion(sourceType, targetType) || TryEmitUserDefinedConversion(sourceType, targetType, false)
+
+    private func TryEmitGenericParameterConstrainedInterfaceCall(callIdx: int, receiverType: Type, member: string, argCount: int, out columnarResolvedType: Type): bool {
+        columnarResolvedType = null
+        constraints := GetGenericInterfaceConstraints(receiverType)
+        emittedConstrainedCall := false
+        for constraintIndex := 0; constraintIndex < constraints.Length; constraintIndex++ {
+            constraint := constraints[constraintIndex]
+            let interfaceDef: NSharpLang.Compiler.Columnar.ColumnarStructDef? = null
+            structDefinitions := _structRegistry.get_Values()
+            if (!ColumnarSourceDefinitionResolver.TryResolveInterface(constraint, structDefinitions, out interfaceDef)) {
+                continue
+            }
+            let method: System.Reflection.MethodInfo? = null
+            let paramTypes: System.Type[]? = null
+            let returnType: System.Type? = null
+            if (!TrySelectClosedInterfaceMethodForCall(
+                constraint,
+                interfaceDef,
+                member,
+                callIdx,
+                argCount,
+                out method,
+                out paramTypes,
+                out returnType
+            )) {
+                continue
+            }
+
+            receiverTemp := _il.DeclareLocal(receiverType)
+            _il.Emit(OpCodes.Stloc, receiverTemp)
+            _il.Emit(OpCodes.Ldloca, receiverTemp)
+            for a := 0; a < paramTypes.Length; a++ {
+                if (!EmitDeclaredCallArgument(Child(callIdx, 1 + a), paramTypes[a], true)) {
+                    return false
+                }
+            }
+            _il.Emit(OpCodes.Constrained, receiverType)
+            _il.Emit(OpCodes.Callvirt, method)
+            columnarResolvedType = returnType
+            emittedConstrainedCall = true
+            break
+        }
+
+        return emittedConstrainedCall
+    }
+
+    private func GetGenericInterfaceConstraints(columnarResolvedType: Type): Type[] => ColumnarGenericConstraintPlanner.ResolveCallConstraints(_genericInterfaceConstraints, columnarResolvedType)
+
+    private func TrySelectClosedInterfaceMethodForCall(closedInterfaceType: Type, openInterfaceDef: ColumnarStructDef, member: string, callIdx: int, argCount: int, out method: MethodInfo, out paramTypes: Type[], out returnType: Type): bool {
+        method = null
+        paramTypes = Array.Empty<Type>()
+        returnType = null
+        let overloads: System.Collections.Generic.List<NSharpLang.Compiler.Columnar.ColumnarInstanceMethodDef>? = null
+        if (!openInterfaceDef.MethodOverloads.TryGetValue(member, out overloads)) {
+            return false
+        }
+
+        selected := false
+        for overload in overloads {
+            if (overload.ParamTypes.Length != argCount) {
+                continue
+            }
+            closedParams := new Type[overload.ParamTypes.Length]
+            for i := 0; i < closedParams.Length; i++ {
+                closedParams[i] = ColumnarClosedGenericMemberResolver.SubstituteInterfaceMemberType(overload.ParamTypes[i], closedInterfaceType)
+            }
+            if (!CanDeclaredCallArgumentsMatch(callIdx, closedParams, true)) {
+                continue
+            }
+
+            if (selected) {
+                return false
+            }
+            if (closedInterfaceType.get_IsGenericType() && !closedInterfaceType.get_IsGenericTypeDefinition()) {
+                method = ResolveClosedGenericMethod(closedInterfaceType, overload.Builder)
+            } else {
+                method = overload.Builder
+            }
+            paramTypes = closedParams
+            returnType = ColumnarClosedGenericMemberResolver.SubstituteInterfaceMemberType(overload.ReturnType, closedInterfaceType)
+            selected = true
+        }
+
+        return selected
+    }
+
+    private func TrySelectInstanceMethodOnChain(def: ColumnarStructDef, name: string, callIdx: int, out method: ColumnarInstanceMethodDef): bool {
+        argCount := _nodes.ChildCount(callIdx) - 1
+        for d := def; d != null; d = d.BaseDef {
+            let hadArityMatch: bool = false
+            if (TrySelectInstanceMethodOnDef(d, name, callIdx, argCount, out method, out hadArityMatch)) {
+                return true
+            }
+            if (hadArityMatch) {
+                return false
+            }
+            if (d.IsInterface && TrySelectInstanceMethodOnInterfaceBases(d, name, callIdx, argCount, out method, out hadArityMatch)) {
+                return true
+            }
+            if (hadArityMatch) {
+                return false
+            }
+        }
+        method = null
+        return false
+    }
+
+    private func TrySelectInstanceMethodOnInterfaceBases(def: ColumnarStructDef, name: string, callIdx: int, argCount: int, out method: ColumnarInstanceMethodDef, out hadArityMatch: bool): bool {
+        for baseInterface in def.InterfaceBases {
+            if (TrySelectInstanceMethodOnDef(baseInterface, name, callIdx, argCount, out method, out hadArityMatch)) {
+                return true
+            }
+            if (hadArityMatch) {
+                return false
+            }
+            if (TrySelectInstanceMethodOnInterfaceBases(baseInterface, name, callIdx, argCount, out method, out hadArityMatch)) {
+                return true
+            }
+            if (hadArityMatch) {
+                return false
+            }
+        }
+        method = null
+        hadArityMatch = false
+        return false
+    }
+
+    private func TrySelectInstanceMethodOnDef(def: ColumnarStructDef, name: string, callIdx: int, argCount: int, out method: ColumnarInstanceMethodDef, out hadArityMatch: bool): bool {
+        method = null
+        hadArityMatch = false
+        let overloads: System.Collections.Generic.List<NSharpLang.Compiler.Columnar.ColumnarInstanceMethodDef>? = null
+        if (!def.MethodOverloads.TryGetValue(name, out overloads)) {
+            return false
+        }
+
+        arityMatches := 0
+        soleArityMatch: ColumnarInstanceMethodDef? = null
+        for candidate in overloads {
+            if (candidate.ParamTypes.Length != argCount) {
+                continue
+            }
+            hadArityMatch = true
+            arityMatches++
+            soleArityMatch = candidate
+        }
+
+        if (arityMatches == 0) {
+            return false
+        }
+        if (arityMatches == 1) {
+            method = soleArityMatch
+            return true
+        }
+
+        selected := false
+        for candidate in overloads {
+            if (candidate.ParamTypes.Length != argCount || !CanDeclaredCallArgumentsMatch(callIdx, candidate.ParamTypes, true)) {
+                continue
+            }
+            if (selected) {
+                method = null
+                return false
+            }
+            method = candidate
+            selected = true
+        }
+
+        return selected
+    }
+
+    private func CanDeclaredCallArgumentsMatch(callIdx: int, parameterTypes: Type[], allowLambdaLiteral: bool): bool {
+        if (_nodes.ChildCount(callIdx) - 1 != parameterTypes.Length) {
+            return false
+        }
+        for a := 0; a < parameterTypes.Length; a++ {
+            if (!CanDeclaredCallArgumentMatch(Child(callIdx, 1 + a), parameterTypes[a], allowLambdaLiteral)) {
+                return false
+            }
+        }
+        return true
+    }
+
+    private func CanDeclaredCallArgumentMatch(argNode: int, expectedParamType: Type, allowLambdaLiteral: bool): bool {
+        if (expectedParamType.get_IsByRef()) {
+            let targetType: System.Type? = null
+            return _nodes.Kind(argNode) == 54 && _nodes.ChildCount(argNode) == 1 && TryGetAddressableTargetType(Child(argNode, 0), out targetType) && TypesEquivalent(targetType, expectedParamType.GetElementType())
+        }
+        if (_nodes.Kind(argNode) == 54) {
+            return false
+        }
+        if (_nodes.Kind(argNode) == 64) {
+            return _nodes.ChildCount(argNode) == 1 && CanDeclaredCallArgumentMatch(Child(argNode, 0), expectedParamType, allowLambdaLiteral)
+        }
+        if (allowLambdaLiteral && _nodes.Kind(argNode) == 39) {
+            return IsSupportedContextualDelegateType(expectedParamType)
+        }
+        if (allowLambdaLiteral && CanEmitLocalFunctionMethodGroupAsDelegate(argNode, expectedParamType)) {
+            return true
+        }
+        if (_nodes.Kind(argNode) == 5) {
+            return !expectedParamType.get_IsValueType() || ColumnarTypeOfPlanner.IsSupportedNullable(expectedParamType)
+        }
+        if (CanUseTargetTypedNewAsType(argNode, expectedParamType)) {
+            return true
+        }
+        if (CanAdoptIntLiteralAsType(argNode, expectedParamType)) {
+            return true
+        }
+        if (CanUseCollectionLiteralAsType(argNode, expectedParamType)) {
+            return true
+        }
+        if (CanUseArrayLiteralAsType(argNode, expectedParamType)) {
+            return true
+        }
+        let argType: System.Type? = null
+        if (!TryGetPreflightExpressionType(argNode, out argType)) {
+            return false
+        }
+        if (ColumnarTypeOfPlanner.IsSupportedNullable(expectedParamType)) {
+            nullableElement := expectedParamType.GetGenericArguments()[0]
+            return TypesEquivalent(argType, expectedParamType) || TypesEquivalent(argType, nullableElement) || CanUseImplicitNumericWidening(argType, nullableElement)
+        }
+        return TypesEquivalent(argType, expectedParamType) || CanUseImplicitNumericWidening(argType, expectedParamType) || ColumnarReferenceCoercionPlanner.CanUseInterfaceUpcast(argType, expectedParamType, _structRegistry) || ColumnarReferenceCoercionPlanner.CanUseExternalInterfaceUpcast(argType, expectedParamType, _structRegistry) || CanUseSpanConversion(argType, expectedParamType) || ColumnarReferenceConversionFacts.TryEmitReferenceConversion(argType, expectedParamType) || ColumnarReferenceCoercionPlanner.CanUseObjectConversion(argType, expectedParamType) || CanUseAnonymousUnionConversion(argType, expectedParamType)
+    }
+
+    // Emit the argument at child position `argPosition` of the call and require its type to match
+    // `expected` (TypesEquivalent, not ==: builder-bound instantiations from independent resolutions
+    // are referentially distinct — `outer.Add(inner)` on a List<List<Pt>> compares two distinct TBIs).
+    // Interface-typed arguments accept implementers through the same upcast/box path as sibling calls.
+    private func EmitArg(callIdx: int, argPosition: int, expected: Type): bool {
+        let argType: System.Type? = null
+        return (TryEmitTargetTypedNewAsType(Child(callIdx, argPosition), expected, out argType) || TryEmitCollectionLiteralAsType(Child(callIdx, argPosition), expected, out argType) || TryEmitArrayLiteralAsType(Child(callIdx, argPosition), expected, out argType) || TryEmitNullLiteralAsType(Child(callIdx, argPosition), expected, out argType) || TryEmitIntLiteralAsType(Child(callIdx, argPosition), expected, out argType) || EmitExpression(Child(callIdx, argPosition), out argType)) && (TypesEquivalent(argType, expected) || TryEmitSpanConversion(argType, expected) || ColumnarReferenceCoercionPlanner.TryEmitInterfaceUpcast(argType, expected, _structRegistry, _il) || ColumnarReferenceCoercionPlanner.TryEmitExternalInterfaceUpcast(argType, expected, _structRegistry, _il) || ColumnarReferenceConversionFacts.TryEmitReferenceConversion(argType, expected) || ColumnarReferenceCoercionPlanner.TryEmitObjectConversion(argType, expected, _structRegistry, _il) || TryEmitAnonymousUnionConversion(argType, expected) || TryEmitUserDefinedConversion(argType, expected, false))
+    }
+
+    private func EmitDeclaredCallArgument(argNode: int, expectedParamType: Type, allowLambdaLiteral: bool): bool {
+        if (expectedParamType.get_IsByRef()) {
+            return EmitByRefCallArgument(argNode, expectedParamType)
+        }
+        if (_nodes.Kind(argNode) == 54) {
+            return false
+        }
+        if (_nodes.Kind(argNode) == 64) {
+            return _nodes.ChildCount(argNode) == 1 && EmitDeclaredCallArgument(Child(argNode, 0), expectedParamType, allowLambdaLiteral)
+        }
+        if (allowLambdaLiteral && _nodes.Kind(argNode) == 39) {
+            return TryEmitLambdaLiteral(argNode, expectedParamType)
+        }
+        if (allowLambdaLiteral && TryEmitLocalFunctionMethodGroupAsDelegate(argNode, expectedParamType)) {
+            return true
+        }
+        let ignoredTargetTypedNewType: System.Type? = null
+        if (TryEmitTargetTypedNewAsType(argNode, expectedParamType, out ignoredTargetTypedNewType)) {
+            return true
+        }
+        let ignoredCollectionType: System.Type? = null
+        if (TryEmitCollectionLiteralAsType(argNode, expectedParamType, out ignoredCollectionType)) {
+            return true
+        }
+        let ignoredArrayType: System.Type? = null
+        if (TryEmitArrayLiteralAsType(argNode, expectedParamType, out ignoredArrayType)) {
+            return true
+        }
+        let ignoredNullType: System.Type? = null
+        if (TryEmitNullLiteralAsType(argNode, expectedParamType, out ignoredNullType)) {
+            return true
+        }
+        if (ColumnarTypeOfPlanner.IsSupportedNullable(expectedParamType)) {
+            let ignoredNullableType: System.Type? = null
+            return TryEmitValueAsNullable(argNode, expectedParamType, out ignoredNullableType)
+        }
+        let ignoredIntLiteralType: System.Type? = null
+        if (TryEmitIntLiteralAsType(argNode, expectedParamType, out ignoredIntLiteralType)) {
+            return true
+        }
+        let argType: System.Type? = null
+        return EmitExpression(argNode, out argType) && (TypesEquivalent(argType, expectedParamType) || TryEmitImplicitWidening(argType, expectedParamType) || TryEmitSpanConversion(argType, expectedParamType) || ColumnarReferenceCoercionPlanner.TryEmitInterfaceUpcast(argType, expectedParamType, _structRegistry, _il) || ColumnarReferenceCoercionPlanner.TryEmitExternalInterfaceUpcast(argType, expectedParamType, _structRegistry, _il) || ColumnarReferenceConversionFacts.TryEmitReferenceConversion(argType, expectedParamType) || ColumnarReferenceCoercionPlanner.TryEmitObjectConversion(argType, expectedParamType, _structRegistry, _il) || TryEmitAnonymousUnionConversion(argType, expectedParamType) || TryEmitUserDefinedConversion(argType, expectedParamType, false))
+    }
+
+    private func TryGetVisibleLocalFunctionMethodGroup(argNode: int, out localTarget: (Method: MethodBuilder, ParamTypes: Type[], ReturnType: Type)): bool {
+        localTarget = new ValueTuple<MethodBuilder, Type[], Type>(null, null, null)
+        argNode = UnwrapParenthesizedNode(argNode)
+        if (_nodes.Kind(argNode) != 6 || _localFuncs == null) {
+            return false
+        }
+        name := ColumnarNodeTextFacts.Text(_nodes, _source, argNode)
+        return _visibleLocalFuncs.Contains(name) && _localFuncs.TryGetValue(name, out localTarget)
+    }
+
+    private func CanEmitLocalFunctionMethodGroupAsDelegate(argNode: int, expectedDelegateType: Type): bool {
+        let localTargetMethod: System.Reflection.Emit.MethodBuilder? = null
+        let localTargetParamTypes: System.Type[]? = null
+        let localTargetReturnType: System.Type? = null
+        let localTarget: (Method: System.Reflection.Emit.MethodBuilder, ParamTypes: System.Type[], ReturnType: System.Type) = (localTargetMethod, localTargetParamTypes, localTargetReturnType)
+        let delegateReturnType: System.Type? = null
+        let delegateParamTypes: System.Type[]? = null
+        let ignoredDelegateConstructor: System.Reflection.ConstructorInfo? = null
+        return TryGetVisibleLocalFunctionMethodGroup(argNode, out localTarget) && TryGetSupportedDelegateSignature(expectedDelegateType, true, out delegateReturnType, out delegateParamTypes, out ignoredDelegateConstructor) && LocalFunctionSignatureMatchesDelegate(localTarget, delegateReturnType, delegateParamTypes)
+    }
+
+    private func TryEmitLocalFunctionMethodGroupAsDelegate(argNode: int, expectedDelegateType: Type): bool {
+        let localTargetMethod: System.Reflection.Emit.MethodBuilder? = null
+        let localTargetParamTypes: System.Type[]? = null
+        let localTargetReturnType: System.Type? = null
+        let localTarget: (Method: System.Reflection.Emit.MethodBuilder, ParamTypes: System.Type[], ReturnType: System.Type) = (localTargetMethod, localTargetParamTypes, localTargetReturnType)
+        let delegateReturnType: System.Type? = null
+        let delegateParamTypes: System.Type[]? = null
+        let delegateCtor: System.Reflection.ConstructorInfo? = null
+        if (!TryGetVisibleLocalFunctionMethodGroup(argNode, out localTarget) || !TryGetSupportedDelegateSignature(expectedDelegateType, true, out delegateReturnType, out delegateParamTypes, out delegateCtor) || !LocalFunctionSignatureMatchesDelegate(localTarget, delegateReturnType, delegateParamTypes)) {
+            return false
+        }
+        _il.Emit(OpCodes.Ldnull)
+        _il.Emit(OpCodes.Ldftn, localTarget.Method)
+        _il.Emit(OpCodes.Newobj, delegateCtor)
+        return true
+    }
+
+    private static func LocalFunctionSignatureMatchesDelegate(localTarget: (Method: MethodBuilder, ParamTypes: Type[], ReturnType: Type), delegateReturnType: Type, delegateParamTypes: Type[]): bool {
+        if (!TypesEquivalent(localTarget.Item3, delegateReturnType) || localTarget.Item2.Length != delegateParamTypes.Length) {
+            return false
+        }
+        for p := 0; p < delegateParamTypes.Length; p++ {
+            if (!TypesEquivalent(localTarget.Item2[p], delegateParamTypes[p])) {
+                return false
+            }
+        }
+        return true
+    }
+
+    private static func CanUseSpanConversion(sourceType: Type, targetType: Type): bool {
+        if (sourceType.get_IsSZArray() && ColumnarTypeOfPlanner.IsSupportedSpanLikeType(targetType)) {
+            return TypesEquivalent(sourceType.GetElementType(), targetType.GetGenericArguments()[0])
+        }
+        if (ColumnarTypeOfPlanner.IsSupportedSpanType(sourceType) && ColumnarTypeOfPlanner.IsSupportedReadOnlySpanType(targetType)) {
+            return TypesEquivalent(sourceType.GetGenericArguments()[0], targetType.GetGenericArguments()[0])
+        }
+        return false
+    }
+
+    private func TryEmitSpanConversion(sourceType: Type, targetType: Type): bool {
+        if (!CanUseSpanConversion(sourceType, targetType)) {
+            return false
+        }
+        if (sourceType.get_IsSZArray()) {
+            elementArrayType := targetType.GetGenericArguments()[0].MakeArrayType()
+            ctor := targetType.GetConstructor([elementArrayType])
+            if (ctor == null) {
+                return false
+            }
+            _il.Emit(OpCodes.Newobj, ctor)
+            return true
+        }
+        conversion := ResolveSpanToReadOnlySpanConversion(sourceType)
+        if (conversion == null) {
+            return false
+        }
+        _il.Emit(OpCodes.Call, conversion)
+        return true
+    }
+
+    private static func ResolveSpanToReadOnlySpanConversion(sourceType: Type): MethodInfo? {
+        elementType := sourceType.GetGenericArguments()[0]
+        let readOnlyOpen: System.Reflection.MethodInfo? = null
+        for candidate in typeof(ReadOnlySpan<int>).GetGenericTypeDefinition().GetMethods(BindingFlags.Public | BindingFlags.Static) {
+            if (IsSpanToReadOnlySpanConversion(candidate)) {
+                readOnlyOpen = candidate
+                break
+            }
+        }
+        if (readOnlyOpen != null) {
+            return ResolveClosedGenericMethod(typeof(ReadOnlySpan<int>).GetGenericTypeDefinition().MakeGenericType([elementType]), readOnlyOpen)
+        }
+        let spanOpen: System.Reflection.MethodInfo? = null
+        for candidate in typeof(Span<int>).GetGenericTypeDefinition().GetMethods(BindingFlags.Public | BindingFlags.Static) {
+            if (IsSpanToReadOnlySpanConversion(candidate)) {
+                spanOpen = candidate
+                break
+            }
+        }
+        if (spanOpen == null) {
+            return null
+        }
+        return ResolveClosedGenericMethod(sourceType, spanOpen)
+    }
+
+    private static func IsSpanToReadOnlySpanConversion(method: MethodInfo): bool {
+        if (method.get_Name() != "op_Implicit") {
+            return false
+        }
+        parameters := method.GetParameters()
+        return parameters.Length == 1 && parameters[0].get_ParameterType().get_IsGenericType() && parameters[0].get_ParameterType().GetGenericTypeDefinition() == typeof(Span<int>).GetGenericTypeDefinition() && method.get_ReturnType().get_IsGenericType() && method.get_ReturnType().GetGenericTypeDefinition() == typeof(ReadOnlySpan<int>).GetGenericTypeDefinition()
+    }
+
+    private func EmitByRefCallArgument(argNode: int, expectedByRefType: Type): bool {
+        if (!expectedByRefType.get_IsByRef() || _nodes.Kind(argNode) != 54 || _nodes.ChildCount(argNode) != 1) {
+            return false
+        }
+        modifier := ColumnarNodeTextFacts.Text(_nodes, _source, argNode)
+        if (modifier != "ref" && modifier != "out") {
+            return false
+        }
+        return EmitAddressOfByRefTarget(Child(argNode, 0), expectedByRefType.GetElementType())
+    }
+
+    private func TryGetAddressableTargetType(targetNode: int, out targetType: Type): bool {
+        targetType = ColumnarTypeOfPlanner.RequiredVoidType()
+        targetNode = UnwrapParenthesizedNode(targetNode)
+
+        if (_nodes.Kind(targetNode) == 6) {
+            name := ColumnarNodeTextFacts.Text(_nodes, _source, targetNode)
+            if (_liftedLocals.ContainsKey(name) || (_boxedCaptures != null && _boxedCaptures.ContainsKey(name))) {
+                return false
+            }
+            let local: System.Reflection.Emit.LocalBuilder? = null
+            if (_locals.TryGetValue(name, out local)) {
+                targetType = local.get_LocalType()
+                return true
+            }
+            let paramType: System.Type? = null
+            if (_paramTypes.TryGetValue(name, out paramType)) {
+                targetType = paramType.get_IsByRef() ? paramType.GetElementType() : paramType
+                return true
+            }
+            return false
+        }
+
+        let memberChain: NSharpLang.Compiler.Columnar.ColumnarMemberWriteChain = new NSharpLang.Compiler.Columnar.ColumnarMemberWriteChain(null, 0, null, null, null)
+        if (_nodes.Kind(targetNode) == 8 && TryResolveMemberWriteChain(targetNode, out memberChain)) {
+            targetType = memberChain.ReceiverType
+            return true
+        }
+
+        return false
+    }
+
+    private func EmitAddressOfByRefTarget(targetNode: int, expectedElementType: Type): bool {
+        targetNode = UnwrapParenthesizedNode(targetNode)
+
+        if (_nodes.Kind(targetNode) == 6) {
+            name := ColumnarNodeTextFacts.Text(_nodes, _source, targetNode)
+            if (_liftedLocals.ContainsKey(name) || (_boxedCaptures != null && _boxedCaptures.ContainsKey(name))) {
+                return false
+            }
+            let local: System.Reflection.Emit.LocalBuilder? = null
+            if (_locals.TryGetValue(name, out local)) {
+                if (!TypesEquivalent(local.get_LocalType(), expectedElementType)) {
+                    return false
+                }
+                _il.Emit(OpCodes.Ldloca, local)
+                return true
+            }
+            let ordinal: int = 0
+            let paramType: System.Type? = null
+            if (_paramOrdinals.TryGetValue(name, out ordinal) && _paramTypes.TryGetValue(name, out paramType)) {
+                if (paramType.get_IsByRef()) {
+                    if (!TypesEquivalent(paramType.GetElementType(), expectedElementType)) {
+                        return false
+                    }
+                    ColumnarArgumentInstructionEmitter.EmitLoad(_il, ordinal)
+                    return true
+                }
+                if (!TypesEquivalent(paramType, expectedElementType)) {
+                    return false
+                }
+                ColumnarArgumentInstructionEmitter.EmitLoadAddress(_il, ordinal)
+                return true
+            }
+            return false
+        }
+
+        let memberChain: NSharpLang.Compiler.Columnar.ColumnarMemberWriteChain = new NSharpLang.Compiler.Columnar.ColumnarMemberWriteChain(null, 0, null, null, null)
+        if (_nodes.Kind(targetNode) == 8 && TryResolveMemberWriteChain(targetNode, out memberChain) && TypesEquivalent(memberChain.ReceiverType, expectedElementType)) {
+            EmitMemberWriteLocator(memberChain)
+            return true
+        }
+
+        return false
+    }
+
+    private func EmitLoadByRefElement(elementType: Type): void {
+        if (IsReferenceWriteLink(elementType)) {
+            _il.Emit(OpCodes.Ldind_Ref)
+        } else {
+            _il.Emit(OpCodes.Ldobj, elementType)
+        }
+    }
+
+    private func EmitStoreByRefElement(elementType: Type): void {
+        if (IsReferenceWriteLink(elementType)) {
+            _il.Emit(OpCodes.Stind_Ref)
+        } else {
+            _il.Emit(OpCodes.Stobj, elementType)
+        }
+    }
+
+    // The resolved WRITE-RECEIVER chain of a member assignment: a root local/param plus zero or more
+    // instance-FIELD hops (the `p.q` of `p.q.X = v`). Resolution is EMISSION-FREE so a failed chain
+    // declines cleanly (the emit-ownership rule); EmitMemberWriteLocator then emits the owner value
+    // an stfld/ldfld/ldflda/callvirt-setter consumes — an ADDRESS for value-typed links
+    // (ldloca/ldarga/ldflda), an OBJECT REF for reference-typed links (ldloc/ldarg/ldfld). stfld and
+    // ldflda accept either owner form, so the chain composes uniformly — mirroring the legacy emitter's
+    // fixed EmitAddressableExpression (defect #22).
+    private func TryResolveMemberWriteChain(node: int, out chain: ColumnarMemberWriteChain): bool {
+        chain = new ColumnarMemberWriteChain(null, 0, null, null, null)
+        // Collect kind-8 hops outermost-first down to the root, which must be a BARE name.
+        // Parentheses are transparent syntax for addressability; indexer and call-result receivers
+        // are pipeline-REJECTED writes (NL322 — parity by rejection via the fallback) and never emit here.
+        hopNodes := new List<int>()
+        cursor := UnwrapParenthesizedNode(node)
+        while (_nodes.Kind(cursor) == 8) {
+            hopNodes.Add(cursor)
+            cursor = UnwrapParenthesizedNode(Child(cursor, 0))
+        }
+        if (_nodes.Kind(cursor) != 6) {
+            return false
+        }
+        rootName := ColumnarNodeTextFacts.Text(_nodes, _source, cursor)
+        if (_liftedLocals.ContainsKey(rootName) || (_boxedCaptures != null && _boxedCaptures.ContainsKey(rootName))) {
+            return false
+        }
+        // lifted/captured roots stay declined — the capture-mutation family is conservative.
+        rootLocal: LocalBuilder? = null
+        rootParamOrdinal := -1
+        let rootType: System.Type = null
+        let local: System.Reflection.Emit.LocalBuilder? = null
+        if (_locals.TryGetValue(rootName, out local)) {
+            rootLocal = local
+            rootType = local.get_LocalType()
+        } else {
+            let ordinal: int = 0
+            if (_paramOrdinals.TryGetValue(rootName, out ordinal)) {
+                rootParamOrdinal = ordinal
+                rootType = _paramTypes[rootName]
+            } else {
+                return false
+            }
+        }
+        // a sibling/type/unknown name is not a variable root.
+
+        hops := new List<FieldBuilder>(hopNodes.Count)
+        current := rootType.get_IsByRef() ? rootType.GetElementType() : rootType
+        // Resolve the innermost hop (adjacent to the root) first.
+        for h := hopNodes.Count - 1; h >= 0; h-- {
+            let hopField: System.Reflection.Emit.FieldBuilder? = null
+            hopOwner := current as TypeBuilder
+            if (hopOwner == null) {
+                return false
+            }
+            hopDef := ColumnarSourceDefinitionResolver.FindByBuilderIdentity(_structRegistry.get_Values(), hopOwner)
+            if (hopDef == null || !ColumnarSourceMemberChainResolver.TryFindFieldOnChain(hopDef, ColumnarNodeTextFacts.Text(_nodes, _source, hopNodes[h]), out hopField)) {
+                return false
+            }
+            // non-registered owners (closed generics, BCL) and non-field hops decline.
+            hops.Add(hopField)
+            current = hopField.get_FieldType()
+        }
+        chain = new ColumnarMemberWriteChain(rootLocal, rootParamOrdinal, rootType, hops, current)
+        return true
+    }
+
+    private func UnwrapParenthesizedNode(node: int): int {
+        while (_nodes.Kind(node) == 7 && _nodes.ChildCount(node) == 1) {
+            node = Child(node, 0)
+        }
+        return node
+    }
+
+    private func EmitMemberWriteLocator(chain: ColumnarMemberWriteChain): void {
+        if (chain.RootLocal != null) {
+            _il.Emit(chain.RootType.get_IsByRef() || IsReferenceWriteLink(chain.RootType) ? OpCodes.Ldloc : OpCodes.Ldloca, chain.RootLocal)
+        } else {
+            if (chain.RootType.get_IsByRef()) {
+                ColumnarArgumentInstructionEmitter.EmitLoad(_il, chain.RootParamOrdinal)
+            } else {
+                if (IsReferenceWriteLink(chain.RootType)) {
+                    ColumnarArgumentInstructionEmitter.EmitLoad(_il, chain.RootParamOrdinal)
+                } else {
+                    ColumnarArgumentInstructionEmitter.EmitLoadAddress(_il, chain.RootParamOrdinal)
+                }
+            }
+        }
+        for hop in chain.Hops {
+            if (IsReferenceWriteLink(hop.get_FieldType())) {
+                _il.Emit(OpCodes.Ldfld, hop)
+            } else {
+                _il.Emit(OpCodes.Ldflda, hop)
+            }
+        }
+    }
+
+    // Whether a chain link is traversed as an object REFERENCE (ldloc/ldarg/ldfld) or by ADDRESS
+    // (ldloca/ldarga/ldflda): registered user types answer by their IsReference flag; anything else
+    // by CLR value-typeness (IsValueType is TBI-safe — spike-pinned).
+    private func IsReferenceWriteLink(t: Type): bool {
+        if (t is TypeBuilder) {
+            def := ColumnarSourceDefinitionResolver.FindByBuilderIdentity(_structRegistry.get_Values(), t)
+            if (def != null) {
+                return def.IsReference
+            }
+        }
+        return !t.get_IsValueType()
+    }
+
+    private func TryEmitAssignableValue(valueNode: int, targetType: Type, out valueType: Type): bool {
+        if (IsAdoptableUnionConstruction(valueNode, targetType)) {
+            if (!EmitAdoptedUnionConstruction(valueNode, targetType, out valueType)) {
+                return false
+            }
+        } else {
+            if (TryEmitTargetTypedNewAsType(valueNode, targetType, out valueType)) {
+            } else {
+                // `new(args)` adopts the target storage type.
+                if (TryEmitIntLiteralAsType(valueNode, targetType, out valueType)) {
+                } else {
+                    // constant conversion onto the storage type.
+                    if (TryEmitCollectionLiteralAsType(valueNode, targetType, out valueType)) {
+                    } else {
+                        // target-typed collection literal.
+                        if (TryEmitArrayLiteralAsType(valueNode, targetType, out valueType)) {
+                        } else {
+                            // target-typed array literal.
+                            if (TryEmitNullLiteralAsType(valueNode, targetType, out valueType)) {
+                            } else {
+                                // `null` adopted to a reference or nullable storage type.
+                                if (ColumnarTypeOfPlanner.IsSupportedNullable(targetType)) {
+                                    if (!TryEmitValueAsNullable(valueNode, targetType, out valueType)) {
+                                        return false
+                                    }
+                                } else {
+                                    if (!EmitExpression(valueNode, out valueType)) {
+                                        return false
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        assignable := TypesEquivalent(valueType, targetType) || TryEmitImplicitWidening(valueType, targetType) || ColumnarReferenceCoercionPlanner.TryEmitInterfaceUpcast(valueType, targetType, _structRegistry, _il) || ColumnarReferenceConversionFacts.TryEmitReferenceConversion(valueType, targetType) || ColumnarReferenceCoercionPlanner.TryEmitObjectConversion(valueType, targetType, _structRegistry, _il) || TryEmitAnonymousUnionConversion(valueType, targetType) || TryEmitUserDefinedConversion(valueType, targetType, false)
+        return assignable
+    }
+
+    // INTERPOLATED STRINGS (`$"a{n}b"` / `$"""a{n}b"""`): split the kind-3 literal via the shared
+    // ColumnarInterpolationSplitter (identifier-chain holes only) and mirror the legacy formatted-hole
+    // lowering: empty/no-hole literals are the N# scalar planner's; the rest use
+    // DefaultInterpolatedStringHandler — ctor(decoded literalLength, formattedCount), AppendLiteral per
+    // segment, AppendFormatted per hole ((string) / (T, string) with a format clause / (T)), then
+    // ToStringAndClear. Hole chains resolve EMISSION-FREE first: roots are locals/params (lifted/boxed
+    // decline), hops instance FIELDS, plus an optional final zero-argument user instance call
+    // (`{value.ToString()}`); builder-typed hole VALUES decline (legacy boxes those — a later rung).
+    private func TryEmitInterpolatedString(literal: string, out columnarResolvedType: Type): bool {
+        columnarResolvedType = null
+        parts := new List<ColumnarInterpolationPart>()
+        if (!ColumnarInterpolationSplitter.TrySplit(literal, parts)) {
+            return DeclineStatic(
+                "emit.interpolation.split",
+                "interpolated string literal could not be split into literal and hole parts",
+                "",
+                -1,
+                0
+            )
+        }
+        formattedCount := 0
+        for part in parts {
+            if (part.IsHole) {
+                formattedCount++
+            }
+        }
+        if (formattedCount == 0) {
+            return false
+        }
+        // The N# scalar owner is terminal for the complete zero-hole family.
+        // Resolve every hole BEFORE any emission.
+        holePlans := new List<ColumnarInterpolationHolePlan>(formattedCount)
+        literalLength := 0
+        for part in parts {
+            if (!part.IsHole) {
+                literalLength += StringLiteralDecoder.DecodeInterpolatedText(literal, part.Text).Length
+                continue
+            }
+            let plan: NSharpLang.Compiler.Columnar.ColumnarInterpolationHolePlan? = null
+            if (!TryResolveInterpolationHolePlan(part.Text, part.Format, out plan)) {
+                return DeclineStatic(
+                    "emit.interpolation.hole",
+                    "interpolated string hole '" + part.Text + "' is not modeled",
+                    "",
+                    -1,
+                    0
+                )
+            }
+            holePlans.Add(plan)
+        }
+        handlerType := typeof(System.Runtime.CompilerServices.DefaultInterpolatedStringHandler)
+        handlerLocal := _il.DeclareLocal(handlerType)
+        _il.Emit(OpCodes.Ldloca, handlerLocal)
+        _il.Emit(OpCodes.Ldc_I4, literalLength)
+        _il.Emit(OpCodes.Ldc_I4, formattedCount)
+        _il.Emit(OpCodes.Call, handlerType.GetConstructor([typeof(int), typeof(int)]))
+        holeIndex := 0
+        for part in parts {
+            _il.Emit(OpCodes.Ldloca, handlerLocal)
+            if (!part.IsHole) {
+                decodedLiteralText := StringLiteralDecoder.DecodeInterpolatedText(literal, part.Text)
+                _il.Emit(OpCodes.Ldstr, decodedLiteralText)
+                _il.Emit(OpCodes.Call, handlerType.GetMethod("AppendLiteral"))
+                continue
+            }
+            plan := holePlans[holeIndex++]
+            if (!EmitInterpolationHoleValue(plan)) {
+                return DeclineStatic(
+                    "emit.interpolation.emit",
+                    "interpolated string hole '" + part.Text + "' could not be emitted",
+                    "",
+                    -1,
+                    0
+                )
+            }
+            if (plan.ValueType == typeof(string) && plan.Format == null) {
+                _il.Emit(OpCodes.Call, handlerType.GetMethod("AppendFormatted", [typeof(string)]))
+            } else {
+                if (plan.Format != null) {
+                    _il.Emit(OpCodes.Ldstr, plan.Format)
+                    appendFormattedDefinition := FindAppendFormattedGeneric(handlerType, true)
+                    appendFormattedTypeArguments := new Type[](1)
+                    appendFormattedTypeArguments[0] = plan.ValueType
+                    appendFormattedMethod := appendFormattedDefinition.MakeGenericMethod(appendFormattedTypeArguments)
+                    _il.Emit(OpCodes.Call, appendFormattedMethod)
+                } else {
+                    appendFormattedDefinition := FindAppendFormattedGeneric(handlerType, false)
+                    appendFormattedTypeArguments := new Type[](1)
+                    appendFormattedTypeArguments[0] = plan.ValueType
+                    appendFormattedMethod := appendFormattedDefinition.MakeGenericMethod(appendFormattedTypeArguments)
+                    _il.Emit(OpCodes.Call, appendFormattedMethod)
+                }
+            }
+        }
+        _il.Emit(OpCodes.Ldloca, handlerLocal)
+        _il.Emit(OpCodes.Call, handlerType.GetMethod("ToStringAndClear"))
+        columnarResolvedType = typeof(string)
+        return true
+    }
+
+    private func TryResolveInterpolationHolePlan(text: string, format: string?, out plan: ColumnarInterpolationHolePlan): bool {
+        plan = null
+        text = text.Trim()
+        // The cast decomposition (target-type name + operand text) is decided by the N# splitter owner
+        // (ColumnarInterpolationSplitter.TrySplitCast); this tier resolves the target type, plans the
+        // operand chain, and emits the numeric conversion mechanically over those two strings.
+        let castTargetName: string? = null
+        let castOperandText: string? = null
+        let castTargetType: System.Type? = null
+        let castOperandPlan: NSharpLang.Compiler.Columnar.ColumnarInterpolationHolePlan? = null
+        if (ColumnarInterpolationSplitter.TrySplitCast(text, out castTargetName, out castOperandText) && (ColumnarCanonicalTypeResolver.TryResolveBuiltin(castTargetName, out castTargetType) || TryResolveBodyType(castTargetName, out castTargetType)) && TryResolveInterpolationChainPlan(castOperandText, true, out castOperandPlan) && castOperandPlan.ValueType != null && CanEmitInterpolationCast(castOperandPlan.ValueType, castTargetType)) {
+            castOperandPlan.CastSourceType = castOperandPlan.ValueType
+            castOperandPlan.CastTargetType = castTargetType
+            castOperandPlan.ValueType = castTargetType
+            castOperandPlan.Format = format
+            plan = castOperandPlan
+            return true
+        }
+
+        // The equality decomposition (left / operator / right) is decided by the N# splitter owner
+        // (ColumnarInterpolationSplitter.TrySplitEquality); this tier resolves each side and the operand
+        // type mechanically over those three strings.
+        let equalityLeftText: string? = null
+        let equalityOperator: string? = null
+        let equalityRightText: string? = null
+        if (ColumnarInterpolationSplitter.TrySplitEquality(text, out equalityLeftText, out equalityOperator, out equalityRightText)) {
+            let equalityLeft: NSharpLang.Compiler.Columnar.ColumnarInterpolationHolePlan? = null
+            let equalityRight: NSharpLang.Compiler.Columnar.ColumnarInterpolationHolePlan? = null
+            if (!TryResolveInterpolationChainPlan(equalityLeftText, true, out equalityLeft) || !TryResolveInterpolationChainPlan(equalityRightText, true, out equalityRight) || equalityLeft.ValueType == null || equalityRight.ValueType == null || !TypesEquivalent(equalityLeft.ValueType, equalityRight.ValueType) || !IsSupportedInterpolationEqualityType(equalityLeft.ValueType)) {
+                return false
+            }
+            equalityPlan := new ColumnarInterpolationHolePlan()
+            equalityPlan.BinaryOperator = equalityOperator
+            equalityPlan.BinaryLeft = equalityLeft
+            equalityPlan.BinaryRight = equalityRight
+            equalityPlan.ValueType = typeof(bool)
+            equalityPlan.Format = format
+            plan = equalityPlan
+            return true
+        }
+
+        // The integer-additive constant FOLD is decided by the N# splitter owner
+        // (ColumnarInterpolationSplitter.TryEvaluateIntegerAdditive); this arm only records the
+        // pre-folded value and its int type, and the ConstantInt emission arm loads it mechanically.
+        let constantInt: int = 0
+        if (ColumnarInterpolationSplitter.TryEvaluateIntegerAdditive(text, out constantInt)) {
+            constantPlan := new ColumnarInterpolationHolePlan()
+            constantPlan.ValueType = typeof(int)
+            constantPlan.Format = format
+            let liftedConstantInt: int? = constantInt
+            constantPlan.ConstantInt = liftedConstantInt
+            plan = constantPlan
+            return true
+        }
+
+        // The single-top-level-`??` coalesce decomposition (left / right operand text) is decided by the
+        // N# splitter owner (ColumnarInterpolationSplitter.TrySplitCoalesce); this tier resolves each side
+        // and enforces the reference-type/type-equivalence guard mechanically over those two strings.
+        let coalesceLeftText: string? = null
+        let coalesceRightText: string? = null
+        if (ColumnarInterpolationSplitter.TrySplitCoalesce(text, out coalesceLeftText, out coalesceRightText)) {
+            let left: NSharpLang.Compiler.Columnar.ColumnarInterpolationHolePlan? = null
+            let right: NSharpLang.Compiler.Columnar.ColumnarInterpolationHolePlan? = null
+            if (!TryResolveInterpolationChainPlan(coalesceLeftText, out left) || !TryResolveInterpolationChainPlan(coalesceRightText, out right) || left.ValueType.get_IsValueType() || !TypesEquivalent(left.ValueType, right.ValueType)) {
+                return false
+            }
+
+            left.CoalesceRight = right
+            left.Format = format
+            plan = left
+            return true
+        }
+
+        if (TryResolveInterpolationChainPlan(text, out plan)) {
+            resolvedChainPlan := plan
+            resolvedChainPlan.Format = format
+            return true
+        }
+
+        if (TryResolveInterpolationBaseCallPlan(text, format, out plan)) {
+            return true
+        }
+
+        let expressionNodes: NSharpLang.Compiler.Columnar.ColumnarNodeTable? = null
+        let expressionRoot: int = 0
+        let expressionType: System.Type? = null
+        if (TryParseInterpolationExpressionHole(text, out expressionNodes, out expressionRoot) && TryGetParsedInterpolationExpressionType(expressionNodes, text, expressionRoot, out expressionType)) {
+            expressionPlan := new ColumnarInterpolationHolePlan()
+            expressionPlan.ExpressionNodes = expressionNodes
+            expressionPlan.ExpressionSource = text
+            expressionPlan.ExpressionRoot = expressionRoot
+            expressionPlan.ValueType = expressionType
+            expressionPlan.Format = format
+            plan = expressionPlan
+            return true
+        }
+
+        return false
+    }
+
+    private func TryResolveInterpolationChainPlan(chain: string, out plan: ColumnarInterpolationHolePlan): bool => TryResolveInterpolationChainPlan(chain, false, out plan)
+
+    private func TryResolveInterpolationChainPlan(chain: string, allowBuilderValue: bool, out plan: ColumnarInterpolationHolePlan): bool {
+        plan = null
+        let rootLocal: System.Reflection.Emit.LocalBuilder? = null
+        let rootOrdinal: int = 0
+        let rootThis: bool = false
+        let rootGetter: System.Reflection.MethodInfo? = null
+        let rootType: System.Type? = null
+        let rootIndexLocal: System.Reflection.Emit.LocalBuilder? = null
+        let rootIndexOrdinal: int = 0
+        let rootIndexConstant: int? = null
+        let rootIndexElementType: System.Type? = null
+        let hops: System.Collections.Generic.List<NSharpLang.Compiler.Columnar.ColumnarInterpolationMemberPlan>? = null
+        let callBuilder: System.Reflection.Emit.MethodBuilder? = null
+        let callArgLocal: System.Reflection.Emit.LocalBuilder? = null
+        let callArgOrdinal: int = 0
+        let callArgType: System.Type? = null
+        let valueType: System.Type? = null
+        if (!TryResolveInterpolationHole(
+            chain,
+            allowBuilderValue,
+            out rootLocal,
+            out rootOrdinal,
+            out rootThis,
+            out rootGetter,
+            out rootType,
+            out rootIndexLocal,
+            out rootIndexOrdinal,
+            out rootIndexConstant,
+            out rootIndexElementType,
+            out hops,
+            out callBuilder,
+            out callArgLocal,
+            out callArgOrdinal,
+            out callArgType,
+            out valueType
+        )) {
+            return false
+        }
+        chainPlan := new ColumnarInterpolationHolePlan()
+        chainPlan.RootLocal = rootLocal
+        chainPlan.RootOrdinal = rootOrdinal
+        chainPlan.RootThis = rootThis
+        chainPlan.RootGetter = rootGetter
+        chainPlan.RootType = rootType
+        chainPlan.RootIndexLocal = rootIndexLocal
+        chainPlan.RootIndexOrdinal = rootIndexOrdinal
+        chainPlan.RootIndexConstant = rootIndexConstant
+        chainPlan.RootIndexElementType = rootIndexElementType
+        chainPlan.Hops = hops
+        chainPlan.CallBuilder = callBuilder
+        chainPlan.CallArgLocal = callArgLocal
+        chainPlan.CallArgOrdinal = callArgOrdinal
+        chainPlan.CallArgType = callArgType
+        chainPlan.ValueType = valueType
+        plan = chainPlan
+        return true
+    }
+
+    private func TryResolveInterpolationBaseCallPlan(text: string, format: string?, out plan: ColumnarInterpolationHolePlan): bool {
+        plan = null
+        // The `base.<name>()` CLASSIFICATION (the `base.` prefix + `()` suffix parse and the method-name
+        // extraction/validation) is decided by the N# splitter owner
+        // (ColumnarInterpolationSplitter.TrySplitBaseCall); this tier resolves the base method on the
+        // reflected base chain and enforces the return-type guards mechanically over the extracted name.
+        let methodName: string? = null
+        if (!ColumnarInterpolationSplitter.TrySplitBaseCall(text, out methodName) || (_currentStruct == null || _currentStruct.BaseDef == null)) {
+            return false
+        }
+
+        let method: NSharpLang.Compiler.Columnar.ColumnarInstanceMethodDef? = null
+        if (!ColumnarSourceMemberChainResolver.TryFindMethodOnChain(_currentStruct.BaseDef, methodName, 0, out method) || method.ReturnType == ColumnarTypeOfPlanner.RequiredVoidType() || ((!IsKnownEnumType(method.ReturnType) && !method.ReturnType.get_IsGenericParameter() && ColumnarTypeOfPlanner.ContainsBuilderBoundType(method.ReturnType)) || !ColumnarTypeOfPlanner.IsSupportedType(method.ReturnType))) {
+            return false
+        }
+
+        baseCallPlan := new ColumnarInterpolationHolePlan()
+        baseCallPlan.BaseCallBuilder = method.Builder
+        baseCallPlan.ValueType = method.ReturnType
+        baseCallPlan.Format = format
+        plan = baseCallPlan
+        return true
+    }
+
+    private func EmitInterpolationHoleValue(plan: ColumnarInterpolationHolePlan): bool {
+        if (plan.BinaryOperator != null) {
+            if (!EmitInterpolationHoleValue(plan.BinaryLeft) || !EmitInterpolationHoleValue(plan.BinaryRight)) {
+                return false
+            }
+            EmitInterpolationEquality(plan.BinaryOperator, plan.BinaryLeft.ValueType)
+            return true
+        }
+
+        if (plan.CoalesceRight != null) {
+            if (!EmitInterpolationSimpleHoleValue(plan)) {
+                return false
+            }
+            end := _il.DefineLabel()
+            _il.Emit(OpCodes.Dup)
+            _il.Emit(OpCodes.Brtrue, end)
+            _il.Emit(OpCodes.Pop)
+            if (!EmitInterpolationHoleValue(plan.CoalesceRight)) {
+                return false
+            }
+            _il.MarkLabel(end)
+            return true
+        }
+
+        return EmitInterpolationSimpleHoleValue(plan)
+    }
+
+    private func EmitInterpolationSimpleHoleValue(plan: ColumnarInterpolationHolePlan): bool {
+        if (plan.ExpressionNodes != null && plan.ExpressionSource != null) {
+            let emittedType: System.Type? = null
+            return plan.ExpressionRoot >= 0 && EmitParsedInterpolationExpression(plan.ExpressionNodes, plan.ExpressionSource, plan.ExpressionRoot, out emittedType) && TypesEquivalent(emittedType, plan.ValueType)
+        }
+
+        constantInt := plan.ConstantInt
+        if (constantInt != null) {
+            _il.Emit(OpCodes.Ldc_I4, constantInt.Value)
+            return true
+        }
+
+        if (plan.BaseCallBuilder != null) {
+            _il.Emit(OpCodes.Ldarg_0)
+            _il.Emit(OpCodes.Call, plan.BaseCallBuilder)
+            return true
+        }
+
+        if (plan.RootThis) {
+            _il.Emit(OpCodes.Ldarg_0)
+        } else {
+            if (plan.RootLocal != null) {
+                _il.Emit(OpCodes.Ldloc, plan.RootLocal)
+            } else {
+                ColumnarArgumentInstructionEmitter.EmitLoad(_il, plan.RootOrdinal)
+            }
+        }
+        current := plan.RootType
+        stackHasCurrentAddress := plan.RootThis && !IsReferenceWriteLink(current)
+        if (plan.RootGetter != null) {
+            _il.Emit(IsReferenceWriteLink(current) ? OpCodes.Callvirt : OpCodes.Call, plan.RootGetter)
+            current = plan.RootGetter.get_ReturnType()
+            stackHasCurrentAddress = false
+        }
+        if (plan.RootIndexElementType != null) {
+            constantIndex := plan.RootIndexConstant
+            if (constantIndex != null) {
+                _il.Emit(OpCodes.Ldc_I4, constantIndex.Value)
+            } else {
+                if (plan.RootIndexLocal != null) {
+                    _il.Emit(OpCodes.Ldloc, plan.RootIndexLocal)
+                } else {
+                    ColumnarArgumentInstructionEmitter.EmitLoad(_il, plan.RootIndexOrdinal)
+                }
+            }
+            EmitArrayElementLoad(plan.RootIndexElementType)
+            current = plan.RootIndexElementType
+            stackHasCurrentAddress = false
+        }
+        for hop in plan.Hops {
+            if (!IsReferenceWriteLink(current)) {
+                if (!stackHasCurrentAddress) {
+                    spill := _il.DeclareLocal(current)
+                    _il.Emit(OpCodes.Stloc, spill)
+                    _il.Emit(OpCodes.Ldloca, spill)
+                }
+            }
+            if (hop.Field != null) {
+                _il.Emit(OpCodes.Ldfld, hop.Field)
+            } else {
+                if (hop.Getter != null) {
+                    _il.Emit(IsReferenceWriteLink(current) ? OpCodes.Callvirt : OpCodes.Call, hop.Getter)
+                } else {
+                    return false
+                }
+            }
+            current = hop.ValueType
+            stackHasCurrentAddress = false
+        }
+        if (plan.CallBuilder != null) {
+            if (!IsReferenceWriteLink(current)) {
+                if (!stackHasCurrentAddress) {
+                    spill := _il.DeclareLocal(current)
+                    _il.Emit(OpCodes.Stloc, spill)
+                    _il.Emit(OpCodes.Ldloca, spill)
+                }
+                EmitInterpolationCallArgument(plan)
+                _il.Emit(OpCodes.Call, plan.CallBuilder)
+            } else {
+                EmitInterpolationCallArgument(plan)
+                _il.Emit(OpCodes.Callvirt, plan.CallBuilder)
+            }
+        }
+        if (plan.CastSourceType != null && plan.CastTargetType != null) {
+            EmitInterpolationCast(plan.CastSourceType, plan.CastTargetType)
+        }
+        return true
+    }
+
+    private static func TryParseInterpolationExpressionHole(text: string, out nodes: ColumnarNodeTable, out root: int): bool {
+        nodes = null
+        root = -1
+        if (string.IsNullOrWhiteSpace(text)) {
+            return false
+        }
+
+        capacity := Math.Max(3 * (text.Length + 1) + 8, 32)
+        rawKinds := new int[capacity]
+        rawStarts := new int[capacity]
+        rawValueLengths := new int[capacity]
+        tokenKinds := new int[capacity]
+        tokenStarts := new int[capacity]
+        tokenValueLengths := new int[capacity]
+        tokenCounts := new int[2]
+        tokenCount := TokenizeColumnarSourceInto(
+            text,
+            rawKinds,
+            rawStarts,
+            rawValueLengths,
+            tokenKinds,
+            tokenStarts,
+            tokenValueLengths,
+            tokenCounts
+        )
+        rawCount := tokenCounts[0]
+        if (rawCount < 0 || rawCount > capacity || tokenCount <= 0 || tokenCount > rawCount || tokenCount != tokenCounts[1]) {
+            return false
+        }
+
+        nodeCapacity := capacity
+        childCapacity := Math.Max(capacity * 4, 32)
+        nodeKinds := new int[nodeCapacity]
+        valueStarts := new int[nodeCapacity]
+        valueLengths := new int[nodeCapacity]
+        childStarts := new int[nodeCapacity]
+        childCounts := new int[nodeCapacity]
+        childIndices := new int[childCapacity]
+        spanStarts := new int[nodeCapacity]
+        spanLengths := new int[nodeCapacity]
+        result := new int[3]
+        nodeCount := ParseColumnarExpressionInto(
+            text,
+            tokenKinds,
+            tokenStarts,
+            tokenValueLengths,
+            tokenCount,
+            nodeKinds,
+            valueStarts,
+            valueLengths,
+            childStarts,
+            childCounts,
+            childIndices,
+            spanStarts,
+            spanLengths,
+            result
+        )
+        if (nodeCount < 0 || result[1] != nodeCount || result[0] < 0 || result[0] >= nodeCount || result[2] < 0 || result[2] > childIndices.Length) {
+            return false
+        }
+
+        rowCount := Math.Min(nodeCount + 1, nodeKinds.Length)
+        childLimit := 0
+        for i := 0; i < nodeCount; i++ {
+            childEnd := childStarts[i] + childCounts[i]
+            if (childEnd > childLimit) {
+                childLimit = childEnd
+            }
+        }
+        childLimit = Math.Clamp(childLimit, 0, childIndices.Length)
+        nodes = new ColumnarNodeTable(
+            nodeKinds[..rowCount],
+            valueStarts[..rowCount],
+            valueLengths[..rowCount],
+            childStarts[..rowCount],
+            childCounts[..rowCount],
+            childIndices[..childLimit],
+            spanStarts[..rowCount],
+            spanLengths[..rowCount]
+        )
+        root = result[0]
+        return true
+    }
+
+    private func TryGetParsedInterpolationExpressionType(nodes: ColumnarNodeTable, source: string, root: int, out columnarResolvedType: Type): bool {
+        previousNodes := _nodes
+        previousSource := _source
+        _nodes = ColumnarNodeTable.InheritBindingContext(nodes, previousNodes)
+        _source = source
+        resolvedExpressionType := false
+        try {
+            resolvedExpressionType = TryGetPreflightExpressionType(root, out columnarResolvedType) && IsSupportedParsedInterpolationHoleType(columnarResolvedType)
+        } finally {
+            _nodes = previousNodes
+            _source = previousSource
+        }
+        return resolvedExpressionType
+    }
+
+    private func EmitParsedInterpolationExpression(nodes: ColumnarNodeTable, source: string, root: int, out columnarResolvedType: Type): bool {
+        previousNodes := _nodes
+        previousSource := _source
+        _nodes = ColumnarNodeTable.InheritBindingContext(nodes, previousNodes)
+        _source = source
+        emittedExpression := false
+        try {
+            emittedExpression = EmitExpression(root, out columnarResolvedType) && IsSupportedParsedInterpolationHoleType(columnarResolvedType)
+        } finally {
+            _nodes = previousNodes
+            _source = previousSource
+        }
+        return emittedExpression
+    }
+
+    private func IsSupportedParsedInterpolationHoleType(columnarResolvedType: Type): bool => columnarResolvedType != ColumnarTypeOfPlanner.RequiredVoidType() && ColumnarTypeOfPlanner.IsSupportedType(columnarResolvedType) && (!ColumnarTypeOfPlanner.ContainsBuilderBoundType(columnarResolvedType) || IsKnownEnumType(columnarResolvedType))
+
+    private func CanEmitInterpolationCast(sourceType: Type, targetType: Type): bool {
+        if (TypesEquivalent(sourceType, targetType)) {
+            return true
+        }
+        if (targetType == typeof(decimal) || sourceType == typeof(decimal)) {
+            return false
+        }
+        if (IsKnownEnumType(targetType)) {
+            enumSource := IsKnownEnumType(sourceType) ? typeof(int) : sourceType
+            return ColumnarNumericFacts.IsIntPromotable(enumSource)
+        }
+        if (!ColumnarNumericFacts.IsCastableScalar(targetType)) {
+            return false
+        }
+        scalarSource := IsKnownEnumType(sourceType) ? typeof(int) : sourceType
+        return ColumnarNumericFacts.IsCastableScalar(scalarSource)
+    }
+
+    private func EmitInterpolationCast(sourceType: Type, targetType: Type): void {
+        if (TypesEquivalent(sourceType, targetType) || IsKnownEnumType(targetType)) {
+            return
+        }
+        if (IsKnownEnumType(sourceType)) {
+            sourceType = typeof(int)
+        }
+        if (sourceType == targetType) {
+            return
+        }
+        if (targetType == typeof(double)) {
+            _il.Emit(OpCodes.Conv_R8)
+        } else {
+            if (targetType == typeof(float)) {
+                _il.Emit(OpCodes.Conv_R4)
+            } else {
+                if (targetType == typeof(long)) {
+                    _il.Emit(OpCodes.Conv_I8)
+                } else {
+                    if (targetType == typeof(ulong)) {
+                        _il.Emit(OpCodes.Conv_U8)
+                    } else {
+                        if (targetType == typeof(uint)) {
+                            _il.Emit(OpCodes.Conv_U4)
+                        } else {
+                            if (targetType == typeof(char) || targetType == typeof(ushort)) {
+                                _il.Emit(OpCodes.Conv_U2)
+                            } else {
+                                if (targetType == typeof(byte)) {
+                                    _il.Emit(OpCodes.Conv_U1)
+                                } else {
+                                    if (targetType == typeof(sbyte)) {
+                                        _il.Emit(OpCodes.Conv_I1)
+                                    } else {
+                                        if (targetType == typeof(short)) {
+                                            _il.Emit(OpCodes.Conv_I2)
+                                        } else {
+                                            _il.Emit(OpCodes.Conv_I4)
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    private func EmitInterpolationEquality(op: string, operandType: Type): void {
+        if (operandType == typeof(string)) {
+            _il.Emit(OpCodes.Call, typeof(string).GetMethod("op_Equality", [typeof(string), typeof(string)]))
+        } else if (operandType == typeof(Type)) {
+            typeEqualityMethodName := "op_Inequality"
+            if (op == "==") {
+                typeEqualityMethodName = "op_Equality"
+            }
+            typeEquality := typeof(Type).GetMethod(typeEqualityMethodName, [typeof(Type), typeof(Type)])
+            if (typeEquality != null) {
+                _il.Emit(OpCodes.Call, typeEquality)
+                return
+            }
+            EmitComparison(op, false, false)
+            return
+        } else {
+            recordStructTb := operandType as TypeBuilder
+            let recordStructDef: NSharpLang.Compiler.Columnar.ColumnarStructDef? = null
+            if (recordStructTb != null) {
+                recordStructDef = ColumnarSourceDefinitionResolver.FindByBuilderIdentity(_structRegistry.get_Values(), recordStructTb)
+            }
+            if (recordStructDef != null && !recordStructDef.IsReference && recordStructDef.IsRecord && recordStructDef.RecordEquals != null) {
+                recordRightTemp := _il.DeclareLocal(recordStructTb)
+                _il.Emit(OpCodes.Stloc, recordRightTemp)
+                recordLeftTemp := _il.DeclareLocal(recordStructTb)
+                _il.Emit(OpCodes.Stloc, recordLeftTemp)
+                _il.Emit(OpCodes.Ldloca, recordLeftTemp)
+                _il.Emit(OpCodes.Ldloc, recordRightTemp)
+                _il.Emit(OpCodes.Box, recordStructTb)
+                _il.Emit(OpCodes.Call, recordStructDef.RecordEquals)
+            } else {
+                EmitComparison(op, false, false)
+                return
+            }
+        }
+
+        if (op == "!=") {
+            _il.Emit(OpCodes.Ldc_I4_0)
+            _il.Emit(OpCodes.Ceq)
+        }
+    }
+
+    private func IsSupportedInterpolationEqualityType(columnarResolvedType: Type): bool {
+        if (columnarResolvedType == typeof(string) || columnarResolvedType == typeof(Type)) {
+            return true
+        }
+        typeBuilder := columnarResolvedType as TypeBuilder
+        if (typeBuilder != null) {
+            referenceDef := ColumnarSourceDefinitionResolver.FindByBuilderIdentity(_structRegistry.get_Values(), typeBuilder)
+            if (referenceDef != null && referenceDef.IsReference) {
+                return true
+            }
+            recordDef := ColumnarSourceDefinitionResolver.FindByBuilderIdentity(_structRegistry.get_Values(), typeBuilder)
+            return recordDef != null && !recordDef.IsReference && recordDef.IsRecord && recordDef.RecordEquals != null
+        }
+        return ColumnarNumericFacts.IsIntPromotable(columnarResolvedType) || columnarResolvedType == typeof(long) || columnarResolvedType == typeof(ulong) || columnarResolvedType == typeof(uint) || columnarResolvedType == typeof(bool) || columnarResolvedType == typeof(double) || columnarResolvedType == typeof(float) || IsKnownEnumType(columnarResolvedType)
+    }
+
+    private func EmitInterpolationCallArgument(plan: ColumnarInterpolationHolePlan): void {
+        if (plan.CallArgType == null) {
+            return
+        }
+        if (plan.CallArgLocal != null) {
+            _il.Emit(OpCodes.Ldloc, plan.CallArgLocal)
+        } else {
+            ColumnarArgumentInstructionEmitter.EmitLoad(_il, plan.CallArgOrdinal)
+        }
+        if (plan.CallArgType.get_IsValueType()) {
+            _il.Emit(OpCodes.Box, plan.CallArgType)
+        }
+    }
+
+    private func TryResolveInterpolationHole(chain: string, allowBuilderValue: bool, out rootLocal: LocalBuilder?, out rootOrdinal: int, out rootThis: bool, out rootGetter: MethodInfo?, out rootType: Type, out rootIndexLocal: LocalBuilder?, out rootIndexOrdinal: int, out rootIndexConstant: int?, out rootIndexElementType: Type?, out hops: List<ColumnarInterpolationMemberPlan>, out callBuilder: MethodBuilder?, out callArgLocal: LocalBuilder?, out callArgOrdinal: int, out callArgType: Type?, out valueType: Type): bool {
+        rootLocal = null
+        rootOrdinal = -1
+        rootThis = false
+        rootGetter = null
+        rootType = null
+        rootIndexLocal = null
+        rootIndexOrdinal = -1
+        rootIndexConstant = null
+        rootIndexElementType = null
+        hops = new List<ColumnarInterpolationMemberPlan>()
+        callBuilder = null
+        callArgLocal = null
+        callArgOrdinal = -1
+        callArgType = null
+        valueType = null
+        callMember: string? = null
+        callArgument: string? = null
+        if (chain.EndsWith(")", StringComparison.Ordinal)) {
+            openParen := chain.LastIndexOf('(')
+            if (openParen < 0) {
+                return false
+            }
+            callArgument = chain.Substring(openParen + 1, chain.Length - openParen - 2).Trim()
+            if (callArgument.Contains(',')) {
+                return false
+            }
+            callTarget := chain.Substring(0, openParen)
+            lastDot := callTarget.LastIndexOf('.')
+            if (lastDot <= 0 || lastDot == callTarget.Length - 1) {
+                return false
+            }
+            callMember = callTarget.Substring(lastDot + 1)
+            chain = callTarget.Substring(0, lastDot)
+        }
+        names := chain.Split('.')
+        rootName := names[0]
+        rootIndexText: string? = null
+        openBracket := rootName.IndexOf('[')
+        if (openBracket >= 0) {
+            if (openBracket == 0 || !rootName.EndsWith("]", StringComparison.Ordinal)) {
+                return false
+            }
+            rootIndexText = rootName.Substring(openBracket + 1, rootName.Length - openBracket - 2).Trim()
+            if (rootIndexText.Length == 0 || rootIndexText.IndexOf('[') >= 0 || rootIndexText.IndexOf(']') >= 0) {
+                return false
+            }
+            rootName = rootName.Substring(0, openBracket)
+        }
+        if (_liftedLocals.ContainsKey(rootName) || (_boxedCaptures != null && _boxedCaptures.ContainsKey(rootName))) {
+            return false
+        }
+        // lifted/boxed roots decline — the capture scans cannot see hole uses.
+        let local: System.Reflection.Emit.LocalBuilder? = null
+        if (_locals.TryGetValue(rootName, out local)) {
+            rootLocal = local
+            rootType = local.get_LocalType()
+        } else {
+            let ordinal: int = 0
+            if (_paramOrdinals.TryGetValue(rootName, out ordinal)) {
+                rootOrdinal = ordinal
+                rootType = _paramTypes[rootName]
+            } else {
+                let thisField: System.Reflection.Emit.FieldBuilder? = null
+                if (_currentStruct != null && ColumnarSourceMemberChainResolver.TryFindFieldOnChain(_currentStruct, rootName, out thisField)) {
+                    rootThis = true
+                    rootType = _currentStruct.Builder
+                    thisFieldType := thisField.get_FieldType()
+                    thisFieldHop := new ColumnarInterpolationMemberPlan(thisField, null, thisFieldType)
+                    hops.Add(thisFieldHop)
+                } else {
+                    let thisProperty: NSharpLang.Compiler.Columnar.ColumnarPropertyDef? = null
+                    if (_currentStruct != null && TryFindPropertyOnChain(_currentStruct, rootName, out thisProperty)) {
+                        rootThis = true
+                        rootGetter = thisProperty.Getter
+                        rootType = _currentStruct.Builder
+                        valueType = thisProperty.PropertyType
+                    } else {
+                        return false
+                    }
+                }
+            }
+        }
+        // siblings/statics/this-fields in holes — unmodelled, decline.
+
+        if (rootIndexText != null) {
+            if (rootThis || rootGetter != null || hops.Count != 0) {
+                return false
+            }
+            if (!rootType.get_IsSZArray()) {
+                return false
+            }
+            let constantIndex: int = 0
+            if (int.TryParse(rootIndexText, out constantIndex)) {
+                rootIndexConstant = constantIndex
+            } else {
+                let indexLocal: System.Reflection.Emit.LocalBuilder? = null
+                if (_locals.TryGetValue(rootIndexText, out indexLocal)) {
+                    if (indexLocal.get_LocalType() != typeof(int)) {
+                        return false
+                    }
+                    rootIndexLocal = indexLocal
+                } else {
+                    let indexOrdinal: int = 0
+                    if (_paramOrdinals.TryGetValue(rootIndexText, out indexOrdinal)) {
+                        if (_paramTypes[rootIndexText] != typeof(int)) {
+                            return false
+                        }
+                        rootIndexOrdinal = indexOrdinal
+                    } else {
+                        return false
+                    }
+                }
+            }
+            rootIndexElementType = rootType.GetElementType()
+            if (rootIndexElementType == null || !ColumnarTypeOfPlanner.IsSupportedType(rootIndexElementType)) {
+                return false
+            }
+        }
+        let current: System.Type = null
+        if (rootIndexElementType != null) {
+            current = rootIndexElementType
+        } else {
+            if (rootGetter != null) {
+                current = valueType
+            } else {
+                if (hops.Count == 0) {
+                    current = rootType
+                } else {
+                    current = hops[hops.Count - 1].ValueType
+                }
+            }
+        }
+        for n := 1; n < names.Length; n++ {
+            member := n == 1 ? MaybeRewriteInterpolationTupleMemberName(rootName, names[n]) : names[n]
+            let hop: NSharpLang.Compiler.Columnar.ColumnarInterpolationMemberPlan? = null
+            if (!TryResolveInterpolationMemberPlan(current, member, out hop)) {
+                return false
+            }
+            hops.Add(hop)
+            current = hop.ValueType
+        }
+        if (callMember != null) {
+            owner := current as TypeBuilder
+            if (owner == null) {
+                return false
+            }
+            def := ColumnarSourceDefinitionResolver.FindByBuilderIdentity(_structRegistry.get_Values(), owner)
+            if (def == null) {
+                return false
+            }
+            if (callArgument == "") {
+                let method: NSharpLang.Compiler.Columnar.ColumnarInstanceMethodDef? = null
+                if (!ColumnarSourceMemberChainResolver.TryFindMethodOnChain(def, callMember, out method) || method.ParamTypes.Length != 0 || method.ReturnType == ColumnarTypeOfPlanner.RequiredVoidType()) {
+                    return false
+                }
+                callBuilder = method.Builder
+                current = method.ReturnType
+            } else {
+                let argLocal: System.Reflection.Emit.LocalBuilder? = null
+                let argOrdinal: int = 0
+                let argType: System.Type? = null
+                if (callArgument == null || callMember != "Equals" || !def.IsRecord || def.RecordEquals == null || !TryResolveInterpolationSimpleArgument(callArgument, out argLocal, out argOrdinal, out argType)) {
+                    return false
+                }
+                callBuilder = def.RecordEquals
+                callArgLocal = argLocal
+                callArgOrdinal = argOrdinal
+                callArgType = argType
+                current = typeof(bool)
+            }
+        }
+        if ((!allowBuilderValue && ColumnarTypeOfPlanner.ContainsBuilderBoundType(current) && !IsKnownEnumType(current) && !current.get_IsGenericParameter()) || !ColumnarTypeOfPlanner.IsSupportedType(current)) {
+            return false
+        }
+        valueType = current
+        return true
+    }
+
+    private func TryResolveInterpolationMemberPlan(current: Type, member: string, out hop: ColumnarInterpolationMemberPlan): bool {
+        hop = null
+        owner := current as TypeBuilder
+        if (owner != null) {
+            def := ColumnarSourceDefinitionResolver.FindByBuilderIdentity(_structRegistry.get_Values(), owner)
+            if (def != null) {
+                let hopField: System.Reflection.Emit.FieldBuilder? = null
+                if (ColumnarSourceMemberChainResolver.TryFindFieldOnChain(def, member, out hopField)) {
+                    hopFieldType := hopField.get_FieldType()
+                    hop = new ColumnarInterpolationMemberPlan(hopField, null, hopFieldType)
+                    return true
+                }
+                let hopProperty: NSharpLang.Compiler.Columnar.ColumnarPropertyDef? = null
+                if (TryFindPropertyOnChain(def, member, out hopProperty)) {
+                    hop = new ColumnarInterpolationMemberPlan(null, hopProperty.Getter, hopProperty.PropertyType)
+                    return true
+                }
+                return false
+            }
+        }
+
+        let closedDef: NSharpLang.Compiler.Columnar.ColumnarStructDef? = null
+        let closedArgs: System.Type[]? = null
+        if (TryGetClosedReceiverDef(current, out closedDef, out closedArgs)) {
+            let openField: System.Reflection.Emit.FieldBuilder? = null
+            if (closedDef.Fields.TryGetValue(member, out openField)) {
+                field := TypeBuilder.GetField(current, openField)
+                openFieldType := openField.get_FieldType()
+                closedFieldType := ColumnarRuntimeInstanceMemberResolver.SubstituteClosedTypeArguments(openFieldType, closedArgs)
+                hop = new ColumnarInterpolationMemberPlan(field, null, closedFieldType)
+                return true
+            }
+            let openProperty: NSharpLang.Compiler.Columnar.ColumnarPropertyDef? = null
+            if (closedDef.Properties.TryGetValue(member, out openProperty)) {
+                getter := TypeBuilder.GetMethod(current, openProperty.Getter)
+                hop = new ColumnarInterpolationMemberPlan(null, getter, ColumnarRuntimeInstanceMemberResolver.SubstituteClosedTypeArguments(openProperty.PropertyType, closedArgs))
+                return true
+            }
+            return false
+        }
+
+        if (ColumnarTypeOfPlanner.IsSupportedValueTuple(current) && IsTupleItemMember(member)) {
+            itemField := current.GetField(member, BindingFlags.Public | BindingFlags.Instance)
+            if (itemField == null) {
+                return false
+            }
+            itemFieldType := itemField.get_FieldType()
+            hop = new ColumnarInterpolationMemberPlan(itemField, null, itemFieldType)
+            return true
+        }
+
+        if (member == "Length" && current == typeof(string)) {
+            getter := typeof(string).GetProperty(nameof(string.Length)).GetGetMethod()
+            hop = new ColumnarInterpolationMemberPlan(null, getter, typeof(int))
+            return true
+        }
+
+        let countGetter: System.Reflection.MethodInfo? = null
+        if (member == "Count" && TryResolveCollectionCountGetter(current, out countGetter)) {
+            hop = new ColumnarInterpolationMemberPlan(null, countGetter, typeof(int))
+            return true
+        }
+
+        if ((member == "Key" || member == "Value") && ColumnarTypeOfPlanner.IsSupportedKeyValuePairType(current)) {
+            getter := ResolveClosedGenericMethod(current, typeof(KeyValuePair<int, int>).GetGenericTypeDefinition().GetProperty(member).GetGetMethod())
+            hop = new ColumnarInterpolationMemberPlan(null, getter, current.GetGenericArguments()[member == "Key" ? 0 : 1])
+            return true
+        }
+
+        let dateTimeProperty: System.Reflection.PropertyInfo? = null
+        if (current == typeof(DateTime)) {
+            dateTimeProperty = typeof(DateTime).GetProperty(member, BindingFlags.Public | BindingFlags.Instance)
+        }
+        if (dateTimeProperty != null && dateTimeProperty.get_GetMethod() != null && ColumnarTypeOfPlanner.IsSupportedType(dateTimeProperty.get_PropertyType())) {
+            dateTimeGetter := dateTimeProperty.get_GetMethod()
+            dateTimePropertyType := dateTimeProperty.get_PropertyType()
+            hop = new ColumnarInterpolationMemberPlan(null, dateTimeGetter, dateTimePropertyType)
+            return true
+        }
+
+        let bclProperty: System.Reflection.PropertyInfo? = null
+        if (TryGetSupportedBclReadableProperty(current, member, out bclProperty)) {
+            bclGetter := bclProperty.get_GetMethod()
+            bclPropertyType := bclProperty.get_PropertyType()
+            hop = new ColumnarInterpolationMemberPlan(null, bclGetter, bclPropertyType)
+            return true
+        }
+
+        return false
+    }
+
+    private func MaybeRewriteInterpolationTupleMemberName(rootName: string, member: string): string {
+        let names: string[]? = null
+        if (!_tupleNamesByVariable.TryGetValue(rootName, out names)) {
+            return member
+        }
+        for i := 0; i < names.Length; i++ {
+            if (names[i] == member) {
+                return "Item" + (i + 1).ToString()
+            }
+        }
+        return member
+    }
+
+    private static func IsTupleItemMember(member: string): bool => member.Length > 4 && member.StartsWith("Item", StringComparison.Ordinal) && char.IsDigit(member[4])
+
+    private func TryResolveInterpolationSimpleArgument(text: string, out local: LocalBuilder?, out ordinal: int, out columnarResolvedType: Type): bool {
+        local = null
+        ordinal = -1
+        columnarResolvedType = null
+        if (string.IsNullOrWhiteSpace(text) || text.IndexOf('.') >= 0 || text.IndexOf('(') >= 0 || text.IndexOf(')') >= 0) {
+            return false
+        }
+        let foundLocal: System.Reflection.Emit.LocalBuilder? = null
+        if (_locals.TryGetValue(text, out foundLocal)) {
+            local = foundLocal
+            columnarResolvedType = foundLocal.get_LocalType()
+            return true
+        }
+        let foundOrdinal: int = 0
+        if (_paramOrdinals.TryGetValue(text, out foundOrdinal)) {
+            ordinal = foundOrdinal
+            columnarResolvedType = _paramTypes[text]
+            return true
+        }
+        return false
+    }
+
+    private static func FindAppendFormattedGeneric(handlerType: Type, withFormat: bool): MethodInfo {
+        for m in handlerType.GetMethods() {
+            if (m.get_Name() != "AppendFormatted" || !m.get_IsGenericMethodDefinition()) {
+                continue
+            }
+            ps := m.GetParameters()
+            if (!withFormat && ps.Length == 1) {
+                return m
+            }
+            if (withFormat && ps.Length == 2 && ps[1].get_ParameterType() == typeof(string)) {
+                return m
+            }
+        }
+        throw new InvalidOperationException("DefaultInterpolatedStringHandler.AppendFormatted overload not found")
+    }
+
+    private func Child(idx: int, n: int): int => _nodes.Child(idx, n)
+
+    private func TryGetDottedMemberAccessName(node: int, out name: string, out rootName: string): bool {
+        if (_nodes.Kind(node) == 6) {
+            name = ColumnarNodeTextFacts.Text(_nodes, _source, node)
+            rootName = name
+            return name.Length > 0
+        }
+
+        let receiverName: string? = null
+        if (_nodes.Kind(node) == 8 && _nodes.ChildCount(node) == 1 && TryGetDottedMemberAccessName(Child(node, 0), out receiverName, out rootName)) {
+            memberName := ColumnarNodeTextFacts.Text(_nodes, _source, node)
+            if (memberName.Length == 0) {
+                name = null
+                rootName = null
+                return false
+            }
+
+            name = receiverName + "." + memberName
+            return true
+        }
+
+        name = null
+        rootName = null
+        return false
+    }
+
+    private func TryEmitUnionCasePositionalConstruction(caseDef: ColumnarUnionCaseDef, typeArgs: Type[], newIdx: int, argCount: int, out columnarResolvedType: Type): bool {
+        columnarResolvedType = null
+        if (caseDef.IsValueStruct) {
+            if (typeArgs.Length != 0 || argCount != 0 || caseDef.ValueStructFactory == null) {
+                return false
+            }
+            _il.Emit(OpCodes.Call, caseDef.ValueStructFactory)
+            columnarResolvedType = caseDef.UnionBase
+            return true
+        }
+
+        if (caseDef.FieldOrder.Length != argCount) {
+            return false
+        }
+
+        let resultType: System.Type = null
+        let ctor: System.Reflection.ConstructorInfo = null
+        closedCase: Type? = null
+        if (typeArgs.Length == 0) {
+            if (caseDef.UnionBase.get_IsGenericTypeDefinition()) {
+                return false
+            }
+            ctor = caseDef.Ctor
+            resultType = caseDef.UnionBase
+        } else {
+            if (caseDef.UnionBase.GetGenericArguments().Length != typeArgs.Length) {
+                return false
+            }
+            caseTypeDefinition: Type = caseDef.CaseType
+            closedCase = caseTypeDefinition.MakeGenericType(typeArgs)
+            ctor = TypeBuilder.GetConstructor(closedCase, caseDef.Ctor)
+            unionBaseDefinition: Type = caseDef.UnionBase
+            resultType = unionBaseDefinition.MakeGenericType(typeArgs)
+        }
+
+        _il.Emit(OpCodes.Newobj, ctor)
+        for a := 0; a < argCount; a++ {
+            fieldName := caseDef.FieldOrder[a]
+            let openField: System.Reflection.Emit.FieldBuilder? = null
+            if (!caseDef.Fields.TryGetValue(fieldName, out openField)) {
+                return false
+            }
+            let expectedFieldType: System.Type = null
+            if (closedCase == null) {
+                expectedFieldType = openField.get_FieldType()
+            } else {
+                openFieldType := openField.get_FieldType()
+                expectedFieldType = ColumnarRuntimeInstanceMemberResolver.SubstituteClosedTypeArguments(openFieldType, typeArgs)
+            }
+            _il.Emit(OpCodes.Dup)
+            argNode := Child(newIdx, 1 + a)
+            let valueType: System.Type = null
+            if (IsAdoptableUnionConstruction(argNode, expectedFieldType)) {
+                if (!EmitAdoptedUnionConstruction(argNode, expectedFieldType, out valueType)) {
+                    return false
+                }
+            } else {
+                if (!EmitExpression(argNode, out valueType)) {
+                    return false
+                }
+            }
+            if (!TypesEquivalent(valueType, expectedFieldType)) {
+                return false
+            }
+            let targetField: System.Reflection.FieldInfo = null
+            if (closedCase == null) {
+                targetField = openField
+            } else {
+                targetField = TypeBuilder.GetField(closedCase, openField)
+            }
+            _il.Emit(OpCodes.Stfld, targetField)
+        }
+        columnarResolvedType = resultType
+        return true
+    }
+
+    private func TryGetNewExpressionResultType(node: int, out columnarResolvedType: Type): bool {
+        columnarResolvedType = null
+        if (_nodes.Kind(node) != 15 || _nodes.ChildCount(node) == 0) {
+            return false
+        }
+        typeNode := Child(node, 0)
+        if (_nodes.Kind(typeNode) == 0) {
+            typeName := ColumnarNodeTextFacts.Text(_nodes, _source, typeNode)
+            if (typeName == "string") {
+                columnarResolvedType = typeof(string)
+            } else if (typeName == "StringBuilder") {
+                columnarResolvedType = typeof(System.Text.StringBuilder)
+            } else if (typeName == "Version") {
+                columnarResolvedType = typeof(Version)
+            } else if (typeName == "object") {
+                columnarResolvedType = typeof(object)
+            } else if (typeName == "ProcessStartInfo") {
+                columnarResolvedType = typeof(ProcessStartInfo)
+            } else if (typeName == "Process") {
+                columnarResolvedType = typeof(Process)
+            } else if (typeName == "Exception") {
+                columnarResolvedType = typeof(Exception)
+            } else if (typeName == "InvalidOperationException") {
+                columnarResolvedType = typeof(InvalidOperationException)
+            } else if (typeName == "ArgumentException") {
+                columnarResolvedType = typeof(ArgumentException)
+            } else if (typeName == "FormatException") {
+                columnarResolvedType = typeof(FormatException)
+            } else if (typeName == "TimeoutException") {
+                columnarResolvedType = typeof(TimeoutException)
+            } else if (typeName == "NotSupportedException") {
+                columnarResolvedType = typeof(NotSupportedException)
+            }
+            if (columnarResolvedType != null) {
+                return true
+            }
+            let def: NSharpLang.Compiler.Columnar.ColumnarStructDef? = null
+            if (_structRegistry.TryGetValue(typeName, out def)) {
+                columnarResolvedType = def.Builder
+                return true
+            }
+            return false
+        }
+        if (_nodes.Kind(typeNode) == 1) {
+            let canonical: string? = null
+            return TryBuildTypeNodeCanonical(typeNode, out canonical) && ColumnarCanonicalTypeResolver.TryResolveType(canonical, _typeResolutionEnums, _typeResolutionStructs, _typeResolutionUnions, out columnarResolvedType)
+        }
+        if (_nodes.Kind(typeNode) == 2) {
+            elementNode := Child(typeNode, 0)
+            let elementCanonical: string? = null
+            let elementType: System.Type? = null
+            if (!TryBuildTypeNodeCanonical(elementNode, out elementCanonical) || !ColumnarCanonicalTypeResolver.TryResolveType(elementCanonical, _typeResolutionEnums, _typeResolutionStructs, _typeResolutionUnions, out elementType) || !ColumnarTypeOfPlanner.IsSupportedElementType(elementType)) {
+                return false
+            }
+            columnarResolvedType = elementType.MakeArrayType()
+            return true
+        }
+        return false
+    }
+
+    private func TryInferArrayLiteralElementType(node: int, out elementType: Type): bool {
+        elementType = null
+        if (_nodes.Kind(node) != 58) {
+            return false
+        }
+        elementCount := _nodes.ChildCount(node)
+        if (elementCount == 0) {
+            return false
+        }
+        for i := 0; i < elementCount; i++ {
+            let currentType: System.Type? = null
+            if (!TryGetPreflightExpressionType(Child(node, i), out currentType) || !ColumnarTypeOfPlanner.IsSupportedElementType(currentType)) {
+                return false
+            }
+            if (i == 0) {
+                elementType = currentType
+                continue
+            }
+            if (!TypesEquivalent(currentType, elementType)) {
+                return false
+            }
+        }
+        return true
+    }
+
+    private func TrySelectUserConstructor(newNode: int, def: ColumnarStructDef, out chosenCtor: ConstructorBuilder, out chosenParamTypes: Type[], out chosenDefaultKinds: int[], out chosenDefaultTexts: string[]): bool {
+        argCount := _nodes.ChildCount(newNode) - 1
+        nodesForArguments := _nodes
+        argumentAt: Func<int, int> = a => nodesForArguments.Child(newNode, 1 + a)
+        return TrySelectUserConstructorForArgs(
+            argCount,
+            argumentAt,
+            def,
+            out chosenCtor,
+            out chosenParamTypes,
+            out chosenDefaultKinds,
+            out chosenDefaultTexts
+        )
+    }
+
+    private func TrySelectUserConstructorForArgs(argCount: int, argAt: Func<int, int>, def: ColumnarStructDef, out chosenCtor: ConstructorBuilder, out chosenParamTypes: Type[], out chosenDefaultKinds: int[], out chosenDefaultTexts: string[]): bool {
+        chosenCtor = null
+        chosenParamTypes = null
+        chosenDefaultKinds = null
+        chosenDefaultTexts = null
+        candidates := new List<ColumnarConstructorDef>()
+        for ctor in def.Constructors {
+            if (ctor.ParamTypes.Length < argCount) {
+                continue
+            }
+            hasTrailingDefaults := true
+            for p := argCount; p < ctor.ParamTypes.Length; p++ {
+                if (!ColumnarParameterDefaultEmitter.CanUseConstructorDefaultAs(
+                    ctor.ParamTypes[p],
+                    ctor.DefaultKinds,
+                    ctor.DefaultTexts,
+                    p,
+                    _typeResolutionEnums
+                )) {
+                    hasTrailingDefaults = false
+                    break
+                }
+            }
+            if (hasTrailingDefaults) {
+                candidates.Add(ctor)
+            }
+        }
+        if (candidates.Count == 0) {
+            return false
+        }
+        exactCandidates := new List<ColumnarConstructorDef>()
+        for candidate in candidates {
+            if (candidate.ParamTypes.Length == argCount) {
+                exactCandidates.Add(candidate)
+            }
+        }
+        if (exactCandidates.Count > 0) {
+            candidates = exactCandidates
+        }
+        if (candidates.Count == 1) {
+            chosenCtor = candidates[0].Builder
+            chosenParamTypes = candidates[0].ParamTypes
+            chosenDefaultKinds = candidates[0].DefaultKinds
+            chosenDefaultTexts = candidates[0].DefaultTexts
+            return true
+        }
+
+        for ctor in candidates {
+            matches := true
+            for a := 0; a < argCount; a++ {
+                if (!CanEmitConstructorArgumentAs(argAt(a), ctor.ParamTypes[a])) {
+                    matches = false
+                    break
+                }
+            }
+            if (!matches) {
+                continue
+            }
+            if (chosenCtor != null) {
+                return false
+            }
+            chosenCtor = ctor.Builder
+            chosenParamTypes = ctor.ParamTypes
+            chosenDefaultKinds = ctor.DefaultKinds
+            chosenDefaultTexts = ctor.DefaultTexts
+        }
+        return chosenCtor != null
+    }
+}
