@@ -131,3 +131,25 @@ the fresh integration gate and SDK publication remain pending with complete emit
 See `/private/tmp/nsharp-columnar-constructor-base-correctness-20260908/final-receipt.json` and
 `root-stage2-review.json` there, plus the original `root-external-base-constructor-finding.json` in
 the prerequisite evidence directory above.
+
+The exact `MethodBuilder.SetParameters(Type[])` dependency is integrated in `c580a102c`.
+Its canonical N# assertion passes, and the same complete emitter source with the same 170 references
+advances past the original call failure using the verified private candidate. The final receipt is
+`/private/tmp/nsharp-columnar-il-emitter-owner-20260907/set-parameters-prerequisite-final-receipt.json`.
+Use its verified r3 payload; the earlier r2 payload reintroduced invalid external-base constructor IL
+through a stale bootstrap and is withdrawn.
+
+The `List<T>(Dictionary<TKey,TValue>.KeyCollection)` snapshot dependency is integrated in
+`0810c36af`. It selects the exact CLR `IEnumerable<T>` constructor through the existing N# argument
+planner, preserving constructor semantics and the original key snapshot. Three canonical assertions,
+the populated snapshot regression and all 41 native reflection-bootstrap tests pass. Both the private
+production payload and emitted native assembly pass unfiltered IL verification. Evidence is under
+`/private/tmp/nsharp-columnar-il-emitter-owner-20260907/body63-list-copy-seed/`.
+
+The complete 53-method calls/conversions group is reviewed for assembly into the emitter. Its actual
+no-stub diagnostic composition advances through those bodies, and review corrected split boxed
+enumerator state and restored constructor-list enumeration semantics. The accepted fragment is
+`bcl53-complete-compile-r2/section-bcl-calls-conversions-compiled-r3.nl` in the emitter evidence
+directory; r2 is withdrawn. This is not whole-owner acceptance. The remaining entry, body and
+constructor/member-write groups, demonstrated tuple-job dependencies, final canonical execution,
+legacy deletion, fresh integration gate and push remain part of this same selected area.
