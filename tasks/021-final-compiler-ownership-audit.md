@@ -66,6 +66,22 @@ frozen. Hooke retains the complete owner and isolation of the remaining body par
 reviews and groups any related proven prerequisites for required seed verification; no SDK
 publication is accepted merely because parsing succeeds.
 
+## Next connected area after MultiFileCompiler
+
+Move the entire `src/NSharpLang.Cli/CompilationReferenceResolver.cs` owner: 497 lines, 19 methods
+and its shared two-minute `HttpClient`. Its recursive project builds, package cache lifecycle,
+dependency mutation, I/O ordering and cleanup are compiler reference-resolution behavior.
+Existing N# kernels do not make that orchestration mechanical. The current dependency on
+MultiFileCompiler requires accepting that owner in BootstrapServices first.
+
+Preserve the eight resolution callers and five assembly-name callers through the smallest supported
+cross-assembly boundary; do not introduce a C# facade. Reuse existing N# models/kernels and native
+coverage, migrate the canonical reference-resolution assertions in the existing build/publish/check
+integrations, and add focused real gaps in cache/order/failure behavior. SDK/MSBuild projection and
+broader CLI policy remain separate. Source and caller/test inventory:
+`/private/tmp/nsharp-reference-resolution-assessment/current-boundary-20260908.md` (reviewed hash
+`1b5d9dacf75acaa053d0634350b5985b3f720f3a2eef1b8fc863c8ec519feeb4`).
+
 ## Final compiler audit
 
 Close `NSharpLang.Compiler` ownership.
