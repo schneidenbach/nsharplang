@@ -79,11 +79,18 @@ mechanical, and explicitly reviewed against its N# owner.
 
 Current measured route and boundaries are in [STATUS §1](../systems-language-closeout/STATUS.md):
 
-1. After input-builder integration, `ColumnarIlEmitter.cs` remains 16,635 lines /
-   15,817 nonblank and MultiFileCompiler 663/587. These complete production ownership areas
-   remain in scope. ColumnarProgramInputBuilder is now entirely N#-owned; its fresh integration
-   gate and installed SDK self-host acceptance are recorded in STATUS. Historical checkboxes do not establish
-   compiler-wide ownership or canonical assertion completion.
+1. The complete `ColumnarIlEmitter.cs` owner (16,635 lines / 15,817 nonblank) is deleted
+   in local commit `773dbf1ff`; production routes directly to its N# replacement. Its canonical
+   migration and follow-up corrections are integrated through `1076ec2a0`. Push and SDK publication
+   remain pending integration verification. The unformatted candidate passes all 87 selected native
+   assertions; the formatted candidate is rejected because it exposes all 62 private fields.
+   Goodall owns the bounded N# formatter fix and regression assertions; Hooke owns emitter
+   regeneration and candidate verification; Astra owns review, the fresh IDE-enabled integration
+   gate, visual editor verification, SDK acceptance and push. The formatter is used by the editor,
+   so this dependency requires IDE verification. See the [rejected candidate receipt](/private/tmp/nsharp-columnar-il-emitter-owner-20260907/final-owner-build/final-candidate-verification-r3/final-owner-verification-r3.json).
+   MultiFileCompiler remains 663/587 and is the next complete ownership area after this checkpoint.
+   ColumnarProgramInputBuilder is entirely N#-owned; its accepted evidence remains valid.
+   Historical checkboxes do not establish compiler-wide ownership or canonical assertion completion.
 2. Analyzer.cs, SystemsAnalyzer.cs and TypeResolver.cs are deleted; their accepted N# owners and
    canonical evidence must be preserved. Task 023 writer implementation is conditional on a
    demonstrated compiler-ownership dependency. NativeAOT and broader writer ordering remain in
