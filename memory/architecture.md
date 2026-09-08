@@ -9,10 +9,11 @@ The product toolchain runs through IL end to end. Projects use `backend: il` or 
 take the default. The CLI and MSBuild SDK honor that path for build, run, test, perf-report, publish,
 and package flows.
 
-Compiler core, compiler-service, and CLI/tooling command logic are N#-owned. The parser, AST, syntax
-diagnostics, semantic analysis, systems policy, linting, formatting, code intelligence and the `nlc`
-command surface each have exactly one N# production owner; see the reviewed allowlist below for the
-mechanical C# boundaries that remain and for the two surfaces that are still owning C#.
+The parser, AST, syntax diagnostics, semantic analysis, systems analysis, columnar input builder,
+IL emitter and multi-file compiler are N#-owned. Compiler-wide ownership remains open: recursive
+reference resolution, SDK reference-assembly orchestration and remaining canonical compiler
+assertions still require migration. CLI/editor policy and broader branch initiatives are tracked
+separately. Historical allowlist labels below do not establish current completion.
 
 ```text
 .nl source
@@ -34,7 +35,7 @@ mechanical C# boundaries that remain and for the two surfaces that are still own
 1. **Lexer** - tokenizes source code (`src/NSharpLang.Compiler.BootstrapServices/Lexer.nl`)
 2. **Parser** - builds syntax trees (`src/NSharpLang.Compiler.BootstrapServices/ColumnarParserRecovery.nl`, N#)
 3. **Analyzer** - type checking and semantic analysis (`src/NSharpLang.Compiler.BootstrapServices/Analyzer.nl`, with the N# owners `AnalyzerDeclarationContext.nl`, `TypeInfoIdentityFacts.nl`, `AnalyzerConversionFacts.nl`, `AnalyzerCallableReferenceFacts.nl`, `AnalyzerWellKnownTypes.nl`, `AnalyzerWellKnownTypeFacts.nl`, `AnalyzerClrTypeConversion.nl`, `AnalyzerAssignabilityFacts.nl`, `AnalyzerExternalTypeProbe.nl`, `AnalyzerTypeReferenceFacts.nl`, `AnalyzerScopeStack.nl`, `AnalyzerProjectDiscovery.nl`, `AnalyzerTypeResolver.nl`, `AnalyzerTypeSubstitution.nl`, `AnalyzerStructuralAssignability.nl`, `AnalyzerDiagnosticSink.nl`, `AnalyzerStateModels.nl`, `AnalyzerDiagnostics.nl`, `NullabilityMetadataCore.nl`, `NullabilityMetadataReflection.nl`, `AnalyzerReflectionTypeConversion.nl`, `AnalyzerFunctionTypeFactory.nl`, `AnalyzerAssignability.nl`)
-4. **Columnar backend** - emits managed PE assemblies from N# compiler tables (`src/NSharpLang.Compiler/Columnar/`)
+4. **Columnar backend** - emits managed PE assemblies from N# compiler tables (`src/NSharpLang.Compiler.BootstrapServices/ColumnarIlEmitter.nl`)
 5. **CLI** - command-line workflows (`src/NSharpLang.Cli/`)
 6. **Error reporting** - diagnostics and suggestions (`src/NSharpLang.Compiler.BootstrapServices/CompilerError.nl`, `ErrorCode.nl`, `ErrorMessageBuilder.nl`, `ErrorSuggestions.nl`, N#)
 
@@ -75,8 +76,8 @@ N# replacement is in the product path or the final audit proves it is mechanical
 
 The table records the task-021 terminal audit, not current ownership acceptance. The current
 compiler cursor and ratchet are authoritative. Complete Analyzer, SystemsAnalyzer, input-builder
-and ColumnarIlEmitter ownership is accepted. The complete MultiFileCompiler class is now selected
-for removal under task 021; its historical mechanical label is not an ownership exemption.
+and ColumnarIlEmitter ownership is accepted. The complete MultiFileCompiler class is also accepted
+at `27b1a8a1b`; its old C# file and ten-case recovery test file are deleted.
 
 At that audit, tracked files in the compiler assembly were classified as follows. "Decisions"
 is the product-decision census — `NL` codes / user-facing sentences / ordering sites / non-zero exit
@@ -114,13 +115,19 @@ remaining state/control ownership from the active goal:
   checks remain the vectorizer's regression coverage. Calls into
   `src/NSharpLang.Runtime/SimdReductions.cs` are runtime calls; runtime reimplementation remains
   separate from compiler lowering ownership.
-- `MultiFileCompiler.cs` still owns pipeline sequencing, state, diagnostics, emission-thread
-  lifetime and failure behavior. Its complete migration and ten canonical recovery tests are
-  active in [task 021](../tasks/021-final-compiler-ownership-audit.md). It is not accepted glue.
+- The complete `MultiFileCompiler.nl` owns pipeline sequencing, state, diagnostics, emission-thread
+  lifetime and failure behavior. Its ten recovery cases execute in N#. Fresh product/IDE checks,
+  installed SDK self-host and real unsaved-buffer verification pass at `27b1a8a1b`.
+  [Acceptance](../systems-language-closeout/decodes/2026-09-08-complete-multifile-compiler-ownership.md).
 - `src/NSharpLang.Cli/CompilationReferenceResolver.cs` still controls recursive reference builds,
   package traversal, caching and failure behavior. Existing N# kernels do not make the remaining
   orchestration mechanical. Compiler reference resolution remains in scope despite its CLI path;
-  the complete connected boundary is being audited after MultiFileCompiler.
+  the complete owner and canonical assertions are the selected implementation area in task 021.
+- `Build.Tasks/EmitIlAssembly.cs` still owns reference-assembly scanning, traversal, duplicate
+  identity reuse, rewrite/write ordering and failure cleanup. Existing SdkEmitTaskKernels predicates
+  do not make this connected group mechanical. Move it with its state/helpers, preferably with the
+  complete task if actual N# source supports the required MSBuild boundary. Retain the existing
+  Cecil behavior; this establishes no dependency on a new metadata writer.
 - The former Analyzer metadata quarantine is removed with the complete C# class. Its metadata
   lifecycle and existing reflection operations are owned by N#; no metadata-writer rewrite was
   required to achieve that ownership. NativeAOT and a broader metadata-writer initiative remain

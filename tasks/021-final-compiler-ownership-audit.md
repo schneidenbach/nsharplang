@@ -196,6 +196,27 @@ Include the exact two-project AOT-decline fixture from
 the child compiler, failure diagnostics, output suppression and active-project-stack cleanup are
 reference-resolution assertions. This does not expand the separate NativeAOT initiative.
 
+## Connected follow-on: SDK reference assembly ownership
+
+The source audit at `27b1a8a1b` disproves the broad mechanical label on
+`src/NSharpLang.Build.Tasks/EmitIlAssembly.cs`. Its reference selection, ordered owner scan,
+recursive nested-type traversal, AssemblyRef reuse, scope mutation, write and cleanup still run in
+C#. The connected ten-method group must move with its helpers/state. Prefer the complete existing
+303-line task class, including its twelve methods and public MSBuild metadata, when actual proposed
+N# source proves the required external APIs and inheritance. Any surviving task boundary must only
+transport MSBuild inputs/results through direct N# calls; add no C# helper, callback or fallback.
+
+Reuse the existing Cecil post-pass and N# ReferenceTypeOwners/SdkEmitTaskKernels. This is compiler
+reference/metadata ownership, not a new metadata-writer objective. Necessary MSBuild/Cecil dependency
+and package changes must be verified through ordinary installed SDK builds and self-hosting before
+seed publication. Preserve accepted kernel and C# consumer ABI coverage; add real N# traversal,
+mutation, identity and failure controls where the current predicate tests leave gaps.
+
+Reviewed source boundary and hashes:
+`/private/tmp/nsharp-sdk-reference-ownership-assessment/current-boundary-20260908.md` and its
+`source-manifest-20260908.json`. The current resolver implementation remains first; this audit does
+not authorize speculative prerequisites or interrupt the selected owner.
+
 ## Final compiler audit
 
 Close `NSharpLang.Compiler` ownership.
