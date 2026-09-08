@@ -346,7 +346,10 @@ class ColumnarConstructionPlanner {
         if IsSourceUnionType(targetType, bindings) {
             return false
         }
-        if targetType == typeof(JsonElement) {
+        // These exact runtime value types are intentionally constructed as their CLR zero value.
+        // Neither exposes a public parameterless constructor, so the general runtime-constructor
+        // selector cannot represent their source-level `new T()` form.
+        if targetType == typeof(JsonElement) || targetType == typeof(Label) {
             if nodes.ChildCount(candidate) != 1 {
                 return false
             }

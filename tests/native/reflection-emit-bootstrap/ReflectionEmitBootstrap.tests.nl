@@ -1,5 +1,7 @@
 namespace NSharpLang.ReflectionEmitBootstrap.Tests
 
+import System.Reflection.Emit
+
 test "N# owns the direct Reflection.Emit bootstrap surface" {
     assert ReflectionEmitBootstrapProbe.ContractVersion() == 14
     assert ReflectionEmitBootstrapProbe.HasRangeHandleSurface()
@@ -25,4 +27,9 @@ test "N# owns exact static parse calls and by-reference results" {
     floating = 99.0
     assert !ReflectionEmitBootstrapProbe.TryParseDoubleInvariant("not-a-double", out floating)
     assert floating == 0.0
+}
+
+test "new Label produces the CLR zero value without defining an IL label" {
+    label := new Label()
+    assert label.GetHashCode() == 0
 }

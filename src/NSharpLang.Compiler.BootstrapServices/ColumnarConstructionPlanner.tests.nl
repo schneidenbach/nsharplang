@@ -3273,6 +3273,64 @@ test "construction planner owns default source values and JsonElement through in
     assert !legacy
 }
 
+test "construction planner owns the exact Label zero value through initobj" {
+    ownership := ColumnarDirectCallOwnership.OwnedRejected
+    legacy := false
+
+    label := ConstructionNewTree(
+        "Label",
+        ConstructionEmptyTexts(),
+        ConstructionEmptyKinds()
+    )
+    ConstructionStampScope(label, "import System.Reflection.Emit\n")
+    labelPlan := ConstructionPlan(
+        label,
+        ColumnarRangePlannerEmptyBindings()
+    )
+    assert labelPlan.ResultType == typeof(Label)
+    assert labelPlan.PlanLocalCount == 1
+    assert labelPlan.OperationCount == 3
+    assert labelPlan.OpCodeValues[0] == ColumnarCodePlanContract.Ldloca()
+    assert labelPlan.OpCodeValues[1] == ColumnarCodePlanContract.Initobj()
+    assert labelPlan.OpCodeValues[2] == ColumnarCodePlanContract.Ldloc()
+    assert labelPlan.Types[labelPlan.PlanLocalTypeIndices[0]] == typeof(Label)
+    labelResult := NullableArgumentRunPlan(labelPlan, typeof(Label))
+    assert labelResult != null
+    assert labelResult.GetHashCode() == 0
+
+    invalidLabel := ConstructionNewTree(
+        "Label",
+        ConstructionOneText("1"),
+        ConstructionOneKind(
+            ColumnarExpressionNodeKind.IntLiteralExpression()
+        )
+    )
+    ConstructionStampScope(invalidLabel, "import System.Reflection.Emit\n")
+    _invalidLabelPlan := ConstructionRejected(
+        invalidLabel,
+        ColumnarRangePlannerEmptyBindings(),
+        out ownership,
+        out legacy
+    )
+    assert ownership == ColumnarDirectCallOwnership.OwnedRejected
+    assert !legacy
+
+    unsupported := ConstructionNewTree(
+        "OpCode",
+        ConstructionEmptyTexts(),
+        ConstructionEmptyKinds()
+    )
+    ConstructionStampScope(unsupported, "import System.Reflection.Emit\n")
+    _unsupportedPlan := ConstructionRejected(
+        unsupported,
+        ColumnarRangePlannerEmptyBindings(),
+        out ownership,
+        out legacy
+    )
+    assert ownership == ColumnarDirectCallOwnership.OwnedRejected
+    assert !legacy
+}
+
 test "construction planner owns closed generic default source values" {
     builder := TypeOfCreateBuilder(
         "ConstructionGenericDefaultValue",
