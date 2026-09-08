@@ -10,20 +10,6 @@ class CompilationUnitFacts {
         return ContainsSoaRecordDeclarationInList(declarations)
     }
 
-    static func RequiresColumnarSoaEmission(soaFeatureEnabled: bool, compilationUnits: IEnumerable<object>): bool {
-        if !soaFeatureEnabled {
-            return false
-        }
-
-        for compilationUnit in compilationUnits {
-            if compilationUnit != null && ContainsSoaRecordDeclaration(compilationUnit) {
-                return true
-            }
-        }
-
-        return false
-    }
-
     static func ContainsSoaRecordDeclarationInList(declarations: IList): bool {
         index := 0
         while index < declarations.Count {
