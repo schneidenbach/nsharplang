@@ -30,6 +30,30 @@ func DictionarySequencePrerequisiteSetObject(values: object?[], index: int, valu
     values[index] = value
 }
 
+test "Dictionary IReadOnlyDictionary copy preserves populated values comparer identity and independence" {
+    source := DictionarySequencePrerequisiteEmitFacts.CreateReadOnlyCopySource()
+    method := typeof(DictionarySequencePrerequisiteEmitFacts).GetMethod(
+        "VerifyReadOnlyCopy"
+    )
+    if method == null {
+        throw new InvalidOperationException("Dictionary read-only copy verification method was not found.")
+    }
+    invocationArguments := new object?[](1)
+    invocationArguments[0] = source
+    result := method.Invoke(null, invocationArguments)
+    if result == null {
+        throw new InvalidOperationException("Dictionary read-only copy verification returned null.")
+    }
+    assert result.ToString() == "copy-ok"
+
+    arguments := new object?[](1)
+    arguments[0] = null
+    assert DictionarySequencePrerequisiteInvocationFailure(
+        "CopyReadOnly",
+        arguments
+    ) == 1
+}
+
 test "Dictionary IDictionary copy uses interface-constructor comparer evaluation and independence" {
     source := new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
     source["Alpha"] = "one"

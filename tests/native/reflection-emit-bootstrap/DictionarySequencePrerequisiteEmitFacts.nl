@@ -20,6 +20,63 @@ class DictionarySequencePrerequisiteEmitFacts {
         return new Dictionary<string, string>(source)
     }
 
+    static func CopyReadOnly(
+        source: IReadOnlyDictionary<string, Type>
+    ): Dictionary<string, Type> {
+        return new Dictionary<string, Type>(source, StringComparer.Ordinal)
+    }
+
+    static func CreateReadOnlyCopySource(): object {
+        source := new Dictionary<string, Type>(StringComparer.OrdinalIgnoreCase)
+        source["Alpha"] = typeof(int)
+        source["Second"] = typeof(string)
+        return source
+    }
+
+    static func VerifyReadOnlyCopy(
+        source: IReadOnlyDictionary<string, Type>
+    ): string {
+        copied := new Dictionary<string, Type>(source, StringComparer.Ordinal)
+        if copied.get_Count() != 2 {
+            throw new InvalidOperationException("Dictionary read-only copy lost populated rows.")
+        }
+
+        firstValue := copied["Alpha"]
+        expectedFirstValue := typeof(int)
+        secondValue := copied["Second"]
+        expectedSecondValue := typeof(string)
+        if !Object.ReferenceEquals(firstValue, expectedFirstValue) || !Object.ReferenceEquals(secondValue, expectedSecondValue) {
+            throw new InvalidOperationException("Dictionary read-only copy lost value identity.")
+        }
+
+        comparerProperty := copied.GetType().GetProperty("Comparer")
+        if comparerProperty == null {
+            throw new InvalidOperationException("Dictionary comparer property was not found.")
+        }
+        comparer := comparerProperty.GetValue(copied)
+        if !Object.ReferenceEquals(comparer, StringComparer.Ordinal) {
+            throw new InvalidOperationException("Dictionary read-only copy lost comparer identity.")
+        }
+        if !copied.ContainsKey("Alpha") || copied.ContainsKey("alpha") {
+            throw new InvalidOperationException("Dictionary read-only copy lost ordinal comparison.")
+        }
+
+        copied["ALPHA"] = typeof(long)
+        retainedValue := copied["Alpha"]
+        expectedRetainedValue := typeof(int)
+        distinctValue := copied["ALPHA"]
+        expectedDistinctValue := typeof(long)
+        if copied.get_Count() != 3 || !Object.ReferenceEquals(retainedValue, expectedRetainedValue) || !Object.ReferenceEquals(distinctValue, expectedDistinctValue) {
+            throw new InvalidOperationException("Dictionary read-only copy did not retain distinct ordinal keys.")
+        }
+
+        copied["copy-only"] = typeof(short)
+        if source.ContainsKey("copy-only") {
+            throw new InvalidOperationException("Dictionary read-only copy shares later writes with its source.")
+        }
+        return "copy-ok"
+    }
+
     static func EvaluatedSource(
         state: DictionarySequencePrerequisiteState,
         source: IDictionary<string, string>

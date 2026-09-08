@@ -1968,6 +1968,118 @@ test "construction planner owns explicit and aliased runtime generic constructio
     assert closedGenericAliasPlan.ConstructorCount == 1
 }
 
+test "construction planner binds the exact Dictionary sequence and comparer constructor in source order" {
+    tree := ConstructionExplicitGenericNewTree(
+        "Dictionary",
+        ConstructionTwoTexts("string", "Type"),
+        ConstructionTwoTexts("source", "comparer"),
+        ConstructionTwoKinds(
+            ColumnarExpressionNodeKind.IdentifierExpression(),
+            ColumnarExpressionNodeKind.IdentifierExpression()
+        )
+    )
+    ConstructionStampScope(
+        tree,
+        "import System\nimport System.Collections.Generic\n"
+    )
+    bindings := ColumnarRangePlannerEmptyBindings()
+    ColumnarRangePlannerAddParameter(
+        bindings,
+        "source",
+        0,
+        typeof(IReadOnlyDictionary<string, Type>)
+    )
+    ColumnarRangePlannerAddParameter(
+        bindings,
+        "comparer",
+        1,
+        typeof(IEqualityComparer<string>)
+    )
+
+    plan := ConstructionPlan(tree, bindings)
+    assert plan.ResultType == typeof(Dictionary<string, Type>)
+    assert plan.OperationCount == 3
+    assert plan.OpCodeValues[0] == ColumnarCodePlanContract.Ldarg()
+    assert plan.OpCodeValues[1] == ColumnarCodePlanContract.Ldarg()
+    assert plan.OpCodeValues[2] == ColumnarCodePlanContract.Newobj()
+    assert plan.ArgumentCount == 2
+    assert plan.ArgumentOrdinals[plan.OperandIndices[0]] == 0
+    assert plan.ArgumentOrdinals[plan.OperandIndices[1]] == 1
+    assert plan.ConstructorCount == 1
+    assert plan.ConstructorDeclaringTypes[0] == typeof(Dictionary<string, Type>)
+    parameters := plan.ConstructorParameterTypes[0]
+    assert parameters.Length == 2
+    assert parameters[0] == typeof(IEnumerable<KeyValuePair<string, Type>>)
+    assert parameters[1] == typeof(IEqualityComparer<string>)
+
+    dictionaryDefinition := typeof(Dictionary<int, int>).GetGenericTypeDefinition()
+    assert ColumnarConstructionPlanner.IsCopyComparerCollectionDefinition(
+        dictionaryDefinition
+    )
+    constructor := ColumnarConstructionPlanner.FindOpenCopyComparerConstructor(
+        dictionaryDefinition,
+        "System.Collections.Generic.IEqualityComparer`1"
+    )
+    assert constructor != null
+    openParameters := constructor.GetParameters()
+    assert openParameters.Length == 2
+    assert openParameters[0].get_ParameterType().GetGenericTypeDefinition() == typeof(IEnumerable<int>).GetGenericTypeDefinition()
+    assert openParameters[1].get_ParameterType().GetGenericTypeDefinition() == typeof(IEqualityComparer<int>).GetGenericTypeDefinition()
+
+    assert ColumnarConstructionPlanner.IsCopyComparerCollectionDefinition(
+        typeof(HashSet<int>).GetGenericTypeDefinition()
+    )
+    assert ColumnarConstructionPlanner.IsCopyComparerCollectionDefinition(
+        typeof(SortedSet<int>).GetGenericTypeDefinition()
+    )
+    assert !ColumnarConstructionPlanner.IsCopyComparerCollectionDefinition(
+        typeof(SortedDictionary<int, int>).GetGenericTypeDefinition()
+    )
+    foreign := TypeOfCreateBuilder(
+        "System.Collections.Generic.Dictionary`2",
+        "Construction.CopyComparer.Foreign",
+        2
+    )
+    assert !ColumnarConstructionPlanner.IsCopyComparerCollectionDefinition(foreign)
+
+    mismatch := ConstructionExplicitGenericNewTree(
+        "Dictionary",
+        ConstructionTwoTexts("string", "Type"),
+        ConstructionTwoTexts("source", "comparer"),
+        ConstructionTwoKinds(
+            ColumnarExpressionNodeKind.IdentifierExpression(),
+            ColumnarExpressionNodeKind.IdentifierExpression()
+        )
+    )
+    ConstructionStampScope(
+        mismatch,
+        "import System\nimport System.Collections.Generic\n"
+    )
+    mismatchBindings := ColumnarRangePlannerEmptyBindings()
+    ColumnarRangePlannerAddParameter(
+        mismatchBindings,
+        "source",
+        0,
+        typeof(IReadOnlyDictionary<string, int>)
+    )
+    ColumnarRangePlannerAddParameter(
+        mismatchBindings,
+        "comparer",
+        1,
+        typeof(IEqualityComparer<string>)
+    )
+    ownership := ColumnarDirectCallOwnership.NotOwned
+    legacy := false
+    _mismatchPlan := ConstructionRejected(
+        mismatch,
+        mismatchBindings,
+        out ownership,
+        out legacy
+    )
+    assert ownership == ColumnarDirectCallOwnership.OwnedRejected
+    assert !legacy
+}
+
 test "construction planner rebinds aliased source generic constructors to the closed owner" {
     owner := SourceCallGenericDefinition("ConstructionGenericBox")
     ownerType: Type = owner.Builder

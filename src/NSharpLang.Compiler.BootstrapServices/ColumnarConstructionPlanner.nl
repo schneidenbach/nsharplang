@@ -1628,6 +1628,9 @@ class ColumnarConstructionPlanner {
     }
 
     static func IsCopyComparerCollectionDefinition(definition: Type): bool {
+        if IsDictionaryCopyCollectionDefinition(definition) {
+            return true
+        }
         name := definition.FullName
         return name == "System.Collections.Generic.HashSet`1" || name == "System.Collections.Generic.SortedSet`1"
     }
