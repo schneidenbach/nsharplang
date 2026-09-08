@@ -41,6 +41,27 @@ record StaticInitializerRecord {
     static Label: string = "rc"
 }
 
+class StaticInitializerArgumentClass {
+    static TupleField: FieldInfo = ResolveTupleField("Item1")
+    static EmptyField: FieldInfo = ResolveStringField(nameof(System.String.Empty))
+
+    static func ResolveTupleField(name: string): FieldInfo {
+        field := typeof(ValueTuple<int, int>).GetField(name)
+        if field == null {
+            throw new InvalidOperationException("ValueTuple<int,int>." + name + " was not found.")
+        }
+        return field
+    }
+
+    static func ResolveStringField(name: string): FieldInfo {
+        field := typeof(string).GetField(name)
+        if field == null {
+            throw new InvalidOperationException("System.String." + name + " was not found.")
+        }
+        return field
+    }
+}
+
 func StaticInitializerRequiredField(owner: Type, name: string): FieldInfo {
     field := owner.GetField(name)
     if field == null {
@@ -82,4 +103,11 @@ test "declared struct and record static initializers run through their type init
     assert StaticInitializerStruct.Seed == 23
     assert StaticInitializerRecord.Start == 7
     assert StaticInitializerRecord.Label == "rc"
+}
+
+test "declared static helper initializers pass string and qualified nameof arguments" {
+    assert StaticInitializerArgumentClass.TupleField.get_Name() == "Item1"
+    assert StaticInitializerArgumentClass.EmptyField.get_Name() == "Empty"
+    assert StaticInitializerArgumentClass.TupleField.get_FieldType() == typeof(int)
+    assert StaticInitializerArgumentClass.EmptyField.get_FieldType() == typeof(string)
 }

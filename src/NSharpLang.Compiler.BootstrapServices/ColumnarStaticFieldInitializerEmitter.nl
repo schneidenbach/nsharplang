@@ -135,11 +135,31 @@ class ColumnarStaticFieldInitializerEmitter {
         methodName := ""
         ownerBuilder: Type = owner.Builder
         ownerName := TypeNameOrEmpty(ownerBuilder)
-        if !TryParseParameterlessStaticInitializerCall(
+        expressionNodes: ColumnarNodeTable = null
+        callNode := -1
+        if !TryParseStaticInitializerCall(
             text,
             ownerName,
+            out expressionNodes,
+            out callNode,
             out methodName
         ) {
+            return false
+        }
+
+        argumentCount := expressionNodes.ChildCount(callNode) - 1
+        argumentType := typeof(int)
+        if argumentCount == 1 {
+            argumentNode := expressionNodes.Child(callNode, 1)
+            if !TryGetStaticInitializerArgumentType(
+                expressionNodes,
+                text,
+                argumentNode,
+                out argumentType
+            ) {
+                return false
+            }
+        } else if argumentCount != 0 {
             return false
         }
 
@@ -151,7 +171,23 @@ class ColumnarStaticFieldInitializerEmitter {
             overloadIndex := 0
             while overloadIndex < overloads.Count {
                 overload := overloads[overloadIndex]
-                if overload.ParamTypes.Length == 0 && ColumnarTypeEquivalenceFacts.TypesEquivalent(overload.ReturnType, fieldType) {
+                if StaticInitializerSignatureMatches(
+                    overload.ParamTypes,
+                    overload.ParamModifierKinds,
+                    overload.ReturnType,
+                    argumentCount,
+                    argumentType,
+                    fieldType
+                ) {
+                    if argumentCount == 1 && !TryEmitStaticInitializerArgument(
+                        expressionNodes,
+                        text,
+                        expressionNodes.Child(callNode, 1),
+                        il,
+                        argumentType
+                    ) {
+                        return false
+                    }
                     il.Emit(OpCodes.Call, overload.Builder)
                     return true
                 }
@@ -164,12 +200,82 @@ class ColumnarStaticFieldInitializerEmitter {
             if sibling == null {
                 throw new NullReferenceException()
             }
-            if sibling.TypeParams.Length == 0 && sibling.ParamTypes.Length == 0 && ColumnarTypeEquivalenceFacts.TypesEquivalent(sibling.ReturnType, fieldType) {
+            if sibling.TypeParams.Length == 0 && StaticInitializerSignatureMatches(
+                sibling.ParamTypes,
+                sibling.ParamModifierKinds,
+                sibling.ReturnType,
+                argumentCount,
+                argumentType,
+                fieldType
+            ) {
+                if argumentCount == 1 && !TryEmitStaticInitializerArgument(
+                    expressionNodes,
+                    text,
+                    expressionNodes.Child(callNode, 1),
+                    il,
+                    argumentType
+                ) {
+                    return false
+                }
                 il.Emit(OpCodes.Call, sibling.Method)
                 return true
             }
         }
         return false
+    }
+
+    static func StaticInitializerSignatureMatches(
+        parameterTypes: Type[],
+        parameterModifierKinds: int[],
+        returnType: Type,
+        argumentCount: int,
+        argumentType: Type,
+        fieldType: Type
+    ): bool {
+        if parameterTypes.Length != argumentCount || !ColumnarTypeEquivalenceFacts.TypesEquivalent(returnType, fieldType) {
+            return false
+        }
+        // The accepted parameterless path never observed modifier metadata. Keep that lookup
+        // boundary unchanged, including for corrupt rows that carry a null modifier array.
+        if argumentCount == 0 {
+            return true
+        }
+        if argumentCount != 1 || (parameterModifierKinds.Length != 0 && parameterModifierKinds.Length != parameterTypes.Length) {
+            return false
+        }
+        return (parameterModifierKinds.Length == 0 || parameterModifierKinds[0] == 0) && ColumnarTypeEquivalenceFacts.TypesEquivalent(parameterTypes[0], argumentType)
+    }
+
+    static func TryGetStaticInitializerArgumentType(
+        nodes: ColumnarNodeTable,
+        source: string,
+        node: int,
+        out argumentType: Type
+    ): bool {
+        argumentType = typeof(int)
+        plan := new ColumnarCodePlan()
+        kind := nodes.Kind(node)
+        if kind == ColumnarExpressionNodeKind.StringLiteralExpression() {
+            return ColumnarScalarLiteralPlanner.TryGetType(nodes, source, node, plan, out argumentType)
+        }
+        if kind == ColumnarExpressionNodeKind.NameOfExpression() {
+            return ColumnarNameOfPlanner.TryGetType(nodes, source, node, plan, out argumentType)
+        }
+        return false
+    }
+
+    static func TryEmitStaticInitializerArgument(
+        nodes: ColumnarNodeTable,
+        source: string,
+        node: int,
+        il: ILGenerator,
+        expectedType: Type
+    ): bool {
+        emittedType := typeof(int)
+        plan := new ColumnarCodePlan()
+        kind := nodes.Kind(node)
+        emitted := kind == ColumnarExpressionNodeKind.StringLiteralExpression() ? ColumnarScalarLiteralPlanner.TryEmit(nodes, source, node, plan, il, out emittedType) : kind == ColumnarExpressionNodeKind.NameOfExpression() && ColumnarNameOfPlanner.TryEmit(nodes, source, node, plan, il, out emittedType)
+        return emitted && ColumnarTypeEquivalenceFacts.TypesEquivalent(emittedType, expectedType)
     }
 
     static func TypeNameOrEmpty(valueType: Type): string {
@@ -186,33 +292,122 @@ class ColumnarStaticFieldInitializerEmitter {
         out methodName: string
     ): bool {
         methodName = ""
-        trimmed := text.Trim()
-        if !trimmed.EndsWith(")", StringComparison.Ordinal) {
+        nodes: ColumnarNodeTable = null
+        callNode := -1
+        if !TryParseStaticInitializerCall(text, ownerName, out nodes, out callNode, out methodName) {
             return false
         }
-        openParen := trimmed.IndexOf('(')
-        if openParen <= 0 || trimmed.IndexOf('(', openParen + 1) >= 0 {
+        if nodes.ChildCount(callNode) != 1 {
+            methodName = ""
             return false
         }
-        if !string.IsNullOrWhiteSpace(
-            trimmed.Substring(openParen + 1, trimmed.Length - openParen - 2)
-        ) {
+        return true
+    }
+
+    static func TryParseStaticInitializerCall(
+        text: string,
+        ownerName: string,
+        out nodes: ColumnarNodeTable,
+        out callNode: int,
+        out methodName: string
+    ): bool {
+        nodes = null
+        callNode = -1
+        methodName = ""
+        if text == null {
+            throw new NullReferenceException()
+        }
+        if string.IsNullOrWhiteSpace(text) {
             return false
         }
 
-        target := trimmed.Substring(0, openParen).Trim()
-        dot := target.LastIndexOf('.')
-        if dot >= 0 {
-            receiver := target.Substring(0, dot).Trim()
-            if !string.Equals(receiver, ownerName, StringComparison.Ordinal) {
-                return false
-            }
-            target = target.Substring(dot + 1).Trim()
-        }
-        if !IsSimpleIdentifierText(target) {
+        capacity := Math.Max(3 * (text.Length + 1) + 8, 32)
+        rawKinds := new int[capacity]
+        rawStarts := new int[capacity]
+        rawValueLengths := new int[capacity]
+        tokenKinds := new int[capacity]
+        tokenStarts := new int[capacity]
+        tokenValueLengths := new int[capacity]
+        tokenCounts := new int[2]
+        tokenCount := TokenizeColumnarSourceInto(
+            text,
+            rawKinds,
+            rawStarts,
+            rawValueLengths,
+            tokenKinds,
+            tokenStarts,
+            tokenValueLengths,
+            tokenCounts
+        )
+        rawCount := tokenCounts[0]
+        if rawCount < 0 || rawCount > capacity || tokenCount <= 0 || tokenCount > rawCount || tokenCount != tokenCounts[1] {
             return false
         }
-        methodName = target
+
+        nodeKinds := new int[capacity]
+        valueStarts := new int[capacity]
+        valueLengths := new int[capacity]
+        childStarts := new int[capacity]
+        childCounts := new int[capacity]
+        childIndices := new int[Math.Max(capacity * 4, 32)]
+        spanStarts := new int[capacity]
+        spanLengths := new int[capacity]
+        result := new int[3]
+        nodeCount := ParseColumnarExpressionInto(
+            text,
+            tokenKinds,
+            tokenStarts,
+            tokenValueLengths,
+            tokenCount,
+            nodeKinds,
+            valueStarts,
+            valueLengths,
+            childStarts,
+            childCounts,
+            childIndices,
+            spanStarts,
+            spanLengths,
+            result
+        )
+        if nodeCount < 0 || result[1] != nodeCount || result[0] < 0 || result[0] >= nodeCount || result[2] < 0 || result[2] > childIndices.Length {
+            return false
+        }
+
+        rowCount := Math.Min(nodeCount + 1, nodeKinds.Length)
+        nodes = new ColumnarNodeTable(
+            nodeKinds[..rowCount],
+            valueStarts[..rowCount],
+            valueLengths[..rowCount],
+            childStarts[..rowCount],
+            childCounts[..rowCount],
+            childIndices[..result[2]],
+            spanStarts[..rowCount],
+            spanLengths[..rowCount]
+        )
+        callNode = result[0]
+        if nodes.Kind(callNode) != ColumnarExpressionNodeKind.CallExpression() || nodes.ChildCount(callNode) < 1 || nodes.ChildCount(callNode) > 2 {
+            return false
+        }
+
+        callee := nodes.Child(callNode, 0)
+        calleeKind := nodes.Kind(callee)
+        if calleeKind == ColumnarExpressionNodeKind.IdentifierExpression() && nodes.ChildCount(callee) == 0 {
+            methodName = nodes.Text(text, callee)
+            return IsSimpleIdentifierText(methodName)
+        }
+        if calleeKind != ColumnarExpressionNodeKind.MemberAccessExpression() || nodes.ChildCount(callee) != 1 {
+            return false
+        }
+
+        receiver := nodes.Child(callee, 0)
+        if nodes.Kind(receiver) != ColumnarExpressionNodeKind.IdentifierExpression() || nodes.ChildCount(receiver) != 0 || !string.Equals(nodes.Text(text, receiver), ownerName, StringComparison.Ordinal) {
+            return false
+        }
+        methodName = nodes.Text(text, callee)
+        if !IsSimpleIdentifierText(methodName) {
+            methodName = ""
+            return false
+        }
         return true
     }
 

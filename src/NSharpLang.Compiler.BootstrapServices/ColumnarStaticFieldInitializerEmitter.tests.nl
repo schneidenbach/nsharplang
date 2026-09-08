@@ -117,6 +117,82 @@ func StaticInitializerIntParameterMethod(
     return definition
 }
 
+func StaticInitializerStringParameterIntMethod(
+    owner: ColumnarStructDef,
+    name: string,
+    value: int
+): ColumnarStaticMethodDef {
+    parameterTypes := new Type[](1)
+    parameterTypes[0] = typeof(string)
+    definition := SourceCallPublicStatic(owner, name, parameterTypes, typeof(int))
+    il := TypeOfMethodBuilderIL(definition.Builder)
+    il.Emit(OpCodes.Ldc_I4, value)
+    il.Emit(OpCodes.Ret)
+    return definition
+}
+
+func StaticInitializerIntParameterStringMethod(
+    owner: ColumnarStructDef,
+    name: string
+): ColumnarStaticMethodDef {
+    parameterTypes := new Type[](1)
+    parameterTypes[0] = typeof(int)
+    definition := SourceCallPublicStatic(owner, name, parameterTypes, typeof(string))
+    il := TypeOfMethodBuilderIL(definition.Builder)
+    il.Emit(OpCodes.Ldstr, "unselected")
+    il.Emit(OpCodes.Ret)
+    return definition
+}
+
+func StaticInitializerStringEchoMethod(
+    owner: ColumnarStructDef,
+    name: string
+): ColumnarStaticMethodDef {
+    parameterTypes := new Type[](1)
+    parameterTypes[0] = typeof(string)
+    definition := SourceCallPublicStatic(owner, name, parameterTypes, typeof(string))
+    il := TypeOfMethodBuilderIL(definition.Builder)
+    il.Emit(OpCodes.Ldarg_0)
+    il.Emit(OpCodes.Ret)
+    return definition
+}
+
+func StaticInitializerModifiedStringEchoMethod(
+    owner: ColumnarStructDef,
+    name: string,
+    modifierKind: int
+): ColumnarStaticMethodDef {
+    parameterTypes := new Type[](1)
+    parameterTypes[0] = typeof(string)
+    modifierKinds := new int[](1)
+    modifierKinds[0] = modifierKind
+    definition := SourceCallDefineStatic(owner, name, parameterTypes, modifierKinds, typeof(string), (MethodAttributes)22)
+    il := TypeOfMethodBuilderIL(definition.Builder)
+    il.Emit(OpCodes.Ldarg_0)
+    il.Emit(OpCodes.Ret)
+    return definition
+}
+
+func StaticInitializerPrefixStringMethod(
+    owner: ColumnarStructDef,
+    name: string,
+    prefix: FieldBuilder
+): ColumnarStaticMethodDef {
+    parameterTypes := new Type[](1)
+    parameterTypes[0] = typeof(string)
+    definition := SourceCallPublicStatic(owner, name, parameterTypes, typeof(string))
+    il := TypeOfMethodBuilderIL(definition.Builder)
+    concatTypes := new Type[](2)
+    concatTypes[0] = typeof(string)
+    concatTypes[1] = typeof(string)
+    concat := ExecutorRequiredMethod(typeof(string), "Concat", concatTypes)
+    il.Emit(OpCodes.Ldsfld, prefix)
+    il.Emit(OpCodes.Ldarg_0)
+    il.Emit(OpCodes.Call, concat)
+    il.Emit(OpCodes.Ret)
+    return definition
+}
+
 func StaticInitializerStringMethod(
     owner: ColumnarStructDef,
     name: string,
@@ -145,6 +221,32 @@ class StaticInitializerSiblingProbe {
     static func SiblingSeed(): int {
         return 23
     }
+
+    static func SiblingEcho(value: string): string {
+        return value
+    }
+}
+
+func StaticInitializerExpressionDeclinesWithoutIl(
+    owner: ColumnarStructDef,
+    fieldType: Type,
+    text: string,
+    siblings: IReadOnlyDictionary<string, ColumnarSiblingMethodDefinition>
+) {
+    method := BoundDynamicMethod(
+        "StaticInitializerExpressionDeclinesWithoutIl",
+        fieldType,
+        new Type[](0)
+    )
+    il := method.GetILGenerator()
+    assert !ColumnarStaticFieldInitializerEmitter.TryEmitStaticFieldExpressionInitializerLoad(
+        il,
+        owner,
+        fieldType,
+        text,
+        siblings
+    )
+    assert StructuralPoolRequiredIntProperty(il, "ILOffset") == 0
 }
 
 test "static initializer call and generic receiver parsers preserve success names and failure out slots" {
@@ -177,6 +279,18 @@ test "static initializer call and generic receiver parsers preserve success name
         "Owner",
         out methodName
     )
+    assert methodName == ""
+
+    nullText: string = null
+    methodName = "sentinel"
+    assert throws NullReferenceException {
+        ColumnarStaticFieldInitializerEmitter.TryParseParameterlessStaticInitializerCall(
+            nullText,
+            "Owner",
+            out methodName
+        )
+    }
+    // The original parser reset its out slot before calling Trim, whose null receiver threw.
     assert methodName == ""
 
     assert ColumnarStaticFieldInitializerEmitter.IsSimpleIdentifierText(((char)916).ToString() + "9_")
@@ -261,7 +375,10 @@ test "static initializer expression emission prefers matching owner overloads an
     StaticInitializerReadIntFieldMethod(owner, "ReadFirst", first)
     StaticInitializerIntParameterMethod(owner, "Seed", 99)
     StaticInitializerStringMethod(owner, "Seed", "wrong-return")
-    StaticInitializerIntMethod(owner, "Seed", 11)
+    parameterless := StaticInitializerIntMethod(owner, "Seed", 11)
+    // Parameterless selection did not read modifier metadata before argument support was added.
+    // A corrupt-but-previously-unobserved null slot therefore remains outside this path.
+    parameterless.ParamModifierKinds = null
 
     rows := new List<ColumnarStaticFieldInitializer>()
     rows.Add(new ColumnarStaticFieldInitializer(owner, first, typeof(int), 1, "7"))
@@ -280,6 +397,94 @@ test "static initializer expression emission prefers matching owner overloads an
     // `ReadFirst` executes after the First store, so this is an executable cctor-order assertion.
     assert Convert.ToInt32(StaticInitializerStaticFieldValue(baked, "Observed")) == 7
     assert Convert.ToInt32(StaticInitializerStaticFieldValue(baked, "Selected")) == 11
+}
+
+test "static initializer helper calls emit one string or qualified nameof argument after exact owner overload selection" {
+    owner := SourceCallDefinition("StaticInitializerArgumentOwner", true)
+    first := ConstructionDefineField(owner.Builder, "First", typeof(string), 22)
+    second := ConstructionDefineField(owner.Builder, "Second", typeof(string), 22)
+
+    // Both wrong candidates precede the selected overload. The initializer owner must preserve
+    // declaration order while matching both the argument and return types.
+    StaticInitializerStringMethod(owner, "Echo", "wrong-arity")
+    StaticInitializerStringParameterIntMethod(owner, "Echo", 99)
+    StaticInitializerStringEchoMethod(owner, "Echo")
+    StaticInitializerPrefixStringMethod(owner, "Prefix", first)
+
+    rows := new List<ColumnarStaticFieldInitializer>()
+    rows.Add(new ColumnarStaticFieldInitializer(owner, first, typeof(string), 1001, "Echo(\"line\\n\")"))
+    rows.Add(new ColumnarStaticFieldInitializer(owner, second, typeof(string), 1001, "StaticInitializerArgumentOwner.Prefix(nameof(NSharpLang.Runtime.SimdReductions.SumInt32))"))
+    definitions := new ColumnarStructDef[](1)
+    definitions[0] = owner
+
+    // A successful owner match returns before the sibling registry is observed.
+    siblings: Dictionary<string, ColumnarSiblingMethodDefinition> = null
+    assert ColumnarStaticFieldInitializerEmitter.TryEmitAll(definitions, rows, siblings)
+
+    baked := StaticInitializerBake(owner)
+    firstValue := (string)StaticInitializerStaticFieldValue(baked, "First")
+    secondValue := (string)StaticInitializerStaticFieldValue(baked, "Second")
+    assert firstValue.Length == 5
+    assert (int)firstValue[4] == 10
+    // Prefix reads First during the second initializer, proving the first store precedes the
+    // qualified-nameof helper call; NameOfPlanner contributes only the final source name.
+    assert secondValue == firstValue + "SumInt32"
+}
+
+test "static initializer one-argument calls reject unsupported syntax arity receiver and signatures before IL emission" {
+    owner := SourceCallDefinition("StaticInitializerArgumentDeclines", true)
+    validField := ConstructionDefineField(owner.Builder, "Valid", typeof(string), 22)
+    StaticInitializerStringEchoMethod(owner, "Echo")
+    StaticInitializerStringParameterIntMethod(owner, "WrongReturn", 1)
+    StaticInitializerIntParameterStringMethod(owner, "WrongParameter")
+    StaticInitializerModifiedStringEchoMethod(owner, "RefParameter", 1)
+    StaticInitializerModifiedStringEchoMethod(owner, "OutParameter", 2)
+    StaticInitializerModifiedStringEchoMethod(owner, "ParamsParameter", 3)
+    noSiblings := new Dictionary<string, ColumnarSiblingMethodDefinition>(StringComparer.Ordinal)
+
+    StaticInitializerExpressionDeclinesWithoutIl(owner, typeof(string), "WrongParameter(\"value\")", noSiblings)
+    StaticInitializerExpressionDeclinesWithoutIl(owner, typeof(string), "RefParameter(\"value\")", noSiblings)
+    StaticInitializerExpressionDeclinesWithoutIl(owner, typeof(string), "OutParameter(\"value\")", noSiblings)
+    StaticInitializerExpressionDeclinesWithoutIl(owner, typeof(string), "ParamsParameter(\"value\")", noSiblings)
+    StaticInitializerExpressionDeclinesWithoutIl(owner, typeof(string), "WrongReturn(\"value\")", noSiblings)
+    StaticInitializerExpressionDeclinesWithoutIl(owner, typeof(string), "Echo(\"one\", \"two\")", noSiblings)
+    StaticInitializerExpressionDeclinesWithoutIl(owner, typeof(string), "Else.Echo(\"value\")", noSiblings)
+    StaticInitializerExpressionDeclinesWithoutIl(owner, typeof(string), "Missing(\"value\")", noSiblings)
+    StaticInitializerExpressionDeclinesWithoutIl(owner, typeof(string), "Echo(\"value\") true", noSiblings)
+    StaticInitializerExpressionDeclinesWithoutIl(owner, typeof(string), "Echo(\"unterminated)", noSiblings)
+    StaticInitializerExpressionDeclinesWithoutIl(owner, typeof(string), "Echo(nameof(left + right))", noSiblings)
+    StaticInitializerExpressionDeclinesWithoutIl(owner, typeof(string), "Echo(value)", noSiblings)
+
+    siblingTypes := new Type[](1)
+    siblingTypes[0] = typeof(string)
+    siblingModifiers := new int[](1)
+    siblingModifiers[0] = 1
+    siblingMethod := ExecutorRequiredMethod(typeof(StaticInitializerSiblingProbe), "SiblingEcho", siblingTypes)
+    modifiedSibling := new Dictionary<string, ColumnarSiblingMethodDefinition>(StringComparer.Ordinal)
+    modifiedSibling["SiblingEcho"] = new ColumnarSiblingMethodDefinition(
+        siblingMethod,
+        siblingTypes,
+        siblingModifiers,
+        typeof(string),
+        new Type[](0),
+        new int[](0),
+        new Type?[](0),
+        new Type[][](0)
+    )
+    StaticInitializerExpressionDeclinesWithoutIl(
+        SourceCallDefinition("StaticInitializerModifiedSibling", true),
+        typeof(string),
+        "SiblingEcho(\"value\")",
+        modifiedSibling
+    )
+
+    rows := new List<ColumnarStaticFieldInitializer>()
+    rows.Add(new ColumnarStaticFieldInitializer(owner, validField, typeof(string), 1001, "Echo(\"value\")"))
+    definitions := new ColumnarStructDef[](1)
+    definitions[0] = owner
+    assert ColumnarStaticFieldInitializerEmitter.TryEmitAll(definitions, rows, noSiblings)
+    baked := StaticInitializerBake(owner)
+    assert (string)StaticInitializerStaticFieldValue(baked, "Valid") == "value"
 }
 
 test "static initializer expression lookup preserves null owner and sibling failures before fallback" {
@@ -342,6 +547,7 @@ test "static initializer expression lookup preserves null owner and sibling fail
 test "static initializer expression emission calls an eligible top-level sibling only after owner lookup misses" {
     owner := SourceCallDefinition("StaticInitializerSiblingFallback", true)
     field := ConstructionDefineField(owner.Builder, "Value", typeof(int), 22)
+    textField := ConstructionDefineField(owner.Builder, "Text", typeof(string), 22)
     noTypes := new Type[](0)
     method := ExecutorRequiredMethod(typeof(StaticInitializerSiblingProbe), "SiblingSeed", noTypes)
     siblings := new Dictionary<string, ColumnarSiblingMethodDefinition>(StringComparer.Ordinal)
@@ -355,14 +561,29 @@ test "static initializer expression emission calls an eligible top-level sibling
         new Type?[](0),
         new Type[][](0)
     )
+    stringTypes := new Type[](1)
+    stringTypes[0] = typeof(string)
+    echo := ExecutorRequiredMethod(typeof(StaticInitializerSiblingProbe), "SiblingEcho", stringTypes)
+    siblings["SiblingEcho"] = new ColumnarSiblingMethodDefinition(
+        echo,
+        stringTypes,
+        new int[](0),
+        typeof(string),
+        new Type[](0),
+        new int[](0),
+        new Type?[](0),
+        new Type[][](0)
+    )
     rows := new List<ColumnarStaticFieldInitializer>()
     rows.Add(new ColumnarStaticFieldInitializer(owner, field, typeof(int), 1001, "SiblingSeed()"))
+    rows.Add(new ColumnarStaticFieldInitializer(owner, textField, typeof(string), 1001, "SiblingEcho(\"sibling\")"))
     definitions := new ColumnarStructDef[](1)
     definitions[0] = owner
 
     assert ColumnarStaticFieldInitializerEmitter.TryEmitAll(definitions, rows, siblings)
     baked := StaticInitializerBake(owner)
     assert Convert.ToInt32(StaticInitializerStaticFieldValue(baked, "Value")) == 23
+    assert (string)StaticInitializerStaticFieldValue(baked, "Text") == "sibling"
 }
 
 test "static initializer driver creates no cctor for rows owned by another definition and stops before later owners" {
