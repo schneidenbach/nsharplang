@@ -153,3 +153,25 @@ enumerator state and restored constructor-list enumeration semantics. The accept
 directory; r2 is withdrawn. This is not whole-owner acceptance. The remaining entry, body and
 constructor/member-write groups, demonstrated tuple-job dependencies, final canonical execution,
 legacy deletion, fresh integration gate and push remain part of this same selected area.
+
+The exact `MethodBuilder.DefineGenericParameters(string[])` dependency is integrated in `35a3ad9e2`.
+Three canonical N# tests pass; the actual entry source advances past the previously unmodeled call.
+Evidence: `method-generic-parameters-prereq/final-receipt.json` in the emitter evidence directory.
+
+Builder-bound tuple job storage is integrated in `0ab3f4a8d`. The existing N# type admission,
+construction planner and runtime field resolver now own exact CLR ValueTuple shapes containing live
+source reference types, including the explicit ValueTuple8/ValueTuple2 Rest layout for nine-element
+jobs. Original tuple storage and argument order remain required; parallel-list substitutes are not
+accepted. Six canonical N# tests and all 42 native reflection-bootstrap tests pass. The native witness
+uses source classes, MethodBuilder, Type and dictionaries and checks every stored field. Identical
+source fails with the prior private compiler and passes with the replacement. Production and native
+assemblies pass unfiltered IL verification; production BootstrapServices contains no NSharpTests class.
+Root verified all eight committed source hashes and all 14 private payload hashes, and ran
+`./scripts/dev.sh ValueTuple` successfully. The canonical/native counts come from their separate
+nonzero runs, not the dev.sh legacy harness. Evidence:
+`/private/tmp/nsharp-columnar-il-emitter-owner-20260907/tuple-key-enumerator-seed/tuple-final-receipt.json`.
+
+The verified tuple candidate is available to the entry and constructor/member-write workers to remove
+scratch tuple bypasses. Concrete KeyCollection enumeration and the demonstrated executable
+`PersistedAssemblyBuilder.GenerateMetadata` binding remain in flight. These are dependencies of the
+same complete emitter migration, not acceptance of the emitter or publication of a shared SDK seed.
