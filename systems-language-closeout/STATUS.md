@@ -55,21 +55,25 @@ and thirteen markers. Exactly two ratchet rows changed, 379 other rows and every
 ratchet `head-v1:e326de01418ad1cf`, audit18/18. Root emitted-IL review confirms evaluation,
 enumeration/disposal, type identity, partial mutation and failure ordering.
 
-**Active compiler-only area, complete SystemsAnalyzer class:** replace all 1,156 C# lines,
-including five nested state types, lifetime/cache state, declaration-site identity, recursive walks
-and effects, scope behavior and report construction. Preserve the accepted N# Systems* policies;
-remove the entire C# owner and route MultiFileCompiler directly to N#. Sol Max implements; preserved
-canonical coverage and a second Sol Max review support Astra's integration. [Boundary](decodes/2026-09-07-complete-systems-analyzer-ownership.md),
-baseline `a207ee13b`, evidence `/private/tmp/nsharp-systems-analyzer-owner-20260907`. The previous
-turn is verified progress: complete Analyzer ownership, installed self-host and fresh gate accepted
-and pushed. Complete SystemsAnalyzer is integrated at `946821316`, removing all 1,156 C# lines;
-production and test-inclusive emission pass. Direct production IL, 123 systems canonical cases,
-24 lifecycle/error-handling cases, focused dev 3/3 and ownership audit 18/18 pass. `d8120962` retires
-one ratchet row (380 unchanged, epochs fixed), head `head-v1:130fb0badc59fc18`. Private-helper
-visibility is corrected at `eefbf6cdb`; `bc3fa6865` preserves explicit sealed modifiers in N# and
-`2a5be66e3` adds real-source metadata regressions. Final metadata review passes; final dev 12/12,
-lifecycle 24/24, reflection-bootstrap 37/37, final systems corpus 123/123 and audit 18/18 pass.
-The fresh gate, SDK publication and push remain open. Do not restart accepted migrations.
+**Accepted compiler-only area, complete SystemsAnalyzer class:** `946821316` deletes the entire
+1,156-line C# owner, including its five nested state types. Production and canonical lookups bind
+directly to N#. Private-helper visibility and explicit sealed metadata are preserved; no adapter,
+decision callback or fallback remains. `d8120962` retires one ratchet row, with 380 other rows and
+all epochs unchanged; current head `head-v1:130fb0badc59fc18`, audit 18/18.
+
+The fresh backend gate at `3617a809a` passes in 474s: 574 unit / 7,940 N# canonical / 53 native
+projects / 12 throughput / 68 IL assemblies. Final focused evidence: dev 12/12, systems 123/123,
+lifecycle 24/24, reflection-bootstrap 37/37. Official SDK setup and ordinary package probe 11/11
+pass; both feeds, ten Release payloads and twelve loaded cache files match. SDK SHA256
+`b8aea5469c99f281ecacf34c5f5117521bd95baf13d45db90dc809be7a8d2aee`. The installed SDK freshly
+self-hosts and passes 7,940/7,940 canonical assertions with no overrides. Installed owner metadata
+matches the reviewed source. [Boundary and acceptance](decodes/2026-09-07-complete-systems-analyzer-ownership.md),
+evidence `/private/tmp/nsharp-systems-analyzer-owner-20260907`.
+
+Compiler-wide ownership remains open. Next coherent candidate: complete ColumnarProgramInputBuilder,
+including all declaration materialization, node-table trimming, aggregation and decline ordering.
+Keep its accepted N# parser kernels/input models; delete the whole remaining C# owner. Do not
+restart accepted Analyzer or SystemsAnalyzer migrations or implicitly resume held sibling branches.
 
 **Accepted compiler-only area, complete Analyzer class:** `ec8814c01` moves the entire Analyzer,
 including all lifetime state, factories, public entry points, recursive drivers and metadata

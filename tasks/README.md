@@ -60,7 +60,7 @@ alone does not make it an additional active objective.
 - [ ] [015 — Remaining emitter decisions](015-remaining-emitter-decisions.md)
 - [x] [016 — Parser and syntax-diagnostic ownership](016-parser-and-syntax-diagnostics.md)
 - [x] [017 — Semantic analyzer ownership](017-semantic-analyzer-ownership.md)
-- [x] [018 — Systems analyzer ownership](018-systems-analyzer-ownership.md)
+- [x] [018 — Complete SystemsAnalyzer ownership](018-systems-analyzer-ownership.md)
 - [x] [019 — Compiler-contained tooling ownership](019-compiler-contained-tooling.md)
 - [x] [020 — Native N# test-runner capabilities](020-native-test-runner-capabilities.md)
 - [ ] [021 — Final compiler ownership audit](021-final-compiler-ownership-audit.md)
@@ -79,12 +79,14 @@ mechanical, and explicitly reviewed against its N# owner.
 
 Current measured route and boundaries are in [STATUS §1](../systems-language-closeout/STATUS.md):
 
-1. `ColumnarIlEmitter.cs` remains 20,714 lines / 19,703 nonblank after S2.1(h). Task 015 removes
-   remaining compiler decisions through complete N# ownership groups. Task 023 writer implementation
-   is conditional on a demonstrated compiler-ownership dependency.
-2. The external scan/catalog and editor type catalog are N#-owned; Analyzer.cs is 2,357 lines and
-   TypeResolver.cs is 61. One metadata universe through emission and NativeAOT still depend on the
-   writer (023/3, then 022/5). The old Reflection.Emit-only plan is superseded.
+1. At the verified SystemsAnalyzer checkpoint, `ColumnarIlEmitter.cs` remains 16,635 lines /
+   15,817 nonblank, ColumnarProgramInputBuilder 1,033/964 and MultiFileCompiler 663/587. These
+   complete production ownership areas remain in scope. Historical parser checkboxes accepted
+   kernels, not the surviving C# input-materialization decisions.
+2. Analyzer.cs, SystemsAnalyzer.cs and TypeResolver.cs are deleted; their accepted N# owners and
+   canonical evidence must be preserved. Task 023 writer implementation is conditional on a
+   demonstrated compiler-ownership dependency. NativeAOT and broader writer ordering remain in
+   the separate branch backlog and do not block independent compiler ownership work.
 3. Visual IDE verification is available and has been performed, including the 2026-09-04 package
    catalog growth, completion import acceptance, NL002 quick fix, and fresh-server lifetime checks.
    It is no longer accurately described as unavailable. [Evidence](../systems-language-closeout/decodes/2026-09-04-takeover-verification.md).

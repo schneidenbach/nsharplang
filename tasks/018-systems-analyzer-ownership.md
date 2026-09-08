@@ -32,7 +32,10 @@ Preserve declaration-site value equality, AST reference identity, report-list al
 and diagnostic order, recursion protocol, conservative ambiguity and failure timing. No C# host or
 fallback is an acceptable completion of this selected class migration.
 
-The earlier task checkbox recorded policy migration only. Complete-class ownership remains active
-until source ownership, canonical assertions, metadata/behavior checks and required integration
-verification prove acceptance. See [the current boundary](../systems-language-closeout/decodes/2026-09-07-complete-systems-analyzer-ownership.md)
-and [compiler cursor](../systems-language-closeout/STATUS.md).
+The earlier task checkbox recorded policy migration only. Complete-class ownership is now accepted:
+`946821316` deletes the whole C# class; subsequent integration preserves private helpers and sealed
+metadata and routes lifecycle assertions directly to N#. The fresh gate at `3617a809a` passes
+574 unit / 7,940 canonical / 53 native projects / 12 throughput / 68 IL assemblies in 474s.
+Official SDK publication, ordinary package tests 11/11 and installed self-host 7,940/7,940 pass.
+See [the accepted boundary](../systems-language-closeout/decodes/2026-09-07-complete-systems-analyzer-ownership.md)
+and [compiler cursor](../systems-language-closeout/STATUS.md). The compiler-wide objective remains open.

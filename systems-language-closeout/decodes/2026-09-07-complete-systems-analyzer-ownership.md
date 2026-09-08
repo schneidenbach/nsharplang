@@ -31,7 +31,7 @@ SHA256 `d43d021038063adf04322c9964cfec81d50a22593b903a5abf78541d15416430`. Froze
 ratchet and production compiler payloads are retained. The compiler-wide objective stays open;
 CLI/editor and older SDK branches remain held in the separate branch backlog.
 
-## Execution evidence — ownership still open
+## Execution evidence
 
 The two uncovered public lifecycle contracts are now canonical N# assertions at `843363b96`:
 an older report retains the live Functions list across Analyze calls, and normalized duplicate
@@ -129,7 +129,23 @@ Final `./scripts/dev.sh Columnar` passes 12/12 in 63s. The rebuilt root compiler
 24/24, reflection-bootstrap 37/37 (including the record-key and sealed controls), and ownership audit
 18/18. Evidence: `root-dev-final-sealed.log`, `root-lifecycle-final.json`, `root-reflection-final.json`,
 and `root-audit-final.json`. Final systems corpus also passes 123/123 (66/13/44) under
-`systems-owner-native-final`; all verification processes are complete. The fresh integration gate is next.
-The necessary verified SDK publication and push remain open. Private bootstrap payload receipts
-live under `root-stage0-bootstrap` and `root-stage0-sealed`; no live SDK/feed/cache mutation or
-official seed publication has occurred.
+`systems-owner-native-final`. Private bootstrap payload receipts live under `root-stage0-bootstrap`
+and `root-stage0-sealed`; these isolated payloads preceded the verified installation below.
+
+## Acceptance
+
+The complete selected area is accepted. The fresh backend gate at `3617a809a` passes in 474s:
+574 unit / 7,940 N# canonical / 53 native projects / 12 throughput cells / 68 IL assemblies.
+Evidence: `/private/tmp/gate-20260907-systems-analyzer-final-r1` and `final-gate-receipt.json`.
+Official SDK setup succeeds after that gate, and the ordinary installed-package probe passes 11/11.
+Both feeds contain the same four packages; ten SDK tool payloads match the Release build and all
+twelve loaded SDK/cache files match the package. SDK SHA256:
+`b8aea5469c99f281ecacf34c5f5117521bd95baf13d45db90dc809be7a8d2aee`.
+The installed SDK freshly self-hosts the compiler and passes 7,940/7,940 canonical assertions with
+no SDK-path override. Installed owner metadata exactly matches the reviewed integrated metadata;
+the SDK contains the production-only assembly. See `final-sdk-acceptance.json` and `seed-final`.
+
+No SystemsAnalyzer C# owner, decision callback, adapter or fallback survives. MultiFileCompiler's
+existing direct construction/call is the sole mechanical non-N# consumer boundary for this area.
+Canonical lifecycle lookups name BootstrapServices directly. Broader compiler ownership is still
+open; the next dependency-based candidate is the complete ColumnarProgramInputBuilder class.
