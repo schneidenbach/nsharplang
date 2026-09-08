@@ -267,3 +267,22 @@ Evidence is in `whole-expression-assembly-r1/root-complete-r1-review.json`,
 `silent-false-constructor-audit.json` and `root-explicit-zero-constructor-review.json` in the emitter
 evidence directory. Whole-emitter assembly emission, IL verification and canonical execution remain
 pending; no shared SDK publication or push is justified by these diagnostic runs.
+
+
+Exact Label zero construction is integrated in `a900f9b61`. Root verified all 27 receipt/source
+artifacts and 14 candidate payload hashes against immutable commit `9064ee0297`; the canonical
+assertion passes 1/1, native reflection coverage passes 43/43, and production IL verification
+passes all 1,227 types and 10,540 methods with no test types. Evidence:
+`/private/tmp/nsharp-columnar-label-default-20260908/final-receipt-r1.json`.
+
+The complete production emitter source now retains real Label construction and real Dictionary
+copy construction (SHA-256 `f5416804be209fe48c4ec0de97d876c817339f4b7363e5efb58a9a4c82cead38`).
+Root reviewed the complete constructor delta: six explicit CLR defaults, equivalent guarded async
+initialization, and an erased Dictionary type alias plus ordered dictionary reuse/null/copy cases.
+The actual 454-source run under the Label candidate advances to the exact
+`new Dictionary<string, Type>(typeParameters, StringComparer.Ordinal)` expression.
+Goodall owns that proven N# construction prerequisite in an isolated worktree; Hooke owns the
+complete emitter, direct production routing, C# deletion and private build preparation. A scratch
+source with Label and Dictionary bypasses emits, but is diagnostic isolation only and cannot
+satisfy production acceptance. Evidence: `whole-expression-assembly-r1/r9-label-candidate.log`
+in the emitter evidence directory.
