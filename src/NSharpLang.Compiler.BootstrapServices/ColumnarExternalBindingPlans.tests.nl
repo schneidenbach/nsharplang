@@ -299,6 +299,27 @@ test "argument instruction admission does not widen adjacent opcodes or operand 
     ).IsSupported
 }
 
+test "constrained joins the exact type operand opcode surface" {
+    AssertSupportedOpcode("Constrained")
+    assert ColumnarExternalBindingPlans.IsSupportedObjectModelOpCodeMemberName("Constrained")
+    assert !ColumnarExternalBindingPlans.IsSupportedValueOpCodeMemberName("Constrained")
+    assert !ColumnarExternalBindingPlans.IsSupportedComputeOpCodeMemberName("Constrained")
+
+    field := typeof(OpCodes).GetField("Constrained")
+    assert field != null
+    assert field.get_FieldType() == typeof(OpCode)
+
+    arguments := new string[](2)
+    arguments[0] = "System.Reflection.Emit.OpCode"
+    arguments[1] = "System.Type"
+    AssertVirtualCall(
+        "System.Reflection.Emit.ILGenerator",
+        "Emit",
+        arguments,
+        "System.Void"
+    )
+}
+
 test "ldftn selects the exact opcode field and MethodInfo emit overload" {
     AssertSupportedOpcode("Ldftn")
     qualified := ColumnarExternalBindingPlans.GetStaticMemberPlan(
