@@ -117,6 +117,19 @@ CompileForAnalysis requires IDE-enabled integration and visual unsaved-buffer ve
 Broader sibling tasks remain separately held; accepted migrations are not restarted.
 Dependency assessment: `/private/tmp/nsharp-multifile-assessment/current-boundary-20260908.md`.
 
+Its connected compiler prerequisites are integrated in `9dedb3c76`, `caf5d1fff` and `cfbc80bfe`:
+inherited read-only dictionary Count, complete constructor-chain expressions and ThreadStart with
+captured compiler instances. The fresh IDE-enabled gate at `cfbc80bfe` passes 521 C# tests, 7,976 N#
+assertions, 53 native project entries, 36 VS Code tests, 12 throughput cells and 68 IL assemblies.
+The reinstalled extension visibly shows the thread-capture fixture without diagnostics. Installed
+SDK self-host passes 7,976 assertions; targeted dictionary/reflection/lambda/columnar suites pass
+10/45/10/190. Unfiltered installed BSS verification covers all 1,231 types and 10,859 methods.
+Both feeds, ten Release payloads and twelve SDK cache entries match after explicit feed synchronization.
+SDK SHA256 `e8da3c44e99ef1d7a56efe8ec470a6f51bff37d85546b680f98d991e7a3e01b0`.
+Evidence: `/private/tmp/nsharp-multifile-assessment/prerequisite-installed-verification/final-receipt.json`.
+The complete MultiFileCompiler candidate now compiles with a compile-time SystemsReport alias and
+private nested thread state; canonical execution and final owner integration remain open.
+
 **Accepted compiler-only area, complete Analyzer class:** `ec8814c01` moves the entire Analyzer,
 including all lifetime state, factories, public entry points, recursive drivers and metadata
 load/disposal, into N#. All 2,357 C# lines are deleted; thirteen fixture lookups route directly to

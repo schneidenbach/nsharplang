@@ -163,6 +163,16 @@ canonical migration; do not resume unrelated backlog tasks or publish this provi
 
 ## Next connected area after MultiFileCompiler
 
+Prerequisite integration checkpoint: `9dedb3c76`, `caf5d1fff` and `cfbc80bfe` are verified through
+the fresh IDE-enabled gate, extension reinstall and visual thread-capture inspection, and installed
+SDK self-host with 7,976 canonical assertions. Installed focused suites pass 10 dictionary, 45
+reflection, 10 lambda and 190 columnar tests; all-method BSS IL verification passes 1,231 types and
+10,859 methods. Both feeds and the restored SDK cache match the published seed. Receipt:
+`/private/tmp/nsharp-multifile-assessment/prerequisite-installed-verification/final-receipt.json`.
+This supersedes the provisional seed status above. MultiFileCompiler itself is not yet accepted:
+the complete candidate compiles with private helper metadata, but final canonical execution and
+production-owner deletion/integration are still required.
+
 Move the entire `src/NSharpLang.Cli/CompilationReferenceResolver.cs` owner: 497 lines, 19 methods
 and its shared two-minute `HttpClient`. Its recursive project builds, package cache lifecycle,
 dependency mutation, I/O ordering and cleanup are compiler reference-resolution behavior.
