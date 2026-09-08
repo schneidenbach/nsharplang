@@ -196,3 +196,19 @@ before claiming complete emitter compilation. The original tuple constructor can
 restored in the constructor/member-write group; scratch bypasses remain diagnostic evidence only.
 Complete entry/body/suffix compilation, canonical execution through the new owner, C# deletion, the
 fresh integration gate and push remain pending. No shared SDK seed has been published for this work.
+
+The connected `Ldobj`, `Stobj`, `Stind_Ref` and `Bge` dependency is integrated in `9a30ab9e6`.
+Two canonical N# tests verify exact CLR fields and Type, no-operand and Label emission signatures.
+The combined private candidate includes the accepted List snapshot and dictionary key enumerator
+changes; its production build, focused dev.sh run and unfiltered IL verification of all 1,227 types
+and 10,540 methods pass. Root verified two committed source hashes, 24 evidence files and 14 payload
+files. Earlier candidate-r3 omitted the List snapshot source and is not a combined-body candidate.
+Evidence: `ldobj-stobj-prereq/final-receipt.json` in the emitter evidence directory.
+
+The complete 63-method body fragment through r49 is source-reviewed for assembly, retaining all five
+original Bge sites. Review restored the original Public|Instance tuple-field lookup: baked tuple
+namesake admission means a public static field must not become eligible. The corrected reduced-source
+run has no decline diagnostics but still reports directEmitted=False; this is not an emitted-assembly
+or whole-owner acceptance result. The full emitter must supply compilation and IL evidence.
+Fragment: `body63-current-compile/section-body63.final-r49.nl` in the emitter evidence directory,
+SHA-256 `e6aa206d7abfddabceb9806e468a3cbdf2d546473ad59d54b66bcedbd2505a01`.
