@@ -2,6 +2,7 @@ namespace NSharpLang.Compiler
 
 import System
 import System.Collections.Generic
+import System.Threading
 
 
 // THE ANALYZER'S ASSIGNABILITY DECISION — the whole strongly-connected component, in one owner.
@@ -232,6 +233,18 @@ class AnalyzerAssignability {
         } else {
             if AnalyzerCallableReferenceFacts.IsMethodGroupReferenceType(resolvedSource) {
                 return false
+            }
+        }
+
+        // The compiler emission thread requires this exact reflected ThreadStart target. Lambdas
+        // already reach generic Action/Func targets through the generic-type arm below; keep this
+        // bridge exact so other custom delegates retain their existing rejection boundary. The
+        // identity comparison crosses the analyzer's MetadataLoadContext/runtime boundary.
+        if sourceFunction != null && !sourceIsDeclaredFunction {
+            threadStartTarget := resolvedTarget as ReflectionTypeInfo
+            if threadStartTarget != null && TypeInfoIdentityFacts.HaveSameReflectionTypeIdentity(threadStartTarget.Type, typeof(ThreadStart)) {
+                threadStartSignature := AnalyzerFunctionTypeFactory.CreateFromRuntimeDelegate(threadStartTarget.Type)
+                return IsFunctionTypeAssignable(sourceFunction, threadStartSignature)
             }
         }
 

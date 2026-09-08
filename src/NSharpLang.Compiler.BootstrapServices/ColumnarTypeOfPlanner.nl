@@ -1586,7 +1586,7 @@ class ColumnarTypeOfPlanner {
     }
 
     static func IsSupportedDelegateType(valueType: Type): bool {
-        if valueType == typeof(Action) {
+        if valueType == typeof(Action) || valueType == typeof(ThreadStart) {
             return true
         }
         if valueType is TypeBuilder || IsEnumBuilder(valueType) || !valueType.get_IsGenericType() || valueType.get_IsGenericTypeDefinition() {

@@ -41,6 +41,12 @@ integration case belongs in the native estate to avoid a reverse assembly refere
 seven native assembly-qualified owner lookups in the same integration checkpoint. Add focused
 ownership/failure coverage where the actual boundary has gaps, preserving existing native coverage.
 
+The mixed-test audit also found one missing owner-pipeline assertion: carry the exact `countChars`
+string-foreach fixture from `CheckCommand_AotVerificationRequiresColumnarWhenColumnarDeclines`
+into N# coverage with `AotMode=true`. Use the validation-enabled route so emit-only diagnostic
+precedence does not hide the AOT decision. Assert compilation failure, the required-AOT diagnostic,
+null result path and no emitted file; an emission decline may already have created the output directory.
+
 Direct production callers should resolve through existing project references. Surrounding CLI,
 Playground and editor policy stays in the separate backlog. Compiler reference/metadata decisions
 remain in scope wherever they live; do not exclude them by directory or by calling them transport.
@@ -84,7 +90,7 @@ reads during N# semantic analysis (`NL303`, with cascading array-length errors).
 directory: it executed zero tests. Complete the connected inherited-interface semantic member
 resolution in N# and rerun the ordinary native test; emission-only proof does not close this gap.
 
-### Proven emission-thread delegate prerequisite (in progress)
+### Proven emission-thread delegate prerequisite (focused integration complete; seed pending)
 
 The provisional constructor candidate clears all four real owner chains. With only the blocked
 override-copy helper stubbed in a diagnostic snapshot, compilation then rejects the actual
@@ -98,6 +104,17 @@ its signature-classification methods do not overlap the constructor call-site/ne
 coordinate any new shared-method changes before editing. Combine the proven dependencies for
 required seed verification; the complete owner
 must ultimately compile and execute without any diagnostic stubs.
+
+The complete delegate/capture prerequisite is reviewed at worker commit `d1f8ec8dc`: exact ThreadStart
+semantic and emission support, a nested private display holding the lexical receiver, and direct private
+method calls with captured arguments. Native ThreadStart/Action/Func execution preserves worker
+exception identity through Capture, Join and Throw. Five canonical tests, ten lambda-placement tests
+and 45 reflection/emit tests pass; unfiltered IL verification passes all 1,231 compiler types / 10,851
+methods and 45 native types / 238 methods. The real generic-owner regression uses the production
+compiler harness; unsupported generic captures decline before invalid IL can be emitted. Identical
+installed-baseline probes preserve the nested-lambda, field and static capture decline traces.
+Receipt: `/private/tmp/nsharp-multifile-owner-20260908/threadstart-prerequisite/final-receipt-r1.json`.
+The private combined-owner build and required seed/integration checks remain outstanding.
 
 The later r19/r20 owner probes also reject the `IEnumerable<object>` boundary into
 `CompilationUnitFacts.RequiresColumnarSoaEmission`. That complete N# method has only the owner as
@@ -160,6 +177,11 @@ broader CLI policy remain separate. Source and caller/test inventory:
 `/private/tmp/nsharp-reference-resolution-assessment/current-boundary-20260908.md` (reviewed hash
 `1b5d9dacf75acaa053d0634350b5985b3f720f3a2eef1b8fc863c8ec519feeb4`).
 
+Include the exact two-project AOT-decline fixture from
+`CheckCommand_AotProjectReferenceRequiresColumnarWhenColumnarDeclines`: options propagation into
+the child compiler, failure diagnostics, output suppression and active-project-stack cleanup are
+reference-resolution assertions. This does not expand the separate NativeAOT initiative.
+
 ## Final compiler audit
 
 Close `NSharpLang.Compiler` ownership.
@@ -175,6 +197,12 @@ Review mixed integration test files by assertion, not by filename. For example,
 fixtures and assertions with existing N# coverage; migrate or retire superseded compiler assertions
 without expanding into separate CLI feature work. Opening evidence:
 `/private/tmp/nsharp-multifile-assessment/root-remaining-canonical-boundaries-20260908.json`.
+
+The two-file assertion crosswalk is
+`/private/tmp/nsharp-multifile-assessment/check-il-sdk-canonical-crosswalk-20260908.md`.
+Its equivalent N# coverage supports removing redundant C# compiler clauses; it does not authorize
+leaving those canonical assertions C#-owned. Preserve only the distinct mechanical or separately
+tracked CLI/SDK observations when narrowing mixed tests.
 
 Delete every zero-consumer legacy C# owner and superseded C# assertion. Classify only genuine
 pre-existing mechanical ecosystem boundaries, proving that none contains product decisions and

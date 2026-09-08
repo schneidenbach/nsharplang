@@ -4,6 +4,7 @@ import System
 import System.Collections.Generic
 import System.IO
 import System.Reflection
+import System.Threading
 import NSharpLang.Compiler.Ast
 
 // Native contracts for the analyzer's assignability decision.
@@ -429,6 +430,33 @@ test "a lambda's function type matches a Func by argument order and an Action by
     // An UNKNOWN lambda parameter is not pre-judged.
     inferring: TypeInfo = AssignabilityLambda(AssignabilityOne(BuiltInTypes.Unknown), BuiltInTypes.Int)
     assert assignability.IsAssignable(funcIntToInt, inferring)
+}
+
+test "a zero-argument void lambda matches the exact reflected ThreadStart delegate only" {
+    assignability := AssignabilityDefault()
+    threadStart: TypeInfo = new ReflectionTypeInfo(typeof(ThreadStart))
+
+    voidLambda: TypeInfo = AssignabilityLambda(AssignabilityNone(), BuiltInTypes.Void)
+    assert assignability.IsAssignable(threadStart, voidLambda)
+
+    wrongParameter: TypeInfo = AssignabilityLambda(AssignabilityOne(BuiltInTypes.Int), BuiltInTypes.Void)
+    assert !assignability.IsAssignable(threadStart, wrongParameter)
+
+    wrongReturn: TypeInfo = AssignabilityLambda(AssignabilityNone(), BuiltInTypes.Int)
+    assert !assignability.IsAssignable(threadStart, wrongReturn)
+
+    scan := ExternalAssemblyScan.OpenWithReferences(null)
+    try {
+        context := scan.Context
+        assert context != null
+        metadataCore := context.LoadFromAssemblyName("System.Private.CoreLib")
+        metadataThreadStart: TypeInfo = new ReflectionTypeInfo(metadataCore.GetType("System.Threading.ThreadStart"))
+        assert assignability.IsAssignable(metadataThreadStart, voidLambda)
+        assert !assignability.IsAssignable(metadataThreadStart, wrongParameter)
+        assert !assignability.IsAssignable(metadataThreadStart, wrongReturn)
+    } finally {
+        scan.Dispose()
+    }
 }
 
 test "function-type structural comparison compares parameters and the return, not the display form" {

@@ -127,6 +127,10 @@ class ColumnarExternalBindingPlans {
             runtimeTypeName = "System.Runtime.CompilerServices.RuntimeHelpers"
         } else if canonical == "Array" || canonical == "System.Array" {
             runtimeTypeName = "System.Array"
+        } else if canonical == "Thread" || canonical == "System.Threading.Thread" {
+            runtimeTypeName = "System.Threading.Thread"
+        } else if canonical == "ThreadStart" || canonical == "System.Threading.ThreadStart" {
+            runtimeTypeName = "System.Threading.ThreadStart"
         } else if canonical == "NullabilityInfoContext" || canonical == "System.Reflection.NullabilityInfoContext" {
             runtimeTypeName = "System.Reflection.NullabilityInfoContext"
         } else if canonical == "NullabilityInfo" || canonical == "System.Reflection.NullabilityInfo" {
@@ -193,7 +197,7 @@ class ColumnarExternalBindingPlans {
 
     static func IsSupportedRuntimeTypeName(runtimeTypeName: string?): bool {
         name := runtimeTypeName ?? ""
-        return IsWriterMetadataTypeName(name) || name == "System.Reflection.Emit.LocalBuilder" || name == "System.Reflection.Emit.FieldBuilder" || name == "System.Reflection.Emit.TypeBuilder" || name == "System.Reflection.Emit.GenericTypeParameterBuilder" || name == "System.Reflection.Emit.MethodBuilder" || name == "System.Reflection.Emit.ConstructorBuilder" || name == "System.Reflection.Emit.ILGenerator" || name == "System.Reflection.Emit.DynamicMethod" || name == "System.Reflection.Emit.OpCode" || name == "System.Reflection.Emit.OpCodes" || name == "System.Reflection.Emit.Label" || name == "System.Reflection.MethodInfo" || name == "System.Reflection.MethodAttributes" || name == "System.Reflection.CallingConventions" || name == "System.Reflection.MethodBase" || name == "System.Reflection.FieldInfo" || name == "System.Reflection.PropertyInfo" || name == "System.Reflection.ConstructorInfo" || name == "System.Reflection.AssemblyName" || name == "System.Reflection.MetadataLoadContext" || name == "System.Reflection.PathAssemblyResolver" || name == "System.Reflection.MetadataAssemblyResolver" || name == "System.Reflection.ParameterInfo" || name == "System.Reflection.EventInfo" || name == "System.Reflection.Module" || name == "System.Index" || name == "System.Range" || name == "System.RuntimeTypeHandle" || name == "System.Reflection.NullabilityInfoContext" || name == "System.Reflection.NullabilityInfo" || name == "System.Reflection.NullabilityState" || name == "System.Reflection.CustomAttributeData" || name == "System.Reflection.CustomAttributeTypedArgument" || IsCustomAttributeSequenceName(name) || IsXmlLinqTypeName(name)
+        return IsWriterMetadataTypeName(name) || name == "System.Reflection.Emit.LocalBuilder" || name == "System.Reflection.Emit.FieldBuilder" || name == "System.Reflection.Emit.TypeBuilder" || name == "System.Reflection.Emit.GenericTypeParameterBuilder" || name == "System.Reflection.Emit.MethodBuilder" || name == "System.Reflection.Emit.ConstructorBuilder" || name == "System.Reflection.Emit.ILGenerator" || name == "System.Reflection.Emit.DynamicMethod" || name == "System.Reflection.Emit.OpCode" || name == "System.Reflection.Emit.OpCodes" || name == "System.Reflection.Emit.Label" || name == "System.Reflection.MethodInfo" || name == "System.Reflection.MethodAttributes" || name == "System.Reflection.CallingConventions" || name == "System.Reflection.MethodBase" || name == "System.Reflection.FieldInfo" || name == "System.Reflection.PropertyInfo" || name == "System.Reflection.ConstructorInfo" || name == "System.Reflection.AssemblyName" || name == "System.Reflection.MetadataLoadContext" || name == "System.Reflection.PathAssemblyResolver" || name == "System.Reflection.MetadataAssemblyResolver" || name == "System.Reflection.ParameterInfo" || name == "System.Reflection.EventInfo" || name == "System.Reflection.Module" || name == "System.Index" || name == "System.Range" || name == "System.RuntimeTypeHandle" || name == "System.Threading.Thread" || name == "System.Threading.ThreadStart" || name == "System.Reflection.NullabilityInfoContext" || name == "System.Reflection.NullabilityInfo" || name == "System.Reflection.NullabilityState" || name == "System.Reflection.CustomAttributeData" || name == "System.Reflection.CustomAttributeTypedArgument" || IsCustomAttributeSequenceName(name) || IsXmlLinqTypeName(name)
     }
 
     // THE LINQ-TO-XML SURFACE, AS SEVEN NAMES. `XContainer` is on the list although no source line
@@ -658,6 +662,10 @@ class ColumnarExternalBindingPlans {
     static func GetInstanceCallPlan(receiverTypeName: string?, memberName: string, argumentTypeNames: string[]): ColumnarExternalCallPlan {
         receiver := receiverTypeName ?? ""
         count := argumentTypeNames.Length
+
+        if receiver == "System.Threading.Thread" && count == 0 && (memberName == "Start" || memberName == "Join") {
+            return VirtualCall(receiver, memberName, Empty(), "System.Void")
+        }
 
         if receiver == "System.Type" && count == 1 && argumentTypeNames[0] == "System.String" {
             if memberName == "GetProperty" {

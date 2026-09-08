@@ -4,6 +4,7 @@ import System
 import System.Collections.Generic
 import System.Reflection
 import System.Reflection.Emit
+import System.Threading
 
 
 // `015-A2` makes `ColumnarTypeOfPlanner` the compiler's SOLE owner of the nineteen predicates inside
@@ -339,6 +340,7 @@ test "the task and delegate families are closed lists with constrained arguments
     assert !ColumnarTypeOfPlanner.IsSupportedTaskType(typeof(int))
 
     assert ColumnarTypeOfPlanner.IsSupportedDelegateType(typeof(Action))
+    assert ColumnarTypeOfPlanner.IsSupportedDelegateType(typeof(ThreadStart))
     assert ColumnarTypeOfPlanner.IsSupportedDelegateType(ConeClosedInts("System.Action`1", 1))
     assert ColumnarTypeOfPlanner.IsSupportedDelegateType(ConeClosedInts("System.Action`2", 2))
     assert ColumnarTypeOfPlanner.IsSupportedDelegateType(ConeClosedInts("System.Action`3", 3))

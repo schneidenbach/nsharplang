@@ -2123,6 +2123,43 @@ test "the declaring module is on both runtime-type tables by both spellings" {
     assert !ColumnarExternalBindingPlans.IsSupportedRuntimeTypeName("System.Reflection.ModuleBuilder")
 }
 
+test "the wide-stack thread types resolve by exact CoreLib identity" {
+    AssertRuntimeType("Thread", "System.Threading.Thread")
+    AssertRuntimeType("System.Threading.Thread", "System.Threading.Thread")
+    AssertRuntimeType("ThreadStart", "System.Threading.ThreadStart")
+    AssertRuntimeType("System.Threading.ThreadStart", "System.Threading.ThreadStart")
+
+    unknownThreadName := ""
+    assert !ColumnarExternalBindingPlans.TryGetRuntimeTypeName("Threads", out unknownThreadName)
+    assert !ColumnarExternalBindingPlans.TryGetRuntimeTypeName("threadStart", out unknownThreadName)
+    assert !ColumnarExternalBindingPlans.IsSupportedRuntimeTypeName("Thread")
+    assert !ColumnarExternalBindingPlans.IsSupportedRuntimeTypeName("System.Threading.ParameterizedThreadStart")
+}
+
+test "the wide-stack thread lifecycle calls retain their exact zero-argument surface" {
+    noArguments := new string[](0)
+    AssertVirtualCall("System.Threading.Thread", "Start", noArguments, "System.Void")
+    AssertVirtualCall("System.Threading.Thread", "Join", noArguments, "System.Void")
+
+    oneArgument := new string[](1)
+    oneArgument[0] = "System.Int32"
+    assert !ColumnarExternalBindingPlans.GetInstanceCallPlan(
+        "System.Threading.Thread",
+        "Start",
+        oneArgument
+    ).IsSupported
+    assert !ColumnarExternalBindingPlans.GetInstanceCallPlan(
+        "System.Threading.Thread",
+        "Join",
+        oneArgument
+    ).IsSupported
+    assert !ColumnarExternalBindingPlans.GetInstanceCallPlan(
+        "Thread",
+        "Start",
+        noArguments
+    ).IsSupported
+}
+
 test "the attribute-data sequence identities are computed, not spelled" {
     // GetCustomAttributesData and ConstructorArguments answer closed IList<T>. A local of that
     // type is what the attribute walk binds, so the closed identity must be on the surface — and

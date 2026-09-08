@@ -9,6 +9,7 @@ import System.Reflection
 import System.Reflection.Emit
 import System.Text
 import System.Text.Json
+import System.Threading
 import System.Threading.Tasks
 import YamlDotNet.Serialization
 
@@ -1024,7 +1025,7 @@ class ColumnarRuntimeInstanceMemberResolver {
     }
 
     static func IsSupportedDelegateType(valueType: Type): bool {
-        if valueType == typeof(Action) {
+        if valueType == typeof(Action) || valueType == typeof(ThreadStart) {
             return true
         }
 

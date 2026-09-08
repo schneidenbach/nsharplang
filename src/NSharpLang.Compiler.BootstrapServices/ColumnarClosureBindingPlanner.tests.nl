@@ -211,6 +211,25 @@ func ClosureBindingControlsReferences(
     )
 }
 
+func ClosureBindingControlsReferencesInstanceMethod(
+    definition: ColumnarStructDef?,
+    name: string,
+    locals: Dictionary<string, LocalBuilder>
+): bool {
+    tree := ClosureBindingControlsIdentifierTree(name)
+    return ColumnarClosureBindingPlanner.BodyReferencesEnclosingInstanceMethodChain(
+        tree.Nodes,
+        tree.Source,
+        tree.Root,
+        new HashSet<string>(StringComparer.Ordinal),
+        definition,
+        locals,
+        ClosureBindingControlsEmptyLifted(),
+        new Dictionary<string, int>(StringComparer.Ordinal),
+        ClosureBindingControlsEmptySiblings()
+    )
+}
+
 test "closure binding visibility reads every live tier and snapshots no map" {
     local := ExternalProbeLocal(typeof(int))
     locals := new Dictionary<string, LocalBuilder>(StringComparer.Ordinal)
@@ -505,6 +524,22 @@ test "enclosing member references use source base chains and live binding preced
     assert ClosureBindingControlsReferences(derivedDefinition, "InstanceMethod", emptyLocals)
     assert ClosureBindingControlsReferences(derivedDefinition, "StaticField", emptyLocals)
     assert ClosureBindingControlsReferences(derivedDefinition, "StaticProperty", emptyLocals)
+
+    assert ClosureBindingControlsReferencesInstanceMethod(
+        derivedDefinition,
+        "InstanceMethod",
+        emptyLocals
+    )
+    assert !ClosureBindingControlsReferencesInstanceMethod(
+        derivedDefinition,
+        "InstanceField",
+        emptyLocals
+    )
+    assert !ClosureBindingControlsReferencesInstanceMethod(
+        derivedDefinition,
+        "StaticField",
+        emptyLocals
+    )
 
     emptyLocals["InstanceField"] = ExternalProbeLocal(typeof(int))
     assert !ClosureBindingControlsReferences(derivedDefinition, "InstanceField", emptyLocals)

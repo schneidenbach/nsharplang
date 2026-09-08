@@ -143,6 +143,53 @@ class ColumnarClosureBindingPlanner {
         return false
     }
 
+    // A mixed-capture display needs an outer-instance slot only when the body calls a bare instance
+    // method. Bare instance fields remain outside this lowering: the closure emitter has no field-read
+    // route through the captured receiver, so reporting those here would admit a capture it cannot emit.
+    // This mirrors BodyReferencesEnclosingChain's walk and narrows its member test to instance methods.
+    static func BodyReferencesEnclosingInstanceMethodChain(
+        nodes: ColumnarNodeTable,
+        source: string,
+        node: int,
+        bound: HashSet<string>,
+        currentDefinition: ColumnarStructDef?,
+        locals: Dictionary<string, LocalBuilder>,
+        liftedLocals: Dictionary<string, (Box: LocalBuilder, ValueType: Type)>,
+        parameterOrdinals: Dictionary<string, int>,
+        siblings: IReadOnlyDictionary<string, ColumnarSiblingMethodDefinition>
+    ): bool {
+        kind := nodes.Kind(node)
+        if kind == 38 || kind == 42 || kind == 55 {
+            return false
+        }
+        if kind == 39 {
+            nestedBound := new HashSet<string>(bound, StringComparer.Ordinal)
+            nestedBound.UnionWith(BoundParamsOf(nodes, source, node))
+            return BodyReferencesEnclosingInstanceMethodChain(nodes, source, nodes.Child(node, nodes.ChildCount(node) - 1), nestedBound, currentDefinition, locals, liftedLocals, parameterOrdinals, siblings)
+        }
+        if kind == 6 && nodes.ValueStart(node) >= 0 && currentDefinition != null {
+            name := nodes.Text(source, node)
+            if !bound.Contains(name) && !locals.ContainsKey(name) && !liftedLocals.ContainsKey(name) && !parameterOrdinals.ContainsKey(name) && !siblings.ContainsKey(name) {
+                method: ColumnarInstanceMethodDef? = null
+                if ColumnarSourceMemberChainResolver.TryFindMethodOnChain(currentDefinition, name, out method) {
+                    return true
+                }
+            }
+        }
+        if kind == 46 || kind == 47 {
+            return BodyReferencesEnclosingInstanceMethodChain(nodes, source, nodes.Child(node, 0), bound, currentDefinition, locals, liftedLocals, parameterOrdinals, siblings)
+        }
+        first := kind == 15 || kind == 16 ? 1 : 0
+        childOrdinal := first
+        while childOrdinal < nodes.ChildCount(node) {
+            if BodyReferencesEnclosingInstanceMethodChain(nodes, source, nodes.Child(node, childOrdinal), bound, currentDefinition, locals, liftedLocals, parameterOrdinals, siblings) {
+                return true
+            }
+            childOrdinal = childOrdinal + 1
+        }
+        return false
+    }
+
     static func ComputeLiftedCandidates(nodes: ColumnarNodeTable, source: string, bodyRoot: int, ref liftedCandidates: HashSet<string>?) {
         inLambdas := new SortedSet<string>(StringComparer.Ordinal)
         CollectNamesInsideLambdas(nodes, source, bodyRoot, inLambdas)

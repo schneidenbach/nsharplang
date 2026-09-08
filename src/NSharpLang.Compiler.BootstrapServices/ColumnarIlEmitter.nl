@@ -552,6 +552,11 @@ sealed class ColumnarIlEmitter {
             delegateCtor = typeof(Action).GetConstructor([typeof(object), typeof(IntPtr)])
             return delegateCtor != null
         }
+        if (t == typeof(ThreadStart)) {
+            returnType = ColumnarTypeOfPlanner.RequiredVoidType()
+            delegateCtor = typeof(ThreadStart).GetConstructor([typeof(object), typeof(IntPtr)])
+            return delegateCtor != null
+        }
 
         typeBuilderType := t as TypeBuilder
         if (typeBuilderType != null) {
@@ -708,9 +713,8 @@ sealed class ColumnarIlEmitter {
                 _paramOrdinals,
                 _siblings
             )
-            // N# selects the owning type, the generated method identity, and the exact visibility that keeps
-            // a cross-type ldftn verifiable, and defines the synthesized method. C# only emits the recursive
-            // body and constructs the delegate over the exact method N# selected.
+            // N# selects the owning type, generated method identity, and visibility, then emits the
+            // recursive body and constructs the delegate over that exact method.
             placement := ColumnarLambdaPlacementPlanner.PlanNonCapturingPlacement(
                 _programType,
                 _currentStruct,
@@ -799,6 +803,21 @@ sealed class ColumnarIlEmitter {
         if (_displayClasses == null || ColumnarClosureBindingPlanner.ContainsCaptureOpaqueKind(_nodes, bodyNode)) {
             return false
         }
+        lambdaBoundNames := new HashSet<string>(ordinals.Keys, StringComparer.Ordinal)
+        capturesEnclosingThis := _currentStruct != null && ColumnarClosureBindingPlanner.BodyReferencesEnclosingInstanceMethodChain(
+            _nodes,
+            _source,
+            bodyNode,
+            lambdaBoundNames,
+            _currentStruct,
+            _locals,
+            _liftedLocals,
+            _paramOrdinals,
+            _siblings
+        )
+        if capturesEnclosingThis && (_currentStruct == null || !_currentStruct.IsReference || _currentStruct.GenericParameters != null || _isConstructorBody) {
+            return false
+        }
         snapshotNames := new List<string>()
         snapshotTypes := new List<Type>()
         boxedNames := new List<string>()
@@ -852,10 +871,18 @@ sealed class ColumnarIlEmitter {
         lambdaCounterForDisplay[0] = displayOrdinal + 1
         displayOrdinalText := displayOrdinal.ToString()
         displayTypeName := "<>c__DisplayClass" + displayOrdinalText
-        display := moduleBuilder.DefineType(
-            displayTypeName,
-            TypeAttributes.NotPublic | TypeAttributes.Class | TypeAttributes.Sealed
-        )
+        let display: TypeBuilder = null
+        if capturesEnclosingThis {
+            display = _currentStruct.Builder.DefineNestedType(
+                displayTypeName,
+                TypeAttributes.NestedPrivate | TypeAttributes.Class | TypeAttributes.Sealed
+            )
+        } else {
+            display = moduleBuilder.DefineType(
+                displayTypeName,
+                TypeAttributes.NotPublic | TypeAttributes.Class | TypeAttributes.Sealed
+            )
+        }
         if (!ColumnarSemanticTypeRegistryBridge.IsValidSynthesizedMethodSignature(delegateReturnType, signatureTypes, display)) {
             return false
         }
@@ -865,6 +892,11 @@ sealed class ColumnarIlEmitter {
         // through the closure's _boxedCaptures map, which dereferences `.Value` (a plain field read of the
         // box object would be type-wrong).
         displayFields := new Dictionary<string, FieldBuilder>(StringComparer.Ordinal)
+        let enclosingThisField: FieldBuilder? = null
+        if capturesEnclosingThis {
+            enclosingThisField = display.DefineField("<>4__this", _currentStruct.Builder, FieldAttributes.Public)
+            displayFields["<>4__this"] = enclosingThisField
+        }
         for f := 0; f < snapshotNames.Count; f++ {
             displayFields[snapshotNames[f]] = display.DefineField(snapshotNames[f], snapshotTypes[f], FieldAttributes.Public)
         }
@@ -886,6 +918,13 @@ sealed class ColumnarIlEmitter {
         }
         displayDefBuilder := display
         displayDefFieldOrder := snapshotNames.ToArray()
+        if enclosingThisField != null {
+            displayDefFieldOrder = new string[snapshotNames.Count + 1]
+            displayDefFieldOrder[0] = "<>4__this"
+            for fieldOrderIndex := 0; fieldOrderIndex < snapshotNames.Count; fieldOrderIndex++ {
+                displayDefFieldOrder[fieldOrderIndex + 1] = snapshotNames[fieldOrderIndex]
+            }
+        }
         displayDefFields := displayFields
         displayDefIsReference := true
         displayDefIsRecord := false
@@ -923,6 +962,10 @@ sealed class ColumnarIlEmitter {
         if (boxedCaptureMap.Count > 0) {
             closureBoxedCaptures = boxedCaptureMap
         }
+        let closureEnclosingType: ColumnarStructDef? = null
+        if capturesEnclosingThis {
+            closureEnclosingType = _currentStruct
+        }
         closureEmitter := new ColumnarIlEmitter(
             _nodes,
             _source,
@@ -936,7 +979,7 @@ sealed class ColumnarIlEmitter {
             _unionRegistry,
             _unionCaseRegistry,
             displayDef,
-            null,
+            closureEnclosingType,
             false,
             false,
             _programType,
@@ -965,6 +1008,11 @@ sealed class ColumnarIlEmitter {
         // Use site: construct the closure; snapshot captures copy the VALUE, boxed captures copy the BOX
         // reference; bind the delegate to the closure.
         _il.Emit(OpCodes.Newobj, displayCtor)
+        if enclosingThisField != null {
+            _il.Emit(OpCodes.Dup)
+            _il.Emit(OpCodes.Ldarg_0)
+            _il.Emit(OpCodes.Stfld, enclosingThisField)
+        }
         for f := 0; f < snapshotNames.Count; f++ {
             _il.Emit(OpCodes.Dup)
             let sourceLocal: System.Reflection.Emit.LocalBuilder? = null
@@ -1518,6 +1566,35 @@ sealed class ColumnarIlEmitter {
         }
         implicitCallMethod := method.Builder
         implicitCallIl.Emit(implicitCallOpcode, implicitCallMethod)
+        columnarResolvedType = method.ReturnType
+        return true
+    }
+
+    // A mixed-capture lambda runs as an instance method on its synthesized display. When its body
+    // calls a bare method on the lexical owner, load the captured outer receiver before the original
+    // argument sequence. The display is nested under that owner, so a private target remains a legal
+    // private call without widening source metadata.
+    private func EmitCapturedEnclosingThisCall(callIdx: int, method: ColumnarInstanceMethodDef, out columnarResolvedType: Type): bool {
+        columnarResolvedType = null
+        if (_currentStruct == null || !_currentStruct.IsClosureDisplay || _enclosingType == null || !_enclosingType.IsReference) {
+            return false
+        }
+        let enclosingThisField: FieldBuilder? = null
+        if (!_currentStruct.Fields.TryGetValue("<>4__this", out enclosingThisField)) {
+            return false
+        }
+        argCount := _nodes.ChildCount(callIdx) - 1
+        if (argCount != method.ParamTypes.Length) {
+            return false
+        }
+        _il.Emit(OpCodes.Ldarg_0)
+        _il.Emit(OpCodes.Ldfld, enclosingThisField)
+        for a := 1; a <= argCount; a++ {
+            if (!EmitDeclaredCallArgument(Child(callIdx, a), method.ParamTypes[a - 1], true)) {
+                return false
+            }
+        }
+        _il.Emit(OpCodes.Callvirt, method.Builder)
         columnarResolvedType = method.ReturnType
         return true
     }
@@ -7661,6 +7738,11 @@ sealed class ColumnarIlEmitter {
 
     private static func TryGetSupportedBclWritableProperty(receiverType: Type, member: string, out property: PropertyInfo): bool {
         property = null
+        if (receiverType == typeof(Thread) && (member == nameof(Thread.IsBackground) || member == nameof(Thread.Name))) {
+            resolvedProperty := typeof(Thread).GetProperty(member)
+            property = resolvedProperty
+            return resolvedProperty != null && resolvedProperty.get_SetMethod() != null
+        }
         if (receiverType == typeof(ProcessStartInfo) && (member == nameof(ProcessStartInfo.FileName) || member == nameof(ProcessStartInfo.Arguments) || member == nameof(ProcessStartInfo.WorkingDirectory) || member == nameof(ProcessStartInfo.RedirectStandardOutput) || member == nameof(ProcessStartInfo.RedirectStandardError) || member == nameof(ProcessStartInfo.UseShellExecute))) {
             resolvedProperty := typeof(ProcessStartInfo).GetProperty(member)
             property = resolvedProperty
@@ -8239,6 +8321,13 @@ sealed class ColumnarIlEmitter {
                         return false
                     }
                     return EmitImplicitThisCall(idx, ownMethod, out columnarResolvedType)
+                }
+                let enclosingMethod: NSharpLang.Compiler.Columnar.ColumnarInstanceMethodDef? = null
+                if (_currentStruct != null && _currentStruct.IsClosureDisplay && _enclosingType != null && TrySelectInstanceMethodOnChain(_enclosingType, name, idx, out enclosingMethod)) {
+                    if (ColumnarSourceDirectCallResolver.IsExcludedInstanceDefinition(enclosingMethod)) {
+                        return false
+                    }
+                    return EmitCapturedEnclosingThisCall(idx, enclosingMethod, out columnarResolvedType)
                 }
                 let ownStatic: NSharpLang.Compiler.Columnar.ColumnarStaticMethodDef? = null
                 if (_enclosingType != null && TryFindStaticMethodOnChain(_enclosingType, name, _nodes.ChildCount(idx) - 1, out ownStatic)) {

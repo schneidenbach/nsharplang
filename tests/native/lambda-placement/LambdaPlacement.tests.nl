@@ -229,6 +229,33 @@ func main() {
     assert result.Diagnostics.Contains("columnar backend declined"), result.Diagnostics
 }
 
+test "a mixed capture on a generic lexical owner declines before emitting an invalid display type" {
+    result := CompileLambdaFixture(
+        """
+import System
+
+class GenericOwner<T> {
+    func Run(left: int, right: int): int {
+        read: Func<int> = () => Add(left, right)
+        return read()
+    }
+
+    private func Add(left: int, right: int): int {
+        return left + right
+    }
+}
+
+func main() {
+    owner := new GenericOwner<string>()
+    _ := owner.Run(19, 23)
+}
+"""
+    )
+    assert !result.Succeeded, result.Diagnostics
+    assert result.Diagnostics.Contains("NL103: Columnar emission is required"), result.Diagnostics
+    assert result.Diagnostics.Contains("columnar backend declined"), result.Diagnostics
+}
+
 test "a non-capturing lambda over a well-formed signature is accepted" {
     result := CompileLambdaFixture(
         """
