@@ -266,3 +266,179 @@ test "reflection keeps the caller out sentinel when a null program throws from t
         "MethodInfo.Invoke must not report a target out write when the target throws"
     assert snapshot.Count == 0, "a null-program exception must not record an ordinary decline"
 }
+
+func ColumnarIlEmitterRequiredRuntimeType(name: string): Type {
+    resolved := Type.GetType(name)
+    if resolved == null {
+        throw new InvalidOperationException("Missing runtime type " + name)
+    }
+    return resolved
+}
+
+func ColumnarIlEmitterRequiredInvocation(method: MethodInfo, receiver: object?, arguments: object?[]): object {
+    result := method.Invoke(receiver, arguments)
+    if result == null {
+        throw new InvalidOperationException("Reflection invocation unexpectedly returned null")
+    }
+    return result
+}
+
+func ColumnarIlEmitterRequiredConstruction(constructor: ConstructorInfo, arguments: object?[]): object {
+    result := constructor.Invoke(arguments)
+    if result == null {
+        throw new InvalidOperationException("Reflection construction unexpectedly returned null")
+    }
+    return result
+}
+
+func ColumnarIlEmitterDynamicIdentityType(assemblyLabel: string, typeName: string): Type {
+    assemblyBuilderType := ColumnarIlEmitterRequiredRuntimeType("System.Reflection.Emit.AssemblyBuilder")
+    accessType := ColumnarIlEmitterRequiredRuntimeType("System.Reflection.Emit.AssemblyBuilderAccess")
+    defineAssemblyTypes := new Type[](2)
+    defineAssemblyTypes[0] = typeof(AssemblyName)
+    defineAssemblyTypes[1] = accessType
+    defineAssembly := assemblyBuilderType.GetMethod("DefineDynamicAssembly", defineAssemblyTypes)
+    if defineAssembly == null {
+        throw new InvalidOperationException("Missing AssemblyBuilder.DefineDynamicAssembly")
+    }
+    runField := accessType.GetField("Run")
+    if runField == null {
+        throw new InvalidOperationException("Missing AssemblyBuilderAccess.Run")
+    }
+    runAccess := runField.GetValue(null)
+    if runAccess == null {
+        throw new InvalidOperationException("AssemblyBuilderAccess.Run was null")
+    }
+    assemblyArguments := new object?[](2)
+    ColumnarIlEmitterPut(assemblyArguments, 0, new AssemblyName(assemblyLabel))
+    ColumnarIlEmitterPut(assemblyArguments, 1, runAccess)
+    assemblyBuilder := ColumnarIlEmitterRequiredInvocation(defineAssembly, null, assemblyArguments)
+
+    defineModuleTypes := new Type[](1)
+    defineModuleTypes[0] = typeof(string)
+    defineModule := assemblyBuilderType.GetMethod("DefineDynamicModule", defineModuleTypes)
+    if defineModule == null {
+        throw new InvalidOperationException("Missing AssemblyBuilder.DefineDynamicModule")
+    }
+    moduleArguments := new object?[](1)
+    ColumnarIlEmitterPut(moduleArguments, 0, assemblyLabel + "Module")
+    moduleBuilder := ColumnarIlEmitterRequiredInvocation(defineModule, assemblyBuilder, moduleArguments)
+
+    moduleBuilderType := ColumnarIlEmitterRequiredRuntimeType("System.Reflection.Emit.ModuleBuilder")
+    defineType := moduleBuilderType.GetMethod("DefineType", defineModuleTypes)
+    if defineType == null {
+        throw new InvalidOperationException("Missing ModuleBuilder.DefineType(string)")
+    }
+    typeArguments := new object?[](1)
+    ColumnarIlEmitterPut(typeArguments, 0, typeName)
+    dynamicType := ColumnarIlEmitterRequiredInvocation(defineType, moduleBuilder, typeArguments) as Type
+    if dynamicType == null {
+        throw new InvalidOperationException("ModuleBuilder.DefineType did not return a Type")
+    }
+    return dynamicType
+}
+
+func ColumnarIlEmitterEnumDefinition(enumType: Type, stringBacked: bool): object {
+    definitionType := ColumnarIlEmitterBootstrapType("ColumnarEnumDef")
+    constructorTypes := new Type[](4)
+    constructorTypes[0] = typeof(Type)
+    constructorTypes[1] = typeof(Dictionary<string, int>)
+    constructorTypes[2] = typeof(Dictionary<string, string>)
+    constructorTypes[3] = typeof(string)
+    constructor := definitionType.GetConstructor(constructorTypes)
+    if constructor == null {
+        throw new InvalidOperationException("Missing ColumnarEnumDef constructor")
+    }
+    arguments := new object?[](4)
+    ColumnarIlEmitterPut(arguments, 0, enumType)
+    ColumnarIlEmitterPut(arguments, 1, new Dictionary<string, int>())
+    if stringBacked {
+        ColumnarIlEmitterPut(arguments, 2, new Dictionary<string, string>())
+    }
+    else {
+        ColumnarIlEmitterPut(arguments, 2, null)
+    }
+    ColumnarIlEmitterPut(arguments, 3, "")
+    return ColumnarIlEmitterRequiredConstruction(constructor, arguments)
+}
+
+func ColumnarIlEmitterEnumRegistry(rows: object[]): object {
+    definitionType := ColumnarIlEmitterBootstrapType("ColumnarEnumDef")
+    registryTypeArguments := new Type[](2)
+    registryTypeArguments[0] = typeof(string)
+    registryTypeArguments[1] = definitionType
+    registryType := typeof(Dictionary<string, int>).GetGenericTypeDefinition().MakeGenericType(registryTypeArguments)
+    constructor := registryType.GetConstructor(new Type[](0))
+    if constructor == null {
+        throw new InvalidOperationException("Missing enum-registry constructor")
+    }
+    registry := ColumnarIlEmitterRequiredConstruction(constructor, new object?[](0))
+    addTypes := new Type[](2)
+    addTypes[0] = typeof(string)
+    addTypes[1] = definitionType
+    add := registryType.GetMethod("Add", addTypes)
+    if add == null {
+        throw new InvalidOperationException("Missing enum-registry Add")
+    }
+    index := 0
+    while index < rows.Length {
+        arguments := new object?[](2)
+        ColumnarIlEmitterPut(arguments, 0, "row" + index.ToString())
+        ColumnarIlEmitterPut(arguments, 1, rows[index])
+        ignored := add.Invoke(registry, arguments)
+        _ = ignored
+        index = index + 1
+    }
+    return registry
+}
+
+func ColumnarIlEmitterUninitializedWithEnumRegistry(registry: object): object {
+    runtimeHelpers := ColumnarIlEmitterRequiredRuntimeType("System.Runtime.CompilerServices.RuntimeHelpers")
+    argumentTypes := new Type[](1)
+    argumentTypes[0] = typeof(Type)
+    getUninitializedObject := runtimeHelpers.GetMethod("GetUninitializedObject", argumentTypes)
+    if getUninitializedObject == null {
+        throw new InvalidOperationException("Missing RuntimeHelpers.GetUninitializedObject")
+    }
+    arguments := new object?[](1)
+    ColumnarIlEmitterPut(arguments, 0, ColumnarIlEmitterType())
+    emitter := ColumnarIlEmitterRequiredInvocation(getUninitializedObject, null, arguments)
+    registryField := ColumnarIlEmitterType().GetField(
+        "_enumRegistry",
+        BindingFlags.Instance | BindingFlags.NonPublic | BindingFlags.DeclaredOnly
+    )
+    if registryField == null {
+        throw new InvalidOperationException("Missing ColumnarIlEmitter._enumRegistry")
+    }
+    registryField.SetValue(emitter, registry)
+    return emitter
+}
+
+func ColumnarIlEmitterIsKnownEnum(emitter: object, candidate: Type): bool {
+    arguments := new object?[](1)
+    ColumnarIlEmitterPut(arguments, 0, candidate)
+    return Convert.ToBoolean(ColumnarIlEmitterPrivateMethod("IsKnownEnumType", 1).Invoke(emitter, arguments))
+}
+
+test "the private enum predicate traverses populated registry values by exact identity and excludes string-backed rows" {
+    decoy := ColumnarIlEmitterDynamicIdentityType("EmitterEnumDecoyAssembly", "EmitterEnumDecoy")
+    target := ColumnarIlEmitterDynamicIdentityType("EmitterEnumTargetAssembly", "SharedEmitterEnumIdentity")
+    sameNamePeer := ColumnarIlEmitterDynamicIdentityType("EmitterEnumPeerAssembly", "SharedEmitterEnumIdentity")
+    stringBacked := ColumnarIlEmitterDynamicIdentityType("EmitterStringEnumAssembly", "EmitterStringEnum")
+
+    targetObject: object = target
+    peerObject: object = sameNamePeer
+    assert target.get_FullName() == sameNamePeer.get_FullName()
+    assert !Object.ReferenceEquals(targetObject, peerObject)
+
+    rows := new object[](3)
+    rows[0] = ColumnarIlEmitterEnumDefinition(decoy, false)
+    rows[1] = ColumnarIlEmitterEnumDefinition(target, false)
+    rows[2] = ColumnarIlEmitterEnumDefinition(stringBacked, true)
+    emitter := ColumnarIlEmitterUninitializedWithEnumRegistry(ColumnarIlEmitterEnumRegistry(rows))
+
+    assert ColumnarIlEmitterIsKnownEnum(emitter, target), "the numeric hit must advance to the second populated registry row"
+    assert !ColumnarIlEmitterIsKnownEnum(emitter, sameNamePeer), "equal names from distinct assemblies must not replace Type identity"
+    assert !ColumnarIlEmitterIsKnownEnum(emitter, stringBacked), "a string-backed source enum is not a CLR enum"
+    assert !ColumnarIlEmitterIsKnownEnum(emitter, typeof(object)), "an absent type must miss the populated registry"
+}
