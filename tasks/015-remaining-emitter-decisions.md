@@ -230,3 +230,22 @@ before any whole-owner acceptance. Source review evidence is
 `root-expression-r11-r24-source-review.json` in the emitter evidence directory.
 Complete emitter compilation, canonical execution through that owner, C# deletion, the fresh
 integration gate and push remain pending. No shared SDK seed has been published for this work.
+
+The remaining 37 expression helpers are source-reviewed and frozen for full-owner assembly in
+`expression38-complete-compile-r1/section-expression38.production-r36.nl` (SHA-256
+`ac0e2b4cfb45c67983a723d76d7a1a0767e347129f5ed73e897db2e72a32d411`). The insertable fragment
+contains 38 methods because it retains the original reserved `EmitExpressionCore`; the owner must
+replace that method with its reviewed complete implementation. Root verified six artifact hashes,
+method order, byte-identical reserved Core, unchanged source outside the assigned group and the
+restored conditional opcodes. The helper diagnostic run has no decline diagnostics but does not
+emit an assembly. The restored-Core composition first declines inside the original Core.
+Neither result is whole-owner acceptance. Evidence: `root-expression37-final-fragment-review.json`
+and `expression38-production-r36-final-receipt.json` in that directory.
+
+Canonical migration commits `976750a63` and `c98d53b9e` remain isolated until complete-owner
+integration. The frozen final selection contains 87 unique N# tests: 53 migrated canonical tests,
+30 direct emitter callers and four ownership/failure controls. Root verified the inventory hash
+and all selected names against the emitted test inventory. The existing 53-test and populated-enum
+baselines remain valid; pre-owner missing-type failures are negative routing evidence only.
+The exact candidate command and 87/87 acceptance condition are recorded in
+`/private/tmp/nsharp-columnar-il-emitter-tests-20260908/final-new-owner-selection-r1.json`.
