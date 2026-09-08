@@ -93,7 +93,10 @@ Compiler-wide ownership remains open. **Active area: complete ColumnarIlEmitter*
 `15540cf42`: 16,635 C# lines, 67 fields, 295 methods and one private constructor. Move its complete
 state and behavior with canonical assertions; delete the C# class. All 116 referenced compiler types
 already reside in N#, so no reverse assembly dependency blocks this owner. Sol Max implements;
-Astra reviews/integrates. [Execution contract](../tasks/015-remaining-emitter-decisions.md).
+Astra reviews/integrates. [Execution contract](../tasks/015-remaining-emitter-decisions.md). Canonical scope
+includes eight native emitter lookup migrations and 52 active C# compiler-facing cases (45 backend,
+five decline diagnostics, two conditional-compilation cases); a direct type-name-only audit missed
+them. Preserve all pipeline assertions in N#; leave CLI-command policy cases separately held.
 Move complete MultiFileCompiler afterward: its sole reverse dependency is the emitter. The emitter
 area is backend-only; the later CompileForAnalysis migration requires IDE gate and visual checks.
 Do not add callbacks or restart accepted migrations. Broader sibling tasks remain separately held.

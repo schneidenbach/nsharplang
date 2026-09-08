@@ -41,8 +41,13 @@ Faithful equivalent source is permitted when it preserves behavior. Verify all e
 with ILVerify; a successful compilation alone is insufficient for ref/out and closure lowering.
 
 Migrate eight existing native emitter reflection lookups to BootstrapServices, preserving signatures,
-flags and assertions; add focused ownership/failure regressions for actual gaps. Reuse accepted native
-coverage and use dev.sh during implementation. Root owns ratchet retirement, review, fresh backend
+flags and assertions. Also migrate the complete connected 52 compiler-facing C# canonical cases:
+45 MultiFileCompiler_* facts in CompilationBackendTests, all five ColumnarDeclineDiagnosticsTests
+and both PreprocessorConditionalCompilationTests. Preserve public pipeline calls/options, every
+assertion, subprocess/output/error behavior and cleanup; keep CLI-command policy facts separately.
+These active tests assert compiler behavior even without naming the emitter directly. Delete their
+replaced C# methods/classes and only helpers no longer used by surviving tests. Add focused
+ownership/failure regressions only for real gaps. Reuse accepted coverage and use dev.sh during implementation. Root owns ratchet retirement, review, fresh backend
 gate, any verified SDK publication, acceptance record and push. This emitter-only area is backend-only.
 
 Move the complete MultiFileCompiler after this dependency is integrated, with its helpers and state.
