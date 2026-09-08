@@ -49,6 +49,22 @@ func LsdFieldInt(error: CompilerError, name: string): int {
     return Convert.ToInt32(LsdRequiredField(error, name))
 }
 
+func LsdOptionalFieldText(error: CompilerError, name: string): string? {
+    field := error.GetType().GetField(name)
+    if field == null {
+        throw new InvalidOperationException("Required field was not found: " + name)
+    }
+    value := field.GetValue(error)
+    if value == null {
+        return null
+    }
+    text := value.ToString()
+    if text == null {
+        throw new InvalidOperationException("Required field text was null: " + name)
+    }
+    return text
+}
+
 func LsdPropertyText(error: CompilerError, name: string): string {
     text := LsdRequiredProperty(error, name).ToString()
     if text == null {
@@ -190,6 +206,36 @@ func LsdContains(errors: IReadOnlyList<CompilerError>, codeName: string, message
     return false
 }
 
+func LsdSingleAt(
+    errors: IReadOnlyList<CompilerError>,
+    codeName: string,
+    messageFragment: string?,
+    line: int,
+    column: int
+): CompilerError {
+    found: CompilerError? = null
+    count := 0
+    index := 0
+    while index < errors.Count {
+        error := errors[index]
+        matchesLine := line < 0 || LsdFieldInt(error, "Line") == line
+        matchesColumn := column < 0 || LsdFieldInt(error, "Column") == column
+        if LsdFieldText(error, "Code") == codeName && matchesLine && matchesColumn {
+            if LsdMessageMatches(LsdFieldText(error, "Message"), messageFragment) {
+                found = error
+                count = count + 1
+            }
+        }
+        index = index + 1
+    }
+    if found == null || count != 1 {
+        throw new InvalidOperationException(
+            "Expected one " + codeName + " diagnostic at the requested position, found " + count.ToString() + "."
+        )
+    }
+    return found
+}
+
 func LsdAssertSpan(error: CompilerError, line: int, column: int, length: int) {
     assert LsdFieldInt(error, "Line") == line
     assert LsdFieldInt(error, "Column") == column
@@ -226,6 +272,13 @@ func LsdDecodedSource(source: string): string {
             return decoded.Substring(0, decoded.Length - 1)
         }
         return decoded
+    }
+    return source
+}
+
+func LsdLeadingNewlineSource(source: string): string {
+    if source.EndsWith("\n", StringComparison.Ordinal) {
+        return source.Substring(0, source.Length - 1)
     }
     return source
 }
