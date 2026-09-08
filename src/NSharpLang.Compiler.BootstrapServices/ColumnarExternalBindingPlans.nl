@@ -1,6 +1,7 @@
 namespace NSharpLang.Compiler.Columnar
 
 import System
+import System.Collections.Generic
 
 enum ColumnarExternalStaticMemberKind {
     None,
@@ -310,6 +311,10 @@ class ColumnarExternalBindingPlans {
             return StaticMember(ColumnarExternalStaticMemberKind.Property, "System.StringComparer", memberName, "System.StringComparer")
         }
 
+        if MatchesOwner(typeName, "ReferenceEqualityComparer", "System.Collections.Generic.ReferenceEqualityComparer") && memberName == "Instance" {
+            return StaticMember(ColumnarExternalStaticMemberKind.Property, "System.Collections.Generic.ReferenceEqualityComparer", memberName, "System.Collections.Generic.ReferenceEqualityComparer")
+        }
+
         if MatchesOwner(typeName, "JsonNamingPolicy", "System.Text.Json.JsonNamingPolicy") && memberName == "CamelCase" {
             return StaticMember(ColumnarExternalStaticMemberKind.Property, "System.Text.Json.JsonNamingPolicy", memberName, "System.Text.Json.JsonNamingPolicy")
         }
@@ -538,7 +543,41 @@ class ColumnarExternalBindingPlans {
             return GenericStaticCall("System.Array", memberName, One("System.String"), Empty(), "System.String[]")
         }
 
+        // This exact Enumerable closure is an external binding, not a reimplementation: Enumerable
+        // retains its null checks, count fast paths, selector/Add order, and duplicate-key failures.
+        if MatchesOwner(typeName, "Enumerable", "System.Linq.Enumerable") && memberName == "ToDictionary" && HasThreeStringTypeArguments(typeArgumentTypeNames) && HasStringToDictionaryArguments(argumentTypeNames) {
+            return StringToDictionaryPlan()
+        }
+
         return NoCall()
+    }
+
+    static func HasThreeStringTypeArguments(typeArgumentTypeNames: string[]): bool {
+        return typeArgumentTypeNames.Length == 3 && typeArgumentTypeNames[0] == "System.String" && typeArgumentTypeNames[1] == "System.String" && typeArgumentTypeNames[2] == "System.String"
+    }
+
+    static func HasStringToDictionaryArguments(argumentTypeNames: string[]): bool {
+        return argumentTypeNames.Length == 4 && HasRuntimeFullName(argumentTypeNames[0], typeof(IEnumerable<string>)) && HasRuntimeFullName(argumentTypeNames[1], typeof(Func<string, string>)) && HasRuntimeFullName(argumentTypeNames[2], typeof(Func<string, string>)) && HasRuntimeFullName(argumentTypeNames[3], typeof(StringComparer))
+    }
+
+    static func HasRuntimeFullName(candidate: string, expectedType: Type): bool {
+        expectedName := expectedType.get_FullName()
+        return expectedName != null && candidate == expectedName
+    }
+
+    static func StringToDictionaryPlan(): ColumnarExternalCallPlan {
+        return GenericStaticCall(
+            "System.Linq.Enumerable",
+            "ToDictionary",
+            Three("System.String", "System.String", "System.String"),
+            Four(
+                "System.Collections.Generic.IEnumerable`1[System.String]",
+                "System.Func`2[System.String,System.String]",
+                "System.Func`2[System.String,System.String]",
+                "System.Collections.Generic.IEqualityComparer`1[System.String]"
+            ),
+            "System.Collections.Generic.Dictionary`2[System.String,System.String]"
+        )
     }
 
     static func IsReferenceIdentityArgumentType(typeName: string): bool {
@@ -1126,7 +1165,7 @@ class ColumnarExternalBindingPlans {
     }
 
     static func ExactTypeIdentity(fullName: string): string {
-        if fullName == "System.Threading.Tasks.Task`1[System.String]" || (fullName.StartsWith("System.Collections.Generic.IEnumerable`1[", StringComparison.Ordinal) && fullName.EndsWith("]", StringComparison.Ordinal)) {
+        if fullName == "System.Threading.Tasks.Task`1[System.String]" || (fullName.StartsWith("System.Collections.Generic.IEnumerable`1[", StringComparison.Ordinal) && fullName.EndsWith("]", StringComparison.Ordinal)) || fullName == "System.Func`2[System.String,System.String]" || fullName == "System.Collections.Generic.IEqualityComparer`1[System.String]" || fullName == "System.Collections.Generic.Dictionary`2[System.String,System.String]" {
             // Closed BCL generics must carry their fully version-qualified identity: the runtime
             // exact-identity check compares the assembly-qualified name (with the type argument's
             // own assembly and version), so a short `[System.String]`/`[System.Int64]` spelling would
@@ -1141,6 +1180,9 @@ class ColumnarExternalBindingPlans {
                 throw new InvalidOperationException("Required runtime generic type identity was unavailable.")
             }
             return identity
+        }
+        if fullName == "System.Linq.Enumerable" {
+            return fullName + ", System.Linq"
         }
         if fullName == "System.Reflection.MetadataLoadContext" || fullName == "System.Reflection.PathAssemblyResolver" || fullName == "System.Reflection.MetadataAssemblyResolver" {
             return fullName + ", System.Reflection.MetadataLoadContext"

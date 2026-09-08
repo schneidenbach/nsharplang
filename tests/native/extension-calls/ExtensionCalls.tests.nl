@@ -606,6 +606,120 @@ func main() {
     )
 }
 
+// This is the exact closed Enumerable overload used by SystemsAnalyzer: its source is an
+// IEnumerable rather than an array or List, both selector locals have their fixed Func shape,
+// and StringComparer must widen to IEqualityComparer<string> at the final argument slot.
+test "explicit String ToDictionary over a custom enumerable compiles and executes" {
+    AssertGenericCallProgram(
+        "ExplicitStringToDictionaryProject",
+        """
+import System
+import System.Collections.Generic
+import System.Linq
+
+func* ToDictionaryNames(first: string, second: string): IEnumerable<string> {
+    yield first
+    yield second
+}
+
+func main() {
+    source := ToDictionaryNames("Alpha", "Beta")
+    keySelector: Func<string, string> = value => value
+    valueSelector: Func<string, string> = value => value
+    values := Enumerable.ToDictionary<string, string, string>(source, keySelector, valueSelector, StringComparer.OrdinalIgnoreCase)
+
+    print values.Count
+    print values["alpha"]
+}
+""".Trim(),
+        "2\nAlpha"
+    )
+}
+
+// The BCL call remains responsible for duplicate detection. This catches the ArgumentException
+// it throws after the second normalized key reaches Dictionary.Add.
+test "explicit String ToDictionary preserves duplicate normalized-key failure" {
+    AssertGenericCallProgram(
+        "ExplicitStringToDictionaryDuplicateProject",
+        """
+import System
+import System.Collections.Generic
+import System.Linq
+
+func* ToDictionaryDuplicateNames(first: string, second: string): IEnumerable<string> {
+    yield first
+    yield second
+}
+
+func main() {
+    source := ToDictionaryDuplicateNames("Alpha", "alpha")
+    keySelector: Func<string, string> = value => value
+    valueSelector: Func<string, string> = value => value
+
+    try {
+        Enumerable.ToDictionary<string, string, string>(source, keySelector, valueSelector, StringComparer.OrdinalIgnoreCase)
+        print "missing duplicate failure"
+    } catch error: ArgumentException {
+        print "duplicate"
+    }
+}
+""".Trim(),
+        "duplicate"
+    )
+}
+
+// ReferenceEqualityComparer must preserve reference identity even when the source key type supplies
+// value equality. Its contravariant IEqualityComparer<object> implementation is the exact comparer
+// passed to the SystemsAnalyzer dictionary and set constructors.
+test "ReferenceEqualityComparer Instance preserves distinct value-equal keys" {
+    AssertGenericCallProgram(
+        "ReferenceEqualityComparerProject",
+        """
+import System
+import System.Collections.Generic
+
+class ReferenceIdentityNode {
+    Value: string
+
+    constructor(value: string) {
+        Value = value
+    }
+
+    override func Equals(value: object): bool {
+        other := value as ReferenceIdentityNode
+        return other != null && Value == other.Value
+    }
+
+    override func GetHashCode(): int {
+        return Value.GetHashCode()
+    }
+}
+
+func main() {
+    first := new ReferenceIdentityNode("same")
+    second := new ReferenceIdentityNode("same")
+
+    valueSet := new HashSet<object>()
+    valueSet.Add(first)
+    valueSet.Add(second)
+
+    identitySet := new HashSet<object>(ReferenceEqualityComparer.Instance)
+    identitySet.Add(first)
+    identitySet.Add(second)
+
+    identityMap := new Dictionary<object, int>(ReferenceEqualityComparer.Instance)
+    identityMap.Add(first, 1)
+    identityMap.Add(second, 2)
+
+    print valueSet.Count
+    print identitySet.Count
+    print identityMap.Count
+}
+""".Trim(),
+        "1\n2\n2"
+    )
+}
+
 // Canonical constructor-declaration integration assertions formerly lived in
 // CompilationBackendTests.cs. Each exact program uses the existing full production compiler/run
 // harness, retaining compilation success, process exit, and its original stdout assertion.
