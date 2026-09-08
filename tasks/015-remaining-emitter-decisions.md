@@ -171,7 +171,28 @@ Root verified all eight committed source hashes and all 14 private payload hashe
 nonzero runs, not the dev.sh legacy harness. Evidence:
 `/private/tmp/nsharp-columnar-il-emitter-owner-20260907/tuple-key-enumerator-seed/tuple-final-receipt.json`.
 
-The verified tuple candidate is available to the entry and constructor/member-write workers to remove
-scratch tuple bypasses. Concrete KeyCollection enumeration and the demonstrated executable
-`PersistedAssemblyBuilder.GenerateMetadata` binding remain in flight. These are dependencies of the
-same complete emitter migration, not acceptance of the emitter or publication of a shared SDK seed.
+The executable `PersistedAssemblyBuilder.GenerateMetadata` binding is integrated in `16cefead0`.
+Its canonical N# test verifies the exact receiver, two out BlobBuilder parameters and metadata return
+type. The actual emitter source advances through that call; production IL verification passes.
+Evidence: `generate-metadata-prereq/final-receipt.json` in the emitter evidence directory.
+
+The exact `OpCodes.Constrained` field admission is integrated in `fa4eefbab`. Its canonical N# test
+passes, and the actual constrained-call method advances past the field failure with the private
+candidate. All production types and methods pass unfiltered IL verification. Evidence:
+`constrained-prereq/final-receipt.json` in the emitter evidence directory.
+
+Concrete dictionary key enumeration is integrated in `3ed8348b8`. The N# type planner and runtime
+member resolver admit the exact BCL KeyCollection enumerator and resolve its closed Current property.
+Four canonical assertions, the byte-identical originally failing source, two focused native tests and
+all 129 tests in the native columnar-emit-facts verification project pass. Production and native IL
+verification pass; emitted code uses one addressable struct local for MoveNext, Current and Dispose,
+including disposal in finally and dictionary mutation failure. Root verified committed source and
+private payload hashes. Evidence: `keycollection-enumerator-seed/keycollection-final-receipt.json`
+in the emitter evidence directory.
+
+These private candidates have different source bases: the key-enumerator candidate includes tuple
+support but predates GenerateMetadata and Constrained. The entry owner must build a combined payload
+before claiming complete emitter compilation. The original tuple constructor candidate lists are
+restored in the constructor/member-write group; scratch bypasses remain diagnostic evidence only.
+Complete entry/body/suffix compilation, canonical execution through the new owner, C# deletion, the
+fresh integration gate and push remain pending. No shared SDK seed has been published for this work.
