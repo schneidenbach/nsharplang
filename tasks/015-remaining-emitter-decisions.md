@@ -91,12 +91,24 @@ introduces the earlier failure. Inspection of the actual input rows confirms tha
 SIMD/ValueTuple helper initializers are rejected by the existing N#
 `ColumnarStaticFieldInitializerEmitter.TryParseParameterlessStaticInitializerCall`; the three
 parameterless collection helpers pass. `TryEmitAll` returns false before ordinary body emission.
-The next prerequisite is the connected N# static-initializer helper-call parsing, resolution and
-argument-emission group, with actual source probes and canonical assertions. No per-field wrapper,
-C# callback or fallback is an acceptable substitute. Evidence:
+This established the dependency on connected N# static-initializer helper-call parsing, resolution
+and argument emission. No per-field wrapper, C# callback or fallback is an acceptable substitute. Evidence:
 `/private/tmp/nsharp-columnar-il-emitter-owner-20260907/silent-exit-audit/rowdump-current-r3.log`
 and `declaration-bisect-r2/` in that directory. Reduced-source results establish localization only;
 the complete class must be rebuilt and verified after the prerequisite.
+
+That prerequisite is integrated in `38c900aff` and `a6550b612`. The N# owner now resolves and emits
+the required single string/`nameof` argument while preserving parameterless behavior, overload
+order, rejection before IL emission and meaningful failures. Canonical N# assertions pass 8/8;
+the existing native initializer family plus the new regression passes 3/3. The byte-identical
+ordinary source probe fails with the previous private compiler and succeeds with the replacement.
+The private production BootstrapServices payload (`412d6b412ac21d0d5b6825d4bdd375b3192361b7a2a49d46109716c99bae4295`)
+contains no `NSharpTests` metadata and passes unfiltered IL verification of all 1,227 types and
+10,535 methods. Final evidence:
+`/private/tmp/nsharp-columnar-il-emitter-owner-20260907/static-initializer-argument-seed/final-receipt.json`
+(SHA-256 `cc53296864b8d848a68b9c417e4997b3c3e1713a577302a8b9cf9cf8f5acd090`).
+This is prerequisite acceptance only: the full emitter is still being compiled, and shared SDK
+publication, whole-owner canonical execution, legacy deletion and integration checks remain pending.
 
 The demonstrated `Array.Empty<byte>()`, `Array.Empty<Type>()` and `Array.Empty<Type[]>()` dependency
 is integrated in `dc02a272a`. Its N# binding/planning tests pass 12/12, the native Array.Empty family
