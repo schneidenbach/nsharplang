@@ -393,6 +393,44 @@ test "body loop comparison branch joins the exact label operand surface" {
     )
 }
 
+test "array list comparison branches join the exact label operand surface" {
+    names := new string[](2)
+    names[0] = "Blt"
+    names[1] = "Bne_Un"
+
+    i := 0
+    while i < names.Length {
+        name := names[i]
+        AssertSupportedOpcode(name)
+        assert !ColumnarExternalBindingPlans.IsSupportedValueOpCodeMemberName(name)
+        assert ColumnarExternalBindingPlans.IsSupportedComputeOpCodeMemberName(name)
+        assert !ColumnarExternalBindingPlans.IsSupportedObjectModelOpCodeMemberName(name)
+
+        field := typeof(OpCodes).GetField(name)
+        assert field != null
+        assert field.get_DeclaringType() == typeof(OpCodes)
+        assert field.get_FieldType() == typeof(OpCode)
+        i = i + 1
+    }
+
+    arguments := new string[](2)
+    arguments[0] = "System.Reflection.Emit.OpCode"
+    arguments[1] = "System.Reflection.Emit.Label"
+    AssertVirtualCall(
+        "System.Reflection.Emit.ILGenerator",
+        "Emit",
+        arguments,
+        "System.Void"
+    )
+
+    assert typeof(OpCodes).GetField("Blt_Un") != null
+    assert typeof(OpCodes).GetField("Blt_S") != null
+    assert typeof(OpCodes).GetField("Bne_Un_S") != null
+    assert !ColumnarExternalBindingPlans.IsSupportedOpCodeMemberName("Blt_Un")
+    assert !ColumnarExternalBindingPlans.IsSupportedOpCodeMemberName("Blt_S")
+    assert !ColumnarExternalBindingPlans.IsSupportedOpCodeMemberName("Bne_Un_S")
+}
+
 test "ldftn selects the exact opcode field and MethodInfo emit overload" {
     AssertSupportedOpcode("Ldftn")
     qualified := ColumnarExternalBindingPlans.GetStaticMemberPlan(
