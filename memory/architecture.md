@@ -74,12 +74,14 @@ N# replacement is in the product path or the final audit proves it is mechanical
 ### Historical reviewed inventory for `src/NSharpLang.Compiler`
 
 The table records the task-021 terminal audit, not current ownership acceptance. The current
-compiler cursor and ratchet are authoritative; complete Analyzer ownership is accepted and the
-remaining SystemsAnalyzer class is now selected for removal.
+compiler cursor and ratchet are authoritative. Complete Analyzer, SystemsAnalyzer, input-builder
+and ColumnarIlEmitter ownership is accepted. The complete MultiFileCompiler class is now selected
+for removal under task 021; its historical mechanical label is not an ownership exemption.
 
 At that audit, tracked files in the compiler assembly were classified as follows. "Decisions"
 is the product-decision census — `NL` codes / user-facing sentences / ordering sites / non-zero exit
-returns — which is what proves *mechanical* rather than the word. Line counts are
+returns. That census alone does not prove a boundary mechanical: state, control flow and failure
+policy must also be reviewed. Line counts are
 `ratchet epoch -> current`; no row in the entire 381-row ratchet has ever exceeded its epoch.
 
 | path | epoch -> current | decisions | N# owner it invokes | class |
@@ -100,30 +102,29 @@ Eleven further C# files in this assembly are `state:"removed"` — deleted whole
 `Parser.cs`, `Formatter.cs`, `Linter.cs`, `DocQuery.cs`, the three `Ast/*.cs`, `NullabilityMetadata.cs`,
 `ErrorReporting.cs`, `AstNodeFinder.cs` and `Columnar/ColumnarCompiler.cs`.
 
-**Current ownership must be proved from source.** The emitter retains compiler decisions;
-historical mechanical labels do not exempt remaining state/control ownership from the active goal:
+**Current ownership must be proved from source.** Historical mechanical labels do not exempt
+remaining state/control ownership from the active goal:
 
-- `ColumnarIlEmitter.cs` carries **144 user-facing sentences**. IL generation therefore does **not**
-  yet have exactly one N# production owner. Follow the current compiler-only contract and
-  `tasks/015-remaining-emitter-decisions.md`. A metadata writer is in scope only when demonstrated
-  to be an ownership dependency; NativeAOT remains a separate initiative.
-- **The SIMD auto-vectorizer is C# inside `ColumnarIlEmitter.cs` and has an N# contract owner, not an
-  N# implementation owner.** `TryEmitVectorizedReduction{While,For}`, `TryEmitVectorizedRangeCount*`,
-  `TryEmitVectorizedMinMax*`, and `TryEmitVectorizedCountTransitions*` (plus the `SimdReductions` helper
-  table near the top of the file) lower four loop shapes to calls into
-  `src/NSharpLang.Runtime/SimdReductions.cs`. That lowering is what makes systems N# Rust-class on the
-  vectorizable kernels (`benchmarks/native-comparison/`), and its C# tests were deleted at a50cb4000.
-  Since 2026-09-01 the contracts live in `tests/native/systems-vectorization-facts` (IL shape read from
-  the emitted assembly by an N# IL walker, plus scalar-equivalence on fixed and randomised inputs, for
-  every accepted shape and every conservative guard), and the throughput is gated by the product gate's
-  Step 3c against `benchmarks/native-comparison/runner/SystemsThroughputBaseline.nl`. **Any 015 sub-slice
-  that deletes or ports the vectorizer must route through that contract project: the N# owner is done
-  only when `systems-vectorization-facts` is green unchanged and Step 3c still passes.** Note also that
-  the `NSHARP_VECTORIZE_REDUCTIONS=0` opt-out the docs used to advertise died with the legacy IL compiler
-  at 1cef0d16e; the columnar emitter has no opt-out, and the contract project pins that fact.
+- The complete `ColumnarIlEmitter` implementation, including SIMD loop lowering, now lives in
+  `src/NSharpLang.Compiler.BootstrapServices/ColumnarIlEmitter.nl`; its C# owner is deleted.
+  Checkpoint `8ec52542b`, published with `d533cd51e`, passed the fresh IDE-enabled product gate,
+  installed SDK verification and real-editor formatting checks. See
+  [the acceptance evidence](../systems-language-closeout/decodes/2026-09-08-complete-columnar-emitter-ownership.md).
+- The existing `tests/native/systems-vectorization-facts` assertions and product-gate throughput
+  checks remain the vectorizer's regression coverage. Calls into
+  `src/NSharpLang.Runtime/SimdReductions.cs` are runtime calls; runtime reimplementation remains
+  separate from compiler lowering ownership.
+- `MultiFileCompiler.cs` still owns pipeline sequencing, state, diagnostics, emission-thread
+  lifetime and failure behavior. Its complete migration and ten canonical recovery tests are
+  active in [task 021](../tasks/021-final-compiler-ownership-audit.md). It is not accepted glue.
+- `src/NSharpLang.Cli/CompilationReferenceResolver.cs` still controls recursive reference builds,
+  package traversal, caching and failure behavior. Existing N# kernels do not make the remaining
+  orchestration mechanical. Compiler reference resolution remains in scope despite its CLI path;
+  the complete connected boundary is being audited after MultiFileCompiler.
 - The former Analyzer metadata quarantine is removed with the complete C# class. Its metadata
   lifecycle and existing reflection operations are owned by N#; no metadata-writer rewrite was
-  required to achieve that ownership.
+  required to achieve that ownership. NativeAOT and a broader metadata-writer initiative remain
+  separate from the compiler-only goal unless a concrete ownership dependency is demonstrated.
 
 Sibling assemblies are classified the same way and carry two `(b)` pins — surfaces that retire *with
 their subject* rather than moving, and which are pinned by contract in the meantime:
