@@ -79,10 +79,11 @@ mechanical, and explicitly reviewed against its N# owner.
 
 Current measured route and boundaries are in [STATUS §1](../systems-language-closeout/STATUS.md):
 
-1. At the verified SystemsAnalyzer checkpoint, `ColumnarIlEmitter.cs` remains 16,635 lines /
-   15,817 nonblank, ColumnarProgramInputBuilder 1,033/964 and MultiFileCompiler 663/587. These
-   complete production ownership areas remain in scope. Historical parser checkboxes accepted
-   kernels, not the surviving C# input-materialization decisions.
+1. After input-builder integration, `ColumnarIlEmitter.cs` remains 16,635 lines /
+   15,817 nonblank and MultiFileCompiler 663/587. These complete production ownership areas
+   remain in scope. ColumnarProgramInputBuilder is now entirely N#-owned; its fresh integration
+   gate and SDK acceptance remain pending in STATUS. Historical checkboxes do not establish
+   compiler-wide ownership or canonical assertion completion.
 2. Analyzer.cs, SystemsAnalyzer.cs and TypeResolver.cs are deleted; their accepted N# owners and
    canonical evidence must be preserved. Task 023 writer implementation is conditional on a
    demonstrated compiler-ownership dependency. NativeAOT and broader writer ordering remain in

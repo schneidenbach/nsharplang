@@ -77,12 +77,17 @@ and decline ordering. Keep its accepted N# parser kernels/input models; delete t
 and integrates; Sol Max implements the complete class and canonical lookup migration in isolated
 worktrees. Do not restart accepted Analyzer/SystemsAnalyzer or implicitly resume held sibling branches.
 
-The complete proposed owner is written and under verification. `2ea07788e` adds the demonstrated
-N# `Array.Empty<int>()` binding prerequisite: canonical 9/9 and native 1/1 pass. Inferred Array.Fill
-and both Array.Copy overloads already compile to the exact CLR calls; no expansion was needed.
-Explicit private-constructor metadata remains an open prerequisite in the existing N# constructor
-declaration owner (native witness fails 1 of 38 baseline cases). A private SDK cache supports normal
-bootstrap verification; no new live SDK has been published. Evidence and review:
+The full owner and canonical migration are integrated as `c2379140a` and `7f747d76a`;
+all 1,033 C# lines are deleted. The direct public static entry and private constructor are the
+reviewed mechanical cross-assembly boundary; all sixteen helper methods remain private.
+`2ea07788e` supplies the proven N# Array.Empty<int> prerequisite (9 canonical + 1 native control).
+Constructor visibility now flows entirely through N# (2 parser controls); the final production
+owner passes IL verification for all 18 methods. Focused native suites pass 126/126 and 39/39.
+An earlier invalid out-parameter field store was rejected and replaced with a local alias while
+preserving partial-output timing; the corrected compiler and owner pass selected IL verification.
+Exactly one ratchet row is retired, 380 other rows and all epochs unchanged;
+current head `head-v1:c15834f9d1324493`. Fresh integration gate, official SDK publication and push
+remain pending. No new live SDK has been published. Evidence and review:
 `/private/tmp/nsharp-columnar-input-builder-owner-20260907`.
 
 **Accepted compiler-only area, complete Analyzer class:** `ec8814c01` moves the entire Analyzer,
@@ -2782,6 +2787,7 @@ IDE-affecting and both ran the VS Code-enabled gate with the extension rebuilt a
 
 | slice id | commit(s) | what moved | durable finding | headline numbers |
 |---|---|---|---|---|
+| Complete input materialization | `c2379140a`, `7f747d76a`, seed `2ea07788e` | Full 17-method ColumnarProgramInputBuilder replaces 1,033 C# lines; eight canonical lookups target N# directly | Preserve sentinel/copies, declaration order, partial out state and trace finally; private constructor requires N# visibility propagation; integration verification pending | native 126/126 +39/39, parser 2/2, owner IL18/18 |
 | 016 note (gate-bar note) | no commit | none | Only the two production-touching stages (N+2 cutover, N+3 deletion) needed the IDE bar; Stages 1-8 added self-contained N# owner files plus native contracts with NO production/LSP wiring, so the non-VS-Code gate sufficed until cutover. | 2 IDE-bar runs; Stages 1-8 non-IDE |
 | Task 016 status (COMPLETE) | `9f2dd9572` (landed) | `Parser.cs` gone from production, LSP and every test; `ColumnarParserRecovery` is the sole parse + ordered-diagnostic authority | Completion criterion is the FILE being gone, not "a reviewed zero-policy host". The one residual — translating 2,021 rerouted C# parser assertions into native `.tests.nl` contracts — is BOOKKEEPING, moves no ownership, and does not gate the checkbox. | capability arc stages 0-17 closed; 432 native parity contracts at Stage 17; owner 6,855 lines then; contracts 1,217/1,217 at N+1c tranche 2 |
 | 016 stage N+3 (Parser.cs deletion arc) | `53e272711` (landed) | DELETED `src/NSharpLang.Compiler/Parser.cs` (−7,116) and `ErrorReporting.cs`'s `ParseResult` (−14); 53 parse sites in 20 test files rerouted to `ColumnarParserRecovery.ParseFileAst`; owner gained `FileParseAst.Success` | Rerouting 2,021 parser assertions beats deleting them: reroute makes each an EXECUTABLE proof obligation on the N# owner over a synthetic surface the 27,694-source corpus never reaches. Deleting on a mapping argument trades executable coverage for prose. | 7,130 C# deleted / 0 added; −7,264 C# / +53 N#; unit 3,193→3,193; contracts 1,554/1,554; audit 18/18; IL 78/78 byte-identical, PRODUCT_IL_DIFFS=0; full VS Code gate EXIT 0 13m48s, 105 steps, 36 VS Code tests |
