@@ -26,6 +26,10 @@ class ColumnarReferenceConversionFacts {
         } catch ex: NotSupportedException {
         }
 
+        if IsExactReferenceEqualityComparerUpcast(sourceType, targetType) {
+            return true
+        }
+
         if sourceType.get_IsSZArray() && targetType.get_IsGenericType() && !targetType.get_IsGenericTypeDefinition() {
             targetDefinition := targetType.GetGenericTypeDefinition()
             if (targetDefinition == typeof(IReadOnlyList<int>).GetGenericTypeDefinition() || targetDefinition == typeof(IReadOnlyCollection<int>).GetGenericTypeDefinition() || targetDefinition == typeof(IEnumerable<int>).GetGenericTypeDefinition()) && ColumnarTypeEquivalenceFacts.TypesEquivalent(sourceType.GetElementType(), targetType.GetGenericArguments()[0]) {
@@ -287,6 +291,10 @@ class ColumnarReferenceConversionFacts {
             return true
         }
 
+        if IsExactReferenceEqualityComparerUpcast(sourceType, targetType) {
+            return true
+        }
+
         if targetType.get_IsGenericType() && !targetType.get_IsGenericTypeDefinition() && sourceType.get_IsSZArray() {
             sourceElement := sourceType.GetElementType()
             targetArguments := targetType.GetGenericArguments()
@@ -370,6 +378,31 @@ class ColumnarReferenceConversionFacts {
 
     static func IsReadOnlyDictionaryEnumerableShell(sourceDefinition: Type, targetDefinition: Type, targetElement: Type): bool {
         return sourceDefinition == ColumnarTypeOfPlanner.RequiredReadOnlyDictionaryDefinition() && targetDefinition == typeof(IEnumerable<int>).GetGenericTypeDefinition() && targetElement.get_IsGenericType() && !targetElement.get_IsGenericTypeDefinition() && targetElement.GetGenericTypeDefinition() == typeof(KeyValuePair<int, int>).GetGenericTypeDefinition()
+    }
+
+    // ReferenceEqualityComparer implements IEqualityComparer<object>. The interface is contravariant,
+    // so the singleton is also an IEqualityComparer<T> for a source reference class T. Runtime
+    // assignability cannot close that variance edge over an unbaked TypeBuilder; name the one exact
+    // BCL source and interface shell, and keep value types and other dynamic shapes outside it.
+    static func IsExactReferenceEqualityComparerUpcast(sourceType: Type, targetType: Type): bool {
+        if !targetType.get_IsGenericType() || targetType.get_IsGenericTypeDefinition() || targetType.GetGenericTypeDefinition() != typeof(IEqualityComparer<int>).GetGenericTypeDefinition() {
+            return false
+        }
+        arguments := targetType.GetGenericArguments()
+        if arguments.Length != 1 {
+            return false
+        }
+        argument := arguments[0]
+        if !(argument is TypeBuilder) || argument.get_IsGenericTypeDefinition() || argument.get_IsValueType() || argument.get_IsInterface() {
+            return false
+        }
+
+        runtimeComparer := Type.GetType("System.Collections.Generic.ReferenceEqualityComparer, System.Private.CoreLib")
+        if runtimeComparer == null {
+            throw new InvalidOperationException("System.Collections.Generic.ReferenceEqualityComparer was not found.")
+        }
+        comparerIdentity := runtimeComparer.get_AssemblyQualifiedName()
+        return comparerIdentity != null && ExternalAssemblyScan.HasExactTypeIdentity(sourceType, comparerIdentity)
     }
 
     // Runtime Type.IsAssignableFrom cannot inspect a TypeBuilderInstantiation whose generic

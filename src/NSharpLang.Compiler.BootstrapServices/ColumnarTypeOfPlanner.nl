@@ -1138,7 +1138,7 @@ class ColumnarTypeOfPlanner {
             return true
         }
         if ContainsBuilderBoundType(valueType) {
-            return IsSupportedCollectionType(valueType) || IsSupportedTaskType(valueType) || IsSupportedResultType(valueType) || IsSupportedAnonymousUnionType(valueType) || IsSupportedEnumeratorType(valueType) || IsSupportedListEnumeratorType(valueType) || IsSupportedDictionaryValueCollectionType(valueType) || IsSupportedDictionaryEnumeratorType(valueType) || IsSupportedDictionaryValueEnumeratorType(valueType) || IsSupportedKeyValuePairType(valueType)
+            return IsSupportedCollectionType(valueType) || IsSupportedTaskType(valueType) || IsSupportedResultType(valueType) || IsSupportedAnonymousUnionType(valueType) || IsSupportedEnumeratorType(valueType) || IsSupportedListEnumeratorType(valueType) || IsSupportedDictionaryValueCollectionType(valueType) || IsSupportedDictionaryEnumeratorType(valueType) || IsSupportedDictionaryValueEnumeratorType(valueType) || IsSupportedKeyValuePairType(valueType) || IsSupportedReferenceEqualityComparerType(valueType)
         }
         if valueType.get_IsGenericType() && !valueType.get_IsGenericTypeDefinition() {
             definition := valueType.GetGenericTypeDefinition()
@@ -1370,6 +1370,28 @@ class ColumnarTypeOfPlanner {
         }
         name := valueType.GetGenericTypeDefinition().FullName ?? ""
         return name == "System.Collections.Generic.List`1" || name == "System.Collections.Generic.Dictionary`2" || name == "System.Collections.Generic.SortedDictionary`2" || name == "System.Collections.Generic.HashSet`1" || name == "System.Collections.Generic.SortedSet`1" || name == "System.Collections.Generic.Stack`1" || name == "System.Collections.Generic.IReadOnlyList`1" || name == "System.Collections.Generic.IReadOnlyCollection`1" || name == "System.Collections.Generic.IReadOnlySet`1" || name == "System.Collections.Generic.IReadOnlyDictionary`2" || name == "System.Collections.Generic.IEnumerable`1"
+    }
+
+    // HashSet<T> and Dictionary<T, TValue> expose IEqualityComparer<T> in their exact constructor
+    // parameters. The BCL's ReferenceEqualityComparer singleton can close that interface over a
+    // complete source class even while its TypeBuilder is unbaked. Keep this exception to that one
+    // interface shell and direct, non-generic source class argument.
+    static func IsSupportedReferenceEqualityComparerType(valueType: Type): bool {
+        if valueType is TypeBuilder || IsEnumBuilder(valueType) || !valueType.get_IsGenericType() || valueType.get_IsGenericTypeDefinition() {
+            return false
+        }
+        definition := valueType.GetGenericTypeDefinition()
+        comparerDefinition := typeof(IEqualityComparer<int>).GetGenericTypeDefinition()
+        comparerIdentity := comparerDefinition.get_AssemblyQualifiedName() ?? ""
+        if !ExternalAssemblyScan.HasExactTypeIdentity(definition, comparerIdentity) {
+            return false
+        }
+        arguments := valueType.GetGenericArguments()
+        if arguments.Length != 1 {
+            return false
+        }
+        argument := arguments[0]
+        return argument is TypeBuilder && !IsEnumBuilder(argument) && !argument.get_IsGenericTypeDefinition() && !argument.get_IsValueType() && !argument.get_IsInterface()
     }
 
     // IEnumerator<T> is storable protocol state, not a collection expression or foreach source.

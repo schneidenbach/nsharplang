@@ -188,6 +188,150 @@ test "read-only dictionary inherited enumerable conversion preserves the complet
     )
 }
 
+test "reference equality comparer closes over a source class through the exact constructor parameter" {
+    entry := SourceCallDefinition(
+        "ReferenceConversionTypedComparerEntry",
+        true
+    )
+    valueEntry := SourceCallDefinition(
+        "ReferenceConversionTypedComparerValueEntry",
+        false
+    )
+    interfaceEntry := SourceCallInterfaceDefinition(
+        "ReferenceConversionTypedComparerInterfaceEntry"
+    )
+    entryType: Type = entry.Builder
+    valueEntryType: Type = valueEntry.Builder
+    interfaceEntryType: Type = interfaceEntry.Builder
+    comparer := ReferenceConversionClosedType(
+        typeof(IEqualityComparer<int>).GetGenericTypeDefinition(),
+        entryType
+    )
+    valueComparer := ReferenceConversionClosedType(
+        typeof(IEqualityComparer<int>).GetGenericTypeDefinition(),
+        valueEntryType
+    )
+    interfaceComparer := ReferenceConversionClosedType(
+        typeof(IEqualityComparer<int>).GetGenericTypeDefinition(),
+        interfaceEntryType
+    )
+    runtimeComparer := Type.GetType(
+        "System.Collections.Generic.ReferenceEqualityComparer, System.Private.CoreLib"
+    )
+    if runtimeComparer == null {
+        throw new InvalidOperationException(
+            "System.Collections.Generic.ReferenceEqualityComparer was not found."
+        )
+    }
+
+    hashSetDefinition := typeof(HashSet<int>).GetGenericTypeDefinition()
+    comparerConstructor := ColumnarConstructionPlanner.FindOpenComparerConstructor(
+        hashSetDefinition,
+        "System.Collections.Generic.IEqualityComparer`1"
+    )
+    if comparerConstructor == null {
+        throw new InvalidOperationException(
+            "The HashSet comparer constructor was not found."
+        )
+    }
+    openParameters := comparerConstructor.GetParameters()
+    assert openParameters.Length == 1
+    closedArguments := new Type[](1)
+    closedArguments[0] = entryType
+    constructorParameter := ColumnarConstructionPlanner.SubstituteTypeArgument(
+        openParameters[0].get_ParameterType(),
+        closedArguments
+    )
+    assert ColumnarReferenceConversionFacts.ExactTypeShapeMatches(
+        constructorParameter,
+        comparer
+    )
+    definitions := SourceCallDefinitions(entry)
+    flow := ColumnarDirectCallArgumentFlow.None
+    comparerSupported := ColumnarTypeOfPlanner.IsSupportedType(comparer)
+    flowClassified := ColumnarSourceDirectCallResolver.TryClassifyArgumentFlow(
+        constructorParameter,
+        runtimeComparer,
+        definitions,
+        out flow
+    )
+    assert comparerSupported && flowClassified, "typed comparer prerequisite: supported=" + comparerSupported.ToString() + "; flowClassified=" + flowClassified.ToString()
+    assert flow == ColumnarDirectCallArgumentFlow.Reference
+    assert ColumnarReferenceConversionFacts.IsExactKnownUpcast(
+        runtimeComparer,
+        comparer
+    )
+    assert ColumnarReferenceConversionFacts.TryEmitReferenceConversion(
+        runtimeComparer,
+        comparer
+    )
+
+    wrongValueComparer := ReferenceConversionClosedType(
+        typeof(IEqualityComparer<int>).GetGenericTypeDefinition(),
+        typeof(int)
+    )
+    wrongInterface := ReferenceConversionClosedType(
+        typeof(IComparer<int>).GetGenericTypeDefinition(),
+        entryType
+    )
+    namesakeComparer: Type = TypeOfCreateBuilder(
+        "System.Collections.Generic.ReferenceEqualityComparer",
+        "ReferenceConversionTypedComparerNamesake",
+        0
+    )
+    assert !ColumnarTypeOfPlanner.IsSupportedType(valueComparer)
+    assert !ColumnarTypeOfPlanner.IsSupportedType(interfaceComparer)
+    assert !ColumnarTypeOfPlanner.IsSupportedType(wrongInterface)
+    assert !ColumnarReferenceConversionFacts.IsExactKnownUpcast(
+        runtimeComparer,
+        wrongValueComparer
+    )
+    assert !ColumnarReferenceConversionFacts.TryEmitReferenceConversion(
+        runtimeComparer,
+        wrongValueComparer
+    )
+    assert !ColumnarReferenceConversionFacts.IsExactKnownUpcast(
+        runtimeComparer,
+        interfaceComparer
+    )
+    assert !ColumnarReferenceConversionFacts.TryEmitReferenceConversion(
+        runtimeComparer,
+        interfaceComparer
+    )
+    assert !ColumnarReferenceConversionFacts.IsExactKnownUpcast(
+        runtimeComparer,
+        wrongInterface
+    )
+    assert !ColumnarReferenceConversionFacts.TryEmitReferenceConversion(
+        runtimeComparer,
+        wrongInterface
+    )
+    assert !ColumnarReferenceConversionFacts.IsExactKnownUpcast(
+        namesakeComparer,
+        comparer
+    )
+    assert !ColumnarReferenceConversionFacts.TryEmitReferenceConversion(
+        namesakeComparer,
+        comparer
+    )
+    assert !ColumnarReferenceConversionFacts.IsExactKnownUpcast(
+        typeof(StringComparer),
+        comparer
+    )
+    assert !ColumnarReferenceConversionFacts.TryEmitReferenceConversion(
+        typeof(StringComparer),
+        comparer
+    )
+    assert !ColumnarReferenceConversionFacts.IsExactKnownUpcast(
+        comparer,
+        runtimeComparer
+    )
+    assert !ColumnarReferenceConversionFacts.TryEmitReferenceConversion(
+        comparer,
+        runtimeComparer
+    )
+}
+
 test "structural reference facts classify exact source interface edges and boxing" {
     target := SourceCallInterfaceDefinition(
         "ReferenceConversionSourceTarget"

@@ -699,15 +699,15 @@ func main() {
     first := new ReferenceIdentityNode("same")
     second := new ReferenceIdentityNode("same")
 
-    valueSet := new HashSet<object>()
+    valueSet := new HashSet<ReferenceIdentityNode>()
     valueSet.Add(first)
     valueSet.Add(second)
 
-    identitySet := new HashSet<object>(ReferenceEqualityComparer.Instance)
+    identitySet := new HashSet<ReferenceIdentityNode>(ReferenceEqualityComparer.Instance)
     identitySet.Add(first)
     identitySet.Add(second)
 
-    identityMap := new Dictionary<object, int>(ReferenceEqualityComparer.Instance)
+    identityMap := new Dictionary<ReferenceIdentityNode, int>(ReferenceEqualityComparer.Instance)
     identityMap.Add(first, 1)
     identityMap.Add(second, 2)
 
