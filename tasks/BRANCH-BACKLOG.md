@@ -73,9 +73,20 @@ Previously completed independent work stays separate from compiler-only acceptan
   retain both row sets, recompute the head, and run fresh combined VS Code/visual verification.
   The task holds; historical branch evidence is not combined-target acceptance.
 
-Current compiler checkpoints accept complete Analyzer and SystemsAnalyzer ownership, including their
-proven collection/reference/metadata prerequisites. Preserve those migrations. Select the next
-complete production ownership area from actual dependencies; ColumnarProgramInputBuilder is the
-next reviewed candidate. CLI/editor and older SDK work remain separate.
+Current compiler checkpoints also accept complete ColumnarProgramInputBuilder, ColumnarIlEmitter
+and MultiFileCompiler ownership, ending at `27b1a8a1b` with a verified installed SDK. Preserve those
+migrations. Complete CompilationReferenceResolver is now selected; the existing SDK reference-assembly
+scan/rewrite is a compiler follow-on. CLI/editor and older SDK work remain separate.
 The primary task owns shared ratchets, gates and publication. Older SDK/editor work requires
 separate integration checkpoints; no duplicate verification or competing feed writes are authorized.
+
+## Presentation and fix assertion debt (2026-09-08)
+
+The source-only audit
+`/private/tmp/nsharp-multifile-assessment/cli-fix-csharp-assertion-boundary-20260908.md` records missing
+N# assertions for DefinitionSearchToJson, HoverToJson, CallGraphToJson, ImplementorsToJson, populated
+and empty LintToJson, and complete fix ResultJson/BuildJsonEntry/GetExitCode/ResultText behavior.
+These output schemas and fix-command policies remain separate from compiler-only completion.
+Existing C# policy tests should remain until their own N# successors are verified; do not silently
+delete coverage or start CLI implementation as a compiler prerequisite. The audit's compiler-facing
+visibility and diagnostic gaps are tracked in task 021 instead.

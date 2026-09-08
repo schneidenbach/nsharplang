@@ -258,6 +258,20 @@ remove replaced C# compiler clauses, retaining distinct command transport observ
 project/NuGet and child-AOT assertions move with the selected reference resolver. The ambient Turkish
 culture formatting assertion is separately scoped presentation/runtime coverage, not compiler debt.
 
+The three-file CLI/fix audit is
+`/private/tmp/nsharp-multifile-assessment/cli-fix-csharp-assertion-boundary-20260908.md`.
+Its compiler-relevant gaps are the exact six-case package/namespace visibility group, the stronger
+malformed-source diagnostic bound (`undefinedFromCli`, at most four), and strict-lint diagnostic
+aggregation on otherwise valid source. Preserve these exact fixtures in N# before deleting their
+C# compiler clauses. Audit the remaining direct compiler diagnostic/message/span assertions in
+LanguageServerDiagnosticsTests separately from its LSP range-conversion and transport assertions.
+
+The audit's broader "compiler-service" label is not the active scope: JSON root-key/value envelopes,
+LintToJson formatting, fix serialization/application policy, and query/editor presentation belong in
+BRANCH-BACKLOG.md. Do not add those as compiler completion conditions merely because their N# owners
+live in BootstrapServices. Binding/visibility and compiler diagnostic assertions remain in scope
+regardless of the C# test filename or command that transports them.
+
 The two-file assertion crosswalk is
 `/private/tmp/nsharp-multifile-assessment/check-il-sdk-canonical-crosswalk-20260908.md`.
 Its equivalent N# coverage supports removing redundant C# compiler clauses; it does not authorize
