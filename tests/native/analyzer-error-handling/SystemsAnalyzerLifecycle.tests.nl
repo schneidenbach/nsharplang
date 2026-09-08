@@ -36,7 +36,7 @@ func SaRequiredType(typeName: string): Type {
 }
 
 func SaSystemsAnalyzerType(): Type {
-    return SaRequiredType("NSharpLang.Compiler.Performance.SystemsAnalyzer, Compiler")
+    return SaRequiredType("NSharpLang.Compiler.Performance.SystemsAnalyzer, NSharpLang.Compiler.BootstrapServices")
 }
 
 func SaCompilationUnitType(): Type {
