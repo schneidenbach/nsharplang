@@ -304,3 +304,26 @@ builds. The earlier kind-0 generic-name fixture was malformed and is not a produ
 The native regression fixture still needs emission/execution verification before final prerequisite
 acceptance. Source and canonical review evidence:
 `/private/tmp/nsharp-columnar-dictionary-copy-comparer-20260908/root-source-review-r2.json`.
+
+
+Whole-emitter integration checkpoint: root `773dbf1ff` adds the complete N# owner and deletes all
+16,635 C# emitter lines. `e0236b87b` and `f0220903c` integrate the canonical migration and populated-enum
+regression. Dictionary construction is integrated in `4acf1b0df` with canonical 1/1, native family
+44/44, unfiltered production IL 1,227 types/10,540 methods and no test types; root verified all 24
+final receipt artifact hashes.
+
+Saved-emitter IL verification found one invalid by-reference field receiver in interpolation.
+The reviewed fix retains the original out-parameter call and output timing, then loads the returned
+reference once into a local before the Format field write. All 1,231 types and 10,847 methods pass
+on the rebuilt emitter assembly. Final committed owner source is
+`f1f0271a1a307f1dc18e0fbc662affd86607cc13347a02e06c47bb1538fc4c43`, differing from that source only
+by 135 trailing-whitespace removals. The compiler and CLI rebuild successfully after C# deletion.
+
+The final rebuilt candidate reran all 87 selected N# tests successfully, with root independently
+checking the exact set and no omissions, duplicates or skips. Result:
+`/private/tmp/nsharp-columnar-il-emitter-tests-20260908/final-new-owner-result-owner-r2.json`,
+SHA-256 `900c693c0b8842462bf7790fb2217dcdbabcb60ed0855fc5f15351154c8cf6de`.
+The ownership manifest now reflects the actual emitter/test deletions and reduced CLI-only C# test
+file, pinned to `head-v1:a0cd87c0b686dee2`; the ownership audit passes 18/18 through the new-owner CLI.
+Exact final-candidate IL/metadata verification, fresh product gate, any necessary verified SDK seed
+publication, and push remain pending. No shared SDK publication has occurred during this sequence.
