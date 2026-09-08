@@ -34,6 +34,14 @@ Migrate the existing native columnar-emit-facts reflection lookups to the N# ass
 add focused N# assertions only for real gaps. Review any necessary cross-assembly visibility as an
 explicit mechanical integration boundary; add no wrapper or callback.
 
+Reviewed boundary: expose the N# type and static TryBuildMultiFile entry point for the existing
+cross-assembly caller. Keep TryBuild and the remaining helpers private, with canonical reflection
+targeting BootstrapServices directly; emitter lookups still target Compiler. Preserve a non-instantiable
+type. The top-level program remains null on failure, but TryParseColumnarFunctionAt assigns its input
+before local-function validation and can expose a partial input on a later failure. Single-source
+inputs without tests retain null Tests; the accepted multi-file merge retains its empty test list.
+Do not normalize these distinct states or add validation that changes failure ordering.
+
 This complete class remains open until sole production ownership, canonical coverage, required
 verification, review, commits and push pass. See the current compiler cursor in
 [STATUS.md](../systems-language-closeout/STATUS.md).
