@@ -42,8 +42,8 @@ record StaticInitializerRecord {
 }
 
 class StaticInitializerArgumentClass {
-    static TupleField: FieldInfo = ResolveTupleField("Item1")
-    static EmptyField: FieldInfo = ResolveStringField(nameof(System.String.Empty))
+    static readonly TupleField: FieldInfo = ResolveTupleField("Item1")
+    static readonly EmptyField: FieldInfo = ResolveStringField(nameof(System.String.Empty))
 
     static func ResolveTupleField(name: string): FieldInfo {
         field := typeof(ValueTuple<int, int>).GetField(name)
@@ -106,8 +106,19 @@ test "declared struct and record static initializers run through their type init
 }
 
 test "declared static helper initializers pass string and qualified nameof arguments" {
-    assert StaticInitializerArgumentClass.TupleField.get_Name() == "Item1"
-    assert StaticInitializerArgumentClass.EmptyField.get_Name() == "Empty"
-    assert StaticInitializerArgumentClass.TupleField.get_FieldType() == typeof(int)
-    assert StaticInitializerArgumentClass.EmptyField.get_FieldType() == typeof(string)
+    tupleSlot := StaticInitializerRequiredField(typeof(StaticInitializerArgumentClass), "TupleField")
+    emptySlot := StaticInitializerRequiredField(typeof(StaticInitializerArgumentClass), "EmptyField")
+    assert tupleSlot.get_IsInitOnly()
+    assert emptySlot.get_IsInitOnly()
+
+    tupleField := StaticInitializerArgumentClass.TupleField
+    emptyField := StaticInitializerArgumentClass.EmptyField
+    expectedTupleField := typeof(ValueTuple<int, int>).GetField("Item1")
+    expectedEmptyField := typeof(string).GetField("Empty")
+    assert Object.ReferenceEquals(tupleField, expectedTupleField)
+    assert Object.ReferenceEquals(emptyField, expectedEmptyField)
+    assert tupleField.get_Name() == "Item1"
+    assert emptyField.get_Name() == "Empty"
+    assert tupleField.get_FieldType() == typeof(int)
+    assert emptyField.get_FieldType() == typeof(string)
 }
