@@ -212,3 +212,21 @@ run has no decline diagnostics but still reports directEmitted=False; this is no
 or whole-owner acceptance result. The full emitter must supply compilation and IL evidence.
 Fragment: `body63-current-compile/section-body63.final-r49.nl` in the emitter evidence directory,
 SHA-256 `e6aa206d7abfddabceb9806e468a3cbdf2d546473ad59d54b66bcedbd2505a01`.
+
+The remaining `Blt` and `Bne_Un` field dependency is integrated in `16515387c`.
+An inventory of the complete emitter found 92 distinct opcode fields; these were the only two still
+missing. The canonical N# assertion passes, the production assembly contains no test types, and all
+1,227 types and 10,540 methods pass unfiltered IL verification. The byte-identical conditional source
+and both direct opcode variants advance past array-list-pattern emission to a later expression
+failure. Root verified 21 receipt artifacts, committed source hashes and candidate payload hashes.
+Evidence: `branch-opcode-prereq/final-receipt-r1.json` in the emitter evidence directory.
+The combined private candidate has BootstrapServices SHA-256
+`073c4335d0299313676cea589e916f5f90bbbf515f763241352925b3258c969f`.
+
+Expression source review has accepted Core r11 and the other expression methods through r24.
+The latter's temporary Core stub and opcode bypass are diagnostic-only; the original opcode
+conditional must be restored under the combined candidate, and the real Core must be assembled
+before any whole-owner acceptance. Source review evidence is
+`root-expression-r11-r24-source-review.json` in the emitter evidence directory.
+Complete emitter compilation, canonical execution through that owner, C# deletion, the fresh
+integration gate and push remain pending. No shared SDK seed has been published for this work.
