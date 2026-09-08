@@ -196,6 +196,23 @@ Include the exact two-project AOT-decline fixture from
 the child compiler, failure diagnostics, output suppression and active-project-stack cleanup are
 reference-resolution assertions. This does not expand the separate NativeAOT initiative.
 
+### Proven resolver HTTP timeout prerequisite
+
+The complete proposed resolver fails parsing in full-source runs r1–r3; the checker identifies
+C# iterator spelling to correct before declaring an iterator capability gap. A separate reduction
+from the actual private client initializer reaches `client.Timeout = TimeSpan.FromMinutes(2)` and
+fails emission. The faithful direct-setter variant also fails at
+`emit.call.instance-member-unmodeled: HttpClient.set_Timeout/1`, while FromMinutes resolves.
+Evidence: `/private/tmp/nsharp-compilation-reference-resolver-owner-20260908`, especially
+`reduction-field-r1.log` and `reduction-timeout-direct-setter-r1.log` with their proposed source.
+
+Implement exact genuine HttpClient.Timeout writable-property admission through the existing N#
+assignment emitter, preserving receiver/value order and runtime setter validation. Do not add a
+getter or broader external-property admission merely for test convenience. Add canonical execution,
+identity and failure controls in N#. Keep the complete resolver worker isolating the corrected
+whole source; group related actually proven prerequisites for required seed verification where
+feasible. A reduced owner retaining the C# type is diagnostic evidence, never production acceptance.
+
 ## Connected follow-on: SDK reference assembly ownership
 
 The source audit at `27b1a8a1b` disproves the broad mechanical label on
