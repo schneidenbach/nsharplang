@@ -22,8 +22,13 @@ After the accepted emitter checkpoint `8ec52542b`, move the complete 663-line C#
 BootstrapServices with namespace `NSharpLang.Compiler`. All compiler dependencies already reside
 there. Delete the C# file without a facade, type forwarder, callback or fallback.
 
-Move all 24 methods, 22 declared fields and property backing state, nine properties, four public
-constructors and the common private constructor. Preserve the public nonsealed type, optional
+Move all 24 methods, 18 runtime fields and property backing state, nine properties, four public
+constructors and the common private constructor. The four private C# constants each have one
+internal read and no named production/test consumers; replace those reads with their exact literals
+(10, 20 and the two environment-variable names), as C# already does. Do not introduce runtime
+static initialization or a member-constant language prerequisite just to preserve their private
+metadata. The complete proposed N# class proved member-constant syntax unsupported; retain that
+failed-source evidence with the owner handoff. Preserve the public nonsealed type, optional
 defaults, initialization/enumeration order, live collection views, repeated-call state, diagnostics,
 source overrides, reference identities, analyzer lifetime and the 64 MiB emission thread's exception
 and decline-trace behavior. Move dependencies with callers when actual proposed N# compilation
