@@ -111,5 +111,8 @@ test "type admission retains external generics closed over source builders" {
     assert ColumnarTypeOfPlanner.IsSupportedType(AdmissibilityClosed1("System.Collections.Generic.HashSet`1", sourceClass))
     assert ColumnarTypeOfPlanner.IsAdmissibleHashSetElement(sourceClass)
     assert !ColumnarTypeOfPlanner.IsSupportedType(AdmissibilityClosed1("System.Func`1", sourceClass))
-    assert !ColumnarTypeOfPlanner.IsSupportedType(AdmissibilityClosed2("System.ValueTuple`2", typeof(int), sourceClass))
+    // Exact CLR ValueTuple shapes can carry a complete source reference while the source assembly
+    // is still being built; namesakes and every other builder-bound shape remain excluded by the
+    // tuple-specific identity and element checks.
+    assert ColumnarTypeOfPlanner.IsSupportedType(AdmissibilityClosed2("System.ValueTuple`2", typeof(int), sourceClass))
 }

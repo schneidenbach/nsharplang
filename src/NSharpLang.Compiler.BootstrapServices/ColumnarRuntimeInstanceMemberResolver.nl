@@ -342,18 +342,33 @@ class ColumnarRuntimeInstanceMemberResolver {
 
     static func TrySelectValueTupleField(receiverType: Type, member: string, out selection: ColumnarRuntimeInstanceMemberSelection): bool {
         selection = EmptySelection()
-        if member.Length <= 4 || !member.StartsWith("Item", StringComparison.Ordinal) || !char.IsDigit(member[4]) {
+        isRest := member == "Rest" && receiverType.GetGenericTypeDefinition() == ColumnarTypeOfPlanner.OpenValueTupleType(8)
+        if !isRest && (member.Length <= 4 || !member.StartsWith("Item", StringComparison.Ordinal) || !char.IsDigit(member[4])) {
             return false
         }
 
-        field := receiverType.GetField(member)
+        field: FieldInfo? = null
+        resultType := typeof(object)
+        if ContainsBuilderBoundType(receiverType) {
+            definition := receiverType.GetGenericTypeDefinition()
+            openField := definition.GetField(member)
+            if openField == null || !openField.get_IsPublic() || openField.get_IsStatic() || openField.get_IsLiteral() {
+                return false
+            }
+            field = TypeBuilder.GetField(receiverType, openField)
+            resultType = SubstituteClosedTypeArguments(openField.get_FieldType(), receiverType.GetGenericArguments())
+        } else {
+            field = receiverType.GetField(member)
+            if field != null {
+                resultType = field.get_FieldType()
+            }
+        }
         if field == null || !field.get_IsPublic() || field.get_IsStatic() || field.get_IsLiteral() {
             return false
         }
 
         declaringType := field.get_DeclaringType()
-        resultType := field.get_FieldType()
-        if declaringType == null || declaringType != receiverType || !IsSelectableResultType(resultType) {
+        if declaringType == null || !ExactTypeShapeMatches(declaringType, receiverType) || !IsSelectableResultType(resultType) {
             return false
         }
 
@@ -765,7 +780,14 @@ class ColumnarRuntimeInstanceMemberResolver {
             return false
         }
 
+        if ContainsBuilderBoundType(valueType) {
+            return ColumnarTypeOfPlanner.IsSupportedValueTuple(valueType)
+        }
+
         definition := valueType.GetGenericTypeDefinition()
+        if definition == ColumnarTypeOfPlanner.OpenValueTupleType(8) {
+            return ColumnarTypeOfPlanner.IsSupportedValueTuple(valueType)
+        }
         if definition != typeof(ValueTuple<int, int>).GetGenericTypeDefinition() && definition != typeof(ValueTuple<int, int, int>).GetGenericTypeDefinition() && definition != typeof(ValueTuple<int, int, int, int>).GetGenericTypeDefinition() && definition != typeof(ValueTuple<int, int, int, int, int>).GetGenericTypeDefinition() && definition != typeof(ValueTuple<int, int, int, int, int, int>).GetGenericTypeDefinition() && definition != typeof(ValueTuple<int, int, int, int, int, int, int>).GetGenericTypeDefinition() {
             return false
         }

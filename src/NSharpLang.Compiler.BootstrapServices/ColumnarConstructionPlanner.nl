@@ -1657,12 +1657,17 @@ class ColumnarConstructionPlanner {
     }
 
     static func IsSupportedValueTupleType(valueType: Type): bool {
-        if valueType == null || !valueType.get_IsGenericType() || valueType.get_IsGenericTypeDefinition() || ContainsBuilderBoundType(valueType) {
+        if valueType == null || !valueType.get_IsGenericType() || valueType.get_IsGenericTypeDefinition() {
             return false
         }
-        definition := valueType.GetGenericTypeDefinition()
-        name := definition.FullName
-        return name == "System.ValueTuple`2" || name == "System.ValueTuple`3" || name == "System.ValueTuple`4" || name == "System.ValueTuple`5" || name == "System.ValueTuple`6" || name == "System.ValueTuple`7"
+        if valueType.GetGenericTypeDefinition() == ColumnarTypeOfPlanner.OpenValueTupleType(8) {
+            return ColumnarTypeOfPlanner.IsSupportedValueTuple(valueType)
+        }
+        if ContainsBuilderBoundType(valueType) {
+            return ColumnarTypeOfPlanner.IsSupportedValueTuple(valueType)
+        }
+        definitionName := valueType.GetGenericTypeDefinition().FullName ?? ""
+        return definitionName == "System.ValueTuple`2" || definitionName == "System.ValueTuple`3" || definitionName == "System.ValueTuple`4" || definitionName == "System.ValueTuple`5" || definitionName == "System.ValueTuple`6" || definitionName == "System.ValueTuple`7"
     }
 
     static func FindOpenComparerConstructor(definition: Type, comparerDefinitionName: string): ConstructorInfo? {

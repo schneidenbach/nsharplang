@@ -1138,7 +1138,7 @@ class ColumnarTypeOfPlanner {
             return true
         }
         if ContainsBuilderBoundType(valueType) {
-            return IsSupportedCollectionType(valueType) || IsSupportedTaskType(valueType) || IsSupportedResultType(valueType) || IsSupportedAnonymousUnionType(valueType) || IsSupportedEnumeratorType(valueType) || IsSupportedListEnumeratorType(valueType) || IsSupportedDictionaryValueCollectionType(valueType) || IsSupportedDictionaryEnumeratorType(valueType) || IsSupportedDictionaryValueEnumeratorType(valueType) || IsSupportedKeyValuePairType(valueType) || IsSupportedReferenceEqualityComparerType(valueType)
+            return IsSupportedCollectionType(valueType) || IsSupportedTaskType(valueType) || IsSupportedResultType(valueType) || IsSupportedAnonymousUnionType(valueType) || IsSupportedEnumeratorType(valueType) || IsSupportedListEnumeratorType(valueType) || IsSupportedDictionaryValueCollectionType(valueType) || IsSupportedDictionaryEnumeratorType(valueType) || IsSupportedDictionaryValueEnumeratorType(valueType) || IsSupportedKeyValuePairType(valueType) || IsSupportedReferenceEqualityComparerType(valueType) || IsSupportedValueTuple(valueType)
         }
         if valueType.get_IsGenericType() && !valueType.get_IsGenericTypeDefinition() {
             definition := valueType.GetGenericTypeDefinition()
@@ -1520,6 +1520,9 @@ class ColumnarTypeOfPlanner {
             if name == "System.Collections.Generic.List`1" || name == "System.Collections.Generic.Dictionary`2" || name == "System.Collections.Generic.SortedDictionary`2" || name == "System.Collections.Generic.HashSet`1" || name == "System.Collections.Generic.SortedSet`1" || name == "System.Collections.Generic.Stack`1" {
                 return true
             }
+            if IsSupportedValueTuple(valueType) {
+                return true
+            }
             if ContainsBuilderBoundType(valueType) {
                 return false
             }
@@ -1591,15 +1594,32 @@ class ColumnarTypeOfPlanner {
         if !valueType.get_IsGenericType() || valueType.get_IsGenericTypeDefinition() {
             return false
         }
-        name := valueType.GetGenericTypeDefinition().FullName ?? ""
-        if name != "System.ValueTuple`2" && name != "System.ValueTuple`3" && name != "System.ValueTuple`4" && name != "System.ValueTuple`5" && name != "System.ValueTuple`6" && name != "System.ValueTuple`7" {
+        definition := valueType.GetGenericTypeDefinition()
+        name := definition.FullName ?? ""
+        containsBuilder := ContainsBuilderBoundType(valueType)
+        isLongTuple := definition == OpenValueTupleType(8)
+        if name != "System.ValueTuple`2" && name != "System.ValueTuple`3" && name != "System.ValueTuple`4" && name != "System.ValueTuple`5" && name != "System.ValueTuple`6" && name != "System.ValueTuple`7" && !isLongTuple {
+            return false
+        }
+        // Baked two-through-seven tuples retain their established structural admission. Every NEW
+        // builder-bound tuple shape is tied to the exact CLR definitions, so a source or external
+        // namesake cannot acquire the constructor/field rebinding path by metadata name alone.
+        if containsBuilder && definition != OpenValueTupleType(valueType.GetGenericArguments().Length) {
             return false
         }
         arguments := valueType.GetGenericArguments()
         i := 0
         while i < arguments.Length {
             argument := arguments[i]
-            if IsEnumType(argument) || argument is TypeBuilder || IsClosedSourceGeneric(argument) || IsSupportedDelegateType(argument) || ContainsBuilderBoundType(argument) || !IsSupportedType(argument) {
+            if isLongTuple && i == 7 {
+                if !argument.get_IsGenericType() || argument.get_IsGenericTypeDefinition() || argument.GetGenericTypeDefinition() != OpenValueTupleType(2) || !IsSupportedValueTuple(argument) {
+                    return false
+                }
+                i += 1
+                continue
+            }
+            directSourceReference := argument is TypeBuilder && !IsEnumBuilder(argument) && !argument.get_IsGenericTypeDefinition() && !argument.get_IsValueType() && !argument.get_IsInterface()
+            if !directSourceReference && (IsEnumType(argument) || IsClosedSourceGeneric(argument) || IsSupportedDelegateType(argument) || ContainsBuilderBoundType(argument) || !IsSupportedType(argument)) {
                 return false
             }
             i += 1
@@ -1625,6 +1645,13 @@ class ColumnarTypeOfPlanner {
         }
         if arity == 7 {
             return typeof(ValueTuple<int, int, int, int, int, int, int>).GetGenericTypeDefinition()
+        }
+        if arity == 8 {
+            result := Type.GetType("System.ValueTuple`8")
+            if result == null || !result.get_IsGenericTypeDefinition() {
+                throw new InvalidOperationException("System.ValueTuple`8 runtime type was not found.")
+            }
+            return result
         }
         return null
     }

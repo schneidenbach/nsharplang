@@ -92,9 +92,9 @@ test "top-level pipe splitting keeps nested pipes inside their brackets" {
     assert unbalanced[0] == "a>b"
 }
 
-// The modeled positional ValueTuple surface is arity 2..7. Arity 1 and the >7 nested-TRest form are
-// NOT modeled, and the emitter declines on the null rather than constructing a wrong tuple.
-test "open ValueTuple definitions cover exactly arity two through seven" {
+// Positional ValueTuple definitions cover two through seven directly. Eight is the exact CLR
+// storage head used for a longer tuple and is accepted only with a supported nested TRest value.
+test "open ValueTuple definitions cover direct arities and the exact CLR Rest head" {
     assert ColumnarTypeOfPlanner.OpenValueTupleType(2) == typeof(ValueTuple<int, int>).GetGenericTypeDefinition()
     assert ColumnarTypeOfPlanner.OpenValueTupleType(3) == typeof(ValueTuple<int, int, int>).GetGenericTypeDefinition()
     assert ColumnarTypeOfPlanner.OpenValueTupleType(4) == typeof(ValueTuple<int, int, int, int>).GetGenericTypeDefinition()
@@ -109,7 +109,9 @@ test "open ValueTuple definitions cover exactly arity two through seven" {
     assert ColumnarTypeOfPlanner.OpenValueTupleType(-1) == null
     assert ColumnarTypeOfPlanner.OpenValueTupleType(0) == null
     assert ColumnarTypeOfPlanner.OpenValueTupleType(1) == null
-    assert ColumnarTypeOfPlanner.OpenValueTupleType(8) == null
+    assert ColumnarTypeOfPlanner.OpenValueTupleType(8) == Type.GetType("System.ValueTuple`8")
+    assert ColumnarTypeOfPlanner.OpenValueTupleType(8).get_IsGenericTypeDefinition()
+    assert ColumnarTypeOfPlanner.OpenValueTupleType(8).GetGenericArguments().Length == 8
     assert ColumnarTypeOfPlanner.OpenValueTupleType(9) == null
 }
 
