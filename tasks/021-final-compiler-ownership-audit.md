@@ -252,9 +252,15 @@ without expanding into separate CLI feature work. Opening evidence:
 
 The subsequent CompilationBackend/CodeIntelligence assertion audit is
 `/private/tmp/nsharp-multifile-assessment/compilation-backend-code-intelligence-assertion-boundary-20260908.md`.
-It adds two real pipeline gaps to close during canonical cleanup: exact ordinary non-AOT CountChars
-emission decline and strict-lint NL001 blocking emission. Add their owner-level N# assertions and
-remove replaced C# compiler clauses, retaining distinct command transport observations. Complete
+Its exact ordinary non-AOT CountChars emission decline and strict-lint NL001 blocking-emission gaps
+are integrated in `a685037ef`. Two N# public-pipeline cases replace six C# compiler clauses; existing
+command exit/banner observations remain. Original source/project bytes were independently checked,
+both new cases passed individually, CompilationBackendTests passed 21/21, and the formatted native
+columnar project passed 196/196 with no failures or skips. Evidence:
+`/private/tmp/nsharp-mfc-pipeline-canonical-gaps-20260908/root-review-r1.json`,
+`fixture-byte-identity-r2.json`, `dev-compilation-backend-r1.log`, and
+`native-columnar-full-r2.log` in that directory. This focused commit is not fresh integration-gate or
+push evidence; the next combined checkpoint remains required. Complete
 project/NuGet and child-AOT assertions move with the selected reference resolver. The ambient Turkish
 culture formatting assertion is separately scoped presentation/runtime coverage, not compiler debt.
 
@@ -263,7 +269,8 @@ The three-file CLI/fix audit is
 Its compiler-relevant gaps are the exact six-case package/namespace visibility group, the stronger
 malformed-source diagnostic bound (`undefinedFromCli`, at most four), and strict-lint diagnostic
 aggregation on otherwise valid source. Preserve these exact fixtures in N# before deleting their
-C# compiler clauses. Audit the remaining direct compiler diagnostic/message/span assertions in
+C# compiler clauses. The complete six-case visibility group is now assigned in an isolated worktree
+after integration of the two pipeline cases. Audit the remaining direct compiler diagnostic/message/span assertions in
 LanguageServerDiagnosticsTests separately from its LSP range-conversion and transport assertions.
 
 The audit's broader "compiler-service" label is not the active scope: JSON root-key/value envelopes,
