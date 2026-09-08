@@ -83,6 +83,21 @@ nor operation-count parity proves that the replacement emitter works. Required n
 the compiled complete owner, all-method IL verification, candidate execution of the canonical and
 native suites, legacy-owner deletion, and the fresh integration checkpoint described above.
 
+The assembled candidate now passes kernel parsing with 299 methods and 62 runtime fields
+(`full-kernel-runtime-r75.log` in the emitter evidence directory below). Whole-source emission still
+declines. Scratch compilation preserves the failure with stubbed method bodies; method signatures
+alone and the first 35 fields reach later body emission. The first argumented static initializer
+introduces the earlier failure. Inspection of the actual input rows confirms that all eleven
+SIMD/ValueTuple helper initializers are rejected by the existing N#
+`ColumnarStaticFieldInitializerEmitter.TryParseParameterlessStaticInitializerCall`; the three
+parameterless collection helpers pass. `TryEmitAll` returns false before ordinary body emission.
+The next prerequisite is the connected N# static-initializer helper-call parsing, resolution and
+argument-emission group, with actual source probes and canonical assertions. No per-field wrapper,
+C# callback or fallback is an acceptable substitute. Evidence:
+`/private/tmp/nsharp-columnar-il-emitter-owner-20260907/silent-exit-audit/rowdump-current-r3.log`
+and `declaration-bisect-r2/` in that directory. Reduced-source results establish localization only;
+the complete class must be rebuilt and verified after the prerequisite.
+
 The demonstrated `Array.Empty<byte>()`, `Array.Empty<Type>()` and `Array.Empty<Type[]>()` dependency
 is integrated in `dc02a272a`. Its N# binding/planning tests pass 12/12, the native Array.Empty family
 passes 4/4, and the three byte-identical source probes that failed on the installed SDK now compile
