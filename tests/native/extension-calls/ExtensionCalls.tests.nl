@@ -113,7 +113,7 @@ func CompileNamedExtensionCallFixtureFiles(
     projectYml := "name: " + projectName + "\nversion: 1.0.0\nbackend: il\noutputType: " + outputType + "\ntargetFramework: net10.0\ndependencies:\n  - dll: " + coreLib + "\n  - dll: " + runtimeDll + "\n  - dll: " + linqDll + "\n"
     File.WriteAllText(Path.Combine(fixtureRoot, "project.yml"), projectYml)
 
-    compilerType := Type.GetType("NSharpLang.Compiler.MultiFileCompiler, Compiler")
+    compilerType := Type.GetType("NSharpLang.Compiler.MultiFileCompiler, NSharpLang.Compiler.BootstrapServices")
     projectFileParserType := Type.GetType(
         "NSharpLang.Compiler.ProjectFileParser, NSharpLang.Compiler.BootstrapServices"
     )

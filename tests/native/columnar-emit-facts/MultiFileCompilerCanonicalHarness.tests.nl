@@ -88,7 +88,7 @@ func EmitterCanonicalDecodedSource(source: string): string {
 }
 
 func EmitterCanonicalCompilerType(): Type {
-    owner := Type.GetType("NSharpLang.Compiler.MultiFileCompiler, Compiler")
+    owner := Type.GetType("NSharpLang.Compiler.MultiFileCompiler, NSharpLang.Compiler.BootstrapServices")
     if owner == null {
         throw new InvalidOperationException("The production MultiFileCompiler was not loadable")
     }

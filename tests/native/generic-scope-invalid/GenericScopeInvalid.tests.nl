@@ -26,7 +26,7 @@ func CompileGenericScopeFixture(source: string): GenericScopeCompilationResult {
     )
     Directory.CreateDirectory(fixtureRoot)
     File.WriteAllText(Path.Combine(fixtureRoot, "Program.nl"), source)
-    compilerType := Type.GetType("NSharpLang.Compiler.MultiFileCompiler, Compiler")
+    compilerType := Type.GetType("NSharpLang.Compiler.MultiFileCompiler, NSharpLang.Compiler.BootstrapServices")
     projectConfigType := Type.GetType(
         "NSharpLang.Compiler.ProjectConfig, NSharpLang.Compiler.BootstrapServices"
     )
