@@ -731,6 +731,30 @@ test "primary constructor parser canonicalizes dotted enum member defaults" {
     assert probe.ArgTexts[1] == "System.DayOfWeek.Friday"
 }
 
+test "constructor parser preserves ordered expression spans and the accepted trailing comma in a chain" {
+    probe := new ColumnarConstructorDefaultParseProbe(
+        "constructor(root: string): this(Build(root, Nested(1, null)), null, new Cache(),) {}"
+    )
+
+    assert probe.ParamCount == 1
+    assert probe.Result[0] == 1
+    assert probe.Result[3] == 3
+    assert probe.ArgKinds[1] == 0
+    assert probe.ArgTexts[1] == "Build(root, Nested(1, null))"
+    assert probe.ArgKinds[2] == 46
+    assert probe.ArgTexts[2] == "null"
+    assert probe.ArgKinds[3] == 41
+    assert probe.ArgTexts[3] == "new Cache()"
+}
+
+test "constructor parser rejects a missing expression between chained arguments" {
+    probe := new ColumnarConstructorDefaultParseProbe(
+        "constructor(root: string): base(root, , null) {}"
+    )
+
+    assert probe.ParamCount == -1
+}
+
 test "struct parser preserves generic parameters alongside a constructed base" {
     probe := new ColumnarStructDeclarationParseProbe(
         "class Derived<X,Y>: Base<string,Y> {}"

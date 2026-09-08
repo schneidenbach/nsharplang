@@ -59,6 +59,107 @@ sealed class ColumnarProgramInputBuilder {
         )
     }
 
+    private static func TryBuildExpressionSpanNodeTable(
+        source: string,
+        tokenKinds: int[],
+        tokenStarts: int[],
+        tokenValueLengths: int[],
+        tokenCount: int,
+        spanStart: int,
+        spanLength: int,
+        out nodes: ColumnarNodeTable,
+        out root: int
+    ): bool {
+        nodes = null
+        root = -1
+        if spanStart < 0 || spanLength <= 0 || spanStart + spanLength > source.Length {
+            return false
+        }
+
+        spanEnd := spanStart + spanLength
+        firstToken := -1
+        lastTokenExclusive := -1
+        tokenIndex := 0
+        while tokenIndex < tokenCount {
+            tokenStart := tokenStarts[tokenIndex]
+            tokenEnd := tokenStart + tokenValueLengths[tokenIndex]
+            if firstToken < 0 && tokenStart == spanStart {
+                firstToken = tokenIndex
+            }
+            if firstToken >= 0 {
+                if tokenEnd > spanEnd {
+                    return false
+                }
+                if tokenEnd == spanEnd {
+                    lastTokenExclusive = tokenIndex + 1
+                    break
+                }
+            }
+            tokenIndex = tokenIndex + 1
+        }
+        if firstToken < 0 || lastTokenExclusive <= firstToken {
+            return false
+        }
+
+        expressionTokenCount := lastTokenExclusive - firstToken
+        expressionKinds := new int[](expressionTokenCount)
+        expressionStarts := new int[](expressionTokenCount)
+        expressionValueLengths := new int[](expressionTokenCount)
+        copyIndex := 0
+        while copyIndex < expressionTokenCount {
+            sourceTokenIndex := firstToken + copyIndex
+            expressionKinds[copyIndex] = tokenKinds[sourceTokenIndex]
+            expressionStarts[copyIndex] = tokenStarts[sourceTokenIndex]
+            expressionValueLengths[copyIndex] = tokenValueLengths[sourceTokenIndex]
+            copyIndex = copyIndex + 1
+        }
+
+        nodeCapacity := Math.Max(expressionTokenCount * 4 + 4, 8)
+        childCapacity := Math.Max(nodeCapacity * 4, 16)
+        nodeKinds := new int[](nodeCapacity)
+        valueStarts := new int[](nodeCapacity)
+        valueLengths := new int[](nodeCapacity)
+        childStarts := new int[](nodeCapacity)
+        childCounts := new int[](nodeCapacity)
+        childIndices := new int[](childCapacity)
+        spanStarts := new int[](nodeCapacity)
+        spanLengths := new int[](nodeCapacity)
+        parseResult := new int[](3)
+        nodeCount := ParseColumnarExpressionInto(
+            source,
+            expressionKinds,
+            expressionStarts,
+            expressionValueLengths,
+            expressionTokenCount,
+            nodeKinds,
+            valueStarts,
+            valueLengths,
+            childStarts,
+            childCounts,
+            childIndices,
+            spanStarts,
+            spanLengths,
+            parseResult
+        )
+        if nodeCount <= 0 || parseResult[0] < 0 || parseResult[0] >= nodeCount || parseResult[1] != nodeCount {
+            return false
+        }
+
+        nodes = BuildTrimmedNodeTable(
+            nodeKinds,
+            valueStarts,
+            valueLengths,
+            childStarts,
+            childCounts,
+            childIndices,
+            spanStarts,
+            spanLengths,
+            nodeCount
+        )
+        root = parseResult[0]
+        return true
+    }
+
     private static func TryBuild(source: string, out program: ColumnarProgramInput): bool {
         program = null
         tokens: ColumnarTokenizedSource = null
@@ -1257,12 +1358,39 @@ sealed class ColumnarProgramInputBuilder {
 
         chainArgKinds := new int[](chainArgCount)
         chainArgTexts := new string[](chainArgCount)
+        chainArgNodes := new ColumnarNodeTable[](chainArgCount)
+        chainArgRoots := new int[](chainArgCount)
         a := 0
         while a < chainArgCount {
             chainArgIndex := paramCount + a
             chainArgKinds[a] = caKinds[chainArgIndex]
             chainArgText := caTexts[chainArgIndex]
+            chainNodes: ColumnarNodeTable = null
+            chainRoot := -1
+            if !TryBuildExpressionSpanNodeTable(
+                source,
+                ck,
+                cs,
+                cv,
+                n,
+                caStarts[chainArgIndex],
+                caLengths[chainArgIndex],
+                out chainNodes,
+                out chainRoot
+            ) {
+                return DeclineAtToken(ColumnarParseDeclines.ConstructorChain, cs, cv, ctorIndex, "constructor")
+            }
+            if chainArgKinds[a] == 41 && chainNodes.Kind(chainRoot) == ColumnarExpressionNodeKind.NewExpression() && chainNodes.ChildCount(chainRoot) == 1 {
+                typeRoot := chainNodes.Child(chainRoot, 0)
+                typeStart := chainNodes.SpanStart(typeRoot)
+                typeLength := chainNodes.SpanLength(typeRoot)
+                if typeStart >= 0 && typeLength > 0 && typeStart + typeLength <= source.Length {
+                    chainArgText = source.Substring(typeStart, typeLength)
+                }
+            }
             chainArgTexts[a] = chainArgText
+            chainArgNodes[a] = chainNodes
+            chainArgRoots[a] = chainRoot
             a = a + 1
         }
 
@@ -1301,6 +1429,8 @@ sealed class ColumnarProgramInputBuilder {
             isSynthesizedInitializer,
             0
         )
+        parsedInput.ChainArgNodes = chainArgNodes
+        parsedInput.ChainArgRoots = chainArgRoots
         input = parsedInput
         parsedInput.VisibilityModifierFlags = ColumnarConstructorDeclarationMetadataModifierFlagsAt(ck, ctorIndex)
         return true

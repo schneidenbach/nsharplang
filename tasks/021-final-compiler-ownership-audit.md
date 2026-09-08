@@ -50,7 +50,7 @@ integrates, verifies and pushes; Sol Max or Terra Max implements the complete bo
 
 Source audit: `/private/tmp/nsharp-multifile-assessment/current-boundary-20260908.md`.
 
-### Proven constructor-chain prerequisite (in progress)
+### Proven constructor-chain prerequisite (focused integration complete; seed pending)
 
 The complete proposed owner uses constructor delegation with `null` and nested static input-builder
 calls. Actual-source/prefix evidence in
@@ -66,7 +66,7 @@ frozen. Hooke retains the complete owner and isolation of the remaining body par
 reviews and groups any related proven prerequisites for required seed verification; no SDK
 publication is accepted merely because parsing succeeds.
 
-### Proven inherited collection Count prerequisite (in progress)
+### Proven inherited collection Count prerequisite (focused integration complete; seed pending)
 
 After explicit optional-default arguments resolve input construction, the actual owner reaches
 `IReadOnlyDictionary<string, string>.Count` and fails emission. The exact inherited-interface cast
@@ -122,6 +122,27 @@ Root verified three inherited Count calls before acquisition, Key then Value bef
 and a real finally handler; all 8 native types/41 methods verify. Apply that exact behavior to the
 production owner. The compiler candidate's 1,231 types/10,851 methods also verify; these focused
 results do not replace the combined prerequisite/owner integration checkpoint.
+
+The Count implementation and its canonical/native assertions are integrated in `9dedb3c76`.
+The final owner source now contains that exact exception-safe copy behavior. A private candidate
+built from the combined Count and constructor production sources compiles the complete, stub-free
+owner through all four constructor chains and the copy method, then declines at the emission-thread
+lambda on line 566. This proves the next dependency, not successful owner emission. The candidate
+passes unfiltered IL verification (1,231 types / 10,857 methods) and contains no NSharpTests types.
+Receipt: `/private/tmp/nsharp-multifile-owner-20260908/count-constructor-combined-r1/final-receipt-r2.json`.
+
+The constructor prerequisite now includes the reviewed correction that uses the existing exact-base
+identity resolver for both selected and default constructor targets. Focused verification executes
+16 canonical and 190 native tests, including failure before IL, ordered argument evaluation,
+exceptions, self-exclusion and closed-generic rebinding. The corrected private candidate passes
+unfiltered IL verification. Evidence is under
+`/private/tmp/nsharp-constructor-chain-expressions-20260908/implementation`: `followup-canonical-r8.trx`,
+`followup-native-columnar-r1.json`, `followup-ilverify-r3.log` and `final-source-r3.sha256`.
+The combined Count/constructor candidate above predates that correction and is provisional.
+Thread work includes the actual
+mixed capture of the compiler instance and per-invocation state, private helper access, and exception
+dispatch after Join. Complete these connected prerequisites, then integrate the owner and its frozen
+canonical migration; do not resume unrelated backlog tasks or publish this provisional candidate.
 
 ## Next connected area after MultiFileCompiler
 

@@ -104,6 +104,14 @@ func ColumnarInputBuilderRequiredItem(values: IList, index: int): object {
     return value
 }
 
+func ColumnarInputBuilderRequiredTextItem(values: IList, index: int): string {
+    value := values[index] as string
+    if value == null {
+        throw new InvalidOperationException("Columnar input list text item was null")
+    }
+    return value
+}
+
 func ColumnarInputBuilderText(target: object, name: string): string {
     return Convert.ToString(ColumnarInputBuilderRequiredMember(target, name)) ?? ""
 }
@@ -377,6 +385,67 @@ test "the single-source builder preserves a null Tests value when the source dec
         throw new InvalidOperationException("Single-source builder returned no program")
     }
     assert ColumnarInputBuilderOptionalMember(program, "Tests") == null
+}
+
+test "constructor-chain expressions materialize ordinary nodes while preserving the input constructor ABI" {
+    inputType := ColumnarIlEmitterBootstrapType("ColumnarConstructorInput")
+    inputConstructors := inputType.GetConstructors(
+        BindingFlags.Instance | BindingFlags.Public | BindingFlags.DeclaredOnly
+    )
+    assert inputConstructors.Length == 1
+    assert inputConstructors[0].GetParameters().Length == 8, "ColumnarConstructorInput must retain its established eight-parameter CLR constructor"
+
+    source := "class Inputs {}\nclass Cache {}\nclass Owner {\n    constructor(root: string): this(Build(root, null), root, new Cache(),) {}\n    constructor(inputs: Inputs, root: string, cache: Cache) {}\n    static func Build(root: string, value: object?): Inputs { return new Inputs() }\n}\n"
+    attempt := ColumnarInputBuilderInvokeSingle(source)
+    assert attempt.Succeeded
+    program := attempt.Program
+    if program == null {
+        throw new InvalidOperationException("The constructor-chain input program was null")
+    }
+
+    structs := ColumnarInputBuilderMemberList(program, "Structs")
+    owner: object? = null
+    structIndex := 0
+    while structIndex < structs.Count {
+        candidate := ColumnarInputBuilderRequiredItem(structs, structIndex)
+        if ColumnarInputBuilderText(candidate, "Name") == "Owner" {
+            owner = candidate
+        }
+        structIndex = structIndex + 1
+    }
+    if owner == null {
+        throw new InvalidOperationException("The constructor-chain owner input was missing")
+    }
+
+    ownerInput: object = owner
+    constructors := ColumnarInputBuilderMemberList(ownerInput, "Constructors")
+    assert constructors.Count == 2
+    chained := ColumnarInputBuilderRequiredItem(constructors, 0)
+    assert ColumnarInputBuilderInt(chained, "ChainInitKind") == 1
+    kinds := ColumnarInputBuilderList(ColumnarInputBuilderRequiredMember(chained, "ChainArgKinds"), "ChainArgKinds")
+    texts := ColumnarInputBuilderList(ColumnarInputBuilderRequiredMember(chained, "ChainArgTexts"), "ChainArgTexts")
+    nodes := ColumnarInputBuilderList(ColumnarInputBuilderRequiredMember(chained, "ChainArgNodes"), "ChainArgNodes")
+    roots := ColumnarInputBuilderList(ColumnarInputBuilderRequiredMember(chained, "ChainArgRoots"), "ChainArgRoots")
+    assert kinds.Count == 3
+    assert texts.Count == 3
+    assert nodes.Count == 3
+    assert roots.Count == 3
+    assert Convert.ToInt32(kinds[0]) == 0
+    assert ColumnarInputBuilderRequiredTextItem(texts, 0) == "Build(root, null)"
+    assert Convert.ToInt32(kinds[1]) == 0
+    assert ColumnarInputBuilderRequiredTextItem(texts, 1) == "root"
+    assert Convert.ToInt32(kinds[2]) == 41
+    assert ColumnarInputBuilderRequiredTextItem(texts, 2) == "Cache", "the established no-argument new chain text remains the type name"
+
+    firstNodes := ColumnarInputBuilderRequiredItem(nodes, 0)
+    secondNodes := ColumnarInputBuilderRequiredItem(nodes, 1)
+    thirdNodes := ColumnarInputBuilderRequiredItem(nodes, 2)
+    firstKinds := ColumnarInputBuilderList(ColumnarInputBuilderRequiredMember(firstNodes, "Kinds"), "first argument kinds")
+    secondKinds := ColumnarInputBuilderList(ColumnarInputBuilderRequiredMember(secondNodes, "Kinds"), "second argument kinds")
+    thirdKinds := ColumnarInputBuilderList(ColumnarInputBuilderRequiredMember(thirdNodes, "Kinds"), "third argument kinds")
+    assert Convert.ToInt32(firstKinds[Convert.ToInt32(roots[0])]) == 9
+    assert Convert.ToInt32(secondKinds[Convert.ToInt32(roots[1])]) == 6
+    assert Convert.ToInt32(thirdKinds[Convert.ToInt32(roots[2])]) == 15
 }
 
 test "a later-file parse failure keeps null output deepest-first trace rows and clears its source id" {

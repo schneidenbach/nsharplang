@@ -3804,21 +3804,12 @@ sealed class ColumnarIlEmitter {
                     // A `: this(...)` (kind 1) or `: base(...)` (kind 2) CHAINING constructor delegates field assignment
                     // to the chained ctor, so the NL304 all-fields-assigned check does NOT apply (empirically pinned for
                     // BOTH kinds against the N# pipeline) — but `return` is still forbidden (NL103). Emit the chained
-                    // call (resolved by chain-arg count among the same type's / the base type's ctors) in place of the
-                    // base object ctor, then the body.
+                    // call (resolved from the ordinary argument expressions among the same type's / the base type's
+                    // ctors) in place of the base object ctor, then the body.
                     if (ColumnarMethodBodyPlanner.ContainsReturnStatement(job.Ctor.Body.BodyNodes, job.Ctor.Body.BodyRoot)) {
                         return false
                     }
-                    if (!ColumnarConstructorDeclarationPlanner.EmitChainedConstructorCall(
-                        job.Ctor,
-                        job.Builder,
-                        job.Struct,
-                        job.Ordinals,
-                        job.ParamTypes,
-                        bodyTypeResolution.Structs,
-                        structRegistry,
-                        cil
-                    )) {
+                    if (!emitter.EmitChainedConstructorCall(job.Ctor, job.Builder, job.Struct)) {
                         return false
                     }
                     // A `: base(...)` ctor runs field initializers (readonly inline, then the mutable helper); a
@@ -18502,6 +18493,367 @@ sealed class ColumnarIlEmitter {
             out chosenDefaultKinds,
             out chosenDefaultTexts
         )
+    }
+
+    private func ConstructorChainArgumentNodeUsesCurrentInstance(node: int): bool {
+        if node < 0 || node >= _nodes.Kinds.Length {
+            return true
+        }
+
+        kind := _nodes.Kind(node)
+        if kind == ColumnarExpressionNodeKind.NameOfExpression() || kind == ColumnarExpressionNodeKind.TypeOfExpression() {
+            return false
+        }
+        if kind == ColumnarExpressionNodeKind.IdentifierExpression() {
+            name := ColumnarNodeTextFacts.Text(_nodes, _source, node)
+            spanStart := _nodes.SpanStart(node)
+            valueStart := _nodes.ValueStart(node)
+            explicitBase := spanStart >= 0 && spanStart <= _source.Length - 5 && valueStart >= spanStart + 5 && valueStart <= _source.Length && _source[spanStart] == 'b' && _source[spanStart + 1] == 'a' && _source[spanStart + 2] == 's' && _source[spanStart + 3] == 'e' && _source[spanStart + 4] != '_' && !Char.IsLetterOrDigit(_source[spanStart + 4])
+            if name == "this" || name == "base" || ColumnarExpressionSyntaxFacts.IsExplicitThisIdentifier(_nodes, _source, node) || explicitBase {
+                return true
+            }
+            if !_paramOrdinals.ContainsKey(name) && !_locals.ContainsKey(name) && !_liftedLocals.ContainsKey(name) && (_boxedCaptures == null || !_boxedCaptures.ContainsKey(name)) && IsCurrentInstanceMemberName(name) {
+                return true
+            }
+        } else if kind == ColumnarExpressionNodeKind.CallExpression() && _nodes.ChildCount(node) > 0 {
+            callee := Child(node, 0)
+            if _nodes.Kind(callee) == ColumnarExpressionNodeKind.IdentifierExpression() && !ColumnarExpressionSyntaxFacts.IsExplicitThisIdentifier(_nodes, _source, callee) {
+                name := ColumnarNodeTextFacts.Text(_nodes, _source, callee)
+                let instanceMethod: NSharpLang.Compiler.Columnar.ColumnarInstanceMethodDef? = null
+                if !_paramOrdinals.ContainsKey(name) && !_locals.ContainsKey(name) && !_liftedLocals.ContainsKey(name) && (_boxedCaptures == null || !_boxedCaptures.ContainsKey(name)) && !_siblings.ContainsKey(name) && _currentStruct != null && TrySelectInstanceMethodOnChain(_currentStruct, name, node, out instanceMethod) {
+                    return true
+                }
+            }
+        }
+
+        childIndex := 0
+        while childIndex < _nodes.ChildCount(node) {
+            if ConstructorChainArgumentNodeUsesCurrentInstance(Child(node, childIndex)) {
+                return true
+            }
+            childIndex = childIndex + 1
+        }
+        return false
+    }
+
+    private func ConstructorChainArgumentUsesCurrentInstance(ctor: ColumnarConstructorInput, argumentIndex: int): bool {
+        if argumentIndex < 0 || argumentIndex >= ctor.ChainArgNodes.Length || argumentIndex >= ctor.ChainArgRoots.Length {
+            return true
+        }
+        argumentNodes := ctor.ChainArgNodes[argumentIndex]
+        argumentRoot := ctor.ChainArgRoots[argumentIndex]
+        if argumentNodes == null || argumentRoot < 0 || argumentRoot >= argumentNodes.Kinds.Length {
+            return true
+        }
+
+        previousNodes := _nodes
+        _nodes = ColumnarNodeTable.InheritBindingContext(argumentNodes, previousNodes)
+        usesCurrentInstance := true
+        try {
+            usesCurrentInstance = ConstructorChainArgumentNodeUsesCurrentInstance(argumentRoot)
+        } finally {
+            _nodes = previousNodes
+        }
+        return usesCurrentInstance
+    }
+
+    private func CanEmitConstructorChainArgumentAs(ctor: ColumnarConstructorInput, argumentIndex: int, expectedType: Type): bool {
+        if argumentIndex < 0 || argumentIndex >= ctor.ChainArgNodes.Length || argumentIndex >= ctor.ChainArgRoots.Length {
+            return false
+        }
+
+        argumentNodes := ctor.ChainArgNodes[argumentIndex]
+        argumentRoot := ctor.ChainArgRoots[argumentIndex]
+        if argumentNodes == null || argumentRoot < 0 || argumentRoot >= argumentNodes.Kinds.Length {
+            return false
+        }
+
+        previousNodes := _nodes
+        _nodes = ColumnarNodeTable.InheritBindingContext(argumentNodes, previousNodes)
+        canEmit := false
+        try {
+            canEmit = !ConstructorChainArgumentNodeUsesCurrentInstance(argumentRoot) && CanEmitConstructorArgumentAs(argumentRoot, expectedType)
+        } finally {
+            _nodes = previousNodes
+        }
+        return canEmit
+    }
+
+    private func EmitConstructorChainArgumentAs(ctor: ColumnarConstructorInput, argumentIndex: int, expectedType: Type): bool {
+        if argumentIndex < 0 || argumentIndex >= ctor.ChainArgNodes.Length || argumentIndex >= ctor.ChainArgRoots.Length {
+            return false
+        }
+
+        argumentNodes := ctor.ChainArgNodes[argumentIndex]
+        argumentRoot := ctor.ChainArgRoots[argumentIndex]
+        if argumentNodes == null || argumentRoot < 0 || argumentRoot >= argumentNodes.Kinds.Length {
+            return false
+        }
+
+        previousNodes := _nodes
+        _nodes = ColumnarNodeTable.InheritBindingContext(argumentNodes, previousNodes)
+        emitted := false
+        try {
+            let ignoredArgumentType: System.Type? = null
+            emitted = !ConstructorChainArgumentNodeUsesCurrentInstance(argumentRoot) && TryEmitAssignableValue(argumentRoot, expectedType, out ignoredArgumentType)
+        } finally {
+            _nodes = previousNodes
+        }
+        return emitted
+    }
+
+    private func TrySelectChainedConstructor(
+        ctor: ColumnarConstructorInput,
+        self: ConstructorBuilder,
+        currentStruct: ColumnarStructDef,
+        out chosenCtor: ConstructorInfo,
+        out chosenParamTypes: Type[],
+        out chosenDefaultKinds: int[],
+        out chosenDefaultTexts: string[]
+    ): bool {
+        chosenCtor = null
+        chosenParamTypes = null
+        chosenDefaultKinds = null
+        chosenDefaultTexts = null
+        if (ctor.ChainInitKind != 1 && ctor.ChainInitKind != 2) || ctor.ChainArgNodes.Length != ctor.ChainArgTexts.Length || ctor.ChainArgRoots.Length != ctor.ChainArgTexts.Length {
+            return false
+        }
+
+        targetDefinition := currentStruct
+        if ctor.ChainInitKind == 2 {
+            targetDefinition = currentStruct.BaseDef
+            if targetDefinition == null {
+                return false
+            }
+        }
+
+        exactBaseArguments := Type.EmptyTypes
+        if ctor.ChainInitKind == 2 && currentStruct.ExactBaseType != null {
+            exactBaseType := currentStruct.ExactBaseType
+            baseBuilderType: Type = targetDefinition.Builder
+            if !Object.ReferenceEquals(exactBaseType, baseBuilderType) {
+                exactBaseArguments = exactBaseType.GetGenericArguments()
+            }
+        }
+
+        argCount := ctor.ChainArgNodes.Length
+        candidates := new List<(ColumnarConstructorDef, Type[])>()
+        constructorEnumerator := targetDefinition.Constructors.GetEnumerator()
+        try {
+            while constructorEnumerator.MoveNext() {
+                candidate := constructorEnumerator.get_Current()
+                candidateIdentity: object = candidate.Builder
+                selfIdentity: object = self
+                if ctor.ChainInitKind == 1 && Object.ReferenceEquals(candidateIdentity, selfIdentity) {
+                    continue
+                }
+                if candidate.ParamTypes.Length < argCount {
+                    continue
+                }
+
+                parameterTypes := candidate.ParamTypes
+                if exactBaseArguments.Length > 0 {
+                    parameterTypes = new Type[](candidate.ParamTypes.Length)
+                    parameterIndex := 0
+                    while parameterIndex < parameterTypes.Length {
+                        parameterTypes[parameterIndex] = ColumnarRuntimeInstanceMemberResolver.SubstituteClosedTypeArguments(
+                            candidate.ParamTypes[parameterIndex],
+                            exactBaseArguments
+                        )
+                        parameterIndex = parameterIndex + 1
+                    }
+                }
+
+                hasTrailingDefaults := true
+                defaultIndex := argCount
+                while defaultIndex < parameterTypes.Length {
+                    if !ColumnarParameterDefaultEmitter.CanUseConstructorDefaultAs(
+                        parameterTypes[defaultIndex],
+                        candidate.DefaultKinds,
+                        candidate.DefaultTexts,
+                        defaultIndex,
+                        _typeResolutionEnums
+                    ) {
+                        hasTrailingDefaults = false
+                        break
+                    }
+                    defaultIndex = defaultIndex + 1
+                }
+                if hasTrailingDefaults {
+                    candidates.Add(new ValueTuple<ColumnarConstructorDef, Type[]>(candidate, parameterTypes))
+                }
+            }
+        } finally {
+            constructorEnumerator.Dispose()
+        }
+
+        if candidates.Count == 0 {
+            if argCount != 0 || targetDefinition.DefaultCtor == null {
+                return false
+            }
+            chosenCtor = targetDefinition.DefaultCtor
+            chosenParamTypes = Type.EmptyTypes
+            chosenDefaultKinds = new int[](0)
+            chosenDefaultTexts = new string[](0)
+            if ctor.ChainInitKind == 2 {
+                chosenCtor = ColumnarConstructorDeclarationPlanner.ResolveExactBaseConstructor(
+                    currentStruct,
+                    targetDefinition.DefaultCtor
+                )
+            }
+            return true
+        }
+
+        exactCandidates := new List<(ColumnarConstructorDef, Type[])>()
+        candidateIndex := 0
+        while candidateIndex < candidates.Count {
+            if candidates[candidateIndex].Item2.Length == argCount {
+                exactCandidates.Add(candidates[candidateIndex])
+            }
+            candidateIndex = candidateIndex + 1
+        }
+        if exactCandidates.Count > 0 {
+            candidates = exactCandidates
+        }
+
+        selectedDefinition: ColumnarConstructorDef = null
+        selectedParameterTypes: Type[] = null
+        if candidates.Count == 1 {
+            selectedDefinition = candidates[0].Item1
+            selectedParameterTypes = candidates[0].Item2
+        } else {
+            candidateIndex = 0
+            while candidateIndex < candidates.Count {
+                candidate := candidates[candidateIndex]
+                matches := true
+                argumentIndex := 0
+                while argumentIndex < argCount {
+                    if !CanEmitConstructorChainArgumentAs(ctor, argumentIndex, candidate.Item2[argumentIndex]) {
+                        matches = false
+                        break
+                    }
+                    argumentIndex = argumentIndex + 1
+                }
+                if matches {
+                    if selectedDefinition != null {
+                        return false
+                    }
+                    selectedDefinition = candidate.Item1
+                    selectedParameterTypes = candidate.Item2
+                }
+                candidateIndex = candidateIndex + 1
+            }
+        }
+        if selectedDefinition == null || selectedParameterTypes == null {
+            return false
+        }
+
+        chosenCtor = selectedDefinition.Builder
+        chosenParamTypes = selectedParameterTypes
+        chosenDefaultKinds = selectedDefinition.DefaultKinds
+        chosenDefaultTexts = selectedDefinition.DefaultTexts
+        if ctor.ChainInitKind == 2 {
+            chosenCtor = ColumnarConstructorDeclarationPlanner.ResolveExactBaseConstructor(
+                currentStruct,
+                selectedDefinition.Builder
+            )
+        }
+        return true
+    }
+
+    private func EmitChainedConstructorCall(ctor: ColumnarConstructorInput, self: ConstructorBuilder, currentStruct: ColumnarStructDef): bool {
+        memberName := currentStruct.Builder.get_Name() + ".constructor"
+        if ctor.ChainArgNodes.Length != ctor.ChainArgTexts.Length || ctor.ChainArgRoots.Length != ctor.ChainArgTexts.Length {
+            return DeclineStatic(
+                "emit.ctor.chain-input",
+                "constructor chain argument metadata was inconsistent",
+                memberName,
+                -1,
+                0
+            )
+        }
+        guardedArgumentIndex := 0
+        while guardedArgumentIndex < ctor.ChainArgNodes.Length {
+            guardedNodes := ctor.ChainArgNodes[guardedArgumentIndex]
+            guardedRoot := ctor.ChainArgRoots[guardedArgumentIndex]
+            if guardedNodes == null || guardedRoot < 0 || guardedRoot >= guardedNodes.Kinds.Length {
+                return false
+            }
+            if ConstructorChainArgumentUsesCurrentInstance(ctor, guardedArgumentIndex) {
+                ColumnarDeclineTrace.Record(
+                    "emit.ctor.chain-instance",
+                    "constructor chain arguments cannot access the current instance before constructor chaining",
+                    guardedNodes.SpanStart(guardedRoot),
+                    guardedNodes.SpanLength(guardedRoot),
+                    memberName
+                )
+                return false
+            }
+            guardedArgumentIndex = guardedArgumentIndex + 1
+        }
+
+        let chained: System.Reflection.ConstructorInfo? = null
+        let chainedParameterTypes: System.Type[]? = null
+        let chainedDefaultKinds: int[]? = null
+        let chainedDefaultTexts: string[]? = null
+        if !TrySelectChainedConstructor(
+            ctor,
+            self,
+            currentStruct,
+            out chained,
+            out chainedParameterTypes,
+            out chainedDefaultKinds,
+            out chainedDefaultTexts
+        ) {
+            targetSpanStart := -1
+            targetSpanLength := 0
+            if ctor.ChainArgNodes.Length > 0 {
+                targetNodes := ctor.ChainArgNodes[0]
+                targetRoot := ctor.ChainArgRoots[0]
+                targetSpanStart = targetNodes.SpanStart(targetRoot)
+                targetSpanLength = targetNodes.SpanLength(targetRoot)
+            }
+            return DeclineStatic(
+                "emit.ctor.chain-target",
+                "constructor chain target could not be selected uniquely",
+                memberName,
+                targetSpanStart,
+                targetSpanLength
+            )
+        }
+
+        _il.Emit(OpCodes.Ldarg_0)
+        argumentIndex := 0
+        while argumentIndex < chainedParameterTypes.Length {
+            if argumentIndex < ctor.ChainArgNodes.Length {
+                if !EmitConstructorChainArgumentAs(ctor, argumentIndex, chainedParameterTypes[argumentIndex]) {
+                    declinedNodes := ctor.ChainArgNodes[argumentIndex]
+                    declinedRoot := ctor.ChainArgRoots[argumentIndex]
+                    return DeclineStatic(
+                        "emit.ctor.chain-argument",
+                        "constructor chain argument was not assignable to its selected parameter",
+                        memberName,
+                        declinedNodes.SpanStart(declinedRoot),
+                        declinedNodes.SpanLength(declinedRoot)
+                    )
+                }
+            } else {
+                let ignoredDefaultResultType: System.Type? = null
+                if !ColumnarParameterDefaultEmitter.TryEmitConstructorDefaultArgument(
+                    _il,
+                    chainedParameterTypes[argumentIndex],
+                    chainedDefaultKinds[argumentIndex],
+                    chainedDefaultTexts[argumentIndex],
+                    _typeResolutionEnums,
+                    out ignoredDefaultResultType
+                ) {
+                    return false
+                }
+            }
+            argumentIndex = argumentIndex + 1
+        }
+        _il.Emit(OpCodes.Call, chained)
+        return true
     }
 
     private func TrySelectUserConstructorForArgs(argCount: int, argAt: Func<int, int>, def: ColumnarStructDef, out chosenCtor: ConstructorBuilder, out chosenParamTypes: Type[], out chosenDefaultKinds: int[], out chosenDefaultTexts: string[]): bool {

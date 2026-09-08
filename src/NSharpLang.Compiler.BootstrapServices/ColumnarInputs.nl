@@ -151,6 +151,8 @@ class ColumnarConstructorInput {
     ChainInitKind: int
     ChainArgKinds: int[]
     ChainArgTexts: string[]
+    ChainArgNodes: ColumnarNodeTable[]
+    ChainArgRoots: int[]
     ParamDefaultKinds: int[]
     ParamDefaultTexts: string[]
     VisibilityModifierFlags: int
@@ -162,6 +164,8 @@ class ColumnarConstructorInput {
         ChainInitKind = chainInitKind
         ChainArgKinds = chainArgKinds
         ChainArgTexts = chainArgTexts
+        ChainArgNodes = new ColumnarNodeTable[](0)
+        ChainArgRoots = new int[](0)
         ParamDefaultKinds = paramDefaultKinds ?? new int[](0)
         ParamDefaultTexts = paramDefaultTexts ?? new string[](0)
         VisibilityModifierFlags = 0
@@ -486,7 +490,19 @@ class ColumnarProgramInput {
 
             constructorIndex := 0
             while constructorIndex < structInput.Constructors.Count {
-                StampFunctionBindingContext(structInput.Constructors[constructorIndex].Body, scope, scope.ExactStructTypeName(structInput), structInput.TypeParamNames, null)
+                constructorInput := structInput.Constructors[constructorIndex]
+                exactStructName := scope.ExactStructTypeName(structInput)
+                StampFunctionBindingContext(constructorInput.Body, scope, exactStructName, structInput.TypeParamNames, null)
+                chainArgIndex := 0
+                while chainArgIndex < constructorInput.ChainArgNodes.Length {
+                    constructorInput.ChainArgNodes[chainArgIndex].SetBindingContext(
+                        scope.ForSourceFile(constructorInput.SourceFileId),
+                        exactStructName,
+                        structInput.TypeParamNames,
+                        null
+                    )
+                    chainArgIndex = chainArgIndex + 1
+                }
 
                 constructorIndex = constructorIndex + 1
             }

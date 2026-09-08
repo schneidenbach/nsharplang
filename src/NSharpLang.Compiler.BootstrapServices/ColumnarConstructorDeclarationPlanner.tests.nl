@@ -6,8 +6,8 @@ import System.Reflection
 import System.Reflection.Emit
 
 
-// These direct controls keep the declaration phase observable before the retained C# constructor
-// body emitter consumes its jobs.  The readonly-init native suite retains complete source/runtime
+// These direct controls keep the declaration phase observable before ColumnarIlEmitter consumes its
+// constructor jobs.  The readonly-init native suite retains complete source/runtime
 // coverage; this file pins the live declaration state, failure phase, and exact IL prefixes that
 // select where later body emission begins.
 func ConstructorDeclarationControlsDefinition(name: string, genericParameterCount: int): ColumnarStructDef {
@@ -43,6 +43,10 @@ func ConstructorDeclarationControlsSetFieldOrder(
     names: string[]
 ) {
     definition.SetFieldOrder(names)
+}
+
+func ConstructorDeclarationControlsPutObject(values: object?[], index: int, value: object?) {
+    values[index] = value
 }
 
 func ConstructorDeclarationControlsEmptyBody(
@@ -289,22 +293,6 @@ func ConstructorDeclarationControlsTwoTexts(
     return values
 }
 
-func ConstructorDeclarationControlsOneKind(value: int): int[] {
-    values := new int[](1)
-    values[0] = value
-    return values
-}
-
-func ConstructorDeclarationControlsTwoKinds(
-    first: int,
-    second: int
-): int[] {
-    values := new int[](2)
-    values[0] = first
-    values[1] = second
-    return values
-}
-
 func ConstructorDeclarationControlsDefineUserConstructor(
     definition: ColumnarStructDef,
     parameterTypes: Type[]
@@ -314,24 +302,6 @@ func ConstructorDeclarationControlsDefineUserConstructor(
         ConstructorDeclarationControlsEmptyInts(),
         ConstructorDeclarationControlsEmptyTexts()
     )
-}
-
-func ConstructorDeclarationControlsChainResolution(
-    definitions: ColumnarStructDef[]
-): ColumnarSemanticTypeResolution {
-    inputs := new List<ColumnarStructInput>()
-    index := 0
-    while index < definitions.Length {
-        inputs.Add(
-            ConstructorDeclarationControlsInput(
-                definitions[index].DeclaredTypeName,
-                new List<ColumnarConstructorInput>()
-            )
-        )
-        index = index + 1
-    }
-    program := ConstructorDeclarationControlsProgram("", inputs)
-    return ConstructorDeclarationControlsResolutions(program, definitions)[0]
 }
 
 func ConstructorDeclarationControlsExternalBase(
@@ -742,35 +712,84 @@ test "constructor declaration owner prioritizes parameterless definitions and fa
         )
     }
     assert ReferenceCoercionIlOffset(invalidBaseCallIl) == 1
+}
 
-    invalidSelf := ConstructorDeclarationControlsDefineUserConstructor(
-        invalidDerived,
-        Type.EmptyTypes
+test "constructor chain selection rebinds every differing exact base before emitting IL" {
+    invalidBase := ConstructorDeclarationControlsDefinition("ConstructorChainSelectionInvalidExactBase", 0)
+    invalidBase.DefaultCtor = invalidBase.Builder.DefineDefaultConstructor(MethodAttributes.Public)
+    invalidDerived := ConstructorDeclarationControlsDefinition("ConstructorChainSelectionInvalidExactDerived", 0)
+    invalidDerived.BaseDef = invalidBase
+    invalidDerived.ExactBaseType = typeof(string)
+    self := invalidDerived.Builder.DefineDefaultConstructor(MethodAttributes.Public)
+    chainBody := ConstructorDeclarationControlsEmptyBody(
+        "ConstructorChainSelectionInvalidExactDerived",
+        new string[](0),
+        new string[](0)
     )
-    invalidChain := ConstructorDeclarationControlsConstructor(
-        ConstructorDeclarationControlsEmptyBody("InvalidExactBaseChain", new string[](0), new string[](0)),
+    chain := ConstructorDeclarationControlsConstructor(
+        chainBody,
         2,
-        ConstructorDeclarationControlsEmptyInts(),
-        ConstructorDeclarationControlsEmptyTexts(),
+        new int[](0),
+        new string[](0),
         false
     )
-    invalidDefinitions := new ColumnarStructDef[](2)
-    invalidDefinitions[0] = invalidBase
-    invalidDefinitions[1] = invalidDerived
-    invalidChainIl := ReferenceCoercionIl("ConstructorDeclarationInvalidExactChain")
-    assert throws ArgumentException {
-        ColumnarConstructorDeclarationPlanner.EmitChainedConstructorCall(
-            invalidChain,
-            invalidSelf,
-            invalidDerived,
-            new Dictionary<string, int>(StringComparer.Ordinal),
-            new Dictionary<string, Type>(StringComparer.Ordinal),
-            ConstructorDeclarationControlsChainResolution(invalidDefinitions).Structs,
-            ConstructorDeclarationControlsDefinitions(invalidDefinitions),
-            invalidChainIl
-        )
+
+    runtimeHelperArgumentTypes := new Type[](1)
+    runtimeHelperArgumentTypes[0] = typeof(Type)
+    getUninitializedObject := typeof(System.Runtime.CompilerServices.RuntimeHelpers).GetMethod(
+        "GetUninitializedObject",
+        runtimeHelperArgumentTypes
+    )
+    if getUninitializedObject == null {
+        throw new InvalidOperationException("Missing RuntimeHelpers.GetUninitializedObject")
     }
-    assert ReferenceCoercionIlOffset(invalidChainIl) == 0
+    runtimeHelperArguments := new object?[](1)
+    ConstructorDeclarationControlsPutObject(
+        runtimeHelperArguments,
+        0,
+        typeof(ColumnarIlEmitter)
+    )
+    emitter := getUninitializedObject.Invoke(null, runtimeHelperArguments)
+    if emitter == null {
+        throw new InvalidOperationException("RuntimeHelpers.GetUninitializedObject returned null")
+    }
+
+    il := ReferenceCoercionIl("ConstructorChainSelectionInvalidExactBaseCall")
+    ilField := typeof(ColumnarIlEmitter).GetField(
+        "_il",
+        BindingFlags.Instance | BindingFlags.NonPublic | BindingFlags.DeclaredOnly
+    )
+    if ilField == null {
+        throw new InvalidOperationException("Missing ColumnarIlEmitter._il")
+    }
+    ilField.SetValue(emitter, il)
+    emitChain := typeof(ColumnarIlEmitter).GetMethod(
+        "EmitChainedConstructorCall",
+        BindingFlags.Instance | BindingFlags.NonPublic | BindingFlags.DeclaredOnly
+    )
+    if emitChain == null {
+        throw new InvalidOperationException("Missing ColumnarIlEmitter.EmitChainedConstructorCall")
+    }
+    arguments := new object?[](3)
+    ConstructorDeclarationControlsPutObject(arguments, 0, chain)
+    ConstructorDeclarationControlsPutObject(arguments, 1, self)
+    ConstructorDeclarationControlsPutObject(arguments, 2, invalidDerived)
+    failure: Exception? = null
+    try {
+        ignored := emitChain.Invoke(emitter, arguments)
+        _ = ignored
+    } catch error: Exception {
+        failure = error
+    }
+    if failure == null {
+        throw new InvalidOperationException("The invalid exact base did not fail constructor selection")
+    }
+    captured: Exception = failure
+    inner := captured.get_InnerException() as ArgumentException
+    if inner == null {
+        throw new InvalidOperationException("The constructor selection failure was not an ArgumentException")
+    }
+    assert ReferenceCoercionIlOffset(il) == 0
 }
 
 test "constructor declaration owner resolves only accessible external parameterless constructors" {
@@ -943,48 +962,7 @@ test "constructor declaration owner emits the exact external base call and decli
     assert defaultDefinition.DefaultCtor == null
 }
 
-test "constructor declaration owner excludes this and rebinds a closed generic base before chaining" {
-    selfOwner := ConstructorDeclarationControlsDefinition("ConstructorDeclarationThisSelf", 0)
-    self := ConstructorDeclarationControlsDefineUserConstructor(
-        selfOwner,
-        ConstructorDeclarationControlsOneType(typeof(int))
-    )
-    other := ConstructorDeclarationControlsDefineUserConstructor(
-        selfOwner,
-        ConstructorDeclarationControlsOneType(typeof(int))
-    )
-    thisChain := ConstructorDeclarationControlsConstructor(
-        ConstructorDeclarationControlsEmptyBody("ThisChain", new string[](0), new string[](0)),
-        1,
-        ConstructorDeclarationControlsOneKind(1),
-        ConstructorDeclarationControlsOneText("7"),
-        false
-    )
-    selfDefinitions := new ColumnarStructDef[](1)
-    selfDefinitions[0] = selfOwner
-    selfResolution := ConstructorDeclarationControlsChainResolution(selfDefinitions)
-    selfChainHost := TypeOfCreateBuilder(
-        "ConstructorDeclarationThisSelfChainHost",
-        "ColumnarConstructorDeclarationControls.ConstructorDeclarationThisSelfChainHost",
-        0
-    )
-    selfIl := ReferenceCoercionBuilderIl(
-        selfChainHost,
-        "ConstructorDeclarationThisSelfChain"
-    )
-    assert ColumnarConstructorDeclarationPlanner.EmitChainedConstructorCall(
-        thisChain,
-        self,
-        selfOwner,
-        new Dictionary<string, int>(StringComparer.Ordinal),
-        new Dictionary<string, Type>(StringComparer.Ordinal),
-        selfResolution.Structs,
-        ConstructorDeclarationControlsDefinitions(selfDefinitions),
-        selfIl
-    )
-    assert ReferenceCoercionIlOffset(selfIl) > 0
-    assert !Object.ReferenceEquals(self, other)
-
+test "constructor declaration owner rebinds a closed generic base constructor" {
     baseDefinition := ConstructorDeclarationControlsDefinition(
         "ConstructorDeclarationClosedBase",
         1
@@ -1007,108 +985,6 @@ test "constructor declaration owner excludes this and rebinds a closed generic b
     )
     assert !Object.ReferenceEquals(rebound, openConstructor)
     assert Object.ReferenceEquals(rebound.get_DeclaringType(), closedBase)
-
-    baseChain := ConstructorDeclarationControlsConstructor(
-        ConstructorDeclarationControlsEmptyBody("BaseChain", new string[](0), new string[](0)),
-        2,
-        ConstructorDeclarationControlsOneKind(1),
-        ConstructorDeclarationControlsOneText("11"),
-        false
-    )
-    chainDefinitions := new ColumnarStructDef[](2)
-    chainDefinitions[0] = derived
-    chainDefinitions[1] = baseDefinition
-    chainResolution := ConstructorDeclarationControlsChainResolution(chainDefinitions)
-    chainHost := TypeOfCreateBuilder(
-        "ConstructorDeclarationClosedBaseChainHost",
-        "ColumnarConstructorDeclarationControls.ConstructorDeclarationClosedBaseChainHost",
-        0
-    )
-    chainIl := ReferenceCoercionBuilderIl(
-        chainHost,
-        "ConstructorDeclarationClosedBaseChain"
-    )
-    assert ColumnarConstructorDeclarationPlanner.EmitChainedConstructorCall(
-        baseChain,
-        self,
-        derived,
-        new Dictionary<string, int>(StringComparer.Ordinal),
-        new Dictionary<string, Type>(StringComparer.Ordinal),
-        chainResolution.Structs,
-        ConstructorDeclarationControlsDefinitions(chainDefinitions),
-        chainIl
-    )
-    assert ReferenceCoercionIlOffset(chainIl) > 0
-}
-
-test "constructor declaration owner rejects ambiguous chains before IL and preserves earlier argument IL on later decline" {
-    ambiguousBase := ConstructorDeclarationControlsDefinition("ConstructorDeclarationAmbiguousBase", 0)
-    ConstructorDeclarationControlsDefineUserConstructor(
-        ambiguousBase,
-        ConstructorDeclarationControlsOneType(typeof(int))
-    )
-    ConstructorDeclarationControlsDefineUserConstructor(
-        ambiguousBase,
-        ConstructorDeclarationControlsOneType(typeof(int))
-    )
-    ambiguousDerived := ConstructorDeclarationControlsDefinition("ConstructorDeclarationAmbiguousDerived", 0)
-    ambiguousDerived.BaseDef = ambiguousBase
-    ambiguousDefinitions := new ColumnarStructDef[](2)
-    ambiguousDefinitions[0] = ambiguousDerived
-    ambiguousDefinitions[1] = ambiguousBase
-    ambiguousResolution := ConstructorDeclarationControlsChainResolution(ambiguousDefinitions)
-    ambiguousCtor := ConstructorDeclarationControlsConstructor(
-        ConstructorDeclarationControlsEmptyBody("Ambiguous", new string[](0), new string[](0)),
-        2,
-        ConstructorDeclarationControlsOneKind(1),
-        ConstructorDeclarationControlsOneText("3"),
-        false
-    )
-    ambiguousIl := ReferenceCoercionIl("ConstructorDeclarationAmbiguousChain")
-    assert !ColumnarConstructorDeclarationPlanner.EmitChainedConstructorCall(
-        ambiguousCtor,
-        ConstructorDeclarationControlsDefineUserConstructor(ambiguousDerived, Type.EmptyTypes),
-        ambiguousDerived,
-        new Dictionary<string, int>(StringComparer.Ordinal),
-        new Dictionary<string, Type>(StringComparer.Ordinal),
-        ambiguousResolution.Structs,
-        ConstructorDeclarationControlsDefinitions(ambiguousDefinitions),
-        ambiguousIl
-    )
-    assert ReferenceCoercionIlOffset(ambiguousIl) == 0
-
-    partialBase := ConstructorDeclarationControlsDefinition("ConstructorDeclarationPartialChainBase", 0)
-    ConstructorDeclarationControlsDefineUserConstructor(
-        partialBase,
-        ConstructorDeclarationControlsTwoTypes(typeof(int), typeof(string))
-    )
-    partialDerived := ConstructorDeclarationControlsDefinition("ConstructorDeclarationPartialChainDerived", 0)
-    partialDerived.BaseDef = partialBase
-    partialDefinitions := new ColumnarStructDef[](2)
-    partialDefinitions[0] = partialDerived
-    partialDefinitions[1] = partialBase
-    partialResolution := ConstructorDeclarationControlsChainResolution(partialDefinitions)
-    partialCtor := ConstructorDeclarationControlsConstructor(
-        ConstructorDeclarationControlsEmptyBody("Partial", new string[](0), new string[](0)),
-        2,
-        ConstructorDeclarationControlsTwoKinds(1, 4),
-        ConstructorDeclarationControlsTwoTexts("128", "$\"not-an-ordinary-string\""),
-        false
-    )
-    partialIl := ReferenceCoercionIl("ConstructorDeclarationPartialChain")
-    assert !ColumnarConstructorDeclarationPlanner.EmitChainedConstructorCall(
-        partialCtor,
-        ConstructorDeclarationControlsDefineUserConstructor(partialDerived, Type.EmptyTypes),
-        partialDerived,
-        new Dictionary<string, int>(StringComparer.Ordinal),
-        new Dictionary<string, Type>(StringComparer.Ordinal),
-        partialResolution.Structs,
-        ConstructorDeclarationControlsDefinitions(partialDefinitions),
-        partialIl
-    )
-    // `ldarg.0` (one byte) and the 128 literal (`ldc.i4`, five bytes) remain after
-    // the later interpolated-string rejection.  No call is emitted on that failed second argument.
-    assert ReferenceCoercionIlOffset(partialIl) == 6
 }
 
 func ConstructorDeclarationControlsArgumentTypes(count: int): Type[] {

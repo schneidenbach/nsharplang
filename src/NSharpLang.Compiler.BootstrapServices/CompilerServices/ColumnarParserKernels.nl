@@ -1176,12 +1176,12 @@ class ParserDeclarationResultTable {
 // Parse a CONSTRUCTOR's chaining initializer `: this(args)` / `: base(args)`, given the constructor's identifier
 // token index (`ctorIndex`, the "constructor" identifier). Scans past the param list `(...)` (balanced) to the
 // optional `:`; with no `:` (or no `(` params) returns 0 with outResult[0] = 0 (no initializer). For `: this(`
-// (this = 42) / `: base(` (base = 43), records each chained ARG — restricted to a SINGLE token, either a param
-// IDENTIFIER (kind 0) or an INT LITERAL (kind 1) — into outArgKinds/outArgStarts/outArgLengths, separated by `,`
-// (134), closed by `)` (128). outResult[0] = the initializer kind (0 = none, 1 = this, 2 = base);
+// (this = 42) / `: base(` (base = 43), parses each chained ARG through the ordinary expression grammar and
+// records its complete span in outArgKinds/outArgStarts/outArgLengths, separated by `,` (134), closed by `)`
+// (128). outResult[0] = the initializer kind (0 = none, 1 = this, 2 = base);
 // outResult[1] = the constructor BODY `{` token index, or -1 if it is missing. Returns the chained-arg count, or
-// -1 on a malformed initializer or a non-{identifier,int-literal} arg (a complex expression / string /
-// other literal — the host declines such a chaining ctor to the N# backend path).
+// -1 on a malformed initializer or expression. Argument spans stay in source order so product materialization can
+// build the ordinary expression-node shape without reconstructing a grammar decision.
 // Product constructor-chain core. Flattened ParseConstructor*Into ABIs live in the parity corpus;
 // product callers compose this core through ParserConstructorSignatures.nl.
 
@@ -10673,7 +10673,7 @@ func ParseDeclarationExpressionBodyEndCore(tokens: ParserDeclarationTokenTable, 
     return st.Pos
 }
 
-func ParseConstructorChainInfoCore(tokens: ParserDeclarationTokenTable, count: int, ctorIndex: int, args: ConstructorChainArgTable, result: ParserDeclarationResultTable): int {
+func ParseConstructorChainInfoCore(source: string, tokens: ParserDeclarationTokenTable, count: int, ctorIndex: int, args: ConstructorChainArgTable, result: ParserDeclarationResultTable): int {
     result.Values[0] = 0
     result.Values[1] = -1
     pos := ctorIndex + 1
@@ -10730,29 +10730,46 @@ func ParseConstructorChainInfoCore(tokens: ParserDeclarationTokenTable, count: i
 
     pos = pos + 1
 
+    scratchCapacity := (count + 1) * 4
+    expressionTokens := new ParserTokenTable(tokens.Kinds, tokens.Starts, tokens.ValueLengths)
+    expressionArgs := new ParserArgumentStack(new int[](scratchCapacity))
+    expressionNodes := new ParserExpressionNodeTable(
+        new int[](scratchCapacity),
+        new int[](scratchCapacity),
+        new int[](scratchCapacity),
+        new int[](scratchCapacity),
+        new int[](scratchCapacity),
+        new int[](scratchCapacity),
+        new int[](scratchCapacity)
+    )
+    expressionChildren := new ParserChildIndexTable(new int[](scratchCapacity * 4))
+    expressionState := new ParserState(pos, 0, 0, 0, 0, 0, source)
     argCount := 0
     while pos < count && tokens.Kinds[pos] != 128 {
-        if tokens.Kinds[pos] == 41 {
-            if pos + 3 >= count || tokens.Kinds[pos + 1] != 0 || tokens.Kinds[pos + 2] != 127 || tokens.Kinds[pos + 3] != 128 {
-                return -1
-            }
-
-            args.Kinds[argCount] = tokens.Kinds[pos]
-            args.Starts[argCount] = tokens.Starts[pos + 1]
-            args.Lengths[argCount] = tokens.ValueLengths[pos + 1]
-            argCount = argCount + 1
-            pos = pos + 4
-        } else {
-            if tokens.Kinds[pos] != 0 && tokens.Kinds[pos] != 1 && tokens.Kinds[pos] != 4 {
-                return -1
-            }
-
-            args.Kinds[argCount] = tokens.Kinds[pos]
-            args.Starts[argCount] = tokens.Starts[pos]
-            args.Lengths[argCount] = tokens.ValueLengths[pos]
-            argCount = argCount + 1
-            pos = pos + 1
+        if argCount >= args.Kinds.Length || argCount >= args.Starts.Length || argCount >= args.Lengths.Length {
+            return -1
         }
+
+        argumentStartToken := pos
+        expressionState.Pos = pos
+        expressionRoot := ParseLambdaOrAssignmentExpressionNode(
+            expressionTokens,
+            count,
+            expressionState,
+            expressionArgs,
+            expressionNodes,
+            expressionChildren,
+            0
+        )
+        if expressionRoot < 0 || expressionState.Pos <= pos {
+            return -1
+        }
+
+        args.Kinds[argCount] = tokens.Kinds[argumentStartToken]
+        args.Starts[argCount] = expressionNodes.SpanStarts[expressionRoot]
+        args.Lengths[argCount] = expressionNodes.SpanLengths[expressionRoot]
+        argCount = argCount + 1
+        pos = expressionState.Pos
 
         if pos < count && tokens.Kinds[pos] != 128 {
             if tokens.Kinds[pos] != 134 {
@@ -12028,7 +12045,7 @@ func ParseConstructorSignatureInfoCore(source: string, tokens: ParserTokenTable,
     chainArgLengths := new int[](count + 1)
     chainArgs := new ConstructorChainArgTable(chainArgKinds, chainArgStarts, chainArgLengths)
     chainResult := new ParserDeclarationResultTable(result.Values)
-    chainArgCount := ParseConstructorChainInfoCore(declarationTokens, count, ctorIndex, chainArgs, chainResult)
+    chainArgCount := ParseConstructorChainInfoCore(source, declarationTokens, count, ctorIndex, chainArgs, chainResult)
     if chainArgCount < 0 {
         return -1
     }
