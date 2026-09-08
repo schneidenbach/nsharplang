@@ -108,14 +108,29 @@ Reinstalled VS Code visibly retains three private fields, preserves readonly, sh
 and leaves the source unchanged on a second formatting pass.
 [Boundary and acceptance](decodes/2026-09-08-complete-columnar-emitter-ownership.md).
 
-Compiler-wide ownership remains open. **Next complete area: MultiFileCompiler**, 663 C# lines with
-all state, constructors and 24 methods, plus ten recovery canonicals and seven native owner lookups.
-Its compiler dependencies are already N#-owned. Preserve diagnostics, live views, repeated-call state,
-source overrides, reference handling and wide-stack exception/trace behavior; add no callbacks or
-legacy fallback. [Execution contract](../tasks/021-final-compiler-ownership-audit.md).
-CompileForAnalysis requires IDE-enabled integration and visual unsaved-buffer verification.
-Broader sibling tasks remain separately held; accepted migrations are not restarted.
-Dependency assessment: `/private/tmp/nsharp-multifile-assessment/current-boundary-20260908.md`.
+**Accepted compiler-only area, complete MultiFileCompiler:** `51fded82` deletes the entire 663-line
+C# owner and moves all constructors, state and connected compilation methods into N#.
+`a32bfdb9` removes the entire ten-case C# recovery test file: nine canonicals execute in BSS and one
+in native query integration. Seven native lookups name the sole N# owner. The sole-caller SoA loop
+moves with its caller. Private thread-state metadata, evaluation/disposal order, diagnostic and failure
+behavior are preserved. Two ratchet rows retire in `2813fd92`; all epochs remain fixed, audit18/18.
+Final formatting is `7a3579e5`; focused dev5, native194/query76 and unfiltered IL1234/10901 +5/58 pass.
+
+Fresh IDE-enabled gate passes in 625s: 511 C# /7,985 N# canonicals /54 native-project entries /
+36 VS Code /12 throughput /68 IL assemblies. Earlier formatting and loaded-throughput failures are
+not accepted as gates. Reinstalled VS Code visibly verifies unsaved diagnostics, cross-file definition
+navigation despite another file's parse error, unchanged disk content and diagnostic removal on revert.
+Official setup and clean installed-SDK self-host pass 7,985 canonicals; installed native194/query76,
+public/private metadata and unfiltered IL pass. Both feeds, ten Release payloads and twelve cache files
+match SDK SHA `705b8c9625689e1ccd6e6326c3b427a1c41b73b530192fbb71caad8f066cfb17`.
+[Boundary and acceptance](decodes/2026-09-08-complete-multifile-compiler-ownership.md).
+
+Compiler-wide ownership remains open. **Next complete area: CompilationReferenceResolver**, the
+497-line owner of recursive project builds, package caching, reference mutation and failure cleanup.
+Move all methods/state and canonical compiler assertions; preserve query's no-build behavior.
+[Execution contract](../tasks/021-final-compiler-ownership-audit.md). Broader sibling tasks remain
+separately held. CodeIntelligenceService's project-loading/property-copy boundary is mechanical;
+completion, fix-command and output presentation policy remain separately scoped.
 
 Its connected compiler prerequisites are integrated in `9dedb3c76`, `caf5d1fff` and `cfbc80bfe`:
 inherited read-only dictionary Count, complete constructor-chain expressions and ThreadStart with
@@ -127,8 +142,7 @@ SDK self-host passes 7,976 assertions; targeted dictionary/reflection/lambda/col
 Both feeds, ten Release payloads and twelve SDK cache entries match after explicit feed synchronization.
 SDK SHA256 `e8da3c44e99ef1d7a56efe8ec470a6f51bff37d85546b680f98d991e7a3e01b0`.
 Evidence: `/private/tmp/nsharp-multifile-assessment/prerequisite-installed-verification/final-receipt.json`.
-The complete MultiFileCompiler candidate now compiles with a compile-time SystemsReport alias and
-private nested thread state; canonical execution and final owner integration remain open.
+The accepted complete-owner checkpoint above supersedes this prerequisite SDK; its evidence remains valid.
 
 **Accepted compiler-only area, complete Analyzer class:** `ec8814c01` moves the entire Analyzer,
 including all lifetime state, factories, public entry points, recursive drivers and metadata
@@ -2147,6 +2161,7 @@ because the closing contract's `mechanical` conjunct fails for `ColumnarIlEmitte
 
 | slice | commit | what moved | durable finding | headline numbers |
 |---|---|---|---|---|
+| Complete MultiFileCompiler | `51fded82`, `a32bfdb9`, `2813fd92`, `7a3579e5` | Entire 663-line C# owner and ten-case C# recovery file deleted; complete N# owner, canonical assertions and seven direct lookups | Private thread state and alias preserve metadata; explicit finally preserves override-copy failure; CodeIntelligence project loading is mechanical | Fresh 625s gate 511/7,985/54 native/36 IDE/12 throughput/68 IL; installed self-host7,985, native194/76; real unsaved IDE verified; [proof](decodes/2026-09-08-complete-multifile-compiler-ownership.md) |
 | 021 slice 12 (closing slice) | `6fcb41f64` (landed) | `SystemsAnalyzer.cs` 1,160 → 1,156: `MutableFunctionSummary::get_Line`/`get_Column` + both ctor params/assignments deleted (write-only, never read); no new C#. `tests/scripts/test-all.sh` gains `--exclude='.claude/'` on the existing rsync/tar lines without growing the file. 8 docs corrected; `memory/architecture.md` placeholder replaced with the 11-row allowlist. | The box stays UNCHECKED: the contract is a conjunction of four (pre-existing, non-growing, mechanical, reviewed-against-an-N#-owner) and `ColumnarIlEmitter.cs` FAILS "mechanical" — 144 user-facing sentences, 72 decline sites reaching users as `NL103 Declined at <site>`, the identical class 021/2 already ruled product decisions. Naming a future owner ≠ being mechanical today. | `NSharpLang.Compiler` 65,454 → 27,838 epoch lines (−57%), 11 files removed / 37,616 lines; 0 of 381 rows above ceiling; 0 non-N# files added; gate `ALL TESTS PASSED` 25m42s, 127 steps, unit 596/0, estate 7030/0, VS Code 3b PASSED |
 | 021 slice 11 | tip `aded3dd58` (not committed) | `PlaygroundRunner.cs` 966 → 939 (`+78/−105`, one C# file, no new type): the `PG201`–`PG237` vocabulary (37 codes + 37 sentences, 74 literal sites), 3 budgets, entry-point rule, division rule, 1e-7 equality tolerance, escape decoder, union case name matching/splitting, rendering words → new `src/NSharpLang.Compiler.BootstrapServices/PlaygroundRunFacts.nl` (442 lines, 66 `static func`s) + `PlaygroundModels.nl` 55 → 60. | The playground is a SECOND implementation of N# semantics and **7 of 14 comparable programs answer differently from `nlc run`** (int and double div-by-zero, 0.1+0.2==0.3, record and union `print`, `"n="+1`, shorthand union binding) — so "route to the canonical path" was NOT available; Group A execution mechanism is classified `(b)`, Groups B/C moved. | runner literals 81/131/117 → 13/13/12; 74 `PlaygroundRunFacts.` call sites; contracts 268 lines / 18 blocks / 143 asserts; estate 7,012 → 7,030; mutation matrix 12/12 distinct blocks; seam sha256 byte-identical 249 lines; gate 23m15s `VSCODE_TESTS=skip` |
 | 021 slice 9b | tip `3e90666ef` (not committed) | `LanguageServer/Services/TypeResolver.cs` 526 → 373 lines / 459 → 326 non-blank (`+73/−226`, one C# file, no new type): 20 decisions (seed universe, 12-entry short-name roster, namespace probe prefixes+order, `?`/array/generic name rules, completion display name, offerability guards, prefix-match case rules, the 200 cap, namespace ranking + ordinal tie-breaks, well-known namespace seeds, import-prefix split) → NEW `EditorTypeCatalogFacts.nl` (483 lines, 25 `static func`s) + `EditorTypeCatalogFacts.tests.nl` (507 lines, 34 blocks). 4 dead items deleted: `GetImportNamespace` ×2 (26 lines, absent from the whole IL census), `ImportableTypeInfo.IsStatic`, a stale `<summary>` at `:401–403`, and the never-passed `maxResults = 200` parameter. | THE EDITOR AND THE ANALYZER SEE TWO DIFFERENT TYPE UNIVERSES: the LSP's `_loadedAssemblies` is THREE assemblies (`typeof(object)` and `typeof(List<>)` are both `System.Private.CoreLib` — slice 9's "four assemblies" is wrong and the `// System.Collections` comment is wrong), vs the analyzer's 27 `CommonAssemblyNames()` + project references. So completion cannot offer a type from a user's package and hover cannot name one; unifying is the AOT type-model task, NOT a fifth seed name. | literals 52/76/59 → 5/5/5 (all logging templates); estate 6,978 → 7,012; mutation matrix 15/15 bite, 1 non-mover proved unobservable; seam 1,812 lines BYTE-IDENTICAL `sha256 47648c56…`; gate VS Code-enabled 25m37s, 127 steps, unit 596/0 |

@@ -85,8 +85,10 @@ Current measured route and boundaries are in [STATUS §1](../systems-language-cl
    The N# formatter dependency is fixed in `6d8970fd5`. Fresh IDE-enabled integration passes
    521 C# / 7,968 N# canonicals / 36 VS Code tests; installed SDK self-host and visual formatter
    verification pass. [Acceptance](../systems-language-closeout/decodes/2026-09-08-complete-columnar-emitter-ownership.md).
-   MultiFileCompiler remains 663/587 and is the next complete ownership area: move all state and
-   methods, its ten recovery canonicals, and seven assembly-qualified native lookups together.
+   MultiFileCompiler is entirely N#-owned in `51fded82` with all ten recovery canonicals migrated.
+   Final `7a3579e5` passes the fresh IDE-enabled gate, installed SDK self-host and real unsaved-buffer
+   verification. [Acceptance](../systems-language-closeout/decodes/2026-09-08-complete-multifile-compiler-ownership.md).
+   Next is the complete 497-line CompilationReferenceResolver and its canonical compiler assertions.
    ColumnarProgramInputBuilder is entirely N#-owned; its accepted evidence remains valid.
    Historical checkboxes do not establish compiler-wide ownership or canonical assertion completion.
 2. Analyzer.cs, SystemsAnalyzer.cs and TypeResolver.cs are deleted; their accepted N# owners and

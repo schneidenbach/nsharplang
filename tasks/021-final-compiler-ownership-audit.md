@@ -16,7 +16,7 @@ boundary. Do not hide unfinished product work, waive a failed gate, or classify 
   `Evidence:` commit, repin, and clean-tree rule in `AGENTS.md`.
 - Report only after every terminal condition below is green.
 
-## Selected area: complete MultiFileCompiler
+## Accepted area: complete MultiFileCompiler
 
 After the accepted emitter checkpoint `8ec52542b`, move the complete 663-line C# class into
 BootstrapServices with namespace `NSharpLang.Compiler`. All compiler dependencies already reside
@@ -161,7 +161,7 @@ mixed capture of the compiler instance and per-invocation state, private helper 
 dispatch after Join. Complete these connected prerequisites, then integrate the owner and its frozen
 canonical migration; do not resume unrelated backlog tasks or publish this provisional candidate.
 
-## Next connected area after MultiFileCompiler
+## Selected area: complete CompilationReferenceResolver
 
 Prerequisite integration checkpoint: `9dedb3c76`, `caf5d1fff` and `cfbc80bfe` are verified through
 the fresh IDE-enabled gate, extension reinstall and visual thread-capture inspection, and installed
@@ -169,9 +169,13 @@ SDK self-host with 7,976 canonical assertions. Installed focused suites pass 10 
 reflection, 10 lambda and 190 columnar tests; all-method BSS IL verification passes 1,231 types and
 10,859 methods. Both feeds and the restored SDK cache match the published seed. Receipt:
 `/private/tmp/nsharp-multifile-assessment/prerequisite-installed-verification/final-receipt.json`.
-This supersedes the provisional seed status above. MultiFileCompiler itself is not yet accepted:
-the complete candidate compiles with private helper metadata, but final canonical execution and
-production-owner deletion/integration are still required.
+This supersedes the provisional prerequisite status above. MultiFileCompiler is now accepted in
+`51fded82`, `a32bfdb9`, `2813fd92` and final formatting `7a3579e5`. The fresh IDE-enabled gate passes
+511 C# /7,985 N# /54 native-project entries /36 VS Code /12 throughput /68 IL assemblies. Installed
+SDK self-host executes 7,985 canonicals; native194/query76, metadata and unfiltered IL pass. Real
+unsaved-buffer diagnostics and cross-file definition navigation are visually verified after reinstall.
+[Complete acceptance](../systems-language-closeout/decodes/2026-09-08-complete-multifile-compiler-ownership.md).
+The source-probe history above is retained evidence, not remaining prerequisite work.
 
 Move the entire `src/NSharpLang.Cli/CompilationReferenceResolver.cs` owner: 497 lines, 19 methods
 and its shared two-minute `HttpClient`. Its recursive project builds, package cache lifecycle,
@@ -207,6 +211,14 @@ Review mixed integration test files by assertion, not by filename. For example,
 fixtures and assertions with existing N# coverage; migrate or retire superseded compiler assertions
 without expanding into separate CLI feature work. Opening evidence:
 `/private/tmp/nsharp-multifile-assessment/root-remaining-canonical-boundaries-20260908.json`.
+
+The subsequent CompilationBackend/CodeIntelligence assertion audit is
+`/private/tmp/nsharp-multifile-assessment/compilation-backend-code-intelligence-assertion-boundary-20260908.md`.
+It adds two real pipeline gaps to close during canonical cleanup: exact ordinary non-AOT CountChars
+emission decline and strict-lint NL001 blocking emission. Add their owner-level N# assertions and
+remove replaced C# compiler clauses, retaining distinct command transport observations. Complete
+project/NuGet and child-AOT assertions move with the selected reference resolver. The ambient Turkish
+culture formatting assertion is separately scoped presentation/runtime coverage, not compiler debt.
 
 The two-file assertion crosswalk is
 `/private/tmp/nsharp-multifile-assessment/check-il-sdk-canonical-crosswalk-20260908.md`.
