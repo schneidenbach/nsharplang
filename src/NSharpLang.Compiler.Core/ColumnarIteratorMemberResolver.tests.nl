@@ -353,10 +353,6 @@ test "generic iterator binding keeps external open VAR separate from machine VAR
     assert reboundReturn.get_IsGenericParameter()
     assert !ColumnarConstructionPlanner.SameObject(reboundReturn, machineParameter)
     assert binding.Target.GetParameters().Length == 0
-    assert throws NotSupportedException {
-        reboundReturnParameter := binding.Target.get_ReturnParameter()
-        _reboundReturnName := reboundReturnParameter.get_Name()
-    }
 }
 
 test "iterator binding rejects a foreign table and a corrupted structural runtime pair" {

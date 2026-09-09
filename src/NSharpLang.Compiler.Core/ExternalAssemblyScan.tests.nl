@@ -172,11 +172,11 @@ test "external reference paths select DLLs normalize project-relative paths and 
 test "external reference paths put NuGet metadata before its runtime implementation" {
     bootstrapRuntimePath := typeof(ExternalAssemblyScan).get_Assembly().get_Location()
     netDirectory := Path.GetDirectoryName(bootstrapRuntimePath)
-    debugDirectory := Path.GetDirectoryName(netDirectory)
-    binDirectory := Path.GetDirectoryName(debugDirectory)
+    configurationDirectory := Path.GetDirectoryName(netDirectory)
+    binDirectory := Path.GetDirectoryName(configurationDirectory)
     projectDirectory := Path.GetDirectoryName(binDirectory)
     assert projectDirectory != null
-    bootstrapReferencePath := Path.Combine(projectDirectory, "obj/Debug/net10.0/refint/" + Path.GetFileName(bootstrapRuntimePath))
+    bootstrapReferencePath := Path.Combine(projectDirectory, "obj/" + Path.GetFileName(configurationDirectory) + "/" + Path.GetFileName(netDirectory) + "/refint/" + Path.GetFileName(bootstrapRuntimePath))
 
     assert File.Exists(bootstrapReferencePath)
 
@@ -207,11 +207,11 @@ test "external reference paths put NuGet metadata before its runtime implementat
 test "external reference paths reject a conventionally located runtime with a different assembly identity" {
     bootstrapRuntimePath := typeof(ExternalAssemblyScan).get_Assembly().get_Location()
     netDirectory := Path.GetDirectoryName(bootstrapRuntimePath)
-    debugDirectory := Path.GetDirectoryName(netDirectory)
-    binDirectory := Path.GetDirectoryName(debugDirectory)
+    configurationDirectory := Path.GetDirectoryName(netDirectory)
+    binDirectory := Path.GetDirectoryName(configurationDirectory)
     projectDirectory := Path.GetDirectoryName(binDirectory)
     assert projectDirectory != null
-    bootstrapReferencePath := Path.Combine(projectDirectory, "obj/Debug/net10.0/refint/" + Path.GetFileName(bootstrapRuntimePath))
+    bootstrapReferencePath := Path.Combine(projectDirectory, "obj/" + Path.GetFileName(configurationDirectory) + "/" + Path.GetFileName(netDirectory) + "/refint/" + Path.GetFileName(bootstrapRuntimePath))
 
     assert File.Exists(bootstrapReferencePath)
 
@@ -302,11 +302,11 @@ test "configured DLL runtime assets deploy implementations and retain metadata-o
 
     bootstrapRuntimePath := typeof(ExternalAssemblyScan).get_Assembly().get_Location()
     netDirectory := Path.GetDirectoryName(bootstrapRuntimePath)
-    debugDirectory := Path.GetDirectoryName(netDirectory)
-    binDirectory := Path.GetDirectoryName(debugDirectory)
+    configurationDirectory := Path.GetDirectoryName(netDirectory)
+    binDirectory := Path.GetDirectoryName(configurationDirectory)
     projectDirectory := Path.GetDirectoryName(binDirectory)
     assert projectDirectory != null
-    bootstrapReferencePath := Path.Combine(projectDirectory, "obj/Debug/net10.0/refint/" + Path.GetFileName(bootstrapRuntimePath))
+    bootstrapReferencePath := Path.Combine(projectDirectory, "obj/" + Path.GetFileName(configurationDirectory) + "/" + Path.GetFileName(netDirectory) + "/refint/" + Path.GetFileName(bootstrapRuntimePath))
 
     assert File.Exists(bootstrapReferencePath)
 
