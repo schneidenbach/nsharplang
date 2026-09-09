@@ -207,6 +207,24 @@ func LsdCopyCompilerErrors(value: object): List<CompilerError> {
     return errors
 }
 
+func LsdCopyLinterDiagnostics(value: object): List<Diagnostic> {
+    sourceItems := value as IList
+    if sourceItems == null {
+        throw new InvalidOperationException("Linter diagnostics did not implement IList.")
+    }
+    diagnostics := new List<Diagnostic>()
+    index := 0
+    while index < sourceItems.Count {
+        diagnostic := sourceItems[index] as Diagnostic
+        if diagnostic == null {
+            throw new InvalidOperationException("Linter diagnostics contained a non-linter item.")
+        }
+        diagnostics.Add(diagnostic)
+        index = index + 1
+    }
+    return diagnostics
+}
+
 func LsdGetDocument(manager: object, uri: string): object {
     parameterTypes := new Type[](1)
     parameterTypes[0] = typeof(string)
@@ -228,6 +246,13 @@ func LsdCompilerDiagnostics(uri: string, source: string): List<CompilerError> {
     LsdUpdateDocument(manager, uri, source)
     document := LsdGetDocument(manager, uri)
     return LsdCopyCompilerErrors(LsdRequiredProperty(document, "Diagnostics"))
+}
+
+func LsdLinterDiagnostics(uri: string, source: string): List<Diagnostic> {
+    manager := LsdNewDocumentManager()
+    LsdUpdateDocument(manager, uri, source)
+    document := LsdGetDocument(manager, uri)
+    return LsdCopyLinterDiagnostics(LsdRequiredProperty(document, "LinterDiagnostics"))
 }
 
 func LsdPublishedCompilerDiagnostics(uri: string, source: string): List<CompilerError> {
@@ -380,6 +405,67 @@ func LsdAssertLspRange(error: CompilerError, line0: int, startCharacter: int, en
     converted := method.Invoke(null, arguments)
     if converted == null {
         throw new InvalidOperationException("Compiler diagnostic conversion returned null.")
+    }
+    range := LsdRequiredProperty(converted, "Range")
+    start := LsdRequiredProperty(range, "Start")
+    finish := LsdRequiredProperty(range, "End")
+    assert Convert.ToInt32(LsdRequiredProperty(start, "Line")) == line0
+    assert Convert.ToInt32(LsdRequiredProperty(start, "Character")) == startCharacter
+    assert Convert.ToInt32(LsdRequiredProperty(finish, "Line")) == line0
+    assert Convert.ToInt32(LsdRequiredProperty(finish, "Character")) == endCharacter
+}
+
+func LsdSingleLinter(
+    diagnostics: IReadOnlyList<Diagnostic>,
+    code: string,
+    messageFragment: string
+): Diagnostic {
+    found: Diagnostic? = null
+    count := 0
+    index := 0
+    while index < diagnostics.Count {
+        diagnostic := diagnostics[index]
+        actualCode := LsdRequiredField(diagnostic, "Code").ToString()
+        actualMessage := LsdRequiredField(diagnostic, "Message").ToString()
+        if actualCode == code && actualMessage != null && actualMessage.Contains(messageFragment) {
+            found = diagnostic
+            count = count + 1
+        }
+        index = index + 1
+    }
+    if found == null || count != 1 {
+        throw new InvalidOperationException(
+            "Expected one " + code + " linter diagnostic, found " + count.ToString() + "."
+        )
+    }
+    return found
+}
+
+func LsdAssertLinterSpan(diagnostic: Diagnostic, line: int, column: int, length: int) {
+    location := LsdRequiredField(diagnostic, "Location")
+    assert Convert.ToInt32(LsdRequiredField(location, "Line")) == line
+    assert Convert.ToInt32(LsdRequiredField(location, "Column")) == column
+    assert Convert.ToInt32(LsdRequiredField(diagnostic, "Length")) == length
+}
+
+func LsdAssertLinterLspRange(
+    diagnostic: Diagnostic,
+    line0: int,
+    startCharacter: int,
+    endCharacter: int
+) {
+    converterType := LsdRequiredType("NSharpLang.LanguageServer.Services.LspDiagnosticConverter, LanguageServer")
+    parameterTypes := new Type[](1)
+    parameterTypes[0] = typeof(Diagnostic)
+    method := converterType.GetMethod("FromLinterDiagnostic", parameterTypes)
+    if method == null {
+        throw new InvalidOperationException("LspDiagnosticConverter.FromLinterDiagnostic was not found.")
+    }
+    arguments := new object?[](1)
+    LsdPut(arguments, 0, diagnostic)
+    converted := method.Invoke(null, arguments)
+    if converted == null {
+        throw new InvalidOperationException("Linter diagnostic conversion returned null.")
     }
     range := LsdRequiredProperty(converted, "Range")
     start := LsdRequiredProperty(range, "Start")
