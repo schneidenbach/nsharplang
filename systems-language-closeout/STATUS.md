@@ -149,10 +149,12 @@ before native tests; the later production rebuild before SDK packaging remains n
 verification-only shell command adds one line, with unchanged original epochs and no C# growth;
 its reviewed ratchet is `head-v1:b93261b5b83f1fee`, audit18/18.
 
-The second-generation direct-owner self-host currently declines `DeserializerBuilder.WithTypeConverter`
-at ProjectFileParser.nl:17. This actual production failure is being resolved in N#; the earlier
-candidate build is not proof that its resulting SDK can self-host. Exact Required/parser/residual
-receiver negatives, fresh product gate and installed seed verification remain open. The clean
+The second-generation direct-owner self-host failure at `DeserializerBuilder.WithTypeConverter`
+is fixed by `645cdfed0`: exact runtime identity collisions prefer handles from the compiler assembly's
+load context. Metadata reference order and the original loaded-assembly snapshot remain unchanged.
+Actual generation-two and generation-three builds pass0/0; both pass unfiltered IL (BSS1235/10951,
+Compiler5/58). `518744372` supplies two passing N# collision/identity regressions. Required/parser
+and receiver negatives below are complete; fresh product gate and installed seed verification remain open. The clean
 combined native SDK suite passes12/12, including private current-source SDK pack/restore/build/run
 and all eleven owner cases; evidence `integration-r1/whole12-r1.json` under
 `/private/tmp/nsharp-sdk-reference-ownership-tests-20260908` (SHA256
@@ -182,6 +184,12 @@ envelope1/1 pass. Four C# assertion markers and six lines retire; only its ratch
 380 other rows and all epochs remain fixed, head `head-v1:45eb8fe43538f8d4`, audit18/18.
 Evidence: `/private/tmp/nsharp-preprocessor-define-canonicals-20260909/final-receipt-r1.json`
 and `root-review-r1.json` there. CLI help/argument precedence remains separate policy.
+
+`23973f636` fixes stage-0 SDK cache preparation to honor `NUGET_PACKAGES`; private-cache and
+unset fallback dry runs plus nine existing setup tests pass. One shell fingerprint changes with all
+metrics/epochs and380 other rows unchanged; current ratchet `head-v1:f25041c58bd80bc8`, audit18/18.
+Implementation and regression receipts are retained under `with-type-converter-generation2/` in SDK
+owner evidence and `/private/tmp/nsharp-runtime-assembly-pairing-tests-20260909`, respectively.
 
 Canonical commits
 `6d046bef2` (six workspace/import methods) and `aa841ec15` (remaining command compiler assertions)
