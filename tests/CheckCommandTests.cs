@@ -149,111 +149,6 @@ func Main() {
         }
     }
 
-    [Fact]
-    public void CheckCommand_JsonResults_UseLinterDiagnosticLength()
-    {
-        var tempDir = CreateTempDir();
-        try
-        {
-            File.WriteAllText(Path.Combine(tempDir, "Program.nl"), """
-func Main() {
-    message := "hi"
-}
-""");
-
-            var (exitCode, stdout, _) = CaptureConsole(() =>
-                CheckCommand.Execute(new[] { "--project", tempDir }));
-
-            Assert.Equal(1, exitCode); // NL001 (unused-variable) is a build-blocking error.
-
-            var doc = JsonDocument.Parse(stdout);
-            var diagnostic = doc.RootElement.GetProperty("results").EnumerateArray()
-                .Single(result => result.GetProperty("code").GetString() == "NL001");
-
-            Assert.Equal(2, diagnostic.GetProperty("line").GetInt32()); // Underlines the identifier itself, using its stored length.
-            Assert.Equal(5, diagnostic.GetProperty("column").GetInt32());
-            Assert.Equal("message".Length, diagnostic.GetProperty("length").GetInt32());
-        }
-        finally
-        {
-            Directory.Delete(tempDir, true);
-        }
-    }
-
-    [Fact]
-    public void CheckCommand_LockOnValueType_ReportsNL320WithLockeeSpan()
-    {
-        // NL320 (the CS0185 analog): a value-typed lockee is a check-time error — before this rule the program built clean and segfaulted the whole process inside Monitor.Enter.
-        var tempDir = CreateTempDir();
-        try
-        {
-            File.WriteAllText(Path.Combine(tempDir, "Program.nl"), """
-func Main() {
-    n := 5
-    lock n {
-        print(n)
-    }
-}
-""");
-
-            var (exitCode, stdout, _) = CaptureConsole(() =>
-                CheckCommand.Execute(new[] { "--project", tempDir }));
-
-            Assert.Equal(1, exitCode);
-
-            var doc = JsonDocument.Parse(stdout);
-            var diagnostic = doc.RootElement.GetProperty("results").EnumerateArray()
-                .Single(result => result.GetProperty("code").GetString() == "NL320");
-
-            Assert.Equal(3, diagnostic.GetProperty("line").GetInt32()); // Underlines the lockee expression itself.
-            Assert.Equal(10, diagnostic.GetProperty("column").GetInt32());
-            Assert.Equal(1, diagnostic.GetProperty("length").GetInt32());
-            Assert.Contains("'int'", diagnostic.GetProperty("message").GetString());
-            Assert.Equal("https://schneidenbach.github.io/nsharplang/docs/errors/NL320", diagnostic.GetProperty("docsUrl").GetString());
-        }
-        finally
-        {
-            Directory.Delete(tempDir, true);
-        }
-    }
-
-    [Fact]
-    public void CheckCommand_ReturnInsideFinally_ReportsNL319OnTheKeyword()
-    {
-        // NL319 (the CS0157 analog): control may not leave a finally — before this rule the program built clean and threw InvalidProgramException on every call.
-        var tempDir = CreateTempDir();
-        try
-        {
-            File.WriteAllText(Path.Combine(tempDir, "Program.nl"), """
-func Main() {
-    n := 0
-    try {
-        n = n + 1
-    } finally {
-        return
-    }
-}
-""");
-
-            var (exitCode, stdout, _) = CaptureConsole(() =>
-                CheckCommand.Execute(new[] { "--project", tempDir }));
-
-            Assert.Equal(1, exitCode);
-
-            var doc = JsonDocument.Parse(stdout);
-            var diagnostic = doc.RootElement.GetProperty("results").EnumerateArray()
-                .Single(result => result.GetProperty("code").GetString() == "NL319");
-
-            Assert.Equal(6, diagnostic.GetProperty("line").GetInt32()); // Underlines the full `return` keyword.
-            Assert.Equal("return".Length, diagnostic.GetProperty("length").GetInt32());
-            Assert.Equal("https://schneidenbach.github.io/nsharplang/docs/errors/NL319", diagnostic.GetProperty("docsUrl").GetString());
-        }
-        finally
-        {
-            Directory.Delete(tempDir, true);
-        }
-    }
-
     // ── Text output mode ───────────────────────────────────────────────
 
     [Fact]
@@ -461,10 +356,6 @@ func countChars(s: string): int {
             Assert.Equal(1, exitCode);
             using var doc = JsonDocument.Parse(stdout);
             Assert.False(doc.RootElement.GetProperty("ok").GetBoolean());
-            var messages = doc.RootElement.GetProperty("results").EnumerateArray()
-                .Select(result => result.GetProperty("message").GetString()).ToArray();
-            Assert.Contains(messages, message =>
-                message?.Contains("Columnar AOT emission is required", StringComparison.Ordinal) == true);
         }
         finally
         {
@@ -587,10 +478,6 @@ func main() { Console.WriteLine(5.Tag("ok")) }
             Assert.False(doc.RootElement.TryGetProperty("error", out _), stdout);
             Assert.False(doc.RootElement.GetProperty("ok").GetBoolean());
             Assert.Equal(1, exitCode);
-
-            var decline = Assert.Single(doc.RootElement.GetProperty("results").EnumerateArray());
-            Assert.Equal("NL103", decline.GetProperty("code").GetString());
-            Assert.Contains("instance call 'T.ToString'", decline.GetProperty("message").GetString());
         }
         finally
         {

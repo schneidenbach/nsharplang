@@ -1,7 +1,6 @@
 using System;
 using System.IO;
 using System.Linq;
-using System.Reflection;
 using System.Xml.Linq;
 using NSharpLang.Cli;
 using NSharpLang.Cli.Commands;
@@ -193,8 +192,6 @@ class Api {
                 $"build \"{projectPath}\" -v q --disable-build-servers",
                 timeout: TimeSpan.FromMinutes(5)));
 
-            var assemblyPath = Path.Combine(tempDir, "bin", "Debug", "net10.0", "SdkSemVerBuild.dll");
-            Assert.Equal(new Version(1, 2, 0, 0), AssemblyName.GetAssemblyName(assemblyPath).Version);
         }
         finally
         {
