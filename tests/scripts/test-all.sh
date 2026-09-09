@@ -452,6 +452,7 @@ copy_source_tree() {
             --exclude='**/nsharp/' \
             --exclude='.context/' --exclude='.claude/' \
             --exclude='artifacts/' \
+            --include='/bootstrap/*.nupkg' \
             --exclude='*.nupkg' \
             --exclude='*.vsix' \
             "$SOURCE_ROOT/" "$RUN_REPO/"

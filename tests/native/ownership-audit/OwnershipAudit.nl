@@ -765,6 +765,7 @@ class OwnershipAudit {
 
         try {
             observed := ScanRepository(root, result)
+            DeliveryOwnershipPolicy.ValidatePresence(observed, result)
             if result.Diagnostics.Count > 0 {
                 result.Sort()
                 return result
@@ -1185,7 +1186,16 @@ class OwnershipAudit {
             }
 
             entry := new OwnershipManifestEntry()
-            if !entries.TryGetValue(observedFile.Path, out entry) {
+            hasEntry := entries.TryGetValue(observedFile.Path, out entry)
+            deliveryFingerprint := DeliveryOwnershipPolicy.Fingerprint(observedFile.Path)
+            if deliveryFingerprint != "" && (!hasEntry || entry.State != "removed") {
+                if observedFile.Fingerprint != deliveryFingerprint {
+                    result.Add("OWN005", observedFile.Path, "reviewed delivery snapshot drift; expected " + deliveryFingerprint + "; observed " + observedFile.Fingerprint)
+                }
+                i = i + 1
+                continue
+            }
+            if !hasEntry {
                 result.Add("OWN003", observedFile.Path, "new unclassified non-N# file; implement this behavior in N# or remove the file. Do not add it to the E0 debt epoch")
                 i = i + 1
                 continue

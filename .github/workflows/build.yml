@@ -52,6 +52,9 @@ jobs:
     - name: Native compiler tests
       run: dotnet test src/NSharpLang.Compiler.Core/NSharpLang.Compiler.Core.csproj -c Release -p:NSharpExcludeTests=false
 
+    - name: Ownership audit
+      run: dotnet src/NSharpLang.Cli/bin/Release/net10.0/Cli.dll test --project tests/native/ownership-audit --no-cache
+
     - name: Installed toolchain integration tests
       env:
         NSHARP_RUN_DOCKER_INTEGRATION: '1'

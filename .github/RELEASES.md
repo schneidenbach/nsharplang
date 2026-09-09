@@ -23,3 +23,11 @@ GitHub must have the cleanup workflow on the default branch before it can handle
 closures; merge this workflow change before relying on automatic cleanup.
 
 Official `v*` pushes retain the separate GitHub Packages publishing workflow.
+
+The compiler migration's E0 ownership manifest is unchanged. The explicitly requested
+delivery repair is recorded separately in
+`tests/native/ownership-audit/DeliveryOwnership.nl`: twelve exact paths and fingerprints,
+including both bootstrap binaries. This is not a directory or language exemption.
+The live audit requires each file to exist and rejects changed contents, new adjacent
+files, and removed E0 owners. Future delivery changes require reviewing this record.
+The isolated product gate includes the seed packages instead of filtering them out.
