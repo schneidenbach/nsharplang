@@ -20,7 +20,7 @@
   <UsingTask TaskName="NSharpLang.Build.Tasks.LoadProjectConfig"
              AssemblyFile="$(MSBuildThisFileDirectory)../tools/NSharpLang.Build.Tasks.dll" />
   <UsingTask TaskName="NSharpLang.Build.Tasks.EmitIlAssembly"
-             AssemblyFile="$(MSBuildThisFileDirectory)../tools/NSharpLang.Build.Tasks.dll" />
+             AssemblyFile="$(MSBuildThisFileDirectory)../tools/NSharpLang.Compiler.BootstrapServices.dll" />
 
   <!-- Apply project.yml in THIS invocation as well as through obj/project.g.props, so direct dotnet builds and
        ProjectReference consumers work even before nlc restore has generated the compatibility props file. -->
