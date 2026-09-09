@@ -3,7 +3,7 @@
 `Build` runs for PRs targeting main and pushes to main. Both jobs verify the checked-in
 compiler seed before restoring; a clean runner does not need a developer's NuGet cache.
 The build job compiles and tests Release, checks canonical formatting, runs native compiler and Docker installation tests, and packs the canonical SDK,
-runtime, templates, compiler API, CLI/LSP toolset, and VS Code extension. The separate
+runtime, templates, compiler API and Core dependency, CLI/LSP toolset, and VS Code extension. The separate
 IL verification job remains required before publication.
 
 Successful same-repository PR builds publish GitHub prereleases named
@@ -26,7 +26,7 @@ Official `v*` pushes retain the separate GitHub Packages publishing workflow.
 
 The compiler migration's E0 ownership manifest is unchanged. The explicitly requested
 delivery repair is recorded separately in
-`tests/native/ownership-audit/DeliveryOwnership.nl`: twelve exact paths and fingerprints,
+`tests/native/ownership-audit/DeliveryOwnership.nl`: fifteen exact paths and fingerprints,
 including both bootstrap binaries. This is not a directory or language exemption.
 The live audit requires each file to exist and rejects changed contents, new adjacent
 files, and removed E0 owners. Future delivery changes require reviewing this record.

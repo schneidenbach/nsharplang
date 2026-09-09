@@ -97,4 +97,31 @@ if '.head.sha' in args: print(os.environ['HEAD'])
     def test_main_has_separate_namespace(self):
         self.assertEqual(self.publish(pr='')[0][2],'unofficial-main-100-2')
 
+class PackageClosureTests(unittest.TestCase):
+    def validate(self, omit='', core_version='1.0.0', duplicate=False):
+        import zipfile
+        with tempfile.TemporaryDirectory() as d:
+            names=['Sdk', 'Runtime', 'Templates', 'Compiler', 'Compiler.Core']
+            for name in names:
+                if name == omit:
+                    continue
+                version=core_version if name == 'Compiler.Core' else '1.0.0'
+                dependency='<dependencies><dependency id="NSharpLang.Compiler.Core" version="1.0.0" /></dependencies>' if name == 'Compiler' else ''
+                content=f'<package><metadata><id>NSharpLang.{name}</id><version>{version}</version>{dependency}</metadata></package>'
+                with zipfile.ZipFile(Path(d)/f'{name}.nupkg','w') as archive:
+                    archive.writestr(f'{name}.nuspec',content)
+            if duplicate:
+                import shutil
+                shutil.copyfile(Path(d)/'Sdk.nupkg',Path(d)/'duplicate.nupkg')
+            return subprocess.run(['python3',str(ROOT/'scripts/verify-release.py'),d],capture_output=True,text=True)
+    def test_complete_release_resolves_internal_dependencies(self):
+        result=self.validate()
+        self.assertEqual(result.returncode,0,result.stderr)
+    def test_missing_core_is_rejected(self):
+        self.assertNotEqual(self.validate(omit='Compiler.Core').returncode,0)
+    def test_wrong_core_version_is_rejected(self):
+        self.assertNotEqual(self.validate(core_version='2.0.0').returncode,0)
+    def test_duplicate_package_is_rejected(self):
+        self.assertNotEqual(self.validate(duplicate=True).returncode,0)
+
 if __name__=='__main__': unittest.main()

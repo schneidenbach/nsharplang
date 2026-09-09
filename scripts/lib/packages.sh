@@ -8,6 +8,7 @@ NSHARP_PACKAGE_SPECS=(
     "NSharpLang.Sdk|NSharpLang.Sdk|src/NSharpLang.Sdk/NSharpLang.Sdk.csproj"
     "NSharpLang.Runtime|NSharpLang.Runtime|src/NSharpLang.Runtime/NSharpLang.Runtime.csproj"
     "NSharpLang.Templates|NSharpLang.Templates|templates/NSharpLang.Templates.csproj"
+    "NSharpLang.Compiler.Core|NSharpLang.Compiler.Core|src/NSharpLang.Compiler.Core/NSharpLang.Compiler.Core.csproj"
     "NSharpLang.Compiler|NSharpLang.Compiler|src/NSharpLang.Compiler/Compiler.csproj"
 )
 
@@ -17,7 +18,12 @@ nsharp_each_package_spec() {
 
 nsharp_package_version() {
     local project="$1"
-    nsharp_read_xml_value "$NSHARP_REPO_ROOT/$project" Version
+    local version
+    version="$(nsharp_read_xml_value "$NSHARP_REPO_ROOT/$project" Version)"
+    if [[ -z "$version" ]]; then
+        version="$(dotnet msbuild "$NSHARP_REPO_ROOT/$project" -getProperty:PackageVersion -nologo)"
+    fi
+    printf '%s\n' "$version"
 }
 
 nsharp_package_artifact_path() {
@@ -108,7 +114,12 @@ nsharp_pack_package_set() {
 
         echo
         echo "Packing $label..."
+        if [[ "$project" == "src/NSharpLang.Compiler.Core/NSharpLang.Compiler.Core.csproj" ]]; then
+            # Direct IL emits no PDB. Tell NuGet the actual output shape when packing the seed-built core.
+            nsharp_run_in_dir "$NSHARP_REPO_ROOT" dotnet pack "${NSHARP_DOTNET_STABLE_BUILD_FLAGS[@]}" "$project" -c Release -o "$output_dir" -p:DebugSymbols=false -p:DebugType=None -v "$verbosity"
+        else
         nsharp_run_in_dir "$NSHARP_REPO_ROOT" dotnet pack "${NSHARP_DOTNET_STABLE_BUILD_FLAGS[@]}" "$project" -c Release -o "$output_dir" -v "$verbosity"
+        fi
     done < <(nsharp_each_package_spec)
 }
 
@@ -116,6 +127,7 @@ nsharp_print_release_artifact_set() {
     echo "  - NSharpLang.Sdk - MSBuild SDK restored by projects"
     echo "  - NSharpLang.Runtime - runtime support library for N# language features"
     echo "  - NSharpLang.Templates - dotnet new templates"
+    echo "  - NSharpLang.Compiler.Core - N# compiler implementation dependency"
     echo "  - NSharpLang.Compiler - Compiler API library"
     echo "  - nsharp-toolset.tar.gz - package-manager-ready nlc and nsharp-lsp payloads"
     echo "  - nsharp.vsix - stable VS Code extension release asset used by scripts/install.sh fallback"
