@@ -248,6 +248,15 @@ func LsdCompilerDiagnostics(uri: string, source: string): List<CompilerError> {
     return LsdCopyCompilerErrors(LsdRequiredProperty(document, "Diagnostics"))
 }
 
+func LsdOpenCompilerDiagnostics(uri: string, source: string): List<CompilerError> {
+    manager := LsdNewDocumentManager()
+    ignored := LsdInvokeStringArgument(manager, "MarkEditorOpen", uri)
+    _ = ignored
+    LsdUpdateDocument(manager, uri, source)
+    document := LsdGetDocument(manager, uri)
+    return LsdCopyCompilerErrors(LsdRequiredProperty(document, "Diagnostics"))
+}
+
 func LsdLinterDiagnostics(uri: string, source: string): List<Diagnostic> {
     manager := LsdNewDocumentManager()
     LsdUpdateDocument(manager, uri, source)
@@ -273,6 +282,89 @@ func LsdPublishedCompilerDiagnostics(uri: string, source: string): List<Compiler
         throw new InvalidOperationException("Diagnostics publication was null.")
     }
     return LsdCopyCompilerErrors(LsdRequiredProperty(publication, "CompilerDiagnostics"))
+}
+
+func LsdRequiredList(value: object?, description: string): IList {
+    items := value as IList
+    if items == null {
+        throw new InvalidOperationException(description + " did not implement IList.")
+    }
+    return items
+}
+
+func LsdDiagnosticPublications(manager: object, uri: string): IList {
+    value := LsdInvokeStringArgument(manager, "GetDiagnosticsToPublish", uri)
+    return LsdRequiredList(value, "DocumentManager diagnostics publications")
+}
+
+func LsdFindPublication(publications: IList, uri: string): object {
+    found: object? = null
+    count := 0
+    index := 0
+    while index < publications.Count {
+        publication := publications[index]
+        if publication != null {
+            publicationUri := LsdRequiredProperty(publication, "Uri").ToString()
+            if publicationUri == uri {
+                found = publication
+                count = count + 1
+            }
+        }
+        index = index + 1
+    }
+    if found == null || count != 1 {
+        throw new InvalidOperationException(
+            "Expected one diagnostics publication for " + uri + ", found " + count.ToString() + "."
+        )
+    }
+    return found
+}
+
+func LsdPublicationCompilerDiagnostics(publication: object): List<CompilerError> {
+    return LsdCopyCompilerErrors(LsdRequiredProperty(publication, "CompilerDiagnostics"))
+}
+
+func LsdContainsSeverity(errors: IReadOnlyList<CompilerError>, severityName: string): bool {
+    index := 0
+    while index < errors.Count {
+        if LsdFieldText(errors[index], "Severity") == severityName {
+            return true
+        }
+        index = index + 1
+    }
+    return false
+}
+
+func LsdWriteFile(root: string, relativePath: string, text: string) {
+    fullPath := Path.Combine(root, relativePath)
+    directory := Path.GetDirectoryName(fullPath)
+    if directory != null && directory.Length > 0 {
+        Directory.CreateDirectory(directory)
+    }
+    File.WriteAllText(fullPath, text)
+}
+
+func LsdFindStringContaining(items: IList, fragment: string): string {
+    found: string? = null
+    count := 0
+    index := 0
+    while index < items.Count {
+        item := items[index]
+        if item != null {
+            text := item.ToString()
+            if text != null && text.Contains(fragment, StringComparison.Ordinal) {
+                found = text
+                count = count + 1
+            }
+        }
+        index = index + 1
+    }
+    if found == null || count != 1 {
+        throw new InvalidOperationException(
+            "Expected one list item containing " + fragment + ", found " + count.ToString() + "."
+        )
+    }
+    return found
 }
 
 func LsdMessageMatches(message: string, fragment: string?): bool {
