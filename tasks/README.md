@@ -35,6 +35,32 @@ implementation is delegated to Sol Max or Terra Max.
    solely N# compiler ownership and canonical assertions, removal of legacy validation/callbacks/
    fallback ownership, documented mechanical boundaries, and passing compiler/integration checks.
 
+## C# test migration is required
+
+Refactor the existing C# compiler tests into executable N# tests alongside each production migration.
+Moving production code alone does not complete an area. Preserve complete fixtures, setup/state,
+assertion cardinality, diagnostic codes/messages/spans, evaluation order and failure behavior.
+Map every removed C# compiler assertion to its executed N# successor; similar component coverage
+or a C# wrapper calling an N# helper is insufficient. Delete the replaced C# assertions and their
+unused helpers. In mixed CLI/editor/SDK tests, migrate the compiler assertions and retain only the
+distinct integration or separately scoped policy observations. Final task021 must audit all remaining
+C# tests, including compiler assertions outside compiler-named files. Do not add new C# tests.
+
+## Worktree lifecycle
+
+After review and integration, retire completed agent worktrees and their local branches. Check for
+active users, uncommitted/untracked work and unique commits first; preserve active and held backlog
+work. Preserve unique branch history in a verified Git bundle before retiring obsolete proof branches,
+and record the recovery path. Keep verification receipts and required proof inputs outside disposable
+worktrees. Do not accumulate completed worktrees as a substitute for an integration record.
+
+Cleanup on 2026-09-08 retired81 agent worktrees and77 local branches. Recoverable history and nine
+uncommitted draft archives are in `/Users/spencer/nsharp-worktree-archives/2026-09-08`; the verified
+`branches.bundle`, `inventory-before.json`, `cleanup-results.json` and per-draft receipts record exact
+revisions and recovery inputs. Three active SDK worktrees, held query/config/signature-help work,
+the main checkout and six verification evidence snapshots remain. Archived drafts are preserved work,
+not newly accepted migrations. Continue retiring completed worktrees under this protocol.
+
 CLI, LSP/editor features, runtime reimplementation, NativeAOT and other branch initiatives are
 recorded in [the separate branch backlog](BRANCH-BACKLOG.md). SDK/tooling changes are in scope only
 when directly necessary to build, integrate or verify compiler migration. A new metadata writer is
@@ -88,7 +114,11 @@ Current measured route and boundaries are in [STATUS §1](../systems-language-cl
    MultiFileCompiler is entirely N#-owned in `51fded82` with all ten recovery canonicals migrated.
    Final `7a3579e5` passes the fresh IDE-enabled gate, installed SDK self-host and real unsaved-buffer
    verification. [Acceptance](../systems-language-closeout/decodes/2026-09-08-complete-multifile-compiler-ownership.md).
-   Next is the complete 497-line CompilationReferenceResolver and its canonical compiler assertions.
+   CompilationReferenceResolver is entirely N#-owned and its 497-line C# owner is deleted; its
+   complete verification is published at `6d90129fb`. Additional workspace, command and CLI parity
+   compiler canonicals are published at `698a34f30` (fresh gate:399 C#/8000 N# assertions).
+   The active area is complete SDK EmitIlAssembly ownership, its proven MSBuild/Cecil prerequisites
+   and canonical N# tests. Its three active worktrees remain reserved for that work.
    ColumnarProgramInputBuilder is entirely N#-owned; its accepted evidence remains valid.
    Historical checkboxes do not establish compiler-wide ownership or canonical assertion completion.
 2. Analyzer.cs, SystemsAnalyzer.cs and TypeResolver.cs are deleted; their accepted N# owners and

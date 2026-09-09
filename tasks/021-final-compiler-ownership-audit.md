@@ -9,6 +9,12 @@ boundary. Do not hide unfinished product work, waive a failed gate, or classify 
 
 - Add no C# source, tests, helpers, bridges, callbacks, whitelists, or fallback logic.
 - Delete zero-consumer legacy owners and superseded assertions.
+- Refactor every in-scope C# compiler test assertion into an executable N# canonical, including
+  assertions embedded in CLI, LSP/editor and SDK tests. Preserve its exact fixture, cardinality,
+  diagnostics and meaningful failures; delete the replaced C# assertion and unused test helpers.
+  Record an assertion-to-successor crosswalk and nonzero executed N# results. Production ownership
+  without this test migration does not satisfy completion. Retain only distinct integration or
+  separately scoped policy observations in mixed C# tests.
 - Every surviving non-N# compiler-core integration boundary must be pre-existing, non-growing,
   mechanical, and explicitly reviewed against a canonical N# owner. Separately tracked CLI/editor
   features do not become compiler scope merely because they share a folder.
