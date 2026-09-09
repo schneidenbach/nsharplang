@@ -77,6 +77,35 @@ func SmcForeignType(fullName: string, assemblyName: string): Type {
     return created
 }
 
+func SmcForeignTaskLoggingHelper(): Type {
+    assemblyName := "NSharpTests.ForeignTaskLoggingHelper"
+    dynamicAssembly := AssemblyBuilder.DefineDynamicAssembly(
+        new AssemblyName(assemblyName),
+        AssemblyBuilderAccess.Run
+    )
+    dynamicModule := dynamicAssembly.DefineDynamicModule(assemblyName)
+    builder := dynamicModule.DefineType(
+        "Microsoft.Build.Utilities.TaskLoggingHelper",
+        TypeAttributes.Public
+    )
+    parameters := new Type[](3)
+    parameters[0] = typeof(Microsoft.Build.Framework.MessageImportance)
+    parameters[1] = typeof(string)
+    parameters[2] = typeof(object[])
+    method := builder.DefineMethod(
+        "LogMessage",
+        MethodAttributes.Public,
+        ColumnarTypeOfPlanner.RequiredVoidType(),
+        parameters
+    )
+    method.GetILGenerator().Emit(OpCodes.Ret)
+    created := builder.CreateType()
+    if created == null {
+        throw new InvalidOperationException("The foreign TaskLoggingHelper fixture did not bake.")
+    }
+    return created
+}
+
 func SmcRequiredRuntimeType(valueType: Type?, description: string): Type {
     if valueType == null {
         throw new InvalidOperationException(description + " was not found.")
@@ -163,10 +192,16 @@ test "external instance call selection rejects same named foreign receivers whil
     assert exactSelection.Method.get_DeclaringType() == typeof(Microsoft.Build.Utilities.TaskLoggingHelper)
     assert !exactSelection.Method.get_IsStatic()
 
-    foreignLogger := SmcForeignType(
-        "Microsoft.Build.Utilities.TaskLoggingHelper",
-        "NSharpTests.ForeignTaskLoggingHelper"
-    )
+    foreignLogger := SmcForeignTaskLoggingHelper()
+    foreignSignature := new Type[](3)
+    foreignSignature[0] = typeof(Microsoft.Build.Framework.MessageImportance)
+    foreignSignature[1] = typeof(string)
+    foreignSignature[2] = typeof(object[])
+    foreignMethod := foreignLogger.GetMethod("LogMessage", foreignSignature)
+    if foreignMethod == null {
+        throw new InvalidOperationException("The foreign TaskLoggingHelper fixture lost its exact LogMessage signature.")
+    }
+    assert !foreignMethod.get_IsStatic()
     rejectedSelection := ColumnarRuntimeDirectCallSelection.Empty()
     assert !ColumnarRuntimeDirectCallResolver.TrySelect(instancePlan, foreignLogger, false, out rejectedSelection)
     assert rejectedSelection.Method == null
