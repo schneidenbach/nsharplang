@@ -237,9 +237,9 @@ class OwnershipPolicy {
     // The path and epoch constants define E0. The reviewed-head constant ratchets every
     // accepted shrink or removal, so a manifest-only rebaseline can never pass the live gate.
     static EpochFileCount: int => 381
-    static EpochPathFingerprint: string => "pathset-v1:8a26e1529863444b"
-    static EpochFactFingerprint: string => "epochfacts-v1:1b3090747e517fc1"
-    static ReviewedHeadFingerprint: string => "head-v1:e00b4b68668caa8b"
+    static EpochPathFingerprint: string => "pathset-v1:9b857d8cc99f9e02"
+    static EpochFactFingerprint: string => "epochfacts-v1:6c91c4146f5ab460"
+    static ReviewedHeadFingerprint: string => "head-v1:0d1db3eb1998be8c"
 
     static func Classify(path: string): OwnershipClassification {
         normalized := NormalizeRelativePath(path)

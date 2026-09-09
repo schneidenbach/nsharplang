@@ -41,6 +41,13 @@ All completed implementation worktrees are retired; held CLI/editor/runtime/AOT/
 verification snapshots remain separate. Earlier pending cursor entries below are historical and
 superseded by their acceptance records and this final verdict.
 
+**Active post-completion cleanup, 2026-09-09:** rename the N# compiler project and assembly from
+`NSharpLang.Compiler.BootstrapServices` to `NSharpLang.Compiler.Core`, including live SDK, native-test
+and editor dependency references. Historical acceptance records retain their original identities.
+Astra integrates and verifies; Sol Max owns the bounded rename. The renamed compiler has passed
+8017 canonical N# tests; package, installed self-host and IDE integration checks remain pending.
+Retire the rename worktree after review, verification and push. The broader backlog remains held.
+
 **Active compiler-only contract (2026-09-06):** [tasks/README.md](../tasks/README.md) supersedes
 historical smallest-slice/one-turn/line-budget and mandatory writer-first instructions. Move complete
 production method groups with helpers/state and canonical N# assertions; Astra integrates, Sol Max
