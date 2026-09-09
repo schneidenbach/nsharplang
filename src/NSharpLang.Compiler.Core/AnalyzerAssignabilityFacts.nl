@@ -92,7 +92,19 @@ class AnalyzerAssignabilityFacts {
         }
 
         if !IsKnownGenericConversion(targetGeneric.Name, sourceGeneric.Name) {
-            return AnalyzerAssignabilityDecision.Answer(false)
+            if TypeInfoIdentityFacts.AreEqual(targetGeneric, sourceGeneric) {
+                return AnalyzerAssignabilityDecision.Answer(false)
+            }
+            // Identity-shaped generic values normally succeed through TypeInfoIdentityFacts before
+            // this owner is reached. An imported oblivious argument makes that exact identity
+            // comparison fail, though, so admit the same generic head here only when both sides
+            // carry the SAME validated runtime definition. A same-spelled source declaration never
+            // acquires this compatibility path.
+            targetDefinition := targetGeneric.GenericDefinition
+            sourceDefinition := sourceGeneric.GenericDefinition
+            if targetGeneric.Name != sourceGeneric.Name || targetDefinition == null || sourceDefinition == null || !TypeInfoIdentityFacts.TypeDefinitionsEqual(targetDefinition, sourceDefinition) {
+                return AnalyzerAssignabilityDecision.Answer(false)
+            }
         }
 
         isCovariantTarget := IsCovariantKnownGenericTarget(targetGeneric.Name)
@@ -102,7 +114,7 @@ class AnalyzerAssignabilityFacts {
         while index < targetGeneric.TypeArguments.Count {
             targetArgument := targetGeneric.TypeArguments[index]
             sourceArgument := sourceGeneric.TypeArguments[index]
-            if !TypeInfoIdentityFacts.AreEqual(targetArgument, sourceArgument) {
+            if !AreKnownGenericArgumentsCompatible(targetArgument, sourceArgument) {
                 if !isCovariantTarget || !IsReferenceLikeForVariance(targetArgument) || !IsReferenceLikeForVariance(sourceArgument) {
                     return AnalyzerAssignabilityDecision.Answer(false)
                 }
@@ -115,6 +127,39 @@ class AnalyzerAssignabilityFacts {
         }
 
         return AnalyzerAssignabilityDecision.Pending(pendingTargets, pendingSources)
+    }
+
+    // A generic signature read from an external CLR assembly may carry an oblivious shell around a
+    // type argument. That shell means the assembly supplied no nullability fact; it is compatible
+    // with the same underlying type from source, while a nullable shell remains a distinct type.
+    // Keep this at the known-generic conversion boundary instead of weakening TypeInfoIdentityFacts,
+    // whose exact identity answers are used by nominal and structural callers elsewhere.
+    static func AreKnownGenericArgumentsCompatible(target: TypeInfo, source: TypeInfo): bool {
+        if TypeInfoIdentityFacts.AreEqual(target, source) {
+            return true
+        }
+
+        targetOblivious := UnwrapOblivious(target)
+        sourceOblivious := UnwrapOblivious(source)
+        if Object.ReferenceEquals(targetOblivious, target) && Object.ReferenceEquals(sourceOblivious, source) {
+            return false
+        }
+
+        return TypeInfoIdentityFacts.AreEqual(targetOblivious, sourceOblivious)
+    }
+
+    static func UnwrapOblivious(candidate: TypeInfo): TypeInfo {
+        current := candidate
+        while true {
+            oblivious := current as ObliviousTypeInfo
+            if oblivious == null {
+                return current
+            }
+
+            current = oblivious.InnerType
+        }
+
+        return current
     }
 
     // Structural function-type assignability. Parameter counts must agree exactly; an INFERRED

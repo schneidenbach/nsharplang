@@ -713,7 +713,7 @@ class ColumnarRuntimeInstanceMemberResolver {
     }
 
     static func IsLiftableNullableElement(valueType: Type): bool {
-        return valueType == typeof(int) || valueType == typeof(long) || valueType == typeof(ulong) || valueType == typeof(uint) || valueType == typeof(short) || valueType == typeof(ushort) || valueType == typeof(byte) || valueType == typeof(sbyte) || valueType == typeof(bool) || valueType == typeof(char) || valueType == typeof(double) || valueType == typeof(float) || valueType == typeof(decimal) || valueType == typeof(TimeSpan) || IsSupportedValueTupleReceiver(valueType)
+        return valueType == typeof(int) || valueType == typeof(long) || valueType == typeof(ulong) || valueType == typeof(uint) || valueType == typeof(short) || valueType == typeof(ushort) || valueType == typeof(byte) || valueType == typeof(sbyte) || valueType == typeof(bool) || valueType == typeof(char) || valueType == typeof(double) || valueType == typeof(float) || valueType == typeof(decimal) || valueType == typeof(TimeSpan) || ColumnarTypeOfPlanner.IsEnumType(valueType) || IsSupportedValueTupleReceiver(valueType)
     }
 
     static func IsSupportedResultReceiver(valueType: Type): bool {

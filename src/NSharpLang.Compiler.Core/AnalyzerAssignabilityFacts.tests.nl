@@ -171,6 +171,22 @@ func AssignabilityKnownGeneric2(
     )
 }
 
+func AssignabilityClass(name: string): ClassTypeInfo {
+    return new ClassTypeInfo(
+        name,
+        1,
+        1,
+        false,
+        null,
+        new TypeReference[](0),
+        new TypeParameter[](0),
+        new ParameterDeclarationInfo[](0),
+        new DeclaredMemberInfo[](0),
+        new NestedTypeInfo[](0),
+        true
+    )
+}
+
 // The two-argument spelling with NO definition — a source-declared type that merely shares the name.
 func AssignabilitySpelledGeneric2(
     name: string,
@@ -432,6 +448,45 @@ test "known-generic arity must agree and the covariant targets hand back their a
     assert AssignabilityDecisionShape(owner.ClassifyKnownGenericAssignability(
         AssignabilityKnownGeneric("ICollection", collectionOpen, BuiltInTypes.Object),
         AssignabilityKnownGeneric("List", listOpen, BuiltInTypes.String)
+    )) == "decided:false"
+}
+
+test "known generic interop treats an oblivious argument as the same underlying type" {
+    owner := AssignabilityOwner("/tmp/assign-oblivious-generic.nl")
+    listOpen := AssignabilityListOpen()
+
+    assert AssignabilityDecisionShape(owner.ClassifyKnownGenericAssignability(
+        AssignabilityKnownGeneric("List", listOpen, new ObliviousTypeInfo(BuiltInTypes.String)),
+        AssignabilityKnownGeneric("List", listOpen, BuiltInTypes.String)
+    )) == "decided:true"
+    assert AssignabilityDecisionShape(owner.ClassifyKnownGenericAssignability(
+        AssignabilityKnownGeneric("List", listOpen, BuiltInTypes.String),
+        AssignabilityKnownGeneric("List", listOpen, new ObliviousTypeInfo(BuiltInTypes.String))
+    )) == "decided:true"
+}
+
+test "known generic interop keeps nullable, invariant and nominal identity boundaries" {
+    owner := AssignabilityOwner("/tmp/assign-oblivious-boundaries.nl")
+    listOpen := AssignabilityListOpen()
+
+    // An oblivious shell does not erase an explicit nullable argument.
+    assert AssignabilityDecisionShape(owner.ClassifyKnownGenericAssignability(
+        AssignabilityKnownGeneric("List", listOpen, new ObliviousTypeInfo(BuiltInTypes.String)),
+        AssignabilityKnownGeneric("List", listOpen, new NullableTypeInfo(BuiltInTypes.String))
+    )) == "decided:false"
+
+    // The mutable List target remains invariant even when its differing arguments are reference-like.
+    assert AssignabilityDecisionShape(owner.ClassifyKnownGenericAssignability(
+        AssignabilityKnownGeneric("List", listOpen, new ObliviousTypeInfo(BuiltInTypes.Object)),
+        AssignabilityKnownGeneric("List", listOpen, BuiltInTypes.String)
+    )) == "decided:false"
+
+    // Oblivious unwrapping never turns two distinct source declarations with the same name into one.
+    first := AssignabilityClass("Widget") as TypeInfo
+    second := AssignabilityClass("Widget") as TypeInfo
+    assert AssignabilityDecisionShape(owner.ClassifyKnownGenericAssignability(
+        AssignabilityKnownGeneric("List", listOpen, new ObliviousTypeInfo(first)),
+        AssignabilityKnownGeneric("List", listOpen, second)
     )) == "decided:false"
 }
 

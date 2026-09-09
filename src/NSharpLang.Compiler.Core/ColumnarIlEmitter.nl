@@ -527,6 +527,42 @@ sealed class ColumnarIlEmitter {
     // BindRuntimeConstructorCall idiom); fully baked instantiations resolve the closed runtime handle.
     private static func ResolveClosedGenericMethod(closedType: Type, openMethod: MethodInfo): MethodInfo => ColumnarClosedGenericMemberResolver.ResolveMethod(closedType, openMethod)
 
+    // Nullable<T> is a generic value type, and source enums keep the enclosing Nullable<T> as a
+    // TypeBuilderInstantiation until the persisted assembly is finalized. Reflection's ordinary
+    // GetMethod/GetProperty APIs reject that shape; resolve the getter from Nullable<> and rebind
+    // it through the one closed-generic member owner used by the other emitter paths.
+    private static func ResolveNullableGetter(nullableType: Type, member: string): MethodInfo {
+        openNullable := nullableType.GetGenericTypeDefinition()
+        property := openNullable.GetProperty(member, BindingFlags.Public | BindingFlags.Instance)
+        if property == null {
+            throw new InvalidOperationException("Nullable member '" + member + "' was not found.")
+        }
+        getter := property.GetGetMethod()
+        if getter == null {
+            throw new InvalidOperationException("Nullable member '" + member + "' has no getter.")
+        }
+        return ResolveClosedGenericMethod(nullableType, getter)
+    }
+
+    private static func ResolveNullableMethod(nullableType: Type, member: string, parameterTypes: Type[]): MethodInfo {
+        openNullable := nullableType.GetGenericTypeDefinition()
+        method := openNullable.GetMethod(member, parameterTypes)
+        if method == null {
+            throw new InvalidOperationException("Nullable method '" + member + "' was not found.")
+        }
+        return ResolveClosedGenericMethod(nullableType, method)
+    }
+
+    private static func ResolveNullableConstructor(nullableType: Type): ConstructorInfo {
+        openNullable := nullableType.GetGenericTypeDefinition()
+        openElement := openNullable.GetGenericArguments()[0]
+        constructor := openNullable.GetConstructor([openElement])
+        if constructor == null {
+            throw new InvalidOperationException("Nullable value constructor was not found.")
+        }
+        return ResolveClosedGenericCtor(nullableType, constructor)
+    }
+
     private static func ResolveClosedGenericCtor(closedType: Type, openCtor: ConstructorInfo): ConstructorInfo {
         if (ColumnarTypeOfPlanner.ContainsBuilderBoundType(closedType)) {
             return TypeBuilder.GetConstructor(closedType, openCtor)
@@ -8088,7 +8124,7 @@ sealed class ColumnarIlEmitter {
                     nullableTemp := _il.DeclareLocal(nullCmpType)
                     _il.Emit(OpCodes.Stloc, nullableTemp)
                     _il.Emit(OpCodes.Ldloca, nullableTemp)
-                    _il.Emit(OpCodes.Call, nullCmpType.GetMethod("get_HasValue"))
+                    _il.Emit(OpCodes.Call, ResolveNullableGetter(nullCmpType, "HasValue"))
                     if (op == "==") {
                         _il.Emit(OpCodes.Ldc_I4_0)
                         _il.Emit(OpCodes.Ceq)
@@ -8124,10 +8160,10 @@ sealed class ColumnarIlEmitter {
                     elseLabel2 := _il.DefineLabel()
                     endLabel2 := _il.DefineLabel()
                     _il.Emit(OpCodes.Ldloca, nullableLocal)
-                    _il.Emit(OpCodes.Call, coalesceLeft.GetMethod("get_HasValue"))
+                    _il.Emit(OpCodes.Call, ResolveNullableGetter(coalesceLeft, "HasValue"))
                     _il.Emit(OpCodes.Brfalse, elseLabel2)
                     _il.Emit(OpCodes.Ldloca, nullableLocal)
-                    _il.Emit(OpCodes.Call, coalesceLeft.GetMethod("GetValueOrDefault", Type.EmptyTypes))
+                    _il.Emit(OpCodes.Call, ResolveNullableMethod(coalesceLeft, "GetValueOrDefault", Type.EmptyTypes))
                     _il.Emit(OpCodes.Br, endLabel2)
                     _il.MarkLabel(elseLabel2)
                     let columnarDiscard45: System.Type = null
@@ -8669,11 +8705,11 @@ sealed class ColumnarIlEmitter {
                     _il.Emit(OpCodes.Stloc, nullableTemp)
                     _il.Emit(OpCodes.Ldloca, nullableTemp)
                     if (member == "HasValue") {
-                        _il.Emit(OpCodes.Call, structReceiverType.GetProperty("HasValue").GetGetMethod())
+                        _il.Emit(OpCodes.Call, ResolveNullableGetter(structReceiverType, "HasValue"))
                         columnarResolvedType = typeof(bool)
                         return true
                     }
-                    _il.Emit(OpCodes.Call, structReceiverType.GetProperty("Value").GetGetMethod())
+                    _il.Emit(OpCodes.Call, ResolveNullableGetter(structReceiverType, "Value"))
                     columnarResolvedType = structReceiverType.GetGenericArguments()[0]
                     return true
                 }
@@ -10235,14 +10271,14 @@ sealed class ColumnarIlEmitter {
                 _il.Emit(OpCodes.Stloc, mustLocal)
                 mustOk := _il.DefineLabel()
                 _il.Emit(OpCodes.Ldloca, mustLocal)
-                _il.Emit(OpCodes.Call, mustType.GetMethod("get_HasValue"))
+                _il.Emit(OpCodes.Call, ResolveNullableGetter(mustType, "HasValue"))
                 _il.Emit(OpCodes.Brtrue, mustOk)
                 _il.Emit(OpCodes.Ldstr, "must unwrap failed: value was null")
                 _il.Emit(OpCodes.Newobj, typeof(InvalidOperationException).GetConstructor([typeof(string)]))
                 _il.Emit(OpCodes.Throw)
                 _il.MarkLabel(mustOk)
                 _il.Emit(OpCodes.Ldloca, mustLocal)
-                _il.Emit(OpCodes.Call, mustType.GetMethod("get_Value"))
+                _il.Emit(OpCodes.Call, ResolveNullableGetter(mustType, "Value"))
                 columnarResolvedType = mustElement
                 return true
             }
@@ -13561,7 +13597,7 @@ sealed class ColumnarIlEmitter {
         }
         intLiteralType: System.Type? = null
         if (TryEmitIntLiteralAsType(node, element, out intLiteralType)) {
-            _il.Emit(OpCodes.Newobj, target.GetConstructor([element]))
+            _il.Emit(OpCodes.Newobj, ResolveNullableConstructor(target))
             resolvedClrType = target
             return true
         }
@@ -13578,7 +13614,7 @@ sealed class ColumnarIlEmitter {
             return false
         }
         // emitted-but-wrong — the caller declines the whole program (stack abandoned).
-        _il.Emit(OpCodes.Newobj, target.GetConstructor([element]))
+        _il.Emit(OpCodes.Newobj, ResolveNullableConstructor(target))
         resolvedClrType = target
         return true
     }

@@ -94,12 +94,14 @@ test "nullable argument lowering classifies only supported target flows" {
     nullableInt := NullableArgumentType(typeof(int))
     nullableLong := NullableArgumentType(typeof(long))
     nullableDateTime := NullableArgumentType(typeof(DateTime))
+    nullableEnum := NullableArgumentType(typeof(ColumnarTypeOfProbeEnum))
     tupleType := typeof(ValueTuple<int, string>)
     nullableTuple := NullableArgumentType(tupleType)
     element := typeof(bool)
 
     assert ColumnarNullableArgumentLowering.CanAdoptNull(typeof(string))
     assert ColumnarNullableArgumentLowering.CanAdoptNull(nullableInt)
+    assert ColumnarNullableArgumentLowering.CanAdoptNull(nullableEnum)
     assert !ColumnarNullableArgumentLowering.CanAdoptNull(typeof(int))
     assert !ColumnarNullableArgumentLowering.CanAdoptNull(nullableDateTime)
     assert ColumnarNullableArgumentLowering.CanAdoptNull(nullableTuple)
@@ -111,6 +113,7 @@ test "nullable argument lowering classifies only supported target flows" {
     assert ColumnarNullableArgumentLowering.CanLiftValue(typeof(int), nullableInt)
 
     assert ColumnarNullableArgumentLowering.CanLiftValue(typeof(int), nullableLong)
+    assert ColumnarNullableArgumentLowering.CanLiftValue(typeof(ColumnarTypeOfProbeEnum), nullableEnum)
 
     assert !ColumnarNullableArgumentLowering.CanLiftValue(nullableInt, nullableLong)
 

@@ -11,6 +11,33 @@ enum ColumnarTypeOfProbeEnum {
     Ready = 1
 }
 
+class ColumnarNullableEnumParameterProbe {
+    static FallbackCalls: int
+
+    static func Echo(kind: ColumnarTypeOfProbeEnum?): string {
+        if kind == null {
+            return "none"
+        }
+        if kind.Value == ColumnarTypeOfProbeEnum.Ready {
+            return "Ready"
+        }
+        return "None"
+    }
+
+    static func Fallback(): ColumnarTypeOfProbeEnum {
+        ColumnarNullableEnumParameterProbe.FallbackCalls = ColumnarNullableEnumParameterProbe.FallbackCalls + 1
+        return ColumnarTypeOfProbeEnum.Ready
+    }
+
+    static func Coalesce(kind: ColumnarTypeOfProbeEnum?): ColumnarTypeOfProbeEnum {
+        return kind ?? ColumnarNullableEnumParameterProbe.Fallback()
+    }
+
+    static func MustValue(kind: ColumnarTypeOfProbeEnum?): ColumnarTypeOfProbeEnum {
+        return must kind
+    }
+}
+
 func TypeOfSimpleTree(name: string): ColumnarRangePlannerTestTree {
     builder := new ColumnarRangePlannerNodeBuilder()
     builder.AddToken("typeof(")
@@ -636,6 +663,18 @@ func TypeOfNullableIntType(): Type {
     return definition.MakeGenericType(arguments)
 }
 
+func TypeOfNullableEnumType(): Type {
+    definition := Type.GetType("System.Nullable`1")
+    if definition == null {
+        throw new InvalidOperationException(
+            "System.Nullable<T> runtime type was not found."
+        )
+    }
+    arguments := new Type[](1)
+    arguments[0] = typeof(ColumnarTypeOfProbeEnum)
+    return definition.MakeGenericType(arguments)
+}
+
 func TypeOfAssertTarget(
     tree: ColumnarRangePlannerTestTree,
     bindings: ColumnarFragmentBindings,
@@ -761,6 +800,52 @@ test "typeof planner resolves builtin enum array nullable tuple and anonymous un
     assert unionArguments.Length == 2
     assert unionArguments[0] == typeof(int)
     assert unionArguments[1] == typeof(string)
+}
+
+test "nullable enum parameters emit, round trip, and retain their reflected CLR shape" {
+    enumType := typeof(ColumnarTypeOfProbeEnum)
+    nullableEnumType := TypeOfNullableEnumType()
+
+    assert ColumnarTypeOfPlanner.IsEnumType(enumType)
+    assert ColumnarTypeOfPlanner.IsLiftableNullableElement(enumType)
+    assert ColumnarTypeOfPlanner.IsSupportedNullable(nullableEnumType)
+    assert !ColumnarTypeOfPlanner.IsLiftableNullableElement(typeof(string))
+
+    assert ColumnarNullableEnumParameterProbe.Echo(null) == "none"
+    assert ColumnarNullableEnumParameterProbe.Echo(ColumnarTypeOfProbeEnum.Ready) == "Ready"
+
+    method := typeof(ColumnarNullableEnumParameterProbe).GetMethod("Echo")
+    if method == null {
+        throw new InvalidOperationException(
+            "Nullable enum probe method was not emitted."
+        )
+    }
+    parameters := method.GetParameters()
+    assert parameters.Length == 1
+    parameterType := parameters[0].get_ParameterType()
+    assert parameterType == nullableEnumType
+    assert parameterType.GetGenericTypeDefinition() == nullableEnumType.GetGenericTypeDefinition()
+    arguments := parameterType.GetGenericArguments()
+    assert arguments.Length == 1
+    assert arguments[0] == enumType
+}
+
+test "nullable enum coalesce short circuits and must unwraps with the canonical failure" {
+    initialFallbackCalls := ColumnarNullableEnumParameterProbe.FallbackCalls
+    assert ColumnarNullableEnumParameterProbe.Coalesce(null) == ColumnarTypeOfProbeEnum.Ready
+    assert ColumnarNullableEnumParameterProbe.FallbackCalls == initialFallbackCalls + 1
+
+    assert ColumnarNullableEnumParameterProbe.Coalesce(ColumnarTypeOfProbeEnum.None) == ColumnarTypeOfProbeEnum.None
+    assert ColumnarNullableEnumParameterProbe.FallbackCalls == initialFallbackCalls + 1
+
+    assert ColumnarNullableEnumParameterProbe.MustValue(ColumnarTypeOfProbeEnum.Ready) == ColumnarTypeOfProbeEnum.Ready
+    mustMessage := ""
+    try {
+        ColumnarNullableEnumParameterProbe.MustValue(null)
+    } catch ex: InvalidOperationException {
+        mustMessage = ex.Message
+    }
+    assert mustMessage == "must unwrap failed: value was null"
 }
 
 test "typeof planner resolves live source struct union and closed generic builders" {

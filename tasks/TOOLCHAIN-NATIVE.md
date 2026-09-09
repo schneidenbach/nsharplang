@@ -33,12 +33,28 @@ Base: 06186dc6d (includes bootstrap/CI work; preserve it).
 | Area | Owner | Worktree / branch | Status |
 |---|---|---|---|
 | Complete Compiler service facade and assertions | Luna Max toolchain_facade | /private/tmp/nsharp-agent-wt/toolchain-facade; codex/toolchain-facade | Implementing |
-| Complete LoadProjectConfig / LoadProjectReferences and assertions | Luna Max toolchain_build_tasks | /private/tmp/nsharp-agent-wt/toolchain-build-tasks; codex/toolchain-build-tasks | Implementing; reuse held config work |
+| Complete LoadProjectConfig / LoadProjectReferences and assertions | Luna Max toolchain_build_tasks | /private/tmp/nsharp-agent-wt/toolchain-build-tasks; codex/toolchain-build-tasks | Owner committed c7d719983; root review; remaining IlSdkToolchainTests assertions migrating before integration |
 | CLI query/commands and LSP signature/services | Next wave | Existing held branches preserved | Refresh and integrate accepted work; don't restart |
-| Playground interpreter | Queued | No new worktree yet | Complete connected owner and tests |
+| Playground interpreter | Luna Max next after SDK assertions | /private/tmp/nsharp-agent-wt/toolchain-playground; codex/toolchain-playground | Prepared clean at 2f73fdf12; complete connected owner and tests next |
 | Runtime ABI and bootstrap | Queued | No new worktree yet | Preserve CLR identity/behavior; verify actual proposed types |
 | Wasm host | Queued | No new worktree yet | Prove export integration and retain only necessary mechanical boundary |
 
 Assessment and actual probe evidence: /private/tmp/nsharp-other-projects-assessment-20260909/ASSESSMENT.md.
 Existing held config/query/signature work remains preserved until integrated or safely archived.
 A finished lane is not completion of this whole objective.
+
+## Current integration findings
+
+- Facade keeps its public Compiler assembly/API. Actual imported Core static-call probe passes;
+  the remaining library interop work is ordinary property/member handling, not a Core call allowlist.
+- Proven facade prerequisites: oblivious generic argument compatibility, nullable enum parameter/
+  value/constructor binding. Root verified these with all 8,021 Core canonical tests passing (0 failed/skipped) using an
+  isolated SDK candidate. Receipt: /private/tmp/toolchain-facade-prerequisite-receipt.json.
+  This is prerequisite evidence; no seed publication or complete facade acceptance is claimed.
+- MSBuild owner commit also preserves exact OutputAttribute metadata through the N# parser and
+  emitter. Full dictionary metadata is retained by the original TaskItem constructor shape.
+- Existing IlSdkToolchainTests.cs includes SDK version/build/run assertions that must migrate to N#;
+  the task lane is finishing them before moving to Playground.
+- Concurrent release task owns packaging/bootstrap delivery fixes and its clean-snapshot gates.
+  Root preserves that work, coordinates benchmark quiet periods and holds remote pushes until the
+  release task clears its Actions verification. No competing shared SDK feed writes are allowed.

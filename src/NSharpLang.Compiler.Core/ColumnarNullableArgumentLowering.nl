@@ -110,8 +110,8 @@ class ColumnarNullableArgumentLowering {
 
         constructorParameters := new Type[](1)
         constructorParameters[0] = element
-        constructorInfo := targetType.GetConstructor(constructorParameters)
-        if constructorInfo == null {
+        constructorInfo: ConstructorInfo? = null
+        if !TryGetNullableConstructor(targetType, out constructorInfo) {
             return false
         }
 
@@ -136,6 +136,23 @@ class ColumnarNullableArgumentLowering {
         conversionSource := actualType
         conversionMethod: MethodInfo? = null
         return TryGetNumericConversion(actualType, targetType, out conversionSource, out conversionMethod)
+    }
+
+    static func TryGetNullableConstructor(targetType: Type, out constructorInfo: ConstructorInfo): bool {
+        constructorInfo = null
+        nullableDefinition := targetType.GetGenericTypeDefinition()
+        nullableArguments := nullableDefinition.GetGenericArguments()
+        if nullableArguments.Length != 1 {
+            return false
+        }
+
+        openConstructor := nullableDefinition.GetConstructor([nullableArguments[0]])
+        if openConstructor == null {
+            return false
+        }
+
+        constructorInfo = ColumnarConstructionPlanner.ResolveClosedRuntimeConstructor(targetType, openConstructor)
+        return constructorInfo != null
     }
 
     static func TryGetNumericConversion(actualType: Type, targetType: Type, out conversionSource: Type, out conversionMethod: MethodInfo?): bool {
@@ -214,7 +231,7 @@ class ColumnarNullableArgumentLowering {
     }
 
     static func IsLiftableNullableElement(valueType: Type): bool {
-        return valueType == typeof(int) || valueType == typeof(long) || valueType == typeof(ulong) || valueType == typeof(uint) || valueType == typeof(short) || valueType == typeof(ushort) || valueType == typeof(byte) || valueType == typeof(sbyte) || valueType == typeof(bool) || valueType == typeof(char) || valueType == typeof(double) || valueType == typeof(float) || valueType == typeof(decimal) || valueType == typeof(TimeSpan) || ColumnarRuntimeInstanceMemberResolver.IsSupportedValueTupleReceiver(valueType)
+        return valueType == typeof(int) || valueType == typeof(long) || valueType == typeof(ulong) || valueType == typeof(uint) || valueType == typeof(short) || valueType == typeof(ushort) || valueType == typeof(byte) || valueType == typeof(sbyte) || valueType == typeof(bool) || valueType == typeof(char) || valueType == typeof(double) || valueType == typeof(float) || valueType == typeof(decimal) || valueType == typeof(TimeSpan) || ColumnarTypeOfPlanner.IsEnumType(valueType) || ColumnarRuntimeInstanceMemberResolver.IsSupportedValueTupleReceiver(valueType)
     }
 
     static func ExactTypeShapeMatches(left: Type, right: Type): bool {

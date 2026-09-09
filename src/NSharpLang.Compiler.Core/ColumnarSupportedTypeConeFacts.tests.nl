@@ -123,8 +123,8 @@ test "the four buffer heads are admitted at byte and at no other element" {
 }
 
 // `Nullable<T>` is admissible exactly when T is LIFTABLE, and the liftable set is not the same as the
-// supported set: DateTime and Guid are supported values that cannot be lifted, and an enum cannot
-// either, while a ValueTuple can.
+// supported set: DateTime and Guid are supported values that cannot be lifted, while enums and
+// ValueTuple can.
 test "nullable admissibility is exactly the liftable element set" {
     assert ColumnarTypeOfPlanner.IsLiftableNullableElement(typeof(int))
     assert ColumnarTypeOfPlanner.IsLiftableNullableElement(typeof(uint))
@@ -140,20 +140,22 @@ test "nullable admissibility is exactly the liftable element set" {
     assert ColumnarTypeOfPlanner.IsLiftableNullableElement(typeof(float))
     assert ColumnarTypeOfPlanner.IsLiftableNullableElement(typeof(decimal))
     assert ColumnarTypeOfPlanner.IsLiftableNullableElement(typeof(TimeSpan))
+    assert ColumnarTypeOfPlanner.IsLiftableNullableElement(typeof(ColumnarTypeOfProbeEnum))
 
     // Supported as VALUES, not liftable — and the wrapper follows the element.
     assert ColumnarTypeOfPlanner.IsSupportedType(AdmissibilityRuntimeType("System.DateTime"))
     assert !ColumnarTypeOfPlanner.IsLiftableNullableElement(AdmissibilityRuntimeType("System.DateTime"))
     assert !ColumnarTypeOfPlanner.IsLiftableNullableElement(AdmissibilityRuntimeType("System.Guid"))
-    assert !ColumnarTypeOfPlanner.IsLiftableNullableElement(AdmissibilityRuntimeType("System.DayOfWeek"))
+    assert ColumnarTypeOfPlanner.IsLiftableNullableElement(AdmissibilityRuntimeType("System.DayOfWeek"))
     assert !ColumnarTypeOfPlanner.IsLiftableNullableElement(typeof(string))
 
     assert ColumnarTypeOfPlanner.IsSupportedNullable(AdmissibilityClosed1("System.Nullable`1", typeof(int)))
     assert ColumnarTypeOfPlanner.IsSupportedNullable(AdmissibilityClosed1("System.Nullable`1", typeof(decimal)))
     assert ColumnarTypeOfPlanner.IsSupportedNullable(AdmissibilityClosed1("System.Nullable`1", typeof(TimeSpan)))
+    assert ColumnarTypeOfPlanner.IsSupportedNullable(AdmissibilityClosed1("System.Nullable`1", typeof(ColumnarTypeOfProbeEnum)))
     assert !ColumnarTypeOfPlanner.IsSupportedNullable(AdmissibilityClosed1("System.Nullable`1", AdmissibilityRuntimeType("System.DateTime")))
     assert !ColumnarTypeOfPlanner.IsSupportedNullable(AdmissibilityClosed1("System.Nullable`1", AdmissibilityRuntimeType("System.Guid")))
-    assert !ColumnarTypeOfPlanner.IsSupportedNullable(AdmissibilityClosed1("System.Nullable`1", AdmissibilityRuntimeType("System.DayOfWeek")))
+    assert ColumnarTypeOfPlanner.IsSupportedNullable(AdmissibilityClosed1("System.Nullable`1", AdmissibilityRuntimeType("System.DayOfWeek")))
 
     // A tuple element lifts, which is the one recursive arm of the liftable set.
     tuplePair := AdmissibilityClosed2("System.ValueTuple`2", typeof(int), typeof(int))

@@ -1159,7 +1159,7 @@ class ColumnarTypeOfPlanner {
             return true
         }
         if ContainsBuilderBoundType(valueType) {
-            return IsSupportedCollectionType(valueType) || IsSupportedTaskType(valueType) || IsSupportedResultType(valueType) || IsSupportedAnonymousUnionType(valueType) || IsSupportedEnumeratorType(valueType) || IsSupportedListEnumeratorType(valueType) || IsSupportedDictionaryValueCollectionType(valueType) || IsSupportedDictionaryEnumeratorType(valueType) || IsSupportedDictionaryKeyEnumeratorType(valueType) || IsSupportedDictionaryValueEnumeratorType(valueType) || IsSupportedKeyValuePairType(valueType) || IsSupportedReferenceEqualityComparerType(valueType) || IsSupportedValueTuple(valueType)
+            return IsSupportedNullable(valueType) || IsSupportedCollectionType(valueType) || IsSupportedTaskType(valueType) || IsSupportedResultType(valueType) || IsSupportedAnonymousUnionType(valueType) || IsSupportedEnumeratorType(valueType) || IsSupportedListEnumeratorType(valueType) || IsSupportedDictionaryValueCollectionType(valueType) || IsSupportedDictionaryEnumeratorType(valueType) || IsSupportedDictionaryKeyEnumeratorType(valueType) || IsSupportedDictionaryValueEnumeratorType(valueType) || IsSupportedKeyValuePairType(valueType) || IsSupportedReferenceEqualityComparerType(valueType) || IsSupportedValueTuple(valueType)
         }
         if valueType.get_IsGenericType() && !valueType.get_IsGenericTypeDefinition() {
             definition := valueType.GetGenericTypeDefinition()
@@ -1235,7 +1235,7 @@ class ColumnarTypeOfPlanner {
     }
 
     static func IsLiftableNullableElement(valueType: Type): bool {
-        return valueType == typeof(int) || valueType == typeof(long) || valueType == typeof(ulong) || valueType == typeof(uint) || valueType == typeof(short) || valueType == typeof(ushort) || valueType == typeof(byte) || valueType == typeof(sbyte) || valueType == typeof(bool) || valueType == typeof(char) || valueType == typeof(double) || valueType == typeof(float) || valueType == typeof(decimal) || valueType == typeof(TimeSpan) || IsSupportedValueTuple(valueType)
+        return valueType == typeof(int) || valueType == typeof(long) || valueType == typeof(ulong) || valueType == typeof(uint) || valueType == typeof(short) || valueType == typeof(ushort) || valueType == typeof(byte) || valueType == typeof(sbyte) || valueType == typeof(bool) || valueType == typeof(char) || valueType == typeof(double) || valueType == typeof(float) || valueType == typeof(decimal) || valueType == typeof(TimeSpan) || IsSupportedValueTuple(valueType) || IsEnumType(valueType)
     }
 
     static func IsSupportedNullable(valueType: Type): bool {
