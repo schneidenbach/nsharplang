@@ -1,7 +1,6 @@
 namespace NSharpLang.SdkProjectReferenceBoundary.Tests
 
 import System
-import System.Diagnostics
 import System.IO
 
 class SdkBoundaryRun {
@@ -50,22 +49,7 @@ func SdkBoundaryQuote(value: string): string {
 }
 
 func SdkBoundaryRunDotnet(arguments: string, workingDirectory: string): SdkBoundaryRun {
-    startInfo := new ProcessStartInfo { FileName: "dotnet", Arguments: arguments }
-    startInfo.WorkingDirectory = workingDirectory
-    startInfo.RedirectStandardOutput = true
-    startInfo.RedirectStandardError = true
-    startInfo.UseShellExecute = false
-
-    process := new Process { StartInfo: startInfo }
-    process.Start()
-    stdoutTask := process.StandardOutput.ReadToEndAsync()
-    stderrTask := process.StandardError.ReadToEndAsync()
-    process.WaitForExit()
-    stdout := stdoutTask.Result
-    stderr := stderrTask.Result
-    exitCode := process.ExitCode
-    process.Dispose()
-    return new SdkBoundaryRun(exitCode, stdout, stderr)
+    return EmitTaskRunProcess("dotnet", arguments, workingDirectory)
 }
 
 func SdkBoundaryRequireSuccess(result: SdkBoundaryRun, operation: string) {
