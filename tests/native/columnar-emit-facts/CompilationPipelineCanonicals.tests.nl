@@ -290,6 +290,48 @@ test "ConditionalCompilation_EmitsOnlyLiveBranches_BasedOnProjectDefines" {
     }
 }
 
+test "BuildCommand_CliDefineFlagsDriveExactConditionalCompilation" {
+    projectYml := "name: CliDefineBuild\nbackend: il\noutputType: exe\ntargetFramework: net10.0"
+    compilation := EmitterCanonicalCompileWithCliDefines(
+        "CliDefineBuild",
+        projectYml,
+        EmitterCanonicalSingleFileNames(),
+        EmitterCanonicalSingleFileContents(
+            "func main() {\n    #if FEATURE_X\n    print \"feature-on\"\n    #else\n    print \"feature-off\"\n    #endif\n\n    #if SECOND\n    print \"second-on\"\n    #endif\n}"
+        ),
+        false,
+        " FEATURE_X , SECOND ; FEATURE_X "
+    )
+    try {
+        assert compilation.Succeeded, EmitterCanonicalDiagnostics(compilation)
+        assert compilation.OutputAssemblyPath != null, "successful compilation returned no output assembly path"
+        assert File.Exists(compilation.OutputPath), compilation.OutputPath
+
+        definesValue := EmitterCanonicalRequiredProperty(compilation.Config, "Defines")
+        defines := definesValue as IList
+        if defines == null {
+            throw new InvalidOperationException("The effective project defines did not implement IList")
+        }
+        assert defines.Count == 3, "effective define count was " + defines.Count.ToString()
+        debugValue := defines[0]
+        debugDefine := debugValue as string
+        featureValue := defines[1]
+        featureDefine := featureValue as string
+        secondValue := defines[2]
+        secondDefine := secondValue as string
+        assert debugDefine == "DEBUG", "first effective define was " + (debugDefine ?? "<null>")
+        assert featureDefine == "FEATURE_X", "second effective define was " + (featureDefine ?? "<null>")
+        assert secondDefine == "SECOND", "third effective define was " + (secondDefine ?? "<null>")
+
+        run := EmitterCanonicalRun(compilation)
+        assert run.ExitCode == 0, run.Stderr
+        assert run.Stdout == "feature-on" + Environment.NewLine + "second-on" + Environment.NewLine, run.Stdout
+        assert !run.Stdout.Contains("feature-off", StringComparison.Ordinal), run.Stdout
+    } finally {
+        EmitterCanonicalCleanup(compilation)
+    }
+}
+
 test "RegionDirectives_DoNotBlockColumnarConditionalCompilation" {
     projectYml := "name: RegionCondCompile\nbackend: il\noutputType: exe\ntargetFramework: net10.0\ndefines:\n  - FEATURE_X"
     compilation := EmitterCanonicalCompile(

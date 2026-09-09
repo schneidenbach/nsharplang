@@ -168,6 +168,24 @@ func EmitterCanonicalCompile(
     contents: string[],
     useExplicitSourceFiles: bool
 ): EmitterCanonicalCompilation {
+    return EmitterCanonicalCompileWithCliDefines(
+        projectName,
+        projectYml,
+        fileNames,
+        contents,
+        useExplicitSourceFiles,
+        null
+    )
+}
+
+func EmitterCanonicalCompileWithCliDefines(
+    projectName: string,
+    projectYml: string,
+    fileNames: string[],
+    contents: string[],
+    useExplicitSourceFiles: bool,
+    rawDefines: string?
+): EmitterCanonicalCompilation {
     if fileNames.Length != contents.Length {
         throw new ArgumentException("Canonical fixture file names and contents must have equal lengths")
     }
@@ -188,6 +206,9 @@ func EmitterCanonicalCompile(
         }
 
         config := EmitterCanonicalParseProject(Path.Combine(fixtureRoot, "project.yml"))
+        if rawDefines != null {
+            EmitterCanonicalApplyCliDefines(config, rawDefines)
+        }
         compiler := EmitterCanonicalNewCompiler(
             fixtureRoot,
             config,
@@ -240,6 +261,50 @@ func EmitterCanonicalCompile(
         }
         throw error
     }
+}
+
+func EmitterCanonicalApplyCliDefines(config: object, rawDefines: string) {
+    defineOwner := Type.GetType(
+        "NSharpLang.Cli.DefineArgumentKernels, NSharpLang.Compiler.BootstrapServices"
+    )
+    if defineOwner == null {
+        throw new InvalidOperationException("The N# define argument owner was not loadable")
+    }
+    extractMethod := defineOwner.GetMethod("Extract")
+    if extractMethod == null {
+        throw new InvalidOperationException("The N# define argument entry point was not found")
+    }
+    commandArgs := new string[](2)
+    commandArgs[0] = "--define"
+    commandArgs[1] = rawDefines
+    extractArguments := new object?[](1)
+    EmitterCanonicalPut(extractArguments, 0, commandArgs)
+    extraction := extractMethod.Invoke(null, extractArguments)
+    if extraction == null {
+        throw new InvalidOperationException("The N# define argument owner returned no extraction")
+    }
+    definesValue := EmitterCanonicalRequiredProperty(extraction, "Defines")
+    remainingArgsValue := EmitterCanonicalRequiredProperty(extraction, "RemainingArgs")
+    remainingArgs := remainingArgsValue as IList
+    if remainingArgs == null || remainingArgs.Count != 0 {
+        throw new InvalidOperationException("The N# define argument extraction had an unexpected shape")
+    }
+
+    buildOwner := Type.GetType(
+        "NSharpLang.Cli.BuildCommandKernels, NSharpLang.Compiler.BootstrapServices"
+    )
+    if buildOwner == null {
+        throw new InvalidOperationException("The N# build command owner was not loadable")
+    }
+    applyMethod := buildOwner.GetMethod("ApplyEffectiveDefines")
+    if applyMethod == null {
+        throw new InvalidOperationException("The N# effective define entry point was not found")
+    }
+    applyArguments := new object?[](3)
+    EmitterCanonicalPut(applyArguments, 0, config)
+    EmitterCanonicalPut(applyArguments, 1, true)
+    EmitterCanonicalPut(applyArguments, 2, definesValue)
+    applyMethod.Invoke(null, applyArguments)
 }
 
 func EmitterCanonicalCompileSingle(
