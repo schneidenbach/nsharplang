@@ -619,7 +619,7 @@ test "canonical resolver leaf maps preserve their false null contract and YAML i
     assert exceptionType == typeof(ArgumentException)
     exceptionType = typeof(string)
     assert !ColumnarCanonicalTypeResolver.TryResolveBclExceptionType(
-        "IOException",
+        "EndOfStreamException",
         out exceptionType
     )
     assert exceptionType == null
