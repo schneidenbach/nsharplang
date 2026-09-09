@@ -318,7 +318,11 @@ The next connected canonical area is compiler-bearing diagnostics/binding in
 LanguageServerWorkspaceDiagnosticsTests, LanguageServerTests and LanguageServerAutoImportTests.
 Inspect complete methods and migrate actual compiler assertions with necessary state and harness;
 keep pure editor publication/open-close/completion/auto-import policy in the separate backlog.
-The remaining compiler-bearing CLI/check/SDK assertions have an independent implementation owner.
+The six workspace/import methods are now integrated in `6d046bef2`; root diagnostics pass88/88.
+The reviewed CLI/check/SDK compiler assertions are integrated in `aa841ec15`; root query tests
+pass78/78, preserving the accepted malformed fixture and adding two exact missing cases. CLI
+cluster/filter/envelope/text policy assertions remain separately owned. These follow the published
+resolver checkpoint and await the next combined integration gate.
 Preserve exact source/project bytes and failure behavior; existing similar cases do not prove parity.
 
 The audit's broader "compiler-service" label is not the active scope: JSON root-key/value envelopes,

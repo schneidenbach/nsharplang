@@ -139,9 +139,11 @@ and installed-host repository-discovery failure are retained as failed evidence,
 
 **Next complete production area: EmitIlAssembly**, including its Cecil reference scan/rewrite and
 state, is delegated with complete canonical tests. Actual proposed N# source proves MSBuild/Cecil
-receiver and property prerequisites; those are being implemented in N#. Reviewed canonical commits
-`527de03f9` (six workspace/import methods) and `3d53ace1c` (remaining command compiler assertions)
-queue for the next integration. Broader sibling tasks remain held in the separate backlog.
+receiver and property prerequisites; those are being implemented in N#. Canonical commits
+`6d046bef2` (six workspace/import methods) and `aa841ec15` (remaining command compiler assertions)
+are integrated after the published resolver checkpoint. Root native diagnostics88/88 and query78/78
+pass. Five reviewed C# rows are lowered;376 other rows and all epochs stay fixed, audit18/18,
+current head `head-v1:e3b8dbcd5ec5c886`. Their next integration checkpoint remains open. Broader sibling tasks remain held in the separate backlog.
 CodeIntelligenceService's project-loading/property-copy boundary is mechanical; completion,
 fix-command and output presentation policy remain separately scoped.
 
