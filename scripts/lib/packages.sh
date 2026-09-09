@@ -65,7 +65,7 @@ nsharp_prepare_stage0_sdk_for_pack() {
     local sdk_version sdk_cache_dir
 
     sdk_version="$(nsharp_package_version "$sdk_project")"
-    sdk_cache_dir="$HOME/.nuget/packages/nsharplang.sdk/$sdk_version/Sdk"
+    sdk_cache_dir="${NUGET_PACKAGES:-$HOME/.nuget/packages}/nsharplang.sdk/$sdk_version/Sdk"
 
     echo
     echo "Preparing stage-0 NSharpLang.Sdk cache..."
