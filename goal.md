@@ -1,78 +1,56 @@
-GOAL: eliminate non-N# ownership of compiler and compiler-tooling behavior.
+# Active goal: sole N# compiler ownership
 
-Scope:
-- Lexer and preprocessing; parser and syntax diagnostics; binding, analysis, semantic models,
-  metadata policy, and diagnostics; IL lowering and code generation; project configuration and
-  reference-resolution policy; formatter, linter, code intelligence, query, and LSP decisions;
-  CLI, native-test-runner, and playground compiler behavior; and the canonical tests for those
-  product behaviors.
-- `NSharpLang.Runtime` implementation, editor UI wiring, MSBuild protocol objects, operating-
-  system integration, and other ecosystem hosts are separate surfaces. They are not a reason to
-  retain compiler/tooling decisions outside N#, and runtime re-hosting requires its own campaign.
+The active scope is preprocessing, lexing, parsing, binding, type checking, semantic analysis,
+compiler diagnostics, compiler reference/metadata resolution, lowering and code generation.
+Every compiler decision and canonical compiler assertion in this scope must be N#-owned.
 
-Definition of done:
-- Every in-scope product decision is implemented in N# and is the sole production owner.
-- No product path depends on legacy validation, a legacy compiler-core or emitter fallback,
-  Roslyn-as-backend, `validateWithLegacyAnalysis`, `NSharpEmitValidateWithLegacyAnalysis`,
-  `*DogfoodAdapter`, reflection-bound compiler kernels, or route-back callbacks into C#.
-- Remaining non-N# code within scope appears in the committed
-  `memory/architecture.md#non-nsharp-survivors` inventory. Each entry
-  names its ecosystem boundary, the N# owner it invokes, the responsibilities it is forbidden to
-  own, and a removal or re-evaluation trigger. Small size alone never qualifies a file as glue.
-- Canonical compiler/tooling product assertions execute in N# (or, for editor UI integration
-  only, in the editor harness). Tests are not skipped, deleted, weakened, or re-baselined merely
-  to manufacture green.
-- Every closeout track is complete, all native N# test projects pass, the final ownership greps
-  (enforced by a committed audit script and reviewed allowlist) have no unclassified hits, and a
-  fresh VS Code-enabled product gate plus required visual IDE verification is green.
+CLI, LSP/editor features, runtime reimplementation, NativeAOT and broader branch initiatives remain
+in [the separate backlog](tasks/BRANCH-BACKLOG.md). Change SDK/tooling only when directly necessary
+to build, integrate or verify this migration. Pursue a metadata writer only as a demonstrated
+compiler-ownership dependency. This contract supersedes the earlier broader goal and tiny-slice
+execution wording; accepted migrations and valid evidence remain accepted.
 
-Execution contract:
-1. Start from current code and recent git history. Read `tasks/README.md`, then the numbered task
-   at the cursor in `systems-language-closeout/STATUS.md`. The retired track notebooks are not an
-   execution source.
-2. Execute exactly one numbered vertical slice at a time in queue order. Iterative tasks 015–020
-   execute one concrete recorded sub-slice per goal turn rather than attempting a whole owner.
-   Never redo a stage already proved by a recorded commit. Parallelize dependency-ready,
-   non-contending tracks when separate owners/worktrees are available; otherwise finish the
-   active commit-sized stage before switching.
-3. Preserve in-flight user work. Finish or safely hand off a coherent dirty slice before changing
-   direction, stage only owned files, and never use `git add -A`.
-4. Enforce an ownership ratchet: after the current in-flight coverage slice, no commit may add
-   feature-specific C# compiler/tooling behavior. A normal stage lands the N# owner in the
-   product path and deletes or measurably shrinks the replaced non-N# owner in the same commit.
-   Mechanical host capability may be added only when the N# side owns every decision and the
-   survivor inventory records the boundary.
-5. Coverage gaps do not waive the ratchet. Parser, semantic, binding, and lowering decisions for
-   newly supported constructs go into N#; C# may only replay already-decided plans or adapt an
-   external API.
-6. Revalidate the named symbols and contracts before each slice. Update the live ledger after
-   every completed stage with its commit, focused evidence, remaining exit criteria, and next
-   prerequisite. If a stop gate fails, record it and continue another independent eligible
-   stage; do not claim completion.
-7. Commit one coherent vertical ownership slice at a time with an `Evidence:` block. Use
-   `./scripts/dev.sh <pattern>` for the inner loop. Run the fresh non-VS-Code product gate at the
-   integration checkpoints defined by `AGENTS.md`. Any change reachable from the Language
-   Server, LSP handlers, extension, or IDE experience also requires the VS Code-enabled gate,
-   extension reload, computer-use verification, and screenshots.
+## Execution
 
-No-new-C# constraint:
-- From `2e15fa506` forward, no new `.cs` file, C# product/test branch, assertion, helper,
-  adapter, bridge, seed, whitelist, replayer, or fallback may be added. Existing C# may only be
-  deleted or reduced while handing decisions to a directly invoked N# owner.
-- All new compiler, compiler-service, CLI, tooling, lowering, emission, schema, diagnostic, and
-  canonical test behavior is implemented in `.nl`/`.tests.nl` files. Missing N# language,
-  interop, native-test, or gate capability is itself an N# prerequisite; it is never bypassed by
-  temporary C#.
-- Pre-existing non-N# ecosystem boundaries survive only when they do not grow, contain no product
-  policy, and are explicitly classified in the final survivor inventory.
+Astra plans, reviews and integrates. Delegate bounded implementation to Sol Max or Terra Max.
+Read [the queue](tasks/README.md) and [the live cursor](systems-language-closeout/STATUS.md).
+Preserve in-flight work and finish active verification.
 
-Operating prohibitions:
-- Do not add or preserve legacy compiler/tooling logic, fallback implementations, comparison
-  routes, parity-only owners, or permanent transition adapters.
-- Do not do unrelated CLI text/help/schema churn. Public schema changes require a separately
-  approved versioned contract; an ownership move preserves bytes unless that contract says
-  otherwise.
-- Do not treat preparatory kernels, tests, docs, or moved adapters as completion until the N#
-  owner is used by the production path and the old owner is deleted or disconnected.
-- Do not recreate deleted route-with-fallback dogfood plans or history archives. Current code,
-  current tests, recent commits, and the committed live ledger are authoritative.
+Select substantial coherent production areas: complete methods, classes or connected method groups,
+including necessary helpers and state. Choose scope from actual dependencies and behavior, not line
+counts or one-extraction-per-turn limits. Consider moving dependencies with their callers first.
+
+For each area, identify the complete behavior and C# code to remove, implement its N# replacement
+and canonical assertions, route production directly through N#, and delete the replaced C# decisions.
+Preserve semantics, diagnostics, evaluation order and meaningful failure behavior. Add no C# compiler
+behavior, tests, helpers, adapters, decision callbacks or fallbacks. N# must be the sole production owner.
+
+Migrate canonical C# compiler assertions even when embedded in CLI, editor or SDK tests. Preserve
+exact fixtures, state, diagnostic details and assertion cardinality; record their executed N# successors.
+Delete replaced assertions and unused helpers. Retain only distinct integration or separately scoped
+policy observations in mixed tests. Production migration alone is insufficient.
+
+Prove capability blockers by compiling the actual proposed N# source. Implement necessary
+prerequisites in N#, grouping related proven prerequisites into a coherent seed update when feasible.
+Complete required verification before publishing a new SDK seed.
+
+Use ./scripts/dev.sh and targeted tests during implementation. Reuse valid baseline evidence and
+existing native coverage, adding focused regressions for real gaps. Commit coherent pieces as their
+focused tests pass, then continue until the complete selected area is reviewed and integrated.
+Run fresh product gates at AGENTS.md integration checkpoints before push, retaining required IDE
+verification when a change affects IDE behavior. Do not stop at planning, scaffolding, a prerequisite
+or a tiny extraction. Stage only owned files and preserve unrelated work.
+
+After integration, retire completed worktrees and local branches only after checking active users,
+unique commits and dirty/untracked work. Preserve necessary evidence and archive recoverable work
+under the lifecycle in tasks/README.md. Keep held backlog work separate.
+
+## Completion
+
+- All in-scope compiler behavior is solely N#-owned.
+- Canonical compiler assertions execute in N# without weakened or skipped coverage.
+- Legacy compiler validation, decision callbacks and fallback ownership are removed.
+- Every surviving non-N# integration boundary is mechanical and explicitly documented.
+- Required compiler and integration checks pass, and verified commits are pushed.
+
+Keep the goal open until every condition holds; a prerequisite or completed sub-area is not completion.
