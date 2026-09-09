@@ -68,7 +68,12 @@ On2026-09-09, eight more completed SDK/compiler worktrees and local branches wer
 Their incremental Git bundles and the exact already-integrated host/fixture draft are verified in
 `/Users/spencer/nsharp-worktree-archives/2026-09-09`; its README records prerequisites and recovery.
 All implementation worktrees from this SDK/final-canonical sequence are retired, including the
-SDK owner after installed acceptance and the exact receiver-generic canonical after integration. Held backlog and detached verification evidence remain preserved.
+SDK owner after installed acceptance and the exact receiver-generic canonical after integration.
+A subsequent cleanup removed eight completed verification worktree registrations while preserving
+their full source/output trees at the original paths as plain evidence snapshots. Per-snapshot
+source manifests, patches and recovery instructions are in
+`/Users/spencer/nsharp-worktree-archives/2026-09-09/verification-snapshots`.
+Only explicitly held feature work and current implementation work should remain registered. Held backlog and detached verification evidence remain preserved.
 
 CLI, LSP/editor features, runtime reimplementation, NativeAOT and other branch initiatives are
 recorded in [the separate branch backlog](BRANCH-BACKLOG.md). SDK/tooling changes are in scope only
