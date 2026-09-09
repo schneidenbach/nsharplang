@@ -1,3 +1,7 @@
+> CLI, LSP, runtime and remaining managed project conversion are now active under
+> [TOOLCHAIN-NATIVE.md](TOOLCHAIN-NATIVE.md). Visual Studio is deferred; NativeAOT, metadata
+> writer and unrelated initiatives remain held. Historical reports below retain their dates.
+
 # Broader systems-language branch backlog
 
 These initiatives retain their accepted work and outstanding evidence, but are separate from the

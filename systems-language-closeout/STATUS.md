@@ -31,6 +31,12 @@ git show 40e0cc20e:systems-language-closeout/STATUS.md
 
 ## 1. Cursor
 
+**Active follow-on, 2026-09-09:** [managed toolchain conversion](../tasks/TOOLCHAIN-NATIVE.md)
+is authorized. Astra integrates and Luna Max implements complete owners and N# assertions.
+Facade and MSBuild task lanes are running from `06186dc6d`; CLI/LSP/Playground/Runtime/Wasm follow.
+Visual Studio is deferred; compiler completion and rename evidence below remain accepted.
+Shared compiler prerequisites, seeds and integration gates remain root-owned.
+
 **Compiler-only objective complete, 2026-09-09.** Final source/assertion audits find no surviving
 C# compiler-core owner or in-scope canonical assertion. The exact receiver-generic correction and
 all handoffs are integrated. Fresh final gate at `0cc84110` passes562s:399 C#/8017 N#, all56 native

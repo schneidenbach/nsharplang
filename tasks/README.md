@@ -1,3 +1,6 @@
+> Active follow-on: [managed toolchain conversion](TOOLCHAIN-NATIVE.md), authorized 2026-09-09.
+> Astra integrates; Luna Max implements. Compiler completion below remains accepted.
+
 # N# compiler ownership queue
 
 **Compiler-only objective complete, 2026-09-09.** Final fresh gate at `0cc84110` and source/assertion
