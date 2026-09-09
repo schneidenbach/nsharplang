@@ -72,6 +72,32 @@ This is the durable location for the final closeout allowlist. During the migrat
 this section does not make a non-N# file acceptable; it remains product-ownership debt until its
 N# replacement is in the product path or the final audit proves it is mechanical integration.
 
+### Current compiler boundary, 2026-09-09
+
+The final production audit at `03c47cc42` found no surviving C# compiler-core owner. It reviewed
+all25 tracked C# files in Compiler, Build.Tasks, CLI and Playground plus direct editor callers,
+reusing the unchanged four-file/56-method compiler-service inventory. Exact source manifests and
+the report are under `/private/tmp/nsharp-multifile-assessment/final-production-csharp-boundary-20260909.md`.
+Canonical assertion completion is audited separately; this production verdict does not waive it.
+
+| Surviving boundary | Responsibility and N# owner | Scope |
+|---|---|---|
+| `CodeIntelligenceService` | Constructs N# MultiFileCompiler, projects its returned ProjectSnapshot, forwards queries to CodeIntelligenceQueries/Navigation | Mechanical compiler-service facade; its old reverse-dependency rationale was removed |
+| `CompletionEngine` | Chooses snapshot/disk input and routes to N# completion owners | Separate editor feature policy |
+| `FixApplicator` | Calls N# parser/linter/fix services and accumulates actions | Separate fix workflow |
+| `OutputFormatter` | Forwards to N# presentation kernels with nullable-list adapters | Separate CLI presentation boundary |
+| `LoadProjectConfig` | Projects ProjectFileParser and AssemblyVersionUtilities results into MSBuild properties | Mechanical SDK property/logging transport |
+| `LoadProjectReferences` | Converts SdkProjectReferenceProjection rows into MSBuild items | Mechanical SDK item/logging transport |
+| CLI build/check callers | Supply options/paths to N# resolver and MultiFileCompiler; serialize results and manage command artifacts | Separate command workflows; no compiler decisions |
+| Editor DocumentManager/handlers | Manage documents, caches, publication and navigation around N# analysis | Substantial separate IDE work; not a mechanical facade |
+| PlaygroundCompiler/PlaygroundRunner | Browser orchestration around N# analysis, then a browser-only AST interpreter | Separate playground/runtime work; the interpreter is not a compiler fallback |
+
+`RunLegacyValidationPipeline` and the SDK `ValidateWithLegacyAnalysis` property retain historical
+names, but their implementation and validation decisions are wholly N#. The SDK property remains
+an existing public configuration boundary. Its bootstrap emit-only selection does not invoke any
+C# analyzer or legacy emitter. Removing validation or changing that public option is not required
+to remove C# ownership, and must not silently alter diagnostics or bootstrap behavior.
+
 ### Historical reviewed inventory for `src/NSharpLang.Compiler`
 
 The table records the task-021 terminal audit, not current ownership acceptance. The current

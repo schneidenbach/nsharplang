@@ -10,14 +10,6 @@ namespace NSharpLang.Compiler.CodeIntelligence;
 /// This is built BELOW the Language Server's DocumentManager. It knows nothing about
 /// open documents, editor buffers, or LSP protocols.
 /// </summary>
-/// <remarks>
-/// Reviewed zero-policy mechanical host. It holds exactly one thing that cannot move, and the
-/// reason is a direction of dependency rather than a shape: <see cref="MultiFileCompiler"/> lives
-/// in this assembly, so the N# owners in <c>NSharpLang.Compiler.BootstrapServices</c> — which this
-/// assembly references — cannot construct one. Everything else, including
-/// <see cref="ProjectSnapshot"/> itself, is N#: <c>CodeIntelligenceQueries</c> answers the queries
-/// and <c>CodeIntelligenceNavigation</c> resolves the positions they are asked at.
-/// </remarks>
 public class CodeIntelligenceService
 {
     /// <summary>
