@@ -15,8 +15,10 @@ SDK self-host and IDE verification accepted. Complete MultiFileCompiler ownershi
 recovery canonicals are accepted at `27b1a8a1b`, including installed SDK self-host and real unsaved
 editor verification. Complete recursive compiler reference resolution is now N#-owned in the working
 branch, with its C# class deleted and seven direct plus four command-level N# canonicals integrated;
-its fresh gate and installed SDK verification are accepted at `a20dc98af`. The SDK reference-assembly scan/rewrite still
-contains C# state and decisions to migrate with its callers and helpers. Historical allowlist labels do not prove
+its fresh gate and installed SDK verification are accepted at `a20dc98af`. The complete SDK task,
+including reference-assembly scan/rewrite, is now N#-owned in `EmitIlAssembly.nl`; its C# class is
+deleted and SDK routing is direct. Its combined integration and installed SDK verification remain
+open; the current cursor records the self-host blocker. Historical allowlist labels do not prove
 current compiler-wide completion. CLI/editor features and broader branch work stay separately
 recorded; SDK/tooling changes are in scope only as demonstrated compiler migration dependencies.
 Do not preserve fallback emitters or expand `*DogfoodAdapter` layers into product architecture.

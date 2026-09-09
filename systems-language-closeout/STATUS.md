@@ -143,10 +143,22 @@ demonstrated MSBuild/Cecil/Required-property prerequisites, `acffa5abb` their ca
 eleven owner canonicals. Candidate r7 passes11/11, self-host and unfiltered IL; the combined root CLI
 build and focused tests pass. Root ownership audit18/18 retires the owner and updates only its
 project/SDK routing rows;378 other rows and all epochs unchanged, head `head-v1:f52710cd6734b730`.
-Remaining integration work includes exact Required/parser/residual-receiver negatives, the reported
-metadata-context getter discrepancy, clean SDK fixture build ordering, the fresh product gate and
-installed seed verification. No completion or SDK publication is claimed yet. Root evidence:
-`/private/tmp/nsharp-sdk-owner-root-integration-20260909`.
+Root targeted binding canonicals pass20/20 and the Build.Tasks host builds0/0 using a private
+bootstrap cache. The clean native fixture must reference the actual Build.Tasks output and build it
+before native tests; the later production rebuild before SDK packaging remains necessary. That
+verification-only shell command adds one line, with unchanged original epochs and no C# growth;
+its reviewed ratchet is `head-v1:b93261b5b83f1fee`, audit18/18.
+
+The second-generation direct-owner self-host currently declines `DeserializerBuilder.WithTypeConverter`
+at ProjectFileParser.nl:17. This actual production failure is being resolved in N#; the earlier
+candidate build is not proof that its resulting SDK can self-host. Exact Required/parser/residual
+receiver negatives, fresh product gate and installed seed verification remain open. The clean
+combined native SDK suite passes12/12, including private current-source SDK pack/restore/build/run
+and all eleven owner cases; evidence `integration-r1/whole12-r1.json` under
+`/private/tmp/nsharp-sdk-reference-ownership-tests-20260908` (SHA256
+`ede4eee06d3d8a012c8abe2693c066fbbb84b0c5c2cbab323256afaf8d036d60`). No completion or SDK publication is claimed. Root evidence:
+`/private/tmp/nsharp-sdk-owner-root-integration-20260909`; failing second-generation log:
+`/private/tmp/nsharp-sdk-reference-ownership-tests-20260908/integration-r1/dev-stage2-direct-owner-r1.log`.
 
 Canonical commits
 `6d046bef2` (six workspace/import methods) and `aa841ec15` (remaining command compiler assertions)

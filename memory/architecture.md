@@ -119,15 +119,15 @@ remaining state/control ownership from the active goal:
   lifetime and failure behavior. Its ten recovery cases execute in N#. Fresh product/IDE checks,
   installed SDK self-host and real unsaved-buffer verification pass at `27b1a8a1b`.
   [Acceptance](../systems-language-closeout/decodes/2026-09-08-complete-multifile-compiler-ownership.md).
-- `src/NSharpLang.Cli/CompilationReferenceResolver.cs` still controls recursive reference builds,
-  package traversal, caching and failure behavior. Existing N# kernels do not make the remaining
-  orchestration mechanical. Compiler reference resolution remains in scope despite its CLI path;
-  the complete owner and canonical assertions are the selected implementation area in task 021.
-- `Build.Tasks/EmitIlAssembly.cs` still owns reference-assembly scanning, traversal, duplicate
-  identity reuse, rewrite/write ordering and failure cleanup. Existing SdkEmitTaskKernels predicates
-  do not make this connected group mechanical. Move it with its state/helpers, preferably with the
-  complete task if actual N# source supports the required MSBuild boundary. Retain the existing
-  Cecil behavior; this establishes no dependency on a new metadata writer.
+- `CompilationReferenceResolver.nl` solely owns recursive reference builds, package traversal,
+  caching and failure behavior. The C# owner is deleted; seven direct and four command canonicals
+  execute in N#. Fresh gate and installed SDK verification are accepted at `a20dc98af`.
+- `EmitIlAssembly.nl` now owns the entire SDK task, including reference scanning, traversal,
+  duplicate identity reuse, rewrite/write ordering, logging and failure cleanup. Its 303-line C#
+  owner is deleted; `Sdk.targets` directly loads the N# class from BootstrapServices. MSBuild Task,
+  ITaskItem and logging objects and Cecil metadata objects are external ecosystem APIs; all task
+  policy and control flow reside in N#. This does not require a new metadata writer. The ownership
+  change is integrated, with final self-host/product/installed verification still open in the cursor.
 - The former Analyzer metadata quarantine is removed with the complete C# class. Its metadata
   lifecycle and existing reflection operations are owned by N#; no metadata-writer rewrite was
   required to achieve that ownership. NativeAOT and a broader metadata-writer initiative remain
