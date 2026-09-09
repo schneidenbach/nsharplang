@@ -143,7 +143,12 @@ SDK self-host8017 and native47/197/78/4/88/12 pass; unfiltered BSS1236/10977, Co
 Build.Tasks3/33 pass. Sole N# task metadata and all4feed/10Release/12cache payloads match.
 [Acceptance](decodes/2026-09-09-complete-sdk-emit-task-ownership.md). The earlier failed gate and
 private-candidate status below are historical, superseded by this acceptance. Final compiler audit
-remains open: the exact receiver-generic executable fixture/cardinality/message correction is active.
+remains open for the final assertion inventory and fresh integration checkpoint. `aa26a7695`
+restores the exact receiver-generic executable fixture, total diagnostic cardinality and contiguous
+message assertion; root verified both original byte strings, focused1/1 and native198/198 pass.
+`e437e91f` removes only stale facade commentary and documents the reviewed surviving boundaries;
+one ratchet row shrinks eight lines, all epochs and380 other rows fixed, head `head-v1:e00b4b68668caa8b`,
+audit18/18. No compiler/IDE production behavior changes in this final audit sequence.
 
 **SDK implementation history.** `d0dc69536` integrates the
 demonstrated MSBuild/Cecil/Required-property prerequisites, `acffa5abb` their canonical tests,

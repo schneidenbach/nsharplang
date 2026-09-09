@@ -346,7 +346,15 @@ The fresh combined backend gate at `ff4f6b3c` now passes557s:399C#/8000N# compil
 all native projects,12throughput cells and68IL assemblies. It covers the workspace/import, command,
 and CLI parity canonical migrations above. Receipt:
 `/private/tmp/nsharp-cli-parity-diagnostic-cleanup-20260908/root-canonical-integration-gate-r1-receipt.json`.
-No new SDK seed is published for this test-only checkpoint; complete SDK emission ownership remains open.
+No new SDK seed was published for that test-only checkpoint. Complete SDK emission ownership
+is subsequently accepted at `b13cc7622` above.
+
+The final exact-fixture review found that the receiver-generic successor had a reduced library
+wrapper and omitted total diagnostic cardinality and the contiguous message phrase. `aa26a7695`
+adds the original byte-identical ReceiverGenericCheck executable case with every removed compiler
+assertion; exact1/1 and native198/198 pass. The earlier reduced test remains useful but did not
+complete that migration. Evidence: `/private/tmp/nsharp-receiver-generic-exact-canonical-20260909`.
+Final remaining-test inventory and integration verification are pending.
 
 The audit's broader "compiler-service" label is not the active scope: JSON root-key/value envelopes,
 LintToJson formatting, fix serialization/application policy, and query/editor presentation belong in
