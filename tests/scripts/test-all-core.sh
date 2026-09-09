@@ -613,7 +613,7 @@ section "Step 7: Build Template-Generated Project (via nlc build)"
 if [ -d "$TEMP_DIR/TestConsoleApp" ]; then
     cd "$TEMP_DIR/TestConsoleApp"
     echo "Building template-generated project with nlc build..."
-    if dotnet "$CLI_DLL" build > /dev/null 2>&1; then
+    if dotnet "$CLI_DLL" build; then
         handle_success "Template project builds (nlc build)"
     else
         handle_error "Template project build (nlc build)"
@@ -625,7 +625,7 @@ fi
 if [ -d "$TEMP_DIR/TestWebApiApp" ]; then
     cd "$TEMP_DIR/TestWebApiApp"
     echo "Building web API template-generated project with nlc build..."
-    if dotnet "$CLI_DLL" build > /dev/null 2>&1; then
+    if dotnet "$CLI_DLL" build; then
         handle_success "Web API template project builds (nlc build)"
     else
         handle_error "Web API template project build (nlc build)"
