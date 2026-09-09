@@ -162,7 +162,9 @@ and all eleven owner cases; evidence `integration-r1/whole12-r1.json` under
 
 `287c361e0` integrates exact Required-property parser/input/declaration/emission canonicals and
 external receiver identity controls (worker3/3, root focused4/4). Root native reflection emission
-passes47/47 with `--no-cache`; stronger wrong-assembly receiver coverage is still under review.
+passes47/47 with `--no-cache`. `593fbc383` strengthens the wrong-assembly receiver fixture with
+an exact real method signature (focused1/1); `db311514b` adds an emitted, baked and invoked external
+interface upcast canonical with wrong-assembly rejection (focused1/1, existing coercion4/4).
 The diagnostic-only MetadataLoadContext ItemSpec concern is closed without a production change:
 the sole selector caller supplies paired executable runtime types; source/IL hashes were reviewed.
 Receipt `mlc-item-spec-followup/final-receipt-r1.json` under the SDK owner evidence directory.
@@ -173,6 +175,13 @@ The template command suppressed diagnostics; replaying tracked template bytes wi
 retained dependency cache passes, which does not convert the original failure into acceptance.
 Receipt `integrated-backend-gate-r1-receipt.json` in root evidence records the failed3902s run.
 Rerun fresh after final integration with `NSHARP_TEST_KEEP_RUN=1` to preserve the isolated workspace.
+
+`b00e24c75` migrates the remaining define-flag compiler-result group from C# to N#. Root independently
+verified exact project/source/raw-flag bytes. Native exact1/1, conditional family3/3 and retained CLI
+envelope1/1 pass. Four C# assertion markers and six lines retire; only its ratchet row changes,
+380 other rows and all epochs remain fixed, head `head-v1:45eb8fe43538f8d4`, audit18/18.
+Evidence: `/private/tmp/nsharp-preprocessor-define-canonicals-20260909/final-receipt-r1.json`
+and `root-review-r1.json` there. CLI help/argument precedence remains separate policy.
 
 Canonical commits
 `6d046bef2` (six workspace/import methods) and `aa841ec15` (remaining command compiler assertions)
