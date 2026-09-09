@@ -177,6 +177,36 @@ func LsdUpdateDocument(manager: object, uri: string, source: string) {
     _ = ignored
 }
 
+func LsdInvokeStringArgument(manager: object, methodName: string, value: string): object? {
+    parameterTypes := new Type[](1)
+    parameterTypes[0] = typeof(string)
+    method := manager.GetType().GetMethod(methodName, parameterTypes)
+    if method == null {
+        throw new InvalidOperationException("Required DocumentManager method was not found: " + methodName)
+    }
+    arguments := new object?[](1)
+    LsdPut(arguments, 0, value)
+    return method.Invoke(manager, arguments)
+}
+
+func LsdCopyCompilerErrors(value: object): List<CompilerError> {
+    sourceItems := value as IList
+    if sourceItems == null {
+        throw new InvalidOperationException("Compiler diagnostics did not implement IList.")
+    }
+    errors := new List<CompilerError>()
+    index := 0
+    while index < sourceItems.Count {
+        error := sourceItems[index] as CompilerError
+        if error == null {
+            throw new InvalidOperationException("Compiler diagnostics contained a non-compiler item.")
+        }
+        errors.Add(error)
+        index = index + 1
+    }
+    return errors
+}
+
 func LsdGetDocument(manager: object, uri: string): object {
     parameterTypes := new Type[](1)
     parameterTypes[0] = typeof(string)
@@ -197,21 +227,27 @@ func LsdCompilerDiagnostics(uri: string, source: string): List<CompilerError> {
     manager := LsdNewDocumentManager()
     LsdUpdateDocument(manager, uri, source)
     document := LsdGetDocument(manager, uri)
-    sourceItems := LsdRequiredProperty(document, "Diagnostics") as IList
-    if sourceItems == null {
-        throw new InvalidOperationException("Document diagnostics did not implement IList.")
+    return LsdCopyCompilerErrors(LsdRequiredProperty(document, "Diagnostics"))
+}
+
+func LsdPublishedCompilerDiagnostics(uri: string, source: string): List<CompilerError> {
+    manager := LsdNewDocumentManager()
+    ignored := LsdInvokeStringArgument(manager, "MarkEditorOpen", uri)
+    _ = ignored
+    LsdUpdateDocument(manager, uri, source)
+    publicationsValue := LsdInvokeStringArgument(manager, "GetDiagnosticsToPublish", uri)
+    if publicationsValue == null {
+        throw new InvalidOperationException("DocumentManager.GetDiagnosticsToPublish returned null.")
     }
-    errors := new List<CompilerError>()
-    index := 0
-    while index < sourceItems.Count {
-        error := sourceItems[index] as CompilerError
-        if error == null {
-            throw new InvalidOperationException("Document diagnostics contained a non-compiler item.")
-        }
-        errors.Add(error)
-        index = index + 1
+    publications := publicationsValue as IList
+    if publications == null || publications.Count != 1 {
+        throw new InvalidOperationException("Expected exactly one diagnostics publication.")
     }
-    return errors
+    publication := publications[0]
+    if publication == null {
+        throw new InvalidOperationException("Diagnostics publication was null.")
+    }
+    return LsdCopyCompilerErrors(LsdRequiredProperty(publication, "CompilerDiagnostics"))
 }
 
 func LsdMessageMatches(message: string, fragment: string?): bool {
@@ -259,6 +295,36 @@ func LsdContains(errors: IReadOnlyList<CompilerError>, codeName: string, message
             if LsdMessageMatches(message, messageFragment) {
                 return true
             }
+        }
+        index = index + 1
+    }
+    return false
+}
+
+func LsdContainsAt(
+    errors: IReadOnlyList<CompilerError>,
+    codeName: string,
+    messageFragment: string?,
+    line: int,
+    column: int,
+    length: int
+): bool {
+    index := 0
+    while index < errors.Count {
+        error := errors[index]
+        if LsdFieldText(error, "Code") == codeName && LsdFieldInt(error, "Line") == line && LsdFieldInt(error, "Column") == column && LsdFieldInt(error, "Length") == length && LsdMessageMatches(LsdFieldText(error, "Message"), messageFragment) {
+            return true
+        }
+        index = index + 1
+    }
+    return false
+}
+
+func LsdContainsMessage(errors: IReadOnlyList<CompilerError>, messageFragment: string): bool {
+    index := 0
+    while index < errors.Count {
+        if LsdFieldText(errors[index], "Message").Contains(messageFragment, StringComparison.Ordinal) {
+            return true
         }
         index = index + 1
     }
