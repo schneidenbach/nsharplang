@@ -60,6 +60,11 @@ uncommitted draft archives are in `/Users/spencer/nsharp-worktree-archives/2026-
 revisions and recovery inputs. Three active SDK worktrees, held query/config/signature-help work,
 the main checkout and six verification evidence snapshots remain. Archived drafts are preserved work,
 not newly accepted migrations. Continue retiring completed worktrees under this protocol.
+On2026-09-09, two more completed SDK test worktrees/local branches were retired after integration.
+Their incremental Git bundles and the exact already-integrated host/fixture draft are verified in
+`/Users/spencer/nsharp-worktree-archives/2026-09-09`; its README records prerequisites and recovery.
+Active follow-ups use `preprocessor-define-canonicals`, `reference-coercion-interface-identity-tests`
+and the existing SDK owner worktree. Held backlog and detached verification evidence remain preserved.
 
 CLI, LSP/editor features, runtime reimplementation, NativeAOT and other branch initiatives are
 recorded in [the separate branch backlog](BRANCH-BACKLOG.md). SDK/tooling changes are in scope only
