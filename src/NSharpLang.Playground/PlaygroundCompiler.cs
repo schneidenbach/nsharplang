@@ -443,28 +443,6 @@ public sealed class PlaygroundCompiler
             Infos: list.Count(diagnostic => diagnostic.Severity == "info"));
     }
 
-    private static PlaygroundDiagnostic ToPlaygroundDiagnostic(CompilerError error, string source, string fileName)
-    {
-        var sourceSnippet = error.SourceSnippet;
-        if (string.IsNullOrWhiteSpace(sourceSnippet) && error.Line > 0)
-        {
-            sourceSnippet = GetSourceLine(source, error.Line);
-        }
-
-        return new PlaygroundDiagnostic(
-            Code: error.DiagnosticId,
-            Severity: error.Severity == ErrorSeverity.Error ? "error" : "warning",
-            Message: error.Message,
-            File: NormalizeFileName(error.FileName ?? fileName),
-            Line: Math.Max(error.Line, 1),
-            Column: Math.Max(error.Column, 1),
-            Length: Math.Max(error.Length, 1),
-            SourceSnippet: sourceSnippet,
-            Explanation: error.HumanExplanation,
-            Suggestion: error.Suggestion ?? FormatSuggestions(error.Suggestions),
-            Hint: error.ContextualHint);
-    }
-
     private static PlaygroundDiagnostic ToPlaygroundDiagnostic(DiagnosticResult diagnostic)
         => new(
             Code: diagnostic.Code,
@@ -581,15 +559,6 @@ public sealed class PlaygroundCompiler
             ? candidate
             : $"{candidate}.nl";
     }
-
-    private static string? GetSourceLine(string source, int line)
-    {
-        var lines = source.Split('\n');
-        return line > 0 && line <= lines.Length ? lines[line - 1] : null;
-    }
-
-    private static string? FormatSuggestions(IEnumerable<string>? suggestions)
-        => suggestions == null ? null : string.Join(" ", suggestions.Where(suggestion => !string.IsNullOrWhiteSpace(suggestion)));
 
     private static string GetVirtualProjectRoot()
         => Path.Combine(Path.GetTempPath(), "nsharp-playground");
