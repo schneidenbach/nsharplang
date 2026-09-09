@@ -7,7 +7,6 @@ import System.Reflection
 // These controls preserve the compiler-facing assertions that surround emission: route refusal,
 // analysis-before-emit failures, persisted assembly metadata, decline diagnostics, and preprocessing.
 // Each still uses the public MultiFileCompiler entry point and cleans its fixture in a finally block.
-
 test "MultiFileCompiler_ExperimentalSoaDoesNotFallbackToIlWhenColumnarRouteDeclines" {
     compilation := EmitterCanonicalCompileWithEnvironment(
         "SoaFallbackProject",
@@ -239,6 +238,40 @@ func Tag<T>(this value: T, note: string): string {
             StringComparison.Ordinal
         )
         assert EmitterCanonicalErrorText(error, "Message").Contains("'T.ToString'", StringComparison.Ordinal)
+    } finally {
+        EmitterCanonicalCleanup(compilation)
+    }
+}
+
+test "CompileToIlAssembly_ExactReceiverGenericCheckFixtureReportsOneNl103" {
+    compilation := EmitterCanonicalCompile(
+        "ReceiverGenericCheck",
+        "name: ReceiverGenericCheck\noutputType: exe\ntargetFramework: net10.0",
+        EmitterCanonicalSingleFileNames(),
+        EmitterCanonicalSingleFileContents(
+            """
+namespace W
+
+import System
+
+func Tag<T>(this value: T, note: string): string { return note + value.ToString() }
+func main() { Console.WriteLine(5.Tag("ok")) }
+"""
+        ),
+        false
+    )
+    try {
+        assert !compilation.Succeeded
+        assert compilation.Errors.Count == 1, EmitterCanonicalDiagnostics(compilation)
+        error := EmitterCanonicalFindSingleError(compilation, "DiagnosticId", "NL103")
+        assert EmitterCanonicalErrorText(error, "Message").Contains(
+            "instance call 'T.ToString'",
+            StringComparison.Ordinal
+        )
+        assert EmitterCanonicalErrorText(error, "Message").Contains(
+            "Declined at emit.call.instance-member-unmodeled:",
+            StringComparison.Ordinal
+        )
     } finally {
         EmitterCanonicalCleanup(compilation)
     }
