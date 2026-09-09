@@ -143,7 +143,12 @@ receiver and property prerequisites; those are being implemented in N#. Canonica
 `6d046bef2` (six workspace/import methods) and `aa841ec15` (remaining command compiler assertions)
 are integrated after the published resolver checkpoint. Root native diagnostics88/88 and query78/78
 pass. Five reviewed C# rows are lowered;376 other rows and all epochs stay fixed, audit18/18,
-current head `head-v1:e3b8dbcd5ec5c886`. Their next integration checkpoint remains open. Broader sibling tasks remain held in the separate backlog.
+The CLI parity diagnostic cleanup is integrated in `c5144b9ea` and `69f0797fa`. Its exact N#
+successor selects exactly one NL001 from the original source and projects the original snippet;
+focused successor1/1 and retained CLI53/53 pass. One further C# row is lowered with380 other rows
+and all epochs unchanged; current head `head-v1:73547736476f9f2d`, audit18/18. Evidence:
+`/private/tmp/nsharp-cli-parity-diagnostic-cleanup-20260908` (root-ownership-r3.json).
+Their next integration checkpoint remains open. Broader sibling tasks remain held in the separate backlog.
 CodeIntelligenceService's project-loading/property-copy boundary is mechanical; completion,
 fix-command and output presentation policy remain separately scoped.
 

@@ -325,6 +325,14 @@ cluster/filter/envelope/text policy assertions remain separately owned. These fo
 resolver checkpoint and await the next combined integration gate.
 Preserve exact source/project bytes and failure behavior; existing similar cases do not prove parity.
 
+The remaining CLI parity compiler diagnostic clauses are integrated in `c5144b9ea` and `69f0797fa`.
+Review required an exact N# lint successor: one matching NL001 from the original `func Main` /
+`value := 42` source, with the original source snippet projected from its actual diagnostic location.
+The earlier existence-only and synthetic projection tests were insufficient. The successor passes1/1,
+retained CLI tests53/53, and the lowered single-row ownership audit18/18. Command envelopes remain
+separate policy. Evidence: `/private/tmp/nsharp-cli-parity-diagnostic-cleanup-20260908`.
+These commits still require the next fresh combined integration checkpoint before push.
+
 The audit's broader "compiler-service" label is not the active scope: JSON root-key/value envelopes,
 LintToJson formatting, fix serialization/application policy, and query/editor presentation belong in
 BRANCH-BACKLOG.md. Do not add those as compiler completion conditions merely because their N# owners
