@@ -301,20 +301,22 @@ CLI envelope checks remain. Reviewed evidence:
 `root-review-r1.json` in that directory. Combined integration and installed verification at
 `277ea2991` are accepted above; push remains open.
 
-The compiler-bearing diagnostic methods and necessary harness in LanguageServerDiagnosticsTests
-are an active complete canonical area. The first 53 methods are integrated in `451f20958`,
-`7f3c89d86` and `648113f2d`; their N# project passes 53/53 against the integrated resolver.
-Exact fixture and assertion reviews are under `/private/tmp/nsharp-lsp-diagnostic-canonicals-20260908`.
-Parser/recovery and remaining compiler diagnostic groups continue. Root individually reviewed the nine
-Converter_* methods: they use synthetic inputs to test LSP conversion/transport and stay separate.
-Inspect the remaining eighty-three candidate methods individually. Migrate direct compiler diagnostic/message/span assertions in
-LanguageServerDiagnosticsTests separately from its LSP range-conversion and transport assertions.
-Source boundary review:
-`/private/tmp/nsharp-multifile-assessment/lsp-diagnostic-canonical-boundary-review-20260908.md`.
-Where a compiler assertion produces the diagnostic consumed by a range assertion, prefer moving
-the complete connected mixed method and required harness to N# rather than retaining duplicate
-compiler assertions or adding C# test selectors. Preserve exact fixtures; similar existing native
-analyzer cases can have different source bytes, locations and behavior.
+The complete compiler-bearing diagnostic group in LanguageServerDiagnosticsTests is integrated:
+82 methods moved to N# with their required harness, exact source fixtures, diagnostics, spans and
+connected LSP observations. The final parser and recovery/linter commits are `6c83e9d1a` and
+`ee1300416`; root native verification passes 82/82. The ten retained C# methods construct synthetic
+diagnostics and test only LSP range/severity/code transport (nine Converter_* methods and
+LspLinterDiagnostic_UsesExactLinterSpan). No production or IDE behavior changed.
+Exact fixture, source-hash and assertion reviews are under
+`/private/tmp/nsharp-lsp-diagnostic-canonicals-20260908`, including
+`root-parser-diagnostics-review-r1.json` and `root-recovery-linter-review-r1.json`.
+
+The next connected canonical area is compiler-bearing diagnostics/binding in
+LanguageServerWorkspaceDiagnosticsTests, LanguageServerTests and LanguageServerAutoImportTests.
+Inspect complete methods and migrate actual compiler assertions with necessary state and harness;
+keep pure editor publication/open-close/completion/auto-import policy in the separate backlog.
+The remaining compiler-bearing CLI/check/SDK assertions have an independent implementation owner.
+Preserve exact source/project bytes and failure behavior; existing similar cases do not prove parity.
 
 The audit's broader "compiler-service" label is not the active scope: JSON root-key/value envelopes,
 LintToJson formatting, fix serialization/application policy, and query/editor presentation belong in

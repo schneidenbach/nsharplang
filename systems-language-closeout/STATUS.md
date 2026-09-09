@@ -130,10 +130,16 @@ Compiler-wide ownership remains open. **Integrated, checkpoint pending: Compilat
 command-level N# canonicals. All thirteen production callers bind directly to N#, with two public
 entries, twenty-two private helpers and one private readonly HTTP client. Source/IL review preserves
 generic enumeration, disposal, cache insertion, mutation and failure order; query's no-build control
-is nonvacuous. Root focused command tests pass 48/48. The first 53 complete compiler diagnostic
-methods formerly in LanguageServerDiagnosticsTests are also integrated and pass 53/53 in N#.
-Their remaining compiler groups continue independently. The four reviewed ownership rows are updated;
-377 other rows and all epochs remain fixed, audit18/18, head `head-v1:4500562dd5b8322a`.
+is nonvacuous. Root focused command tests pass 48/48. All 82 complete compiler diagnostic
+methods formerly in LanguageServerDiagnosticsTests are integrated through `ee1300416` and pass
+82/82 in N#. Ten synthetic LSP conversion-only methods remain C#; the next canonical area is
+compiler-bearing workspace/editor integration assertions, with pure editor policy separate.
+The resolver checkpoint at `0c385d3df` finished with one failure: the native compile-time benchmark
+corpus census still expects 75 projects after adding canonical test projects. The 7,999 compiler
+canonicals, 458 C# tests, twelve throughput checks, examples/templates and 68 IL checks passed.
+This failed run is not integration acceptance; census correction, current ownership ratchet and a
+fresh combined gate remain required. Its log is
+`/private/tmp/nsharp-compilation-reference-resolver-owner-20260908/root-full-owner-integration-gate-r1.log`.
 The necessary Timeout SDK seed at `277ea2991` passed a fresh backend gate and installed self-host
 7,992/7,992; it does not establish the subsequent resolver checkpoint. That fresh combined gate,
 installed complete-owner verification and push remain required. **Next complete production area:
