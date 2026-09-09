@@ -2,6 +2,7 @@ namespace NSharpLang.SdkProjectReferenceBoundary.Tests
 
 import System
 import System.IO
+import System.Xml.Linq
 
 // These are the native successors to tests/IlSdkToolchainTests.cs. They deliberately use the
 // existing MSBuild/package fixture so every assertion reaches the shipped SDK and its generated
@@ -27,7 +28,32 @@ func IlSdkAssembly(directory: string, name: string): string {
 }
 
 func IlSdkHasPassedTrx(path: string): bool {
-    return File.ReadAllText(path).Contains("outcome=\"Passed\"")
+    document := XDocument.Load(path)
+    root := document.Root
+    if root == null {
+        return false
+    }
+
+    return IlSdkHasPassedTrxElement(root)
+}
+
+func IlSdkHasPassedTrxElement(element: XElement): bool {
+    elementName := element.Name
+    if elementName.LocalName == "UnitTestResult" {
+        outcome := element.Attribute(XName.Get("outcome"))
+        if outcome != null && outcome.Value == "Passed" {
+            return true
+        }
+    }
+
+    for node in element.Nodes() {
+        child := node as XElement
+        if child != null && IlSdkHasPassedTrxElement(child) {
+            return true
+        }
+    }
+
+    return false
 }
 
 test "dotnet build uses the IL backend through the SDK" {
@@ -181,11 +207,33 @@ test "dotnet test uses the IL backend through the SDK" {
         File.WriteAllText(Path.Combine(projectDirectory, "Math.tests.nl"), "test \"addition works\" {\n    assert Add(2, 3) == 5\n}\n")
 
         trxPath := Path.Combine(scratch, "results.trx")
-        command := "test " + SdkBoundaryQuote(projectPath) + " -v q --disable-build-servers --logger \"trx;LogFileName=" + IlSdkXml(trxPath) + "\""
+        command := "test " + SdkBoundaryQuote(projectPath) + " -v q --disable-build-servers --logger " + SdkBoundaryQuote("trx;LogFileName=" + trxPath)
         result := SdkBoundaryRunDotnet(command, projectDirectory)
         SdkBoundaryRequireSuccess(result, "SDK IL test run")
         assert File.Exists(trxPath)
         assert IlSdkHasPassedTrx(trxPath)
+    } finally {
+        Directory.Delete(scratch, true)
+    }
+}
+
+test "TRX assertion requires a UnitTestResult with an exact Passed outcome" {
+    root := SdkBoundaryRepositoryRoot()
+    scratch := IlSdkScratch(root, "trx-negative")
+    try {
+        decoyPath := Path.Combine(scratch, "decoy.trx")
+        File.WriteAllText(
+            decoyPath,
+            "<TestResults><Message>outcome=\"Passed\"</Message><UnitTestResult outcome=\"Failed\" /></TestResults>"
+        )
+        assert !IlSdkHasPassedTrx(decoyPath)
+
+        passingPath := Path.Combine(scratch, "passing.trx")
+        File.WriteAllText(
+            passingPath,
+            "<TestResults><UnitTestResult outcome=\"Passed\" /></TestResults>"
+        )
+        assert IlSdkHasPassedTrx(passingPath)
     } finally {
         Directory.Delete(scratch, true)
     }

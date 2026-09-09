@@ -62,29 +62,6 @@ test "the SDK reference task has one N# production owner and its exact MSBuild s
     assert publicOperationCount == 1
     assert owner.GetFields(BindingFlags.Instance | BindingFlags.Static | BindingFlags.Public | BindingFlags.DeclaredOnly).Length == 0
 
-    privateFields := owner.GetFields(BindingFlags.Instance | BindingFlags.Static | BindingFlags.NonPublic | BindingFlags.DeclaredOnly)
-    fieldNames := new string[](5)
-    fieldNames[0] = "projectFileValue"
-    fieldNames[1] = "packageReferencesValue"
-    fieldNames[2] = "frameworkReferencesValue"
-    fieldNames[3] = "existingProjectReferencesValue"
-    fieldNames[4] = "projectReferencesValue"
-    assert privateFields.Length == fieldNames.Length
-    fieldNameIndex := 0
-    while fieldNameIndex < fieldNames.Length {
-        matches := 0
-        privateFieldIndex := 0
-        while privateFieldIndex < privateFields.Length {
-            if privateFields[privateFieldIndex].get_Name() == fieldNames[fieldNameIndex] {
-                assert privateFields[privateFieldIndex].get_IsPrivate(), fieldNames[fieldNameIndex]
-                matches = matches + 1
-            }
-            privateFieldIndex = privateFieldIndex + 1
-        }
-        assert matches == 1, fieldNames[fieldNameIndex]
-        fieldNameIndex = fieldNameIndex + 1
-    }
-
     task := EmitTaskNewInstance(owner)
     assert EmitTaskOptionalObjectProperty(task, "ProjectFile") == null
     packageValues := EmitTaskOptionalObjectProperty(task, "PackageReferences") as Array

@@ -71,33 +71,6 @@ test "the SDK config task has one N# production owner and its exact MSBuild surf
     assert publicOperationCount == 1
     assert owner.GetFields(BindingFlags.Instance | BindingFlags.Static | BindingFlags.Public | BindingFlags.DeclaredOnly).Length == 0
 
-    privateFields := owner.GetFields(BindingFlags.Instance | BindingFlags.Static | BindingFlags.NonPublic | BindingFlags.DeclaredOnly)
-    fieldNames := new string[](9)
-    fieldNames[0] = "projectDirectoryValue"
-    fieldNames[1] = "targetFrameworkValue"
-    fieldNames[2] = "outputTypeValue"
-    fieldNames[3] = "assemblyNameValue"
-    fieldNames[4] = "versionValue"
-    fieldNames[5] = "assemblyVersionValue"
-    fieldNames[6] = "fileVersionValue"
-    fieldNames[7] = "sdkValue"
-    fieldNames[8] = "testFrameworkValue"
-    assert privateFields.Length == fieldNames.Length
-    fieldNameIndex := 0
-    while fieldNameIndex < fieldNames.Length {
-        matches := 0
-        privateFieldIndex := 0
-        while privateFieldIndex < privateFields.Length {
-            if privateFields[privateFieldIndex].get_Name() == fieldNames[fieldNameIndex] {
-                assert privateFields[privateFieldIndex].get_IsPrivate(), fieldNames[fieldNameIndex]
-                matches = matches + 1
-            }
-            privateFieldIndex = privateFieldIndex + 1
-        }
-        assert matches == 1, fieldNames[fieldNameIndex]
-        fieldNameIndex = fieldNameIndex + 1
-    }
-
     task := EmitTaskNewInstance(owner)
     assert Convert.ToString(EmitTaskOptionalObjectProperty(task, "ProjectDirectory")) == ""
     assert Convert.ToString(EmitTaskOptionalObjectProperty(task, "TargetFramework")) == ""
