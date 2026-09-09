@@ -11,8 +11,8 @@ import NSharpLang.Compiler
 //
 // WHY THIS IS A NATIVE PROJECT AND NOT AN ESTATE CONTRACT. `CompletionEngine`'s inputs need a
 // `SemanticModel`, and the only thing that produces one is the C# `Analyzer`, which lives in
-// `Compiler.dll` — the assembly that DEPENDS on `NSharpLang.Compiler.BootstrapServices`. A
-// `.tests.nl` inside BootstrapServices therefore cannot reach it in any spelling; the dependency
+// `Compiler.dll` — the assembly that DEPENDS on `NSharpLang.Compiler.Core`. A
+// `.tests.nl` inside Compiler Core therefore cannot reach it in any spelling; the dependency
 // runs the wrong way. A native project can, because it references both assemblies and reaches the
 // production types BY REFLECTION, exactly as `tests/native/query-completions` already does. This
 // project runs through `nlc test`, so the compiler under test is also the compiler that built it.
@@ -92,7 +92,7 @@ func LoadCompletionSnapshot(fixtureRoot: string): object {
 // includeKeywords)`, exactly as `CompletionsCommand` asks it.
 func AskCompletions(snapshot: object, sourceFile: string, line: int, column: int, includeKeywords: bool): object {
     engineType := Type.GetType("NSharpLang.Compiler.CodeIntelligence.CompletionEngine, Compiler")
-    snapshotType := Type.GetType("NSharpLang.Compiler.CodeIntelligence.ProjectSnapshot, NSharpLang.Compiler.BootstrapServices")
+    snapshotType := Type.GetType("NSharpLang.Compiler.CodeIntelligence.ProjectSnapshot, NSharpLang.Compiler.Core")
     if engineType == null || snapshotType == null {
         throw new InvalidOperationException("The production completion types were not loadable.")
     }

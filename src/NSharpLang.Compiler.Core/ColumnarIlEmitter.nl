@@ -9132,7 +9132,7 @@ sealed class ColumnarIlEmitter {
                     return true
                 }
                 // WHITELISTED exception constructions (E1/E3): parameterless, one-string, and two-string
-                // ctors of the same exception types accepted by typed catches and BootstrapServices throws.
+                // ctors of the same exception types accepted by typed catches and Compiler Core throws.
                 let exceptionType: System.Type? = null
                 if (ColumnarCanonicalTypeResolver.TryResolveBclExceptionType(newTypeName, out exceptionType)) {
                     exceptionArgCount := _nodes.ChildCount(idx) - 1
@@ -14171,7 +14171,7 @@ sealed class ColumnarIlEmitter {
         return false
     }
 
-    // TYPE EQUIVALENCE IS OWNED BY N#. `ColumnarTypeEquivalenceFacts` (BootstrapServices) holds the
+    // TYPE EQUIVALENCE IS OWNED BY N#. `ColumnarTypeEquivalenceFacts` (Compiler Core) holds the
     // whole five-function rule — the enum, by-ref, SZ-array, TypeBuilder and closed-generic arms plus
     // every guarded reflection read. These three members are call-shape forwarders so the emitter's 104
     // existing call sites keep their spelling; there is no second copy of the rule here.

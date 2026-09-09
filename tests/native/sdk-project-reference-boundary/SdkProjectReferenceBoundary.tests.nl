@@ -105,7 +105,7 @@ func SdkBoundaryWriteResolution(projectDirectory: string, sdkPackage: SdkBoundar
 }
 
 func SdkBoundaryReferenceOutput(projectDirectory: string): SdkBoundaryRun {
-    return SdkBoundaryRunDotnet("msbuild NSharpLang.Compiler.BootstrapServices.csproj -t:PrintSdkProjectReferences -v m --disable-build-servers", projectDirectory)
+    return SdkBoundaryRunDotnet("msbuild NSharpLang.Compiler.Core.csproj -t:PrintSdkProjectReferences -v m --disable-build-servers", projectDirectory)
 }
 
 func SdkBoundaryRequireReferenceOutput(result: SdkBoundaryRun, runtimeProject: string, operation: string) {
@@ -132,7 +132,7 @@ test "a clean SDK-only project builds an exact Runtime type deduplicates generat
         SdkBoundaryWriteResolution(projectDirectory, sdkPackage, packagesCache)
 
         runtimeProject := Path.Combine(runtimeDirectory, "NSharpLang.Runtime.csproj")
-        File.WriteAllText(Path.Combine(projectDirectory, "NSharpLang.Compiler.BootstrapServices.csproj"), "<Project Sdk=\"NSharpLang.Sdk\" />\n")
+        File.WriteAllText(Path.Combine(projectDirectory, "NSharpLang.Compiler.Core.csproj"), "<Project Sdk=\"NSharpLang.Sdk\" />\n")
         File.WriteAllText(
             Path.Combine(projectDirectory, "project.yml"),
             "name: App\nbackend: il\noutputType: exe\ntargetFramework: net10.0\ndependencies:\n  - nuget: YamlDotNet\n    version: 16.3.0\n  - nuget: System.Reflection.MetadataLoadContext\n    version: 10.0.5\n  - framework: Microsoft.AspNetCore.App\n  - project: ../Runtime/NSharpLang.Runtime.csproj\n"
@@ -148,21 +148,21 @@ test "a clean SDK-only project builds an exact Runtime type deduplicates generat
 
         generatedProps := Path.Combine(Path.Combine(projectDirectory, "obj"), "project.g.props")
         assert !File.Exists(generatedProps), "clean fixture unexpectedly contains " + generatedProps
-        restore := SdkBoundaryRunDotnet("restore NSharpLang.Compiler.BootstrapServices.csproj --disable-build-servers -v q", projectDirectory)
+        restore := SdkBoundaryRunDotnet("restore NSharpLang.Compiler.Core.csproj --disable-build-servers -v q", projectDirectory)
         SdkBoundaryRequireSuccess(restore, "clean restore graph")
         assert !File.Exists(generatedProps), "dotnet restore unexpectedly generated " + generatedProps
 
         directReferences := SdkBoundaryReferenceOutput(projectDirectory)
         SdkBoundaryRequireReferenceOutput(directReferences, runtimeProject, "direct reference projection")
 
-        firstBuild := SdkBoundaryRunDotnet("build NSharpLang.Compiler.BootstrapServices.csproj --no-restore --disable-build-servers -v q", projectDirectory)
+        firstBuild := SdkBoundaryRunDotnet("build NSharpLang.Compiler.Core.csproj --no-restore --disable-build-servers -v q", projectDirectory)
         SdkBoundaryRequireSuccess(firstBuild, "clean SDK build")
         assembly := Path.Combine(Path.Combine(Path.Combine(Path.Combine(projectDirectory, "bin"), "Debug"), "net10.0"), "App.dll")
         firstRun := SdkBoundaryRunDotnet(SdkBoundaryQuote(assembly), projectDirectory)
         SdkBoundaryRequireSuccess(firstRun, "exact Runtime typeof execution")
         assert firstRun.Stdout.Trim() == "NSharpLang.Runtime.NSharpEventSubscription", firstRun.Stdout
 
-        repeatedBuild := SdkBoundaryRunDotnet("build NSharpLang.Compiler.BootstrapServices.csproj --no-restore --disable-build-servers -v q", projectDirectory)
+        repeatedBuild := SdkBoundaryRunDotnet("build NSharpLang.Compiler.Core.csproj --no-restore --disable-build-servers -v q", projectDirectory)
         SdkBoundaryRequireSuccess(repeatedBuild, "incremental SDK build")
         repeatedReferences := SdkBoundaryReferenceOutput(projectDirectory)
         SdkBoundaryRequireReferenceOutput(repeatedReferences, runtimeProject, "repeated reference projection")
@@ -173,14 +173,14 @@ test "a clean SDK-only project builds an exact Runtime type deduplicates generat
         assert File.Exists(generatedProps), "nlc restore did not generate " + generatedProps
         generatedReferences := SdkBoundaryReferenceOutput(projectDirectory)
         SdkBoundaryRequireReferenceOutput(generatedReferences, runtimeProject, "generated props compatibility")
-        generatedBuild := SdkBoundaryRunDotnet("build NSharpLang.Compiler.BootstrapServices.csproj --no-restore --disable-build-servers -v q", projectDirectory)
+        generatedBuild := SdkBoundaryRunDotnet("build NSharpLang.Compiler.Core.csproj --no-restore --disable-build-servers -v q", projectDirectory)
         SdkBoundaryRequireSuccess(generatedBuild, "generated props SDK build")
 
         File.WriteAllText(
             Path.Combine(projectDirectory, "project.yml"),
             "name: App\nbackend: il\noutputType: exe\ntargetFramework: net10.0\ndependencies:\n  - nuget: YamlDotNet\n    version: 16.3.0\n  - framework: Microsoft.AspNetCore.App\n  - project: ../Runtime/NSharpLang.Runtime.dll\n"
         )
-        invalidRestore := SdkBoundaryRunDotnet("restore NSharpLang.Compiler.BootstrapServices.csproj --force-evaluate --disable-build-servers -v q", projectDirectory)
+        invalidRestore := SdkBoundaryRunDotnet("restore NSharpLang.Compiler.Core.csproj --force-evaluate --disable-build-servers -v q", projectDirectory)
         invalidOutput := invalidRestore.Stdout + invalidRestore.Stderr
         assert invalidRestore.ExitCode != 0, "invalid project reference unexpectedly restored successfully"
         assert invalidOutput.Contains("Project file not found: ../Runtime/NSharpLang.Runtime.dll"), invalidOutput

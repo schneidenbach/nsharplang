@@ -22,7 +22,7 @@ class BuilderBoundValueTupleSecond {
 
 // These are the three CLR tuple storage shapes used by the emitter's constructor and method job
 // queues. Keeping the source classes live while the fixture compiles exercises the same
-// TypeBuilder.GetConstructor/GetField rebinding required during the BootstrapServices self-build.
+// TypeBuilder.GetConstructor/GetField rebinding required during the Compiler Core self-build.
 class BuilderBoundValueTupleEmitFacts {
     static func RetainsConstructionAndFields(): bool {
         first := new BuilderBoundValueTupleFirst("first")

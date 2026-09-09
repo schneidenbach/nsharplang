@@ -6,7 +6,7 @@ import System.Reflection
 
 test "the SDK emit task has one N# production owner and its exact MSBuild surface" {
     owner := EmitTaskOwnerType()
-    assert owner.get_Assembly().GetName().get_Name() == "NSharpLang.Compiler.BootstrapServices"
+    assert owner.get_Assembly().GetName().get_Name() == "NSharpLang.Compiler.Core"
     assert Type.GetType("NSharpLang.Build.Tasks.EmitIlAssembly, NSharpLang.Build.Tasks") == null
     legacyAssembly := EmitTaskLegacyAssembly()
     assert !Object.ReferenceEquals(owner.get_Assembly(), legacyAssembly)

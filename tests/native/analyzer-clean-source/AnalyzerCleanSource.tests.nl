@@ -41,7 +41,7 @@ import System.Reflection
 // WHY THIS IS A NATIVE PROJECT AND NOT AN ESTATE CONTRACT. Every one of the 109 deleted bodies
 // reaches the analyzer through one private helper — `ColumnarParserRecovery.ParseFileAst(source,
 // null)`, `new Analyzer()`, `LoadSystemAssemblies()`, `Analyze(unit)` — and `Analyzer` is the C#
-// class in `Compiler.dll`, which depends on `NSharpLang.Compiler.BootstrapServices` rather than the
+// class in `Compiler.dll`, which depends on `NSharpLang.Compiler.Core` rather than the
 // other way round. A `.tests.nl` inside the estate cannot reach it in any spelling. The route is
 // REFLECTION through `object`, exactly as slices 25-27 established.
 //
@@ -145,7 +145,7 @@ func AcText(owner: object, memberName: string): string {
 }
 
 func AcParse(source: string): object {
-    parserType := Type.GetType("NSharpLang.Compiler.Columnar.ColumnarParserRecovery, NSharpLang.Compiler.BootstrapServices")
+    parserType := Type.GetType("NSharpLang.Compiler.Columnar.ColumnarParserRecovery, NSharpLang.Compiler.Core")
     if parserType == null {
         throw new InvalidOperationException("The production recovery parser was not loadable.")
     }
@@ -174,7 +174,7 @@ func AcParseUnit(source: string): object {
 }
 
 func AcParseNamed(source: string): object {
-    parserType := Type.GetType("NSharpLang.Compiler.Columnar.ColumnarParserRecovery, NSharpLang.Compiler.BootstrapServices")
+    parserType := Type.GetType("NSharpLang.Compiler.Columnar.ColumnarParserRecovery, NSharpLang.Compiler.Core")
     if parserType == null {
         throw new InvalidOperationException("The production recovery parser was not loadable.")
     }
@@ -259,8 +259,8 @@ func AcParseNamedRow(source: string, index: int): string {
 func AcAnalyze(source: string): object {
     unit := AcParseUnit(source)
 
-    analyzerType := Type.GetType("NSharpLang.Compiler.Analyzer, NSharpLang.Compiler.BootstrapServices")
-    unitType := Type.GetType("NSharpLang.Compiler.Ast.CompilationUnit, NSharpLang.Compiler.BootstrapServices")
+    analyzerType := Type.GetType("NSharpLang.Compiler.Analyzer, NSharpLang.Compiler.Core")
+    unitType := Type.GetType("NSharpLang.Compiler.Ast.CompilationUnit, NSharpLang.Compiler.Core")
     if analyzerType == null || unitType == null {
         throw new InvalidOperationException("The production analyzer types were not loadable.")
     }
@@ -416,8 +416,8 @@ func AcSnippet(analysis: object, index: int): string {
 func AcAnalyzeWithSource(source: string): object {
     unit := AcParseUnit(source)
 
-    analyzerType := Type.GetType("NSharpLang.Compiler.Analyzer, NSharpLang.Compiler.BootstrapServices")
-    unitType := Type.GetType("NSharpLang.Compiler.Ast.CompilationUnit, NSharpLang.Compiler.BootstrapServices")
+    analyzerType := Type.GetType("NSharpLang.Compiler.Analyzer, NSharpLang.Compiler.Core")
+    unitType := Type.GetType("NSharpLang.Compiler.Ast.CompilationUnit, NSharpLang.Compiler.Core")
     if analyzerType == null || unitType == null {
         throw new InvalidOperationException("The production analyzer types were not loadable.")
     }
@@ -688,7 +688,7 @@ func AcUnitShape(source: string): string {
 // Tranche 6 carries all seventeen of `AnalyzerTests.cs`'s `AspNetCoreConfig` call sites, and they
 // reach a production entry point no `Ac*` kernel had touched: `analyzer.LoadFromProjectConfig(
 // config)` runs BETWEEN `LoadSystemAssemblies()` and `Analyze(unit)`. `ProjectConfig` is an
-// N#-OWNED type living in `NSharpLang.Compiler.BootstrapServices`, so — like every other production
+// N#-OWNED type living in `NSharpLang.Compiler.Core`, so — like every other production
 // type this project reaches — it is constructed and driven THROUGH REFLECTION.
 //
 // `AcProjectConfig` builds one. The two strings are the two properties the deleted C# field set,
@@ -700,7 +700,7 @@ func AcUnitShape(source: string): string {
 // route is pinned on BOTH entry points exactly as the config-free route already is.
 
 func AcProjectConfig(sdk: string, targetFramework: string): object {
-    configType := Type.GetType("NSharpLang.Compiler.ProjectConfig, NSharpLang.Compiler.BootstrapServices")
+    configType := Type.GetType("NSharpLang.Compiler.ProjectConfig, NSharpLang.Compiler.Core")
     if configType == null {
         throw new InvalidOperationException("The production project-config type was not loadable.")
     }
@@ -747,7 +747,7 @@ func AcConfigShape(sdk: string, targetFramework: string): string {
 }
 
 func AcLoadProjectConfig(analyzerType: Type, analyzer: object, sdk: string, targetFramework: string) {
-    configType := Type.GetType("NSharpLang.Compiler.ProjectConfig, NSharpLang.Compiler.BootstrapServices")
+    configType := Type.GetType("NSharpLang.Compiler.ProjectConfig, NSharpLang.Compiler.Core")
     if configType == null {
         throw new InvalidOperationException("The production project-config type was not loadable.")
     }
@@ -769,8 +769,8 @@ func AcLoadProjectConfig(analyzerType: Type, analyzer: object, sdk: string, targ
 func AcAnalyzeWithConfig(source: string, sdk: string, targetFramework: string): object {
     unit := AcParseUnit(source)
 
-    analyzerType := Type.GetType("NSharpLang.Compiler.Analyzer, NSharpLang.Compiler.BootstrapServices")
-    unitType := Type.GetType("NSharpLang.Compiler.Ast.CompilationUnit, NSharpLang.Compiler.BootstrapServices")
+    analyzerType := Type.GetType("NSharpLang.Compiler.Analyzer, NSharpLang.Compiler.Core")
+    unitType := Type.GetType("NSharpLang.Compiler.Ast.CompilationUnit, NSharpLang.Compiler.Core")
     if analyzerType == null || unitType == null {
         throw new InvalidOperationException("The production analyzer types were not loadable.")
     }
@@ -821,8 +821,8 @@ func AcAnalyzeWithConfig(source: string, sdk: string, targetFramework: string): 
 func AcAnalyzeWithSourceAndConfig(source: string, sdk: string, targetFramework: string): object {
     unit := AcParseUnit(source)
 
-    analyzerType := Type.GetType("NSharpLang.Compiler.Analyzer, NSharpLang.Compiler.BootstrapServices")
-    unitType := Type.GetType("NSharpLang.Compiler.Ast.CompilationUnit, NSharpLang.Compiler.BootstrapServices")
+    analyzerType := Type.GetType("NSharpLang.Compiler.Analyzer, NSharpLang.Compiler.Core")
+    unitType := Type.GetType("NSharpLang.Compiler.Ast.CompilationUnit, NSharpLang.Compiler.Core")
     if analyzerType == null || unitType == null {
         throw new InvalidOperationException("The production analyzer types were not loadable.")
     }
@@ -1087,7 +1087,7 @@ func AcExpressionTypes(model: object): string {
 // `AcPlaceholderUnit` builds a `CompilationUnit` BY HAND, because the one remaining method never
 // parses: it plants an `<error>` identifier in an array-length position to reproduce what the
 // recovery parser emits, and asserts a follow-on diagnostic is suppressed. `CompilationUnit` and
-// its declaration types are N#-OWNED types in `NSharpLang.Compiler.BootstrapServices` reached
+// its declaration types are N#-OWNED types in `NSharpLang.Compiler.Core` reached
 // through `dll:`, so they are REFLECTION-ONLY under this project's standing wall, exactly as
 // `ProjectConfig` was in slice 34.
 //
@@ -1103,7 +1103,7 @@ func AcExpressionTypes(model: object): string {
 // boxed and `ParameterType` is read with `AcMember`, which is the instrument this file already is.
 
 func AcParseNamedAs(source: string, fileName: string): object {
-    parserType := Type.GetType("NSharpLang.Compiler.Columnar.ColumnarParserRecovery, NSharpLang.Compiler.BootstrapServices")
+    parserType := Type.GetType("NSharpLang.Compiler.Columnar.ColumnarParserRecovery, NSharpLang.Compiler.Core")
     if parserType == null {
         throw new InvalidOperationException("The production recovery parser was not loadable.")
     }
@@ -1136,8 +1136,8 @@ func AcParseNamedAsSuccess(source: string, fileName: string): string {
 }
 
 func AcAnalyzeUnitAt(unit: object, path: string, projectRoot: string?, source: string, loadSystemAssemblies: bool): object {
-    analyzerType := Type.GetType("NSharpLang.Compiler.Analyzer, NSharpLang.Compiler.BootstrapServices")
-    unitType := Type.GetType("NSharpLang.Compiler.Ast.CompilationUnit, NSharpLang.Compiler.BootstrapServices")
+    analyzerType := Type.GetType("NSharpLang.Compiler.Analyzer, NSharpLang.Compiler.Core")
+    unitType := Type.GetType("NSharpLang.Compiler.Ast.CompilationUnit, NSharpLang.Compiler.Core")
     if analyzerType == null || unitType == null {
         throw new InvalidOperationException("The production analyzer types were not loadable.")
     }
@@ -1272,7 +1272,7 @@ func AcDirectoryReport(mainName: string, mainSource: string, sidecarName: string
 }
 
 func AcAstType(simpleName: string): Type {
-    astType := Type.GetType("NSharpLang.Compiler.Ast." + simpleName + ", NSharpLang.Compiler.BootstrapServices")
+    astType := Type.GetType("NSharpLang.Compiler.Ast." + simpleName + ", NSharpLang.Compiler.Core")
     if astType == null {
         throw new InvalidOperationException("The production AST type '" + simpleName + "' was not loadable.")
     }
@@ -1429,8 +1429,8 @@ func AcPlaceholderUnit(lengthName: string): object {
 }
 
 func AcAnalyzeUnit(unit: object): object {
-    analyzerType := Type.GetType("NSharpLang.Compiler.Analyzer, NSharpLang.Compiler.BootstrapServices")
-    unitType := Type.GetType("NSharpLang.Compiler.Ast.CompilationUnit, NSharpLang.Compiler.BootstrapServices")
+    analyzerType := Type.GetType("NSharpLang.Compiler.Analyzer, NSharpLang.Compiler.Core")
+    unitType := Type.GetType("NSharpLang.Compiler.Ast.CompilationUnit, NSharpLang.Compiler.Core")
     if analyzerType == null || unitType == null {
         throw new InvalidOperationException("The production analyzer types were not loadable.")
     }

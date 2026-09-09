@@ -305,7 +305,7 @@ format_rc=0
     dotnet "$CLI_DLL" format --project examples --check || format_rc=1
     dotnet "$CLI_DLL" format --project templates --check || format_rc=1
     dotnet "$CLI_DLL" format --project tests/fixtures/issue-tracker --check || format_rc=1
-    dotnet "$CLI_DLL" format --project src/NSharpLang.Compiler.BootstrapServices --check || format_rc=1
+    dotnet "$CLI_DLL" format --project src/NSharpLang.Compiler.Core --check || format_rc=1
 } > "$FORMAT_OUTPUT" 2>&1
 cat "$FORMAT_OUTPUT"
 if [ "$format_rc" -eq 0 ]; then
@@ -344,7 +344,7 @@ if step_cache_hit "native-nsharp-tests" "$UNIT_INPUTS_HASH"; then
 else
     echo "Running the gated compiler-service and product .tests.nl estate..."
     NATIVE_STEP_OK=1
-    BOOTSTRAP_TEST_PROJECT="src/NSharpLang.Compiler.BootstrapServices/NSharpLang.Compiler.BootstrapServices.csproj"
+    BOOTSTRAP_TEST_PROJECT="src/NSharpLang.Compiler.Core/NSharpLang.Compiler.Core.csproj"
     BOOTSTRAP_TEST_OUTPUT=$(mktemp)
     if dotnet restore $DOTNET_STABLE_FLAGS "$BOOTSTRAP_TEST_PROJECT" \
             -p:NSharpExcludeTests=false --force-evaluate -v q \

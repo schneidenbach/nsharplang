@@ -38,7 +38,7 @@
 
   <ItemGroup>
     <ProjectReference Include="..\src\NSharpLang.Cli\Cli.csproj" />
-    <ProjectReference Include="..\src\NSharpLang.Compiler.BootstrapServices\NSharpLang.Compiler.BootstrapServices.csproj" />
+    <ProjectReference Include="..\src\NSharpLang.Compiler.Core\NSharpLang.Compiler.Core.csproj" />
     <ProjectReference Include="..\src\NSharpLang.Compiler\Compiler.csproj" />
     <ProjectReference Include="..\src\NSharpLang.LanguageServer\LanguageServer.csproj" />
     <ProjectReference Include="..\src\NSharpLang.Runtime\NSharpLang.Runtime.csproj" />

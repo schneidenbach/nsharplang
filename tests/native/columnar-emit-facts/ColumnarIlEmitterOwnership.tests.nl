@@ -9,7 +9,7 @@ import System.Reflection
 // witnesses cannot silently fall back to the deleted Compiler-assembly implementation.
 func ColumnarIlEmitterType(): Type {
     owner := Type.GetType(
-        "NSharpLang.Compiler.Columnar.ColumnarIlEmitter, NSharpLang.Compiler.BootstrapServices"
+        "NSharpLang.Compiler.Columnar.ColumnarIlEmitter, NSharpLang.Compiler.Core"
     )
     if owner == null {
         throw new InvalidOperationException("Missing N# ColumnarIlEmitter")
@@ -57,10 +57,10 @@ func ColumnarIlEmitterExceptionTypeName(error: Exception): string {
 
 func ColumnarIlEmitterBootstrapType(name: string): Type {
     owner := Type.GetType(
-        "NSharpLang.Compiler.Columnar." + name + ", NSharpLang.Compiler.BootstrapServices"
+        "NSharpLang.Compiler.Columnar." + name + ", NSharpLang.Compiler.Core"
     )
     if owner == null {
-        throw new InvalidOperationException("Missing bootstrap-services type " + name)
+        throw new InvalidOperationException("Missing compiler-core type " + name)
     }
     return owner
 }
@@ -116,7 +116,7 @@ test "the N# columnar IL emitter owns its complete public and private metadata s
     assert owner.get_IsPublic(), "the N# emitter must retain its public cross-assembly surface"
     assert owner.get_IsSealed(), "the N# emitter must retain sealed metadata"
     assert Object.ReferenceEquals(owner.get_Assembly(), ColumnarInputBuilderType().get_Assembly()),
-        "the emitter and input builder must share the bootstrap-services assembly owner"
+        "the emitter and input builder must share the compiler-core assembly owner"
     assert Type.GetType("NSharpLang.Compiler.Columnar.ColumnarIlEmitter, Compiler") == null,
         "the deleted Compiler-assembly emitter must not remain as a second owner"
 

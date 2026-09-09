@@ -87,7 +87,7 @@ func GfText(owner: object, memberName: string): string {
 }
 
 func GfParse(source: string, fileName: string): object {
-    parserType := Type.GetType("NSharpLang.Compiler.Columnar.ColumnarParserRecovery, NSharpLang.Compiler.BootstrapServices")
+    parserType := Type.GetType("NSharpLang.Compiler.Columnar.ColumnarParserRecovery, NSharpLang.Compiler.Core")
     if parserType == null {
         throw new InvalidOperationException("The production recovery parser was not loadable.")
     }

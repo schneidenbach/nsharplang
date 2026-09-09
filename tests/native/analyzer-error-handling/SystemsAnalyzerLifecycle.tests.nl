@@ -20,7 +20,7 @@ import System.IO
 //     path therefore fail after the prior report has been reset.
 //
 // During this baseline proof the C# owner lives in Compiler.dll.  Once the complete owner moves,
-// `SaSystemsAnalyzerType` is mechanically routed to its sole BootstrapServices identity; there is
+// `SaSystemsAnalyzerType` is mechanically routed to its sole Compiler Core identity; there is
 // deliberately no assembly fallback or alternate behavioral path.
 func SaPut(values: object?[], index: int, value: object?) {
     values[index] = value
@@ -36,23 +36,23 @@ func SaRequiredType(typeName: string): Type {
 }
 
 func SaSystemsAnalyzerType(): Type {
-    return SaRequiredType("NSharpLang.Compiler.Performance.SystemsAnalyzer, NSharpLang.Compiler.BootstrapServices")
+    return SaRequiredType("NSharpLang.Compiler.Performance.SystemsAnalyzer, NSharpLang.Compiler.Core")
 }
 
 func SaCompilationUnitType(): Type {
-    return SaRequiredType("NSharpLang.Compiler.Ast.CompilationUnit, NSharpLang.Compiler.BootstrapServices")
+    return SaRequiredType("NSharpLang.Compiler.Ast.CompilationUnit, NSharpLang.Compiler.Core")
 }
 
 func SaProjectConfigType(): Type {
-    return SaRequiredType("NSharpLang.Compiler.ProjectConfig, NSharpLang.Compiler.BootstrapServices")
+    return SaRequiredType("NSharpLang.Compiler.ProjectConfig, NSharpLang.Compiler.Core")
 }
 
 func SaPerformanceFactStoreType(): Type {
-    return SaRequiredType("NSharpLang.Compiler.Performance.PerformanceFactStore, NSharpLang.Compiler.BootstrapServices")
+    return SaRequiredType("NSharpLang.Compiler.Performance.PerformanceFactStore, NSharpLang.Compiler.Core")
 }
 
 func SaSemanticModelType(): Type {
-    return SaRequiredType("NSharpLang.Compiler.SemanticModel, NSharpLang.Compiler.BootstrapServices")
+    return SaRequiredType("NSharpLang.Compiler.SemanticModel, NSharpLang.Compiler.Core")
 }
 
 func SaReadOnlyDictionaryType(valueType: Type): Type {

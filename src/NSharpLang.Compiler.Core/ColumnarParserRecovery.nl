@@ -98,7 +98,7 @@ class OwnerSpanResult {
 // (Parser.cs :71/:127/:136). The remaining CompilationUnit surface — the CompilationUnit container
 // itself, the FileImports list (FileImport/NamespaceImport), and the Declarations list — is C# in the
 // downstream NSharpLang.Compiler assembly (Ast/Declarations.cs, Ast/Statements.cs), which this
-// upstream assembly cannot name (the dependency runs Compiler → BootstrapServices, never the reverse),
+// upstream assembly cannot name (the dependency runs Compiler → Compiler Core, never the reverse),
 // so it is NOT constructed here; see the STATUS N+1 block record. Errors mirror ParseFilePreamble's
 // position-sorted diagnostics exactly.
 class PreambleAst {

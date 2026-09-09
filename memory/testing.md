@@ -21,7 +21,7 @@ tests/
 ```
 
 **PARSING has no C# assertion layer either, as of task 020 slice 22.** `tests/ParserTests.cs` is
-DELETED: its 212 `[Fact]`s and 6,130 lines migrated to the BootstrapServices estate over six tranches
+DELETED: its 212 `[Fact]`s and 6,130 lines migrated to the Compiler Core estate over six tranches
 — the 50 DECLARATION cases in slice 17, the 23 STATEMENT + test-DSL cases in slice 18, the 46
 PATTERN / parameter-modifier / operator-overload / constructor-initializer cases in slice 19, the 33
 FILE-HEADER / literal and interpolation / attribute / preprocessor cases in slice 20, the 30
@@ -405,7 +405,7 @@ types. The models themselves are already N# — `PlaygroundFile`, `PlaygroundChe
 execution MECHANISM — the tree walk, the scope chain, the runtime value model — stays C# and is a
 `(b)`-bucket subject whose retirement is a Playground task (run emitted IL in the browser), because
 a browser tab has no process to spawn and no `Reflection.Emit`. Everything it DECIDES now lives in
-`src/NSharpLang.Compiler.BootstrapServices/PlaygroundRunFacts.nl` (66 `static func`s) and is pinned
+`src/NSharpLang.Compiler.Core/PlaygroundRunFacts.nl` (66 `static func`s) and is pinned
 by `PlaygroundRunFacts.tests.nl` (18 blocks / 143 asserts): the **37-code `PG201`–`PG237`
 vocabulary** with its sentences, the three budgets (20,000 steps / 128 frames / 200 output lines),
 the entry-point rule, the reserved names, union-case name matching and splitting, the division and
@@ -551,7 +551,7 @@ decode that opened it OVERTURNED the census slice 41 recorded: the file holds 13
 looks for the string `Kernels` cannot see `TreeCommand`, `EnvCommand`, `AuditCommand`,
 `RestoreCommand`, `CleanArtifactDirectoryOrderer`, `UpdateDependencyFilter`,
 `CompilerErrorSeverityFilter`, `QuerySymbolNameFilter`, `CommandRegistry` or `CompletionCommand`,
-all of which are `.nl` files in `src/NSharpLang.Compiler.BootstrapServices`. The classifier now
+all of which are `.nl` files in `src/NSharpLang.Compiler.Core`. The classifier now
 builds the set of every type name declared in a production `.nl` (1,094 of them) and asks which
 bodies name one.
 
@@ -682,7 +682,7 @@ body compared an envelope's message against a LIVE call to the kernel that produ
 agreed by construction and neither side ever said what the sentence is. The same pattern held for
 the two surviving `DaemonServer` bodies, which are kept and de-tautologised in place: they assert
 the literal wire message, and the kernel's own text is pinned independently in
-`src/NSharpLang.Compiler.BootstrapServices/DaemonServerAndClientKernels.tests.nl`.
+`src/NSharpLang.Compiler.Core/DaemonServerAndClientKernels.tests.nl`.
 
 **Two emit walls and one parser limit were measured this slice.** A widening ARRAY STORE of a user
 reference type into `object[]` declines (`emit.statement.block-child`), and so does an array
@@ -730,7 +730,7 @@ canonicalised to its SHAPE rather than its value. Before and after are byte-iden
 and the after reproduces byte-identical across a restore-and-rebuild.
 
 Tokenization has no C# assertion layer: the lexer's canonical contracts are N#, in
-`src/NSharpLang.Compiler.BootstrapServices/Lexer.tests.nl`, and they run in the BootstrapServices
+`src/NSharpLang.Compiler.Core/Lexer.tests.nl`, and they run in the Compiler Core
 estate rather than in `tests/Tests.csproj`. See `memory/components/lexer.md`.
 
 Linting has no C# assertion layer either. The linter's canonical contracts are N# and live beside
@@ -764,7 +764,7 @@ since-deleted `ColumnarCompiler.TryEmitProgram` wrapper are real source shapes i
 `tests/native/columnar-emit-facts`. The production emit path is
 `MultiFileCompiler.TryEmitWithColumnarBackend`.
 
-Run them with `dotnet test src/NSharpLang.Compiler.BootstrapServices -c Release -p:NSharpExcludeTests=false`
+Run them with `dotnet test src/NSharpLang.Compiler.Core -c Release -p:NSharpExcludeTests=false`
 (restore with `-p:NSharpExcludeTests=false --force-evaluate` first).
 
 ## Testing Strategy
@@ -817,7 +817,7 @@ public void TestFullCompilation()
 
 ### 4. Emitted Assemblies Load Into Collectible Scopes
 Tests that reflect over or invoke an emitted assembly (columnar parity programs, compiled
-BootstrapServices or CLI outputs, `MultiFileCompiler` outputs) must load it through `CollectibleAssemblyScope`
+Compiler Core or CLI outputs, `MultiFileCompiler` outputs) must load it through `CollectibleAssemblyScope`
 (tests/CollectibleAssemblyScope.cs):
 
 ```text
@@ -836,7 +836,7 @@ Rules of the scope:
 - `CollectibleAssemblyScopeTests` pins the contract (collectible, non-default, reclaimable after Dispose).
 - The compiler side holds the matching guarantee: external-type/doc resolution enumerates loaded
   assemblies through the N# `ExternalAssemblyScan.Loaded()` owner
-  (`src/NSharpLang.Compiler.BootstrapServices/ExternalAssemblyScan.nl`),
+  (`src/NSharpLang.Compiler.Core/ExternalAssemblyScan.nl`),
   which skips dynamic and collectible assemblies — so a briefly-loaded emitted assembly can no longer
   hijack a concurrent in-process compile's bare-name lookup (the "MemoryCopy not found on type Buffer"
   flake). Never resolve external types via a raw `AppDomain.CurrentDomain.GetAssemblies()` scan.
@@ -941,7 +941,7 @@ named `compile-time gate: …`.
 
 What the gate block does: it spawns the freshly built CLI (`src/NSharpLang.Cli/bin/Debug/net10.0/Cli.dll`,
 found by walking up from the test assembly's directory) three times as
-`nlc build --project src/NSharpLang.Compiler.BootstrapServices --timings -o <fresh temp dir>`, takes
+`nlc build --project src/NSharpLang.Compiler.Core --timings -o <fresh temp dir>`, takes
 the median wall clock, and compares it to the checked-in baseline
 `tests/fixtures/compile-time/bootstrap-build-baseline.golden.json` (the `tests/fixtures/*.golden.json`
 path is the ratchet's one JSON exemption). The baseline pins `medianWallMs`, a `toleranceFactor`
@@ -954,7 +954,7 @@ never pass on an unmeasured file.
 Why the pinned exit code is 1 today: `nlc build` runs strict lint and legacy analysis, and on the
 compiler's own sources strict lint reports 45 findings (NL012 ×20, NL011 ×17, NL010 ×7, NL002 ×1)
 before `AnalyzeAllFiles()` runs; `nlc check` on the same tree reports 243 error-severity results.
-The product builds BootstrapServices through the MSBuild SDK with legacy analysis switched off by
+The product builds Compiler Core through the MSBuild SDK with legacy analysis switched off by
 project name (`src/NSharpLang.Sdk/Sdk/Sdk.targets`). So the gated number is the FRONT-END time
 (parse + strict lint) of 403 files / 172,653 lines, and the baseline's `stage` field says so. When
 those diagnostics are fixed and `nlc build` exits 0 on this project, the gate fails on purpose
@@ -1002,7 +1002,7 @@ into the build.
 step-cache salt (`env_names` in the two gate scripts is ratchet-pinned), so a cached Step 3a from a
 skip run is not compile-time evidence; `--commit` runs are always fresh. To re-baseline, run the
 harness on an IDLE machine (`pgrep -fl 'test-all-core|dotnet build|dotnet test|MSBuild|rustc|clang|code'`
-must be empty; the baseline's `machine` field names the hardware) and copy the BootstrapServices
+must be empty; the baseline's `machine` field names the hardware) and copy the Compiler Core
 build row's median, peak RSS, files, lines, CLI commit and date into the golden file:
 
 ```bash
@@ -1012,7 +1012,7 @@ dotnet tests/native/compile-time-bench/bin/Debug/net10.0/NSharpLang.CompileTimeB
 
 The harness measures every project with a `project.yml` under `examples/`, `tests/` and `templates/`
 (68 today; the 27 that hold only `.tests.nl` are reported as "no non-test sources" and are compiled
-by `nlc test` in Step 3a instead) plus BootstrapServices, with `nlc build --timings` and
+by `nlc test` in Step 3a instead) plus Compiler Core, with `nlc build --timings` and
 `nlc check --json` five runs each under `/usr/bin/time -l` for peak RSS, and writes `runs.csv`,
 `compile-time.csv` and `compile-time.md` (lines per second per project and in aggregate, the
 `--timings` resolve/emit split, the diagnostic census of every failing check) to
@@ -1075,7 +1075,7 @@ another compiler build (for example a historical worktree) is measured over the 
   shipped `docs/examples/diagnostic-clusters.sample.json` golden document, and unhappy paths
 - **CodeIntelligenceTests** — one case only: the unknown-severity invariant fallback, which is
   non-vacuous only under a Turkish ambient culture and therefore cannot move (N# reaches
-  `CultureInfo` in neither direction). The other 44 cases are N# contracts in the BootstrapServices
+  `CultureInfo` in neither direction). The other 44 cases are N# contracts in the Compiler Core
   estate — `OutputFormatterJsonKernels.tests.nl` (the versioned JSON envelopes and their exact root
   keys), `OutputFormatterTextBuilders.tests.nl` (every `--text` answer, stated as whole texts) and
   `OutputFormatterDiagnosticKernels.tests.nl` (severity arithmetic, reference deduplication, and the
@@ -1084,7 +1084,7 @@ another compiler build (for example a historical worktree) is measured over the 
   `tests/native/completion-engine`, a native project that drives the production `CompletionEngine`
   and `CodeIntelligenceService.LoadProject` BY REFLECTION — the route `tests/native/query-completions`
   established, and the only one available, because the engine's inputs need the C# `Analyzer` that
-  lives in the assembly which DEPENDS on BootstrapServices
+  lives in the assembly which DEPENDS on Compiler Core
 - **Error reporting** has no C# assertion layer: the diagnostic record, the suggestion tables and the
   Elm-style builders are stated in N#, beside their subjects in the same estate —
   `CompilerError.tests.nl` (the rust-style, tooling and MSBuild renderers as WHOLE texts, the
@@ -1291,7 +1291,7 @@ one, sweep the C# test estate for tests that actually need it. The sweep taken a
 | **async `Task`** | **134** | **ALREADY SERVED.** A plain `test` body may `await`; an assertion that fails after an await FAILS, and an exception thrown inside awaited work is REPORTED with its message (probe: 3 declarations → 1 passed / 2 failed, each named). Only the `async test "…"` DECLARATION form is missing (`NL101`), and no C# test needs it |
 | async `ValueTask` | 0 | same path |
 | structured failure JSON | — | already in the envelope: `errorMessage` carries the failure text |
-| whole-run timeout | **1 cluster, measured in 020 slice 16** — `tests/ParserErrorTests.cs`'s `Parser_MalformedTableDrivenTest_TerminatesWithErrors` bounded each of its three malformed parses with `Task.Run(...)` + `Wait(TimeSpan.FromSeconds(10))`, so a lost no-progress guard in `ParseTestDeclaration` failed FAST instead of hanging the host. That is a PER-PARSE bound inside a test body, not a per-assembly one | the per-assembly flag exists (`nlc test --timeout <duration>`, "Test timeout per assembly"), but **no in-body bound is expressible in the BootstrapServices estate: `Task.Run` declines at `emit.local.initializer`, an inline lambda in its overload set declines at `emit.body`, `System.Diagnostics.Stopwatch` is an unsupported local type, and `Environment.TickCount64` declines at `emit.typed-local.initializer` — all four measured by execution at that slice's tip.** The lambda itself is innocent: bound to an explicit `Func<int>` local it emits and invokes. The three rows migrated with their exact diagnostic censuses; the fail-fast property did not |
+| whole-run timeout | **1 cluster, measured in 020 slice 16** — `tests/ParserErrorTests.cs`'s `Parser_MalformedTableDrivenTest_TerminatesWithErrors` bounded each of its three malformed parses with `Task.Run(...)` + `Wait(TimeSpan.FromSeconds(10))`, so a lost no-progress guard in `ParseTestDeclaration` failed FAST instead of hanging the host. That is a PER-PARSE bound inside a test body, not a per-assembly one | the per-assembly flag exists (`nlc test --timeout <duration>`, "Test timeout per assembly"), but **no in-body bound is expressible in the Compiler Core estate: `Task.Run` declines at `emit.local.initializer`, an inline lambda in its overload set declines at `emit.body`, `System.Diagnostics.Stopwatch` is an unsupported local type, and `Environment.TickCount64` declines at `emit.typed-local.initializer` — all four measured by execution at that slice's tip.** The lambda itself is innocent: bound to an explicit `Func<int>` local it emits and invokes. The three rows migrated with their exact diagnostic censuses; the fail-fast property did not |
 
 **So most of the remaining order is already served or unwanted, and the real remaining work in the
 native-runner close-out is MIGRATION, not capability.** Note also that the gate's Step 3a validator
@@ -1307,7 +1307,7 @@ ARGUMENT TYPES the cluster's subject calls take — measured by probe, not assum
 | the cluster's subject calls take… | estate | why |
 |---|---|---|
 | `string` / `int` / `bool` / arrays / literals, answering primitives | **`tests/native/<name>/`**, subject reached as a `dll:` dependency, run by the LIVE CLI | tables (`with (…) […]`) are available here, so each row reports as its own test |
-| an ENUM member, a CONSTRUCTED object, or anything else the emitter must resolve in the dependency assembly | **`src/NSharpLang.Compiler.BootstrapServices/<Subject>.tests.nl`**, same assembly, compiled by the PINNED toolset | a dependency-assembly enum member declines at `emit.typed-local.initializer` (and `emit.call.static-member-unmodeled` in argument position), and `new <dependency type>(…)` declines at `emit.local.initializer`; in a table row the enum member is refused earlier still, by `NL310` |
+| an ENUM member, a CONSTRUCTED object, or anything else the emitter must resolve in the dependency assembly | **`src/NSharpLang.Compiler.Core/<Subject>.tests.nl`**, same assembly, compiled by the PINNED toolset | a dependency-assembly enum member declines at `emit.typed-local.initializer` (and `emit.call.static-member-unmodeled` in argument position), and `new <dependency type>(…)` declines at `emit.local.initializer`; in a table row the enum member is refused earlier still, by `NL310` |
 | a subject that lives ABOVE the estate (in `Compiler.dll`), whose values are not primitives | **`tests/native/<name>/`**, subject reached BY REFLECTION through `object` | this is the `tests/native/query-completions` / `completion-engine` / `analyzer-identifier-binding` / `analyzer-event-subscription` route |
 
 **A file can have TWO subjects, and then it splits.** Membership is decided per CLUSTER, not per
@@ -1345,7 +1345,7 @@ Separately, `project:` in `project.yml` resolves only through
 `ProjectReferenceResolver.ResolveNSharpProjectRoot`, which requires a `project.yml`: a C# `.csproj`
 cannot be a project reference at all, and the resolver says so in its own message.
 
-The pinned toolset predates table-driven lowering, so the BootstrapServices estate takes plain `test`
+The pinned toolset predates table-driven lowering, so the Compiler Core estate takes plain `test`
 declarations with `assert` lines — which is also why its contract count moves by exactly the number
 of DECLARATIONS added. Its reported total runs ~22 above a `grep -c '^test "'` census (5,071 vs 5,093
 at the `OperatorFacts` slice), so measure the estate with `dotnet test` before and after and diff;

@@ -19,7 +19,7 @@ import System.Text.Json
 // its source list through `ProjectConfig.GetSourceFiles(projectRoot, includeTests: false)`
 // (`Program.Backends.cs` -> `CompileProjectWithIlBackend`), and `nlc check` reaches the SAME
 // function through `CodeIntelligenceService.LoadProject` ->
-// `MultiFileCompilerInputBuilder.BuildFromProject` -> `CompilerBootstrapServices.DiscoverSourceFiles`,
+// `MultiFileCompilerInputBuilder.BuildFromProject` -> `MultiFileCompilerInputBuilder.DiscoverSourceFiles`,
 // which also passes `false`. So build and check read one file set, not two, and this file
 // replicates that one rule: a recursive `*.nl` walk that skips the directory names
 // `ProjectConfig.ShouldSkipSourceDirectory` skips, minus the paths ending in `.tests.nl`. The
@@ -632,7 +632,7 @@ func BenchFailedStatus(): string {
 //
 // WHY A CENSUS AND NOT JUST AN EXIT CODE. A red row that says only "exit 1" cannot be told apart
 // from a different red row that says only "exit 1". The census is what makes a failing project's
-// row diagnosable, and on `src/NSharpLang.Compiler.BootstrapServices` it is the number that shows
+// row diagnosable, and on `src/NSharpLang.Compiler.Core` it is the number that shows
 // what the measured `nlc build` is actually spending its time on before it stops.
 func BenchDiagnosticCensus(stdout: string): string {
     if stdout.Trim().Length == 0 {
@@ -842,7 +842,7 @@ func BenchMeasureProjectSources(projectRoot: string): BenchSourceMeasure {
 // The large-project case. It is NOT part of the corpus: it sits under `src/`, and the corpus is
 // the `examples/`, `tests/` and `templates/` trees.
 func BenchBootstrapProjectPath(): string {
-    return "src/NSharpLang.Compiler.BootstrapServices"
+    return "src/NSharpLang.Compiler.Core"
 }
 
 // This harness's own project, excluded from the corpus it measures: a benchmark that rebuilt
@@ -1003,7 +1003,7 @@ func BenchDiffSnapshots(before: string, after: string): string {
 //
 // `nlc build` runs `MultiFileCompiler.CompileToIlAssembly(validateStrictLint: true)`, and
 // `RunLegacyValidationPipeline` RETURNS before `AnalyzeAllFiles()` as soon as strict lint reports an
-// error. On `src/NSharpLang.Compiler.BootstrapServices` it does: `nlc check --json` reports 243
+// error. On `src/NSharpLang.Compiler.Core` it does: `nlc check --json` reports 243
 // error-severity results there, 45 of them lint findings that stop the build at that gate, so a
 // "build" of that project today measures PARSE + STRICT LINT and nothing after it. The product
 // itself builds this project through the MSBuild SDK with legacy analysis switched off by project
@@ -1132,7 +1132,7 @@ func BenchBaselineRefusal(baseline: BenchBaseline): string {
     }
 
     if baseline.MedianWallMs <= 0 {
-        return "baseline not measured: medianWallMs is " + BenchLongText(baseline.MedianWallMs) + " in tests/fixtures/compile-time/bootstrap-build-baseline.golden.json." + " Run the harness on src/NSharpLang.Compiler.BootstrapServices and fill in the measured" + " medianWallMs, medianPeakRssBytes, files, lines, cliCommit, machine and measuredAt."
+        return "baseline not measured: medianWallMs is " + BenchLongText(baseline.MedianWallMs) + " in tests/fixtures/compile-time/bootstrap-build-baseline.golden.json." + " Run the harness on src/NSharpLang.Compiler.Core and fill in the measured" + " medianWallMs, medianPeakRssBytes, files, lines, cliCommit, machine and measuredAt."
     }
 
     if baseline.ToleranceThousandths <= 0 {

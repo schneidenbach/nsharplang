@@ -1,6 +1,6 @@
 # Error Reporting Component
 
-**Owner:** `src/NSharpLang.Compiler.BootstrapServices/CompilerError.nl`, `ErrorCode.nl`,
+**Owner:** `src/NSharpLang.Compiler.Core/CompilerError.nl`, `ErrorCode.nl`,
 `ErrorSeverity.nl`, `ErrorMessageBuilder.nl`, `ErrorSuggestions.nl`, `ErrorSuggestionHelpers.nl` (N#).
 The former C# `src/NSharpLang.Compiler/ErrorReporting.cs` was deleted with `Parser.cs` (task 016);
 the `ParseResult` record it held retired with the C# parser.
@@ -201,7 +201,7 @@ AOT categories asserted at ZERO, so a row cannot come back without a producer.
 
 N# is **near-zero-warnings**. The single rule: correctness/safety/hygiene issues are build-blocking errors; pure style is handled by `nlc format`, not by diagnostics. There is intentionally no large tier of ignorable warnings.
 
-`DiagnosticCatalog` (`src/NSharpLang.Compiler.BootstrapServices/DiagnosticCatalog.nl`) is the authoritative policy surface — default severity, category, and build-blocking behavior for every code across compiler, linter, CLI, MSBuild, and LSP.
+`DiagnosticCatalog` (`src/NSharpLang.Compiler.Core/DiagnosticCatalog.nl`) is the authoritative policy surface — default severity, category, and build-blocking behavior for every code across compiler, linter, CLI, MSBuild, and LSP.
 
 ### New strict checks
 
@@ -267,7 +267,7 @@ See: https://schneidenbach.github.io/nsharplang/docs/errors/NL305
 ## Testing
 
 Error reporting has no C# assertion layer. Its canonical contracts are N# and live beside their
-subjects in `src/NSharpLang.Compiler.BootstrapServices` — `CompilerError.tests.nl`,
+subjects in `src/NSharpLang.Compiler.Core` — `CompilerError.tests.nl`,
 `ErrorSuggestions.tests.nl`, `ErrorSuggestionHelpers.tests.nl` and `ErrorMessageBuilder.tests.nl` —
 covering:
 - Error code formatting and DiagnosticId

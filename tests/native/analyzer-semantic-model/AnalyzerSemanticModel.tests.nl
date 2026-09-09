@@ -252,7 +252,7 @@ func SmJoinRows(rows: string[]): string {
 // The production recovery parser, asked with the file name `test.nl` — exactly as the deleted
 // `Analyze` helper asked it.
 func SmParse(source: string): object {
-    parserType := Type.GetType("NSharpLang.Compiler.Columnar.ColumnarParserRecovery, NSharpLang.Compiler.BootstrapServices")
+    parserType := Type.GetType("NSharpLang.Compiler.Columnar.ColumnarParserRecovery, NSharpLang.Compiler.Core")
     if parserType == null {
         throw new InvalidOperationException("The production recovery parser was not loadable.")
     }
@@ -308,8 +308,8 @@ func SmParseCensus(source: string): string {
 func SmAnalyze(source: string): object {
     unit := SmParseUnit(source)
 
-    analyzerType := Type.GetType("NSharpLang.Compiler.Analyzer, NSharpLang.Compiler.BootstrapServices")
-    unitType := Type.GetType("NSharpLang.Compiler.Ast.CompilationUnit, NSharpLang.Compiler.BootstrapServices")
+    analyzerType := Type.GetType("NSharpLang.Compiler.Analyzer, NSharpLang.Compiler.Core")
+    unitType := Type.GetType("NSharpLang.Compiler.Ast.CompilationUnit, NSharpLang.Compiler.Core")
     if analyzerType == null || unitType == null {
         throw new InvalidOperationException("The production analyzer types were not loadable.")
     }

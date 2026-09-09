@@ -12,7 +12,7 @@ func InternalBoundaryProbe(source: string): CliRun {
     result := new CliRun(99, "", "")
     try {
         cliDirectory := Path.GetDirectoryName(CliDll()) ?? ""
-        project := "name: InternalBoundaryProbe\nbackend: il\noutputType: exe\ntargetFramework: net10.0\ndependencies:\n  - dll: " + CliDll() + "\n  - dll: " + Path.Combine(cliDirectory, "NSharpLang.Compiler.BootstrapServices.dll") + "\n  - dll: " + Path.Combine(cliDirectory, "Compiler.dll") + "\n"
+        project := "name: InternalBoundaryProbe\nbackend: il\noutputType: exe\ntargetFramework: net10.0\ndependencies:\n  - dll: " + CliDll() + "\n  - dll: " + Path.Combine(cliDirectory, "NSharpLang.Compiler.Core.dll") + "\n  - dll: " + Path.Combine(cliDirectory, "Compiler.dll") + "\n"
         File.WriteAllText(Path.Combine(directory, "project.yml"), project)
         File.WriteAllText(Path.Combine(directory, "Program.nl"), source)
         build := Nlc("build --project \"" + directory + "\"")

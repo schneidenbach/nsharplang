@@ -50,9 +50,9 @@ func ResolverQuote(value: string): string {
 }
 
 func ResolverRunProcess(fileName: string, arguments: string, workingDirectory: string): ResolverRun {
-    runnerType := Type.GetType("NSharpLang.Cli.DotnetRunner, NSharpLang.Compiler.BootstrapServices")
+    runnerType := Type.GetType("NSharpLang.Cli.DotnetRunner, NSharpLang.Compiler.Core")
     if runnerType == null {
-        throw new InvalidOperationException("The N# DotnetRunner owner was not loadable from BootstrapServices.")
+        throw new InvalidOperationException("The N# DotnetRunner owner was not loadable from Compiler Core.")
     }
     methods := runnerType.GetMethods(BindingFlags.Static | BindingFlags.Public | BindingFlags.DeclaredOnly)
     runProcess: MethodInfo? = null

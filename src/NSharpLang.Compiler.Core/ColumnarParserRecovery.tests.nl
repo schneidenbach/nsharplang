@@ -12,8 +12,8 @@ import NSharpLang.Compiler.Ast
 // malformed source, filtered to the parser diagnostic codes NL101-NL109. Because both
 // Parser.cs and ColumnarParserRecovery construct their diagnostics through the identical
 // live owner ParserErrorDiagnostics.Create, matching these fields proves byte-exact
-// message / span / order parity with the production parser. (BootstrapServices cannot
-// reference Parser.cs directly — Compiler depends on BootstrapServices, not the reverse —
+// message / span / order parity with the production parser. (Compiler Core cannot
+// reference Parser.cs directly — Compiler depends on Compiler Core, not the reverse —
 // so the golden values stand in for the C# oracle.)
 //
 // The corpus deliberately includes the two model shapes the committed C# tests pin:

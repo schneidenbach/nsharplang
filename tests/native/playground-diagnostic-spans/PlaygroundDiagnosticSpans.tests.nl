@@ -17,13 +17,13 @@ import System.Reflection
 // WHY THIS IS A NATIVE PROJECT AND WHY IT IS A NEW ONE. `PlaygroundCompiler` is a C# class in
 // `NSharpLang.Playground.dll`, an assembly NO native project has ever referenced and which no
 // `.tests.nl` inside the compiler-service estate can reach: `NSharpLang.Playground` depends on
-// `Compiler`, which depends on `NSharpLang.Compiler.BootstrapServices`, never the other way round.
+// `Compiler`, which depends on `NSharpLang.Compiler.Core`, never the other way round.
 // The capability this slice adds is exactly the `dll:` line in `project.yml` plus the reflection
 // walk that follows it, and the gate now builds `NSharpLang.Playground` in the same step it builds
 // the CLI so that dependency is DECLARED rather than a side effect of the unit-test step.
 //
 // THE MODELS ARE ALREADY N#. `PlaygroundFile`, `PlaygroundCheckResponse`, `PlaygroundDiagnostic` and
-// `PlaygroundSummary` are records in `src/NSharpLang.Compiler.BootstrapServices/PlaygroundModels.nl`
+// `PlaygroundSummary` are records in `src/NSharpLang.Compiler.Core/PlaygroundModels.nl`
 // — only `PlaygroundCompiler` and `PlaygroundRunner` are still C#. The kernels below construct a
 // `PlaygroundFile` through its own two-argument constructor and read every response field by
 // member reflection, because a type that arrives through a `dll:` dependency is reflection-only.
@@ -123,7 +123,7 @@ func PgNewCompiler(): object {
 }
 
 func PgFileType(): Type {
-    fileType := Type.GetType("NSharpLang.Playground.PlaygroundFile, NSharpLang.Compiler.BootstrapServices")
+    fileType := Type.GetType("NSharpLang.Playground.PlaygroundFile, NSharpLang.Compiler.Core")
     if fileType == null {
         throw new InvalidOperationException("The production playground file record was not loadable.")
     }

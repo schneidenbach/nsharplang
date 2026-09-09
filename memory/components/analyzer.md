@@ -1,24 +1,24 @@
 # Analyzer Component
 
 **Files:** `src/NSharpLang.Compiler/Analyzer.cs`,
-`src/NSharpLang.Compiler.BootstrapServices/AnalyzerDeclarationContext.nl`,
-`src/NSharpLang.Compiler.BootstrapServices/TypeInfoIdentityFacts.nl`,
-`src/NSharpLang.Compiler.BootstrapServices/AnalyzerConversionFacts.nl`,
-`src/NSharpLang.Compiler.BootstrapServices/AnalyzerCallableReferenceFacts.nl`,
-`src/NSharpLang.Compiler.BootstrapServices/AnalyzerWellKnownTypes.nl`,
-`src/NSharpLang.Compiler.BootstrapServices/AnalyzerWellKnownTypeFacts.nl`,
-`src/NSharpLang.Compiler.BootstrapServices/AnalyzerClrTypeConversion.nl`,
-`src/NSharpLang.Compiler.BootstrapServices/AnalyzerAssignabilityFacts.nl`,
-`src/NSharpLang.Compiler.BootstrapServices/AnalyzerExternalTypeProbe.nl`,
-`src/NSharpLang.Compiler.BootstrapServices/AnalyzerTypeReferenceFacts.nl`,
-`src/NSharpLang.Compiler.BootstrapServices/AnalyzerScopeStack.nl`,
-`src/NSharpLang.Compiler.BootstrapServices/AnalyzerProjectDiscovery.nl`,
-`src/NSharpLang.Compiler.BootstrapServices/AnalyzerTypeResolver.nl`,
-`src/NSharpLang.Compiler.BootstrapServices/AnalyzerTypeSubstitution.nl`,
-`src/NSharpLang.Compiler.BootstrapServices/AnalyzerStructuralAssignability.nl`,
-`src/NSharpLang.Compiler.BootstrapServices/AnalyzerDiagnosticSink.nl`,
-`src/NSharpLang.Compiler.BootstrapServices/AnalyzerStateModels.nl`,
-`src/NSharpLang.Compiler.BootstrapServices/AnalyzerDiagnostics.nl`
+`src/NSharpLang.Compiler.Core/AnalyzerDeclarationContext.nl`,
+`src/NSharpLang.Compiler.Core/TypeInfoIdentityFacts.nl`,
+`src/NSharpLang.Compiler.Core/AnalyzerConversionFacts.nl`,
+`src/NSharpLang.Compiler.Core/AnalyzerCallableReferenceFacts.nl`,
+`src/NSharpLang.Compiler.Core/AnalyzerWellKnownTypes.nl`,
+`src/NSharpLang.Compiler.Core/AnalyzerWellKnownTypeFacts.nl`,
+`src/NSharpLang.Compiler.Core/AnalyzerClrTypeConversion.nl`,
+`src/NSharpLang.Compiler.Core/AnalyzerAssignabilityFacts.nl`,
+`src/NSharpLang.Compiler.Core/AnalyzerExternalTypeProbe.nl`,
+`src/NSharpLang.Compiler.Core/AnalyzerTypeReferenceFacts.nl`,
+`src/NSharpLang.Compiler.Core/AnalyzerScopeStack.nl`,
+`src/NSharpLang.Compiler.Core/AnalyzerProjectDiscovery.nl`,
+`src/NSharpLang.Compiler.Core/AnalyzerTypeResolver.nl`,
+`src/NSharpLang.Compiler.Core/AnalyzerTypeSubstitution.nl`,
+`src/NSharpLang.Compiler.Core/AnalyzerStructuralAssignability.nl`,
+`src/NSharpLang.Compiler.Core/AnalyzerDiagnosticSink.nl`,
+`src/NSharpLang.Compiler.Core/AnalyzerStateModels.nl`,
+`src/NSharpLang.Compiler.Core/AnalyzerDiagnostics.nl`
 
 ## Responsibility
 
@@ -712,7 +712,7 @@ The stack is `AnalyzerScopeStack` (N#, see "The scope stack" above); the shell's
 
 ## Type System
 
-See `src/NSharpLang.Compiler.BootstrapServices/TypeInfoModels.nl` (with `TypeInfoFactories.nl` and
+See `src/NSharpLang.Compiler.Core/TypeInfoModels.nl` (with `TypeInfoFactories.nl` and
 `TypeInfoIdentityFacts.nl`) for type representations:
 
 ### Built-in Types
@@ -760,14 +760,14 @@ scope analyzers. Extend the N# catalog, binding facts, and planner instead.
 
 ### MetadataLoadContext Host Verdict
 
-BootstrapServices carries the `System.Reflection.MetadataLoadContext` 10.0.5 dependency, but the N#
+Compiler Core carries the `System.Reflection.MetadataLoadContext` 10.0.5 dependency, but the N#
 columnar backend declines a minimal external abstract override probe:
 
 `AnalyzerMetadataResolverProbe: MetadataAssemblyResolver` with
 `override func Resolve(context: MetadataLoadContext, assemblyName: AssemblyName): Assembly`.
 
 Exact build result:
-`error NL103: Columnar emission is required for 'NSharpLang.Compiler.BootstrapServices', but the columnar backend declined.`
+`error NL103: Columnar emission is required for 'NSharpLang.Compiler.Core', but the columnar backend declined.`
 
 So `NSharpMetadataResolver` stays as a bounded mechanical C# host until the columnar backend
 supports overriding external abstract members: the C# shell hosts the `Resolve` override and the
@@ -1059,16 +1059,16 @@ Analyzer emits `CompilerError` records with:
 
 Analyzer coverage is split deliberately across:
 
-- `src/NSharpLang.Compiler.BootstrapServices/AnalyzerDeclarationContext.tests.nl` for the N#
+- `src/NSharpLang.Compiler.Core/AnalyzerDeclarationContext.tests.nl` for the N#
   declaration catalog, source ownership, visibility, imports, members, and exact runtime
   projections.
-- `src/NSharpLang.Compiler.BootstrapServices/TypeInfoIdentityFacts.tests.nl` for nominal,
+- `src/NSharpLang.Compiler.Core/TypeInfoIdentityFacts.tests.nl` for nominal,
   structural, runtime, and metadata-only identity and conversion rules.
 - `tests/native/analyzer-identifier-binding` for what the analyzer BINDS an identifier to at an
   incomplete member access — the bound `ClassTypeInfo`, its name and anchor, its whole declared-member
   census in declaration order, and the analysis diagnostic census. This is a native N# project rather
   than an estate contract because `Analyzer` is the C# class in `Compiler.dll`, and `Compiler.dll`
-  depends on BootstrapServices; every other type on that route (`SemanticModel`, `ClassTypeInfo`,
+  depends on Compiler Core; every other type on that route (`SemanticModel`, `ClassTypeInfo`,
   `DeclaredMemberInfo`, `AnalysisResult`) is already N# in the estate.
 - `tests/native/analyzer-event-subscription` for the `on` / `off` event diagnostics end to end —
   `NL317` on `+=` and `-=` over a real .NET event, `NL318` on `off` over a non-subscription, each

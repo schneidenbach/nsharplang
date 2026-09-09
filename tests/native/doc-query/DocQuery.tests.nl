@@ -26,7 +26,7 @@ func SetDocQueryObject(values: object?[], index: int, value: object?) {
 // A production `DocQuery` with the reference-pack seed assemblies loaded — `new DocQuery()` plus
 // `LoadSystemAssemblies()`, which is exactly what `QueryCommand` does before it answers anything.
 func NewLoadedDocQuery(): object {
-    docQueryType := Type.GetType("NSharpLang.Compiler.CodeIntelligence.DocQuery, NSharpLang.Compiler.BootstrapServices")
+    docQueryType := Type.GetType("NSharpLang.Compiler.CodeIntelligence.DocQuery, NSharpLang.Compiler.Core")
     if docQueryType == null {
         throw new InvalidOperationException("The production doc-query type was not loadable.")
     }

@@ -38,7 +38,7 @@ func IteratorOrderingPut(values: object?[], index: int, value: object?) {
 }
 
 func IteratorOrderingBootstrapType(name: string): Type {
-    owner := Type.GetType("NSharpLang.Compiler.Columnar." + name + ", NSharpLang.Compiler.BootstrapServices")
+    owner := Type.GetType("NSharpLang.Compiler.Columnar." + name + ", NSharpLang.Compiler.Core")
     if owner == null {
         throw new InvalidOperationException("Missing bootstrap type '" + name + "'")
     }

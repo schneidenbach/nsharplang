@@ -10,7 +10,7 @@ namespace NSharpLang.Tests;
 
 internal static class TestSdkFeed
 {
-    // Each feed step gets one generous ceiling: the Build.Tasks step self-emits BootstrapServices
+    // Each feed step gets one generous ceiling: the Build.Tasks step self-emits Compiler Core
     // (~6m20s quiet, measured 2026-08-02; longer under gate load), so hitting it means a hang, not
     // a slow build. A cache-lock waiter must outlast a peer through the WHOLE feed build.
     private static readonly TimeSpan SdkFeedCommandTimeout = TimeSpan.FromMinutes(20);
@@ -249,7 +249,7 @@ targetFramework: net10.0
     {
         var roots = new[]
         {
-            Path.Combine(repoRoot, "src", "NSharpLang.Compiler.BootstrapServices"),
+            Path.Combine(repoRoot, "src", "NSharpLang.Compiler.Core"),
             Path.Combine(repoRoot, "src", "NSharpLang.Compiler"),
             Path.Combine(repoRoot, "src", "NSharpLang.Build.Tasks"),
             Path.Combine(repoRoot, "src", "NSharpLang.Runtime"),

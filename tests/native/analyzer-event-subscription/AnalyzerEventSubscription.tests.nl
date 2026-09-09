@@ -16,7 +16,7 @@ import System.Collections
 // diagnostics themselves are N# and live in the estate — `AnalyzerAssignment.nl` reports
 // `EventRequiresOnOff`, `AnalyzerExpressionStatements.nl` reports `InvalidEventSubscription` — but
 // the thing the deleted `[Fact]`s drove is `Analyzer`, the C# class in `Compiler.dll` that walks the
-// tree and calls them, and `Compiler.dll` depends on `NSharpLang.Compiler.BootstrapServices` rather
+// tree and calls them, and `Compiler.dll` depends on `NSharpLang.Compiler.Core` rather
 // than the other way round. A `.tests.nl` inside the estate cannot reach it in any spelling. The
 // route is REFLECTION through `object`, which slice 23 measured to be a constraint of the emitter's
 // type resolution rather than a style choice: naming a referenced assembly's type in a local, an
@@ -86,7 +86,7 @@ func EventText(owner: object, memberName: string): string {
 // The production recovery parser, asked with a NULL file name — exactly as the deleted `Analyze`
 // helper asked it, and the reason every diagnostic below carries no file.
 func EventParse(source: string): object {
-    parserType := Type.GetType("NSharpLang.Compiler.Columnar.ColumnarParserRecovery, NSharpLang.Compiler.BootstrapServices")
+    parserType := Type.GetType("NSharpLang.Compiler.Columnar.ColumnarParserRecovery, NSharpLang.Compiler.Core")
     if parserType == null {
         throw new InvalidOperationException("The production recovery parser was not loadable.")
     }
@@ -143,8 +143,8 @@ func EventParseCensus(source: string): string {
 func EventAnalyze(source: string): object {
     unit := EventParseUnit(source)
 
-    analyzerType := Type.GetType("NSharpLang.Compiler.Analyzer, NSharpLang.Compiler.BootstrapServices")
-    unitType := Type.GetType("NSharpLang.Compiler.Ast.CompilationUnit, NSharpLang.Compiler.BootstrapServices")
+    analyzerType := Type.GetType("NSharpLang.Compiler.Analyzer, NSharpLang.Compiler.Core")
+    unitType := Type.GetType("NSharpLang.Compiler.Ast.CompilationUnit, NSharpLang.Compiler.Core")
     if analyzerType == null || unitType == null {
         throw new InvalidOperationException("The production analyzer types were not loadable.")
     }

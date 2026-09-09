@@ -15,11 +15,11 @@ import System.Collections
 // declared members are the ones the source declares.
 //
 // WHY THIS IS A NATIVE PROJECT AND NOT AN ESTATE CONTRACT, MEASURED RATHER THAN ASSUMED. Every
-// other type in these contracts lives in `NSharpLang.Compiler.BootstrapServices` —
+// other type in these contracts lives in `NSharpLang.Compiler.Core` —
 // `ColumnarParserRecovery`, `CompilationUnit`, `AnalysisResult`, `SemanticModel`, `ClassTypeInfo`
 // and `DeclaredMemberInfo` are all N# classes in the estate. The ONE type that is not is
 // `Analyzer`, the C# class in `Compiler.dll` that PRODUCES the `SemanticModel`, and `Compiler.dll`
-// depends on the estate rather than the other way round. A `.tests.nl` inside BootstrapServices
+// depends on the estate rather than the other way round. A `.tests.nl` inside Compiler Core
 // cannot reach it in any spelling, so the analyzer half of the deleted file has to leave the estate
 // while the finder half stays in it.
 //
@@ -87,7 +87,7 @@ func BindingText(owner: object, memberName: string): string {
 // The production recovery parser — the same entry point the estate's finder contracts drive, asked
 // here through reflection because this project reaches the estate as a compiled assembly.
 func ParseUnit(source: string, fileName: string): object {
-    parserType := Type.GetType("NSharpLang.Compiler.Columnar.ColumnarParserRecovery, NSharpLang.Compiler.BootstrapServices")
+    parserType := Type.GetType("NSharpLang.Compiler.Columnar.ColumnarParserRecovery, NSharpLang.Compiler.Core")
     if parserType == null {
         throw new InvalidOperationException("The production recovery parser was not loadable.")
     }
@@ -117,8 +117,8 @@ func ParseUnit(source: string, fileName: string): object {
 func AnalyzeSource(source: string, filePath: string, projectRoot: string?): object {
     unit := ParseUnit(source, filePath)
 
-    analyzerType := Type.GetType("NSharpLang.Compiler.Analyzer, NSharpLang.Compiler.BootstrapServices")
-    unitType := Type.GetType("NSharpLang.Compiler.Ast.CompilationUnit, NSharpLang.Compiler.BootstrapServices")
+    analyzerType := Type.GetType("NSharpLang.Compiler.Analyzer, NSharpLang.Compiler.Core")
+    unitType := Type.GetType("NSharpLang.Compiler.Ast.CompilationUnit, NSharpLang.Compiler.Core")
     if analyzerType == null || unitType == null {
         throw new InvalidOperationException("The production analyzer types were not loadable.")
     }

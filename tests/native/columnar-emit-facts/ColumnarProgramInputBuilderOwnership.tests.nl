@@ -18,7 +18,7 @@ class ColumnarInputBuilderAttempt {
 // controls cannot silently fall back to the deleted Compiler-assembly implementation.
 func ColumnarInputBuilderType(): Type {
     owner := Type.GetType(
-        "NSharpLang.Compiler.Columnar.ColumnarProgramInputBuilder, NSharpLang.Compiler.BootstrapServices"
+        "NSharpLang.Compiler.Columnar.ColumnarProgramInputBuilder, NSharpLang.Compiler.Core"
     )
     if owner == null {
         throw new InvalidOperationException("Missing N# ColumnarProgramInputBuilder")
@@ -144,7 +144,7 @@ func ColumnarInputBuilderInvokeMulti(sources: string[], fileNames: string[], pro
 
 func ColumnarInputBuilderTraceMethod(methodName: string, parameterCount: int): MethodInfo {
     owner := Type.GetType(
-        "NSharpLang.Compiler.Columnar.ColumnarDeclineTrace, NSharpLang.Compiler.BootstrapServices"
+        "NSharpLang.Compiler.Columnar.ColumnarDeclineTrace, NSharpLang.Compiler.Core"
     )
     if owner == null {
         throw new InvalidOperationException("Missing N# ColumnarDeclineTrace")

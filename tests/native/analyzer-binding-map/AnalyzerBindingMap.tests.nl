@@ -13,7 +13,7 @@ import System.Collections
 // `FindAllReferences(file, line, column)`.
 //
 // WHY THIS IS A NATIVE PROJECT AND NOT AN ESTATE CONTRACT. `BindingMap`, `SymbolDeclaration` and
-// `BindingReferenceResult` are ALL already N# in `NSharpLang.Compiler.BootstrapServices`. The one
+// `BindingReferenceResult` are ALL already N# in `NSharpLang.Compiler.Core`. The one
 // type that is not is `Analyzer`, the C# class in `Compiler.dll` that POPULATES the map while it
 // walks, and `Compiler.dll` depends on the estate rather than the other way round — so the estate
 // cannot reach it in any spelling. The route is reflection through `object`, the same one slice 23
@@ -77,7 +77,7 @@ func BindingText(owner: object, memberName: string): string {
 // The production recovery parser, asked with the file name the deleted helper passed — which is the
 // same name every lookup below passes, and the reason the lookups find anything at all.
 func BindingParse(source: string): object {
-    parserType := Type.GetType("NSharpLang.Compiler.Columnar.ColumnarParserRecovery, NSharpLang.Compiler.BootstrapServices")
+    parserType := Type.GetType("NSharpLang.Compiler.Columnar.ColumnarParserRecovery, NSharpLang.Compiler.Core")
     if parserType == null {
         throw new InvalidOperationException("The production recovery parser was not loadable.")
     }
@@ -128,8 +128,8 @@ func BindingParseCensus(source: string): string {
 func BindingAnalyze(source: string): object {
     unit := BindingRequiredMember(BindingParse(source), "CompilationUnit")
 
-    analyzerType := Type.GetType("NSharpLang.Compiler.Analyzer, NSharpLang.Compiler.BootstrapServices")
-    unitType := Type.GetType("NSharpLang.Compiler.Ast.CompilationUnit, NSharpLang.Compiler.BootstrapServices")
+    analyzerType := Type.GetType("NSharpLang.Compiler.Analyzer, NSharpLang.Compiler.Core")
+    unitType := Type.GetType("NSharpLang.Compiler.Ast.CompilationUnit, NSharpLang.Compiler.Core")
     if analyzerType == null || unitType == null {
         throw new InvalidOperationException("The production analyzer types were not loadable.")
     }

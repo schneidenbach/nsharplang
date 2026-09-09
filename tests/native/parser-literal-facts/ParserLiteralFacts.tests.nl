@@ -6,7 +6,7 @@ import NSharpLang.Compiler
 // THE CANONICAL CONTRACTS FOR `ParserLiteralFacts`, IN N#.
 //
 // These replace `tests/ParserLiteralFactsTests.cs`, which was the last canonical C# assertion layer
-// over a surface that is already entirely N# — `ParserLiteralFacts.nl` in BootstrapServices, whose
+// over a surface that is already entirely N# — `ParserLiteralFacts.nl` in Compiler Core, whose
 // three entry points decide, for the recovery parser, whether a string literal is terminated,
 // whether a char literal is terminated, and where an interpolation's `:format` specifier begins.
 //
@@ -17,7 +17,7 @@ import NSharpLang.Compiler
 // own method name and its own JSON result, in `nlc test` AND in `dotnet test`.
 //
 // The production owner is called DIRECTLY rather than by reflection: `ParserLiteralFacts` is an N#
-// class in the `NSharpLang.Compiler` namespace, this project takes the BootstrapServices assembly
+// class in the `NSharpLang.Compiler` namespace, this project takes the Compiler Core assembly
 // as a `dll:` dependency, and every entry point takes a `string` and answers a `bool` or an `int` —
 // so there is no assembly-identity hazard for a reflection harness to route around.
 

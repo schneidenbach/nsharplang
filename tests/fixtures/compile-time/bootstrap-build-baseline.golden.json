@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "project": "src/NSharpLang.Compiler.BootstrapServices",
+  "project": "src/NSharpLang.Compiler.Core",
   "command": "build",
   "stage": "front-end (parse + strict lint); nlc build exits 1 at strict lint on this project, so analysis and emit are NOT covered until it exits 0",
   "expectedExitCode": 1,

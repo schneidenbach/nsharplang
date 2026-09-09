@@ -39,9 +39,9 @@
   <Import Project="Sdk.props" Sdk="$(_NSharpBaseSdk)" />
 
   <!-- Runtime-backed language features must restore without users editing the
-       intentionally minimal .csproj. BootstrapServices declares its own runtime
+       intentionally minimal .csproj. Compiler Core declares its own runtime
        package through project.yml so the native CLI and MSBuild agree on the edge. -->
-  <ItemGroup Condition="'$(EnableNSharpCompilation)' == 'true' And '$(EnableNSharpRuntimePackageReference)' == 'true' And '$(MSBuildProjectName)' != 'NSharpLang.Compiler.BootstrapServices'">
+  <ItemGroup Condition="'$(EnableNSharpCompilation)' == 'true' And '$(EnableNSharpRuntimePackageReference)' == 'true' And '$(MSBuildProjectName)' != 'NSharpLang.Compiler.Core'">
     <PackageReference Include="NSharpLang.Runtime" Version="$(NSharpLangRuntimeVersion)" />
   </ItemGroup>
 

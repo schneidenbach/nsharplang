@@ -52,7 +52,7 @@ func MultiFileOwnerRequiredNestedType(value: Type?, description: string): Type {
 func MultiFileOwnerNewWithNullConfig(projectRoot: string): object {
     owner := EmitterCanonicalCompilerType()
     configType := MultiFileOwnerRequiredType(
-        "NSharpLang.Compiler.ProjectConfig, NSharpLang.Compiler.BootstrapServices"
+        "NSharpLang.Compiler.ProjectConfig, NSharpLang.Compiler.Core"
     )
     parameterTypes := new Type[](2)
     parameterTypes[0] = typeof(string)
@@ -180,7 +180,7 @@ func MultiFileOwnerCompileWithPipelineFlags(
 // controls cover the remaining public metadata, live-state and pre-emission failure gaps.
 test "the N# MultiFileCompiler owns the exact public surface without a Compiler fallback" {
     owner := EmitterCanonicalCompilerType()
-    assert owner.get_Assembly().GetName().get_Name() == "NSharpLang.Compiler.BootstrapServices"
+    assert owner.get_Assembly().GetName().get_Name() == "NSharpLang.Compiler.Core"
     assert Type.GetType("NSharpLang.Compiler.MultiFileCompiler, Compiler") == null
     assert owner.get_IsPublic()
     assert !owner.get_IsSealed()
@@ -196,17 +196,17 @@ test "the N# MultiFileCompiler owns the exact public surface without a Compiler 
         BindingFlags.Public | BindingFlags.NonPublic
     ) == null
     assert Type.GetType(
-        "NSharpLang.Compiler.MultiFileCompilerEmissionThreadState, NSharpLang.Compiler.BootstrapServices"
+        "NSharpLang.Compiler.MultiFileCompilerEmissionThreadState, NSharpLang.Compiler.Core"
     ) == null
     assert Type.GetType(
-        "NSharpLang.Compiler.MultiFileCompilerDefaults, NSharpLang.Compiler.BootstrapServices"
+        "NSharpLang.Compiler.MultiFileCompilerDefaults, NSharpLang.Compiler.Core"
     ) == null
     assert Type.GetType(
-        "NSharpLang.Compiler.MultiFileCompilerSystemsReport, NSharpLang.Compiler.BootstrapServices"
+        "NSharpLang.Compiler.MultiFileCompilerSystemsReport, NSharpLang.Compiler.Core"
     ) == null
 
     configType := MultiFileOwnerRequiredType(
-        "NSharpLang.Compiler.ProjectConfig, NSharpLang.Compiler.BootstrapServices"
+        "NSharpLang.Compiler.ProjectConfig, NSharpLang.Compiler.Core"
     )
     overridesType := typeof(IReadOnlyDictionary<string, string>)
     sourceFilesType := typeof(IEnumerable<string>)

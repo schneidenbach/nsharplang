@@ -57,7 +57,7 @@ func AstGuardRepositoryRoot(): string {
 
 func AstGuardSourceText(fileName: string): string {
     root := AstGuardRepositoryRoot()
-    path := Path.Combine(Path.Combine(Path.Combine(root, "src"), "NSharpLang.Compiler.BootstrapServices"), fileName)
+    path := Path.Combine(Path.Combine(Path.Combine(root, "src"), "NSharpLang.Compiler.Core"), fileName)
     if !File.Exists(path) {
         throw new InvalidOperationException("The AST guard could not read '" + fileName + "' beside the estate.")
     }

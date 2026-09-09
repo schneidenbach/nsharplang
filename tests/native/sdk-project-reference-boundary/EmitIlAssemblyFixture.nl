@@ -37,9 +37,9 @@ func EmitTaskRequiredString(value: string?, description: string): string {
 
 func EmitTaskOwnerType(): Type {
     fixtureDirectory := Path.GetDirectoryName(typeof(SdkBoundaryRun).get_Assembly().get_Location()) ?? ""
-    assemblyPath := Path.Combine(fixtureDirectory, "NSharpLang.Compiler.BootstrapServices.dll")
+    assemblyPath := Path.Combine(fixtureDirectory, "NSharpLang.Compiler.Core.dll")
     if !File.Exists(assemblyPath) {
-        throw new InvalidOperationException("The BootstrapServices fixture dependency was not found at " + assemblyPath)
+        throw new InvalidOperationException("The Compiler Core fixture dependency was not found at " + assemblyPath)
     }
     assembly := Assembly.LoadFile(assemblyPath)
     return EmitTaskRequireType(assembly.GetType("NSharpLang.Build.Tasks.EmitIlAssembly"), "N# EmitIlAssembly owner")

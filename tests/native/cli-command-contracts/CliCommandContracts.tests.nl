@@ -12,7 +12,7 @@ import System.Text.Json
 // decode of that file split its 96 bucket-(a) bodies three ways by what they READ: 70 call an
 // N#-owned function with in-memory arguments and nothing else, 14 ALSO drive an N#-owned command's
 // `Execute` through a console capture, and 12 mix kernel rows with rows driven by a C#-owned entry
-// point. The first group went to `src/NSharpLang.Compiler.BootstrapServices/*.tests.nl`. This
+// point. The first group went to `src/NSharpLang.Compiler.Core/*.tests.nl`. This
 // project is where the second group's console rows land.
 //
 // WHY THE SPLIT IS FORCED AND NOT A PREFERENCE — THE MEASUREMENT. A `.tests.nl` in the estate can
@@ -681,7 +681,7 @@ test "nlc test --json puts the same refusal in the envelope and says nothing on 
 // `BatchQueryRunner_LoadRequestsErrorsUseMessageKernels`,
 // `..._DuplicateRequestIds_AreRejectedInOrdinalOrder`, `..._InvalidRequestsUseMessageKernels` and
 // `..._PositionParsingUsesQueryKernelSemantics`. Their kernel rows are in
-// `src/NSharpLang.Compiler.BootstrapServices/BatchQueryKernels.tests.nl`; their ENVELOPE rows are
+// `src/NSharpLang.Compiler.Core/BatchQueryKernels.tests.nl`; their ENVELOPE rows are
 // here, against the real binary.
 //
 // FOURTEEN OF THEIR 62 ASSERTIONS WERE TAUTOLOGIES AND ARE NOT REPRODUCED AS SUCH. Each compared
@@ -975,7 +975,7 @@ test "all THREE remaining requests-file failures use the same envelope and name 
 // ═══ SLICE 44: THE `nlc completion` CONTRACT ══════════════════════════════════════════════════
 //
 // The console rows of `CompletionCommandKernels_SummarizesOptions`; its kernel rows are in
-// `src/NSharpLang.Compiler.BootstrapServices/CompletionCommandKernels.tests.nl`. The deleted body
+// `src/NSharpLang.Compiler.Core/CompletionCommandKernels.tests.nl`. The deleted body
 // called `CompletionCommand.Execute` in process, so it never proved that `nlc completion` reaches
 // it — these do.
 
@@ -1013,7 +1013,7 @@ test "nlc completion lowercases the shell name it reports, which the estate row 
 //
 // The console-and-docs half of `CliCommandRegistry_StaysInSyncWithHelpCompletionsAndDocs`. The
 // registry's own CONTENT is pinned as literals in
-// `src/NSharpLang.Compiler.BootstrapServices/CommandRegistry.tests.nl`; the same literals are
+// `src/NSharpLang.Compiler.Core/CommandRegistry.tests.nl`; the same literals are
 // pinned here, against `nlc help`, `nlc query help`, the generated zsh script and
 // `website/docs/cli-reference.md`.
 //
@@ -1136,7 +1136,7 @@ test "the retired idiom command is absent from help, the zsh script and the docs
 // These blocks replace the 21 console-reading bodies deleted from `tests/CliParityAuditTests.cs`
 // that drove `AddCommand`, `TidyCommand`, `UpdateCommand`, `RemoveCommand`, `CleanCommand` and
 // `CompletionCommand`. All six subjects are `.nl` files in
-// `src/NSharpLang.Compiler.BootstrapServices/` with NO C# counterpart, and all six deleted bodies
+// `src/NSharpLang.Compiler.Core/` with NO C# counterpart, and all six deleted bodies
 // called `XCommand.Execute(...)` IN PROCESS through a console capture — so none of them proved that
 // `nlc <name>` reaches the command at all, and none could observe an exit code.
 //

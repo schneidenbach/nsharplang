@@ -61,7 +61,7 @@ nsharp_configure_stable_dotnet_build_flags() {
 nsharp_prepare_stage0_sdk_for_pack() {
     local verbosity="${1:-q}"
     local sdk_project="src/NSharpLang.Sdk/NSharpLang.Sdk.csproj"
-    local bootstrap_project="src/NSharpLang.Compiler.BootstrapServices/NSharpLang.Compiler.BootstrapServices.csproj"
+    local compiler_core_project="src/NSharpLang.Compiler.Core/NSharpLang.Compiler.Core.csproj"
     local sdk_version sdk_cache_dir
 
     sdk_version="$(nsharp_package_version "$sdk_project")"
@@ -69,7 +69,7 @@ nsharp_prepare_stage0_sdk_for_pack() {
 
     echo
     echo "Preparing stage-0 NSharpLang.Sdk cache..."
-    nsharp_run_in_dir "$NSHARP_REPO_ROOT" dotnet restore "${NSHARP_DOTNET_STABLE_BUILD_FLAGS[@]}" "$bootstrap_project" --force-evaluate -v "$verbosity"
+    nsharp_run_in_dir "$NSHARP_REPO_ROOT" dotnet restore "${NSHARP_DOTNET_STABLE_BUILD_FLAGS[@]}" "$compiler_core_project" --force-evaluate -v "$verbosity"
 
     if [[ "${DRY_RUN:-0}" -eq 1 ]]; then
         echo "+ cp $NSHARP_REPO_ROOT/src/NSharpLang.Sdk/Sdk/Sdk.props $sdk_cache_dir/Sdk.props"

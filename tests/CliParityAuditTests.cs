@@ -868,7 +868,7 @@ dependencies:
             // so both sides were computed by the same two N#-owned kernels and agreed by
             // construction: neither said what the sentence is, and a kernel and a command wrong in
             // the same way passed. The kernels' own text is pinned independently in
-            // src/NSharpLang.Compiler.BootstrapServices/PackCommandKernels.tests.nl. PackCommand
+            // src/NSharpLang.Compiler.Core/PackCommandKernels.tests.nl. PackCommand
             // itself is still C#-owned, so this body stays until PackCommand.cs retires.
             // The line break INSIDE the message is a literal \n the kernel embeds; only the
             // trailing break is the console's Environment.NewLine.

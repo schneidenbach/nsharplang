@@ -1,6 +1,6 @@
 # Parser Component
 
-**Owner:** `src/NSharpLang.Compiler.BootstrapServices/ColumnarParserRecovery.nl` (N#)
+**Owner:** `src/NSharpLang.Compiler.Core/ColumnarParserRecovery.nl` (N#)
 
 The parser is written in N#. The former C# `Parser.cs` was deleted at the end of the task-016 ownership
 arc; `ColumnarParserRecovery` is the sole parse and ordered-diagnostic authority for the compiler, the
@@ -64,12 +64,12 @@ From highest to lowest:
 
 ## AST Node Types
 
-The AST is N#-owned. The node families live in `src/NSharpLang.Compiler.BootstrapServices/`
+The AST is N#-owned. The node families live in `src/NSharpLang.Compiler.Core/`
 (`Expressions.nl`, `Statements.nl`, `Declarations.nl`); the former C# `Ast/Declarations.cs`,
 `Ast/Expressions.cs`, `Ast/Statements.cs` and `Ast/AstChildren.cs` were deleted whole.
 
 **Adding an expression node or a new Expression-typed child?** Update
-`AstChildrenCore.Of` (`src/NSharpLang.Compiler.BootstrapServices/AstChildrenCore.nl`) — the N#-owned
+`AstChildrenCore.Of` (`src/NSharpLang.Compiler.Core/AstChildrenCore.nl`) — the N#-owned
 shared exhaustive child enumeration that the linter, definite assignment, capture/escape scans and
 performance analyzers recurse through. It is called directly, with no C# adapter.
 `AstChildrenCore.tests.nl` fails until every Expression-typed slot (including slots inside
@@ -201,7 +201,7 @@ ONE layer, as of task 020 slice 22: the parser's assertion layer is entirely N#.
   and a 1000-character identifier is carried whole with correct columns past 999. **The two entry points do not
   always agree on ORDER** — see the "recording order is not position order" contract — so a census's
   order tells you which entry point produced it. Run with
-  `dotnet test src/NSharpLang.Compiler.BootstrapServices -c Release -p:NSharpExcludeTests=false`.
+  `dotnet test src/NSharpLang.Compiler.Core -c Release -p:NSharpExcludeTests=false`.
 - **There is no C# parser suite any more.** `tests/ParserTests.cs` was migrated tranche by tranche and
   DELETED in task 020 slice 22: **slice 17 took the DECLARATION family — 50 of its 212 `[Fact]`s,
   1,358 lines — slice 18 the STATEMENT family plus the test DSL — 23 more, 608 lines — slice 19 the
@@ -218,7 +218,7 @@ ONE layer, as of task 020 slice 22: the parser's assertion layer is entirely N#.
   **One capability did not survive the move and is recorded here rather than lost**: that file bounded
   its three malformed table-driven parses with `Task.Run` + a ten-second `Wait`, so a lost no-progress
   guard failed fast instead of hanging the run. `Task.Run`, `Stopwatch` and `Environment.TickCount64`
-  all decline to emit in the BootstrapServices estate, so no wall-clock bound is expressible in a
+  all decline to emit in the Compiler Core estate, so no wall-clock bound is expressible in a
   `.tests.nl` today; a no-progress regression in `ParseTestDeclaration` now hangs the native step.
 
 **WHAT THE DECLARATION TRANCHE MEASURED THAT THE C# COULD NOT SEE (task 020 slice 17).** The C#

@@ -5,7 +5,7 @@ test "project-relative DLL static field resolves outside the project working dir
 
     assert outputDirectory != null
     assert File.Exists(Path.Combine(outputDirectory, "YamlDotNet.dll"))
-    assert File.Exists(Path.Combine(outputDirectory, "NSharpLang.Compiler.BootstrapServices.dll"))
+    assert File.Exists(Path.Combine(outputDirectory, "NSharpLang.Compiler.Core.dll"))
 
     assert HasRelativeCamelCaseNamingConvention()
 }

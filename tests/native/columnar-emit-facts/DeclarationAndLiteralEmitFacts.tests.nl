@@ -836,7 +836,7 @@ test "the index owner inherits its value surface and the construction scratch de
 // RECEIVER SURFACE ----
 //
 // ⚠ THE FIRST TWO FUNCTIONS BELOW ARE THE STAGE-1 PROOF, AND THEY ONLY WORK BECAUSE OF WHERE THIS
-// FILE LIVES. `src/NSharpLang.Compiler.BootstrapServices` compiles under the PACKAGED SDK from the
+// FILE LIVES. `src/NSharpLang.Compiler.Core` compiles under the PACKAGED SDK from the
 // local feed, so its own `.nl` cannot spell a type the tree has only just admitted; a
 // `tests/native` project compiles under the CLI the gate has just BUILT, so it can. That split is
 // the whole two-stage boundary: the list widens here, the estate keeps compiling unchanged, and the

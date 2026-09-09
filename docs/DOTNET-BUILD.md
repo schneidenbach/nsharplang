@@ -119,9 +119,9 @@ Hello from N#!
    defined in an assembly that is not referenced.`
 7. MSBuild continues with the normal .NET pipeline using the emitted assembly, references, and runtime assets.
 
-Every decision in steps 4 and 6 lives in N#, in
-`src/NSharpLang.Compiler.BootstrapServices/SdkEmitTaskKernels.nl`; `EmitIlAssembly.cs` carries only
-MSBuild task plumbing and the Mono.Cecil calls that execute those decisions.
+Every decision in steps 4 and 6 lives in N#. `src/NSharpLang.Compiler.Core/EmitIlAssembly.nl`
+owns the MSBuild task and Mono.Cecil orchestration, while `SdkEmitTaskKernels.nl` owns its pure
+selection and formatting rules.
 
 ## Why `nlc` Is The Preferred Path
 
@@ -135,8 +135,8 @@ Do not add project settings to a hand-authored `.csproj`; fix the SDK/project.ym
 
 ```text
 src/
-├── NSharpLang.Build.Tasks/       # MSBuild task implementation
-│   ├── EmitIlAssembly.cs
+├── NSharpLang.Compiler.Core/     # N# compiler core and EmitIlAssembly task
+├── NSharpLang.Build.Tasks/       # C# project-configuration bootstrap tasks
 │   └── NSharpLang.Build.targets
 └── NSharpLang.Sdk/               # MSBuild SDK package
     ├── Sdk/

@@ -32,12 +32,12 @@ separately. Historical allowlist labels below do not establish current completio
 
 ## Main Components
 
-1. **Lexer** - tokenizes source code (`src/NSharpLang.Compiler.BootstrapServices/Lexer.nl`)
-2. **Parser** - builds syntax trees (`src/NSharpLang.Compiler.BootstrapServices/ColumnarParserRecovery.nl`, N#)
-3. **Analyzer** - type checking and semantic analysis (`src/NSharpLang.Compiler.BootstrapServices/Analyzer.nl`, with the N# owners `AnalyzerDeclarationContext.nl`, `TypeInfoIdentityFacts.nl`, `AnalyzerConversionFacts.nl`, `AnalyzerCallableReferenceFacts.nl`, `AnalyzerWellKnownTypes.nl`, `AnalyzerWellKnownTypeFacts.nl`, `AnalyzerClrTypeConversion.nl`, `AnalyzerAssignabilityFacts.nl`, `AnalyzerExternalTypeProbe.nl`, `AnalyzerTypeReferenceFacts.nl`, `AnalyzerScopeStack.nl`, `AnalyzerProjectDiscovery.nl`, `AnalyzerTypeResolver.nl`, `AnalyzerTypeSubstitution.nl`, `AnalyzerStructuralAssignability.nl`, `AnalyzerDiagnosticSink.nl`, `AnalyzerStateModels.nl`, `AnalyzerDiagnostics.nl`, `NullabilityMetadataCore.nl`, `NullabilityMetadataReflection.nl`, `AnalyzerReflectionTypeConversion.nl`, `AnalyzerFunctionTypeFactory.nl`, `AnalyzerAssignability.nl`)
-4. **Columnar backend** - emits managed PE assemblies from N# compiler tables (`src/NSharpLang.Compiler.BootstrapServices/ColumnarIlEmitter.nl`)
+1. **Lexer** - tokenizes source code (`src/NSharpLang.Compiler.Core/Lexer.nl`)
+2. **Parser** - builds syntax trees (`src/NSharpLang.Compiler.Core/ColumnarParserRecovery.nl`, N#)
+3. **Analyzer** - type checking and semantic analysis (`src/NSharpLang.Compiler.Core/Analyzer.nl`, with the N# owners `AnalyzerDeclarationContext.nl`, `TypeInfoIdentityFacts.nl`, `AnalyzerConversionFacts.nl`, `AnalyzerCallableReferenceFacts.nl`, `AnalyzerWellKnownTypes.nl`, `AnalyzerWellKnownTypeFacts.nl`, `AnalyzerClrTypeConversion.nl`, `AnalyzerAssignabilityFacts.nl`, `AnalyzerExternalTypeProbe.nl`, `AnalyzerTypeReferenceFacts.nl`, `AnalyzerScopeStack.nl`, `AnalyzerProjectDiscovery.nl`, `AnalyzerTypeResolver.nl`, `AnalyzerTypeSubstitution.nl`, `AnalyzerStructuralAssignability.nl`, `AnalyzerDiagnosticSink.nl`, `AnalyzerStateModels.nl`, `AnalyzerDiagnostics.nl`, `NullabilityMetadataCore.nl`, `NullabilityMetadataReflection.nl`, `AnalyzerReflectionTypeConversion.nl`, `AnalyzerFunctionTypeFactory.nl`, `AnalyzerAssignability.nl`)
+4. **Columnar backend** - emits managed PE assemblies from N# compiler tables (`src/NSharpLang.Compiler.Core/ColumnarIlEmitter.nl`)
 5. **CLI** - command-line workflows (`src/NSharpLang.Cli/`)
-6. **Error reporting** - diagnostics and suggestions (`src/NSharpLang.Compiler.BootstrapServices/CompilerError.nl`, `ErrorCode.nl`, `ErrorMessageBuilder.nl`, `ErrorSuggestions.nl`, N#)
+6. **Error reporting** - diagnostics and suggestions (`src/NSharpLang.Compiler.Core/CompilerError.nl`, `ErrorCode.nl`, `ErrorMessageBuilder.nl`, `ErrorSuggestions.nl`, N#)
 
 ## Data Flow
 
@@ -134,7 +134,7 @@ Eleven further C# files in this assembly are `state:"removed"` — deleted whole
 remaining state/control ownership from the active goal:
 
 - The complete `ColumnarIlEmitter` implementation, including SIMD loop lowering, now lives in
-  `src/NSharpLang.Compiler.BootstrapServices/ColumnarIlEmitter.nl`; its C# owner is deleted.
+  `src/NSharpLang.Compiler.Core/ColumnarIlEmitter.nl`; its C# owner is deleted.
   Checkpoint `8ec52542b`, published with `d533cd51e`, passed the fresh IDE-enabled product gate,
   installed SDK verification and real-editor formatting checks. See
   [the acceptance evidence](../systems-language-closeout/decodes/2026-09-08-complete-columnar-emitter-ownership.md).
@@ -151,7 +151,7 @@ remaining state/control ownership from the active goal:
   execute in N#. Fresh gate and installed SDK verification are accepted at `a20dc98af`.
 - `EmitIlAssembly.nl` now owns the entire SDK task, including reference scanning, traversal,
   duplicate identity reuse, rewrite/write ordering, logging and failure cleanup. Its 303-line C#
-  owner is deleted; `Sdk.targets` directly loads the N# class from BootstrapServices. MSBuild Task,
+  owner is deleted; `Sdk.targets` directly loads the N# class from Compiler Core. MSBuild Task,
   ITaskItem and logging objects and Cecil metadata objects are external ecosystem APIs; all task
   policy and control flow reside in N#. This does not require a new metadata writer. The ownership
   change is accepted at `b13cc7622` with fresh product gate and installed self-host8017/8017;

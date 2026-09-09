@@ -123,7 +123,7 @@ func QueryCompletionEngineType(): Type {
 }
 
 func QueryDiagnosticResultType(): Type {
-    return QueryType("NSharpLang.Compiler.CodeIntelligence.DiagnosticResult, NSharpLang.Compiler.BootstrapServices")
+    return QueryType("NSharpLang.Compiler.CodeIntelligence.DiagnosticResult, NSharpLang.Compiler.Core")
 }
 
 func QueryService(): object {

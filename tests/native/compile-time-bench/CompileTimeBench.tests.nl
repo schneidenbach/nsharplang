@@ -9,7 +9,7 @@ import System.IO
 //
 // Every kernel the compile-time report is assembled from, proven on literal inputs — no process,
 // no clock, no repository — plus the one gate that spends real time: a live `nlc build` of
-// `src/NSharpLang.Compiler.BootstrapServices`, compared against the checked-in baseline.
+// `src/NSharpLang.Compiler.Core`, compared against the checked-in baseline.
 //
 // The gate and the harness share ONE owner for "run a build and measure it", `BenchMeasureOnce`.
 // Nothing here re-implements the spawn, the timing parse or the median.
@@ -50,16 +50,16 @@ func BenchTestStageText(): string {
 }
 
 func BenchTestPlaceholderBaselineJson(): string {
-    return "{\"schemaVersion\":1,\"project\":\"src/NSharpLang.Compiler.BootstrapServices\"," + "\"command\":\"build\",\"stage\":\"" + BenchTestStageText() + "\",\"expectedExitCode\":1," + "\"measuredAt\":\"2026-09-01\"," + "\"cliCommit\":\"0000000000000000000000000000000000000000\"," + "\"machine\":\"Apple M4, 10 cores, macOS 15.6, .NET 10.0.105\",\"runs\":5," + "\"files\":0,\"lines\":0,\"medianWallMs\":0,\"medianPeakRssBytes\":0,\"toleranceFactor\":1.5}"
+    return "{\"schemaVersion\":1,\"project\":\"src/NSharpLang.Compiler.Core\"," + "\"command\":\"build\",\"stage\":\"" + BenchTestStageText() + "\",\"expectedExitCode\":1," + "\"measuredAt\":\"2026-09-01\"," + "\"cliCommit\":\"0000000000000000000000000000000000000000\"," + "\"machine\":\"Apple M4, 10 cores, macOS 15.6, .NET 10.0.105\",\"runs\":5," + "\"files\":0,\"lines\":0,\"medianWallMs\":0,\"medianPeakRssBytes\":0,\"toleranceFactor\":1.5}"
 }
 
 func BenchTestMeasuredBaselineJson(): string {
-    return "{\"schemaVersion\":1,\"project\":\"src/NSharpLang.Compiler.BootstrapServices\"," + "\"command\":\"build\",\"stage\":\"" + BenchTestStageText() + "\",\"expectedExitCode\":1," + "\"measuredAt\":\"2026-09-01\"," + "\"cliCommit\":\"abcdef0123456789abcdef0123456789abcdef01\"," + "\"machine\":\"Apple M4, 10 cores, macOS 15.6, .NET 10.0.105\",\"runs\":5," + "\"files\":403,\"lines\":250000,\"medianWallMs\":120000," + "\"medianPeakRssBytes\":1073741824,\"toleranceFactor\":1.5}"
+    return "{\"schemaVersion\":1,\"project\":\"src/NSharpLang.Compiler.Core\"," + "\"command\":\"build\",\"stage\":\"" + BenchTestStageText() + "\",\"expectedExitCode\":1," + "\"measuredAt\":\"2026-09-01\"," + "\"cliCommit\":\"abcdef0123456789abcdef0123456789abcdef01\"," + "\"machine\":\"Apple M4, 10 cores, macOS 15.6, .NET 10.0.105\",\"runs\":5," + "\"files\":403,\"lines\":250000,\"medianWallMs\":120000," + "\"medianPeakRssBytes\":1073741824,\"toleranceFactor\":1.5}"
 }
 
 // The same baseline with `expectedExitCode` 0, for the arm where a run is supposed to SUCCEED.
 func BenchTestSuccessBaselineJson(): string {
-    return "{\"schemaVersion\":1,\"project\":\"src/NSharpLang.Compiler.BootstrapServices\"," + "\"command\":\"build\",\"stage\":\"parse, analysis and emit\",\"expectedExitCode\":0," + "\"measuredAt\":\"2026-09-01\"," + "\"cliCommit\":\"abcdef0123456789abcdef0123456789abcdef01\"," + "\"machine\":\"Apple M4, 10 cores, macOS 15.6, .NET 10.0.105\",\"runs\":5," + "\"files\":403,\"lines\":250000,\"medianWallMs\":120000," + "\"medianPeakRssBytes\":1073741824,\"toleranceFactor\":1.5}"
+    return "{\"schemaVersion\":1,\"project\":\"src/NSharpLang.Compiler.Core\"," + "\"command\":\"build\",\"stage\":\"parse, analysis and emit\",\"expectedExitCode\":0," + "\"measuredAt\":\"2026-09-01\"," + "\"cliCommit\":\"abcdef0123456789abcdef0123456789abcdef01\"," + "\"machine\":\"Apple M4, 10 cores, macOS 15.6, .NET 10.0.105\",\"runs\":5," + "\"files\":403,\"lines\":250000,\"medianWallMs\":120000," + "\"medianPeakRssBytes\":1073741824,\"toleranceFactor\":1.5}"
 }
 
 // Three runs' worth of "the CLI printed its own failure banner".
@@ -320,7 +320,7 @@ test "compile-time bench: only `\\n`-terminated lines are counted, so a trailing
 test "compile-time bench: the checked-in baseline file parses into every field the gate compares" {
     baseline := BenchParseBaseline(File.ReadAllText(BenchTestBaselinePath()))
     assert baseline.SchemaVersion == 1
-    assert baseline.Project == "src/NSharpLang.Compiler.BootstrapServices"
+    assert baseline.Project == "src/NSharpLang.Compiler.Core"
     assert baseline.Command == "build"
     assert baseline.ExpectedExitCode == 1
     assert baseline.Stage.IndexOf("strict lint", StringComparison.Ordinal) > 0
@@ -344,30 +344,30 @@ test "compile-time bench: a measured baseline is accepted, and its tolerance is 
 }
 
 test "compile-time bench: a baseline for another schema version, project or command is REFUSED by name" {
-    wrongSchema := new BenchBaseline(2, "src/NSharpLang.Compiler.BootstrapServices", "build", "s", 1, "", "", "", 5, 0, 0, 1, 0, 1500)
+    wrongSchema := new BenchBaseline(2, "src/NSharpLang.Compiler.Core", "build", "s", 1, "", "", "", 5, 0, 0, 1, 0, 1500)
     assert BenchBaselineRefusal(wrongSchema) == "baseline schemaVersion 2 is not the supported version 1"
 
     wrongProject := new BenchBaseline(1, "examples/01-hello-world", "build", "s", 1, "", "", "", 5, 0, 0, 1, 0, 1500)
-    assert BenchBaselineRefusal(wrongProject) == "baseline project 'examples/01-hello-world' is not 'src/NSharpLang.Compiler.BootstrapServices'"
+    assert BenchBaselineRefusal(wrongProject) == "baseline project 'examples/01-hello-world' is not 'src/NSharpLang.Compiler.Core'"
 
-    wrongCommand := new BenchBaseline(1, "src/NSharpLang.Compiler.BootstrapServices", "check", "s", 1, "", "", "", 5, 0, 0, 1, 0, 1500)
+    wrongCommand := new BenchBaseline(1, "src/NSharpLang.Compiler.Core", "check", "s", 1, "", "", "", 5, 0, 0, 1, 0, 1500)
     assert BenchBaselineRefusal(wrongCommand) == "baseline command 'check' is not 'build'"
 }
 
 test "compile-time bench: a baseline with NO stage is REFUSED, because milliseconds that do not say which stage they cover cannot be compared" {
-    noStage := new BenchBaseline(1, "src/NSharpLang.Compiler.BootstrapServices", "build", "", 1, "", "", "", 5, 0, 0, 1, 0, 1500)
+    noStage := new BenchBaseline(1, "src/NSharpLang.Compiler.Core", "build", "", 1, "", "", "", 5, 0, 0, 1, 0, 1500)
     refusal := BenchBaselineRefusal(noStage)
     assert refusal.IndexOf("baseline stage is missing", StringComparison.Ordinal) == 0
     assert refusal.IndexOf("does not reach analysis or emit", StringComparison.Ordinal) > 0
 }
 
 test "compile-time bench: a baseline with a MISSING or negative expectedExitCode is REFUSED, and a JSON without the key parses to the missing marker rather than throwing" {
-    noExit := new BenchBaseline(1, "src/NSharpLang.Compiler.BootstrapServices", "build", "s", -1, "", "", "", 5, 0, 0, 1, 0, 1500)
+    noExit := new BenchBaseline(1, "src/NSharpLang.Compiler.Core", "build", "s", -1, "", "", "", 5, 0, 0, 1, 0, 1500)
     refusal := BenchBaselineRefusal(noExit)
     assert refusal.IndexOf("baseline expectedExitCode is missing or negative", StringComparison.Ordinal) == 0
 
     legacy := BenchParseBaseline(
-        "{\"schemaVersion\":1,\"project\":\"src/NSharpLang.Compiler.BootstrapServices\"," + "\"command\":\"build\",\"measuredAt\":\"\",\"cliCommit\":\"\",\"machine\":\"\",\"runs\":5," + "\"files\":0,\"lines\":0,\"medianWallMs\":1,\"medianPeakRssBytes\":0,\"toleranceFactor\":1.5}"
+        "{\"schemaVersion\":1,\"project\":\"src/NSharpLang.Compiler.Core\"," + "\"command\":\"build\",\"measuredAt\":\"\",\"cliCommit\":\"\",\"machine\":\"\",\"runs\":5," + "\"files\":0,\"lines\":0,\"medianWallMs\":1,\"medianPeakRssBytes\":0,\"toleranceFactor\":1.5}"
     )
     assert legacy.Stage == ""
     assert legacy.ExpectedExitCode == -1
@@ -551,7 +551,7 @@ test "compile-time bench: the large-project case is NOT in the corpus, and neith
     projects := BenchCollectCorpusProjects(BenchRepositoryRoot())
     assert !BenchListContains(projects, BenchBootstrapProjectPath())
     assert !BenchListContains(projects, BenchSelfProjectPath())
-    assert BenchBootstrapProjectPath() == "src/NSharpLang.Compiler.BootstrapServices"
+    assert BenchBootstrapProjectPath() == "src/NSharpLang.Compiler.Core"
     assert BenchSelfProjectPath() == "tests/native/compile-time-bench"
 }
 
@@ -763,7 +763,7 @@ func BenchGateSkipRequested(): bool {
     return String.Compare(requested.Trim(), "skip", StringComparison.OrdinalIgnoreCase) == 0
 }
 
-test "compile-time gate: nlc build on src/NSharpLang.Compiler.BootstrapServices stays inside the checked-in baseline's tolerance" {
+test "compile-time gate: nlc build on src/NSharpLang.Compiler.Core stays inside the checked-in baseline's tolerance" {
     // SILENT ON EVERY PATH — skip, pass and fail alike. The product gate's Step 3a runs
     // `nlc test --project <dir> --no-cache --json > out 2>&1` and then parses the WHOLE file as one
     // JSON document, so ANY line this block writes to stdout or stderr lands ahead of the envelope

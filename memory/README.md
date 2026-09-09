@@ -8,7 +8,7 @@ only when they match product-path behavior.
 The compiler-only ownership objective is complete at the verified `0cc84110` checkpoint;
 [final acceptance](../systems-language-closeout/decodes/2026-09-09-compiler-only-ownership-complete.md). Sole N# compiler behavior and canonical assertions remain required;
 see [the execution contract](../tasks/README.md) and [current cursor](../systems-language-closeout/STATUS.md).
-The complete Analyzer and SystemsAnalyzer are N#-owned in BootstrapServices; both C# classes are
+The complete Analyzer and SystemsAnalyzer are N#-owned in Compiler Core; both C# classes are
 deleted and verified through installed SDK self-hosting. The complete ColumnarProgramInputBuilder
 is also N#-owned, with its C# class deleted and canonical/package/self-host verification accepted.
 The complete ColumnarIlEmitter is N#-owned and its C# class is deleted, with canonical, installed
@@ -24,9 +24,9 @@ current compiler-wide completion. CLI/editor features and broader branch work st
 recorded; SDK/tooling changes are in scope only as demonstrated compiler migration dependencies.
 Do not preserve fallback emitters or expand `*DogfoodAdapter` layers into product architecture.
 
-Compiler-service kernels are statically compiled through `NSharpLang.Compiler.BootstrapServices`;
+Compiler-service kernels are statically compiled through `NSharpLang.Compiler.Core`;
 product paths must not use `Assembly.Load`/delegate reflection for N# compiler services. Because
-BootstrapServices is built by the pinned stage-0 SDK, any kernel that uses a tip-only language or
+Compiler Core is built by the pinned stage-0 SDK, any kernel that uses a tip-only language or
 backend feature requires a local SDK repin with `./scripts/setup-local.sh` before it is a valid
 kernel shape.
 

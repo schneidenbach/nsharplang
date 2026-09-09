@@ -4,11 +4,11 @@ import System
 import System.Reflection
 
 // ColumnarDeclineTrace, ColumnarProgramInputBuilder and ColumnarIlEmitter are owned by
-// bootstrap-services N#. The production witnesses resolve those owners there exactly; no assembly
+// compiler-core N#. The production witnesses resolve those owners there exactly; no assembly
 // fallback is allowed.
 func ColumnarTraceTestMethod(methodName: string): MethodInfo {
     owner := Type.GetType(
-        "NSharpLang.Compiler.Columnar.ColumnarDeclineTrace, NSharpLang.Compiler.BootstrapServices"
+        "NSharpLang.Compiler.Columnar.ColumnarDeclineTrace, NSharpLang.Compiler.Core"
     )
     if owner == null {
         throw new InvalidOperationException("Missing N# ColumnarDeclineTrace")

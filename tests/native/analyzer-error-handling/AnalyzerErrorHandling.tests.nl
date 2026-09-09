@@ -18,7 +18,7 @@ import System.Collections
 //
 // WHY THIS IS A NATIVE PROJECT AND NOT AN ESTATE CONTRACT, MEASURED RATHER THAN ASSUMED. `Analyzer`
 // is the C# class in `Compiler.dll`, and `Compiler.dll` depends on
-// `NSharpLang.Compiler.BootstrapServices` rather than the other way round, so a `.tests.nl` inside
+// `NSharpLang.Compiler.Core` rather than the other way round, so a `.tests.nl` inside
 // the estate cannot reach it in any spelling. The route is REFLECTION through `object`, which slice
 // 23 measured to be a constraint of the emitter's type resolution rather than a style choice.
 //
@@ -94,7 +94,7 @@ func EhText(owner: object, memberName: string): string {
 // The production recovery parser, asked with the file name `test.nl` — exactly as the deleted
 // `Parse` helper asked it.
 func EhParse(source: string): object {
-    parserType := Type.GetType("NSharpLang.Compiler.Columnar.ColumnarParserRecovery, NSharpLang.Compiler.BootstrapServices")
+    parserType := Type.GetType("NSharpLang.Compiler.Columnar.ColumnarParserRecovery, NSharpLang.Compiler.Core")
     if parserType == null {
         throw new InvalidOperationException("The production recovery parser was not loadable.")
     }
@@ -149,8 +149,8 @@ func EhParseCensus(source: string): string {
 func EhAnalyze(source: string): object {
     unit := EhParseUnit(source)
 
-    analyzerType := Type.GetType("NSharpLang.Compiler.Analyzer, NSharpLang.Compiler.BootstrapServices")
-    unitType := Type.GetType("NSharpLang.Compiler.Ast.CompilationUnit, NSharpLang.Compiler.BootstrapServices")
+    analyzerType := Type.GetType("NSharpLang.Compiler.Analyzer, NSharpLang.Compiler.Core")
+    unitType := Type.GetType("NSharpLang.Compiler.Ast.CompilationUnit, NSharpLang.Compiler.Core")
     if analyzerType == null || unitType == null {
         throw new InvalidOperationException("The production analyzer types were not loadable.")
     }
@@ -200,8 +200,8 @@ func EhAnalyze(source: string): object {
 func EhAnalyzeRetained(parsed: object, source: string?): object {
     unit := EhRequiredMember(parsed, "CompilationUnit")
 
-    analyzerType := Type.GetType("NSharpLang.Compiler.Analyzer, NSharpLang.Compiler.BootstrapServices")
-    unitType := Type.GetType("NSharpLang.Compiler.Ast.CompilationUnit, NSharpLang.Compiler.BootstrapServices")
+    analyzerType := Type.GetType("NSharpLang.Compiler.Analyzer, NSharpLang.Compiler.Core")
+    unitType := Type.GetType("NSharpLang.Compiler.Ast.CompilationUnit, NSharpLang.Compiler.Core")
     if analyzerType == null || unitType == null {
         throw new InvalidOperationException("The production analyzer types were not loadable.")
     }
@@ -359,13 +359,13 @@ func EhRow(analysis: object, index: int): string {
 func EhLint(source: string): IList {
     unit := EhParseUnit(source)
 
-    linterType := Type.GetType("NSharpLang.Compiler.Linter, NSharpLang.Compiler.BootstrapServices")
-    unitType := Type.GetType("NSharpLang.Compiler.Ast.CompilationUnit, NSharpLang.Compiler.BootstrapServices")
+    linterType := Type.GetType("NSharpLang.Compiler.Linter, NSharpLang.Compiler.Core")
+    unitType := Type.GetType("NSharpLang.Compiler.Ast.CompilationUnit, NSharpLang.Compiler.Core")
     if linterType == null || unitType == null {
         throw new InvalidOperationException("The production linter types were not loadable.")
     }
 
-    configType := Type.GetType("NSharpLang.Compiler.LinterConfig, NSharpLang.Compiler.BootstrapServices")
+    configType := Type.GetType("NSharpLang.Compiler.LinterConfig, NSharpLang.Compiler.Core")
     if configType == null {
         throw new InvalidOperationException("The production linter configuration type was not loadable.")
     }

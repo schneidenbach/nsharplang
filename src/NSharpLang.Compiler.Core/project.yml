@@ -1,4 +1,4 @@
-name: NSharpLang.Compiler.BootstrapServices
+name: NSharpLang.Compiler.Core
 backend: il
 outputType: library
 targetFramework: net10.0

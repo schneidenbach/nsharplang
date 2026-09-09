@@ -48,7 +48,7 @@ class BenchOptions {
 }
 
 func BenchHelpText(): string {
-    return "N# compile-time benchmark\n" + "\n" + "Usage: NSharpLang.CompileTimeBench [options]\n" + "\n" + "Measures how long `nlc build` and `nlc check` take over the example, test and template\n" + "corpus and over the large-project case, src/NSharpLang.Compiler.BootstrapServices.\n" + "\n" + "Options:\n" + "  --runs <n>              Measured runs per project per command (default 5)\n" + "  --out <dir>             Output directory (default artifacts/compile-time/<local date>)\n" + "  --cli <path>            Cli.dll under test (default: src/NSharpLang.Cli/bin/Debug/net10.0/Cli.dll)\n" + "  --scope <scope>         corpus, bootstrap or all (default all)\n" + "  --only <substring>      Only projects whose repository-relative path contains <substring>\n" + "  --help, -h              Show this help text\n" + "\n" + "Outputs, written to the output directory:\n" + "  runs.csv                One row per individual run\n" + "  compile-time.csv        One row per project and command, with the median\n" + "  compile-time.md         The readable report, aggregate table included\n" + "\n" + "Exit codes:\n" + "  0  The sweep completed and the outputs were written\n" + "  1  A harness failure (missing CLI, unwritable output, or a build that modified the tree)"
+    return "N# compile-time benchmark\n" + "\n" + "Usage: NSharpLang.CompileTimeBench [options]\n" + "\n" + "Measures how long `nlc build` and `nlc check` take over the example, test and template\n" + "corpus and over the large-project case, src/NSharpLang.Compiler.Core.\n" + "\n" + "Options:\n" + "  --runs <n>              Measured runs per project per command (default 5)\n" + "  --out <dir>             Output directory (default artifacts/compile-time/<local date>)\n" + "  --cli <path>            Cli.dll under test (default: src/NSharpLang.Cli/bin/Debug/net10.0/Cli.dll)\n" + "  --scope <scope>         corpus, bootstrap or all (default all)\n" + "  --only <substring>      Only projects whose repository-relative path contains <substring>\n" + "  --help, -h              Show this help text\n" + "\n" + "Outputs, written to the output directory:\n" + "  runs.csv                One row per individual run\n" + "  compile-time.csv        One row per project and command, with the median\n" + "  compile-time.md         The readable report, aggregate table included\n" + "\n" + "Exit codes:\n" + "  0  The sweep completed and the outputs were written\n" + "  1  A harness failure (missing CLI, unwritable output, or a build that modified the tree)"
 }
 
 // Local date as `YYYY-MM-DD`, assembled from the parts rather than a format string so the report
@@ -151,7 +151,7 @@ func BenchParseOptions(args: string[], repositoryRoot: string): BenchOptions {
 }
 
 // The projects this run will sweep, in report order: the large-project case first, then the corpus
-// sorted ordinally. `--only` filters both, so a smoke run never pays for BootstrapServices.
+// sorted ordinally. `--only` filters both, so a smoke run never pays for Compiler Core.
 func BenchSelectProjects(repositoryRoot: string, options: BenchOptions): List<string> {
     selected := new List<string>()
     if options.Scope == "all" || options.Scope == "bootstrap" {

@@ -101,7 +101,7 @@ class BenchProcessRun {
 // THE CONCURRENCY IS THE WHOLE POINT, AND IT IS NOT THEORETICAL. Reading stdout to end BEFORE
 // touching stderr deadlocks the moment a child writes more to stderr than the OS pipe buffer holds:
 // the child blocks writing stderr, so it never closes stdout, so our read of stdout never returns.
-// The buffer is 64 KB and `nlc build` on `src/NSharpLang.Compiler.BootstrapServices` already writes
+// The buffer is 64 KB and `nlc build` on `src/NSharpLang.Compiler.Core` already writes
 // 25 KB of diagnostics to stderr today — the sequential shape survives only on that margin, and the
 // margin shrinks every time a diagnostic is added. This is the estate's proven shape, from
 // `DotnetRunner.RunProcessCore`: both `ReadToEndAsync()` tasks are started FIRST, so neither pipe

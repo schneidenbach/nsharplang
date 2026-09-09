@@ -1,6 +1,6 @@
 # Lexer Component
 
-**File:** `src/NSharpLang.Compiler.BootstrapServices/Lexer.nl`
+**File:** `src/NSharpLang.Compiler.Core/Lexer.nl`
 
 ## Responsibility
 
@@ -40,7 +40,7 @@ Converts raw source code text into a stream of tokens for the parser.
 
 ## Token Types
 
-See `src/NSharpLang.Compiler.BootstrapServices/Token.nl` for the complete live token model and
+See `src/NSharpLang.Compiler.Core/Token.nl` for the complete live token model and
 token-type enum.
 
 Notable tokens:
@@ -99,7 +99,7 @@ var tokens = lexer.Tokenize(); // Returns List<Token>
 
 ## Testing
 
-The lexer's canonical contracts are **N#, not C#**: `src/NSharpLang.Compiler.BootstrapServices/Lexer.tests.nl`,
+The lexer's canonical contracts are **N#, not C#**: `src/NSharpLang.Compiler.Core/Lexer.tests.nl`,
 which replaced `tests/LexerTests.cs` in 020 slice 7. They cover:
 - **Every keyword** — all 85 are lexed individually and crossed through `KeywordTypeForText` and
   back through `KeywordTextForType`; the remaining 63 `TokenType` members are proved reserved by
@@ -118,5 +118,5 @@ which replaced `tests/LexerTests.cs` in 020 slice 7. They cover:
 - Preprocessor directives, newline normalisation, and line/column tracking
 - Apostrophe disambiguation: `Lifetime` in a systems header, `CharLiteral` everywhere else
 
-Run them with `dotnet test src/NSharpLang.Compiler.BootstrapServices -c Release -p:NSharpExcludeTests=false`
+Run them with `dotnet test src/NSharpLang.Compiler.Core -c Release -p:NSharpExcludeTests=false`
 (restore with `-p:NSharpExcludeTests=false --force-evaluate` first).

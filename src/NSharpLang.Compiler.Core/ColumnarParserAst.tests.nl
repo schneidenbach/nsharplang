@@ -15,7 +15,7 @@ import NSharpLang.Compiler.Ast
 // recursing through nested nodes and lists. This is the native "compare via reflection" harness the stage
 // calls for. A C# harness that calls Parser.cs live is ratchet-blocked (tests/*.cs has near-zero growth
 // headroom; a new .cs trips OWN003), and this upstream assembly cannot reference Parser.cs (Compiler
-// depends on BootstrapServices, not the reverse) nor load it (MetadataLoadContext cannot execute), so the
+// depends on Compiler Core, not the reverse) nor load it (MetadataLoadContext cannot execute), so the
 // EXPECTED trees are GOLDEN values inventoried from Parser.cs's construction sites (cited per contract) —
 // the identical golden-value methodology the 432 diagnostic contracts use. Because Parser.cs and the owner
 // now construct the SAME N# node types (post-N+1b), matching the golden proves byte-exact node parity.

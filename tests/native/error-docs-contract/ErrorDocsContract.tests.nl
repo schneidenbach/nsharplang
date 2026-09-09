@@ -53,7 +53,7 @@ class EdcPaths {
     // Where the `NSYS` codes live, as literals, because nothing publishes them as descriptors.
     static func SystemsSourceDirectory(): string {
         root := EdcPaths.RepositoryRoot()
-        return Path.Combine(Path.Combine(root, "src"), "NSharpLang.Compiler.BootstrapServices")
+        return Path.Combine(Path.Combine(root, "src"), "NSharpLang.Compiler.Core")
     }
 
     static func RepositoryPath(relative: string): string {

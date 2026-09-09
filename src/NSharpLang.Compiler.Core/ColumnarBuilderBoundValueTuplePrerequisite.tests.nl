@@ -6,7 +6,7 @@ import System.Reflection.Emit
 
 
 // These controls build LIVE source TypeBuilders. They therefore exercise the exact shape seen while
-// BootstrapServices compiles its own List<ValueTuple<...>> job queues; baked stand-ins cannot prove
+// Compiler Core compiles its own List<ValueTuple<...>> job queues; baked stand-ins cannot prove
 // that TypeBuilder.GetConstructor/GetField rebinding retained the closed tuple signature.
 func BuilderTupleTypes2(first: Type, second: Type): Type[] {
     result := new Type[](2)

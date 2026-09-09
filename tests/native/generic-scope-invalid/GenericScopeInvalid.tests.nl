@@ -26,9 +26,9 @@ func CompileGenericScopeFixture(source: string): GenericScopeCompilationResult {
     )
     Directory.CreateDirectory(fixtureRoot)
     File.WriteAllText(Path.Combine(fixtureRoot, "Program.nl"), source)
-    compilerType := Type.GetType("NSharpLang.Compiler.MultiFileCompiler, NSharpLang.Compiler.BootstrapServices")
+    compilerType := Type.GetType("NSharpLang.Compiler.MultiFileCompiler, NSharpLang.Compiler.Core")
     projectConfigType := Type.GetType(
-        "NSharpLang.Compiler.ProjectConfig, NSharpLang.Compiler.BootstrapServices"
+        "NSharpLang.Compiler.ProjectConfig, NSharpLang.Compiler.Core"
     )
     if compilerType == null || projectConfigType == null {
         throw new InvalidOperationException("The production compiler types were not loadable.")

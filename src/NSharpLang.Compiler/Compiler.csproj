@@ -23,7 +23,7 @@
   </ItemGroup>
 
   <ItemGroup>
-    <ProjectReference Include="../NSharpLang.Compiler.BootstrapServices/NSharpLang.Compiler.BootstrapServices.csproj" />
+    <ProjectReference Include="../NSharpLang.Compiler.Core/NSharpLang.Compiler.Core.csproj" />
     <ProjectReference Include="../NSharpLang.Runtime/NSharpLang.Runtime.csproj" />
   </ItemGroup>
 
