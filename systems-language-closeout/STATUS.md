@@ -137,9 +137,18 @@ unfiltered IL and package/feed/cache identities pass. The initial stale75-projec
 and installed-host repository-discovery failure are retained as failed evidence, both resolved.
 [Complete resolver acceptance](decodes/2026-09-08-complete-reference-resolver-ownership.md).
 
-**Next complete production area: EmitIlAssembly**, including its Cecil reference scan/rewrite and
-state, is delegated with complete canonical tests. Actual proposed N# source proves MSBuild/Cecil
-receiver and property prerequisites; those are being implemented in N#. Canonical commits
+**Integrated, awaiting final verification: complete EmitIlAssembly.** `d0dc69536` integrates the
+demonstrated MSBuild/Cecil/Required-property prerequisites, `acffa5abb` their canonical tests,
+`e7e8dc035` the complete N# owner/direct SDK routing and303-line C# deletion, and `4d7bdbef3` the
+eleven owner canonicals. Candidate r7 passes11/11, self-host and unfiltered IL; the combined root CLI
+build and focused tests pass. Root ownership audit18/18 retires the owner and updates only its
+project/SDK routing rows;378 other rows and all epochs unchanged, head `head-v1:f52710cd6734b730`.
+Remaining integration work includes exact Required/parser/residual-receiver negatives, the reported
+metadata-context getter discrepancy, clean SDK fixture build ordering, the fresh product gate and
+installed seed verification. No completion or SDK publication is claimed yet. Root evidence:
+`/private/tmp/nsharp-sdk-owner-root-integration-20260909`.
+
+Canonical commits
 `6d046bef2` (six workspace/import methods) and `aa841ec15` (remaining command compiler assertions)
 are integrated after the published resolver checkpoint. Root native diagnostics88/88 and query78/78
 pass. Five reviewed C# rows are lowered;376 other rows and all epochs stay fixed, audit18/18,
