@@ -13,14 +13,20 @@ import NSharpLang.Compiler
 class ColumnarParameterDefaultEmitter {
     static MemberAccessKind: int => 1000
 
-    static func DefineMethodParameterMetadata(
+    static func DefineMethodParameterMetadata(method: MethodBuilder, parameterTypes: Type[], names: string[], modifierKinds: int[], defaultKinds: int[], defaultTexts: string?[], enumRegistry: ColumnarSemanticRegistry<ColumnarEnumDef>): bool {
+        return DefineMethodParameterMetadataWithAttributes(method, parameterTypes, names, modifierKinds, defaultKinds, defaultTexts, enumRegistry, null, null)
+    }
+
+    static func DefineMethodParameterMetadataWithAttributes(
         method: MethodBuilder,
         parameterTypes: Type[],
         names: string[],
         modifierKinds: int[],
         defaultKinds: int[],
         defaultTexts: string?[],
-        enumRegistry: ColumnarSemanticRegistry<ColumnarEnumDef>
+        enumRegistry: ColumnarSemanticRegistry<ColumnarEnumDef>,
+        sourceAttributes: ColumnarSourceAttributeInput[][]?,
+        sourceResolution: ColumnarSemanticTypeResolution?
     ): bool {
         index := 0
         while index < names.Length {
@@ -33,6 +39,9 @@ class ColumnarParameterDefaultEmitter {
                 attributes = attributes | ParameterAttributes.Optional | ParameterAttributes.HasDefault
             }
             parameter := method.DefineParameter(index + 1, attributes, names[index])
+            if sourceAttributes != null && sourceResolution != null && index < sourceAttributes.Length {
+                ColumnarSourceAttributes.ApplyParameter(parameter, sourceAttributes[index], sourceResolution)
+            }
             parameterType := index < parameterTypes.Length ? parameterTypes[index] : typeof(object)
             if hasDefault && !TrySetParameterDefault(parameter, parameterType, defaultKinds[index], defaultTexts[index], enumRegistry) {
                 return false

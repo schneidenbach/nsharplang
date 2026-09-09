@@ -2210,6 +2210,7 @@ sealed class ColumnarIlEmitter {
                 typeGenericParams,
                 def.DeclaredTypeName
             )
+            ColumnarSourceAttributes.ApplyType(tb, st.SourceAttributes, typeResolution)
             structTypeResolutions[s] = typeResolution
             if (!ColumnarGenericConstraintPlanner.TryApplyDeclaredTypeConstraints(st.TypeParamNames, typeGenericParams, st.TypeParamSpecialConstraints, st.TypeParamTypeConstraints, typeResolution)) {
                 return DeclineStatic("emit.type.generic-constraint", "generic constraints on '" + st.Name + "' are not modeled", st.Name, -1, 0)
@@ -2399,7 +2400,7 @@ sealed class ColumnarIlEmitter {
                         pinvokeMergedImplementationFlagWord := pinvokeImportForMergeFlags.MergeImplementationFlags(pinvokeCurrentImplementationFlagWord)
                         pinvokeMergedImplementationFlags := (MethodImplAttributes)pinvokeMergedImplementationFlagWord
                         pinvokeMethodForSetFlags.SetImplementationFlags(pinvokeMergedImplementationFlags)
-                        if (!ColumnarParameterDefaultEmitter.DefineMethodParameterMetadata(pmb, sParamTypes, m.ParamNames, m.ParamModifierKinds, m.ParamDefaultKinds, m.ParamDefaultTexts, typeResolution.Enums)) {
+                        if (!ColumnarParameterDefaultEmitter.DefineMethodParameterMetadataWithAttributes(pmb, sParamTypes, m.ParamNames, m.ParamModifierKinds, m.ParamDefaultKinds, m.ParamDefaultTexts, typeResolution.Enums, m.ParameterSourceAttributes, typeResolution)) {
                             return false
                         }
                         overloads.Add(new ColumnarStaticMethodDef(pmb, sParamTypes, m.ParamModifierKinds, sSignatureReturn))
@@ -2407,7 +2408,8 @@ sealed class ColumnarIlEmitter {
                     }
 
                     smb := def.Builder.DefineMethod(m.Name, staticMethodAttributes, sSignatureReturn, sParamTypes)
-                    if (!ColumnarParameterDefaultEmitter.DefineMethodParameterMetadata(smb, sParamTypes, m.ParamNames, m.ParamModifierKinds, m.ParamDefaultKinds, m.ParamDefaultTexts, typeResolution.Enums)) {
+                    ColumnarSourceAttributes.ApplyMethod(smb, m.SourceAttributes, typeResolution)
+                    if (!ColumnarParameterDefaultEmitter.DefineMethodParameterMetadataWithAttributes(smb, sParamTypes, m.ParamNames, m.ParamModifierKinds, m.ParamDefaultKinds, m.ParamDefaultTexts, typeResolution.Enums, m.ParameterSourceAttributes, typeResolution)) {
                         return false
                     }
                     overloads.Add(new ColumnarStaticMethodDef(smb, sParamTypes, m.ParamModifierKinds, sSignatureReturn))
@@ -2494,7 +2496,8 @@ sealed class ColumnarIlEmitter {
                     return DeclineStatic(methodOverrideCompletion.DeclineCode, methodOverrideCompletion.DeclineMessage, methodOverrideCompletion.DeclineOwnerName, -1, 0)
                 }
                 mb := methodOverrideCompletion.DefineMethod(def.Builder)
-                if (!ColumnarParameterDefaultEmitter.DefineMethodParameterMetadata(mb, mParamTypes, m.ParamNames, m.ParamModifierKinds, m.ParamDefaultKinds, m.ParamDefaultTexts, typeResolution.Enums)) {
+                ColumnarSourceAttributes.ApplyMethod(mb, m.SourceAttributes, typeResolution)
+                if (!ColumnarParameterDefaultEmitter.DefineMethodParameterMetadataWithAttributes(mb, mParamTypes, m.ParamNames, m.ParamModifierKinds, m.ParamDefaultKinds, m.ParamDefaultTexts, typeResolution.Enums, m.ParameterSourceAttributes, typeResolution)) {
                     return false
                 }
                 methodOverrideCompletion.Apply(def.Builder, mb, typeResolution.Structs.StructuralTypeReferences)
@@ -3292,7 +3295,8 @@ sealed class ColumnarIlEmitter {
                     nonGenericMethodParameterTypes
                 )
             }
-            if (!ColumnarParameterDefaultEmitter.DefineMethodParameterMetadata(methods[f], paramTypes, fn.ParamNames, fn.ParamModifierKinds, fn.ParamDefaultKinds, fn.ParamDefaultTexts, typeResolution.Enums)) {
+            ColumnarSourceAttributes.ApplyMethod(methods[f], fn.SourceAttributes, typeResolution)
+            if (!ColumnarParameterDefaultEmitter.DefineMethodParameterMetadataWithAttributes(methods[f], paramTypes, fn.ParamNames, fn.ParamModifierKinds, fn.ParamDefaultKinds, fn.ParamDefaultTexts, typeResolution.Enums, fn.ParameterSourceAttributes, typeResolution)) {
                 return false
             }
             ordinalsByFunc[f] = ordinals

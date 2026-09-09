@@ -343,6 +343,8 @@ func Create([FromBody] [Required] user: CreateUserRequest): IActionResult {
 }
 ```
 
+The columnar backend preserves external attributes with no constructor arguments or positional string arguments on classes, structs, functions, methods, and parameters. Attribute names resolve in the declaring file's scope, including the optional `Attribute` suffix. Other argument and declaration shapes still have selective support during the compiler migration.
+
 Parameter attributes are emitted as real CLR parameter metadata, so ASP.NET model-binding attributes such as `[FromBody]` and `[FromRoute]`, plus xUnit-style parameter attributes from referenced packages, are visible to the framework at runtime.
 
 ## Example: Complete Program
