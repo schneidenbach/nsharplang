@@ -160,6 +160,20 @@ and all eleven owner cases; evidence `integration-r1/whole12-r1.json` under
 `/private/tmp/nsharp-sdk-owner-root-integration-20260909`; failing second-generation log:
 `/private/tmp/nsharp-sdk-reference-ownership-tests-20260908/integration-r1/dev-stage2-direct-owner-r1.log`.
 
+`287c361e0` integrates exact Required-property parser/input/declaration/emission canonicals and
+external receiver identity controls (worker3/3, root focused4/4). Root native reflection emission
+passes47/47 with `--no-cache`; stronger wrong-assembly receiver coverage is still under review.
+The diagnostic-only MetadataLoadContext ItemSpec concern is closed without a production change:
+the sole selector caller supplies paired executable runtime types; source/IL hashes were reviewed.
+Receipt `mlc-item-spec-followup/final-receipt-r1.json` under the SDK owner evidence directory.
+
+Fresh backend gate at `d1f582ea3` fails one generated Web API template build. All399 C# tests,
+8011 N# compiler-service tests,56 native pass entries,12 throughput cells and68 IL assemblies pass.
+The template command suppressed diagnostics; replaying tracked template bytes with the same
+retained dependency cache passes, which does not convert the original failure into acceptance.
+Receipt `integrated-backend-gate-r1-receipt.json` in root evidence records the failed3902s run.
+Rerun fresh after final integration with `NSHARP_TEST_KEEP_RUN=1` to preserve the isolated workspace.
+
 Canonical commits
 `6d046bef2` (six workspace/import methods) and `aa841ec15` (remaining command compiler assertions)
 are integrated after the published resolver checkpoint. Root native diagnostics88/88 and query78/78
