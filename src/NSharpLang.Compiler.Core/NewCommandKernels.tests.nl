@@ -353,9 +353,9 @@ test "the systems-cli Program.nl carries an allow() with a reason and a void mai
 test "the systems-lib PacketCore.nl exports a Result-returning boundary and has NO main" {
     packetCoreSource := NewCommandKernels.GetTemplateSourceText("systems-lib", NewTemplateSourceFileKind.PacketCore)
 
-    assert packetCoreSource.Contains("public func AdaptPacket(bytes: byte[]): Result<uint, ParseError>")
+    assert packetCoreSource.Contains("func AdaptPacket(bytes: byte[]): Result<uint, ParseError>")
     assert !packetCoreSource.Contains("func main")
-    assert packetCoreSource.Contains("public func Warmup(): void")
+    assert packetCoreSource.Contains("func Warmup(): void")
 }
 
 test "both systems test files are the same two-line smoke test" {

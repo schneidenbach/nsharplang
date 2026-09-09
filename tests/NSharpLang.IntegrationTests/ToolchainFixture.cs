@@ -102,6 +102,9 @@ public class ToolchainFixture : IAsyncLifetime
             RedirectStandardError = true,
             UseShellExecute = false,
         };
+        // Reused MSBuild nodes inherit redirected pipes and prevent ReadToEndAsync
+        // from completing after the publishing shell exits.
+        psi.Environment["MSBUILDDISABLENODEREUSE"] = "1";
         psi.ArgumentList.Add("-lc");
         psi.ArgumentList.Add(command);
 

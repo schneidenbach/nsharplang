@@ -22,6 +22,7 @@ class DeliveryOwnershipPolicy {
             "scripts/verify-release.py",
             "src/NSharpLang.Sdk/NSharpLang.Sdk.csproj",
             "tests/NSharpLang.IntegrationTests/ToolchainFixture.cs",
+            "tests/NSharpLang.IntegrationTests/ToolchainTests.cs",
             "tests/scripts/test-all.sh",
             "tests/scripts/test-release-workflows.py"
         ]
@@ -68,7 +69,10 @@ class DeliveryOwnershipPolicy {
             return "text-v1:3872bf66a6064477"
         }
         if path == "tests/NSharpLang.IntegrationTests/ToolchainFixture.cs" {
-            return "text-v1:9240fa0e545cc152"
+            return "text-v1:bedf66843a6c5fae"
+        }
+        if path == "tests/NSharpLang.IntegrationTests/ToolchainTests.cs" {
+            return "text-v1:012b217465454cfa"
         }
         if path == "tests/scripts/test-all.sh" {
             return "text-v1:731255217cac719a"

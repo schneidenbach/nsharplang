@@ -194,7 +194,7 @@ public class ToolchainTests : IClassFixture<ToolchainFixture>
         var docsPath = Path.Combine(repoRoot, "templates", "README.md");
         var quickstarts = ReadTemplateQuickstarts(docsPath);
 
-        Assert.Equal(new[] { "console", "library", "test", "webapi" }, quickstarts.Select(q => q.Name).OrderBy(name => name));
+        Assert.Equal(new[] { "console", "library", "systems-console", "systems-library", "test", "webapi" }, quickstarts.Select(q => q.Name).OrderBy(name => name));
 
         foreach (var quickstart in quickstarts)
         {
@@ -282,7 +282,7 @@ public class ToolchainTests : IClassFixture<ToolchainFixture>
             return command;
 
         var escaped = command.Replace("'", "'\\''", StringComparison.Ordinal);
-        return "bash -lc 'set -e; " +
+        return "bash -c 'set -e; " +
                $"{escaped} > /tmp/nsharp-webapi-quickstart.log 2>&1 & pid=$!; " +
                "for i in $(seq 1 40); do " +
                "if curl -fsS http://127.0.0.1:5050/api/weather >/tmp/nsharp-webapi-quickstart-response.txt 2>/dev/null; then " +
