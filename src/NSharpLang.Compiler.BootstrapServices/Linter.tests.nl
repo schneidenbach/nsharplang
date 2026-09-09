@@ -4,6 +4,7 @@ import System
 import System.Collections.Generic
 import System.IO
 import NSharpLang.Compiler.Ast
+import NSharpLang.Compiler.CodeIntelligence
 
 
 // CONTRACTS FOR THE LINTER'S ENTRY AND ITS DECLARATION WALK (task 019 slice 12). These are the
@@ -703,6 +704,18 @@ test "the deleted parity row's exact source suppresses NL001 and nothing else go
     // THE VACUITY CONTROL THE DELETED ROW LACKED: the identical file WITHOUT the comment does
     // report NL001, so the absence above is the suppression working and not an empty result.
     assert LntHas(LntLintWithSource("func Main() {\n    value := 42\n}"), "NL001", "'value'")
+}
+
+test "the deleted CLI parity lint row projects its sole NL001 from the exact source line" {
+    source := "func Main() {\n    value := 42\n}"
+    diagnostics := LntLintWithSource(source)
+
+    diagnostic := LntSingleOf(diagnostics, "NL001")
+    assert diagnostic.Message.Contains("'value'")
+
+    result := CodeIntelligenceDiagnostics.FromLintDiagnostic(diagnostic, "/p", "/p/Program.nl", source)
+    assert result.Code == "NL001"
+    assert result.SourceSnippet == "    value := 42"
 }
 
 test "both suppression spellings are accepted — a space and a colon before the code" {
