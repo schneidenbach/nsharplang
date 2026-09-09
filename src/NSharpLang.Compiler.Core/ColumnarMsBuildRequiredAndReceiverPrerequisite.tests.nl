@@ -31,6 +31,31 @@ class SmcRequiredEmissionProbe {
     }
 }
 
+class SmcOutputEmissionProbe {
+    private storedValue: string
+
+    constructor() {
+        storedValue = ""
+    }
+
+    [Microsoft.Build.Framework.Output]
+    Value: string {
+        get {
+            return storedValue
+        }
+        set {
+            storedValue = value
+        }
+    }
+
+    [Microsoft.Build.Framework.OutputAttribute()]
+    static Version: int {
+        get {
+            return 7
+        }
+    }
+}
+
 func SmcRequiredProgram(source: string): ColumnarProgramInput {
     sources := new List<string>()
     sources.Add(source)
@@ -56,6 +81,20 @@ func SmcAssertSingleNoArgumentRequiredAttribute(property: PropertyInfo) {
     assert attribute.get_AttributeType() == typeof(Microsoft.Build.Framework.RequiredAttribute)
     constructor := attribute.get_Constructor()
     assert constructor.get_DeclaringType() == typeof(Microsoft.Build.Framework.RequiredAttribute)
+    assert constructor.GetParameters().Length == 0
+    constructorArguments := attribute.get_ConstructorArguments()
+    namedArguments := attribute.get_NamedArguments()
+    assert NullabilityProbeSequenceCount(constructorArguments) == 0
+    assert NullabilityProbeSequenceCount(namedArguments) == 0
+}
+
+func SmcAssertSingleNoArgumentOutputAttribute(property: PropertyInfo) {
+    attributes := property.GetCustomAttributesData()
+    assert NullabilityProbeSequenceCount(attributes) == 1
+    attribute := attributes.get_Item(0)
+    assert attribute.get_AttributeType() == typeof(Microsoft.Build.Framework.OutputAttribute)
+    constructor := attribute.get_Constructor()
+    assert constructor.get_DeclaringType() == typeof(Microsoft.Build.Framework.OutputAttribute)
     assert constructor.GetParameters().Length == 0
     constructorArguments := attribute.get_ConstructorArguments()
     namedArguments := attribute.get_NamedArguments()
@@ -147,6 +186,38 @@ test "the Required property marker is exact fully qualified and payload free fro
     assert rows.AccessorWords[0][2] == ColumnarDeclarationPlanner.StaticAccessorAttributes()
 }
 
+test "the Output property marker is exact fully qualified and payload free from parser through declaration rows" {
+    source := "namespace OutputParserFacts\n\nclass TaskShape {\n" + "    [Microsoft.Build.Framework.Output]\n" + "    Exact: string {\n        get {\n            return \"exact\"\n        }\n    }\n\n" + "    [Microsoft.Build.Framework.OutputAttribute()]\n" + "    ExactSuffixed: string {\n        get {\n            return \"suffixed\"\n        }\n    }\n\n" + "    [Microsoft.Build.Framework.Output()]\n" + "    static ExactStatic: int {\n        get {\n            return 7\n        }\n    }\n\n" + "    [Output]\n" + "    Unqualified: string {\n        get {\n            return \"unqualified\"\n        }\n    }\n\n" + "    [Other.Output]\n" + "    Foreign: string {\n        get {\n            return \"foreign\"\n        }\n    }\n\n" + "    [Microsoft.Build.Framework.Output(\"payload\")]\n" + "    Payload: string {\n        get {\n            return \"payload\"\n        }\n    }\n" + "}\n"
+
+    program := SmcRequiredProgram(source)
+    assert program.Structs.Count == 1
+    properties := program.Structs[0].Properties
+    assert properties.Count == 6
+    assert properties[0].Name == "Exact"
+    assert properties[0].HasMsBuildOutputAttribute
+    assert properties[1].Name == "ExactSuffixed"
+    assert properties[1].HasMsBuildOutputAttribute
+    assert properties[2].Name == "ExactStatic"
+    assert properties[2].IsStatic
+    assert properties[2].HasMsBuildOutputAttribute
+    assert properties[3].Name == "Unqualified"
+    assert !properties[3].HasMsBuildOutputAttribute
+    assert properties[4].Name == "Foreign"
+    assert !properties[4].HasMsBuildOutputAttribute
+    assert properties[5].Name == "Payload"
+    assert !properties[5].HasMsBuildOutputAttribute
+
+    rows := ColumnarDeclarationPlanner.BuildProperties(program)
+    assert rows.HasMsBuildOutputAttribute.Length == 1
+    assert rows.HasMsBuildOutputAttribute[0].Length == 6
+    assert rows.HasMsBuildOutputAttribute[0][0]
+    assert rows.HasMsBuildOutputAttribute[0][1]
+    assert rows.HasMsBuildOutputAttribute[0][2]
+    assert !rows.HasMsBuildOutputAttribute[0][3]
+    assert !rows.HasMsBuildOutputAttribute[0][4]
+    assert !rows.HasMsBuildOutputAttribute[0][5]
+}
+
 test "Required property emission attaches the exact no argument MSBuild attribute to instance and static metadata" {
     instanceProperty := SmcRequiredProperty(typeof(SmcRequiredEmissionProbe), "Value")
     staticProperty := SmcRequiredProperty(typeof(SmcRequiredEmissionProbe), "Version")
@@ -164,6 +235,28 @@ test "Required property emission attaches the exact no argument MSBuild attribut
     staticGetter := staticProperty.get_GetMethod()
     if staticGetter == null {
         throw new InvalidOperationException("The static Required property has no getter.")
+    }
+    assert staticProperty.get_SetMethod() == null
+    assert staticGetter.get_IsStatic()
+}
+
+test "Output property emission attaches the exact no argument MSBuild attribute to instance and static metadata" {
+    instanceProperty := SmcRequiredProperty(typeof(SmcOutputEmissionProbe), "Value")
+    staticProperty := SmcRequiredProperty(typeof(SmcOutputEmissionProbe), "Version")
+    SmcAssertSingleNoArgumentOutputAttribute(instanceProperty)
+    SmcAssertSingleNoArgumentOutputAttribute(staticProperty)
+    instanceGetter := instanceProperty.get_GetMethod()
+    if instanceGetter == null {
+        throw new InvalidOperationException("The instance Output property has no getter.")
+    }
+    instanceSetter := instanceProperty.get_SetMethod()
+    if instanceSetter == null {
+        throw new InvalidOperationException("The instance Output property has no setter.")
+    }
+    assert !instanceGetter.get_IsStatic()
+    staticGetter := staticProperty.get_GetMethod()
+    if staticGetter == null {
+        throw new InvalidOperationException("The static Output property has no getter.")
     }
     assert staticProperty.get_SetMethod() == null
     assert staticGetter.get_IsStatic()

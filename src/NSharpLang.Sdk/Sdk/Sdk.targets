@@ -16,9 +16,9 @@
   </PropertyGroup>
 
   <UsingTask TaskName="NSharpLang.Build.Tasks.LoadProjectReferences"
-             AssemblyFile="$(MSBuildThisFileDirectory)../tools/NSharpLang.Build.Tasks.dll" />
+             AssemblyFile="$(MSBuildThisFileDirectory)../tools/NSharpLang.Compiler.Core.dll" />
   <UsingTask TaskName="NSharpLang.Build.Tasks.LoadProjectConfig"
-             AssemblyFile="$(MSBuildThisFileDirectory)../tools/NSharpLang.Build.Tasks.dll" />
+             AssemblyFile="$(MSBuildThisFileDirectory)../tools/NSharpLang.Compiler.Core.dll" />
   <UsingTask TaskName="NSharpLang.Build.Tasks.EmitIlAssembly"
              AssemblyFile="$(MSBuildThisFileDirectory)../tools/NSharpLang.Compiler.Core.dll" />
 

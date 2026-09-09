@@ -2602,6 +2602,15 @@ sealed class ColumnarIlEmitter {
                         requiredBlob: byte[] = ColumnarAttributeBlobs.NoArgument()
                         staticProperty.SetCustomAttribute(resolvedRequiredConstructor, requiredBlob)
                     }
+                    if declarationPlan.Properties.HasMsBuildOutputAttribute[s][pi] {
+                        outputConstructor := typeof(Microsoft.Build.Framework.OutputAttribute).GetConstructor(Type.EmptyTypes)
+                        if outputConstructor == null {
+                            return false
+                        }
+                        resolvedOutputConstructor: ConstructorInfo = outputConstructor
+                        outputBlob: byte[] = ColumnarAttributeBlobs.NoArgument()
+                        staticProperty.SetCustomAttribute(resolvedOutputConstructor, outputBlob)
+                    }
                     staticProperty.SetGetMethod(staticGetter)
                     staticSetter := staticAccessors.Setter
                     if (prop.Setter != null) {
@@ -2648,6 +2657,15 @@ sealed class ColumnarIlEmitter {
                     resolvedRequiredConstructor: ConstructorInfo = requiredConstructor
                     requiredBlob: byte[] = ColumnarAttributeBlobs.NoArgument()
                     property.SetCustomAttribute(resolvedRequiredConstructor, requiredBlob)
+                }
+                if declarationPlan.Properties.HasMsBuildOutputAttribute[s][pi] {
+                    outputConstructor := typeof(Microsoft.Build.Framework.OutputAttribute).GetConstructor(Type.EmptyTypes)
+                    if outputConstructor == null {
+                        return false
+                    }
+                    resolvedOutputConstructor: ConstructorInfo = outputConstructor
+                    outputBlob: byte[] = ColumnarAttributeBlobs.NoArgument()
+                    property.SetCustomAttribute(resolvedOutputConstructor, outputBlob)
                 }
                 property.SetGetMethod(getter)
                 setter := accessors.Setter

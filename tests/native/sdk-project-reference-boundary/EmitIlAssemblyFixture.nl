@@ -54,6 +54,25 @@ func EmitTaskLegacyAssembly(): Assembly {
     return Assembly.LoadFile(path)
 }
 
+func SdkTaskOwnerType(fullName: string): Type {
+    fixtureDirectory := Path.GetDirectoryName(typeof(SdkBoundaryRun).get_Assembly().get_Location()) ?? ""
+    assemblyPath := Path.Combine(fixtureDirectory, "NSharpLang.Compiler.Core.dll")
+    if !File.Exists(assemblyPath) {
+        throw new InvalidOperationException("The Compiler Core fixture dependency was not found at " + assemblyPath)
+    }
+    assembly := Assembly.LoadFile(assemblyPath)
+    return EmitTaskRequireType(assembly.GetType(fullName), "N# " + fullName + " owner")
+}
+
+func SdkTaskLegacyAssembly(): Assembly {
+    ownerDirectory := Path.GetDirectoryName(SdkTaskOwnerType("NSharpLang.Build.Tasks.LoadProjectConfig").get_Assembly().get_Location()) ?? ""
+    path := Path.Combine(ownerDirectory, "NSharpLang.Build.Tasks.dll")
+    if !File.Exists(path) {
+        throw new InvalidOperationException("The built legacy task host assembly was not found at " + path)
+    }
+    return Assembly.LoadFile(path)
+}
+
 func EmitTaskOwnerAssemblyType(fullName: string): Type {
     return EmitTaskRequireType(EmitTaskOwnerType().get_Assembly().GetType(fullName), fullName)
 }

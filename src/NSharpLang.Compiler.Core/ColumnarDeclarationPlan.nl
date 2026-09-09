@@ -790,6 +790,9 @@ class ColumnarPropertyRows {
     SetterNames: string[][]
     HasSetter: bool[][]
     HasMsBuildRequiredAttribute: bool[][]
+    // Property metadata stays columnar through planning so both static and instance emit paths
+    // attach the same exact framework marker.
+    HasMsBuildOutputAttribute: bool[][]
     ValueOrdinals: int[][]
 
     constructor(
@@ -799,6 +802,7 @@ class ColumnarPropertyRows {
         setterNames: string[][],
         hasSetter: bool[][],
         hasMsBuildRequiredAttribute: bool[][],
+        hasMsBuildOutputAttribute: bool[][],
         valueOrdinals: int[][]
     ) {
         StructCount = structCount
@@ -807,6 +811,7 @@ class ColumnarPropertyRows {
         SetterNames = setterNames
         HasSetter = hasSetter
         HasMsBuildRequiredAttribute = hasMsBuildRequiredAttribute
+        HasMsBuildOutputAttribute = hasMsBuildOutputAttribute
         ValueOrdinals = valueOrdinals
     }
 }
@@ -1148,6 +1153,7 @@ class ColumnarDeclarationPlanner {
         setters := new string[][](count)
         hasSetters := new bool[][](count)
         hasMsBuildRequiredAttributes := new bool[][](count)
+        hasMsBuildOutputAttributes := new bool[][](count)
         ordinals := new int[][](count)
 
         index := 0
@@ -1159,6 +1165,7 @@ class ColumnarDeclarationPlanner {
             propertySetters := new string[](propertyCount)
             propertyHasSetters := new bool[](propertyCount)
             propertyHasMsBuildRequiredAttributes := new bool[](propertyCount)
+            propertyHasMsBuildOutputAttributes := new bool[](propertyCount)
             propertyOrdinals := new int[](propertyCount)
             member := 0
             while member < propertyCount {
@@ -1172,6 +1179,7 @@ class ColumnarDeclarationPlanner {
                 propertySetters[member] = PropertySetterName(property.Name)
                 propertyHasSetters[member] = property.Setter != null
                 propertyHasMsBuildRequiredAttributes[member] = property.HasMsBuildRequiredAttribute
+                propertyHasMsBuildOutputAttributes[member] = property.HasMsBuildOutputAttribute
                 propertyOrdinals[member] = PropertyValueOrdinal(property.IsStatic)
                 member = member + 1
             }
@@ -1180,11 +1188,12 @@ class ColumnarDeclarationPlanner {
             setters[index] = propertySetters
             hasSetters[index] = propertyHasSetters
             hasMsBuildRequiredAttributes[index] = propertyHasMsBuildRequiredAttributes
+            hasMsBuildOutputAttributes[index] = propertyHasMsBuildOutputAttributes
             ordinals[index] = propertyOrdinals
             index = index + 1
         }
 
-        return new ColumnarPropertyRows(count, words, getters, setters, hasSetters, hasMsBuildRequiredAttributes, ordinals)
+        return new ColumnarPropertyRows(count, words, getters, setters, hasSetters, hasMsBuildRequiredAttributes, hasMsBuildOutputAttributes, ordinals)
     }
 
     static func StaticMethodAttribute(): int {

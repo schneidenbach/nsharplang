@@ -177,15 +177,19 @@ class ColumnarConstructorInput {
 class ColumnarPropertyInput {
     IsStatic: bool
     HasMsBuildRequiredAttribute: bool
+    // These marker facts are retained on the property input so the emitter can attach the exact
+    // framework attributes without treating arbitrary skipped attributes as CLR metadata.
+    HasMsBuildOutputAttribute: bool
     Name: string
     TypeCanonical: string
     Getter: ColumnarFunctionInput
     Setter: ColumnarFunctionInput?
     SourceFileId: int
 
-    constructor(name: string, typeCanonical: string, getter: ColumnarFunctionInput, setter: ColumnarFunctionInput?, isStatic: bool = false, sourceFileId: int = 0, hasMsBuildRequiredAttribute: bool = false) {
+    constructor(name: string, typeCanonical: string, getter: ColumnarFunctionInput, setter: ColumnarFunctionInput?, isStatic: bool = false, sourceFileId: int = 0, hasMsBuildRequiredAttribute: bool = false, hasMsBuildOutputAttribute: bool = false) {
         IsStatic = isStatic
         HasMsBuildRequiredAttribute = hasMsBuildRequiredAttribute
+        HasMsBuildOutputAttribute = hasMsBuildOutputAttribute
         Name = name
         TypeCanonical = typeCanonical
         Getter = getter
