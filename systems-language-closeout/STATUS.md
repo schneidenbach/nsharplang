@@ -125,28 +125,25 @@ public/private metadata and unfiltered IL pass. Both feeds, ten Release payloads
 match SDK SHA `705b8c9625689e1ccd6e6326c3b427a1c41b73b530192fbb71caad8f066cfb17`.
 [Boundary and acceptance](decodes/2026-09-08-complete-multifile-compiler-ownership.md).
 
-Compiler-wide ownership remains open. **Integrated, checkpoint pending: CompilationReferenceResolver**.
-`a641613ed` deletes the complete 497-line C# owner; `3f880c86a` integrates seven direct and four
-command-level N# canonicals. All thirteen production callers bind directly to N#, with two public
-entries, twenty-two private helpers and one private readonly HTTP client. Source/IL review preserves
-generic enumeration, disposal, cache insertion, mutation and failure order; query's no-build control
-is nonvacuous. Root focused command tests pass 48/48. All 82 complete compiler diagnostic
-methods formerly in LanguageServerDiagnosticsTests are integrated through `ee1300416` and pass
-82/82 in N#. Ten synthetic LSP conversion-only methods remain C#; the next canonical area is
-compiler-bearing workspace/editor integration assertions, with pure editor policy separate.
-The resolver checkpoint at `0c385d3df` finished with one failure: the native compile-time benchmark
-corpus census still expects 75 projects after adding canonical test projects. The 7,999 compiler
-canonicals, 458 C# tests, twelve throughput checks, examples/templates and 68 IL checks passed.
-This failed run is not integration acceptance; census correction, current ownership ratchet and a
-fresh combined gate remain required. Its log is
-`/private/tmp/nsharp-compilation-reference-resolver-owner-20260908/root-full-owner-integration-gate-r1.log`.
-The necessary Timeout SDK seed at `277ea2991` passed a fresh backend gate and installed self-host
-7,992/7,992; it does not establish the subsequent resolver checkpoint. That fresh combined gate,
-installed complete-owner verification and push remain required. **Next complete production area:
-EmitIlAssembly**, including its existing Cecil reference scan/rewrite and task state, is delegated.
-[Execution contract](../tasks/021-final-compiler-ownership-audit.md). Broader sibling tasks remain
-separately held. CodeIntelligenceService's project-loading/property-copy boundary is mechanical;
-completion, fix-command and output presentation policy remain separately scoped.
+Compiler-wide ownership remains open. **Accepted: complete CompilationReferenceResolver** at
+`a20dc98af`. All thirteen callers bind directly to its sole N# owner; the 497-line C# class is deleted.
+Seven direct plus four command N# canonicals are integrated. All82 compiler-bearing diagnostic
+methods formerly in LanguageServerDiagnosticsTests are also N#-owned; ten synthetic conversion-only
+methods remain separately scoped. Current ratchet head is `head-v1:ef4637f5572e3a45`.
+
+The corrected fresh backend gate passes560s:408C#/7999compiler/allnative/12throughput/68IL.
+Official installed SDK self-host passes7999; installed native47/196/76/4/82, sole-owner metadata,
+unfiltered IL and package/feed/cache identities pass. The initial stale75-project census failure
+and installed-host repository-discovery failure are retained as failed evidence, both resolved.
+[Complete resolver acceptance](decodes/2026-09-08-complete-reference-resolver-ownership.md).
+
+**Next complete production area: EmitIlAssembly**, including its Cecil reference scan/rewrite and
+state, is delegated with complete canonical tests. Actual proposed N# source proves MSBuild/Cecil
+receiver and property prerequisites; those are being implemented in N#. Reviewed canonical commits
+`527de03f9` (six workspace/import methods) and `3d53ace1c` (remaining command compiler assertions)
+queue for the next integration. Broader sibling tasks remain held in the separate backlog.
+CodeIntelligenceService's project-loading/property-copy boundary is mechanical; completion,
+fix-command and output presentation policy remain separately scoped.
 
 Its connected compiler prerequisites are integrated in `9dedb3c76`, `caf5d1fff` and `cfbc80bfe`:
 inherited read-only dictionary Count, complete constructor-chain expressions and ThreadStart with

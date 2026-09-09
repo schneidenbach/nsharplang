@@ -182,8 +182,11 @@ The entire `src/NSharpLang.Cli/CompilationReferenceResolver.cs` owner is deleted
 `3f880c86a` integrates seven direct and four command-level N# canonicals; root command tests pass
 48/48. Source/IL review and exact frozen fixtures are recorded in
 `/private/tmp/nsharp-compilation-reference-resolver-owner-20260908/final-owner-implementation-receipt-r2.json`
-and `reference-resolver-tests/final-receipt-r1.json` in that directory. The combined full gate,
-installed complete-owner verification and push remain pending. Its recursive project builds, package cache lifecycle,
+and `reference-resolver-tests/final-receipt-r1.json` in that directory. The fresh combined gate and
+installed complete-owner verification now pass at `a20dc98af`: 7,999 self-host canonicals, installed
+native47/196/76/4/82, unfiltered IL and package identity.
+[Complete acceptance](../systems-language-closeout/decodes/2026-09-08-complete-reference-resolver-ownership.md).
+Its recursive project builds, package cache lifecycle,
 dependency mutation, I/O ordering and cleanup are compiler reference-resolution behavior.
 Existing N# kernels do not make that orchestration mechanical. The current dependency on
 MultiFileCompiler requires accepting that owner in BootstrapServices first.

@@ -15,7 +15,7 @@ SDK self-host and IDE verification accepted. Complete MultiFileCompiler ownershi
 recovery canonicals are accepted at `27b1a8a1b`, including installed SDK self-host and real unsaved
 editor verification. Complete recursive compiler reference resolution is now N#-owned in the working
 branch, with its C# class deleted and seven direct plus four command-level N# canonicals integrated;
-its combined integration checkpoint remains pending. The SDK reference-assembly scan/rewrite still
+its fresh gate and installed SDK verification are accepted at `a20dc98af`. The SDK reference-assembly scan/rewrite still
 contains C# state and decisions to migrate with its callers and helpers. Historical allowlist labels do not prove
 current compiler-wide completion. CLI/editor features and broader branch work stay separately
 recorded; SDK/tooling changes are in scope only as demonstrated compiler migration dependencies.
