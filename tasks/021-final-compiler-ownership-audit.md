@@ -1,5 +1,10 @@
 # 021 — Final compiler ownership audit
 
+**Complete, 2026-09-09.** Source ownership and all23 remaining C# test-file boundaries are audited;
+canonical corrections and fresh integration verification pass at `0cc84110`.
+[Completion record](../systems-language-closeout/decodes/2026-09-09-compiler-only-ownership-complete.md). Earlier pending/provisional entries below are historical
+and are superseded by their acceptance records and this final verdict.
+
 ## Execution contract
 
 Work in `/Users/spencer/repos/nsharplang` on the current `systems-language` branch.
@@ -354,7 +359,8 @@ wrapper and omitted total diagnostic cardinality and the contiguous message phra
 adds the original byte-identical ReceiverGenericCheck executable case with every removed compiler
 assertion; exact1/1 and native198/198 pass. The earlier reduced test remains useful but did not
 complete that migration. Evidence: `/private/tmp/nsharp-receiver-generic-exact-canonical-20260909`.
-Final remaining-test inventory and integration verification are pending.
+Final remaining-test inventory and fresh integration verification pass at `0cc84110`:
+no in-scope C# assertion remains;399 C#/8017 N#, native198 columnar and all other gate slices pass.
 
 The audit's broader "compiler-service" label is not the active scope: JSON root-key/value envelopes,
 LintToJson formatting, fix serialization/application policy, and query/editor presentation belong in

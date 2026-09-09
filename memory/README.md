@@ -5,7 +5,8 @@ only when they match product-path behavior.
 
 ## Compiler Ownership Rule
 
-The active objective is solely N#-owned compiler-core behavior and canonical compiler assertions;
+The compiler-only ownership objective is complete at the verified `0cc84110` checkpoint;
+[final acceptance](../systems-language-closeout/decodes/2026-09-09-compiler-only-ownership-complete.md). Sole N# compiler behavior and canonical assertions remain required;
 see [the execution contract](../tasks/README.md) and [current cursor](../systems-language-closeout/STATUS.md).
 The complete Analyzer and SystemsAnalyzer are N#-owned in BootstrapServices; both C# classes are
 deleted and verified through installed SDK self-hosting. The complete ColumnarProgramInputBuilder

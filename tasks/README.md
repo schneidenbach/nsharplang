@@ -1,6 +1,10 @@
 # N# compiler ownership queue
 
-The active objective is compiler ownership: preprocessing, lexing, parsing, binding, type checking,
+**Compiler-only objective complete, 2026-09-09.** Final fresh gate at `0cc84110` and source/assertion
+audits pass. [Completion and evidence](../systems-language-closeout/decodes/2026-09-09-compiler-only-ownership-complete.md).
+Broader branch initiatives remain held separately.
+
+The completed objective covers compiler ownership: preprocessing, lexing, parsing, binding, type checking,
 semantic analysis, compiler diagnostics, compiler reference/metadata resolution, lowering and code
 generation, with canonical compiler assertions executing in N#. Every in-scope compiler decision
 must have N# as its sole production owner. Accepted migrations remain accepted.
@@ -94,14 +98,21 @@ alone does not make it an additional active objective.
 - [x] [018 — Complete SystemsAnalyzer ownership](018-systems-analyzer-ownership.md)
 - [x] [019 — Compiler-contained tooling ownership](019-compiler-contained-tooling.md)
 - [x] [020 — Native N# test-runner capabilities](020-native-test-runner-capabilities.md)
-- [ ] [021 — Final compiler ownership audit](021-final-compiler-ownership-audit.md)
+- [x] [021 — Final compiler ownership audit](021-final-compiler-ownership-audit.md)
 - [ ] [022 — One external type universe, and a NativeAOT `nlc`](022-one-type-universe-native-aot.md)
 - [ ] [023 — The ECMA-335 metadata writer: the second executor over the plan rows](023-ecma335-metadata-writer.md)
 
 The checklist preserves historical task identity and acceptance. Select active work by compiler
 ownership dependencies under the contract above; broader exit criteria remain in the separate backlog.
 
-## 021 terminal state — audit recorded, box deliberately unchecked
+## 021 terminal state — accepted 2026-09-09
+
+The final production audit finds no surviving C# compiler-core owner; all23 remaining C# test files
+are classified and their in-scope compiler assertions have executed N# successors. The exact
+receiver-generic correction is integrated and the fresh backend gate passes399 C#/8017 N#,
+all native suites (columnar198),12 throughput cells and68 IL assemblies. Installed SDK self-host
+and all task metadata/package checks pass. See the completion record above.
+The following preserves the accepted ownership milestones.
 
 The original twelve-slice audit at `6fcb41f64` found that surviving C# was non-growing and classified,
 but the declaration/body emitter still owned compiler decisions. The end state remains unchanged:
@@ -122,8 +133,8 @@ Current measured route and boundaries are in [STATUS §1](../systems-language-cl
    CompilationReferenceResolver is entirely N#-owned and its 497-line C# owner is deleted; its
    complete verification is published at `6d90129fb`. Additional workspace, command and CLI parity
    compiler canonicals are published at `698a34f30` (fresh gate:399 C#/8000 N# assertions).
-   The active area is complete SDK EmitIlAssembly ownership, its proven MSBuild/Cecil prerequisites
-   and canonical N# tests. Its three active worktrees remain reserved for that work.
+   Complete SDK EmitIlAssembly ownership, its proven MSBuild/Cecil prerequisites and canonical
+   N# tests are accepted at `b13cc7622`; all implementation worktrees are retired.
    ColumnarProgramInputBuilder is entirely N#-owned; its accepted evidence remains valid.
    Historical checkboxes do not establish compiler-wide ownership or canonical assertion completion.
 2. Analyzer.cs, SystemsAnalyzer.cs and TypeResolver.cs are deleted; their accepted N# owners and
@@ -136,4 +147,4 @@ Current measured route and boundaries are in [STATUS §1](../systems-language-cl
 
 The 2026-09-03 handoff snapshot was retired after its four streams landed; current ownership,
 remaining source/tooling chips, verification procedure, and owner choices are carried in STATUS §1.
-The 021, 022, and 023 boxes stay unchecked until their actual terminal conditions pass.
+Task021 is complete. Tasks022 and023 remain unchecked in the separate broader backlog.

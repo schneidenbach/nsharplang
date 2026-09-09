@@ -11,8 +11,8 @@ and package flows.
 
 The parser, AST, syntax diagnostics, semantic analysis, systems analysis, columnar input builder,
 IL emitter, multi-file compiler, recursive reference resolver and complete SDK EmitIlAssembly task
-are N#-owned. Compiler-wide completion remains open for the final canonical assertion and
-surviving-boundary audit. CLI/editor policy and broader branch initiatives are tracked
+are N#-owned. The final canonical assertion and surviving-boundary audits pass at `0cc84110`;
+[compiler-only completion](../systems-language-closeout/decodes/2026-09-09-compiler-only-ownership-complete.md). CLI/editor policy and broader branch initiatives are tracked
 separately. Historical allowlist labels below do not establish current completion.
 
 ```text
@@ -78,7 +78,8 @@ The final production audit at `03c47cc42` found no surviving C# compiler-core ow
 all25 tracked C# files in Compiler, Build.Tasks, CLI and Playground plus direct editor callers,
 reusing the unchanged four-file/56-method compiler-service inventory. Exact source manifests and
 the report are under `/private/tmp/nsharp-multifile-assessment/final-production-csharp-boundary-20260909.md`.
-Canonical assertion completion is audited separately; this production verdict does not waive it.
+The separate final23-file assertion audit and exact-fixture corrections also pass at `0cc84110`;
+the compiler-only objective is complete. This production verdict alone did not waive test migration.
 
 | Surviving boundary | Responsibility and N# owner | Scope |
 |---|---|---|

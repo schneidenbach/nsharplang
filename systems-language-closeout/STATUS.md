@@ -31,6 +31,16 @@ git show 40e0cc20e:systems-language-closeout/STATUS.md
 
 ## 1. Cursor
 
+**Compiler-only objective complete, 2026-09-09.** Final source/assertion audits find no surviving
+C# compiler-core owner or in-scope canonical assertion. The exact receiver-generic correction and
+all handoffs are integrated. Fresh final gate at `0cc84110` passes562s:399 C#/8017 N#, all56 native
+entries (columnar198),12 throughput cells, templates/examples and68 IL assemblies, without SDK
+overrides. Installed SDK self-host and package/metadata/IL checks are accepted below.
+[Final completion and evidence](decodes/2026-09-09-compiler-only-ownership-complete.md).
+All completed implementation worktrees are retired; held CLI/editor/runtime/AOT/writer backlog and
+verification snapshots remain separate. Earlier pending cursor entries below are historical and
+superseded by their acceptance records and this final verdict.
+
 **Active compiler-only contract (2026-09-06):** [tasks/README.md](../tasks/README.md) supersedes
 historical smallest-slice/one-turn/line-budget and mandatory writer-first instructions. Move complete
 production method groups with helpers/state and canonical N# assertions; Astra integrates, Sol Max
@@ -143,7 +153,7 @@ SDK self-host8017 and native47/197/78/4/88/12 pass; unfiltered BSS1236/10977, Co
 Build.Tasks3/33 pass. Sole N# task metadata and all4feed/10Release/12cache payloads match.
 [Acceptance](decodes/2026-09-09-complete-sdk-emit-task-ownership.md). The earlier failed gate and
 private-candidate status below are historical, superseded by this acceptance. Final compiler audit
-remains open for the final assertion inventory and fresh integration checkpoint. `aa26a7695`
+is complete after the final assertion inventory and fresh integration checkpoint above. `aa26a7695`
 restores the exact receiver-generic executable fixture, total diagnostic cardinality and contiguous
 message assertion; root verified both original byte strings, focused1/1 and native198/198 pass.
 `e437e91f` removes only stale facade commentary and documents the reviewed surviving boundaries;
