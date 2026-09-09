@@ -5,6 +5,7 @@ import System.Collections.Generic
 import System.IO
 import System.Reflection
 import System.Runtime.InteropServices
+import System.Runtime.Loader
 
 enum ExternalAssemblyTypeLookupStatus {
     Missing,
@@ -120,6 +121,47 @@ class ExternalAssemblyScan {
         return byIdentity
     }
 
+    static func LoadedForEmissionByIdentity(): Dictionary<string, Assembly> {
+        return PreferEmissionRuntimeAssemblies(LoadedByIdentity())
+    }
+
+    // Runtime handles must come from the compiler's own load context when that context already
+    // carries the exact assembly identity. MSBuild can load the compiler and an ambient copy of the
+    // same dependency from the same file into different contexts; those Type objects have identical
+    // names but are not executable against each other. The metadata path and semantic entry order are
+    // unchanged. An owned collectible context is deliberately eligible: its dependencies are the only
+    // executable handles for that compiler instance, while unrelated collectible contexts stay absent.
+    static func PreferEmissionRuntimeAssemblies(byIdentity: Dictionary<string, Assembly>): Dictionary<string, Assembly> {
+        compilerContext := AssemblyLoadContext.GetLoadContext(typeof(ExternalAssemblyScan).get_Assembly())
+        if compilerContext == null {
+            return byIdentity
+        }
+
+        loaded := AppDomain.CurrentDomain.GetAssemblies()
+        loadedIndex := 0
+        while loadedIndex < loaded.Length {
+            candidate := loaded[loadedIndex]
+            if !candidate.IsDynamic && Object.ReferenceEquals(AssemblyLoadContext.GetLoadContext(candidate), compilerContext) {
+                try {
+                    identity := candidate.GetName().get_FullName()
+                    if !byIdentity.ContainsKey(identity) {
+                        byIdentity[identity] = candidate
+                    } else {
+                        current := byIdentity[identity]
+                        if !Object.ReferenceEquals(AssemblyLoadContext.GetLoadContext(current), compilerContext) {
+                            byIdentity[identity] = candidate
+                        }
+                    }
+                } catch {
+                }
+            }
+
+            loadedIndex = loadedIndex + 1
+        }
+
+        return byIdentity
+    }
+
     static func OpenWithReferences(referenceAssemblyPaths: IReadOnlyList<string>?): ExternalAssemblyScanResult {
         entries := new List<ExternalAssemblyCatalogEntry>()
         searchDirectories := CommonAssemblySearchDirectories(referenceAssemblyPaths)
@@ -140,7 +182,7 @@ class ExternalAssemblyScan {
             commonIndex = commonIndex + 1
         }
 
-        runtimeAssemblies := LoadedByIdentity()
+        runtimeAssemblies := LoadedForEmissionByIdentity()
         if referenceAssemblyPaths != null {
             pathIndex := 0
             while pathIndex < referenceAssemblyPaths.Count {
