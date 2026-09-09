@@ -153,3 +153,13 @@ Current measured route and boundaries are in [STATUS §1](../systems-language-cl
 The 2026-09-03 handoff snapshot was retired after its four streams landed; current ownership,
 remaining source/tooling chips, verification procedure, and owner choices are carried in STATUS §1.
 Task021 is complete. Tasks022 and023 remain unchecked in the separate broader backlog.
+
+The post-completion compiler rename is accepted at `b22bafc15` after a fresh VS Code-enabled gate,
+installed SDK self-host, package/native/IL and visual IDE checks. `BootstrapServices` is now
+`NSharpLang.Compiler.Core`; historical receipts retain their original names. The completed rename
+worktree and local branch are retired with verified recovery history in
+`/Users/spencer/nsharp-worktree-archives/2026-09-09/compiler-core-name`. Its installed verification
+checkout is now a plain evidence snapshot with source hashes checked before and after detachment.
+Together with the eight earlier verification registrations retired above, this leaves only the main
+checkout and four held query/configuration/signature-help backlog worktrees.
+[Acceptance and evidence](../systems-language-closeout/decodes/2026-09-09-compiler-core-name.md).

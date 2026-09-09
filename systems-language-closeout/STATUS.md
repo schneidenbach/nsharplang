@@ -41,12 +41,16 @@ All completed implementation worktrees are retired; held CLI/editor/runtime/AOT/
 verification snapshots remain separate. Earlier pending cursor entries below are historical and
 superseded by their acceptance records and this final verdict.
 
-**Active post-completion cleanup, 2026-09-09:** rename the N# compiler project and assembly from
-`NSharpLang.Compiler.BootstrapServices` to `NSharpLang.Compiler.Core`, including live SDK, native-test
-and editor dependency references. Historical acceptance records retain their original identities.
-Astra integrates and verifies; Sol Max owns the bounded rename. The renamed compiler has passed
-8017 canonical N# tests; package, installed self-host and IDE integration checks remain pending.
-Retire the rename worktree after review, verification and push. The broader backlog remains held.
+**Accepted post-completion cleanup, 2026-09-09:** the compiler project and assembly are now
+`NSharpLang.Compiler.Core` (`b3a954257`), with all live SDK, native-test and editor references updated.
+The ownership ratchet preserves all381 logical-row ceilings across two path remaps (`b22bafc15`).
+Fresh VS Code-enabled gate passes711s:399 integration/8017 N# canonical/56 native project entries,
+36 editor smoke tests,12 throughput cells and68 IL assemblies. Installed SDK self-host8017, six
+native families427, exact package/cache/CLI/LSP/VSIX identity checks, unfiltered compiler IL checks,
+and real-editor hover/completion/diagnostic/undo verification pass. No old assembly alias remains.
+The verified source is pushed; rename worktree/branch and installed verification registration are
+retired. Only four held backlog worktrees remain alongside the main checkout. Historical identities
+and evidence snapshots are preserved. [Rename acceptance](decodes/2026-09-09-compiler-core-name.md).
 
 **Active compiler-only contract (2026-09-06):** [tasks/README.md](../tasks/README.md) supersedes
 historical smallest-slice/one-turn/line-budget and mandatory writer-first instructions. Move complete
