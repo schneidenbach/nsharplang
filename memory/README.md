@@ -17,8 +17,8 @@ editor verification. Complete recursive compiler reference resolution is now N#-
 branch, with its C# class deleted and seven direct plus four command-level N# canonicals integrated;
 its fresh gate and installed SDK verification are accepted at `a20dc98af`. The complete SDK task,
 including reference-assembly scan/rewrite, is now N#-owned in `EmitIlAssembly.nl`; its C# class is
-deleted and SDK routing is direct. Its combined integration and installed SDK verification remain
-open; the current cursor records the self-host blocker. Historical allowlist labels do not prove
+deleted and SDK routing is direct. Fresh integration and installed self-host verification pass at
+`b13cc7622`; see [SDK task acceptance](../systems-language-closeout/decodes/2026-09-09-complete-sdk-emit-task-ownership.md). Historical allowlist labels do not prove
 current compiler-wide completion. CLI/editor features and broader branch work stay separately
 recorded; SDK/tooling changes are in scope only as demonstrated compiler migration dependencies.
 Do not preserve fallback emitters or expand `*DogfoodAdapter` layers into product architecture.

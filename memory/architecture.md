@@ -10,9 +10,9 @@ take the default. The CLI and MSBuild SDK honor that path for build, run, test, 
 and package flows.
 
 The parser, AST, syntax diagnostics, semantic analysis, systems analysis, columnar input builder,
-IL emitter and multi-file compiler are N#-owned. Compiler-wide ownership remains open: recursive
-reference resolution, SDK reference-assembly orchestration and remaining canonical compiler
-assertions still require migration. CLI/editor policy and broader branch initiatives are tracked
+IL emitter, multi-file compiler, recursive reference resolver and complete SDK EmitIlAssembly task
+are N#-owned. Compiler-wide completion remains open for the final canonical assertion and
+surviving-boundary audit. CLI/editor policy and broader branch initiatives are tracked
 separately. Historical allowlist labels below do not establish current completion.
 
 ```text
@@ -127,7 +127,8 @@ remaining state/control ownership from the active goal:
   owner is deleted; `Sdk.targets` directly loads the N# class from BootstrapServices. MSBuild Task,
   ITaskItem and logging objects and Cecil metadata objects are external ecosystem APIs; all task
   policy and control flow reside in N#. This does not require a new metadata writer. The ownership
-  change is integrated, with final self-host/product/installed verification still open in the cursor.
+  change is accepted at `b13cc7622` with fresh product gate and installed self-host8017/8017;
+  [SDK task acceptance](../systems-language-closeout/decodes/2026-09-09-complete-sdk-emit-task-ownership.md).
 - The former Analyzer metadata quarantine is removed with the complete C# class. Its metadata
   lifecycle and existing reflection operations are owned by N#; no metadata-writer rewrite was
   required to achieve that ownership. NativeAOT and a broader metadata-writer initiative remain

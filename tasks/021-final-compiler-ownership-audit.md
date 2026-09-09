@@ -244,7 +244,12 @@ Evidence: `/private/tmp/nsharp-resolver-seed-20260908/installed-verification/fin
 This accepts the prerequisite seed and preceding pipeline/visibility integration, not complete
 resolver ownership: final canonical acceptance, production integration and push remain open.
 
-## Connected follow-on: SDK reference assembly ownership
+## Accepted connected area: SDK reference assembly ownership
+
+The complete task is accepted at `b13cc7622`: sole N# production owner,303 C# lines deleted,
+12 native SDK cases, fresh backend gate and installed self-host8017/8017.
+[Acceptance and remaining audit](../systems-language-closeout/decodes/2026-09-09-complete-sdk-emit-task-ownership.md).
+The following records the original selection boundary; its implementation and seed checks are complete.
 
 The source audit at `27b1a8a1b` disproves the broad mechanical label on
 `src/NSharpLang.Build.Tasks/EmitIlAssembly.cs`. Its reference selection, ordered owner scan,

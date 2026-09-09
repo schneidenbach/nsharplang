@@ -137,7 +137,15 @@ unfiltered IL and package/feed/cache identities pass. The initial stale75-projec
 and installed-host repository-discovery failure are retained as failed evidence, both resolved.
 [Complete resolver acceptance](decodes/2026-09-08-complete-reference-resolver-ownership.md).
 
-**Integrated, awaiting final verification: complete EmitIlAssembly.** `d0dc69536` integrates the
+**Accepted complete EmitIlAssembly at `b13cc7622`.** Fresh gate562s passes399 C#/8017 N#,
+all56 native entries,12 throughput cells, templates/examples and68 IL assemblies. Official installed
+SDK self-host8017 and native47/197/78/4/88/12 pass; unfiltered BSS1236/10977, Compiler5/58 and
+Build.Tasks3/33 pass. Sole N# task metadata and all4feed/10Release/12cache payloads match.
+[Acceptance](decodes/2026-09-09-complete-sdk-emit-task-ownership.md). The earlier failed gate and
+private-candidate status below are historical, superseded by this acceptance. Final compiler audit
+remains open: the exact receiver-generic executable fixture/cardinality/message correction is active.
+
+**SDK implementation history.** `d0dc69536` integrates the
 demonstrated MSBuild/Cecil/Required-property prerequisites, `acffa5abb` their canonical tests,
 `e7e8dc035` the complete N# owner/direct SDK routing and303-line C# deletion, and `4d7bdbef3` the
 eleven owner canonicals. Candidate r7 passes11/11, self-host and unfiltered IL; the combined root CLI
@@ -154,11 +162,11 @@ is fixed by `645cdfed0`: exact runtime identity collisions prefer handles from t
 load context. Metadata reference order and the original loaded-assembly snapshot remain unchanged.
 Actual generation-two and generation-three builds pass0/0; both pass unfiltered IL (BSS1235/10951,
 Compiler5/58). `518744372` supplies two passing N# collision/identity regressions. Required/parser
-and receiver negatives below are complete; fresh product gate and installed seed verification remain open. The clean
+and receiver negatives below are complete; final product and installed verification are accepted above. The clean
 combined native SDK suite passes12/12, including private current-source SDK pack/restore/build/run
 and all eleven owner cases; evidence `integration-r1/whole12-r1.json` under
 `/private/tmp/nsharp-sdk-reference-ownership-tests-20260908` (SHA256
-`ede4eee06d3d8a012c8abe2693c066fbbb84b0c5c2cbab323256afaf8d036d60`). No completion or SDK publication is claimed. Root evidence:
+`ede4eee06d3d8a012c8abe2693c066fbbb84b0c5c2cbab323256afaf8d036d60`). This combined-suite result alone was not publication evidence; final acceptance is recorded above. Root evidence:
 `/private/tmp/nsharp-sdk-owner-root-integration-20260909`; failing second-generation log:
 `/private/tmp/nsharp-sdk-reference-ownership-tests-20260908/integration-r1/dev-stage2-direct-owner-r1.log`.
 
