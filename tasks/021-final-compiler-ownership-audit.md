@@ -331,7 +331,11 @@ Review required an exact N# lint successor: one matching NL001 from the original
 The earlier existence-only and synthetic projection tests were insufficient. The successor passes1/1,
 retained CLI tests53/53, and the lowered single-row ownership audit18/18. Command envelopes remain
 separate policy. Evidence: `/private/tmp/nsharp-cli-parity-diagnostic-cleanup-20260908`.
-These commits still require the next fresh combined integration checkpoint before push.
+The fresh combined backend gate at `ff4f6b3c` now passes557s:399C#/8000N# compiler assertions,
+all native projects,12throughput cells and68IL assemblies. It covers the workspace/import, command,
+and CLI parity canonical migrations above. Receipt:
+`/private/tmp/nsharp-cli-parity-diagnostic-cleanup-20260908/root-canonical-integration-gate-r1-receipt.json`.
+No new SDK seed is published for this test-only checkpoint; complete SDK emission ownership remains open.
 
 The audit's broader "compiler-service" label is not the active scope: JSON root-key/value envelopes,
 LintToJson formatting, fix serialization/application policy, and query/editor presentation belong in

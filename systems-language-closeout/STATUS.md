@@ -148,7 +148,11 @@ successor selects exactly one NL001 from the original source and projects the or
 focused successor1/1 and retained CLI53/53 pass. One further C# row is lowered with380 other rows
 and all epochs unchanged; current head `head-v1:73547736476f9f2d`, audit18/18. Evidence:
 `/private/tmp/nsharp-cli-parity-diagnostic-cleanup-20260908` (root-ownership-r3.json).
-Their next integration checkpoint remains open. Broader sibling tasks remain held in the separate backlog.
+The fresh backend integration gate at `ff4f6b3c` passes557s:399C#/8000N# compiler assertions,
+all native projects,12throughput cells and68IL assemblies. Workspace diagnostics88 and query78
+also pass in that isolated tree. Receipt: `root-canonical-integration-gate-r1-receipt.json` in the
+same evidence directory. This test-only checkpoint does not publish another SDK seed or cover the
+unfinished SDK owner. Broader sibling tasks remain held in the separate backlog.
 CodeIntelligenceService's project-loading/property-copy boundary is mechanical; completion,
 fix-command and output presentation policy remain separately scoped.
 
