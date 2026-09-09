@@ -60,6 +60,8 @@ class ColumnarUnionInput {
 }
 
 class ColumnarFunctionInput {
+    SourceAttributes: ColumnarSourceAttributeInput[]?
+    ParameterSourceAttributes: ColumnarSourceAttributeInput[][]?
     Name: string
     ReturnCanonical: string
     ParamNames: string[]
@@ -199,6 +201,7 @@ class ColumnarPropertyInput {
 }
 
 class ColumnarStructInput {
+    SourceAttributes: ColumnarSourceAttributeInput[]?
     Name: string
     FieldNames: string[]
     FieldTypeCanonicals: string[]

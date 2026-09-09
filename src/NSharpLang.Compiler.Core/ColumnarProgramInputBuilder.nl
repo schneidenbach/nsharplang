@@ -823,7 +823,7 @@ sealed class ColumnarProgramInputBuilder {
                 pr = pr + 1
             }
 
-            structs.Add(new ColumnarStructInput(
+            structInput := new ColumnarStructInput(
                 structName,
                 fieldNames,
                 fieldTypes,
@@ -847,7 +847,9 @@ sealed class ColumnarProgramInputBuilder {
                 typeParamTypeConstraints,
                 fieldPrivateFlags,
                 fieldThreadStaticFlags
-            ))
+            )
+            structInput.SourceAttributes = ColumnarSourceAttributes.Read(source, ck, cs, cv, structIndex)
+            structs.Add(structInput)
             declSlot = declSlot + 1
         }
         return true
@@ -1237,6 +1239,8 @@ sealed class ColumnarProgramInputBuilder {
             nativeImportLibraryName,
             nativeImportEntryPoint
         )
+        parsedInput.SourceAttributes = ColumnarSourceAttributes.Read(source, ck, cs, cv, funcIndex)
+        parsedInput.ParameterSourceAttributes = ColumnarSourceAttributes.ReadParameters(source, ck, cs, cv, funcIndex, paramNames.Length)
         input = parsedInput
 
         localFunctionCount := result[8]
