@@ -39,6 +39,7 @@ public class ToolchainFixture : IAsyncLifetime
             "build src/NSharpLang.Build.Tasks/NSharpLang.Build.Tasks.csproj -c Release --disable-build-servers -v q");
 
         // Pack all distributable NuGet packages used by generated projects
+        await PackProject(repoRoot, "src/NSharpLang.Runtime/NSharpLang.Runtime.csproj", packagesDir);
         await PackProject(repoRoot, "src/NSharpLang.Compiler/Compiler.csproj", packagesDir);
         await PackProject(repoRoot, "src/NSharpLang.Sdk/NSharpLang.Sdk.csproj", packagesDir);
         await PackProject(repoRoot, "templates/NSharpLang.Templates.csproj", packagesDir);

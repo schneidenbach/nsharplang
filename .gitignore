@@ -79,3 +79,6 @@ website/static/playground/wasm/
 
 # Claude Code session scratch (worktrees, locks)
 .claude/
+
+# Pinned compiler seed required to build the self-hosted compiler on a clean machine.
+!bootstrap/*.nupkg

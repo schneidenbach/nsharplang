@@ -6,6 +6,10 @@ on:
   pull_request:
     branches: [ main ]
 
+concurrency:
+  group: build-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
 permissions:
   contents: read
 
@@ -21,31 +25,56 @@ jobs:
       with:
         global-json-file: global.json
 
+    - name: Verify pinned compiler bootstrap
+      run: python3 scripts/verify-bootstrap.py
+
+    - name: Release lifecycle regression tests
+      run: python3 tests/scripts/test-release-workflows.py
+
     - name: Restore .NET workloads
       run: dotnet workload restore src/NSharpLang.Playground.Wasm/NSharpLang.Playground.Wasm.csproj
 
-    - name: Restore dependencies
-      run: dotnet restore
-
-    - name: Build
-      run: dotnet build --no-restore -c Release
-
-    - name: Pack SDK to local feed
+    - name: Build portable product and tests
       run: |
-        mkdir -p ~/.nuget/local-feed
-        dotnet pack src/NSharpLang.Sdk/NSharpLang.Sdk.csproj -o ~/.nuget/local-feed --no-build -c Release
+        dotnet build tests/Tests.csproj -c Release
+        dotnet build src/NSharpLang.Build.Tasks/NSharpLang.Build.Tasks.csproj -c Release
+        dotnet build src/NSharpLang.Playground.Wasm/NSharpLang.Playground.Wasm.csproj -c Release
 
-    - name: Test
-      run: dotnet test --no-build -c Release --verbosity normal
+    - name: Unit tests
+      run: dotnet test tests/Tests.csproj --no-build -c Release --verbosity normal
 
-    - name: Pack CLI
-      run: dotnet pack src/NSharpLang.Cli/Cli.csproj -o artifacts/nuget --no-build -c Release
+    - name: Canonical formatting
+      run: |
+        for project in examples templates tests/fixtures/issue-tracker src/NSharpLang.Compiler.Core; do
+          dotnet src/NSharpLang.Cli/bin/Release/net10.0/Cli.dll format --project "$project" --check
+        done
 
-    - name: Install nlc
-      run: dotnet tool install --global NSharpLang.Cli --no-cache --source artifacts/nuget
+    - name: Native compiler tests
+      run: dotnet test src/NSharpLang.Compiler.Core/NSharpLang.Compiler.Core.csproj -c Release -p:NSharpExcludeTests=false
 
-    - name: Lint
-      run: dotnet src/NSharpLang.Cli/bin/Release/net10.0/Cli.dll lint
+    - name: Installed toolchain integration tests
+      env:
+        NSHARP_RUN_DOCKER_INTEGRATION: '1'
+      run: dotnet test tests/NSharpLang.IntegrationTests/IntegrationTests.csproj -c Release --verbosity normal
+
+    - name: Setup Node.js for extension packaging
+      uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6
+      with:
+        node-version: 22
+
+    - name: Pack unofficial release
+      run: ./scripts/pack-nuget.sh
+
+    - name: Upload release artifacts
+      uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+      with:
+        name: unofficial-release
+        path: |
+          artifacts/nuget/*.nupkg
+          artifacts/toolset/nsharp-toolset.tar.gz
+          artifacts/vscode/nsharp.vsix
+        if-no-files-found: error
+        retention-days: 14
 
   # Blocking IL-verification gate. PR #160 shipped GC-unsafe IL that only
   # crashed on Linux x64 because nothing verified the emitted assemblies and CI
@@ -68,6 +97,9 @@ jobs:
     # with `nlc build` (the CLI DLL) and never touches NSharpLang.Playground.Wasm,
     # so a solution-wide `dotnet restore` would needlessly require the wasm-tools
     # workload (NETSDK1147) and fail this job before it ever runs ilverify.
+    - name: Verify pinned compiler bootstrap
+      run: python3 scripts/verify-bootstrap.py
+
     - name: Restore dependencies (CLI/compiler only)
       run: dotnet restore src/NSharpLang.Cli/Cli.csproj
 
@@ -79,3 +111,48 @@ jobs:
 
     - name: IL verification gate
       run: scripts/ilverify.sh
+
+  unofficial-release:
+    needs: [build, ilverify]
+    # Forks get the same tests and downloadable artifacts, without a write token.
+    if: github.event_name == 'push' || github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    concurrency:
+      group: unofficial-${{ github.event.pull_request.number || 'main' }}
+      cancel-in-progress: false
+    steps:
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          name: unofficial-release
+          path: artifacts
+      - name: Publish unofficial release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          COMMIT: ${{ github.event.pull_request.head.sha || github.sha }}
+          RUN_ID: ${{ github.run_id }}
+          RUN_ATTEMPT: ${{ github.run_attempt }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          channel=main
+          if [[ -n "$PR_NUMBER" ]]; then
+            # A close or newer push can overtake an already running build.
+            state=$(gh api "repos/$GH_REPO/pulls/$PR_NUMBER" --jq '.state')
+            head=$(gh api "repos/$GH_REPO/pulls/$PR_NUMBER" --jq '.head.sha')
+            if [[ "$state" != open || "$head" != "$COMMIT" ]]; then
+              echo 'PR closed or superseded; no release to publish.'
+              exit 0
+            fi
+            channel="pr-$PR_NUMBER"
+          fi
+          tag="unofficial-$channel-$RUN_ID-$RUN_ATTEMPT"
+          assets=()
+          while IFS= read -r -d '' asset; do assets+=("$asset"); done < <(find artifacts -type f -print0)
+          gh release create "$tag" "${assets[@]}" --repo "$GH_REPO" \
+            --target "$COMMIT" --prerelease --latest=false \
+            --title "Unofficial $channel ($COMMIT)" \
+            --notes "Unofficial development build from $COMMIT. Requires .NET 10. PR builds are removed when the PR closes. Build: https://github.com/$GH_REPO/actions/runs/$RUN_ID"

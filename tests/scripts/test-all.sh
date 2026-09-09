@@ -483,6 +483,8 @@ echo "  Deps:   $RUN_DEPS"
 echo "  Key:    ${CACHE_KEY:0:16}"
 echo "  DepKey: ${DEPENDENCY_KEY:0:16}"
 
+python3 "$SOURCE_ROOT/scripts/verify-bootstrap.py"
+python3 "$SOURCE_ROOT/tests/scripts/test-release-workflows.py"
 copy_source_tree
 mkdir -p "$RUN_HOME" "$RUN_TMP" "$RUN_DEPS/nuget/packages" "$RUN_DEPS/npm-cache"
 

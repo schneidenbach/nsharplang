@@ -20,17 +20,38 @@ jobs:
       with:
         global-json-file: global.json
 
+    - name: Verify pinned compiler bootstrap
+      run: python3 scripts/verify-bootstrap.py
+
     - name: Restore .NET workloads
       run: dotnet workload restore src/NSharpLang.Playground.Wasm/NSharpLang.Playground.Wasm.csproj
 
-    - name: Restore dependencies
-      run: dotnet restore
+    - name: Build portable product and tests
+      run: |
+        dotnet build tests/Tests.csproj -c Release
+        dotnet build src/NSharpLang.Build.Tasks/NSharpLang.Build.Tasks.csproj -c Release
+        dotnet build src/NSharpLang.Playground.Wasm/NSharpLang.Playground.Wasm.csproj -c Release
 
-    - name: Build
-      run: dotnet build --no-restore -c Release
+    - name: Unit tests
+      run: dotnet test tests/Tests.csproj --no-build -c Release --verbosity normal
 
-    - name: Test
-      run: dotnet test --no-build -c Release --verbosity normal
+    - name: Canonical formatting
+      run: |
+        for project in examples templates tests/fixtures/issue-tracker src/NSharpLang.Compiler.Core; do
+          dotnet src/NSharpLang.Cli/bin/Release/net10.0/Cli.dll format --project "$project" --check
+        done
+
+    - name: Native compiler tests
+      run: dotnet test src/NSharpLang.Compiler.Core/NSharpLang.Compiler.Core.csproj -c Release -p:NSharpExcludeTests=false
+
+    - name: Installed toolchain integration tests
+      env:
+        NSHARP_RUN_DOCKER_INTEGRATION: '1'
+      run: dotnet test tests/NSharpLang.IntegrationTests/IntegrationTests.csproj -c Release --verbosity normal
+
+    - uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6
+      with:
+        node-version: 22
 
     - name: Pack all packages
       run: ./scripts/pack-nuget.sh
