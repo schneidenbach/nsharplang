@@ -11,6 +11,8 @@ import System.Text
 import System.Text.Json
 import System.Threading
 import System.Threading.Tasks
+import Microsoft.Build.Framework
+import Mono.Cecil
 import YamlDotNet.Serialization
 
 
@@ -100,7 +102,7 @@ class ColumnarRuntimeInstanceMemberResolver {
             return true
         }
 
-        if typeof(Exception).IsAssignableFrom(receiverType) || IsSupportedAspNetReceiver(receiverType) || IsSupportedTaskReceiver(receiverType) || IsSupportedUnitTaskReceiver(receiverType) || IsSupportedNullableReceiver(receiverType) || IsSupportedResultReceiver(receiverType) || IsSupportedMemoryOwnerReceiver(receiverType) || IsSupportedMemoryReceiver(receiverType) || IsSupportedCountReceiver(receiverType) || IsSupportedKeyValuePairReceiver(receiverType) || IsSupportedSpanLikeReceiver(receiverType) || IsSupportedValueTupleReceiver(receiverType) || ColumnarTypeOfPlanner.IsSupportedDictionaryKeyEnumeratorType(receiverType) {
+        if typeof(Exception).IsAssignableFrom(receiverType) || IsSupportedAspNetReceiver(receiverType) || IsSupportedSdkTaskReceiver(receiverType) || IsSupportedCecilReceiver(receiverType) || IsSupportedTaskReceiver(receiverType) || IsSupportedUnitTaskReceiver(receiverType) || IsSupportedNullableReceiver(receiverType) || IsSupportedResultReceiver(receiverType) || IsSupportedMemoryOwnerReceiver(receiverType) || IsSupportedMemoryReceiver(receiverType) || IsSupportedCountReceiver(receiverType) || IsSupportedKeyValuePairReceiver(receiverType) || IsSupportedSpanLikeReceiver(receiverType) || IsSupportedValueTupleReceiver(receiverType) || ColumnarTypeOfPlanner.IsSupportedDictionaryKeyEnumeratorType(receiverType) {
             return true
         }
 
@@ -142,6 +144,10 @@ class ColumnarRuntimeInstanceMemberResolver {
 
         if IsSupportedValueTupleReceiver(receiverType) {
             return TrySelectValueTupleField(receiverType, member, out selection)
+        }
+
+        if IsSupportedSdkTaskReadableProperty(receiverType, member) || IsSupportedCecilReadableProperty(receiverType, member) {
+            return TrySelectAdmittedProperty(receiverType, receiverType, member, out selection)
         }
 
         if ColumnarTypeOfPlanner.IsSupportedDictionaryKeyEnumeratorType(receiverType) && member == "Current" {
@@ -985,12 +991,93 @@ class ColumnarRuntimeInstanceMemberResolver {
     }
 
     static func IsSupportedExternalType(valueType: Type): bool {
+        if IsSupportedSdkTaskReceiver(valueType) || IsSupportedCecilReceiver(valueType) {
+            return true
+        }
+
         valueAssemblyName := valueType.get_Assembly().GetName().get_FullName()
         yamlAssemblyName := typeof(IYamlTypeConverter).get_Assembly().GetName().get_FullName()
         if String.Equals(valueAssemblyName, yamlAssemblyName, StringComparison.Ordinal) {
             return true
         }
         return IsSupportedAspNetReceiver(valueType)
+    }
+
+    // The SDK task owner uses three exact MSBuild receiver types. Keep this surface narrower than
+    // the packages: ITaskItem contributes ItemSpec, Task contributes Log, and the resulting
+    // TaskLoggingHelper is admitted so its exact public calls can flow through ordinary binding.
+    static func IsSupportedSdkTaskReceiver(valueType: Type): bool {
+        if !IsSupportedExternalReferenceShape(valueType) {
+            return false
+        }
+
+        return HasExactRuntimeTypeIdentity(valueType, typeof(ITaskItem)) || HasExactRuntimeTypeIdentity(valueType, typeof(Microsoft.Build.Utilities.Task)) || HasExactRuntimeTypeIdentity(valueType, typeof(Microsoft.Build.Utilities.TaskLoggingHelper))
+    }
+
+    static func IsSupportedSdkTaskReadableProperty(receiverType: Type, member: string): bool {
+        fullName := receiverType.FullName ?? ""
+        return IsSupportedSdkTaskReceiver(receiverType) && ((fullName == "Microsoft.Build.Framework.ITaskItem" && member == "ItemSpec") || (fullName == "Microsoft.Build.Utilities.Task" && member == "Log"))
+    }
+
+    // Exact Mono.Cecil receivers used by the SDK's reference-assembly scope rewrite. The compiler
+    // still resolves each selected property on the actual receiver and validates its CLR result;
+    // these names only define which external object-model types may enter that binding path.
+    static func IsSupportedCecilReceiver(valueType: Type): bool {
+        if !IsSupportedExternalReferenceShape(valueType) {
+            return false
+        }
+
+        if valueType.get_IsGenericType() && !valueType.get_IsGenericTypeDefinition() {
+            definition := valueType.GetGenericTypeDefinition()
+            if !HasExactRuntimeTypeIdentity(definition, typeof(Mono.Collections.Generic.Collection<int>).GetGenericTypeDefinition()) {
+                return false
+            }
+            arguments := valueType.GetGenericArguments()
+            return arguments.Length == 1 && (HasExactRuntimeTypeIdentity(arguments[0], typeof(TypeDefinition)) || HasExactRuntimeTypeIdentity(arguments[0], typeof(ExportedType)) || HasExactRuntimeTypeIdentity(arguments[0], typeof(AssemblyNameReference)))
+        }
+        return HasExactRuntimeTypeIdentity(valueType, typeof(ReaderParameters)) || HasExactRuntimeTypeIdentity(valueType, typeof(AssemblyDefinition)) || HasExactRuntimeTypeIdentity(valueType, typeof(ModuleDefinition)) || HasExactRuntimeTypeIdentity(valueType, typeof(AssemblyNameDefinition)) || HasExactRuntimeTypeIdentity(valueType, typeof(AssemblyNameReference)) || HasExactRuntimeTypeIdentity(valueType, typeof(IMetadataScope)) || HasExactRuntimeTypeIdentity(valueType, typeof(Mono.Cecil.TypeReference)) || HasExactRuntimeTypeIdentity(valueType, typeof(TypeDefinition)) || HasExactRuntimeTypeIdentity(valueType, typeof(ExportedType))
+    }
+
+    static func IsSupportedCecilReadableProperty(receiverType: Type, member: string): bool {
+        if !IsSupportedCecilReceiver(receiverType) {
+            return false
+        }
+
+        fullName := receiverType.FullName ?? ""
+        if receiverType.get_IsGenericType() && !receiverType.get_IsGenericTypeDefinition() {
+            fullName = receiverType.GetGenericTypeDefinition().FullName ?? ""
+        }
+        if fullName == "Mono.Cecil.AssemblyDefinition" {
+            return member == "MainModule" || member == "Name"
+        }
+        if fullName == "Mono.Cecil.ModuleDefinition" {
+            return member == "Types" || member == "ExportedTypes" || member == "AssemblyReferences"
+        }
+        if fullName == "Mono.Cecil.AssemblyNameDefinition" || fullName == "Mono.Cecil.AssemblyNameReference" {
+            return member == "FullName" || member == "Name" || member == "Version" || member == "Culture" || member == "PublicKeyToken"
+        }
+        if fullName == "Mono.Cecil.TypeReference" {
+            return member == "FullName" || member == "Scope"
+        }
+        if fullName == "Mono.Cecil.TypeDefinition" {
+            return member == "FullName" || member == "NestedTypes"
+        }
+        if fullName == "Mono.Cecil.ExportedType" {
+            return member == "FullName"
+        }
+        if fullName == "Mono.Collections.Generic.Collection`1" {
+            return member == "Count"
+        }
+        return false
+    }
+
+    static func HasExactRuntimeTypeIdentity(candidate: Type, runtimeType: Type): bool {
+        if candidate is TypeBuilder || IsEnumBuilder(candidate) {
+            return false
+        }
+
+        identity := runtimeType.get_AssemblyQualifiedName()
+        return identity != null && ExternalAssemblyScan.HasExactTypeIdentity(candidate, identity)
     }
 
     static func IsSupportedArrayPoolType(valueType: Type): bool {

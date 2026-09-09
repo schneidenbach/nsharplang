@@ -69,6 +69,8 @@ class ColumnarExternalBindingPlans {
             runtimeTypeName = "System.Reflection.Emit.TypeBuilder"
         } else if canonical == "MethodBuilder" || canonical == "System.Reflection.Emit.MethodBuilder" {
             runtimeTypeName = "System.Reflection.Emit.MethodBuilder"
+        } else if canonical == "PropertyBuilder" || canonical == "System.Reflection.Emit.PropertyBuilder" {
+            runtimeTypeName = "System.Reflection.Emit.PropertyBuilder"
         } else if canonical == "ConstructorBuilder" || canonical == "System.Reflection.Emit.ConstructorBuilder" {
             runtimeTypeName = "System.Reflection.Emit.ConstructorBuilder"
         } else if canonical == "ILGenerator" || canonical == "System.Reflection.Emit.ILGenerator" {
@@ -197,7 +199,7 @@ class ColumnarExternalBindingPlans {
 
     static func IsSupportedRuntimeTypeName(runtimeTypeName: string?): bool {
         name := runtimeTypeName ?? ""
-        return IsWriterMetadataTypeName(name) || name == "System.Reflection.Emit.LocalBuilder" || name == "System.Reflection.Emit.FieldBuilder" || name == "System.Reflection.Emit.TypeBuilder" || name == "System.Reflection.Emit.GenericTypeParameterBuilder" || name == "System.Reflection.Emit.MethodBuilder" || name == "System.Reflection.Emit.ConstructorBuilder" || name == "System.Reflection.Emit.ILGenerator" || name == "System.Reflection.Emit.DynamicMethod" || name == "System.Reflection.Emit.OpCode" || name == "System.Reflection.Emit.OpCodes" || name == "System.Reflection.Emit.Label" || name == "System.Reflection.MethodInfo" || name == "System.Reflection.MethodAttributes" || name == "System.Reflection.CallingConventions" || name == "System.Reflection.MethodBase" || name == "System.Reflection.FieldInfo" || name == "System.Reflection.PropertyInfo" || name == "System.Reflection.ConstructorInfo" || name == "System.Reflection.AssemblyName" || name == "System.Reflection.MetadataLoadContext" || name == "System.Reflection.PathAssemblyResolver" || name == "System.Reflection.MetadataAssemblyResolver" || name == "System.Reflection.ParameterInfo" || name == "System.Reflection.EventInfo" || name == "System.Reflection.Module" || name == "System.Index" || name == "System.Range" || name == "System.RuntimeTypeHandle" || name == "System.Threading.Thread" || name == "System.Threading.ThreadStart" || name == "System.Reflection.NullabilityInfoContext" || name == "System.Reflection.NullabilityInfo" || name == "System.Reflection.NullabilityState" || name == "System.Reflection.CustomAttributeData" || name == "System.Reflection.CustomAttributeTypedArgument" || IsCustomAttributeSequenceName(name) || IsXmlLinqTypeName(name)
+        return IsWriterMetadataTypeName(name) || name == "System.Reflection.Emit.LocalBuilder" || name == "System.Reflection.Emit.FieldBuilder" || name == "System.Reflection.Emit.TypeBuilder" || name == "System.Reflection.Emit.GenericTypeParameterBuilder" || name == "System.Reflection.Emit.MethodBuilder" || name == "System.Reflection.Emit.PropertyBuilder" || name == "System.Reflection.Emit.ConstructorBuilder" || name == "System.Reflection.Emit.ILGenerator" || name == "System.Reflection.Emit.DynamicMethod" || name == "System.Reflection.Emit.OpCode" || name == "System.Reflection.Emit.OpCodes" || name == "System.Reflection.Emit.Label" || name == "System.Reflection.MethodInfo" || name == "System.Reflection.MethodAttributes" || name == "System.Reflection.CallingConventions" || name == "System.Reflection.MethodBase" || name == "System.Reflection.FieldInfo" || name == "System.Reflection.PropertyInfo" || name == "System.Reflection.ConstructorInfo" || name == "System.Reflection.AssemblyName" || name == "System.Reflection.MetadataLoadContext" || name == "System.Reflection.PathAssemblyResolver" || name == "System.Reflection.MetadataAssemblyResolver" || name == "System.Reflection.ParameterInfo" || name == "System.Reflection.EventInfo" || name == "System.Reflection.Module" || name == "System.Index" || name == "System.Range" || name == "System.RuntimeTypeHandle" || name == "System.Threading.Thread" || name == "System.Threading.ThreadStart" || name == "System.Reflection.NullabilityInfoContext" || name == "System.Reflection.NullabilityInfo" || name == "System.Reflection.NullabilityState" || name == "System.Reflection.CustomAttributeData" || name == "System.Reflection.CustomAttributeTypedArgument" || IsCustomAttributeSequenceName(name) || IsXmlLinqTypeName(name)
     }
 
     // THE LINQ-TO-XML SURFACE, AS SEVEN NAMES. `XContainer` is on the list although no source line
@@ -560,6 +562,12 @@ class ColumnarExternalBindingPlans {
         if MatchesOwner(typeName, "Array", "System.Array") && memberName == "Empty" && typeArgumentTypeNames.Length == 1 && typeArgumentTypeNames[0] == "System.Type[]" && argumentTypeNames.Length == 0 {
             return GenericStaticCall("System.Array", memberName, One("System.Type[]"), Empty(), "System.Type[][]")
         }
+        if MatchesOwner(typeName, "Array", "System.Array") && memberName == "Empty" && typeArgumentTypeNames.Length == 1 && typeArgumentTypeNames[0] == "System.Object" && argumentTypeNames.Length == 0 {
+            return GenericStaticCall("System.Array", memberName, One("System.Object"), Empty(), "System.Object[]")
+        }
+        if MatchesOwner(typeName, "Array", "System.Array") && memberName == "Empty" && typeArgumentTypeNames.Length == 1 && typeArgumentTypeNames[0] == "Microsoft.Build.Framework.ITaskItem" && argumentTypeNames.Length == 0 {
+            return GenericStaticCall("System.Array", memberName, One("Microsoft.Build.Framework.ITaskItem"), Empty(), "Microsoft.Build.Framework.ITaskItem[]")
+        }
 
         // This exact Enumerable closure is an external binding, not a reimplementation: Enumerable
         // retains its null checks, count fast paths, selector/Add order, and duplicate-key failures.
@@ -662,6 +670,21 @@ class ColumnarExternalBindingPlans {
     static func GetInstanceCallPlan(receiverTypeName: string?, memberName: string, argumentTypeNames: string[]): ColumnarExternalCallPlan {
         receiver := receiverTypeName ?? ""
         count := argumentTypeNames.Length
+
+        // MSBuild's logging helpers expose their formatting arguments through params arrays. The
+        // ordinary resolver deliberately excludes params methods; the SDK task supplies the arrays
+        // explicitly, so these rows select the exact CLR signatures without expansion.
+        if receiver == "Microsoft.Build.Utilities.TaskLoggingHelper" {
+            if memberName == "LogMessage" && count == 3 && argumentTypeNames[0] == "Microsoft.Build.Framework.MessageImportance" && argumentTypeNames[1] == "System.String" && argumentTypeNames[2] == "System.Object[]" {
+                return VirtualCall(receiver, memberName, argumentTypeNames, "System.Void")
+            }
+            if memberName == "LogErrorFromException" && count == 4 && argumentTypeNames[0] == "System.Exception" && argumentTypeNames[1] == "System.Boolean" && argumentTypeNames[2] == "System.Boolean" && argumentTypeNames[3] == "System.String" {
+                return VirtualCall(receiver, memberName, argumentTypeNames, "System.Void")
+            }
+            if (memberName == "LogError" || memberName == "LogWarning") && count == 10 && argumentTypeNames[0] == "System.String" && argumentTypeNames[1] == "System.String" && argumentTypeNames[2] == "System.String" && argumentTypeNames[3] == "System.String" && argumentTypeNames[4] == "System.Int32" && argumentTypeNames[5] == "System.Int32" && argumentTypeNames[6] == "System.Int32" && argumentTypeNames[7] == "System.Int32" && argumentTypeNames[8] == "System.String" && argumentTypeNames[9] == "System.Object[]" {
+                return VirtualCall(receiver, memberName, argumentTypeNames, "System.Void")
+            }
+        }
 
         if receiver == "System.Threading.Thread" && count == 0 && (memberName == "Start" || memberName == "Join") {
             return VirtualCall(receiver, memberName, Empty(), "System.Void")
@@ -775,6 +798,12 @@ class ColumnarExternalBindingPlans {
         // with ParamArrayAttribute, so the ordinary fixed-arity resolver deliberately excludes it;
         // the explicit Type[] form still names one exact CLR method and requires no expansion.
         if receiver == "System.Reflection.Emit.MethodBuilder" && memberName == "SetParameters" && count == 1 && argumentTypeNames[0] == "System.Type[]" {
+            return VirtualCall(receiver, memberName, argumentTypeNames, "System.Void")
+        }
+
+        // Property custom attributes use the NativeAOT-safe raw blob overload, mirroring the exact
+        // TypeBuilder/MethodBuilder/FieldBuilder metadata paths already used by this emitter.
+        if receiver == "System.Reflection.Emit.PropertyBuilder" && memberName == "SetCustomAttribute" && count == 2 && argumentTypeNames[0] == "System.Reflection.ConstructorInfo" && argumentTypeNames[1] == "System.Byte[]" {
             return VirtualCall(receiver, memberName, argumentTypeNames, "System.Void")
         }
 
@@ -1252,6 +1281,26 @@ class ColumnarExternalBindingPlans {
         }
         if fullName.StartsWith("System.Xml.Linq.", StringComparison.Ordinal) {
             return fullName + ", " + XmlLinqAssemblyName()
+        }
+        if fullName == "Microsoft.Build.Framework.MessageImportance" {
+            return fullName + ", Microsoft.Build.Framework"
+        }
+        if fullName == "Microsoft.Build.Framework.ITaskItem" {
+            identity := typeof(Microsoft.Build.Framework.ITaskItem).get_AssemblyQualifiedName()
+            if identity == null || identity.Length == 0 {
+                throw new InvalidOperationException("Required MSBuild task-item identity was unavailable.")
+            }
+            return identity
+        }
+        if fullName == "Microsoft.Build.Framework.ITaskItem[]" {
+            identity := typeof(Microsoft.Build.Framework.ITaskItem).MakeArrayType().get_AssemblyQualifiedName()
+            if identity == null || identity.Length == 0 {
+                throw new InvalidOperationException("Required MSBuild task-item array identity was unavailable.")
+            }
+            return identity
+        }
+        if fullName == "Microsoft.Build.Utilities.TaskLoggingHelper" {
+            return fullName + ", Microsoft.Build.Utilities.Core"
         }
 
         return fullName + ", System.Private.CoreLib"

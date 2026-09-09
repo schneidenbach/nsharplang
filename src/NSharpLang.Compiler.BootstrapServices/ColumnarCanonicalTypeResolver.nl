@@ -616,14 +616,17 @@ class ColumnarCanonicalTypeResolver {
         }
 
         // Body-local resolution normally keeps the generic-signature family's narrower collection
-        // fence. The Analyzer source needs precisely its inherited string dictionary-entry view.
+        // fence. The Analyzer source needs precisely its inherited string dictionary-entry view,
+        // and the SDK task needs the exact Cecil sequence shapes admitted by the type planner.
         if genericOpen == 11 && canonical.StartsWith("IEnumerable<", StringComparison.Ordinal) {
             arguments := new ColumnarSelectedTypeReference[](0)
-            if TrySelectTypeParameterArguments(canonical.Substring(12, canonical.Length - 13), 1, typeParams, enumRegistry, structRegistry, unionRegistry, out arguments) && IsExactStringDictionaryEntryElement(arguments[0].RuntimeType) {
+            if TrySelectTypeParameterArguments(canonical.Substring(12, canonical.Length - 13), 1, typeParams, enumRegistry, structRegistry, unionRegistry, out arguments) {
                 definition := typeof(IEnumerable<int>).GetGenericTypeDefinition()
                 runtimeType := definition.MakeGenericType(SelectedRuntimeTypes(arguments))
-                selected = ConstructedSelection(table, runtimeType, definition, arguments)
-                return true
+                if IsExactStringDictionaryEntryElement(arguments[0].RuntimeType) || ColumnarTypeOfPlanner.IsSupportedCecilSequenceType(runtimeType) {
+                    selected = ConstructedSelection(table, runtimeType, definition, arguments)
+                    return true
+                }
             }
             return false
         }
@@ -1603,6 +1606,10 @@ class ColumnarCanonicalTypeResolver {
             result = typeof(InvalidCastException)
         } else if canonical == "FileNotFoundException" || canonical == "System.IO.FileNotFoundException" {
             result = typeof(FileNotFoundException)
+        } else if canonical == "IOException" || canonical == "System.IO.IOException" {
+            result = typeof(IOException)
+        } else if canonical == "BadImageFormatException" || canonical == "System.BadImageFormatException" {
+            result = typeof(BadImageFormatException)
         } else if canonical == "YamlException" || canonical == "YamlDotNet.Core.YamlException" {
             yamlException := typeof(object)
             if ColumnarTypeOfPlanner.TryResolveKnownExternalType(canonical, out yamlException) {

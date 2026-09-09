@@ -2557,6 +2557,15 @@ sealed class ColumnarIlEmitter {
                     staticGetter := staticAccessors.Getter
                     structMethodJobs.Add(new ValueTuple<ColumnarStructDef, ColumnarFunctionInput, MethodBuilder, Type, Type, Type, Dictionary<string, int>, ValueTuple<Dictionary<string, Type>, bool>>(def, prop.Getter, staticGetter, propType, propType, null, new Dictionary<string, int>(StringComparer.Ordinal), new ValueTuple<Dictionary<string, Type>, bool>(new Dictionary<string, Type>(StringComparer.Ordinal), true)))
                     staticProperty := def.Builder.DefineProperty(prop.Name, PropertyAttributes.None, propType, Type.EmptyTypes)
+                    if declarationPlan.Properties.HasMsBuildRequiredAttribute[s][pi] {
+                        requiredConstructor := typeof(Microsoft.Build.Framework.RequiredAttribute).GetConstructor(Type.EmptyTypes)
+                        if requiredConstructor == null {
+                            return false
+                        }
+                        resolvedRequiredConstructor: ConstructorInfo = requiredConstructor
+                        requiredBlob: byte[] = ColumnarAttributeBlobs.NoArgument()
+                        staticProperty.SetCustomAttribute(resolvedRequiredConstructor, requiredBlob)
+                    }
                     staticProperty.SetGetMethod(staticGetter)
                     staticSetter := staticAccessors.Setter
                     if (prop.Setter != null) {
@@ -2595,6 +2604,15 @@ sealed class ColumnarIlEmitter {
                 getter := accessors.Getter
                 structMethodJobs.Add(new ValueTuple<ColumnarStructDef, ColumnarFunctionInput, MethodBuilder, Type, Type, Type, Dictionary<string, int>, ValueTuple<Dictionary<string, Type>, bool>>(def, prop.Getter, getter, propType, propType, null, new Dictionary<string, int>(StringComparer.Ordinal), new ValueTuple<Dictionary<string, Type>, bool>(new Dictionary<string, Type>(StringComparer.Ordinal), false)))
                 property := def.Builder.DefineProperty(prop.Name, PropertyAttributes.None, propType, Type.EmptyTypes)
+                if declarationPlan.Properties.HasMsBuildRequiredAttribute[s][pi] {
+                    requiredConstructor := typeof(Microsoft.Build.Framework.RequiredAttribute).GetConstructor(Type.EmptyTypes)
+                    if requiredConstructor == null {
+                        return false
+                    }
+                    resolvedRequiredConstructor: ConstructorInfo = requiredConstructor
+                    requiredBlob: byte[] = ColumnarAttributeBlobs.NoArgument()
+                    property.SetCustomAttribute(resolvedRequiredConstructor, requiredBlob)
+                }
                 property.SetGetMethod(getter)
                 setter := accessors.Setter
                 if (prop.Setter != null) {
@@ -7749,6 +7767,17 @@ sealed class ColumnarIlEmitter {
             property = resolvedProperty
             return resolvedProperty != null && resolvedProperty.get_SetMethod() != null
         }
+        if ColumnarRuntimeInstanceMemberResolver.IsSupportedCecilReceiver(receiverType) {
+            receiverName := receiverType.FullName ?? ""
+            supported := receiverName == "Mono.Cecil.ReaderParameters" && (member == "ReadingMode" || member == "InMemory") || receiverName == "Mono.Cecil.TypeReference" && member == "Scope" || receiverName == "Mono.Cecil.AssemblyNameReference" && (member == "Culture" || member == "PublicKeyToken")
+            if !supported {
+                return false
+            }
+
+            resolvedProperty := receiverType.GetProperty(member, BindingFlags.Public | BindingFlags.Instance)
+            property = resolvedProperty
+            return resolvedProperty != null && resolvedProperty.get_SetMethod() != null && ColumnarTypeOfPlanner.IsSupportedType(resolvedProperty.get_PropertyType())
+        }
         if (receiverType == typeof(ProcessStartInfo) && (member == nameof(ProcessStartInfo.FileName) || member == nameof(ProcessStartInfo.Arguments) || member == nameof(ProcessStartInfo.WorkingDirectory) || member == nameof(ProcessStartInfo.RedirectStandardOutput) || member == nameof(ProcessStartInfo.RedirectStandardError) || member == nameof(ProcessStartInfo.UseShellExecute))) {
             resolvedProperty := typeof(ProcessStartInfo).GetProperty(member)
             property = resolvedProperty
@@ -12195,7 +12224,7 @@ sealed class ColumnarIlEmitter {
         if (_typeResolutionEnums.ContainsKey(typeName) || _typeResolutionUnions.ContainsKey(typeName)) {
             return false
         }
-        if (TryEmitPlannedExternalCall(typeName, true, member, callIdx, legacyWholeSubtreePlanning, out resolvedClrType)) {
+        if (TryEmitPlannedExternalCall(typeName, null, true, member, callIdx, legacyWholeSubtreePlanning, out resolvedClrType)) {
             return true
         }
         if (!legacyWholeSubtreePlanning) {
@@ -14840,7 +14869,7 @@ sealed class ColumnarIlEmitter {
         return false
     }
 
-    private func TryGetPlannedExternalCall(ownerTypeName: string, isStatic: bool, member: string, callIdx: int, legacyWholeSubtreePlanning: bool, out plan: ColumnarExternalCallPlan, out method: MethodInfo, out parameterTypes: Type[], out returnType: Type): bool {
+    private func TryGetPlannedExternalCall(ownerTypeName: string, receiverType: Type?, isStatic: bool, member: string, callIdx: int, legacyWholeSubtreePlanning: bool, out plan: ColumnarExternalCallPlan, out method: MethodInfo, out parameterTypes: Type[], out returnType: Type): bool {
         plan = null
         method = null
         parameterTypes = Type.EmptyTypes
@@ -14879,26 +14908,55 @@ sealed class ColumnarIlEmitter {
         }
 
         plan = isStatic ? ColumnarExternalBindingPlans.GetStaticCallPlan(ownerTypeName, member, argumentTypeNames) : ColumnarExternalBindingPlans.GetInstanceCallPlan(ownerTypeName, member, argumentTypeNames)
-        let declaringType: System.Type? = null
-        if (!plan.IsSupported || plan.Kind != (isStatic ? ColumnarExternalCallKind.Call : ColumnarExternalCallKind.CallVirtual) || plan.ParameterTypeNames.Length != argumentCount || !ColumnarCanonicalTypeResolver.TryResolveExactRuntimeType(plan.DeclaringTypeName, out declaringType) || !ColumnarCanonicalTypeResolver.TryResolveExactRuntimeType(plan.ReturnTypeName, out returnType)) {
+        if (!plan.IsSupported || plan.Kind != (isStatic ? ColumnarExternalCallKind.Call : ColumnarExternalCallKind.CallVirtual) || plan.ParameterTypeNames.Length != argumentCount) {
             return false
         }
 
         parameterTypes = new Type[argumentCount]
+        hasByRefParameter := false
         for i := 0; i < argumentCount; i++ {
             let resolvedParameterType: System.Type? = null
-            parameterResolved := ColumnarCanonicalTypeResolver.TryResolveExactRuntimeType(plan.ParameterTypeNames[i], out resolvedParameterType)
-            parameterTypes[i] = resolvedParameterType
-            if (!parameterResolved || !CanDeclaredCallArgumentMatch(Child(callIdx, i + 1), parameterTypes[i], false)) {
+            if (!ColumnarCanonicalTypeResolver.TryResolveExactRuntimeType(plan.ParameterTypeNames[i], out resolvedParameterType)) {
                 return false
             }
+            parameterTypes[i] = resolvedParameterType
+            if (parameterTypes[i].get_IsByRef()) {
+                hasByRefParameter = true
+            }
+            if (!CanDeclaredCallArgumentMatch(Child(callIdx, i + 1), parameterTypes[i], false)) {
+                return false
+            }
+        }
+
+        if (!isStatic && !hasByRefParameter) {
+            if (receiverType == null) {
+                return false
+            }
+
+            selection := ColumnarRuntimeDirectCallSelection.Empty()
+            if (!ColumnarRuntimeDirectCallResolver.TrySelect(plan, receiverType, false, out selection) || selection.Method == null) {
+                return false
+            }
+
+            method = selection.Method
+            parameterTypes = selection.ParameterTypes
+            returnType = selection.ReturnType
+            return true
+        }
+
+        let declaringType: System.Type? = null
+        if (!ColumnarCanonicalTypeResolver.TryResolveExactRuntimeType(plan.DeclaringTypeName, out declaringType) || !ColumnarCanonicalTypeResolver.TryResolveExactRuntimeType(plan.ReturnTypeName, out returnType)) {
+            return false
+        }
+        if (!isStatic && (receiverType == null || !ExternalAssemblyScan.HasExactTypeIdentity(receiverType, plan.DeclaringTypeName))) {
+            return false
         }
 
         method = declaringType.GetMethod(plan.MemberName, parameterTypes)
         return method != null && method.get_IsStatic() == isStatic && method.get_ReturnType() == returnType
     }
 
-    private func TryEmitPlannedExternalCall(ownerTypeName: string, isStatic: bool, member: string, callIdx: int, legacyWholeSubtreePlanning: bool, out columnarResolvedType: Type): bool {
+    private func TryEmitPlannedExternalCall(ownerTypeName: string, receiverType: Type?, isStatic: bool, member: string, callIdx: int, legacyWholeSubtreePlanning: bool, out columnarResolvedType: Type): bool {
         columnarResolvedType = null
         let plan: NSharpLang.Compiler.Columnar.ColumnarExternalCallPlan? = null
         let method: System.Reflection.MethodInfo? = null
@@ -14906,6 +14964,7 @@ sealed class ColumnarIlEmitter {
         let returnType: System.Type? = null
         if (!TryGetPlannedExternalCall(
             ownerTypeName,
+            receiverType,
             isStatic,
             member,
             callIdx,
@@ -14984,6 +15043,7 @@ sealed class ColumnarIlEmitter {
         let ignoredParameterTypes: System.Type[]? = null
         if (TryGetPlannedExternalCall(
             receiverTypeName,
+            receiverType,
             false,
             member,
             callIdx,
@@ -15665,6 +15725,7 @@ sealed class ColumnarIlEmitter {
 
         if (TryEmitPlannedExternalCall(
             receiverType.FullName ?? receiverType.Name,
+            receiverType,
             false,
             member,
             callIdx,

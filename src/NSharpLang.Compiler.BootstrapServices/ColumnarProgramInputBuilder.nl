@@ -807,7 +807,8 @@ sealed class ColumnarProgramInputBuilder {
                     outPropIndices[pr],
                     source,
                     out propInput,
-                    outPropStaticFlags[pr] == 1
+                    ColumnarStructPropertyFlagIsStatic(outPropStaticFlags[pr]),
+                    ColumnarStructPropertyFlagHasMsBuildRequired(outPropStaticFlags[pr])
                 ) {
                     return DeclineAtToken(
                         ColumnarParseDeclines.StructProperty,
@@ -1436,7 +1437,7 @@ sealed class ColumnarProgramInputBuilder {
         return true
     }
 
-    private static func TryParseColumnarPropertyAt(ck: int[], cs: int[], cv: int[], n: int, propIndex: int, source: string, out input: ColumnarPropertyInput, isStatic: bool = false): bool {
+    private static func TryParseColumnarPropertyAt(ck: int[], cs: int[], cv: int[], n: int, propIndex: int, source: string, out input: ColumnarPropertyInput, isStatic: bool = false, hasMsBuildRequiredAttribute: bool = false): bool {
         input = null
         cap := n + 1
         gk := new int[](cap)
@@ -1564,7 +1565,7 @@ sealed class ColumnarProgramInputBuilder {
             return DeclineAtToken(ColumnarParseDeclines.PropertyAccessorKind, cs, cv, propIndex, propName)
         }
 
-        input = new ColumnarPropertyInput(propName, propType, getter, setter, isStatic, 0)
+        input = new ColumnarPropertyInput(propName, propType, getter, setter, isStatic, 0, hasMsBuildRequiredAttribute)
         return true
     }
 

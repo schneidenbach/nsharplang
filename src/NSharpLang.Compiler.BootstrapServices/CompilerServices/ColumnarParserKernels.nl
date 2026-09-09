@@ -9479,6 +9479,29 @@ func ParserDeclarationIsExactThreadStaticAttribute(source: string, tokens: Parse
     return scan < count && tokens.Kinds[scan] == 132
 }
 
+// MSBuild task inputs use this exact marker on properties. Keep the declaration scanner's
+// recognition as narrow as the CLR identity the emitter later binds: a fully-qualified,
+// argument-free Microsoft.Build.Framework.RequiredAttribute only. An unqualified name, a foreign
+// namespace, or a payload stays ordinary skipped attribute syntax and does not acquire metadata.
+func ParserDeclarationIsExactMsBuildRequiredAttribute(source: string, tokens: ParserDeclarationTokenTable, count: int, openIndex: int): bool {
+    if openIndex < 0 || openIndex + 6 >= count || tokens.Kinds[openIndex] != 131 {
+        return false
+    }
+
+    scan := openIndex + 1
+    if scan + 6 < count && tokens.Kinds[scan] == 0 && ColumnarTokenTextEquals(source, tokens, scan, "Microsoft") && tokens.Kinds[scan + 1] == 124 && tokens.Kinds[scan + 2] == 0 && ColumnarTokenTextEquals(source, tokens, scan + 2, "Build") && tokens.Kinds[scan + 3] == 124 && tokens.Kinds[scan + 4] == 0 && ColumnarTokenTextEquals(source, tokens, scan + 4, "Framework") && tokens.Kinds[scan + 5] == 124 && tokens.Kinds[scan + 6] == 0 && (ColumnarTokenTextEquals(source, tokens, scan + 6, "Required") || ColumnarTokenTextEquals(source, tokens, scan + 6, "RequiredAttribute")) {
+        scan = scan + 7
+    } else {
+        return false
+    }
+
+    if scan + 1 < count && tokens.Kinds[scan] == 127 && tokens.Kinds[scan + 1] == 128 {
+        scan = scan + 2
+    }
+
+    return scan < count && tokens.Kinds[scan] == 132
+}
+
 func ParseMemberModifierPrefixCore(source: string, tokens: ParserDeclarationTokenTable, count: int, pos: int, result: ParserDeclarationResultTable): int {
     if pos < 0 || pos > count || result.Values.Length < 2 {
         return -1
@@ -9492,11 +9515,17 @@ func ParseMemberModifierPrefixCore(source: string, tokens: ParserDeclarationToke
     if result.Values.Length >= 4 {
         result.Values[3] = 0
     }
+    if result.Values.Length >= 5 {
+        result.Values[4] = 0
+    }
 
     while pos < count {
         if tokens.Kinds[pos] == 131 {
             if result.Values.Length >= 4 && ParserDeclarationIsExactThreadStaticAttribute(source, tokens, count, pos) {
                 result.Values[3] = 1
+            }
+            if result.Values.Length >= 5 && ParserDeclarationIsExactMsBuildRequiredAttribute(source, tokens, count, pos) {
+                result.Values[4] = 1
             }
             bracketDepth := 1
             pos = pos + 1
@@ -10282,7 +10311,7 @@ func ParseStructDeclarationCore(source: string, tokens: ParserDeclarationTokenTa
     fieldCount := 0
     propCount := 0
     fieldsDone := 0
-    memberModifierValues := new int[](4)
+    memberModifierValues := new int[](5)
     memberModifiers := new ParserDeclarationResultTable(memberModifierValues)
     fieldTypeResult := new ParserDeclarationResultTable(new int[](2))
     initializerTypeResult := new ParserDeclarationResultTable(new int[](2))
@@ -10304,7 +10333,7 @@ func ParseStructDeclarationCore(source: string, tokens: ParserDeclarationTokenTa
             }
         } else if tokens.Kinds[memberStart] == 0 && memberStart + 3 < count && tokens.Kinds[memberStart + 1] == 122 && tokens.Kinds[memberStart + 2] == 0 && tokens.Kinds[memberStart + 3] == 129 {
             decl.PropIndices[propCount] = memberStart
-            decl.PropStaticFlags[propCount] = memberModifiers.Values[0]
+            decl.PropStaticFlags[propCount] = memberModifiers.Values[0] | (memberModifiers.Values[4] * 2)
             propCount = propCount + 1
             pos = memberStart + 3
 
@@ -10366,7 +10395,7 @@ func ParseStructDeclarationCore(source: string, tokens: ParserDeclarationTokenTa
 
             if pos < count && tokens.Kinds[pos] == 129 {
                 decl.PropIndices[propCount] = memberStart
-                decl.PropStaticFlags[propCount] = memberModifiers.Values[0]
+                decl.PropStaticFlags[propCount] = memberModifiers.Values[0] | (memberModifiers.Values[4] * 2)
                 propCount = propCount + 1
 
                 pdepth := 0
@@ -10393,7 +10422,7 @@ func ParseStructDeclarationCore(source: string, tokens: ParserDeclarationTokenTa
 
             if pos < count && tokens.Kinds[pos] == 120 {
                 decl.PropIndices[propCount] = memberStart
-                decl.PropStaticFlags[propCount] = memberModifiers.Values[0]
+                decl.PropStaticFlags[propCount] = memberModifiers.Values[0] | (memberModifiers.Values[4] * 2)
                 propCount = propCount + 1
                 pos = ParseDeclarationExpressionBodyEndCore(tokens, count, pos)
                 if pos < 0 {
@@ -10592,7 +10621,7 @@ func ParseStructDeclarationCore(source: string, tokens: ParserDeclarationTokenTa
             }
 
             decl.PropIndices[propCount] = memberStart
-            decl.PropStaticFlags[propCount] = memberModifiers.Values[0]
+            decl.PropStaticFlags[propCount] = memberModifiers.Values[0] | (memberModifiers.Values[4] * 2)
             propCount = propCount + 1
             pos = propBodyPos
 
@@ -13282,7 +13311,7 @@ func ParseColumnarStructInfoCore(source: string, tokens: ColumnarStructTokenTabl
 
         i = 0
         while i < propCount {
-            if outputs.PropStaticFlags[i] == 1 {
+            if ColumnarStructPropertyFlagIsStatic(outputs.PropStaticFlags[i]) {
                 return -1
             }
 
@@ -13421,6 +13450,17 @@ func ColumnarStructFieldFlagIsPrivate(flags: int): bool {
 
 func ColumnarStructFieldFlagIsThreadStatic(flags: int): bool {
     return (flags & 8) != 0
+}
+
+// Property prefix flags share the existing integer output column: bit 0 is static and bit 1 is the
+// exact MSBuild RequiredAttribute marker. Naming the two reads here keeps the host from duplicating
+// the packed representation.
+func ColumnarStructPropertyFlagIsStatic(flags: int): bool {
+    return (flags & 1) != 0
+}
+
+func ColumnarStructPropertyFlagHasMsBuildRequired(flags: int): bool {
+    return (flags & 2) != 0
 }
 
 func ColumnarStructMethodUnsupportedStatus(source: string, tokens: ColumnarStructTokenTable, outputs: ColumnarStructOutputTable, methodCount: int): int {
@@ -13898,7 +13938,7 @@ func ColumnarStructPropertyMemberNamesDistinct(source: string, tokens: ColumnarS
 
     i := 0
     while i < propCount {
-        if outputs.PropStaticFlags[i] != 0 && outputs.PropStaticFlags[i] != 1 {
+        if outputs.PropStaticFlags[i] < 0 || outputs.PropStaticFlags[i] > 3 {
             return 0
         }
 
@@ -13953,7 +13993,7 @@ func ColumnarStructPropertyMemberNamesDistinct(source: string, tokens: ColumnarS
 
         j := i + 1
         while j < propCount {
-            if outputs.PropStaticFlags[j] != 0 && outputs.PropStaticFlags[j] != 1 {
+            if outputs.PropStaticFlags[j] < 0 || outputs.PropStaticFlags[j] > 3 {
                 return 0
             }
 

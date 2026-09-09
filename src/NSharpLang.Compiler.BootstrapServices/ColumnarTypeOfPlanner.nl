@@ -11,6 +11,7 @@ import System.Text
 import System.Text.Json
 import System.Threading
 import System.Threading.Tasks
+import Mono.Cecil
 import NSharpLang.Compiler
 import YamlDotNet.Serialization
 
@@ -695,6 +696,23 @@ class ColumnarTypeOfPlanner {
             return true
         }
 
+        if canonical == "TypeDefinition" || canonical == "Mono.Cecil.TypeDefinition" {
+            result = typeof(TypeDefinition)
+            return true
+        }
+        if canonical == "ExportedType" || canonical == "Mono.Cecil.ExportedType" {
+            result = typeof(ExportedType)
+            return true
+        }
+        if canonical == "AssemblyNameReference" || canonical == "Mono.Cecil.AssemblyNameReference" {
+            result = typeof(AssemblyNameReference)
+            return true
+        }
+        if canonical == "TypeReference" || canonical == "Mono.Cecil.TypeReference" {
+            result = typeof(Mono.Cecil.TypeReference)
+            return true
+        }
+
         aspNetName := canonical
         if canonical == "WebApplication" {
             aspNetName = "Microsoft.AspNetCore.Builder.WebApplication"
@@ -1137,6 +1155,9 @@ class ColumnarTypeOfPlanner {
         if IsSupportedDictionaryKeyCollectionType(valueType) {
             return true
         }
+        if IsSupportedCecilSequenceType(valueType) {
+            return true
+        }
         if ContainsBuilderBoundType(valueType) {
             return IsSupportedCollectionType(valueType) || IsSupportedTaskType(valueType) || IsSupportedResultType(valueType) || IsSupportedAnonymousUnionType(valueType) || IsSupportedEnumeratorType(valueType) || IsSupportedListEnumeratorType(valueType) || IsSupportedDictionaryValueCollectionType(valueType) || IsSupportedDictionaryEnumeratorType(valueType) || IsSupportedDictionaryKeyEnumeratorType(valueType) || IsSupportedDictionaryValueEnumeratorType(valueType) || IsSupportedKeyValuePairType(valueType) || IsSupportedReferenceEqualityComparerType(valueType) || IsSupportedValueTuple(valueType)
         }
@@ -1150,6 +1171,36 @@ class ColumnarTypeOfPlanner {
             return IsSupportedSpanLikeType(valueType)
         }
         return IsSupportedCatalogType(valueType)
+    }
+
+    static func IsSupportedCecilSequenceType(valueType: Type): bool {
+        if valueType is TypeBuilder || IsEnumBuilder(valueType) || !valueType.get_IsGenericType() || valueType.get_IsGenericTypeDefinition() || ContainsOpenGenericParameters(valueType) {
+            return false
+        }
+
+        definition := valueType.GetGenericTypeDefinition()
+        enumerableDefinition := typeof(IEnumerable<int>).GetGenericTypeDefinition()
+        enumerableIdentity := enumerableDefinition.get_AssemblyQualifiedName() ?? ""
+        if !ExternalAssemblyScan.HasExactTypeIdentity(definition, enumerableIdentity) {
+            return false
+        }
+
+        arguments := valueType.GetGenericArguments()
+        if arguments.Length != 1 {
+            return false
+        }
+
+        element := arguments[0]
+        return HasExactRuntimeTypeIdentity(element, typeof(TypeDefinition)) || HasExactRuntimeTypeIdentity(element, typeof(ExportedType)) || HasExactRuntimeTypeIdentity(element, typeof(AssemblyNameReference)) || HasExactRuntimeTypeIdentity(element, typeof(Mono.Cecil.TypeReference))
+    }
+
+    static func HasExactRuntimeTypeIdentity(candidate: Type, runtimeType: Type): bool {
+        if candidate is TypeBuilder || IsEnumBuilder(candidate) {
+            return false
+        }
+
+        identity := runtimeType.get_AssemblyQualifiedName()
+        return identity != null && ExternalAssemblyScan.HasExactTypeIdentity(candidate, identity)
     }
 
     // Resolution has already selected this assembly. Its own type catalog must reproduce the exact

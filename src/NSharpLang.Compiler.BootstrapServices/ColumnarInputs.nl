@@ -176,14 +176,16 @@ class ColumnarConstructorInput {
 
 class ColumnarPropertyInput {
     IsStatic: bool
+    HasMsBuildRequiredAttribute: bool
     Name: string
     TypeCanonical: string
     Getter: ColumnarFunctionInput
     Setter: ColumnarFunctionInput?
     SourceFileId: int
 
-    constructor(name: string, typeCanonical: string, getter: ColumnarFunctionInput, setter: ColumnarFunctionInput?, isStatic: bool = false, sourceFileId: int = 0) {
+    constructor(name: string, typeCanonical: string, getter: ColumnarFunctionInput, setter: ColumnarFunctionInput?, isStatic: bool = false, sourceFileId: int = 0, hasMsBuildRequiredAttribute: bool = false) {
         IsStatic = isStatic
+        HasMsBuildRequiredAttribute = hasMsBuildRequiredAttribute
         Name = name
         TypeCanonical = typeCanonical
         Getter = getter

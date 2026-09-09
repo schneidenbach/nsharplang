@@ -789,6 +789,7 @@ class ColumnarPropertyRows {
     GetterNames: string[][]
     SetterNames: string[][]
     HasSetter: bool[][]
+    HasMsBuildRequiredAttribute: bool[][]
     ValueOrdinals: int[][]
 
     constructor(
@@ -797,6 +798,7 @@ class ColumnarPropertyRows {
         getterNames: string[][],
         setterNames: string[][],
         hasSetter: bool[][],
+        hasMsBuildRequiredAttribute: bool[][],
         valueOrdinals: int[][]
     ) {
         StructCount = structCount
@@ -804,6 +806,7 @@ class ColumnarPropertyRows {
         GetterNames = getterNames
         SetterNames = setterNames
         HasSetter = hasSetter
+        HasMsBuildRequiredAttribute = hasMsBuildRequiredAttribute
         ValueOrdinals = valueOrdinals
     }
 }
@@ -1144,6 +1147,7 @@ class ColumnarDeclarationPlanner {
         getters := new string[][](count)
         setters := new string[][](count)
         hasSetters := new bool[][](count)
+        hasMsBuildRequiredAttributes := new bool[][](count)
         ordinals := new int[][](count)
 
         index := 0
@@ -1154,6 +1158,7 @@ class ColumnarDeclarationPlanner {
             propertyGetters := new string[](propertyCount)
             propertySetters := new string[](propertyCount)
             propertyHasSetters := new bool[](propertyCount)
+            propertyHasMsBuildRequiredAttributes := new bool[](propertyCount)
             propertyOrdinals := new int[](propertyCount)
             member := 0
             while member < propertyCount {
@@ -1166,6 +1171,7 @@ class ColumnarDeclarationPlanner {
                 propertyGetters[member] = PropertyGetterName(property.Name)
                 propertySetters[member] = PropertySetterName(property.Name)
                 propertyHasSetters[member] = property.Setter != null
+                propertyHasMsBuildRequiredAttributes[member] = property.HasMsBuildRequiredAttribute
                 propertyOrdinals[member] = PropertyValueOrdinal(property.IsStatic)
                 member = member + 1
             }
@@ -1173,11 +1179,12 @@ class ColumnarDeclarationPlanner {
             getters[index] = propertyGetters
             setters[index] = propertySetters
             hasSetters[index] = propertyHasSetters
+            hasMsBuildRequiredAttributes[index] = propertyHasMsBuildRequiredAttributes
             ordinals[index] = propertyOrdinals
             index = index + 1
         }
 
-        return new ColumnarPropertyRows(count, words, getters, setters, hasSetters, ordinals)
+        return new ColumnarPropertyRows(count, words, getters, setters, hasSetters, hasMsBuildRequiredAttributes, ordinals)
     }
 
     static func StaticMethodAttribute(): int {
