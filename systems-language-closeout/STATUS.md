@@ -153,6 +153,12 @@ all native projects,12throughput cells and68IL assemblies. Workspace diagnostics
 also pass in that isolated tree. Receipt: `root-canonical-integration-gate-r1-receipt.json` in the
 same evidence directory. This test-only checkpoint does not publish another SDK seed or cover the
 unfinished SDK owner. Broader sibling tasks remain held in the separate backlog.
+After that published checkpoint, `54c1dd09c` removes the unused playground CompilerError converter
+and its two sole-use helpers (31 C# lines). Live DiagnosticResult/Diagnostic routes are unchanged.
+Existing native diagnostics116/116 and tooling33/33 pass; root ownership audit18/18 passes with only
+the playground row lowered,380 other rows and all epochs unchanged. Current head:
+`head-v1:651b8bb6b87968ce`. Evidence: `/private/tmp/nsharp-playground-dead-diagnostics-20260908`.
+This deletion awaits the next integration checkpoint; the complete SDK task remains active.
 CodeIntelligenceService's project-loading/property-copy boundary is mechanical; completion,
 fix-command and output presentation policy remain separately scoped.
 
