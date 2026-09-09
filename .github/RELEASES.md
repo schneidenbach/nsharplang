@@ -26,7 +26,7 @@ Official `v*` pushes retain the separate GitHub Packages publishing workflow.
 
 The compiler migration's E0 ownership manifest is unchanged. The explicitly requested
 delivery repair is recorded separately in
-`tests/native/ownership-audit/DeliveryOwnership.nl`: fifteen exact paths and fingerprints,
+`tests/native/ownership-audit/DeliveryOwnership.nl`: sixteen exact paths and fingerprints,
 including both bootstrap binaries. This is not a directory or language exemption.
 The live audit requires each file to exist and rejects changed contents, new adjacent
 files, and removed E0 owners. Future delivery changes require reviewing this record.

@@ -9,7 +9,10 @@ September 9, 2026, after the accepted compiler ownership and Core rename gates. 
 `python3 scripts/verify-bootstrap.py` checks the hashes and package identities against
 the compiler's SDK pin before CI executes the seed. The root `NuGet.config` makes the
 seed available on clean machines, including public fork builds, without credentials.
-The packages contain portable managed .NET 10 assemblies.
+The packages contain portable managed .NET 10 assemblies. The delivery repair adds the
+missing `System.Reflection.MetadataLoadContext.dll` to the original SDK archive while
+preserving all original compiler DLL bytes; without it, clean Linux builds cannot
+resolve the compiler metadata resolver's external base class.
 
 To repin, build and verify the new SDK using the current seed, copy the resulting
 SDK/runtime packages here, update the compiler's SDK/runtime pins if their versions

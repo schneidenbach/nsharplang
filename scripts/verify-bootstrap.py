@@ -22,6 +22,8 @@ for name, digest in entries.items():
     if hashlib.sha256(path.read_bytes()).hexdigest() != digest:
         raise SystemExit(f'Bootstrap checksum mismatch: {name}')
     with zipfile.ZipFile(path) as package:
+        if name.startswith("NSharpLang.Sdk.") and "tools/System.Reflection.MetadataLoadContext.dll" not in package.namelist():
+            raise SystemExit("Bootstrap SDK is missing its metadata-loading dependency")
         spec = ET.fromstring(package.read(next(n for n in package.namelist() if n.endswith('.nuspec'))))
         metadata = next(e for e in spec if e.tag.endswith('metadata'))
         fields = {e.tag.split('}')[-1]: e.text for e in metadata}

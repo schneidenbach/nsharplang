@@ -17,6 +17,8 @@ for path in Path(sys.argv[1]).glob('*.nupkg'):
             element.tag = element.tag.split('}')[-1]
         metadata = spec.find('metadata')
         package_id = metadata.findtext('id')
+        if package_id == 'NSharpLang.Sdk' and 'tools/System.Reflection.MetadataLoadContext.dll' not in archive.namelist():
+            raise SystemExit('SDK package is missing System.Reflection.MetadataLoadContext.dll')
         if package_id in packages:
             raise SystemExit(f'Duplicate package in release: {package_id}')
         packages[package_id] = (metadata.findtext('version'), metadata.findall('.//dependency'))

@@ -98,7 +98,7 @@ if '.head.sha' in args: print(os.environ['HEAD'])
         self.assertEqual(self.publish(pr='')[0][2],'unofficial-main-100-2')
 
 class PackageClosureTests(unittest.TestCase):
-    def validate(self, omit='', core_version='1.0.0', duplicate=False):
+    def validate(self, omit='', core_version='1.0.0', duplicate=False, missing_loader=False):
         import zipfile
         with tempfile.TemporaryDirectory() as d:
             names=['Sdk', 'Runtime', 'Templates', 'Compiler', 'Compiler.Core']
@@ -110,6 +110,8 @@ class PackageClosureTests(unittest.TestCase):
                 content=f'<package><metadata><id>NSharpLang.{name}</id><version>{version}</version>{dependency}</metadata></package>'
                 with zipfile.ZipFile(Path(d)/f'{name}.nupkg','w') as archive:
                     archive.writestr(f'{name}.nuspec',content)
+                    if name == 'Sdk' and not missing_loader:
+                        archive.writestr('tools/System.Reflection.MetadataLoadContext.dll',b'fixture')
             if duplicate:
                 import shutil
                 shutil.copyfile(Path(d)/'Sdk.nupkg',Path(d)/'duplicate.nupkg')
@@ -121,6 +123,8 @@ class PackageClosureTests(unittest.TestCase):
         self.assertNotEqual(self.validate(omit='Compiler.Core').returncode,0)
     def test_wrong_core_version_is_rejected(self):
         self.assertNotEqual(self.validate(core_version='2.0.0').returncode,0)
+    def test_missing_sdk_loader_is_rejected(self):
+        self.assertNotEqual(self.validate(missing_loader=True).returncode,0)
     def test_duplicate_package_is_rejected(self):
         self.assertNotEqual(self.validate(duplicate=True).returncode,0)
 

@@ -20,6 +20,7 @@ class DeliveryOwnershipPolicy {
             "scripts/pack-nuget.sh",
             "scripts/verify-bootstrap.py",
             "scripts/verify-release.py",
+            "src/NSharpLang.Sdk/NSharpLang.Sdk.csproj",
             "tests/NSharpLang.IntegrationTests/ToolchainFixture.cs",
             "tests/scripts/test-all.sh",
             "tests/scripts/test-release-workflows.py"
@@ -49,7 +50,7 @@ class DeliveryOwnershipPolicy {
             return "binary-v1:2e0fa24ab2748f34"
         }
         if path == "bootstrap/NSharpLang.Sdk.0.1.0.nupkg" {
-            return "binary-v1:0d797850166417f8"
+            return "binary-v1:d6256d015646c855"
         }
         if path == "scripts/lib/packages.sh" {
             return "text-v1:a14472510bd75cac"
@@ -58,10 +59,13 @@ class DeliveryOwnershipPolicy {
             return "text-v1:4a62685e3e4e0eba"
         }
         if path == "scripts/verify-bootstrap.py" {
-            return "text-v1:ef150868dd33b873"
+            return "text-v1:20bb29e43ba95d73"
         }
         if path == "scripts/verify-release.py" {
-            return "text-v1:f7a190da83e1642f"
+            return "text-v1:4c271ea28caf8265"
+        }
+        if path == "src/NSharpLang.Sdk/NSharpLang.Sdk.csproj" {
+            return "text-v1:3872bf66a6064477"
         }
         if path == "tests/NSharpLang.IntegrationTests/ToolchainFixture.cs" {
             return "text-v1:9240fa0e545cc152"
@@ -70,7 +74,7 @@ class DeliveryOwnershipPolicy {
             return "text-v1:731255217cac719a"
         }
         if path == "tests/scripts/test-release-workflows.py" {
-            return "text-v1:51739369e5a2e5db"
+            return "text-v1:fc4dd10188c8006c"
         }
         return ""
     }
