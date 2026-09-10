@@ -6,6 +6,51 @@ import System.IO
 import System.Reflection
 import System.Reflection.Emit
 import System.Runtime.Loader
+import Microsoft.Build.Framework
+
+func RuntimePairingFindReferencePackAssembly(simpleName: string): string {
+    runtimeDirectory := RuntimeEnvironment.GetRuntimeDirectory()
+    versionDirectory := Path.GetDirectoryName(runtimeDirectory)
+    frameworkDirectory := Path.GetDirectoryName(versionDirectory ?? "")
+    dotnetRoot := Path.GetDirectoryName(frameworkDirectory ?? "")
+    if dotnetRoot == null {
+        return ""
+    }
+
+    referencePackRoot := Path.Combine(Path.Combine(dotnetRoot, "packs"), "Microsoft.NETCore.App.Ref")
+    versionDirectories := Directory.GetDirectories(referencePackRoot, "*", SearchOption.TopDirectoryOnly)
+    index := 0
+    while index < versionDirectories.Length {
+        candidate := Path.Combine(Path.Combine(Path.Combine(versionDirectories[index], "ref"), "net10.0"), simpleName + ".dll")
+        if File.Exists(candidate) {
+            return candidate
+        }
+
+        index = index + 1
+    }
+
+    return ""
+}
+
+func RuntimePairingFindNuGetReferenceAssembly(packageName: string, simpleName: string): string {
+    packagesRoot := CompilationReferenceResolverKernels.GetGlobalPackagesFolder(
+        Environment.GetEnvironmentVariable("NUGET_PACKAGES"),
+        Environment.GetFolderPath(Environment.SpecialFolder.UserProfile)
+    )
+    packageDirectory := Path.Combine(packagesRoot, packageName.ToLowerInvariant())
+    versionDirectories := Directory.GetDirectories(packageDirectory, "*", SearchOption.TopDirectoryOnly)
+    versionIndex := 0
+    while versionIndex < versionDirectories.Length {
+        candidate := Path.Combine(Path.Combine(Path.Combine(versionDirectories[versionIndex], "ref"), "net10.0"), simpleName + ".dll")
+        if File.Exists(candidate) {
+            return candidate
+        }
+
+        versionIndex = versionIndex + 1
+    }
+
+    return ""
+}
 
 func RuntimePairingSetObject(values: object?[], index: int, value: object?) {
     values[index] = value
@@ -75,6 +120,7 @@ test "emission runtime index replaces a foreign same identity handle with the co
 
     runtimePath := compilerRuntime.get_Location()
     runtimeIdentity := compilerRuntime.GetName().get_FullName()
+    assert ExternalAssemblyScan.CompilerAssemblyReferencesIdentity(runtimeIdentity)
     foreignContext := RuntimePairingCreateNonCollectibleContext()
     foreignRuntime := RuntimePairingLoadAssembly(foreignContext, runtimePath)
     foreignRuntimeContext := AssemblyLoadContext.GetLoadContext(foreignRuntime)
@@ -88,6 +134,7 @@ test "emission runtime index replaces a foreign same identity handle with the co
     byIdentity := new Dictionary<string, Assembly>(StringComparer.Ordinal)
     byIdentity[runtimeIdentity] = foreignRuntime
     unrelatedIdentity := "NSharpTests.Unrelated.Runtime, Version=1.0.0.0, Culture=neutral, PublicKeyToken=null"
+    assert !ExternalAssemblyScan.CompilerAssemblyReferencesIdentity(unrelatedIdentity)
     byIdentity[unrelatedIdentity] = foreignRuntime
 
     initialRuntime := byIdentity[runtimeIdentity]
@@ -141,6 +188,36 @@ test "metadata module version selects the matching same-identity build" {
     assert Object.ReferenceEquals(selected, secondBuild), "Runtime selection must follow the selected metadata MVID, not the first same-AQN candidate."
 }
 
+test "exact NuGet ref and lib pairing wins before host dependency preservation" {
+    runtimeSourcePath := typeof(ExternalAssemblyScan).get_Assembly().get_Location()
+    netDirectory := Path.GetDirectoryName(runtimeSourcePath)
+    configurationDirectory := Path.GetDirectoryName(netDirectory)
+    binDirectory := Path.GetDirectoryName(configurationDirectory)
+    projectDirectory := Path.GetDirectoryName(binDirectory)
+    assert projectDirectory != null
+    referenceSourcePath := Path.Combine(projectDirectory, "obj/" + Path.GetFileName(configurationDirectory) + "/" + Path.GetFileName(netDirectory) + "/refint/" + Path.GetFileName(runtimeSourcePath))
+    assert File.Exists(referenceSourcePath)
+
+    root := Path.Combine(Path.GetTempPath(), "nsharp-runtime-pairing-paired-" + Guid.NewGuid().ToString("N"))
+    referencePath := Path.Combine(root, "package/1.0.0/ref/net10.0/Paired.dll")
+    runtimePath := Path.Combine(root, "package/1.0.0/lib/net10.0/Paired.dll")
+    ExternalCopyAsset(referenceSourcePath, referencePath)
+    ExternalCopyAsset(runtimeSourcePath, runtimePath)
+    try {
+        foreignContext := RuntimePairingCreateNonCollectibleContext()
+        foreignRuntime := RuntimePairingLoadAssembly(foreignContext, runtimePath)
+        identity := AssemblyName.GetAssemblyName(referencePath).get_FullName()
+        candidates := new Assembly[](1)
+        candidates[0] = foreignRuntime
+        selected := ExternalAssemblyScan.SelectRuntimeAssemblyByMetadata(candidates, typeof(ExternalAssemblyScan).get_Assembly(), identity, referencePath)
+        assert Object.ReferenceEquals(selected, foreignRuntime)
+    } finally {
+        if Directory.Exists(root) {
+            Directory.Delete(root, true)
+        }
+    }
+}
+
 test "emission runtime preference retains wrong identity refusal" {
     preferred := ExternalAssemblyScan.PreferEmissionRuntimeAssemblies(
         new Dictionary<string, Assembly>(StringComparer.Ordinal)
@@ -152,4 +229,88 @@ test "emission runtime preference retains wrong identity refusal" {
     assert !preferred.ContainsKey(wrongIdentity)
     wrong := ExternalAssemblyScan.TryLoadExactRuntimeAssembly(preferred, runtimePath, wrongIdentity)
     assert wrong == null, "A loadable path cannot satisfy a different assembly identity."
+}
+
+test "framework pack metadata resolves its exact shared runtime implementation" {
+    referencePath := RuntimePairingFindReferencePackAssembly("System.IO.Compression.ZipFile")
+    assert referencePath.Length > 0
+    assert ExternalAssemblyScan.IsFrameworkPackReferencePath(referencePath)
+
+    runtimePath := ExternalAssemblyScan.FrameworkRuntimePathForReference(referencePath)
+    assert runtimePath.Length > 0
+    assert File.Exists(runtimePath)
+    assert runtimePath != referencePath
+
+    identity := AssemblyName.GetAssemblyName(referencePath).get_FullName()
+    runtimeIdentity := AssemblyName.GetAssemblyName(runtimePath).get_FullName()
+    assert identity == runtimeIdentity
+
+    byIdentity := new Dictionary<string, Assembly>(StringComparer.Ordinal)
+    selected := ExternalAssemblyScan.TryLoadExactRuntimeAssembly(byIdentity, referencePath, identity)
+    assert selected != null
+    assert selected.GetName().get_FullName() == identity
+    assert Path.GetFullPath(selected.get_Location()) == Path.GetFullPath(runtimePath)
+}
+
+test "MSBuild NuGet reference retains the exact compiler-context dependency" {
+    referencePath := RuntimePairingFindNuGetReferenceAssembly("microsoft.build.framework", "Microsoft.Build.Framework")
+    assert referencePath.Length > 0
+    assert ExternalAssemblyScan.IsHostDependencyReferencePath(referencePath)
+
+    compilerRuntime := typeof(ITaskItem).get_Assembly()
+    identity := AssemblyName.GetAssemblyName(referencePath).get_FullName()
+    assert compilerRuntime.GetName().get_FullName() == identity
+    assert ExternalAssemblyScan.HasUsableRuntimeContract(referencePath)
+
+    byIdentity := new Dictionary<string, Assembly>(StringComparer.Ordinal)
+    byIdentity[identity] = compilerRuntime
+    selected := ExternalAssemblyScan.TryLoadExactRuntimeAssembly(byIdentity, referencePath, identity)
+    assert selected != null
+    assert Object.ReferenceEquals(selected, compilerRuntime)
+
+    paths := new List<string>()
+    paths.Add(referencePath)
+    scan := ExternalAssemblyScan.OpenWithReferences(paths)
+    try {
+        resolved := ExternalAssemblyScan.FindExactType(scan, "Microsoft.Build.Framework.ITaskItem")
+        assert resolved.Status == ExternalAssemblyTypeLookupStatus.Found
+        assert resolved.HasRuntimeType
+        assert resolved.RuntimeType.get_AssemblyQualifiedName() == typeof(ITaskItem).get_AssemblyQualifiedName()
+    } finally {
+        scan.Dispose()
+    }
+}
+
+test "unrelated compiler-context assemblies cannot satisfy a NuGet reference contract" {
+    referencePackPath := RuntimePairingFindReferencePackAssembly("System.Drawing.Primitives")
+    assert referencePackPath.Length > 0
+    runtimePath := ExternalAssemblyScan.FrameworkRuntimePathForReference(referencePackPath)
+    assert runtimePath.Length > 0
+
+    compilerContext := AssemblyLoadContext.GetLoadContext(typeof(ExternalAssemblyScan).get_Assembly())
+    if compilerContext == null {
+        throw new InvalidOperationException("The compiler AssemblyLoadContext was not available.")
+    }
+
+    compilerRuntime := RuntimePairingLoadAssembly(compilerContext, runtimePath)
+    identity := compilerRuntime.GetName().get_FullName()
+    assert ExternalAssemblyScan.IsCompilerContextRuntimeAssembly(compilerRuntime)
+    assert !ExternalAssemblyScan.CompilerAssemblyReferencesIdentity(identity)
+
+    root := Path.Combine(Path.GetTempPath(), "nsharp-runtime-pairing-unrelated-" + Guid.NewGuid().ToString("N"))
+    referencePath := Path.Combine(root, "package/1.0.0/ref/net10.0/Unrelated.dll")
+    pairedRuntimePath := Path.Combine(root, "package/1.0.0/lib/net10.0/Unrelated.dll")
+    ExternalCopyAsset(referencePackPath, referencePath)
+    ExternalCopyAsset(runtimePath, pairedRuntimePath)
+    try {
+        assert ExternalAssemblyScan.HasUsableRuntimeContract(referencePath)
+        byIdentity := new Dictionary<string, Assembly>(StringComparer.Ordinal)
+        byIdentity[identity] = compilerRuntime
+        selected := ExternalAssemblyScan.TryLoadExactRuntimeAssembly(byIdentity, referencePath, identity)
+        assert selected == null
+    } finally {
+        if Directory.Exists(root) {
+            Directory.Delete(root, true)
+        }
+    }
 }

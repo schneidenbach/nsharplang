@@ -242,7 +242,7 @@ test "external reference paths reject a conventionally located runtime with a di
     assert loadedReference == null, "A NuGet ref/<tfm> image must never be loaded for execution when its lib companion is unavailable."
 }
 
-test "external assembly scan retains reference-only metadata without a runtime pair" {
+test "external assembly scan resolves framework-pack metadata to the shared runtime implementation" {
     coreRuntimePath := typeof(object).get_Assembly().get_Location()
     runtimeVersionDirectory := Path.GetDirectoryName(coreRuntimePath)
     runtimeFrameworkDirectory := Path.GetDirectoryName(runtimeVersionDirectory)
@@ -287,7 +287,8 @@ test "external assembly scan retains reference-only metadata without a runtime p
 
         assert resolved.Status == ExternalAssemblyTypeLookupStatus.Found
         assert resolved.SemanticTypeIdentity.StartsWith("System.Formats.Tar.TarEntry, System.Formats.Tar", StringComparison.Ordinal)
-        assert !resolved.HasRuntimeType, "A reference-only input must remain metadata-only when no lib companion exists."
+        assert resolved.HasRuntimeType, "A framework-pack reference must use its shared-runtime implementation instead of the reference image."
+        assert ExternalAssemblyScan.RuntimeAssemblyPathMatches(resolved.RuntimeType.get_Assembly(), ExternalAssemblyScan.FrameworkRuntimePathForReference(referencePath))
     } finally {
         scan.Dispose()
     }

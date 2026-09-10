@@ -6,6 +6,7 @@ import System.IO
 import System.Reflection
 import System.Runtime.InteropServices
 import System.Runtime.Loader
+import NSharpLang.Cli
 
 enum ExternalAssemblyTypeLookupStatus {
     Missing,
@@ -518,18 +519,35 @@ class ExternalAssemblyScan {
             return false
         }
 
-        // Reference assemblies intentionally have a different module identity from their lib
-        // companion. Their exact paired runtime path is the build boundary; configured ref-only
-        // inputs never acquire a runtime handle because TryLoadExactRuntimeAssembly refuses to load
-        // ref/refint paths. A host common entry may already carry the runtime loaded by Assembly.Load
-        // when no paired path exists, which preserves framework resolution in single-file hosts.
-        if IsReferenceAssemblyPath(entry.MetadataPath) {
+        // Project reference assemblies intentionally have a different module identity from their
+        // bin companion. The selected project's exact output is the only executable handle allowed
+        // for an obj/ref or obj/refint input. A same-AQN compiler dependency must not replace it.
+        if IsProjectReferenceAssemblyPath(entry.MetadataPath) {
             runtimePath := GetRuntimePathCandidate(entry.MetadataPath)
             if runtimePath.Length == 0 || !File.Exists(runtimePath) {
-                return true
+                return false
             }
 
             return RuntimeAssemblyPathMatches(runtimeAssembly, runtimePath)
+        }
+
+        // Framework packs and NuGet compile assets are metadata images. Their implementation may
+        // already be loaded by the compiler's own context from a different path (MSBuild task
+        // probing is the important example), so an exact compiler-context AQN is executable when
+        // the path-shaped runtime contract is present even if the physical paths differ. Foreign
+        // same-AQN handles remain ineligible and reference-only inputs stay metadata-only when no
+        // usable contract exists.
+        if IsHostDependencyReferencePath(entry.MetadataPath) {
+            if !HasUsableRuntimeContract(entry.MetadataPath) {
+                return false
+            }
+
+            runtimePath := RuntimePathForReferenceContract(entry.MetadataPath)
+            if RuntimeAssemblyPathMatches(runtimeAssembly, runtimePath) {
+                return true
+            }
+
+            return CompilerAssemblyReferencesIdentity(entry.Identity) && IsCompilerContextRuntimeAssembly(runtimeAssembly)
         }
 
         runtimeModuleVersionId := RuntimeAssemblyModuleVersionId(runtimeAssembly)
@@ -540,6 +558,17 @@ class ExternalAssemblyScan {
     static func SelectRuntimeAssemblyForMetadata(runtimeAssemblies: Dictionary<string, Assembly>, metadataAssembly: Assembly, identity: string, metadataPath: string): Assembly? {
         if metadataAssembly == null || identity == null || identity.Length == 0 {
             return null
+        }
+
+        // A framework-pack reference is never executable. Resolve its implementation from the
+        // selected shared framework directory before considering the generic ref/lib pairing rules.
+        // The helper validates the full assembly identity, so a same-name framework image cannot
+        // leak into emission.
+        if IsFrameworkPackReferencePath(metadataPath) {
+            frameworkRuntime := TryLoadFrameworkRuntimeAssembly(runtimeAssemblies, metadataPath, identity)
+            if frameworkRuntime != null {
+                return frameworkRuntime
+            }
         }
 
         candidates := new List<Assembly>()
@@ -568,7 +597,7 @@ class ExternalAssemblyScan {
 
         pairedRuntimePath := GetRuntimePathCandidate(metadataPath)
         index := 0
-        if IsReferenceAssemblyPath(metadataPath) {
+        if IsProjectReferenceAssemblyPath(metadataPath) {
             if pairedRuntimePath.Length == 0 || !File.Exists(pairedRuntimePath) {
                 return null
             }
@@ -577,6 +606,34 @@ class ExternalAssemblyScan {
             while index < candidates.Count {
                 candidate := candidates[index]
                 if RuntimeAssemblyHasIdentity(candidate, identity) && RuntimeAssemblyPathMatches(candidate, pairedRuntimePath) {
+                    return candidate
+                }
+
+                index = index + 1
+            }
+
+            return null
+        }
+
+        // NuGet/framework reference contracts may have no usable path pair in the host process.
+        // Preserve the compiler-context exact-AQN dependency in that case; arbitrary loaded
+        // assemblies and project ref/refint paths never enter this branch.
+        if IsHostDependencyReferencePath(metadataPath) {
+            runtimePath := RuntimePathForReferenceContract(metadataPath)
+            index = 0
+            while index < candidates.Count {
+                candidate := candidates[index]
+                if RuntimeAssemblyHasIdentity(candidate, identity) && RuntimeAssemblyPathMatches(candidate, runtimePath) {
+                    return candidate
+                }
+
+                index = index + 1
+            }
+
+            index = 0
+            while index < candidates.Count {
+                candidate := candidates[index]
+                if RuntimeAssemblyHasIdentity(candidate, identity) && IsCompilerContextRuntimeAssembly(candidate) && CompilerAssemblyReferencesIdentity(identity) && HasUsableRuntimeContract(metadataPath) {
                     return candidate
                 }
 
@@ -682,6 +739,164 @@ class ExternalAssemblyScan {
         referenceRoot := Path.GetDirectoryName(directory ?? "")
         referenceRootName := Path.GetFileName(referenceRoot ?? "")
         return string.Equals(referenceRootName, "ref", StringComparison.OrdinalIgnoreCase) || string.Equals(referenceRootName, "refint", StringComparison.OrdinalIgnoreCase)
+    }
+
+    static func IsProjectReferenceAssemblyPath(path: string): bool {
+        if path == null || path.Length == 0 {
+            return false
+        }
+
+        referenceDirectory := Path.GetDirectoryName(path)
+        referenceDirectoryName := Path.GetFileName(referenceDirectory ?? "")
+        if !string.Equals(referenceDirectoryName, "ref", StringComparison.OrdinalIgnoreCase) && !string.Equals(referenceDirectoryName, "refint", StringComparison.OrdinalIgnoreCase) {
+            return false
+        }
+
+        targetFrameworkDirectory := Path.GetDirectoryName(referenceDirectory ?? "")
+        configurationDirectory := Path.GetDirectoryName(targetFrameworkDirectory ?? "")
+        objectDirectory := Path.GetDirectoryName(configurationDirectory ?? "")
+        projectDirectory := Path.GetDirectoryName(objectDirectory ?? "")
+        return string.Equals(Path.GetFileName(objectDirectory ?? ""), "obj", StringComparison.OrdinalIgnoreCase) && !string.IsNullOrWhiteSpace(projectDirectory ?? "")
+    }
+
+    static func IsFrameworkPackReferencePath(path: string): bool {
+        if path == null || path.Length == 0 {
+            return false
+        }
+
+        targetFrameworkDirectory := Path.GetDirectoryName(path)
+        referenceRoot := Path.GetDirectoryName(targetFrameworkDirectory ?? "")
+        versionDirectory := Path.GetDirectoryName(referenceRoot ?? "")
+        packDirectory := Path.GetDirectoryName(versionDirectory ?? "")
+        packsDirectory := Path.GetDirectoryName(packDirectory ?? "")
+        packName := Path.GetFileName(packDirectory ?? "")
+        return string.Equals(Path.GetFileName(referenceRoot ?? ""), "ref", StringComparison.OrdinalIgnoreCase) && string.Equals(Path.GetFileName(packsDirectory ?? ""), "packs", StringComparison.OrdinalIgnoreCase) && packName.Length > 4 && string.Equals(packName.Substring(packName.Length - 4), ".Ref", StringComparison.OrdinalIgnoreCase)
+    }
+
+    static func IsHostDependencyReferencePath(path: string): bool {
+        if !IsReferenceAssemblyPath(path) || IsProjectReferenceAssemblyPath(path) {
+            return false
+        }
+
+        return IsFrameworkPackReferencePath(path) || GetRuntimePathCandidate(path).Length > 0
+    }
+
+    static func HasUsableRuntimeContract(path: string): bool {
+        runtimePath := RuntimePathForReferenceContract(path)
+        return runtimePath.Length > 0 && IsExactAssemblyPair(path, runtimePath)
+    }
+
+    static func RuntimePathForReferenceContract(path: string): string {
+        if IsFrameworkPackReferencePath(path) {
+            return FrameworkRuntimePathForReference(path)
+        }
+
+        return GetRuntimePathCandidate(path)
+    }
+
+    static func CompilerAssemblyReferencesIdentity(identity: string): bool {
+        if identity == null || identity.Length == 0 {
+            return false
+        }
+
+        references := typeof(ExternalAssemblyScan).get_Assembly().GetReferencedAssemblies()
+        index := 0
+        while index < references.Length {
+            if references[index].get_FullName() == identity {
+                return true
+            }
+
+            index = index + 1
+        }
+
+        return false
+    }
+
+    static func IsCompilerContextRuntimeAssembly(assembly: Assembly?): bool {
+        if assembly == null {
+            return false
+        }
+
+        compilerContext := AssemblyLoadContext.GetLoadContext(typeof(ExternalAssemblyScan).get_Assembly())
+        assemblyContext := AssemblyLoadContext.GetLoadContext(assembly)
+        return compilerContext != null && Object.ReferenceEquals(compilerContext, assemblyContext)
+    }
+
+    // Framework reference packs do not have NuGet's lib/<tfm> sibling. The implementation is in
+    // the matching shared framework directory selected by the same TFM/version policy as ordinary
+    // framework resolution. This path is only used for the executable handle; MetadataLoadContext
+    // continues to read the original reference image.
+    static func FrameworkRuntimePathForReference(referencePath: string): string {
+        if !IsFrameworkPackReferencePath(referencePath) {
+            return ""
+        }
+
+        targetFrameworkDirectory := Path.GetDirectoryName(referencePath)
+        referenceRoot := Path.GetDirectoryName(targetFrameworkDirectory ?? "")
+        versionDirectory := Path.GetDirectoryName(referenceRoot ?? "")
+        packDirectory := Path.GetDirectoryName(versionDirectory ?? "")
+        packsDirectory := Path.GetDirectoryName(packDirectory ?? "")
+        dotnetRoot := Path.GetDirectoryName(packsDirectory ?? "")
+        packName := Path.GetFileName(packDirectory ?? "")
+        targetFramework := Path.GetFileName(targetFrameworkDirectory ?? "")
+        if dotnetRoot == null || packName.Length <= 4 || targetFramework == null || targetFramework.Length == 0 {
+            return ""
+        }
+
+        frameworkName := packName.Substring(0, packName.Length - 4)
+        sharedRoots := CompilationReferenceResolverKernels.GetDotnetSharedRootCandidates(RuntimeEnvironment.GetRuntimeDirectory())
+        rootIndex := 0
+        while rootIndex < sharedRoots.Length {
+            frameworkRoot := CompilationReferenceResolverKernels.GetSharedFrameworkRoot(sharedRoots[rootIndex], frameworkName)
+            if Directory.Exists(frameworkRoot) {
+                selectedDirectory := CompilationReferenceResolverKernels.SelectSharedFrameworkDirectory(Directory.GetDirectories(frameworkRoot), targetFramework)
+                if selectedDirectory != null {
+                    candidate := Path.Combine(selectedDirectory, Path.GetFileName(referencePath))
+                    if File.Exists(candidate) {
+                        return Path.GetFullPath(candidate)
+                    }
+                }
+            }
+
+            rootIndex = rootIndex + 1
+        }
+
+        return ""
+    }
+
+    static func TryLoadFrameworkRuntimeAssembly(runtimeAssemblies: Dictionary<string, Assembly>, referencePath: string, identity: string): Assembly? {
+        runtimePath := FrameworkRuntimePathForReference(referencePath)
+        if runtimePath.Length == 0 {
+            return null
+        }
+
+        loadedAssemblies := Loaded()
+        loadedIndex := 0
+        while loadedIndex < loadedAssemblies.Length {
+            loaded := loadedAssemblies[loadedIndex]
+            if RuntimeAssemblyHasIdentity(loaded, identity) && RuntimeAssemblyPathMatches(loaded, runtimePath) {
+                return loaded
+            }
+
+            loadedIndex = loadedIndex + 1
+        }
+
+        if runtimeAssemblies != null && runtimeAssemblies.ContainsKey(identity) {
+            selected := runtimeAssemblies[identity]
+            if RuntimeAssemblyHasIdentity(selected, identity) && CompilerAssemblyReferencesIdentity(identity) && IsCompilerContextRuntimeAssembly(selected) && HasUsableRuntimeContract(referencePath) {
+                return selected
+            }
+        }
+
+        try {
+            runtimeAssembly := Assembly.LoadFrom(runtimePath)
+            if RuntimeAssemblyHasIdentity(runtimeAssembly, identity) {
+                return runtimeAssembly
+            }
+        } catch {
+        }
+
+        return null
     }
 
     static func FindExactType(scan: ExternalAssemblyScanResult, fullName: string): ExternalAssemblyTypeResolution {
@@ -855,7 +1070,19 @@ class ExternalAssemblyScan {
     static func TryLoadExactRuntimeAssembly(runtimeAssemblies: Dictionary<string, Assembly>, path: string, identity: string): Assembly? {
         if runtimeAssemblies.ContainsKey(identity) {
             selected := runtimeAssemblies[identity]
-            if path == null || path.Length == 0 || !File.Exists(path) || RuntimeAssemblyPathMatches(selected, path) {
+            if !RuntimeAssemblyHasIdentity(selected, identity) {
+                return null
+            }
+
+            if path == null || path.Length == 0 || RuntimeAssemblyPathMatches(selected, path) {
+                return selected
+            }
+
+            if !File.Exists(path) {
+                if IsProjectReferenceAssemblyPath(path) {
+                    return null
+                }
+
                 return selected
             }
 
@@ -875,6 +1102,24 @@ class ExternalAssemblyScan {
                 loadedIndex = loadedIndex + 1
             }
 
+            if IsProjectReferenceAssemblyPath(path) {
+                return null
+            }
+
+            if IsHostDependencyReferencePath(path) && CompilerAssemblyReferencesIdentity(identity) && IsCompilerContextRuntimeAssembly(selected) && HasUsableRuntimeContract(path) {
+                return selected
+            }
+
+            if IsFrameworkPackReferencePath(path) {
+                frameworkRuntime := TryLoadFrameworkRuntimeAssembly(runtimeAssemblies, path, identity)
+                if frameworkRuntime != null {
+                    return frameworkRuntime
+                }
+            }
+
+            // Reference images are metadata inputs. The framework helper and exact paired
+            // runtime-path probe above are the only routes that may supply their executable
+            // implementation; never pass a ref/refint image to Assembly.LoadFrom.
             if IsReferenceAssemblyPath(path) {
                 return null
             }
@@ -891,9 +1136,16 @@ class ExternalAssemblyScan {
             } catch {
             }
 
-            // A reference image cannot be loaded for execution. Let the later paired runtime path
-            // or metadata-only entry decide rather than binding a different same-AQN build.
+            // An incompatible runtime image cannot satisfy this exact identity. Let the metadata
+            // entry remain runtime-free rather than binding a different same-AQN build.
             return null
+        }
+
+        if IsFrameworkPackReferencePath(path) {
+            frameworkRuntime := TryLoadFrameworkRuntimeAssembly(runtimeAssemblies, path, identity)
+            if frameworkRuntime != null {
+                return frameworkRuntime
+            }
         }
 
         if IsReferenceAssemblyPath(path) {
