@@ -94,8 +94,13 @@ A finished lane is not completion of this whole objective.
   reflection universe, preserving exact identities instead of requiring a constructed-name lookup
   through the defining assembly. All 8,057 Core assertions pass at 8b968d92a:
   /private/tmp/toolchain-integrated-catalog-canonicals-r1.log. This resolves the facade's generic
-  return-type blocker. The direct completion-prefix kernel call still needs ordinary external
-  static out-parameter support; duplicate prefix policy and per-kernel adapters are not accepted.
+  return-type blocker.
+- Ordinary external ref/out calls now use the semantic call planner and lexical managed addresses;
+  no loaded-assembly name scan or per-kernel adapter was added. Runtime tests cover mutation,
+  nested argument evaluation, exact modifier matching, out initialization and uninitialized-ref
+  rejection. All 8,068 Core assertions pass at ce44d49b8:
+  /private/tmp/toolchain-integrated-static-byref-canonicals-r1.log. The facade can call the existing
+  completion-prefix kernel directly; final owner/package integration remains in progress.
 - All five IlSdkToolchainTests.cs cases now have N# successors and the C# file is removed in the
   integration candidate. Review retained XML UnitTestResult/outcome semantics and removed new
   assertions that merely mirrored private field names. All 20 native SDK tests pass against a private package (22.7s). Receipt:
