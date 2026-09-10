@@ -1449,6 +1449,68 @@ class UserService {
 }
 ```
 
+### Qualified names
+
+A namespace-qualified name works anywhere a bare name does — as a type, as the receiver of a
+static call, as the thing you construct. Nothing has to be imported for it:
+
+```n#
+package MyApp
+
+func Report(parts: List<string>): string {
+    largest := System.Math.Max(1, 2)                        // a qualified static call
+    limit := System.Int32.MaxValue                          // a qualified static read
+    builder := new System.Text.StringBuilder()              // a qualified construction
+    day := System.DayOfWeek.Monday                          // a qualified enum member
+    joined := System.String.Join(",", parts)                // any namespace depth
+    return joined
+}
+```
+
+The same spelling reaches your own project's namespaces:
+
+```n#
+package MyApp
+
+func Create(): MyApp.Models.Person {
+    return MyApp.Models.Person.Default
+}
+```
+
+An **alias** qualifies exactly the same way — `import System.IO as Io` makes `Io.Path.Combine(a, b)`
+mean `System.IO.Path.Combine(a, b)`:
+
+```n#
+import System.IO as Io
+import System.Text as Txt
+
+package MyApp
+
+func Combine(left: string, right: string): string {
+    builder := new Txt.StringBuilder()
+    builder.Append(Io.Path.Combine(left, right))
+    return builder.ToString()
+}
+```
+
+### Which declaration a bare name means
+
+A bare name is resolved in this order, and the first channel that answers wins:
+
+1. **Your file's own namespace.** A type declared alongside you is what the name means, whatever
+   your imports bring in. Files that share a namespace see each other's types with no import.
+2. **Your imports, in the order you wrote them** — a source namespace and a .NET namespace count
+   equally here. If two imports supply the same name, that is [NL209](errors/NL209.md): neither is
+   closer, so the compiler asks you to say which one you mean.
+3. **Project-wide auto-discovery.** An exported type anywhere in your project is usable by its bare
+   name without an import, as long as exactly one declaration has that name. This is a convenience,
+   so it ranks *below* anything you imported explicitly — a `class Version` of your own in a
+   namespace you never imported does not take the name `Version` away from `import System`.
+4. **The referenced assemblies**, by simple name.
+
+When two declarations tie, or when auto-discovery picks up a name you did not mean, write the
+qualified name. It is never ambiguous.
+
 ## Visibility
 
 N# uses Go-style naming conventions for visibility — do not write `public`/`private` keywords for ordinary code. The formatter removes redundant `public`/`private` when casing already expresses the same visibility.

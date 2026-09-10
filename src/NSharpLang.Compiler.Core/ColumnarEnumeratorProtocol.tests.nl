@@ -239,12 +239,21 @@ test "IEnumerator admits the already-owned closed KeyValuePair shell with a sour
         new Type[](0),
         false
     ).IsNotFound
-    assert ColumnarOrdinaryRuntimeDirectCallResolver.Resolve(
+    // A DICTIONARY WITH NO BUILDER IN IT reaches the ordinary lookup, whose candidate sweep now
+    // walks the base interfaces: `IReadOnlyDictionary<string, string>` inherits `GetEnumerator` from
+    // `IEnumerable<KeyValuePair<string, string>>`, so it resolves like any other inherited interface
+    // member. The rebinding arm above still owns the BUILDER-bound shapes, which reflection cannot
+    // answer for at all.
+    plainDictionaryAcquisition := ColumnarOrdinaryRuntimeDirectCallResolver.Resolve(
         typeof(IReadOnlyDictionary<string, string>),
         "GetEnumerator",
         new Type[](0),
         false
-    ).IsNotFound
+    )
+    assert plainDictionaryAcquisition.IsSelected
+    assert plainDictionaryAcquisition.LookupType == typeof(IReadOnlyDictionary<string, string>)
+    assert plainDictionaryAcquisition.DeclaringType == typeof(IEnumerable<KeyValuePair<string, string>>)
+    assert plainDictionaryAcquisition.UsesCallVirtual
 
     unsupportedArguments := new Type[](1)
     unsupportedArguments[0] = sourceReferenceType

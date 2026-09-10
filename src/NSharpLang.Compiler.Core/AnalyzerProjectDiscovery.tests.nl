@@ -891,3 +891,144 @@ test "the declaration context receives the project units in enumeration order" {
     assert context.TryResolveProjectTypeInNamespace("FromFirst", "Same", false, out selection)
     assert Path.GetFileName(selection.FilePath) == "first.nl"
 }
+
+// ---- the import-precedence rule and the ambiguity gate ------------------------------------------
+
+// The same discovery, given a REAL external probe over the runtime's own assembly. That is what
+// makes "does an imported CLR namespace supply this name" answerable here rather than only
+// end-to-end: `System` really does declare a `Version`.
+func ProjectDiscoveryWithProbeOf(
+    provider: AnalyzerProjectSourceProvider,
+    imports: string[]
+): AnalyzerProjectTypeDiscovery {
+    context := new AnalyzerDeclarationContext()
+    assemblies := new List<Assembly>()
+    assemblies.Add(typeof(object).get_Assembly())
+    context.Reset(Path.GetFullPath("."), assemblies)
+    provider.AddProjectUnitsTo(context)
+    usingNamespaces := new List<string>()
+    index := 0
+    while index < imports.Length {
+        usingNamespaces.Add(imports[index])
+        index = index + 1
+    }
+
+    return new AnalyzerProjectTypeDiscovery(
+        provider,
+        context,
+        usingNamespaces,
+        new Dictionary<string, string>(StringComparer.Ordinal),
+        new AnalyzerExternalTypeProbe(assemblies, usingNamespaces)
+    )
+}
+
+test "the project-wide fallback does not claim a name an imported CLR namespace supplies" {
+    provider := ProjectProviderOf(
+        ["/p/shadow.nl"],
+        [ProjectSourceOf("Shadow", "public class Version {\n}\n")]
+    )
+
+    resolved := BuiltInTypes.Unknown as TypeInfo
+    declaration: SymbolDeclaration? = null
+    inaccessible: string? = null
+
+    // WITHOUT the import, auto-discovery is the only channel that can answer, and it does: an
+    // exported project type is usable by its bare name from any namespace.
+    withoutImport := ProjectDiscoveryWithProbeOf(provider, [])
+    assert withoutImport.ResolveVisibleProjectType(
+        "Version",
+        "Mine",
+        true,
+        out resolved,
+        out declaration,
+        out inaccessible
+    )
+
+    // WITH `import System`, the same name is supplied by something the file asked for. Auto-discovery
+    // is a last resort and an explicit import is not one, so discovery stands aside and the caller's
+    // external channel answers. This is the shadowing hazard: before it, a source `Version` in a
+    // namespace this file never imported silently replaced `System.Version`.
+    withImport := ProjectDiscoveryWithProbeOf(provider, ["System"])
+    assert !withImport.ResolveVisibleProjectType(
+        "Version",
+        "Mine",
+        true,
+        out resolved,
+        out declaration,
+        out inaccessible
+    )
+    assert inaccessible == null
+
+    // The guard is about the FALLBACK only. A type in a namespace the file DID import still resolves
+    // as a project type, ahead of anything metadata offers.
+    importedProvider := ProjectProviderOf(
+        ["/p/imported.nl"],
+        [ProjectSourceOf("Mine.Models", "public class Version {\n}\n")]
+    )
+    importedDiscovery := ProjectDiscoveryWithProbeOf(importedProvider, ["Mine.Models", "System"])
+    assert importedDiscovery.ResolveVisibleProjectType(
+        "Version",
+        "Mine",
+        true,
+        out resolved,
+        out declaration,
+        out inaccessible
+    )
+    assert Path.GetFileName(declaration.File) == "imported.nl"
+}
+
+test "two imports that supply one name are ambiguous, and a closer declaration is not" {
+    provider := ProjectProviderOf(
+        ["/p/left.nl", "/p/right.nl", "/p/own.nl"],
+        [
+            ProjectSourceOf("Left", "public class Widget {\n}\n"),
+            ProjectSourceOf("Right", "public class Widget {\n}\n"),
+            ProjectSourceOf("Mine", "public class Gadget {\n}\n")
+        ]
+    )
+    discovery := ProjectDiscoveryWithProbeOf(provider, ["Left", "Right"])
+
+    first := ""
+    second := ""
+    assert discovery.TryFindAmbiguousImportedType("Widget", "Mine", out first, out second)
+
+    // Both candidates come back FULLY QUALIFIED and in IMPORT order, because the report names both
+    // and suggests the first — the one a first-import-wins order would have chosen silently.
+    assert first == "Left.Widget"
+    assert second == "Right.Widget"
+
+    // A name only ONE import supplies is not a tie.
+    assert !discovery.TryFindAmbiguousImportedType("Gadget", "Mine", out first, out second)
+
+    // NEITHER IS A NAME THE FILE'S OWN NAMESPACE DECLARES. A closer declaration wins outright — the
+    // same rule C# applies to `using` — so the two imports never get to tie over it.
+    ownProvider := ProjectProviderOf(
+        ["/p/left.nl", "/p/right.nl", "/p/own.nl"],
+        [
+            ProjectSourceOf("Left", "public class Widget {\n}\n"),
+            ProjectSourceOf("Right", "public class Widget {\n}\n"),
+            ProjectSourceOf("Mine", "public class Widget {\n}\n")
+        ]
+    )
+    ownDiscovery := ProjectDiscoveryWithProbeOf(ownProvider, ["Left", "Right"])
+    assert !ownDiscovery.TryFindAmbiguousImportedType("Widget", "Mine", out first, out second)
+}
+
+test "a source type in one import ties with a CLR type in another" {
+    provider := ProjectProviderOf(
+        ["/p/models.nl"],
+        [ProjectSourceOf("Models", "public class Version {\n}\n")]
+    )
+    discovery := ProjectDiscoveryWithProbeOf(provider, ["Models", "System"])
+
+    first := ""
+    second := ""
+    assert discovery.TryFindAmbiguousImportedType("Version", "Mine", out first, out second)
+    assert first == "Models.Version"
+    assert second == "System.Version"
+
+    // The metadata half is asked only once the SOURCE half has matched — a measured limit, so that an
+    // assembly sweep does not run for every ordinary CLR spelling. `Console` is supplied by one
+    // import and by no source namespace, so nothing here answers for it.
+    assert !discovery.TryFindAmbiguousImportedType("Console", "Mine", out first, out second)
+}

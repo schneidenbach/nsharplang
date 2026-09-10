@@ -239,3 +239,33 @@ test "the arity sweep answers ascending and each entry names an open definition"
         check = check + 1
     }
 }
+
+test "the imported half answers only for an imported namespace, and never by exported-name scan" {
+    probe := new AnalyzerExternalTypeProbe(ProbeAssemblies(), ProbeNamespaces(["System.Text"]))
+
+    // Step 2 alone: an imported namespace supplies the name.
+    assert ProbeTypeName(probe.ResolveImportedExternalType("StringBuilder")) == "System.Text.StringBuilder"
+
+    // Step 3 is NOT behind it. `Version` lives in `System`, which nothing here imported, so the
+    // ordered probe finds it by exported-name scan and the imported half does not find it at all.
+    // That difference is the whole reason the two halves are separate: an import is something the
+    // file asked for, and the scan is a project-wide guess.
+    assert probe.ResolveImportedExternalType("Version") == null
+    assert ProbeTypeName(probe.ResolveExternalType("Version")) == "System.Version"
+}
+
+test "the imported-namespace sweep names the namespace, and skips the one already claimed" {
+    probe := new AnalyzerExternalTypeProbe(ProbeAssemblies(), ProbeNamespaces(["System.Text", "System"]))
+
+    // `StringBuilder` is declared by exactly one of the two imported namespaces.
+    namespaceName := ""
+    assert probe.TryFindImportedExternalNamespace("StringBuilder", null, out namespaceName)
+    assert namespaceName == "System.Text"
+
+    // Skipping the namespace another channel already claimed is what makes a SECOND hit a genuine
+    // tie rather than the same answer twice.
+    assert !probe.TryFindImportedExternalNamespace("StringBuilder", "System.Text", out namespaceName)
+
+    // A name neither imported namespace declares answers nothing, whatever the assemblies export.
+    assert !probe.TryFindImportedExternalNamespace("XDocument", null, out namespaceName)
+}

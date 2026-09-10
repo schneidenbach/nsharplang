@@ -197,7 +197,7 @@ class AnalyzerDiagnosticSink {
     // qualification it suggests is the FIRST, which is the one the old first-import-wins order would
     // silently have chosen.
     func ReportAmbiguousTypeReference(name: string, firstCandidate: string, secondCandidate: string, line: int, column: int): bool {
-        Report(ErrorCode.AmbiguousTypeReference, "'" + name + "' is ambiguous here: it could mean '" + firstCandidate + "' or '" + secondCandidate + "', and both are brought in by an import on this file", line, column, "Write the one you mean in full — '" + firstCandidate + "' — or remove the import that supplies the other.", Math.Max(1, name.Length))
+        ReportBuilt(ErrorMessageBuilder.AmbiguousTypeReference(currentFilePathValue, line, column, SourceSnippet(line), Math.Max(1, name.Length), name, firstCandidate, secondCandidate))
         return true
     }
 }

@@ -651,13 +651,19 @@ test "instance member planner owns typeof receivers and exact Type properties" {
     assert plan.OpCodeValues[2] == ColumnarCodePlanContract.Callvirt()
     assert ExecutorRunV3ScalarPlan(plan, typeof(string)) == "String"
 
-    rejected := InstanceTypeOfMemberTree("string", "AssemblyQualifiedName")
-    assert ColumnarInstanceMemberPlanner.ClaimsRoot(rejected.Nodes, rejected.Source, rejected.Root, bindings)
+    // ORDINARY IS ORDINARY. `AssemblyQualifiedName` used to be refused here, not because a
+    // reflection handle cannot answer it but because the receiver's readable members were a list of
+    // four names. Any readable instance property on an ordinary external reference receiver now
+    // resolves, and the admitted-value-type fence still decides what it may return — a `string`
+    // passes exactly as `Name`'s does.
+    generalized := InstanceTypeOfMemberTree("string", "AssemblyQualifiedName")
+    assert ColumnarInstanceMemberPlanner.ClaimsRoot(generalized.Nodes, generalized.Source, generalized.Root, bindings)
 
-    rejectedPlan := new ColumnarCodePlan()
-    assert ColumnarInstanceMemberPlanner.Plan(rejected.Nodes, rejected.Source, rejected.Root, bindings, rejectedPlan) == ColumnarFragmentPlanStatus.NotOwned
-
-    ColumnarRangePlannerAssertEmptyRollback(rejectedPlan)
+    generalizedPlan := InstanceMemberPlan(generalized, bindings)
+    assert generalizedPlan.ResultType == typeof(string)
+    assert generalizedPlan.OpCodeValues[0] == ColumnarCodePlanContract.Ldtoken()
+    assert generalizedPlan.OpCodeValues[1] == ColumnarCodePlanContract.Call()
+    assert generalizedPlan.OpCodeValues[2] == ColumnarCodePlanContract.Callvirt()
 }
 
 test "instance member planner preserves local storage and runtime value spill forms" {
@@ -741,15 +747,18 @@ test "instance member planner terminally declines missing static and non-allowli
 
     ColumnarRangePlannerAssertEmptyRollback(staticPlan)
 
-    hiddenTree := InstanceMemberTree("type", "AssemblyQualifiedName")
-    hiddenBindings := ColumnarRangePlannerEmptyBindings()
-    ColumnarRangePlannerAddParameter(hiddenBindings, "type", 0, typeof(Type))
-    assert ColumnarInstanceMemberPlanner.ClaimsRoot(hiddenTree.Nodes, hiddenTree.Source, hiddenTree.Root, hiddenBindings)
+    // WHAT IS STILL REFUSED IS A MISSING MEMBER AND A STATIC ONE, not an unlisted name: an ordinary
+    // readable property on a reflection handle is owned now, so the third case here is a receiver
+    // whose member does not exist at all rather than one that merely was not spelled out.
+    unknownTypeMemberTree := InstanceMemberTree("type", "NotAMemberOfType")
+    unknownTypeBindings := ColumnarRangePlannerEmptyBindings()
+    ColumnarRangePlannerAddParameter(unknownTypeBindings, "type", 0, typeof(Type))
+    assert ColumnarInstanceMemberPlanner.ClaimsRoot(unknownTypeMemberTree.Nodes, unknownTypeMemberTree.Source, unknownTypeMemberTree.Root, unknownTypeBindings)
 
-    hiddenPlan := new ColumnarCodePlan()
-    assert ColumnarInstanceMemberPlanner.Plan(hiddenTree.Nodes, hiddenTree.Source, hiddenTree.Root, hiddenBindings, hiddenPlan) == ColumnarFragmentPlanStatus.NotOwned
+    unknownTypeMemberPlan := new ColumnarCodePlan()
+    assert ColumnarInstanceMemberPlanner.Plan(unknownTypeMemberTree.Nodes, unknownTypeMemberTree.Source, unknownTypeMemberTree.Root, unknownTypeBindings, unknownTypeMemberPlan) == ColumnarFragmentPlanStatus.NotOwned
 
-    ColumnarRangePlannerAssertEmptyRollback(hiddenPlan)
+    ColumnarRangePlannerAssertEmptyRollback(unknownTypeMemberPlan)
 }
 
 test "instance member planner rejects corrupt and shadowed facts atomically" {
@@ -1131,7 +1140,11 @@ test "instance member facade reports terminal ownership for every admitted recei
 
     InstanceFacadeAssertTerminal(InstanceMemberTree("receiver", "UtcNow"), typeof(DateTime), false, typeof(int))
 
-    InstanceFacadeAssertTerminal(InstanceMemberTree("receiver", "AssemblyQualifiedName"), typeof(Type), false, typeof(int))
+    // An ordinary readable property on a reflection handle is OWNED now — the receiver list stopped
+    // deciding which of a type's members exist. A member that does not exist is still terminal.
+    InstanceFacadeAssertTerminal(InstanceMemberTree("receiver", "AssemblyQualifiedName"), typeof(Type), true, typeof(string))
+
+    InstanceFacadeAssertTerminal(InstanceMemberTree("receiver", "NotAMemberOfType"), typeof(Type), false, typeof(int))
 }
 
 test "range planner recursively owns instance member endpoints" {

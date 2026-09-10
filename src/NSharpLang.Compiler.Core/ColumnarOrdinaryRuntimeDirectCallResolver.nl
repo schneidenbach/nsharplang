@@ -139,17 +139,6 @@ class ColumnarOrdinaryRuntimeDirectCallResolver {
             return inheritedReadOnlyDictionaryCall
         }
 
-        inheritedDictionaryEntryCall := Empty(ColumnarOrdinaryRuntimeDirectCallStatus.NotFound, lookupType, expectedStatic)
-        if TryResolveInheritedDictionaryEntryEnumeratorCall(
-            lookupType,
-            memberName,
-            argumentTypes,
-            expectedStatic,
-            out inheritedDictionaryEntryCall
-        ) {
-            return inheritedDictionaryEntryCall
-        }
-
         genericDefinition := typeof(object)
         closedArguments := new Type[](0)
         if TryGetBuilderBoundRuntimeDefinition(lookupType, out genericDefinition, out closedArguments) {
@@ -223,12 +212,71 @@ class ColumnarOrdinaryRuntimeDirectCallResolver {
 
             inheritedIndex := 0
             while inheritedIndex < inherited.Length {
-                combined.Add(inherited[inheritedIndex])
+                AddOrKeepMostDerived(combined, inherited[inheritedIndex])
                 inheritedIndex = inheritedIndex + 1
             }
         }
 
         return combined.ToArray()
+    }
+
+    // THE MOST DERIVED DECLARATION OF A SIGNATURE WINS, which is what makes the sweep above safe.
+    // `IEnumerator<T>` re-declares `get_Current` that `IEnumerator` also declares, and
+    // `IEnumerable<T>` re-declares `GetEnumerator`; collecting both would leave two arity-0
+    // candidates and turn an exact call into an ambiguity. C# hides the base declaration behind the
+    // derived one, and so does this: same name and same parameter types means one candidate, and the
+    // one kept is the one whose declaring interface the other is assignable FROM.
+    static func AddOrKeepMostDerived(candidates: List<MethodInfo>, inherited: MethodInfo) {
+        inheritedParameters := inherited.GetParameters()
+        index := 0
+        while index < candidates.Count {
+            existing := candidates[index]
+            if SameCallSignature(existing, existing.GetParameters(), inherited, inheritedParameters) {
+                if HidesDeclaration(inherited, existing) {
+                    candidates[index] = inherited
+                }
+
+                return
+            }
+
+            index = index + 1
+        }
+
+        candidates.Add(inherited)
+    }
+
+    static func SameCallSignature(left: MethodInfo, leftParameters: ParameterInfo[], right: MethodInfo, rightParameters: ParameterInfo[]): bool {
+        if left.get_Name() != right.get_Name() || left.get_IsStatic() != right.get_IsStatic() || leftParameters.Length != rightParameters.Length {
+            return false
+        }
+
+        index := 0
+        while index < leftParameters.Length {
+            if !ColumnarRuntimeInstanceMemberResolver.ExactTypeShapeMatches(leftParameters[index].get_ParameterType(), rightParameters[index].get_ParameterType()) {
+                return false
+            }
+
+            index = index + 1
+        }
+
+        return true
+    }
+
+    // Whether `candidate`'s declaring interface is strictly more derived than `existing`'s.
+    static func HidesDeclaration(candidate: MethodInfo, existing: MethodInfo): bool {
+        candidateOwner := candidate.get_DeclaringType()
+        existingOwner := existing.get_DeclaringType()
+        if candidateOwner == null || existingOwner == null || ColumnarRuntimeInstanceMemberResolver.ExactTypeShapeMatches(candidateOwner, existingOwner) {
+            return false
+        }
+
+        try {
+            return existingOwner.IsAssignableFrom(candidateOwner)
+        } catch ex: NotSupportedException {
+            return false
+        } catch ex: NotImplementedException {
+            return false
+        }
     }
 
     // IReadOnlyDictionary<TKey, TValue> inherits its generic GetEnumerator from
@@ -295,51 +343,6 @@ class ColumnarOrdinaryRuntimeDirectCallResolver {
         }
         valueType := arguments[1]
         return valueType is TypeBuilder && !ColumnarTypeOfPlanner.IsEnumBuilder(valueType) && !valueType.get_IsGenericTypeDefinition() && !valueType.get_IsValueType()
-    }
-
-    // Type.GetMethods on IEnumerator<T> does not enumerate the nongeneric IEnumerator methods it
-    // inherits. The Analyzer's original explicit-enumerator loop needs the one exact inherited
-    // member it calls: MoveNext on IEnumerator<KeyValuePair<string, string>>. Keep Reset and every
-    // other generic-enumerator shape outside this prerequisite.
-    static func TryResolveInheritedDictionaryEntryEnumeratorCall(
-        lookupType: Type,
-        memberName: string,
-        argumentTypes: Type[],
-        expectedStatic: bool,
-        out selection: ColumnarOrdinaryRuntimeDirectCallSelection
-    ): bool {
-        selection = Empty(ColumnarOrdinaryRuntimeDirectCallStatus.NotFound, lookupType, expectedStatic)
-        if expectedStatic || memberName != "MoveNext" || argumentTypes.Length != 0 || !IsExactStringDictionaryEntryEnumerator(lookupType) {
-            return false
-        }
-
-        movementType := Type.GetType("System.Collections.IEnumerator")
-        if movementType == null {
-            throw new InvalidOperationException("System.Collections.IEnumerator was not found in the compiler runtime.")
-        }
-        noParameters := new Type[](0)
-        method := movementType.GetMethod("MoveNext", noParameters)
-        if method == null {
-            throw new InvalidOperationException("System.Collections.IEnumerator.MoveNext() was not found in the compiler runtime.")
-        }
-
-        selection = Selected(lookupType, method, noParameters, false)
-        return true
-    }
-
-    static func IsExactStringDictionaryEntryEnumerator(lookupType: Type): bool {
-        if lookupType == null || !lookupType.get_IsGenericType() || lookupType.get_IsGenericTypeDefinition() {
-            return false
-        }
-        enumeratorDefinition := Type.GetType("System.Collections.Generic.IEnumerator`1")
-        if enumeratorDefinition == null || lookupType.GetGenericTypeDefinition() != enumeratorDefinition {
-            return false
-        }
-        enumeratorArguments := lookupType.GetGenericArguments()
-        if enumeratorArguments.Length != 1 || !ColumnarCanonicalTypeResolver.IsExactStringDictionaryEntryElement(enumeratorArguments[0]) {
-            return false
-        }
-        return true
     }
 
     // A deterministic candidate seam keeps classification tests independent of reflection's
