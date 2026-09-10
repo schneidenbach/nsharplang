@@ -1,5 +1,6 @@
 namespace NSharpLang.GenericTypeReceivers.Tests
 
+import System.Buffers
 import System.Collections.Generic
 import System.Numerics
 
@@ -63,6 +64,13 @@ func NestedReceiverEquals(left: Dictionary<string, List<int>>, right: Dictionary
     return EqualityComparer<Dictionary<string, List<int>>>.Default.Equals(left, right)
 }
 
+func RentedLength(size: int): int {
+    buffer := ArrayPool<byte>.Shared.Rent(size)
+    length := buffer.Length
+    ArrayPool<byte>.Shared.Return(buffer, false)
+    return length
+}
+
 func Between(value: int, lower: int, upper: int): bool {
     return lower < value && value > upper
 }
@@ -118,6 +126,14 @@ test "a NESTED type argument closes on a split `>>` and still names one construc
     right := new Dictionary<string, List<int>>()
     assert NestedReceiverEquals(left, left)
     assert NestedReceiverEquals(left, right) == false
+}
+
+test "a static property on a constructed generic type is a receiver for an instance call in its own right" {
+    // `ArrayPool<byte>.Shared` was recorded as a language wall — a generic static member access did
+    // not parse. It is a rented buffer here rather than a name in a list: the pool hands back an
+    // array at least as long as the request, and the buffer is returned to the same pool instance.
+    assert RentedLength(16) >= 16
+    assert RentedLength(1000) >= 1000
 }
 
 test "the comparison controls keep the meaning their written text has" {

@@ -87,6 +87,8 @@ yielded; this exists because late-added children (`NewExpression.ArrayLengthExpr
 - **MatchExpression**: Pattern matching with guards
 - **LiteralExpression**: `42`, `"hello"`, `true`
 
+- **GenericTypeExpression**: `Vector<int>` in receiver position — see the disambiguation rule below
+
 ### Statements (`Statements.nl`)
 - **VariableDeclarationStatement**: `let x = 42`, `x := 42`
 - **IfStatement**: `if cond { } else { }`
@@ -117,6 +119,41 @@ Order matters:
 1. Check for attributes `[...]`
 2. Check for type keywords (`class`, `struct`, `record`, etc.)
 3. Fall back to field/property/method parsing
+
+### The `<` disambiguation: comparison, generic call, or constructed generic type receiver
+
+A `<` after a name is ambiguous, and the parser resolves it with TWO bounded pure lookaheads that
+differ only in their CLOSE TOKEN. Both scan a candidate type-argument list from the `<` — identifiers,
+dots, commas, array brackets, nullable suffixes, tuple parentheses, and nested `<` / `>` / `>>` with
+the `>>` split spending two levels of depth — and neither mutates the cursor or reports a diagnostic.
+
+| Close followed by | Reading | Node |
+|---|---|---|
+| `(` | generic method call | `CallExpression` with `TypeArguments` |
+| `.` | constructed generic type receiver | `GenericTypeExpression` |
+| anything else | comparison | `BinaryExpression` |
+
+`ColumnarParserRecovery.IsGenericTypeArgumentListBeforeDot` is the `.` half and
+`IsGenericMethodCall` (the Parser.cs-faithful one) is the `(` half. **The `.` half is tried FIRST in
+`ParsePostfix`**, because `IsGenericMethodCall` answers true at the first `,` and would otherwise
+take `Dictionary<string, int>.Something` for a `Method<T>(` it then has to report as missing its
+parentheses. The receiver must also spell a plain dotted NAME, so `f(x)<int>.Y` and `a?.B<int>.Y`
+stay comparisons.
+
+`GenericTypeExpression` carries the `GenericTypeReference` that `ParseCallTypeArguments` /
+`ParseMaterializedTypeReference` build, so it is byte-identical to the reference an annotation in the
+same columns produces; the receiver then continues through the ordinary postfix loop (member access,
+call, assignment target, `?.`, index). It is a LEAF in `AstChildrenCore` — its only slot is a
+`TypeReference`, not an `Expression` — which is why `LinterWalk` tracks its type reference
+explicitly, exactly as it does for `typeof`.
+
+**The columnar backend re-parses source with its own kernels, so the rule exists twice.**
+`CompilerServices/ColumnarParserKernels.nl` carries `IsGenericTypeReceiverArgs`, the `.`-closed twin
+of `IsGenericCallTypeArgs`, and commits node kind **70** — byte-identical in shape to the kind-38
+generic callee: the full dotted head name in the value span, the TYPE-kernel type-argument roots as
+children. `ColumnarGenericTypeReceiverFacts` is the single owner that turns that node into a closed
+`System.Type`, reusing `ColumnarTypeOfPlanner.TryBuildTypeCanonical` and
+`ColumnarBindingScopeFacts.TryResolveExactExplicitTypeInContext`.
 
 ### Nested Type Support
 `ParseMemberDeclaration` handles nested types (classes, structs, records inside other types).

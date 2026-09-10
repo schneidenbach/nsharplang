@@ -484,6 +484,58 @@ func main() {
 }
 ```
 
+### Static members of a constructed generic type
+
+Write the closed type and then the member: `Vector<int>.Count`, `EqualityComparer<string>.Default`.
+The type arguments are part of the receiver, so each constructed type answers with its own
+substituted member types — `Vector<int>.Zero` is a `Vector<int>` and `Vector<byte>.Zero` is a
+`Vector<byte>`.
+
+```n#
+import System.Collections.Generic
+import System.Numerics
+
+func Lanes(): int {
+    return Vector<int>.Count
+}
+
+func SameString(left: string, right: string): bool {
+    return EqualityComparer<string>.Default.Equals(left, right)
+}
+
+func Sorted(): int {
+    return Comparer<string>.Default.Compare("a", "b")
+}
+```
+
+Nested, array, nullable and namespace-qualified spellings all work —
+`EqualityComparer<Dictionary<string, List<int>>>.Default`, `Comparer<int[]>.Default`,
+`System.Numerics.Vector<int>.Count` — and a receiver written with the wrong number of type
+arguments is reported at the receiver rather than silently accepted:
+
+```n#
+func Wrong(): int {
+    return Vector<int, int>.Count
+    // NL207: Generic type 'Vector' takes 1 type argument(s), but 2 were provided
+}
+```
+
+**The `<` is only a type-argument list when a `.` follows the matching `>`.** Everything else is
+still a comparison, including the shapes that look most like one:
+
+```n#
+func Between(value: int, lower: int, upper: int): bool {
+    return lower < value && value > upper   // two comparisons, not a receiver
+}
+
+func Shorter(value: int, values: int[]): bool {
+    return value < values.Length            // a comparison against a member access
+}
+```
+
+Static members of your OWN generic types are not supported yet — declaring one reports
+`NL323` — so this section is about generic types from .NET and from libraries you reference.
+
 ## Properties: Required and Init-Only
 
 Mark a property `required` to force callers to set it in the object initializer, and `init`

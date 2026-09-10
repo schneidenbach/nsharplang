@@ -103,7 +103,7 @@ class LinterNamespaceImportUsage {
     }
 
     static func CollectionsGenericTypeNames(): string[] {
-        return ["List", "Dictionary", "HashSet", "Queue", "Stack", "LinkedList", "SortedDictionary", "SortedList", "SortedSet", "KeyValuePair", "IEnumerable", "IList", "ICollection", "IDictionary", "ISet", "IReadOnlyList", "IReadOnlyCollection", "IReadOnlyDictionary", "IAsyncEnumerable", "IEnumerator", "IComparer", "IEqualityComparer"]
+        return ["List", "Dictionary", "HashSet", "Queue", "Stack", "LinkedList", "SortedDictionary", "SortedList", "SortedSet", "KeyValuePair", "Comparer", "EqualityComparer", "IEnumerable", "IList", "ICollection", "IDictionary", "ISet", "IReadOnlyList", "IReadOnlyCollection", "IReadOnlyDictionary", "IAsyncEnumerable", "IEnumerator", "IComparer", "IEqualityComparer"]
     }
 
     static func TextTypeNames(): string[] {
