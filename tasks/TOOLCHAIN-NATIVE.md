@@ -32,7 +32,7 @@ Base: 06186dc6d (includes bootstrap/CI work; preserve it).
 
 | Area | Owner | Worktree / branch | Status |
 |---|---|---|---|
-| Complete Compiler service facade and assertions | Luna Max toolchain_facade | Integrated at 5691697ce; lane pending cleanup | Four C# owners and remaining C# assertion removed; 98 native tests and private package consumer pass; combined build/final gate pending |
+| Complete Compiler service facade and assertions | Luna Max toolchain_facade | Integrated at 5691697ce; lane pending cleanup | Four C# owners and remaining C# assertion removed; root combined build and 98 native tests pass; private package consumer passes; final gate pending |
 | Complete LoadProjectConfig / LoadProjectReferences and assertions | Luna Max toolchain_build_tasks | Integrated; original lane retired | Owners and canonical SDK assertions integrated into candidate; 8,028 Core tests pass; 20 native SDK tests pass; final integration gate/push pending |
 | CLI query/commands and LSP signature/services | Next wave | Signature branch preserved; integrated query branches retired | Continue from integration HEAD; refresh unique signature work without restarting |
 | Playground interpreter | Luna Max next after SDK assertions | /private/tmp/nsharp-agent-wt/toolchain-playground; codex/toolchain-playground | Implementing from 2f73fdf12; complete connected owner and tests |
@@ -108,6 +108,11 @@ A finished lane is not completion of this whole objective.
   but parameters previously named `file` are `fileName`: `file` is an N# keyword and the current
   language has no escaped-identifier syntax. Positional/binary callers are unchanged; named-argument
   source callers require that spelling change. This source-compatibility limitation is explicit.
+  Root combined CLI build passes with zero warnings/errors, and all four native suites pass again
+  against the real integrated outputs: /private/tmp/toolchain-integrated-facade-build-r1.log and
+  /private/tmp/toolchain-integrated-facade-{query,reference,completion,query-completions}-r1.log.
+  The next lane is complete CheckCommand ownership (Execute, IL verification and errors), including
+  canonical CLI contracts; accepted query migrations remain intact.
 - Playground's shared declaration-name helper is integrated at 006c4cc36, with all 20 focused
   Core canonical tests passing: /private/tmp/toolchain-integrated-playground-helper-canonicals-r1.log.
   Corrected private owner probes pass 34 tooling + 116 diagnostic-span tests; final project routing
