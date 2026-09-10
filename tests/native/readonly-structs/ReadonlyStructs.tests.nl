@@ -180,6 +180,31 @@ test "a readonly struct works as an array element, a generic argument and a dict
     assert map["a"].Magnitude() == 36
 }
 
+test "a method call through a readonly struct-typed field returns the receiver's own state" {
+    // WHAT WAS VERIFIED ABOUT DEFENSIVE COPIES. C# inserts a defensive copy when a struct method is
+    // called through a readonly location and the struct is NOT marked readonly, and elides it when it
+    // is; getting that backwards changes what a MUTATING method observes. N# has no shape in which
+    // that difference is observable today: there is no `in` parameter modifier (ParameterModifier is
+    // None/Ref/Out/Params), and a struct instance method that ASSIGNS one of its own fields declines
+    // columnar emission outright — a decline that predates this arc and is unrelated to `readonly`.
+    // What remains is the reading case, and it is pinned here: the value the callee sees is the one
+    // the field holds, copy or no copy.
+    composite := new Composite(new Vector(3, 4), 2)
+    assert composite.InnerMagnitude() == 25
+    assert composite.ScaledMagnitude() == 100
+}
+
+test "the readonly modifier changes metadata, not layout" {
+    // `IsReadOnlyAttribute` is a marker. The type's layout, packing and size are whatever they would
+    // have been without it, which is what keeps a readonly struct interchangeable with the mutable
+    // shape it replaces.
+    assert typeof(Point).get_IsLayoutSequential() == typeof(Mutable).get_IsLayoutSequential()
+    assert typeof(Point).get_IsAutoLayout() == typeof(Mutable).get_IsAutoLayout()
+    assert typeof(Point).get_IsExplicitLayout() == typeof(Mutable).get_IsExplicitLayout()
+    assert typeof(Point).get_IsValueType()
+    assert !typeof(Point).get_IsByRefLike()
+}
+
 test "a nested readonly struct is declared, emitted and executed like a top-level one" {
     assert Container.MakeInner(9) == 9
     inner := typeof(Container).GetNestedType("Inner")

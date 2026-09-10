@@ -116,6 +116,27 @@ readonly record struct Pair {
     }
 }
 
+// A readonly struct whose own field is ANOTHER readonly struct, reached through it by a method call.
+// This is the shape where a compiler that copied a struct receiver incorrectly would be caught: the
+// receiver is a readonly field, and the callee returns a value computed from the receiver's state.
+readonly struct Composite {
+    readonly Inner: Vector
+    readonly Scale: int
+
+    constructor(inner: Vector, scale: int) {
+        Inner = inner
+        Scale = scale
+    }
+
+    func ScaledMagnitude(): int {
+        return Inner.Scaled(Scale).Magnitude()
+    }
+
+    func InnerMagnitude(): int {
+        return Inner.Magnitude()
+    }
+}
+
 // A NESTED readonly struct, to prove the member dispatch carries the modifier as well as the
 // top-level one.
 class Container {
