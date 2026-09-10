@@ -149,3 +149,8 @@ A finished lane is not completion of this whole objective.
   against matching project outputs; root clean combined verification remains required.
   Receipts: /private/tmp/playground-native-tooling-artifact-r2.log and
   /private/tmp/playground-native-diagnostic-artifact-r2.log.
+
+- Retired the clean CheckCommand worktree and codex/check-command-owner branch after confirming
+  all five commits are patch-equivalent in integration and the owner moved to the FixCommand
+  worktree. Verified history bundle: /private/tmp/check-command-retired-20260910.bundle.
+  The in-flight default-validation correction remains preserved in codex/fix-command-owner.
