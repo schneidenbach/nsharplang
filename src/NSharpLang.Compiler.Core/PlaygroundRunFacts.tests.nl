@@ -1,6 +1,8 @@
 namespace NSharpLang.Playground
 
 import System
+import System.Collections.Generic
+import NSharpLang.Compiler.Ast
 
 
 // Native contracts for the hosted playground's execution policy.
@@ -30,6 +32,24 @@ test "021 s11 playground run facts: the entry point is 'main' case-insensitively
     assert PlaygroundRunFacts.IsEntryPointFunctionName("MAIN")
     assert !PlaygroundRunFacts.IsEntryPointFunctionName("mainly")
     assert !PlaygroundRunFacts.IsEntryPointFunctionName("")
+}
+
+test "021 s11 playground run facts: declaration names cover every runtime object kind and return null for an unsupported declaration" {
+    classDeclaration := new ClassDeclaration("ClassName", null, null, new List<TypeReference>(), new List<Declaration>(), null, Modifiers.None, new List<AttributeNode>(), 1, 1)
+    structDeclaration := new StructDeclaration("StructName", null, new List<TypeReference>(), new List<Declaration>(), null, Modifiers.None, new List<AttributeNode>(), 1, 1, false)
+    recordDeclaration := new RecordDeclaration("RecordName", null, new List<TypeReference>(), new List<Declaration>(), null, false, Modifiers.None, new List<AttributeNode>(), 1, 1)
+    interfaceDeclaration := new InterfaceDeclaration("InterfaceName", null, new List<TypeReference>(), new List<Declaration>(), Modifiers.None, false, new List<AttributeNode>(), 1, 1)
+    unionDeclaration := new UnionDeclaration("UnionName", null, new List<UnionCase>(), Modifiers.None, new List<AttributeNode>(), 1, 1)
+    enumDeclaration := new EnumDeclaration("EnumName", new List<EnumMember>(), EnumType.Int, Modifiers.None, new List<AttributeNode>(), 1, 1)
+    unsupportedDeclaration := new Declaration(1, 1)
+
+    assert PlaygroundRunFacts.DeclarationName(classDeclaration) == "ClassName"
+    assert PlaygroundRunFacts.DeclarationName(structDeclaration) == "StructName"
+    assert PlaygroundRunFacts.DeclarationName(recordDeclaration) == "RecordName"
+    assert PlaygroundRunFacts.DeclarationName(interfaceDeclaration) == "InterfaceName"
+    assert PlaygroundRunFacts.DeclarationName(unionDeclaration) == "UnionName"
+    assert PlaygroundRunFacts.DeclarationName(enumDeclaration) == "EnumName"
+    assert PlaygroundRunFacts.DeclarationName(unsupportedDeclaration) == null
 }
 
 test "021 s11 playground run facts: the runner's four reserved names" {

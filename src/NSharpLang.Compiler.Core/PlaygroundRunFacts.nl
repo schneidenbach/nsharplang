@@ -1,5 +1,7 @@
 namespace NSharpLang.Playground
 
+import NSharpLang.Compiler.Ast
+
 
 // WHAT THE BROWSER RUNNER DECIDES — the hosted playground's execution policy, in one owner.
 //
@@ -71,6 +73,37 @@ class PlaygroundRunFacts {
     // what the emitter does too, from the other side: `ColumnarIlEmitter` looks for `Main`.
     static func IsEntryPointFunctionName(name: string): bool {
         return string.Equals(name, "main", StringComparison.OrdinalIgnoreCase)
+    }
+
+    // The declaration kinds that can supply a runtime object display name. Keep this shared with
+    // the runner's indexing path so unsupported declarations still return null and the display
+    // caller can retain its anonymous-object fallback.
+    static func DeclarationName(declaration: Declaration): string? {
+        classDeclaration := declaration as ClassDeclaration
+        if classDeclaration != null {
+            return classDeclaration.Name
+        }
+        structDeclaration := declaration as StructDeclaration
+        if structDeclaration != null {
+            return structDeclaration.Name
+        }
+        recordDeclaration := declaration as RecordDeclaration
+        if recordDeclaration != null {
+            return recordDeclaration.Name
+        }
+        interfaceDeclaration := declaration as InterfaceDeclaration
+        if interfaceDeclaration != null {
+            return interfaceDeclaration.Name
+        }
+        unionDeclaration := declaration as UnionDeclaration
+        if unionDeclaration != null {
+            return unionDeclaration.Name
+        }
+        enumDeclaration := declaration as EnumDeclaration
+        if enumDeclaration != null {
+            return enumDeclaration.Name
+        }
+        return null
     }
 
     // The discard name in a deconstruction target list: `_` binds nothing.
