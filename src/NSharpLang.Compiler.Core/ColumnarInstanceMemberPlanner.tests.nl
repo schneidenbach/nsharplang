@@ -58,27 +58,67 @@ class ColumnarOrdinaryMemberDerivedProbe: ColumnarOrdinaryMemberBaseProbe {
     }
 }
 
-struct ColumnarOrdinaryValueMemberProbe {
-    Value: int
+class ColumnarOrdinaryExternalValueFixture {
+    ValueType: Type
+    ValueField: FieldInfo
+    IncrementedGetter: MethodInfo
 
-    constructor(value: int) {
-        Value = value
-    }
-
-    Incremented: int {
-        get {
-            Value = Value + 1
-            return Value
-        }
+    constructor(valueType: Type, valueField: FieldInfo, incrementedGetter: MethodInfo) {
+        ValueType = valueType
+        ValueField = valueField
+        IncrementedGetter = incrementedGetter
     }
 }
 
-class ColumnarOrdinaryValueOwnerProbe {
-    Item: ColumnarOrdinaryValueMemberProbe
-
-    constructor(value: int) {
-        Item = new ColumnarOrdinaryValueMemberProbe(value)
+func ColumnarOrdinaryExternalValueFixtureCreate(name: string): ColumnarOrdinaryExternalValueFixture {
+    assemblyName := "NSharpTests." + name
+    dynamicAssembly := AssemblyBuilder.DefineDynamicAssembly(
+        new AssemblyName(assemblyName),
+        AssemblyBuilderAccess.Run
+    )
+    dynamicModule := dynamicAssembly.DefineDynamicModule(assemblyName)
+    typeAttributes := TypeAttributes.Public | TypeAttributes.SequentialLayout | TypeAttributes.Sealed | TypeAttributes.BeforeFieldInit
+    builder := dynamicModule.DefineType(
+        "ColumnarInstanceMemberTests." + name,
+        typeAttributes,
+        typeof(ValueType)
+    )
+    valueField := builder.DefineField("Value", typeof(int), FieldAttributes.Public)
+    getter := builder.DefineMethod(
+        "get_Incremented",
+        MethodAttributes.Public | MethodAttributes.SpecialName | MethodAttributes.HideBySig,
+        typeof(int),
+        new Type[](0)
+    )
+    getterIl := getter.GetILGenerator()
+    getterIl.Emit(OpCodes.Ldarg_0)
+    getterIl.Emit(OpCodes.Dup)
+    getterIl.Emit(OpCodes.Ldfld, valueField)
+    getterIl.Emit(OpCodes.Ldc_I4_1)
+    getterIl.Emit(OpCodes.Add)
+    getterIl.Emit(OpCodes.Stfld, valueField)
+    getterIl.Emit(OpCodes.Ldarg_0)
+    getterIl.Emit(OpCodes.Ldfld, valueField)
+    getterIl.Emit(OpCodes.Ret)
+    property := builder.DefineProperty("Incremented", PropertyAttributes.None, typeof(int), new Type[](0))
+    property.SetGetMethod(getter)
+    created := builder.CreateType()
+    if created == null {
+        throw new InvalidOperationException("The ordinary external value fixture did not bake.")
     }
+    bakedValueField := created.GetField("Value")
+    if bakedValueField == null {
+        throw new InvalidOperationException("The ordinary external value fixture field was not found.")
+    }
+    bakedProperty := created.GetProperty("Incremented")
+    if bakedProperty == null {
+        throw new InvalidOperationException("The ordinary external value fixture property was not found.")
+    }
+    bakedGetter := bakedProperty.GetGetMethod()
+    if bakedGetter == null {
+        throw new InvalidOperationException("The ordinary external value fixture getter was not found.")
+    }
+    return new ColumnarOrdinaryExternalValueFixture(created, bakedValueField, bakedGetter)
 }
 
 func InstanceMemberTree(receiverName: string, memberName: string): ColumnarRangePlannerTestTree {
@@ -1254,9 +1294,18 @@ test "ordinary value receivers select Location fields and address parameters" {
     assert BoundInvokeText(method, arguments) == "37"
 }
 
-test "ordinary value receiver getter keeps an addressable parameter without a copy" {
+test "ordinary external value receiver getter keeps an addressable parameter without a copy" {
+    fixture := ColumnarOrdinaryExternalValueFixtureCreate("OrdinaryExternalValueGetter")
+    assert fixture.ValueType.get_IsValueType()
+    assert fixture.IncrementedGetter.get_IsPublic()
+    assert fixture.IncrementedGetter.get_ReturnType() == typeof(int)
+    selection := ColumnarRuntimeInstanceMemberSelection.Empty()
+    assert ColumnarRuntimeInstanceMemberResolver.TrySelect(fixture.ValueType, "Incremented", out selection)
+    assert !selection.IsField
+    assert selection.DeclaringType == fixture.ValueType
+    assert selection.ResultType == typeof(int)
     bindings := ColumnarRangePlannerEmptyBindings()
-    ColumnarRangePlannerAddParameter(bindings, "receiver", 0, typeof(ColumnarOrdinaryValueMemberProbe))
+    ColumnarRangePlannerAddParameter(bindings, "receiver", 0, fixture.ValueType)
     plan := InstanceMemberPlan(InstanceMemberTree("receiver", "Incremented"), bindings)
 
     assert plan.ResultType == typeof(int)
@@ -1265,28 +1314,33 @@ test "ordinary value receiver getter keeps an addressable parameter without a co
     assert plan.ArgumentCount == 1
     assert !plan.ArgumentIsAddress[0]
 
-    valueField := typeof(ColumnarOrdinaryValueMemberProbe).GetField("Value")
-    if valueField == null {
-        throw new InvalidOperationException("Ordinary value-member probe field was not found.")
-    }
-
     parameterTypes := new Type[](1)
-    parameterTypes[0] = typeof(ColumnarOrdinaryValueMemberProbe)
+    parameterTypes[0] = fixture.ValueType
     method := BoundDynamicMethod("OrdinaryValueAddressableGetter", typeof(int), parameterTypes)
     il := method.GetILGenerator()
     ColumnarCodePlanExecutor.Execute(plan, il)
     il.Emit(OpCodes.Pop)
     il.Emit(OpCodes.Ldarg_0)
-    il.Emit(OpCodes.Ldfld, valueField)
+    il.Emit(OpCodes.Ldfld, fixture.ValueField)
     il.Emit(OpCodes.Ret)
 
+    receiver := Activator.CreateInstance(fixture.ValueType)
+    if receiver == null {
+        throw new InvalidOperationException("The ordinary external value fixture could not be instantiated.")
+    }
+    fixture.ValueField.SetValue(receiver, 41)
     arguments := new object[](1)
-    ExecutorSetObject(arguments, 0, new ColumnarOrdinaryValueMemberProbe(41))
+    ExecutorSetObject(arguments, 0, receiver)
     assert BoundInvokeText(method, arguments) == "42"
 }
 
-test "ordinary value receiver temporary spills preserve collection value-copy semantics" {
-    probeListType := typeof(List<ColumnarOrdinaryValueMemberProbe>)
+test "ordinary external value receiver temporary spills preserve collection value-copy semantics" {
+    fixture := ColumnarOrdinaryExternalValueFixtureCreate("OrdinaryExternalValueCollection")
+    assert fixture.ValueType.get_IsValueType()
+    listDefinition := typeof(List<int>).GetGenericTypeDefinition()
+    listArguments := new Type[](1)
+    listArguments[0] = fixture.ValueType
+    probeListType := listDefinition.MakeGenericType(listArguments)
     bindings := ColumnarRangePlannerEmptyBindings()
     ColumnarRangePlannerAddParameter(bindings, "items", 0, probeListType)
     plan := InstanceMemberPlan(InstanceIndexerMemberTree("items", "Incremented"), bindings)
@@ -1296,11 +1350,6 @@ test "ordinary value receiver temporary spills preserve collection value-copy se
     assert plan.OpCodeValues[0] == ColumnarCodePlanContract.Ldarg()
     assert plan.OpCodeValues[plan.OperationCount - 2] == ColumnarCodePlanContract.Ldloca()
     assert plan.OpCodeValues[plan.OperationCount - 1] == ColumnarCodePlanContract.Call()
-
-    valueField := typeof(ColumnarOrdinaryValueMemberProbe).GetField("Value")
-    if valueField == null {
-        throw new InvalidOperationException("Ordinary value-member probe field was not found.")
-    }
 
     itemProperty := probeListType.GetProperty("Item")
     if itemProperty == null {
@@ -1323,15 +1372,40 @@ test "ordinary value receiver temporary spills preserve collection value-copy se
     il.Emit(OpCodes.Ldarg_0)
     il.Emit(OpCodes.Ldc_I4_0)
     il.Emit(OpCodes.Callvirt, itemGetter)
-    il.Emit(OpCodes.Ldfld, valueField)
+    il.Emit(OpCodes.Ldfld, fixture.ValueField)
     il.Emit(OpCodes.Sub)
     il.Emit(OpCodes.Ret)
 
-    items := new List<ColumnarOrdinaryValueMemberProbe>()
-    items.Add(new ColumnarOrdinaryValueMemberProbe(41))
+    listConstructor := probeListType.GetConstructor(new Type[](0))
+    if listConstructor == null {
+        throw new InvalidOperationException("The ordinary external value list constructor was not found.")
+    }
+    items := listConstructor.Invoke(new object[](0))
+    addParameterTypes := new Type[](1)
+    addParameterTypes[0] = fixture.ValueType
+    addMethod := probeListType.GetMethod("Add", addParameterTypes)
+    if addMethod == null {
+        throw new InvalidOperationException("The ordinary external value list Add method was not found.")
+    }
+    receiver := Activator.CreateInstance(fixture.ValueType)
+    if receiver == null {
+        throw new InvalidOperationException("The ordinary external value fixture could not be instantiated.")
+    }
+    fixture.ValueField.SetValue(receiver, 41)
+    addArguments := new object[](1)
+    ExecutorSetObject(addArguments, 0, receiver)
+    addMethod.Invoke(items, addArguments)
     arguments := new object[](1)
     ExecutorSetObject(arguments, 0, items)
     assert BoundInvokeText(method, arguments) == "1"
+
+    getArguments := new object[](1)
+    ExecutorSetObject(getArguments, 0, 0)
+    stored := itemGetter.Invoke(items, getArguments)
+    if stored == null {
+        throw new InvalidOperationException("The ordinary external value list item was not returned.")
+    }
+    assert Convert.ToInt32(fixture.ValueField.GetValue(stored)) == 41
 }
 
 test "instance member planner terminally declines exact ref-return properties" {
