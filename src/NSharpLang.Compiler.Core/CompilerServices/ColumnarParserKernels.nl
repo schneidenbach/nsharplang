@@ -404,6 +404,13 @@ class TypeReferenceTupleNameTable {
 //                                         property pattern entries.)
 //   PropertyPattern         -> kind 68  (`Prop` / `Prop: pat` inside object or union-case property patterns;
 //                                         property name in the value span, optional ONE child [pat].)
+//   ConditionalMemberAccessExpression
+//                           -> kind 74  (`receiver?.Member` -- the member NAME in the value span, ONE child
+//                                         [receiver], the span running from the receiver through the name.
+//                                         It is ONLY built for the CALL form: `receiver?.M(args)` is a
+//                                         CallExpression over one of these, and a bare `receiver?.M` read
+//                                         refuses the declaration. A NON-conditional link may not follow one
+//                                         in the same postfix chain -- see ParsePostfixExpressionNode.)
 //   BaseMemberExpression    -> kind 71  ( `base.Member` -- the member NAME in the value span, NO children,
 //                                         the span running from `base` through the name. The shape of the
 //                                         `this.Member` arm above it, with its own kind because the two
@@ -417,7 +424,8 @@ class TypeReferenceTupleNameTable {
 //                                         start-only vs end-only.)
 // `alloc <expr>` is parsed transparently: systems analysis owns allocation-policy enforcement before this
 // product handoff, and the emitter only needs the concrete expression shape.
-// Deferred (refused with -1, or the chain simply STOPS at them): `?.`/`?[` null-conditional access, generic
+// Deferred (refused with -1, or the chain simply STOPS at them): `?[` null-conditional indexing and the
+//   null-conditional READ form `a?.B`, generic
 //   method calls (callee<T>(...)), named (`name:`) call arguments outside constructor argument lists,
 //   `is`/`as` type tests; every other unlisted primary (this/default/... ; `base.Member` is kind 71).
 //   (Tuples `(a, b)` AND named tuples `(x: 1, y: 2)` PARSE — kinds 17/43; match,
@@ -529,6 +537,15 @@ class ColumnarExpressionNodeKind {
 
     static func BaseMemberExpression(): int {
         return 71
+    }
+
+    // `receiver?.Member` — the null-conditional link. It carries the SAME shape as
+    // `MemberAccessExpression` (member name in the value span, ONE child: the receiver) and a kind of
+    // its own, because the two do not mean the same thing: this one evaluates its receiver ONCE and
+    // yields `null` without touching the member when that receiver is null. A planner that read it as
+    // an ordinary member access would silently drop the null test.
+    static func ConditionalMemberAccessExpression(): int {
+        return 74
     }
 
     // `checked(<expr>)` / `unchecked(<expr>)`. The KEYWORD lives in the value span and there is
@@ -5168,11 +5185,53 @@ func ParsePostfixExpressionNode(tokens: ParserTokenTable, count: int, st: Parser
         }
     }
 
+    // WHETHER A NULL-CONDITIONAL LINK IS OPEN IN THIS CHAIN.
+    //
+    // `a?.M()` short-circuits the WHOLE remainder of its access chain in C#: `a?.M().B` is null when
+    // `a` is null, and the `.B` is never reached. This kernel builds a chain link at a time, so a `.B`
+    // built over a `?.` node would run unconditionally — the wrong program, not a slower one. Rather
+    // than emit that, the chain REFUSES to continue with a non-conditional link once a conditional one
+    // is open. The `(` that the conditional link requires is inside the short-circuit and is allowed,
+    // and so is a further `?.` link (`a?.M()?.N()` is `(a?.M())?.N()`, which means the same thing).
+    conditionalOpen := false
     matched := true
     while matched {
         pos := st.Pos
 
-        if pos + 1 < count && tokens.Kinds[pos] == 124 && tokens.Kinds[pos + 1] == 0 {
+        if pos + 1 < count && tokens.Kinds[pos] == 118 && tokens.Kinds[pos + 1] == 0 {
+
+            // `receiver?.Member(args)` (QuestionDot 118, Identifier 0, LeftParen 127).
+            //
+            // ONLY THE CALL FORM. A null-conditional READ (`a?.B` with no argument list) yields
+            // `null` for a reference member and `B?` for a value-type one, and neither shape has an
+            // owner on this side yet; refusing the whole declaration is what it already did, and is
+            // better than an access that reads the member unconditionally.
+            if pos + 2 >= count || tokens.Kinds[pos + 2] != 127 {
+                return -1
+            }
+
+            conditionalSpanStart := nodes.SpanStarts[expr]
+            conditionalMemberStart := tokens.Starts[pos + 1]
+            conditionalMemberLength := tokens.ValueLengths[pos + 1]
+            conditionalMemberEnd := conditionalMemberStart + conditionalMemberLength
+            conditionalChildRunStart := st.ChildCursor
+            AppendExpressionChild(st, children, expr)
+            expr = EmitExpressionNode(st, nodes, ColumnarExpressionNodeKind.ConditionalMemberAccessExpression(), conditionalMemberStart, conditionalMemberLength, conditionalChildRunStart, 1, conditionalSpanStart, conditionalMemberEnd - conditionalSpanStart)
+
+            conditionalOpen = true
+            st.Pos = pos + 2
+        } else if conditionalOpen && !(pos < count && tokens.Kinds[pos] == 127) {
+
+            // A chain that has an open null-conditional link ends here. `(` continues it (the call is
+            // inside the short-circuit); anything else would have to run unconditionally.
+            // Dot 124, LeftBracket 131, QuestionBracket 119, With 71 and Less 100 (a generic call's
+            // type-argument list) are the tokens that would open another link.
+            if pos < count && (tokens.Kinds[pos] == 124 || tokens.Kinds[pos] == 131 || tokens.Kinds[pos] == 119 || tokens.Kinds[pos] == 71 || tokens.Kinds[pos] == 100) {
+                return -1
+            }
+
+            matched = false
+        } else if pos + 1 < count && tokens.Kinds[pos] == 124 && tokens.Kinds[pos + 1] == 0 {
             objSpanStart := nodes.SpanStarts[expr]
             memberStart := tokens.Starts[pos + 1]
             memberLength := tokens.ValueLengths[pos + 1]

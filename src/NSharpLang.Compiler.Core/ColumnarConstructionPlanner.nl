@@ -1838,7 +1838,7 @@ class ColumnarConstructionPlanner {
         index := 0
         while index < parameterTypes.Length {
             parameterType := parameterTypes[index]
-            if parameterType == null || ColumnarOrdinaryRuntimeDirectCallResolver.IsUnsupportedSignatureType(parameterType) {
+            if parameterType == null || ColumnarOrdinaryRuntimeDirectCallResolver.IsUnsupportedSignatureType(parameterType, new Type[](0)) {
                 return true
             }
             index = index + 1

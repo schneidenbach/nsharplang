@@ -400,7 +400,7 @@ class ColumnarRuntimeGenericMethodResolver {
         if IsEmittedTypeParameter(signatureType) {
             return false
         }
-        return ColumnarOrdinaryRuntimeDirectCallResolver.IsUnsupportedSignatureType(signatureType)
+        return ColumnarOrdinaryRuntimeDirectCallResolver.IsUnsupportedSignatureType(signatureType, new Type[](0))
     }
 
     // The definition's signature rewritten under the inferred arguments. Only the METHOD's own type

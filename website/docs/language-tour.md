@@ -752,6 +752,63 @@ func FirstMatch<T>(items: List<T>, accept: Func<T, bool>, fallback: T): T {
 }
 ```
 
+### Calling a delegate
+
+`d(args)` and `d.Invoke(args)` are the same call — `Invoke` is an ordinary instance method of the
+delegate's own type — and either spelling works wherever the delegate is held: a local, a parameter,
+a captured variable, or a **field**:
+
+```n#
+class Pipeline<T> {
+    readonly accept: Func<T, bool>
+    onEach: Action<T>?
+
+    constructor(accept: Func<T, bool>) {
+        this.accept = accept
+    }
+
+    func Run(item: T): bool {
+        if !accept(item) {              // straight off the field
+            return false
+        }
+
+        this.accept.Invoke(item)        // the same call, written out
+        onEach?.Invoke(item)            // and only if there is a listener
+        return true
+    }
+}
+```
+
+A **method beats a delegate field of the same name**: if the type declares both a `Handle` method and
+a `Handle` delegate field, `Handle(1)` is the method. Reach the field through `.Invoke` when you mean
+the delegate.
+
+### Calling something only when it is there
+
+`receiver?.Member(args)` evaluates the receiver **once**, and skips the call entirely when it is
+null — the member is not reached at all, not reached and ignored. It is the shape a hand-written
+guard produces, without the local:
+
+```n#
+current := onEach
+current?.Invoke(item)                   // exactly: if current != null { current.Invoke(item) }
+```
+
+The result follows C#'s rule. A `void` member leaves nothing behind; a reference-typed one answers
+`null` when skipped; and a non-nullable value-typed one is **lifted to `T?`**, because "skipped" has
+to be representable:
+
+```n#
+count: int? = counter?.Read()           // int? — null when `counter` is null
+label: string? = counter?.Describe()    // string? for the same reason
+```
+
+**What is not supported yet.** The receiver must be a reference type, the `?.` must be followed by a
+call (`a?.B` as a plain read is not yet lowered), and no further link may follow it in the same
+chain — `a?.M().B` and `a?.B[0]` are refused rather than compiled, because a link written after a
+`?.` must be skipped along with it and that lowering is not in place. Write the guard by hand for
+those.
+
 ### Static members of a constructed generic type
 
 Write the closed type and then the member: `Vector<int>.Count`, `EqualityComparer<string>.Default`.

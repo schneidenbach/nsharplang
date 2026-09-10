@@ -357,7 +357,7 @@ class ColumnarOrdinaryRuntimeDirectCallResolver {
                 } else {
                     parameterTypes := ResolveParameterTypes(candidate, candidateLookupType, parameters, closedArguments)
                     returnType := ResolveReturnType(candidate, candidateLookupType, closedArguments)
-                    if HasUnsupportedResolvedSignature(parameters, parameterTypes, returnType) {
+                    if HasUnsupportedResolvedSignature(parameters, parameterTypes, returnType, closedArguments) {
                         if ExcludedShapeCanOwnArity(candidate, parameters, argumentTypes.Length) {
                             hadExcludedShape = true
                         }
@@ -528,14 +528,21 @@ class ColumnarOrdinaryRuntimeDirectCallResolver {
         return false
     }
 
-    static func HasUnsupportedResolvedSignature(parameters: ParameterInfo[], parameterTypes: Type[], returnType: Type): bool {
-        if parameters.Length != parameterTypes.Length || IsUnsupportedSignatureType(returnType) {
+    // A RESOLVED SIGNATURE IS ONE THE EMITTER CAN SPELL, and after substitution the surviving generic
+    // parameters are not all the same thing. `closedArguments` are the type arguments the RECEIVER was
+    // closed over, and `ResolveParameterTypes` has already put them where the definition's own
+    // parameters stood — so a generic parameter still standing in the resolved signature is either one
+    // of THOSE (`Action<T>.Invoke(T)` inside `Holder<T>`, where `T` is the enclosing type's own
+    // parameter and is a perfectly emittable type in its body) or one the substitution could not
+    // reach, which is genuinely open and stays refused.
+    static func HasUnsupportedResolvedSignature(parameters: ParameterInfo[], parameterTypes: Type[], returnType: Type, closedArguments: Type[]): bool {
+        if parameters.Length != parameterTypes.Length || IsUnsupportedSignatureType(returnType, closedArguments) {
             return true
         }
 
         index := 0
         while index < parameterTypes.Length {
-            if IsUnsupportedSignatureType(parameterTypes[index]) {
+            if IsUnsupportedSignatureType(parameterTypes[index], closedArguments) {
                 return true
             }
 
@@ -545,8 +552,29 @@ class ColumnarOrdinaryRuntimeDirectCallResolver {
         return false
     }
 
-    static func IsUnsupportedSignatureType(signatureType: Type): bool {
-        return signatureType.get_IsByRef() || signatureType.get_IsGenericTypeDefinition() || signatureType.get_IsGenericParameter()
+    static func IsUnsupportedSignatureType(signatureType: Type, closedArguments: Type[]): bool {
+        if signatureType.get_IsByRef() || signatureType.get_IsGenericTypeDefinition() {
+            return true
+        }
+
+        if !signatureType.get_IsGenericParameter() {
+            return false
+        }
+
+        return !ContainsExactType(closedArguments, signatureType)
+    }
+
+    static func ContainsExactType(candidates: Type[], value: Type): bool {
+        index := 0
+        while index < candidates.Length {
+            if candidates[index] == value {
+                return true
+            }
+
+            index += 1
+        }
+
+        return false
     }
 
     static func ExcludedShapeCanOwnArity(method: MethodInfo, parameters: ParameterInfo[], argumentCount: int): bool {
@@ -685,7 +713,7 @@ class ColumnarOrdinaryRuntimeDirectCallResolver {
                 if parameters != null && !IsIntrinsicExcludedShape(candidate, parameters) && parameters.Length > argumentCount {
                     parameterTypes := ResolveParameterTypes(candidate, lookupType, parameters, closedArguments)
                     returnType := ResolveReturnType(candidate, lookupType, closedArguments)
-                    if !HasUnsupportedResolvedSignature(parameters, parameterTypes, returnType) && OptionalTailFillable(parameters, parameterTypes, argumentCount) && CanDispatch(candidate, lookupType, expectedStatic) {
+                    if !HasUnsupportedResolvedSignature(parameters, parameterTypes, returnType, closedArguments) && OptionalTailFillable(parameters, parameterTypes, argumentCount) && CanDispatch(candidate, lookupType, expectedStatic) {
                         leading := LeadingParameterTypes(parameterTypes, argumentCount)
                         score := ColumnarSourceDirectCallResolver.ArgumentsScoreWithFacts(leading, argumentTypes, argumentFacts)
                         if score >= 0 {

@@ -1,6 +1,7 @@
 namespace NSharpLang.TypeArity.Tests
 
 import System
+import System.Collections.Generic
 import Example
 
 
@@ -87,6 +88,37 @@ test "a namespace-qualified generic value reports the generic sibling's identity
     handle: object = MakeHandle()
     assert handle.GetType() == typeof(Handle<string>)
     assert handle.GetType().get_Name() == "Handle`1"
+}
+
+// THE TWO SPELLINGS ARE ONE IDENTITY. `Example.Handle` used to fall out of the analyzer's resolution
+// walk as a SECOND type instance beside the one `Handle` resolves to, so `func M(): Example.Handle`
+// reported NL202 for every value the bare spelling accepted. These call the qualified-return-type,
+// qualified-parameter, qualified-local, qualified-`is` and qualified-generic-argument forms and read
+// back the SAME runtime type the bare spelling produces.
+test "a namespace-qualified return type accepts what the bare one accepts" {
+    plain: object = MakeQualifiedHandle()
+    assert plain.GetType() == typeof(Handle<string>)
+    assert plain.GetType().get_BaseType() == typeof(Example.Handle)
+
+    generic := MakeQualifiedGenericHandle()
+    assert generic.Value == "g"
+
+    boxedGeneric: object = generic
+    assert boxedGeneric.GetType() == typeof(Example.Handle<string>)
+    assert typeof(Example.Handle<string>) == typeof(Handle<string>)
+}
+
+test "a namespace-qualified parameter, local and is-test name the same type as the bare spelling" {
+    assert QualifiedRoundTrip(new Handle<string>("r")) == "g"
+    assert QualifiedRoundTrip(new Handle()) == "g"
+}
+
+test "a namespace-qualified type is the same generic argument as the bare one" {
+    handles := QualifiedHandleList()
+    assert handles.Count == 1
+
+    bare: List<Handle> = handles
+    assert bare.Count == 1
 }
 
 // ── value types, and three arities of one name ────────────────────────────────────────────────

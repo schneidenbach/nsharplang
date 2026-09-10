@@ -46,6 +46,16 @@ func CurrentInstanceAnalysisErrors(source: string): List<CompilerError> {
     return errors
 }
 
+func CurrentInstanceErrorReport(errors: List<CompilerError>): string {
+    text := ""
+    index := 0
+    while index < errors.Count {
+        text = text + "[" + errors[index].Line.ToString() + ":" + errors[index].Column.ToString() + "] " + errors[index].Message + " | "
+        index = index + 1
+    }
+    return text
+}
+
 func CurrentInstanceErrorCodes(errors: List<CompilerError>): string {
     text := ""
     index := 0
@@ -97,12 +107,12 @@ test "a member the base does not declare is NL303 naming the base type" {
     assert errors[0].Message.Contains("Animal")
 }
 
-test "this inside an instance member, an instance property and a lambda within one is accepted" {
+test "this inside an instance member, an instance property and a nested body within one is accepted" {
     errors := CurrentInstanceAnalysisErrors(
-        CurrentInstanceBaseClassSource() + "import System\n" + "\n" + "class Dog: Animal {\n" + "    readonly tag: int = 3\n" + "\n" + "    public constructor(name: string): base(name) {\n" + "    }\n" + "\n" + "    Tag: int => this.tag\n" + "\n" + "    func Later(): Action {\n" + "        return () => {\n" + "            _ = this.tag\n" + "        }\n" + "    }\n" + "}\n"
+        CurrentInstanceBaseClassSource() + "class Dog: Animal {\n" + "    readonly tag: int = 3\n" + "\n" + "    public constructor(name: string): base(name) {\n" + "    }\n" + "\n" + "    Tag: int => this.tag\n" + "\n" + "    func Later(): int {\n" + "        func inner(): int {\n" + "            return this.tag\n" + "        }\n" + "\n" + "        return inner()\n" + "    }\n" + "}\n"
     )
 
-    assert CurrentInstanceErrorCodes(errors) == ""
+    assert CurrentInstanceErrorCodes(errors) == "", CurrentInstanceErrorReport(errors)
 }
 
 // ── when there is none ────────────────────────────────────────────────────────────────────────
@@ -126,14 +136,18 @@ test "base in a top-level function is NL327 and says the function is outside eve
     assert errors[0].Message == "'base' cannot be used outside a type"
 }
 
-// The receiver is a fact about the enclosing MEMBER, so a lambda answers with the member's answer
-// rather than with its own (it has no declaration of its own to read a `static` modifier off).
-test "a lambda inside a static member inherits the member's missing receiver" {
+// The receiver is a fact about the enclosing MEMBER, so a NESTED body answers with the member's
+// answer rather than with its own. A local function and a lambda take the same boundary
+// (`EnterNestedBody`), and the lambda differs only in passing `null` for the declaration — which is
+// exactly why a derived answer would have got the lambda wrong. The local function is what is
+// written here because a lambda needs a delegate TYPE, and `System` is not on this harness's
+// reference set.
+test "a nested body inside a static member inherits the member's missing receiver" {
     errors := CurrentInstanceAnalysisErrors(
-        CurrentInstanceBaseClassSource() + "import System\n" + "\n" + "class Dog: Animal {\n" + "    public constructor(name: string): base(name) {\n" + "    }\n" + "\n" + "    static func Later(): Action {\n" + "        return () => {\n" + "            _ = base.Speak()\n" + "        }\n" + "    }\n" + "}\n"
+        CurrentInstanceBaseClassSource() + "class Dog: Animal {\n" + "    public constructor(name: string): base(name) {\n" + "    }\n" + "\n" + "    static func Later(): string {\n" + "        func inner(): string {\n" + "            return base.Speak()\n" + "        }\n" + "\n" + "        return inner()\n" + "    }\n" + "}\n"
     )
 
-    assert CurrentInstanceErrorCodes(errors) == "327"
+    assert CurrentInstanceErrorCodes(errors) == "327", CurrentInstanceErrorReport(errors)
     assert errors[0].Message == "'base' cannot be used in a static member"
 }
 

@@ -182,3 +182,141 @@ test "the open definition's members are typed by the type parameter itself" {
     assert onEachType.GetGenericTypeDefinition() == typeof(Action<int>).GetGenericTypeDefinition()
     assert onEachType.GetGenericArguments()[0] == parameter
 }
+
+// ---- calling delegates -----------------------------------------------------------------------
+
+func DelegateCallerFor(seen: List<int>, plainSeen: List<int>): Caller<int> {
+    pick: Func<int, bool> = value => value > 1
+    onEach: Action<int> = value => {
+        seen.Add(value)
+    }
+    plain: Action = () => {
+        plainSeen.Add(0)
+    }
+    counted: Action<int> = value => {
+        plainSeen.Add(value)
+    }
+    return new Caller<int>(pick, onEach, plain, counted)
+}
+
+test "a delegate over the declaring type's own parameter answers .Invoke from a field and a local" {
+    caller := DelegateCallerFor(new List<int>(), new List<int>())
+    assert caller.PickByInvokeOnField(2)
+    assert !caller.PickByInvokeOnField(1)
+    assert caller.PickByInvokeOnLocal(2)
+    assert !caller.PickByInvokeOnLocal(0)
+}
+
+test "a delegate field is callable without .Invoke and without copying it to a local" {
+    caller := DelegateCallerFor(new List<int>(), new List<int>())
+    assert caller.PickByFieldCall(5)
+    assert !caller.PickByFieldCall(1)
+    assert caller.PickByThisFieldCall(5)
+    assert !caller.PickByThisFieldCall(1)
+}
+
+test "a void delegate over the type parameter runs in both spellings" {
+    seen := new List<int>()
+    caller := DelegateCallerFor(seen, new List<int>())
+
+    caller.AnnounceByInvoke(3)
+    assert seen.Count == 1
+    assert seen[0] == 3
+
+    caller.AnnounceByFieldCall(4)
+    assert seen.Count == 2
+    assert seen[1] == 4
+}
+
+test "non-generic delegate fields are callable at arity zero and one" {
+    plainSeen := new List<int>()
+    caller := DelegateCallerFor(new List<int>(), plainSeen)
+
+    caller.FirePlain()
+    assert plainSeen.Count == 1
+    assert plainSeen[0] == 0
+
+    caller.FireCounted(9)
+    assert plainSeen.Count == 2
+    assert plainSeen[1] == 9
+}
+
+// THE ORDER IS UNCHANGED. A delegate field being callable must not let a field take a name a method
+// of the same name owns.
+test "a method still beats a delegate field of the same name" {
+    fieldSeen := new List<int>()
+    handler: Action<int> = value => {
+        fieldSeen.Add(value)
+    }
+    shadowed := new Shadowed(handler)
+
+    shadowed.RunMethod(7)
+    assert shadowed.Log == 7
+    assert fieldSeen.Count == 0
+
+    shadowed.RunField(2)
+    assert shadowed.Log == 7
+    assert fieldSeen.Count == 1
+    assert fieldSeen[0] == 2
+}
+
+// ---- the null-conditional call ---------------------------------------------------------------
+
+// Reflection answers `MethodInfo?`; a null here means the emitter never wrote the member, which is a
+// failure that deserves its own sentence rather than a null dereference on the next line.
+func DeclaredStaticMethodReturnType(owner: Type, name: string): Type {
+    method := owner.GetMethod(name)
+    if method == null {
+        throw new InvalidOperationException("'" + owner.Name + "' declares no method named '" + name + "'.")
+    }
+    return method.get_ReturnType()
+}
+
+test "a null-conditional call runs the member when the receiver is not null" {
+    seen := new List<int>()
+    onEach: Action<int> = value => {
+        seen.Add(value)
+    }
+    pick: Func<int, bool> = value => value > 1
+    conditional := new Conditional<int>(onEach, pick, new Counter(4))
+
+    conditional.AnnounceIfListening(1)
+    conditional.AnnounceThroughLocal(2)
+    assert seen.Count == 2
+    assert seen[0] == 1
+    assert seen[1] == 2
+
+    picked := conditional.PickIfPossible(5)
+    assert picked != null
+    assert picked ?? false
+
+    assert conditional.LabelOrNull() == "count"
+    assert (conditional.CountOrNull() ?? 0) == 4
+}
+
+// THE MEMBER IS NOT REACHED AT ALL when the receiver is null — not "reached and ignored". A void
+// call leaves nothing behind, a reference result is `null` and a value result is the empty `T?`.
+test "a null receiver skips the call and answers the empty result" {
+    conditional := new Conditional<int>(null, null, null)
+
+    conditional.AnnounceIfListening(1)
+    conditional.AnnounceThroughLocal(2)
+
+    assert conditional.PickIfPossible(5) == null
+    assert conditional.LabelOrNull() == null
+    assert conditional.CountOrNull() == null
+}
+
+// A value result is `T?`, not `T`: the CLR type of what comes back is `Nullable<int>`, which is what
+// makes the skipped path representable at all.
+test "a value-typed null-conditional result is lifted to its nullable form" {
+    conditional := new Conditional<int>(null, null, new Counter(7))
+    count := conditional.CountOrNull()
+    assert count != null
+    assert (count ?? 0) == 7
+
+    // A boxed `int?` that has a value boxes AS `int`, which is the CLR's own rule; what proves the
+    // lifting is the STATIC type of the member, read off its declaration.
+    lifted := DeclaredStaticMethodReturnType(typeof(Conditional<int>), "CountOrNull")
+    assert lifted == typeof(Nullable<int>)
+}

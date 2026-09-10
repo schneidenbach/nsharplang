@@ -1363,5 +1363,53 @@ without `base`: a subclass that declares a property whose name a base already de
 (`Box<string>.Value` from a grandchild) fails plan validation with "reference receiver ... does not
 match its declaring type" for `this.Value` and `Value` alike.
 
+**CALLING A DELEGATE, AND CALLING IT ONLY IF IT IS THERE.** Three gaps closed together, all in the
+columnar call path:
+
+1. `.Invoke` ON A DELEGATE OVER A TYPE PARAMETER declined at `emit.call.instance-member-unmodeled`.
+   `ColumnarOrdinaryRuntimeDirectCallResolver` already rebinds a member from the open definition for a
+   builder-bound instantiation (`TryGetBuilderBoundRuntimeDefinition` +
+   `SelectedBuilderBound` -> `TypeBuilder.GetMethod`) — and then refused the SUBSTITUTED signature,
+   because `IsUnsupportedSignatureType` rejected every generic parameter, including the ones
+   `ResolveParameterTypes` had just substituted in. It now takes the receiver's `closedArguments` and
+   accepts a generic parameter that is one of THEM; anything the substitution could not reach is still
+   genuinely open and still refused. (The three other callers pass an empty set, so their behaviour is
+   unchanged.)
+2. A BARE CALL ON A DELEGATE FIELD (`pick(item)`) declined at `emit.call.bare-unresolved`: the
+   bare-call arm only reached locals, parameters and lifted captures.
+   `ColumnarDirectCallPlanner.TryAppendDelegateInvoke` now resolves `Invoke` through the ORDINARY
+   runtime resolver with the CALLEE NODE ITSELF as the receiver, so `AppendExplicitReceiver` plans the
+   identifier exactly as it would anywhere else and any storage works — `this.` in front of it too.
+   `IsDelegateValueType` asks the CLR hierarchy (`typeof(Delegate).IsAssignableFrom`, through the open
+   definition for a builder-bound instantiation), never a list of delegate names. METHOD-BEATS-VALUE is
+   unchanged and pinned: a method of the name on any tier keeps the name.
+3. `?.` WAS A PARSE GAP. `ColumnarExpressionNodeKind.ConditionalMemberAccessExpression()` is kind 74
+   (`72`/`73` are the YIELD and AWAIT-FOREACH STATEMENT kinds — the expression and statement kinds share
+   one numbering space), built only for the CALL form, and `ColumnarIlEmitter.TryEmitConditionalCall`
+   lowers it to `<receiver>; stloc t; ldloc t; brfalse null; ldloc t; <args>; call; br end; null:
+   <default>; end:`. The result follows C#: void leaves nothing, a reference result is `ldnull`, and a
+   non-nullable value result is lifted to `Nullable<T>`. KNOWN LIMITS, all refused rather than
+   mis-compiled: the read form `a?.B`, a non-conditional link after a conditional one (`a?.M().B`),
+   `?[`, and a value-type receiver.
+
+**A `ref`/`out` ARGUMENT MAY NAME A FIELD.** `ColumnarIlEmitter.EmitAddressOfByRefTarget` and
+`TryGetAddressableTargetType` reached locals, parameters and dotted member chains but not a BARE field
+name — which is also how `this.count` arrives, since the parser flattens the explicit receiver onto the
+same leaf. `TryFindBareByRefField` answers it and the address is `ldarg.0; ldflda`, under the same gate
+the bare field WRITE carries (a reference receiver, or a constructor body): a value-type receiver
+reaches an instance body through a temp copy, so an address into its field would be an address into the
+copy. A STATIC field is deliberately NOT answered: its address is `ldsflda`, and the pinned stage-0 SDK
+that builds Compiler.Core does not model `OpCodes.Ldsflda` (`ColumnarExternalBindingPlans.tests.nl`
+pins the absence), so the instruction cannot be written until the SDK is repacked.
+
+STILL OPEN: `Interlocked.Exchange(ref x, v)` declines at `emit.call.static-member-unmodeled` for every
+receiver type. `Interlocked.Increment` only works because it is a MODELED entry in `ColumnarIlEmitter`;
+the semantic call planner types NO by-ref argument at all (`TryGetArgumentTypes` has no arm for the
+kind-54 `ref`/`out` node), so no by-ref call reaches ordinary or generic overload resolution. Closing it
+means by-ref argument facts on `ColumnarDirectCallArgumentFacts`, address appending in
+`AppendArguments`, by-ref scoring in `ArgumentsScoreWithFacts`, a by-ref arm in
+`ColumnarRuntimeGenericMethodResolver` (infer `T` from the byref argument, convert `null` to it), and
+plan-executor validation of an address for a by-ref parameter.
+
 Keep ownership-policy tests beside the N# owner. C# tests should exercise only the remaining
 diagnostic/integration shell, not recreate semantic lookup or identity policy in test helpers.
