@@ -20785,7 +20785,10 @@ test "020 s36 analyzer clean source V-CONTROL V1: `count + text.Length` -> `coun
     assert AcLookupIdentifier(plainModel, "count") == "int"
     assert AcLookupIdentifier(plainModel, "text") == "string"
     assert AcLookupIdentifier(plainModel, "total") == "string"
-    assert AcExpressionTypes(plainModel) == "2:24=NSharpLang.Compiler.TupleTypeInfo;2:25=int;2:28=string;3:18=int;3:24=string;3:26=string;"
+    // The tuple literal's own type now DISPLAYS as the tuple it is. Before named tuple element
+    // metadata landed, `TupleTypeInfo` had no `ToString` and this row read back the CLASS name
+    // `NSharpLang.Compiler.TupleTypeInfo`; the recorded type is the same, only its spelling changed.
+    assert AcExpressionTypes(plainModel) == "2:24=(int, string);2:25=int;2:28=string;3:18=int;3:24=string;3:26=string;"
     rich := AcAnalyzeWithSource(source)
     assert AcCensus(rich) == ""
     assert AcHasErrors(rich) == "False"

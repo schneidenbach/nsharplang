@@ -61,13 +61,15 @@ class AnalyzerTupleElementNames {
     // The attribute's single `string[]` fixed argument. Each element is a `CustomAttributeTypedArgument`
     // whose `Value` is the name, or null for an element the declaring language left unnamed.
     //
-    // BOTH HOPS GO THROUGH `object` ON PURPOSE. `Value` answers the element list as `object`, and
-    // neither `as` nor a cast to a CONSTRUCTED GENERIC interface is a shape the compiler that builds
-    // this file can emit -- the compiler's own source is compiled by the pinned stage-0 SDK. The
-    // non-generic `IList` reaches the same instance and the same count (the trick `SequenceCount`
-    // already plays for `Count`), and each element's `Value` is read through the property itself
-    // because a boxed struct cannot be unboxed here either. Nothing about the metadata is guessed:
-    // this is the same `CustomAttributeTypedArgument.Value` a strongly-typed reader would call.
+    // BOTH HOPS GO THROUGH `object` ON PURPOSE, AND BOTH ARE COMPILER LIMITATIONS RATHER THAN TASTE.
+    // `Value` answers the element list as `object`, and the columnar backend emits neither
+    // `value as IList<CustomAttributeTypedArgument>` nor the equivalent cast: an `as`/`is` target must
+    // be a bare identifier, so every CONSTRUCTED GENERIC target declines
+    // (`value as List<int>` declines the same way). The non-generic `IList` reaches the same instance
+    // and the same count -- the trick `SequenceCount` already plays for `Count` -- and each element's
+    // `Value` is read through the property itself because a boxed struct cannot be unboxed here
+    // either. Nothing about the metadata is guessed: this is the same
+    // `CustomAttributeTypedArgument.Value` a strongly-typed reader would call.
     static func ReadStringArrayArgument(argument: CustomAttributeTypedArgument): string?[]? {
         value := argument.get_Value()
         if value == null {

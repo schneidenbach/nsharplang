@@ -1668,7 +1668,10 @@ test "020 s37 playground diagnostic spans: Check UsingTupleDeconstruction Preser
     assert PgCensus(response) == "NL103@8:15+13;NL103@8:32+7;"
     assert PgRow(response, 0) == "NL103|error|Using statement requires a variable declaration, not tuple deconstruction|Program.nl|8|15|13"
     assert PgDetail(response, 0) == "    using let (left, right) := getPair() {|The 'using' statement can only work with single variable declarations, not tuple deconstruction.|Change from tuple deconstruction to single variable|Use a single variable: using let resource := getResource() { ... }"
-    assert PgRow(response, 1) == "NL103|error|Using resource of type 'NSharpLang.Compiler.TupleTypeInfo' must implement IDisposable or provide Dispose(): void|Program.nl|8|32|7"
+    // The message names the tuple the way the source writes it. Before named tuple element metadata
+    // landed, `TupleTypeInfo` had no `ToString` and this diagnostic leaked the CLASS name
+    // `NSharpLang.Compiler.TupleTypeInfo` at the user.
+    assert PgRow(response, 1) == "NL103|error|Using resource of type '(int, int)' must implement IDisposable or provide Dispose(): void|Program.nl|8|32|7"
     assert PgDetail(response, 1) == "    using let (left, right) := getPair() {|<null>|Use a resource type with a parameterless void Dispose method, or remove the using statement.|<null>"
     assert PgRow(response, 2) == "<no-such-diagnostic>"
     other := PgCheckTestFile(source)
@@ -1677,7 +1680,7 @@ test "020 s37 playground diagnostic spans: Check UsingTupleDeconstruction Preser
     assert PgCount(other) == 2
     assert PgCensus(other) == "NL103@8:15+13;NL103@8:32+7;"
     assert PgRow(other, 0) == "NL103|error|Using statement requires a variable declaration, not tuple deconstruction|Program.tests.nl|8|15|13"
-    assert PgRow(other, 1) == "NL103|error|Using resource of type 'NSharpLang.Compiler.TupleTypeInfo' must implement IDisposable or provide Dispose(): void|Program.tests.nl|8|32|7"
+    assert PgRow(other, 1) == "NL103|error|Using resource of type '(int, int)' must implement IDisposable or provide Dispose(): void|Program.tests.nl|8|32|7"
 }
 
 test "020 s37 playground diagnostic spans: Check StringLiteralUnknownMember ReturnsUndefinedMemberDiagnostic — NL303@4:26+4;, and the test-file route agrees (was PlaygroundCompilerTests.Check_StringLiteralUnknownMember_ReturnsUndefinedMemberDiagnostic)" {
