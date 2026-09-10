@@ -194,6 +194,22 @@ struct Tagged<T> {
     static func operator !=(left: Tagged<T>, right: Tagged<T>): bool {
         return left.Tag != right.Tag
     }
+
+    static func operator <(left: Tagged<T>, right: Tagged<T>): bool {
+        return left.Tag < right.Tag
+    }
+
+    static func operator >(left: Tagged<T>, right: Tagged<T>): bool {
+        return left.Tag > right.Tag
+    }
+
+    static func operator -(value: Tagged<T>): Tagged<T> {
+        return new Tagged<T>(0 - value.Tag)
+    }
+
+    static func operator +(left: Tagged<T>, right: Tagged<T>): Tagged<T> {
+        return new Tagged<T>(left.Tag + right.Tag)
+    }
 }
 
 func UseAll(): int {
@@ -202,7 +218,9 @@ func UseAll(): int {
     Counter<int>.Value = Seeded<int>.Total
     boxed := Box<int>.Create(PerTypeState<int>.Increment())
     same := new Tagged<int>(1) == new Tagged<int>(1)
-    return same ? Box<int>.Read(boxed.Copy()) + Counter<int>.Value : 0
+    ordered := new Tagged<int>(1) < new Tagged<int>(2) && new Tagged<int>(2) > new Tagged<int>(1)
+    summed := new Tagged<int>(4) + -new Tagged<int>(1)
+    return same && ordered ? Box<int>.Read(boxed.Copy()) + Counter<int>.Value + summed.Tag : 0
 }
 """
         )

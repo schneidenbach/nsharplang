@@ -52,6 +52,22 @@ struct Tagged<T> {
     static func operator !=(left: Tagged<T>, right: Tagged<T>): bool {
         return left.Tag != right.Tag
     }
+
+    static func operator <(left: Tagged<T>, right: Tagged<T>): bool {
+        return left.Tag < right.Tag
+    }
+
+    static func operator >(left: Tagged<T>, right: Tagged<T>): bool {
+        return left.Tag > right.Tag
+    }
+
+    static func operator -(value: Tagged<T>): Tagged<T> {
+        return new Tagged<T>(0 - value.Tag)
+    }
+
+    static func operator +(left: Tagged<T>, right: Tagged<T>): Tagged<T> {
+        return new Tagged<T>(left.Tag + right.Tag)
+    }
 }
 
 struct Box<T> {
@@ -285,6 +301,26 @@ test "operators declared on a generic struct bind on each constructed type" {
     assert !(s != t)
 }
 
+// The other operator ARITIES and kinds on the same generic struct: a comparison pair, a UNARY
+// operator, and a binary arithmetic one whose result is the constructed type itself.
+test "comparison, unary and arithmetic operators on a generic struct bind on each constructed type" {
+    one := new Tagged<int>(1)
+    two := new Tagged<int>(2)
+
+    assert one < two
+    assert !(two < one)
+    assert two > one
+    assert !(one > two)
+
+    negated := -two
+    assert negated.Tag == -2
+    assert (one + two).Tag == 3
+    assert (two + negated).Tag == 0
+
+    assert new Tagged<string>(1) < new Tagged<string>(2)
+    assert (new Tagged<string>(4) + new Tagged<string>(5)).Tag == 9
+}
+
 // THE METADATA HALF. The runtime assertions above would also pass if two constructed types happened
 // to share one slot and the test only ever read one of them; these read the CLR's own answer.
 // Deliberately NO name string is asserted: whether a constructed generic's CLR name carries a
@@ -356,6 +392,39 @@ func StaticMethodsAreDistinct(left: Type, right: Type, name: string): bool {
     return !Object.ReferenceEquals(leftMethod, rightMethod)
 }
 
+// TYPE-INITIALIZER METADATA. `beforefieldinit` is what C# stamps on a type whose only static
+// initialization is field initializers — it leaves the CLR free to run the initializer early rather
+// than pinning it to the first static-field access. This backend does not stamp it, for a generic
+// type OR a non-generic one, so the divergence belongs to the emitter and not to generics.
+//
+// What this project can pin is exactly that: a generic type's type-initializer metadata is its
+// non-generic twin's, byte for byte, over the same declaration shape. A slice that gave generic
+// types a different type-initializer treatment would break this even while the C# divergence
+// remains, and the slice that fixes the divergence will find both halves here.
+class PlainSeeded {
+    static readonly Origin: int = 7
+    static Slot: int = 3
+
+    static Total: int => Origin + Slot
+}
+
+func IsBeforeFieldInit(owner: Type): bool {
+    return (owner.get_Attributes() & TypeAttributes.BeforeFieldInit) == TypeAttributes.BeforeFieldInit
+}
+
+test "a generic type's type-initializer metadata is its non-generic twin's over the same declaration" {
+    assert IsBeforeFieldInit(typeof(Seeded<int>).GetGenericTypeDefinition()) == IsBeforeFieldInit(typeof(PlainSeeded))
+    assert IsBeforeFieldInit(typeof(Counter<int>).GetGenericTypeDefinition()) == IsBeforeFieldInit(typeof(PlainSeeded))
+
+    // Recorded, not endorsed: neither carries `beforefieldinit`, where C# would stamp both.
+    assert !IsBeforeFieldInit(typeof(PlainSeeded))
+
+    // The initializer still RUNS, once per constructed type, which is what the value assertions
+    // above depend on — the missing flag is a scheduling freedom, not a missing initializer.
+    assert PlainSeeded.Total == 10
+    assert Seeded<int>.Total == 10
+}
+
 test "each constructed type owns its own static FieldInfo over one shared declaration" {
     assert HasStaticField(typeof(PerTypeState<int>), "Count")
     assert HasStaticField(typeof(PerTypeState<string>), "Count")
@@ -372,6 +441,10 @@ test "a static method and an operator are declared on the open definition and ar
     taggedDefinition := typeof(Tagged<int>).GetGenericTypeDefinition()
     assert IsStaticSpecialName(taggedDefinition, "op_Equality")
     assert IsStaticSpecialName(taggedDefinition, "op_Inequality")
+    assert IsStaticSpecialName(taggedDefinition, "op_LessThan")
+    assert IsStaticSpecialName(taggedDefinition, "op_GreaterThan")
+    assert IsStaticSpecialName(taggedDefinition, "op_UnaryNegation")
+    assert IsStaticSpecialName(taggedDefinition, "op_Addition")
 }
 
 test "the constructed static method is the one declaration seen through its instantiation" {
