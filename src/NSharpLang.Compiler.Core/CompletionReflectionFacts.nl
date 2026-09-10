@@ -136,7 +136,16 @@ class CompletionReflectionFacts {
     // not match what the source wrote, is not an answer — and neither is a close that throws or one
     // the CLR poisons.
     static func CloseKnownReceiverDefinition(genericType: GenericTypeInfo): Type? {
+        // THE NAME TABLE STILL ANSWERS FIRST, because the types it names are RUNTIME types and the
+        // arguments below are runtime types too — closing a metadata-context definition over them
+        // is what the CLR poisons. A receiver the table has never heard of — `Vector<int>`,
+        // `EqualityComparer<string>` — falls through to the definition the analyzer already
+        // resolved, RE-HOMED into this process's universe so the two halves match.
         genericDefinition := KnownReceiverGenericDefinition(genericType.Name)
+        if genericDefinition == null {
+            genericDefinition = ResolvedGenericDefinitionOrNull(genericType)
+        }
+
         if genericDefinition == null {
             return null
         }
@@ -169,6 +178,54 @@ class CompletionReflectionFacts {
         }
 
         return closed
+    }
+
+    // The open CLR definition a constructed `GenericTypeInfo` carries, RE-HOMED into this process's
+    // reflection universe. The analyzer resolves it through a `MetadataLoadContext`, and a
+    // definition from one universe cannot be closed over arguments from another — the CLR answers a
+    // `TypeBuilderInstantiation` rather than throwing, which is what `IsPoisonedMixedInstantiation`
+    // exists to catch. Re-homing by assembly-qualified name is what makes the two halves match; a
+    // definition with no runtime counterpart answers null and the receiver simply offers nothing.
+    static func ResolvedGenericDefinitionOrNull(genericType: GenericTypeInfo): Type? {
+        definition := genericType.GenericDefinition as ReflectionTypeInfo
+        if definition == null {
+            return null
+        }
+
+        candidate := definition.Type
+        if candidate == null || !candidate.get_IsGenericTypeDefinition() {
+            return null
+        }
+
+        qualifiedName := candidate.get_AssemblyQualifiedName()
+        if qualifiedName != null {
+            rehomed: Type? = null
+            try {
+                rehomed = Type.GetType(qualifiedName, false)
+            } catch {
+                rehomed = null
+            }
+
+            if rehomed != null && rehomed.get_IsGenericTypeDefinition() {
+                return rehomed
+            }
+        }
+
+        fullName := candidate.get_FullName()
+        if fullName != null {
+            named: Type? = null
+            try {
+                named = Type.GetType(fullName, false)
+            } catch {
+                named = null
+            }
+
+            if named != null && named.get_IsGenericTypeDefinition() {
+                return named
+            }
+        }
+
+        return null
     }
 
     // A type ARGUMENT is never allowed to fail the close by being absent: an argument this file
