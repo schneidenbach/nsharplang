@@ -647,8 +647,15 @@ class ColumnarRuntimeInstanceMemberResolver {
             return SubstituteClosedTypeArguments(elementType, closedArguments).MakeArrayType()
         }
 
-        if signatureType.get_IsGenericType() && !signatureType.get_IsGenericTypeDefinition() {
-            definition := signatureType.GetGenericTypeDefinition()
+        // The GENERIC TYPE DEFINITION is substituted too, not skipped. A member whose signature type
+        // is its own owner — `EqualityComparer<T>.Default` is typed `EqualityComparer<T>`, and the
+        // CLR spells that as the definition itself — is exactly the shape a self-typed static
+        // factory has, and leaving it unsubstituted hands the planner an open definition, which
+        // names no storage. Its arguments ARE the owner's type parameters, so the ordinary
+        // by-position substitution below closes it; a definition whose parameters this
+        // instantiation does not cover substitutes to itself and is rejected downstream as before.
+        if signatureType.get_IsGenericType() {
+            definition := signatureType.get_IsGenericTypeDefinition() ? signatureType : signatureType.GetGenericTypeDefinition()
             arguments := signatureType.GetGenericArguments()
             substituted := new Type[](arguments.Length)
             index := 0

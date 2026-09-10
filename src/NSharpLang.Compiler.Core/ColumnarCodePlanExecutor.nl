@@ -2093,6 +2093,31 @@ class ColumnarCodePlanExecutor {
     // Reflection.Emit constructed member wrappers can expose the generic definition's raw
     // declaring-type and method-type parameters. Rebuild the exact selected signature from
     // both argument sets so stack validation never depends on wrapper reflection identity.
+    // An open definition standing in for its own instantiation is substitutable exactly when every
+    // one of its arguments is a generic parameter this member's argument sets cover. `TypeBuilder`
+    // definitions never are: inside `G<T>`'s own body the open builder IS the current instantiation,
+    // which is how Reflection.Emit spells it, so substituting there would rewrite a correct token.
+    static func IsSubstitutableOpenDefinition(signatureType: Type, declaringArguments: Type[], methodArguments: Type[]): bool {
+        if signatureType is TypeBuilder {
+            return false
+        }
+        arguments := signatureType.GetGenericArguments()
+        i := 0
+        while i < arguments.Length {
+            argument := arguments[i]
+            if !argument.get_IsGenericParameter() {
+                return false
+            }
+            available := argument.get_DeclaringMethod() != null ? methodArguments : declaringArguments
+            position := argument.get_GenericParameterPosition()
+            if position < 0 || position >= available.Length {
+                return false
+            }
+            i += 1
+        }
+        return arguments.Length > 0
+    }
+
     static func ResolveMemberSignatureType(signatureType: Type, declaringArguments: Type[], methodArguments: Type[], schemaName: string): Type {
         if signatureType.get_IsGenericParameter() {
             position := signatureType.get_GenericParameterPosition()
@@ -2114,8 +2139,13 @@ class ColumnarCodePlanExecutor {
             }
             return ResolveMemberSignatureType(elementType, declaringArguments, methodArguments, schemaName).MakeArrayType()
         }
-        if signatureType.get_IsGenericType() && !signatureType.get_IsGenericTypeDefinition() {
-            definition := signatureType.GetGenericTypeDefinition()
+        // A GENERIC TYPE DEFINITION in an open signature is substituted like any other generic
+        // shape: `EqualityComparer<T>.Default` is typed `EqualityComparer<T>`, which the CLR spells
+        // as the definition itself, and the selected signature for a closed instantiation is
+        // `EqualityComparer<int>`. Skipping definitions compared a closed declaration against an
+        // open handle and reported a mismatch.
+        if signatureType.get_IsGenericType() && (!signatureType.get_IsGenericTypeDefinition() || IsSubstitutableOpenDefinition(signatureType, declaringArguments, methodArguments)) {
+            definition := signatureType.get_IsGenericTypeDefinition() ? signatureType : signatureType.GetGenericTypeDefinition()
             signatureArguments := signatureType.GetGenericArguments()
             resolvedArguments := new Type[](signatureArguments.Length)
             i := 0

@@ -422,10 +422,54 @@ class ColumnarCanonicalTypeResolver {
         return false
     }
 
-    // This deliberately differs from the ordinary family. The historical generic-signature path
-    // permits only the BCL heads whose type-parameter closure it can emit; in particular it does
-    // not admit the read-only collection interfaces merely because an empty map was supplied.
+    // THE MODELED ROWS FIRST, THEN THE GENERAL ARM. Each row below states a narrower ELEMENT policy
+    // for a family whose lowerings care about it — span elements, collection elements, dictionary
+    // keys — and those policies are why the rows exist. What the rows are NOT is the list of BCL
+    // generics a source file may write over its own type parameters: when a row declines, or names a
+    // head no row covers, `TrySelectExternalGenericConstruction` resolves the definition and closes
+    // it the way the CLR does. A rejection the modeled row recorded with its exact runtime shape
+    // survives a general-arm decline, so the caller still sees the row's diagnosis.
     static func TrySelectTypeParameterGenericFamily(
+        canonical: string,
+        genericOpen: int,
+        typeParams: IReadOnlyDictionary<string, Type>,
+        enumRegistry: ColumnarSemanticRegistry<ColumnarEnumDef>,
+        structRegistry: ColumnarSemanticRegistry<ColumnarStructDef>,
+        unionRegistry: ColumnarSemanticRegistry<ColumnarUnionDef>,
+        out selected: ColumnarSelectedTypeReference
+    ): bool {
+        if TrySelectTypeParameterModeledFamily(
+            canonical,
+            genericOpen,
+            typeParams,
+            enumRegistry,
+            structRegistry,
+            unionRegistry,
+            out selected
+        ) {
+            return true
+        }
+
+        modeledSelection := selected
+        if TrySelectExternalGenericConstruction(
+            canonical,
+            genericOpen,
+            typeParams,
+            enumRegistry,
+            structRegistry,
+            unionRegistry,
+            out selected
+        ) {
+            return true
+        }
+
+        if modeledSelection.HasRuntimeType {
+            selected = modeledSelection
+        }
+        return false
+    }
+
+    static func TrySelectTypeParameterModeledFamily(
         canonical: string,
         genericOpen: int,
         typeParams: IReadOnlyDictionary<string, Type>,
@@ -656,6 +700,91 @@ class ColumnarCanonicalTypeResolver {
         return false
     }
 
+    // THE GENERAL ARM BEHIND THE FAMILY ROWS ABOVE, and the reason a new row is never needed for a
+    // BCL generic written over the enclosing declaration's own type parameters. The rows above state
+    // narrower ELEMENT policies for the families whose lowerings care (spans, collection elements,
+    // dictionary keys); when a row declines, or names a head nobody wrote a row for, the ordinary
+    // answer is the CLR's own: resolve the open definition through ordinary scoped type resolution at
+    // the written arity, resolve each argument the same way this function resolves any other, and
+    // close it with `MakeGenericType`. Nothing here consults a name.
+    //
+    // It applies ONLY to a spelling that mentions one of those type parameters. A fully concrete
+    // spelling keeps the exact family boundary it has today: those constructions have real
+    // lowerings that decide their own admissibility, and this arm must not reinterpret their answer.
+    static func TrySelectExternalGenericConstruction(
+        canonical: string,
+        genericOpen: int,
+        typeParams: IReadOnlyDictionary<string, Type>,
+        enumRegistry: ColumnarSemanticRegistry<ColumnarEnumDef>,
+        structRegistry: ColumnarSemanticRegistry<ColumnarStructDef>,
+        unionRegistry: ColumnarSemanticRegistry<ColumnarUnionDef>,
+        out selected: ColumnarSelectedTypeReference
+    ): bool {
+        table := structRegistry.StructuralTypeReferences
+        selected = ColumnarSelectedTypeReference.Missing(table)
+        if !MentionsVisibleTypeParameter(canonical, typeParams) {
+            return false
+        }
+
+        headName := canonical.Substring(0, genericOpen)
+        if headName.Length == 0 {
+            return false
+        }
+        argumentCanonicals := ColumnarTypeCanonicalizer.SplitTopLevelCommas(
+            canonical.Substring(genericOpen + 1, canonical.Length - genericOpen - 2)
+        )
+        if argumentCanonicals.Count == 0 {
+            return false
+        }
+
+        definition := typeof(object)
+        definitionClaimed := false
+        if !structRegistry.Resolver.TryResolveExactExplicitType(
+            TypeArityNames.Key(headName, argumentCanonicals.Count),
+            out definition,
+            out definitionClaimed
+        ) {
+            return false
+        }
+        if definition == null || !definition.get_IsGenericTypeDefinition() || definition is TypeBuilder || definition.GetGenericArguments().Length != argumentCanonicals.Count {
+            return false
+        }
+
+        arguments := new ColumnarSelectedTypeReference[](0)
+        if !TrySelectTypeParameterCanonicalList(
+            argumentCanonicals,
+            typeParams,
+            enumRegistry,
+            structRegistry,
+            unionRegistry,
+            out arguments
+        ) {
+            return false
+        }
+
+        runtimeType := typeof(object)
+        try {
+            runtimeType = definition.MakeGenericType(SelectedRuntimeTypes(arguments))
+        } catch ex: ArgumentException {
+            return false
+        }
+        if !ColumnarTypeOfPlanner.IsSupportedType(runtimeType) {
+            selected = ColumnarSelectedTypeReference.RejectedWithRuntime(table, runtimeType)
+            return false
+        }
+        selected = ConstructedSelection(table, runtimeType, definition, arguments)
+        return true
+    }
+
+    static func MentionsVisibleTypeParameter(canonical: string, typeParams: IReadOnlyDictionary<string, Type>): bool {
+        for pair in typeParams {
+            if ColumnarExactTypeResolver.ContainsTypeParameter(canonical, pair.Key) {
+                return true
+            }
+        }
+        return false
+    }
+
     static func TrySelectRuntimeTypeWithTypeParams(
         canonical: string,
         typeParams: IReadOnlyDictionary<string, Type>,
@@ -785,6 +914,58 @@ class ColumnarCanonicalTypeResolver {
             ) {
                 selected = delegateSelected
                 return true
+            }
+        }
+
+        // ARRAY AND NULLABLE SUFFIXES OVER A TYPE-PARAMETER SHAPE. The ordinary resolver below owns
+        // both suffixes, but it strips them and re-enters ITSELF, which cannot see this declaration's
+        // type parameters — so `Func<T, bool>?` and `Dictionary<string, T>[]` lost their parameters at
+        // the suffix. These two arms strip the same suffix and re-enter THIS resolver, applying the
+        // same element and liftability rules. A spelling that mentions no type parameter never
+        // reaches them and keeps the ordinary path exactly.
+        if MentionsVisibleTypeParameter(canonical, typeParams) {
+            if canonical.EndsWith("[]", StringComparison.Ordinal) && canonical.Length > 2 {
+                element := ColumnarSelectedTypeReference.Missing(table)
+                if TrySelectRuntimeTypeWithTypeParams(
+                    canonical.Substring(0, canonical.Length - 2),
+                    typeParams,
+                    enumRegistry,
+                    structRegistry,
+                    unionRegistry,
+                    out element
+                ) && ColumnarTypeOfPlanner.IsSupportedElementType(element.RuntimeType) {
+                    runtimeType := element.RuntimeType.MakeArrayType()
+                    selected = table.SelectSzArray(runtimeType, element)
+                    return true
+                }
+                selected = ColumnarSelectedTypeReference.Missing(table)
+                return false
+            }
+
+            if canonical.EndsWith("?", StringComparison.Ordinal) && canonical.Length > 1 {
+                element := ColumnarSelectedTypeReference.Missing(table)
+                if TrySelectRuntimeTypeWithTypeParams(
+                    canonical.Substring(0, canonical.Length - 1),
+                    typeParams,
+                    enumRegistry,
+                    structRegistry,
+                    unionRegistry,
+                    out element
+                ) {
+                    if !ColumnarTypeOfPlanner.IsValueTypeShape(element.RuntimeType) {
+                        selected = element
+                        return true
+                    }
+                    if ColumnarTypeOfPlanner.IsLiftableNullableElement(element.RuntimeType) {
+                        nullableDefinition := ColumnarTypeOfPlanner.RequiredNullableDefinition()
+                        runtimeArguments := SelectedRuntimeTypes(SelectedSingle(element))
+                        runtimeType := nullableDefinition.MakeGenericType(runtimeArguments)
+                        selected = ConstructedSelection(table, runtimeType, nullableDefinition, SelectedSingle(element))
+                        return true
+                    }
+                }
+                selected = ColumnarSelectedTypeReference.Missing(table)
+                return false
             }
         }
 

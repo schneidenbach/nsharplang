@@ -1822,7 +1822,7 @@ class ColumnarConstructionPlanner {
                     openTypes := ConstructorParameterTypesOrNull(parameters)
                     if openTypes != null {
                         types := closedArguments.Length > 0 ? SubstituteTypeArguments(openTypes, closedArguments) : openTypes
-                        if !HasUnsupportedConstructorSignature(types) {
+                        if !HasUnsupportedConstructorSignature(types, closedArguments) {
                             applicable.Add(candidate)
                             applicableParameters.Add(types)
                         }
@@ -1834,11 +1834,15 @@ class ColumnarConstructionPlanner {
         }
     }
 
-    static func HasUnsupportedConstructorSignature(parameterTypes: Type[]): bool {
+    // A parameter that resolved to one of the INSTANTIATION'S OWN arguments is closed, not open:
+    // `new KeyValuePair<string, T>(key, value)` inside `Bag<T>` binds `TValue` to this declaration's
+    // `T`, which is exactly the type the caller has. A generic parameter the instantiation did not
+    // substitute in is still open and still refused.
+    static func HasUnsupportedConstructorSignature(parameterTypes: Type[], closedArguments: Type[]): bool {
         index := 0
         while index < parameterTypes.Length {
             parameterType := parameterTypes[index]
-            if parameterType == null || ColumnarOrdinaryRuntimeDirectCallResolver.IsUnsupportedSignatureType(parameterType) {
+            if parameterType == null || ColumnarOrdinaryRuntimeDirectCallResolver.IsUnsupportedResolvedSignatureType(parameterType, closedArguments) {
                 return true
             }
             index = index + 1

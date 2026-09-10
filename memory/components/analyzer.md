@@ -1348,5 +1348,56 @@ settable named members and every instance field is now initonly) — the same de
 `record struct` with readonly fields already had; it needs a synthesized copy constructor, not a
 readonly-struct change.
 
+**EXTERNAL GENERICS CONSTRUCTED OVER A SOURCE TYPE PARAMETER** (`EqualityComparer<TOk>` inside
+`Outcome<TOk, TErr>`, `IEquatable<Outcome<TOk, TErr>>` in its base list, `Dictionary<string, T>` as a
+field). Four owners decide these, and none of them consults the head's NAME:
+
+- `ColumnarGenericTypeReceiverFacts.TryResolveReceiverType` splits the EXTERNAL answer from the
+  SOURCE one by the RESOLVED TYPE'S OWN IDENTITY (`ColumnarTypeOfPlanner.IsClosedSourceGeneric`), not
+  by the scoped resolver's `claimed` flag. `claimed` is set by any source-answered part of a
+  spelling, and a type-parameter ARGUMENT is one of those parts, so reading it as "the head is a
+  source type" routed every `EqualityComparer<TOk>` to the source member owners, which own no such
+  declaration (the old `emit.expression.generic-type-receiver` decline). `IsBuilderBoundConstruction`
+  is the predicate for "external head, builder-bound arguments"; its members are read off the runtime
+  DEFINITION and rebound with `TypeBuilder.GetField`/`GetMethod`, and their types are substituted with
+  the instantiation's arguments because a rebound wrapper reports the OPEN member type.
+- `ColumnarCanonicalTypeResolver.TrySelectExternalGenericConstruction` is the general arm behind the
+  modeled family rows in `TrySelectTypeParameterModeledFamily`. The rows state narrower ELEMENT
+  policies for the families whose lowerings care (spans, collection elements, dictionary keys); when
+  a row declines, or names a head no row covers, the definition is resolved through ordinary scoped
+  type resolution at the written arity and closed with `MakeGenericType`. The same function's array
+  and nullable suffix arms re-enter the TYPE-PARAMETER resolver rather than the ordinary one, which
+  is what `Func<T, bool>?` needs.
+- `ColumnarTypeOfPlanner.IsSupportedExternalConstruction` admits such a construction as a storable
+  type. Its boundary is that the spelling MENTIONS a visible type parameter: a builder-bound
+  construction over COMPLETE arguments (`Func<SourceClass>`, `IEnumerator<Box<int>>`,
+  `Dictionary<string, SourceRow[]>.KeyCollection.Enumerator`) keeps the family boundary it already
+  had, because those shapes have real lowerings that decide their own admissibility. By-ref-like
+  heads are excluded (asked of the DEFINITION — the instantiation refuses the read), and so is any
+  head from an assembly this process is emitting, so a source namesake cannot borrow a BCL generic's
+  admission.
+- `ColumnarExternalInterfaceMethodResolver.AddBuilderBoundMatchingTargets` /
+  `InterfacesSatisfied` implement the interface half. A `TypeBuilderInstantiation` answers no
+  `GetMethods()`, so the members come from the runtime definition, the effective signature is the
+  definition's signature substituted with the instantiation's arguments, and the MethodImpl slot is
+  that declaration rebound with `TypeBuilder.GetMethod`. The structural `ColumnarExternalMethodDescriptor`
+  is deliberately NOT built for these: it validates a reflected lookup context that a
+  `TypeBuilderInstantiation` has none of.
+
+Three shared substitution fences had the same latent bug and now share one rule: a signature type
+that resolved to one of the INSTANTIATION'S OWN arguments is CLOSED, not open
+(`ColumnarOrdinaryRuntimeDirectCallResolver.IsUnsupportedResolvedSignatureType`, consumed by the
+ordinary call resolver and by `ColumnarConstructionPlanner.HasUnsupportedConstructorSignature`); and
+a generic type DEFINITION standing in for its own instantiation must be substituted, not skipped
+(`ColumnarRuntimeInstanceMemberResolver.SubstituteClosedTypeArguments` and
+`ColumnarCodePlanExecutor.ResolveMemberSignatureType`) — `EqualityComparer<T>.Default` is typed
+`EqualityComparer<T>`, which the CLR spells as the definition itself. `tests/native/constructed-generic-interop`
+executes all of it, including BCL dispatch THROUGH the constructed interface with an equality that is
+deliberately not field-wise. KNOWN LIMIT: a local/field/parameter typed by an external generic over a
+COMPLETE source type (`IEquatable<Plain>`, `IEquatable<Outcome<int, string>>` at a use site) is still
+outside `IsSupportedType`; widening it flips six deliberate estate boundaries in
+`ColumnarCatalogTypeAdmission`, `ColumnarEnumeratorProtocol`, `ColumnarDictionaryKeyEnumeratorPrerequisite`,
+`ColumnarTypeOfPlanner` and `ColumnarReferenceConversionFacts`, so it is its own slice.
+
 Keep ownership-policy tests beside the N# owner. C# tests should exercise only the remaining
 diagnostic/integration shell, not recreate semantic lookup or identity policy in test helpers.

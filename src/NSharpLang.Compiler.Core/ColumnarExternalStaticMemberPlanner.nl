@@ -228,9 +228,9 @@ class ColumnarExternalStaticMemberPlanner {
         memberName := nodes.Text(source, node)
         checkpoint := plan.CreateCheckpoint()
         try {
-            field := ColumnarGenericTypeReceiverFacts.TryResolveStaticField(receiverType, memberName)
-            if field != null {
-                fieldType := field.get_FieldType()
+            field: FieldInfo? = null
+            fieldType := typeof(object)
+            if ColumnarGenericTypeReceiverFacts.TryResolveStaticField(receiverType, memberName, out field, out fieldType) && field != null {
                 if field.get_IsLiteral() {
                     if !TryAppendLiteralField(plan, field, fieldType, memberName) {
                         plan.Rollback(checkpoint)
@@ -241,17 +241,20 @@ class ColumnarExternalStaticMemberPlanner {
                     return true
                 }
 
-                fieldIndex := plan.AddField(field)
+                // A rebound builder-bound field reports the OPEN definition's field type, so the
+                // planner-owned constructed signature travels with the handle.
+                fieldIndex := ColumnarGenericTypeReceiverFacts.IsBuilderBoundConstruction(receiverType) ? plan.AddFieldWithSignature(field, receiverType, fieldType, true) : plan.AddField(field)
                 plan.AppendFieldInstruction(ColumnarCodePlanContract.Ldsfld(), fieldIndex)
                 resultType = fieldType
                 return true
             }
 
-            getter := ColumnarGenericTypeReceiverFacts.TryResolveStaticGetter(receiverType, memberName)
-            if getter != null {
-                methodIndex := plan.AddMethod(getter)
+            getter: MethodInfo? = null
+            getterResultType := typeof(object)
+            if ColumnarGenericTypeReceiverFacts.TryResolveStaticGetter(receiverType, memberName, out getter, out getterResultType) && getter != null {
+                methodIndex := ColumnarGenericTypeReceiverFacts.IsBuilderBoundConstruction(receiverType) ? plan.AddMethodWithSignature(getter, receiverType, new Type[](0), getterResultType, true, false) : plan.AddMethod(getter)
                 plan.AppendMethodInstruction(ColumnarCodePlanContract.Call(), methodIndex)
-                resultType = getter.get_ReturnType()
+                resultType = getterResultType
                 return true
             }
         } catch ex: Exception {
