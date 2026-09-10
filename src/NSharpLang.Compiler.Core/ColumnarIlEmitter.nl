@@ -10279,6 +10279,28 @@ sealed class ColumnarIlEmitter {
                         targetTestType = plainTarget
                     }
                 }
+            } else {
+                // Generic and wrapped type references use the same canonical resolver as every
+                // other body type. The simple-name branch above predates generic safe casts and
+                // declined these roots before the existing isinst lowering could run.
+                targetCanonical: string? = null
+                if (!TryBuildTypeNodeCanonical(isAsTypeRoot, out targetCanonical)) {
+                    return false
+                }
+                // Safe-cast targets are ordinary runtime types. The body-type resolver deliberately
+                // fences some collection interfaces for type-parameter signatures, while a closed
+                // target such as IReadOnlyList<object> is fully admitted by the ordinary resolver.
+                // Keep type-parameter precedence first, then use that same canonical owner for the
+                // closed target without changing the existing isinst lowering.
+                if (!TryResolveBodyType(targetCanonical, out targetTestType) && !ColumnarCanonicalTypeResolver.TryResolveType(
+                    targetCanonical,
+                    _typeResolutionEnums,
+                    _typeResolutionStructs,
+                    _typeResolutionUnions,
+                    out targetTestType
+                )) {
+                    return false
+                }
             }
             if (targetTestType == null) {
                 return false
