@@ -264,6 +264,8 @@ class ExternalAssemblyScan {
             entryIndex = entryIndex + 1
         }
 
+        ReconcileRuntimeAssemblies(entries, runtimeAssemblies)
+
         return new ExternalAssemblyScanResult(entries.ToArray(), context)
     }
 
@@ -490,6 +492,198 @@ class ExternalAssemblyScan {
         }
     }
 
+    static func ReconcileRuntimeAssemblies(entries: List<ExternalAssemblyCatalogEntry>, runtimeAssemblies: Dictionary<string, Assembly>) {
+        index := 0
+        while index < entries.Count {
+            entry := entries[index]
+            if entry != null && entry.IsInspectable && entry.MetadataAssembly != null {
+                if !RuntimeAssemblyMatchesSelectedMetadata(entry) {
+                    replacement := SelectRuntimeAssemblyForMetadata(runtimeAssemblies, entry.MetadataAssembly, entry.Identity, entry.MetadataPath)
+                    entry.AttachRuntimeAssembly(replacement)
+                }
+            }
+
+            index = index + 1
+        }
+    }
+
+    static func RuntimeAssemblyMatchesSelectedMetadata(entry: ExternalAssemblyCatalogEntry): bool {
+        runtimeAssembly := entry.RuntimeAssembly
+        metadataAssembly := entry.MetadataAssembly
+        if runtimeAssembly == null || metadataAssembly == null {
+            return false
+        }
+
+        if !RuntimeAssemblyHasIdentity(runtimeAssembly, entry.Identity) {
+            return false
+        }
+
+        // Reference assemblies intentionally have a different module identity from their lib
+        // companion. Their exact paired runtime path is the build boundary; configured ref-only
+        // inputs never acquire a runtime handle because TryLoadExactRuntimeAssembly refuses to load
+        // ref/refint paths. A host common entry may already carry the runtime loaded by Assembly.Load
+        // when no paired path exists, which preserves framework resolution in single-file hosts.
+        if IsReferenceAssemblyPath(entry.MetadataPath) {
+            runtimePath := GetRuntimePathCandidate(entry.MetadataPath)
+            if runtimePath.Length == 0 || !File.Exists(runtimePath) {
+                return true
+            }
+
+            return RuntimeAssemblyPathMatches(runtimeAssembly, runtimePath)
+        }
+
+        runtimeModuleVersionId := RuntimeAssemblyModuleVersionId(runtimeAssembly)
+        metadataModuleVersionId := RuntimeAssemblyModuleVersionId(metadataAssembly)
+        return runtimeModuleVersionId.Length > 0 && runtimeModuleVersionId == metadataModuleVersionId
+    }
+
+    static func SelectRuntimeAssemblyForMetadata(runtimeAssemblies: Dictionary<string, Assembly>, metadataAssembly: Assembly, identity: string, metadataPath: string): Assembly? {
+        if metadataAssembly == null || identity == null || identity.Length == 0 {
+            return null
+        }
+
+        candidates := new List<Assembly>()
+        if runtimeAssemblies != null && runtimeAssemblies.ContainsKey(identity) {
+            candidates.Add(runtimeAssemblies[identity])
+        }
+
+        loaded := Loaded()
+        index := 0
+        while index < loaded.Length {
+            candidate := loaded[index]
+            if candidate != null && !ContainsAssemblyReference(candidates, candidate) {
+                candidates.Add(candidate)
+            }
+
+            index = index + 1
+        }
+
+        return SelectRuntimeAssemblyByMetadata(candidates, metadataAssembly, identity, metadataPath)
+    }
+
+    static func SelectRuntimeAssemblyByMetadata(candidates: IReadOnlyList<Assembly>, metadataAssembly: Assembly, identity: string, metadataPath: string): Assembly? {
+        if candidates == null || metadataAssembly == null || identity == null || identity.Length == 0 {
+            return null
+        }
+
+        pairedRuntimePath := GetRuntimePathCandidate(metadataPath)
+        index := 0
+        if IsReferenceAssemblyPath(metadataPath) {
+            if pairedRuntimePath.Length == 0 || !File.Exists(pairedRuntimePath) {
+                return null
+            }
+
+            index = 0
+            while index < candidates.Count {
+                candidate := candidates[index]
+                if RuntimeAssemblyHasIdentity(candidate, identity) && RuntimeAssemblyPathMatches(candidate, pairedRuntimePath) {
+                    return candidate
+                }
+
+                index = index + 1
+            }
+
+            return null
+        }
+
+        metadataModuleVersionId := RuntimeAssemblyModuleVersionId(metadataAssembly)
+        if metadataModuleVersionId.Length == 0 {
+            return null
+        }
+
+        // A matching path is stronger than load order when two builds carry the same CLR identity.
+        index = 0
+        while index < candidates.Count {
+            candidate := candidates[index]
+            if RuntimeAssemblyHasIdentity(candidate, identity) && RuntimeAssemblyModuleVersionId(candidate) == metadataModuleVersionId && RuntimeAssemblyPathMatches(candidate, metadataPath) {
+                return candidate
+            }
+
+            index = index + 1
+        }
+
+        index = 0
+        while index < candidates.Count {
+            candidate := candidates[index]
+            if RuntimeAssemblyHasIdentity(candidate, identity) && RuntimeAssemblyModuleVersionId(candidate) == metadataModuleVersionId {
+                return candidate
+            }
+
+            index = index + 1
+        }
+
+        return null
+    }
+
+    static func ContainsAssemblyReference(assemblies: List<Assembly>, candidate: Assembly): bool {
+        index := 0
+        while index < assemblies.Count {
+            if Object.ReferenceEquals(assemblies[index], candidate) {
+                return true
+            }
+
+            index = index + 1
+        }
+
+        return false
+    }
+
+    static func RuntimeAssemblyHasIdentity(assembly: Assembly?, identity: string): bool {
+        if assembly == null || identity == null || identity.Length == 0 {
+            return false
+        }
+
+        try {
+            return assembly.GetName().get_FullName() == identity
+        } catch {
+            return false
+        }
+    }
+
+    static func RuntimeAssemblyPathMatches(assembly: Assembly?, path: string): bool {
+        if assembly == null || path == null || path.Length == 0 || !File.Exists(path) {
+            return false
+        }
+
+        try {
+            location := assembly.get_Location()
+            return location != null && location.Length > 0 && string.Equals(Path.GetFullPath(location), Path.GetFullPath(path), StringComparison.OrdinalIgnoreCase)
+        } catch {
+            return false
+        }
+    }
+
+    static func RuntimeAssemblyModuleVersionId(assembly: Assembly?): string {
+        if assembly == null {
+            return ""
+        }
+
+        try {
+            return assembly.get_ManifestModule().get_ModuleVersionId().ToString()
+        } catch {
+            return ""
+        }
+    }
+
+    static func IsReferenceAssemblyPath(path: string): bool {
+        if path == null || path.Length == 0 {
+            return false
+        }
+
+        directory := Path.GetDirectoryName(path)
+        directoryName := Path.GetFileName(directory ?? "")
+        if string.Equals(directoryName, "ref", StringComparison.OrdinalIgnoreCase) || string.Equals(directoryName, "refint", StringComparison.OrdinalIgnoreCase) {
+            return true
+        }
+
+        // NuGet compile assets use <package>/<version>/ref/<tfm>/Assembly.dll; the immediate
+        // parent is the target framework, while the project ref/refint layout above places the
+        // image directly in the ref directory.
+        referenceRoot := Path.GetDirectoryName(directory ?? "")
+        referenceRootName := Path.GetFileName(referenceRoot ?? "")
+        return string.Equals(referenceRootName, "ref", StringComparison.OrdinalIgnoreCase) || string.Equals(referenceRootName, "refint", StringComparison.OrdinalIgnoreCase)
+    }
+
     static func FindExactType(scan: ExternalAssemblyScanResult, fullName: string): ExternalAssemblyTypeResolution {
         if scan == null || scan.Entries == null || fullName == null || fullName.Length == 0 {
             return UnknownResolution()
@@ -660,13 +854,55 @@ class ExternalAssemblyScan {
 
     static func TryLoadExactRuntimeAssembly(runtimeAssemblies: Dictionary<string, Assembly>, path: string, identity: string): Assembly? {
         if runtimeAssemblies.ContainsKey(identity) {
-            return runtimeAssemblies[identity]
+            selected := runtimeAssemblies[identity]
+            if path == null || path.Length == 0 || !File.Exists(path) || RuntimeAssemblyPathMatches(selected, path) {
+                return selected
+            }
+
+            selectedModuleVersionId := RuntimeAssemblyModuleVersionId(selected)
+            loadedAssemblies := Loaded()
+            loadedIndex := 0
+            while loadedIndex < loadedAssemblies.Length {
+                loaded := loadedAssemblies[loadedIndex]
+                if RuntimeAssemblyHasIdentity(loaded, identity) && RuntimeAssemblyPathMatches(loaded, path) {
+                    if selectedModuleVersionId.Length > 0 && RuntimeAssemblyModuleVersionId(loaded) == selectedModuleVersionId {
+                        return selected
+                    }
+
+                    return loaded
+                }
+
+                loadedIndex = loadedIndex + 1
+            }
+
+            if IsReferenceAssemblyPath(path) {
+                return null
+            }
+
+            try {
+                loaded := Assembly.LoadFrom(path)
+                if RuntimeAssemblyHasIdentity(loaded, identity) {
+                    if selectedModuleVersionId.Length > 0 && RuntimeAssemblyModuleVersionId(loaded) == selectedModuleVersionId {
+                        return selected
+                    }
+
+                    return loaded
+                }
+            } catch {
+            }
+
+            // A reference image cannot be loaded for execution. Let the later paired runtime path
+            // or metadata-only entry decide rather than binding a different same-AQN build.
+            return null
+        }
+
+        if IsReferenceAssemblyPath(path) {
+            return null
         }
 
         try {
             loaded := Assembly.LoadFrom(path)
-            loadedName := loaded.GetName()
-            if loadedName.get_FullName() == identity {
+            if RuntimeAssemblyHasIdentity(loaded, identity) {
                 return loaded
             }
         } catch {

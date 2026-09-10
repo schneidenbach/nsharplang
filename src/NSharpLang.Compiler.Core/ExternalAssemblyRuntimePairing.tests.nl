@@ -4,6 +4,7 @@ import System
 import System.Collections.Generic
 import System.IO
 import System.Reflection
+import System.Reflection.Emit
 import System.Runtime.Loader
 
 func RuntimePairingSetObject(values: object?[], index: int, value: object?) {
@@ -53,6 +54,15 @@ func RuntimePairingLoadAssembly(context: object, assemblyPath: string): Assembly
     return loaded
 }
 
+func RuntimePairingCreateAssembly(identity: string): Assembly {
+    assembly := AssemblyBuilder.DefineDynamicAssembly(
+        new AssemblyName(identity),
+        AssemblyBuilderAccess.Run
+    )
+    assembly.DefineDynamicModule("Main")
+    return assembly
+}
+
 test "emission runtime index replaces a foreign same identity handle with the compiler context handle" {
     compilerContext := AssemblyLoadContext.GetLoadContext(typeof(ExternalAssemblyScan).get_Assembly())
     if compilerContext == null {
@@ -92,6 +102,43 @@ test "emission runtime index replaces a foreign same identity handle with the co
 
     selected := ExternalAssemblyScan.TryLoadExactRuntimeAssembly(preferred, "does-not-exist.dll", runtimeIdentity)
     assert Object.ReferenceEquals(selected, compilerRuntime), "The downstream runtime lookup must receive the executable compiler-context handle."
+
+    pathSelected := ExternalAssemblyScan.TryLoadExactRuntimeAssembly(preferred, runtimePath, runtimeIdentity)
+    assert Object.ReferenceEquals(pathSelected, compilerRuntime), "A same-file duplicate must retain the compiler-context handle when the selected path is executable."
+
+    copiedRuntimePath := Path.Combine(Path.GetTempPath(), "nsharp-runtime-pairing-copy-" + Guid.NewGuid().ToString("N") + ".dll")
+    File.Copy(runtimePath, copiedRuntimePath, true)
+    try {
+        copiedForeignContext := RuntimePairingCreateNonCollectibleContext()
+        copiedForeignRuntime := RuntimePairingLoadAssembly(copiedForeignContext, copiedRuntimePath)
+        assert Path.GetFullPath(copiedForeignRuntime.get_Location()) == Path.GetFullPath(copiedRuntimePath)
+        assert ExternalAssemblyScan.RuntimeAssemblyModuleVersionId(copiedForeignRuntime) == ExternalAssemblyScan.RuntimeAssemblyModuleVersionId(compilerRuntime)
+        copiedPathSelected := ExternalAssemblyScan.TryLoadExactRuntimeAssembly(preferred, copiedRuntimePath, runtimeIdentity)
+        assert Object.ReferenceEquals(copiedPathSelected, compilerRuntime), "A byte-identical copy must retain the compiler-context handle even when it was loaded from another path."
+    } finally {
+        File.Delete(copiedRuntimePath)
+    }
+}
+
+test "metadata module version selects the matching same-identity build" {
+    firstBuild := RuntimePairingCreateAssembly("NSharpTests.SameIdentityBuild, Version=1.0.0.0, Culture=neutral, PublicKeyToken=null")
+    secondBuild := RuntimePairingCreateAssembly("NSharpTests.SameIdentityBuild, Version=1.0.0.0, Culture=neutral, PublicKeyToken=null")
+    identity := secondBuild.GetName().get_FullName()
+    firstModuleVersionId := ExternalAssemblyScan.RuntimeAssemblyModuleVersionId(firstBuild)
+    secondModuleVersionId := ExternalAssemblyScan.RuntimeAssemblyModuleVersionId(secondBuild)
+
+    assert firstBuild.GetName().get_FullName() == identity
+    assert firstModuleVersionId.Length > 0
+    assert secondModuleVersionId.Length > 0
+    assert firstModuleVersionId != secondModuleVersionId, "Two separately generated builds must not collapse to one module identity."
+
+    candidates := new Assembly[](2)
+    candidates[0] = firstBuild
+    candidates[1] = secondBuild
+    selected := ExternalAssemblyScan.SelectRuntimeAssemblyByMetadata(candidates, secondBuild, identity, "")
+
+    assert selected != null
+    assert Object.ReferenceEquals(selected, secondBuild), "Runtime selection must follow the selected metadata MVID, not the first same-AQN candidate."
 }
 
 test "emission runtime preference retains wrong identity refusal" {
