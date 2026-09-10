@@ -28,7 +28,8 @@ import NSharpLang.Compiler.Ast
 // THE SUBSTITUTION WALK IS STRUCTURAL AND ITS ORDER IS BEHAVIOUR. A simple name that the
 // substitution BINDS answers with the bound type and stops; a simple name it does not bind falls all
 // the way through to the plain walk rather than to the composed arms, because only the composed
-// forms below (generic, array, nullable) have inner references worth rewriting. A generic head keeps
+// forms below (generic, array, nullable, by-ref, tuple, function, union) have inner references
+// worth rewriting. A generic head keeps
 // the DEFINITION the plain walk found for it while its arguments are rewritten one by one, so the
 // rewritten instantiation is still nominally the same type.
 class AnalyzerTypeSubstitution {
@@ -88,8 +89,9 @@ class AnalyzerTypeSubstitution {
     }
 
     // A reference read under a type-parameter binding. With no binding this is exactly the plain
-    // walk; with one, the four rewritable forms are handled here and everything else — a tuple, a
-    // function type, a union, a by-ref — is left to the plain walk unchanged.
+    // walk; with one, every composed form is rebuilt over rewritten inners, so a binding reaches a
+    // type parameter wherever it is spelled — including inside a tuple, a function type, a by-ref
+    // and an anonymous union.
     func ResolveTypeWithSubstitution(typeReference: TypeReference, substitution: Dictionary<string, TypeInfo>?): TypeInfo {
         if substitution == null {
             return typeResolverValue.ResolveType(typeReference)

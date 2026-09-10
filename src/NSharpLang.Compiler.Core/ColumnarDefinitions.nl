@@ -70,6 +70,30 @@ class ColumnarUnionCaseDef {
     }
 }
 
+// A METHOD's own generic parameters, as opposed to its declaring type's. A generic method on a
+// user type declares real CLR method type parameters, so every call site has to close it with
+// MakeGenericMethod over an argument list the site either wrote or inferred — and the constraints
+// have to be validated there, because Reflection.Emit does not validate them for an unbaked
+// MethodBuilder. These are the facts a call site needs and a MethodBuilder cannot answer before its
+// owner is baked; they ride beside the signature rather than being re-derived per call.
+class ColumnarGenericMethodFacts {
+    TypeParams: Type[]
+    SpecialConstraints: int[]
+    BaseConstraints: Type[]
+    InterfaceConstraints: Type[][]
+
+    constructor(typeParams: Type[], specialConstraints: int[], baseConstraints: Type[], interfaceConstraints: Type[][]) {
+        if typeParams == null || specialConstraints == null || baseConstraints == null || interfaceConstraints == null {
+            throw new InvalidOperationException("Generic method definition facts cannot be null.")
+        }
+
+        TypeParams = typeParams
+        SpecialConstraints = specialConstraints
+        BaseConstraints = baseConstraints
+        InterfaceConstraints = interfaceConstraints
+    }
+}
+
 // Named metadata rows keep the source-type model readable to both N# and its temporary
 // C# assembly owner. N# tuple element names are source-only today, so public tuple fields
 // would otherwise surface to C# as Item1/Item2/Item3.
@@ -78,6 +102,7 @@ class ColumnarInstanceMethodDef {
     ParamTypes: Type[]
     ParamModifierKinds: int[]
     ReturnType: Type
+    Generics: ColumnarGenericMethodFacts?
 
     constructor(builder: MethodBuilder, paramTypes: Type[], returnType: Type) {
         if builder == null || paramTypes == null || returnType == null {
@@ -88,6 +113,7 @@ class ColumnarInstanceMethodDef {
         ParamTypes = paramTypes
         ParamModifierKinds = new int[](0)
         ReturnType = returnType
+        Generics = null
     }
 
     constructor(builder: MethodBuilder, paramTypes: Type[], paramModifierKinds: int[], returnType: Type) {
@@ -103,6 +129,7 @@ class ColumnarInstanceMethodDef {
         ParamTypes = paramTypes
         ParamModifierKinds = paramModifierKinds
         ReturnType = returnType
+        Generics = null
     }
 
     func Deconstruct(out builder: MethodBuilder, out paramTypes: Type[], out returnType: Type) {
@@ -124,12 +151,14 @@ class ColumnarStaticMethodDef {
     ParamTypes: Type[]
     ParamModifierKinds: int[]
     ReturnType: Type
+    Generics: ColumnarGenericMethodFacts?
 
     constructor(builder: MethodBuilder, paramTypes: Type[], paramModifierKinds: int[], returnType: Type) {
         Builder = builder
         ParamTypes = paramTypes
         ParamModifierKinds = paramModifierKinds
         ReturnType = returnType
+        Generics = null
     }
 
     func Deconstruct(out builder: MethodBuilder, out paramTypes: Type[], out paramModifierKinds: int[], out returnType: Type) {

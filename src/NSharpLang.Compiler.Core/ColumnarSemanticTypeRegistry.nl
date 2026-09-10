@@ -1230,6 +1230,14 @@ class ColumnarSemanticTypeResolutionCatalog {
         return For(sourceFileId, typeParameters, null)
     }
 
+    // The same view for a generic method DECLARED BY A TYPE. Only the method's OWN parameters are
+    // registered as method-owned (the owner's are already registered against the type); the view is
+    // built over the MERGED map, so a signature may name either.
+    func ForSourceTypeMethod(sourceFileId: int, declaringTypeName: string, methodOrdinal: int, methodTypeParameters: Dictionary<string, Type>, effectiveTypeParameters: Dictionary<string, Type>): ColumnarSemanticTypeResolution {
+        structuralTypeReferences.RegisterGenericParameters(methodTypeParameters, ColumnarStructuralGenericOwnerIdentity.SourceTypeMethod(sourceFileId, declaringTypeName, methodOrdinal))
+        return For(sourceFileId, effectiveTypeParameters, declaringTypeName)
+    }
+
     func RegisterUnionCase(sourceFileId: int, unionName: string, caseName: string, caseOrdinal: int, caseType: Type, typeParameters: Dictionary<string, Type>?): ColumnarSemanticTypeResolution {
         exactCaseName := unionName + "." + caseName
         structuralTypeReferences.RegisterSourceDefinition(exactCaseName, caseType, false)
