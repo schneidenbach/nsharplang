@@ -145,8 +145,19 @@ class SemanticModel {
         fieldsValue[name] = typeInfo
     }
 
+    // A TYPE IS RECORDED UNDER ITS IDENTITY, AND REACHABLE UNDER ITS NAME. The identity key carries
+    // the generic arity (`Subscription``1), so a generic type and a non-generic one of the same name
+    // are two entries rather than one overwrite. The bare name is ALSO recorded, first declaration
+    // winning, because every consumer that has only a written name to go on — a `Name<T>` head probe,
+    // a completion label, a hover over a bare spelling — has always asked that way and must keep
+    // finding the same answer the resolver's own arity fallback would give it.
     func RecordType(name: string, typeInfo: TypeInfo) {
         typesValue[name] = typeInfo
+
+        displayName := TypeArityNames.Display(name)
+        if displayName != name && !typesValue.ContainsKey(displayName) {
+            typesValue[displayName] = typeInfo
+        }
     }
 
     func RecordTypeMember(typeName: string, memberName: string, memberType: TypeInfo) {
