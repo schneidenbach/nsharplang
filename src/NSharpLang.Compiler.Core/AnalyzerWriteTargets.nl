@@ -712,8 +712,9 @@ class AnalyzerWriteTargets {
 
                 isConst := HasModifier(field.Modifiers, Modifiers.Const)
                 isStatic := HasModifier(field.Modifiers, Modifiers.Static) || isConst
-                readonlyTarget = new ReadonlyFieldTarget(field.Name, isStatic, !isStatic)
-                readonlyTarget.IsConst = isConst
+                selectedTarget := new ReadonlyFieldTarget(field.Name, isStatic, !isStatic)
+                selectedTarget.IsConst = isConst
+                readonlyTarget = selectedTarget
                 return true
             }
 
@@ -765,8 +766,9 @@ class AnalyzerWriteTargets {
             return false
         }
 
-        readonlyTarget = new ReadonlyFieldTarget(fieldName, true, false)
-        readonlyTarget.IsConst = isConst
+        selectedTarget := new ReadonlyFieldTarget(fieldName, true, false)
+        selectedTarget.IsConst = isConst
+        readonlyTarget = selectedTarget
         return true
     }
 

@@ -385,8 +385,9 @@ class ColumnarRuntimeInstanceMemberResolver {
             declaringType := field.get_DeclaringType()
             fieldType := field.get_FieldType()
             if field.get_IsPublic() && !field.get_IsStatic() && !field.get_IsLiteral() && declaringType != null && ReceiverMatchesDeclaringType(receiverType, declaringType) && ColumnarTypeOfPlanner.IsSupportedType(fieldType) {
-                selection = new ColumnarRuntimeInstanceMemberSelection(true, declaringType, fieldType, field, null, !receiverType.get_IsValueType())
-                selection.PreserveDirectValueStorage = true
+                selectedSelection := new ColumnarRuntimeInstanceMemberSelection(true, declaringType, fieldType, field, null, !receiverType.get_IsValueType())
+                selectedSelection.PreserveDirectValueStorage = true
+                selection = selectedSelection
                 return true
             }
         }
@@ -398,8 +399,9 @@ class ColumnarRuntimeInstanceMemberResolver {
             return false
         }
 
-        selection = new ColumnarRuntimeInstanceMemberSelection(false, declaringType, resultType, null, getter, !receiverType.get_IsValueType())
-        selection.PreserveDirectValueStorage = true
+        selectedSelection := new ColumnarRuntimeInstanceMemberSelection(false, declaringType, resultType, null, getter, !receiverType.get_IsValueType())
+        selectedSelection.PreserveDirectValueStorage = true
+        selection = selectedSelection
         return true
     }
 
