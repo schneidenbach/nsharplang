@@ -327,6 +327,13 @@ class TypeReferenceTupleNameTable {
 //                                         as child[0] of a CallExpression; committed via the IsGenericCallTypeArgs
 //                                         lookahead, the Parser.cs IsGenericMethodCall mirror. Kind 37 is
 //                                         UnionCasePattern in ParserStatements. )
+//   GenericTypeReceiver     -> kind 70  ( Name<T1, T2> before a `.` -- a CONSTRUCTED GENERIC TYPE in receiver
+//                                         position (`Vector<int>.Count`). Byte-identical shape to kind 38 -- the
+//                                         full dotted head name in the value span, children = the TYPE-kernel
+//                                         type-argument roots -- and committed via the IsGenericTypeReceiverArgs
+//                                         lookahead, which differs from kind 38's only in requiring a `.` close
+//                                         instead of a `(`. Only ever appears as child[0] of a MemberAccess;
+//                                         the planners resolve it as a TYPE, never as a value. )
 //   Lambda                  -> kind 39  ( `x => expr` / `() => expr` / `(x, y) => expr` -- the level ABOVE
 //                                         assignment (ParseLambdaOrAssignmentExpression, Parser.cs:3660). The
 //                                         `=>` token in the value span; children = [param Identifiers (kind 6,
@@ -507,6 +514,10 @@ class ColumnarExpressionNodeKind {
 
     static func TypeOfExpression(): int {
         return 55
+    }
+
+    static func GenericTypeReceiverExpression(): int {
+        return 70
     }
 
     // `checked(<expr>)` / `unchecked(<expr>)`. The KEYWORD lives in the value span and there is
@@ -3949,6 +3960,45 @@ func IsExpressionStartKind(kind: int): bool {
     return kind == 20 || kind == 31 || kind == 34 || kind == 37 || kind == 41 || kind == 42 || kind == 43 || kind == 44 || kind == 45 || kind == 46 || kind == 49 || kind == 50 || kind == 51 || kind == 69 || kind == 70 || kind == 83 || kind == 84 || kind == 88 || kind == 89 || kind == 106 || kind == 110 || kind == 113 || kind == 114 || kind == 127 || kind == 131 || kind == 143 || kind == 145
 }
 
+// The CONSTRUCTED GENERIC TYPE RECEIVER twin of IsGenericCallTypeArgs: the same bounded scan of a
+// candidate type-argument list, answering true only when the matching close is followed DIRECTLY by
+// a `.` (124) rather than by a `(` (127). That trailing dot is the whole disambiguation --
+// `Vector<int>.Count` is a receiver, while `a < b && c > d` and `x < y.Z` are comparisons and answer
+// false here. Pure lookahead; the two predicates are mutually exclusive by their close token.
+func IsGenericTypeReceiverArgs(tokens: ParserTokenTable, count: int, lessPos: int): bool {
+    i := lessPos + 1
+    depth := 1
+    while i < count {
+        k := tokens.Kinds[i]
+        if k == 0 || k == 115 || k == 124 || k == 134 || k == 131 || k == 132 {
+            i = i + 1
+        } else if k == 100 {
+            depth = depth + 1
+            i = i + 1
+        } else if k == 102 {
+            depth = depth - 1
+            i = i + 1
+            if depth == 0 {
+                return i < count && tokens.Kinds[i] == 124
+            }
+        } else if k == 112 {
+            depth = depth - 2
+            i = i + 1
+            if depth == 0 {
+                return i < count && tokens.Kinds[i] == 124
+            }
+
+            if depth < 0 {
+                return false
+            }
+        } else {
+            return false
+        }
+    }
+
+    return false
+}
+
 func IsGenericCallTypeArgs(tokens: ParserTokenTable, count: int, lessPos: int): bool {
     i := lessPos + 1
     depth := 1
@@ -5126,6 +5176,62 @@ func ParsePostfixExpressionNode(tokens: ParserTokenTable, count: int, st: Parser
             AppendExpressionChild(st, children, expr)
             AppendExpressionChild(st, children, index)
             expr = EmitExpressionNode(st, nodes, ColumnarExpressionNodeKind.IndexAccessExpression(), -1, 0, childRunStart, 2, objSpanStart, rightBracketEnd - objSpanStart)
+        } else if pos < count && tokens.Kinds[pos] == 100 && (nodes.Kinds[expr] == 6 || nodes.Kinds[expr] == 8) && IsGenericTypeReceiverArgs(tokens, count, pos) {
+
+            // `Name<Args>.` / `A.B.Name<Args>.` -- a CONSTRUCTED GENERIC TYPE RECEIVER (kind 70), the
+            // `.`-closed twin of the kind-38 generic callee below and built exactly like it: value
+            // span = the full dotted head name, children = the TYPE-kernel type-argument roots, the
+            // `>>` split honoured through the shared owed-greater state. The `.` branch of this loop
+            // then reads the member off it, so `Vector<int>.Count` is a MemberAccess over a kind-70
+            // node and the planners resolve the receiver as a TYPE instead of a value.
+            receiverNameStart := nodes.ValueStarts[expr]
+            receiverNameLength := nodes.ValueLengths[expr]
+            receiverSpanStart := nodes.SpanStarts[expr]
+            if nodes.Kinds[expr] == 8 {
+                receiverNameStart = receiverSpanStart
+                receiverNameLength = nodes.SpanLengths[expr]
+            }
+
+            st.Pos = pos + 1
+            receiverArgBase := st.ArgStackTop
+            st.SplitGreaterDepth = 0
+            firstReceiverArg := ParseExpressionTypeReferenceNode(tokens, count, st, argStack, nodes, children, 0)
+            if firstReceiverArg < 0 {
+                st.ArgStackTop = receiverArgBase
+                return -1
+            }
+
+            argStack.Values[st.ArgStackTop] = firstReceiverArg
+            st.ArgStackTop = st.ArgStackTop + 1
+
+            while st.SplitGreaterDepth == 0 && st.Pos < count && tokens.Kinds[st.Pos] == 134 {
+                st.Pos = st.Pos + 1
+                nextReceiverArg := ParseExpressionTypeReferenceNode(tokens, count, st, argStack, nodes, children, 0)
+                if nextReceiverArg < 0 {
+                    st.ArgStackTop = receiverArgBase
+                    return -1
+                }
+
+                argStack.Values[st.ArgStackTop] = nextReceiverArg
+                st.ArgStackTop = st.ArgStackTop + 1
+            }
+
+            receiverCloseEnd := ConsumeGreaterForTypeNodeCore(tokens, count, st)
+            if receiverCloseEnd < 0 {
+                st.ArgStackTop = receiverArgBase
+                return -1
+            }
+
+            receiverChildCount := st.ArgStackTop - receiverArgBase
+            receiverChildRunStart := st.ChildCursor
+            r := receiverArgBase
+            while r < st.ArgStackTop {
+                AppendExpressionChild(st, children, argStack.Values[r])
+                r = r + 1
+            }
+
+            st.ArgStackTop = receiverArgBase
+            expr = EmitExpressionNode(st, nodes, ColumnarExpressionNodeKind.GenericTypeReceiverExpression(), receiverNameStart, receiverNameLength, receiverChildRunStart, receiverChildCount, receiverSpanStart, receiverCloseEnd - receiverSpanStart)
         } else if pos < count && tokens.Kinds[pos] == 100 && (nodes.Kinds[expr] == 6 || nodes.Kinds[expr] == 8) && IsGenericCallTypeArgs(tokens, count, pos) {
 
             // Explicit generic-call TYPE ARGUMENTS `callee<T1, T2>(args)` — committed when the callee is
