@@ -281,7 +281,7 @@ sealed class PlaygroundCompiler {
                 errors = errors + 1
             } else if diagnostic.Severity == "warning" {
                 warnings = warnings + 1
-            } else {
+            } else if diagnostic.Severity == "info" {
                 infos = infos + 1
             }
         }
