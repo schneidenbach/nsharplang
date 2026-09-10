@@ -82,7 +82,8 @@ A finished lane is not completion of this whole objective.
   reference-target checks and no ordinary-resolution fallback. All 8,051 Core assertions pass
   at 0f9e88185: /private/tmp/toolchain-integrated-generic-cast-canonicals-r1.log.
   A subsequent test-only revision makes rejection fixtures reach the cast expression rather
-  than fail in return signatures; its focused canonical rerun remains pending.
+  than fail in return signatures; all three focused canonical cases pass at ffec3c5e0:
+  /private/tmp/toolchain-integrated-generic-cast-body-tests-r1.log.
 - All five IlSdkToolchainTests.cs cases now have N# successors and the C# file is removed in the
   integration candidate. Review retained XML UnitTestResult/outcome semantics and removed new
   assertions that merely mirrored private field names. All 20 native SDK tests pass against a private package (22.7s). Receipt:
