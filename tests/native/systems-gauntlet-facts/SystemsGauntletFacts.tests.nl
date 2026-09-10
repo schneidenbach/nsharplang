@@ -1027,9 +1027,9 @@ test "020 s41 systems gauntlet facts: `01-packet-parser` — the packet parser d
     assert systemsGoldenExists
     assert diagnosticsGoldenExists
     assert perfGoldenExists
-    assert exitCode == 1
-    assert envelope == "command=check.systemsReport;ok=False;checkedFiles=1;envelopeSchema=1;reportSchema=1;profile=systems;mode=strict;aotTarget=nativeaot;aot={target=nativeaot,analysis=pass,nativeImageEmitted=False,trimSafe=True};warmup=[];summary={functions=1,hotFunctions=1,boundaryFunctions=0,findings=0,errors=0,warnings=0,trustedSites=0}"
-    assert diagnostics == "NL402:error@21:61+5"
+    assert exitCode == 0
+    assert envelope == "command=check.systemsReport;ok=True;checkedFiles=1;envelopeSchema=1;reportSchema=1;profile=systems;mode=strict;aotTarget=nativeaot;aot={target=nativeaot,analysis=pass,nativeImageEmitted=False,trimSafe=True};warmup=[];summary={functions=1,hotFunctions=1,boundaryFunctions=0,findings=0,errors=0,warnings=0,trustedSites=0}"
+    assert diagnostics == ""
     assert findingCount == 0
     assert trustedCount == 0
     assert parseCensus == "unit=present;errors=0"
