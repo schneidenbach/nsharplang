@@ -33,7 +33,7 @@ Base: 06186dc6d (includes bootstrap/CI work; preserve it).
 | Area | Owner | Worktree / branch | Status |
 |---|---|---|---|
 | Complete Compiler service facade and assertions | Luna Max toolchain_facade | /private/tmp/nsharp-agent-wt/toolchain-facade; codex/toolchain-facade | Implementing |
-| Complete LoadProjectConfig / LoadProjectReferences and assertions | Luna Max toolchain_build_tasks | /private/tmp/nsharp-agent-wt/toolchain-build-tasks; codex/toolchain-build-tasks | Owners and canonical SDK assertions integrated into candidate; 8,028 Core tests pass; 20 native SDK tests pass; final integration gate/push pending |
+| Complete LoadProjectConfig / LoadProjectReferences and assertions | Luna Max toolchain_build_tasks | Integrated; original lane retired | Owners and canonical SDK assertions integrated into candidate; 8,028 Core tests pass; 20 native SDK tests pass; final integration gate/push pending |
 | CLI query/commands and LSP signature/services | Next wave | Signature branch preserved; integrated query branches retired | Continue from integration HEAD; refresh unique signature work without restarting |
 | Playground interpreter | Luna Max next after SDK assertions | /private/tmp/nsharp-agent-wt/toolchain-playground; codex/toolchain-playground | Implementing from 2f73fdf12; complete connected owner and tests |
 | Runtime ABI and bootstrap | Queued | No new worktree yet | Preserve CLR identity/behavior; verify actual proposed types |
@@ -44,6 +44,10 @@ Unique held config/signature work remains preserved until integrated or safely a
 The two clean query worktrees and branches were removed after confirming both tips are ancestors
 of systems-language, have no active task users and contain only ignored build outputs. Cleanup
 receipt: /private/tmp/toolchain-query-worktree-cleanup-20260909.json.
+The completed SDK worktree and branch are also retired: its owner confirmed no active use,
+the checkout was clean apart from ignored build outputs, and all three commits were patch-equivalent
+to integration commits. Recoverable original history is in the verified bundle
+/private/tmp/toolchain-build-tasks-retired-20260909.bundle.
 A finished lane is not completion of this whole objective.
 
 ## Current integration findings
