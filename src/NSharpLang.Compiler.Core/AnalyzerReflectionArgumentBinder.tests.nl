@@ -1060,7 +1060,7 @@ test "a metadata-loaded check argument summary accepts an oblivious source array
     }
 }
 
-test "the reflected array compatibility escape refuses multidimensional parameters" {
+test "the reflected array compatibility escape preserves exact reflected multidimensional identity" {
     method := BinderRankTwoArrayMethod()
     parameter := method.GetParameters()[0]
     binder := BinderDefault()
@@ -1070,7 +1070,32 @@ test "the reflected array compatibility escape refuses multidimensional paramete
         BinderPositional("args"),
         0
     )
-    source: TypeInfo = new ArrayTypeInfo(new ObliviousTypeInfo(BuiltInTypes.String))
+    source: TypeInfo = new ReflectionTypeInfo(typeof(string).MakeArrayType(2))
+    score := 0
+
+    assert binder.TryScoreReflectionSuppliedArgument(
+        supplied,
+        parameter,
+        new Dictionary<Type, Type>(),
+        new Dictionary<Type, TypeInfo>(),
+        new Dictionary<int, FunctionTypeInfo>(),
+        BinderAnalyzed1(source),
+        false,
+        out score
+    )
+}
+
+test "the reflected array compatibility escape refuses a vector for a multidimensional parameter" {
+    method := BinderRankTwoArrayMethod()
+    parameter := method.GetParameters()[0]
+    binder := BinderDefault()
+    supplied := new SuppliedReflectionBoundArgument(
+        0,
+        parameter.get_ParameterType(),
+        BinderPositional("args"),
+        0
+    )
+    source: TypeInfo = new ReflectionTypeInfo(typeof(string[]))
     score := 0
 
     assert !binder.TryScoreReflectionSuppliedArgument(
@@ -1085,29 +1110,45 @@ test "the reflected array compatibility escape refuses multidimensional paramete
     )
 }
 
-test "the reflected array compatibility escape refuses non-SZ vector parameters" {
-    method := BinderNonSzArrayMethod()
-    parameter := method.GetParameters()[0]
-    binder := BinderDefault()
-    supplied := new SuppliedReflectionBoundArgument(
-        0,
-        parameter.get_ParameterType(),
-        BinderPositional("args"),
-        0
-    )
-    source: TypeInfo = new ArrayTypeInfo(new ObliviousTypeInfo(BuiltInTypes.String))
-    score := 0
+test "the reflected array compatibility escape refuses a metadata vector for a non-SZ parameter" {
+    scan := ExternalAssemblyScan.OpenWithReferences(null)
+    try {
+        context := scan.Context
+        if context == null {
+            throw new InvalidOperationException("The metadata context was not created.")
+        }
 
-    assert !binder.TryScoreReflectionSuppliedArgument(
-        supplied,
-        parameter,
-        new Dictionary<Type, Type>(),
-        new Dictionary<Type, TypeInfo>(),
-        new Dictionary<int, FunctionTypeInfo>(),
-        BinderAnalyzed1(source),
-        false,
-        out score
-    )
+        core := context.LoadFromAssemblyName("System.Runtime")
+        metadataString := core.GetType("System.String")
+        if metadataString == null {
+            throw new InvalidOperationException("The metadata string type was not found.")
+        }
+
+        method := BinderNonSzArrayMethod()
+        parameter := method.GetParameters()[0]
+        binder := BinderDefault()
+        supplied := new SuppliedReflectionBoundArgument(
+            0,
+            parameter.get_ParameterType(),
+            BinderPositional("args"),
+            0
+        )
+        source: TypeInfo = new ReflectionTypeInfo(metadataString.MakeArrayType())
+        score := 0
+
+        assert !binder.TryScoreReflectionSuppliedArgument(
+            supplied,
+            parameter,
+            new Dictionary<Type, Type>(),
+            new Dictionary<Type, TypeInfo>(),
+            new Dictionary<int, FunctionTypeInfo>(),
+            BinderAnalyzed1(source),
+            false,
+            out score
+        )
+    } finally {
+        scan.Dispose()
+    }
 }
 
 // ------------------------------------------------------------------ the delegate arms
