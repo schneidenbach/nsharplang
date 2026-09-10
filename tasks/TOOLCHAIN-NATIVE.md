@@ -154,3 +154,9 @@ A finished lane is not completion of this whole objective.
   all five commits are patch-equivalent in integration and the owner moved to the FixCommand
   worktree. Verified history bundle: /private/tmp/check-command-retired-20260910.bundle.
   The in-flight default-validation correction remains preserved in codex/fix-command-owner.
+
+- Forced self-rebuild with the new runtime-pair SDK candidate fails on EmitIlAssembly.sourcesValue
+  (ITaskItem[]), independently reproduced without SIMD edits. Earlier 8,070 canonical and production
+  evidence used the preceding facade seed; it does not prove self-hosting by the new candidate.
+  Log: /private/tmp/toolchain-integrated-runtime-pair-selfbuild-r2.log. Publication is blocked
+  while the runtime-pair owner corrects reference/runtime companion handling. SIMD edits are preserved.
