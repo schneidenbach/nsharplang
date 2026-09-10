@@ -210,7 +210,7 @@ sealed class PlaygroundCompiler {
 
         config := ProjectFileParser.CreateDefault("NSharpPlayground")
         config.Entry = files[0].Name
-        config.Exclude = new string[](0)
+        config.Exclude = new List<string>()
         compiler := new MultiFileCompiler(paths, root, config, sourceOverrides)
         compiler.CompileForAnalysis()
         snapshot := new ProjectSnapshot(root, compiler.CompilationUnits, compiler.SemanticModels, compiler.AllErrors, compiler.SourceFiles, compiler.ProjectIndex, compiler.SourceTexts)
