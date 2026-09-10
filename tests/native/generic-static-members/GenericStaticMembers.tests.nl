@@ -157,7 +157,6 @@ struct Hasher<T> {
     override func GetHashCode(): int {
         return HashCode.Combine(Tag, Value)
     }
-
 }
 
 // An accessor-bodied static property over a camelCase static field, so both accessors are exercised
