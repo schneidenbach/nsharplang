@@ -795,6 +795,13 @@ test "generic names match across qualification in either direction" {
     assert !AnalyzerOverloadFacts.GenericNamesMatch("List", "System.Collections.Generic.LinkedList")
 }
 
+func OverloadScoringSourceGeneric(name: string, first: string, second: string): GenericTypeInfo {
+    arguments := new List<TypeInfo>()
+    arguments.Add(new SimpleTypeInfo(first))
+    arguments.Add(new SimpleTypeInfo(second))
+    return new GenericTypeInfo(name, arguments)
+}
+
 // ---------------------------------------------------------------- the source ladder
 
 test "the source ladder ranks identity 8, implicit numeric 6, assignable 4 and anything else 2" {
@@ -813,6 +820,21 @@ test "the source ladder scores a source type and its metadata representation as 
     reflectedInt: TypeInfo = new ReflectionTypeInfo(typeof(int))
     assert scoring.GetNSharpMatchScore(BuiltInTypes.Int, reflectedInt) == 8
     assert scoring.GetNSharpMatchScore(reflectedInt, BuiltInTypes.Int) == 8
+}
+
+// A CONSTRUCTED SOURCE GENERIC converts to no CLR type at all, so the cross-representation rule above
+// cannot see it. Exact identity has to be decided on the TypeInfo values themselves, or a parameter of
+// the argument's own type scores the same 4 as a plain `object` parameter and
+// `Equals(Outcome<TOk, TErr>)` reports an ambiguity against `Equals(object?)` that C# never has.
+test "the source ladder scores a constructed source generic against itself as identity" {
+    scoring := OverloadScoringDefault()
+    outcome: TypeInfo = OverloadScoringSourceGeneric("Outcome", "TOk", "TErr")
+    sameOutcome: TypeInfo = OverloadScoringSourceGeneric("Outcome", "TOk", "TErr")
+    otherOutcome: TypeInfo = OverloadScoringSourceGeneric("Outcome", "TErr", "TOk")
+
+    assert scoring.GetNSharpMatchScore(outcome, sameOutcome) == 8
+    assert scoring.GetNSharpMatchScore(BuiltInTypes.Object, sameOutcome) == 4
+    assert scoring.GetNSharpMatchScore(outcome, otherOutcome) < 8
 }
 
 // The one relaxation over plain assignability, and its exact boundary: a nullable REFERENCE type

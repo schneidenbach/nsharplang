@@ -135,7 +135,7 @@ class LinterNamespaceImportUsage {
     }
 
     static func SystemTypeNames(): string[] {
-        return ["DateTime", "DateTimeOffset", "TimeSpan", "Guid", "Uri", "Tuple", "Lazy", "Action", "Func", "Console", "Math", "Char", "Exception", "ArgumentException", "ArgumentNullException", "ArgumentOutOfRangeException", "InvalidOperationException", "NotSupportedException", "NotImplementedException", "FormatException", "OverflowException", "Random", "Convert", "Array", "Type", "Attribute", "Environment", "Int32", "String", "IDisposable", "IComparable", "IEquatable", "EventHandler", "Nullable", "Span", "Memory", "ReadOnlySpan", "ReadOnlyMemory", "StringComparison", "StringComparer", "ValueTuple", "Version", "Index"]
+        return ["DateTime", "DateTimeOffset", "TimeSpan", "Guid", "HashCode", "Uri", "Tuple", "Lazy", "Action", "Func", "Console", "Math", "Char", "Exception", "ArgumentException", "ArgumentNullException", "ArgumentOutOfRangeException", "InvalidOperationException", "NotSupportedException", "NotImplementedException", "FormatException", "OverflowException", "Random", "Convert", "Array", "Type", "Attribute", "Environment", "Int32", "String", "IDisposable", "IComparable", "IEquatable", "EventHandler", "Nullable", "Span", "Memory", "ReadOnlySpan", "ReadOnlyMemory", "StringComparison", "StringComparer", "ValueTuple", "Version", "Index"]
     }
 
     static func LinqTypeNames(): string[] {

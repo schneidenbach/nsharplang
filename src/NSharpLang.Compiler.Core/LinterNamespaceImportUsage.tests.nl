@@ -156,6 +156,15 @@ test "the lookup is ORDINAL: a namespace or name that differs in case does not m
     assert LinterNamespaceImportUsage.IsUsed("System.Linq", LniuNone(), LniuOne("select")) == false
 }
 
+test "System.HashCode marks its own import used" {
+    // `HashCode.Combine(...)` is the idiomatic GetHashCode body and was missing from the System row,
+    // so every struct that wrote one was told `import System` was unused.
+    identifiers := LniuOne("HashCode")
+
+    assert LinterNamespaceImportUsage.IsUsed("System", identifiers, LniuNone())
+    assert LinterNamespaceImportUsage.IsUsed("System.Collections.Generic", identifiers, LniuNone()) == false
+}
+
 test "an identifier belonging to one namespace does not mark a different one used" {
     identifiers := LniuOne("StringBuilder")
 
@@ -191,7 +200,7 @@ test "the type half names exactly ten namespaces and nothing else" {
     }
 
     assert namespaces.Length == 10
-    assert total == 112
+    assert total == 113
 
     // Namespaces that look like table rows but are not.
     assert LinterNamespaceImportUsage.KnownTypeNames("System.Collections").Length == 0
@@ -201,7 +210,7 @@ test "the type half names exactly ten namespaces and nothing else" {
 }
 
 test "each namespace's type row holds exactly the count it was moved with" {
-    assert LinterNamespaceImportUsage.KnownTypeNames("System").Length == 43
+    assert LinterNamespaceImportUsage.KnownTypeNames("System").Length == 44
     assert LinterNamespaceImportUsage.KnownTypeNames("System.Collections.Generic").Length == 22
     assert LinterNamespaceImportUsage.KnownTypeNames("System.IO").Length == 14
     assert LinterNamespaceImportUsage.KnownTypeNames("System.Text.Json").Length == 7
