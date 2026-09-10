@@ -505,6 +505,24 @@ test "nlc check --help exits 0, writes its usage to stdout, and says nothing on 
     assert run.Stderr.Trim().Length == 0
     assert run.Stdout.Contains("Usage: nlc check [options] [project-dir]")
     assert run.Stdout.Contains("N# Type Check")
+    assert run.Stdout.Contains("--json")
+    assert run.Stdout.Contains("--text")
+    assert run.Stdout.Contains("--backend")
+    assert run.Stdout.Contains("Compilation backend: il")
+    assert run.Stdout.Contains("--project")
+    assert run.Stdout.Contains("--help")
+}
+
+test "nlc check -h and check help both reach the help route" {
+    shortRun := Nlc("check -h")
+    wordRun := Nlc("check help")
+
+    assert shortRun.ExitCode == 0
+    assert shortRun.Stderr.Trim().Length == 0
+    assert shortRun.Stdout.Contains("Usage: nlc check [options] [project-dir]")
+    assert wordRun.ExitCode == 0
+    assert wordRun.Stderr.Trim().Length == 0
+    assert wordRun.Stdout.Contains("Usage: nlc check [options] [project-dir]")
 }
 
 test "nlc fix --help exits 0, writes its usage to stdout, and says nothing on stderr" {
@@ -599,6 +617,7 @@ test "nlc check on a clean project emits a versioned success envelope after IL v
 
         assert run.ExitCode == 0
         assert run.Stderr.Trim().Length == 0
+        assert !run.Stdout.EndsWith(Environment.NewLine)
         document := JsonDocument.Parse(run.Stdout)
         root := document.RootElement
         assert root.GetProperty("schemaVersion").GetInt32() == 1
@@ -633,6 +652,7 @@ test "nlc check reports an IL verification decline after semantic analysis succe
 
         assert run.ExitCode == 1
         assert run.Stderr.Trim().Length == 0
+        assert !run.Stdout.EndsWith(Environment.NewLine)
         document := JsonDocument.Parse(run.Stdout)
         root := document.RootElement
         assert root.GetProperty("schemaVersion").GetInt32() == 1
@@ -665,6 +685,7 @@ test "nlc check text mode reports a clean project on STDERR and keeps STDOUT emp
 
         assert run.ExitCode == 0
         assert run.Stdout.Trim().Length == 0
+        assert run.Stderr.EndsWith(Environment.NewLine)
         assert run.Stderr.Contains("Checked 1 file — no errors.")
     } finally {
         Directory.Delete(directory, true)
@@ -678,12 +699,13 @@ test "nlc check emits the structured error envelope for a missing project" {
 
     assert run.ExitCode == 1
     assert run.Stderr.Trim().Length == 0
+    assert !run.Stdout.EndsWith(Environment.NewLine)
     document := JsonDocument.Parse(run.Stdout)
     root := document.RootElement
     assert root.GetProperty("schemaVersion").GetInt32() == 1
     assert TextOf(root.GetProperty("command")) == "check"
     assert !root.GetProperty("ok").GetBoolean()
-    assert TextOf(root.GetProperty("projectRoot")) == NormalizedFullPath(missingDirectory)
+    assert EquivalentProcessPath(TextOf(root.GetProperty("projectRoot")), NormalizedFullPath(missingDirectory))
     assert TextOf(root.GetProperty("error").GetProperty("message")) == "Directory not found: " + missingDirectory
     document.Dispose()
 }
@@ -698,6 +720,241 @@ test "nlc check rejects systems report beside text through the text error route"
         assert run.ExitCode == 1
         assert run.Stdout.Trim().Length == 0
         assert run.Stderr.Trim() == "--systems-report is only available as JSON output."
+    } finally {
+        Directory.Delete(directory, true)
+    }
+}
+
+test "nlc check keeps framework referenced JSON clean and warning free" {
+    project := CheckExampleProject("14-minimal-api")
+    run := Nlc("check --project \"" + project + "\"")
+
+    assert run.ExitCode == 0
+    assert run.Stderr.Length == 0
+    assert !run.Stdout.EndsWith(Environment.NewLine)
+    document := JsonDocument.Parse(run.Stdout)
+    assert document.RootElement.GetProperty("ok").GetBoolean()
+    document.Dispose()
+}
+
+test "nlc check exposes semantic diagnostic fields in JSON and preserves the raw envelope" {
+    directory := NewTempDirectory("nlc-check-diagnostic-json")
+    try {
+        WriteUnresolvedCheckProject(directory, "CheckDiagnosticJson")
+        run := NlcIn(directory, "check")
+
+        assert run.ExitCode == 1
+        assert run.Stderr.Length == 0
+        assert !run.Stdout.EndsWith(Environment.NewLine)
+        document := JsonDocument.Parse(run.Stdout)
+        root := document.RootElement
+        assert TextOf(root.GetProperty("command")) == "check"
+        assert !root.GetProperty("ok").GetBoolean()
+        assert root.GetProperty("results").GetArrayLength() > 0
+        first := ElementAt(root.GetProperty("results"), 0)
+        assert first.GetProperty("code").ValueKind != JsonValueKind.Undefined
+        assert first.GetProperty("severity").ValueKind != JsonValueKind.Undefined
+        assert first.GetProperty("message").ValueKind != JsonValueKind.Undefined
+        assert first.GetProperty("file").ValueKind != JsonValueKind.Undefined
+        document.Dispose()
+    } finally {
+        Directory.Delete(directory, true)
+    }
+}
+
+test "nlc check text errors preserve diagnostics, the blank separator, and the final newline" {
+    directory := NewTempDirectory("nlc-check-diagnostic-text")
+    try {
+        WriteUnresolvedCheckProject(directory, "CheckDiagnosticText")
+        run := NlcIn(directory, "check --text")
+
+        assert run.ExitCode == 1
+        assert run.Stdout.Length == 0
+        assert run.Stderr.Contains("See: https://schneidenbach.github.io/nsharplang/docs/errors/NL301")
+        assert run.Stderr.Contains("https://schneidenbach.github.io/nsharplang/docs/errors/NL301" + Environment.NewLine + Environment.NewLine + Environment.NewLine + "Found 1 error.")
+        assert run.Stderr.EndsWith(Environment.NewLine)
+    } finally {
+        Directory.Delete(directory, true)
+    }
+}
+
+test "nlc check accepts an empty project and the positional project argument" {
+    emptyDirectory := NewTempDirectory("nlc-check-empty")
+    try {
+        emptyRun := NlcIn(emptyDirectory, "check")
+
+        assert emptyRun.ExitCode == 0
+        assert emptyRun.Stderr.Length == 0
+        assert !emptyRun.Stdout.EndsWith(Environment.NewLine)
+        emptyDocument := JsonDocument.Parse(emptyRun.Stdout)
+        assert emptyDocument.RootElement.GetProperty("ok").GetBoolean()
+        emptyDocument.Dispose()
+    } finally {
+        Directory.Delete(emptyDirectory, true)
+    }
+
+    project := CheckExampleProject("01-hello-world")
+    positionalRun := Nlc("check \"" + project + "\"")
+    assert positionalRun.ExitCode == 0
+    assert positionalRun.Stderr.Length == 0
+    positionalDocument := JsonDocument.Parse(positionalRun.Stdout)
+    positionalRoot := positionalDocument.RootElement
+    assert positionalRoot.GetProperty("ok").GetBoolean()
+    assert EquivalentProcessPath(TextOf(positionalRoot.GetProperty("projectRoot")), NormalizedFullPath(project))
+    positionalDocument.Dispose()
+}
+
+test "nlc check backend option remains an option before the project directory" {
+    project := CheckExampleProject("01-hello-world")
+    run := Nlc("check --backend il \"" + project + "\"")
+
+    assert run.ExitCode == 0
+    assert run.Stderr.Length == 0
+    document := JsonDocument.Parse(run.Stdout)
+    root := document.RootElement
+    assert root.GetProperty("ok").GetBoolean()
+    assert EquivalentProcessPath(TextOf(root.GetProperty("projectRoot")), NormalizedFullPath(project))
+    document.Dispose()
+}
+
+test "nlc check sorts diagnostics by file and line" {
+    directory := NewTempDirectory("nlc-check-sorted-diagnostics")
+    try {
+        WriteProjectYml(directory, "name: CheckSortedDiagnostics\nversion: 0.1.0\noutputType: exe\ntargetFramework: net10.0\n")
+        sourceDirectory := Path.Combine(directory, "src")
+        Directory.CreateDirectory(sourceDirectory)
+        File.WriteAllText(Path.Combine(sourceDirectory, "B.nl"), "func B() {\n    x := undefinedThing\n}\n")
+        File.WriteAllText(Path.Combine(sourceDirectory, "A.nl"), "func A() {\n    y := undefinedThing\n}\n")
+
+        run := NlcIn(directory, "check")
+        assert run.ExitCode == 1
+        document := JsonDocument.Parse(run.Stdout)
+        results := document.RootElement.GetProperty("results")
+        assert results.GetArrayLength() >= 2
+
+        index := 0
+        while index + 1 < results.GetArrayLength() {
+            first := ElementAt(results, index)
+            second := ElementAt(results, index + 1)
+            firstFile := TextOf(first.GetProperty("file"))
+            secondFile := TextOf(second.GetProperty("file"))
+            comparison := String.Compare(firstFile, secondFile, StringComparison.Ordinal)
+            firstLine := first.GetProperty("line").GetInt32()
+            secondLine := second.GetProperty("line").GetInt32()
+            assert comparison < 0 || (comparison == 0 && firstLine <= secondLine), run.Stdout
+            index = index + 1
+        }
+
+        document.Dispose()
+    } finally {
+        Directory.Delete(directory, true)
+    }
+}
+
+test "nlc check reports the AOT columnar requirement after analysis declines" {
+    directory := NewTempDirectory("nlc-check-aot")
+    try {
+        WriteProjectYml(directory, "name: AotCheckRequiresColumnar\noutputType: library\ntargetFramework: net10.0\n")
+        File.WriteAllText(
+            Path.Combine(directory, "Program.nl"),
+            "func countChars(s: string): int {\n    n := 0\n    foreach c in s {\n        n = n + 1\n    }\n    return n\n}\n"
+        )
+
+        run := NlcIn(directory, "check --aot")
+        assert run.ExitCode == 1
+        assert run.Stderr.Length == 0
+        assert !run.Stdout.EndsWith(Environment.NewLine)
+        document := JsonDocument.Parse(run.Stdout)
+        root := document.RootElement
+        assert !root.GetProperty("ok").GetBoolean()
+        assert TextOf(ElementAt(root.GetProperty("results"), 0).GetProperty("code")) == "NL103"
+        assert TextOf(ElementAt(root.GetProperty("results"), 0).GetProperty("message")).Contains("Columnar AOT emission is required")
+        document.Dispose()
+    } finally {
+        Directory.Delete(directory, true)
+    }
+}
+
+test "nlc check AOT project references report the referenced source decline" {
+    directory := NewTempDirectory("nlc-check-aot-project-reference")
+    try {
+        sharedDirectory := Path.Combine(directory, "Shared")
+        Directory.CreateDirectory(sharedDirectory)
+        WriteProjectYml(sharedDirectory, "name: SharedLib\noutputType: library\ntargetFramework: net10.0\n")
+        File.WriteAllText(
+            Path.Combine(sharedDirectory, "Shared.nl"),
+            "func CountChars(s: string): int {\n    n := 0\n    foreach c in s {\n        n = n + 1\n    }\n    return n\n}\n"
+        )
+        WriteProjectYml(
+            directory,
+            "name: App\noutputType: library\ntargetFramework: net10.0\ndependencies:\n  - project: Shared/project.yml\n"
+        )
+        File.WriteAllText(Path.Combine(directory, "Program.nl"), "func Root(): int {\n    return 1\n}\n")
+
+        run := Nlc("check --project \"" + directory + "\" --aot")
+        assert run.ExitCode == 1
+        assert run.Stderr.Length == 0
+        document := JsonDocument.Parse(run.Stdout)
+        root := document.RootElement
+        assert !root.GetProperty("ok").GetBoolean()
+        assert TextOf(root.GetProperty("error").GetProperty("message")).Contains("AOT builds require successful N# columnar emission")
+        document.Dispose()
+    } finally {
+        Directory.Delete(directory, true)
+    }
+}
+
+test "nlc check uses a native project yml without generating a csproj" {
+    directory := NewTempDirectory("nlc-check-native-project")
+    try {
+        WriteCheckProject(directory, "CheckNative", "func main() {\n    print \"check\"\n}\n")
+        run := NlcIn(directory, "check")
+
+        assert run.ExitCode == 0
+        assert run.Stderr.Length == 0
+        document := JsonDocument.Parse(run.Stdout)
+        assert document.RootElement.GetProperty("ok").GetBoolean()
+        document.Dispose()
+        assert Directory.GetFiles(directory, "*.g.csproj", SearchOption.TopDirectoryOnly).Length == 0
+    } finally {
+        Directory.Delete(directory, true)
+    }
+}
+
+test "nlc check reports a receiver generic verification decline instead of crashing" {
+    directory := NewTempDirectory("nlc-check-receiver-generic")
+    try {
+        WriteProjectYml(directory, "name: ReceiverGenericCheck\noutputType: exe\ntargetFramework: net10.0\n")
+        File.WriteAllText(
+            Path.Combine(directory, "Program.nl"),
+            "namespace W\n\nimport System\n\nfunc Tag<T>(this value: T, note: string): string { return note + value.ToString() }\nfunc main() { Console.WriteLine(5.Tag(\"ok\")) }\n"
+        )
+
+        run := NlcIn(directory, "check")
+        assert run.ExitCode == 1
+        assert run.Stderr.Length == 0
+        document := JsonDocument.Parse(run.Stdout)
+        root := document.RootElement
+        errorProperty := new JsonElement()
+        assert !root.TryGetProperty("error", out errorProperty)
+        assert !root.GetProperty("ok").GetBoolean()
+        assert TextOf(ElementAt(root.GetProperty("results"), 0).GetProperty("code")) == "NL103"
+        document.Dispose()
+    } finally {
+        Directory.Delete(directory, true)
+    }
+}
+
+test "nlc check skips IL verification when semantic analysis already has errors" {
+    directory := NewTempDirectory("nlc-check-analysis-errors")
+    try {
+        WriteUnresolvedCheckProject(directory, "CheckAnalysisErrors")
+        run := NlcIn(directory, "check")
+
+        assert run.ExitCode == 1
+        assert run.Stderr.Length == 0
+        assert run.Stdout.Contains("NL301")
+        assert !run.Stdout.Contains("NL103")
     } finally {
         Directory.Delete(directory, true)
     }
@@ -2400,6 +2657,14 @@ func WriteFailingProject(directory: string, name: string) {
 func WriteCheckProject(directory: string, name: string, source: string) {
     WriteProjectYml(directory, "name: " + name + "\n" + "version: 0.1.0\n" + "outputType: exe\n" + "targetFramework: net10.0\n")
     File.WriteAllText(Path.Combine(directory, "Program.nl"), source)
+}
+
+func WriteUnresolvedCheckProject(directory: string, name: string) {
+    WriteCheckProject(directory, name, "func main() {\n    x := undefinedThing\n    print x\n}\n")
+}
+
+func CheckExampleProject(name: string): string {
+    return Path.Combine(Path.Combine(CliRepositoryRoot(), "examples"), name)
 }
 
 test "nlc build --color=always writes a REAL escape byte, and never the literal characters" {
