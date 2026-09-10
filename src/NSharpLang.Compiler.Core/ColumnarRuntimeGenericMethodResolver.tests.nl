@@ -4,6 +4,7 @@ import System
 import System.Collections.Generic
 import System.Numerics
 import System.Reflection
+import System.Reflection.Emit
 
 // Generic external methods closed by inference from their arguments. `System.Numerics.Vector`'s static
 // surface is the witness for inference through a CONSTRUCTED generic argument; `System.HashCode` and
@@ -113,4 +114,39 @@ test "runtime generic method resolver refuses inference it cannot complete" {
 
     // A non-generic declaration stays the ordinary tier's business.
     assert !ColumnarRuntimeGenericMethodResolver.Resolve(typeof(Math), "Abs", GenericMethodTypes1(typeof(int)), true).IsSelected
+}
+
+// CLOSING OVER A TYPE PARAMETER OF THE DECLARATION BEING EMITTED. `HashCode.Combine(_state, _ok)`
+// inside `Result<TOk, TErr>.GetHashCode` hands this tier a `GenericTypeParameterBuilder` as an
+// argument type. That IS closable — `MakeGenericMethod` answers a `MethodBuilderInstantiation` and
+// `call` encodes it as a MethodSpec the CLR resolves once per constructed type — so the inference
+// admits it where every other open shape stays unbindable.
+//
+// The closed SIGNATURE is the half a reader cannot infer: `MethodBuilderInstantiation.GetParameters`
+// reports the DEFINITION's own `T1, T2`, so the parameter types are substituted here rather than read
+// back. Scoring a call against the definition's parameters would compare each argument to an
+// unrelated type parameter.
+test "runtime generic method resolver closes a method over a type parameter of the type being emitted" {
+    openDefinition: Type = TypeOfCreateBuilder("GenericMethodEmittedOwner`1", "ColumnarRuntimeGenericMethodTests.EmittedOwner", 1)
+    typeParameter := openDefinition.GetGenericArguments()[0]
+
+    combine := ColumnarRuntimeGenericMethodResolver.Resolve(typeof(HashCode), "Combine", GenericMethodTypes2(typeof(byte), typeParameter), true)
+
+    assert combine.IsSelected
+    combineMethod := GenericMethodRequiredMethod(combine)
+    typeArguments := combineMethod.GetGenericArguments()
+    assert typeArguments.Length == 2
+    assert typeArguments[0] == typeof(byte)
+    assert Object.ReferenceEquals(typeArguments[1], typeParameter)
+
+    // The SUBSTITUTED signature, not the definition's `T1, T2`.
+    assert combine.ParameterTypes.Length == 2
+    assert combine.ParameterTypes[0] == typeof(byte)
+    assert Object.ReferenceEquals(combine.ParameterTypes[1], typeParameter)
+    assert combine.ReturnType == typeof(int)
+
+    // Every OTHER open shape stays unbindable: a still-open constructed generic argument carries no
+    // handle the emitter could call, and an open definition is not a type argument at all.
+    listDefinition := typeof(List<int>).GetGenericTypeDefinition()
+    assert !ColumnarRuntimeGenericMethodResolver.Resolve(typeof(HashCode), "Combine", GenericMethodTypes2(typeof(byte), listDefinition), true).IsSelected
 }

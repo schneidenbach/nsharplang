@@ -127,7 +127,7 @@ test "runtime operator resolver leaves the predefined IL primitive surface alone
 // the enum question is asked through the guarded owner. It is the only reflection read here: every
 // other arm is reference equality against a `typeof`.
 test "runtime operator resolver answers the primitive question for a type that is still being emitted" {
-    openDefinition := TypeOfCreateBuilder("RuntimeOperatorPrimitiveProbe`1", "ColumnarRuntimeOperatorTests.PrimitiveProbe", 1)
+    openDefinition: Type = TypeOfCreateBuilder("RuntimeOperatorPrimitiveProbe`1", "ColumnarRuntimeOperatorTests.PrimitiveProbe", 1)
     arguments := new Type[](1)
     arguments[0] = typeof(int)
     constructed := openDefinition.MakeGenericType(arguments)

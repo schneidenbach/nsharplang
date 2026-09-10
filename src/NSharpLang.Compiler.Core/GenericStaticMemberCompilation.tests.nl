@@ -76,13 +76,28 @@ func GsmErrors(root: string): List<CompilerError> {
 // Analysis alone would accept a shape the backend then declines, so the positive contracts run the
 // IL emission too: "this compiles" means an assembly exists.
 func GsmAssertEmits(root: string) {
+    result := GsmCompile(root)
+    assert result.Success, "the fixture must reach an emitted assembly"
+    assert File.Exists(Path.Combine(root, "verification", "GenericStaticMembers.dll")), "the emitted assembly must be written"
+}
+
+func GsmCompile(root: string): MultiFileCompilationResult {
     config := ProjectFileParser.Parse(Path.Combine(root, "project.yml"))
     compiler := new MultiFileCompiler(root, config)
     compiler.AotMode = false
-    outputPath := Path.Combine(root, "verification", "GenericStaticMembers.dll")
-    result := compiler.CompileToIlAssembly("GenericStaticMembers", outputPath, false, true)
-    assert result.Success, "the fixture must reach an emitted assembly"
-    assert File.Exists(outputPath), "the emitted assembly must be written"
+    return compiler.CompileToIlAssembly("GenericStaticMembers", Path.Combine(root, "verification", "GenericStaticMembers.dll"), false, true)
+}
+
+// A backend refusal is not an analysis diagnostic, so a shape the analyzer admits and the backend
+// declines only has an answer after a whole compile.
+func GsmCompileErrors(root: string): List<CompilerError> {
+    reported := new List<CompilerError>()
+    for error in GsmCompile(root).Errors {
+        if error.Severity == ErrorSeverity.Error {
+            reported.Add(error)
+        }
+    }
+    return reported
 }
 
 func GsmCodes(errors: List<CompilerError>): string {
@@ -413,8 +428,13 @@ func Use(): int {
 """
         )
 
-        genericErrors := GsmErrors(genericRoot)
-        plainErrors := GsmErrors(plainRoot)
+        // Both are silent to ANALYSIS: the refusal is the backend's, and it is the same backend
+        // refusal for both, which is the point — the generic case acquires no diagnostic of its own.
+        assert GsmCodes(GsmErrors(genericRoot)) == ""
+        assert GsmCodes(GsmErrors(plainRoot)) == ""
+
+        genericErrors := GsmCompileErrors(genericRoot)
+        plainErrors := GsmCompileErrors(plainRoot)
 
         assert GsmCodes(genericErrors) == GsmCodes(plainErrors)
         assert GsmCodes(genericErrors) == "NL103"

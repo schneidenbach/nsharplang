@@ -141,6 +141,25 @@ func ReturnWrappedText(): Wrap<string> {
     return "returned"
 }
 
+// A STATIC CALL WHOSE TYPE ARGUMENT IS THE ENCLOSING TYPE'S OWN PARAMETER. `HashCode.Combine(Tag,
+// Value)` closes an external generic method over `T`, which Reflection.Emit encodes as a MethodSpec
+// over the source type parameter and the CLR resolves once per constructed type. It is what
+// `Result<TOk, TErr>.GetHashCode` is made of.
+struct Hasher<T> {
+    Value: T
+    Tag: byte
+
+    constructor(value: T, tag: byte) {
+        Value = value
+        Tag = tag
+    }
+
+    override func GetHashCode(): int {
+        return HashCode.Combine(Tag, Value)
+    }
+
+}
+
 // An accessor-bodied static property over a camelCase static field, so both accessors are exercised
 // through the type name.
 class Counter<T> {
@@ -220,6 +239,15 @@ test "static factories reach a private constructor of their own generic type" {
     swapped := Tally<string, int>.Ok("value")
     assert swapped.IsOk
     assert swapped.OkValue == "value"
+}
+
+test "a static call closed over the enclosing type's own parameter runs per constructed type" {
+    assert new Hasher<string>("abc", 1).GetHashCode() == HashCode.Combine((byte)1, "abc")
+    assert new Hasher<int>(7, 2).GetHashCode() == HashCode.Combine((byte)2, 7)
+
+    // The same declaration, two instantiations, two different hashes — the MethodSpec is resolved
+    // against the constructed type rather than baked at the declaration.
+    assert new Hasher<int>(7, 2).GetHashCode() != new Hasher<int>(8, 2).GetHashCode()
 }
 
 test "an implicit conversion operator declared by a constructed generic converts into it" {
