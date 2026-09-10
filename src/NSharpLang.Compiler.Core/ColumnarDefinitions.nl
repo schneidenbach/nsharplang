@@ -78,6 +78,11 @@ class ColumnarInstanceMethodDef {
     ParamTypes: Type[]
     ParamModifierKinds: int[]
     ReturnType: Type
+    // The element names of a NAMED tuple return, or null. A `ValueTuple` erases them at the IL level, so a
+    // caller that writes `pair.Min` needs the declaration's names to rewrite the access onto `Item1`. Free
+    // functions have carried this since named tuples landed; a method DECLARED ON A TYPE needs it for the
+    // same reason, and without it every `Type.Method().Name` access declined at emit.
+    ReturnTupleElementNames: string[]?
 
     constructor(builder: MethodBuilder, paramTypes: Type[], returnType: Type) {
         if builder == null || paramTypes == null || returnType == null {
@@ -88,9 +93,10 @@ class ColumnarInstanceMethodDef {
         ParamTypes = paramTypes
         ParamModifierKinds = new int[](0)
         ReturnType = returnType
+        ReturnTupleElementNames = null
     }
 
-    constructor(builder: MethodBuilder, paramTypes: Type[], paramModifierKinds: int[], returnType: Type) {
+    constructor(builder: MethodBuilder, paramTypes: Type[], paramModifierKinds: int[], returnType: Type, returnTupleElementNames: string[]? = null) {
         if builder == null || paramTypes == null || paramModifierKinds == null || returnType == null {
             throw new InvalidOperationException("Source instance-method definition facts cannot be null.")
         }
@@ -103,6 +109,7 @@ class ColumnarInstanceMethodDef {
         ParamTypes = paramTypes
         ParamModifierKinds = paramModifierKinds
         ReturnType = returnType
+        ReturnTupleElementNames = returnTupleElementNames
     }
 
     func Deconstruct(out builder: MethodBuilder, out paramTypes: Type[], out returnType: Type) {
@@ -124,12 +131,15 @@ class ColumnarStaticMethodDef {
     ParamTypes: Type[]
     ParamModifierKinds: int[]
     ReturnType: Type
+    // The element names of a NAMED tuple return, or null -- see ColumnarInstanceMethodDef.
+    ReturnTupleElementNames: string[]?
 
-    constructor(builder: MethodBuilder, paramTypes: Type[], paramModifierKinds: int[], returnType: Type) {
+    constructor(builder: MethodBuilder, paramTypes: Type[], paramModifierKinds: int[], returnType: Type, returnTupleElementNames: string[]? = null) {
         Builder = builder
         ParamTypes = paramTypes
         ParamModifierKinds = paramModifierKinds
         ReturnType = returnType
+        ReturnTupleElementNames = returnTupleElementNames
     }
 
     func Deconstruct(out builder: MethodBuilder, out paramTypes: Type[], out paramModifierKinds: int[], out returnType: Type) {
