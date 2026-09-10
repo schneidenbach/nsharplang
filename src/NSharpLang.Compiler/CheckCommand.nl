@@ -71,17 +71,19 @@ class CheckCommand {
                         ProgramCommandKernels.FormatElapsedMilliseconds(sw.ElapsedMilliseconds)))
                 } else {
                     diagnosticText := OutputFormatter.DiagnosticsToText(diagnostics)
-                    Console.Error.WriteLine(diagnosticText.TrimEnd())
-                    Console.Error.WriteLine(CheckCommandKernels.GetCheckedInMessage(ProgramCommandKernels.FormatElapsedMilliseconds(sw.ElapsedMilliseconds)))
+                    checkedInMessage := CheckCommandKernels.GetCheckedInMessage(ProgramCommandKernels.FormatElapsedMilliseconds(sw.ElapsedMilliseconds))
+                    Console.Error.WriteLine(diagnosticText + checkedInMessage)
                 }
             } else if outputMode == 3 {
-                Console.WriteLine(OutputFormatter.CheckSystemsReportToJson(
+                systemsJson := OutputFormatter.CheckSystemsReportToJson(
                     diagnostics,
                     snapshot.ProjectRoot,
                     snapshot.SourceFiles.Count,
-                    snapshot.SystemsReport))
+                    snapshot.SystemsReport)
+                Console.Write(systemsJson)
             } else {
-                Console.WriteLine(OutputFormatter.CheckToJson(diagnostics, snapshot.ProjectRoot, snapshot.SourceFiles.Count))
+                checkJson := OutputFormatter.CheckToJson(diagnostics, snapshot.ProjectRoot, snapshot.SourceFiles.Count)
+                Console.Write(checkJson)
             }
 
             return CheckCommandKernels.GetExitCode(summary.Errors)
@@ -137,7 +139,7 @@ class CheckCommand {
             Console.Error.WriteLine(message)
         } else {
             errorJson := OutputFormatter.ErrorToJson("check", message, projectRoot, null, null)
-            Console.WriteLine(errorJson)
+            Console.Write(errorJson)
         }
 
         return 1
