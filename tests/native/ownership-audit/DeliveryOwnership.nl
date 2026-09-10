@@ -30,7 +30,7 @@ class DeliveryOwnershipPolicy {
 
     static func Fingerprint(path: string): string {
         if path == ".github/workflows/build.yml" {
-            return "text-v1:010774f9d772cfb5"
+            return "text-v1:be89a9671c691cd7"
         }
         if path == ".github/workflows/cleanup-unofficial.yml" {
             return "text-v1:7338cd13d4fc1ef4"
