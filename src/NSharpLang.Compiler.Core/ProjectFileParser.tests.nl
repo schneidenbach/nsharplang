@@ -82,7 +82,7 @@ func PfpReferenceCensus(references: List<Reference>): string {
 }
 
 func PfpTemplateText(projectName: string): string {
-    return "name: " + projectName + "\nversion: 1.0.0\nentry: Program.nl\nbackend: il\noutputType: exe\ntargetFramework: net10.0\n\n# Test framework: xunit (default) or nunit\n# testFramework: xunit\n\n# Add your dependencies here\n# dependencies:\n#   - nuget: Newtonsoft.Json\n#     version: 13.0.3\n\nlanguage:\n  profile: default\n  asyncDefaultType: ValueTask\n\n# package:\n#   id: MyLibrary\n#   author: Your Name\n#   description: A short description\n#   license: MIT\n#   repository: https://github.com/you/MyLibrary\n#   readme: README.md\n"
+    return "name: " + projectName + "\nversion: 1.0.0\nentry: Program.nl\nbackend: il\noutputType: exe\ntargetFramework: net10.0\n\n# Test framework: xunit (default) or nunit\n# testFramework: xunit\n\n# Add your dependencies here\n# dependencies:\n#   - nuget: Newtonsoft.Json\n#     version: 13.0.3\n\nlanguage:\n  profile: default\n  asyncDefaultType: ValueTask\n\n# package:\n#   author: Your Name\n#   description: A short description\n#   license: MIT\n"
 }
 
 // ── a whole document ──────────────────────────────────────────────────────────────────────────
