@@ -190,4 +190,14 @@ class AnalyzerDiagnosticSink {
         Report(ErrorCode.InaccessibleMember, "'" + memberName + "' is not exported from package/namespace '" + declaringNamespace + "' — use PascalCase for cross-package visibility or keep camelCase members inside the declaring package", line, column, null, Math.Max(1, memberName.Length))
         return true
     }
+
+    // NL209. TWO IMPORTS SUPPLY THIS NAME AND NEITHER IS CLOSER, so the compiler will not pick one:
+    // whichever `import` happens to be written first is not what the developer meant to select. The
+    // message names BOTH candidates in full, because the fix is to write one of them — and the
+    // qualification it suggests is the FIRST, which is the one the old first-import-wins order would
+    // silently have chosen.
+    func ReportAmbiguousTypeReference(name: string, firstCandidate: string, secondCandidate: string, line: int, column: int): bool {
+        Report(ErrorCode.AmbiguousTypeReference, "'" + name + "' is ambiguous here: it could mean '" + firstCandidate + "' or '" + secondCandidate + "', and both are brought in by an import on this file", line, column, "Write the one you mean in full — '" + firstCandidate + "' — or remove the import that supplies the other.", Math.Max(1, name.Length))
+        return true
+    }
 }

@@ -172,7 +172,7 @@ class ColumnarOrdinaryRuntimeDirectCallResolver {
         }
 
         try {
-            candidates := lookupType.GetMethods()
+            candidates := CandidateMethods(lookupType)
             if candidates == null {
                 throw new InvalidOperationException("Runtime method enumeration returned null.")
             }
@@ -183,6 +183,52 @@ class ColumnarOrdinaryRuntimeDirectCallResolver {
         } catch ex: InvalidOperationException {
             return Empty(ColumnarOrdinaryRuntimeDirectCallStatus.Excluded, lookupType, expectedStatic)
         }
+    }
+
+    // EVERY METHOD A RECEIVER CAN ANSWER. For a class that is `GetMethods()`, which already walks the
+    // base chain. For an INTERFACE it is not: reflection does not include inherited interface members,
+    // so `IList<T>.get_Count` — declared on `ICollection<T>` — was invisible and the call declined as
+    // unmodeled. The two named shapes above are what that gap cost before it was general; this is the
+    // rule they were standing in for.
+    //
+    // `GetInterfaces()` answers with CLOSED constructed bases, so a rebind is not needed and the
+    // declaring type each candidate carries is the real CLR owner the call must be emitted against.
+    // Duplicates are harmless: candidate selection compares signatures, and a base interface reached
+    // twice offers the same `MethodInfo`.
+    static func CandidateMethods(lookupType: Type): MethodInfo[] {
+        declared := lookupType.GetMethods()
+        if declared == null || !lookupType.get_IsInterface() {
+            return declared
+        }
+
+        baseInterfaces := lookupType.GetInterfaces()
+        if baseInterfaces == null || baseInterfaces.Length == 0 {
+            return declared
+        }
+
+        combined := new List<MethodInfo>()
+        index := 0
+        while index < declared.Length {
+            combined.Add(declared[index])
+            index = index + 1
+        }
+
+        baseIndex := 0
+        while baseIndex < baseInterfaces.Length {
+            inherited := baseInterfaces[baseIndex].GetMethods()
+            baseIndex = baseIndex + 1
+            if inherited == null {
+                continue
+            }
+
+            inheritedIndex := 0
+            while inheritedIndex < inherited.Length {
+                combined.Add(inherited[inheritedIndex])
+                inheritedIndex = inheritedIndex + 1
+            }
+        }
+
+        return combined.ToArray()
     }
 
     // IReadOnlyDictionary<TKey, TValue> inherits its generic GetEnumerator from

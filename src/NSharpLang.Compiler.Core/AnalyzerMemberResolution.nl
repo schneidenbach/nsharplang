@@ -396,7 +396,36 @@ class AnalyzerMemberResolution {
     // accessors are found with the NON-PUBLIC opt-in because an event may be public while its
     // add/remove methods are not, and the handler delegate type and declaring type ride on the
     // answer because the subscription needs both to emit.
+    // AN INTERFACE DOES NOT INHERIT ITS BASES' MEMBERS THROUGH `GetProperty`, and that is the whole
+    // reason `IList<T>.Count` reported NL303 while `IList<T>.get_Count()` — the accessor for the very
+    // same property — resolved: method resolution already walked the base interfaces and this arm did
+    // not. A CLASS receiver needs no sweep, because metadata already walks its base chain.
+    // `GetInterfaces()` is FLATTENED, so one loop reaches every transitive base and there is no
+    // recursion to bound.
     static func TryResolveReflectionPropertyOrField(reflectedType: Type, memberName: string, includeStaticMembers: bool, out memberType: TypeInfo): bool {
+        if TryResolveReflectionMemberOnType(reflectedType, memberName, includeStaticMembers, out memberType) {
+            return true
+        }
+
+        if !reflectedType.get_IsInterface() {
+            return false
+        }
+
+        baseInterfaces := reflectedType.GetInterfaces()
+        index := 0
+        while index < baseInterfaces.Length {
+            if TryResolveReflectionMemberOnType(baseInterfaces[index], memberName, includeStaticMembers, out memberType) {
+                return true
+            }
+
+            index = index + 1
+        }
+
+        memberType = BuiltInTypes.Unknown
+        return false
+    }
+
+    static func TryResolveReflectionMemberOnType(reflectedType: Type, memberName: string, includeStaticMembers: bool, out memberType: TypeInfo): bool {
         memberFlags := GetReflectionMemberFlags(includeStaticMembers)
 
         property := reflectedType.GetProperty(memberName, memberFlags)

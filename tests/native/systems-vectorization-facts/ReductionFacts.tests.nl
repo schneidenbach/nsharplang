@@ -42,10 +42,13 @@ namespace NSharpLang.SystemsVectorizationFacts.Tests
 // that body resolves onto `SimdReductions`, and neither answer depends on the kernel being RUN: shapes whose
 // loop body can never execute are read like any other. `IlShapeFacts.tests.nl` pins the decoder first.
 //
-// LANE WIDTH. `Vector<int>.Count` is 4 on this arm64 machine. It cannot be read from N# (`Vector<int>`
-// declines at emit.declaration.method-return / method-param — see the report), so the length sweeps below
-// spell the interesting lengths out: 0, one below a width, exactly one width, width + 1, two widths, two
-// widths + 3, and the large 64 / 1000 cases the deleted rows used.
+// LANE WIDTH. `Vector<int>.Count` is 4 on this arm64 machine, and it CAN be read from N# now — a
+// constructed generic type receiver is a type, so `Vector<int>.Count` and
+// `System.Numerics.Vector<int>.Count` both compile and both answer the runtime's lane count. The
+// length sweeps below still spell the interesting lengths out — 0, one below a width, exactly one
+// width, width + 1, two widths, two widths + 3, and the large 64 / 1000 cases the deleted rows used
+// — because a contract that computed its lengths FROM the lane count would assert nothing about the
+// width it happens to run at, which is the whole point of writing them down.
 //
 // MAPPING — VectorizedReductionTests.cs (21 methods / 80 rows):
 //   VectorizedSum_IsValueIdenticalToScalar[0,1,3,7,8,15,16,17,64,1000]
@@ -105,14 +108,16 @@ namespace NSharpLang.SystemsVectorizationFacts.Tests
 // MAPPING — SimdVectorShapeTests.cs (10 methods / 3 rows). Only its two SCALAR-FALLBACK methods are portable:
 //   ScalarElementWiseLoop_StaysScalar_NoVectorTypesEmitted -> "a scalar element-wise loop is not vectorized"
 //   ScalarElementWiseLoop_ProducesCorrectResults           -> "...and writes the element-wise sums"
-// The other eight are the EXPLICIT `System.Numerics` vector surface, and the columnar backend declines every
-// spelling of it, so no `SimdVectorShapeFacts.tests.nl` exists. Measured, with the decline sites:
-//   `func f(a: Vector<int>): Vector<int>` -> NL103 emit.declaration.method-return:
-//                                           static method return type 'Vector<int>' could not be resolved
-//   `func f(a: Vector3, b: Vector3)`      -> NL103 emit.declaration.method-param:
-//                                           static method parameter type 'Vector3' could not be resolved
-//   `Vector<int>.Count`                   -> NL202 / NL305: `Vector` is parsed as a comparison, not a type
-// so these eight have NO native contract and are recorded here instead:
+// The other eight are the EXPLICIT `System.Numerics` vector surface. THE DECLINES THIS BLOCK USED TO
+// RECORD ARE GONE — re-measured against the tip compiler, each of the three spellings it named now
+// compiles clean:
+//   `func f(a: Vector<int>): Vector<int>`  -> compiles (was NL103 emit.declaration.method-return)
+//   `func f(a: Vector3, b: Vector3): …`    -> compiles (was NL103 emit.declaration.method-param)
+//   `Vector<int>.Count`                    -> compiles (was NL202 / NL305, `Vector` read as a comparison)
+// and `a + b` on both shapes compiles too. What is still MISSING is a contract, not a capability:
+// these eight pinned IL SHAPE (a direct operator call, no boxing, a `newobj` from an array) and
+// bit-identity against a scalar reference, and nothing has measured those claims against the emitted
+// IL yet. They are recorded here until a `SimdVectorShapeFacts.tests.nl` measures them:
 //   VectorGeneric_Addition_EmitsDirectOperatorCall_NoBoxing
 //   VectorGeneric_OperatorChain_EmitsDirectCalls_NoBoxing
 //   VectorGeneric_Float_Addition_EmitsDirectOperatorCall_NoBoxing
@@ -122,7 +127,7 @@ namespace NSharpLang.SystemsVectorizationFacts.Tests
 //   VectorGeneric_Multiply_WrapsIdenticallyToScalar
 //   Vector3_Addition_MatchesRuntimeSemantics
 // They pinned operator-overload resolution on the BCL vector types, which is a separate feature from the
-// auto-vectorizer this project pins; restoring them needs the backend to model System.Numerics vectors first.
+// auto-vectorizer this project pins; restoring them now needs an IL-shape contract, not a backend change.
 class ReductionShapes {
 
     // ReductionLoopShapeTests.Matches_CanonicalReduction.

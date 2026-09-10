@@ -59,6 +59,38 @@ class AnalyzerExternalTypeProbe {
             return new ReflectionTypeInfo(cachedType)
         }
 
+        imported := ResolveImportedExternalType(name)
+        if imported != null {
+            return imported
+        }
+
+        bareIndex := 0
+        while bareIndex < assemblies.Count {
+            exportedTypes := assemblies[bareIndex].GetExportedTypes()
+            exportedIndex := 0
+            while exportedIndex < exportedTypes.Length {
+                candidate := exportedTypes[exportedIndex]
+                if candidate.Name == name || candidate.FullName == name {
+                    typeCache[name] = candidate
+                    return new ReflectionTypeInfo(candidate)
+                }
+                exportedIndex = exportedIndex + 1
+            }
+            bareIndex = bareIndex + 1
+        }
+
+        return null
+    }
+
+    // STEP 2 ON ITS OWN: what an EXPLICITLY IMPORTED namespace declares, with no exported-name scan
+    // behind it. The separation is what lets a caller ask the two halves different questions — an
+    // import-qualified hit is an explicit reference the developer wrote an `import` for, while the
+    // scan is a project-wide guess — and the ordered probe above is still the two halves in order,
+    // so nothing about `ResolveExternalType` changes.
+    //
+    // The cache participates exactly as before: a hit caches under the FULL name, and a miss is not
+    // cached, so a namespace whose assembly loads later is genuinely retried.
+    func ResolveImportedExternalType(name: string): TypeInfo? {
         namespaceIndex := 0
         while namespaceIndex < usingNamespaces.Count {
             fullName := usingNamespaces[namespaceIndex] + "." + name
@@ -81,22 +113,43 @@ class AnalyzerExternalTypeProbe {
             namespaceIndex = namespaceIndex + 1
         }
 
-        bareIndex := 0
-        while bareIndex < assemblies.Count {
-            exportedTypes := assemblies[bareIndex].GetExportedTypes()
-            exportedIndex := 0
-            while exportedIndex < exportedTypes.Length {
-                candidate := exportedTypes[exportedIndex]
-                if candidate.Name == name || candidate.FullName == name {
-                    typeCache[name] = candidate
-                    return new ReflectionTypeInfo(candidate)
-                }
-                exportedIndex = exportedIndex + 1
+        return null
+    }
+
+    // WHICH IMPORTED NAMESPACE, IF ANY, DECLARES THIS SPELLING — the same sweep as
+    // `ResolveImportedExternalType`, answering with the namespace rather than the type, because an
+    // ambiguity report has to NAME the two candidates. `skipNamespace` is the one already claimed by
+    // another channel, so a second hit means a genuine tie rather than the same answer twice.
+    func TryFindImportedExternalNamespace(name: string, skipNamespace: string?, out namespaceName: string): bool {
+        namespaceName = ""
+        namespaceIndex := 0
+        while namespaceIndex < usingNamespaces.Count {
+            candidateNamespace := usingNamespaces[namespaceIndex]
+            namespaceIndex = namespaceIndex + 1
+            if skipNamespace != null && string.Equals(candidateNamespace, skipNamespace, StringComparison.Ordinal) {
+                continue
             }
-            bareIndex = bareIndex + 1
+
+            fullName := candidateNamespace + "." + name
+            cachedFullType := typeof(object)
+            if typeCache.TryGetValue(fullName, out cachedFullType) {
+                namespaceName = candidateNamespace
+                return true
+            }
+
+            assemblyIndex := 0
+            while assemblyIndex < assemblies.Count {
+                resolved := assemblies[assemblyIndex].GetType(fullName)
+                if resolved != null {
+                    typeCache[fullName] = resolved
+                    namespaceName = candidateNamespace
+                    return true
+                }
+                assemblyIndex = assemblyIndex + 1
+            }
         }
 
-        return null
+        return false
     }
 
     // The EXACT probe: no using-namespace prefixing and no exported-name scan, so it answers only

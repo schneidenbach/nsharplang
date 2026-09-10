@@ -120,6 +120,7 @@ class DiagnosticCatalog {
         AddCompiler(descriptors, ErrorCode.InvalidCast)
         AddCompiler(descriptors, ErrorCode.InvalidTypeArgument)
         AddCompiler(descriptors, ErrorCode.GenericConstraintViolation)
+        AddCompiler(descriptors, ErrorCode.AmbiguousTypeReference)
 
         AddCompiler(descriptors, ErrorCode.UndefinedVariable)
         AddCompiler(descriptors, ErrorCode.UndefinedMember)
@@ -199,7 +200,7 @@ class DiagnosticCatalog {
             return DiagnosticCategory.Syntax
         }
 
-        if value >= Convert.ToInt32(ErrorCode.TypeNotFound) && value <= Convert.ToInt32(ErrorCode.GenericConstraintViolation) {
+        if value >= Convert.ToInt32(ErrorCode.TypeNotFound) && value <= Convert.ToInt32(ErrorCode.AmbiguousTypeReference) {
             return DiagnosticCategory.Type
         }
 

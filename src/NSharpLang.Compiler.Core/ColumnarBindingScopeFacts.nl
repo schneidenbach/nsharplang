@@ -184,6 +184,50 @@ class ColumnarExternalTypeCatalog {
         return true
     }
 
+    // THE IMPORT-QUALIFIED HALF OF `ResolveOwner`, with no exported-name scan behind it: does an
+    // EXPLICITLY imported namespace declare this spelling? The two are different questions — an
+    // import is something the file asked for, the scan is a project-wide guess — and the answer to
+    // this one decides whether a source type in an unrelated namespace may claim the name. Cached
+    // under its own key so it never stands in for the ordered probe's answer.
+    func TryGetImported(sourceFileId: int, ownerName: string, out resolution: ExternalAssemblyTypeResolution): bool {
+        resolution = new ExternalAssemblyTypeResolution(ExternalAssemblyTypeLookupStatus.Unknown, "", typeof(object), false)
+        if !IsPrepared || ownerName == null || ownerName.Length == 0 {
+            return false
+        }
+
+        key := "imported:" + Key(sourceFileId, ownerName)
+        if resolvedOwners.TryGetValue(key, out resolution) {
+            return true
+        }
+
+        facts := new ColumnarSourceBindingFacts()
+        if !fileFactsById.TryGetValue(sourceFileId, out facts) || !facts.ScanComplete {
+            return false
+        }
+
+        if preparedScan == null {
+            return false
+        }
+
+        resolution = ResolveImportedOwner(preparedScan, facts, ownerName)
+        resolvedOwners[key] = resolution
+        return true
+    }
+
+    static func ResolveImportedOwner(scan: ExternalAssemblyScanResult, facts: ColumnarSourceBindingFacts, ownerName: string): ExternalAssemblyTypeResolution {
+        importIndex := 0
+        while importIndex < facts.UnaliasedNamespaceImports.Count {
+            fullName := facts.UnaliasedNamespaceImports[importIndex] + "." + ownerName
+            resolution := ExternalAssemblyScan.FindExactOrNestedType(scan, fullName)
+            if resolution.Status != ExternalAssemblyTypeLookupStatus.Missing {
+                return resolution
+            }
+            importIndex = importIndex + 1
+        }
+
+        return new ExternalAssemblyTypeResolution(ExternalAssemblyTypeLookupStatus.Missing, "", typeof(object), false)
+    }
+
     static func ResolveOwner(scan: ExternalAssemblyScanResult, facts: ColumnarSourceBindingFacts, ownerName: string): ExternalAssemblyTypeResolution {
         if ownerName.Contains(".") {
             resolution := ExternalAssemblyScan.FindExactOrNestedType(scan, ownerName)
@@ -241,6 +285,10 @@ class ColumnarBindingScopeFacts {
     activeDeclaredNames: HashSet<string>
     activeDeclaredTypeNames: HashSet<string>
     activeTypeAliasTargets: Dictionary<string, string>
+    // `import System.IO as Io` -> `Io` : `System.IO`. A namespace alias is a QUALIFICATION rather
+    // than a binding, so an owner spelled through one expands to the aliased namespace before any
+    // owner lookup runs — the same expansion the type-name resolution above already performs.
+    activeNamespaceAliasTargets: Dictionary<string, string>
     hasActiveUnresolvedFileImport: bool
     activeNamespaceName: string
     assemblyCatalog: ColumnarExternalTypeCatalog
@@ -271,6 +319,7 @@ class ColumnarBindingScopeFacts {
         activeDeclaredNames = new HashSet<string>(StringComparer.Ordinal)
         activeDeclaredTypeNames = new HashSet<string>(StringComparer.Ordinal)
         activeTypeAliasTargets = new Dictionary<string, string>(StringComparer.Ordinal)
+        activeNamespaceAliasTargets = new Dictionary<string, string>(StringComparer.Ordinal)
         hasActiveUnresolvedFileImport = false
         activeNamespaceName = ""
         assemblyCatalog = new ColumnarExternalTypeCatalog()
@@ -433,6 +482,7 @@ class ColumnarBindingScopeFacts {
             view.activeDeclaredNames = fileFacts.DeclaredNames
             view.activeDeclaredTypeNames = fileFacts.DeclaredTypeBaseNames
             view.activeTypeAliasTargets = fileFacts.TypeAliasTargets
+            view.activeNamespaceAliasTargets = fileFacts.NamespaceAliasTargets
             view.hasActiveUnresolvedFileImport = fileFacts.HasUnresolvedFileImport
             view.activeNamespaceName = fileFacts.NamespaceName
             view.assemblyCatalog = assemblyCatalog
@@ -691,13 +741,15 @@ class ColumnarBindingScopeFacts {
         }
 
         uniqueClaimed := false
-        if TrySelectUniqueExportedSourceDeclarationName(canonical, activeAliases, depth + 1, out exactName, out uniqueClaimed) {
-            claimed = true
-            return true
-        }
-        if uniqueClaimed {
-            claimed = true
-            return false
+        if !HasImportedExternalTypeAtFile(sourceFileId, canonical) {
+            if TrySelectUniqueExportedSourceDeclarationName(canonical, activeAliases, depth + 1, out exactName, out uniqueClaimed) {
+                claimed = true
+                return true
+            }
+            if uniqueClaimed {
+                claimed = true
+                return false
+            }
         }
         if facts.AliasNames.Contains(canonical) {
             claimed = true
@@ -1099,16 +1151,18 @@ class ColumnarBindingScopeFacts {
 
         uniqueSourceName := ""
         uniqueSourceClaimed := false
-        if TryFindUniqueExportedSourceName(canonical, out uniqueSourceName, out uniqueSourceClaimed) {
-            claimed = true
-            if TryResolveExactSourceBinding(uniqueSourceName, true, bindings, activeAliases, depth + 1, out result, out sourceClaimed) {
-                return true
+        if !HasImportedExternalTypeAtFile(sourceFileId, canonical) {
+            if TryFindUniqueExportedSourceName(canonical, out uniqueSourceName, out uniqueSourceClaimed) {
+                claimed = true
+                if TryResolveExactSourceBinding(uniqueSourceName, true, bindings, activeAliases, depth + 1, out result, out sourceClaimed) {
+                    return true
+                }
+                return false
             }
-            return false
-        }
-        if uniqueSourceClaimed {
-            claimed = true
-            return false
+            if uniqueSourceClaimed {
+                claimed = true
+                return false
+            }
         }
 
         // An alias root is a namespace/file owner, not a constructible type by itself.
@@ -1194,6 +1248,25 @@ class ColumnarBindingScopeFacts {
             return false
         }
         return TryResolveExplicitAliasTarget(aliasFileId, declarationName, aliasTarget, bindings, activeAliases, depth + 1, out result)
+    }
+
+    // AN EXPLICIT IMPORT IS NOT A LAST RESORT, AND THE UNIQUE-EXPORTED SOURCE FALLBACK IS. The
+    // fallback matches by UNQUALIFIED name across every exported source declaration in the program,
+    // whatever namespace it lives in and whether or not this file imported it — so without this
+    // guard a source `class Version` in an unrelated namespace claimed the name `Version` that
+    // `import System` brought in, and emission then declined rather than binding `System.Version`.
+    // The analyzer applies the same precedence (`AnalyzerProjectTypeDiscovery`), and the two must
+    // agree or a program passes analysis and fails to emit.
+    //
+    // Only a BARE simple spelling can be claimed by the fallback, so nothing dotted or constructed
+    // is asked about.
+    func HasImportedExternalTypeAtFile(sourceFileId: int, canonical: string): bool {
+        if canonical == null || canonical.Length == 0 || canonical.Contains(".") || canonical.Contains("<") {
+            return false
+        }
+
+        resolution := new ExternalAssemblyTypeResolution(ExternalAssemblyTypeLookupStatus.Unknown, "", typeof(object), false)
+        return assemblyCatalog.IsPrepared && assemblyCatalog.TryGetImported(sourceFileId, canonical, out resolution) && resolution.Status == ExternalAssemblyTypeLookupStatus.Found && resolution.HasRuntimeType
     }
 
     func TryResolveExactExternalAtFile(sourceFileId: int, canonical: string, out result: Type): bool {
@@ -1323,6 +1396,15 @@ class ColumnarBindingScopeFacts {
         return hasActiveFileFacts && name != null && name.Length > 0 && activeImportAliasNames.Contains(name)
     }
 
+    // A FILE-import alias root, which is what the call planners' alias gates always meant. The alias
+    // table above holds BOTH kinds — `import "./x.nl" as A` and `import System.IO as Io` — and only
+    // the first is a semantic owner form. A namespace alias is a QUALIFICATION: `Io.Path` names the
+    // type `System.IO.Path`, so deferring the whole subtree for it refused an owner that resolves
+    // perfectly well once the root is expanded.
+    func IsFileImportAliasRoot(name: string): bool {
+        return IsImportAliasRoot(name) && !activeNamespaceAliasTargets.ContainsKey(name)
+    }
+
     // A direct type-alias owner (Alias.Run) can be resolved to its source/runtime target. Once
     // another member appears between the alias and the call (Alias.Shared.Run), the receiver is
     // a value-or-nested-type chain whose binding belongs to the composed-expression owner.
@@ -1447,10 +1529,47 @@ class ColumnarBindingScopeFacts {
             }
             return true
         }
-        if BlocksQualifiedSourceOwner(ownerName) || BlocksUnqualifiedRootCore(enclosingTypeName, visibleFunctionTypeParameterNames, rootName, false) {
+        aliasedOwnerName := ownerName
+        aliasedRootName := rootName
+        ExpandNamespaceAliasOwner(rootName, ownerName, out aliasedRootName, out aliasedOwnerName)
+        if BlocksQualifiedSourceOwner(aliasedOwnerName) || BlocksUnqualifiedRootCore(enclosingTypeName, visibleFunctionTypeParameterNames, aliasedRootName, false) {
             return false
         }
-        return TryResolveExternalType(ownerName, expectedDeclaringTypeIdentity, out expectedDeclaringType)
+        return TryResolveExternalType(aliasedOwnerName, expectedDeclaringTypeIdentity, out expectedDeclaringType)
+    }
+
+    // A NAMESPACE ALIAS IN OWNER POSITION. `import System.IO as Io` makes `Io.Path` name the type
+    // `System.IO.Path`, which is exactly what the Analyzer binds it to, so emission expands the root
+    // before it asks any owner table — the assembly catalog and the source-type index are both keyed
+    // by real namespaces and neither has ever heard of the alias.
+    //
+    // THE ROOT IS REPLACED TOO, and that is the point: every shadowing fence downstream tests the
+    // ROOT of the owner, and the alias name is in `activeImportAliasNames` (it holds file aliases and
+    // namespace aliases alike), so testing the unexpanded root refused every alias-qualified owner.
+    // The expanded root is the aliased namespace's own first segment, which is the name that can
+    // legitimately be shadowed.
+    //
+    // A BARE ALIAS IS NOT AN OWNER: `Io` alone names a namespace, not a type, so an owner equal to
+    // its own root is left untouched.
+    func ExpandNamespaceAliasOwner(rootName: string, ownerName: string, out expandedRootName: string, out expandedOwnerName: string) {
+        expandedRootName = rootName
+        expandedOwnerName = ownerName
+        if !hasActiveFileFacts || rootName == null || rootName.Length == 0 || ownerName == null || ownerName.Length == rootName.Length {
+            return
+        }
+
+        aliasTarget := ""
+        if !activeNamespaceAliasTargets.TryGetValue(rootName, out aliasTarget) || aliasTarget.Length == 0 {
+            return
+        }
+
+        expandedOwnerName = aliasTarget + ownerName.Substring(rootName.Length)
+        separator := aliasTarget.IndexOf(".", StringComparison.Ordinal)
+        if separator > 0 {
+            expandedRootName = aliasTarget.Substring(0, separator)
+        } else {
+            expandedRootName = aliasTarget
+        }
     }
 
     // Resolve a static source owner to the exact emitted type identity. A false result with
@@ -1476,6 +1595,22 @@ class ColumnarBindingScopeFacts {
             blocked = aliasBlocked
             return false
         }
+        aliasedSourceOwnerName := ownerName
+        aliasedSourceRootName := rootName
+        ExpandNamespaceAliasOwner(rootName, ownerName, out aliasedSourceRootName, out aliasedSourceOwnerName)
+        if aliasedSourceOwnerName != ownerName {
+            // The alias expanded, so this owner is a QUALIFIED name in the aliased namespace. A
+            // project type there is this tier's answer; anything else hands off to the external tier
+            // rather than going terminal, which is what a file-import alias below does.
+            if TryResolveQualifiedSourceTypeName(aliasedSourceOwnerName, out exactOwnerName) {
+                blocked = false
+                return true
+            }
+
+            blocked = BlocksQualifiedSourceOwner(aliasedSourceOwnerName)
+            return false
+        }
+
         if activeImportAliasNames.Contains(rootName) {
             return false
         }
@@ -1486,9 +1621,15 @@ class ColumnarBindingScopeFacts {
             if activeDeclaredNames.Contains(rootName) || activeImportedNames.Contains(rootName) {
                 return false
             }
-            // Namespace-qualified project source types are an Analyzer fence, not an expression
-            // binding: the namespace root remains undefined. Keep them terminal instead of
-            // fabricating source ownership or allowing runtime reinterpretation.
+            // A namespace-qualified project source type IS an owner: the Analyzer binds
+            // `MyApp.Models.Person.Create()` to the declared type, so emission resolves the same
+            // exact identity rather than leaving the namespace root undefined. The export rule is
+            // `TryResolveQualifiedSourceTypeName`'s: a type outside the active namespace must be
+            // exported. Anything the qualified spelling shadows but cannot resolve stays terminal.
+            if TryResolveQualifiedSourceTypeName(ownerName, out exactOwnerName) {
+                blocked = false
+                return true
+            }
             blocked = BlocksQualifiedSourceOwner(ownerName)
             return false
         }
@@ -1646,10 +1787,13 @@ class ColumnarBindingScopeFacts {
             }
             return true
         }
-        if BlocksQualifiedSourceOwner(ownerName) || BlocksUnqualifiedRootCore(enclosingTypeName, visibleFunctionTypeParameterNames, rootName, false) {
+        aliasedOwnerName := ownerName
+        aliasedRootName := rootName
+        ExpandNamespaceAliasOwner(rootName, ownerName, out aliasedRootName, out aliasedOwnerName)
+        if BlocksQualifiedSourceOwner(aliasedOwnerName) || BlocksUnqualifiedRootCore(enclosingTypeName, visibleFunctionTypeParameterNames, aliasedRootName, false) {
             return false
         }
-        return TryResolveExternalCanonical(ownerName, out ownerType)
+        return TryResolveExternalCanonical(aliasedOwnerName, out ownerType)
     }
 
     func BlocksQualifiedSourceOwner(ownerName: string): bool {

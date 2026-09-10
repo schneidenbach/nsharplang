@@ -8660,6 +8660,26 @@ sealed class ColumnarIlEmitter {
                 columnarResolvedType = dottedUserEnum.EnumType
                 return true
             }
+            // THE SAME STATIC READ, SPELLED WITH ITS NAMESPACE. `MyApp.Models.Person.Default` names one
+            // declaration and `Person.Default` names the same one, so the dotted receiver walks the same
+            // static field/property chain as the bare receiver below. Only the ROOT can be shadowed by a
+            // value binding — `models.Person.Default` is member lookup on a local named `models`.
+            let dottedStaticOwner: NSharpLang.Compiler.Columnar.ColumnarStructDef? = null
+            if (enumReceiverName != null && enumReceiverRoot != null && enumReceiverName.Length > enumReceiverRoot.Length && !_locals.ContainsKey(enumReceiverRoot) && !_liftedLocals.ContainsKey(enumReceiverRoot) && !_paramOrdinals.ContainsKey(enumReceiverRoot) && !_siblings.ContainsKey(enumReceiverRoot) && _typeResolutionStructs.TryGetValue(enumReceiverName, out dottedStaticOwner)) {
+                let dottedStaticFieldRead: System.Reflection.Emit.FieldBuilder? = null
+                if (ColumnarSourceMemberChainResolver.TryFindStaticFieldOnChain(dottedStaticOwner, ColumnarNodeTextFacts.Text(_nodes, _source, idx), out dottedStaticFieldRead)) {
+                    _il.Emit(OpCodes.Ldsfld, dottedStaticFieldRead)
+                    columnarResolvedType = dottedStaticFieldRead.get_FieldType()
+                    return true
+                }
+                let dottedStaticPropRead: NSharpLang.Compiler.Columnar.ColumnarPropertyDef? = null
+                if (ColumnarSourceMemberChainResolver.TryFindStaticPropertyOnChain(dottedStaticOwner, ColumnarNodeTextFacts.Text(_nodes, _source, idx), out dottedStaticPropRead)) {
+                    _il.Emit(OpCodes.Call, ColumnarSourceSelfInstantiation.Bind(dottedStaticPropRead.Getter))
+                    columnarResolvedType = dottedStaticPropRead.PropertyType
+                    return true
+                }
+                return false
+            }
             if (_nodes.Kind(memberAccessReceiver) == 6) {
                 receiverIdent := ColumnarNodeTextFacts.Text(_nodes, _source, memberAccessReceiver)
                 // A USER-DEFINED enum constant: the receiver names a registered enum TYPE (not shadowed by a
@@ -15745,6 +15765,30 @@ sealed class ColumnarIlEmitter {
         if (member == "Length" && TryGetPreflightExpressionType(receiver, out lengthReceiverType) && (ColumnarTypeEquivalenceFacts.IsSafeSzArrayType(lengthReceiverType) || lengthReceiverType == typeof(string) || lengthReceiverType == typeof(System.Text.StringBuilder) || ColumnarTypeOfPlanner.IsSupportedSpanLikeType(lengthReceiverType))) {
             columnarResolvedType = typeof(int)
             return true
+        }
+
+        let dottedReceiverName: string? = null
+        let dottedReceiverRoot: string? = null
+        if (TryGetDottedMemberAccessName(receiver, out dottedReceiverName, out dottedReceiverRoot) && dottedReceiverName.Length > dottedReceiverRoot.Length && !_locals.ContainsKey(dottedReceiverRoot) && !_liftedLocals.ContainsKey(dottedReceiverRoot) && !_paramOrdinals.ContainsKey(dottedReceiverRoot) && !_siblings.ContainsKey(dottedReceiverRoot)) {
+            // The namespace-qualified spelling of the static read the identifier arm below answers.
+            let dottedPreflightEnum: NSharpLang.Compiler.Columnar.ColumnarEnumDef? = null
+            if (_typeResolutionEnums.TryGetValue(dottedReceiverName, out dottedPreflightEnum) && ((dottedPreflightEnum.StringConstants != null && dottedPreflightEnum.StringConstants.ContainsKey(ColumnarNodeTextFacts.Text(_nodes, _source, node))) || dottedPreflightEnum.Constants.ContainsKey(ColumnarNodeTextFacts.Text(_nodes, _source, node)))) {
+                columnarResolvedType = dottedPreflightEnum.EnumType
+                return true
+            }
+            let dottedPreflightOwner: NSharpLang.Compiler.Columnar.ColumnarStructDef? = null
+            if (_typeResolutionStructs.TryGetValue(dottedReceiverName, out dottedPreflightOwner)) {
+                let dottedPreflightField: System.Reflection.Emit.FieldBuilder? = null
+                if (ColumnarSourceMemberChainResolver.TryFindStaticFieldOnChain(dottedPreflightOwner, ColumnarNodeTextFacts.Text(_nodes, _source, node), out dottedPreflightField)) {
+                    columnarResolvedType = dottedPreflightField.get_FieldType()
+                    return true
+                }
+                let dottedPreflightProperty: NSharpLang.Compiler.Columnar.ColumnarPropertyDef? = null
+                if (ColumnarSourceMemberChainResolver.TryFindStaticPropertyOnChain(dottedPreflightOwner, ColumnarNodeTextFacts.Text(_nodes, _source, node), out dottedPreflightProperty)) {
+                    columnarResolvedType = dottedPreflightProperty.PropertyType
+                    return true
+                }
+            }
         }
 
         if (_nodes.Kind(receiver) == 6) {

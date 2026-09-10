@@ -127,7 +127,8 @@ class Analyzer: IDisposable {
             ProjectSources,
             DeclarationContext,
             UsingNamespaces,
-            TypeDeclarationFiles
+            TypeDeclarationFiles,
+            ExternalTypeProbe
         )
         ClrTypeConversion = new AnalyzerClrTypeConversion(DeclarationContext, WellKnownTypes)
         AssignabilityFacts = new AnalyzerAssignabilityFacts(DeclarationContext, WellKnownTypes)
