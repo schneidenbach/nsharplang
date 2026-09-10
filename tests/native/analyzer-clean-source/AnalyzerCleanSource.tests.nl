@@ -22537,3 +22537,37 @@ test "NL309 coverage: MEASURED, NOT ENDORSED — an EXPRESSION-bodied lambda ins
     assert AcRow(rich, 0) == "ReadonlyAssignment|Field 'value' is readonly — it can only be assigned in a constructor|Move this assignment into a constructor, or remove `readonly` if the field needs to change later.|Error"
     assert AcCodeAnchor(rich, "ReadonlyAssignment") == "NL309@11:27+5"
 }
+
+// ── STREAM E1: A GENERIC DECLARATION'S OWN TYPE PARAMETERS IN CALL POSITIONS ─────────────────────
+//
+// Both rows below were REJECTIONS before this contract existed, and both rejections were false.
+//
+// `HashCode.Combine(state, ok)` passes an argument whose type is TOk -- a type parameter of the
+// ENCLOSING declaration, which converts to no CLR type at all, exactly or as a surrogate. The
+// reflection binder could only ask plain assignability about it, which an unbound METHOD type
+// parameter cannot answer, so the call reported NL402 "No overload of 'Combine' accepts 2 arguments
+// with these types: byte, TOk". C# binds the method's parameter to precisely that type.
+//
+// `obj is Outcome<TOk, TErr> other && Equals(other)` reported NL103 "Ambiguous call to 'Equals'".
+// The source ladder decided exact identity by reference or by CLR type, and a CONSTRUCTED source
+// generic has neither -- so `Equals(Outcome<TOk, TErr>)` and `Equals(object?)` scored the same and
+// tied. Exact identity is decided on the TypeInfo values now, so the self-typed overload wins.
+test "a generic declaration may pass its own type parameter to an inferred external generic method" {
+    source := "import System\n\nstruct Outcome<TOk, TErr> {\n    readonly ok: TOk\n    readonly err: TErr\n    readonly state: byte\n\n    constructor(ok: TOk, err: TErr, state: byte) {\n        this.ok = ok\n        this.err = err\n        this.state = state\n    }\n\n    public override func GetHashCode(): int {\n        return HashCode.Combine(state, ok)\n    }\n}\n"
+    assert AcParseCensus(source) == ""
+    assert AcParseSuccess(source) == "True"
+    analysis := AcAnalyze(source)
+    assert AcCensus(analysis) == ""
+    assert AcHasErrors(analysis) == "False"
+    assert AcErrorCount(analysis) == 0
+}
+
+test "a self-typed overload beats the object overload inside a generic declaration" {
+    source := "import System\n\nstruct Outcome<TOk, TErr> {\n    readonly ok: TOk\n    readonly err: TErr\n    readonly state: byte\n\n    constructor(ok: TOk, err: TErr, state: byte) {\n        this.ok = ok\n        this.err = err\n        this.state = state\n    }\n\n    public func Equals(other: Outcome<TOk, TErr>): bool {\n        return state == other.state\n    }\n\n    public override func Equals(obj: object?): bool {\n        return obj is Outcome<TOk, TErr> other && Equals(other)\n    }\n}\n"
+    assert AcParseCensus(source) == ""
+    assert AcParseSuccess(source) == "True"
+    analysis := AcAnalyze(source)
+    assert AcCensus(analysis) == ""
+    assert AcHasErrors(analysis) == "False"
+    assert AcErrorCount(analysis) == 0
+}
