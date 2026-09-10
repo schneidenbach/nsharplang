@@ -7995,6 +7995,9 @@ sealed class ColumnarIlEmitter {
                 columnarResolvedType = sourceUnarySelection.ReturnType
                 return true
             }
+            if (TryEmitRuntimeUserDefinedUnary(ColumnarNodeTextFacts.Text(_nodes, _source, idx), operandType, out columnarResolvedType)) {
+                return true
+            }
             columnarSwitchValue3 := ColumnarNodeTextFacts.Text(_nodes, _source, idx)
             if columnarSwitchValue3 == "-" {
                 // negate — Neg works on i4/i8/r8/r4; result is the operand's numeric type. N# forbids ulong.
@@ -8167,6 +8170,9 @@ sealed class ColumnarIlEmitter {
             }
 
             if (TryEmitMixedNumericBinary(idx, op, out columnarResolvedType)) {
+                return true
+            }
+            if (TryEmitRuntimeUserDefinedBinary(idx, op, out columnarResolvedType)) {
                 return true
             }
 
@@ -13289,6 +13295,69 @@ sealed class ColumnarIlEmitter {
             return true
         }
         return false
+    }
+
+    // A USER-DEFINED OPERATOR DECLARED BY AN EXTERNAL TYPE (`Vector<int> + Vector<int>`,
+    // `~mask & values`, `DateTime - DateTime`, `decimal * decimal`). The operand types are read by
+    // PREFLIGHT before anything is emitted, exactly as the mixed-numeric arm does, because the selected
+    // `op_*` decides what each operand must be converted to and a value already on the stack cannot be
+    // reached again. Both operands being IL primitives is the predefined surface's business and is
+    // refused here, so the ordinary `add`/`ceq` lowering below is untouched.
+    private func TryEmitRuntimeUserDefinedBinary(idx: int, op: string, out resolvedClrType: Type): bool {
+        resolvedClrType = null
+        if (_nodes.ChildCount(idx) != 2) {
+            return false
+        }
+        leftNode := Child(idx, 0)
+        rightNode := Child(idx, 1)
+        leftType: System.Type? = null
+        rightType: System.Type? = null
+        if (!TryGetPreflightExpressionType(leftNode, out leftType) || !TryGetPreflightExpressionType(rightNode, out rightType)) {
+            return false
+        }
+        if (ColumnarRuntimeOperatorResolver.IsIlPrimitiveOperandType(leftType) && ColumnarRuntimeOperatorResolver.IsIlPrimitiveOperandType(rightType)) {
+            return false
+        }
+
+        selection := ColumnarRuntimeOperatorResolver.ResolveBinary(op, leftType, rightType)
+        if (!selection.IsSelected || selection.Method == null) {
+            return false
+        }
+        parameterTypes := selection.ParameterTypes
+        emittedLeft: System.Type? = null
+        if (!EmitExpression(leftNode, out emittedLeft) || (!TypesEquivalent(emittedLeft, parameterTypes[0]) && !TryEmitImplicitWidening(emittedLeft, parameterTypes[0]))) {
+            return false
+        }
+        emittedRight: System.Type? = null
+        if (!EmitExpression(rightNode, out emittedRight) || (!TypesEquivalent(emittedRight, parameterTypes[1]) && !TryEmitImplicitWidening(emittedRight, parameterTypes[1]))) {
+            return false
+        }
+
+        _il.Emit(OpCodes.Call, selection.Method)
+        resolvedClrType = selection.ReturnType
+        return true
+    }
+
+    // The unary twin. The operand is already on the stack here -- there is only one, so a widening
+    // conversion can still be applied to it after the fact.
+    private func TryEmitRuntimeUserDefinedUnary(op: string, operandType: Type, out resolvedClrType: Type): bool {
+        resolvedClrType = null
+        if (ColumnarRuntimeOperatorResolver.IsIlPrimitiveOperandType(operandType)) {
+            return false
+        }
+
+        selection := ColumnarRuntimeOperatorResolver.ResolveUnary(op, operandType)
+        if (!selection.IsSelected || selection.Method == null) {
+            return false
+        }
+        parameterType := selection.ParameterTypes[0]
+        if (!TypesEquivalent(operandType, parameterType) && !TryEmitImplicitWidening(operandType, parameterType)) {
+            return false
+        }
+
+        _il.Emit(OpCodes.Call, selection.Method)
+        resolvedClrType = selection.ReturnType
+        return true
     }
 
     private func TryEmitMixedNumericBinary(idx: int, op: string, out resolvedClrType: Type): bool {
