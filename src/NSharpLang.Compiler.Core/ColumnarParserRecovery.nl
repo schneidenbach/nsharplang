@@ -952,7 +952,7 @@ class ColumnarParserRecovery {
         // Modifiers value Parser.cs :215 hangs on the declaration node.
         attributes := ParseAttributes()
         attrsOk := AttributesMaterializable
-        modifiers := ParseModifiers()
+        modifiers := ParseTypeDeclarationModifiers()
 
         if Check(TokenType.Func) {
             ParseFunctionName(modifiers, attributes, attrsOk)
@@ -1083,6 +1083,104 @@ class ColumnarParserRecovery {
             return System.Convert.ToInt32(Modifiers.File)
         }
         return 0
+    }
+
+    // `readonly struct S { … }` — the TYPE-level `readonly` modifier. `ParseModifiers` deliberately does
+    // not recognize `readonly` (a member-level `readonly X: int` needs the token left in place for
+    // `ParseFieldDeclaration`'s property-modifier loop), so the type-level spelling is taken here and only
+    // here: when `readonly` is followed — across any remaining modifier words, and across the `ref` of
+    // `readonly ref struct` — by a type-declaration keyword. Modifier ORDER is free, exactly as it is in C#,
+    // so `public readonly struct` and `readonly public struct` fold to the same `Modifiers` value.
+    //
+    // C# accepts the word on a struct only (`readonly struct`, `readonly ref struct`,
+    // `readonly record struct`) and answers CS0106 everywhere else. N# answers NL311 on the WORD, then keeps
+    // parsing the declaration as though it had not been written, so the rest of the type still reports its
+    // own faults instead of vanishing behind a syntax cascade.
+    func ParseTypeDeclarationModifiers(): Modifiers {
+        modifiers := ParseModifiers()
+        if !IsTypeLevelReadonlyModifierAhead() {
+            return modifiers
+        }
+
+        readonlyToken := Current()
+        Advance()
+        trailing := ParseModifiers()
+        value := System.Convert.ToInt32(modifiers) | System.Convert.ToInt32(trailing)
+        if IsReadonlyEligibleDeclarationStart() {
+            value = value | System.Convert.ToInt32(Modifiers.Readonly)
+        } else {
+            ReportReadonlyModifierNotOnStruct(readonlyToken)
+        }
+        return (Modifiers)value
+    }
+
+    // `readonly` is the type-level modifier only when a type-declaration keyword follows it. Everything in
+    // between is a modifier word (`readonly public struct`) or the `ref` of `readonly ref struct`; a
+    // `readonly X: int` field stops the scan at the identifier and keeps its token.
+    func IsTypeLevelReadonlyModifierAhead(): bool {
+        if !Check(TokenType.Readonly) {
+            return false
+        }
+
+        ahead := 1
+        while Position + ahead < Tokens.Count && (ParserTokenFacts.IsModifierKeyword(Tokens[Position + ahead].Type) || Tokens[Position + ahead].Type == TokenType.Ref) {
+            ahead = ahead + 1
+        }
+        if Position + ahead >= Tokens.Count {
+            return false
+        }
+        if ParserTokenFacts.IsTypeDeclarationKeyword(Tokens[Position + ahead].Type) {
+            return true
+        }
+        return IsSoaRecordDeclarationStartAtOffset(ahead)
+    }
+
+    // The three struct spellings the word is legal on, tested at the declaration keyword itself (every
+    // modifier word has already been consumed): `struct S`, `ref struct S`, `record struct S`.
+    func IsReadonlyEligibleDeclarationStart(): bool {
+        if Check(TokenType.Struct) {
+            return true
+        }
+        if Check(TokenType.Ref) && LookAhead(1).Type == TokenType.Struct {
+            return true
+        }
+        return Check(TokenType.Record) && LookAhead(1).Type == TokenType.Struct
+    }
+
+    // The squiggle goes on `readonly` itself, not on the type name: the word is the thing that has to go.
+    func ReportReadonlyModifierNotOnStruct(readonlyToken: Token) {
+        suggestions := new List<string>()
+        suggestions.Add("Remove 'readonly' from this declaration")
+        suggestions.Add("Or make the type a struct: 'readonly struct " + ReadonlyModifierOwnerName() + " { … }'")
+        Report(ErrorCode.InvalidModifier, "'readonly' applies only to structs, but this declares a " + ReadonlyModifierOwnerKeyword(), readonlyToken.Line, readonlyToken.Column, "A 'readonly' type promises that none of its instance state can change after construction. Only a struct — 'readonly struct', 'readonly ref struct' or 'readonly record struct' — can make that promise; a " + ReadonlyModifierOwnerKeyword() + " cannot.", "Mark the individual members 'readonly' instead, or declare the type as a struct.", suggestions, readonlyToken.Value.Length)
+    }
+
+    // The declaration keyword the misplaced `readonly` was written in front of, for the message.
+    func ReadonlyModifierOwnerKeyword(): string {
+        if IsSoaRecordDeclarationStart() {
+            return "soa record"
+        }
+        if Check(TokenType.Duck) && LookAhead(1).Type == TokenType.Interface {
+            return "duck interface"
+        }
+        if Check(TokenType.Type) {
+            return "type alias"
+        }
+        return Current().Value
+    }
+
+    // The declaration's own name, when it is already visible, so the suggestion reads like the code the
+    // developer is looking at. A malformed head falls back to a placeholder rather than guessing.
+    func ReadonlyModifierOwnerName(): string {
+        offset := 1
+        if IsSoaRecordDeclarationStart() || (Check(TokenType.Duck) && LookAhead(1).Type == TokenType.Interface) {
+            offset = 2
+        }
+        candidate := LookAhead(offset)
+        if candidate.Type == TokenType.Identifier {
+            return candidate.Value
+        }
+        return "S"
     }
 
     func IsSoaRecordDeclarationStart(): bool {
@@ -1887,7 +1985,7 @@ class ColumnarParserRecovery {
         // captured modifiers + attributes into a nested type declaration (same as the top-level dispatch).
         attributes := ParseAttributes()
         attrsOk := AttributesMaterializable
-        modifiers := ParseModifiers()
+        modifiers := ParseTypeDeclarationModifiers()
 
         // Nested type declarations (Parser.cs :1428-1460), in the same dispatch order.
         if Check(TokenType.Class) {

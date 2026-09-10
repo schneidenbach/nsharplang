@@ -7191,9 +7191,13 @@ func ColumnarEnumDeclarationIndicesCore(tokens: ParserDeclarationKindStream, cou
 }
 
 // The declaration table already carries the source type's modifier word alongside its index. Keep
-// the visibility bits consumed by nested-type planning and the explicit `sealed` bit consumed by
-// reference-type planning. Other member modifiers have their own columns and must not leak into
-// this metadata word.
+// the visibility bits consumed by nested-type planning, the explicit `sealed` bit consumed by
+// reference-type planning, and the `readonly` bit consumed by readonly-struct attribute planning.
+// Other member modifiers have their own columns and must not leak into this metadata word.
+//
+// `readonly` reaches this word through `ParserDeclarationMemberModifierFlag`, not `ModifierFlag`:
+// the latter answers the parser's own modifier table, which deliberately has no `readonly` row
+// because a member-level `readonly X: int` is carried by the field columns instead.
 func ColumnarStructDeclarationMetadataModifierFlagsAt(tokenKinds: int[], declarationIndex: int): int {
     if declarationIndex < 0 || declarationIndex >= tokenKinds.Length {
         return 0
@@ -7207,8 +7211,8 @@ func ColumnarStructDeclarationMetadataModifierFlagsAt(tokenKinds: int[], declara
 
     flags := 0
     while modifierIndex >= 0 && ParserDeclarationMemberModifierKind(tokenKinds[modifierIndex]) != 0 {
-        modifierFlag := ModifierFlag(tokenKinds[modifierIndex])
-        if modifierFlag == 1 || modifierFlag == 2 || modifierFlag == 4 || modifierFlag == 8 || modifierFlag == 128 || modifierFlag == 32768 {
+        modifierFlag := ParserDeclarationMemberModifierFlag(tokenKinds[modifierIndex])
+        if modifierFlag == 1 || modifierFlag == 2 || modifierFlag == 4 || modifierFlag == 8 || modifierFlag == 128 || modifierFlag == 512 || modifierFlag == 32768 {
             flags = flags | modifierFlag
         }
         modifierIndex = modifierIndex - 1
