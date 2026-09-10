@@ -189,3 +189,15 @@ is under review; do not restart that port. Luna Max agents are reconstructing th
 resolver correction and verifying FixCommand assertions. Private build evidence now goes under
 /Users/spencer/repos/nsharp-worktrees/evidence. Historical test counts above remain historical
 evidence, not fresh recovery/build verification. Shared main checkout and SDK cache remain untouched.
+
+Recovery verification: the recovered private stage-0 SDK rebuilt current compiler-core successfully
+(0 warnings/errors; evidence/recovered-core-build-r3.log), and default dev.sh --build-only plus
+all 123 native CLI contracts pass (evidence/recovered-cli-build-r1.log and
+evidence/recovered-cli-contracts-r1.log). These are persistent paths beneath the evidence directory
+above. The current candidate still fails normal Playground project build while rebuilding Core
+on ITaskItem[]; its self-hosting correction remains mandatory before publication.
+
+A source audit found 12 remaining CheckCommand assertion methods in tests/CliCommandTests.cs and
+Check/Fix coverage in tests/CompilationBackendTests.cs. Their canonical N# migration is now a third
+Luna Max lane at /Users/spencer/repos/nsharp-worktrees/check-assertions
+(codex/check-remaining-assertions). Dedicated-test-file deletion alone is not owner completion.
