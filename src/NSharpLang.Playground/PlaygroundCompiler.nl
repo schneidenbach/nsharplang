@@ -181,14 +181,14 @@ sealed class PlaygroundCompiler {
         for playgroundFile in files {
             totalLength = totalLength + playgroundFile.Code.Length
         }
-        if totalLength > MaxProjectSourceLength {
-            diagnostics.Add(new PlaygroundDiagnostic("PG001", "error", "Playground source is too large. Maximum project size is " + MaxProjectSourceLength.ToString() + " characters.", files[0].Name, 1, 1, 1, null, "The hosted playground keeps analysis bounded so it can run reliably in the browser.", "Reduce the sample or use the local nlc toolchain for larger programs.", null))
+        if totalLength > PlaygroundCompiler.MaxProjectSourceLength {
+            diagnostics.Add(new PlaygroundDiagnostic("PG001", "error", "Playground source is too large. Maximum project size is " + PlaygroundCompiler.MaxProjectSourceLength.ToString() + " characters.", files[0].Name, 1, 1, 1, null, "The hosted playground keeps analysis bounded so it can run reliably in the browser.", "Reduce the sample or use the local nlc toolchain for larger programs.", null))
             return new ProjectAnalysis(null, diagnostics)
         }
 
         for playgroundFile in files {
-            if playgroundFile.Code.Length > MaxSourceLength {
-                diagnostics.Add(new PlaygroundDiagnostic("PG001", "error", "Playground file '" + playgroundFile.Name + "' is too large. Maximum file size is " + MaxSourceLength.ToString() + " characters.", playgroundFile.Name, 1, 1, 1, null, "The hosted playground keeps per-file analysis bounded so it can run reliably in the browser.", "Reduce the sample or use the local nlc toolchain for larger programs.", null))
+            if playgroundFile.Code.Length > PlaygroundCompiler.MaxSourceLength {
+                diagnostics.Add(new PlaygroundDiagnostic("PG001", "error", "Playground file '" + playgroundFile.Name + "' is too large. Maximum file size is " + PlaygroundCompiler.MaxSourceLength.ToString() + " characters.", playgroundFile.Name, 1, 1, 1, null, "The hosted playground keeps per-file analysis bounded so it can run reliably in the browser.", "Reduce the sample or use the local nlc toolchain for larger programs.", null))
             }
         }
         if diagnostics.Count > 0 {
@@ -261,14 +261,14 @@ sealed class PlaygroundCompiler {
     }
 
     private static func BuildCheckResponse(fileName: string, diagnostics: IReadOnlyList<PlaygroundDiagnostic>): PlaygroundCheckResponse {
-        schemaVersion := SchemaVersion
+        schemaVersion := PlaygroundCompiler.SchemaVersion
         deduplicated := Deduplicate(diagnostics)
         summary := Summarize(deduplicated)
         return new PlaygroundCheckResponse(schemaVersion, summary.Errors == 0, fileName, deduplicated, summary)
     }
 
     private static func BuildFailedRunResponse(fileName: string, diagnostics: IReadOnlyList<PlaygroundDiagnostic>, stderr: string, unsupportedReason: string?): PlaygroundRunResponse {
-        schemaVersion := SchemaVersion
+        schemaVersion := PlaygroundCompiler.SchemaVersion
         return new PlaygroundRunResponse(schemaVersion, false, fileName, 2, string.Empty, stderr, unsupportedReason, diagnostics, Summarize(diagnostics))
     }
 
@@ -299,7 +299,7 @@ sealed class PlaygroundCompiler {
         } else if diagnostic.Severity == DiagnosticSeverity.Warning {
             severity = "warning"
         }
-        fileName := DefaultFileName
+        fileName := PlaygroundCompiler.DefaultFileName
         if diagnostic.Location.FilePath != null {
             fileName = NormalizeFileName(diagnostic.Location.FilePath)
         }
@@ -401,7 +401,7 @@ sealed class PlaygroundCompiler {
             }
         }
         if deduplicated.Count == 0 {
-            deduplicated.Add(new PlaygroundFile(DefaultFileName, string.Empty))
+            deduplicated.Add(new PlaygroundFile(PlaygroundCompiler.DefaultFileName, string.Empty))
         }
         return deduplicated
     }
@@ -440,17 +440,17 @@ sealed class PlaygroundCompiler {
 
     private static func NormalizeFileName(fileName: string?): string {
         if string.IsNullOrWhiteSpace(fileName) {
-            return DefaultFileName
+            return PlaygroundCompiler.DefaultFileName
         }
         value := fileName ?? ""
         normalized := value.Replace('\\', '/')
         pieces := normalized.Split('/', StringSplitOptions.RemoveEmptyEntries)
         if pieces.Length == 0 {
-            return DefaultFileName
+            return PlaygroundCompiler.DefaultFileName
         }
         candidate := pieces[pieces.Length - 1]
         if string.IsNullOrWhiteSpace(candidate) {
-            return DefaultFileName
+            return PlaygroundCompiler.DefaultFileName
         }
         if candidate.EndsWith(".nl", StringComparison.OrdinalIgnoreCase) || candidate.EndsWith(".nsharp", StringComparison.OrdinalIgnoreCase) {
             return candidate
