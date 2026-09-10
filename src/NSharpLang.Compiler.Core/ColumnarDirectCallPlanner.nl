@@ -914,6 +914,15 @@ class ColumnarDirectCallPlanner {
                                 ownership = ColumnarDirectCallOwnership.Planned
                                 return true
                             }
+
+                            // An EXCLUDED static shape on the constructed owner — a generic method,
+                            // a params/by-ref/varargs declaration — has no fixed handle this planner
+                            // can bind, exactly as on a non-constructed source owner. Leave the whole
+                            // subtree to the owner that closes it rather than claiming and rejecting.
+                            if HasExcludedStaticOwnerAtArity(constructedSourceOwner, memberName, argumentTypes.Length) {
+                                ownership = ColumnarDirectCallOwnership.NotOwned
+                                legacyWholeSubtreePlanning = true
+                            }
                         }
                     }
                 }
@@ -1148,7 +1157,6 @@ class ColumnarDirectCallPlanner {
                     ownership = ColumnarDirectCallOwnership.NotOwned
                     legacyWholeSubtreePlanning = true
                 }
-
                 plan.Rollback(checkpoint)
                 return false
             }

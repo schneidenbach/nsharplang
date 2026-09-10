@@ -1775,13 +1775,14 @@ sealed class ColumnarIlEmitter {
 
         effectiveParamTypes := declaredParamTypes
         effectiveReturnType := declaredReturnType
-        if (ownerTypeArguments != null) {
+        if (constructedOwner != null && ownerTypeArguments != null) {
+            ownerParameters := constructedOwner.GetGenericTypeDefinition().GetGenericArguments()
             substitutedParamTypes := new Type[declaredParamTypes.Length]
             for p := 0; p < declaredParamTypes.Length; p++ {
-                substitutedParamTypes[p] = ColumnarRuntimeInstanceMemberResolver.SubstituteClosedTypeArguments(declaredParamTypes[p], ownerTypeArguments)
+                substitutedParamTypes[p] = SubstituteOwnerTypeArguments(declaredParamTypes[p], ownerParameters, ownerTypeArguments)
             }
             effectiveParamTypes = substitutedParamTypes
-            effectiveReturnType = ColumnarRuntimeInstanceMemberResolver.SubstituteClosedTypeArguments(declaredReturnType, ownerTypeArguments)
+            effectiveReturnType = SubstituteOwnerTypeArguments(declaredReturnType, ownerParameters, ownerTypeArguments)
         }
 
         for a := 1; a <= argCount; a++ {
@@ -1833,6 +1834,77 @@ sealed class ColumnarIlEmitter {
         return ColumnarGenericCallBindingPlanner.TrySubstituteReturnType(generics.TypeParams, binding, effectiveReturnType, out columnarResolvedType)
     }
 
+    // Substitute the OWNER's type arguments into a declared shape while leaving the METHOD's own
+    // type parameters OPEN. Ownership is decided by exact identity against the owner definition's
+    // parameters rather than by POSITION: a method parameter and a type parameter share positions,
+    // and an unbaked `GenericTypeParameterBuilder` does not reliably report its declaring method, so
+    // a positional rule silently closes `Same<TOther>(other: TOther)` over the receiver's argument.
+    private static func SubstituteOwnerTypeArguments(signatureType: Type, ownerParameters: Type[], ownerArguments: Type[]): Type {
+        if (signatureType.get_IsGenericParameter()) {
+            for ownerIndex := 0; ownerIndex < ownerParameters.Length && ownerIndex < ownerArguments.Length; ownerIndex++ {
+                if (Object.ReferenceEquals(ownerParameters[ownerIndex], signatureType)) {
+                    return ownerArguments[ownerIndex]
+                }
+            }
+            return signatureType
+        }
+        if (signatureType.get_IsByRef()) {
+            byRefElement := signatureType.GetElementType()
+            if (byRefElement == null) {
+                return signatureType
+            }
+            return SubstituteOwnerTypeArguments(byRefElement, ownerParameters, ownerArguments).MakeByRefType()
+        }
+        if (ColumnarTypeEquivalenceFacts.IsSafeSzArrayType(signatureType)) {
+            elementType := signatureType.GetElementType()
+            if (elementType == null) {
+                return signatureType
+            }
+            return SubstituteOwnerTypeArguments(elementType, ownerParameters, ownerArguments).MakeArrayType()
+        }
+        if (signatureType.get_IsGenericType() && !signatureType.get_IsGenericTypeDefinition()) {
+            arguments := signatureType.GetGenericArguments()
+            substitutedArguments := new Type[arguments.Length]
+            changed := false
+            for argumentIndex := 0; argumentIndex < arguments.Length; argumentIndex++ {
+                substitutedArguments[argumentIndex] = SubstituteOwnerTypeArguments(arguments[argumentIndex], ownerParameters, ownerArguments)
+                if (!Object.ReferenceEquals(substitutedArguments[argumentIndex], arguments[argumentIndex])) {
+                    changed = true
+                }
+            }
+            if (!changed) {
+                return signatureType
+            }
+            return signatureType.GetGenericTypeDefinition().MakeGenericType(substitutedArguments)
+        }
+        return signatureType
+    }
+
+    // The canonical spelling of a CONSTRUCTED GENERIC TYPE receiver node (`Box<int>` before a `.`):
+    // its head name in the value span, its type arguments as TYPE-kernel children.
+    private func TryResolveGenericTypeReceiverCanonical(receiver: int, out canonical: string): bool {
+        canonical = null
+        if (_nodes.Kind(receiver) != 70 || _nodes.ChildCount(receiver) <= 0) {
+            return false
+        }
+        spelling := new StringBuilder()
+        spelling.Append(ColumnarNodeTextFacts.Text(_nodes, _source, receiver))
+        spelling.Append("<")
+        for typeArgumentIndex := 0; typeArgumentIndex < _nodes.ChildCount(receiver); typeArgumentIndex++ {
+            if (typeArgumentIndex > 0) {
+                spelling.Append(",")
+            }
+            let typeArgumentCanonical: string? = null
+            if (!TryBuildTypeNodeCanonical(Child(receiver, typeArgumentIndex), out typeArgumentCanonical)) {
+                return false
+            }
+            spelling.Append(typeArgumentCanonical)
+        }
+        spelling.Append(">")
+        canonical = spelling.ToString()
+        return true
+    }
+
     // The written type arguments of an explicit generic callee, resolved in the body's own scope.
     private func TryResolveWrittenTypeArguments(callee: int, expectedCount: int, out binding: Type[]): bool {
         binding = null
@@ -1877,20 +1949,31 @@ sealed class ColumnarIlEmitter {
         return TryEmitGenericSourceMethodCall(callIdx, generics, method.Builder, method.ParamTypes, method.ReturnType, binding, constructedOwner, ownerArguments, callOpcode, out columnarResolvedType)
     }
 
-    // A generic STATIC method on a source type, called with no receiver.
+    // A generic STATIC method on a source type, called with no receiver. A GENERIC owner has no
+    // callable static slot until the owner itself is constructed: from inside the declaring type the
+    // instantiation is the type's own (`Box<T>` in `Box<T>`'s own code), and from outside the call
+    // site must have written one (`Box<int>.Of(4)`), which the caller resolves and passes here.
     private func TryEmitSourceStaticGenericCall(callIdx: int, owner: ColumnarStructDef, method: ColumnarStaticMethodDef, binding: Type[], out columnarResolvedType: Type): bool {
+        columnarResolvedType = null
+        ownerBuilder := owner.Builder
+        selfOwner := ColumnarSourceSelfInstantiation.Of(ownerBuilder)
+        if (!Object.ReferenceEquals(selfOwner, ownerBuilder)) {
+            // The owner is generic and the site named it bare. Only the declaring type's own code
+            // can do that; anywhere else there is no instantiation to call on.
+            if (_enclosingType == null || !Object.ReferenceEquals(_enclosingType.Builder, ownerBuilder)) {
+                return false
+            }
+        }
+        return TryEmitSourceStaticGenericCallOn(callIdx, method, binding, null, null, out columnarResolvedType)
+    }
+
+    private func TryEmitSourceStaticGenericCallOn(callIdx: int, method: ColumnarStaticMethodDef, binding: Type[], constructedOwner: Type?, ownerTypeArguments: Type[]?, out columnarResolvedType: Type): bool {
         columnarResolvedType = null
         generics := method.Generics
         if (generics == null) {
             return false
         }
-        ownerBuilder := owner.Builder
-        selfOwner := ColumnarSourceSelfInstantiation.Of(ownerBuilder)
-        let constructedOwner: System.Type? = null
-        if (!Object.ReferenceEquals(selfOwner, ownerBuilder)) {
-            constructedOwner = selfOwner
-        }
-        return TryEmitGenericSourceMethodCall(callIdx, generics, method.Builder, method.ParamTypes, method.ReturnType, binding, constructedOwner, null, OpCodes.Call, out columnarResolvedType)
+        return TryEmitGenericSourceMethodCall(callIdx, generics, method.Builder, method.ParamTypes, method.ReturnType, binding, constructedOwner, ownerTypeArguments, OpCodes.Call, out columnarResolvedType)
     }
 
     // The declared type of a lexical value binding, WITHOUT emitting anything. A dotted explicit
@@ -2016,9 +2099,22 @@ sealed class ColumnarIlEmitter {
             return TryEmitGenericSourceMethodCall(callIdx, instanceGenerics, instanceMethod.Builder, instanceMethod.ParamTypes, instanceMethod.ReturnType, instanceBinding, constructedOwner, receiverArguments, instanceCallOpcode, out columnarResolvedType)
         }
 
+        // A CONSTRUCTED owner (`Box<int>.Of<int>(4)`) resolves to the closed type first, so the call
+        // is rebound onto that instantiation; a bare owner name goes through the enclosing-type rule.
+        let constructedStaticOwner: System.Type? = null
+        let constructedStaticArguments: System.Type[]? = null
         let staticOwner: NSharpLang.Compiler.Columnar.ColumnarStructDef? = null
-        if (!_typeResolutionStructs.TryGetValue(receiverText, out staticOwner)) {
-            return false
+        let writtenOwnerType: System.Type? = null
+        let writtenOwnerDef: NSharpLang.Compiler.Columnar.ColumnarStructDef? = null
+        let writtenOwnerArguments: System.Type[]? = null
+        if (TryResolveBodyType(receiverText, out writtenOwnerType) && TryGetClosedReceiverDef(writtenOwnerType, out writtenOwnerDef, out writtenOwnerArguments)) {
+            staticOwner = writtenOwnerDef
+            constructedStaticOwner = writtenOwnerType
+            constructedStaticArguments = writtenOwnerArguments
+        } else {
+            if (!_typeResolutionStructs.TryGetValue(receiverText, out staticOwner)) {
+                return false
+            }
         }
         let staticMethod: NSharpLang.Compiler.Columnar.ColumnarStaticMethodDef? = null
         if (!TryFindGenericStaticMethodOnChain(staticOwner, memberName, argCount, typeArgCount, out staticMethod)) {
@@ -2027,6 +2123,9 @@ sealed class ColumnarIlEmitter {
         let staticBinding: System.Type[]? = null
         if (!TryResolveWrittenTypeArguments(callee, typeArgCount, out staticBinding)) {
             return false
+        }
+        if (constructedStaticOwner != null) {
+            return TryEmitSourceStaticGenericCallOn(callIdx, staticMethod, staticBinding, constructedStaticOwner, constructedStaticArguments, out columnarResolvedType)
         }
         return TryEmitSourceStaticGenericCall(callIdx, staticOwner, staticMethod, staticBinding, out columnarResolvedType)
     }
@@ -9133,6 +9232,22 @@ sealed class ColumnarIlEmitter {
                     columnarResolvedType = target.ReturnType
                     return true
                 }
+                let ownGenericMethod: NSharpLang.Compiler.Columnar.ColumnarInstanceMethodDef? = null
+                if (_currentStruct != null && TrySelectGenericInstanceMethodOnChain(_currentStruct, name, _nodes.ChildCount(idx) - 1, -1, out ownGenericMethod)) {
+                    ownGenericFacts := ownGenericMethod.Generics
+                    if (ownGenericFacts != null && TryEmitImplicitThisGenericCall(idx, ownGenericMethod, new Type[ownGenericFacts.TypeParams.Length], out columnarResolvedType)) {
+                        return true
+                    }
+                    return Decline("emit.call.generic-inference", "generic call '" + name + "' could not infer its type arguments", idx)
+                }
+                let ownGenericStatic: NSharpLang.Compiler.Columnar.ColumnarStaticMethodDef? = null
+                if (_enclosingType != null && TryFindGenericStaticMethodOnChain(_enclosingType, name, _nodes.ChildCount(idx) - 1, -1, out ownGenericStatic)) {
+                    ownGenericStaticFacts := ownGenericStatic.Generics
+                    if (ownGenericStaticFacts != null && TryEmitSourceStaticGenericCall(idx, _enclosingType, ownGenericStatic, new Type[ownGenericStaticFacts.TypeParams.Length], out columnarResolvedType)) {
+                        return true
+                    }
+                    return Decline("emit.call.generic-inference", "generic call '" + name + "' could not infer its type arguments", idx)
+                }
                 let ownMethod: NSharpLang.Compiler.Columnar.ColumnarInstanceMethodDef? = null
                 if (_currentStruct != null && TrySelectInstanceMethodOnChain(_currentStruct, name, idx, out ownMethod)) {
                     if (!legacyWholeSubtreePlanning && !ColumnarSourceDirectCallResolver.IsExcludedInstanceDefinition(ownMethod)) {
@@ -12644,6 +12759,25 @@ sealed class ColumnarIlEmitter {
             }
         }
 
+        // A CONSTRUCTED GENERIC TYPE receiver in static position — `Box<int>.Of(4)`. The receiver is a
+        // type, not a value, so nothing is loaded: the instantiation is resolved and the generic
+        // static is closed on it.
+        if (_nodes.Kind(receiver) == 70) {
+            let constructedReceiverCanonical: string? = null
+            let constructedOwnerType: System.Type? = null
+            let constructedOwnerDef: NSharpLang.Compiler.Columnar.ColumnarStructDef? = null
+            let constructedOwnerArguments: System.Type[]? = null
+            if (TryResolveGenericTypeReceiverCanonical(receiver, out constructedReceiverCanonical) && TryResolveBodyType(constructedReceiverCanonical, out constructedOwnerType) && TryGetClosedReceiverDef(constructedOwnerType, out constructedOwnerDef, out constructedOwnerArguments)) {
+                let constructedStatic: NSharpLang.Compiler.Columnar.ColumnarStaticMethodDef? = null
+                if (TryFindGenericStaticMethodOnChain(constructedOwnerDef, memberName, argCount, -1, out constructedStatic)) {
+                    constructedStaticFacts := constructedStatic.Generics
+                    if (constructedStaticFacts != null) {
+                        return TryEmitSourceStaticGenericCallOn(callIdx, constructedStatic, new Type[constructedStaticFacts.TypeParams.Length], constructedOwnerType, constructedOwnerArguments, out resolvedClrType)
+                    }
+                }
+            }
+        }
+
         addressableReceiverType: System.Type? = null
         if (memberName == nameof(JsonElement.ArrayEnumerator.MoveNext) && argCount == 0 && TryGetAddressableTargetType(receiver, out addressableReceiverType) && (addressableReceiverType == typeof(JsonElement.ArrayEnumerator) || addressableReceiverType == typeof(JsonElement.ObjectEnumerator))) {
             if (!EmitAddressOfByRefTarget(receiver, addressableReceiverType)) {
@@ -13016,6 +13150,15 @@ sealed class ColumnarIlEmitter {
         resolvedClrType = null
         userType: NSharpLang.Compiler.Columnar.ColumnarStructDef? = null
         if (_typeResolutionStructs.TryGetValue(typeName, out userType)) {
+            // A generic static with NO written type arguments infers them from the call's own
+            // arguments, so it is tried before the non-generic selectors (which refuse it).
+            let inferredStatic: NSharpLang.Compiler.Columnar.ColumnarStaticMethodDef? = null
+            if (TryFindGenericStaticMethodOnChain(userType, member, argCount, -1, out inferredStatic)) {
+                inferredStaticGenerics := inferredStatic.Generics
+                if (inferredStaticGenerics != null) {
+                    return TryEmitSourceStaticGenericCall(callIdx, userType, inferredStatic, new Type[inferredStaticGenerics.TypeParams.Length], out resolvedClrType)
+                }
+            }
             useExpandedParams := false
             userStatic: NSharpLang.Compiler.Columnar.ColumnarStaticMethodDef? = null
             if (TryFindStaticMethodOnChain(userType, member, argCount, out userStatic)) {
@@ -17402,6 +17545,21 @@ sealed class ColumnarIlEmitter {
                 if (builderType != receiverType) {
                     continue
                 }
+                let genericStructMethod: NSharpLang.Compiler.Columnar.ColumnarInstanceMethodDef? = null
+                if (TrySelectGenericInstanceMethodOnChain(d, member, argCount, -1, out genericStructMethod)) {
+                    genericStructFacts := genericStructMethod.Generics
+                    if (genericStructFacts == null) {
+                        return false
+                    }
+                    genericReceiverTemp := _il.DeclareLocal(receiverType)
+                    _il.Emit(OpCodes.Stloc, genericReceiverTemp)
+                    _il.Emit(d.IsReference ? OpCodes.Ldloc : OpCodes.Ldloca, genericReceiverTemp)
+                    genericStructOpcode := match d.IsReference {
+                        true => OpCodes.Callvirt,
+                        _ => OpCodes.Call
+                    }
+                    return TryEmitGenericSourceMethodCall(callIdx, genericStructFacts, genericStructMethod.Builder, genericStructMethod.ParamTypes, genericStructMethod.ReturnType, new Type[genericStructFacts.TypeParams.Length], null, null, genericStructOpcode, out columnarResolvedType)
+                }
                 let structMethod: NSharpLang.Compiler.Columnar.ColumnarInstanceMethodDef? = null
                 if (TrySelectInstanceMethodOnChain(d, member, callIdx, out structMethod)) {
                     if (!legacyWholeSubtreePlanning && !ColumnarSourceDirectCallResolver.IsExcludedInstanceDefinition(structMethod)) {
@@ -17430,6 +17588,21 @@ sealed class ColumnarIlEmitter {
         let closedDef: NSharpLang.Compiler.Columnar.ColumnarStructDef? = null
         let closedArgs: System.Type[]? = null
         if (TryGetClosedReceiverDef(receiverType, out closedDef, out closedArgs)) {
+            let closedGenericMethod: NSharpLang.Compiler.Columnar.ColumnarInstanceMethodDef? = null
+            if (TrySelectGenericInstanceMethodOnChain(closedDef, member, argCount, -1, out closedGenericMethod)) {
+                closedGenericFacts := closedGenericMethod.Generics
+                if (closedGenericFacts == null) {
+                    return false
+                }
+                closedGenericTemp := _il.DeclareLocal(receiverType)
+                _il.Emit(OpCodes.Stloc, closedGenericTemp)
+                _il.Emit(closedDef.IsReference ? OpCodes.Ldloc : OpCodes.Ldloca, closedGenericTemp)
+                closedGenericOpcode := match closedDef.IsReference {
+                    true => OpCodes.Callvirt,
+                    _ => OpCodes.Call
+                }
+                return TryEmitGenericSourceMethodCall(callIdx, closedGenericFacts, closedGenericMethod.Builder, closedGenericMethod.ParamTypes, closedGenericMethod.ReturnType, new Type[closedGenericFacts.TypeParams.Length], receiverType, closedArgs, closedGenericOpcode, out columnarResolvedType)
+            }
             let closedMethod: NSharpLang.Compiler.Columnar.ColumnarInstanceMethodDef? = null
             if (!TrySelectInstanceMethodOnChain(closedDef, member, callIdx, out closedMethod)) {
                 return false
