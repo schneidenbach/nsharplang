@@ -24,6 +24,31 @@ class DeclarationFacts {
         return null
     }
 
+    // HOW MANY TYPE PARAMETERS A DECLARATION DECLARES. Every generic-capable declaration form spells
+    // the list the same way (`TypeParameters: List<TypeParameter>?`), so one reflective read answers
+    // for all of them; a form without the member, or with none written, is arity 0.
+    static func GetDeclarationArity(declaration: object): int {
+        value := TypeInfoFactoryReflection.GetOptionalProperty(declaration, "TypeParameters")
+        list := value as IList
+        if list == null {
+            return 0
+        }
+
+        return list.Count
+    }
+
+    // THE DECLARATION'S IDENTITY KEY: its written name for a non-generic type, `Name``N for a generic
+    // one. Every table that resolves a written reference to a declaration is keyed by this, so
+    // `Subscription` and `Subscription<T>` are two entries rather than one collision.
+    static func GetDeclarationArityName(declaration: object): string? {
+        name := GetDeclarationName(declaration)
+        if name == null {
+            return null
+        }
+
+        return TypeArityNames.Key(name, GetDeclarationArity(declaration))
+    }
+
     static func GetDeclarationKind(declaration: object): string {
         typeName := declaration.GetType().Name
 

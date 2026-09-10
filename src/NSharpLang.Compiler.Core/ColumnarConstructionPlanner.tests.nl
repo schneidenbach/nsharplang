@@ -2520,7 +2520,7 @@ test "construction planner follows multilevel reordered and fixed generic bases"
         true,
         false,
         false,
-        "ConstructionMappedBase"
+        "ConstructionMappedBase`2"
     )
     baseArguments := baseBuilder.GetGenericArguments()
     assert baseArguments.Length == 2
@@ -2554,7 +2554,7 @@ test "construction planner follows multilevel reordered and fixed generic bases"
         true,
         false,
         false,
-        "ConstructionMappedMiddle"
+        "ConstructionMappedMiddle`1"
     )
     middleArguments := middleBuilder.GetGenericArguments()
     assert middleArguments.Length == 1
@@ -2580,7 +2580,7 @@ test "construction planner follows multilevel reordered and fixed generic bases"
         true,
         false,
         false,
-        "ConstructionMappedDerived"
+        "ConstructionMappedDerived`2"
     )
     derivedArguments := derivedBuilder.GetGenericArguments()
     assert derivedArguments.Length == 2
@@ -3073,12 +3073,14 @@ test "construction planner owns closed generic positional union cases and reject
         fields,
         unionBase
     )
+    // A generic union's declared identity carries its arity, and its case keys hang off that
+    // identity; the WRITTEN spelling stays `ConstructionGenericUnion.Value`.
     unionDefinition := new ColumnarUnionDef(
         unionBase,
         1,
-        "ConstructionGenericUnion"
+        "ConstructionGenericUnion`1"
     )
-    unionDefinition.Cases["ConstructionGenericUnion.Value"] = caseDefinition
+    unionDefinition.Cases["ConstructionGenericUnion`1.Value"] = caseDefinition
     unions := new List<ColumnarUnionDef>()
     unions.Add(unionDefinition)
     bindings := ColumnarRangePlannerEmptyBindings()
@@ -3462,7 +3464,7 @@ test "construction planner owns closed generic default source values" {
         false,
         false,
         false,
-        "ConstructionGenericDefaultValue"
+        "ConstructionGenericDefaultValue`1"
     )
     typeArguments := ConstructionOneText("int")
     tree := ConstructionExplicitGenericNewTree(

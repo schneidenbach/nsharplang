@@ -168,13 +168,20 @@ class AnalyzerScopeStack {
 
     // ---- name walks --------------------------------------------------------------------------
 
-    // The innermost scope that binds `name` as a TYPE answers.
+    // The innermost scope that binds `name` as a NON-GENERIC type answers, falling back to a
+    // same-name generic declaration when no arity-0 one exists anywhere. See `LookupTypeWithArity`.
     func LookupType(name: string): TypeInfo? {
+        return LookupTypeWithArity(name, 0)
+    }
+
+    // The innermost scope that binds EXACTLY this identity key answers, with no same-name fallback.
+    // The arity-qualified probe uses it, because "is there a type of this name with THIS many type
+    // parameters?" is a different question from "what does this name mean here?".
+    func LookupTypeExact(key: string): TypeInfo? {
         index := scopes.Count - 1
         while index >= 0 {
-            scope := scopes[index]
             candidate := new TypeInfo()
-            if scope.Types.TryGetValue(name, out candidate) {
+            if scopes[index].Types.TryGetValue(key, out candidate) {
                 return candidate
             }
 
@@ -182,6 +189,65 @@ class AnalyzerScopeStack {
         }
 
         return null
+    }
+
+    // THE ARITY-AWARE TYPE LOOKUP — the entry point every type-reference resolution goes through.
+    //
+    // `Subscription` asks for arity 0 and `Subscription<int>` for arity 1, and the innermost scope
+    // binding THAT identity answers. Two same-name declarations of different arity are two answers,
+    // which is the whole point.
+    //
+    // WHEN NO DECLARATION HAS THE ASKED-FOR ARITY the walk falls back to any arity of the same bare
+    // name, innermost first. That is Roslyn's rule too (CS0305 names the generic type it found rather
+    // than claiming the name does not exist): binding to the best candidate is what lets the caller
+    // report "takes 1 type argument, but 2 were provided" instead of "type not found".
+    func LookupTypeWithArity(name: string, arity: int): TypeInfo? {
+        key := TypeArityNames.Key(name, arity)
+        index := scopes.Count - 1
+        while index >= 0 {
+            scope := scopes[index]
+            candidate := new TypeInfo()
+            if scope.Types.TryGetValue(key, out candidate) {
+                return candidate
+            }
+
+            index = index - 1
+        }
+
+        displayName := TypeArityNames.Display(name)
+        fallbackIndex := scopes.Count - 1
+        while fallbackIndex >= 0 {
+            scope := scopes[fallbackIndex]
+            arities := scope.AritiesFor(displayName)
+            if arities.Count > 0 {
+                fallback := new TypeInfo()
+                if scope.Types.TryGetValue(TypeArityNames.Key(displayName, arities[0]), out fallback) {
+                    return fallback
+                }
+            }
+
+            fallbackIndex = fallbackIndex - 1
+        }
+
+        return null
+    }
+
+    // Every arity the innermost scope that declares this bare name declares it at, in declaration
+    // order. Empty when no scope binds the name as a type. The arity-mismatch diagnostic reads it so
+    // the message can name the spellings that DO exist.
+    func TypeAritiesInScope(name: string): List<int> {
+        displayName := TypeArityNames.Display(name)
+        index := scopes.Count - 1
+        while index >= 0 {
+            arities := scopes[index].AritiesFor(displayName)
+            if arities.Count > 0 {
+                return arities
+            }
+
+            index = index - 1
+        }
+
+        return new List<int>()
     }
 
     // The innermost scope that binds `name` as a SYMBOL answers.
@@ -216,11 +282,26 @@ class AnalyzerScopeStack {
     // binds the name. The first scope holding the name ends the walk whether or not it knows where the
     // declaration is, so an unlocated binding is silence rather than a fall-through to an outer scope.
     func RecordTypeBinding(bindings: BindingMap, filePath: string?, name: string, line: int, column: int) {
+        RecordTypeBindingWithArity(bindings, filePath, name, 0, line, column)
+    }
+
+    // The arity-aware form: go-to-definition on `Subscription<int>` reaches the generic declaration
+    // and on `Subscription` the non-generic one. The written name decides the underlined span, so the
+    // key is used to FIND the declaration and the display name to size the binding.
+    func RecordTypeBindingWithArity(bindings: BindingMap, filePath: string?, name: string, arity: int, line: int, column: int) {
+        key := TypeArityNames.Key(name, arity)
+        displayName := TypeArityNames.Display(name)
         index := scopes.Count - 1
         while index >= 0 {
             scope := scopes[index]
-            if scope.Types.ContainsKey(name) {
-                RecordDeclarationBinding(bindings, filePath, scope, name, line, column)
+            if scope.Types.ContainsKey(key) {
+                RecordDeclarationBinding(bindings, filePath, scope, key, displayName, line, column)
+                return
+            }
+
+            arities := scope.AritiesFor(displayName)
+            if arities.Count > 0 {
+                RecordDeclarationBinding(bindings, filePath, scope, TypeArityNames.Key(displayName, arities[0]), displayName, line, column)
                 return
             }
 
@@ -236,20 +317,32 @@ class AnalyzerScopeStack {
             symbolScope := scopes[symbolIndex]
             symbolCandidate := new TypeInfo()
             if symbolScope.Symbols.TryGetValue(name, out symbolCandidate) {
-                RecordDeclarationBinding(bindings, filePath, symbolScope, name, line, column)
+                RecordDeclarationBinding(bindings, filePath, symbolScope, name, name, line, column)
                 return symbolCandidate
             }
 
             symbolIndex = symbolIndex - 1
         }
 
+        // A BARE identifier names no type arguments, so the arity-0 identity is what it asks for, and
+        // the same-name fallback applies when the only declaration of that name is generic.
         typeIndex := scopes.Count - 1
         while typeIndex >= 0 {
             typeScope := scopes[typeIndex]
             typeCandidate := new TypeInfo()
             if typeScope.Types.TryGetValue(name, out typeCandidate) {
-                RecordDeclarationBinding(bindings, filePath, typeScope, name, line, column)
+                RecordDeclarationBinding(bindings, filePath, typeScope, name, name, line, column)
                 return typeCandidate
+            }
+
+            arities := typeScope.AritiesFor(name)
+            if arities.Count > 0 {
+                fallbackKey := TypeArityNames.Key(name, arities[0])
+                fallbackCandidate := new TypeInfo()
+                if typeScope.Types.TryGetValue(fallbackKey, out fallbackCandidate) {
+                    RecordDeclarationBinding(bindings, filePath, typeScope, fallbackKey, name, line, column)
+                    return fallbackCandidate
+                }
             }
 
             typeIndex = typeIndex - 1
@@ -258,10 +351,12 @@ class AnalyzerScopeStack {
         return null
     }
 
-    func RecordDeclarationBinding(bindings: BindingMap, filePath: string?, scope: Scope, name: string, line: int, column: int) {
-        declaration := scope.GetDeclarationLocation(name)
+    // `key` finds the declaration; `writtenName` sizes the underlined span, because what the reader
+    // typed is what the editor highlights.
+    func RecordDeclarationBinding(bindings: BindingMap, filePath: string?, scope: Scope, key: string, writtenName: string, line: int, column: int) {
+        declaration := scope.GetDeclarationLocation(key)
         if declaration != null {
-            bindings.RecordBinding(filePath, line, column, name.Length, declaration)
+            bindings.RecordBinding(filePath, line, column, writtenName.Length, declaration)
         }
     }
 
@@ -324,7 +419,7 @@ class AnalyzerScopeStack {
     func DeclareTypeParameter(name: string) {
         current := Peek()
         typeParameter := new SimpleTypeInfo(name)
-        current.Types[name] = typeParameter
+        current.DeclareType(name, typeParameter)
         current.Symbols[name] = typeParameter
     }
 
@@ -332,8 +427,9 @@ class AnalyzerScopeStack {
     // the same simple name in this scope is not overwritten.
     func DeclareNestedTypeIfAbsent(name: string, nestedType: TypeInfo) {
         current := Peek()
-        if !current.Types.ContainsKey(name) {
-            current.Types[name] = nestedType
+        key := TypeArityNames.Key(name, AnalyzerTypeReferenceFacts.GenericHeadArity(nestedType))
+        if !current.Types.ContainsKey(key) {
+            current.DeclareType(key, nestedType)
         }
     }
 
@@ -551,7 +647,7 @@ class AnalyzerScopeStack {
             return false
         }
 
-        if !AnalyzerBindingFacts.IsValueBinding(name, declaredType, current.Types.ContainsKey(name)) {
+        if !AnalyzerBindingFacts.IsValueBinding(name, declaredType, current.BindsTypeName(name)) {
             return false
         }
 
@@ -564,7 +660,7 @@ class AnalyzerScopeStack {
 
             outerType := new TypeInfo()
             if scope.Symbols.TryGetValue(name, out outerType) {
-                if AnalyzerBindingFacts.IsValueBinding(name, outerType, scope.Types.ContainsKey(name)) {
+                if AnalyzerBindingFacts.IsValueBinding(name, outerType, scope.BindsTypeName(name)) {
                     return true
                 }
             }
@@ -599,7 +695,7 @@ class AnalyzerScopeStack {
             }
 
             boundType := new TypeInfo()
-            if scope.Symbols.TryGetValue(name, out boundType) && !scope.Types.ContainsKey(name) {
+            if scope.Symbols.TryGetValue(name, out boundType) && !scope.BindsTypeName(name) {
                 if boundType as FunctionTypeInfo == null && boundType as NSharpMethodGroupInfo == null {
                     return true
                 }
@@ -621,7 +717,7 @@ class AnalyzerScopeStack {
         while index >= 0 {
             scope := scopes[index]
             for entry in scope.Types {
-                names.Add(entry.Key)
+                names.Add(TypeArityNames.Display(entry.Key))
             }
 
             index = index - 1

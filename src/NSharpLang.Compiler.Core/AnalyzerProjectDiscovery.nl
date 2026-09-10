@@ -388,7 +388,10 @@ class AnalyzerProjectTypeDiscovery {
     func CreateTopLevelSymbolDeclaration(name: string, filePath: string, sourceText: string, topLevelDeclaration: Declaration): SymbolDeclaration {
         line := topLevelDeclaration.Line
         column := topLevelDeclaration.Column
-        return new SymbolDeclaration(name, filePath, line, CodeIntelligenceTextUtilities.FindIdentifierNameColumn(sourceText, name, line, column), DeclarationFacts.GetDeclarationKind(topLevelDeclaration))
+        // `name` may be an identity key (`Handle``1`); the SPAN is over what is written in the file,
+        // which is the bare name.
+        writtenName := TypeArityNames.Display(name)
+        return new SymbolDeclaration(writtenName, filePath, line, CodeIntelligenceTextUtilities.FindIdentifierNameColumn(sourceText, writtenName, line, column), DeclarationFacts.GetDeclarationKind(topLevelDeclaration))
     }
 
     // THE FUNCTION CHANNEL's discovery half. Exported top-level functions are visible project-wide in
@@ -487,7 +490,7 @@ class AnalyzerProjectTypeDiscovery {
 
         declarationFile := declaration.File
         if declarationFile != null && !string.IsNullOrWhiteSpace(declarationFile) {
-            typeDeclarationFiles[name] = declarationFile
+            typeDeclarationFiles[TypeArityNames.Display(name)] = declarationFile
         }
     }
 

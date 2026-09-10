@@ -25,7 +25,14 @@ class ColumnarSourceBindingFacts {
     ImportedTypeSourceFileIds: Dictionary<string, int>
     DeclaredNames: HashSet<string>
     ExportedNames: HashSet<string>
+    // KEYED BY IDENTITY: `Box``1 for a generic declaration, `Box` for a non-generic one. Every
+    // question of the form "is THIS type declared here?" reads it.
     DeclaredTypeNames: HashSet<string>
+
+    // The same declarations under their WRITTEN names. Questions of the form "does this name mean a
+    // type at all?" — the unqualified-root guards, a dotted name's root segment — read this one,
+    // because the asker has a spelling and no arity to offer.
+    DeclaredTypeBaseNames: HashSet<string>
     TypeAliasTargets: Dictionary<string, string>
     NestedNamesByOwner: Dictionary<string, ColumnarBindingNameSet>
     HasUnresolvedFileImport: bool
@@ -46,6 +53,7 @@ class ColumnarSourceBindingFacts {
         DeclaredNames = new HashSet<string>(StringComparer.Ordinal)
         ExportedNames = new HashSet<string>(StringComparer.Ordinal)
         DeclaredTypeNames = new HashSet<string>(StringComparer.Ordinal)
+        DeclaredTypeBaseNames = new HashSet<string>(StringComparer.Ordinal)
         TypeAliasTargets = new Dictionary<string, string>(StringComparer.Ordinal)
         NestedNamesByOwner = new Dictionary<string, ColumnarBindingNameSet>(StringComparer.Ordinal)
         HasUnresolvedFileImport = false
@@ -217,6 +225,14 @@ class ColumnarBindingScopeFacts {
     externalBaseBindingByType: Dictionary<string, ColumnarExternalBaseBinding>
     invalidClassBaseOwners: HashSet<string>
     sourceTypeKindsByExactName: Dictionary<string, ColumnarTypeBindingFacts>
+
+    // A BARE SPELLING TO THE ONE ARITY THAT ANSWERS IT. Keyed by unqualified written name; the value
+    // is the single generic arity every declaration of that name has, or -1 when they disagree. It
+    // exists so a reference written without type arguments still reaches a declaration that has only
+    // a generic form — the same "no arity-0 candidate, so take the one there is" rule the analyzer
+    // applies, and the reason a program full of `Box<T>` keeps compiling now that its identity is
+    // `Box``1.
+    uniqueSourceTypeArities: Dictionary<string, int>
     fileFactsById: Dictionary<int, ColumnarSourceBindingFacts>
     activeImportAliasNames: HashSet<string>
     activeUnaliasedNamespaceImports: List<string>
@@ -246,6 +262,7 @@ class ColumnarBindingScopeFacts {
         externalBaseBindingByType = new Dictionary<string, ColumnarExternalBaseBinding>(StringComparer.Ordinal)
         invalidClassBaseOwners = new HashSet<string>(StringComparer.Ordinal)
         sourceTypeKindsByExactName = new Dictionary<string, ColumnarTypeBindingFacts>(StringComparer.Ordinal)
+        uniqueSourceTypeArities = new Dictionary<string, int>(StringComparer.Ordinal)
         fileFactsById = new Dictionary<int, ColumnarSourceBindingFacts>()
         activeImportAliasNames = new HashSet<string>(StringComparer.Ordinal)
         activeUnaliasedNamespaceImports = new List<string>()
@@ -322,7 +339,7 @@ class ColumnarBindingScopeFacts {
         unionIndex := 0
         while unionIndex < unions.Count {
             unionInput := unions[unionIndex]
-            result.AddSourceType(result.ExactTypeNameForFile(unionInput.Name, unionInput.SourceFileId))
+            result.AddSourceType(result.ExactUnionTypeName(unionInput))
             unionIndex = unionIndex + 1
         }
 
@@ -341,7 +358,7 @@ class ColumnarBindingScopeFacts {
         interfaceIndex := 0
         while interfaceIndex < interfaces.Count {
             result.RegisterInterfaceKind(interfaces[interfaceIndex])
-            result.AddSourceType(result.ExactTypeNameForFile(interfaces[interfaceIndex].Name, interfaces[interfaceIndex].SourceFileId))
+            result.AddSourceType(result.ExactInterfaceTypeName(interfaces[interfaceIndex]))
             result.AddInterfaceScope(interfaces[interfaceIndex])
             interfaceIndex = interfaceIndex + 1
         }
@@ -350,7 +367,40 @@ class ColumnarBindingScopeFacts {
             result.AddClassBaseScope(structs[structIndex])
             structIndex = structIndex + 1
         }
+        result.BuildUniqueSourceTypeArities()
         return result
+    }
+
+    // One pass over every exact source-type identity, after they are all known. A bare name with two
+    // arities has no unique answer and is recorded as -1 rather than left out, so a later reference
+    // cannot silently pick one of them.
+    func BuildUniqueSourceTypeArities() {
+        for exactName in sourceTypeNames {
+            bareName := ColumnarTypeCanonicalizer.UnqualifiedTypeName(TypeArityNames.Display(exactName))
+            if bareName.Length == 0 {
+                continue
+            }
+            arity := TypeArityNames.ArityOf(exactName)
+            existing := 0
+            if uniqueSourceTypeArities.TryGetValue(bareName, out existing) {
+                if existing != arity {
+                    uniqueSourceTypeArities[bareName] = -1
+                }
+                continue
+            }
+            uniqueSourceTypeArities.Add(bareName, arity)
+        }
+    }
+
+    // The arity a bare spelling resolves to when it has exactly one, and 0 when it does not (0 is
+    // also the answer for an ordinary non-generic type, which needs no retry).
+    func UniqueArityFor(canonical: string): int {
+        bareName := ColumnarTypeCanonicalizer.UnqualifiedTypeName(canonical)
+        arity := 0
+        if !uniqueSourceTypeArities.TryGetValue(bareName, out arity) || arity <= 0 {
+            return 0
+        }
+        return arity
     }
 
     // Alias and namespace-import binding is file scoped. ProgramInput retains the shared immutable
@@ -370,6 +420,7 @@ class ColumnarBindingScopeFacts {
         view.externalBaseBindingByType = externalBaseBindingByType
         view.invalidClassBaseOwners = invalidClassBaseOwners
         view.sourceTypeKindsByExactName = sourceTypeKindsByExactName
+        view.uniqueSourceTypeArities = uniqueSourceTypeArities
         view.fileFactsById = fileFactsById
         view.sourceScanComplete = sourceScanComplete
 
@@ -380,7 +431,7 @@ class ColumnarBindingScopeFacts {
             view.activeImportedNames = fileFacts.ImportedNames
             view.activeImportedSourceTypeNames = fileFacts.ImportedSourceTypeNames
             view.activeDeclaredNames = fileFacts.DeclaredNames
-            view.activeDeclaredTypeNames = fileFacts.DeclaredTypeNames
+            view.activeDeclaredTypeNames = fileFacts.DeclaredTypeBaseNames
             view.activeTypeAliasTargets = fileFacts.TypeAliasTargets
             view.hasActiveUnresolvedFileImport = fileFacts.HasUnresolvedFileImport
             view.activeNamespaceName = fileFacts.NamespaceName
@@ -514,7 +565,25 @@ class ColumnarBindingScopeFacts {
         return TryResolveExactSourceDeclarationName(canonical, out exactName, out claimed)
     }
 
+    // A BARE SPELLING GETS ONE RETRY AT THE ARITY ITS NAME UNIQUELY HAS. `Box` written where the only
+    // `Box` in the program is `Box<T>` resolves to `Box``1; where a non-generic `Box` also exists, the
+    // exact probe below has already answered with it and no retry happens.
     func TryResolveExactSourceDeclarationNameAtFile(sourceFileId: int, canonical: string, activeAliases: HashSet<string>, depth: int, out exactName: string, out claimed: bool): bool {
+        if canonical != null && depth <= 200 && !TypeArityNames.HasArity(canonical) {
+            exactArity := UniqueArityFor(canonical)
+            if exactArity > 0 {
+                arityClaimed := false
+                if TryResolveExactSourceDeclarationNameCore(sourceFileId, TypeArityNames.Key(canonical, exactArity), activeAliases, depth + 1, out exactName, out arityClaimed) {
+                    claimed = true
+                    return true
+                }
+            }
+        }
+
+        return TryResolveExactSourceDeclarationNameCore(sourceFileId, canonical, activeAliases, depth, out exactName, out claimed)
+    }
+
+    func TryResolveExactSourceDeclarationNameCore(sourceFileId: int, canonical: string, activeAliases: HashSet<string>, depth: int, out exactName: string, out claimed: bool): bool {
         exactName = ""
         claimed = false
         facts := new ColumnarSourceBindingFacts()
@@ -554,7 +623,7 @@ class ColumnarBindingScopeFacts {
                 }
                 return TryResolveExportedSourceDeclarationNameAtFile(aliasedFileId, tailName, activeAliases, depth + 1, out exactName)
             }
-            if facts.DeclaredTypeNames.Contains(rootName) {
+            if facts.DeclaredTypeBaseNames.Contains(rootName) {
                 claimed = true
                 exactNestedName := ExactNameInFacts(facts, canonical)
                 return TrySelectExactSourceDeclarationName(exactNestedName, false, activeAliases, depth + 1, out exactName)
@@ -724,7 +793,38 @@ class ColumnarBindingScopeFacts {
         return TryResolveExactExplicitTypeAtFile(sourceFileId, canonical, allowTypeParameters, bindings, activeAliases, depth, out result, out claimed)
     }
 
+    // A BARE SPELLING GETS ONE RETRY AT THE ARITY ITS NAME UNIQUELY HAS, exactly as the declaration-name
+    // walk does: a source declaration's identity carries its arity, so `Option` written where the only
+    // `Option` is `Option<T>` must still reach the open definition it names. The retry cannot loop —
+    // the key it asks for already carries an arity.
     func TryResolveExactExplicitTypeAtFile(sourceFileId: int, canonical: string, allowTypeParameters: bool, bindings: ColumnarFragmentBindings, activeAliases: HashSet<string>, depth: int, out result: Type, out claimed: bool): bool {
+        if TryResolveExactExplicitTypeAtFileCore(sourceFileId, canonical, allowTypeParameters, bindings, activeAliases, depth, out result, out claimed) {
+            return true
+        }
+
+        if canonical == null || depth > 200 || TypeArityNames.HasArity(canonical) || !IsExactExplicitSimpleName(canonical) {
+            return false
+        }
+
+        exactArity := UniqueArityFor(canonical)
+        if exactArity <= 0 {
+            return false
+        }
+
+        coreClaimed := claimed
+        arityClaimed := false
+        arityResult := typeof(object)
+        if TryResolveExactExplicitTypeAtFileCore(sourceFileId, TypeArityNames.Key(canonical, exactArity), allowTypeParameters, bindings, activeAliases, depth + 1, out arityResult, out arityClaimed) {
+            result = arityResult
+            claimed = true
+            return true
+        }
+
+        claimed = coreClaimed || arityClaimed
+        return false
+    }
+
+    func TryResolveExactExplicitTypeAtFileCore(sourceFileId: int, canonical: string, allowTypeParameters: bool, bindings: ColumnarFragmentBindings, activeAliases: HashSet<string>, depth: int, out result: Type, out claimed: bool): bool {
         result = typeof(object)
         claimed = false
         facts := new ColumnarSourceBindingFacts()
@@ -822,7 +922,7 @@ class ColumnarBindingScopeFacts {
             headResolved := TryResolveExactExplicitTypeAtFile(sourceFileId, canonical.Substring(0, genericOpen), allowTypeParameters, bindings, activeAliases, depth + 1, out headType, out headClaimed)
             headHasExpectedArity := headResolved && headType.get_IsGenericTypeDefinition() && headType.GetGenericArguments().Length == argumentCanonicals.Count
             if !headHasExpectedArity {
-                if headClaimed && !NamespaceAliasHeadAllowsMetadataArityRetry(sourceFileId, canonical.Substring(0, genericOpen)) {
+                if headClaimed && !NamespaceAliasHeadAllowsMetadataArityRetry(sourceFileId, canonical.Substring(0, genericOpen)) && !SourceHeadDeclaredAtArity(sourceFileId, canonical.Substring(0, genericOpen), argumentCanonicals.Count) {
                     claimed = true
                     return false
                 }
@@ -914,7 +1014,7 @@ class ColumnarBindingScopeFacts {
                 }
                 return TryResolveExplicitFileImportType(aliasedFileId, tailName, bindings, activeAliases, depth + 1, out result)
             }
-            if facts.DeclaredTypeNames.Contains(rootName) {
+            if facts.DeclaredTypeBaseNames.Contains(rootName) {
                 claimed = true
                 exactNestedName := ExactNameInFacts(facts, canonical)
                 nestedClaimed := false
@@ -1020,6 +1120,20 @@ class ColumnarBindingScopeFacts {
             return true
         }
         return TryResolveExactExternalAtFile(sourceFileId, canonical, out result)
+    }
+
+    // THE HEAD ANSWERED, BUT WITH THE WRONG ARITY. `Subscription<int>` written where both
+    // `Subscription` and `Subscription<T>` are declared resolves its head to the NON-generic sibling,
+    // which claims the name and would otherwise end the walk. A source declaration at the written
+    // arity is a second candidate and the metadata-arity retry is what reaches it.
+    func SourceHeadDeclaredAtArity(sourceFileId: int, head: string, arity: int): bool {
+        if arity <= 0 || head == null || head.Length == 0 || TypeArityNames.HasArity(head) {
+            return false
+        }
+        exactName := ""
+        headClaimed := false
+        activeAliases := new HashSet<string>(StringComparer.Ordinal)
+        return TryResolveExactSourceDeclarationNameCore(sourceFileId, TypeArityNames.Key(head, arity), activeAliases, 1, out exactName, out headClaimed)
     }
 
     func NamespaceAliasHeadAllowsMetadataArityRetry(sourceFileId: int, canonical: string): bool {
@@ -1241,18 +1355,51 @@ class ColumnarBindingScopeFacts {
         return name
     }
 
+    // A DECLARATION'S EXACT NAME IS ITS CLR IDENTITY, arity included. A generic declaration's exact
+    // name carries the metadata suffix (`Probe.Box``1`), which is what the emitter writes into
+    // metadata, what every definition registry is keyed by, and what lets `Subscription` and
+    // `Subscription<T>` occupy two entries instead of colliding on one.
     func ExactStructTypeName(input: ColumnarStructInput): string {
         if input == null {
             return ""
+        }
+        arity := 0
+        typeParamNames := input.TypeParamNames
+        if typeParamNames != null {
+            arity = typeParamNames.Length
         }
         if input.EnclosingTypeName.Length == 0 {
             // Existing program-input callers may already supply a namespace-qualified top-level
             // name. Preserve that exact identity; only parser-identified nested declarations are
             // namespace-relative even though their owner path contains dots.
-            return ExactTypeNameForFile(input.Name, input.SourceFileId)
+            return TypeArityNames.Key(ExactTypeNameForFile(input.Name, input.SourceFileId), arity)
         }
-        relativeName := input.EnclosingTypeName + "." + input.Name
+        relativeName := input.EnclosingTypeName + "." + TypeArityNames.Key(input.Name, arity)
         return ExactRelativeTypeNameForFile(relativeName, input.SourceFileId)
+    }
+
+    func ExactInterfaceTypeName(input: ColumnarInterfaceInput): string {
+        if input == null {
+            return ""
+        }
+        arity := 0
+        typeParamNames := input.TypeParamNames
+        if typeParamNames != null {
+            arity = typeParamNames.Length
+        }
+        return TypeArityNames.Key(ExactTypeNameForFile(input.Name, input.SourceFileId), arity)
+    }
+
+    func ExactUnionTypeName(input: ColumnarUnionInput): string {
+        if input == null {
+            return ""
+        }
+        arity := 0
+        typeParamNames := input.TypeParamNames
+        if typeParamNames != null {
+            arity = typeParamNames.Length
+        }
+        return TypeArityNames.Key(ExactTypeNameForFile(input.Name, input.SourceFileId), arity)
     }
 
     // Mirrors Analyzer.TryResolveExternalType: ordered namespace imports first, then the first
@@ -1698,7 +1845,7 @@ class ColumnarBindingScopeFacts {
     }
 
     func AddInterfaceScope(input: ColumnarInterfaceInput) {
-        exactName := ExactTypeNameForFile(input.Name, input.SourceFileId)
+        exactName := ExactInterfaceTypeName(input)
         members := GetOrAddNames(memberNamesByType, exactName)
         AddNames(members.Names, input.MethodNames)
         AddNames(GetOrAddNames(currentLexicalNamesByType, exactName).Names, input.TypeParamNames)
@@ -1709,7 +1856,7 @@ class ColumnarBindingScopeFacts {
     }
 
     func RegisterInterfaceKind(input: ColumnarInterfaceInput) {
-        RegisterTypeKind(ExactTypeNameForFile(input.Name, input.SourceFileId), true, true, false)
+        RegisterTypeKind(ExactInterfaceTypeName(input), true, true, false)
     }
 
     func RegisterTypeKind(name: string, isInterface: bool, isReference: bool, isRecord: bool) {
@@ -1840,16 +1987,22 @@ class ColumnarBindingScopeFacts {
                     declarationName := source.Substring(compactStarts[nameIndex], compactLengths[nameIndex])
                     if atTopLevel {
                         fileFacts.DeclaredNames.Add(declarationName)
+                        // The declaration's IDENTITY is its name and its type-parameter count, so
+                        // `Subscription` and `Subscription<T>` written in one file are two entries.
+                        // A type alias has no type parameters and keeps its bare name.
+                        declarationKey := TypeArityNames.Key(declarationName, DeclarationGenericArity(compactKinds, compactCount, nameIndex))
                         isTypeKeyword := kind == Convert.ToInt32(TokenType.Type)
                         if isTypeKeyword && !IsNewtypeDeclaration(compactKinds, compactCount, nameIndex) {
+                            declarationKey = declarationName
                             if !CollectTypeAliasFact(source, compactKinds, compactStarts, compactLengths, compactCount, nameIndex, declarationName, fileFacts) {
                                 return false
                             }
                         } else {
-                            fileFacts.DeclaredTypeNames.Add(declarationName)
+                            fileFacts.DeclaredTypeNames.Add(declarationKey)
+                            fileFacts.DeclaredTypeBaseNames.Add(declarationName)
                         }
                         if VisibilityConventions.IsExportedIdentifier(declarationName, pendingVisibilityModifiers) {
-                            fileFacts.ExportedNames.Add(declarationName)
+                            fileFacts.ExportedNames.Add(declarationKey)
                         }
                         pendingOwner = declarationName
                         pendingVisibilityModifiers = 0
@@ -1903,6 +2056,46 @@ class ColumnarBindingScopeFacts {
             index = index + 1
         }
         return true
+    }
+
+    // THE TYPE-PARAMETER COUNT WRITTEN AFTER A DECLARATION NAME, off the compact token stream.
+    //
+    // The list is what sits between the `<` that IMMEDIATELY follows the name and its matching `>`;
+    // the count is its top-level commas plus one. `>>` closes two levels at once (`Box<List<int>>`),
+    // so the right-shift token subtracts two. A brace before the list closes means the source is not
+    // a generic header at all and the answer is 0.
+    static func DeclarationGenericArity(kinds: int[], count: int, nameIndex: int): int {
+        i := nameIndex + 1
+        if i >= count || kinds[i] != Convert.ToInt32(TokenType.Less) {
+            return 0
+        }
+
+        depth := 0
+        arity := 1
+        while i < count {
+            kind := kinds[i]
+            if kind == Convert.ToInt32(TokenType.Less) {
+                depth = depth + 1
+            } else if kind == Convert.ToInt32(TokenType.Greater) {
+                depth = depth - 1
+                if depth <= 0 {
+                    return arity
+                }
+            } else if kind == Convert.ToInt32(TokenType.RightShift) {
+                depth = depth - 2
+                if depth <= 0 {
+                    return arity
+                }
+            } else if kind == Convert.ToInt32(TokenType.Comma) && depth == 1 {
+                arity = arity + 1
+            } else if kind == Convert.ToInt32(TokenType.LeftBrace) || kind == Convert.ToInt32(TokenType.RightBrace) {
+                return 0
+            }
+
+            i = i + 1
+        }
+
+        return 0
     }
 
     static func IsNewtypeDeclaration(kinds: int[], count: int, nameIndex: int): bool {

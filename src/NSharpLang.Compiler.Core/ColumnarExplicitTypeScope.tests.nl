@@ -405,7 +405,8 @@ test "exact explicit type scope resolves local aliases chains arrays and ordered
     definitions := new List<ColumnarStructDef>()
     definitions.Add(ExactTypeDefinition(leftBuilder, "Left.Widget"))
     definitions.Add(ExactTypeDefinition(rightBuilder, "Right.Widget"))
-    definitions.Add(ExactTypeDefinition(boxBuilder, "Left.Box"))
+    // `class Box<T>` — a declaration's exact name carries its arity.
+    definitions.Add(ExactTypeDefinition(boxBuilder, "Left.Box`1"))
     bindings := ExactTypeBindings(definitions)
 
     sources := new string[](3)

@@ -858,9 +858,17 @@ sealed class SystemsAnalyzer {
 
                 generic := constraintType as GenericTypeInfo
                 if generic != null {
+                    // The OPEN definition behind a constructed reference is recorded under the
+                    // identity key (`IHandler``1`); the bare name is the fallback for a model that
+                    // recorded it before this type was written.
                     openType: TypeInfo = null
-                    if semanticModel.Types.TryGetValue(generic.Name, out openType) {
+                    if semanticModel.TypesByIdentity.TryGetValue(TypeArityNames.Key(generic.Name, generic.TypeArguments.Count), out openType) {
                         constraintType = openType
+                    } else {
+                        bareOpenType: TypeInfo = null
+                        if semanticModel.Types.TryGetValue(generic.Name, out bareOpenType) {
+                            constraintType = bareOpenType
+                        }
                     }
                 }
 

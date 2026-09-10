@@ -14,6 +14,7 @@
 `src/NSharpLang.Compiler.Core/AnalyzerScopeStack.nl`,
 `src/NSharpLang.Compiler.Core/AnalyzerProjectDiscovery.nl`,
 `src/NSharpLang.Compiler.Core/AnalyzerTypeResolver.nl`,
+`src/NSharpLang.Compiler.Core/TypeArityNames.nl`,
 `src/NSharpLang.Compiler.Core/AnalyzerTypeSubstitution.nl`,
 `src/NSharpLang.Compiler.Core/AnalyzerStructuralAssignability.nl`,
 `src/NSharpLang.Compiler.Core/AnalyzerDiagnosticSink.nl`,
@@ -634,6 +635,20 @@ that line (`CodeIntelligenceTextUtilities.FindIdentifierNameColumn`), which is w
 go-to-definition span has to point at.
 
 ### The scope stack
+
+`TypeArityNames.nl` is the N# owner of TYPE IDENTITY BY (NAME, GENERIC ARITY). A type's identity is
+the pair, spelled as one string the way CLR metadata spells it — the bare name at arity 0 and
+`` Name`N `` above it — and every analyzer declaration table is keyed by it: the scope's `Types` map
+(with `Scope.TypeArities` beside it answering "which arities of this name are in scope?"), the
+semantic model's `TypesByIdentity`, the declaration context's per-file canonical-type cache and its
+declaration matching, and the scope declaration locations. `Subscription` and `Subscription<T>`
+therefore coexist, a reference resolves the arity it writes (falling back to the best same-name
+candidate when nothing has that arity, which is what lets NL207 name the type it found), and NL306
+fires only for a repeated (name, arity). The DISPLAY name — the key with its suffix stripped — is
+what every diagnostic, hover, completion label and go-to-definition span carries; `SemanticModel.Types`
+is keyed by it, with a non-generic type winning the slot over a same-name generic one. The columnar
+side uses the same spelling for its exact declaration names, which is also the CLR metadata name the
+emitter writes.
 
 `AnalyzerScopeStack` (`AnalyzerScopeStack.nl`) owns the analyzer's open scopes and every question the
 semantic phase answers by walking them. `Scope` was already N#; what moved is the STACK — the

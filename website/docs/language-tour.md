@@ -610,6 +610,43 @@ func Shorter(value: int, values: int[]): bool {
 Static members of your OWN generic types are not supported yet — declaring one reports
 `NL323` — so this section is about generic types from .NET and from libraries you reference.
 
+### A name and a type-parameter count together are one type
+
+A type's identity on the CLR is its name **and** how many type parameters it declares, so a
+non-generic type and a generic one of the same name are two different types and may be declared side
+by side. This is the pattern a library reaches for when a generic type needs one non-generic root
+that callers can hold uniformly:
+
+```n#
+class Subscription {
+}
+
+class Subscription<T>: Subscription {
+    Value: T
+
+    constructor(value: T) {
+        Value = value
+    }
+}
+
+func Make(): Subscription {
+    return new Subscription<int>(7)   // the generic one, held as its non-generic base
+}
+```
+
+A reference selects the declaration whose type-parameter count it writes: `Subscription` is the
+non-generic type and `Subscription<int>` the generic one. Writing a count that no declaration has is
+an error (`NL207`) that names the counts that do exist.
+
+Two declarations collide only when they share a name **and** a type-parameter count — `class Foo {}`
+twice, `class Foo<T>` twice, or a `class Foo<T>` beside a `struct Foo<U>` — and that is `NL306`.
+
+In metadata a generic type is named the way every other .NET language spells it, with a backtick and
+its arity: `Subscription` stays `Subscription`, `Subscription<T>` is emitted as ``Subscription`1``
+and `Cell<TKey, TValue>` as ``Cell`2``. N# always shows you the written form — `Subscription<T>` — in
+diagnostics, hovers and completions; the backtick name is what a C# consumer of your assembly sees,
+and what `GetType().Name` returns at runtime.
+
 ## Properties: Required and Init-Only
 
 Mark a property `required` to force callers to set it in the object initializer, and `init`

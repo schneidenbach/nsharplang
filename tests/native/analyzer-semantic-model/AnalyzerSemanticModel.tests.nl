@@ -2160,7 +2160,7 @@ test "020 s27 analyzer semantic model: a wrong type-argument count is ONE `NL207
     assert SmCensus(analysis) == "NL207:InvalidTypeArgument@5:20+3;"
     assert SmHasErrors(analysis) == "True"
     assert SmErrorCount(analysis) == 1
-    assert SmRow(analysis, 0) == "InvalidTypeArgument|Generic type 'Box' takes 1 type argument(s), but 2 were provided|Match the declaration's type parameter count for 'Box'|Error"
+    assert SmRow(analysis, 0) == "InvalidTypeArgument|Generic type 'Box' takes 1 type argument(s), but 2 were provided|Write 'Box<T>'|Error"
     assert SmCodeCount(analysis, "InvalidTypeArgument") == 1
     assert SmModelIsNull(analysis) == "no"
     model := SmModel(analysis)

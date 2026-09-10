@@ -107,10 +107,13 @@ func SourceCallDefinition(name: string, isReference: bool): ColumnarStructDef {
     return new ColumnarStructDef(builder, new string[](0), new Dictionary<string, FieldBuilder>(StringComparer.Ordinal), isReference, false, false, name)
 }
 
+// A one-type-parameter source definition. Its DECLARED name carries the arity, because that is what
+// `ExactStructTypeName` composes for a real `class Name<T>` and therefore what the binding scope
+// resolves a reference to it against.
 func SourceCallGenericDefinition(name: string): ColumnarStructDef {
     builder := TypeOfCreateBuilder(name, "ColumnarSourceDirectCallTests." + name, 1)
 
-    return new ColumnarStructDef(builder, new string[](0), new Dictionary<string, FieldBuilder>(StringComparer.Ordinal), true, false, false, name)
+    return new ColumnarStructDef(builder, new string[](0), new Dictionary<string, FieldBuilder>(StringComparer.Ordinal), true, false, false, TypeArityNames.Key(name, 1))
 }
 
 func SourceCallDefinitions(definition: ColumnarStructDef): ColumnarStructDef[] {
