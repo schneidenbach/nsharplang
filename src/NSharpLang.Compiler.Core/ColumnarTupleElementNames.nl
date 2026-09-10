@@ -131,6 +131,68 @@ class ColumnarTupleElementNames {
         return map
     }
 
+    // The TOP-LEVEL element names of one labelled canonical, or null when it is not a named tuple at
+    // its outermost level. This is what a body needs to rewrite `pair.P` into `pair.Item1`, derived
+    // from the labelled spelling rather than carried as a separate parser column.
+    static func TopLevelNames(labeledCanonical: string?): string[]? {
+        if labeledCanonical == null {
+            return null
+        }
+
+        text := Unwrap(labeledCanonical)
+        if text.Length < 2 || text[0] != '(' || text[text.Length - 1] != ')' {
+            return null
+        }
+
+        elements := ColumnarTypeCanonicalizer.SplitTopLevelCommas(text.Substring(1, text.Length - 2))
+        names := new string[](elements.Count)
+        named := false
+        index := 0
+        while index < elements.Count {
+            element := elements[index]
+            colon := element.IndexOf(':')
+            if colon > 0 && ColumnarTypeCanonicalizer.IsBareIdentifier(element.Substring(0, colon)) {
+                names[index] = element.Substring(0, colon)
+                named = true
+            } else {
+                names[index] = ""
+            }
+
+            index = index + 1
+        }
+
+        if !named {
+            return null
+        }
+
+        return names
+    }
+
+    // `ParameterNameMap`, keyed off the labelled canonicals instead of a parser-side name column --
+    // the shape a constructor's parameters arrive in.
+    static func ParameterNameMapFromLabeled(parameterNames: string[], labeledCanonicals: string[]?): Dictionary<string, string[]>? {
+        if labeledCanonicals == null {
+            return null
+        }
+
+        map: Dictionary<string, string[]>? = null
+        index := 0
+        while index < parameterNames.Length && index < labeledCanonicals.Length {
+            elementNames := TopLevelNames(labeledCanonicals[index])
+            if elementNames != null {
+                if map == null {
+                    map = new Dictionary<string, string[]>(StringComparer.Ordinal)
+                }
+
+                map[parameterNames[index]] = elementNames
+            }
+
+            index = index + 1
+        }
+
+        return map
+    }
+
     static func Append(labeledCanonical: string, collected: List<string>) {
         text := Unwrap(labeledCanonical)
         if text.Length == 0 || HasTopLevelUnionBar(text) {

@@ -1364,13 +1364,15 @@ class ParserFunctionWhereTable {
 class ConstructorSignatureOutputTable {
     ParamNameTexts: string[]
     ParamTypeTexts: string[]
+    ParamLabeledTypeTexts: string[]
     ArgKinds: int[]
     ArgStarts: int[]
     ArgLengths: int[]
     ArgTexts: string[]
-    constructor(paramNameTexts: string[], paramTypeTexts: string[], argKinds: int[], argStarts: int[], argLengths: int[], argTexts: string[]) {
+    constructor(paramNameTexts: string[], paramTypeTexts: string[], paramLabeledTypeTexts: string[], argKinds: int[], argStarts: int[], argLengths: int[], argTexts: string[]) {
         ParamNameTexts = paramNameTexts
         ParamTypeTexts = paramTypeTexts
+        ParamLabeledTypeTexts = paramLabeledTypeTexts
         ArgKinds = argKinds
         ArgStarts = argStarts
         ArgLengths = argLengths
@@ -1595,13 +1597,15 @@ class ColumnarConstructorTokenTable {
 class ColumnarConstructorSignatureOutputTable {
     ParamNameTexts: string[]
     ParamTypeTexts: string[]
+    ParamLabeledTypeTexts: string[]
     ArgKinds: int[]
     ArgStarts: int[]
     ArgLengths: int[]
     ArgTexts: string[]
-    constructor(paramNameTexts: string[], paramTypeTexts: string[], argKinds: int[], argStarts: int[], argLengths: int[], argTexts: string[]) {
+    constructor(paramNameTexts: string[], paramTypeTexts: string[], paramLabeledTypeTexts: string[], argKinds: int[], argStarts: int[], argLengths: int[], argTexts: string[]) {
         ParamNameTexts = paramNameTexts
         ParamTypeTexts = paramTypeTexts
+        ParamLabeledTypeTexts = paramLabeledTypeTexts
         ArgKinds = argKinds
         ArgStarts = argStarts
         ArgLengths = argLengths
@@ -12354,6 +12358,10 @@ func ParseConstructorSignatureInfoCore(source: string, tokens: ParserTokenTable,
 
         outputs.ParamNameTexts[paramIndex] = paramName
         outputs.ParamTypeTexts[paramIndex] = TypeReferenceCanonicalTextCore(source, canonicalNodes, parameters.TypeRoots[paramIndex])
+        if paramIndex < outputs.ParamLabeledTypeTexts.Length {
+            outputs.ParamLabeledTypeTexts[paramIndex] = TypeReferenceLabeledCanonicalTextCore(source, canonicalNodes, parameters.TypeRoots[paramIndex])
+        }
+
         paramIndex = paramIndex + 1
     }
 
@@ -12995,9 +13003,9 @@ func ColumnarFunctionSourceSpansEqual(source: string, leftStart: int, leftLength
     return true
 }
 
-func ParseColumnarConstructorInfoInto(source: string, tokenKinds: int[], tokenStarts: int[], tokenValueLengths: int[], count: int, ctorIndex: int, outParamNameTexts: string[], outParamTypeTexts: string[], outArgKinds: int[], outArgStarts: int[], outArgLengths: int[], outArgTexts: string[], outNodeKinds: int[], outValueStarts: int[], outValueLengths: int[], outChildStart: int[], outChildCount: int[], outChildIndices: int[], outSpanStarts: int[], outSpanLengths: int[], outResult: int[]): int {
+func ParseColumnarConstructorInfoInto(source: string, tokenKinds: int[], tokenStarts: int[], tokenValueLengths: int[], count: int, ctorIndex: int, outParamNameTexts: string[], outParamTypeTexts: string[], outParamLabeledTypeTexts: string[], outArgKinds: int[], outArgStarts: int[], outArgLengths: int[], outArgTexts: string[], outNodeKinds: int[], outValueStarts: int[], outValueLengths: int[], outChildStart: int[], outChildCount: int[], outChildIndices: int[], outSpanStarts: int[], outSpanLengths: int[], outResult: int[]): int {
     tokens := new ColumnarConstructorTokenTable(tokenKinds, tokenStarts, tokenValueLengths, count)
-    signatureOutputs := new ColumnarConstructorSignatureOutputTable(outParamNameTexts, outParamTypeTexts, outArgKinds, outArgStarts, outArgLengths, outArgTexts)
+    signatureOutputs := new ColumnarConstructorSignatureOutputTable(outParamNameTexts, outParamTypeTexts, outParamLabeledTypeTexts, outArgKinds, outArgStarts, outArgLengths, outArgTexts)
     body := new ColumnarConstructorBodyTable(outNodeKinds, outValueStarts, outValueLengths, outChildStart, outChildCount, outChildIndices, outSpanStarts, outSpanLengths)
     result := new ColumnarConstructorResultTable(outResult)
     return ParseColumnarConstructorInfoCore(source, tokens, ctorIndex, signatureOutputs, body, result)
@@ -13013,7 +13021,7 @@ func ParseColumnarConstructorInfoCore(source: string, tokens: ColumnarConstructo
     }
 
     signatureTokens := new ParserTokenTable(tokens.Kinds, tokens.Starts, tokens.ValueLengths)
-    signatureOutput := new ConstructorSignatureOutputTable(signatureOutputs.ParamNameTexts, signatureOutputs.ParamTypeTexts, signatureOutputs.ArgKinds, signatureOutputs.ArgStarts, signatureOutputs.ArgLengths, signatureOutputs.ArgTexts)
+    signatureOutput := new ConstructorSignatureOutputTable(signatureOutputs.ParamNameTexts, signatureOutputs.ParamTypeTexts, signatureOutputs.ParamLabeledTypeTexts, signatureOutputs.ArgKinds, signatureOutputs.ArgStarts, signatureOutputs.ArgLengths, signatureOutputs.ArgTexts)
     typeStack := new ParserArgumentStack(new int[](tokens.Count + 1))
     nodes := new ParserNodeTable(new int[](tokens.Count + 1), new int[](tokens.Count + 1), new int[](tokens.Count + 1), new int[](tokens.Count + 1), new int[](tokens.Count + 1), new int[](tokens.Count + 1), new int[](tokens.Count + 1))
     children := new ParserChildIndexTable(new int[](tokens.Count + 1))
@@ -13274,6 +13282,12 @@ func ParseColumnarPrimaryConstructorInfoCore(source: string, tokens: ColumnarCon
 
         signatureOutputs.ParamNameTexts[p] = paramName
         signatureOutputs.ParamTypeTexts[p] = paramType
+        if p < signatureOutputs.ParamLabeledTypeTexts.Length {
+            // A PRIMARY constructor's parameter types are read as text spans rather than from a
+            // type-reference tree, so the labelled spelling is the spelling already read.
+            signatureOutputs.ParamLabeledTypeTexts[p] = paramType
+        }
+
         signatureOutputs.ArgKinds[p] = primaryParameters.DefaultKinds[p]
         if primaryParameters.DefaultKinds[p] >= 0 {
             if primaryParameters.DefaultKinds[p] == ParserDeclarationDefaultMemberAccessKind() {
@@ -13872,7 +13886,7 @@ func ColumnarStructMethodUnsupportedStatus(source: string, tokens: ColumnarStruc
 func ColumnarStructConstructorUnsupportedStatus(source: string, tokens: ColumnarStructTokenTable, outputs: ColumnarStructOutputTable, ctorCount: int, isReference: int): int {
     constructorTokens := new ColumnarConstructorTokenTable(tokens.Kinds, tokens.Starts, tokens.ValueLengths, tokens.Count)
     cap := (tokens.Count + 1) * 4
-    signatureOutputs := new ColumnarConstructorSignatureOutputTable(new string[](cap), new string[](cap), new int[](cap), new int[](cap), new int[](cap), new string[](cap))
+    signatureOutputs := new ColumnarConstructorSignatureOutputTable(new string[](cap), new string[](cap), new string[](cap), new int[](cap), new int[](cap), new int[](cap), new string[](cap))
     body := new ColumnarConstructorBodyTable(new int[](cap), new int[](cap), new int[](cap), new int[](cap), new int[](cap), new int[](cap), new int[](cap), new int[](cap))
     result := new ColumnarConstructorResultTable(new int[](6))
     localResults := new LocalFunctionResultTable(new int[](cap), new int[](cap))

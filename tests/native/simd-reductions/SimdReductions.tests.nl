@@ -965,6 +965,28 @@ test "the C# original's named tuple element names are Min/Max and Count/LastPrev
     assert ReturnTupleElementNames(MethodOf(original, "CountTransitionsInt32")) == "Count/LastPrevious"
 }
 
+// AND THE TRANSLATION PRESENTS THE SAME PUBLIC CONTRACT, not merely the same values. A named tuple has
+// no CLR identity of its own -- `(int Min, int Max)` IS `ValueTuple<int, int>` -- so the element names a
+// C# consumer sees live in a `TupleElementNamesAttribute` on the return position. When this file was
+// written N# emitted none, so a C# consumer of the translation would have seen a bare `ValueTuple` with
+// only `Item1`/`Item2` while the same consumer of the original saw `Min`/`Max`: a faithful translation
+// that was not a faithful LIBRARY. Both sides are read the same way here, so the rows are equal only if
+// the emitted attribute matches the C# compiler's byte for byte in name, order and arity.
+test "the translated helpers carry the same tuple element names as the C# original, member for member" {
+    translated := typeof(SimdReductionsPort)
+    original := OriginalType()
+
+    assert ReturnTupleElementNames(MethodOf(translated, "MinMaxInt32")) == ReturnTupleElementNames(MethodOf(original, "MinMaxInt32"))
+    assert ReturnTupleElementNames(MethodOf(translated, "CountTransitionsInt32")) == ReturnTupleElementNames(MethodOf(original, "CountTransitionsInt32"))
+    assert ReturnTupleElementNames(MethodOf(translated, "MinMaxInt32")) == "Min/Max"
+    assert ReturnTupleElementNames(MethodOf(translated, "CountTransitionsInt32")) == "Count/LastPrevious"
+
+    // A helper whose return is NOT a tuple carries no attribute on either side -- the negative half of
+    // the same claim, so "both sides are empty" cannot pass for "both sides agree".
+    assert ReturnTupleElementNames(MethodOf(translated, "SumInt32")) == ""
+    assert ReturnTupleElementNames(MethodOf(original, "SumInt32")) == ""
+}
+
 // ---------------------------------------------------------------------- the compiler contracts this needed
 //
 // Translating the C# file turned up two emitter holes, both fixed in this stream. The rows below are the

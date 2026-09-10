@@ -1313,6 +1313,7 @@ sealed class ColumnarProgramInputBuilder {
         cap := (n + 1) * 4
         paramNameTexts := new string[](cap)
         paramTypeTexts := new string[](cap)
+        paramLabeledTypeTexts := new string[](cap)
         caKinds := new int[](cap)
         caStarts := new int[](cap)
         caLengths := new int[](cap)
@@ -1335,6 +1336,7 @@ sealed class ColumnarProgramInputBuilder {
             ctorIndex,
             paramNameTexts,
             paramTypeTexts,
+            paramLabeledTypeTexts,
             caKinds,
             caStarts,
             caLengths,
@@ -1355,6 +1357,7 @@ sealed class ColumnarProgramInputBuilder {
 
         paramNames := new string[](paramCount)
         paramCanonicals := new string[](paramCount)
+        paramLabeledCanonicals := new string[](paramCount)
         parsedParamDefaultKinds := new int[](paramCount)
         parsedParamDefaultTexts := new string[](paramCount)
         p := 0
@@ -1363,6 +1366,7 @@ sealed class ColumnarProgramInputBuilder {
             paramNames[p] = paramName
             paramCanonical := paramTypeTexts[p]
             paramCanonicals[p] = paramCanonical
+            paramLabeledCanonicals[p] = paramLabeledTypeTexts[p] ?? paramCanonical
             parsedParamDefaultKinds[p] = caKinds[p]
             parsedParamDefaultTexts[p] = caKinds[p] >= 0 ? caTexts[p] : ""
             p = p + 1
@@ -1443,7 +1447,9 @@ sealed class ColumnarProgramInputBuilder {
             0,
             false,
             "",
-            ""
+            "",
+            "void",
+            paramLabeledCanonicals
         )
         isSynthesizedInitializer := ctorIndex >= 0 && ctorIndex < n && ColumnarTokenKindFacts.IsSynthesizedPrimaryConstructorKind(ck[ctorIndex])
         parsedInput := new ColumnarConstructorInput(

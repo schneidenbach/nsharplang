@@ -107,6 +107,7 @@ class ColumnarConstructorDefaultParseProbe {
 
         ParamNameTexts = new string[](capacity)
         ParamTypeTexts = new string[](capacity)
+        paramLabeledTypeTexts := new string[](capacity)
         ArgKinds = new int[](capacity)
         argStarts := new int[](capacity)
         argLengths := new int[](capacity)
@@ -130,6 +131,7 @@ class ColumnarConstructorDefaultParseProbe {
             0,
             ParamNameTexts,
             ParamTypeTexts,
+            paramLabeledTypeTexts,
             ArgKinds,
             argStarts,
             argLengths,

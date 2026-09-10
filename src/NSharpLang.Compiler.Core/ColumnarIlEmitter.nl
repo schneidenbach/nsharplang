@@ -3985,6 +3985,9 @@ sealed class ColumnarIlEmitter {
                 job.Struct.GenericParameters,
                 job.Struct.DeclaredTypeName
             )
+            // A constructor's NAMED tuple parameters, and the named tuples free functions return, are
+            // visible from a constructor body exactly as they are from any other body.
+            ctorJobParamTupleNames := ColumnarTupleElementNames.ParameterNameMapFromLabeled(job.Ctor.Body.ParamNames, job.Ctor.Body.ParamLabeledCanonicals)
             emitter := new ColumnarIlEmitter(
                 job.Ctor.Body.BodyNodes,
                 ctorSource,
@@ -4008,8 +4011,8 @@ sealed class ColumnarIlEmitter {
                 null,
                 null,
                 null,
-                null,
-                null,
+                siblingReturnTupleNames,
+                ctorJobParamTupleNames,
                 null,
                 null,
                 false,
