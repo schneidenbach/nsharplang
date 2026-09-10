@@ -64,6 +64,14 @@ A finished lane is not completion of this whole objective.
   The Build.Tasks project now contains no C# source; its remaining empty assembly and MSBuild
   project are mechanical dependency-copy/package boundaries. SDK UsingTask resolves both owners
   directly from Compiler.Core.
+- Playground's literal-field and ordinary value-receiver prerequisites remain provisional.
+  The latest combined N# canonical run failed four tests and aborted in readonly diagnostics;
+  isolated reruns reproduce all four failures. The Playground owner is correcting this before
+  extending the existing generic safe-cast emitter for the two proven Playground cast sites.
+  Evidence: /private/tmp/toolchain-integrated-const-value-canonicals-r7.log and
+  /private/tmp/toolchain-const-r7-isolated.log. No SDK seed is published from this candidate.
+  Const completion/diagnostic changes require the IDE-enabled integration gate and visual
+  verification; extension migration itself remains deferred.
 - All five IlSdkToolchainTests.cs cases now have N# successors and the C# file is removed in the
   integration candidate. Review retained XML UnitTestResult/outcome semantics and removed new
   assertions that merely mirrored private field names. All 20 native SDK tests pass against a private package (22.7s). Receipt:
