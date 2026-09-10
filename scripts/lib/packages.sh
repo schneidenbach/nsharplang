@@ -114,8 +114,8 @@ nsharp_pack_package_set() {
 
         echo
         echo "Packing $label..."
-        if [[ "$project" == "src/NSharpLang.Compiler.Core/NSharpLang.Compiler.Core.csproj" ]]; then
-            # Direct IL emits no PDB. Tell NuGet the actual output shape when packing the seed-built core.
+        if [[ "$project" == "src/NSharpLang.Compiler.Core/NSharpLang.Compiler.Core.csproj" || "$project" == "src/NSharpLang.Compiler/Compiler.csproj" ]]; then
+            # Direct N# IL emits no PDB. Tell NuGet the actual output shape for the compiler assemblies.
             nsharp_run_in_dir "$NSHARP_REPO_ROOT" dotnet pack "${NSHARP_DOTNET_STABLE_BUILD_FLAGS[@]}" "$project" -c Release -o "$output_dir" -p:DebugSymbols=false -p:DebugType=None -v "$verbosity"
         else
         nsharp_run_in_dir "$NSHARP_REPO_ROOT" dotnet pack "${NSHARP_DOTNET_STABLE_BUILD_FLAGS[@]}" "$project" -c Release -o "$output_dir" -v "$verbosity"

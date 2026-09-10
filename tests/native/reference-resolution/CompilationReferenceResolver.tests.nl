@@ -68,6 +68,36 @@ test "real build and publish keep project and local NuGet runtime assets executa
     }
 }
 
+test "a referenced N# assembly reaches inherited members and the Compiler facade at runtime" {
+    scratch := ResolverNewTempDirectory("facade-cross-assembly")
+    try {
+        compilerOutput := Path.GetDirectoryName(ResolverCliDll()) ?? ""
+        consumerOutput := ResolverWriteFacadeInteropFixture(scratch, compilerOutput)
+        producerRoot := Path.Combine(scratch, "producer")
+        consumerRoot := Path.Combine(scratch, "consumer")
+
+        producerBuild := ResolverRunCli("build --project " + ResolverQuote(producerRoot) + " --backend il -o " + ResolverQuote(Path.Combine(producerRoot, "out")), producerRoot)
+        assert producerBuild.ExitCode == 0, producerBuild.Stdout + producerBuild.Stderr
+        assert producerBuild.Stderr.Trim().Length == 0, producerBuild.Stderr
+
+        consumerBuild := ResolverRunCli("build --project " + ResolverQuote(consumerRoot) + " --backend il -o " + ResolverQuote(consumerOutput), consumerRoot)
+        assert consumerBuild.ExitCode == 0, consumerBuild.Stdout + consumerBuild.Stderr
+        assert consumerBuild.Stderr.Trim().Length == 0, consumerBuild.Stderr
+
+        consumerAssembly := Path.Combine(consumerOutput, "FacadeInterop.Consumer.dll")
+        assert File.Exists(consumerAssembly)
+        run := ResolverRunProcess("dotnet", ResolverQuote(consumerAssembly), consumerOutput)
+        assert run.ExitCode == 0, run.Stderr
+        normalizedStdout := run.Stdout.Replace("\r\n", "\n")
+        expectedPrefix := "1\n2\n2\n"
+        assert normalizedStdout.StartsWith(expectedPrefix, StringComparison.Ordinal), normalizedStdout
+        formatterJson := normalizedStdout.Substring(expectedPrefix.Length)
+        assert formatterJson.Contains("\"command\": \"interop\"", StringComparison.Ordinal), formatterJson
+    } finally {
+        Directory.Delete(scratch, true)
+    }
+}
+
 test "Web SDK framework resolution feeds a clean check without analyzer errors" {
     projectRoot := ResolverNewTempDirectory("web-framework")
     try {

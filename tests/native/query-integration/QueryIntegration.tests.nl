@@ -3,6 +3,7 @@ namespace NSharpLang.QueryIntegration.Tests
 import System
 import System.Collections
 import System.Collections.Generic
+import System.Globalization
 import System.IO
 import System.Text.Json
 
@@ -493,6 +494,13 @@ func QueryOutlineJson(outline: object): string {
     return answer.ToString() ?? ""
 }
 
+func QueryDiagnosticsText(diagnostics: List<DiagnosticResult>): string {
+    args := new object?[](1)
+    SetQueryObject(args, 0, diagnostics)
+    answer := QueryRequire(QueryCall(QueryFormatterType(), "DiagnosticsToText", null, args), "DiagnosticsToText")
+    return answer.ToString() ?? ""
+}
+
 // ─── THE ROW SHAPES ───────────────────────────────────────────────────────────────────────────
 
 func QuerySymbolRows(symbols: IList): List<string> {
@@ -528,6 +536,32 @@ func QuerySymbolNames(symbols: IList): List<string> {
     }
 
     return names
+}
+
+test "DiagnosticsToText keeps invariant casing under Turkish ambient culture and restores it" {
+    property := typeof(CultureInfo).GetProperty("CurrentCulture")
+    if property == null {
+        throw new InvalidOperationException("CurrentCulture property was not found.")
+    }
+
+    // A one-slot object array keeps the previous CLR reference across the finally block. The direct
+    // CultureInfo local/assignment shape is currently rejected by columnar emission, so the
+    // reflection boundary preserves the same property and exact object identity for restore.
+    previous := new object?[](1)
+    previous[0] = property.GetValue(null)
+    try {
+        property.SetValue(null, new CultureInfo("tr-TR"))
+        cultureSensitive := "idi".ToUpper()
+        assert cultureSensitive == "İDİ", cultureSensitive
+        diagnostics := new List<DiagnosticResult>()
+        diagnostics.Add(new DiagnosticResult("NL777", "idi", "Unknown severity edge case", "Program.nl", 1, 1, 1, null, null, null, null, null, null, null))
+
+        text := QueryDiagnosticsText(diagnostics)
+        assert text.Contains("[NL777] IDI", StringComparison.Ordinal), text
+        assert !text.Contains("[NL777] İDİ", StringComparison.Ordinal), text
+    } finally {
+        property.SetValue(null, previous[0])
+    }
 }
 
 func QuerySymbolNamed(symbols: IList, name: string): object? {

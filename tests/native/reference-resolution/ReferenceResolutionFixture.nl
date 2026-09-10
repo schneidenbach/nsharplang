@@ -204,6 +204,43 @@ func ResolverWriteAotProjectFixture(projectRoot: string, rootOutputType: string)
     ResolverWrite(Path.Combine(projectRoot, "Program.nl"), rootSource)
 }
 
+// A portable two-assembly probe for the compiler-service facade and the ordinary external-member
+// route. The active CLI output directory supplies Compiler.dll/Core.dll, so the fixture exercises
+// whichever fresh product build is running the native test rather than a checked-in or hardcoded
+// candidate. The producer deliberately has no compiler dependency: the consumer proves both the
+// external inherited getter/field path and the facade assembly contract independently.
+func ResolverWriteFacadeInteropFixture(scratch: string, compilerOutput: string): string {
+    producerRoot := Path.Combine(scratch, "producer")
+    consumerRoot := Path.Combine(scratch, "consumer")
+    producerOutput := Path.Combine(producerRoot, "out")
+    consumerOutput := Path.Combine(consumerRoot, "out")
+    Directory.CreateDirectory(producerRoot)
+    Directory.CreateDirectory(consumerRoot)
+
+    ResolverWrite(
+        Path.Combine(producerRoot, "project.yml"),
+        "name: FacadeInterop.Library\nversion: 1.0.0\nbackend: il\noutputType: library\ntargetFramework: net10.0\n"
+    )
+    ResolverWrite(
+        Path.Combine(producerRoot, "Library.nl"),
+        "namespace FacadeInterop.Library\n\npublic class MeterBase {\n    ReadCount: int\n\n    Value: int {\n        get {\n            ReadCount = ReadCount + 1\n            return ReadCount\n        }\n    }\n}\n\npublic class Meter: MeterBase {\n}\n"
+    )
+
+    producerDll := Path.Combine(producerOutput, "FacadeInterop.Library.dll")
+    compilerDll := Path.Combine(compilerOutput, "Compiler.dll")
+    coreDll := Path.Combine(compilerOutput, "NSharpLang.Compiler.Core.dll")
+    ResolverWrite(
+        Path.Combine(consumerRoot, "project.yml"),
+        "name: FacadeInterop.Consumer\nversion: 1.0.0\nbackend: il\noutputType: exe\ntargetFramework: net10.0\nentry: Consumer.nl\ndependencies:\n  - dll: " + producerDll + "\n  - dll: " + compilerDll + "\n  - dll: " + coreDll + "\n"
+    )
+    ResolverWrite(
+        Path.Combine(consumerRoot, "Consumer.nl"),
+        "namespace FacadeInterop.Consumer\n\nimport System\nimport FacadeInterop.Library\n\nfunc SetInteropObject(values: object?[], index: int, value: object?) {\n    values[index] = value\n}\n\nfunc main() {\n    meter := new Meter()\n    first := meter.Value\n    second := meter.Value\n    reads := meter.ReadCount\n    if first != 1 || second != 2 || reads != 2 {\n        throw new InvalidOperationException(\"Inherited getter/field sequence was not preserved.\")\n    }\n\n    print first\n    print second\n    print reads\n    formatterType := Type.GetType(\"NSharpLang.Compiler.CodeIntelligence.OutputFormatter, Compiler\")\n    if formatterType == null {\n        throw new InvalidOperationException(\"Compiler facade type was not loadable.\")\n    }\n    formatterMethod := formatterType.GetMethod(\"ErrorToJson\")\n    if formatterMethod == null {\n        throw new InvalidOperationException(\"Compiler facade method was not loadable.\")\n    }\n    formatterArgs := new object?[](5)\n    SetInteropObject(formatterArgs, 0, \"interop\")\n    SetInteropObject(formatterArgs, 1, \"ok\")\n    formatterResult := formatterMethod.Invoke(null, formatterArgs)\n    if formatterResult == null {\n        throw new InvalidOperationException(\"Compiler facade returned no JSON.\")\n    }\n    print formatterResult.ToString()\n}\n"
+    )
+
+    return consumerOutput
+}
+
 func ResolverWriteWebFixture(projectRoot: string) {
     sourceRoot := Path.Combine(Path.Combine(ResolverRepositoryRoot(), "examples"), "14-minimal-api")
     File.Copy(Path.Combine(sourceRoot, "project.yml"), Path.Combine(projectRoot, "project.yml"), true)
