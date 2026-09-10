@@ -102,16 +102,12 @@ test "builder-bound ValueTuple admission is exact and retains the established ex
     assert ColumnarTypeOfPlanner.IsSupportedType(six)
     assert ColumnarTypeOfPlanner.IsAdmissibleCollectionElement(pair)
     assert ColumnarTypeOfPlanner.IsAdmissibleCollectionElement(six)
-    assert ColumnarConstructionPlanner.IsSupportedValueTupleType(pair)
-    assert ColumnarConstructionPlanner.IsSupportedValueTupleType(six)
-    assert ColumnarConstructionPlanner.IsSupportedValueTupleType(nineStorage)
     assert ColumnarRuntimeInstanceMemberResolver.IsSupportedValueTupleReceiver(pair)
     assert ColumnarRuntimeInstanceMemberResolver.IsSupportedValueTupleReceiver(six)
     assert ColumnarRuntimeInstanceMemberResolver.IsSupportedValueTupleReceiver(nineStorage)
 
     // The old baked two-through-seven construction surface is unchanged, including an enum element
     // that TypeOf/receiver admission deliberately excludes at their separate boundaries.
-    assert ColumnarConstructionPlanner.IsSupportedValueTupleType(typeof(ValueTuple<DayOfWeek, int>))
     assert !ColumnarTypeOfPlanner.IsSupportedValueTuple(typeof(ValueTuple<DayOfWeek, int>))
 
     sourceValue := SourceCallDefinition("BuilderTupleValue", false).Builder
@@ -129,7 +125,6 @@ test "builder-bound ValueTuple admission is exact and retains the established ex
     wrongRest := BuilderTupleClosed(3, BuilderTupleTypes3(typeof(int), typeof(int), typeof(int)))
     malformedLong := BuilderTupleClosed(8, BuilderTupleTypes8(first, second, wrongRest))
     assert !ColumnarTypeOfPlanner.IsSupportedValueTuple(malformedLong)
-    assert !ColumnarConstructionPlanner.IsSupportedValueTupleType(malformedLong)
     assert !ColumnarRuntimeInstanceMemberResolver.IsSupportedValueTupleReceiver(malformedLong)
     assert !ColumnarTypeOfPlanner.IsSupportedValueTuple(BuilderTupleNamesake(8, BuilderTupleTypes8(first, second, rest)))
 }

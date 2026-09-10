@@ -18,6 +18,7 @@ This guide covers the type system in N#, including classes, structs, records, di
 - [Enums](#enums)
 - [Interfaces](#interfaces)
 - [Generics](#generics)
+- [Using .NET Generic Types](#using-net-generic-types)
 - [Nullable Types](#nullable-types)
 - [Type Aliases](#type-aliases)
 - [Newtypes (Branded Types)](#newtypes-branded-types)
@@ -757,6 +758,120 @@ Two current limits, both being worked on:
 - **Only construction sites are checked.** A violating type argument written in a field,
   parameter, return type, local or base list is not yet reported; the constraint is still recorded
   in metadata, and the same argument is reported when you construct it.
+
+## Using .NET Generic Types
+
+A closed generic type from the BCL or from any referenced assembly is an ordinary type in N#. You
+construct it, call its operators, index it and pass it to generic methods with no ceremony and no
+special-casing in the compiler — `System.Collections.Generic.List<int>` and
+`System.Numerics.Vector<int>` go through exactly the same paths.
+
+### Constructing
+
+Write `new`, the closed type, and the arguments. The constructor is selected by ordinary overload
+resolution over the type's public constructors:
+
+```n#
+import System.Collections.Generic
+import System.Numerics
+
+func Load(values: int[], index: int): Vector<int> {
+    block := new Vector<int>(values, index)   // the (T[], int) constructor
+    broadcast := new Vector<int>(7)           // the (T) constructor: every lane is 7
+    return block + broadcast
+}
+
+func Counts(): Dictionary<string, int> {
+    return new Dictionary<string, int>(16, StringComparer.Ordinal)
+}
+```
+
+A **value type** written with no arguments and no parameterless constructor is its zero value, the
+same reading C# gives it:
+
+```n#
+empty := new Vector<int>()   // all lanes zero
+```
+
+Arguments evaluate left to right, exactly once each, and any exception the constructor raises reaches
+you unchanged — `new Vector<int>(values, values.Length - 1)` raises the BCL's own
+`ArgumentOutOfRangeException`.
+
+### Operators
+
+If the type declares operators, you write them:
+
+```n#
+func Mask(a: Vector<int>, b: Vector<int>): Vector<int> {
+    return ~Vector.Equals(a, b) & a
+}
+
+func Elapsed(start: DateTime, finish: DateTime): TimeSpan {
+    return finish - start
+}
+```
+
+`+ - * / % & | ^ << >>`, the comparisons `== != < <= > >=`, and the unary `- + ! ~` all resolve to the
+type's own `op_*` declarations, with C#'s overload rules — including the more-specific rule that
+decides between two applicable operators. Compound assignment (`+=`, `-=`, `*=`, `/=`) uses the same
+operators, on a local, a field, an array element or a collection indexer:
+
+```n#
+func SumBlocks(values: int[], lanes: int): int {
+    accumulator := new Vector<int>(0)
+    i := 0
+    while i <= values.Length - lanes {
+        accumulator += new Vector<int>(values, i)
+        i = i + lanes
+    }
+    return Vector.Sum(accumulator)
+}
+```
+
+The built-in numeric, `bool`, `char` and `string` operators are unaffected: `1 + 2` is still a single
+IL instruction, not a method call.
+
+### Indexers
+
+An indexer is an ordinary member, so `receiver[index]` works on any type that declares one, and its
+bounds behaviour is the type's own:
+
+```n#
+func Lane(a: Vector<int>, index: int): int {
+    return a[index]
+}
+```
+
+### Generic methods
+
+A generic method's type arguments are inferred from the arguments you pass, including from a
+constructed generic argument:
+
+```n#
+func Reduce(a: Vector<int>): int {
+    return Vector.Sum(a)              // Sum<T> binds T = int from Vector<int>
+}
+
+func Nearest(a: Vector<long>, b: Vector<long>): Vector<long> {
+    return Vector.Min(a, b)           // Min<T> binds T = long
+}
+
+func Hash(state: byte, name: string): int {
+    return HashCode.Combine(state, name)   // one type parameter per argument
+}
+```
+
+Inference is checked, not guessed: a type parameter two arguments would bind differently is an error
+rather than a silent choice, and the inferred arguments are validated against the method's declared
+constraints.
+
+### Current limits
+
+- An **array of a constructed external value-type generic** (`Vector<int>[]`) does not emit yet.
+  Arrays of your own types, of reference types and of the primitive types are unaffected.
+- A **generic method closed over an enclosing declaration's own type parameter** —
+  `HashCode.Combine(state, ok)` written inside `struct Outcome<TOk, TErr>` — analyses correctly but
+  does not emit yet.
 
 ## Nullable Types
 

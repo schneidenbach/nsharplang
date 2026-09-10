@@ -2057,10 +2057,7 @@ test "construction planner binds the exact Dictionary sequence and comparer cons
     assert parameters[1] == typeof(IEqualityComparer<string>)
 
     dictionaryDefinition := typeof(Dictionary<int, int>).GetGenericTypeDefinition()
-    assert ColumnarConstructionPlanner.IsCopyComparerCollectionDefinition(
-        dictionaryDefinition
-    )
-    constructor := ColumnarConstructionPlanner.FindOpenCopyComparerConstructor(
+    constructor := ClosureCollectionOpenCopyComparerConstructor(
         dictionaryDefinition,
         "System.Collections.Generic.IEqualityComparer`1"
     )
@@ -2069,22 +2066,6 @@ test "construction planner binds the exact Dictionary sequence and comparer cons
     assert openParameters.Length == 2
     assert openParameters[0].get_ParameterType().GetGenericTypeDefinition() == typeof(IEnumerable<int>).GetGenericTypeDefinition()
     assert openParameters[1].get_ParameterType().GetGenericTypeDefinition() == typeof(IEqualityComparer<int>).GetGenericTypeDefinition()
-
-    assert ColumnarConstructionPlanner.IsCopyComparerCollectionDefinition(
-        typeof(HashSet<int>).GetGenericTypeDefinition()
-    )
-    assert ColumnarConstructionPlanner.IsCopyComparerCollectionDefinition(
-        typeof(SortedSet<int>).GetGenericTypeDefinition()
-    )
-    assert !ColumnarConstructionPlanner.IsCopyComparerCollectionDefinition(
-        typeof(SortedDictionary<int, int>).GetGenericTypeDefinition()
-    )
-    foreign := TypeOfCreateBuilder(
-        "System.Collections.Generic.Dictionary`2",
-        "Construction.CopyComparer.Foreign",
-        2
-    )
-    assert !ColumnarConstructionPlanner.IsCopyComparerCollectionDefinition(foreign)
 
     mismatch := ConstructionExplicitGenericNewTree(
         "Dictionary",
