@@ -32,7 +32,7 @@ Base: 06186dc6d (includes bootstrap/CI work; preserve it).
 
 | Area | Owner | Worktree / branch | Status |
 |---|---|---|---|
-| Complete Compiler service facade and assertions | Luna Max toolchain_facade | /private/tmp/nsharp-agent-wt/toolchain-facade; codex/toolchain-facade | Implementing |
+| Complete Compiler service facade and assertions | Luna Max toolchain_facade | Integrated at 5691697ce; lane pending cleanup | Four C# owners and remaining C# assertion removed; 98 native tests and private package consumer pass; combined build/final gate pending |
 | Complete LoadProjectConfig / LoadProjectReferences and assertions | Luna Max toolchain_build_tasks | Integrated; original lane retired | Owners and canonical SDK assertions integrated into candidate; 8,028 Core tests pass; 20 native SDK tests pass; final integration gate/push pending |
 | CLI query/commands and LSP signature/services | Next wave | Signature branch preserved; integrated query branches retired | Continue from integration HEAD; refresh unique signature work without restarting |
 | Playground interpreter | Luna Max next after SDK assertions | /private/tmp/nsharp-agent-wt/toolchain-playground; codex/toolchain-playground | Implementing from 2f73fdf12; complete connected owner and tests |
@@ -101,6 +101,17 @@ A finished lane is not completion of this whole objective.
   rejection. All 8,068 Core assertions pass at ce44d49b8:
   /private/tmp/toolchain-integrated-static-byref-canonicals-r1.log. The facade can call the existing
   completion-prefix kernel directly; final owner/package integration remains in progress.
+- The complete facade is integrated at 5691697ce with portable Core project references, SDK-supplied
+  Runtime dependency, original Compiler.dll/NSharpLang.Compiler identities and no-PDB package routing.
+  Lane native suites pass 79 query + 5 reference + 13 completion + 1 query-completion tests; the
+  private package consumer builds/runs. The source API retains method sets, arities and defaults,
+  but parameters previously named `file` are `fileName`: `file` is an N# keyword and the current
+  language has no escaped-identifier syntax. Positional/binary callers are unchanged; named-argument
+  source callers require that spelling change. This source-compatibility limitation is explicit.
+- Playground's shared declaration-name helper is integrated at 006c4cc36, with all 20 focused
+  Core canonical tests passing: /private/tmp/toolchain-integrated-playground-helper-canonicals-r1.log.
+  Corrected private owner probes pass 34 tooling + 116 diagnostic-span tests; final project routing
+  and C# owner deletion remain in progress.
 - All five IlSdkToolchainTests.cs cases now have N# successors and the C# file is removed in the
   integration candidate. Review retained XML UnitTestResult/outcome semantics and removed new
   assertions that merely mirrored private field names. All 20 native SDK tests pass against a private package (22.7s). Receipt:
