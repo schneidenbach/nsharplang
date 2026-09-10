@@ -746,6 +746,24 @@ class ColumnarCanonicalTypeResolver {
                 selected = delegateSelected
                 return true
             }
+
+            // A delegate written over the ENCLOSING SCOPE'S TYPE PARAMETERS — `Func<T, TResult>` in a
+            // generic member's signature. The plain reader cannot see them, so the arguments are read
+            // under the binding here and the open `Func`/`Action` definition of the matching arity is
+            // constructed over them.
+            openDelegateSelected := ColumnarSelectedTypeReference.Missing(table)
+            if TrySelectDelegateWithTypeParams(
+                canonical,
+                typeParams,
+                enumRegistry,
+                structRegistry,
+                unionRegistry,
+                out openDelegateSelected
+            ) {
+                selected = openDelegateSelected
+                return true
+            }
+            selected = ColumnarSelectedTypeReference.Missing(table)
         }
 
         genericOpen := canonical.IndexOf('<')
@@ -815,6 +833,97 @@ class ColumnarCanonicalTypeResolver {
             unionRegistry,
             out selected
         )
+    }
+
+    // The open `Func`/`Action` definition of a given arity. `Func` reads its LAST type argument as the
+    // result and `Action` reads them all as parameters, which is the same reading every other
+    // delegate surface in this compiler gives those two names.
+    static func OpenDelegateDefinition(isFunc: bool, arity: int): Type? {
+        if isFunc {
+            if arity == 1 {
+                return typeof(Func<int>).GetGenericTypeDefinition()
+            }
+            if arity == 2 {
+                return typeof(Func<int, int>).GetGenericTypeDefinition()
+            }
+            if arity == 3 {
+                return typeof(Func<int, int, int>).GetGenericTypeDefinition()
+            }
+            if arity == 4 {
+                return typeof(Func<int, int, int, int>).GetGenericTypeDefinition()
+            }
+            if arity == 5 {
+                return typeof(Func<int, int, int, int, int>).GetGenericTypeDefinition()
+            }
+            return null
+        }
+
+        if arity == 1 {
+            return typeof(Action<int>).GetGenericTypeDefinition()
+        }
+        if arity == 2 {
+            return typeof(Action<int, int>).GetGenericTypeDefinition()
+        }
+        if arity == 3 {
+            return typeof(Action<int, int, int>).GetGenericTypeDefinition()
+        }
+        if arity == 4 {
+            return typeof(Action<int, int, int, int>).GetGenericTypeDefinition()
+        }
+        return null
+    }
+
+    static func TrySelectDelegateWithTypeParams(
+        canonical: string,
+        typeParams: IReadOnlyDictionary<string, Type>,
+        enumRegistry: ColumnarSemanticRegistry<ColumnarEnumDef>,
+        structRegistry: ColumnarSemanticRegistry<ColumnarStructDef>,
+        unionRegistry: ColumnarSemanticRegistry<ColumnarUnionDef>,
+        out selected: ColumnarSelectedTypeReference
+    ): bool {
+        table := structRegistry.StructuralTypeReferences
+        selected = ColumnarSelectedTypeReference.Missing(table)
+        genericOpen := canonical.IndexOf('<')
+        if genericOpen <= 0 || canonical[canonical.Length - 1] != '>' {
+            return false
+        }
+
+        headName := canonical.Substring(0, genericOpen)
+        isFunc := headName == "Func"
+        if !isFunc && headName != "Action" {
+            return false
+        }
+
+        argumentCanonicals := ColumnarTypeCanonicalizer.SplitTopLevelCommas(
+            canonical.Substring(genericOpen + 1, canonical.Length - genericOpen - 2)
+        )
+        definition := OpenDelegateDefinition(isFunc, argumentCanonicals.Count)
+        if definition == null {
+            return false
+        }
+
+        arguments := new ColumnarSelectedTypeReference[](argumentCanonicals.Count)
+        i := 0
+        while i < arguments.Length {
+            argument := ColumnarSelectedTypeReference.Missing(table)
+            if !TrySelectRuntimeTypeWithTypeParams(
+                argumentCanonicals[i],
+                typeParams,
+                enumRegistry,
+                structRegistry,
+                unionRegistry,
+                out argument
+            ) {
+                selected = ColumnarSelectedTypeReference.Missing(table)
+                return false
+            }
+            arguments[i] = argument
+            i += 1
+        }
+
+        runtimeType := definition.MakeGenericType(SelectedRuntimeTypes(arguments))
+        selected = ConstructedSelection(table, runtimeType, definition, arguments)
+        return true
     }
 
     static func TrySelectClosedUserGeneric(

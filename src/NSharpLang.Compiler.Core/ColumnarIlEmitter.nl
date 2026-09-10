@@ -1376,7 +1376,7 @@ sealed class ColumnarIlEmitter {
             } else {
                 let local: System.Reflection.Emit.LocalBuilder? = null
                 if (_locals.TryGetValue(name, out local)) {
-                    if (!ColumnarTypeOfPlanner.IsSupportedDelegateType(local.get_LocalType())) {
+                    if (!IsInvocableDelegateType(local.get_LocalType())) {
                         return false
                     }
                     delegateType = local.get_LocalType()
@@ -1385,7 +1385,7 @@ sealed class ColumnarIlEmitter {
                     let ordinal: int = 0
                     if (_paramOrdinals.TryGetValue(name, out ordinal)) {
                         paramType := _paramTypes[name]
-                        if (!ColumnarTypeOfPlanner.IsSupportedDelegateType(paramType)) {
+                        if (!IsInvocableDelegateType(paramType)) {
                             return false
                         }
                         delegateType = paramType
@@ -1396,13 +1396,14 @@ sealed class ColumnarIlEmitter {
                 }
             }
         }
-        invoke := delegateType.GetMethod("Invoke")
-        if (invoke == null) {
+        let invoke: System.Reflection.MethodInfo = null
+        let invokeParameterTypes: System.Type[] = null
+        let invokeReturnType: System.Type = null
+        if (!TryResolveDelegateInvocation(delegateType, out invoke, out invokeParameterTypes, out invokeReturnType)) {
             return false
         }
-        invokeParams := invoke.GetParameters()
         argCount := _nodes.ChildCount(callIdx) - 1
-        if (argCount != invokeParams.Length) {
+        if (argCount != invokeParameterTypes.Length) {
             return false
         }
         for a := 1; a <= argCount; a++ {
@@ -1410,14 +1411,77 @@ sealed class ColumnarIlEmitter {
             if (!EmitExpression(Child(callIdx, a), out argType)) {
                 return false
             }
-            invokeParameter := invokeParams[a - 1]
-            invokeParameterType := invokeParameter.get_ParameterType()
-            if (argType != invokeParameterType) {
+            if (argType != invokeParameterTypes[a - 1]) {
                 return false
             }
         }
         _il.Emit(OpCodes.Callvirt, invoke)
-        columnarResolvedType = invoke.get_ReturnType()
+        columnarResolvedType = invokeReturnType
+        return true
+    }
+
+    // A delegate slot this emitter can invoke: the modelled closed shapes, plus an instantiation that
+    // mentions a type parameter, whose `Invoke` is reached through its open definition below.
+    private static func IsInvocableDelegateType(candidate: Type): bool {
+        if (ColumnarTypeOfPlanner.IsSupportedDelegateType(candidate)) {
+            return true
+        }
+        let openInvoke: System.Reflection.MethodInfo = null
+        let openParameterTypes: System.Type[] = null
+        let openReturnType: System.Type = null
+        return MentionsGenericParameter(candidate) && TryResolveDelegateInvocation(candidate, out openInvoke, out openParameterTypes, out openReturnType)
+    }
+
+    // THE DELEGATE'S `Invoke`, ITS PARAMETER SHAPES AND ITS RESULT. A baked delegate answers all
+    // three itself. An instantiation that MENTIONS a type parameter — `f: Func<T, TResult>` in a
+    // generic member — is builder-bound and cannot: its members are read from the open DEFINITION and
+    // rebound onto the instantiation with `TypeBuilder.GetMethod`, and the definition's own `Invoke`
+    // signature is substituted by the instantiation's arguments.
+    private static func TryResolveDelegateInvocation(delegateType: Type, out invoke: MethodInfo, out parameterTypes: Type[], out returnType: Type): bool {
+        invoke = null
+        parameterTypes = null
+        returnType = null
+        if (!ColumnarTypeOfPlanner.ContainsBuilderBoundType(delegateType)) {
+            bakedInvoke := delegateType.GetMethod("Invoke")
+            if (bakedInvoke == null) {
+                return false
+            }
+            bakedParameters := bakedInvoke.GetParameters()
+            bakedParameterTypes := new Type[bakedParameters.Length]
+            for bakedIndex := 0; bakedIndex < bakedParameters.Length; bakedIndex++ {
+                bakedParameterTypes[bakedIndex] = bakedParameters[bakedIndex].get_ParameterType()
+            }
+            invoke = bakedInvoke
+            parameterTypes = bakedParameterTypes
+            returnType = bakedInvoke.get_ReturnType()
+            return true
+        }
+
+        if (!delegateType.get_IsGenericType() || delegateType.get_IsGenericTypeDefinition()) {
+            return false
+        }
+        definition := delegateType.GetGenericTypeDefinition()
+        if (definition is TypeBuilder || !typeof(Delegate).IsAssignableFrom(definition)) {
+            return false
+        }
+        openInvoke := definition.GetMethod("Invoke")
+        if (openInvoke == null) {
+            return false
+        }
+        definitionParameters := definition.GetGenericArguments()
+        typeArguments := delegateType.GetGenericArguments()
+        openParameters := openInvoke.GetParameters()
+        resolvedParameterTypes := new Type[openParameters.Length]
+        for openIndex := 0; openIndex < openParameters.Length; openIndex++ {
+            resolvedParameterTypes[openIndex] = SubstituteOwnerTypeArguments(openParameters[openIndex].get_ParameterType(), definitionParameters, typeArguments)
+        }
+        reboundInvoke := TypeBuilder.GetMethod(delegateType, openInvoke)
+        if (reboundInvoke == null) {
+            return false
+        }
+        invoke = reboundInvoke
+        parameterTypes = resolvedParameterTypes
+        returnType = SubstituteOwnerTypeArguments(openInvoke.get_ReturnType(), definitionParameters, typeArguments)
         return true
     }
 

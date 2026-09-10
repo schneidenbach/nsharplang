@@ -112,6 +112,34 @@ class Holder<T> {
     }
 }
 
+// A DELEGATE PARAMETER written over BOTH scopes — the owner's `TOk`/`TErr` and the method's own
+// `TResult`. `Func<TOk, TResult>` is an instantiation whose arguments are unbaked builders, so its
+// `Invoke` is reached through the open definition and rebound onto the instantiation; the shape is
+// closed at the call site, where the lambda is then contextually typed against a real delegate.
+// This is the `Result<TOk, TErr>.Match<TResult>` shape.
+struct Outcome<TOk, TErr> {
+    State: int
+    Ok: TOk
+    Err: TErr
+
+    constructor(state: int, ok: TOk, err: TErr) {
+        State = state
+        Ok = ok
+        Err = err
+    }
+
+    func Match<TResult>(ok: Func<TOk, TResult>, err: Func<TErr, TResult>): TResult {
+        if State == 1 {
+            return ok(Ok)
+        }
+        return err(Err)
+    }
+
+    func Select<TResult>(f: Func<TOk, TResult>): TResult {
+        return f(Ok)
+    }
+}
+
 class Seed {
     Number: int
 
@@ -239,6 +267,12 @@ func ConstrainedCalls(): int {
     return total + Constrained.ReadId<Identified>(identified)
 }
 
+func DelegateOverBothScopes(): string {
+    ok := new Outcome<int, string>(1, 3, "")
+    err := new Outcome<int, string>(2, 0, "bad")
+    return ok.Match<string>(v => v.ToString(), e => e) + err.Match<string>(v => v.ToString(), e => e) + ok.Select<int>(v => v + 1).ToString()
+}
+
 func UnconstrainedNullAnswers(): string {
     valueInstantiation := new Unconstrained<int>(0)
     nullReference := new Unconstrained<string?>(null)
@@ -359,6 +393,10 @@ test "a generic method on a reference generic owner runs both ways" {
 
 test "constrained generic methods run and their arguments satisfy the constraints" {
     assert ConstrainedCalls() == 18
+}
+
+test "a delegate parameter written over both scopes is invoked through its instantiation" {
+    assert DelegateOverBothScopes() == "3bad4"
 }
 
 test "an unconstrained type parameter answers its null questions for both kinds" {
