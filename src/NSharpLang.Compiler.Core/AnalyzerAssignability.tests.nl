@@ -200,6 +200,21 @@ test "nullable widening walks the inner types in both shapes" {
     assert !assignability.IsAssignable(BuiltInTypes.Int, nullableInt)
 }
 
+test "oblivious array metadata is compatible while nullable array elements remain distinct" {
+    assignability := AssignabilityDefault()
+    source: TypeInfo = new ArrayTypeInfo(BuiltInTypes.String)
+    obliviousElement: TypeInfo = new ArrayTypeInfo(new ObliviousTypeInfo(BuiltInTypes.String))
+    outerOblivious: TypeInfo = new ObliviousTypeInfo(obliviousElement)
+    nullableElement: TypeInfo = new ArrayTypeInfo(new NullableTypeInfo(BuiltInTypes.String))
+
+    assert assignability.IsAssignable(obliviousElement, source)
+    assert assignability.IsAssignable(source, obliviousElement)
+    assert assignability.IsAssignable(outerOblivious, source)
+    assert assignability.IsAssignable(source, outerOblivious)
+    assert !assignability.IsAssignable(nullableElement, source)
+    assert !assignability.IsAssignable(source, nullableElement)
+}
+
 test "the known-generic relation is covariant only where the interface is read-only" {
     assignability := AssignabilityDefault()
     listDefinitionType := AssignabilityRuntimeType("System.Collections.Generic.List`1, System.Private.CoreLib")

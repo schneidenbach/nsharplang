@@ -925,6 +925,72 @@ test "the per-argument score ladder orders candidates by how much was assumed" {
     )
 }
 
+test "a metadata-loaded check argument summary accepts an oblivious source array and rejects a nullable element" {
+    // The command facade is a real referenced N# assembly. Load its method signature through a
+    // separate MetadataLoadContext so the CLR array identity is not the compiler's own runtime
+    // array identity — the same boundary the Compiler project crosses when it calls the kernel.
+    scan := ExternalAssemblyScan.OpenWithReferences(null)
+    try {
+        context := scan.Context
+        if context == null {
+            throw new InvalidOperationException("The metadata context was not created.")
+        }
+
+        facadePath := typeof(CheckCommandKernels).get_Assembly().get_Location()
+        facade := context.LoadFromAssemblyPath(facadePath)
+        facadeType := facade.GetType("NSharpLang.Cli.Commands.CheckCommandKernels")
+        if facadeType == null {
+            throw new InvalidOperationException("CheckCommandKernels was not found in the facade assembly.")
+        }
+
+        method := facadeType.GetMethod("GetArgumentSummary")
+        if method == null {
+            throw new InvalidOperationException("CheckCommandKernels.GetArgumentSummary was not found.")
+        }
+
+        parameter := method.GetParameters()[0]
+        binder := BinderDefault()
+        supplied := new SuppliedReflectionBoundArgument(
+            0,
+            parameter.get_ParameterType(),
+            BinderPositional("args"),
+            0
+        )
+        score := 0
+
+        // The method's metadata array is oblivious. Its element shell is compatible with a source
+        // array whose element metadata is also oblivious, even though the two CLR Type objects came
+        // from different universes.
+        obliviousArray: TypeInfo = new ArrayTypeInfo(new ObliviousTypeInfo(BuiltInTypes.String))
+        assert binder.TryScoreReflectionSuppliedArgument(
+            supplied,
+            parameter,
+            new Dictionary<Type, Type>(),
+            new Dictionary<Type, TypeInfo>(),
+            new Dictionary<int, FunctionTypeInfo>(),
+            BinderAnalyzed1(obliviousArray),
+            false,
+            out score
+        )
+
+        // Nullable element metadata remains a real mismatch; the compatibility rule must not turn
+        // string?[] into string[] merely because the method was imported.
+        nullableArray: TypeInfo = new ArrayTypeInfo(new NullableTypeInfo(BuiltInTypes.String))
+        assert !binder.TryScoreReflectionSuppliedArgument(
+            supplied,
+            parameter,
+            new Dictionary<Type, Type>(),
+            new Dictionary<Type, TypeInfo>(),
+            new Dictionary<int, FunctionTypeInfo>(),
+            BinderAnalyzed1(nullableArray),
+            false,
+            out score
+        )
+    } finally {
+        scan.Dispose()
+    }
+}
+
 // ------------------------------------------------------------------ the delegate arms
 
 test "a delegate signature is read structurally for Action and Func and through Invoke otherwise" {

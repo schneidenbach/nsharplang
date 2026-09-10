@@ -262,6 +262,10 @@ class AnalyzerAssignability {
             return true
         }
 
+        if AnalyzerAssignabilityFacts.AreArrayTypesCompatible(resolvedTarget, resolvedSource) {
+            return true
+        }
+
         if TypeInfoIdentityFacts.IsRuntimeSpanToReadOnlySpanConversion(resolvedTarget, resolvedSource) {
             return true
         }

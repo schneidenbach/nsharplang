@@ -162,6 +162,21 @@ class AnalyzerAssignabilityFacts {
         return current
     }
 
+    // Array metadata can carry an oblivious shell around the array itself and/or around its
+    // element.  Treat those shells as absent for array identity, while keeping nullable shells
+    // distinct.  This is the array counterpart of the known-generic compatibility rule above: it
+    // repairs an imported method signature whose nullable metadata is unavailable without
+    // weakening nominal identity or accepting a nullable element as a non-null element.
+    static func AreArrayTypesCompatible(target: TypeInfo, source: TypeInfo): bool {
+        targetArray := UnwrapOblivious(target) as ArrayTypeInfo
+        sourceArray := UnwrapOblivious(source) as ArrayTypeInfo
+        if targetArray == null || sourceArray == null {
+            return false
+        }
+
+        return AreKnownGenericArgumentsCompatible(targetArray.ElementType, sourceArray.ElementType)
+    }
+
     // Structural function-type assignability. Parameter counts must agree exactly; an INFERRED
     // (unknown) source parameter is accepted without a check rather than rejected, because a lambda
     // whose parameter types are still being inferred must not be pre-judged. Note the directions:

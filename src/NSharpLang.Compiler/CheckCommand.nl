@@ -118,8 +118,9 @@ class CheckCommand {
 
             if !compileResult.Success {
                 errors := CompilerErrorSeverityFilter.Filter(compileResult.Errors, ErrorSeverity.Error)
+                sourceTexts: IReadOnlyDictionary<string, string>? = null
                 for error in errors {
-                    results.Add(CodeIntelligenceDiagnostics.FromCompilerError(error, projectDir, null))
+                    results.Add(CodeIntelligenceDiagnostics.FromCompilerError(error, projectDir, sourceTexts))
                 }
             }
         } finally {

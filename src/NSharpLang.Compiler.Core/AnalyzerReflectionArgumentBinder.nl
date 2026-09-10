@@ -396,7 +396,10 @@ class AnalyzerReflectionArgumentBinder {
 
         if argumentClrType != null {
             if !AnalyzerOverloadFacts.TryMatchReflectionParameter(openParameterType, argumentClrType, bindings) {
-                return false
+                parameterTypeInfo := AnalyzerReflectionTypeConversion.ConvertReflectionType(openParameterType)
+                if !AnalyzerAssignabilityFacts.AreArrayTypesCompatible(parameterTypeInfo, argumentType) {
+                    return false
+                }
             }
 
             PopulateTypeInfoBindingsFromType(openParameterType, argumentType, typeInfoBindings)
