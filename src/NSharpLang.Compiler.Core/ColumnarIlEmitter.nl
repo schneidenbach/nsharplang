@@ -2522,7 +2522,7 @@ sealed class ColumnarIlEmitter {
                         if (!ColumnarParameterDefaultEmitter.DefineMethodParameterMetadataWithAttributes(pmb, sParamTypes, m.ParamNames, m.ParamModifierKinds, m.ParamDefaultKinds, m.ParamDefaultTexts, typeResolution.Enums, m.ParameterSourceAttributes, typeResolution)) {
                             return false
                         }
-                        overloads.Add(new ColumnarStaticMethodDef(pmb, sParamTypes, m.ParamModifierKinds, sSignatureReturn))
+                        overloads.Add(new ColumnarStaticMethodDef(pmb, sParamTypes, m.ParamModifierKinds, sSignatureReturn, m.ReturnTupleElementNames))
                         continue
                     }
 
@@ -2531,7 +2531,7 @@ sealed class ColumnarIlEmitter {
                     if (!ColumnarParameterDefaultEmitter.DefineMethodParameterMetadataWithAttributes(smb, sParamTypes, m.ParamNames, m.ParamModifierKinds, m.ParamDefaultKinds, m.ParamDefaultTexts, typeResolution.Enums, m.ParameterSourceAttributes, typeResolution)) {
                         return false
                     }
-                    overloads.Add(new ColumnarStaticMethodDef(smb, sParamTypes, m.ParamModifierKinds, sSignatureReturn))
+                    overloads.Add(new ColumnarStaticMethodDef(smb, sParamTypes, m.ParamModifierKinds, sSignatureReturn, m.ReturnTupleElementNames))
                     structMethodJobs.Add(new ValueTuple<ColumnarStructDef, ColumnarFunctionInput, MethodBuilder, Type, Type, Type, Dictionary<string, int>, ValueTuple<Dictionary<string, Type>, bool>>(def, m, smb, sSignatureReturn, sReturn, sAsyncWrappedReturn, sOrdinals, new ValueTuple<Dictionary<string, Type>, bool>(sParamTypeMap, true)))
                     continue
                 }
@@ -2623,7 +2623,7 @@ sealed class ColumnarIlEmitter {
                 AddInstanceMethod(
                     def,
                     m.Name,
-                    new ColumnarInstanceMethodDef(mb, mParamTypes, m.ParamModifierKinds, mSignatureReturn)
+                    new ColumnarInstanceMethodDef(mb, mParamTypes, m.ParamModifierKinds, mSignatureReturn, m.ReturnTupleElementNames)
                 )
                 // An `abstract` member IS its declaration. There is no body to schedule, and
                 // emitting one would make the CLR reject the type.
@@ -13397,9 +13397,55 @@ sealed class ColumnarIlEmitter {
             if (_nodes.Kind(callee) == 6 && _nodes.ValueStart(callee) >= 0 && _siblingReturnTupleNames != null && !_locals.ContainsKey(ColumnarNodeTextFacts.Text(_nodes, _source, callee)) && !_paramOrdinals.ContainsKey(ColumnarNodeTextFacts.Text(_nodes, _source, callee)) && _siblingReturnTupleNames.TryGetValue(ColumnarNodeTextFacts.Text(_nodes, _source, callee), out returnNames)) {
                 return returnNames
             }
+            if (_nodes.Kind(callee) == 8 && _nodes.ChildCount(callee) >= 1) {
+                return TupleNamesOfDeclaredMethodCall(node, callee)
+            }
             return null
         }
         return null
+    }
+
+    // The element names of a NAMED tuple returned by a method DECLARED ON A TYPE -- `Holder.Pair(a, b).Min`
+    // and `holder.Pair(a, b).Min` alike. A free function's names arrive through _siblingReturnTupleNames;
+    // a type's method carries them on its own definition, and the name+arity resolution the call emission
+    // already uses picks which definition answers. Without this, a named tuple returned by a static or
+    // instance method lost its names at the emit boundary and every element access on the result declined,
+    // even though the analyser had resolved it -- the two spellings of "a function that returns a named
+    // tuple" must behave the same.
+    private func TupleNamesOfDeclaredMethodCall(callNode: int, callee: int): string[]? {
+        member := ColumnarNodeTextFacts.Text(_nodes, _source, callee)
+        if (member == "") {
+            return null
+        }
+        argCount := _nodes.ChildCount(callNode) - 1
+        receiver := UnwrapParenthesizedNode(Child(callee, 0))
+
+        // A STATIC call: the receiver spells a source type rather than a value.
+        if (_nodes.Kind(receiver) == 6 && _nodes.ValueStart(receiver) >= 0) {
+            receiverText := ColumnarNodeTextFacts.Text(_nodes, _source, receiver)
+            if (!_locals.ContainsKey(receiverText) && !_paramOrdinals.ContainsKey(receiverText) && _typeResolutionStructs != null) {
+                staticOwner: NSharpLang.Compiler.Columnar.ColumnarStructDef? = null
+                staticMethod: NSharpLang.Compiler.Columnar.ColumnarStaticMethodDef? = null
+                if (_typeResolutionStructs.TryGetValue(receiverText, out staticOwner) && TryFindStaticMethodOnChain(staticOwner, member, argCount, out staticMethod)) {
+                    return staticMethod.ReturnTupleElementNames
+                }
+            }
+        }
+
+        // An INSTANCE call on a value whose type is one of this compilation's own types.
+        receiverType: System.Type? = null
+        if (!TryGetPreflightExpressionType(receiver, out receiverType) || receiverType == null || !(receiverType is TypeBuilder)) {
+            return null
+        }
+        instanceOwner := ColumnarSourceDefinitionResolver.FindByBuilderIdentity(_structRegistry.get_Values(), receiverType)
+        if (instanceOwner == null) {
+            return null
+        }
+        instanceMethod: NSharpLang.Compiler.Columnar.ColumnarInstanceMethodDef? = null
+        if (!ColumnarSourceMemberChainResolver.TryFindMethodOnChain(instanceOwner, member, argCount, out instanceMethod) || instanceMethod == null) {
+            return null
+        }
+        return instanceMethod.ReturnTupleElementNames
     }
 
     private func TryEmitStringCharConcat(leftType: Type, rightType: Type, out resolvedClrType: Type): bool {
@@ -13636,9 +13682,15 @@ sealed class ColumnarIlEmitter {
             return true
         }
 
-        if (TypesEquivalent(valueType, targetType) && (targetType == typeof(int) || targetType == typeof(long) || targetType == typeof(ulong) || targetType == typeof(double) || targetType == typeof(float))) {
+        // The IL-primitive arm. `uint` belongs here for exactly the reason `ulong` does: it is an ordinary
+        // stack-primitive whose add/sub/mul opcodes are shared with the signed forms and whose DIVISION is
+        // unsigned (`div.un`). Leaving it out declined every `sum += array[i]` over a `uint` accumulator
+        // while the spelled-out `sum = sum + array[i]` emitted fine through the general binary path -- the
+        // two spellings must agree, so the unsigned predicate is written once and read by both operands.
+        if (TypesEquivalent(valueType, targetType) && (targetType == typeof(int) || targetType == typeof(long) || targetType == typeof(uint) || targetType == typeof(ulong) || targetType == typeof(double) || targetType == typeof(float))) {
             scalarIl := _il
-            scalarOpCode := op == "+" ? OpCodes.Add : op == "-" ? OpCodes.Sub : op == "*" ? OpCodes.Mul : targetType == typeof(ulong) ? OpCodes.Div_Un : OpCodes.Div
+            scalarUnsigned := targetType == typeof(uint) || targetType == typeof(ulong)
+            scalarOpCode := op == "+" ? OpCodes.Add : op == "-" ? OpCodes.Sub : op == "*" ? OpCodes.Mul : scalarUnsigned ? OpCodes.Div_Un : OpCodes.Div
             scalarIl.Emit(scalarOpCode)
             return true
         }

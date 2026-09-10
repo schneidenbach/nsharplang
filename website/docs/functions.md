@@ -217,6 +217,50 @@ func getDimensions(): (int, int) {
 Console.WriteLine($"{width}x{height}")
 ```
 
+#### Named Tuple Elements
+
+Name the elements to read them back by name instead of by position. The names are part of the
+declared type, so callers can use either the names or positional deconstruction:
+
+```n#
+func minMax(values: int[]): (Min: int, Max: int) {
+    low := values[0]
+    high := values[0]
+    for i := 1; i < values.Length; i++ {
+        if values[i] < low {
+            low = values[i]
+        }
+        if values[i] > high {
+            high = values[i]
+        }
+    }
+    return (low, high)
+}
+
+bounds := minMax([3, 1, 4])
+Console.WriteLine($"{bounds.Min}..{bounds.Max}")   // by name
+
+low, high := minMax([3, 1, 4])                     // or by position
+```
+
+Named tuple returns work the same way on free functions, static methods and instance methods:
+
+```n#
+class Sample {
+    static func range(values: int[]): (Min: int, Max: int) => minMax(values)
+
+    func shifted(values: int[], offset: int): (Min: int, Max: int) {
+        bounds := minMax(values)
+        return (bounds.Min + offset, bounds.Max + offset)
+    }
+}
+```
+
+A named tuple is a `System.ValueTuple` at the CLR level, so the underlying fields are still
+`Item1` / `Item2` and the names are erased in the emitted IL. Reading a named element off a tuple
+returned by a method from ANOTHER assembly (a C# library, for instance) is not supported yet —
+use `Item1` / `Item2` or deconstruction there.
+
 ## Lambda Expressions
 
 ### Basic Lambda Syntax

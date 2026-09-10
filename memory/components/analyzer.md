@@ -748,6 +748,20 @@ instance, resolving against the current instantiation. What remains unsupported 
 declared by a user type (`static func Of<U>(...)`), which the columnar struct kernel refuses at
 parse.
 
+Members, constructors and operators of a CONSTRUCTED EXTERNAL generic type are ordinary scoped CLR
+resolution too — there is no modeled-call table, allowlist or lane-count special case behind
+`Vector<int>.Count`, `new Vector<uint>(array, i)`, `a0 += ...`, `v[lane]` or `Vector.Sum(...)`.
+`tests/native/external-generic-construction` isolates each element and `tests/native/simd-reductions`
+is the whole-library proof: a complete N# translation of `src/NSharpLang.Runtime/SimdReductions.cs`
+executed side by side with the C# original on the same inputs. Two emitter holes that surfaced there
+are fixed: `uint` was missing from `TryEmitCompoundOperation`'s IL-primitive arm (so `sum += a[i]`
+declined on a `uint` accumulator while `sum = sum + a[i]` emitted), and named tuple element names
+were carried only for FREE functions, so element access on a tuple returned by a static or instance
+method declined at emit even though the analyzer had resolved it —
+`ColumnarStaticMethodDef`/`ColumnarInstanceMethodDef` now carry `ReturnTupleElementNames`. Still
+open: element names are not read off an EXTERNAL member's `TupleElementNamesAttribute`, so
+`csharpMethod().Min` reports NL303 (use `Item1`/`Item2` or deconstruction).
+
 - **ClassTypeInfo**: N#-owned class declaration metadata
 - **StructTypeInfo**: N#-owned struct declaration metadata
 - **RecordTypeInfo**: N#-owned record declaration metadata (reference or struct)
