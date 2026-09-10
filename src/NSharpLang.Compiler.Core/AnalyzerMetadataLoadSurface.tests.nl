@@ -50,15 +50,21 @@ func MetadataLoadSurfaceTwinName(): string {
 // The SAME identity from the reference pack. `GetReferencePackDirectories` is the analyzer's own
 // root discovery -- the one that climbs the runtime directory rather than reading `Assembly.Location`
 // -- so this fixture is built out of a production kernel rather than a path guess.
+// Hosted runners have several SDK generations installed. Match the runtime assembly identity
+// instead of accepting the first pack returned by directory discovery.
 func MetadataLoadSurfaceReferencePackPath(simpleName: string): string {
     seeds := new string[](1)
     seeds[0] = MetadataLoadSurfaceFrameworkDirectory()
     directories := DocQueryKernels.GetReferencePackDirectories(seeds, Environment.GetEnvironmentVariable("DOTNET_ROOT"))
+    expectedIdentity := AssemblyName.GetAssemblyName(MetadataLoadSurfaceFrameworkPath(simpleName)).get_FullName()
     index := 0
     while index < directories.Length {
         candidate := Path.Combine(directories[index], simpleName + ".dll")
         if File.Exists(candidate) {
-            return candidate
+            candidateIdentity := AssemblyName.GetAssemblyName(candidate).get_FullName()
+            if candidateIdentity == expectedIdentity {
+                return candidate
+            }
         }
 
         index = index + 1

@@ -108,6 +108,7 @@ func AddressableDirectCallHolder(fixture: ColumnarAddressableDirectCallFixture):
     values.Add(42)
     values.Add(43)
     enumerator := TypeOfRequiredInvocation(fixture.GetEnumerator, values, new object[](0))
+    TypeOfRequiredInvocation(fixture.MoveNext, enumerator, new object[](0))
 
     AddressableDirectCallSetField(fixture.EnumeratorField, holder, enumerator)
     return holder
@@ -172,17 +173,27 @@ test "addressable direct-call persisted execution mutates original value field s
     assert plan.MethodDeclaringTypes[0] == fixture.EnumeratorType
 
     holder := AddressableDirectCallHolder(fixture)
-    assert AddressableDirectCallCurrent(fixture, holder) == "0"
+    initialCurrent := AddressableDirectCallCurrent(fixture, holder)
+    if initialCurrent != "42" {
+        throw new InvalidOperationException("Initial enumerator Current expected 42; got " + initialCurrent)
+    }
 
     parameterTypes := new Type[](1)
     parameterTypes[0] = fixture.HolderType
     arguments := new object[](1)
     ExecutorSetObject(arguments, 0, holder)
-    assert ExecutorRunRecursivePlan(plan, typeof(bool), parameterTypes, arguments) == "True"
+    moveNextResult := ExecutorRunRecursivePlan(plan, typeof(bool), parameterTypes, arguments)
+    if moveNextResult != "True" {
+        throw new InvalidOperationException("MoveNext result expected True; got " + moveNextResult)
+    }
 
-    // A call on an ldfld copy also returns true, but leaves this stored enumerator before its
-    // first element. Observing 42 therefore proves the call used the ldflda-managed address.
-    assert AddressableDirectCallCurrent(fixture, holder) == "42"
+    // Current is defined only after MoveNext. The fixture starts on 42; a call on an ldfld
+    // copy returns true but leaves the stored enumerator on 42. Observing 43 proves that
+    // the call used the ldflda-managed address.
+    storedCurrent := AddressableDirectCallCurrent(fixture, holder)
+    if storedCurrent != "43" {
+        throw new InvalidOperationException("Stored enumerator Current expected 43; got " + storedCurrent)
+    }
     assert plan.Lifecycle == ColumnarCodePlanLifecycle.Consumed
 }
 
