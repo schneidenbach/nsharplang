@@ -493,6 +493,14 @@ class AnalyzerMemberAccess {
             return scopesValue.LookupSymbol(identifier.Name) == null
         }
 
+        // A CONSTRUCTED GENERIC TYPE RECEIVER IS ALWAYS A TYPE. `Vector<int>` cannot be a value —
+        // the parser builds this node only for `Name<Args>.`, and no symbol can shadow it — so it
+        // answers here without a scope probe, the same shortcut the identifier arm above takes in
+        // the other direction.
+        if target as GenericTypeExpression != null {
+            return true
+        }
+
         discardedType: TypeInfo = BuiltInTypes.Unknown
         return TryResolveTypeValuedMemberAccess(target, out discardedType)
     }

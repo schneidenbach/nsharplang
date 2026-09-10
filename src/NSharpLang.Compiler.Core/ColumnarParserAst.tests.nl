@@ -343,6 +343,9 @@ class AstEq {
         if typeName == "ThrowExpression" {
             return Names("Expression Line Column")
         }
+        if typeName == "GenericTypeExpression" {
+            return Names("Type Line Column")
+        }
         if typeName == "TypeOfExpression" {
             return Names("Type Line Column")
         }
@@ -1080,6 +1083,15 @@ class Golden {
 
     static func TypeOf(typeRef: TypeReference, line: int, column: int): Expression {
         return new TypeOfExpression(typeRef, line, column)
+    }
+
+    // The `Vector<int>` of `Vector<int>.Count`: a constructed generic type in receiver position. Its
+    // Line/Column are the type NAME's, and its `GenericTypeReference` is byte-identical to the one an
+    // annotation in the same columns produces — which is why `GenericT` builds it.
+    static func GenericTypeE(name: string, args: List<TypeReference>, line: int, column: int, endColumn: int): Expression {
+        node := new GenericTypeReference(name, args, line, column)
+        node.Span = Golden.SpanOf(line, column, endColumn)
+        return new GenericTypeExpression(node, line, column)
     }
 
     static func Nameof(target: Expression, line: int, column: int): Expression {
