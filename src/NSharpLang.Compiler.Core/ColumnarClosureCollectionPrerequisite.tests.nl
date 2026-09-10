@@ -270,9 +270,20 @@ test "exact Dictionary Keys result types cover every closure value shape and no 
         typeof(List<string>),
         exactKeys
     )
-    assert !ColumnarRuntimeInstanceMemberResolver.TrySelect(
-        typeof(SortedDictionary<string, int>),
+    sortedDictionary := typeof(SortedDictionary<string, int>)
+    assert ColumnarRuntimeInstanceMemberResolver.TrySelect(
+        sortedDictionary,
         "Keys",
         out selection
     )
+    sortedKeysProperty := sortedDictionary.GetProperty("Keys")
+    if sortedKeysProperty == null {
+        throw new InvalidOperationException("SortedDictionary.Keys property was not found.")
+    }
+    assert !selection.IsField
+    assert selection.Getter != null
+    assert selection.Getter.get_Name() == "get_Keys"
+    assert selection.Getter.get_DeclaringType() == sortedDictionary
+    assert selection.ResultType == sortedKeysProperty.get_PropertyType()
+    assert !ColumnarTypeOfPlanner.IsSupportedDictionaryKeyCollectionType(selection.ResultType)
 }
