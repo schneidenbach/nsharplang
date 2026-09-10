@@ -370,12 +370,22 @@ func TypeOfRequiredInvocation(
             "Required reflection invocation argument count is invalid."
         )
     }
+    declaringType := method.get_DeclaringType()
+    if declaringType != null && declaringType.get_IsValueType() && !method.get_IsStatic() {
+        // Reflection invokes against the original boxed struct. Passing the struct by value
+        // to the dynamic wrapper below would emit an invalid instance receiver and lose mutation.
+        boxedResult := method.Invoke(target, arguments)
+        if boxedResult == null {
+            throw new InvalidOperationException("Required value-type reflection invocation returned null.")
+        }
+        return boxedResult
+    }
+
     isStatic := method.get_IsStatic()
     offset := isStatic ? 0 : 1
     parameterTypes := new Type[](parameters.Length + offset)
     invocationArguments := new object[](arguments.Length + offset)
     if !isStatic {
-        declaringType := method.get_DeclaringType()
         if declaringType == null || target == null {
             throw new InvalidOperationException(
                 "Required instance reflection invocation has no receiver."
