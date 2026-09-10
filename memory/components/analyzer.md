@@ -267,6 +267,10 @@ THE DISPATCH ORDER IS THE SPECIFICATION. Moving one arm past another changes the
 - FUNCTION-TYPE structural comparison comes before the identity fallback, because every
   `FunctionTypeInfo` renders identically.
 - The USER-DEFINED conversion is LAST, so a conversion operator can never shadow a built-in relation.
+  It is searched on BOTH ENDS — the type converted FROM and the type converted TO — because a
+  wrapper's `implicit operator Wrap<T>(value: T)` can only be declared on the target: the `T` end may
+  be `int`, which declares nothing about `Wrap`. Each end's operator signature is read through that
+  end's OWN substitution, so reached as `Wrap<int>` the operator is asked as `int -> Wrap<int>`.
 
 THE RE-ENTRANCY GUARD IS CORRECTNESS, NOT AN OPTIMISATION. A user-defined implicit conversion can
 name types whose own conversions name it back; without the active-pair guard `HasImplicitConversion`
@@ -735,6 +739,15 @@ See `src/NSharpLang.Compiler.Core/TypeInfoModels.nl` (with `TypeInfoFactories.nl
 - **UnknownTypeInfo**: Type not yet resolved
 
 ### User-Defined Types
+
+A generic type's STATIC members are ordinary members. There is no declaration-time refusal of a
+static field, property, method, operator or conversion operator on a type with type parameters —
+`AnalyzerTypeDeclarations.ValidateNoStaticMembersOnGenericType` and its NL323 reporter are deleted —
+and a static member is nameable without a qualifier from every body the type owns, static or
+instance, resolving against the current instantiation. What remains unsupported is a generic METHOD
+declared by a user type (`static func Of<U>(...)`), which the columnar struct kernel refuses at
+parse.
+
 - **ClassTypeInfo**: N#-owned class declaration metadata
 - **StructTypeInfo**: N#-owned struct declaration metadata
 - **RecordTypeInfo**: N#-owned record declaration metadata (reference or struct)

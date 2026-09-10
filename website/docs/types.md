@@ -861,6 +861,25 @@ func Hash(state: byte, name: string): int {
 }
 ```
 
+A type argument may be a type parameter of the declaration you are writing it in, so the same call
+works inside your own generic type — the CLR resolves it once per constructed type:
+
+```n#
+struct Outcome<TOk, TErr> {
+    ok: TOk
+    state: byte
+
+    constructor(value: TOk, tag: byte) {
+        ok = value
+        state = tag
+    }
+
+    override func GetHashCode(): int {
+        return HashCode.Combine(state, ok)   // T2 binds to TOk
+    }
+}
+```
+
 Inference is checked, not guessed: a type parameter two arguments would bind differently is an error
 rather than a silent choice, and the inferred arguments are validated against the method's declared
 constraints.
@@ -869,9 +888,8 @@ constraints.
 
 - An **array of a constructed external value-type generic** (`Vector<int>[]`) does not emit yet.
   Arrays of your own types, of reference types and of the primitive types are unaffected.
-- A **generic method closed over an enclosing declaration's own type parameter** —
-  `HashCode.Combine(state, ok)` written inside `struct Outcome<TOk, TErr>` — analyses correctly but
-  does not emit yet.
+- A **generic method your own type declares** — `static func Of<U>(value: U)` on a class or struct,
+  generic or not — is not compiled yet. A generic FREE function is unaffected.
 
 ## Nullable Types
 
