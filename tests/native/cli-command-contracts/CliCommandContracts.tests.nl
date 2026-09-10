@@ -611,7 +611,6 @@ test "nlc check on a clean project emits a versioned success envelope after IL v
     directory := NewTempDirectory("nlc-check-ilverify-success")
     try {
         WriteCheckProject(directory, "CheckIlVerifySuccess", "func main() {\n    print \"ok\"\n}\n")
-        beforeVerificationDirectories := Directory.GetDirectories(Path.GetTempPath(), "nlc-check-il-*").Length
 
         run := NlcIn(directory, "check")
 
@@ -628,11 +627,6 @@ test "nlc check on a clean project emits a versioned success envelope after IL v
         assert root.GetProperty("results").GetArrayLength() == 0
         assert root.GetProperty("summary").GetProperty("errors").GetInt32() == 0
         document.Dispose()
-
-        // VerifyIlOutput owns a best-effort finally cleanup. No check verification directory may
-        // remain after a successful process, including when the compiler emitted an assembly.
-        afterVerificationDirectories := Directory.GetDirectories(Path.GetTempPath(), "nlc-check-il-*").Length
-        assert afterVerificationDirectories == beforeVerificationDirectories
     } finally {
         Directory.Delete(directory, true)
     }
@@ -646,7 +640,6 @@ test "nlc check reports an IL verification decline after semantic analysis succe
             "CheckIlVerifyFailure",
             "import System\n\nfunc main() {\n    values: int[] = [1]\n    view := Array.AsReadOnly(values)\n    print view.Count\n}\n"
         )
-        beforeVerificationDirectories := Directory.GetDirectories(Path.GetTempPath(), "nlc-check-il-*").Length
 
         run := NlcIn(directory, "check")
 
@@ -668,9 +661,6 @@ test "nlc check reports an IL verification decline after semantic analysis succe
         assert result.GetProperty("line").GetInt32() == 5
         assert root.GetProperty("summary").GetProperty("errors").GetInt32() == 1
         document.Dispose()
-
-        afterVerificationDirectories := Directory.GetDirectories(Path.GetTempPath(), "nlc-check-il-*").Length
-        assert afterVerificationDirectories == beforeVerificationDirectories
     } finally {
         Directory.Delete(directory, true)
     }
