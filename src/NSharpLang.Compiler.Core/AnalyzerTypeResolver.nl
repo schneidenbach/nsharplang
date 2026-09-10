@@ -586,6 +586,11 @@ class AnalyzerTypeResolver {
             return nestedType
         }
 
+        namespaceQualifiedType: TypeInfo = BuiltInTypes.Unknown
+        if TryResolveNamespaceQualifiedType(lookupName, writtenName, line, column, out namespaceQualifiedType) {
+            return namespaceQualifiedType
+        }
+
         projectType: TypeInfo = BuiltInTypes.Unknown
         projectDeclaration: SymbolDeclaration? = null
         inaccessibleProjectFile: string? = null
@@ -634,6 +639,42 @@ class AnalyzerTypeResolver {
         }
 
         return new ExternalTypeInfo(writtenName)
+    }
+
+    // `Example.Handle` AND `Handle` ARE ONE IDENTITY.
+    //
+    // A namespace-qualified reference used to fall out of the bottom of this walk as an
+    // `ExternalTypeInfo` placeholder, which is a SECOND type instance beside the one the bare
+    // spelling resolves to. Nothing was assignable across the two, so `func Make(): Example.Handle`
+    // refused every value `Handle` accepted — for a non-generic type as much as for a generic one.
+    //
+    // The reference is split at its LAST dot. The leaf keeps any arity suffix, because that suffix
+    // IS part of the identity; the prefix is read as a namespace and handed to the project-type
+    // channel, which is the same owner the bare name reaches one step later and applies the same
+    // export rule. Nothing is invented here: this returns project discovery's own answer, so the two
+    // spellings produce the very same `TypeInfo`.
+    func TryResolveNamespaceQualifiedType(lookupName: string, writtenName: string, line: int, column: int, out typeInfo: TypeInfo): bool {
+        typeInfo = BuiltInTypes.Unknown
+        separator := lookupName.LastIndexOf('.')
+        if separator <= 0 || separator >= lookupName.Length - 1 {
+            return false
+        }
+
+        namespaceName := lookupName.Substring(0, separator)
+        leafName := lookupName.Substring(separator + 1)
+        projectType: TypeInfo = BuiltInTypes.Unknown
+        projectDeclaration: SymbolDeclaration? = null
+        if !projectDiscoveryValue.ResolveNamespaceQualifiedProjectType(namespaceName, leafName, AnalyzerProjectSourceProvider.UnitNamespace(compilationUnitValue), out projectType, out projectDeclaration) {
+            return false
+        }
+
+        if line > 0 && projectDeclaration != null {
+            bindingsValue.RecordBinding(currentFilePathValue, line, column, writtenName.Length, projectDeclaration)
+        }
+
+        semanticModelValue.RecordType(lookupName, projectType)
+        typeInfo = projectType
+        return true
     }
 
     // `Outer.Inner.Leaf`: the root must be a type IN SCOPE (a project or CLR type is a different

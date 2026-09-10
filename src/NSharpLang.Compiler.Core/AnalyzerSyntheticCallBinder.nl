@@ -378,7 +378,119 @@ class AnalyzerSyntheticCallFacts {
             return new ObliviousTypeInfo(obliviousInner)
         }
 
+        tupleType := candidate as TupleTypeInfo
+        if tupleType != null {
+            elements := new List<TupleTypeElementInfo>()
+            elementIndex := 0
+            while elementIndex < tupleType.Elements.Count {
+                element := tupleType.Elements[elementIndex]
+                elements.Add(new TupleTypeElementInfo(element.Name, ApplyGenericBindings(element.Type, bindings)))
+                elementIndex = elementIndex + 1
+            }
+
+            return new TupleTypeInfo(elements)
+        }
+
+        unionType := candidate as AnonymousUnionTypeInfo
+        if unionType != null {
+            arms := new List<TypeInfo>()
+            armIndex := 0
+            while armIndex < unionType.Arms.Count {
+                arms.Add(ApplyGenericBindings(unionType.Arms[armIndex], bindings))
+                armIndex = armIndex + 1
+            }
+
+            return new AnonymousUnionTypeInfo(arms)
+        }
+
+        byRefType := candidate as ByRefTypeInfo
+        if byRefType != null {
+            return new ByRefTypeInfo(ApplyGenericBindings(byRefType.InnerType, bindings))
+        }
+
+        functionType := candidate as FunctionTypeInfo
+        if functionType != null {
+            return ApplyGenericBindingsToFunctionType(functionType, bindings)
+        }
+
         return candidate
+    }
+
+    // A FUNCTION TYPE IS A COMPOSITE SHELL LIKE ANY OTHER. `Func<T, bool>` written as a parameter
+    // reaches the analyzer already reified into a `FunctionTypeInfo`, so leaving it out of the walk
+    // above meant its `T` survived inference: the call then compared `Func<int, bool>` against a
+    // signature that still said `T`, and reported NL202 with both sides rendered as the same word.
+    //
+    // The rebuilt signature substitutes the PARAMETER and RETURN types and copies every other fact
+    // through, because none of them describes a type: the names, the arity band, the params flag and
+    // the source references belong to the declaration, not to this instantiation. A function type
+    // that declares its OWN type parameters shadows the outer binding for those names, exactly as a
+    // nested generic declaration does.
+    static func ApplyGenericBindingsToFunctionType(functionType: FunctionTypeInfo, bindings: Dictionary<string, TypeInfo>): FunctionTypeInfo {
+        effectiveBindings := WithoutShadowedTypeParameters(functionType.TypeParameters, bindings)
+        substituted := new FunctionTypeInfo()
+        substituted.SyntheticName = functionType.SyntheticName
+        substituted.SourceName = functionType.SourceName
+        substituted.SourceContainingType = functionType.SourceContainingType
+        substituted.SourceLine = functionType.SourceLine
+        substituted.SourceColumn = functionType.SourceColumn
+        substituted.SourceParameterCount = functionType.SourceParameterCount
+        substituted.SourceHasReceiverParameter = functionType.SourceHasReceiverParameter
+        substituted.ParameterNames = functionType.ParameterNames
+        substituted.SourceParameterTypes = functionType.SourceParameterTypes
+        substituted.SourceReturnType = functionType.SourceReturnType
+        substituted.ParameterModifiers = functionType.ParameterModifiers
+        substituted.RequiredParameterCount = functionType.RequiredParameterCount
+        substituted.HasParamsParameter = functionType.HasParamsParameter
+        substituted.TypeParameters = functionType.TypeParameters
+        substituted.GenericConstraints = functionType.GenericConstraints
+        substituted.ResolvedGenericConstraintTypes = functionType.ResolvedGenericConstraintTypes
+        substituted.HasMustUseAttribute = functionType.HasMustUseAttribute
+
+        parameterTypes := functionType.ParameterTypes
+        if parameterTypes != null {
+            substitutedParameters := new List<TypeInfo>()
+            index := 0
+            while index < parameterTypes.Count {
+                substitutedParameters.Add(ApplyGenericBindings(parameterTypes[index], effectiveBindings))
+                index = index + 1
+            }
+
+            substituted.ParameterTypes = substitutedParameters
+        }
+
+        returnType := functionType.ReturnType
+        if returnType != null {
+            substituted.ReturnType = ApplyGenericBindings(returnType, effectiveBindings)
+        }
+
+        return substituted
+    }
+
+    // The binding minus every name the inner signature declares for itself. An empty result is
+    // returned as an empty dictionary rather than null, so the walk's "no bindings" early exit means
+    // exactly what it says.
+    static func WithoutShadowedTypeParameters(typeParameters: List<TypeParameter>?, bindings: Dictionary<string, TypeInfo>): Dictionary<string, TypeInfo> {
+        if typeParameters == null || typeParameters.Count == 0 {
+            return bindings
+        }
+
+        shadowed := new HashSet<string>(StringComparer.Ordinal)
+        index := 0
+        while index < typeParameters.Count {
+            shadowed.Add(typeParameters[index].Name)
+            index = index + 1
+        }
+
+        remaining := new Dictionary<string, TypeInfo>()
+        for entry in bindings {
+            key := entry.Key
+            if !shadowed.Contains(key) {
+                remaining[key] = entry.Value
+            }
+        }
+
+        return remaining
     }
 
     // THE NUMERIC ARM OF THE LEAST UPPER BOUND: the WIDEST type in the fixed widening order
