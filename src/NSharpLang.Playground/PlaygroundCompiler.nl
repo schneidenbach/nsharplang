@@ -3,7 +3,6 @@ namespace NSharpLang.Playground
 import System
 import System.Collections.Generic
 import System.IO
-import System.Linq
 import NSharpLang.Compiler
 import NSharpLang.Compiler.Ast
 import NSharpLang.Compiler.CodeIntelligence
