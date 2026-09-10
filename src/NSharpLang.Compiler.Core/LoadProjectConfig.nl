@@ -117,6 +117,114 @@ class LoadProjectConfig: Microsoft.Build.Utilities.Task {
         }
     }
 
+    private packageIdValue: string
+
+    [Microsoft.Build.Framework.Output]
+    PackageId: string {
+        get {
+            return packageIdValue
+        }
+        set {
+            packageIdValue = value
+        }
+    }
+
+    private packageAuthorsValue: string
+
+    [Microsoft.Build.Framework.Output]
+    PackageAuthors: string {
+        get {
+            return packageAuthorsValue
+        }
+        set {
+            packageAuthorsValue = value
+        }
+    }
+
+    private packageDescriptionValue: string
+
+    [Microsoft.Build.Framework.Output]
+    PackageDescription: string {
+        get {
+            return packageDescriptionValue
+        }
+        set {
+            packageDescriptionValue = value
+        }
+    }
+
+    private packageTagsValue: string
+
+    [Microsoft.Build.Framework.Output]
+    PackageTags: string {
+        get {
+            return packageTagsValue
+        }
+        set {
+            packageTagsValue = value
+        }
+    }
+
+    private packageLicenseExpressionValue: string
+
+    [Microsoft.Build.Framework.Output]
+    PackageLicenseExpression: string {
+        get {
+            return packageLicenseExpressionValue
+        }
+        set {
+            packageLicenseExpressionValue = value
+        }
+    }
+
+    private packageProjectUrlValue: string
+
+    [Microsoft.Build.Framework.Output]
+    PackageProjectUrl: string {
+        get {
+            return packageProjectUrlValue
+        }
+        set {
+            packageProjectUrlValue = value
+        }
+    }
+
+    private repositoryUrlValue: string
+
+    [Microsoft.Build.Framework.Output]
+    RepositoryUrl: string {
+        get {
+            return repositoryUrlValue
+        }
+        set {
+            repositoryUrlValue = value
+        }
+    }
+
+    private packageReadmeFileValue: string
+
+    [Microsoft.Build.Framework.Output]
+    PackageReadmeFile: string {
+        get {
+            return packageReadmeFileValue
+        }
+        set {
+            packageReadmeFileValue = value
+        }
+    }
+
+    private packageReadmeSourceValue: string
+
+    [Microsoft.Build.Framework.Output]
+    PackageReadmeSource: string {
+        get {
+            return packageReadmeSourceValue
+        }
+        set {
+            packageReadmeSourceValue = value
+        }
+    }
+
     constructor() {
         projectDirectoryValue = ""
         targetFrameworkValue = ""
@@ -127,6 +235,15 @@ class LoadProjectConfig: Microsoft.Build.Utilities.Task {
         fileVersionValue = ""
         sdkValue = ""
         testFrameworkValue = SdkProjectConfiguration.DefaultTestFramework
+        packageIdValue = ""
+        packageAuthorsValue = ""
+        packageDescriptionValue = ""
+        packageTagsValue = ""
+        packageLicenseExpressionValue = ""
+        packageProjectUrlValue = ""
+        repositoryUrlValue = ""
+        packageReadmeFileValue = ""
+        packageReadmeSourceValue = ""
     }
 
     override func Execute(): bool {
@@ -147,6 +264,15 @@ class LoadProjectConfig: Microsoft.Build.Utilities.Task {
             FileVersion = config.FileVersion
             Sdk = config.Sdk
             TestFramework = config.TestFramework
+            PackageId = config.PackageId
+            PackageAuthors = config.PackageAuthors
+            PackageDescription = config.PackageDescription
+            PackageTags = config.PackageTags
+            PackageLicenseExpression = config.PackageLicenseExpression
+            PackageProjectUrl = config.PackageProjectUrl
+            RepositoryUrl = config.RepositoryUrl
+            PackageReadmeFile = config.PackageReadmeFile
+            PackageReadmeSource = config.PackageReadmeSource
             return true
         } catch ex: Exception {
             emptyProjectFile: string? = null
