@@ -32,7 +32,7 @@ Base: 06186dc6d (includes bootstrap/CI work; preserve it).
 
 | Area | Owner | Worktree / branch | Status |
 |---|---|---|---|
-| Complete Compiler service facade and assertions | Luna Max toolchain_facade | Integrated at 5691697ce; lane pending cleanup | Four C# owners and remaining C# assertion removed; root combined build and 98 native tests pass; private package consumer passes; final gate pending |
+| Complete Compiler service facade and assertions | Luna Max toolchain_facade | Integrated at 5691697ce; old lane retired | Four C# owners and remaining C# assertion removed; root combined build and 98 native tests pass; private package consumer passes; final gate pending |
 | Complete LoadProjectConfig / LoadProjectReferences and assertions | Luna Max toolchain_build_tasks | Integrated; original lane retired | Owners and canonical SDK assertions integrated into candidate; 8,028 Core tests pass; 20 native SDK tests pass; final integration gate/push pending |
 | CLI query/commands and LSP signature/services | Next wave | Signature branch preserved; integrated query branches retired | Continue from integration HEAD; refresh unique signature work without restarting |
 | Playground interpreter | Luna Max next after SDK assertions | /private/tmp/nsharp-agent-wt/toolchain-playground; codex/toolchain-playground | Implementing from 2f73fdf12; complete connected owner and tests |
@@ -48,6 +48,9 @@ The completed SDK worktree and branch are also retired: its owner confirmed no a
 the checkout was clean apart from ignored build outputs, and all three commits were patch-equivalent
 to integration commits. Recoverable original history is in the verified bundle
 /private/tmp/toolchain-build-tasks-retired-20260909.bundle.
+The completed facade worktree/branch is retired after confirming a clean checkout and all six
+lane commits patch-equivalent to integrated commits. Its agent moved to the separate check-command
+worktree. Verified recovery bundle: /private/tmp/toolchain-facade-retired-20260910.bundle.
 A finished lane is not completion of this whole objective.
 
 ## Current integration findings
