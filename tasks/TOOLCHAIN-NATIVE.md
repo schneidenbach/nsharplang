@@ -173,3 +173,19 @@ A finished lane is not completion of this whole objective.
   A forced rebuild of the same source with the preceding facade seed succeeds, confirming this
   second failure belongs to the resolver regression. It is not a new SIMD or ZipFile feature gap.
   The candidate remains unpublished while exact dependency selection is corrected.
+
+## Recovery after temporary worktrees disappeared
+
+The former /private/tmp worktree directories, private candidates and logs are no longer present.
+Committed branch tips survive. Git administrative metadata was archived at
+/Users/spencer/repos/nsharp-worktree-recovery-gy0mvuhz before pruning missing registrations;
+all eight saved indexes matched HEAD (no staged changes recoverable). Uncommitted resolver/SIMD
+files that existed only in those directories must be reconstructed from recorded findings.
+
+Active persistent worktrees are now /Users/spencer/repos/nsharp-worktrees/integration,
+/Users/spencer/repos/nsharp-worktrees/fix-command and
+/Users/spencer/repos/nsharp-worktrees/runtime-owner. FixCommand commit 33522d9c6 survived and
+is under review; do not restart that port. Luna Max agents are reconstructing the self-hosting
+resolver correction and verifying FixCommand assertions. Private build evidence now goes under
+/Users/spencer/repos/nsharp-worktrees/evidence. Historical test counts above remain historical
+evidence, not fresh recovery/build verification. Shared main checkout and SDK cache remain untouched.
