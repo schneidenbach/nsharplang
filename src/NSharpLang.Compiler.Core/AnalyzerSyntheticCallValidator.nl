@@ -272,6 +272,13 @@ class AnalyzerSyntheticCallValidator {
         expectedArgumentCount := Math.Max(0, expectedCount - parameterStartIndex)
         paramsParameterIndex := AnalyzerOverloadFacts.GetSyntheticParamsParameterIndex(functionType, expectedCount)
         hasParamsParameter := paramsParameterIndex >= 0
+        if !ValidateWrittenTypeArgumentCount(functionType, call, functionName) {
+            // Every later report about this call is a CONSEQUENCE of the list being the wrong
+            // length — the parameters it did not name stay open and compare badly against every
+            // argument — so the root is reported alone.
+            return
+        }
+
         genericBindings := walk.InferGenericBindings(functionType, call, argTypes, receiverType)
         ValidateGenericConstraints(functionType, call, genericBindings)
         if argTypes.Count < requiredCount || (!hasParamsParameter && argTypes.Count > expectedArgumentCount) {
@@ -410,6 +417,52 @@ class AnalyzerSyntheticCallValidator {
     // NL208. A type parameter nothing bound is SKIPPED rather than reported: an open binding means
     // inference had nothing to go on, and a constraint report there would name a type the user never
     // wrote. Every violated arm reports independently, so one argument can carry several.
+    // NL207 FOR A CALL'S TYPE-ARGUMENT LIST. A declaration fixes how many type arguments its name
+    // takes, and a non-generic one takes none. Written type arguments are ALL-OR-NOTHING: a call that
+    // writes some but not all of them has no rule for which parameters it named, so a partial list is
+    // as wrong as a long one. Without this the wrong count reached emission, where it could only
+    // decline as an unmodeled shape (NL103) — the same failure NL207 already reports for a type's
+    // argument list, said in the same words.
+    func ValidateWrittenTypeArgumentCount(functionType: FunctionTypeInfo, call: CallExpression, functionName: string): bool {
+        writtenTypeArguments := call.TypeArguments
+        if writtenTypeArguments == null || writtenTypeArguments.Count == 0 {
+            return true
+        }
+
+        declaredCount := 0
+        typeParameters := functionType.TypeParameters
+        if typeParameters != null {
+            declaredCount = typeParameters.Count
+        }
+
+        if declaredCount == writtenTypeArguments.Count {
+            return true
+        }
+
+        span := spans.GetCallDiagnosticSpan(call, functionName)
+        if declaredCount == 0 {
+            diagnostics.Report(
+                ErrorCode.InvalidTypeArgument,
+                "'" + functionName + "' is not generic, but " + writtenTypeArguments.Count.ToString() + " type argument(s) were provided",
+                span.Line,
+                span.Column,
+                "Remove the type arguments: '" + functionName + "'",
+                span.Length
+            )
+            return false
+        }
+
+        diagnostics.Report(
+            ErrorCode.InvalidTypeArgument,
+            "Generic method '" + functionName + "' takes " + declaredCount.ToString() + " type argument(s), but " + writtenTypeArguments.Count.ToString() + " were provided",
+            span.Line,
+            span.Column,
+            "Write one type argument per type parameter, or omit the list entirely and let it be inferred.",
+            span.Length
+        )
+        return false
+    }
+
     func ValidateGenericConstraints(functionType: FunctionTypeInfo, call: CallExpression, bindings: Dictionary<string, TypeInfo>?) {
         constraints := functionType.GenericConstraints
         if constraints == null || bindings == null || bindings.Count == 0 {
