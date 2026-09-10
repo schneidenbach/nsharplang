@@ -8,7 +8,7 @@ import NSharpLang.Compiler.CodeIntelligence
 
 // The fix command owns the complete discovery -> analysis -> safety -> write -> output route.
 // Command-specific policy stays in FixCommandKernels; this owner only coordinates the existing
-// compiler-service and edit engines and keeps writes transactional across all requested files.
+// compiler-service and edit engines, prevalidating every file before each atomic write.
 class FixCommand {
     static func Execute(args: string[]): int {
         arguments := FixCommandArgumentKernels.GetArgumentSummary(args)
@@ -24,7 +24,8 @@ class FixCommand {
         projectDir := FixCommandKernels.GetProjectDirectory(
             arguments.ProjectOption,
             arguments.PositionalProject,
-            Directory.GetCurrentDirectory())
+            Directory.GetCurrentDirectory()
+        )
 
         if !Directory.Exists(projectDir) {
             return EmitError(useText, FixCommandKernels.GetProjectDirectoryNotFoundMessage(projectDir), projectDir)
@@ -65,7 +66,8 @@ class FixCommand {
                         includeReviewNeeded,
                         new List<FixEntry>(),
                         new List<FixEntry>(),
-                        0))
+                        0
+                    ))
                 }
 
                 return 0
@@ -104,11 +106,11 @@ class FixCommand {
                         }
                     }
 
-                    orderedEdits := FixApplicatorCore.ValidateAndSortEdits(source, allEdits)
+                    FixApplicatorCore.ValidateAndSortEdits(source, allEdits)
                     if dryRun {
                         filesModified = filesModified + 1
                     } else {
-                        fixedSource := FixApplicatorCore.ApplyEdits(source, orderedEdits)
+                        fixedSource := FixApplicatorCore.ApplyEdits(source, allEdits)
                         if fixedSource != source {
                             pendingWrites.Add(new FixPendingWrite(filePath, fixedSource))
                             filesModified = filesModified + 1
@@ -130,7 +132,8 @@ class FixCommand {
                     allApplied,
                     filesModified,
                     dryRun,
-                    includeReviewNeeded))
+                    includeReviewNeeded
+                ))
             } else {
                 Console.Write(FixCommandKernels.ResultJson(
                     projectDir,
@@ -138,7 +141,8 @@ class FixCommand {
                     includeReviewNeeded,
                     allResults,
                     allApplied,
-                    filesModified))
+                    filesModified
+                ))
             }
 
             return FixCommandKernels.GetExitCode(dryRun, filesModified)
@@ -161,7 +165,8 @@ class FixCommand {
         tempPath := FixCommandKernels.GetAtomicTempPath(
             path,
             Directory.GetCurrentDirectory(),
-            Guid.NewGuid().ToString("N"))
+            Guid.NewGuid().ToString("N")
+        )
 
         try {
             File.WriteAllText(tempPath, contents)
@@ -178,7 +183,7 @@ class FixCommand {
     }
 }
 
-class FixPendingWrite {
+internal class FixPendingWrite {
     File: string
     FixedSource: string
 

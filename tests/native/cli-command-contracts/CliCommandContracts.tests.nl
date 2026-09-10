@@ -582,10 +582,13 @@ test "nlc fix empty dry run emits the versioned zero-work JSON envelope" {
         assert run.ExitCode == 0
         assert run.Stderr.Length == 0
         assert !run.Stdout.EndsWith(Environment.NewLine)
+        assert run.Stdout.StartsWith("{\n  \"schemaVersion\": 2,\n  \"command\": \"fix\",\n  \"projectRoot\": \"")
+        assert run.Stdout.Contains("\",\n  \"dryRun\": true,\n  \"includeReviewNeeded\": false,\n  \"ok\": true,\n  \"filesModified\": 0,\n  \"results\": [],\n  \"fixesApplied\": []\n}")
         document := JsonDocument.Parse(run.Stdout)
         root := document.RootElement
         assert root.GetProperty("schemaVersion").GetInt32() == 2
         assert TextOf(root.GetProperty("command")) == "fix"
+        assert EquivalentProcessPath(TextOf(root.GetProperty("projectRoot")), NormalizedFullPath(directory))
         assert root.GetProperty("ok").GetBoolean()
         assert root.GetProperty("dryRun").GetBoolean()
         assert root.GetProperty("filesModified").GetInt32() == 0
@@ -661,12 +664,36 @@ test "nlc fix file targeting, missing files and missing projects preserve JSON a
         Directory.Delete(directory, true)
     }
 
+    projectDirectory := NewTempDirectory("nlc-fix-project-file")
+    sourceDirectory := Path.Combine(projectDirectory, "src")
+    Directory.CreateDirectory(sourceDirectory)
+    try {
+        File.WriteAllText(Path.Combine(sourceDirectory, "Program.nl"), "func Main() {\n    sb := new StringBuilder()\n}\n")
+        run := Nlc("fix --project \"" + projectDirectory + "\" --file src/Program.nl --dry-run")
+
+        assert run.ExitCode == 1
+        assert run.Stderr.Length == 0
+        assert !run.Stdout.EndsWith(Environment.NewLine)
+        document := JsonDocument.Parse(run.Stdout)
+        root := document.RootElement
+        assert EquivalentProcessPath(TextOf(root.GetProperty("projectRoot")), NormalizedFullPath(projectDirectory))
+        assert root.GetProperty("filesModified").GetInt32() == 1
+        assert root.GetProperty("results").GetArrayLength() == 1
+        assert root.GetProperty("fixesApplied").GetArrayLength() == 1
+        assert TextOf(ElementAt(root.GetProperty("fixesApplied"), 0).GetProperty("file")) == "src/Program.nl"
+        document.Dispose()
+    } finally {
+        Directory.Delete(projectDirectory, true)
+    }
+
     missing := MissingDirectoryPath("nlc-fix-missing")
     jsonError := Nlc("fix --project \"" + missing + "\"")
     assert jsonError.ExitCode == 1
     assert jsonError.Stderr.Length == 0
+    assert !jsonError.Stdout.EndsWith(Environment.NewLine)
     errorDocument := JsonDocument.Parse(jsonError.Stdout)
     assert !errorDocument.RootElement.GetProperty("ok").GetBoolean()
+    assert EquivalentProcessPath(TextOf(errorDocument.RootElement.GetProperty("projectRoot")), NormalizedFullPath(missing))
     assert TextOf(errorDocument.RootElement.GetProperty("error").GetProperty("message")).Contains("Directory not found")
     errorDocument.Dispose()
 
