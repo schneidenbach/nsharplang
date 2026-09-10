@@ -6903,6 +6903,9 @@ class ColumnarParserRecovery {
     // generic-call `<…>(…)`, and `with {…}` sub-grammars with their error sites (the call-argument family
     // via ParseArgumentList; the index / call closes route through the Stage-9 closing-delimiter recovery).
     func ParsePostfix(): ExprResult {
+        // The chain's first token. When the chain so far spells a dotted NAME, this IS the type-name
+        // token a `Name<Args>.` receiver anchors and spans from.
+        chainStartToken := Current()
         result := ParsePrimaryExprValue()
 
         looping := true
@@ -6911,7 +6914,24 @@ class ColumnarParserRecovery {
             if Current().Line > Previous().Line && !Check(TokenType.Dot) && !Check(TokenType.QuestionDot) {
                 looping = false
             } else {
-                if Check(TokenType.Dot) || Check(TokenType.QuestionDot) {
+                // `Name<Args>.` / `A.B.Name<Args>.` — a CONSTRUCTED GENERIC TYPE RECEIVER. Decided
+                // before the generic-CALL arm below, because that arm's Parser.cs-faithful lookahead
+                // answers true at the first `,` and would take `Dictionary<string, int>.Something`
+                // for a `Method<T>(` it then has to report as missing its parentheses.
+                genericTypeReceiverName: string? = null
+                if Check(TokenType.Less) && IsGenericTypeArgumentListBeforeDot() {
+                    genericTypeReceiverName = GenericTypeReceiverName(result.Node)
+                }
+                if genericTypeReceiverName != null {
+                    typeArgumentList := ParseCallTypeArguments()
+                    receiverResult := new ExprResult(new RecoverySpan(chainStartToken.Line, chainStartToken.Column, MaxInt(1, genericTypeReceiverName.Length)), false)
+                    if typeArgumentList != null {
+                        constructedType := new GenericTypeReference(genericTypeReceiverName, typeArgumentList, chainStartToken.Line, chainStartToken.Column)
+                        constructedType.Span = SpanFromTokensSingleLine(chainStartToken, Previous())
+                        receiverResult.Node = new GenericTypeExpression(constructedType, chainStartToken.Line, chainStartToken.Column)
+                    }
+                    result = receiverResult
+                } else if Check(TokenType.Dot) || Check(TokenType.QuestionDot) {
                     result = ParseMemberAccess(result)
                 } else {
                     if Check(TokenType.LeftBracket) || Check(TokenType.QuestionBracket) {
@@ -7287,6 +7307,78 @@ class ColumnarParserRecovery {
             }
         }
         return false
+    }
+
+    // The CONSTRUCTED GENERIC TYPE RECEIVER twin of IsGenericMethodCall: from the `<` at the cursor,
+    // scan a candidate TYPE-ARGUMENT list — identifiers, dots, commas, array brackets, nullable
+    // suffixes, balanced tuple parentheses with their element-name colons, and nested
+    // `<` / `>` / `>>` — and answer true ONLY when the matching close is followed DIRECTLY by a `.`.
+    // That trailing `.` is the whole disambiguation: `Vector<int>.Count` is a type receiver, while
+    // `a < b && c > d`, `a < b > (c)` and `x < y.Z` are comparisons and answer false here.
+    //
+    // The `>>` split is accounted the way ConsumeGreater accounts it (one `>>` closes two levels), and
+    // the paren depth is tracked so a `)` that belongs to an ENCLOSING expression — the `)` of
+    // `(a < b) && (c > d).Foo` — ends the scan instead of being read as a tuple close.
+    //
+    // Pure lookahead — no cursor mutation, no diagnostics.
+    func IsGenericTypeArgumentListBeforeDot(): bool {
+        lookAheadPos := Position + 1
+        depth := 1
+        parenDepth := 0
+        while lookAheadPos < Tokens.Count {
+            tokenType := Tokens[lookAheadPos].Type
+            if tokenType == TokenType.Identifier || tokenType == TokenType.Dot || tokenType == TokenType.Comma || tokenType == TokenType.LeftBracket || tokenType == TokenType.RightBracket || tokenType == TokenType.Question || tokenType == TokenType.QuestionBracket || tokenType == TokenType.Colon {
+                lookAheadPos = lookAheadPos + 1
+            } else if tokenType == TokenType.LeftParen {
+                parenDepth = parenDepth + 1
+                lookAheadPos = lookAheadPos + 1
+            } else if tokenType == TokenType.RightParen {
+                if parenDepth == 0 {
+                    return false
+                }
+                parenDepth = parenDepth - 1
+                lookAheadPos = lookAheadPos + 1
+            } else if tokenType == TokenType.Less {
+                depth = depth + 1
+                lookAheadPos = lookAheadPos + 1
+            } else if tokenType == TokenType.Greater {
+                depth = depth - 1
+                lookAheadPos = lookAheadPos + 1
+                if depth == 0 {
+                    return parenDepth == 0 && lookAheadPos < Tokens.Count && Tokens[lookAheadPos].Type == TokenType.Dot
+                }
+            } else if tokenType == TokenType.RightShift {
+                depth = depth - 2
+                lookAheadPos = lookAheadPos + 1
+                if depth == 0 {
+                    return parenDepth == 0 && lookAheadPos < Tokens.Count && Tokens[lookAheadPos].Type == TokenType.Dot
+                }
+                if depth < 0 {
+                    return false
+                }
+            } else {
+                return false
+            }
+        }
+        return false
+    }
+
+    // The DOTTED NAME a parsed receiver spells, or null when it is not a name at all. Only a bare
+    // identifier and a chain of plain `.` member accesses over one can name a type, so `f(x)<int>.Y`
+    // and `a?.B<int>.Y` answer null and their `<` stays a comparison.
+    func GenericTypeReceiverName(receiver: Expression?): string? {
+        identifier := receiver as IdentifierExpression
+        if identifier != null {
+            return identifier.Name
+        }
+        memberAccess := receiver as MemberAccessExpression
+        if memberAccess != null && !memberAccess.IsNullConditional {
+            ownerName := GenericTypeReceiverName(memberAccess.Object)
+            if ownerName != null {
+                return ownerName + "." + memberAccess.MemberName
+            }
+        }
+        return null
     }
 
     // Parser.cs ParseCallTypeArguments (:2086): `<Type, Type, …>` with the split-`>>`-aware ConsumeGreater.

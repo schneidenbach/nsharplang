@@ -422,7 +422,7 @@ test "the census finds every Expression node type declared in Expressions.nl" {
     census := ReadExpressionCensus()
     nodes := ExpressionNodeNames(census)
 
-    assert nodes.Count == 41
+    assert nodes.Count == 42
     assert nodes.Contains("BinaryExpression")
     assert nodes.Contains("NewExpression")
     assert nodes.Contains("StackAllocExpression")
@@ -439,9 +439,10 @@ test "the dispatch reader finds every arm and the declared leaf list" {
     leaves := DeclaredLeafNames()
 
     assert arms.Count == 29
-    assert leaves.Count == 12
+    assert leaves.Count == 13
     assert leaves.Contains("IntLiteralExpression")
     assert leaves.Contains("TypeOfExpression")
+    assert leaves.Contains("GenericTypeExpression")
 
     // the arms and the leaves are DISJOINT — a node is dispatched or it is a leaf, never both
     i := 0

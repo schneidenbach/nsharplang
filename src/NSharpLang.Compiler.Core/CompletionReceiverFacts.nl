@@ -113,6 +113,15 @@ class CompletionReceiverFacts {
             return FormatMemberAccessReceiver(memberAccess)
         }
 
+        // A CONSTRUCTED GENERIC TYPE RECEIVER reads back as the type the developer WROTE —
+        // `Vector<int>`, `Dictionary<string, List<int>>` — which is what the text-scan classifier
+        // extracts from the buffer, so the two spellings of a receiver agree by construction here
+        // too.
+        genericTypeExpression := expression as GenericTypeExpression
+        if genericTypeExpression != null {
+            return TypeReferenceFacts.GetDisplayName(genericTypeExpression.Type)
+        }
+
         call := expression as CallExpression
         if call != null {
             callee := FormatReceiverExpression(call.Callee)
@@ -271,6 +280,13 @@ class CompletionReceiverFacts {
                 displayReceiver := receiver ?? FormatReceiverExpression(receiverExpression) ?? "<expression>"
 
                 filter := CompletionReflectionFacts.GetMemberFilter(displayReceiver, receiverType)
+                // A CONSTRUCTED GENERIC TYPE RECEIVER IS A TYPE NAME, and the shape says so where
+                // the TEXT cannot: `IsStaticTypeReceiver` asks whether the receiver is spelled like
+                // an exported name, and `Vector<int>` is not spelled like an identifier at all.
+                if receiverExpression as GenericTypeExpression != null {
+                    filter = CompletionMemberFilter.StaticOnly
+                }
+
                 expressionResult := ResolveMemberCompletions(receiverType, displayReceiver, semanticModels, completions, filter, compilationUnits, requestingNamespace)
                 if expressionResult != null {
                     return expressionResult

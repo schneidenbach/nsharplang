@@ -609,6 +609,19 @@ class ThrowExpression: Expression {
     }
 }
 
+// A CONSTRUCTED GENERIC TYPE used as an expression receiver: the `Vector<int>` of
+// `Vector<int>.Count`, the `Box<int>` of `Box<int>.Create(42)`. The parser builds this only when the
+// `<` after a name (or a dotted name) opens a well-formed type-argument list closed by a `>` that is
+// followed DIRECTLY by a `.`; anything else stays a comparison chain. Line/Column anchor on the type
+// NAME, so a diagnostic or a hover over the receiver underlines what the developer wrote.
+class GenericTypeExpression: Expression {
+    Type: GenericTypeReference
+
+    constructor(Type: GenericTypeReference, Line: int, Column: int): base(Line, Column) {
+        this.Type = Type
+    }
+}
+
 // Typeof expression
 class TypeOfExpression: Expression {
     Type: TypeReference

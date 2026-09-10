@@ -10624,6 +10624,18 @@ sealed class ColumnarIlEmitter {
         } else if columnarSwitchValue2 == 59 {
             // AnonymousObjectInitializer [name0, value0, ...] — `new { Name: value, ... }`.
             return TryEmitAnonymousObjectInitializer(idx, out columnarResolvedType)
+        } else if columnarSwitchValue2 == ColumnarExpressionNodeKind.GenericTypeReceiverExpression() {
+            // A CONSTRUCTED GENERIC TYPE RECEIVER that no planner claimed. Reaching here means the
+            // static member behind it could not be resolved on the closed type — most often because
+            // the head is a USER-declared generic, whose per-constructed-type static storage is not
+            // emitted (the analyzer refuses such a declaration outright with NL323). It gets its own
+            // site so the trace names the shape rather than reporting an unhandled node kind, and it
+            // is never a VALUE: a type name is not a value, so there is nothing to load.
+            return Decline(
+                "emit.expression.generic-type-receiver",
+                "a constructed generic type receiver is not a value, and no static member behind it could be resolved on the closed type",
+                idx
+            )
         } else {
             return Decline(
                 "emit.expression.unhandled-kind",

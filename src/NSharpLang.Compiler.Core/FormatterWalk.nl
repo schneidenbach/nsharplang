@@ -1874,6 +1874,12 @@ class FormatterWalk {
             return
         }
 
+        genericTypeExpression := expression as GenericTypeExpression
+        if genericTypeExpression != null {
+            builder.Append(FormatterSyntaxText.FormatTypeReference(genericTypeExpression.Type))
+            return
+        }
+
         typeOfExpression := expression as TypeOfExpression
         if typeOfExpression != null {
             builder.Append("typeof(")

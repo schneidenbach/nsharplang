@@ -117,6 +117,15 @@ class ColumnarExternalStaticMemberPlanner {
             throw new InvalidOperationException("External static-member append requires an open schema-v3 or method-body plan.")
         }
 
+        // A CONSTRUCTED GENERIC TYPE RECEIVER — `Vector<int>.Count`, `EqualityComparer<int>.Default` —
+        // takes the GENERAL static read below rather than the identity-pinned table: a closed generic
+        // owner has no hand-written row and needs none, because the closed type's own metadata already
+        // states the substituted member type. `TryGetQualifiedName` cannot spell a kind-70 node
+        // either, so this arm comes first.
+        if ColumnarGenericTypeReceiverFacts.IsReceiver(nodes, nodes.Child(node, 0)) {
+            return TryAppendConstructedGenericStaticMember(nodes, source, node, nodes.Child(node, 0), bindings, plan, out resultType)
+        }
+
         ownerName := ""
         rootName := ""
         if !TryGetQualifiedName(nodes, source, nodes.Child(node, 0), 0, out ownerName, out rootName) || bindings.IsValueBinding(rootName) || bindings.IsCallable(rootName) || bindings.Enums.ContainsKey(ownerName) || bindings.Enums.ContainsKey(rootName) {
@@ -186,6 +195,59 @@ class ColumnarExternalStaticMemberPlanner {
                 methodIndex := plan.AddMethod(getter)
                 plan.AppendMethodInstruction(ColumnarCodePlanContract.Call(), methodIndex)
                 resultType = propertyType
+                return true
+            }
+        } catch ex: Exception {
+            plan.Rollback(checkpoint)
+            throw ex
+        }
+
+        plan.Rollback(checkpoint)
+        return false
+    }
+
+    // THE GENERAL STATIC READ OVER A CLOSED CONSTRUCTED GENERIC TYPE. It is the enum arm's rule
+    // applied to one more shape: resolve the owner through ordinary scoped type resolution, then ask
+    // the resolved type what the member IS. Nothing about the member is predicted from its name — the
+    // field-vs-property split, the value type and the substitution all come out of the closed type's
+    // metadata, which is exactly what a table row could not state for a type argument the row does
+    // not know. An instance member reached through the type name resolves to nothing here and
+    // declines, rather than emitting a load with no receiver.
+    static func TryAppendConstructedGenericStaticMember(nodes: ColumnarNodeTable, source: string, node: int, receiverNode: int, bindings: ColumnarFragmentBindings, plan: ColumnarCodePlan, out resultType: Type): bool {
+        resultType = typeof(int)
+        receiverType := typeof(object)
+        claimedBySource := false
+        if !ColumnarGenericTypeReceiverFacts.TryResolveReceiverType(nodes, source, receiverNode, bindings, out receiverType, out claimedBySource) {
+            return false
+        }
+
+        memberName := nodes.Text(source, node)
+        checkpoint := plan.CreateCheckpoint()
+        try {
+            field := ColumnarGenericTypeReceiverFacts.TryResolveStaticField(receiverType, memberName)
+            if field != null {
+                fieldType := field.get_FieldType()
+                if field.get_IsLiteral() {
+                    if !TryAppendLiteralField(plan, field, fieldType, memberName) {
+                        plan.Rollback(checkpoint)
+                        return false
+                    }
+
+                    resultType = fieldType
+                    return true
+                }
+
+                fieldIndex := plan.AddField(field)
+                plan.AppendFieldInstruction(ColumnarCodePlanContract.Ldsfld(), fieldIndex)
+                resultType = fieldType
+                return true
+            }
+
+            getter := ColumnarGenericTypeReceiverFacts.TryResolveStaticGetter(receiverType, memberName)
+            if getter != null {
+                methodIndex := plan.AddMethod(getter)
+                plan.AppendMethodInstruction(ColumnarCodePlanContract.Call(), methodIndex)
+                resultType = getter.get_ReturnType()
                 return true
             }
         } catch ex: Exception {

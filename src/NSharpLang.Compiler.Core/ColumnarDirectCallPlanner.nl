@@ -885,6 +885,35 @@ class ColumnarDirectCallPlanner {
         sourceOwner: ColumnarStructDef? = null
         qualifiedOwner := TryGetQualifiedName(nodes, source, receiverNode, 0, out ownerName, out rootName)
 
+        // A CONSTRUCTED GENERIC TYPE RECEIVER — `Comparer<int>.Create(...)`. `TryGetQualifiedName`
+        // cannot spell it (its walk admits a bare identifier and a dotted member access, and a kind-70
+        // node is neither), so it is resolved to a CLOSED runtime type first and then goes straight to
+        // the ordinary static overload resolver every other external static call reaches. There is no
+        // table tier for it: a constructed generic owner has no hand-written binding plan and needs
+        // none, because `ResolveWithFacts` reads the closed type's own metadata.
+        if ColumnarGenericTypeReceiverFacts.IsReceiver(nodes, receiverNode) {
+            constructedReceiverType := typeof(object)
+            constructedClaimedBySource := false
+            if !ColumnarGenericTypeReceiverFacts.TryResolveReceiverType(nodes, source, receiverNode, bindings, out constructedReceiverType, out constructedClaimedBySource) {
+                if constructedClaimedBySource {
+                    ownership = ColumnarDirectCallOwnership.OwnedRejected
+                }
+
+                plan.Rollback(checkpoint)
+                return false
+            }
+
+            constructedSelection := ColumnarOrdinaryRuntimeDirectCallResolver.ResolveWithFacts(constructedReceiverType, memberName, argumentTypes, argumentFacts, true)
+            ownership = ColumnarDirectCallOwnership.OwnedRejected
+            if !constructedSelection.IsSelected || !AppendOrdinaryRuntimeSelection(nodes, source, callNode, -1, bindings, handles, plan, callFragment, depth, argumentTypes, argumentFacts, constructedSelection, out resultType) {
+                plan.Rollback(checkpoint)
+                return false
+            }
+
+            ownership = ColumnarDirectCallOwnership.Planned
+            return true
+        }
+
         staticSyntax := qualifiedOwner && !bindings.IsValueBinding(rootName) && !bindings.IsCallable(rootName) && !bindings.Enums.ContainsKey(ownerName) && !bindings.Enums.ContainsKey(rootName)
         scope := nodes.BindingScope
 

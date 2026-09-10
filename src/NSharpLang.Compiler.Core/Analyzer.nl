@@ -1609,6 +1609,7 @@ class Analyzer: IDisposable {
                         result = DriveOnSubscription(LambdaAnalysis.BeginOnSubscription(subscription, typeof(NSharpLang.Runtime.NSharpEventSubscription)))
                     } else {
                         lambda := expression as LambdaExpression
+                        genericTypeExpression := expression as GenericTypeExpression
                         if lambda != null {
                             result = DriveLambda(LambdaAnalysis.BeginLambda(lambda, Ambient.CurrentExpectedType, true, false))
                         } else if expression as CastExpression != null || expression as CheckedExpression != null || expression as UncheckedExpression != null || expression as TernaryExpression != null {
@@ -1623,6 +1624,14 @@ class Analyzer: IDisposable {
                             result = DeclarationContext.ResolveBaseType(Scopes.CurrentTypeScope())
                         } else if expression as MatchExpression != null {
                             result = DriveMatchExpression(MatchExpression.Begin(expression))
+                        } else if genericTypeExpression != null {
+                            // A CONSTRUCTED GENERIC TYPE NAMED IN EXPRESSION POSITION — `Vector<int>` in
+                            // `Vector<int>.Count`. It answers the TYPE, exactly as a bare `Console`
+                            // identifier answers `System.Console` through the identifier channels, so the
+                            // member-access arm sees a type receiver and resolves static members against
+                            // it. Resolving as a DECLARED type is what makes the unresolved-name and
+                            // wrong-arity reports fire at the receiver's own position.
+                            result = TypeResolver.ResolveDeclaredType(genericTypeExpression.Type)
                         } else if expression as TypeOfExpression != null || expression as NameofExpression != null || expression as SizeOfExpression != null || expression as DefaultExpression != null {
                             result = DriveCompileTimeConstant(CompileTimeConstants.Begin(expression, WellKnownTypes))
                         } else if expression as RangeExpression != null {
