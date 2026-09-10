@@ -56,9 +56,29 @@ class RestoreCommand {
             projectDependencies := RestoreCommandKernels.FilterReferencesByType(config.Dependencies, ReferenceType.Project)
             resolvedProjectReferences := ResolveProjectReferences(projectRoot, projectDependencies)
             projectReferences := RestoreCommandKernels.DeduplicateProjectReferences(resolvedProjectReferences)
+            packageId: string? = null
+            packageReadme: string? = null
+            packageAuthors: string? = null
+            packageDescription: string? = null
+            packageTags: string? = null
+            packageLicenseExpression: string? = null
+            packageProjectUrl: string? = null
+            repositoryUrl: string? = null
+            if config.Package != null {
+                packageId = config.Package.Id
+                packageAuthors = config.Package.Author
+                packageDescription = config.Package.Description
+                packageTags = SdkProjectConfiguration.PackageTagsValue(config.Package.Tags)
+                packageLicenseExpression = config.Package.License
+                packageProjectUrl = config.Package.Repository
+                repositoryUrl = config.Package.Repository
+                if config.Package.Readme != null {
+                    packageReadme = SdkProjectConfiguration.PackageReadmeFileName(config.Package.Readme)
+                }
+            }
 
             propsPath := Path.Combine(objDir, "project.g.props")
-            File.WriteAllText(propsPath, RestoreCommandKernels.GetGeneratedPropsText(config.TargetFramework, outputType, projectName, "il", config.TestFramework, baseSdk, projectReferences))
+            File.WriteAllText(propsPath, RestoreCommandKernels.GetGeneratedPropsTextWithPackageMetadata(config.TargetFramework, outputType, projectName, "il", config.TestFramework, baseSdk, packageId, packageReadme, packageAuthors, packageDescription, packageTags, packageLicenseExpression, packageProjectUrl, repositoryUrl, projectReferences))
 
             if !RestoreReferencedProjects(projectRoot, quiet, visitedProjectRoots, projectDependencies) {
                 return false

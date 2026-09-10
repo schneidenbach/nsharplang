@@ -125,3 +125,26 @@ test "a directory with no project.yml fails quietly with exit 1" {
         Directory.Delete(root, true)
     }
 }
+
+test "restore carries package identity and readme metadata into the SDK props" {
+    root := Path.Combine(Path.GetTempPath(), "nsharp-restore-package-" + Guid.NewGuid().ToString("N"))
+    Directory.CreateDirectory(root)
+    try {
+        File.WriteAllText(
+            Path.Combine(root, "project.yml"),
+            "name: Compiler\noutputType: library\npackage:\n  id: NSharpLang.Compiler\n  author: N# Team\n  description: N# compiler service facade\n  tags:\n    - nsharp\n    - compiler\n  license: MIT\n  repository: https://github.com/schneidenbach/nsharplang\n  readme: ../../README.md\n"
+        )
+        assert RestoreCommand.Restore(root, true) == 0
+        props := File.ReadAllText(Path.Combine(Path.Combine(root, "obj"), "project.g.props"))
+        assert props.Contains("<PackageId>NSharpLang.Compiler</PackageId>")
+        assert props.Contains("<PackageReadmeFile>README.md</PackageReadmeFile>")
+        assert props.Contains("<Authors>N# Team</Authors>")
+        assert props.Contains("<Description>N# compiler service facade</Description>")
+        assert props.Contains("<PackageTags>nsharp;compiler</PackageTags>")
+        assert props.Contains("<PackageLicenseExpression>MIT</PackageLicenseExpression>")
+        assert props.Contains("<PackageProjectUrl>https://github.com/schneidenbach/nsharplang</PackageProjectUrl>")
+        assert props.Contains("<RepositoryUrl>https://github.com/schneidenbach/nsharplang</RepositoryUrl>")
+    } finally {
+        Directory.Delete(root, true)
+    }
+}

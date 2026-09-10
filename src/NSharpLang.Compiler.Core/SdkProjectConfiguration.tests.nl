@@ -37,8 +37,36 @@ test "SDK configuration defaults come from project.yml and the project directory
         assert config.FileVersion == ""
         assert config.Sdk == "Microsoft.NET.Sdk"
         assert config.TestFramework == "xunit"
+        assert config.PackageId == ""
+        assert config.PackageAuthors == ""
+        assert config.PackageDescription == ""
+        assert config.PackageTags == ""
+        assert config.PackageLicenseExpression == ""
+        assert config.PackageProjectUrl == ""
+        assert config.RepositoryUrl == ""
+        assert config.PackageReadmeFile == ""
+        assert config.PackageReadmeSource == ""
         assert SdkProjectConfiguration.DefaultTestFramework == "xunit"
         assert SdkProjectConfiguration.LoadingMessage(SdkProjectConfiguration.ProjectFilePath(directory)) == "Loading project configuration from " + Path.Combine(directory, "project.yml")
+    } finally {
+        Directory.Delete(directory, true)
+    }
+}
+
+test "SDK configuration projects package metadata for NuGet without changing assembly identity" {
+    directory := SdkConfigDirectory("name: Compiler\nversion: 1.2.3\noutputType: library\npackage:\n  id: NSharpLang.Compiler\n  author: N# Team\n  description: N# compiler service facade\n  tags:\n    - nsharp\n    - compiler tooling\n  license: MIT\n  repository: https://github.com/schneidenbach/nsharplang\n  readme: ../../README.md\n")
+    try {
+        config := SdkProjectConfiguration.Load(directory)
+        assert config.AssemblyName == "Compiler"
+        assert config.PackageId == "NSharpLang.Compiler"
+        assert config.PackageAuthors == "N# Team"
+        assert config.PackageDescription == "N# compiler service facade"
+        assert config.PackageTags == "nsharp;compiler tooling"
+        assert config.PackageLicenseExpression == "MIT"
+        assert config.PackageProjectUrl == "https://github.com/schneidenbach/nsharplang"
+        assert config.RepositoryUrl == "https://github.com/schneidenbach/nsharplang"
+        assert config.PackageReadmeFile == "README.md"
+        assert config.PackageReadmeSource == Path.GetFullPath(Path.Combine(directory, "../../README.md"))
     } finally {
         Directory.Delete(directory, true)
     }

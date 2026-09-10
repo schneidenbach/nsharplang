@@ -145,3 +145,27 @@ test "the props file carries the OTHER output type and SDK through unchanged" {
     assert propsWithReferences.Contains("<NSharpTestFramework>nunit</NSharpTestFramework>")
     assert propsWithReferences.Contains("<_NSharpBaseSdk>Microsoft.NET.Sdk.Web</_NSharpBaseSdk>")
 }
+
+test "the generated props carries the explicit package id and package readme entry" {
+    props := RestoreCommandKernels.GetGeneratedPropsTextWithPackageMetadata(
+        "net10.0",
+        "Library",
+        "Compiler",
+        "il",
+        "xunit",
+        "Microsoft.NET.Sdk",
+        "NSharpLang.Compiler",
+        "README.md",
+        "N# Team",
+        "N# compiler service facade",
+        "nsharp;compiler",
+        "MIT",
+        "https://github.com/schneidenbach/nsharplang",
+        "https://github.com/schneidenbach/nsharplang",
+        new string[](0)
+    )
+
+    assert props.Contains("<PackageId>NSharpLang.Compiler</PackageId>")
+    assert props.Contains("<PackageReadmeFile>README.md</PackageReadmeFile>")
+    assert !props.Contains("<PackageId>Compiler</PackageId>")
+}

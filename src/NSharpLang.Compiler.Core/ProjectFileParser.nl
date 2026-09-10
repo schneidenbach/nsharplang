@@ -158,9 +158,12 @@ class ProjectFileParser {
         builder.AppendLine("  asyncDefaultType: ValueTask")
         builder.AppendLine()
         builder.AppendLine("# package:")
+        builder.AppendLine("#   id: MyLibrary")
         builder.AppendLine("#   author: Your Name")
         builder.AppendLine("#   description: A short description")
         builder.AppendLine("#   license: MIT")
+        builder.AppendLine("#   repository: https://github.com/you/MyLibrary")
+        builder.AppendLine("#   readme: README.md")
         return builder.ToString()
     }
 }

@@ -36,6 +36,15 @@
       <Output TaskParameter="FileVersion" PropertyName="_NSharpProjectFileVersion" />
       <Output TaskParameter="Sdk" PropertyName="_NSharpBaseSdk" />
       <Output TaskParameter="TestFramework" PropertyName="NSharpTestFramework" />
+      <Output TaskParameter="PackageId" PropertyName="_NSharpPackageId" />
+      <Output TaskParameter="PackageAuthors" PropertyName="_NSharpPackageAuthors" />
+      <Output TaskParameter="PackageDescription" PropertyName="_NSharpPackageDescription" />
+      <Output TaskParameter="PackageTags" PropertyName="_NSharpPackageTags" />
+      <Output TaskParameter="PackageLicenseExpression" PropertyName="_NSharpPackageLicenseExpression" />
+      <Output TaskParameter="PackageProjectUrl" PropertyName="_NSharpPackageProjectUrl" />
+      <Output TaskParameter="RepositoryUrl" PropertyName="_NSharpRepositoryUrl" />
+      <Output TaskParameter="PackageReadmeFile" PropertyName="_NSharpPackageReadmeFile" />
+      <Output TaskParameter="PackageReadmeSource" PropertyName="_NSharpPackageReadmeSource" />
     </LoadProjectConfig>
 
     <LoadProjectReferences ProjectFile="$(NSharpProjectFile)" ExistingProjectReferences="@(ProjectReference->'%(FullPath)')">
@@ -55,8 +64,21 @@
       <ProjectRuntimeConfigFileName>$(AssemblyName).runtimeconfig.json</ProjectRuntimeConfigFileName>
       <ProjectRuntimeConfigFilePath>$(TargetDir)$(ProjectRuntimeConfigFileName)</ProjectRuntimeConfigFilePath>
       <ProjectRuntimeConfigDevFilePath Condition="'$(GenerateRuntimeConfigDevFile)' == 'true'">$(TargetDir)$(AssemblyName).runtimeconfig.dev.json</ProjectRuntimeConfigDevFilePath>
+      <PackageId Condition="'$(_NSharpPackageId)' != ''">$(_NSharpPackageId)</PackageId>
+      <Authors Condition="'$(_NSharpPackageAuthors)' != ''">$(_NSharpPackageAuthors)</Authors>
+      <Description Condition="'$(_NSharpPackageDescription)' != ''">$(_NSharpPackageDescription)</Description>
+      <PackageDescription Condition="'$(_NSharpPackageDescription)' != ''">$(_NSharpPackageDescription)</PackageDescription>
+      <PackageTags Condition="'$(_NSharpPackageTags)' != ''">$(_NSharpPackageTags)</PackageTags>
+      <PackageLicenseExpression Condition="'$(_NSharpPackageLicenseExpression)' != ''">$(_NSharpPackageLicenseExpression)</PackageLicenseExpression>
+      <PackageProjectUrl Condition="'$(_NSharpPackageProjectUrl)' != ''">$(_NSharpPackageProjectUrl)</PackageProjectUrl>
+      <RepositoryUrl Condition="'$(_NSharpRepositoryUrl)' != ''">$(_NSharpRepositoryUrl)</RepositoryUrl>
+      <PackageReadmeFile Condition="'$(_NSharpPackageReadmeFile)' != ''">$(_NSharpPackageReadmeFile)</PackageReadmeFile>
       <PackageId Condition="'$(PackageId)' == '' Or '$(PackageId)' == '$(MSBuildProjectName)'">$(AssemblyName)</PackageId>
     </PropertyGroup>
+
+    <ItemGroup Condition="'$(_NSharpPackageReadmeSource)' != ''">
+      <None Include="$(_NSharpPackageReadmeSource)" Pack="true" PackagePath="$(PackageReadmeFile)" Visible="false" />
+    </ItemGroup>
 
     <PropertyGroup Condition="'$(_NSharpProjectVersion)' != ''">
       <Version Condition="'$(Version)' == '' Or '$(Version)' == '1.0.0'">$(_NSharpProjectVersion)</Version>

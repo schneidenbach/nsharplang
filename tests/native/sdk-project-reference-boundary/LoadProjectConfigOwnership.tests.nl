@@ -21,8 +21,8 @@ test "the SDK config task has one N# production owner and its exact MSBuild surf
     assert owner.GetConstructors(BindingFlags.Instance | BindingFlags.NonPublic | BindingFlags.DeclaredOnly).Length == 0
 
     properties := owner.GetProperties(BindingFlags.Instance | BindingFlags.Public | BindingFlags.DeclaredOnly)
-    assert properties.Length == 9
-    names := new string[](9)
+    assert properties.Length == 18
+    names := new string[](18)
     names[0] = "ProjectDirectory"
     names[1] = "TargetFramework"
     names[2] = "OutputType"
@@ -32,6 +32,15 @@ test "the SDK config task has one N# production owner and its exact MSBuild surf
     names[6] = "FileVersion"
     names[7] = "Sdk"
     names[8] = "TestFramework"
+    names[9] = "PackageId"
+    names[10] = "PackageAuthors"
+    names[11] = "PackageDescription"
+    names[12] = "PackageTags"
+    names[13] = "PackageLicenseExpression"
+    names[14] = "PackageProjectUrl"
+    names[15] = "RepositoryUrl"
+    names[16] = "PackageReadmeFile"
+    names[17] = "PackageReadmeSource"
     index := 0
     while index < names.Length {
         property := EmitTaskRequiredProperty(owner, names[index])
@@ -81,4 +90,13 @@ test "the SDK config task has one N# production owner and its exact MSBuild surf
     assert Convert.ToString(EmitTaskOptionalObjectProperty(task, "FileVersion")) == ""
     assert Convert.ToString(EmitTaskOptionalObjectProperty(task, "Sdk")) == ""
     assert Convert.ToString(EmitTaskOptionalObjectProperty(task, "TestFramework")) == "xunit"
+    assert Convert.ToString(EmitTaskOptionalObjectProperty(task, "PackageId")) == ""
+    assert Convert.ToString(EmitTaskOptionalObjectProperty(task, "PackageAuthors")) == ""
+    assert Convert.ToString(EmitTaskOptionalObjectProperty(task, "PackageDescription")) == ""
+    assert Convert.ToString(EmitTaskOptionalObjectProperty(task, "PackageTags")) == ""
+    assert Convert.ToString(EmitTaskOptionalObjectProperty(task, "PackageLicenseExpression")) == ""
+    assert Convert.ToString(EmitTaskOptionalObjectProperty(task, "PackageProjectUrl")) == ""
+    assert Convert.ToString(EmitTaskOptionalObjectProperty(task, "RepositoryUrl")) == ""
+    assert Convert.ToString(EmitTaskOptionalObjectProperty(task, "PackageReadmeFile")) == ""
+    assert Convert.ToString(EmitTaskOptionalObjectProperty(task, "PackageReadmeSource")) == ""
 }

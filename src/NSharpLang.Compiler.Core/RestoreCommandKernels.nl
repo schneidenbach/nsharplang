@@ -80,6 +80,10 @@ class RestoreCommandKernels {
     }
 
     static func GetGeneratedPropsText(targetFramework: string, outputType: string, projectName: string, backend: string, testFramework: string, baseSdk: string, projectReferences: string[]): string {
+        return GetGeneratedPropsTextWithPackageMetadata(targetFramework, outputType, projectName, backend, testFramework, baseSdk, null, null, null, null, null, null, null, null, projectReferences)
+    }
+
+    static func GetGeneratedPropsTextWithPackageMetadata(targetFramework: string, outputType: string, projectName: string, backend: string, testFramework: string, baseSdk: string, packageId: string?, packageReadme: string?, packageAuthors: string?, packageDescription: string?, packageTags: string?, packageLicenseExpression: string?, packageProjectUrl: string?, repositoryUrl: string?, projectReferences: string[]): string {
         builder := new StringBuilder()
         builder.Append("<Project xmlns=")
         builder.Append('"')
@@ -99,6 +103,46 @@ class RestoreCommandKernels {
         builder.Append("    <AssemblyName>")
         builder.Append(projectName)
         AppendLine(builder, "</AssemblyName>")
+        if packageId != null && packageId.Trim().Length > 0 {
+            builder.Append("    <PackageId>")
+            builder.Append(XmlElementEscape(packageId))
+            AppendLine(builder, "</PackageId>")
+        }
+        if packageReadme != null && packageReadme.Trim().Length > 0 {
+            builder.Append("    <PackageReadmeFile>")
+            builder.Append(XmlElementEscape(packageReadme))
+            AppendLine(builder, "</PackageReadmeFile>")
+        }
+        if packageAuthors != null && packageAuthors.Trim().Length > 0 {
+            builder.Append("    <Authors>")
+            builder.Append(XmlElementEscape(packageAuthors))
+            AppendLine(builder, "</Authors>")
+        }
+        if packageDescription != null && packageDescription.Trim().Length > 0 {
+            builder.Append("    <Description>")
+            builder.Append(XmlElementEscape(packageDescription))
+            AppendLine(builder, "</Description>")
+        }
+        if packageTags != null && packageTags.Trim().Length > 0 {
+            builder.Append("    <PackageTags>")
+            builder.Append(XmlElementEscape(packageTags))
+            AppendLine(builder, "</PackageTags>")
+        }
+        if packageLicenseExpression != null && packageLicenseExpression.Trim().Length > 0 {
+            builder.Append("    <PackageLicenseExpression>")
+            builder.Append(XmlElementEscape(packageLicenseExpression))
+            AppendLine(builder, "</PackageLicenseExpression>")
+        }
+        if packageProjectUrl != null && packageProjectUrl.Trim().Length > 0 {
+            builder.Append("    <PackageProjectUrl>")
+            builder.Append(XmlElementEscape(packageProjectUrl))
+            AppendLine(builder, "</PackageProjectUrl>")
+        }
+        if repositoryUrl != null && repositoryUrl.Trim().Length > 0 {
+            builder.Append("    <RepositoryUrl>")
+            builder.Append(XmlElementEscape(repositoryUrl))
+            AppendLine(builder, "</RepositoryUrl>")
+        }
         builder.Append("    <NSharpCompilationBackend>")
         builder.Append(backend)
         AppendLine(builder, "</NSharpCompilationBackend>")
@@ -156,5 +200,9 @@ class RestoreCommandKernels {
         }
 
         return result
+    }
+
+    static func XmlElementEscape(value: string): string {
+        return XmlAttributeEscape(value)
     }
 }

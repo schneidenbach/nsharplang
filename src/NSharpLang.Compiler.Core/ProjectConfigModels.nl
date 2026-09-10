@@ -295,12 +295,23 @@ class ProjectConfig {
 }
 
 class PackageConfig {
+    idValue: string?
     authorValue: string?
     descriptionValue: string?
     tagsValue: List<string>?
     licenseValue: string?
     repositoryValue: string?
     iconValue: string?
+    readmeValue: string?
+
+    Id: string? {
+        get {
+            return idValue
+        }
+        set {
+            idValue = value
+        }
+    }
 
     Author: string? {
         get {
@@ -353,6 +364,15 @@ class PackageConfig {
         }
         set {
             iconValue = value
+        }
+    }
+
+    Readme: string? {
+        get {
+            return readmeValue
+        }
+        set {
+            readmeValue = value
         }
     }
 }
