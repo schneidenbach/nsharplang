@@ -201,3 +201,13 @@ A source audit found 12 remaining CheckCommand assertion methods in tests/CliCom
 Check/Fix coverage in tests/CompilationBackendTests.cs. Their canonical N# migration is now a third
 Luna Max lane at /Users/spencer/repos/nsharp-worktrees/check-assertions
 (codex/check-remaining-assertions). Dedicated-test-file deletion alone is not owner completion.
+
+FixCommand is now integrated through 3cc75672b: the 191-line C# owner, 838-line dedicated
+C# test file and three shared Fix assertions are replaced by N# ownership/assertions. Review
+preserved original edit tie ordering, per-file atomic writes and exact JSON/output bytes.
+Root dev.sh build passes with 0 warnings/errors; all 130 native CLI contracts pass against the
+integrated output. Receipts: evidence/integrated-fix-core-build-r1.log,
+evidence/integrated-fix-cli-build-r1.log and evidence/integrated-fix-cli-contracts-r1.log.
+The clean Fix worktree/branch is retired; verified persistent history bundle:
+/Users/spencer/repos/nsharp-worktrees/evidence/fix-command-completed.bundle.
+The remaining shared Check/backend assertions remain assigned to the separate lane.
