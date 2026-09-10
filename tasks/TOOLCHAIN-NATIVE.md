@@ -89,7 +89,13 @@ A finished lane is not completion of this whole objective.
   template bytes: /private/tmp/toolchain-integrated-package-canonicals-r2.log. Private SDK boundary
   tests pass 20/20: /private/tmp/toolchain-facade-sdk-native-r1.log. Those native checks used
   explicitly substituted private fixture binaries, so final clean production/package verification
-  remains required. The facade's portable generic return-type resolution is still under diagnosis.
+  remains required.
+- Closed generic catalog admission now validates the definition and arguments in the selected
+  reflection universe, preserving exact identities instead of requiring a constructed-name lookup
+  through the defining assembly. All 8,057 Core assertions pass at 8b968d92a:
+  /private/tmp/toolchain-integrated-catalog-canonicals-r1.log. This resolves the facade's generic
+  return-type blocker. The direct completion-prefix kernel call still needs ordinary external
+  static out-parameter support; duplicate prefix policy and per-kernel adapters are not accepted.
 - All five IlSdkToolchainTests.cs cases now have N# successors and the C# file is removed in the
   integration candidate. Review retained XML UnitTestResult/outcome semantics and removed new
   assertions that merely mirrored private field names. All 20 native SDK tests pass against a private package (22.7s). Receipt:
