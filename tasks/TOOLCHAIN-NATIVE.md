@@ -33,14 +33,17 @@ Base: 06186dc6d (includes bootstrap/CI work; preserve it).
 | Area | Owner | Worktree / branch | Status |
 |---|---|---|---|
 | Complete Compiler service facade and assertions | Luna Max toolchain_facade | /private/tmp/nsharp-agent-wt/toolchain-facade; codex/toolchain-facade | Implementing |
-| Complete LoadProjectConfig / LoadProjectReferences and assertions | Luna Max toolchain_build_tasks | /private/tmp/nsharp-agent-wt/toolchain-build-tasks; codex/toolchain-build-tasks | Owner committed c7d719983; root review; remaining IlSdkToolchainTests assertions migrating before integration |
-| CLI query/commands and LSP signature/services | Next wave | Existing held branches preserved | Refresh and integrate accepted work; don't restart |
-| Playground interpreter | Luna Max next after SDK assertions | /private/tmp/nsharp-agent-wt/toolchain-playground; codex/toolchain-playground | Prepared clean at 2f73fdf12; complete connected owner and tests next |
+| Complete LoadProjectConfig / LoadProjectReferences and assertions | Luna Max toolchain_build_tasks | /private/tmp/nsharp-agent-wt/toolchain-build-tasks; codex/toolchain-build-tasks | Owners and canonical SDK assertions integrated into candidate; 8,028 Core tests pass; 20 native SDK tests pass; final integration gate/push pending |
+| CLI query/commands and LSP signature/services | Next wave | Signature branch preserved; integrated query branches retired | Continue from integration HEAD; refresh unique signature work without restarting |
+| Playground interpreter | Luna Max next after SDK assertions | /private/tmp/nsharp-agent-wt/toolchain-playground; codex/toolchain-playground | Implementing from 2f73fdf12; complete connected owner and tests |
 | Runtime ABI and bootstrap | Queued | No new worktree yet | Preserve CLR identity/behavior; verify actual proposed types |
 | Wasm host | Queued | No new worktree yet | Prove export integration and retain only necessary mechanical boundary |
 
 Assessment and actual probe evidence: /private/tmp/nsharp-other-projects-assessment-20260909/ASSESSMENT.md.
-Existing held config/query/signature work remains preserved until integrated or safely archived.
+Unique held config/signature work remains preserved until integrated or safely archived.
+The two clean query worktrees and branches were removed after confirming both tips are ancestors
+of systems-language, have no active task users and contain only ignored build outputs. Cleanup
+receipt: /private/tmp/toolchain-query-worktree-cleanup-20260909.json.
 A finished lane is not completion of this whole objective.
 
 ## Current integration findings
@@ -53,8 +56,13 @@ A finished lane is not completion of this whole objective.
   This is prerequisite evidence; no seed publication or complete facade acceptance is claimed.
 - MSBuild owner commit also preserves exact OutputAttribute metadata through the N# parser and
   emitter. Full dictionary metadata is retained by the original TaskItem constructor shape.
-- Existing IlSdkToolchainTests.cs includes SDK version/build/run assertions that must migrate to N#;
-  the task lane is finishing them before moving to Playground.
+  The Build.Tasks project now contains no C# source; its remaining empty assembly and MSBuild
+  project are mechanical dependency-copy/package boundaries. SDK UsingTask resolves both owners
+  directly from Compiler.Core.
+- All five IlSdkToolchainTests.cs cases now have N# successors and the C# file is removed in the
+  integration candidate. Review retained XML UnitTestResult/outcome semantics and removed new
+  assertions that merely mirrored private field names. All 20 native SDK tests pass against a private package (22.7s). Receipt:
+  /private/tmp/toolchain-integrated-sdk-receipt-r1.json. Final fresh integration gate remains pending.
 - Concurrent release task owns packaging/bootstrap delivery fixes and its clean-snapshot gates.
   Root preserves that work, coordinates benchmark quiet periods and holds remote pushes until the
   release task clears its Actions verification. No competing shared SDK feed writes are allowed.
