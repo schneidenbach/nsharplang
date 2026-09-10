@@ -145,6 +145,22 @@ func NormalizedFullPath(path: string): string {
     return Path.GetFullPath(path).Replace("\\", "/")
 }
 
+func EquivalentProcessPath(actual: string, expected: string): bool {
+    if actual == expected {
+        return true
+    }
+
+    if actual.StartsWith("/private/") && actual.Substring(8) == expected {
+        return true
+    }
+
+    if expected.StartsWith("/private/") && expected.Substring(8) == actual {
+        return true
+    }
+
+    return false
+}
+
 // ═══ THE HELP CONTRACT, ONE ROW PER COMMAND ═══════════════════════════════════════════════════
 //
 // The deleted C# made this claim once per command, always the same three assertions: exit 0, a
@@ -475,12 +491,12 @@ test "nlc query help exits 0, and an unknown query subcommand exits 1 through st
 //
 // The same three claims per command — exit 0, a silent stderr, the command's own `Usage:` line on
 // stdout — for the seven whose kernel bodies migrate to the estate this slice. SIX of the seven
-// were previously proven by an IN-PROCESS `XCommand.Execute(["--help"])` call, and FIVE of those
-// six reach a command that is STILL a `.cs` file in `src/NSharpLang.Cli/Commands/` —
-// `CheckCommand`, `FixCommand`, `LintCommand`, `WatchCommand` and `DocCommand`; only `TidyCommand`
-// is N#-owned. So these rows are the only thing in the repository that proves `nlc check`
-// dispatches to `CheckCommand` at all. The seventh, `format`, had no command wrapper in the
-// deleted body at all — it went through the top-level dispatcher.
+// were previously proven by an IN-PROCESS `XCommand.Execute(["--help"])` call, and FOUR of those
+// six still reach commands that are `.cs` files in `src/NSharpLang.Cli/Commands/` — `FixCommand`,
+// `LintCommand`, `WatchCommand` and `DocCommand`; `CheckCommand` and `TidyCommand` are now
+// N#-owned. So these rows are the only thing in the repository that proves `nlc check` dispatches
+// to its N# owner at all. The seventh, `format`, had no command wrapper in the deleted body at all
+// — it went through the top-level dispatcher.
 
 test "nlc check --help exits 0, writes its usage to stdout, and says nothing on stderr" {
     run := Nlc("check --help")
@@ -563,6 +579,128 @@ test "nlc check over a missing project writes Directory not found to STDERR and 
     assert run.ExitCode == 1
     assert run.Stdout.Trim().Length == 0
     assert run.Stderr.Contains("Directory not found: " + missingDirectory)
+}
+
+// ═══ THE N# CHECK OWNER, PROVEN THROUGH THE SHIPPED PROCESS ═══════════════════════════════════
+//
+// The kernel tests above pin the small argument and sentence facts. These rows exercise the
+// complete N# owner: project loading, semantic diagnostics, automatic IL verification, both
+// output streams, the versioned envelopes and the command exit code. In particular, NL103 below
+// can only come from the second compilation pass: semantic analysis accepts the source first, and
+// the IL verifier then reports the deliberately unsupported static call.
+
+test "nlc check on a clean project emits a versioned success envelope after IL verification" {
+    directory := NewTempDirectory("nlc-check-ilverify-success")
+    try {
+        WriteCheckProject(directory, "CheckIlVerifySuccess", "func main() {\n    print \"ok\"\n}\n")
+        beforeVerificationDirectories := Directory.GetDirectories(Path.GetTempPath(), "nlc-check-il-*").Length
+
+        run := NlcIn(directory, "check")
+
+        assert run.ExitCode == 0
+        assert run.Stderr.Trim().Length == 0
+        document := JsonDocument.Parse(run.Stdout)
+        root := document.RootElement
+        assert root.GetProperty("schemaVersion").GetInt32() == 1
+        assert TextOf(root.GetProperty("command")) == "check"
+        assert EquivalentProcessPath(TextOf(root.GetProperty("projectRoot")), NormalizedFullPath(directory))
+        assert root.GetProperty("checkedFiles").GetInt32() == 1
+        assert root.GetProperty("ok").GetBoolean()
+        assert root.GetProperty("results").GetArrayLength() == 0
+        assert root.GetProperty("summary").GetProperty("errors").GetInt32() == 0
+        document.Dispose()
+
+        // VerifyIlOutput owns a best-effort finally cleanup. No check verification directory may
+        // remain after a successful process, including when the compiler emitted an assembly.
+        afterVerificationDirectories := Directory.GetDirectories(Path.GetTempPath(), "nlc-check-il-*").Length
+        assert afterVerificationDirectories == beforeVerificationDirectories
+    } finally {
+        Directory.Delete(directory, true)
+    }
+}
+
+test "nlc check reports an IL verification decline after semantic analysis succeeds" {
+    directory := NewTempDirectory("nlc-check-ilverify-failure")
+    try {
+        WriteCheckProject(
+            directory,
+            "CheckIlVerifyFailure",
+            "import System\n\nfunc main() {\n    values: int[] = [1]\n    view := Array.AsReadOnly(values)\n    print view.Count\n}\n"
+        )
+        beforeVerificationDirectories := Directory.GetDirectories(Path.GetTempPath(), "nlc-check-il-*").Length
+
+        run := NlcIn(directory, "check")
+
+        assert run.ExitCode == 1
+        assert run.Stderr.Trim().Length == 0
+        document := JsonDocument.Parse(run.Stdout)
+        root := document.RootElement
+        assert root.GetProperty("schemaVersion").GetInt32() == 1
+        assert TextOf(root.GetProperty("command")) == "check"
+        assert EquivalentProcessPath(TextOf(root.GetProperty("projectRoot")), NormalizedFullPath(directory))
+        assert root.GetProperty("checkedFiles").GetInt32() == 1
+        assert !root.GetProperty("ok").GetBoolean()
+        assert root.GetProperty("results").GetArrayLength() == 1
+        result := ElementAt(root.GetProperty("results"), 0)
+        assert TextOf(result.GetProperty("code")) == "NL103"
+        assert TextOf(result.GetProperty("message")).Contains("Columnar emission is required")
+        assert TextOf(result.GetProperty("message")).Contains("Array.AsReadOnly")
+        assert result.GetProperty("line").GetInt32() == 5
+        assert root.GetProperty("summary").GetProperty("errors").GetInt32() == 1
+        document.Dispose()
+
+        afterVerificationDirectories := Directory.GetDirectories(Path.GetTempPath(), "nlc-check-il-*").Length
+        assert afterVerificationDirectories == beforeVerificationDirectories
+    } finally {
+        Directory.Delete(directory, true)
+    }
+}
+
+test "nlc check text mode reports a clean project on STDERR and keeps STDOUT empty" {
+    directory := NewTempDirectory("nlc-check-text")
+    try {
+        WriteCheckProject(directory, "CheckText", "func main() {\n    print \"ok\"\n}\n")
+
+        run := NlcIn(directory, "check --text")
+
+        assert run.ExitCode == 0
+        assert run.Stdout.Trim().Length == 0
+        assert run.Stderr.Contains("Checked 1 file — no errors.")
+    } finally {
+        Directory.Delete(directory, true)
+    }
+}
+
+test "nlc check emits the structured error envelope for a missing project" {
+    missingDirectory := MissingDirectoryPath("nsharp-check-json-missing")
+
+    run := Nlc("check --project \"" + missingDirectory + "\"")
+
+    assert run.ExitCode == 1
+    assert run.Stderr.Trim().Length == 0
+    document := JsonDocument.Parse(run.Stdout)
+    root := document.RootElement
+    assert root.GetProperty("schemaVersion").GetInt32() == 1
+    assert TextOf(root.GetProperty("command")) == "check"
+    assert !root.GetProperty("ok").GetBoolean()
+    assert TextOf(root.GetProperty("projectRoot")) == NormalizedFullPath(missingDirectory)
+    assert TextOf(root.GetProperty("error").GetProperty("message")) == "Directory not found: " + missingDirectory
+    document.Dispose()
+}
+
+test "nlc check rejects systems report beside text through the text error route" {
+    directory := NewTempDirectory("nlc-check-systems-text")
+    try {
+        WriteCheckProject(directory, "CheckSystemsText", "func main() {\n    print \"ok\"\n}\n")
+
+        run := NlcIn(directory, "check --systems-report --text")
+
+        assert run.ExitCode == 1
+        assert run.Stdout.Trim().Length == 0
+        assert run.Stderr.Trim() == "--systems-report is only available as JSON output."
+    } finally {
+        Directory.Delete(directory, true)
+    }
 }
 
 test "nlc fix over a missing project writes Directory not found to STDERR and exits 1" {
@@ -2257,6 +2395,11 @@ func LiteralEscapeCount(text: string): int {
 func WriteFailingProject(directory: string, name: string) {
     WriteProjectYml(directory, "name: " + name + "\n" + "version: 0.1.0\n" + "outputType: exe\n" + "targetFramework: net10.0\n")
     File.WriteAllText(Path.Combine(directory, "Program.nl"), "func main() {\n    x := undefinedThing\n    print x\n}\n")
+}
+
+func WriteCheckProject(directory: string, name: string, source: string) {
+    WriteProjectYml(directory, "name: " + name + "\n" + "version: 0.1.0\n" + "outputType: exe\n" + "targetFramework: net10.0\n")
+    File.WriteAllText(Path.Combine(directory, "Program.nl"), source)
 }
 
 test "nlc build --color=always writes a REAL escape byte, and never the literal characters" {

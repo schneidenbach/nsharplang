@@ -8,12 +8,12 @@ namespace NSharpLang.Cli.Commands
 // `CheckCommandKernels_SelectsEffectiveOutputMode`. Both argument kernels live in one production
 // file, so their tests live in one file too.
 //
-// THE CHECK BODY IS SPLIT, AND THE SPLIT IS FORCED. It ended by driving `CheckCommand.Execute`
-// through a console capture for `--help` and for a missing project. `Console.SetOut` declines on
-// this emit path at `emit.call.static-member-unmodeled`, so those rows are in
-// `tests/native/cli-command-contracts` against the spawned binary. That is strictly stronger than
-// what was deleted: `CheckCommand` is still a C# file, and calling its `Execute` directly never
-// proved that `nlc check` REACHES it.
+// THE CHECK BODY IS SPLIT, AND THE SPLIT IS FORCED. The command's full execution route now lives in
+// `src/NSharpLang.Compiler/CheckCommand.nl`; the process rows below drive that shipped owner for
+// help, diagnostics, output streams and IL verification. `Console.SetOut` declines on this emit
+// path at `emit.call.static-member-unmodeled`, so those rows belong in
+// `tests/native/cli-command-contracts` rather than pretending an in-process capture proves the
+// process route. The kernel rows here keep the small argument and sentence contracts local.
 
 // ── the fix argument summary ──────────────────────────────────────────────────
 test "the fix argument summary separates a positional project from the --project option" {
