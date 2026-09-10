@@ -14,9 +14,14 @@ class ColumnarParameterDefaultEmitter {
     static MemberAccessKind: int => 1000
 
     static func DefineMethodParameterMetadata(method: MethodBuilder, parameterTypes: Type[], names: string[], modifierKinds: int[], defaultKinds: int[], defaultTexts: string?[], enumRegistry: ColumnarSemanticRegistry<ColumnarEnumDef>): bool {
-        return DefineMethodParameterMetadataWithAttributes(method, parameterTypes, names, modifierKinds, defaultKinds, defaultTexts, enumRegistry, null, null)
+        return DefineMethodParameterMetadataWithAttributes(method, parameterTypes, names, modifierKinds, defaultKinds, defaultTexts, enumRegistry, null, null, null)
     }
 
+    // `labeledCanonicals` carries each parameter's type AS WRITTEN, tuple element labels included, so
+    // a parameter of named-tuple type gets its `TupleElementNamesAttribute` on the SAME
+    // `ParameterBuilder` this owner already created. Defining the position twice would overwrite the
+    // name and flags written here, so the attribute is attached from inside the loop rather than by a
+    // second pass.
     static func DefineMethodParameterMetadataWithAttributes(
         method: MethodBuilder,
         parameterTypes: Type[],
@@ -26,7 +31,8 @@ class ColumnarParameterDefaultEmitter {
         defaultTexts: string?[],
         enumRegistry: ColumnarSemanticRegistry<ColumnarEnumDef>,
         sourceAttributes: ColumnarSourceAttributeInput[][]?,
-        sourceResolution: ColumnarSemanticTypeResolution?
+        sourceResolution: ColumnarSemanticTypeResolution?,
+        labeledCanonicals: string[]?
     ): bool {
         index := 0
         while index < names.Length {
@@ -41,6 +47,9 @@ class ColumnarParameterDefaultEmitter {
             parameter := method.DefineParameter(index + 1, attributes, names[index])
             if sourceAttributes != null && sourceResolution != null && index < sourceAttributes.Length {
                 ColumnarSourceAttributes.ApplyParameter(parameter, sourceAttributes[index], sourceResolution)
+            }
+            if labeledCanonicals != null && index < labeledCanonicals.Length {
+                ColumnarTupleElementNameEmitter.ApplyToParameter(parameter, labeledCanonicals[index])
             }
             parameterType := index < parameterTypes.Length ? parameterTypes[index] : typeof(object)
             if hasDefault && !TrySetParameterDefault(parameter, parameterType, defaultKinds[index], defaultTexts[index], enumRegistry) {
@@ -60,6 +69,19 @@ class ColumnarParameterDefaultEmitter {
         defaultTexts: string?[],
         enumRegistry: ColumnarSemanticRegistry<ColumnarEnumDef>
     ): bool {
+        return DefineConstructorParameterMetadataWithTupleNames(constructorBuilder, parameterTypes, names, modifierKinds, defaultKinds, defaultTexts, enumRegistry, null)
+    }
+
+    static func DefineConstructorParameterMetadataWithTupleNames(
+        constructorBuilder: ConstructorBuilder,
+        parameterTypes: Type[],
+        names: string[],
+        modifierKinds: int[],
+        defaultKinds: int[],
+        defaultTexts: string?[],
+        enumRegistry: ColumnarSemanticRegistry<ColumnarEnumDef>,
+        labeledCanonicals: string[]?
+    ): bool {
         index := 0
         while index < names.Length {
             attributes := ParameterAttributes.None
@@ -71,6 +93,9 @@ class ColumnarParameterDefaultEmitter {
                 attributes = attributes | ParameterAttributes.Optional | ParameterAttributes.HasDefault
             }
             parameter := constructorBuilder.DefineParameter(index + 1, attributes, names[index])
+            if labeledCanonicals != null && index < labeledCanonicals.Length {
+                ColumnarTupleElementNameEmitter.ApplyToParameter(parameter, labeledCanonicals[index])
+            }
             parameterType := index < parameterTypes.Length ? parameterTypes[index] : typeof(object)
             if hasDefault && !TrySetParameterDefault(parameter, parameterType, defaultKinds[index], defaultTexts[index], enumRegistry) {
                 return false

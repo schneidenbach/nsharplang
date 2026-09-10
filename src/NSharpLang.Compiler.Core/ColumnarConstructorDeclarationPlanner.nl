@@ -216,14 +216,15 @@ class ColumnarConstructorDeclarationPlanner {
                             }
 
                             builder := definition.DefineUserConstructor(parameterTypes, ctor.ParamDefaultKinds, canonicalDefaultTexts, ctor.VisibilityModifierFlags)
-                            if !ColumnarParameterDefaultEmitter.DefineConstructorParameterMetadata(
+                            if !ColumnarParameterDefaultEmitter.DefineConstructorParameterMetadataWithTupleNames(
                                 builder,
                                 parameterTypes,
                                 ctor.Body.ParamNames,
                                 ctor.Body.ParamModifierKinds,
                                 ctor.ParamDefaultKinds,
                                 canonicalDefaultTexts,
-                                typeResolution.Enums
+                                typeResolution.Enums,
+                                ctor.Body.ParamLabeledCanonicals
                             ) {
                                 return Declined(
                                     "emit.ctor.param-metadata",

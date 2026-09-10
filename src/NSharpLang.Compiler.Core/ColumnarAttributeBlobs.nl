@@ -14,9 +14,10 @@ import System.Reflection.Emit
 // the blob spelled here.
 //
 // The blob is: the two-byte PROLOG 0x0001, then each FIXED argument in constructor-parameter order,
-// then a two-byte little-endian NAMED-argument count. The emit host writes only two shapes -- an
-// attribute with no arguments, and one with two string arguments -- and both are pinned byte-for-byte
-// against what `CustomAttributeBuilder` produced, so the conversion moves no emitted byte.
+// then a two-byte little-endian NAMED-argument count. The emit host writes three shapes -- an
+// attribute with no arguments, one with two string arguments, and one whose single argument is a
+// string ARRAY -- and each is pinned byte-for-byte against what the C# compiler and
+// `CustomAttributeBuilder` produce, so the conversion moves no emitted byte.
 class ColumnarAttributeBlobs {
     static func DescriptionTraitKey(): string {
         return "NSharpDescription"
@@ -72,9 +73,40 @@ class ColumnarAttributeBlobs {
         return blob.ToArray()
     }
 
+    // `[TupleElementNames(new string[] { "Min", "Max" })]`: prolog, ONE fixed argument that is a
+    // SZARRAY of strings, no named arguments. Verified byte-for-byte against what the C# compiler
+    // writes for `(int Min, int Max)`.
+    static func StringArray(values: string?[]): byte[] {
+        blob := new List<byte>()
+        WritePrologue(blob)
+        WriteStringArrayArgument(blob, values)
+        WriteNamedArgumentCount(blob, 0)
+        return blob.ToArray()
+    }
+
     static func WritePrologue(blob: List<byte>) {
         Append(blob, 1)
         Append(blob, 0)
+    }
+
+    // A SZARRAY fixed argument (II.23.3): NumElem as a PLAIN UInt32 -- not a compressed integer, and
+    // not the PackedLen a SerString uses -- followed by each element in the element type's own form.
+    // A null ARRAY would be 0xFFFFFFFF; nothing here writes one, because the attribute is omitted
+    // entirely when there is nothing to say.
+    static func WriteStringArrayArgument(blob: List<byte>, values: string?[]) {
+        WriteUInt32(blob, values.Length)
+        index := 0
+        while index < values.Length {
+            WriteSerString(blob, values[index])
+            index = index + 1
+        }
+    }
+
+    static func WriteUInt32(blob: List<byte>, value: int) {
+        Append(blob, value % 256)
+        Append(blob, (value / 256) % 256)
+        Append(blob, (value / 65536) % 256)
+        Append(blob, (value / 16777216) % 256)
     }
 
     // NumNamed is a plain UInt16, little-endian -- not a compressed integer.

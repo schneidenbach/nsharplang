@@ -107,6 +107,7 @@ class ColumnarConstructorDefaultParseProbe {
 
         ParamNameTexts = new string[](capacity)
         ParamTypeTexts = new string[](capacity)
+        paramLabeledTypeTexts := new string[](capacity)
         ArgKinds = new int[](capacity)
         argStarts := new int[](capacity)
         argLengths := new int[](capacity)
@@ -130,6 +131,7 @@ class ColumnarConstructorDefaultParseProbe {
             0,
             ParamNameTexts,
             ParamTypeTexts,
+            paramLabeledTypeTexts,
             ArgKinds,
             argStarts,
             argLengths,
@@ -451,6 +453,8 @@ class ColumnarFunctionBodyYieldProbe {
         paramTupleNameCounts := new int[](capacity)
         paramTupleNameTexts := new string[](capacity)
         returnTupleNameTexts := new string[](capacity)
+        returnLabeledTypeTexts := new string[](capacity)
+        paramLabeledTypeTexts := new string[](capacity)
         typeParamTexts := new string[](capacity)
         typeParamSpecials := new int[](capacity)
         typeParamConstraintCounts := new int[](capacity)
@@ -485,6 +489,8 @@ class ColumnarFunctionBodyYieldProbe {
             paramTupleNameCounts,
             paramTupleNameTexts,
             returnTupleNameTexts,
+            returnLabeledTypeTexts,
+            paramLabeledTypeTexts,
             typeParamTexts,
             typeParamSpecials,
             typeParamConstraintCounts,
@@ -564,6 +570,8 @@ class ColumnarFunctionBodyAwaitForeachProbe {
         paramTupleNameCounts := new int[](capacity)
         paramTupleNameTexts := new string[](capacity)
         returnTupleNameTexts := new string[](capacity)
+        returnLabeledTypeTexts := new string[](capacity)
+        paramLabeledTypeTexts := new string[](capacity)
         typeParamTexts := new string[](capacity)
         typeParamSpecials := new int[](capacity)
         typeParamConstraintCounts := new int[](capacity)
@@ -598,6 +606,8 @@ class ColumnarFunctionBodyAwaitForeachProbe {
             paramTupleNameCounts,
             paramTupleNameTexts,
             returnTupleNameTexts,
+            returnLabeledTypeTexts,
+            paramLabeledTypeTexts,
             typeParamTexts,
             typeParamSpecials,
             typeParamConstraintCounts,

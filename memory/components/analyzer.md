@@ -758,9 +758,43 @@ are fixed: `uint` was missing from `TryEmitCompoundOperation`'s IL-primitive arm
 declined on a `uint` accumulator while `sum = sum + a[i]` emitted), and named tuple element names
 were carried only for FREE functions, so element access on a tuple returned by a static or instance
 method declined at emit even though the analyzer had resolved it —
-`ColumnarStaticMethodDef`/`ColumnarInstanceMethodDef` now carry `ReturnTupleElementNames`. Still
-open: element names are not read off an EXTERNAL member's `TupleElementNamesAttribute`, so
-`csharpMethod().Min` reports NL303 (use `Item1`/`Item2` or deconstruction).
+`ColumnarStaticMethodDef`/`ColumnarInstanceMethodDef` now carry `ReturnTupleElementNames`.
+
+NAMED TUPLE ELEMENT NAMES CROSS THE ASSEMBLY BOUNDARY IN BOTH DIRECTIONS. A named tuple has no CLR
+identity — `(int Min, int Max)` IS `ValueTuple<int, int>` — so the names live in a
+`System.Runtime.CompilerServices.TupleElementNamesAttribute(string[])` on the signature POSITION, and
+N# writes and reads it the way every other .NET language does:
+
+- `ColumnarTupleElementNames` flattens a written type into that array in C#'s order — a pre-order
+  walk with each tuple's own names first, so `(A:int,D:(B:int,C:int))` is `A/D/B/C` and
+  `List<(Min:int,Max:int)>` is `Min/Max`; an unnamed nested tuple still occupies its elements' slots,
+  and a tuple longer than seven elements carries the extra slots its `ValueTuple` REST nesting adds.
+  Every expected row in its tests, including the raw blob bytes, was measured against `csc` output.
+- The parser kernels produce a LABELLED canonical (`TypeReferenceLabeledCanonicalTextCore`) beside
+  the structural one, because the structural canonical drops element labels at every level and
+  `ReturnTupleElementNames` carries only the TOP-LEVEL ones. `ColumnarFunctionInput` carries it as
+  `ReturnLabeledCanonical` / `ParamLabeledCanonicals`.
+- `ColumnarTupleElementNameEmitter` attaches the attribute to the return position, parameters and
+  constructor parameters; the blob comes from `ColumnarAttributeBlobs.StringArray` (hand-rolled,
+  AOT-safe) rather than `CustomAttributeBuilder`.
+- `AnalyzerTupleElementNames` reads the attribute off an external member's `CustomAttributeData` and
+  rebuilds the converted type as a `TupleTypeInfo` carrying the names, spending the flattened array
+  in the same order the emitter writes it. All four member-facing conversions in
+  `NullabilityMetadataReflection` (return, parameter, field, property) route through it; a position
+  with no attribute is left exactly as it was.
+- Names stay out of identity (`TypeInfoIdentityFacts` compares tuples by element TYPE), which is the
+  C# rule. N# has no lint mirroring C#'s name-mismatch warning.
+- The emitter learns an external method's names from its metadata, selecting the member through the
+  ordinary scoped CLR overload resolver over preflighted argument types — no per-API table.
+- A named tuple DISPLAYS as `(Min: int, Max: int)` in hover and `nlc query type`; before this it
+  answered the class name `NSharpLang.Compiler.TupleTypeInfo`.
+
+`tests/native/tuple-names` is the executable evidence for both directions.
+
+Still unsupported, and reported as such: an individually named element (`(A: int, int)` — the parse
+kernel is all-or-nothing at each level), and a FIELD or PROPERTY declared with a tuple type at all
+(`Pair: (Min: int, Max: int)` inside a class or struct declines at `parse.struct`, even unnamed), so
+those attribute positions are unreachable rather than unimplemented.
 
 - **ClassTypeInfo**: N#-owned class declaration metadata
 - **StructTypeInfo**: N#-owned struct declaration metadata
