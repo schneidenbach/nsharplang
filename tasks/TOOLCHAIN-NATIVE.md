@@ -54,6 +54,11 @@ A finished lane is not completion of this whole objective.
   value/constructor binding. Root verified these with all 8,021 Core canonical tests passing (0 failed/skipped) using an
   isolated SDK candidate. Receipt: /private/tmp/toolchain-facade-prerequisite-receipt.json.
   This is prerequisite evidence; no seed publication or complete facade acceptance is claimed.
+- Ordinary external member binding is integrated with exact public getter/field selection and
+  builder-bound receiver rejection. Combined compiler assertions pass 8,039/8,039 after the
+  SortedDictionary.Keys contract update; nominal Dictionary.KeyCollection rejections remain.
+  Receipt: /private/tmp/toolchain-integrated-member-receipt-r3.json. Facade project/package routing
+  remains incomplete, so this does not mark the whole facade area accepted.
 - MSBuild owner commit also preserves exact OutputAttribute metadata through the N# parser and
   emitter. Full dictionary metadata is retained by the original TaskItem constructor shape.
   The Build.Tasks project now contains no C# source; its remaining empty assembly and MSBuild
