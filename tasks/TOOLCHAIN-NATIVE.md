@@ -10,7 +10,7 @@ conversion is the default; no redesign or new feature work is implied.
 Convert remaining managed Compiler facade, Build.Tasks, CLI, LanguageServer, Playground and Runtime
 production ownership to N#. Evaluate and convert the Wasm export host where supported; document any
 strictly mechanical host boundary. SDK/Templates remain native packaging configuration; change their
-integration only as required by these ports. Visual Studio extension is deferred at very low priority.
+integration only as required by these ports. VS Code extension migration is deferred at very low priority.
 NativeAOT, a new metadata writer and unrelated branch initiatives remain separate.
 
 Migrate canonical C# assertions with each owner, including setup/state, ordering, exact diagnostics,
@@ -34,8 +34,9 @@ Base: 06186dc6d (includes bootstrap/CI work; preserve it).
 |---|---|---|---|
 | Complete Compiler service facade and assertions | Luna Max toolchain_facade | Integrated at 5691697ce; old lane retired | Four C# owners and remaining C# assertion removed; root combined build and 98 native tests pass; private package consumer passes; final gate pending |
 | Complete LoadProjectConfig / LoadProjectReferences and assertions | Luna Max toolchain_build_tasks | Integrated; original lane retired | Owners and canonical SDK assertions integrated into candidate; 8,028 Core tests pass; 20 native SDK tests pass; final integration gate/push pending |
-| CLI query/commands and LSP signature/services | Next wave | Signature branch preserved; integrated query branches retired | Continue from integration HEAD; refresh unique signature work without restarting |
-| Playground interpreter | Luna Max next after SDK assertions | /private/tmp/nsharp-agent-wt/toolchain-playground; codex/toolchain-playground | Implementing from 2f73fdf12; complete connected owner and tests |
+| CLI command owners and assertions | Luna Max toolchain_facade | CheckCommand integrated through a46c04d1d; FixCommand next | CheckCommand C# owner and 559-line C# test file removed; lane native contracts 123/123; root default validation rejects two imported calls; correction assigned |
+| LSP signature/services | Queued | Signature branch preserved | Refresh unique signature work without restarting |
+| Playground compiler and interpreter | Luna Max toolchain_build_tasks | /private/tmp/nsharp-agent-wt/toolchain-playground; codex/toolchain-playground | Both N# owners build through real project references; runtime-companion prerequisite under review; final canonical routing pending |
 | Runtime ABI and bootstrap | Queued | No new worktree yet | Preserve CLR identity/behavior; verify actual proposed types |
 | Wasm host | Queued | No new worktree yet | Prove export integration and retain only necessary mechanical boundary |
 
@@ -129,3 +130,11 @@ A finished lane is not completion of this whole objective.
   34424070745 and its seven-asset unofficial prerelease passed verification; the remote hold is
   lifted. This candidate still requires its own fresh integration gate before push. Root serializes
   SDK seed/feed writes and retires lane worktrees only after their changes are accepted.
+
+- CheckCommand is integrated through a46c04d1d. Execute, IL verification, cleanup and error output
+  now reside in N#; all 559 lines of CheckCommandTests.cs are replaced by native process assertions.
+  Review restored exact JSON trailing bytes and diagnostic-write/elapsed-evaluation order, and
+  removed global temporary-directory count assertions that race concurrent processes. Lane native
+  contracts pass 123/123; root default dev.sh build rejects GetArgumentSummary and FromCompilerError with NL402.
+  Evidence: /private/tmp/toolchain-integrated-check-build-r1.log. The owner must resolve that
+  integration gap before gate acceptance. No shared SDK seed or push yet.
