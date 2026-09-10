@@ -362,7 +362,7 @@ func main() {
 }
 """);
 
-            var cliDll = typeof(CheckCommand).Assembly.Location;
+            var cliDll = typeof(NSharpLang.Cli.Program).Assembly.Location;
             var runResult = DotnetRunner.Run(
                 $"\"{cliDll}\" run",
                 workingDirectory: tempDir,
@@ -867,7 +867,7 @@ test "override il tests" {
 
     private static int ExecuteProgram(params string[] args)
     {
-        var programType = typeof(CheckCommand).Assembly.GetType("NSharpLang.Cli.Program");
+        var programType = typeof(NSharpLang.Cli.Program).Assembly.GetType("NSharpLang.Cli.Program");
         Assert.NotNull(programType);
 
         var method = programType!.GetMethod("Execute", BindingFlags.Static | BindingFlags.NonPublic);
