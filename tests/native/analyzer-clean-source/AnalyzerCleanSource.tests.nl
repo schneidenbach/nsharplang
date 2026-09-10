@@ -5452,15 +5452,15 @@ test "020 s30 analyzer error codes: `InvalidTypeArgument`: the whole census is p
     assert AcCensus(analysis) == "NL207:InvalidTypeArgument@10:14+3;"
     assert AcHasErrors(analysis) == "True"
     assert AcErrorCount(analysis) == 1
-    assert AcRow(analysis, 0) == "InvalidTypeArgument|Generic type 'Box' takes 1 type argument(s), but 2 were provided|Match the declaration's type parameter count for 'Box'|Error"
+    assert AcRow(analysis, 0) == "InvalidTypeArgument|Generic type 'Box' takes 1 type argument(s), but 2 were provided|Write 'Box<T>'|Error"
     assert AcCodeErrorCount(analysis, "InvalidTypeArgument") == 1
     assert AcCodeCount(analysis, "InvalidTypeArgument") == 1
-    assert AcCodeRow(analysis, "InvalidTypeArgument") == "InvalidTypeArgument|Generic type 'Box' takes 1 type argument(s), but 2 were provided|Match the declaration's type parameter count for 'Box'|Error"
+    assert AcCodeRow(analysis, "InvalidTypeArgument") == "InvalidTypeArgument|Generic type 'Box' takes 1 type argument(s), but 2 were provided|Write 'Box<T>'|Error"
     assert AcCodeAnchor(analysis, "InvalidTypeArgument") == "NL207@10:14+3"
     assert AcSuggestions(analysis, 0) == "<null>"
     rich := AcAnalyzeWithSource(source)
     assert AcCensus(rich) == "NL207:InvalidTypeArgument@10:14+3;"
-    assert AcCodeRow(rich, "InvalidTypeArgument") == "InvalidTypeArgument|Generic type 'Box' takes 1 type argument(s), but 2 were provided|Match the declaration's type parameter count for 'Box'|Error"
+    assert AcCodeRow(rich, "InvalidTypeArgument") == "InvalidTypeArgument|Generic type 'Box' takes 1 type argument(s), but 2 were provided|Write 'Box<T>'|Error"
     assert AcCodeAnchor(rich, "InvalidTypeArgument") == "NL207@10:14+3"
     assert AcSuggestions(rich, 0) == "<null>"
     assert AcHint(rich, 0) == "<null>"
@@ -5474,15 +5474,15 @@ test "020 s30 analyzer error codes: `InvalidTypeArgument`: the whole census is p
     assert AcCensus(analysis) == "NL207:InvalidTypeArgument@5:20+3;"
     assert AcHasErrors(analysis) == "True"
     assert AcErrorCount(analysis) == 1
-    assert AcRow(analysis, 0) == "InvalidTypeArgument|Generic type 'Box' takes 1 type argument(s), but 2 were provided|Match the declaration's type parameter count for 'Box'|Error"
+    assert AcRow(analysis, 0) == "InvalidTypeArgument|Generic type 'Box' takes 1 type argument(s), but 2 were provided|Write 'Box<T>'|Error"
     assert AcCodeErrorCount(analysis, "InvalidTypeArgument") == 1
     assert AcCodeCount(analysis, "InvalidTypeArgument") == 1
-    assert AcCodeRow(analysis, "InvalidTypeArgument") == "InvalidTypeArgument|Generic type 'Box' takes 1 type argument(s), but 2 were provided|Match the declaration's type parameter count for 'Box'|Error"
+    assert AcCodeRow(analysis, "InvalidTypeArgument") == "InvalidTypeArgument|Generic type 'Box' takes 1 type argument(s), but 2 were provided|Write 'Box<T>'|Error"
     assert AcCodeAnchor(analysis, "InvalidTypeArgument") == "NL207@5:20+3"
     assert AcSuggestions(analysis, 0) == "<null>"
     rich := AcAnalyzeWithSource(source)
     assert AcCensus(rich) == "NL207:InvalidTypeArgument@5:20+3;"
-    assert AcCodeRow(rich, "InvalidTypeArgument") == "InvalidTypeArgument|Generic type 'Box' takes 1 type argument(s), but 2 were provided|Match the declaration's type parameter count for 'Box'|Error"
+    assert AcCodeRow(rich, "InvalidTypeArgument") == "InvalidTypeArgument|Generic type 'Box' takes 1 type argument(s), but 2 were provided|Write 'Box<T>'|Error"
     assert AcCodeAnchor(rich, "InvalidTypeArgument") == "NL207@5:20+3"
     assert AcSuggestions(rich, 0) == "<null>"
     assert AcHint(rich, 0) == "<null>"
@@ -5600,15 +5600,15 @@ test "020 s30 analyzer error codes: `InvalidTypeArgument`: the whole census is p
     assert AcCensus(analysis) == "NL207:InvalidTypeArgument@2:20+4;"
     assert AcHasErrors(analysis) == "True"
     assert AcErrorCount(analysis) == 1
-    assert AcRow(analysis, 0) == "InvalidTypeArgument|Generic type 'List' takes 1 type argument(s), but 2 were provided|Match the declaration's type parameter count for 'List'|Error"
+    assert AcRow(analysis, 0) == "InvalidTypeArgument|Generic type 'List' takes 1 type argument(s), but 2 were provided|Write 'List<T>'|Error"
     assert AcCodeErrorCount(analysis, "InvalidTypeArgument") == 1
     assert AcCodeCount(analysis, "InvalidTypeArgument") == 1
-    assert AcCodeRow(analysis, "InvalidTypeArgument") == "InvalidTypeArgument|Generic type 'List' takes 1 type argument(s), but 2 were provided|Match the declaration's type parameter count for 'List'|Error"
+    assert AcCodeRow(analysis, "InvalidTypeArgument") == "InvalidTypeArgument|Generic type 'List' takes 1 type argument(s), but 2 were provided|Write 'List<T>'|Error"
     assert AcCodeAnchor(analysis, "InvalidTypeArgument") == "NL207@2:20+4"
     assert AcSuggestions(analysis, 0) == "<null>"
     rich := AcAnalyzeWithSource(source)
     assert AcCensus(rich) == "NL207:InvalidTypeArgument@2:20+4;"
-    assert AcCodeRow(rich, "InvalidTypeArgument") == "InvalidTypeArgument|Generic type 'List' takes 1 type argument(s), but 2 were provided|Match the declaration's type parameter count for 'List'|Error"
+    assert AcCodeRow(rich, "InvalidTypeArgument") == "InvalidTypeArgument|Generic type 'List' takes 1 type argument(s), but 2 were provided|Write 'List<T>'|Error"
     assert AcCodeAnchor(rich, "InvalidTypeArgument") == "NL207@2:20+4"
     assert AcSuggestions(rich, 0) == "<null>"
     assert AcHint(rich, 0) == "<null>"
@@ -5622,15 +5622,15 @@ test "020 s30 analyzer error codes: `InvalidTypeArgument`: the whole census is p
     assert AcCensus(analysis) == "NL207:InvalidTypeArgument@2:19+4;"
     assert AcHasErrors(analysis) == "True"
     assert AcErrorCount(analysis) == 1
-    assert AcRow(analysis, 0) == "InvalidTypeArgument|Generic type 'Task' takes 1 type argument(s), but 2 were provided|Match the declaration's type parameter count for 'Task'|Error"
+    assert AcRow(analysis, 0) == "InvalidTypeArgument|Generic type 'Task' takes 1 type argument(s), but 2 were provided|Write 'Task<T>'|Error"
     assert AcCodeErrorCount(analysis, "InvalidTypeArgument") == 1
     assert AcCodeCount(analysis, "InvalidTypeArgument") == 1
-    assert AcCodeRow(analysis, "InvalidTypeArgument") == "InvalidTypeArgument|Generic type 'Task' takes 1 type argument(s), but 2 were provided|Match the declaration's type parameter count for 'Task'|Error"
+    assert AcCodeRow(analysis, "InvalidTypeArgument") == "InvalidTypeArgument|Generic type 'Task' takes 1 type argument(s), but 2 were provided|Write 'Task<T>'|Error"
     assert AcCodeAnchor(analysis, "InvalidTypeArgument") == "NL207@2:19+4"
     assert AcSuggestions(analysis, 0) == "<null>"
     rich := AcAnalyzeWithSource(source)
     assert AcCensus(rich) == "NL207:InvalidTypeArgument@2:19+4;"
-    assert AcCodeRow(rich, "InvalidTypeArgument") == "InvalidTypeArgument|Generic type 'Task' takes 1 type argument(s), but 2 were provided|Match the declaration's type parameter count for 'Task'|Error"
+    assert AcCodeRow(rich, "InvalidTypeArgument") == "InvalidTypeArgument|Generic type 'Task' takes 1 type argument(s), but 2 were provided|Write 'Task<T>'|Error"
     assert AcCodeAnchor(rich, "InvalidTypeArgument") == "NL207@2:19+4"
     assert AcSuggestions(rich, 0) == "<null>"
     assert AcHint(rich, 0) == "<null>"
@@ -5644,15 +5644,15 @@ test "020 s30 analyzer error codes: `InvalidTypeArgument`: the whole census is p
     assert AcCensus(analysis) == "NL207:InvalidTypeArgument@1:20+6;"
     assert AcHasErrors(analysis) == "True"
     assert AcErrorCount(analysis) == 1
-    assert AcRow(analysis, 0) == "InvalidTypeArgument|Generic type 'Result' takes 2 type argument(s), but 1 were provided|Match the declaration's type parameter count for 'Result'|Error"
+    assert AcRow(analysis, 0) == "InvalidTypeArgument|Generic type 'Result' takes 2 type argument(s), but 1 were provided|Write 'Result<T1, T2>'|Error"
     assert AcCodeErrorCount(analysis, "InvalidTypeArgument") == 1
     assert AcCodeCount(analysis, "InvalidTypeArgument") == 1
-    assert AcCodeRow(analysis, "InvalidTypeArgument") == "InvalidTypeArgument|Generic type 'Result' takes 2 type argument(s), but 1 were provided|Match the declaration's type parameter count for 'Result'|Error"
+    assert AcCodeRow(analysis, "InvalidTypeArgument") == "InvalidTypeArgument|Generic type 'Result' takes 2 type argument(s), but 1 were provided|Write 'Result<T1, T2>'|Error"
     assert AcCodeAnchor(analysis, "InvalidTypeArgument") == "NL207@1:20+6"
     assert AcSuggestions(analysis, 0) == "<null>"
     rich := AcAnalyzeWithSource(source)
     assert AcCensus(rich) == "NL207:InvalidTypeArgument@1:20+6;"
-    assert AcCodeRow(rich, "InvalidTypeArgument") == "InvalidTypeArgument|Generic type 'Result' takes 2 type argument(s), but 1 were provided|Match the declaration's type parameter count for 'Result'|Error"
+    assert AcCodeRow(rich, "InvalidTypeArgument") == "InvalidTypeArgument|Generic type 'Result' takes 2 type argument(s), but 1 were provided|Write 'Result<T1, T2>'|Error"
     assert AcCodeAnchor(rich, "InvalidTypeArgument") == "NL207@1:20+6"
     assert AcSuggestions(rich, 0) == "<null>"
     assert AcHint(rich, 0) == "<null>"
@@ -10645,7 +10645,7 @@ test "020 s32 analyzer diagnostics: the fixture reports 2 rows, `NL202` `NL207` 
     assert AcCensus(analysis) == "NL207:InvalidTypeArgument@8:26+14;NL202:TypeMismatch@8:63+2;"
     assert AcHasErrors(analysis) == "True"
     assert AcErrorCount(analysis) == 2
-    assert AcRow(analysis, 0) == "InvalidTypeArgument|Generic union 'Result' takes 1 type argument(s), but 2 were provided|Match the declaration's type parameter count for 'Result'|Error"
+    assert AcRow(analysis, 0) == "InvalidTypeArgument|Generic union 'Result' takes 1 type argument(s), but 2 were provided|Write 'Result<T>'|Error"
     assert AcHint(analysis, 0) == "<null>"
     assert AcSuggestions(analysis, 0) == "<null>"
     assert AcSnippet(analysis, 0) == "<null>"
@@ -10660,7 +10660,7 @@ test "020 s32 analyzer diagnostics: the fixture reports 2 rows, `NL202` `NL207` 
     assert AcRow(analysis, 2) == "<no-such-error>"
     assert AcCodeCount(analysis, "InvalidTypeArgument") == 1
     assert AcCodeErrorCount(analysis, "InvalidTypeArgument") == 1
-    assert AcCodeRow(analysis, "InvalidTypeArgument") == "InvalidTypeArgument|Generic union 'Result' takes 1 type argument(s), but 2 were provided|Match the declaration's type parameter count for 'Result'|Error"
+    assert AcCodeRow(analysis, "InvalidTypeArgument") == "InvalidTypeArgument|Generic union 'Result' takes 1 type argument(s), but 2 were provided|Write 'Result<T>'|Error"
     assert AcCodeAnchor(analysis, "InvalidTypeArgument") == "NL207@8:26+14"
     assert AcCodeCount(analysis, "TypeMismatch") == 1
     assert AcCodeErrorCount(analysis, "TypeMismatch") == 1
@@ -10670,7 +10670,7 @@ test "020 s32 analyzer diagnostics: the fixture reports 2 rows, `NL202` `NL207` 
     assert AcCensus(rich) == "NL207:InvalidTypeArgument@8:26+14;NL202:TypeMismatch@8:63+2;"
     assert AcHasErrors(rich) == "True"
     assert AcErrorCount(rich) == 2
-    assert AcRow(rich, 0) == "InvalidTypeArgument|Generic union 'Result' takes 1 type argument(s), but 2 were provided|Match the declaration's type parameter count for 'Result'|Error"
+    assert AcRow(rich, 0) == "InvalidTypeArgument|Generic union 'Result' takes 1 type argument(s), but 2 were provided|Write 'Result<T>'|Error"
     assert AcHint(rich, 0) == "<null>"
     assert AcSuggestions(rich, 0) == "<null>"
     assert AcSnippet(rich, 0) == "                r := new Result.Success<int, string> { value: 42 }"
@@ -10685,7 +10685,7 @@ test "020 s32 analyzer diagnostics: the fixture reports 2 rows, `NL202` `NL207` 
     assert AcRow(rich, 2) == "<no-such-error>"
     assert AcCodeCount(rich, "InvalidTypeArgument") == 1
     assert AcCodeErrorCount(rich, "InvalidTypeArgument") == 1
-    assert AcCodeRow(rich, "InvalidTypeArgument") == "InvalidTypeArgument|Generic union 'Result' takes 1 type argument(s), but 2 were provided|Match the declaration's type parameter count for 'Result'|Error"
+    assert AcCodeRow(rich, "InvalidTypeArgument") == "InvalidTypeArgument|Generic union 'Result' takes 1 type argument(s), but 2 were provided|Write 'Result<T>'|Error"
     assert AcCodeAnchor(rich, "InvalidTypeArgument") == "NL207@8:26+14"
     assert AcCodeCount(rich, "TypeMismatch") == 1
     assert AcCodeErrorCount(rich, "TypeMismatch") == 1
@@ -10701,7 +10701,7 @@ test "020 s32 analyzer diagnostics: the fixture reports `NL207` at 7:28+6 — th
     assert AcCensus(analysis) == "NL207:InvalidTypeArgument@7:28+6;"
     assert AcHasErrors(analysis) == "True"
     assert AcErrorCount(analysis) == 1
-    assert AcRow(analysis, 0) == "InvalidTypeArgument|Generic type 'Result' takes 1 type argument(s), but 2 were provided|Match the declaration's type parameter count for 'Result'|Error"
+    assert AcRow(analysis, 0) == "InvalidTypeArgument|Generic type 'Result' takes 1 type argument(s), but 2 were provided|Write 'Result<T>'|Error"
     assert AcHint(analysis, 0) == "<null>"
     assert AcSuggestions(analysis, 0) == "<null>"
     assert AcSnippet(analysis, 0) == "<null>"
@@ -10710,13 +10710,13 @@ test "020 s32 analyzer diagnostics: the fixture reports `NL207` at 7:28+6 — th
     assert AcRow(analysis, 1) == "<no-such-error>"
     assert AcCodeCount(analysis, "InvalidTypeArgument") == 1
     assert AcCodeErrorCount(analysis, "InvalidTypeArgument") == 1
-    assert AcCodeRow(analysis, "InvalidTypeArgument") == "InvalidTypeArgument|Generic type 'Result' takes 1 type argument(s), but 2 were provided|Match the declaration's type parameter count for 'Result'|Error"
+    assert AcCodeRow(analysis, "InvalidTypeArgument") == "InvalidTypeArgument|Generic type 'Result' takes 1 type argument(s), but 2 were provided|Write 'Result<T>'|Error"
     assert AcCodeAnchor(analysis, "InvalidTypeArgument") == "NL207@7:28+6"
     rich := AcAnalyzeWithSource(source)
     assert AcCensus(rich) == "NL207:InvalidTypeArgument@7:28+6;"
     assert AcHasErrors(rich) == "True"
     assert AcErrorCount(rich) == 1
-    assert AcRow(rich, 0) == "InvalidTypeArgument|Generic type 'Result' takes 1 type argument(s), but 2 were provided|Match the declaration's type parameter count for 'Result'|Error"
+    assert AcRow(rich, 0) == "InvalidTypeArgument|Generic type 'Result' takes 1 type argument(s), but 2 were provided|Write 'Result<T>'|Error"
     assert AcHint(rich, 0) == "<null>"
     assert AcSuggestions(rich, 0) == "<null>"
     assert AcSnippet(rich, 0) == "            func handle(r: Result<int, string>): int {"
@@ -10725,7 +10725,7 @@ test "020 s32 analyzer diagnostics: the fixture reports `NL207` at 7:28+6 — th
     assert AcRow(rich, 1) == "<no-such-error>"
     assert AcCodeCount(rich, "InvalidTypeArgument") == 1
     assert AcCodeErrorCount(rich, "InvalidTypeArgument") == 1
-    assert AcCodeRow(rich, "InvalidTypeArgument") == "InvalidTypeArgument|Generic type 'Result' takes 1 type argument(s), but 2 were provided|Match the declaration's type parameter count for 'Result'|Error"
+    assert AcCodeRow(rich, "InvalidTypeArgument") == "InvalidTypeArgument|Generic type 'Result' takes 1 type argument(s), but 2 were provided|Write 'Result<T>'|Error"
     assert AcCodeAnchor(rich, "InvalidTypeArgument") == "NL207@7:28+6"
 }
 

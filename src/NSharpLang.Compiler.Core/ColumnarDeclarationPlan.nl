@@ -1534,7 +1534,7 @@ class ColumnarDeclarationPlanner {
         index := 0
         while index < interfaceCount {
             iface := interfaces[index]
-            interfaceNames[index] = program.ExactTypeNameForFile(iface.Name, iface.SourceFileId)
+            interfaceNames[index] = program.ExactInterfaceTypeName(iface)
             interfaceAttributes[index] = InterfaceTypeAttributes()
             index = index + 1
         }

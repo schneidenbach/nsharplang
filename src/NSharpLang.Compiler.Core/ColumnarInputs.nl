@@ -441,6 +441,14 @@ class ColumnarProgramInput {
         return bindingScope.ExactStructTypeName(input)
     }
 
+    func ExactInterfaceTypeName(input: ColumnarInterfaceInput): string {
+        return bindingScope.ExactInterfaceTypeName(input)
+    }
+
+    func ExactUnionTypeName(input: ColumnarUnionInput): string {
+        return bindingScope.ExactUnionTypeName(input)
+    }
+
     func ExactRelativeTypeNameForFile(name: string, sourceFileId: int): string {
         return bindingScope.ExactRelativeTypeNameForFile(name, sourceFileId)
     }

@@ -265,14 +265,35 @@ test "go-to-definition on a name selects the declaration with the written arity"
 
 // The semantic model is keyed by identity AND reachable by the written name, which is what a hover
 // over a bare spelling and a completion label both read.
-test "the semantic model holds both arities and answers a bare name with the non-generic one" {
+test "the semantic model holds both arities, and a bare name answers with the non-generic one" {
     analysis := TypeArityAnalyze("class Subscription {\n}\n\nclass Subscription<T>: Subscription {\n}\n")
 
     generic := new TypeInfo()
-    assert analysis.Model.Types.TryGetValue("Subscription`1", out generic)
+    assert analysis.Model.TypesByIdentity.TryGetValue("Subscription`1", out generic)
     assert AnalyzerTypeReferenceFacts.GenericHeadArity(generic) == 1
 
+    identityPlain := new TypeInfo()
+    assert analysis.Model.TypesByIdentity.TryGetValue("Subscription", out identityPlain)
+    assert AnalyzerTypeReferenceFacts.GenericHeadArity(identityPlain) == 0
+
+    // The WRITTEN-NAME table carries one row, and the non-generic type owns it: that is what a bare
+    // `Subscription` means, and what a hover over one has to show.
     plain := new TypeInfo()
     assert analysis.Model.Types.TryGetValue("Subscription", out plain)
     assert AnalyzerTypeReferenceFacts.GenericHeadArity(plain) == 0
+    assert !analysis.Model.Types.ContainsKey("Subscription`1")
+}
+
+// A generic type with no non-generic sibling still answers to its bare name, which is what keeps
+// every existing hover, completion and `nlc query` answer working.
+test "a lone generic type owns the written-name slot" {
+    analysis := TypeArityAnalyze("class Box<T> {\n    Value: T\n}\n")
+
+    plain := new TypeInfo()
+    assert analysis.Model.Types.TryGetValue("Box", out plain)
+    assert AnalyzerTypeReferenceFacts.GenericHeadArity(plain) == 1
+
+    identity := new TypeInfo()
+    assert analysis.Model.TypesByIdentity.TryGetValue("Box`1", out identity)
+    assert AnalyzerTypeReferenceFacts.GenericHeadArity(identity) == 1
 }

@@ -130,8 +130,11 @@ class LinterNamespaceImportUsage {
         return ["Task", "ValueTask", "TaskCompletionSource"]
     }
 
+    // The synchronisation primitives belong here as much as the handles do: a file whose only use of
+    // `System.Threading` is `Interlocked.Exchange(...)` or `Monitor.Enter(...)` was told its import
+    // was dead, and removing it on that advice broke the build.
     static func ThreadingTypeNames(): string[] {
-        return ["CancellationToken", "CancellationTokenSource", "SemaphoreSlim", "Mutex", "Timer", "Thread"]
+        return ["CancellationToken", "CancellationTokenSource", "SemaphoreSlim", "Mutex", "Timer", "Thread", "Interlocked", "Monitor", "Volatile", "ThreadPool", "ThreadLocal", "ReaderWriterLockSlim", "ManualResetEvent", "ManualResetEventSlim", "AutoResetEvent", "EventWaitHandle", "WaitHandle", "SpinLock", "SpinWait", "Barrier", "CountdownEvent", "LazyInitializer"]
     }
 
     static func SystemTypeNames(): string[] {

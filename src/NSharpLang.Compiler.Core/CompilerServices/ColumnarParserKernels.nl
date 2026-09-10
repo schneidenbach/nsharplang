@@ -7434,6 +7434,64 @@ func TopLevelColumnarProgramDeclarationIndicesCore(source: string, rawTokens: Pa
     return functionCount + nominalCount + structCount
 }
 
+// THE GENERIC ARITY WRITTEN ON A TOP-LEVEL DECLARATION, straight off the token stream.
+//
+// A CLR type is identified by its name AND its type-parameter count, so the duplicate-name check
+// below needs the count as well as the name. It is read here rather than carried on the name table
+// because the name table is built by a scan that never looks past the identifier.
+//
+// The list is the tokens between the `<` that IMMEDIATELY follows the name and its matching `>`,
+// counting top-level commas. `>>` closes two levels at once (`Box<List<int>>`), which is why the
+// right-shift token is subtracted rather than treated as one `>`.
+func TopLevelDeclarationGenericArityCore(tokens: ParserDeclarationTokenTable, count: int, declarationIndex: int, declarationKind: int): int {
+    if declarationIndex < 0 || declarationIndex >= count {
+        return 0
+    }
+
+    nameIndex := declarationIndex + 1
+    if declarationKind == 7 && nameIndex < count && tokens.Kinds[nameIndex] == 90 {
+        nameIndex = nameIndex + 1
+    }
+    if declarationKind == 13 && nameIndex < count && tokens.Kinds[nameIndex] == 9 {
+        nameIndex = nameIndex + 1
+    }
+    if nameIndex >= count || tokens.Kinds[nameIndex] != 0 {
+        return 0
+    }
+
+    i := nameIndex + 1
+    if i >= count || tokens.Kinds[i] != 100 {
+        return 0
+    }
+
+    depth := 0
+    arity := 1
+    while i < count {
+        kind := tokens.Kinds[i]
+        if kind == 100 {
+            depth = depth + 1
+        } else if kind == 102 {
+            depth = depth - 1
+            if depth <= 0 {
+                return arity
+            }
+        } else if kind == 112 {
+            depth = depth - 2
+            if depth <= 0 {
+                return arity
+            }
+        } else if kind == 134 && depth == 1 {
+            arity = arity + 1
+        } else if kind == 129 || kind == 130 {
+            return 0
+        }
+
+        i = i + 1
+    }
+
+    return 0
+}
+
 func TopLevelTypeDeclarationNamesDistinct(source: string, tokens: ParserDeclarationTokenTable, count: int, decls: TopLevelDeclarationNameTable, declCount: int): int {
     if declCount < 0 {
         return 0
@@ -7453,7 +7511,10 @@ func TopLevelTypeDeclarationNamesDistinct(source: string, tokens: ParserDeclarat
                         return 0
                     }
 
-                    if ParserDeclarationSourceSpansEqual(source, decls.NameStarts[i], decls.NameLengths[i], decls.NameStarts[j], decls.NameLengths[j]) {
+                    // SAME NAME IS NOT SAME TYPE. `Subscription` and `Subscription<T>` are two CLR
+                    // types and may be declared side by side; only a repeated (name, arity) in one
+                    // namespace is the duplicate this scan refuses.
+                    if ParserDeclarationSourceSpansEqual(source, decls.NameStarts[i], decls.NameLengths[i], decls.NameStarts[j], decls.NameLengths[j]) && TopLevelDeclarationGenericArityCore(tokens, count, decls.Indices[i], decls.Kinds[i]) == TopLevelDeclarationGenericArityCore(tokens, count, decls.Indices[j], decls.Kinds[j]) {
                         namespaceMatch := ParserDeclarationNamespacesEqual(source, tokens, count, decls.Indices[i], decls.Indices[j])
                         if namespaceMatch != 0 {
                             return 0

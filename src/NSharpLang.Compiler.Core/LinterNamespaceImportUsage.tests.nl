@@ -191,7 +191,7 @@ test "the type half names exactly ten namespaces and nothing else" {
     }
 
     assert namespaces.Length == 10
-    assert total == 112
+    assert total == 128
 
     // Namespaces that look like table rows but are not.
     assert LinterNamespaceImportUsage.KnownTypeNames("System.Collections").Length == 0
@@ -206,7 +206,7 @@ test "each namespace's type row holds exactly the count it was moved with" {
     assert LinterNamespaceImportUsage.KnownTypeNames("System.IO").Length == 14
     assert LinterNamespaceImportUsage.KnownTypeNames("System.Text.Json").Length == 7
     assert LinterNamespaceImportUsage.KnownTypeNames("System.Linq").Length == 7
-    assert LinterNamespaceImportUsage.KnownTypeNames("System.Threading").Length == 6
+    assert LinterNamespaceImportUsage.KnownTypeNames("System.Threading").Length == 22
     assert LinterNamespaceImportUsage.KnownTypeNames("System.Net.Http").Length == 5
     assert LinterNamespaceImportUsage.KnownTypeNames("System.Text.RegularExpressions").Length == 3
     assert LinterNamespaceImportUsage.KnownTypeNames("System.Threading.Tasks").Length == 3

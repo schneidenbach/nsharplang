@@ -1245,7 +1245,7 @@ class ColumnarSemanticTypeResolutionCatalog {
         sourceOwnerFiles := new Dictionary<string, int>(StringComparer.Ordinal)
         unionParameterNames := new Dictionary<string, string[]>(StringComparer.Ordinal)
         for iface in program.Interfaces {
-            exactName := program.ExactTypeNameForFile(iface.Name, iface.SourceFileId)
+            exactName := program.ExactInterfaceTypeName(iface)
             if !sourceOwnerFiles.ContainsKey(exactName) {
                 sourceOwnerFiles.Add(exactName, iface.SourceFileId)
             }
@@ -1257,7 +1257,7 @@ class ColumnarSemanticTypeResolutionCatalog {
             }
         }
         for input in program.Unions {
-            exactName := program.ExactTypeNameForFile(input.Name, input.SourceFileId)
+            exactName := program.ExactUnionTypeName(input)
             if !sourceOwnerFiles.ContainsKey(exactName) {
                 sourceOwnerFiles.Add(exactName, input.SourceFileId)
                 unionParameterNames.Add(exactName, input.TypeParamNames)

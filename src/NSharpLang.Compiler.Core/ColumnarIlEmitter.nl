@@ -450,20 +450,45 @@ sealed class ColumnarIlEmitter {
         }
     }
 
+    // FOUR SPELLINGS REACH ONE DEFINITION, and the exact name is the only one that is authoritative.
+    // A generic declaration's exact name carries its arity (`Probe.Box``1`), so the arity-stripped
+    // forms are registered beside it as ALIASES — first declaration wins, which means a non-generic
+    // `Subscription` keeps the bare spelling and a `Subscription<T>` declared beside it is reachable
+    // only through its identity. Every lookup that has no arity to offer therefore still resolves,
+    // and it resolves to the type the language says a bare name means.
     private static func TryRegisterStructAlias(registry: Dictionary<string, ColumnarStructDef>, name: string, def: ColumnarStructDef): void {
-        shortName := ColumnarTypeCanonicalizer.UnqualifiedTypeName(name)
-        if (!registry.ContainsKey(shortName)) {
-            registry[shortName] = def
+        TryRegisterStructAliasName(registry, ColumnarTypeCanonicalizer.UnqualifiedTypeName(name), def)
+        bareName := TypeArityNames.Display(name)
+        if (bareName != name) {
+            TryRegisterStructAliasName(registry, bareName, def)
+            TryRegisterStructAliasName(registry, ColumnarTypeCanonicalizer.UnqualifiedTypeName(bareName), def)
+        }
+    }
+
+    private static func TryRegisterStructAliasName(registry: Dictionary<string, ColumnarStructDef>, aliasName: string, def: ColumnarStructDef): void {
+        if (aliasName.Length > 0 && !registry.ContainsKey(aliasName)) {
+            registry[aliasName] = def
         }
     }
 
     private static func TryRegisterUnionAlias(registry: Dictionary<string, ColumnarUnionDef>, name: string, def: ColumnarUnionDef): void {
-        shortName := ColumnarTypeCanonicalizer.UnqualifiedTypeName(name)
-        if (!registry.ContainsKey(shortName)) {
-            registry[shortName] = def
+        TryRegisterUnionAliasName(registry, ColumnarTypeCanonicalizer.UnqualifiedTypeName(name), def)
+        bareName := TypeArityNames.Display(name)
+        if (bareName != name) {
+            TryRegisterUnionAliasName(registry, bareName, def)
+            TryRegisterUnionAliasName(registry, ColumnarTypeCanonicalizer.UnqualifiedTypeName(bareName), def)
         }
     }
 
+    private static func TryRegisterUnionAliasName(registry: Dictionary<string, ColumnarUnionDef>, aliasName: string, def: ColumnarUnionDef): void {
+        if (aliasName.Length > 0 && !registry.ContainsKey(aliasName)) {
+            registry[aliasName] = def
+        }
+    }
+
+    // The spelling a case is WRITTEN under: `Option.Some`, never `Option``1.Some`. A generic union's
+    // identity carries its arity, but the source that names one of its cases does not, so the arity
+    // is stripped here alongside the namespace.
     private static func ShortUnionCaseKey(qualifiedCase: string): string {
         lastDot := qualifiedCase.LastIndexOf('.')
         if (lastDot <= 0 || lastDot + 1 >= qualifiedCase.Length) {
@@ -471,7 +496,7 @@ sealed class ColumnarIlEmitter {
         }
         unionName := qualifiedCase.Substring(0, lastDot)
         caseName := qualifiedCase.Substring(lastDot + 1)
-        return ColumnarTypeCanonicalizer.UnqualifiedTypeName(unionName) + "." + caseName
+        return TypeArityNames.Display(ColumnarTypeCanonicalizer.UnqualifiedTypeName(unionName)) + "." + caseName
     }
 
     private static func IsSupportedIndexableCollectionType(t: Type): bool {
@@ -2015,7 +2040,9 @@ sealed class ColumnarIlEmitter {
                     return DeclineStatic("emit.declaration.nested-owner", "nested type owner could not be resolved for '" + exactStructName + "'", st.Name, -1, 0)
                 }
                 nestedStructBuilder := enclosingDef.Builder
-                nestedStructName := st.Name
+                // The nested CLR name is the exact name's LAST segment, so a nested generic type
+                // keeps its metadata arity suffix (`Outer+Inner``1`).
+                nestedStructName := ColumnarTypeCanonicalizer.UnqualifiedTypeName(exactStructName)
                 nestedStructTypeAttributes := typeAttributes
                 nestedStructIsReference := st.IsReference
                 nestedStructParentType := match nestedStructIsReference {
@@ -2072,7 +2099,7 @@ sealed class ColumnarIlEmitter {
         unionExactNames := new string[unions.Count]
         for u := 0; u < unions.Count; u++ {
             un := unions[u]
-            exactUnionName := program.ExactTypeNameForFile(un.Name, un.SourceFileId)
+            exactUnionName := program.ExactUnionTypeName(un)
             unionExactNames[u] = exactUnionName
             if (un.IsValueStruct) {
                 structTb := module.DefineType(
