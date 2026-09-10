@@ -127,12 +127,19 @@ class AnalyzerTypeSubstitution {
             return new ByRefTypeInfo(ResolveTypeWithSubstitution(byRef.InnerType, substitution))
         }
 
+        // THE PLAIN WALK RUNS FIRST ON THE THREE COMPOSED FORMS BELOW, FOR ITS EFFECTS. It records
+        // each reference in the semantic model and it REPORTS the shape rules — an anonymous union
+        // with more than two arms, or with a repeated one, is reported there and nowhere else — so
+        // rebuilding without it would delete those diagnostics. This is the same order the generic
+        // head uses: resolve plainly, then rewrite the inners under the binding.
+
         // A TUPLE, a FUNCTION type and a UNION mention their inner references at their leaves just
         // as a generic head does — `(T, int)`, `(T) -> TResult`, `T | string` all bind under a
         // substitution — so each is rebuilt over rewritten inners rather than handed to the plain
         // walk, which would resolve the bare parameter names against the reader's own scope.
         tupleReference := typeReference as TupleTypeReference
         if tupleReference != null {
+            typeResolverValue.ResolveType(typeReference)
             elements := new List<TupleTypeElementInfo>()
             elementIndex := 0
             while elementIndex < tupleReference.Elements.Count {
@@ -146,6 +153,7 @@ class AnalyzerTypeSubstitution {
 
         functionReference := typeReference as FunctionTypeReference
         if functionReference != null {
+            typeResolverValue.ResolveType(typeReference)
             parameterTypes := new List<TypeInfo>()
             parameterModifiers := new List<ParameterModifier>()
             parameterIndex := 0
@@ -164,6 +172,7 @@ class AnalyzerTypeSubstitution {
 
         unionReference := typeReference as UnionTypeReference
         if unionReference != null {
+            typeResolverValue.ResolveType(typeReference)
             arms := new List<TypeInfo>()
             armIndex := 0
             while armIndex < unionReference.Arms.Count {

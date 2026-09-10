@@ -333,6 +333,8 @@ test "tuple, function, union and by-ref references bind their leaves under a liv
     scopes := SubstitutionScopes()
     context := SubstitutionContext()
     model := new SemanticModel()
+    // The PLAIN walk still runs on each composed form for its EFFECTS — the recorded reference
+    // below, and the shape reports (an over-wide or repeated anonymous union) that live only there.
     owner := new AnalyzerTypeSubstitution(scopes, context, SubstitutionResolver(scopes, context, model))
     expected := BuiltInTypes.String
     substitution := SubstitutionOf("T", expected)
@@ -386,6 +388,9 @@ test "tuple, function, union and by-ref references bind their leaves under a liv
         assert SubstitutionSame(unionUnderBinding.Arms[0], expected)
         assert SubstitutionText(unionUnderBinding.Arms[1]) == "int"
     }
+
+    recorded: TypeInfo = BuiltInTypes.Unknown
+    assert model.TypeReferenceTypes.TryGetValue((Line: 14, Column: 7), out recorded)
 }
 
 test "an owner the declaration context does NOT know falls back to the substitution walk" {

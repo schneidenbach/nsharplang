@@ -420,6 +420,7 @@ class AnalyzerFunctionBodies {
             index := 0
             while index < typeParameters.Count {
                 typeParameter := typeParameters[index]
+                ReportShadowedTypeParameter(typeParameter.Name, state)
                 scopesValue.DeclareTypeParameter(typeParameter.Name)
                 index = index + 1
             }
@@ -434,6 +435,28 @@ class AnalyzerFunctionBodies {
         request.Line = state.Line
         request.Column = state.Column
         return request
+    }
+
+    // NL316 FOR A TYPE PARAMETER. A declaration's own type parameter may not reuse a name an
+    // ENCLOSING declaration already binds — a method of `Box<T>` writing `func Shadow<T>()`, or a
+    // local function inside a generic method reusing its `T`. Inside the inner declaration both
+    // spellings are legal and only the inner one means anything, so `T` silently stops naming the
+    // box's element; C# calls the same shape CS0693. N# forbids shadowing for exactly this reason
+    // everywhere else, and this is the same report. The caret is the DECLARATION's own position: a
+    // type parameter carries no position of its own.
+    func ReportShadowedTypeParameter(name: string, state: FunctionBodyState) {
+        if !scopesValue.HasEnclosingTypeParameter(name) {
+            return
+        }
+
+        diagnosticsValue.Report(
+            ErrorCode.ShadowedDeclaration,
+            "Type parameter '" + name + "' shadows an enclosing type parameter of the same name — N# forbids shadowing because it hides the outer binding and invites confusing bugs",
+            state.Line,
+            state.Column,
+            "Rename this type parameter (the enclosing '" + name + "' is still in scope), or remove it and reuse the enclosing one",
+            name.Length
+        )
     }
 
     // PHASE 3 — ONE PARAMETER'S DECLARATION, AND IT IS SHARED BY BOTH FORMS. A parameter with a
@@ -697,6 +720,7 @@ class AnalyzerFunctionBodies {
             index := 0
             while index < typeParameters.Count {
                 typeParameter := typeParameters[index]
+                ReportShadowedTypeParameter(typeParameter.Name, state)
                 scopesValue.DeclareTypeParameter(typeParameter.Name)
                 index = index + 1
             }

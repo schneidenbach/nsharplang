@@ -384,6 +384,33 @@ test "EACH PARAMETER IS A DECLARE STEP AND THEN A RECORD STEP, IN LIST ORDER" {
     assert steps[6].CarriedType == "string"
 }
 
+test "A TYPE PARAMETER THAT SHADOWS AN ENCLOSING ONE IS NL316, AND IS STILL DECLARED" {
+    harness := BodyDefault()
+    // The enclosing declaration's own type parameter — a generic TYPE's `T`, or a generic method's
+    // `T` around a local function.
+    harness.Scopes.DeclareTypeParameter("T")
+    declaration := BodyDeclaration("helper", new List<Parameter>(), BodyIntType(), BodyBlock(), null, BodyTypeParameters(BodyNames("T", null)), Modifiers.None)
+
+    BodyRun(harness, BodyBegin(harness, declaration), null)
+
+    assert harness.Errors.Count == 1
+    assert harness.Errors[0].DiagnosticId == "NL316"
+    assert harness.Errors[0].Message.Contains("Type parameter 'T' shadows an enclosing type parameter")
+    // The caret is the DECLARATION's position — a type parameter carries none of its own.
+    assert harness.Errors[0].Line == 7
+    assert harness.Errors[0].Column == 5
+}
+
+test "A TYPE PARAMETER THAT SHADOWS NOTHING IS SILENT" {
+    harness := BodyDefault()
+    harness.Scopes.DeclareTypeParameter("TOuter")
+    declaration := BodyDeclaration("helper", new List<Parameter>(), BodyIntType(), BodyBlock(), null, BodyTypeParameters(BodyNames("T", null)), Modifiers.None)
+
+    BodyRun(harness, BodyBegin(harness, declaration), null)
+
+    assert harness.Errors.Count == 0
+}
+
 test "A PARAMETER IS DECLARED AT ITS OWN POSITION WHEN IT HAS ONE" {
     harness := BodyDefault()
     declaration := BodyDeclaration("helper", BodyOneParameter(BodyParameter("a", "int", 7, 18)), BodyIntType(), BodyBlock(), null, null, Modifiers.None)
