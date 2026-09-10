@@ -867,8 +867,75 @@ A member the constructed type does not have is reported under the name you wrote
 `Box<int>.Missing(42)` is `NL303` naming `Box<int>`, and a wrong argument type names the
 **substituted** parameter type — `Box<int>.Create("text")` says the parameter is `int`, not `T`.
 
-Generic **methods** on a type — `static func Of<U>(value: U)` — are not compiled yet. Write the
-type parameter on the type, or use a generic free function.
+### Generic methods on your own types
+
+A `class`, `struct` or `record` may declare a generic method, whether or not the type itself is
+generic. The method's type parameters are **its own** — separate from the declaring type's,
+constrained separately, and emitted as real CLR method type parameters, so the method is a generic
+method to C# and every other .NET language too.
+
+```n#
+struct Box<T> {
+    Value: T
+
+    constructor(value: T) {
+        Value = value
+    }
+
+    // `U` has nothing to do with the box's `T`.
+    static func Of<U>(value: U): Box<U> {
+        return new Box<U>(value)
+    }
+
+    // A signature may name BOTH scopes.
+    func Map<TResult>(f: Func<T, TResult>): Box<TResult> {
+        return new Box<TResult>(f(Value))
+    }
+
+    func Is<TOther>(): bool {
+        return Value is TOther
+    }
+}
+
+class Plain {
+    func Echo<T>(value: T): T => value
+
+    static func Wrap<T>(value: T): Box<T> => new Box<T>(value)
+}
+
+func main() {
+    box := new Box<int>(3)
+    plain := new Plain()
+
+    print box.Map<string>(v => v.ToString()).Value   // "3" — type argument written
+    print box.Is<int>()                              // true
+    print plain.Echo(7)                              // 7 — inferred
+    print Plain.Wrap(5).Value                        // 5 — inferred, static
+    print Box<int>.Of(4).Value                       // 4 — on a constructed owner
+}
+```
+
+A static generic method on a GENERIC owner is reached through an instantiation, so write the owner
+out — `Box<int>.Of(4)` — everywhere except inside the declaring type's own code, where the
+instantiation is the type's own.
+
+Constraints are written as they are on a type, and are checked at the call site:
+
+```n#
+class Registry {
+    static func Register<T>(value: T): bool where T : class => value != null
+}
+```
+
+Two rules about the type-argument list itself. It is **all or nothing** — `Pick<int>(1, "a")`
+against `Pick<TFirst, TSecond>` is `NL207`, and so is writing a list on a method with no type
+parameters — and a method's type parameter may **not reuse a name its declaring type binds**
+(`struct Box<T> { func Shadow<T>() }` is `NL316`, because inside the member only the inner `T` would
+mean anything).
+
+Two shapes are not compiled yet: a generic method declared by an **`interface`**, and inferring a
+type parameter that appears **only in a delegate's result** from the lambda's body — write
+`Match<string>(...)` rather than `Match(...)` for that one.
 
 ### A name and a type-parameter count together are one type
 

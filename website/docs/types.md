@@ -914,6 +914,40 @@ struct Outcome<TOk, TErr>: IEquatable<Outcome<TOk, TErr>> {
 
     func GetHashCode(): int {
         return HashCode.Combine(state, ok)
+
+### Generic methods your own types declare
+
+A `class`, `struct` or `record` may declare a generic method, whether or not the type itself is
+generic. The method's type parameters are its own: they are separate from the declaring type's, they
+may be constrained separately, and they reach CLR metadata as real method type parameters — the
+method is a generic method to C# and every other .NET language, not only inside N#.
+
+```n#
+struct Box<T> {
+    Value: T
+
+    constructor(value: T) {
+        Value = value
+    }
+
+    // The method's `U` is nothing to do with the box's `T`.
+    static func Of<U>(value: U): Box<U> {
+        return new Box<U>(value)
+    }
+
+    // A signature may name BOTH scopes.
+    func Map<TResult>(f: Func<T, TResult>): Box<TResult> {
+        return new Box<TResult>(f(Value))
+    }
+}
+
+class Plain {
+    func Echo<T>(value: T): T {
+        return value
+    }
+
+    static func Wrap<T>(value: T): Box<T> {
+        return new Box<T>(value)
     }
 }
 ```
@@ -940,6 +974,46 @@ own construction. A wrong arity is reported as an ordinary [NL207](/docs/errors/
 interface member you do not implement is reported as an ordinary [NL325](/docs/errors/NL325) naming
 the constructed interface.
 
+Call one with its type arguments written or inferred, on either kind of owner:
+
+```n#
+func Use(): int {
+    box := new Box<int>(3)
+    plain := new Plain()
+
+    mapped := box.Map<string>(v => v.ToString())   // written
+    echoed := plain.Echo(7)                        // inferred
+    wrapped := Plain.Wrap(5)                       // inferred, static
+    made := Box<int>.Of(4)                         // inferred, on a constructed owner
+
+    return echoed + wrapped.Value + made.Value + mapped.Value.Length
+}
+```
+
+A generic method on a GENERIC owner is reached through the receiver's instantiation, so a static one
+needs the owner written out — `Box<int>.Of(4)` rather than `Box.Of(4)` — everywhere except inside the
+declaring type's own code, where the instantiation is the type's own.
+
+Constraints work as they do on a type: `where U : class`, `struct`, `new()`, and your own interfaces
+and classes. They are validated at the call site and recorded in metadata.
+
+```n#
+class Registry {
+    static func Register<T>(value: T): bool where T : class {
+        return value != null
+    }
+}
+```
+
+Two rules the compiler enforces about the type-argument list itself:
+
+- It is **all or nothing**. `Pick<int>(1, "a")` against `Pick<TFirst, TSecond>` is
+  [NL207](./errors/NL207.md), and so is writing a list on a method that has no type parameters.
+  Omitting the list entirely is always allowed where inference can close it.
+- A method's type parameter may **not reuse a name its declaring type already binds**.
+  `struct Box<T> { func Shadow<T>() }` is [NL316](./errors/NL316.md): inside the member both
+  spellings are legal and only the inner one means anything.
+
 ### Current limits
 
 - An **array of a constructed external value-type generic** (`Vector<int>[]`) does not emit yet.
@@ -951,8 +1025,11 @@ the constructed interface.
   `IEquatable<Outcome<int, string>>` at a use site outside the declaration — is not admitted yet.
   Writing the interface in the BASE LIST is unaffected, and so is reaching it through the BCL
   (`EqualityComparer<Outcome<int, string>>.Default`).
-- A **generic method your own type declares** — `static func Of<U>(value: U)` on a class or struct,
-  generic or not — is not compiled yet. A generic FREE function is unaffected.
+- A **generic method an `interface` declares** — `interface IHas { func Get<T>(): T }` — is not
+  compiled yet. A generic method on a `class`, `struct` or `record` is unaffected.
+- A method type parameter mentioned **only in a delegate's RESULT** is not inferred from the
+  lambda's body: `outcome.Match(v => v.ToString(), e => e)` needs `Match<string>(...)` written out.
+  The same limit applies to a generic FREE function with a `Func<TValue, TResult>` parameter.
 
 ## Nullable Types
 

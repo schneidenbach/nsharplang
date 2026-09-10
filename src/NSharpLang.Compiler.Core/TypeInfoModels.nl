@@ -697,6 +697,34 @@ class FunctionTypeInfo: TypeInfo {
         SourceParameterCount = -1
         SourceHasReceiverParameter = false
     }
+
+    // The same signature with its parameter and return TYPES replaced. Everything else — the
+    // declaration facts, the parameter names and modifiers, the source references a later
+    // inference pass still reads — is carried across unchanged, so closing a signature over a
+    // type-argument binding never loses the declaration it came from.
+    func WithSignatureTypes(parameterTypes: List<TypeInfo>?, returnType: TypeInfo?): FunctionTypeInfo {
+        substituted := new FunctionTypeInfo()
+        substituted.SyntheticName = SyntheticName
+        substituted.SourceName = SourceName
+        substituted.SourceContainingType = SourceContainingType
+        substituted.SourceLine = SourceLine
+        substituted.SourceColumn = SourceColumn
+        substituted.SourceParameterCount = SourceParameterCount
+        substituted.SourceHasReceiverParameter = SourceHasReceiverParameter
+        substituted.ParameterNames = ParameterNames
+        substituted.ParameterTypes = parameterTypes
+        substituted.SourceParameterTypes = SourceParameterTypes
+        substituted.SourceReturnType = SourceReturnType
+        substituted.ParameterModifiers = ParameterModifiers
+        substituted.RequiredParameterCount = RequiredParameterCount
+        substituted.HasParamsParameter = HasParamsParameter
+        substituted.TypeParameters = TypeParameters
+        substituted.GenericConstraints = GenericConstraints
+        substituted.ResolvedGenericConstraintTypes = ResolvedGenericConstraintTypes
+        substituted.HasMustUseAttribute = HasMustUseAttribute
+        substituted.ReturnType = returnType
+        return substituted
+    }
 }
 
 class NSharpMethodGroupInfo: TypeInfo {

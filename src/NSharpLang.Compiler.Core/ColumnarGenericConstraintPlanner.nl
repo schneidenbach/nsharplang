@@ -284,6 +284,12 @@ class ColumnarGenericConstraintPlanner {
         return true
     }
 
+    // A `new()` constraint asks whether the bound argument can be constructed with no arguments.
+    // A SOURCE type is answered from its own declaration table and never by reflection: an unbaked
+    // `TypeBuilder` — and a constructed generic over one — throws
+    // "The invoked member is not supported before the type is created" from `GetConstructor`, so a
+    // source argument that declares its own parameterless constructor would crash the emission
+    // instead of answering.
     static func HasPublicParameterlessConstructorForConstraint(
         bound: Type,
         structRegistry: IReadOnlyDictionary<string, ColumnarStructDef>
@@ -292,18 +298,45 @@ class ColumnarGenericConstraintPlanner {
             return true
         }
 
-        builder := bound as TypeBuilder
-        if builder != null {
-            definition := ColumnarSourceDefinitionResolver.FindByBuilderIdentity(
-                structRegistry.get_Values(),
-                builder
-            )
-            if definition != null && definition.DefaultCtor != null {
+        sourceDefinition := TryResolveSourceDefinitionForConstraint(bound, structRegistry)
+        if sourceDefinition != null {
+            if sourceDefinition.DefaultCtor != null {
                 return true
             }
+            for candidate in sourceDefinition.Constructors {
+                if candidate.ParamTypes.Length == 0 {
+                    return true
+                }
+            }
+            return false
+        }
+
+        if ColumnarTypeOfPlanner.ContainsBuilderBoundType(bound) {
+            return false
         }
 
         return bound.GetConstructor(System.Type.EmptyTypes) != null
+    }
+
+    // The source declaration behind a bound argument, whether the argument is the open builder
+    // itself or a constructed instantiation of it.
+    static func TryResolveSourceDefinitionForConstraint(
+        bound: Type,
+        structRegistry: IReadOnlyDictionary<string, ColumnarStructDef>
+    ): ColumnarStructDef? {
+        builder := bound as TypeBuilder
+        if builder != null {
+            return ColumnarSourceDefinitionResolver.FindByBuilderIdentity(structRegistry.get_Values(), builder)
+        }
+
+        if ColumnarTypeOfPlanner.IsClosedSourceGeneric(bound) {
+            definitionBuilder := bound.GetGenericTypeDefinition() as TypeBuilder
+            if definitionBuilder != null {
+                return ColumnarSourceDefinitionResolver.FindByBuilderIdentity(structRegistry.get_Values(), definitionBuilder)
+            }
+        }
+
+        return null
     }
 
     static func BoundSatisfiesBaseConstraint(

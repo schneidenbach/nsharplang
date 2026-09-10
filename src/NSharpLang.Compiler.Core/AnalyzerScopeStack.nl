@@ -47,6 +47,13 @@ class AnalyzerScopeStack {
     scopes: List<Scope>
     semanticScopeIds: List<int>
 
+    // THE TYPE-PARAMETER NAMES EACH OPEN SCOPE DECLARED. A type parameter goes into the scope's
+    // ordinary type table as a `SimpleTypeInfo` of its own name, which is indistinguishable from a
+    // built-in spelling once it is in there — so the shadowing question ("is `T` already a type
+    // PARAMETER of something I am inside?") is asked of this list instead of guessing from the
+    // TypeInfo shape.
+    typeParameterNames: List<HashSet<string>>
+
     // THE ANALYSIS CURSOR: the line of the last declaration or statement the walk reached. It exists
     // for exactly one reason — a closing scope's recorded END position is that line — so it belongs
     // with the stack that closes scopes rather than with the shell that walks. It is written from two
@@ -59,6 +66,7 @@ class AnalyzerScopeStack {
     constructor() {
         scopes = new List<Scope>()
         semanticScopeIds = new List<int>()
+        typeParameterNames = new List<HashSet<string>>()
         currentLine = 0
     }
 
@@ -69,6 +77,7 @@ class AnalyzerScopeStack {
     func Clear() {
         scopes.Clear()
         semanticScopeIds.Clear()
+        typeParameterNames.Clear()
         currentLine = 0
     }
 
@@ -100,6 +109,7 @@ class AnalyzerScopeStack {
     // innermost (-1 when there is none).
     func Push(model: SemanticModel, scope: Scope, startLine: int, startColumn: int) {
         scopes.Add(scope)
+        typeParameterNames.Add(new HashSet<string>(StringComparer.Ordinal))
 
         parentId := -1
         if semanticScopeIds.Count > 0 {
@@ -118,6 +128,9 @@ class AnalyzerScopeStack {
         }
 
         scopes.RemoveAt(scopes.Count - 1)
+        if typeParameterNames.Count > 0 {
+            typeParameterNames.RemoveAt(typeParameterNames.Count - 1)
+        }
 
         if semanticScopeIds.Count > 0 {
             scopeId := semanticScopeIds[semanticScopeIds.Count - 1]
@@ -421,6 +434,24 @@ class AnalyzerScopeStack {
         typeParameter := new SimpleTypeInfo(name)
         current.DeclareType(name, typeParameter)
         current.Symbols[name] = typeParameter
+        if typeParameterNames.Count > 0 {
+            typeParameterNames[typeParameterNames.Count - 1].Add(name)
+        }
+    }
+
+    // Whether a scope OUTSIDE the innermost one already declared a type parameter of this name — the
+    // question a nested declaration's own type-parameter list has to ask before it shadows one.
+    func HasEnclosingTypeParameter(name: string): bool {
+        index := typeParameterNames.Count - 2
+        while index >= 0 {
+            if typeParameterNames[index].Contains(name) {
+                return true
+            }
+
+            index = index - 1
+        }
+
+        return false
     }
 
     // A nested type of the enclosing declaration. First declaration wins: an explicit declaration of

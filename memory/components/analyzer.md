@@ -976,6 +976,39 @@ For external methods with multiple overloads:
   bindings. Emission of that call is a separate, still-open question (it needs a MethodSpec over an
   emitted type's generic parameter).
 
+### Generic methods declared by user types
+
+A `class`, `struct` or `record` may declare a generic method. The analyzer treats its type
+parameters as the method's own, layered over whatever the declaring type binds:
+
+- `AnalyzerFunctionTypeFactory.CreateFromDeclaredMember` shadows each member type parameter over the
+  receiver's substitution, so a signature may name the owner's parameters, the method's, or both
+  (`func Map<TResult>(f: Func<T, TResult>): Box<TResult>`).
+- CLOSING that signature over a call's type arguments is `ApplyGenericBindings`, and it rebuilds
+  EVERY composite shell — generic, array, nullable, oblivious, by-ref, tuple, function and anonymous
+  union — over substituted leaves. A tuple or function shell left unsubstituted is how
+  `Plain.Pair<int, string>(1, "a")` used to answer `(T1, T2)`.
+- The BOUNDS walk descends into a tuple parameter, and reads a `Func`/`Action` parameter positionally
+  against a lambda's inferred `FunctionTypeInfo` (the reading
+  `CreateFunctionTypeInfoFromGenericDelegate` gives those two names), so a method type parameter
+  mentioned inside a delegate can be inferred from an argument.
+- `AnalyzerTypeSubstitution.ResolveTypeWithSubstitution` rebuilds the same shells rather than
+  dropping them to the plain walk — but it runs the plain walk FIRST on tuple, function and union
+  references, because that walk records each reference in the semantic model and is the only place an
+  anonymous union's shape rules are reported.
+- A WRITTEN type-argument list is validated for LENGTH before anything else about the call
+  (`ValidateWrittenTypeArgumentCount`): a partial list, an over-long one, and a list on a non-generic
+  name are all NL207, and the report returns so the parameters it did not name are not reported
+  again.
+- A declaration's own type parameter may not shadow one an enclosing declaration binds — NL316,
+  decided by `AnalyzerScopeStack.HasEnclosingTypeParameter`, which is backed by a per-scope set of
+  type-parameter names because a type parameter is otherwise indistinguishable from a built-in
+  spelling once it is in the scope's type table.
+
+NOT YET: a generic method declared by an `interface` (refused at parse into columnar input), and
+inferring a type parameter that appears only in a delegate's RESULT from the lambda's body — the same
+limit a generic FREE function with a `Func<TValue, TResult>` parameter has.
+
 ## Type Checking
 
 ### Assignment Compatibility
