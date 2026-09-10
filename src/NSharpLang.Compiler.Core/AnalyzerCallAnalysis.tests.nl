@@ -5,6 +5,7 @@ import System.Collections.Generic
 import System.IO
 import System.Reflection
 import NSharpLang.Compiler.Ast
+import NSharpLang.Compiler.Columnar
 
 // Native contracts for the CALL WALK — the schedule, the dispatch and the receiver protocol.
 //
@@ -1259,4 +1260,42 @@ test "an argument's expected type comes from the signature, closed once before t
     // `p2: T` with the receiver binding `T = int` — the expected type is the CLOSED one, and it is
     // closed from the receiver read before the loop rather than from the arguments analysed so far.
     assert transcript == "6(callee) 3 6 4(int) 8 6 6"
+}
+
+func AssertCallArgumentSourceChecks(source: string) {
+    projectRoot := Path.Combine(Path.GetTempPath(), "nsharp-call-context-" + Guid.NewGuid().ToString("N"))
+    filePath := Path.Combine(projectRoot, "Probe.nl")
+    parsed := ColumnarParserRecovery.ParseFileAst(source, filePath)
+    assert parsed.Errors.Count == 0
+    unit := parsed.CompilationUnit
+    assert unit != null
+    Directory.CreateDirectory(projectRoot)
+    analyzer := new Analyzer()
+    try {
+        result := analyzer.Analyze(unit, filePath, projectRoot, source)
+        messages := ""
+        for error in result.Errors {
+            if error.Severity == ErrorSeverity.Error {
+                messages += error.Message + "\n"
+            }
+        }
+        if messages.Length > 0 {
+            throw new InvalidOperationException(messages)
+        }
+    } finally {
+        analyzer.Dispose()
+        Directory.Delete(projectRoot, true)
+    }
+}
+
+test "call argument inference clears an enclosing unsigned result target" {
+    AssertCallArgumentSourceChecks("func Pick(text: string): uint {\n    return (uint)text.Substring(0, 1).Length\n}\n")
+}
+
+test "call argument inference retains an actual unsigned parameter target" {
+    AssertCallArgumentSourceChecks("func Echo(value: uint): uint { return value }\nfunc Run(): uint { return Echo(4000000000) }\n")
+}
+
+test "call argument inference restores the enclosing target after a nested call" {
+    AssertCallArgumentSourceChecks("func Pick(text: string): uint {\n    return (uint)text.Substring(0, 1).Length + 4000000000\n}\n")
 }

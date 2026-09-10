@@ -1674,7 +1674,13 @@ class Analyzer: IDisposable {
                 NullFlow.ReportPossibleNullAccess(step.Node, step.CarriedType, step.Line, step.Column, step.Text, step.Flag)
             }
             if kind == 4 {
-                answer = AnalyzeExpressionWithExpectedType(step.Node, step.CarriedType, step.Flag)
+                // An argument's target comes from its parameter, never the enclosing call's result.
+                previousArgumentTarget := Ambient.EnterExpectedType(step.CarriedType)
+                try {
+                    answer = AnalyzeExpressionWithExpectedType(step.Node, step.CarriedType, step.Flag)
+                } finally {
+                    Ambient.ExitExpectedType(previousArgumentTarget)
+                }
             }
             if kind == 6 {
                 answer = AnalyzeExpression(step.Node)
