@@ -1019,9 +1019,14 @@ test "readonly struct: `readonly class` reports NL311 on the WORD and the class 
     assert AstEq.Diff(expected, actual, "unit") == ""
 }
 
-test "readonly struct: NL311 also covers record, interface, enum and union, and the modifier is not recorded" {
+test "readonly struct: NL311 covers every other declaration keyword, including the two-word ones" {
     assert PdCensus("readonly record Person {\n}\n") == "NL311@1:1+8;"
     assert PdCensus("readonly interface Greeter {\n}\n") == "NL311@1:1+8;"
     assert PdCensus("readonly enum Color {\n    Red\n}\n") == "NL311@1:1+8;"
     assert PdCensus("readonly union Shape {\n    Circle\n}\n") == "NL311@1:1+8;"
+    assert PdCensus("readonly type Alias = int\n") == "NL311@1:1+8;"
+    // `duck interface` and `soa record` are TWO tokens, and neither leading token is a
+    // type-declaration keyword — the scan has to know both or they fall back to the NL101 cascade.
+    assert PdCensus("readonly duck interface Quacks {\n    func Quack()\n}\n") == "NL311@1:1+8;"
+    assert PdCensus("readonly soa record Particles {\n    X: double\n}\n") == "NL311@1:1+8;"
 }

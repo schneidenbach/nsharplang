@@ -1132,6 +1132,9 @@ class ColumnarParserRecovery {
         if ParserTokenFacts.IsTypeDeclarationKeyword(Tokens[Position + ahead].Type) {
             return true
         }
+        if Tokens[Position + ahead].Type == TokenType.Duck && Position + ahead + 1 < Tokens.Count && Tokens[Position + ahead + 1].Type == TokenType.Interface {
+            return true
+        }
         return IsSoaRecordDeclarationStartAtOffset(ahead)
     }
 

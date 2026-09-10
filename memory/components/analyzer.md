@@ -1221,7 +1221,11 @@ existing NL309 rule's business, unchanged. The emitted metadata half lives in
 including a primary constructor's synthesized capture fields) and `ColumnarIlEmitter` (the
 `IsReadOnlyAttribute` on the type); `tests/native/readonly-structs` proves both by reflection. That project is NOT registered in
 `scripts/ilverify.sh` — adding the line trips the OWN004/OWN005 non-N# growth ratchet — but its
-assembly verifies clean under `scripts/ilverify.sh --built-dirs-file`.
+assembly verifies clean under `scripts/ilverify.sh --built-dirs-file`. KNOWN LIMIT: a `with`
+expression over a `readonly record struct` declines at `emit.with.plan` (the with planner needs
+settable named members and every instance field is now initonly) — the same decline a plain
+`record struct` with readonly fields already had; it needs a synthesized copy constructor, not a
+readonly-struct change.
 
 Keep ownership-policy tests beside the N# owner. C# tests should exercise only the remaining
 diagnostic/integration shell, not recreate semantic lookup or identity policy in test helpers.
