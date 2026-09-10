@@ -212,7 +212,6 @@ test "the type half names exactly ten namespaces and nothing else" {
 test "each namespace's type row holds exactly the count it was moved with" {
     assert LinterNamespaceImportUsage.KnownTypeNames("System").Length == 44
     assert LinterNamespaceImportUsage.KnownTypeNames("System.Collections.Generic").Length == 24
-    assert LinterNamespaceImportUsage.KnownTypeNames("System.Collections.Generic").Length == 22
     assert LinterNamespaceImportUsage.KnownTypeNames("System.IO").Length == 14
     assert LinterNamespaceImportUsage.KnownTypeNames("System.Text.Json").Length == 7
     assert LinterNamespaceImportUsage.KnownTypeNames("System.Linq").Length == 7
