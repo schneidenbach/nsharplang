@@ -409,7 +409,10 @@ class AnalyzerTypeDeclarations {
         state.SavedTypeMembers = ambientValue.EnterTypeMembers(TypeMembers(state))
         state.SavedTypeName = ambientValue.EnterTypeName(name)
         AnalyzerDeclarationConventions.CheckVisibilityConvention(diagnosticsValue, name, TypeModifiers(state), state.Declaration.Line, state.Declaration.Column)
-        state.DeclaredType = scopesValue.LookupType(name)
+        // ITS OWN IDENTITY, NOT ITS OWN NAME. `class Subscription<T>: Subscription` declares one type
+        // and derives from another, and looking the declared type up by the bare name would hand the
+        // walk the NON-generic sibling — which then reads as a class inheriting from itself.
+        state.DeclaredType = scopesValue.LookupTypeWithArity(name, DeclarationFacts.GetDeclarationArity(state.Declaration))
         request := new TypeDeclarationRequest(2, BuiltInTypes.Unknown)
         request.CarriedScopeKind = TypeScopeKind(state)
         request.Line = state.Declaration.Line

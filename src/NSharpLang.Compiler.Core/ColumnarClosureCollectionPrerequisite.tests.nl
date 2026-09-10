@@ -59,37 +59,153 @@ func ClosureCollectionListCopyPlan(sourceType: Type): ColumnarCodePlan {
     return ConstructionPlan(tree, bindings)
 }
 
+// THE OPEN-CONSTRUCTOR FINDERS LIVE WITH THE TESTS THAT WANT THEM. They used to be production members
+// of the construction planner, backing a hand list of six BCL collection names. The planner selects
+// every closed generic constructor by ordinary overload resolution now, so the finders are scaffolding
+// for the rows below -- which assert what the BCL's signatures ARE, so the selections beside them are
+// read against a known shape rather than against themselves.
+func ClosureCollectionOpenComparerConstructor(definition: Type, comparerDefinitionName: string): ConstructorInfo? {
+    constructors := definition.GetConstructors()
+    index := 0
+    while index < constructors.Length {
+        parameters := constructors[index].GetParameters()
+        if parameters.Length == 1 {
+            parameterType := parameters[0].get_ParameterType()
+            if parameterType.get_IsGenericType() && !parameterType.get_IsGenericTypeDefinition() {
+                parameterDefinition := parameterType.GetGenericTypeDefinition()
+                if parameterDefinition.FullName == comparerDefinitionName {
+                    return constructors[index]
+                }
+            }
+        }
+        index += 1
+    }
+    return null
+}
+
+func ClosureCollectionOpenCopyComparerConstructor(definition: Type, comparerDefinitionName: string): ConstructorInfo? {
+    constructors := definition.GetConstructors()
+    index := 0
+    while index < constructors.Length {
+        parameters := constructors[index].GetParameters()
+        if parameters.Length == 2 {
+            firstType := parameters[0].get_ParameterType()
+            secondType := parameters[1].get_ParameterType()
+            if firstType.get_IsGenericType() && !firstType.get_IsGenericTypeDefinition() && secondType.get_IsGenericType() && !secondType.get_IsGenericTypeDefinition() {
+                firstDefinition := firstType.GetGenericTypeDefinition()
+                secondDefinition := secondType.GetGenericTypeDefinition()
+                if firstDefinition.FullName == "System.Collections.Generic.IEnumerable`1" && secondDefinition.FullName == comparerDefinitionName {
+                    return constructors[index]
+                }
+            }
+        }
+        index += 1
+    }
+    return null
+}
+
+func ClosureCollectionOpenSequenceConstructor(definition: Type): ConstructorInfo? {
+    definitionArguments := definition.GetGenericArguments()
+    if definitionArguments.Length != 1 {
+        return null
+    }
+
+    // A namesake built with Reflection.Emit answers nothing before it is created, and asking is a
+    // NotSupportedException rather than an empty list.
+    constructors := new ConstructorInfo[](0)
+    try {
+        constructors = definition.GetConstructors()
+    } catch ex: NotSupportedException {
+        return null
+    }
+    selected: ConstructorInfo? = null
+    index := 0
+    while index < constructors.Length {
+        parameters := constructors[index].GetParameters()
+        if parameters.Length == 1 {
+            parameterType := parameters[0].get_ParameterType()
+            if parameterType.get_IsGenericType() && !parameterType.get_IsGenericTypeDefinition() && parameterType.GetGenericTypeDefinition() == typeof(IEnumerable<int>).GetGenericTypeDefinition() {
+                parameterArguments := parameterType.GetGenericArguments()
+                if parameterArguments.Length == 1 && parameterArguments[0] == definitionArguments[0] {
+                    if selected != null {
+                        throw new InvalidOperationException("The definition has more than one exact IEnumerable<T> constructor.")
+                    }
+                    selected = constructors[index]
+                }
+            }
+        }
+        index += 1
+    }
+    return selected
+}
+
+// The closed type's SELECTED constructor rendered as its parameter list, or "<none>". This is the
+// product path: exactly what a `new` expression resolves.
+func ClosureCollectionTypes1(first: Type): Type[] {
+    result := new Type[](1)
+    result[0] = first
+    return result
+}
+
+func ClosureCollectionTypes2(first: Type, second: Type): Type[] {
+    result := new Type[](2)
+    result[0] = first
+    result[1] = second
+    return result
+}
+
+func ClosureCollectionSelects(targetType: Type, argumentTypes: Type[]): string {
+    constructor: ConstructorInfo? = null
+    parameters := new Type[](0)
+    if !ColumnarConstructionPlanner.TrySelectClosedRuntimeConstructor(targetType, argumentTypes, ColumnarDirectCallArgumentFacts.Empty(argumentTypes.Length), out constructor, out parameters) || constructor == null {
+        return "<none>"
+    }
+
+    rendered := ""
+    index := 0
+    while index < parameters.Length {
+        if index > 0 {
+            rendered = rendered + "|"
+        }
+        parameterType := parameters[index]
+        rendered = rendered + (parameterType.FullName ?? "<null>")
+        index += 1
+    }
+
+    return rendered
+}
+
 test "collection constructors retain their exact enumerable and comparer signatures" {
     hashSetDefinition := typeof(HashSet<int>).GetGenericTypeDefinition()
     sortedSetDefinition := typeof(SortedSet<int>).GetGenericTypeDefinition()
     dictionaryDefinition := typeof(Dictionary<int, int>).GetGenericTypeDefinition()
 
     hashComparer := ClosureCollectionRequiredConstructor(
-        ColumnarConstructionPlanner.FindOpenComparerConstructor(
+        ClosureCollectionOpenComparerConstructor(
             hashSetDefinition,
             "System.Collections.Generic.IEqualityComparer`1"
         )
     )
     hashCopyComparer := ClosureCollectionRequiredConstructor(
-        ColumnarConstructionPlanner.FindOpenCopyComparerConstructor(
+        ClosureCollectionOpenCopyComparerConstructor(
             hashSetDefinition,
             "System.Collections.Generic.IEqualityComparer`1"
         )
     )
     sortedComparer := ClosureCollectionRequiredConstructor(
-        ColumnarConstructionPlanner.FindOpenComparerConstructor(
+        ClosureCollectionOpenComparerConstructor(
             sortedSetDefinition,
             "System.Collections.Generic.IComparer`1"
         )
     )
     sortedCopyComparer := ClosureCollectionRequiredConstructor(
-        ColumnarConstructionPlanner.FindOpenCopyComparerConstructor(
+        ClosureCollectionOpenCopyComparerConstructor(
             sortedSetDefinition,
             "System.Collections.Generic.IComparer`1"
         )
     )
     dictionaryCopyComparer := ClosureCollectionRequiredConstructor(
-        ColumnarConstructionPlanner.FindOpenCopyComparerConstructor(
+        ClosureCollectionOpenCopyComparerConstructor(
             dictionaryDefinition,
             "System.Collections.Generic.IEqualityComparer`1"
         )
@@ -118,23 +234,24 @@ test "collection constructors retain their exact enumerable and comparer signatu
     assert dictionaryComparerType.GetGenericTypeDefinition() == typeof(IEqualityComparer<int>).GetGenericTypeDefinition()
     assert dictionaryComparerType.GetGenericArguments()[0] == dictionaryParameters[0]
 
-    assert ColumnarConstructionPlanner.IsComparerCollectionDefinition(hashSetDefinition)
-    assert ColumnarConstructionPlanner.IsComparerCollectionDefinition(sortedSetDefinition)
-    assert ColumnarConstructionPlanner.IsCopyComparerCollectionDefinition(hashSetDefinition)
-    assert ColumnarConstructionPlanner.IsCopyComparerCollectionDefinition(sortedSetDefinition)
-    assert ColumnarConstructionPlanner.IsCopyComparerCollectionDefinition(dictionaryDefinition)
-    assert !ColumnarConstructionPlanner.IsComparerCollectionDefinition(typeof(List<int>).GetGenericTypeDefinition())
-    assert !ColumnarConstructionPlanner.IsCopyComparerCollectionDefinition(typeof(List<int>).GetGenericTypeDefinition())
-    assert ColumnarConstructionPlanner.FindOpenComparerConstructor(sortedSetDefinition, "System.Collections.Generic.IEqualityComparer`1") == null
-    assert ColumnarConstructionPlanner.FindOpenCopyComparerConstructor(hashSetDefinition, "System.Collections.Generic.IComparer`1") == null
-    assert ColumnarConstructionPlanner.FindOpenCopyComparerConstructor(dictionaryDefinition, "System.Collections.Generic.IComparer`1") == null
+    assert ClosureCollectionOpenComparerConstructor(sortedSetDefinition, "System.Collections.Generic.IEqualityComparer`1") == null
+    assert ClosureCollectionOpenCopyComparerConstructor(hashSetDefinition, "System.Collections.Generic.IComparer`1") == null
+    assert ClosureCollectionOpenCopyComparerConstructor(dictionaryDefinition, "System.Collections.Generic.IComparer`1") == null
+
+    // And the planner reaches exactly those signatures WITHOUT naming a single collection: each
+    // selection below is ordinary overload resolution over the closed type's own constructors.
+    assert ClosureCollectionSelects(typeof(HashSet<string>), ClosureCollectionTypes1(typeof(IEqualityComparer<string>))) == "System.Collections.Generic.IEqualityComparer`1[[System.String, System.Private.CoreLib, Version=10.0.0.0, Culture=neutral, PublicKeyToken=7cec85d7bea7798e]]"
+    assert ClosureCollectionSelects(typeof(SortedSet<string>), ClosureCollectionTypes1(typeof(IComparer<string>))) == "System.Collections.Generic.IComparer`1[[System.String, System.Private.CoreLib, Version=10.0.0.0, Culture=neutral, PublicKeyToken=7cec85d7bea7798e]]"
+    assert ClosureCollectionSelects(typeof(List<string>), ClosureCollectionTypes1(typeof(IEnumerable<string>))) != "<none>"
+    assert ClosureCollectionSelects(typeof(Dictionary<string, int>), ClosureCollectionTypes2(typeof(IEnumerable<KeyValuePair<string, int>>), typeof(IEqualityComparer<string>))) != "<none>"
+    assert ClosureCollectionSelects(typeof(HashSet<string>), ClosureCollectionTypes1(typeof(IComparer<string>))) == "<none>"
 }
 
 test "List key snapshots select the exact enumerable copy constructor" {
     listDefinition := typeof(List<int>).GetGenericTypeDefinition()
     enumerableDefinition := typeof(IEnumerable<int>).GetGenericTypeDefinition()
     constructor := ClosureCollectionRequiredConstructor(
-        ColumnarConstructionPlanner.FindOpenListCopyConstructor(listDefinition)
+        ClosureCollectionOpenSequenceConstructor(listDefinition)
     )
     parameters := constructor.GetParameters()
     assert parameters.Length == 1
@@ -146,16 +263,15 @@ test "List key snapshots select the exact enumerable copy constructor" {
     assert parameterArguments.Length == 1
     assert parameterArguments[0] == listArguments[0]
 
-    assert ColumnarConstructionPlanner.IsListCopyCollectionDefinition(listDefinition)
-    assert !ColumnarConstructionPlanner.IsListCopyCollectionDefinition(typeof(HashSet<int>).GetGenericTypeDefinition())
-    assert ColumnarConstructionPlanner.FindOpenListCopyConstructor(typeof(List<string>)) == null
+    // A namesake with no constructors of its own selects nothing, and neither does a CLOSED list asked
+    // for a sequence of the wrong element.
     foreignList := TypeOfCreateBuilder(
         "System.Collections.Generic.List",
         "ClosureCollection.ForeignList",
         1
     )
-    assert !ColumnarConstructionPlanner.IsListCopyCollectionDefinition(foreignList)
-    assert ColumnarConstructionPlanner.FindOpenListCopyConstructor(foreignList) == null
+    assert ClosureCollectionOpenSequenceConstructor(foreignList) == null
+    assert ClosureCollectionSelects(typeof(List<string>), ClosureCollectionTypes1(typeof(IEnumerable<int>))) == "<none>"
 }
 
 test "exact Dictionary Keys result types cover every closure value shape and no namesake" {
@@ -188,12 +304,6 @@ test "exact Dictionary Keys result types cover every closure value shape and no 
         assert ColumnarTypeEquivalenceFacts.TypesEquivalent(selection.ResultType, expectedKeys)
         assert ColumnarTypeOfPlanner.IsSupportedDictionaryKeyCollectionType(selection.ResultType)
         assert ColumnarTypeOfPlanner.IsSupportedType(selection.ResultType)
-        assert ColumnarConstructionPlanner.IsListKeyCollectionCopy(
-            typeof(List<int>).GetGenericTypeDefinition(),
-            typeof(List<string>),
-            selection.ResultType
-        )
-
         plan := ClosureCollectionListCopyPlan(dictionary)
         assert plan.ResultType == typeof(List<string>)
         assert plan.MethodCount == 1
@@ -255,21 +365,6 @@ test "exact Dictionary Keys result types cover every closure value shape and no 
     assert !ColumnarReferenceConversionFacts.TryEmitReferenceConversion(sortedStrings, enumerableInt)
     assert !ColumnarTypeOfPlanner.IsSupportedDictionaryKeyCollectionType(keyCollectionDefinition)
     assert !ColumnarTypeOfPlanner.IsSupportedDictionaryKeyCollectionType(foreignKeys)
-    assert !ColumnarConstructionPlanner.IsListKeyCollectionCopy(
-        typeof(List<int>).GetGenericTypeDefinition(),
-        typeof(List<int>),
-        exactKeys
-    )
-    assert !ColumnarConstructionPlanner.IsListKeyCollectionCopy(
-        typeof(List<int>).GetGenericTypeDefinition(),
-        typeof(List<string>),
-        enumerableString
-    )
-    assert !ColumnarConstructionPlanner.IsListKeyCollectionCopy(
-        foreignList,
-        typeof(List<string>),
-        exactKeys
-    )
     assert !ColumnarRuntimeInstanceMemberResolver.TrySelect(
         typeof(SortedDictionary<string, int>),
         "Keys",

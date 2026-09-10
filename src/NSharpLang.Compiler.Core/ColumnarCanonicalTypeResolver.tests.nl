@@ -331,7 +331,7 @@ test "canonical resolver resolves Func returns before parameter failure and arit
 
 test "canonical resolver composes closed source generic identities from the selected definition" {
     builder := TypeOfCreateSourceBuilder("CanonicalResolver.SourceBox", true)
-    definition := ExactTypeDefinition(builder, "CanonicalResolver.SourceBox")
+    definition := ExactTypeDefinition(builder, "CanonicalResolver.SourceBox`1")
     structs := SemanticEmptyStructs()
     structs[definition.DeclaredTypeName] = definition
 
@@ -377,7 +377,7 @@ test "canonical resolver composes closed source generic identities from the sele
     assert key.ChildCount == 2
     definitionKey := key.Child(0)
     assert definitionKey.Kind == ColumnarStructuralTypeReferenceKind.SourceDefinition
-    assert definitionKey.SourceDeclarationName == "CanonicalResolver.SourceBox"
+    assert definitionKey.SourceDeclarationName == "CanonicalResolver.SourceBox`1"
     argumentKey := key.Child(1)
     assert argumentKey.Kind == ColumnarStructuralTypeReferenceKind.Primitive
     assert argumentKey.PrimitiveName == "int32"

@@ -785,7 +785,7 @@ class AnalyzerConstruction {
 
             if resolvedArguments.Count != arity {
                 message := "Generic union '" + unionName + "' takes " + arity.ToString() + " type argument(s), but " + resolvedArguments.Count.ToString() + " were provided"
-                suggestion := "Match the declaration's type parameter count for '" + unionName + "'"
+                suggestion := "Write '" + TypeArityNames.WrittenForm(unionName, arity) + "'"
                 if arity == 0 {
                     message = "Union '" + unionName + "' is not generic, but " + resolvedArguments.Count.ToString() + " type argument(s) were provided"
                     suggestion = "Remove the type arguments: 'new " + qualifiedCaseName + " { ... }'"

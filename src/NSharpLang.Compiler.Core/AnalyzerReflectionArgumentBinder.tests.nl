@@ -2044,3 +2044,74 @@ func PreBindTypeArray2(first: Type, second: Type): Type[] {
     values[1] = second
     return values
 }
+
+// ---------------------------------------------- inference from an argument the CLR has no type for
+
+func BinderHashCodeCombine(genericParameterCount: int): MethodInfo {
+    for candidate in typeof(HashCode).GetMethods(BindingFlags.Public | BindingFlags.Static) {
+        if candidate.get_Name() == "Combine" && candidate.get_IsGenericMethodDefinition() && candidate.GetGenericArguments().Length == genericParameterCount {
+            return candidate
+        }
+    }
+
+    throw new InvalidOperationException("System.HashCode.Combine was not found with the requested arity.")
+}
+
+// Inside `struct Outcome<TOk, TErr>`, `HashCode.Combine(state, ok)` passes an argument whose type is
+// TOk -- a type parameter of the ENCLOSING declaration, which converts to no CLR type at all, exactly
+// or as a surrogate. Refusing that position reported "No overload of 'Combine' accepts 2 arguments
+// with these types: byte, TOk" for a call that is simply generic. The binding is recorded on the N#
+// side, because there is no CLR type to record it as.
+test "an unbound method type parameter infers from an argument with no CLR form" {
+    binder := BinderDefault()
+    method := BinderHashCodeCombine(2)
+    parameters := method.GetParameters()
+    genericParameters := method.GetGenericArguments()
+
+    bindings := new Dictionary<Type, Type>()
+    typeInfoBindings := new Dictionary<Type, TypeInfo>()
+    typeParameter: TypeInfo = new SimpleTypeInfo("TOk")
+    supplied := new SuppliedReflectionBoundArgument(
+        1,
+        genericParameters[1],
+        BinderPositional("ok"),
+        0
+    )
+    score := 0
+    assert binder.TryScoreReflectionSuppliedArgument(
+        supplied,
+        parameters[1],
+        bindings,
+        typeInfoBindings,
+        new Dictionary<int, FunctionTypeInfo>(),
+        BinderAnalyzed1(typeParameter),
+        false,
+        out score
+    )
+    assert score == 8
+    assert typeInfoBindings.ContainsKey(genericParameters[1])
+    boundTypeInfo: TypeInfo = typeInfoBindings[genericParameters[1]]
+    boundSimpleType := boundTypeInfo as SimpleTypeInfo
+    assert boundSimpleType != null
+    assert boundSimpleType.Name == "TOk"
+
+    // The CLR side stays EMPTY on purpose: there is no runtime type for TOk, and inventing a surrogate
+    // would validate the declared constraints against a type the program never wrote.
+    assert bindings.Count == 0
+
+    // A method type parameter the call has ALREADY bound is not re-inferred; the ordinary
+    // assignability question decides it, and an int argument does not satisfy a parameter bound to
+    // string.
+    boundBindings := new Dictionary<Type, Type>()
+    boundBindings[genericParameters[1]] = typeof(string)
+    assert !binder.TryScoreReflectionSuppliedArgument(
+        supplied,
+        parameters[1],
+        boundBindings,
+        new Dictionary<Type, TypeInfo>(),
+        new Dictionary<int, FunctionTypeInfo>(),
+        BinderAnalyzed1(typeParameter),
+        false,
+        out score
+    )
+}

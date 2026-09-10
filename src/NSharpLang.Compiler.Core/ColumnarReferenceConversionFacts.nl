@@ -30,6 +30,10 @@ class ColumnarReferenceConversionFacts {
             return true
         }
 
+        if IsConstructedSourceBaseUpcast(sourceType, targetType) {
+            return true
+        }
+
         if sourceType.get_IsSZArray() && targetType.get_IsGenericType() && !targetType.get_IsGenericTypeDefinition() {
             targetDefinition := targetType.GetGenericTypeDefinition()
             if (targetDefinition == typeof(IReadOnlyList<int>).GetGenericTypeDefinition() || targetDefinition == typeof(IReadOnlyCollection<int>).GetGenericTypeDefinition() || targetDefinition == typeof(IEnumerable<int>).GetGenericTypeDefinition()) && ColumnarTypeEquivalenceFacts.TypesEquivalent(sourceType.GetElementType(), targetType.GetGenericArguments()[0]) {
@@ -295,6 +299,10 @@ class ColumnarReferenceConversionFacts {
             return true
         }
 
+        if IsConstructedSourceBaseUpcast(sourceType, targetType) {
+            return true
+        }
+
         if targetType.get_IsGenericType() && !targetType.get_IsGenericTypeDefinition() && sourceType.get_IsSZArray() {
             sourceElement := sourceType.GetElementType()
             targetArguments := targetType.GetGenericArguments()
@@ -384,6 +392,42 @@ class ColumnarReferenceConversionFacts {
     // so the singleton is also an IEqualityComparer<T> for a source reference class T. Runtime
     // assignability cannot close that variance edge over an unbaked TypeBuilder; name the one exact
     // BCL source and interface shell, and keep value types and other dynamic shapes outside it.
+    // A CLOSED SOURCE GENERIC UPCAST TO A NON-GENERIC BASE IT DECLARES.
+    //
+    // `class Subscription<T>: Subscription` is the shape a library reaches for when a generic type
+    // needs one non-generic root a caller can hold — `NSharpEventSubscription<THandler>` over
+    // `NSharpEventSubscription` is exactly that — and returning the closed type where the base is
+    // expected is a reference conversion that costs no IL at all.
+    //
+    // Reflection.Emit cannot answer `IsAssignableFrom` for a constructed generic whose definition is
+    // an unbaked TypeBuilder, so the chain is walked on the DEFINITION, where `SetParent` has already
+    // recorded the base. A base that still mentions the definition's own type parameters would need
+    // those substituted before it could be compared, which this deliberately does not do: it declines
+    // rather than guess.
+    static func IsConstructedSourceBaseUpcast(sourceType: Type, targetType: Type): bool {
+        if !sourceType.get_IsGenericType() || sourceType.get_IsGenericTypeDefinition() || targetType.get_ContainsGenericParameters() {
+            return false
+        }
+
+        try {
+            current := sourceType.GetGenericTypeDefinition().get_BaseType()
+            depth := 0
+            while current != null && depth < 32 {
+                if current.get_ContainsGenericParameters() {
+                    return false
+                }
+                if ColumnarTypeEquivalenceFacts.TypesEquivalent(current, targetType) {
+                    return true
+                }
+                current = current.get_BaseType()
+                depth = depth + 1
+            }
+        } catch ex: NotSupportedException {
+        }
+
+        return false
+    }
+
     static func IsExactReferenceEqualityComparerUpcast(sourceType: Type, targetType: Type): bool {
         if !targetType.get_IsGenericType() || targetType.get_IsGenericTypeDefinition() || targetType.GetGenericTypeDefinition() != typeof(IEqualityComparer<int>).GetGenericTypeDefinition() {
             return false

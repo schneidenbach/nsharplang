@@ -68,6 +68,7 @@ class SemanticModel {
     propertiesValue: Dictionary<string, TypeInfo>
     fieldsValue: Dictionary<string, TypeInfo>
     typesValue: Dictionary<string, TypeInfo>
+    typesByIdentityValue: Dictionary<string, TypeInfo>
     typeMembersValue: Dictionary<string, Dictionary<string, TypeInfo>>
     scopeVersionValue: int
 
@@ -81,6 +82,7 @@ class SemanticModel {
         propertiesValue = new Dictionary<string, TypeInfo>()
         fieldsValue = new Dictionary<string, TypeInfo>()
         typesValue = new Dictionary<string, TypeInfo>()
+        typesByIdentityValue = new Dictionary<string, TypeInfo>()
         typeMembersValue = new Dictionary<string, Dictionary<string, TypeInfo>>()
         scopeVersionValue = 0
     }
@@ -92,7 +94,14 @@ class SemanticModel {
     Functions: Dictionary<string, TypeInfo> => functionsValue
     Properties: Dictionary<string, TypeInfo> => propertiesValue
     Fields: Dictionary<string, TypeInfo> => fieldsValue
+    // BY WRITTEN NAME. What a hover, a completion label and every consumer that has only a spelling
+    // asks. A generic type is here under its bare name, and a non-generic type of the same name wins
+    // that slot — exactly what the language says a bare spelling means.
     Types: Dictionary<string, TypeInfo> => typesValue
+
+    // BY IDENTITY — `Subscription` and `Subscription``1 are two rows. What a consumer that knows the
+    // arity asks, and the only table in which two same-name types are both visible.
+    TypesByIdentity: Dictionary<string, TypeInfo> => typesByIdentityValue
     TypeMembers: Dictionary<string, Dictionary<string, TypeInfo>> => typeMembersValue
     Scopes: IReadOnlyList<ScopeInfo> => scopesValue
     ScopeVersion: int => scopeVersionValue
@@ -145,8 +154,17 @@ class SemanticModel {
         fieldsValue[name] = typeInfo
     }
 
+    // ONE RECORD, TWO TABLES. `name` is an identity key (`TypeArityNames.Key`): it always lands in
+    // the identity table, and it also takes the WRITTEN-NAME slot unless a non-generic type of that
+    // name already owns it. That ordering is the language rule — a bare `Subscription` means the
+    // arity-0 type when there is one — stated once, here, so no consumer has to know it.
     func RecordType(name: string, typeInfo: TypeInfo) {
-        typesValue[name] = typeInfo
+        typesByIdentityValue[name] = typeInfo
+
+        displayName := TypeArityNames.Display(name)
+        if displayName == name || !typesByIdentityValue.ContainsKey(displayName) {
+            typesValue[displayName] = typeInfo
+        }
     }
 
     func RecordTypeMember(typeName: string, memberName: string, memberType: TypeInfo) {

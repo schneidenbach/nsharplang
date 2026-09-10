@@ -1,6 +1,7 @@
 namespace NSharpLang.Compiler.Columnar
 
 import System.Collections.Generic
+import System.Numerics
 import System.Reflection
 import System.Reflection.Emit
 import System.Text
@@ -1333,75 +1334,75 @@ test "construction planner prefers identity source constructors in either declar
 }
 
 test "construction planner rejects equal best constructor ties in either order after rollback" {
-    longParameters := new Type[](1)
-    longParameters[0] = typeof(long)
-    doubleParameters := new Type[](1)
-    doubleParameters[0] = typeof(double)
+    byteParameters := new Type[](1)
+    byteParameters[0] = typeof(byte)
+    sbyteParameters := new Type[](1)
+    sbyteParameters[0] = typeof(sbyte)
 
-    longFirst := ConstructionSourceDefinition(
-        "ConstructionLongFirstTieOwner",
+    byteFirst := ConstructionSourceDefinition(
+        "ConstructionByteFirstTieOwner",
         true
     )
-    longFirst.DefineUserConstructor(
-        longParameters,
+    byteFirst.DefineUserConstructor(
+        byteParameters,
         ConstructionDefaults(1),
         ConstructionDefaultTexts(1)
     )
-    longFirst.DefineUserConstructor(
-        doubleParameters,
+    byteFirst.DefineUserConstructor(
+        sbyteParameters,
         ConstructionDefaults(1),
         ConstructionDefaultTexts(1)
     )
-    longFirstTree := ConstructionNewTree(
-        "ConstructionLongFirstTieOwner",
+    byteFirstTree := ConstructionNewTree(
+        "ConstructionByteFirstTieOwner",
         ConstructionOneText("7"),
         ConstructionOneKind(
             ColumnarExpressionNodeKind.IntLiteralExpression()
         )
     )
     ConstructionStampScope(
-        longFirstTree,
-        "class ConstructionLongFirstTieOwner {}"
+        byteFirstTree,
+        "class ConstructionByteFirstTieOwner {}"
     )
     ownership := ColumnarDirectCallOwnership.NotOwned
     legacy := false
-    _longFirstPlan := ConstructionRejected(
-        longFirstTree,
-        ConstructionBindings(SourceCallDefinitions(longFirst)),
+    _byteFirstPlan := ConstructionRejected(
+        byteFirstTree,
+        ConstructionBindings(SourceCallDefinitions(byteFirst)),
         out ownership,
         out legacy
     )
     assert ownership == ColumnarDirectCallOwnership.OwnedRejected
     assert !legacy
 
-    doubleFirst := ConstructionSourceDefinition(
-        "ConstructionDoubleFirstTieOwner",
+    sbyteFirst := ConstructionSourceDefinition(
+        "ConstructionSByteFirstTieOwner",
         true
     )
-    doubleFirst.DefineUserConstructor(
-        doubleParameters,
+    sbyteFirst.DefineUserConstructor(
+        sbyteParameters,
         ConstructionDefaults(1),
         ConstructionDefaultTexts(1)
     )
-    doubleFirst.DefineUserConstructor(
-        longParameters,
+    sbyteFirst.DefineUserConstructor(
+        byteParameters,
         ConstructionDefaults(1),
         ConstructionDefaultTexts(1)
     )
-    doubleFirstTree := ConstructionNewTree(
-        "ConstructionDoubleFirstTieOwner",
+    sbyteFirstTree := ConstructionNewTree(
+        "ConstructionSByteFirstTieOwner",
         ConstructionOneText("7"),
         ConstructionOneKind(
             ColumnarExpressionNodeKind.IntLiteralExpression()
         )
     )
     ConstructionStampScope(
-        doubleFirstTree,
-        "class ConstructionDoubleFirstTieOwner {}"
+        sbyteFirstTree,
+        "class ConstructionSByteFirstTieOwner {}"
     )
-    _doubleFirstPlan := ConstructionRejected(
-        doubleFirstTree,
-        ConstructionBindings(SourceCallDefinitions(doubleFirst)),
+    _sbyteFirstPlan := ConstructionRejected(
+        sbyteFirstTree,
+        ConstructionBindings(SourceCallDefinitions(sbyteFirst)),
         out ownership,
         out legacy
     )
@@ -1747,21 +1748,64 @@ test "construction planner uses unique compatibility and rejects ambiguity and s
         intCtor
     )
 
-    ambiguous := ConstructionSourceDefinition(
-        "ConstructionAmbiguousOwner",
+    // long and double both accept an int argument, and `long` converts to `double` while `double` does
+    // not convert to `long`, so `long` is the more specific parameter and wins the tie -- the same
+    // answer C# gives `new X(3)` over `X(long)` / `X(double)`.
+    specific := ConstructionSourceDefinition(
+        "ConstructionSpecificOwner",
         true
     )
     longParameters := new Type[](1)
     longParameters[0] = typeof(long)
     doubleParameters := new Type[](1)
     doubleParameters[0] = typeof(double)
-    ambiguous.DefineUserConstructor(
+    longCtor := specific.DefineUserConstructor(
         longParameters,
         ConstructionDefaults(1),
         ConstructionDefaultTexts(1)
     )
-    ambiguous.DefineUserConstructor(
+    specific.DefineUserConstructor(
         doubleParameters,
+        ConstructionDefaults(1),
+        ConstructionDefaultTexts(1)
+    )
+    specificTree := ConstructionNewTree(
+        "ConstructionSpecificOwner",
+        ConstructionOneText("3"),
+        ConstructionOneKind(
+            ColumnarExpressionNodeKind.IntLiteralExpression()
+        )
+    )
+    ConstructionStampScope(
+        specificTree,
+        "class ConstructionSpecificOwner {}"
+    )
+    specificPlan := ConstructionPlan(
+        specificTree,
+        ConstructionBindings(SourceCallDefinitions(specific))
+    )
+    assert ColumnarConstructionPlanner.SameObject(
+        specificPlan.Constructors[0],
+        longCtor
+    )
+
+    // byte and sbyte both take the literal by constant adoption and NEITHER converts to the other, so
+    // no rule breaks the tie and the construction stays a rejection.
+    ambiguous := ConstructionSourceDefinition(
+        "ConstructionAmbiguousOwner",
+        true
+    )
+    byteParameters := new Type[](1)
+    byteParameters[0] = typeof(byte)
+    sbyteParameters := new Type[](1)
+    sbyteParameters[0] = typeof(sbyte)
+    ambiguous.DefineUserConstructor(
+        byteParameters,
+        ConstructionDefaults(1),
+        ConstructionDefaultTexts(1)
+    )
+    ambiguous.DefineUserConstructor(
+        sbyteParameters,
         ConstructionDefaults(1),
         ConstructionDefaultTexts(1)
     )
@@ -2013,10 +2057,7 @@ test "construction planner binds the exact Dictionary sequence and comparer cons
     assert parameters[1] == typeof(IEqualityComparer<string>)
 
     dictionaryDefinition := typeof(Dictionary<int, int>).GetGenericTypeDefinition()
-    assert ColumnarConstructionPlanner.IsCopyComparerCollectionDefinition(
-        dictionaryDefinition
-    )
-    constructor := ColumnarConstructionPlanner.FindOpenCopyComparerConstructor(
+    constructor := ClosureCollectionOpenCopyComparerConstructor(
         dictionaryDefinition,
         "System.Collections.Generic.IEqualityComparer`1"
     )
@@ -2025,22 +2066,6 @@ test "construction planner binds the exact Dictionary sequence and comparer cons
     assert openParameters.Length == 2
     assert openParameters[0].get_ParameterType().GetGenericTypeDefinition() == typeof(IEnumerable<int>).GetGenericTypeDefinition()
     assert openParameters[1].get_ParameterType().GetGenericTypeDefinition() == typeof(IEqualityComparer<int>).GetGenericTypeDefinition()
-
-    assert ColumnarConstructionPlanner.IsCopyComparerCollectionDefinition(
-        typeof(HashSet<int>).GetGenericTypeDefinition()
-    )
-    assert ColumnarConstructionPlanner.IsCopyComparerCollectionDefinition(
-        typeof(SortedSet<int>).GetGenericTypeDefinition()
-    )
-    assert !ColumnarConstructionPlanner.IsCopyComparerCollectionDefinition(
-        typeof(SortedDictionary<int, int>).GetGenericTypeDefinition()
-    )
-    foreign := TypeOfCreateBuilder(
-        "System.Collections.Generic.Dictionary`2",
-        "Construction.CopyComparer.Foreign",
-        2
-    )
-    assert !ColumnarConstructionPlanner.IsCopyComparerCollectionDefinition(foreign)
 
     mismatch := ConstructionExplicitGenericNewTree(
         "Dictionary",
@@ -2520,7 +2545,7 @@ test "construction planner follows multilevel reordered and fixed generic bases"
         true,
         false,
         false,
-        "ConstructionMappedBase"
+        "ConstructionMappedBase`2"
     )
     baseArguments := baseBuilder.GetGenericArguments()
     assert baseArguments.Length == 2
@@ -2554,7 +2579,7 @@ test "construction planner follows multilevel reordered and fixed generic bases"
         true,
         false,
         false,
-        "ConstructionMappedMiddle"
+        "ConstructionMappedMiddle`1"
     )
     middleArguments := middleBuilder.GetGenericArguments()
     assert middleArguments.Length == 1
@@ -2580,7 +2605,7 @@ test "construction planner follows multilevel reordered and fixed generic bases"
         true,
         false,
         false,
-        "ConstructionMappedDerived"
+        "ConstructionMappedDerived`2"
     )
     derivedArguments := derivedBuilder.GetGenericArguments()
     assert derivedArguments.Length == 2
@@ -3073,12 +3098,14 @@ test "construction planner owns closed generic positional union cases and reject
         fields,
         unionBase
     )
+    // A generic union's declared identity carries its arity, and its case keys hang off that
+    // identity; the WRITTEN spelling stays `ConstructionGenericUnion.Value`.
     unionDefinition := new ColumnarUnionDef(
         unionBase,
         1,
-        "ConstructionGenericUnion"
+        "ConstructionGenericUnion`1"
     )
-    unionDefinition.Cases["ConstructionGenericUnion.Value"] = caseDefinition
+    unionDefinition.Cases["ConstructionGenericUnion`1.Value"] = caseDefinition
     unions := new List<ColumnarUnionDef>()
     unions.Add(unionDefinition)
     bindings := ColumnarRangePlannerEmptyBindings()
@@ -3427,12 +3454,31 @@ test "construction planner owns the exact Label zero value through initobj" {
     assert ownership == ColumnarDirectCallOwnership.OwnedRejected
     assert !legacy
 
-    unsupported := ConstructionNewTree(
+    // The zero-value reading is the general rule for a struct with no selectable constructor, not a
+    // list of remembered types: `new OpCode()` takes exactly the same initobj shape as `new Label()`.
+    zeroValue := ConstructionNewTree(
         "OpCode",
         ConstructionEmptyTexts(),
         ConstructionEmptyKinds()
     )
-    ConstructionStampScope(unsupported, "import System.Reflection.Emit\n")
+    ConstructionStampScope(zeroValue, "import System.Reflection.Emit\n")
+    zeroValuePlan := ConstructionPlan(
+        zeroValue,
+        ColumnarRangePlannerEmptyBindings()
+    )
+    assert zeroValuePlan.ResultType == typeof(OpCode)
+    assert zeroValuePlan.OperationCount == 3
+    assert zeroValuePlan.OpCodeValues[0] == ColumnarCodePlanContract.Ldloca()
+    assert zeroValuePlan.OpCodeValues[1] == ColumnarCodePlanContract.Initobj()
+    assert zeroValuePlan.OpCodeValues[2] == ColumnarCodePlanContract.Ldloc()
+
+    // A type that cannot be instantiated at all keeps the rejection: `System.Math` is abstract.
+    unsupported := ConstructionNewTree(
+        "Math",
+        ConstructionEmptyTexts(),
+        ConstructionEmptyKinds()
+    )
+    ConstructionStampScope(unsupported, "import System\n")
     _unsupportedPlan := ConstructionRejected(
         unsupported,
         ColumnarRangePlannerEmptyBindings(),
@@ -3462,7 +3508,7 @@ test "construction planner owns closed generic default source values" {
         false,
         false,
         false,
-        "ConstructionGenericDefaultValue"
+        "ConstructionGenericDefaultValue`1"
     )
     typeArguments := ConstructionOneText("int")
     tree := ConstructionExplicitGenericNewTree(
@@ -3976,4 +4022,106 @@ test "two constructors that score equally decline rather than picking one" {
     stream := ConstructionSelect(writerType, ConstructionOneType(streamType))
     assert stream != null
     assert stream.GetParameters().Length == 1
+}
+
+// EXTERNAL CLOSED GENERIC CONSTRUCTION IS ORDINARY CONSTRUCTOR RESOLUTION (stream E1). The rows below
+// pin that a closed generic the compiler has never heard of selects its constructor by argument flow
+// exactly like a non-generic external type -- `System.Numerics.Vector<int>` is the witness precisely
+// because nothing in the planner knows the name.
+test "construction planner selects external closed generic constructors by argument flow" {
+    valuesTree := ConstructionNewTree(
+        "Vector<int>",
+        ConstructionTwoTexts("values", "index"),
+        ConstructionTwoKinds(
+            ColumnarExpressionNodeKind.IdentifierExpression(),
+            ColumnarExpressionNodeKind.IdentifierExpression()
+        )
+    )
+    ConstructionStampScope(valuesTree, "import System.Numerics\n")
+    valuesBindings := ColumnarRangePlannerEmptyBindings()
+    ColumnarRangePlannerAddParameter(valuesBindings, "values", 0, typeof(int[]))
+    ColumnarRangePlannerAddParameter(valuesBindings, "index", 1, typeof(int))
+    valuesPlan := ConstructionPlan(valuesTree, valuesBindings)
+    assert valuesPlan.ResultType == typeof(Vector<int>)
+    assert valuesPlan.ConstructorCount == 1
+    assert valuesPlan.ConstructorDeclaringTypes[0] == typeof(Vector<int>)
+    assert valuesPlan.ConstructorParameterTypes[0].Length == 2
+    assert valuesPlan.ConstructorParameterTypes[0][0] == typeof(int[])
+    assert valuesPlan.ConstructorParameterTypes[0][1] == typeof(int)
+    assert valuesPlan.OpCodeValues[valuesPlan.OperationCount - 1] == ColumnarCodePlanContract.Newobj()
+
+    broadcastTree := ConstructionNewTree(
+        "Vector<int>",
+        ConstructionOneText("value"),
+        ConstructionOneKind(ColumnarExpressionNodeKind.IdentifierExpression())
+    )
+    ConstructionStampScope(broadcastTree, "import System.Numerics\n")
+    broadcastBindings := ColumnarRangePlannerEmptyBindings()
+    ColumnarRangePlannerAddParameter(broadcastBindings, "value", 0, typeof(int))
+    broadcastPlan := ConstructionPlan(broadcastTree, broadcastBindings)
+    assert broadcastPlan.ResultType == typeof(Vector<int>)
+    assert broadcastPlan.ConstructorParameterTypes[0].Length == 1
+    assert broadcastPlan.ConstructorParameterTypes[0][0] == typeof(int)
+
+    // A closed generic STRUCT with no selectable constructor is its zero value, like any other struct.
+    zeroTree := ConstructionNewTree(
+        "Vector<int>",
+        ConstructionEmptyTexts(),
+        ConstructionEmptyKinds()
+    )
+    ConstructionStampScope(zeroTree, "import System.Numerics\n")
+    zeroPlan := ConstructionPlan(zeroTree, ColumnarRangePlannerEmptyBindings())
+    assert zeroPlan.ResultType == typeof(Vector<int>)
+    assert zeroPlan.OperationCount == 3
+    assert zeroPlan.OpCodeValues[0] == ColumnarCodePlanContract.Ldloca()
+    assert zeroPlan.OpCodeValues[1] == ColumnarCodePlanContract.Initobj()
+    assert zeroPlan.OpCodeValues[2] == ColumnarCodePlanContract.Ldloc()
+}
+
+test "construction planner rejects external closed generic constructions with no applicable constructor" {
+    ownership := ColumnarDirectCallOwnership.OwnedRejected
+    legacy := false
+
+    wrongTypeTree := ConstructionNewTree(
+        "Vector<int>",
+        ConstructionTwoTexts("values", "label"),
+        ConstructionTwoKinds(
+            ColumnarExpressionNodeKind.IdentifierExpression(),
+            ColumnarExpressionNodeKind.IdentifierExpression()
+        )
+    )
+    ConstructionStampScope(wrongTypeTree, "import System.Numerics\n")
+    wrongTypeBindings := ColumnarRangePlannerEmptyBindings()
+    ColumnarRangePlannerAddParameter(wrongTypeBindings, "values", 0, typeof(int[]))
+    ColumnarRangePlannerAddParameter(wrongTypeBindings, "label", 1, typeof(string))
+    _wrongTypePlan := ConstructionRejected(
+        wrongTypeTree,
+        wrongTypeBindings,
+        out ownership,
+        out legacy
+    )
+    assert ownership == ColumnarDirectCallOwnership.OwnedRejected
+    assert !legacy
+
+    wrongArityTree := ConstructionNewTree(
+        "Vector<int>",
+        ConstructionThreeTexts("values", "index", "index"),
+        ConstructionThreeKinds(
+            ColumnarExpressionNodeKind.IdentifierExpression(),
+            ColumnarExpressionNodeKind.IdentifierExpression(),
+            ColumnarExpressionNodeKind.IdentifierExpression()
+        )
+    )
+    ConstructionStampScope(wrongArityTree, "import System.Numerics\n")
+    wrongArityBindings := ColumnarRangePlannerEmptyBindings()
+    ColumnarRangePlannerAddParameter(wrongArityBindings, "values", 0, typeof(int[]))
+    ColumnarRangePlannerAddParameter(wrongArityBindings, "index", 1, typeof(int))
+    _wrongArityPlan := ConstructionRejected(
+        wrongArityTree,
+        wrongArityBindings,
+        out ownership,
+        out legacy
+    )
+    assert ownership == ColumnarDirectCallOwnership.OwnedRejected
+    assert !legacy
 }

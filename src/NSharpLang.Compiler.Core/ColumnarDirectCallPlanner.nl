@@ -1056,6 +1056,22 @@ class ColumnarDirectCallPlanner {
                 return true
             }
 
+            // A GENERIC method definition is an excluded shape for the ordinary tier, because its
+            // signature still mentions its own type parameters. Close it by inference from the
+            // arguments and it becomes an ordinary MethodInfo the same append path emits.
+            genericStatic := ColumnarRuntimeGenericMethodResolver.ResolveWithFacts(lookupType, memberName, argumentTypes, argumentFacts, true)
+
+            if genericStatic.IsSelected {
+                ownership = ColumnarDirectCallOwnership.OwnedRejected
+                if !AppendOrdinaryRuntimeSelection(nodes, source, callNode, -1, bindings, handles, plan, callFragment, depth, argumentTypes, argumentFacts, genericStatic, out resultType) {
+                    plan.Rollback(checkpoint)
+                    return false
+                }
+
+                ownership = ColumnarDirectCallOwnership.Planned
+                return true
+            }
+
             if ordinary.IsOwnedRejected {
                 ownership = ColumnarDirectCallOwnership.OwnedRejected
             } else {
@@ -1166,6 +1182,22 @@ class ColumnarDirectCallPlanner {
         if ordinaryInstance.IsSelected {
             ownership = ColumnarDirectCallOwnership.OwnedRejected
             if !AppendOrdinaryRuntimeSelection(nodes, source, callNode, receiverNode, bindings, handles, plan, callFragment, depth, argumentTypes, argumentFacts, ordinaryInstance, out resultType) {
+                plan.Rollback(checkpoint)
+                return false
+            }
+
+            ownership = ColumnarDirectCallOwnership.Planned
+            return true
+        }
+
+        // A GENERIC instance method definition, closed by inference from the arguments, before the
+        // fallbacks below: it is an ordinary member of the receiver's own type and must win against an
+        // extension of the same name exactly as a non-generic instance member does.
+        genericInstance := ColumnarRuntimeGenericMethodResolver.ResolveWithFacts(receiverType, memberName, argumentTypes, argumentFacts, false)
+
+        if genericInstance.IsSelected {
+            ownership = ColumnarDirectCallOwnership.OwnedRejected
+            if !AppendOrdinaryRuntimeSelection(nodes, source, callNode, receiverNode, bindings, handles, plan, callFragment, depth, argumentTypes, argumentFacts, genericInstance, out resultType) {
                 plan.Rollback(checkpoint)
                 return false
             }

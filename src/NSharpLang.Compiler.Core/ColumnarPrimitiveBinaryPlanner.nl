@@ -222,6 +222,30 @@ class ColumnarPrimitiveBinaryPlanner {
                 return true
             }
 
+            // A USER-DEFINED OPERATOR DECLARED BY AN EXTERNAL TYPE. The predefined families above have
+            // already declined the pair, which is exactly C#'s ordering: a predefined operator wins for
+            // the types that have one, and everything else asks the operand types what they declare.
+            // Both operands are already appended, so only an operator whose parameters match them
+            // EXACTLY can be planned -- a conversion would have to reach a value the plan has already
+            // sealed into its own fragment. A pair that needs one is a whole-subtree exit, and the
+            // emitter's preflighting arm serves it with the conversion in place.
+            // Both operands being IL primitives is the predefined surface's business -- the same refusal
+            // the emitter's arms make -- so `s1 == s2` stays the string-equality owner's, not
+            // `String.op_Equality`'s.
+            runtimeSelection := ColumnarRuntimeOperatorResolver.ResolveBinary(nodes.Text(source, candidate), leftType, rightType)
+            if runtimeSelection.IsSelected && !(ColumnarRuntimeOperatorResolver.IsIlPrimitiveOperandType(leftType) && ColumnarRuntimeOperatorResolver.IsIlPrimitiveOperandType(rightType)) {
+                runtimeMethod := runtimeSelection.Method
+                if runtimeMethod == null {
+                    throw new InvalidOperationException("A selected runtime operator has no exact method handle.")
+                }
+                if ColumnarSourceDirectCallResolver.ExactTypeShapeMatches(runtimeSelection.ParameterTypes[0], leftType) && ColumnarSourceDirectCallResolver.ExactTypeShapeMatches(runtimeSelection.ParameterTypes[1], rightType) {
+                    runtimeIndex := plan.AddMethodWithSignature(runtimeMethod, runtimeSelection.DeclaringType, runtimeSelection.ParameterTypes, runtimeSelection.ReturnType, true, false)
+                    plan.AppendMethodInstruction(ColumnarCodePlanContract.Call(), runtimeIndex)
+                    resultType = runtimeSelection.ReturnType
+                    return true
+                }
+            }
+
             // Only `+` selects one exact source-declared operator; every other operator over source
             // operands is a whole-subtree exit served by the legacy source-operator branch.
             if HasExactOperatorText(nodes, source, candidate, "+") {

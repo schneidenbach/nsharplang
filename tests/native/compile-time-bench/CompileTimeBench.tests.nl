@@ -536,15 +536,17 @@ test "compile-time bench: the skipped source directories are exactly the twelve 
 // tests/native/sdk-project-reference-boundary; 76 since diagnostics moved into
 // tests/native/language-server-diagnostics; 77 since reference resolution moved into
 // tests/native/reference-resolution.
-test "compile-time bench: the corpus is the 77 project.yml projects under examples, tests and templates" {
+test "compile-time bench: the corpus is the 81 project.yml projects under examples, tests and templates" {
     projects := BenchCollectCorpusProjects(BenchRepositoryRoot())
-    assert projects.Count == 77
+    assert projects.Count == 81
     assert BenchListContains(projects, "examples/01-hello-world")
     assert BenchListContains(projects, "templates/nsharp-console")
+    assert BenchListContains(projects, "tests/native/external-generic-construction")
     assert BenchListContains(projects, "tests/native/language-server-diagnostics")
     assert BenchListContains(projects, "tests/native/ownership-audit")
     assert BenchListContains(projects, "tests/native/reference-resolution")
     assert BenchListContains(projects, "tests/native/sdk-project-reference-boundary")
+    assert BenchListContains(projects, "tests/native/type-arity")
 }
 
 test "compile-time bench: the large-project case is NOT in the corpus, and neither is this harness's own project" {

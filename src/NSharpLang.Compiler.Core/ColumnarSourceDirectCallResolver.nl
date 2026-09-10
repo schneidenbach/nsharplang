@@ -1089,6 +1089,55 @@ class ColumnarSourceDirectCallResolver {
         return false
     }
 
+    // C#'s BETTER FUNCTION MEMBER tie-break (§12.6.4.3), reduced to the part that decides between two
+    // parameter lists the flow score already ranked EQUAL. A tie is not an ambiguity when one list's
+    // parameter type is a strictly better conversion target: `IDictionary<K,V>` converts to
+    // `IEnumerable<KeyValuePair<K,V>>` and not back, so a dictionary argument that fits BOTH
+    // `Dictionary<K,V>(IDictionary<K,V>)` and `Dictionary<K,V>(IEnumerable<KeyValuePair<K,V>>)` picks the
+    // dictionary parameter, exactly as C# does. Without this, every external overload set whose
+    // parameters sit on one conversion chain would decline as ambiguous.
+    //
+    // The rule is the conservative half of the C# rule: better in at least one position and worse in
+    // none. Two lists that each win a position stay ambiguous, which is also what C# reports.
+    static func IsBetterParameterList(candidate: Type[], other: Type[], sourceTypeDefinitions: IEnumerable<ColumnarStructDef>): bool {
+        if candidate == null || other == null || candidate.Length != other.Length {
+            return false
+        }
+
+        anyBetter := false
+        index := 0
+        while index < candidate.Length {
+            comparison := CompareConversionTargets(candidate[index], other[index], sourceTypeDefinitions)
+            if comparison < 0 {
+                return false
+            }
+            if comparison > 0 {
+                anyBetter = true
+            }
+            index += 1
+        }
+
+        return anyBetter
+    }
+
+    // 1 when `candidateType` is the better conversion target, -1 when `otherType` is, 0 when neither is
+    // more specific than the other (identical shapes, or a pair with conversions in both directions).
+    static func CompareConversionTargets(candidateType: Type, otherType: Type, sourceTypeDefinitions: IEnumerable<ColumnarStructDef>): int {
+        if candidateType == null || otherType == null || ExactTypeShapeMatches(candidateType, otherType) {
+            return 0
+        }
+
+        candidateToOther := ArgumentFlowScore(otherType, candidateType, sourceTypeDefinitions) >= 0
+        otherToCandidate := ArgumentFlowScore(candidateType, otherType, sourceTypeDefinitions) >= 0
+        if candidateToOther && !otherToCandidate {
+            return 1
+        }
+        if otherToCandidate && !candidateToOther {
+            return -1
+        }
+        return 0
+    }
+
     static func ArgumentFlowScore(expectedType: Type, actualType: Type): int {
         return ArgumentFlowScore(expectedType, actualType, new List<ColumnarStructDef>())
     }
