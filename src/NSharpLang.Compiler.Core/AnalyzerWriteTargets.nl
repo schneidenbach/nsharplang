@@ -537,6 +537,12 @@ class AnalyzerWriteTargets {
             return
         }
 
+        if readonlyTarget.IsConst {
+            staticSpan := spansValue.GetAssignmentTargetNameDiagnosticSpan(target, line, column)
+            diagnosticsValue.Report(ErrorCode.ReadonlyAssignment, "Field '" + readonlyTarget.Name + "' is const — it can only be initialized at its declaration", staticSpan.Line, staticSpan.Column, "Move this value into the field initializer, or remove `const` if the field needs to change later.", staticSpan.Length)
+            return
+        }
+
         if readonlyTarget.IsStatic {
             staticSpan := spansValue.GetAssignmentTargetNameDiagnosticSpan(target, line, column)
             diagnosticsValue.Report(ErrorCode.ReadonlyAssignment, "Field '" + readonlyTarget.Name + "' is static readonly — it can only be initialized at its declaration", staticSpan.Line, staticSpan.Column, "Move this value into the field initializer, or remove `readonly` if the static field needs to change later.", staticSpan.Length)
@@ -577,6 +583,11 @@ class AnalyzerWriteTargets {
         }
 
         span := spansValue.GetAssignmentTargetNameDiagnosticSpan(target, target.Line, target.Column)
+        if readonlyTarget.IsConst {
+            diagnosticsValue.Report(ErrorCode.ReadonlyAssignment, "Field '" + readonlyTarget.Name + "' is const — it can't be used as a " + modifier + " argument", span.Line, span.Column, "Const fields cannot be passed by reference; use a mutable local instead.", span.Length)
+            return true
+        }
+
         fieldKind := "readonly"
         suggestion := "Assign readonly fields inside a constructor, or remove `readonly` if this field must be passed by reference."
         if readonlyTarget.IsStatic {
@@ -611,6 +622,11 @@ class AnalyzerWriteTargets {
         }
 
         span := spansValue.GetAssignmentTargetNameDiagnosticSpan(unary.Operand, unary.Line, unary.Column)
+        if readonlyTarget.IsConst {
+            diagnosticsValue.Report(ErrorCode.ReadonlyAssignment, "Field '" + readonlyTarget.Name + "' is const — it can't be changed with '" + opText + "'", span.Line, span.Column, "Const fields cannot be changed; use a mutable local instead.", span.Length)
+            return true
+        }
+
         fieldKind := "readonly"
         suggestion := "Move this mutation into a constructor assignment, or remove `readonly` if the field needs to change later."
         if readonlyTarget.IsStatic {
@@ -694,8 +710,10 @@ class AnalyzerWriteTargets {
                     return false
                 }
 
-                isStatic := HasModifier(field.Modifiers, Modifiers.Static) || HasModifier(field.Modifiers, Modifiers.Const)
+                isConst := HasModifier(field.Modifiers, Modifiers.Const)
+                isStatic := HasModifier(field.Modifiers, Modifiers.Static) || isConst
                 readonlyTarget = new ReadonlyFieldTarget(field.Name, isStatic, !isStatic)
+                readonlyTarget.IsConst = isConst
                 return true
             }
 
@@ -742,11 +760,13 @@ class AnalyzerWriteTargets {
         }
 
         fieldName := ""
-        if !TryFindReadonlyStaticField(ownerType, target.MemberName, out fieldName) {
+        isConst := false
+        if !TryFindReadonlyStaticField(ownerType, target.MemberName, out fieldName, out isConst) {
             return false
         }
 
         readonlyTarget = new ReadonlyFieldTarget(fieldName, true, false)
+        readonlyTarget.IsConst = isConst
         return true
     }
 
@@ -807,11 +827,19 @@ class AnalyzerWriteTargets {
         return TryFindReadonlyReflectionInstanceField(reflectedType, fieldName, out resolvedFieldName)
     }
 
-    func TryFindReadonlyStaticField(owner: TypeInfo, fieldName: string, out resolvedFieldName: string): bool {
+    func TryFindReadonlyStaticField(owner: TypeInfo, fieldName: string, out resolvedFieldName: string, out isConst: bool): bool {
         resolvedFieldName = ""
+        isConst = false
         resolvedOwner := declarationContextValue.ResolveDeclaredAlias(owner)
         sourceMemberClaimed := false
         if declarationContextValue.TryFindReadonlyField(resolvedOwner, fieldName, true, out resolvedFieldName, out sourceMemberClaimed) {
+            selection := new AnalyzerMemberSelection()
+            if declarationContextValue.TryFindMember(resolvedOwner, fieldName, out selection) {
+                member := selection.Member
+                if member != null {
+                    isConst = (member.DeclaredModifiers & Convert.ToInt32(Modifiers.Const)) == Convert.ToInt32(Modifiers.Const)
+                }
+            }
             return true
         }
 
@@ -829,7 +857,7 @@ class AnalyzerWriteTargets {
             return false
         }
 
-        return TryFindReadonlyReflectionStaticField(reflectedType, fieldName, out resolvedFieldName)
+        return TryFindReadonlyReflectionStaticField(reflectedType, fieldName, out resolvedFieldName, out isConst)
     }
 
     // PUBLISHED alongside its instance sibling. The first declaration that claims the name decides.
@@ -863,8 +891,9 @@ class AnalyzerWriteTargets {
 
     // A STATIC READONLY FIELD OR A CONSTANT. `const` is `IsLiteral` rather than `IsInitOnly` and is
     // just as unwritable, which is why both admit here where the instance rule admits only the first.
-    static func TryFindReadonlyReflectionStaticField(reflectedType: Type, fieldName: string, out resolvedFieldName: string): bool {
+    static func TryFindReadonlyReflectionStaticField(reflectedType: Type, fieldName: string, out resolvedFieldName: string, out isConst: bool): bool {
         resolvedFieldName = ""
+        isConst = false
         flags := BindingFlags.Public | BindingFlags.Static | BindingFlags.DeclaredOnly
         current: Type? = reflectedType
         while current != null {
@@ -877,6 +906,7 @@ class AnalyzerWriteTargets {
                     }
 
                     resolvedFieldName = field.get_Name()
+                    isConst = field.get_IsLiteral()
                     return true
                 }
             }

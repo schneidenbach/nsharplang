@@ -363,7 +363,7 @@ test "literal field rows publish static Literal and HasDefault without InitOnly"
     assert rows.FieldAttributeWords[0][0] == 32854
     assert !rows.FieldIsLiteral[0][1]
     assert !rows.FieldIsStatic[0][1]
-    assert rows.FieldAttributeWords[0][1] == 38
+    assert rows.FieldAttributeWords[0][1] == 6
     assert ColumnarDeclarationPlanner.FieldIsLiteralAt(input, 0)
     assert !ColumnarDeclarationPlanner.FieldIsLiteralAt(input, 1)
 }

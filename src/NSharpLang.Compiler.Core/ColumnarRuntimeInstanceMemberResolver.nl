@@ -26,6 +26,7 @@ class ColumnarRuntimeInstanceMemberSelection {
     Field: FieldInfo?
     Getter: MethodInfo?
     ReceiverIsReference: bool
+    PreserveDirectValueStorage: bool
 
     constructor(isField: bool, declaringType: Type, resultType: Type, field: FieldInfo?, getter: MethodInfo?, receiverIsReference: bool) {
         IsField = isField
@@ -34,6 +35,7 @@ class ColumnarRuntimeInstanceMemberSelection {
         Field = field
         Getter = getter
         ReceiverIsReference = receiverIsReference
+        PreserveDirectValueStorage = false
     }
 
     static func Empty(): ColumnarRuntimeInstanceMemberSelection {
@@ -384,6 +386,7 @@ class ColumnarRuntimeInstanceMemberResolver {
             fieldType := field.get_FieldType()
             if field.get_IsPublic() && !field.get_IsStatic() && !field.get_IsLiteral() && declaringType != null && ReceiverMatchesDeclaringType(receiverType, declaringType) && ColumnarTypeOfPlanner.IsSupportedType(fieldType) {
                 selection = new ColumnarRuntimeInstanceMemberSelection(true, declaringType, fieldType, field, null, !receiverType.get_IsValueType())
+                selection.PreserveDirectValueStorage = true
                 return true
             }
         }
@@ -396,6 +399,7 @@ class ColumnarRuntimeInstanceMemberResolver {
         }
 
         selection = new ColumnarRuntimeInstanceMemberSelection(false, declaringType, resultType, null, getter, !receiverType.get_IsValueType())
+        selection.PreserveDirectValueStorage = true
         return true
     }
 

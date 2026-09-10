@@ -40,6 +40,7 @@ import NSharpLang.Compiler.Ast
 // (which reflects as `initonly`), a MUTABLE instance field, and a PROPERTY, whose whole job here is to
 // CLAIM its name and stop the walk.
 class WriteTargetReadonlyProbe {
+    public const Imported: int = 7
     readonly Total: int
     Mutable: int
     Named: int => 0
@@ -413,6 +414,33 @@ test "a static readonly field can only be initialized at its declaration, in or 
     harness.Targets.ReportReadonlyFieldAssignmentIfNeeded(WriteTargetName("total"), 3, 5, null)
     assert harness.Errors.Count == 2
     assert harness.Errors[1].Message == "Field 'total' is static readonly — it can only be initialized at its declaration"
+}
+
+test "a source const field reports const guidance for assignment and ref/out" {
+    harness := WriteTargetHarnessOf()
+    WriteTargetEnterClass(harness, WriteTargetClassWith("Widget", "limit", Modifiers.Const))
+
+    harness.Targets.ReportReadonlyFieldAssignmentIfNeeded(WriteTargetName("limit"), 3, 5, null)
+    assert harness.Errors[0].Message == "Field 'limit' is const — it can only be initialized at its declaration"
+    assert harness.Errors[0].Suggestion == "Move this value into the field initializer, or remove `const` if the field needs to change later."
+
+    assert harness.Targets.ReportReadonlyFieldRefOutArgumentIfNeeded(WriteTargetName("limit"), "ref", null)
+    assert harness.Errors[1].Message == "Field 'limit' is const — it can't be used as a ref argument"
+    assert harness.Errors[1].Suggestion == "Const fields cannot be passed by reference; use a mutable local instead."
+}
+
+test "an imported CLR literal field reports const guidance for assignment and ref/out" {
+    harness := WriteTargetHarnessOf()
+    receiver := WriteTargetName("WriteTargetReadonlyProbe")
+    types := WriteTargetTypes()
+    types[receiver] = new ReflectionTypeInfo(typeof(WriteTargetReadonlyProbe))
+    target := WriteTargetMember(receiver, "Imported", false)
+
+    harness.Targets.ReportReadonlyFieldAssignmentIfNeeded(target, 3, 5, types)
+    assert harness.Errors[0].Message == "Field 'Imported' is const — it can only be initialized at its declaration"
+
+    assert harness.Targets.ReportReadonlyFieldRefOutArgumentIfNeeded(target, "out", types)
+    assert harness.Errors[1].Message == "Field 'Imported' is const — it can't be used as a out argument"
 }
 
 test "an instance readonly field is exempt ONLY inside a constructor AND only on the current instance" {
