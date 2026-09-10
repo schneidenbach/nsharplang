@@ -67,8 +67,20 @@ class ColumnarParameterDefaultEmitter {
         modifierKinds: int[],
         defaultKinds: int[],
         defaultTexts: string?[],
+        enumRegistry: ColumnarSemanticRegistry<ColumnarEnumDef>
+    ): bool {
+        return DefineConstructorParameterMetadataWithTupleNames(constructorBuilder, parameterTypes, names, modifierKinds, defaultKinds, defaultTexts, enumRegistry, null)
+    }
+
+    static func DefineConstructorParameterMetadataWithTupleNames(
+        constructorBuilder: ConstructorBuilder,
+        parameterTypes: Type[],
+        names: string[],
+        modifierKinds: int[],
+        defaultKinds: int[],
+        defaultTexts: string?[],
         enumRegistry: ColumnarSemanticRegistry<ColumnarEnumDef>,
-        labeledCanonicals: string[]? = null
+        labeledCanonicals: string[]?
     ): bool {
         index := 0
         while index < names.Length {

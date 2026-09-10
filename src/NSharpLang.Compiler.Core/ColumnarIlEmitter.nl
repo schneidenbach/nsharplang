@@ -13396,7 +13396,11 @@ sealed class ColumnarIlEmitter {
                 return returnNames
             }
             if (_nodes.Kind(callee) == 8 && _nodes.ChildCount(callee) >= 1) {
-                return TupleNamesOfDeclaredMethodCall(node, callee)
+                declaredNames := TupleNamesOfDeclaredMethodCall(node, callee)
+                if (declaredNames != null) {
+                    return declaredNames
+                }
+                return TupleNamesOfExternalMethodCall(node, callee)
             }
             return null
         }
@@ -13444,6 +13448,62 @@ sealed class ColumnarIlEmitter {
             return null
         }
         return instanceMethod.ReturnTupleElementNames
+    }
+
+    // The element names of a named tuple returned by a method from a REFERENCED assembly. A named
+    // tuple has no CLR identity, so a C# `(int Min, int Max)` return is `ValueTuple<int, int>` plus a
+    // `TupleElementNamesAttribute` on the return position -- and without reading that attribute
+    // `SimdReductions.MinMaxInt32(...).Min` had no names at the emit boundary even after the analyser
+    // resolved it, exactly as a source method's named return had none before its own definitions
+    // carried them.
+    //
+    // THE MEMBER IS SELECTED BY ORDINARY SCOPED CLR RESOLUTION -- the same overload resolver every
+    // other runtime call goes through, over the same preflighted argument types -- so there is no
+    // per-API table and no second resolution rule. Whichever member would answer the call is the
+    // member whose metadata is read; an unresolvable call simply has no names, which is the answer it
+    // had before.
+    private func TupleNamesOfExternalMethodCall(callNode: int, callee: int): string[]? {
+        member := ColumnarNodeTextFacts.Text(_nodes, _source, callee)
+        if (member == "") {
+            return null
+        }
+        argumentCount := _nodes.ChildCount(callNode) - 1
+        argumentTypes := new Type[argumentCount]
+        for i := 0; i < argumentCount; i++ {
+            let argumentType: System.Type? = null
+            if (!TryGetPreflightExpressionType(Child(callNode, i + 1), out argumentType) || argumentType == null) {
+                return null
+            }
+            argumentTypes[i] = argumentType
+        }
+        receiver := UnwrapParenthesizedNode(Child(callee, 0))
+
+        // A STATIC call into a referenced assembly: the receiver spells the owning type rather than a
+        // value, and no source declaration answers it (those are handled by the declared-method arm).
+        if (_nodes.Kind(receiver) == 6 && _nodes.ValueStart(receiver) >= 0) {
+            receiverText := ColumnarNodeTextFacts.Text(_nodes, _source, receiver)
+            if (!_locals.ContainsKey(receiverText) && !_paramOrdinals.ContainsKey(receiverText) && !_liftedLocals.ContainsKey(receiverText)) {
+                let staticOwnerType: System.Type? = null
+                if (TryResolveBodyType(receiverText, out staticOwnerType) && staticOwnerType != null && !(staticOwnerType is TypeBuilder)) {
+                    staticSelection := ColumnarOrdinaryRuntimeDirectCallResolver.Resolve(staticOwnerType, member, argumentTypes, true)
+                    if (staticSelection.IsSelected && staticSelection.Method != null) {
+                        return ColumnarTupleElementNameEmitter.TopLevelReturnNames(staticSelection.Method)
+                    }
+                    return null
+                }
+            }
+        }
+
+        // An INSTANCE call on a value whose type comes from a referenced assembly.
+        let receiverType: System.Type? = null
+        if (!TryGetPreflightExpressionType(receiver, out receiverType) || receiverType == null || receiverType is TypeBuilder) {
+            return null
+        }
+        instanceSelection := ColumnarOrdinaryRuntimeDirectCallResolver.Resolve(receiverType, member, argumentTypes, false)
+        if (instanceSelection.IsSelected && instanceSelection.Method != null) {
+            return ColumnarTupleElementNameEmitter.TopLevelReturnNames(instanceSelection.Method)
+        }
+        return null
     }
 
     private func TryEmitStringCharConcat(leftType: Type, rightType: Type, out resolvedClrType: Type): bool {

@@ -3,6 +3,7 @@ namespace NSharpLang.Compiler.Columnar
 import System
 import System.Reflection
 import System.Reflection.Emit
+import NSharpLang.Compiler
 
 
 // WRITING `TupleElementNamesAttribute` ONTO THE POSITIONS THAT MENTION A NAMED TUPLE.
@@ -94,6 +95,70 @@ class ColumnarTupleElementNameEmitter {
         }
 
         property.SetCustomAttribute(constructor, ColumnarTupleElementNames.Blob(names))
+    }
+
+    // THE READING DIRECTION, FOR THE EMITTER. The element names an EXTERNAL method's return position
+    // declares, trimmed to the tuple's own arity -- which is what a body needs to rewrite `r.Min` into
+    // `r.Item1`. The attribute's array is the FLATTENED walk, and its first `arity` entries are always
+    // the top-level tuple's own names, so the trim is a prefix rather than a search. Null when the
+    // return is not a tuple, or carries no attribute, or names nothing.
+    static func TopLevelReturnNames(method: MethodInfo): string[]? {
+        arity := ValueTupleArity(method.get_ReturnType())
+        if arity <= 0 {
+            return null
+        }
+
+        flattened := AnalyzerTupleElementNames.Read(method.get_ReturnParameter().GetCustomAttributesData())
+        if flattened == null {
+            return null
+        }
+
+        names := new string[](arity)
+        named := false
+        index := 0
+        while index < arity {
+            declared: string? = null
+            if index < flattened.Length {
+                declared = flattened[index]
+            }
+
+            names[index] = declared ?? ""
+            if names[index].Length > 0 {
+                named = true
+            }
+
+            index = index + 1
+        }
+
+        if !named {
+            return null
+        }
+
+        return names
+    }
+
+    // The number of elements a `ValueTuple` carries, following the REST nesting a tuple of more than
+    // seven elements uses. Zero for anything that is not a tuple.
+    static func ValueTupleArity(clrType: Type?): int {
+        if clrType == null || !clrType.get_IsGenericType() {
+            return 0
+        }
+
+        definition := clrType.GetGenericTypeDefinition()
+        fullName := definition.FullName
+        if fullName == null || !fullName.StartsWith("System.ValueTuple`", StringComparison.Ordinal) {
+            return 0
+        }
+
+        arguments := clrType.GetGenericArguments()
+        if arguments.Length == 8 {
+            rest := ValueTupleArity(arguments[7])
+            if rest > 0 {
+                return 7 + rest
+            }
+        }
+
+        return arguments.Length
     }
 
     // The labelled canonical of one position, flattened, or null when the position names nothing and
