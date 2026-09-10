@@ -607,8 +607,113 @@ func Shorter(value: int, values: int[]): bool {
 }
 ```
 
-Static members of your OWN generic types are not supported yet — declaring one reports
-`NL323` — so this section is about generic types from .NET and from libraries you reference.
+The same spelling reaches your own generic types; the next section is about declaring their static
+members.
+
+### Static members of your own generic types
+
+A generic type carries static fields, properties, methods, operators and conversion operators, and
+the declaration is written once with the type's own parameters in scope. The CLR gives **every
+constructed type its own static storage**: `PerTypeState<int>` and `PerTypeState<string>` are two
+different counters behind one declaration.
+
+```n#
+class PerTypeState<T> {
+    static Count: int
+
+    static Current: int => Count
+
+    static func Increment(): int {
+        Count = Count + 1
+        return Count
+    }
+}
+
+func main() {
+    print PerTypeState<int>.Increment()      // 1
+    print PerTypeState<int>.Increment()      // 2
+    print PerTypeState<string>.Increment()   // 1 — its own slot
+    print PerTypeState<int>.Count            // 2
+}
+```
+
+A static method may name the type's parameters in its signature and call the type's own
+constructor — including a private one, which is how a factory-only type is written:
+
+```n#
+struct Box<T> {
+    Value: T
+
+    private constructor(value: T) {
+        Value = value
+    }
+
+    static func Create(value: T): Box<T> {
+        return new Box<T>(value)
+    }
+
+    static func unwrap(source: Box<T>): T {
+        return source.Value
+    }
+
+    func Copy(): Box<T> {
+        return Create(unwrap(this))
+    }
+}
+
+func main() {
+    print Box<int>.Create(42).Value      // 42
+    print Box<string>.Create("hi").Value // hi
+}
+```
+
+Inside the type, a static member is named without a qualifier from any body the type owns — a static
+one, as `Count = Count + 1` above, or an instance one, as `Create(unwrap(...))` here. Both resolve
+against the **current instantiation**, so `Box<int>.Copy` calls `Box<int>.Create`.
+
+Operators and conversion operators are static members too, so they follow the same rule. A
+conversion operator declared on a generic type is the one that can only be written on the type being
+converted **to** — the other end is whatever the instantiation supplies, and `int` declares nothing
+about `Wrap`:
+
+```n#
+struct Wrap<T> {
+    Value: T
+
+    constructor(value: T) {
+        Value = value
+    }
+
+    implicit operator Wrap<T>(value: T) => new Wrap<T>(value)
+
+    explicit operator T(wrapped: Wrap<T>) => wrapped.Value
+}
+
+struct Tagged<T> {
+    Tag: int
+
+    constructor(tag: int) {
+        Tag = tag
+    }
+
+    static func operator ==(left: Tagged<T>, right: Tagged<T>): bool => left.Tag == right.Tag
+    static func operator !=(left: Tagged<T>, right: Tagged<T>): bool => left.Tag != right.Tag
+}
+
+func main() {
+    wrapped: Wrap<int> = 5           // implicit — no cast
+    print wrapped.Value              // 5
+    print (int)wrapped               // 5 — explicit, cast required
+    print new Tagged<int>(1) == new Tagged<int>(1)   // true
+}
+```
+
+A member the constructed type does not have is reported under the name you wrote:
+`Box<int>.Missing(42)` is `NL303` naming `Box<int>`, and a wrong argument type names the
+**substituted** parameter type — `Box<int>.Create("text")` says the parameter is `int`, not `T`.
+
+Generic **methods** on a type — `static func Of<U>(value: U)` — are not compiled yet. Write the
+type parameter on the type, or use a generic free function.
 
 ### A name and a type-parameter count together are one type
 
@@ -734,6 +839,11 @@ func main() {
     print $"{f.Value}°F  {k.Value}K"   // 212°F  373.15K
 }
 ```
+
+A conversion operator is found on **either end** of the conversion — the type converted from or the
+type converted to — which is what lets a wrapper declare its own inbound conversion. See
+[static members of your own generic types](#static-members-of-your-own-generic-types) for the
+generic form, `implicit operator Wrap<T>(value: T)`.
 
 ## Type Aliases
 

@@ -13451,10 +13451,6 @@ func ParseColumnarStructInfoCore(source: string, tokens: ColumnarStructTokenTabl
     i := 0
     if typeParamCount > 0 {
         while i < fieldCount {
-            if ColumnarStructFieldFlagIsStatic(outputs.FieldStaticFlags[i]) {
-                return -1
-            }
-
             if ColumnarStructNameMatchesTypeParam(source, scratch, typeParamCount, scratch.FieldNameStarts[i], scratch.FieldNameLengths[i]) {
                 return -1
             }
@@ -13464,10 +13460,6 @@ func ParseColumnarStructInfoCore(source: string, tokens: ColumnarStructTokenTabl
 
         i = 0
         while i < methodCount {
-            if ColumnarStructMethodFlagIsStatic(outputs.MethodStaticFlags[i]) {
-                return -1
-            }
-
             methodName := ColumnarStructMethodMemberNameText(source, tokens, outputs.MethodFuncIndices[i])
             if methodName == "" {
                 return -1
@@ -13482,10 +13474,6 @@ func ParseColumnarStructInfoCore(source: string, tokens: ColumnarStructTokenTabl
 
         i = 0
         while i < propCount {
-            if ColumnarStructPropertyFlagIsStatic(outputs.PropStaticFlags[i]) {
-                return -1
-            }
-
             propNameIndex := outputs.PropIndices[i]
             if propNameIndex < 0 || propNameIndex >= tokens.Count || tokens.Kinds[propNameIndex] != 0 {
                 return -1

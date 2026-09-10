@@ -88,12 +88,15 @@ class ColumnarRuntimeGenericMethodResolver {
         while index < declared.Length {
             candidate := declared[index]
             if IsInferableCandidate(candidate, lookupType, memberName, argumentTypes.Length, expectedStatic) {
-                closed := TryCloseCandidate(candidate, argumentTypes)
-                if closed != null {
-                    closedParameters := ClosedParameterTypesOrNull(closed)
-                    if closedParameters != null {
-                        candidates.Add(closed)
-                        candidateParameters.Add(closedParameters)
+                inferred := InferTypeArgumentsOrNull(candidate, argumentTypes)
+                if inferred != null {
+                    closed := CloseOrNull(candidate, inferred)
+                    if closed != null {
+                        closedParameters := ClosedParameterTypesOrNull(candidate, inferred)
+                        if closedParameters != null {
+                            candidates.Add(closed)
+                            candidateParameters.Add(closedParameters)
+                        }
                     }
                 }
             }
@@ -161,9 +164,9 @@ class ColumnarRuntimeGenericMethodResolver {
         }
     }
 
-    // The candidate closed over the type arguments its parameters infer, or null when a type parameter
-    // stays unbound, two positions disagree, or the constraints refuse the instantiation.
-    static func TryCloseCandidate(candidate: MethodInfo, argumentTypes: Type[]): MethodInfo? {
+    // The type arguments the candidate's parameters infer, or null when a type parameter stays
+    // unbound or two positions disagree.
+    static func InferTypeArgumentsOrNull(candidate: MethodInfo, argumentTypes: Type[]): Type[]? {
         genericParameters := candidate.GetGenericArguments()
         bindings := new Dictionary<int, Type>()
         parameters := candidate.GetParameters()
@@ -186,6 +189,14 @@ class ColumnarRuntimeGenericMethodResolver {
             position = position + 1
         }
 
+        return typeArguments
+    }
+
+    // The candidate closed over those arguments, or null when the declared constraints refuse the
+    // instantiation. Closing over a SOURCE TYPE PARAMETER is a supported Reflection.Emit shape: the
+    // answer is a `MethodBuilderInstantiation`, which `call` encodes as a MethodSpec over that
+    // parameter and the CLR resolves once per constructed type.
+    static func CloseOrNull(candidate: MethodInfo, typeArguments: Type[]): MethodInfo? {
         try {
             return candidate.MakeGenericMethod(typeArguments)
         } catch ex: ArgumentException {
@@ -329,11 +340,14 @@ class ColumnarRuntimeGenericMethodResolver {
         return element
     }
 
-    // A type argument the CLR cannot close a method over. `void` and a still-open shape are the two
-    // that reach here; a builder-bound argument would produce a handle the emitter cannot call.
+    // A type argument the CLR cannot close a method over. `void`, a by-ref or pointer shape and a
+    // still-open one are what reach here.
     static func IsUnbindableInferredType(argumentType: Type): bool {
         if argumentType.FullName == "System.Void" || argumentType.get_IsByRef() || argumentType.get_IsPointer() {
             return true
+        }
+        if IsEmittedTypeParameter(argumentType) {
+            return false
         }
         if argumentType.get_ContainsGenericParameters() {
             return true
@@ -341,24 +355,121 @@ class ColumnarRuntimeGenericMethodResolver {
         return ColumnarRuntimeInstanceMemberResolver.ContainsBuilderBoundType(argumentType)
     }
 
-    static func ClosedParameterTypesOrNull(closed: MethodInfo): Type[]? {
-        parameters := closed.GetParameters()
+    // A TYPE PARAMETER OF THE DECLARATION BEING EMITTED — `TOk` inside `Result<TOk, TErr>`, or a
+    // generic function's own `T`. Reflection.Emit closes a runtime generic method over one, so
+    // `HashCode.Combine(state, ok)` inside a generic type is an ordinary MethodSpec rather than a
+    // shape with no handle. It is the ONLY open type admitted here: every other unresolved shape
+    // would produce a handle with no meaning at the call site.
+    static func IsEmittedTypeParameter(candidateType: Type): bool {
+        return candidateType != null && candidateType is GenericTypeParameterBuilder
+    }
+
+    // THE CLOSED SIGNATURE IS SUBSTITUTED, NOT READ BACK. For a runtime instantiation the two are the
+    // same answer, so nothing changes for the tier's existing shapes. For a
+    // `MethodBuilderInstantiation` they are not: its `GetParameters` reports the DEFINITION's own
+    // `T1, T2`, and scoring a call against those would compare each argument to an unrelated type
+    // parameter and select on noise.
+    static func ClosedParameterTypesOrNull(definition: MethodInfo, typeArguments: Type[]): Type[]? {
+        parameters := definition.GetParameters()
         result := new Type[](parameters.Length)
         index := 0
         while index < parameters.Length {
-            parameterType := parameters[index].get_ParameterType()
-            if parameterType == null || ColumnarOrdinaryRuntimeDirectCallResolver.IsUnsupportedSignatureType(parameterType) {
+            parameterType := SubstituteMethodTypeArguments(parameters[index].get_ParameterType(), typeArguments)
+            if parameterType == null || IsUnsupportedClosedSignatureType(parameterType) {
                 return null
             }
             result[index] = parameterType
             index = index + 1
         }
 
-        returnType := closed.get_ReturnType()
-        if returnType == null || returnType.get_IsByRef() || returnType.get_IsPointer() || returnType.get_ContainsGenericParameters() {
+        returnType := SubstituteMethodTypeArguments(definition.get_ReturnType(), typeArguments)
+        if returnType == null || returnType.get_IsByRef() || returnType.get_IsPointer() {
+            return null
+        }
+        // A return that is ITSELF a source type parameter is a value the emitter can hold; one that
+        // merely CONTAINS an open parameter (`List<T>`) is left to the tier that grows a call site.
+        if !IsEmittedTypeParameter(returnType) && returnType.get_ContainsGenericParameters() {
             return null
         }
         return result
+    }
+
+    // A source type parameter is a legal closed signature type — the CLR resolves it per
+    // instantiation. Everything else keeps the ordinary tier's answer.
+    static func IsUnsupportedClosedSignatureType(signatureType: Type): bool {
+        if IsEmittedTypeParameter(signatureType) {
+            return false
+        }
+        return ColumnarOrdinaryRuntimeDirectCallResolver.IsUnsupportedSignatureType(signatureType)
+    }
+
+    // The definition's signature rewritten under the inferred arguments. Only the METHOD's own type
+    // parameters are rewritten: a candidate is read off a CLOSED lookup type, so the declaring type's
+    // parameters are already substituted before this walk sees them.
+    static func SubstituteMethodTypeArguments(signatureType: Type?, typeArguments: Type[]): Type? {
+        if signatureType == null {
+            return null
+        }
+
+        if signatureType.get_IsGenericParameter() {
+            if signatureType.get_DeclaringMethod() == null {
+                return signatureType
+            }
+            position := signatureType.get_GenericParameterPosition()
+            if position < 0 || position >= typeArguments.Length {
+                return null
+            }
+            return typeArguments[position]
+        }
+
+        if !signatureType.get_ContainsGenericParameters() {
+            return signatureType
+        }
+
+        if signatureType.get_IsByRef() {
+            byRefElement := SubstituteMethodTypeArguments(signatureType.GetElementType(), typeArguments)
+            if byRefElement == null {
+                return null
+            }
+            return byRefElement.MakeByRefType()
+        }
+
+        if signatureType.get_IsArray() {
+            // A multi-dimensional array is left to the tier that grows a call site for one; its rank
+            // would have to be reconstructed, and no shape in the corpus asks for it.
+            if !signatureType.get_IsSZArray() {
+                return null
+            }
+            arrayElement := SubstituteMethodTypeArguments(signatureType.GetElementType(), typeArguments)
+            if arrayElement == null {
+                return null
+            }
+            return arrayElement.MakeArrayType()
+        }
+
+        if !signatureType.get_IsGenericType() {
+            return null
+        }
+
+        arguments := signatureType.GetGenericArguments()
+        substituted := new Type[](arguments.Length)
+        index := 0
+        while index < arguments.Length {
+            resolved := SubstituteMethodTypeArguments(arguments[index], typeArguments)
+            if resolved == null {
+                return null
+            }
+            substituted[index] = resolved
+            index = index + 1
+        }
+
+        try {
+            return signatureType.GetGenericTypeDefinition().MakeGenericType(substituted)
+        } catch ex: ArgumentException {
+            return null
+        } catch ex: NotSupportedException {
+            return null
+        }
     }
 
     static func Unselected(lookupType: Type, expectedStatic: bool): ColumnarOrdinaryRuntimeDirectCallSelection {

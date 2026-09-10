@@ -308,7 +308,10 @@ class ColumnarRuntimeOperatorResolver {
         if operandType == null {
             return false
         }
-        if operandType.get_IsEnum() {
+        // Asked through the guarded owner: a raw `get_IsEnum` routes through `IsSubclassOf`, and an
+        // operand that is a constructed EMITTED generic (`Tagged<int>` mid-emit, a
+        // `TypeBuilderInstantiation`) answers that with NotSupportedException rather than `false`.
+        if ColumnarTypeOfPlanner.IsEnumType(operandType) {
             return true
         }
         return ColumnarNumericFacts.IsIntPromotable(operandType) || operandType == typeof(long) || operandType == typeof(ulong) || operandType == typeof(uint) || operandType == typeof(double) || operandType == typeof(float) || operandType == typeof(bool) || operandType == typeof(string)

@@ -4,6 +4,7 @@ import System
 import System.Collections.Generic
 import System.Numerics
 import System.Reflection
+import System.Reflection.Emit
 
 // The runtime operator resolver's selection contract. `System.Numerics.Vector<T>` is the witness for
 // constructed external generics precisely because nothing in the resolver names it; `DateTime`,
@@ -117,4 +118,20 @@ test "runtime operator resolver leaves the predefined IL primitive surface alone
     assert !ColumnarRuntimeOperatorResolver.IsIlPrimitiveOperandType(typeof(DateTime))
     assert !ColumnarRuntimeOperatorResolver.IsIlPrimitiveOperandType(typeof(Vector<int>))
     assert !ColumnarRuntimeOperatorResolver.IsIlPrimitiveOperandType(typeof(object))
+}
+
+// THE OPERAND MAY BE A TYPE THAT IS STILL BEING EMITTED. `a == b` for a user-declared
+// `Tagged<int>` reaches this question with a `TypeBuilderInstantiation`, and that shape answers
+// `IsEnum` — which routes through `IsSubclassOf` — with `NotSupportedException` rather than `false`.
+// A predicate that throws mid-emit is not a decline, it is a crash that takes the whole run down, so
+// the enum question is asked through the guarded owner. It is the only reflection read here: every
+// other arm is reference equality against a `typeof`.
+test "runtime operator resolver answers the primitive question for a type that is still being emitted" {
+    openDefinition: Type = TypeOfCreateBuilder("RuntimeOperatorPrimitiveProbe`1", "ColumnarRuntimeOperatorTests.PrimitiveProbe", 1)
+    arguments := new Type[](1)
+    arguments[0] = typeof(int)
+    constructed := openDefinition.MakeGenericType(arguments)
+
+    assert !ColumnarRuntimeOperatorResolver.IsIlPrimitiveOperandType(constructed)
+    assert !ColumnarRuntimeOperatorResolver.IsIlPrimitiveOperandType(openDefinition)
 }

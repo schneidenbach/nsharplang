@@ -428,7 +428,6 @@ class AnalyzerTypeDeclarations {
     // `this` is declared last, which an INTERFACE never does — it has no instance to name.
     func AdvanceTypeHeader(state: TypeDeclarationState): TypeDeclarationRequest? {
         DeclareTypeParameters(state)
-        ValidateNoStaticMembersOnGenericType(state)
         ValidateReadonlyStructInstanceFields(state)
         ResolveDeclaredBases(state)
         ValidateNoInheritanceCycle(state)
@@ -1038,45 +1037,6 @@ class AnalyzerTypeDeclarations {
         return request
     }
 
-    // A GENERIC TYPE MAY NOT CARRY A STATIC MEMBER, and the rule is about the DECLARATION rather than
-    // about anything resolved, which is why it runs before the bases are. Three member shapes can
-    // break it — a field, a property and a method — and each is named by its own noun in the report.
-    // A non-generic type is not asked at all.
-    func ValidateNoStaticMembersOnGenericType(state: TypeDeclarationState) {
-        if state.Form == 3 {
-            return
-        }
-
-        typeParameters := TypeParameters(state)
-        if typeParameters == null || typeParameters.Count == 0 {
-            return
-        }
-
-        members := TypeMembers(state)
-        if members == null {
-            return
-        }
-
-        for member in members {
-            field := member as FieldDeclaration
-            if field != null && HasStaticModifier(field.Modifiers) {
-                ReportUnsupportedGenericStaticMember(state, typeParameters, "field", field.Name, field.Line, field.Column)
-                continue
-            }
-
-            property := member as PropertyDeclaration
-            if property != null && HasStaticModifier(property.Modifiers) {
-                ReportUnsupportedGenericStaticMember(state, typeParameters, "property", property.Name, property.Line, property.Column)
-                continue
-            }
-
-            function := member as FunctionDeclaration
-            if function != null && HasStaticModifier(function.Modifiers) {
-                ReportUnsupportedGenericStaticMember(state, typeParameters, "method", function.Name, function.Line, function.Column)
-            }
-        }
-    }
-
     // `readonly struct S` PROMISES THAT NO INSTANCE STATE CHANGES AFTER CONSTRUCTION, and the promise is
     // only worth anything if it is CHECKED. `IsReadOnlyAttribute` goes on the emitted type, and every
     // consumer that reads it — C#, F#, the CLR's own `in`-parameter rules — stops making the defensive
@@ -1188,26 +1148,6 @@ class AnalyzerTypeDeclarations {
         }
 
         return "struct"
-    }
-
-    func ReportUnsupportedGenericStaticMember(state: TypeDeclarationState, typeParameters: List<TypeParameter>, memberKind: string, memberName: string, line: int, column: int) {
-        typeDisplay := TypeName(state) + "<" + TypeParameterList(typeParameters) + ">"
-        diagnosticsValue.Report(ErrorCode.FeatureNotImplemented, "Static " + memberKind + " '" + memberName + "' is not supported on generic type '" + typeDisplay + "' yet", line, column, "Move the static member to a non-generic helper type, or make it an instance member.", Math.Max(1, memberName.Length))
-    }
-
-    static func TypeParameterList(typeParameters: List<TypeParameter>): string {
-        rendered := ""
-        index := 0
-        while index < typeParameters.Count {
-            if index > 0 {
-                rendered = rendered + ", "
-            }
-
-            rendered = rendered + typeParameters[index].Name
-            index = index + 1
-        }
-
-        return rendered
     }
 
     // AN `override` MUST HAVE A SLOT TO TAKE, AND THE SLOT MUST BE OPEN.
@@ -2819,10 +2759,6 @@ class AnalyzerTypeDeclarations {
     // contract so the two cannot drift silently.
     static func IsNumericValueType(candidate: TypeInfo): bool {
         return BuiltInTypes.Is(candidate, BuiltInTypes.Int) || BuiltInTypes.Is(candidate, BuiltInTypes.Long) || BuiltInTypes.Is(candidate, BuiltInTypes.Float) || BuiltInTypes.Is(candidate, BuiltInTypes.Double) || BuiltInTypes.Is(candidate, BuiltInTypes.Decimal) || BuiltInTypes.Is(candidate, BuiltInTypes.Byte) || BuiltInTypes.Is(candidate, BuiltInTypes.SByte) || BuiltInTypes.Is(candidate, BuiltInTypes.Short) || BuiltInTypes.Is(candidate, BuiltInTypes.UShort) || BuiltInTypes.Is(candidate, BuiltInTypes.UInt) || BuiltInTypes.Is(candidate, BuiltInTypes.ULong) || BuiltInTypes.Is(candidate, BuiltInTypes.Char)
-    }
-
-    static func HasStaticModifier(modifiers: Modifiers): bool {
-        return (Convert.ToInt32(modifiers) & Convert.ToInt32(Modifiers.Static)) != 0
     }
 
     // A TYPE'S DISPLAY TEXT, THROUGH `object`. A `ToString()` on the TYPED receiver declines columnar

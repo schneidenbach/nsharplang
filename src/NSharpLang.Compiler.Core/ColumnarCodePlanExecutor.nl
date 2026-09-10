@@ -1328,7 +1328,14 @@ class ColumnarCodePlanExecutor {
         if valueType.get_IsByRef() {
             throw new InvalidOperationException(schemaName + " " + role + " types cannot be null, void, or by-reference.")
         }
-        if valueType.get_IsGenericTypeDefinition() {
+        // A BAKED generic type definition — `typeof(ValueTuple<,>)` — names no value and no storage, so
+        // a plan carrying one is a plan that lost its type arguments. A `TypeBuilder` one is the
+        // opposite: inside the body of `G<T>` the CURRENT INSTANTIATION *is* the open builder, which
+        // is how Reflection.Emit spells `this`, `G<T>` return types and calls to the type's own
+        // members from its own code (the token it writes is a def, which the CLR reads as the
+        // enclosing instantiation). Refusing that shape refused every bare call inside a generic
+        // type's own body.
+        if valueType.get_IsGenericTypeDefinition() && !(valueType is TypeBuilder) {
             throw new InvalidOperationException(schemaName + " " + role + " types cannot be generic type definitions.")
         }
     }
