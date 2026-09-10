@@ -446,3 +446,75 @@ test "override targets skip unbaked builders and catch a closed builder member-r
     }
     OverrideResolverAssertMissing(closed, "NoSuchUnbakedBuilderTarget", typeof(string), noParameters)
 }
+
+// ---- the SOURCE-base override lookup -----------------------------------------------------------
+//
+// `ColumnarBaseMethodMatch` reads a base chain through Reflection, which a base being emitted in the
+// SAME assembly cannot answer: its `TypeBuilder` is unbaked and declares nothing. These pin the
+// second door — the source base's own declaration table — and above all its type-identity rule,
+// which must never fall back to comparing NAMES of builder-bound types.
+
+func SourceBaseMatchWithoutBase(name: string, returnType: Type, parameterTypes: Type[]): ColumnarSourceBaseMethodMatch {
+    noBase: ColumnarStructDef? = null
+    return new ColumnarSourceBaseMethodMatch(noBase, name, returnType, parameterTypes)
+}
+
+test "a source-base match with nothing to walk does not match and finds no name" {
+    probe := SourceBaseMatchWithoutBase("Area", typeof(int), OverrideResolverNoParameters())
+    assert !probe.Matched
+    assert !probe.FoundName
+    assert probe.Target == null
+    assert probe.Owner == null
+}
+
+test "a source-base match refuses to hand out a target it never found" {
+    probe := SourceBaseMatchWithoutBase("Area", typeof(int), OverrideResolverNoParameters())
+    threw := false
+    try {
+        probe.RequiredTarget()
+    } catch ex: InvalidOperationException {
+        threw = true
+    }
+    assert threw
+}
+
+test "a source-base match for an empty member name stays unmatched" {
+    assert !SourceBaseMatchWithoutBase("", typeof(int), OverrideResolverNoParameters()).Matched
+}
+
+test "two complete external identities compare by identity, not by builder rules" {
+    // Neither side is builder-bound, so the comparison is the same assembly-qualified rule the
+    // runtime chain uses and an ordinary signature still matches.
+    assert ColumnarSourceBaseMethodMatch.SameSourceTypeIdentity(typeof(int), typeof(int))
+    assert ColumnarSourceBaseMethodMatch.SameSourceTypeIdentity(typeof(string), typeof(string))
+    assert !ColumnarSourceBaseMethodMatch.SameSourceTypeIdentity(typeof(int), typeof(long))
+    assert !ColumnarSourceBaseMethodMatch.SameSourceTypeIdentity(null, typeof(int))
+    assert !ColumnarSourceBaseMethodMatch.SameSourceTypeIdentity(typeof(int), null)
+}
+
+test "a type parameter is the same type only when it is the same object" {
+    // A BUILDER HAS NO STABLE ASSEMBLY-QUALIFIED NAME. Two distinct type parameters both spelled `T`
+    // would compare equal under any name rule, silently letting an unrelated member be overridden.
+    listParameter := typeof(System.Collections.Generic.List<int>).GetGenericTypeDefinition().GetGenericArguments()[0]
+    otherParameter := typeof(System.Collections.Generic.IEnumerable<int>).GetGenericTypeDefinition().GetGenericArguments()[0]
+    assert listParameter.get_IsGenericParameter()
+    assert ColumnarSourceBaseMethodMatch.IsBuilderBound(listParameter)
+    assert ColumnarSourceBaseMethodMatch.SameSourceTypeIdentity(listParameter, listParameter)
+    assert !ColumnarSourceBaseMethodMatch.SameSourceTypeIdentity(listParameter, otherParameter)
+}
+
+test "builder-boundness reaches through arrays, by-refs and generic arguments" {
+    listParameter := typeof(System.Collections.Generic.List<int>).GetGenericTypeDefinition().GetGenericArguments()[0]
+    assert ColumnarSourceBaseMethodMatch.IsBuilderBound(listParameter.MakeArrayType())
+    assert ColumnarSourceBaseMethodMatch.IsBuilderBound(listParameter.MakeByRefType())
+
+    // A fully external shape is not builder-bound however deeply it nests.
+    assert !ColumnarSourceBaseMethodMatch.IsBuilderBound(typeof(int))
+    assert !ColumnarSourceBaseMethodMatch.IsBuilderBound(typeof(int[]))
+    assert !ColumnarSourceBaseMethodMatch.IsBuilderBound(typeof(System.Collections.Generic.List<int>))
+    assert !ColumnarSourceBaseMethodMatch.IsBuilderBound(typeof(System.Collections.Generic.Dictionary<string, System.Collections.Generic.List<int>>))
+
+    // An OPEN generic definition is not itself builder-bound: it is a complete external identity that
+    // simply has parameters, and comparing two of them by name is correct.
+    assert !ColumnarSourceBaseMethodMatch.IsBuilderBound(typeof(System.Collections.Generic.List<int>).GetGenericTypeDefinition())
+}

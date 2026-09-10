@@ -571,6 +571,7 @@ sealed class ColumnarProgramInputBuilder {
                 funcAsyncFlags[fi] == 1,
                 false,
                 modifierFlags,
+                false,
                 false
             ) {
                 return DeclineAtToken(ColumnarParseDeclines.FunctionDeclaration, cs, cv, funcIndices[fi], "")
@@ -762,7 +763,8 @@ sealed class ColumnarProgramInputBuilder {
                     ColumnarStructMethodFlagIsAsync(methodModifierFlags),
                     false,
                     methodModifierFlags,
-                    ColumnarFunctionInput.HasNativeImportModifier(methodModifierFlags)
+                    ColumnarFunctionInput.HasNativeImportModifier(methodModifierFlags),
+                    ColumnarStructMethodFlagIsAbstract(methodModifierFlags) && !ColumnarStructMethodFlagIsStatic(methodModifierFlags)
                 ) {
                     return DeclineAtToken(
                         ColumnarParseDeclines.StructMethod,
@@ -960,9 +962,13 @@ sealed class ColumnarProgramInputBuilder {
         return true
     }
 
-    private static func TryParseColumnarFunctionAt(ck: int[], cs: int[], cv: int[], n: int, funcIndex: int, source: string, out input: ColumnarFunctionInput, isStatic: bool = false, isAsync: bool = false, isLocalFunction: bool = false, modifierFlags: int = 0, isBodylessNativeImport: bool = false): bool {
+    private static func TryParseColumnarFunctionAt(ck: int[], cs: int[], cv: int[], n: int, funcIndex: int, source: string, out input: ColumnarFunctionInput, isStatic: bool = false, isAsync: bool = false, isLocalFunction: bool = false, modifierFlags: int = 0, isBodylessNativeImport: bool = false, isBodylessAbstract: bool = false): bool {
         input = null
         cap := n + 1
+        // The two bodyless member shapes read the SAME way: parse the signature, and never look for
+        // a body. They differ only in what the emitter does afterwards — a P/Invoke stub or an
+        // abstract slot — so the parse decision is one word.
+        signatureOnly := isBodylessNativeImport || isBodylessAbstract
 
         functionNameTexts := new string[](1)
         returnTypeTexts := new string[](1)
@@ -992,7 +998,7 @@ sealed class ColumnarProgramInputBuilder {
         result := new int[](9)
 
         paramCount := 0
-        if isBodylessNativeImport {
+        if signatureOnly {
             paramCount = ParseColumnarProductFunctionSignatureInfoInto(
                 source,
                 ck,
@@ -1113,7 +1119,7 @@ sealed class ColumnarProgramInputBuilder {
         }
 
         bodyBrace := result[1]
-        if !isBodylessNativeImport && (bodyBrace < 0 || bodyBrace >= n || !ColumnarTokenKindFacts.IsSupportedBodyStartKind(ck[bodyBrace])) {
+        if !signatureOnly && (bodyBrace < 0 || bodyBrace >= n || !ColumnarTokenKindFacts.IsSupportedBodyStartKind(ck[bodyBrace])) {
             return DeclineAtToken(ColumnarParseDeclines.FunctionBody, cs, cv, funcIndex, functionName)
         }
 
@@ -1173,12 +1179,12 @@ sealed class ColumnarProgramInputBuilder {
 
         rootBlock := result[6]
         bodyNodeCount := result[7]
-        if !isBodylessNativeImport && (bodyNodeCount <= 0 || rootBlock < 0 || rootBlock >= bodyNodeCount) {
+        if !signatureOnly && (bodyNodeCount <= 0 || rootBlock < 0 || rootBlock >= bodyNodeCount) {
             return DeclineAtToken(ColumnarParseDeclines.FunctionBodyNodes, cs, cv, funcIndex, functionName)
         }
 
         bodyNodes: ColumnarNodeTable = null
-        if isBodylessNativeImport {
+        if signatureOnly {
             bodyNodes = new ColumnarNodeTable(
                 System.Array.Empty<int>(),
                 System.Array.Empty<int>(),
@@ -1211,6 +1217,11 @@ sealed class ColumnarProgramInputBuilder {
             }
             nativeImportLibraryName = nativeImportTexts[0]
             nativeImportEntryPoint = nativeImportTexts[1]
+            rootBlock = -1
+            bodyNodeCount = 0
+        }
+
+        if isBodylessAbstract {
             rootBlock = -1
             bodyNodeCount = 0
         }
@@ -1267,6 +1278,7 @@ sealed class ColumnarProgramInputBuilder {
                 false,
                 true,
                 0,
+                false,
                 false
             ) {
                 return DeclineAtToken(
@@ -1712,6 +1724,7 @@ sealed class ColumnarProgramInputBuilder {
                         false,
                         false,
                         0,
+                        false,
                         false
                     ) {
                         return DeclineAtToken(

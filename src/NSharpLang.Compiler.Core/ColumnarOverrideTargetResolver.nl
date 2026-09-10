@@ -209,6 +209,149 @@ class ColumnarBaseMethodMatch {
     }
 }
 
+// THE SOURCE-BASE OVERRIDE LOOKUP.
+//
+// `ColumnarBaseMethodMatch` reads the base chain through Reflection, and a base class that is being
+// EMITTED IN THIS SAME ASSEMBLY has nothing to read: its `TypeBuilder` is unbaked, so
+// `DeclaredMethodsOrEmpty` answers the empty array by design and every `override` of a member the
+// program itself declares reported "no overridable base member matches". That is not a missing
+// member; it is a missing DOOR. This is the door: the source base's own declaration table, whose
+// `MethodBuilder` handles carry the same name, signature and virtual-ness the baked type would.
+//
+// IT PRODUCES NO `DefineMethodOverride` TARGET, AND THAT IS THE POINT. A class override of a class
+// member is matched by the CLR from name and signature once the deriving method is `virtual` and
+// does not take a new slot — which is exactly what C# emits, with no MethodImpl row. An explicit
+// MethodImpl here would be a second, redundant statement of the same fact, and one that would have
+// to name a member of a type that does not exist yet.
+class ColumnarSourceBaseMethodMatch {
+    readonly targetValue: MethodBuilder?
+    readonly ownerValue: ColumnarStructDef?
+    readonly matchedValue: bool
+    readonly foundNameValue: bool
+
+    Target: MethodBuilder? => targetValue
+    Owner: ColumnarStructDef? => ownerValue
+    Matched: bool => matchedValue
+
+    // Whether some base level declared a member of this NAME even though none matched the
+    // signature. It separates "you misspelled it" from "your signature does not line up", which the
+    // analyzer reports for source-visible shapes and the emitter must not contradict.
+    FoundName: bool => foundNameValue
+
+    // `baseDefinition` is the overriding type's DIRECT source base — the walk starts AT it, not
+    // past it, because the member being overridden is most often declared right there.
+    constructor(baseDefinition: ColumnarStructDef?, name: string, returnType: Type, parameterTypes: Type[]) {
+        target: MethodBuilder? = null
+        owner: ColumnarStructDef? = null
+        matched := false
+        foundName := false
+
+        if baseDefinition != null && name != null && name.Length > 0 && returnType != null && parameterTypes != null {
+            current := baseDefinition
+            guard := 0
+            while current != null && !matched && guard <= 64 {
+                overloads: List<ColumnarInstanceMethodDef>? = null
+                if current.MethodOverloads.TryGetValue(name, out overloads) && overloads != null {
+                    index := 0
+                    while index < overloads.Count {
+                        candidate := overloads[index]
+                        foundName = true
+                        if IsOverridableSourceTarget(candidate) && SameSignature(candidate, returnType, parameterTypes) {
+                            target = candidate.Builder
+                            owner = current
+                            matched = true
+                            break
+                        }
+                        index = index + 1
+                    }
+                }
+
+                current = current.BaseDef
+                guard = guard + 1
+            }
+        }
+
+        targetValue = target
+        ownerValue = owner
+        matchedValue = matched
+        foundNameValue = foundName
+    }
+
+    func RequiredTarget(): MethodBuilder {
+        target := targetValue
+        if !matchedValue || target == null {
+            throw new InvalidOperationException("A successful source-base method match requires its target.")
+        }
+        return target
+    }
+
+    // A source base member is overridable on exactly the terms a runtime one is: an instance member
+    // that owns a virtual slot and has not sealed it.
+    static func IsOverridableSourceTarget(candidate: ColumnarInstanceMethodDef): bool {
+        if candidate == null || candidate.Builder == null {
+            return false
+        }
+        builder := candidate.Builder
+        if builder.get_IsStatic() || !builder.get_IsVirtual() || builder.get_IsFinal() {
+            return false
+        }
+        return !builder.get_IsGenericMethod() && !builder.get_IsGenericMethodDefinition()
+    }
+
+    static func SameSignature(candidate: ColumnarInstanceMethodDef, returnType: Type, parameterTypes: Type[]): bool {
+        if candidate.ParamTypes.Length != parameterTypes.Length || !SameSourceTypeIdentity(candidate.ReturnType, returnType) {
+            return false
+        }
+        index := 0
+        while index < parameterTypes.Length {
+            if !SameSourceTypeIdentity(candidate.ParamTypes[index], parameterTypes[index]) {
+                return false
+            }
+            index = index + 1
+        }
+        return true
+    }
+
+    // A BUILDER HAS NO STABLE ASSEMBLY-QUALIFIED NAME TO COMPARE. Both sides of this comparison come
+    // out of the same emission, so an unbaked `TypeBuilder` or a `GenericTypeParameterBuilder` is
+    // the SAME type exactly when it is the same object; only complete external identities fall
+    // through to the assembly-qualified rule the runtime chain uses.
+    static func SameSourceTypeIdentity(left: Type, right: Type): bool {
+        if left == null || right == null {
+            return false
+        }
+        if Object.ReferenceEquals(left, right) {
+            return true
+        }
+        if IsBuilderBound(left) || IsBuilderBound(right) {
+            return false
+        }
+        return ColumnarBaseMethodMatch.SameTypeIdentity(left, right)
+    }
+
+    static func IsBuilderBound(candidate: Type): bool {
+        if candidate is TypeBuilder || candidate.get_IsGenericParameter() {
+            return true
+        }
+        if candidate.get_HasElementType() {
+            element := candidate.GetElementType()
+            return element != null && IsBuilderBound(element)
+        }
+        if !candidate.get_IsGenericType() || candidate.get_IsGenericTypeDefinition() {
+            return false
+        }
+        arguments := candidate.GetGenericArguments()
+        index := 0
+        while index < arguments.Length {
+            if IsBuilderBound(arguments[index]) {
+                return true
+            }
+            index = index + 1
+        }
+        return false
+    }
+}
+
 class ColumnarBaseMethodBinding {
     readonly descriptorValue: ColumnarExternalMethodDescriptor
     readonly targetValue: MethodInfo

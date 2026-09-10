@@ -1159,7 +1159,7 @@ class ColumnarTypeOfPlanner {
             return true
         }
         if ContainsBuilderBoundType(valueType) {
-            return IsSupportedCollectionType(valueType) || IsSupportedTaskType(valueType) || IsSupportedResultType(valueType) || IsSupportedAnonymousUnionType(valueType) || IsSupportedEnumeratorType(valueType) || IsSupportedListEnumeratorType(valueType) || IsSupportedDictionaryValueCollectionType(valueType) || IsSupportedDictionaryEnumeratorType(valueType) || IsSupportedDictionaryKeyEnumeratorType(valueType) || IsSupportedDictionaryValueEnumeratorType(valueType) || IsSupportedKeyValuePairType(valueType) || IsSupportedReferenceEqualityComparerType(valueType) || IsSupportedValueTuple(valueType)
+            return IsSupportedCollectionType(valueType) || IsSupportedTaskType(valueType) || IsSupportedResultType(valueType) || IsSupportedAnonymousUnionType(valueType) || IsSupportedEnumeratorType(valueType) || IsSupportedListEnumeratorType(valueType) || IsSupportedDictionaryValueCollectionType(valueType) || IsSupportedDictionaryEnumeratorType(valueType) || IsSupportedDictionaryKeyEnumeratorType(valueType) || IsSupportedDictionaryValueEnumeratorType(valueType) || IsSupportedKeyValuePairType(valueType) || IsSupportedReferenceEqualityComparerType(valueType) || IsSupportedValueTuple(valueType) || IsSupportedExternalGenericOverTypeParameters(valueType)
         }
         if valueType.get_IsGenericType() && !valueType.get_IsGenericTypeDefinition() {
             definition := valueType.GetGenericTypeDefinition()
@@ -1171,6 +1171,43 @@ class ColumnarTypeOfPlanner {
             return IsSupportedSpanLikeType(valueType)
         }
         return IsSupportedCatalogType(valueType)
+    }
+
+    // AN EXTERNAL GENERIC CLOSED OVER THE DECLARING TYPE'S OWN TYPE PARAMETER.
+    //
+    // `Action<T>`, `Func<T, bool>`, `IComparer<T>` — the definition is a complete external identity
+    // and the only builder-bound thing inside it is a type PARAMETER, which every instantiation
+    // will replace with a real type. Nothing about such a shape is unfinished the way a source
+    // `TypeBuilder` argument would be, so it stores, loads and passes like any other reference.
+    //
+    // The named families above each exist to state an ADDITIONAL rule about their arguments (a
+    // dictionary key must be hashable, a collection element must be storable). This rule states no
+    // such thing because the delegate and interface families impose none; it only refuses the two
+    // shapes whose storage is not ordinary — a by-ref-like type, which may not be a field at all,
+    // and a source `TypeBuilder` argument, which would name a type that does not exist yet.
+    static func IsSupportedExternalGenericOverTypeParameters(valueType: Type): bool {
+        if valueType is TypeBuilder || IsEnumBuilder(valueType) || !valueType.get_IsGenericType() || valueType.get_IsGenericTypeDefinition() || IsByRefLike(valueType) {
+            return false
+        }
+        definition := valueType.GetGenericTypeDefinition()
+        if definition == null || ContainsBuilderBoundType(definition) {
+            return false
+        }
+
+        arguments := valueType.GetGenericArguments()
+        index := 0
+        while index < arguments.Length {
+            argument := arguments[index]
+            if argument.get_IsGenericParameter() {
+                if IsByRefLike(argument) {
+                    return false
+                }
+            } else if ContainsBuilderBoundType(argument) || !IsSupportedType(argument) {
+                return false
+            }
+            index = index + 1
+        }
+        return arguments.Length > 0
     }
 
     static func IsSupportedCecilSequenceType(valueType: Type): bool {

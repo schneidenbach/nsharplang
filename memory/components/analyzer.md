@@ -1024,6 +1024,75 @@ For Go-style error tuples (`result, err := MightFail()`):
 - Sanctioned uses: assign/return/pass the value, or discard explicitly via `_ = Compute()`. `_ = expr` is an explicit discard target (handled in `AnalyzeAssignment`); it binds nothing and only analyzes the right-hand side.
 - Scope is intentionally conservative: only `[MustUse]`-annotated N# declarations and external (reflection) methods carrying a `MustUse`/`MustUseAttribute` attribute. Plain non-void results are NOT forced to be used.
 
+## Class Inheritance: abstract, virtual, override
+
+Source-declared classes take part in inheritance on C#'s terms, and the analyzer already owned every
+negative case before the emitter could express the positive ones. No new codes were needed:
+
+| Shape | Diagnostic | Owner |
+| --- | --- | --- |
+| a concrete class does not implement an inherited abstract member | `NL324` | `AnalyzerTypeDeclarations.nl` |
+| `new` on an abstract class | `NL803` | `AnalyzerConstruction.nl` |
+| `override` with no base member of that name | `NL311` | `AnalyzerTypeDeclarations.nl` |
+| `override` of a base member that is not `virtual`/`abstract`/`override` | `NL311` | `AnalyzerTypeDeclarations.nl` |
+
+The EMISSION side has three owners worth knowing about:
+
+- `ColumnarSourceBaseMethodMatch` (`ColumnarOverrideTargetResolver.nl`) is the override lookup for a
+  base being emitted in the SAME assembly. `ColumnarBaseMethodMatch` reads a base chain through
+  Reflection, which an unbaked `TypeBuilder` cannot answer; this one walks the source base's own
+  declaration table instead. It deliberately produces NO `DefineMethodOverride` target — a class
+  override of a class member is bound by the CLR from name and signature, and C# writes no MethodImpl
+  row for it either. Its type-identity rule is REFERENCE EQUALITY for anything builder-bound, because
+  a builder has no stable assembly-qualified name and two unrelated `T`s would compare equal by name.
+- `ColumnarInheritanceDepthOrder` orders the method-declaration pass by inheritance depth, so a base
+  has always declared its members before a subclass asks. Ties keep source order.
+- `ColumnarStructMethodFlagIsAbstract` / `ColumnarFunctionInput.IsBodylessAbstractMember` are the one
+  decision that an abstract instance member has NO BODY. The parser records it from its signature
+  alone (the same `signatureOnly` path a `LibraryImport` stub uses) and the emitter schedules no body
+  job for it.
+
+Do not add an override allowlist or a name-based base lookup. The two match owners are the whole
+surface: one for baked bases, one for source ones.
+
+## Columnar Type Admissibility Over Type Parameters
+
+`ColumnarTypeOfPlanner.IsSupportedType` is the compiler's type-admissibility head. When a type is
+builder-bound it consults a list of named structural families (collection, task, result, union,
+enumerator, key-value pair, value tuple) — each of which exists to state an ADDITIONAL rule about its
+arguments, such as "a dictionary key must be hashable".
+
+`IsSupportedExternalGenericOverTypeParameters` is the general rule beside them: a constructed
+external generic whose only builder-bound content is a type PARAMETER is storable. `Action<T>`,
+`Func<T, TResult>` and `IComparer<T>` reach the surface through it, and they impose no extra rule on
+their arguments, which is exactly why they are not a named family. It refuses a by-ref-like
+instantiation (never a field) and a source `TypeBuilder` argument (a type that does not exist yet).
+
+Two resolution facts go with it, both in `ColumnarCanonicalTypeResolver.nl`:
+
+- The type-parameter walk reads a NULLABLE ANNOTATION the same way the ordinary walk does: `List<T>?`
+  is `List<T>`, `T?` stays `T` (which of `Nullable<T>` and `T` it means is per-instantiation and
+  cannot be written down), and a value type lifts.
+- `TrySelectDelegateCanonical` takes the type-parameter map. It used to resolve its arguments through
+  the ordinary walk even when reached from the generic-aware entry point, which is the only reason
+  the delegate families could not name a type parameter.
+
+On the emit side, `ColumnarIlEmitter.ResolveDelegateInvokeMethod` rebinds `Invoke` from the open
+definition onto a builder-bound instantiation — reflection member queries THROW on a
+`TypeBuilderInstantiation` — and reads the signature from the instantiation's generic arguments,
+because the rebound handle cannot be asked for its parameters either.
+
+## External Instance Members on Exceptions
+
+`ColumnarRuntimeInstanceMemberResolver.TrySelect` is a table of `(receiver type, member)` pairs.
+Exceptions are NOT one of its rows any more: any type assignable to `Exception` goes through the
+ordinary `TrySelectAdmittedProperty` lookup on the RECEIVER's own type, so `ex.ParamName`,
+`ex.StackTrace`, `ex.Source` and a derived or NuGet exception type's own properties resolve exactly
+as `ex.Message` does. The admitted-value-type fence still decides what may be read.
+
+Before this, `Message` was the single modelled member — not because it was different, but because it
+was the one that had been needed. Do not add exception members back by name.
+
 ## Convention-Based Visibility
 
 Enforced by Analyzer:

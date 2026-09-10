@@ -155,8 +155,17 @@ class ColumnarRuntimeInstanceMemberResolver {
             return TrySelectExpectedProperty(receiverType, receiverType, member, arguments[0], out selection)
         }
 
-        if typeof(Exception).IsAssignableFrom(receiverType) && member == "Message" {
-            return TrySelectExpectedProperty(receiverType, typeof(Exception), member, typeof(string), out selection)
+        // ANY readable instance property an exception declares, not a list of names.
+        //
+        // `Message` was modelled by name, so `ex.ParamName` on a caught `ArgumentNullException` —
+        // which is how a caller learns WHICH argument was null — declined, as did `StackTrace` and
+        // `Source` and every property a NuGet package's exception type adds. There is no rule that
+        // distinguishes `Message` from the rest; it was simply the one that had been needed. The
+        // lookup is the ordinary admitted-property one, on the RECEIVER's own type, so a derived
+        // exception's own properties resolve as readily as `Exception`'s and the admitted-value-type
+        // fence still decides what may be read.
+        if typeof(Exception).IsAssignableFrom(receiverType) {
+            return TrySelectAdmittedProperty(receiverType, receiverType, member, out selection)
         }
 
         if receiverType == typeof(Version) && (member == "Major" || member == "Minor" || member == "Build" || member == "Revision") {

@@ -7318,7 +7318,11 @@ func ColumnarStructDeclarationMetadataModifierFlagsAt(tokenKinds: int[], declara
     flags := 0
     while modifierIndex >= 0 && ParserDeclarationMemberModifierKind(tokenKinds[modifierIndex]) != 0 {
         modifierFlag := ParserDeclarationMemberModifierFlag(tokenKinds[modifierIndex])
-        if modifierFlag == 1 || modifierFlag == 2 || modifierFlag == 4 || modifierFlag == 8 || modifierFlag == 128 || modifierFlag == 512 || modifierFlag == 32768 {
+        // The words that reach METADATA: the four visibility words, `sealed` (128), `abstract` (64),
+        // `readonly` (512) and `partial` (32768). `abstract` is here because `abstract class C` is a
+        // TypeAttributes bit the CLR itself enforces — it refuses to load a type that declares an
+        // abstract method without it — not merely a source-level promise the analyzer checks.
+        if modifierFlag == 1 || modifierFlag == 2 || modifierFlag == 4 || modifierFlag == 8 || modifierFlag == 64 || modifierFlag == 128 || modifierFlag == 512 || modifierFlag == 32768 {
             flags = flags | modifierFlag
         }
         modifierIndex = modifierIndex - 1
@@ -10731,6 +10735,22 @@ func ParseStructDeclarationCore(source: string, tokens: ParserDeclarationTokenTa
             }
 
             if tokens.Kinds[signatureEnd] != 129 && tokens.Kinds[signatureEnd] != 120 {
+                // `abstract func Name(): T` — a declaration with no body, which is what `abstract`
+                // MEANS. It is recorded like any other member; the emitter gives it the abstract
+                // method attributes and no IL. A `static abstract` member has no slot to be abstract
+                // in, so it falls through to the native-import gate and declines there.
+                if ColumnarStructMethodFlagIsAbstract(methodFlags) && !ColumnarStructMethodFlagIsStatic(methodFlags) {
+                    decl.MethodFuncIndices[methodCount] = memberStart
+                    decl.MethodStaticFlags[methodCount] = methodFlags
+                    if decl.MethodModifierFlags.Length > methodCount {
+                        decl.MethodModifierFlags[methodCount] = methodFlags
+                    }
+
+                    methodCount = methodCount + 1
+                    pos = signatureEnd
+                    continue
+                }
+
                 if (methodFlags & 16) == 0 || !ColumnarStructMethodHasLibraryImportAttribute(source, tokens, memberStart) {
                     return -1
                 }
@@ -13638,12 +13658,15 @@ func ColumnarStructMethodUnsupportedStatus(source: string, tokens: ColumnarStruc
     for i := 0; i < methodCount; i++ {
         result.Values[8] = 0
         nativeImportMethod := ColumnarFunctionInput.HasNativeImportModifier(outputs.MethodStaticFlags[i])
+        abstractMethod := ColumnarStructMethodFlagIsAbstract(outputs.MethodStaticFlags[i]) && !ColumnarStructMethodFlagIsStatic(outputs.MethodStaticFlags[i])
         paramCount := 0
         if nativeImportMethod {
             if !ColumnarStructMethodFlagIsStatic(outputs.MethodStaticFlags[i]) {
                 return -1
             }
 
+            paramCount = ParseColumnarFunctionSignatureOnlyInfoCore(source, functionTokens, outputs.MethodFuncIndices[i], signatureOutputs, result)
+        } else if abstractMethod {
             paramCount = ParseColumnarFunctionSignatureOnlyInfoCore(source, functionTokens, outputs.MethodFuncIndices[i], signatureOutputs, result)
         } else {
             paramCount = ParseColumnarFunctionInfoCore(source, functionTokens, outputs.MethodFuncIndices[i], 0, signatureOutputs, body, locals, result)
@@ -14043,6 +14066,20 @@ func ColumnarStructMethodFlagIsStatic(flags: int): bool {
 // beside its `static` and `LibraryImport` siblings so no caller has to know the bit.
 func ColumnarStructMethodFlagIsAsync(flags: int): bool {
     return (flags & 2048) != 0
+}
+
+// `Modifiers.Abstract` (64, DeclarationEnums.nl) in the method flag word this file writes. An
+// abstract member is the ONE ordinary managed member that has no body at all: the declaration is
+// the whole member, and the `{ … }` a body scan would demand is not merely absent, it is forbidden.
+// The word's meaning is decided here, beside the scan that writes it, for the same reason every
+// other bit's is.
+func ColumnarStructMethodFlagIsAbstract(flags: int): bool {
+    return (flags & 64) != 0
+}
+
+// `Modifiers.Virtual` (32) — the member declares a NEW virtual slot with a body.
+func ColumnarStructMethodFlagIsVirtual(flags: int): bool {
+    return (flags & 32) != 0
 }
 
 func ColumnarStructMethodMemberNamesSupported(source: string, tokens: ColumnarStructTokenTable, scratch: ColumnarStructScratchTable, outputs: ColumnarStructOutputTable, fieldCount: int, methodCount: int): int {

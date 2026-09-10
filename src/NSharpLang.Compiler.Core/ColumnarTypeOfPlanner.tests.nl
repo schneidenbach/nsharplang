@@ -1167,3 +1167,39 @@ test "typeof roots remain terminal while every rejected shape leaves an empty pl
     ) == ColumnarFragmentPlanStatus.NotOwned
     ColumnarRangePlannerAssertEmptyRollback(unsupportedTuplePlan)
 }
+
+test "an external generic over a type parameter is a storable type, and a source type is still not" {
+    parameter := typeof(List<int>).GetGenericTypeDefinition().GetGenericArguments()[0]
+    oneArgument := new Type[](1)
+    oneArgument[0] = parameter
+    actionDefinition := typeof(Action<int>).GetGenericTypeDefinition()
+    openAction := actionDefinition.MakeGenericType(oneArgument)
+
+    // `Action<T>` is a complete external DEFINITION with a parameter in it. Nothing about it is
+    // unfinished: every instantiation replaces the parameter with a real type, so it stores and
+    // loads like any other reference.
+    assert ColumnarTypeOfPlanner.IsSupportedExternalGenericOverTypeParameters(openAction)
+    assert ColumnarTypeOfPlanner.IsSupportedType(openAction)
+
+    parameterThenBool := new Type[](2)
+    parameterThenBool[0] = parameter
+    parameterThenBool[1] = typeof(bool)
+    stringThenParameter := new Type[](2)
+    stringThenParameter[0] = typeof(string)
+    stringThenParameter[1] = parameter
+    funcDefinition := typeof(Func<int, bool>).GetGenericTypeDefinition()
+    assert ColumnarTypeOfPlanner.IsSupportedExternalGenericOverTypeParameters(funcDefinition.MakeGenericType(parameterThenBool))
+    assert ColumnarTypeOfPlanner.IsSupportedExternalGenericOverTypeParameters(funcDefinition.MakeGenericType(stringThenParameter))
+
+    // A GENERIC DEFINITION is not itself such a shape — `Action<>` names no type to store — and
+    // neither is a non-generic one.
+    assert !ColumnarTypeOfPlanner.IsSupportedExternalGenericOverTypeParameters(actionDefinition)
+    assert !ColumnarTypeOfPlanner.IsSupportedExternalGenericOverTypeParameters(typeof(string))
+
+    // A fully baked instantiation does not need this rule; it is admitted by the ordinary catalog,
+    // which is why this predicate is only ever asked about builder-bound shapes.
+    assert ColumnarTypeOfPlanner.IsSupportedType(typeof(Action<int>))
+
+    // A BY-REF-LIKE instantiation is refused: it may not be a field at all, whatever its arguments.
+    assert !ColumnarTypeOfPlanner.IsSupportedExternalGenericOverTypeParameters(typeof(Span<int>).GetGenericTypeDefinition().MakeGenericType(oneArgument))
+}

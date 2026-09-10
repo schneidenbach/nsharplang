@@ -590,7 +590,7 @@ class ColumnarMethodOverrideDeclaration {
     }
 
     func Complete(baseType: Type?, returnType: Type, parameterTypes: Type[]): ColumnarMethodOverrideCompletion {
-        return CompleteCore(baseType, null, returnType, parameterTypes, null, false)
+        return CompleteCore(baseType, null, null, returnType, parameterTypes, null, false)
     }
 
     func Complete(
@@ -600,11 +600,26 @@ class ColumnarMethodOverrideDeclaration {
         parameterTypes: Type[],
         table: ColumnarStructuralTypeReferenceTable
     ): ColumnarMethodOverrideCompletion {
-        return CompleteCore(baseType, declarationName, returnType, parameterTypes, table, true)
+        return CompleteCore(baseType, null, declarationName, returnType, parameterTypes, table, true)
+    }
+
+    // The overload the emitter uses: it can also hand over the SOURCE base definition, so an
+    // `override` of a member declared by another class in this same compilation resolves against
+    // that class's own declaration table rather than against an unbaked `TypeBuilder`.
+    func Complete(
+        baseType: Type?,
+        sourceBaseDefinition: ColumnarStructDef?,
+        declarationName: string,
+        returnType: Type,
+        parameterTypes: Type[],
+        table: ColumnarStructuralTypeReferenceTable
+    ): ColumnarMethodOverrideCompletion {
+        return CompleteCore(baseType, sourceBaseDefinition, declarationName, returnType, parameterTypes, table, true)
     }
 
     func CompleteCore(
         baseType: Type?,
+        sourceBaseDefinition: ColumnarStructDef?,
         declarationName: string?,
         returnType: Type,
         parameterTypes: Type[],
@@ -615,20 +630,27 @@ class ColumnarMethodOverrideDeclaration {
         baseBinding: ColumnarBaseMethodBinding? = null
         if RequestsBaseOverride {
             matchedBase := new ColumnarBaseMethodMatch(baseType, MemberName, returnType, parameterTypes)
-            if !matchedBase.Matched {
-                message := "no overridable base member matches '" + MemberName + "' for '" + DeclineOwnerName + "'"
-                return new ColumnarMethodOverrideCompletion(
-                    false,
-                    "emit.declaration.override-target",
-                    message,
-                    DeclineOwnerName,
-                    BaseMethodAttributes,
-                    new ColumnarResolvedMethodOverride[](0)
-                )
-            }
-            baseTarget = matchedBase.RequiredTarget()
-            if table != null {
-                baseBinding = new ColumnarBaseMethodBinding(matchedBase, table)
+            if matchedBase.Matched {
+                baseTarget = matchedBase.RequiredTarget()
+                if table != null {
+                    baseBinding = new ColumnarBaseMethodBinding(matchedBase, table)
+                }
+            } else {
+                // A base class BEING EMITTED alongside this one. The match proves the slot exists
+                // and is open; the CLR then binds the override by name and signature, so no
+                // MethodImpl row is written and no target is carried.
+                matchedSourceBase := new ColumnarSourceBaseMethodMatch(sourceBaseDefinition, MemberName, returnType, parameterTypes)
+                if !matchedSourceBase.Matched {
+                    message := "no overridable base member matches '" + MemberName + "' for '" + DeclineOwnerName + "'"
+                    return new ColumnarMethodOverrideCompletion(
+                        false,
+                        "emit.declaration.override-target",
+                        message,
+                        DeclineOwnerName,
+                        BaseMethodAttributes,
+                        new ColumnarResolvedMethodOverride[](0)
+                    )
+                }
             }
         }
 
@@ -1086,9 +1108,20 @@ class ColumnarDeclarationPlanner {
     // a NESTED one ORs its own `NestedVisibilityAttributes` word INSTEAD -- never both. Folding the
     // two would flip the visibility of every nested type in the estate.
     static func StructTypeAttributesFor(isReference: bool, isSealed: bool, isNested: bool, nestedVisibilityAttributes: int): int {
+        return StructTypeAttributesFor(isReference, isSealed, false, isNested, nestedVisibilityAttributes)
+    }
+
+    static func StructTypeAttributesFor(isReference: bool, isSealed: bool, isAbstract: bool, isNested: bool, nestedVisibilityAttributes: int): int {
         bits := 0
         if !isReference || isSealed {
             bits = SealedTypeAttribute()
+        }
+
+        // `abstract class C` is `Abstract` in metadata, which is the bit `newobj` consults. A value
+        // type can never carry it — `abstract struct` is not a shape the language admits — so the
+        // reference test is the whole guard.
+        if isReference && isAbstract {
+            bits = bits | AbstractTypeAttribute()
         }
 
         if isNested {
@@ -1221,6 +1254,12 @@ class ColumnarDeclarationPlanner {
         return 64
     }
 
+    // `MethodAttributes.Final` — the slot this method occupies may not be overridden again. It is
+    // what `sealed override` puts in metadata.
+    static func FinalMethodAttribute(): int {
+        return 32
+    }
+
     static func HideBySigMethodAttribute(): int {
         return 128
     }
@@ -1296,7 +1335,26 @@ class ColumnarDeclarationPlanner {
     }
 
     static func StructInstanceMethodAttributes(name: string, modifierFlags: int): int {
-        return MethodVisibilityAttributes(name, modifierFlags) | HideBySigMethodAttribute()
+        bits := MethodVisibilityAttributes(name, modifierFlags) | HideBySigMethodAttribute()
+
+        // `abstract` and `virtual` each OPEN a slot, so both take `Virtual|NewSlot`; `abstract` adds
+        // `Abstract` and supplies no IL. `override` REUSES the base's slot, and the override
+        // completion clears `NewSlot` after it has proved which member is being overridden — the
+        // word alone is not evidence that a slot exists to reuse. `sealed` on an override closes the
+        // slot with `Final`, which is meaningless without one and so is spelled with `override`.
+        if ColumnarFunctionInput.HasAbstractModifier(modifierFlags) {
+            return bits | VirtualMethodAttribute() | NewSlotMethodAttribute() | AbstractMethodAttribute()
+        }
+
+        if ColumnarFunctionInput.HasVirtualModifier(modifierFlags) {
+            return bits | VirtualMethodAttribute() | NewSlotMethodAttribute()
+        }
+
+        if ColumnarFunctionInput.HasOverrideModifier(modifierFlags) && ColumnarFunctionInput.HasSealedModifier(modifierFlags) {
+            return bits | FinalMethodAttribute()
+        }
+
+        return bits
     }
 
     // An INTERFACE member: Public|Virtual|HideBySig|NewSlot = 454, plus Abstract (1478) unless the
@@ -1579,7 +1637,7 @@ class ColumnarDeclarationPlanner {
             } else {
                 structEnclosing[index] = ""
             }
-            structAttributes[index] = StructTypeAttributesFor(input.IsReference, input.IsSealed, isNested, input.NestedVisibilityAttributes)
+            structAttributes[index] = StructTypeAttributesFor(input.IsReference, input.IsSealed, input.IsAbstract, isNested, input.NestedVisibilityAttributes)
             index = index + 1
         }
 
