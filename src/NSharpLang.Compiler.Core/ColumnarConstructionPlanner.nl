@@ -1260,7 +1260,7 @@ class ColumnarConstructionPlanner {
         }
 
         suppliedParameters := PrefixTypes(selected.ParamTypes, argumentCount)
-        if !ColumnarDirectCallPlanner.AppendArguments(nodes, source, node, bindings, handles, plan, fragment, depth + 1, true, argumentTypes, suppliedParameters, argumentFacts) {
+        if !ColumnarDirectCallPlanner.AppendArguments(nodes, source, node, bindings, handles, plan, fragment, depth + 1, true, false, argumentTypes, suppliedParameters, argumentFacts) {
             return false
         }
 
@@ -1300,7 +1300,7 @@ class ColumnarConstructionPlanner {
             legacyWholeSubtreePlanning = false
             return false
         }
-        if !ColumnarDirectCallPlanner.AppendArguments(nodes, source, node, bindings, handles, plan, fragment, depth + 1, true, argumentTypes, parameters, argumentFacts) {
+        if !ColumnarDirectCallPlanner.AppendArguments(nodes, source, node, bindings, handles, plan, fragment, depth + 1, true, false, argumentTypes, parameters, argumentFacts) {
             return false
         }
 
@@ -1396,7 +1396,7 @@ class ColumnarConstructionPlanner {
         selectedParameters = candidateParameters[selectedIndex]
 
         suppliedParameters := PrefixTypes(selectedParameters, argumentCount)
-        if !ColumnarDirectCallPlanner.AppendArguments(nodes, source, node, bindings, handles, plan, fragment, depth + 1, true, argumentTypes, suppliedParameters, argumentFacts) {
+        if !ColumnarDirectCallPlanner.AppendArguments(nodes, source, node, bindings, handles, plan, fragment, depth + 1, true, false, argumentTypes, suppliedParameters, argumentFacts) {
             return false
         }
 
@@ -1536,7 +1536,7 @@ class ColumnarConstructionPlanner {
         if !TryGetConstructorArguments(nodes, source, node, bindings, handles, depth, argumentTypes, argumentFacts, out ownership, out legacyWholeSubtreePlanning) {
             return false
         }
-        if !ColumnarDirectCallPlanner.AppendArguments(nodes, source, node, bindings, handles, plan, fragment, depth + 1, true, argumentTypes, parameterTypes, argumentFacts) {
+        if !ColumnarDirectCallPlanner.AppendArguments(nodes, source, node, bindings, handles, plan, fragment, depth + 1, true, false, argumentTypes, parameterTypes, argumentFacts) {
             return false
         }
 

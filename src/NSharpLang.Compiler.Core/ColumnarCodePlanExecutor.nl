@@ -1174,7 +1174,7 @@ class ColumnarCodePlanExecutor {
             declaredParameters := plan.MethodParameterTypes[methodIndex]
             declaredIndex := 0
             while declaredIndex < declaredParameters.Length {
-                ValidateStorableType(declaredParameters[declaredIndex], "method argument", schemaName)
+                ValidateMethodParameterType(declaredParameters[declaredIndex], "method argument", schemaName)
                 declaredIndex += 1
             }
             ValidateDeclaredMethodSignatureIfAvailable(plan, methodIndex, method, schemaName)
@@ -1190,7 +1190,7 @@ class ColumnarCodePlanExecutor {
         i := 0
         while i < parameters.Length {
             parameterType := ResolveMemberSignatureType(parameters[i].get_ParameterType(), declaringArguments, genericArguments, schemaName)
-            ValidateStorableType(parameterType, "method argument", schemaName)
+            ValidateMethodParameterType(parameterType, "method argument", schemaName)
             i += 1
         }
     }
@@ -1330,6 +1330,27 @@ class ColumnarCodePlanExecutor {
         }
         if valueType.get_IsGenericTypeDefinition() {
             throw new InvalidOperationException(schemaName + " " + role + " types cannot be generic type definitions.")
+        }
+    }
+
+    // Ordinary runtime calls may carry a fixed-arity managed address. The address is supplied by
+    // an `ldloca`/`ldarga` row and is checked against the element type at the call site; it is not a
+    // storable value in the plan's other type-bearing slots. Keep returns, constructors, locals,
+    // fields, and general argument slots on ValidateStorableType so source/sibling/constructor
+    // schemas retain their existing by-reference rejection boundary.
+    static func ValidateMethodParameterType(valueType: Type, role: string, schemaName: string) {
+        if valueType == null {
+            throw new InvalidOperationException(schemaName + " " + role + " types cannot be null.")
+        }
+
+        if !valueType.get_IsByRef() {
+            ValidateStorableType(valueType, role, schemaName)
+            return
+        }
+
+        elementType := valueType.GetElementType()
+        if elementType == null || elementType.FullName == "System.Void" || elementType.get_IsByRef() || elementType.get_IsPointer() || elementType.get_IsFunctionPointer() || elementType.get_IsGenericParameter() || elementType.get_IsGenericTypeDefinition() {
+            throw new InvalidOperationException(schemaName + " " + role + " types cannot use an unsupported by-reference element.")
         }
     }
 
@@ -2006,9 +2027,11 @@ class ColumnarCodePlanExecutor {
             while parameterIndex >= 0 {
                 value := state.Pop()
                 parameterType := parameters[parameterIndex]
-                if value.IsAddress || !IsStackCompatible(parameterType, value.ValueType, value.ValueKind, value.LiteralKnown, value.LiteralValue) {
+                isOut := IsOutParameter(method, parameterIndex)
+                if !IsMethodCallArgumentCompatible(parameterType, value, isOut) {
                     throw new InvalidOperationException(schemaName + " call argument " + parameterIndex.ToString() + " for '" + method.get_Name() + "' does not match its exact parameter type (expected '" + parameterType.ToString() + "', found '" + value.ValueType.ToString() + "', stack kind " + value.ValueKind.ToString() + ").")
                 }
+                MarkOutPlanLocalAssigned(value, state, isOut)
                 parameterIndex -= 1
             }
 
@@ -2030,9 +2053,11 @@ class ColumnarCodePlanExecutor {
         while parameterIndex >= 0 {
             value := state.Pop()
             parameterType := ResolveMemberSignatureType(parameters[parameterIndex].get_ParameterType(), declaringArguments, genericArguments, schemaName)
-            if value.IsAddress || !IsStackCompatible(parameterType, value.ValueType, value.ValueKind, value.LiteralKnown, value.LiteralValue) {
+            isOut := parameters[parameterIndex].get_IsOut()
+            if !IsMethodCallArgumentCompatible(parameterType, value, isOut) {
                 throw new InvalidOperationException(schemaName + " call argument " + parameterIndex.ToString() + " for '" + method.get_Name() + "' does not match its exact parameter type (expected '" + parameterType.ToString() + "', found '" + value.ValueType.ToString() + "', stack kind " + value.ValueKind.ToString() + ").")
             }
+            MarkOutPlanLocalAssigned(value, state, isOut)
             parameterIndex -= 1
         }
 
@@ -2124,6 +2149,9 @@ class ColumnarCodePlanExecutor {
                 throw new InvalidOperationException(schemaName + " compound method signature has no element type.")
             }
             resolvedElement := ResolveMemberSignatureType(compoundElement, declaringArguments, methodArguments, schemaName)
+            if signatureType.get_IsByRef() {
+                return resolvedElement.MakeByRefType()
+            }
             if !ExactTypeShapeMatches(compoundElement, resolvedElement) {
                 throw new InvalidOperationException(schemaName + " cannot substitute this compound method signature shape.")
             }
@@ -2429,6 +2457,42 @@ class ColumnarCodePlanExecutor {
             return true
         }
         return !expectedType.get_IsValueType() && !actualType.get_IsValueType() && ReferenceAssignableFrom(expectedType, actualType)
+    }
+
+    static func IsOutParameter(method: MethodInfo, parameterIndex: int): bool {
+        try {
+            parameters := method.GetParameters()
+            return parameters != null && parameterIndex >= 0 && parameterIndex < parameters.Length && parameters[parameterIndex].get_IsOut()
+        } catch ex: NotSupportedException {
+            return false
+        } catch ex: NotImplementedException {
+            return false
+        }
+    }
+
+    static func MarkOutPlanLocalAssigned(value: ColumnarCodePlanStackNode, state: ColumnarCodePlanStackState, isOut: bool) {
+        if !isOut || value.ValueKind != ColumnarCodePlanStackValueKind.UnassignedPlanLocalAddress() {
+            return
+        }
+
+        if value.PlanLocalAddressIndex >= 0 {
+            state.MarkPlanLocalAssigned(value.PlanLocalAddressIndex)
+        }
+    }
+
+    static func IsMethodCallArgumentCompatible(parameterType: Type, value: ColumnarCodePlanStackNode, isOut: bool): bool {
+        if parameterType.get_IsByRef() {
+            elementType := parameterType.GetElementType()
+            if elementType == null || !value.IsAddress || !ExactTypeShapeMatches(elementType, value.ValueType) {
+                return false
+            }
+            if value.ValueKind == ColumnarCodePlanStackValueKind.Exact() {
+                return true
+            }
+            return isOut && value.ValueKind == ColumnarCodePlanStackValueKind.UnassignedPlanLocalAddress()
+        }
+
+        return !value.IsAddress && IsStackCompatible(parameterType, value.ValueType, value.ValueKind, value.LiteralKnown, value.LiteralValue)
     }
 
     static func IsExactPrimitiveAddOperand(value: ColumnarCodePlanStackNode, expectedType: Type): bool {

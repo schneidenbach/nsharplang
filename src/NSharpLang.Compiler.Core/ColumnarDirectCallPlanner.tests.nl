@@ -5,6 +5,12 @@ import System.Collections.Generic
 import System.Reflection
 import System.Reflection.Emit
 
+class ColumnarDirectCallByRefProbe {
+    static func KeepValue(flag: bool, value: int): int {
+        return value
+    }
+}
+
 struct ColumnarDirectCallMutableReceiverProbe {
     Value: int
 
@@ -173,6 +179,73 @@ func DirectCallPlan(tree: ColumnarRangePlannerTestTree, bindings: ColumnarFragme
 
     assert plan.ResultType == resultType
     ColumnarCodePlanExecutor.Validate(plan)
+    return plan
+}
+
+func DirectCallRunPlan(plan: ColumnarCodePlan, resultType: Type, parameterTypes: Type[], arguments: object[]): object? {
+    dynamicMethod := BoundDynamicMethod("DirectCallByRefRuntime", resultType, parameterTypes)
+    il := dynamicMethod.GetILGenerator()
+    ColumnarCodePlanExecutor.Execute(plan, il)
+    il.Emit(OpCodes.Ret)
+    target: object? = null
+    return dynamicMethod.Invoke(target, arguments)
+}
+
+func DirectCallTryParseLocalBodyPlan(): ColumnarCodePlan {
+    parameterTypes := new Type[](2)
+    parameterTypes[0] = typeof(string)
+    parameterTypes[1] = typeof(int).MakeByRefType()
+    method := ExecutorRequiredMethod(typeof(int), "TryParse", parameterTypes)
+    combineParameterTypes := new Type[](2)
+    combineParameterTypes[0] = typeof(bool)
+    combineParameterTypes[1] = typeof(int)
+    combine := ExecutorRequiredMethod(typeof(ColumnarDirectCallByRefProbe), "KeepValue", combineParameterTypes)
+
+    plan := new ColumnarCodePlan()
+    plan.PrepareV3()
+    root := plan.BeginFragment(-1, 1400, 0)
+    intTypeIndex := plan.AddType(typeof(int))
+    textIndex := plan.AddString("123")
+    localIndex := plan.DeclarePlanLocal(intTypeIndex)
+    methodIndex := plan.AddMethod(method)
+    plan.AppendStringInstruction(ColumnarCodePlanContract.Ldstr(), textIndex)
+    plan.AppendPlanLocalInstruction(ColumnarCodePlanContract.Ldloca(), localIndex)
+    plan.AppendMethodInstruction(ColumnarCodePlanContract.Call(), methodIndex)
+    plan.AppendPlanLocalInstruction(ColumnarCodePlanContract.Ldloc(), localIndex)
+    plan.AppendMethodInstruction(ColumnarCodePlanContract.Call(), plan.AddMethod(combine))
+    plan.CompleteFragment(root, typeof(int))
+    plan.CompleteV3(typeof(int))
+    return plan
+}
+
+func DirectCallInterlockedLocalBodyPlan(initialValue: int, initialize: bool): ColumnarCodePlan {
+    parameterTypes := new Type[](2)
+    parameterTypes[0] = typeof(int).MakeByRefType()
+    parameterTypes[1] = typeof(int)
+    method := ExecutorRequiredMethod(typeof(System.Threading.Interlocked), "Exchange", parameterTypes)
+    minimumParameterTypes := new Type[](2)
+    minimumParameterTypes[0] = typeof(int)
+    minimumParameterTypes[1] = typeof(int)
+    minimum := ExecutorRequiredMethod(typeof(Math), "Min", minimumParameterTypes)
+
+    plan := new ColumnarCodePlan()
+    plan.PrepareV3()
+    root := plan.BeginFragment(-1, 1401, 0)
+    intTypeIndex := plan.AddType(typeof(int))
+    localIndex := plan.DeclarePlanLocal(intTypeIndex)
+    methodIndex := plan.AddMethod(method)
+    if initialize {
+        valueIndex := plan.AddInt32(initialValue)
+        plan.AppendInt32Instruction(ColumnarCodePlanContract.LdcI4(), valueIndex)
+        plan.AppendPlanLocalInstruction(ColumnarCodePlanContract.Stloc(), localIndex)
+    }
+    plan.AppendPlanLocalInstruction(ColumnarCodePlanContract.Ldloca(), localIndex)
+    plan.AppendInstructionWithoutOperand(ColumnarCodePlanContract.LdcI4_2())
+    plan.AppendMethodInstruction(ColumnarCodePlanContract.Call(), methodIndex)
+    plan.AppendPlanLocalInstruction(ColumnarCodePlanContract.Ldloc(), localIndex)
+    plan.AppendMethodInstruction(ColumnarCodePlanContract.Call(), plan.AddMethod(minimum))
+    plan.CompleteFragment(root, typeof(int))
+    plan.CompleteV3(typeof(int))
     return plan
 }
 
@@ -741,6 +814,159 @@ test "direct-call planner owns String.Join over a List of string via the enumera
     assert plan.MethodParameterTypes[methodIndex].Length == 2
     assert plan.MethodParameterTypes[methodIndex][0] == typeof(string)
     assert plan.MethodParameterTypes[methodIndex][1] == typeof(IEnumerable<string>)
+}
+
+test "direct-call planner emits ordinary static out arguments through lexical storage" {
+    tree := DirectCallParsedTree("int.TryParse(\"123\", out value)")
+    ExternalStampScope(tree, "import System")
+
+    bindings := ColumnarRangePlannerEmptyBindings()
+    ColumnarRangePlannerAddParameter(bindings, "value", 0, typeof(int))
+
+    plan := DirectCallPlan(tree, bindings)
+
+    assert plan.ResultType == typeof(bool)
+    assert plan.OperationCount == 3
+    assert plan.OpCodeValues[0] == ColumnarCodePlanContract.Ldstr()
+    assert plan.OpCodeValues[1] == ColumnarCodePlanContract.Ldarga()
+    assert plan.OpCodeValues[2] == ColumnarCodePlanContract.Call()
+    methodIndex := plan.OperandIndices[2]
+    assert plan.Methods[methodIndex].get_Name() == "TryParse"
+    assert plan.MethodParameterTypes[methodIndex][1] == typeof(int).MakeByRefType()
+    assert plan.Methods[methodIndex].GetParameters()[1].get_IsOut()
+}
+
+test "direct-call planner preserves ref mode and evaluation order for ordinary static calls" {
+    tree := DirectCallParsedTree("System.Threading.Interlocked.Exchange(ref value, 2)")
+    ExternalStampScope(tree, "import System.Threading")
+
+    bindings := ColumnarRangePlannerEmptyBindings()
+    ColumnarRangePlannerAddParameter(bindings, "value", 0, typeof(int))
+
+    plan := DirectCallPlan(tree, bindings)
+
+    assert plan.ResultType == typeof(int)
+    assert plan.OperationCount == 3
+    assert plan.OpCodeValues[0] == ColumnarCodePlanContract.Ldarga()
+    assert plan.OpCodeValues[1] == ColumnarCodePlanContract.LdcI4()
+    assert plan.OpCodeValues[2] == ColumnarCodePlanContract.Call()
+    methodIndex := plan.OperandIndices[2]
+    assert plan.Methods[methodIndex].get_Name() == "Exchange"
+    assert plan.MethodParameterTypes[methodIndex][0] == typeof(int).MakeByRefType()
+    assert !plan.Methods[methodIndex].GetParameters()[0].get_IsOut()
+}
+
+test "ordinary static out calls mutate a forwarded byref parameter" {
+    tree := DirectCallParsedTree("int.TryParse(\"123\", out value)")
+    ExternalStampScope(tree, "import System")
+
+    byRefType := typeof(int).MakeByRefType()
+    bindings := ColumnarRangePlannerEmptyBindings()
+    ColumnarRangePlannerAddParameter(bindings, "value", 0, byRefType)
+    plan := DirectCallPlan(tree, bindings)
+
+    parameterTypes := new Type[](1)
+    parameterTypes[0] = byRefType
+    arguments := new object[](1)
+    ExecutorSetObject(arguments, 0, 0)
+    result := DirectCallRunPlan(plan, typeof(bool), parameterTypes, arguments)
+
+    assert Convert.ToBoolean(result)
+    assert Convert.ToInt32(arguments[0]) == 123
+}
+
+test "ordinary static ref calls mutate a forwarded byref parameter" {
+    tree := DirectCallParsedTree("System.Threading.Interlocked.Exchange(ref value, 2)")
+    ExternalStampScope(tree, "import System.Threading")
+
+    byRefType := typeof(int).MakeByRefType()
+    bindings := ColumnarRangePlannerEmptyBindings()
+    ColumnarRangePlannerAddParameter(bindings, "value", 0, byRefType)
+    plan := DirectCallPlan(tree, bindings)
+
+    parameterTypes := new Type[](1)
+    parameterTypes[0] = byRefType
+    arguments := new object[](1)
+    ExecutorSetObject(arguments, 0, 41)
+    result := DirectCallRunPlan(plan, typeof(int), parameterTypes, arguments)
+
+    assert Convert.ToInt32(result) == 41
+    assert Convert.ToInt32(arguments[0]) == 2
+}
+
+test "ordinary static calls preserve side effects across neighboring arguments" {
+    tree := DirectCallParsedTree("Interlocked.CompareExchange(ref value, Interlocked.Exchange(ref value, 7), value)")
+    ExternalStampScope(tree, "import System.Threading")
+
+    byRefType := typeof(int).MakeByRefType()
+    bindings := ColumnarRangePlannerEmptyBindings()
+    ColumnarRangePlannerAddParameter(bindings, "value", 0, byRefType)
+    plan := DirectCallPlan(tree, bindings)
+
+    parameterTypes := new Type[](1)
+    parameterTypes[0] = byRefType
+    arguments := new object[](1)
+    ExecutorSetObject(arguments, 0, 0)
+    result := DirectCallRunPlan(plan, typeof(int), parameterTypes, arguments)
+
+    // The nested Exchange is the second argument and writes seven before the final value read.
+    // CompareExchange then sees seven as its comparand and restores the original zero. If the
+    // neighboring value were evaluated before the nested call, the compare would miss and leave
+    // seven in the forwarded storage instead.
+    assert Convert.ToInt32(result) == 7
+    assert Convert.ToInt32(arguments[0]) == 0
+}
+
+test "ordinary static calls reject ref at an out parameter" {
+    tree := DirectCallParsedTree("int.TryParse(\"123\", ref value)")
+    ExternalStampScope(tree, "import System")
+
+    byRefType := typeof(int).MakeByRefType()
+    bindings := ColumnarRangePlannerEmptyBindings()
+    ColumnarRangePlannerAddParameter(bindings, "value", 0, byRefType)
+    ownership := ColumnarDirectCallOwnership.Planned
+    legacyWholeSubtreePlanning := false
+    _plan := DirectCallRejected(tree, bindings, out ownership, out legacyWholeSubtreePlanning)
+
+    assert ownership == ColumnarDirectCallOwnership.OwnedRejected
+    assert !legacyWholeSubtreePlanning
+}
+
+test "ordinary static out calls assign an uninitialized local before its next read" {
+    plan := DirectCallTryParseLocalBodyPlan()
+    result := DirectCallRunPlan(plan, typeof(int), new Type[](0), new object[](0))
+    assert Convert.ToInt32(result) == 123
+}
+
+test "ordinary static ref calls require an initialized local" {
+    plan := DirectCallInterlockedLocalBodyPlan(0, false)
+    // The plan intentionally takes the local address before any stloc. A ref parameter cannot
+    // establish definite assignment, so validation must stop before a DynamicMethod is emitted.
+    assert throws InvalidOperationException {
+        DirectCallRunPlan(plan, typeof(int), new Type[](0), new object[](0))
+    }
+}
+
+test "ordinary static ref calls mutate an initialized local" {
+    plan := DirectCallInterlockedLocalBodyPlan(41, true)
+    result := DirectCallRunPlan(plan, typeof(int), new Type[](0), new object[](0))
+    assert Convert.ToInt32(result) == 2
+}
+
+test "direct-call planner does not reinterpret a shadowing value as a static owner" {
+    tree := DirectCallParsedTree("int.TryParse(\"123\", out value)")
+    ExternalStampScope(tree, "import System")
+
+    bindings := ColumnarRangePlannerEmptyBindings()
+    bindings.Locals["int"] = ExternalProbeLocal(typeof(int))
+    ColumnarRangePlannerAddParameter(bindings, "value", 0, typeof(int))
+
+    ownership := ColumnarDirectCallOwnership.Planned
+    legacyWholeSubtreePlanning := false
+    _plan := DirectCallRejected(tree, bindings, out ownership, out legacyWholeSubtreePlanning)
+
+    assert ownership == ColumnarDirectCallOwnership.NotOwned
+    assert legacyWholeSubtreePlanning
 }
 
 test "direct-call planner defers nested type-alias receivers but still owns direct aliases" {

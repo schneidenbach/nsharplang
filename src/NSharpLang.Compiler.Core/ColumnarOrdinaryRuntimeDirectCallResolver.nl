@@ -116,7 +116,9 @@ class ColumnarRuntimeOptionalCallSelection {
 }
 
 // Reflection-backed overload selection for ordinary public runtime methods. This owns only
-// fixed-arity, non-generic, non-varargs, non-by-ref, non-params invocations. Candidate ranking
+// fixed-arity, non-generic, non-varargs, non-params invocations. By-reference parameters remain
+// ordinary fixed-arity members when the caller supplies the matching ref/out address; return
+// by-reference and unsupported element signatures stay outside this owner. Candidate ranking
 // deliberately reuses source-call argument scores so source and runtime calls cannot disagree
 // about identity, numeric, reference, and boxing preference tiers.
 class ColumnarOrdinaryRuntimeDirectCallResolver {
@@ -529,13 +531,13 @@ class ColumnarOrdinaryRuntimeDirectCallResolver {
     }
 
     static func HasUnsupportedResolvedSignature(parameters: ParameterInfo[], parameterTypes: Type[], returnType: Type): bool {
-        if parameters.Length != parameterTypes.Length || IsUnsupportedSignatureType(returnType) {
+        if parameters.Length != parameterTypes.Length || IsUnsupportedReturnType(returnType) {
             return true
         }
 
         index := 0
         while index < parameterTypes.Length {
-            if IsUnsupportedSignatureType(parameterTypes[index]) {
+            if IsUnsupportedParameterType(parameterTypes[index]) {
                 return true
             }
 
@@ -545,6 +547,22 @@ class ColumnarOrdinaryRuntimeDirectCallResolver {
         return false
     }
 
+    static func IsUnsupportedReturnType(signatureType: Type): bool {
+        return signatureType.get_IsByRef() || signatureType.get_IsGenericTypeDefinition() || signatureType.get_IsGenericParameter()
+    }
+
+    static func IsUnsupportedParameterType(signatureType: Type): bool {
+        if signatureType.get_IsByRef() {
+            elementType := signatureType.GetElementType()
+            return elementType == null || elementType.get_IsByRef() || elementType.get_IsPointer() || elementType.get_IsGenericTypeDefinition() || elementType.get_IsGenericParameter()
+        }
+
+        return signatureType.get_IsGenericTypeDefinition() || signatureType.get_IsGenericParameter()
+    }
+
+    // Constructor planning has a stricter signature contract than ordinary calls: it does not
+    // emit ref/out constructor parameters. Keep that existing predicate for its owner while the
+    // ordinary method resolver uses IsUnsupportedParameterType above.
     static func IsUnsupportedSignatureType(signatureType: Type): bool {
         return signatureType.get_IsByRef() || signatureType.get_IsGenericTypeDefinition() || signatureType.get_IsGenericParameter()
     }

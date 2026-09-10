@@ -17,6 +17,17 @@ func OrdinaryRuntimeArgumentTypes2(first: Type, second: Type): Type[] {
     return arguments
 }
 
+func OrdinaryRuntimeArgumentTypes6(first: Type, second: Type, third: Type, fourth: Type, fifth: Type, sixth: Type): Type[] {
+    arguments := new Type[](6)
+    arguments[0] = first
+    arguments[1] = second
+    arguments[2] = third
+    arguments[3] = fourth
+    arguments[4] = fifth
+    arguments[5] = sixth
+    return arguments
+}
+
 func RequiredOrdinaryRuntimeType(fullName: string): Type {
     runtimeType := Type.GetType(fullName)
     if runtimeType == null {
@@ -165,7 +176,7 @@ test "ordinary runtime direct calls reject incompatible and equal-score ambiguou
     assert ambiguous.Method == null
 }
 
-test "ordinary runtime direct calls exclude generic params byref and optional expansion owners" {
+test "ordinary runtime direct calls select fixed byref and exclude generic params and optional expansion owners" {
     genericCall := ColumnarOrdinaryRuntimeDirectCallResolver.Resolve(typeof(Array), "Empty", new Type[](0), true)
     assert genericCall.Status == ColumnarOrdinaryRuntimeDirectCallStatus.Excluded
     assert genericCall.IsExcluded
@@ -177,15 +188,49 @@ test "ordinary runtime direct calls exclude generic params byref and optional ex
     assert paramsCall.IsExcluded
     assert paramsCall.Method == null
 
-    byRefCall := ColumnarOrdinaryRuntimeDirectCallResolver.Resolve(typeof(int), "TryParse", OrdinaryRuntimeArgumentTypes2(typeof(string), typeof(int)), true)
-    assert byRefCall.Status == ColumnarOrdinaryRuntimeDirectCallStatus.Excluded
-    assert byRefCall.IsExcluded
-    assert byRefCall.Method == null
+    byRefType := typeof(int).MakeByRefType()
+    byRefCall := RequiredOrdinaryRuntimeSelection(typeof(int), "TryParse", OrdinaryRuntimeArgumentTypes2(typeof(string), byRefType), true)
+    assert byRefCall.Method != null
+    assert byRefCall.ParameterTypes.Length == 2
+    assert byRefCall.ParameterTypes[0] == typeof(string)
+    assert byRefCall.ParameterTypes[1] == byRefType
+    assert byRefCall.ReturnType == typeof(bool)
+    assert byRefCall.Kind == ColumnarExternalCallKind.Call
+    assert byRefCall.IsStatic
+    assert !byRefCall.UsesCallVirtual
+
+    incompatibleByRef := ColumnarOrdinaryRuntimeDirectCallResolver.Resolve(typeof(int), "TryParse", OrdinaryRuntimeArgumentTypes2(typeof(string), typeof(long).MakeByRefType()), true)
+    assert incompatibleByRef.Status == ColumnarOrdinaryRuntimeDirectCallStatus.Rejected
+    assert incompatibleByRef.IsOwnedRejected
+    assert incompatibleByRef.Method == null
 
     optionalExpansion := ColumnarOrdinaryRuntimeDirectCallResolver.Resolve(typeof(string), "Split", OrdinaryRuntimeArgumentTypes1(typeof(char)), false)
     assert optionalExpansion.Status == ColumnarOrdinaryRuntimeDirectCallStatus.Excluded
     assert optionalExpansion.IsExcluded
     assert optionalExpansion.Method == null
+}
+
+test "ordinary runtime direct calls select external six-argument out calls" {
+    kernel := RequiredOrdinaryRuntimeType("NSharpLang.Compiler.CodeIntelligence.CodeIntelligenceSourceTextKernels, NSharpLang.Compiler.Core")
+    prefixOutType := typeof(string).MakeByRefType()
+    arguments := OrdinaryRuntimeArgumentTypes6(typeof(object), typeof(string), typeof(string), typeof(int), typeof(int), prefixOutType)
+    selection := RequiredOrdinaryRuntimeSelection(kernel, "TryExtractCompletionPrefix", arguments, true)
+
+    assert selection.Method != null
+    assert selection.LookupType == kernel
+    assert selection.DeclaringType == kernel
+    assert selection.ParameterTypes.Length == 6
+    assert selection.ParameterTypes[0] == typeof(object)
+    assert selection.ParameterTypes[1] == typeof(string)
+    assert selection.ParameterTypes[2] == typeof(string)
+    assert selection.ParameterTypes[3] == typeof(int)
+    assert selection.ParameterTypes[4] == typeof(int)
+    assert selection.ParameterTypes[5] == prefixOutType
+    assert selection.ReturnType == typeof(bool)
+    assert selection.Kind == ColumnarExternalCallKind.Call
+    assert selection.IsStatic
+    assert !selection.ReceiverIsReference
+    assert !selection.UsesCallVirtual
 }
 
 test "ordinary runtime direct calls select optional parameters when every argument is explicit" {

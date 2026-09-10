@@ -330,6 +330,75 @@ class ColumnarBoundIdentifierPlanner {
         return true
     }
 
+    // Ref/out arguments consume the address of a simple live binding. Keep this lookup beside the
+    // ordinary identifier owner so the call planner uses the same lexical storage facts as value
+    // reads: lifted/boxed captures and current properties remain outside this addressable surface.
+    static func TryGetAddressableTargetType(nodes: ColumnarNodeTable, source: string, node: int, bindings: ColumnarFragmentBindings, out resultType: Type): bool {
+        resultType = typeof(int)
+        candidate := UnwrapParentheses(nodes, node)
+        if candidate < 0 || nodes.Kind(candidate) != ColumnarExpressionNodeKind.IdentifierExpression() || nodes.ChildCount(candidate) != 0 {
+            return false
+        }
+
+        selection := EmptySelection()
+        if !TryResolve(nodes, source, candidate, bindings, out selection) {
+            return false
+        }
+
+        if selection.Kind != ColumnarBoundIdentifierKind.Local && selection.Kind != ColumnarBoundIdentifierKind.PlanLocal && selection.Kind != ColumnarBoundIdentifierKind.Parameter && selection.Kind != ColumnarBoundIdentifierKind.ByRefParameter {
+            return false
+        }
+
+        resultType = selection.ResultType
+        return resultType != null && resultType.FullName != "System.Void" && !resultType.get_IsByRef() && !resultType.get_IsGenericTypeDefinition()
+    }
+
+    // Append the matching managed address for a simple ref/out target. `Local` and `PlanLocal` use
+    // their own local pools; a normal parameter needs ldarga, while an existing by-ref parameter
+    // already supplies its address through ldarg. No value is copied or re-resolved here.
+    static func TryAppendAddressableTarget(nodes: ColumnarNodeTable, source: string, node: int, bindings: ColumnarFragmentBindings, plan: ColumnarCodePlan, expectedType: Type, out resultType: Type): bool {
+        resultType = typeof(int)
+        if expectedType == null || plan == null {
+            return false
+        }
+
+        candidate := UnwrapParentheses(nodes, node)
+        if candidate < 0 || nodes.Kind(candidate) != ColumnarExpressionNodeKind.IdentifierExpression() || nodes.ChildCount(candidate) != 0 {
+            return false
+        }
+
+        selection := EmptySelection()
+        if !TryResolve(nodes, source, candidate, bindings, out selection) || !TryGetAddressableTargetType(nodes, source, candidate, bindings, out resultType) || !ColumnarSourceDirectCallResolver.ExactTypeShapeMatches(resultType, expectedType) {
+            return false
+        }
+
+        if selection.Kind == ColumnarBoundIdentifierKind.Local {
+            local := RequiredLocal(selection.Local, "An addressable local selection has no local.")
+            localIndex := plan.AddAmbientLocal(local)
+            plan.AppendAmbientLocalInstruction(ColumnarCodePlanContract.Ldloca(), localIndex)
+            return true
+        }
+
+        if selection.Kind == ColumnarBoundIdentifierKind.PlanLocal {
+            plan.AppendPlanLocalInstruction(ColumnarCodePlanContract.Ldloca(), selection.PlanLocalIndex)
+            return true
+        }
+
+        if selection.Kind == ColumnarBoundIdentifierKind.Parameter {
+            argumentIndex := GetOrAddArgument(plan, selection.Ordinal, resultType, false)
+            plan.AppendArgumentInstruction(ColumnarCodePlanContract.Ldarga(), argumentIndex)
+            return true
+        }
+
+        if selection.Kind == ColumnarBoundIdentifierKind.ByRefParameter {
+            argumentIndex := GetOrAddArgument(plan, selection.Ordinal, resultType, true)
+            plan.AppendArgumentInstruction(ColumnarCodePlanContract.Ldarg(), argumentIndex)
+            return true
+        }
+
+        return false
+    }
+
     // Append a simple receiver. When preserveValueStorage is true, an ordinary source-struct
     // local/parameter is loaded by managed address (`ldloca`/`ldarga`) and a byref parameter uses
     // its existing address (`ldarg`). Other bindings keep the ordinary value-read lowering.
