@@ -852,39 +852,6 @@ class ColumnarCanonicalTypeResolver {
             return true
         }
 
-        // A NULLABLE ANNOTATION, read exactly as the ordinary walk reads it. `List<T>?` and
-        // `Action<T>?` are the same CLR types as `List<T>` and `Action<T>` — the `?` is the
-        // analyzer's flow fact, not a metadata one — and a value type lifts into `Nullable<T>`.
-        // Without this branch the annotation was simply part of the name, so a field spelled
-        // `remove: Action<THandler>?` resolved to nothing while `remove: Action<THandler>` resolved.
-        if canonical.EndsWith("?", StringComparison.Ordinal) {
-            annotated := ColumnarSelectedTypeReference.Missing(table)
-            if canonical.Length > 1 && TrySelectRuntimeTypeWithTypeParams(
-                canonical.Substring(0, canonical.Length - 1),
-                typeParams,
-                enumRegistry,
-                structRegistry,
-                unionRegistry,
-                out annotated
-            ) {
-                // `T?` on a TYPE PARAMETER stays `T`. Which of `Nullable<T>` and `T` it means is
-                // decided per instantiation, and the CLR has no way to write that down: C# emits the
-                // parameter itself and carries the annotation in an attribute.
-                if annotated.RuntimeType.get_IsGenericParameter() || !annotated.RuntimeType.get_IsValueType() {
-                    selected = annotated
-                    return true
-                }
-                if ColumnarTypeOfPlanner.IsLiftableNullableElement(annotated.RuntimeType) {
-                    nullableDefinition := ColumnarTypeOfPlanner.RequiredNullableDefinition()
-                    runtimeType := nullableDefinition.MakeGenericType(SelectedRuntimeTypes(SelectedSingle(annotated)))
-                    selected = ConstructedSelection(table, runtimeType, nullableDefinition, SelectedSingle(annotated))
-                    return true
-                }
-            }
-            selected = ColumnarSelectedTypeReference.Missing(table)
-            return false
-        }
-
         elementParameter := typeof(object)
         if canonical.EndsWith("[]", StringComparison.Ordinal) && typeParams.TryGetValue(
             canonical.Substring(0, canonical.Length - 2),
