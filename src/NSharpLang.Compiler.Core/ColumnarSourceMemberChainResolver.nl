@@ -131,14 +131,21 @@ class ColumnarSourceMemberChainResolver {
     }
 
     static func TryFindStaticFieldOnChain(definition: ColumnarStructDef, name: string, out field: FieldBuilder?): bool {
+        owner: ColumnarStructDef? = null
+        return TryFindStaticFieldOnChain(definition, name, out owner, out field)
+    }
+
+    static func TryFindStaticFieldOnChain(definition: ColumnarStructDef, name: string, out owner: ColumnarStructDef?, out field: FieldBuilder?): bool {
         current: ColumnarStructDef? = definition
         while current != null {
             candidate := current
             if candidate.StaticFields.TryGetValue(name, out field) {
+                owner = candidate
                 return true
             }
             current = candidate.BaseDef
         }
+        owner = null
         field = null
         return false
     }

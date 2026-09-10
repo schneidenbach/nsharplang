@@ -690,11 +690,11 @@ class AnalyzerWriteTargets {
         for member in currentMembers {
             field := member as FieldDeclaration
             if field != null && field.Name == fieldName {
-                if !HasModifier(field.Modifiers, Modifiers.Readonly) {
+                if !HasModifier(field.Modifiers, Modifiers.Readonly) && !HasModifier(field.Modifiers, Modifiers.Const) {
                     return false
                 }
 
-                isStatic := HasModifier(field.Modifiers, Modifiers.Static)
+                isStatic := HasModifier(field.Modifiers, Modifiers.Static) || HasModifier(field.Modifiers, Modifiers.Const)
                 readonlyTarget = new ReadonlyFieldTarget(field.Name, isStatic, !isStatic)
                 return true
             }

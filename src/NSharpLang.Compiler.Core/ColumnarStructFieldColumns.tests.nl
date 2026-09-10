@@ -3,7 +3,7 @@ namespace NSharpLang.Compiler.Columnar
 import System
 import System.Collections.Generic
 
-test "struct field columns copy every row and decode all four metadata bits" {
+test "struct field columns copy every row and decode all five metadata bits" {
     rawNames := new string[](3)
     rawNames[0] = "first"
     rawNames[1] = "second"
@@ -15,7 +15,7 @@ test "struct field columns copy every row and decode all four metadata bits" {
     packedFlags := new int[](3)
     packedFlags[0] = 0
     packedFlags[1] = 7
-    packedFlags[2] = 9
+    packedFlags[2] = 25
     rawInitKinds := new int[](3)
     rawInitKinds[0] = 4
     rawInitKinds[1] = -1
@@ -54,6 +54,9 @@ test "struct field columns copy every row and decode all four metadata bits" {
     assert !columns.FieldThreadStaticFlags[0]
     assert !columns.FieldThreadStaticFlags[1]
     assert columns.FieldThreadStaticFlags[2]
+    assert !columns.FieldConstFlags[0]
+    assert !columns.FieldConstFlags[1]
+    assert columns.FieldConstFlags[2]
 
     assert columns.FieldInitKinds[0] == 4
     assert columns.FieldInitKinds[1] == -1
@@ -98,6 +101,9 @@ test "struct input defaults new field metadata columns and retains supplied arra
     assert defaulted.FieldThreadStaticFlags.Length == 2
     assert !defaulted.FieldThreadStaticFlags[0]
     assert !defaulted.FieldThreadStaticFlags[1]
+    assert defaulted.FieldConstFlags.Length == 2
+    assert !defaulted.FieldConstFlags[0]
+    assert !defaulted.FieldConstFlags[1]
 
     privateFlags := new bool[](2)
     privateFlags[1] = true
@@ -126,8 +132,10 @@ test "struct input defaults new field metadata columns and retains supplied arra
         null,
         null,
         privateFlags,
-        threadStaticFlags
+        threadStaticFlags,
+        null
     )
     assert Object.ReferenceEquals(supplied.FieldPrivateFlags, privateFlags)
     assert Object.ReferenceEquals(supplied.FieldThreadStaticFlags, threadStaticFlags)
+    assert supplied.FieldConstFlags.Length == 2
 }

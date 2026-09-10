@@ -1417,16 +1417,30 @@ test "the case label names the plain description or the description plus its row
 // which is why every caller must ask rather than remember.
 
 test "the field flag word separates static readonly private and ThreadStatic across its whole domain" {
-    // The scan packs four independent booleans, so all sixteen words must decode without equality
+    // The scan packs five independent booleans, so all thirty-two words must decode without equality
     // shortcuts that would silently break when a later bit is present.
     flags := 0
-    while flags < 16 {
+    while flags < 32 {
         assert ColumnarStructFieldFlagIsStatic(flags) == ((flags & 1) != 0)
         assert ColumnarStructFieldFlagIsReadonly(flags) == ((flags & 2) != 0)
         assert ColumnarStructFieldFlagIsPrivate(flags) == ((flags & 4) != 0)
         assert ColumnarStructFieldFlagIsThreadStatic(flags) == ((flags & 8) != 0)
+        assert ColumnarStructFieldFlagIsConst(flags) == ((flags & 16) != 0)
         flags = flags + 1
     }
+}
+
+test "the struct parser gives a const field static storage and the const flag" {
+    probe := new ColumnarStructDeclarationParseProbe(
+        "class Constants {\n" + "const Answer: int = 17\n" + "}"
+    )
+
+    assert probe.FieldCount == 1
+    assert probe.FieldNameTexts[0] == "Answer"
+    assert probe.FieldTypeTexts[0] == "int"
+    assert probe.FieldStaticFlags[0] == 17
+    assert probe.FieldInitKinds[0] == 1
+    assert probe.FieldInitTexts[0] == "17"
 }
 
 test "the struct parser recognizes only exact qualified no-argument System ThreadStatic spellings" {

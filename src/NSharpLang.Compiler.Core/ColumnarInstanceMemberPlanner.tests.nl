@@ -58,6 +58,29 @@ class ColumnarOrdinaryMemberDerivedProbe: ColumnarOrdinaryMemberBaseProbe {
     }
 }
 
+struct ColumnarOrdinaryValueMemberProbe {
+    Value: int
+
+    constructor(value: int) {
+        Value = value
+    }
+
+    Incremented: int {
+        get {
+            Value = Value + 1
+            return Value
+        }
+    }
+}
+
+class ColumnarOrdinaryValueOwnerProbe {
+    Item: ColumnarOrdinaryValueMemberProbe
+
+    constructor(value: int) {
+        Item = new ColumnarOrdinaryValueMemberProbe(value)
+    }
+}
+
 func InstanceMemberTree(receiverName: string, memberName: string): ColumnarRangePlannerTestTree {
     builder := new ColumnarRangePlannerNodeBuilder()
     receiver := builder.AddLeaf(ColumnarExpressionNodeKind.IdentifierExpression(), receiverName)
@@ -1117,6 +1140,7 @@ test "instance member runtime admission rejects pointer and open generic externa
     openGenericType := typeof(Dictionary<int, int>).GetGenericTypeDefinition()
     assert !ColumnarRuntimeInstanceMemberResolver.IsSupportedExternalReferenceShape(pointerType)
     assert !ColumnarRuntimeInstanceMemberResolver.IsSupportedExternalReferenceShape(openGenericType)
+    assert !ColumnarRuntimeInstanceMemberResolver.CanOwnOrdinaryExternalReceiver(typeof(Span<int>))
 
     sourceBuilder := TypeOfCreateBuilder("OrdinaryMemberOpenSource", "OrdinaryMemberOpenSourceAsm", 0)
     assert !ColumnarRuntimeInstanceMemberResolver.CanOwnOrdinaryExternalReceiver(sourceBuilder)
@@ -1189,6 +1213,125 @@ test "ordinary baked getter plans evaluate the receiver once and preserve getter
     ExecutorSetObject(methodArguments, 0, receiver)
     assert BoundInvokeText(method, methodArguments) == "observed"
     assert ColumnarOrdinaryMemberBaseProbe.ReadCount == 1
+}
+
+test "ordinary value receivers select Location fields and address parameters" {
+    assert ColumnarRuntimeInstanceMemberResolver.CanOwnOrdinaryExternalReceiver(typeof(Location))
+
+    lineSelection := ColumnarRuntimeInstanceMemberSelection.Empty()
+    assert ColumnarRuntimeInstanceMemberResolver.TrySelect(typeof(Location), "Line", out lineSelection)
+    assert lineSelection.IsField
+    assert lineSelection.DeclaringType == typeof(Location)
+    assert lineSelection.ResultType == typeof(int)
+    assert !lineSelection.ReceiverIsReference
+
+    fileSelection := ColumnarRuntimeInstanceMemberSelection.Empty()
+    assert ColumnarRuntimeInstanceMemberResolver.TrySelect(typeof(Location), "FilePath", out fileSelection)
+    assert fileSelection.IsField
+    assert fileSelection.DeclaringType == typeof(Location)
+    assert fileSelection.ResultType == typeof(string)
+    assert !fileSelection.ReceiverIsReference
+
+    bindings := ColumnarRangePlannerEmptyBindings()
+    ColumnarRangePlannerAddParameter(bindings, "location", 0, typeof(Location))
+    plan := InstanceMemberPlan(InstanceMemberTree("location", "Line"), bindings)
+
+    assert plan.ResultType == typeof(int)
+    assert plan.OpCodeValues[0] == ColumnarCodePlanContract.Ldarga()
+    assert plan.OpCodeValues[1] == ColumnarCodePlanContract.Ldfld()
+    assert plan.ArgumentCount == 1
+    assert !plan.ArgumentIsAddress[0]
+
+    parameterTypes := new Type[](1)
+    parameterTypes[0] = typeof(Location)
+    method := BoundDynamicMethod("OrdinaryLocationField", typeof(int), parameterTypes)
+    il := method.GetILGenerator()
+    ColumnarCodePlanExecutor.Execute(plan, il)
+    il.Emit(OpCodes.Ret)
+
+    arguments := new object[](1)
+    ExecutorSetObject(arguments, 0, new Location(37, 5, "sample.nl"))
+    assert BoundInvokeText(method, arguments) == "37"
+}
+
+test "ordinary value receiver getter keeps an addressable parameter without a copy" {
+    bindings := ColumnarRangePlannerEmptyBindings()
+    ColumnarRangePlannerAddParameter(bindings, "receiver", 0, typeof(ColumnarOrdinaryValueMemberProbe))
+    plan := InstanceMemberPlan(InstanceMemberTree("receiver", "Incremented"), bindings)
+
+    assert plan.ResultType == typeof(int)
+    assert plan.OpCodeValues[0] == ColumnarCodePlanContract.Ldarga()
+    assert plan.OpCodeValues[1] == ColumnarCodePlanContract.Call()
+    assert plan.ArgumentCount == 1
+    assert !plan.ArgumentIsAddress[0]
+
+    valueField := typeof(ColumnarOrdinaryValueMemberProbe).GetField("Value")
+    if valueField == null {
+        throw new InvalidOperationException("Ordinary value-member probe field was not found.")
+    }
+
+    parameterTypes := new Type[](1)
+    parameterTypes[0] = typeof(ColumnarOrdinaryValueMemberProbe)
+    method := BoundDynamicMethod("OrdinaryValueAddressableGetter", typeof(int), parameterTypes)
+    il := method.GetILGenerator()
+    ColumnarCodePlanExecutor.Execute(plan, il)
+    il.Emit(OpCodes.Pop)
+    il.Emit(OpCodes.Ldarg_0)
+    il.Emit(OpCodes.Ldfld, valueField)
+    il.Emit(OpCodes.Ret)
+
+    arguments := new object[](1)
+    ExecutorSetObject(arguments, 0, new ColumnarOrdinaryValueMemberProbe(41))
+    assert BoundInvokeText(method, arguments) == "42"
+}
+
+test "ordinary value receiver temporary spills preserve collection value-copy semantics" {
+    probeListType := typeof(List<ColumnarOrdinaryValueMemberProbe>)
+    bindings := ColumnarRangePlannerEmptyBindings()
+    ColumnarRangePlannerAddParameter(bindings, "items", 0, probeListType)
+    plan := InstanceMemberPlan(InstanceIndexerMemberTree("items", "Incremented"), bindings)
+
+    assert plan.ResultType == typeof(int)
+    assert plan.PlanLocalCount == 1
+    assert plan.OpCodeValues[0] == ColumnarCodePlanContract.Ldarg()
+    assert plan.OpCodeValues[plan.OperationCount - 2] == ColumnarCodePlanContract.Ldloca()
+    assert plan.OpCodeValues[plan.OperationCount - 1] == ColumnarCodePlanContract.Call()
+
+    valueField := typeof(ColumnarOrdinaryValueMemberProbe).GetField("Value")
+    if valueField == null {
+        throw new InvalidOperationException("Ordinary value-member probe field was not found.")
+    }
+
+    itemProperty := probeListType.GetProperty("Item")
+    if itemProperty == null {
+        throw new InvalidOperationException("List item property was not found.")
+    }
+
+    itemGetter := itemProperty.GetGetMethod()
+    if itemGetter == null {
+        throw new InvalidOperationException("List item getter was not found.")
+    }
+
+    parameterTypes := new Type[](1)
+    parameterTypes[0] = probeListType
+    method := BoundDynamicMethod("OrdinaryValueTemporarySpill", typeof(int), parameterTypes)
+    il := method.GetILGenerator()
+    resultLocal := il.DeclareLocal(typeof(int))
+    ColumnarCodePlanExecutor.Execute(plan, il)
+    il.Emit(OpCodes.Stloc, resultLocal)
+    il.Emit(OpCodes.Ldloc, resultLocal)
+    il.Emit(OpCodes.Ldarg_0)
+    il.Emit(OpCodes.Ldc_I4_0)
+    il.Emit(OpCodes.Callvirt, itemGetter)
+    il.Emit(OpCodes.Ldfld, valueField)
+    il.Emit(OpCodes.Sub)
+    il.Emit(OpCodes.Ret)
+
+    items := new List<ColumnarOrdinaryValueMemberProbe>()
+    items.Add(new ColumnarOrdinaryValueMemberProbe(41))
+    arguments := new object[](1)
+    ExecutorSetObject(arguments, 0, items)
+    assert BoundInvokeText(method, arguments) == "1"
 }
 
 test "instance member planner terminally declines exact ref-return properties" {

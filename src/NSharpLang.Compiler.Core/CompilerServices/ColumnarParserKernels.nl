@@ -6888,6 +6888,10 @@ func ModifierFlag(kind: int): int {
         return 16
     }
 
+    if kind == 21 {
+        return 1024
+    }
+
     if kind == 58 {
         return 32
     }
@@ -9437,7 +9441,7 @@ func ParserDeclarationMemberModifierKind(kind: int): int {
         return 1
     }
 
-    if kind == 22 || kind == 58 || kind == 59 || kind == 60 || kind == 61 || kind == 62 || kind == 68 || kind == 81 {
+    if kind == 21 || kind == 22 || kind == 58 || kind == 59 || kind == 60 || kind == 61 || kind == 62 || kind == 68 || kind == 81 {
         return 3
     }
 
@@ -9585,6 +9589,13 @@ func ParseMemberModifierPrefixCore(source: string, tokens: ParserDeclarationToke
             if flag != 0 {
                 result.Values[2] = result.Values[2] | flag
             }
+        }
+
+        // A const field has static storage in the source model even though the spelling omits
+        // `static`. Keep the existing static marker column authoritative for every downstream
+        // field/initializer decision, and carry the Const bit separately in the packed flags.
+        if tokens.Kinds[pos] == 21 {
+            result.Values[0] = 1
         }
 
         if modifierKind == 2 {
@@ -10415,6 +10426,9 @@ func ParseStructDeclarationCore(source: string, tokens: ParserDeclarationTokenTa
             }
             if memberModifiers.Values[3] == 1 {
                 fieldModifierFlags = fieldModifierFlags + 8
+            }
+            if (memberModifiers.Values[2] & 1024) != 0 {
+                fieldModifierFlags = fieldModifierFlags + 16
             }
 
             decl.FieldStaticFlags[fieldCount] = fieldModifierFlags
@@ -13466,9 +13480,10 @@ func ColumnarStructFieldFlagIsStatic(flags: int): bool {
     return (flags & 1) != 0
 }
 
-// The field word packs four independent facts: bit 0 `static`, bit 1 `readonly`, bit 2 `private`,
-// and bit 3 the exact System.ThreadStatic intrinsic. The columnar input builder used to decode the
-// first two itself; every bit's meaning belongs to the kernel that writes the word.
+// The field word packs five independent facts: bit 0 `static`, bit 1 `readonly`, bit 2 `private`,
+// bit 3 the exact System.ThreadStatic intrinsic, and bit 4 `const`. The columnar input builder
+// used to decode the first two itself; every bit's meaning belongs to the kernel that writes the
+// word.
 func ColumnarStructFieldFlagIsReadonly(flags: int): bool {
     return (flags & 2) != 0
 }
@@ -13479,6 +13494,10 @@ func ColumnarStructFieldFlagIsPrivate(flags: int): bool {
 
 func ColumnarStructFieldFlagIsThreadStatic(flags: int): bool {
     return (flags & 8) != 0
+}
+
+func ColumnarStructFieldFlagIsConst(flags: int): bool {
+    return (flags & 16) != 0
 }
 
 // Property prefix flags share the existing integer output column: bit 0 is static, bit 1 is the

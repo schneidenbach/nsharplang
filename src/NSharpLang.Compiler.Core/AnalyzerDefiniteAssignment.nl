@@ -84,7 +84,8 @@ class AnalyzerDefiniteAssignment {
     static func HasStaticModifier(modifiers: Modifiers): bool {
         modifierValue := Convert.ToInt32(modifiers)
         staticFlag := Convert.ToInt32(Modifiers.Static)
-        return (modifierValue & staticFlag) == staticFlag
+        constFlag := Convert.ToInt32(Modifiers.Const)
+        return (modifierValue & staticFlag) == staticFlag || (modifierValue & constFlag) == constFlag
     }
 
     // An ordinal-comparer copy of a name set. `new HashSet<string>(source, comparer)` is the shape

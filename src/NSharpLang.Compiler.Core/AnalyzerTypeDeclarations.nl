@@ -2705,7 +2705,8 @@ class AnalyzerTypeDeclarations {
     }
 
     static func HasStaticModifier(modifiers: Modifiers): bool {
-        return (Convert.ToInt32(modifiers) & Convert.ToInt32(Modifiers.Static)) != 0
+        modifierValue := Convert.ToInt32(modifiers)
+        return (modifierValue & Convert.ToInt32(Modifiers.Static)) != 0 || (modifierValue & Convert.ToInt32(Modifiers.Const)) != 0
     }
 
     // A TYPE'S DISPLAY TEXT, THROUGH `object`. A `ToString()` on the TYPED receiver declines columnar

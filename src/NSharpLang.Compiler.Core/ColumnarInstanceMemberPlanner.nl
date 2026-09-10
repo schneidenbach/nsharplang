@@ -463,7 +463,7 @@ class ColumnarInstanceMemberPlanner {
             return false
         }
 
-        selection = new ColumnarInstanceMemberSelection(runtime.IsField ? ColumnarInstanceMemberKind.Field : ColumnarInstanceMemberKind.Property, runtime.ReceiverIsReference, false, runtime.DeclaringType, runtime.ResultType, runtime.Field, runtime.Getter)
+        selection = new ColumnarInstanceMemberSelection(runtime.IsField ? ColumnarInstanceMemberKind.Field : ColumnarInstanceMemberKind.Property, runtime.ReceiverIsReference, !runtime.ReceiverIsReference, runtime.DeclaringType, runtime.ResultType, runtime.Field, runtime.Getter)
 
         return true
     }

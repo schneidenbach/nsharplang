@@ -78,7 +78,8 @@ class CompletionDeclarationFacts {
     static func HasStaticModifier(modifiers: Modifiers): bool {
         value := Convert.ToInt32(modifiers)
         staticFlag := Convert.ToInt32(Modifiers.Static)
-        return (value & staticFlag) == staticFlag
+        constFlag := Convert.ToInt32(Modifiers.Const)
+        return (value & staticFlag) == staticFlag || (value & constFlag) == constFlag
     }
 
     // THE SAME SENTENCE AS `ToCompletionItem`, SAID ABOUT A SEMANTIC MEMBER INSTEAD OF AN AST

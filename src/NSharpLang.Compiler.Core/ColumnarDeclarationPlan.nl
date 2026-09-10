@@ -57,8 +57,10 @@ class ColumnarTypeDefRows {
 }
 
 // The FIELD family, jagged by declaring struct. `FieldAttributes` (ECMA-335 II.23.1.5) as integers:
-// Private 1, Public 6, Static 16, InitOnly 32. ThreadStatic is custom metadata and therefore stays
-// an explicit boolean beside the attribute word for the field metadata executor.
+// Private 1, Public 6, Static 16, InitOnly 32, Literal 64 and HasDefault 32768. ThreadStatic is
+// custom metadata and therefore stays an explicit boolean beside the attribute word for the field
+// metadata executor. Literal fields also retain an explicit fact so the body emitter can load their
+// Constant-table value instead of issuing an invalid `ldsfld`.
 class ColumnarFieldRows {
     StructCount: int
     FieldNames: string[][]
@@ -66,6 +68,7 @@ class ColumnarFieldRows {
     FieldIsStatic: bool[][]
     FieldIsThreadStatic: bool[][]
     FieldIsNullable: bool[][]
+    FieldIsLiteral: bool[][]
 
     constructor(
         structCount: int,
@@ -73,7 +76,8 @@ class ColumnarFieldRows {
         fieldAttributeWords: int[][],
         fieldIsStatic: bool[][],
         fieldIsThreadStatic: bool[][],
-        fieldIsNullable: bool[][]
+        fieldIsNullable: bool[][],
+        fieldIsLiteral: bool[][]
     ) {
         StructCount = structCount
         FieldNames = fieldNames
@@ -81,6 +85,7 @@ class ColumnarFieldRows {
         FieldIsStatic = fieldIsStatic
         FieldIsThreadStatic = fieldIsThreadStatic
         FieldIsNullable = fieldIsNullable
+        FieldIsLiteral = fieldIsLiteral
     }
 }
 
@@ -1451,14 +1456,26 @@ class ColumnarDeclarationPlanner {
         return 32
     }
 
-    // Private 1 or Public 6; +Static 16 for a static field; +InitOnly 32 for a readonly one.
-    static func FieldAttributesFor(isStatic: bool, isReadonly: bool, isPrivate: bool): int {
+    static func LiteralFieldAttribute(): int {
+        return 64
+    }
+
+    static func HasDefaultFieldAttribute(): int {
+        return 32768
+    }
+
+    // Private 1 or Public 6; +Static 16 for a static field; +InitOnly 32 for a readonly one;
+    // +Literal 64 and +HasDefault 32768 for a const field. Literal storage is static and cannot
+    // also carry InitOnly, because the CLR Constant table is the field's complete value contract.
+    static func FieldAttributesFor(isStatic: bool, isReadonly: bool, isPrivate: bool, isLiteral: bool = false): int {
         bits := isPrivate ? PrivateFieldAttribute() : PublicFieldAttribute()
-        if isStatic {
+        if isStatic || isLiteral {
             bits = bits | StaticFieldAttribute()
         }
 
-        if isReadonly {
+        if isLiteral {
+            bits = bits | LiteralFieldAttribute() | HasDefaultFieldAttribute()
+        } else if isReadonly {
             bits = bits | InitOnlyFieldAttribute()
         }
 
@@ -1489,6 +1506,13 @@ class ColumnarDeclarationPlanner {
         return false
     }
 
+    static func FieldIsLiteralAt(input: ColumnarStructInput, index: int): bool {
+        if index < input.FieldConstFlags.Length {
+            return input.FieldConstFlags[index]
+        }
+        return false
+    }
+
     // A NULLABLE FIELD is one whose CANONICAL type text ends in `?`. The emitter records those names
     // on the type definition, so this decides stored state and is planner work.
     static func FieldIsNullableAt(input: ColumnarStructInput, index: int): bool {
@@ -1503,6 +1527,7 @@ class ColumnarDeclarationPlanner {
         statics := new bool[][](count)
         threadStatics := new bool[][](count)
         nullables := new bool[][](count)
+        literals := new bool[][](count)
 
         index := 0
         while index < count {
@@ -1513,14 +1538,17 @@ class ColumnarDeclarationPlanner {
             fieldStatics := new bool[](fieldCount)
             fieldThreadStatics := new bool[](fieldCount)
             fieldNullables := new bool[](fieldCount)
+            fieldLiterals := new bool[](fieldCount)
             field := 0
             while field < fieldCount {
                 fieldNames[field] = input.FieldNames[field]
-                isStatic := input.FieldStaticFlags[field]
+                isLiteral := FieldIsLiteralAt(input, field)
+                isStatic := input.FieldStaticFlags[field] || isLiteral
                 fieldStatics[field] = isStatic
                 isPrivate := FieldIsPrivateAt(input, field)
                 fieldThreadStatics[field] = FieldIsThreadStaticAt(input, field)
-                fieldWords[field] = FieldAttributesFor(isStatic, FieldIsReadonlyAt(input, field), isPrivate)
+                fieldLiterals[field] = isLiteral
+                fieldWords[field] = FieldAttributesFor(isStatic, FieldIsReadonlyAt(input, field), isPrivate, isLiteral)
                 fieldNullables[field] = FieldIsNullableAt(input, field)
                 field = field + 1
             }
@@ -1529,10 +1557,11 @@ class ColumnarDeclarationPlanner {
             statics[index] = fieldStatics
             threadStatics[index] = fieldThreadStatics
             nullables[index] = fieldNullables
+            literals[index] = fieldLiterals
             index = index + 1
         }
 
-        return new ColumnarFieldRows(count, names, words, statics, threadStatics, nullables)
+        return new ColumnarFieldRows(count, names, words, statics, threadStatics, nullables, literals)
     }
 
     static func BuildTypeDefs(program: ColumnarProgramInput): ColumnarTypeDefRows {

@@ -7,6 +7,7 @@ class ColumnarStructFieldColumns {
     FieldReadonlyFlags: bool[]
     FieldPrivateFlags: bool[]
     FieldThreadStaticFlags: bool[]
+    FieldConstFlags: bool[]
     FieldInitKinds: int[]
     FieldInitTexts: string[]
 
@@ -17,6 +18,7 @@ class ColumnarStructFieldColumns {
         fieldReadonlyFlags: bool[],
         fieldPrivateFlags: bool[],
         fieldThreadStaticFlags: bool[],
+        fieldConstFlags: bool[],
         fieldInitKinds: int[],
         fieldInitTexts: string[]
     ) {
@@ -26,6 +28,7 @@ class ColumnarStructFieldColumns {
         FieldReadonlyFlags = fieldReadonlyFlags
         FieldPrivateFlags = fieldPrivateFlags
         FieldThreadStaticFlags = fieldThreadStaticFlags
+        FieldConstFlags = fieldConstFlags
         FieldInitKinds = fieldInitKinds
         FieldInitTexts = fieldInitTexts
     }
@@ -46,6 +49,7 @@ class ColumnarStructFieldColumns {
         fieldInitTexts := new string[](count)
         fieldPrivateFlags := new bool[](count)
         fieldThreadStaticFlags := new bool[](count)
+        fieldConstFlags := new bool[](count)
 
         fieldIndex := 0
         while fieldIndex < count {
@@ -65,6 +69,7 @@ class ColumnarStructFieldColumns {
             }
             fieldPrivateFlags[fieldIndex] = ColumnarStructFieldFlagIsPrivate(fieldModifierFlags)
             fieldThreadStaticFlags[fieldIndex] = ColumnarStructFieldFlagIsThreadStatic(fieldModifierFlags)
+            fieldConstFlags[fieldIndex] = ColumnarStructFieldFlagIsConst(fieldModifierFlags)
             fieldIndex = fieldIndex + 1
         }
 
@@ -75,6 +80,7 @@ class ColumnarStructFieldColumns {
             fieldReadonlyFlags,
             fieldPrivateFlags,
             fieldThreadStaticFlags,
+            fieldConstFlags,
             fieldInitKinds,
             fieldInitTexts
         )

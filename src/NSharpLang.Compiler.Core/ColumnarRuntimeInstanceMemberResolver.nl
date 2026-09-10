@@ -357,7 +357,19 @@ class ColumnarRuntimeInstanceMemberResolver {
     }
 
     static func CanOwnOrdinaryExternalReceiver(receiverType: Type): bool {
-        return !IsSourceBuilderShape(receiverType) && !ContainsBuilderBoundType(receiverType) && !receiverType.get_IsByRef() && !receiverType.get_IsGenericTypeDefinition() && IsSupportedExternalReferenceShape(receiverType) && ColumnarTypeOfPlanner.IsSupportedType(receiverType)
+        if receiverType == null || IsSourceBuilderShape(receiverType) || ContainsBuilderBoundType(receiverType) || receiverType.get_IsByRef() || receiverType.get_IsPointer() || receiverType.get_IsByRefLike() || receiverType.get_IsGenericTypeDefinition() || receiverType.get_HasElementType() || ContainsOpenGenericParameters(receiverType) {
+            return false
+        }
+
+        if !ColumnarTypeOfPlanner.IsSupportedType(receiverType) {
+            return false
+        }
+
+        // Complete baked value types use the same exact field/getter selection as reference types.
+        // Their receiver is addressed by ColumnarInstanceMemberPlanner when it is a local or
+        // parameter and spilled only when it is a composed temporary, preserving CLR value-copy
+        // semantics without admitting pointers, byref-like values, open generics, or builders.
+        return receiverType.get_IsValueType() || IsSupportedExternalReferenceShape(receiverType)
     }
 
     static func TrySelectOrdinaryReadableMember(receiverType: Type, member: string, out selection: ColumnarRuntimeInstanceMemberSelection): bool {

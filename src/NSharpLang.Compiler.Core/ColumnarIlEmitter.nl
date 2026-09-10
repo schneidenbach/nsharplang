@@ -2270,10 +2270,18 @@ sealed class ColumnarIlEmitter {
                 fieldName := fieldRows.FieldNames[s][fi]
                 fieldAttributes := (FieldAttributes)fieldRows.FieldAttributeWords[s][fi]
                 if (fieldRows.FieldIsStatic[s][fi]) {
-                    sfb := ColumnarFieldMetadataEmitter.Define(tb, fieldName, fieldType, (int)fieldAttributes, fieldRows.FieldIsThreadStatic[s][fi])
+                    isLiteral := fieldRows.FieldIsLiteral[s][fi]
+                    literalValue := 0
+                    if isLiteral && !ColumnarFieldMetadataEmitter.TryGetIntLiteralValue(fieldType, st.FieldInitKinds[fi], st.FieldInitTexts[fi], out literalValue) {
+                        return DeclineStatic("emit.declaration.const-initializer", "const field '" + st.Name + "." + fieldName + "' requires an unsuffixed int literal initializer", st.Name, -1, 0)
+                    }
+                    sfb := ColumnarFieldMetadataEmitter.Define(tb, fieldName, fieldType, (int)fieldAttributes, fieldRows.FieldIsThreadStatic[s][fi], isLiteral, literalValue)
                     def.StaticFields[fieldName] = sfb
+                    if isLiteral {
+                        def.StaticIntConstants[fieldName] = literalValue
+                    }
                     initKind := st.FieldInitKinds[fi]
-                    if (initKind >= 0) {
+                    if (initKind >= 0 && !isLiteral) {
                         pendingStaticFieldInits.Add(new ColumnarStaticFieldInitializer(def, sfb, fieldType, initKind, st.FieldInitTexts[fi]))
                     }
                     continue
@@ -2282,7 +2290,8 @@ sealed class ColumnarIlEmitter {
                 if (st.FieldInitKinds[fi] >= 0) {
                     return DeclineStatic("emit.declaration.field-initializer", "instance field initializer is not modeled for '" + st.Name + "." + fieldName + "'", st.Name, -1, 0)
                 }
-                fields[fieldName] = ColumnarFieldMetadataEmitter.Define(tb, fieldName, fieldType, (int)fieldAttributes, fieldRows.FieldIsThreadStatic[s][fi])
+                instanceField := ColumnarFieldMetadataEmitter.Define(tb, fieldName, fieldType, (int)fieldAttributes, fieldRows.FieldIsThreadStatic[s][fi], false, 0)
+                fields[fieldName] = instanceField
                 if (fieldRows.FieldIsNullable[s][fi]) {
                     def.NullableFields.Add(fieldName)
                 }
@@ -7965,9 +7974,17 @@ sealed class ColumnarIlEmitter {
             // static-member access resolves in INSTANCE contexts only (a static body must qualify with the type
             // name) — gated on `_currentStruct`, which is null in static bodies, so those decline exactly
             // where the pipeline errors. No receiver: `ldsfld` for a field, `call get_Name` for a property.
+            let bareStaticFieldOwner: NSharpLang.Compiler.Columnar.ColumnarStructDef? = null
             let bareStaticField: System.Reflection.Emit.FieldBuilder? = null
-            if (_currentStruct != null && ColumnarSourceMemberChainResolver.TryFindStaticFieldOnChain(_currentStruct, name, out bareStaticField)) {
-                _il.Emit(OpCodes.Ldsfld, bareStaticField)
+            if (_currentStruct != null && ColumnarSourceMemberChainResolver.TryFindStaticFieldOnChain(_currentStruct, name, out bareStaticFieldOwner, out bareStaticField)) {
+                literalValue := 0
+                if bareStaticFieldOwner != null && bareStaticFieldOwner.StaticIntConstants.TryGetValue(name, out literalValue) {
+                    if !ColumnarFieldMetadataEmitter.TryEmitIntLiteralLoad(_il, bareStaticField.get_FieldType(), literalValue) {
+                        return false
+                    }
+                } else {
+                    _il.Emit(OpCodes.Ldsfld, bareStaticField)
+                }
                 columnarResolvedType = bareStaticField.get_FieldType()
                 return true
             }
@@ -8579,9 +8596,18 @@ sealed class ColumnarIlEmitter {
                 // A member that is NEITHER declines (a type name is not a value — nothing to fall through to).
                 let staticOwner: NSharpLang.Compiler.Columnar.ColumnarStructDef? = null
                 if (_typeResolutionStructs.TryGetValue(receiverIdent, out staticOwner) && !_locals.ContainsKey(receiverIdent) && !_liftedLocals.ContainsKey(receiverIdent) && !_paramOrdinals.ContainsKey(receiverIdent) && !_siblings.ContainsKey(receiverIdent)) {
+                    staticFieldName := ColumnarNodeTextFacts.Text(_nodes, _source, idx)
+                    let staticFieldOwner: NSharpLang.Compiler.Columnar.ColumnarStructDef? = null
                     let staticFieldRead: System.Reflection.Emit.FieldBuilder? = null
-                    if (ColumnarSourceMemberChainResolver.TryFindStaticFieldOnChain(staticOwner, ColumnarNodeTextFacts.Text(_nodes, _source, idx), out staticFieldRead)) {
-                        _il.Emit(OpCodes.Ldsfld, staticFieldRead)
+                    if (ColumnarSourceMemberChainResolver.TryFindStaticFieldOnChain(staticOwner, staticFieldName, out staticFieldOwner, out staticFieldRead)) {
+                        literalValue := 0
+                        if staticFieldOwner != null && staticFieldOwner.StaticIntConstants.TryGetValue(staticFieldName, out literalValue) {
+                            if !ColumnarFieldMetadataEmitter.TryEmitIntLiteralLoad(_il, staticFieldRead.get_FieldType(), literalValue) {
+                                return false
+                            }
+                        } else {
+                            _il.Emit(OpCodes.Ldsfld, staticFieldRead)
+                        }
                         columnarResolvedType = staticFieldRead.get_FieldType()
                         return true
                     }

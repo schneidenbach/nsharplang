@@ -289,6 +289,8 @@ test "the field rows publish every public and private FieldAttributes word" {
     assert ColumnarDeclarationPlanner.PublicFieldAttribute() == 6
     assert ColumnarDeclarationPlanner.StaticFieldAttribute() == 16
     assert ColumnarDeclarationPlanner.InitOnlyFieldAttribute() == 32
+    assert ColumnarDeclarationPlanner.LiteralFieldAttribute() == 64
+    assert ColumnarDeclarationPlanner.HasDefaultFieldAttribute() == 32768
 
     assert ColumnarDeclarationPlanner.FieldAttributesFor(false, false, false) == 6
     assert ColumnarDeclarationPlanner.FieldAttributesFor(false, true, false) == 38
@@ -298,6 +300,72 @@ test "the field rows publish every public and private FieldAttributes word" {
     assert ColumnarDeclarationPlanner.FieldAttributesFor(false, true, true) == 33
     assert ColumnarDeclarationPlanner.FieldAttributesFor(true, false, true) == 17
     assert ColumnarDeclarationPlanner.FieldAttributesFor(true, true, true) == 49
+    assert ColumnarDeclarationPlanner.FieldAttributesFor(false, false, false, true) == 32854
+    assert ColumnarDeclarationPlanner.FieldAttributesFor(false, true, false, true) == 32854
+}
+
+func DeclarationPlanLiteralFieldStruct(
+    name: string,
+    fieldNames: string[],
+    fieldCanonicals: string[],
+    staticFlags: bool[],
+    readonlyFlags: bool[],
+    constFlags: bool[]
+): ColumnarStructInput {
+    return new ColumnarStructInput(
+        name,
+        fieldNames,
+        fieldCanonicals,
+        new List<ColumnarFunctionInput>(),
+        new List<ColumnarConstructorInput>(),
+        new List<ColumnarPropertyInput>(),
+        true,
+        null,
+        staticFlags,
+        null,
+        null,
+        false,
+        null,
+        readonlyFlags,
+        0,
+        false,
+        false,
+        null,
+        0,
+        null,
+        null,
+        null,
+        null,
+        constFlags
+    )
+}
+
+test "literal field rows publish static Literal and HasDefault without InitOnly" {
+    names := new string[](2)
+    names[0] = "Answer"
+    names[1] = "Mutable"
+    canonicals := new string[](2)
+    canonicals[0] = "int"
+    canonicals[1] = "int"
+    statics := new bool[](2)
+    readonlys := new bool[](2)
+    readonlys[0] = true
+    consts := new bool[](1)
+    consts[0] = true
+    input := DeclarationPlanLiteralFieldStruct("Constants", names, canonicals, statics, readonlys, consts)
+    structs := new List<ColumnarStructInput>()
+    structs.Add(input)
+    program := DeclarationPlanTypeDefProgram("namespace Demo\n", structs, new List<ColumnarInterfaceInput>())
+
+    rows := ColumnarDeclarationPlanner.BuildFields(program)
+    assert rows.FieldIsLiteral[0][0]
+    assert rows.FieldIsStatic[0][0]
+    assert rows.FieldAttributeWords[0][0] == 32854
+    assert !rows.FieldIsLiteral[0][1]
+    assert !rows.FieldIsStatic[0][1]
+    assert rows.FieldAttributeWords[0][1] == 38
+    assert ColumnarDeclarationPlanner.FieldIsLiteralAt(input, 0)
+    assert !ColumnarDeclarationPlanner.FieldIsLiteralAt(input, 1)
 }
 
 test "the readonly flag is bounds-guarded and a field past the flags array is simply not readonly" {

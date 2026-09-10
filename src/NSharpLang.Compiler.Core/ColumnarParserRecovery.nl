@@ -1055,6 +1055,9 @@ class ColumnarParserRecovery {
         if t == TokenType.Static {
             return System.Convert.ToInt32(Modifiers.Static)
         }
+        if t == TokenType.Const {
+            return System.Convert.ToInt32(Modifiers.Const)
+        }
         if t == TokenType.Internal {
             return System.Convert.ToInt32(Modifiers.Internal)
         }

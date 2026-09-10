@@ -366,6 +366,7 @@ class ColumnarStructDef {
     MethodOverloads: Dictionary<string, List<ColumnarInstanceMethodDef>>
     StaticMethods: Dictionary<string, List<ColumnarStaticMethodDef>>
     StaticFields: Dictionary<string, FieldBuilder>
+    StaticIntConstants: Dictionary<string, int>
     StaticProperties: Dictionary<string, ColumnarPropertyDef>
     Constructors: List<ColumnarConstructorDef>
     InstanceInitializerMethod: MethodBuilder?
@@ -406,6 +407,7 @@ class ColumnarStructDef {
         MethodOverloads = new Dictionary<string, List<ColumnarInstanceMethodDef>>(StringComparer.Ordinal)
         StaticMethods = new Dictionary<string, List<ColumnarStaticMethodDef>>(StringComparer.Ordinal)
         StaticFields = new Dictionary<string, FieldBuilder>(StringComparer.Ordinal)
+        StaticIntConstants = new Dictionary<string, int>(StringComparer.Ordinal)
         StaticProperties = new Dictionary<string, ColumnarPropertyDef>(StringComparer.Ordinal)
         Constructors = new List<ColumnarConstructorDef>()
         InstanceInitializerFields = new HashSet<string>(StringComparer.Ordinal)

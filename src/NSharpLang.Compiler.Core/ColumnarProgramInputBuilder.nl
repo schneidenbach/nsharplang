@@ -741,6 +741,7 @@ sealed class ColumnarProgramInputBuilder {
             fieldReadonlyFlags := fieldColumns.FieldReadonlyFlags
             fieldPrivateFlags := fieldColumns.FieldPrivateFlags
             fieldThreadStaticFlags := fieldColumns.FieldThreadStaticFlags
+            fieldConstFlags := fieldColumns.FieldConstFlags
             fieldInitKinds := fieldColumns.FieldInitKinds
             fieldInitTexts := fieldColumns.FieldInitTexts
 
@@ -846,7 +847,8 @@ sealed class ColumnarProgramInputBuilder {
                 typeParamSpecials,
                 typeParamTypeConstraints,
                 fieldPrivateFlags,
-                fieldThreadStaticFlags
+                fieldThreadStaticFlags,
+                fieldConstFlags
             )
             structInput.SourceAttributes = ColumnarSourceAttributes.Read(source, ck, cs, cv, structIndex)
             structs.Add(structInput)
