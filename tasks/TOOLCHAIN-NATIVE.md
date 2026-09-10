@@ -84,6 +84,12 @@ A finished lane is not completion of this whole objective.
   A subsequent test-only revision makes rejection fixtures reach the cast expression rather
   than fail in return signatures; all three focused canonical cases pass at ffec3c5e0:
   /private/tmp/toolchain-integrated-generic-cast-body-tests-r1.log.
+- Facade package identity/readme metadata now projects through N# configuration, restore and
+  MSBuild task owners. All 8,055 Core assertions pass at 249563ee1 after preserving the original
+  template bytes: /private/tmp/toolchain-integrated-package-canonicals-r2.log. Private SDK boundary
+  tests pass 20/20: /private/tmp/toolchain-facade-sdk-native-r1.log. Those native checks used
+  explicitly substituted private fixture binaries, so final clean production/package verification
+  remains required. The facade's portable generic return-type resolution is still under diagnosis.
 - All five IlSdkToolchainTests.cs cases now have N# successors and the C# file is removed in the
   integration candidate. Review retained XML UnitTestResult/outcome semantics and removed new
   assertions that merely mirrored private field names. All 20 native SDK tests pass against a private package (22.7s). Receipt:
