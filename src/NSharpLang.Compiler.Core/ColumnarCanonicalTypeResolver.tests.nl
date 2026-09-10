@@ -227,7 +227,7 @@ test "canonical resolver preserves the generic manual-family fence and exact-map
 
     emptyMap := new Dictionary<string, Type>(StringComparer.Ordinal)
     generic := typeof(string)
-    assert !ColumnarCanonicalTypeResolver.TryResolveTypeWithTypeParams(
+    assert ColumnarCanonicalTypeResolver.TryResolveTypeWithTypeParams(
         "IReadOnlyList<int>",
         emptyMap,
         resolution.Enums,
@@ -235,7 +235,10 @@ test "canonical resolver preserves the generic manual-family fence and exact-map
         resolution.Unions,
         out generic
     )
-    assert generic == null
+    assert generic == CanonicalResolverClosedOne(
+        "System.Collections.Generic.IReadOnlyList`1",
+        typeof(int)
+    )
 
     sources := new string[](1)
     fileNames := new string[](1)

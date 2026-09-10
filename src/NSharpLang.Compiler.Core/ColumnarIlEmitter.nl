@@ -10287,22 +10287,14 @@ sealed class ColumnarIlEmitter {
                 if (!TryBuildTypeNodeCanonical(isAsTypeRoot, out targetCanonical)) {
                     return false
                 }
-                // Safe-cast targets are ordinary runtime types. The body-type resolver deliberately
-                // fences some collection interfaces for type-parameter signatures, while a closed
-                // target such as IReadOnlyList<object> is fully admitted by the ordinary resolver.
-                // Keep type-parameter precedence first, then use that same canonical owner for the
-                // closed target without changing the existing isinst lowering.
-                if (!TryResolveBodyType(targetCanonical, out targetTestType) && !ColumnarCanonicalTypeResolver.TryResolveType(
-                    targetCanonical,
-                    _typeResolutionEnums,
-                    _typeResolutionStructs,
-                    _typeResolutionUnions,
-                    out targetTestType
-                )) {
+                // Safe-cast targets stay under the scoped body resolver. Its closed generic family
+                // admits the collection interfaces needed here; an open type parameter must decline
+                // rather than falling through to a resolver with no lexical parameter scope.
+                if (!TryResolveBodyType(targetCanonical, out targetTestType)) {
                     return false
                 }
             }
-            if (targetTestType == null) {
+            if (targetTestType == null || targetTestType.get_IsValueType()) {
                 return false
             }
             // A VALUE-TYPED OPERAND BOXES BEFORE THE REFERENCE TEST. `isinst` reads the top of the stack

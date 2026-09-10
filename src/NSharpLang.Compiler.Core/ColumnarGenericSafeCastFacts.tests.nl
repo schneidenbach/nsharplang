@@ -29,6 +29,20 @@ func GenericSafeCastAssembly(source: string): Assembly {
     return Assembly.Load(bytes)
 }
 
+func GenericSafeCastDeclines(source: string): bool {
+    program := GenericSafeCastProgram(source)
+    bytes: byte[] = null
+    return !ColumnarIlEmitter.TryEmitColumnarAssembly(
+        "ColumnarGenericSafeCastDecline" + Guid.NewGuid().ToString("N"),
+        "Program",
+        program,
+        false,
+        out bytes,
+        null,
+        null
+    )
+}
+
 func GenericSafeCastMethod(assembly: Assembly): MethodInfo {
     owner := assembly.GetType("Program")
     if owner == null {
@@ -67,4 +81,17 @@ test "generic safe casts preserve null results, covariance, and reference identi
     numbers := new List<int>()
     numbers.Add(7)
     assert GenericSafeCastInvoke(method, numbers) == null
+}
+
+test "safe casts decline value targets and open scoped generic targets" {
+    nullableSource := "func AsNullable(value: object?): int? {\n    return value as int?\n}\n"
+    assert GenericSafeCastDeclines(nullableSource)
+
+    openSource := "import System.Collections.Generic\n\nfunc AsOpen<T>(value: object?): IReadOnlyList<T>? {\n    return value as IReadOnlyList<T>\n}\n"
+    assert GenericSafeCastDeclines(openSource)
+}
+
+test "a source type shadows the read-only collection head" {
+    shadowedSource := "import System.Collections.Generic\n\nclass IReadOnlyList {}\n\nfunc AsShadowed(value: object?): IReadOnlyList<int>? {\n    return value as IReadOnlyList<int>\n}\n"
+    assert GenericSafeCastDeclines(shadowedSource)
 }

@@ -422,9 +422,10 @@ class ColumnarCanonicalTypeResolver {
         return false
     }
 
-    // This deliberately differs from the ordinary family. The historical generic-signature path
-    // permits only the BCL heads whose type-parameter closure it can emit; in particular it does
-    // not admit the read-only collection interfaces merely because an empty map was supplied.
+    // This deliberately differs from the ordinary family. The generic-signature path admits only
+    // BCL heads whose type-parameter closure it can emit. A read-only list is admitted here only
+    // when its argument is closed; an open T must stay in this scoped resolver and decline rather
+    // than falling through to the ordinary family.
     static func TrySelectTypeParameterGenericFamily(
         canonical: string,
         genericOpen: int,
@@ -608,6 +609,17 @@ class ColumnarCanonicalTypeResolver {
             arguments := new ColumnarSelectedTypeReference[](0)
             if TrySelectTypeParameterArguments(canonical.Substring(6, canonical.Length - 7), 1, typeParams, enumRegistry, structRegistry, unionRegistry, out arguments) && (arguments[0].RuntimeType is GenericTypeParameterBuilder || ColumnarTypeOfPlanner.IsAdmissibleCollectionElement(arguments[0].RuntimeType)) {
                 definition := typeof(Stack<int>).GetGenericTypeDefinition()
+                runtimeType := definition.MakeGenericType(SelectedRuntimeTypes(arguments))
+                selected = ConstructedSelection(table, runtimeType, definition, arguments)
+                return true
+            }
+            return false
+        }
+
+        if genericOpen == 13 && canonical.StartsWith("IReadOnlyList<", StringComparison.Ordinal) {
+            arguments := new ColumnarSelectedTypeReference[](0)
+            if TrySelectTypeParameterArguments(canonical.Substring(14, canonical.Length - 15), 1, typeParams, enumRegistry, structRegistry, unionRegistry, out arguments) && !ColumnarTypeOfPlanner.ContainsOpenGenericParameters(arguments[0].RuntimeType) && ColumnarTypeOfPlanner.IsAdmissibleCollectionElement(arguments[0].RuntimeType) {
+                definition := typeof(IReadOnlyList<int>).GetGenericTypeDefinition()
                 runtimeType := definition.MakeGenericType(SelectedRuntimeTypes(arguments))
                 selected = ConstructedSelection(table, runtimeType, definition, arguments)
                 return true
@@ -1468,7 +1480,7 @@ class ColumnarCanonicalTypeResolver {
         structRegistry: ColumnarSemanticRegistry<ColumnarStructDef>,
         unionRegistry: ColumnarSemanticRegistry<ColumnarUnionDef>
     ): bool {
-        if headName != "List" && headName != "Dictionary" && headName != "SortedDictionary" && headName != "HashSet" && headName != "SortedSet" && headName != "Stack" {
+        if headName != "List" && headName != "Dictionary" && headName != "SortedDictionary" && headName != "HashSet" && headName != "SortedSet" && headName != "Stack" && headName != "IReadOnlyList" {
             return false
         }
         return enumRegistry.ContainsKey(headName) || structRegistry.ContainsKey(headName) || unionRegistry.ContainsKey(headName)
