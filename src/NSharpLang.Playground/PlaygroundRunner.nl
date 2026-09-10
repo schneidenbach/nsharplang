@@ -16,7 +16,6 @@ internal sealed class PlaygroundRunner {
     private stdout: StringBuilder
     private steps: int
     private outputLines: int
-    private entryPoint: FunctionDeclaration?
 
     constructor(sourceUnits: IEnumerable<CompilationUnit>) {
         units = sourceUnits.ToList()
@@ -26,18 +25,14 @@ internal sealed class PlaygroundRunner {
         stdout = new StringBuilder()
         steps = 0
         outputLines = 0
-        entryPoint = null
 
         for unit in units {
             for declaration in unit.Declarations {
                 functionDeclaration := declaration as FunctionDeclaration
                 if functionDeclaration != null {
                     functions[functionDeclaration.Name] = functionDeclaration
-                    if entryPoint == null && PlaygroundRunFacts.IsEntryPointFunctionName(functionDeclaration.Name) {
-                        entryPoint = functionDeclaration
-                    }
                 } else {
-                    name := GetDeclarationName(declaration)
+                    name := PlaygroundRunFacts.DeclarationName(declaration)
                     if name != null {
                         types[name] = declaration
                         typeNamespaces[name] = AnalyzerDeclarationFileFacts.GetUnitNamespace(unit)
@@ -48,6 +43,15 @@ internal sealed class PlaygroundRunner {
     }
 
     func Run(): PlaygroundRunResult {
+        entryPoint: FunctionDeclaration? = null
+        for pair in functions {
+            functionDeclaration := pair.Value
+            functionName := functionDeclaration.Name
+            if PlaygroundRunFacts.IsEntryPointFunctionName(functionName) {
+                entryPoint = functionDeclaration
+                break
+            }
+        }
         if entryPoint == null {
             throw Unsupported(PlaygroundRunFacts.NoEntryPoint())
         }
@@ -184,7 +188,10 @@ internal sealed class PlaygroundRunner {
             return
         }
 
-        throw Unsupported(PlaygroundRunFacts.UnsupportedStatement(statement.GetType().Name))
+        statementType := statement.GetType()
+        statementTypeName := statementType.Name
+        unsupportedFault := PlaygroundRunFacts.UnsupportedStatement(statementTypeName)
+        throw Unsupported(unsupportedFault)
     }
 
     private func ExecuteTupleDeconstruction(tuple: TupleDeconstructionStatement, environment: RuntimeEnvironment, depth: int) {
@@ -233,11 +240,11 @@ internal sealed class PlaygroundRunner {
 
         literal := expression as IntLiteralExpression
         if literal != null {
-            return int.Parse(literal.Value, CultureInfo.InvariantCulture)
+            return int.Parse(literal.Value)
         }
         floatLiteral := expression as FloatLiteralExpression
         if floatLiteral != null {
-            return double.Parse(floatLiteral.Value, CultureInfo.InvariantCulture)
+            return Double.Parse(floatLiteral.Value, CultureInfo.InvariantCulture)
         }
         stringLiteral := expression as StringLiteralExpression
         if stringLiteral != null {
@@ -319,7 +326,8 @@ internal sealed class PlaygroundRunner {
         if throwExpression != null {
             throw new PlaygroundThrownException(Evaluate(throwExpression.Expression, environment, depth))
         }
-        throw Unsupported(PlaygroundRunFacts.UnsupportedExpression(expression.GetType().Name))
+        expressionTypeName := expression.GetType().Name
+        throw Unsupported(PlaygroundRunFacts.UnsupportedExpression(expressionTypeName))
     }
 
     private func ResolveIdentifier(name: string, environment: RuntimeEnvironment): object? {
@@ -399,7 +407,9 @@ internal sealed class PlaygroundRunner {
         if binary.Operator == BinaryOperator.Or {
             return IsTruthy(left) || IsTruthy(right)
         }
-        throw Unsupported(PlaygroundRunFacts.UnsupportedBinaryOperator(binary.Operator.ToString()))
+        binaryOperatorValue := binary.Operator as object
+        binaryOperatorName := binaryOperatorValue.ToString() ?? ""
+        throw Unsupported(PlaygroundRunFacts.UnsupportedBinaryOperator(binaryOperatorName))
     }
 
     private func EvaluateUnary(unary: UnaryExpression, environment: RuntimeEnvironment, depth: int): object? {
@@ -410,7 +420,9 @@ internal sealed class PlaygroundRunner {
         if unary.Operator == UnaryOperator.Not {
             return !IsTruthy(value)
         }
-        throw Unsupported(PlaygroundRunFacts.UnsupportedUnaryOperator(unary.Operator.ToString()))
+        unaryOperatorValue := unary.Operator as object
+        unaryOperatorName := unaryOperatorValue.ToString() ?? ""
+        throw Unsupported(PlaygroundRunFacts.UnsupportedUnaryOperator(unaryOperatorName))
     }
 
     private static func Divide(left: object?, right: object?): object {
@@ -447,7 +459,9 @@ internal sealed class PlaygroundRunner {
             } else if assignment.Operator == AssignmentOperator.DivideAssign {
                 value = Divide(current, value)
             } else {
-                throw Unsupported(PlaygroundRunFacts.UnsupportedAssignmentOperator(assignment.Operator.ToString()))
+                assignmentOperatorValue := assignment.Operator as object
+                assignmentOperatorName := assignmentOperatorValue.ToString() ?? ""
+                throw Unsupported(PlaygroundRunFacts.UnsupportedAssignmentOperator(assignmentOperatorName))
             }
         }
 
@@ -489,9 +503,10 @@ internal sealed class PlaygroundRunner {
         }
         if PlaygroundRunFacts.IsExceptionFactoryName(name) && arguments.Count <= 1 {
             if arguments.Count == 0 {
-                return new RuntimeError(string.Empty)
+                return new RuntimeError("")
             }
-            return new RuntimeError(FormatValue(arguments[0]))
+            errorValue := arguments[0]
+            return new RuntimeError(FormatValue(errorValue))
         }
         throw Unsupported(PlaygroundRunFacts.UnknownFunction(name))
     }
@@ -549,7 +564,27 @@ internal sealed class PlaygroundRunner {
                 return FormatValue(target)
             }
             if memberName == "CompareTo" && arguments.Count == 1 {
-                return ToNumber(target).CompareTo(ToNumber(arguments[0]))
+                leftNumber := ToNumber(target)
+                rightValue := arguments[0]
+                rightNumber := ToNumber(rightValue)
+                leftIsNaN := leftNumber != leftNumber
+                rightIsNaN := rightNumber != rightNumber
+                if leftIsNaN {
+                    if rightIsNaN {
+                        return 0
+                    }
+                    return -1
+                }
+                if rightIsNaN {
+                    return 1
+                }
+                if leftNumber < rightNumber {
+                    return -1
+                }
+                if leftNumber > rightNumber {
+                    return 1
+                }
+                return 0
             }
             throw Unsupported(PlaygroundRunFacts.UnsupportedNumericMember(memberName))
         }
@@ -619,7 +654,7 @@ internal sealed class PlaygroundRunner {
         }
         if PlaygroundRunFacts.IsExceptionTypeName(typeName) {
             if arguments.Length == 0 {
-                return new RuntimeError(string.Empty)
+                return new RuntimeError("")
             }
             return new RuntimeError(FormatValue(arguments[0]))
         }
@@ -737,7 +772,7 @@ internal sealed class PlaygroundRunner {
             } else {
                 intLiteral := literal.Literal as IntLiteralExpression
                 if intLiteral != null {
-                    literalValue = int.Parse(intLiteral.Value, CultureInfo.InvariantCulture)
+                    literalValue = int.Parse(intLiteral.Value)
                 } else {
                     boolLiteral := literal.Literal as BoolLiteralExpression
                     if boolLiteral != null {
@@ -774,7 +809,8 @@ internal sealed class PlaygroundRunner {
             return true
         }
 
-        throw Unsupported(PlaygroundRunFacts.UnsupportedPattern(pattern.GetType().Name))
+        patternTypeName := pattern.GetType().Name
+        throw Unsupported(PlaygroundRunFacts.UnsupportedPattern(patternTypeName))
     }
 
     private func TryCreateUnionCase(typeName: string, arguments: IReadOnlyList<object?>, out value: RuntimeUnion?): bool {
@@ -857,40 +893,13 @@ internal sealed class PlaygroundRunner {
             if function != null && string.Equals(function.Name, name, StringComparison.Ordinal) {
                 matchesArity := argumentCount == null || function.Parameters.Count == argumentCount.Value
                 if matchesArity {
-                    isStatic := function.Modifiers.HasFlag(Modifiers.Static)
+                    modifierValue := Convert.ToInt32(function.Modifiers)
+                    isStatic := (modifierValue & Convert.ToInt32(Modifiers.Static)) != 0
                     if isStatic == requireStatic {
                         return function
                     }
                 }
             }
-        }
-        return null
-    }
-
-    private static func GetDeclarationName(declaration: Declaration): string? {
-        classDeclaration := declaration as ClassDeclaration
-        if classDeclaration != null {
-            return classDeclaration.Name
-        }
-        structDeclaration := declaration as StructDeclaration
-        if structDeclaration != null {
-            return structDeclaration.Name
-        }
-        recordDeclaration := declaration as RecordDeclaration
-        if recordDeclaration != null {
-            return recordDeclaration.Name
-        }
-        interfaceDeclaration := declaration as InterfaceDeclaration
-        if interfaceDeclaration != null {
-            return interfaceDeclaration.Name
-        }
-        unionDeclaration := declaration as UnionDeclaration
-        if unionDeclaration != null {
-            return unionDeclaration.Name
-        }
-        enumDeclaration := declaration as EnumDeclaration
-        if enumDeclaration != null {
-            return enumDeclaration.Name
         }
         return null
     }
@@ -914,7 +923,7 @@ internal sealed class PlaygroundRunner {
         array := typeReference as ArrayTypeReference
         if array != null {
             elementName := GetTypeName(array.ElementType)
-            return (elementName ?? string.Empty) + "[]"
+            return (elementName ?? "") + "[]"
         }
         return null
     }
@@ -939,21 +948,21 @@ internal sealed class PlaygroundRunner {
         if value == null {
             return false
         }
-        boolean := value as bool?
-        if boolean != null {
-            return boolean.Value
+        valueType := value.GetType()
+        if valueType == typeof(bool) {
+            return Convert.ToBoolean(value)
         }
-        integer := value as int?
-        if integer != null {
-            return integer.Value != 0
+        if valueType == typeof(int) {
+            return Convert.ToInt32(value) != 0
         }
-        longValue := value as long?
-        if longValue != null {
-            return longValue.Value != 0
+        if valueType == typeof(long) {
+            return Convert.ToInt64(value) != 0
         }
-        number := value as double?
-        if number != null {
-            return Math.Abs(number.Value) > double.Epsilon
+        if valueType == typeof(double) {
+            number := Convert.ToDouble(value)
+            magnitude := Math.Abs(number)
+            epsilon := BitConverter.Int64BitsToDouble(1L)
+            return magnitude > epsilon
         }
         text := value as string
         if text != null {
@@ -973,49 +982,57 @@ internal sealed class PlaygroundRunner {
     }
 
     private static func IsIntegral(value: object?): bool {
-        return value as int? != null || value as long? != null
+        if value == null {
+            return false
+        }
+        valueType := value.GetType()
+        return valueType == typeof(int) || valueType == typeof(long)
     }
 
     private static func IsNumeric(value: object?): bool {
-        return value as int? != null || value as long? != null || value as float? != null || value as double? != null || value as decimal? != null
+        if value == null {
+            return false
+        }
+        valueType := value.GetType()
+        return valueType == typeof(int) || valueType == typeof(long) || valueType == typeof(float) || valueType == typeof(double) || valueType == typeof(decimal)
     }
 
     private static func ToNumber(value: object?): double {
-        integer := value as int?
-        if integer != null {
-            return integer.Value
-        }
-        longValue := value as long?
-        if longValue != null {
-            return longValue.Value
-        }
-        floatValue := value as float?
-        if floatValue != null {
-            return floatValue.Value
-        }
-        number := value as double?
-        if number != null {
-            return number.Value
-        }
-        decimalValue := value as decimal?
-        if decimalValue != null {
-            return (double)decimalValue.Value
+        if value != null {
+            valueType := value.GetType()
+            if valueType == typeof(int) {
+                return Convert.ToDouble(value)
+            }
+            if valueType == typeof(long) {
+                return Convert.ToDouble(value)
+            }
+            if valueType == typeof(float) {
+                return Convert.ToDouble(value)
+            }
+            if valueType == typeof(double) {
+                return Convert.ToDouble(value)
+            }
+            if valueType == typeof(decimal) {
+                return Convert.ToDouble(value)
+            }
         }
         throw Unsupported(PlaygroundRunFacts.ExpectedNumber(FormatValue(value)))
     }
 
     private static func ToInt(value: object?): int {
-        integer := value as int?
-        if integer != null {
-            return integer.Value
-        }
-        longValue := value as long?
-        if longValue != null {
-            return checked((int)longValue.Value)
-        }
-        number := value as double?
-        if number != null {
-            return checked((int)number.Value)
+        if value != null {
+            valueType := value.GetType()
+            if valueType == typeof(int) {
+                return Convert.ToInt32(value)
+            }
+            if valueType == typeof(long) {
+                longValue := Convert.ToInt64(value)
+                return checked((int)longValue)
+            }
+            if valueType == typeof(double) {
+                number := Convert.ToDouble(value)
+                return checked((int)number)
+            }
         }
         throw Unsupported(PlaygroundRunFacts.ExpectedInteger(FormatValue(value)))
     }
@@ -1028,9 +1045,10 @@ internal sealed class PlaygroundRunner {
         if text != null {
             return text
         }
-        boolean := value as bool?
-        if boolean != null {
-            return PlaygroundRunFacts.BooleanDisplayText(boolean.Value)
+        valueType := value.GetType()
+        if valueType == typeof(bool) {
+            booleanValue := Convert.ToBoolean(value)
+            return PlaygroundRunFacts.BooleanDisplayText(booleanValue)
         }
         runtimeObject := value as RuntimeObject
         if runtimeObject != null {
@@ -1044,20 +1062,12 @@ internal sealed class PlaygroundRunner {
         if error != null {
             return error.Message
         }
-        number := value as double?
-        if number != null {
-            return number.Value.ToString(PlaygroundRunFacts.NumberFormatSpecifier(), CultureInfo.InvariantCulture)
-        }
-        floatValue := value as float?
-        if floatValue != null {
-            return floatValue.Value.ToString(PlaygroundRunFacts.NumberFormatSpecifier(), CultureInfo.InvariantCulture)
-        }
-        decimalValue := value as decimal?
-        if decimalValue != null {
-            return decimalValue.Value.ToString(PlaygroundRunFacts.NumberFormatSpecifier(), CultureInfo.InvariantCulture)
+        if valueType == typeof(double) || valueType == typeof(float) || valueType == typeof(decimal) {
+            formattedNumber := Convert.ToString(value, CultureInfo.InvariantCulture)
+            return formattedNumber ?? ""
         }
         converted := Convert.ToString(value, CultureInfo.InvariantCulture)
-        return converted ?? string.Empty
+        return converted ?? ""
     }
 
     private static func Unsupported(fault: PlaygroundRunFault): PlaygroundRunUnsupportedException {
@@ -1139,7 +1149,13 @@ internal sealed class PlaygroundRunner {
         func ToDisplayString(): string {
             typeName := ""
             if Declaration != null {
-                typeName = PlaygroundRunner.GetDeclarationName(Declaration) ?? PlaygroundRunFacts.AnonymousObjectDisplayName()
+                declaration := Declaration
+                declarationName := PlaygroundRunFacts.DeclarationName(declaration)
+                if declarationName != null {
+                    typeName = declarationName
+                } else {
+                    typeName = PlaygroundRunFacts.AnonymousObjectDisplayName()
+                }
             } else {
                 typeName = PlaygroundRunFacts.AnonymousObjectDisplayName()
             }

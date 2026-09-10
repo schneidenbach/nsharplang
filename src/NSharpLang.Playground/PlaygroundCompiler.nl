@@ -11,9 +11,9 @@ import NSharpLang.Compiler.Columnar
 // Public playground facade. The browser host calls these methods directly; all project analysis
 // and response shaping stays here so the host has one stable contract.
 sealed class PlaygroundCompiler {
-    static SchemaVersion: int => 2
-    static MaxSourceLength: int => 64 * 1024
-    static MaxProjectSourceLength: int => 128 * 1024
+    public const SchemaVersion: int = 2
+    public const MaxSourceLength: int = 65536
+    public const MaxProjectSourceLength: int = 131072
     private static DefaultFileName: string => "Program.nl"
 
     func GetCatalog(): PlaygroundCatalogResponse {
@@ -24,10 +24,10 @@ sealed class PlaygroundCompiler {
         limitations[2] = "Full build, test execution, NuGet restore, filesystem workflows, async, LINQ, and unrestricted .NET interop require the local nlc toolchain."
         limitations[3] = "External assembly resolution is intentionally bounded for browser reliability."
         capabilities := new PlaygroundCapabilities(true, true, true, true, true, true, true, false, limitations)
-        examples := PlaygroundExamples.All
-        tutorial := PlaygroundExamples.Tutorial
-        defaultExampleId := PlaygroundExamples.DefaultId
-        estimatedMinutes := PlaygroundExamples.EstimatedMinutes
+        examples := PlaygroundExamples.get_All()
+        tutorial := PlaygroundExamples.get_Tutorial()
+        defaultExampleId := PlaygroundExamples.get_DefaultId()
+        estimatedMinutes := PlaygroundExamples.get_EstimatedMinutes()
         return new PlaygroundCatalogResponse(schemaVersion, defaultExampleId, estimatedMinutes, examples, tutorial, capabilities)
     }
 
@@ -49,7 +49,8 @@ sealed class PlaygroundCompiler {
         normalizedSource := NormalizeSource(source)
         normalizedFileName := NormalizeFileName(fileName)
         check := Check(normalizedSource, normalizedFileName)
-        if check.Summary.Errors > 0 {
+        checkSummary := check.Summary
+        if checkSummary.Errors > 0 {
             warnings := new string[](1)
             warnings[0] = "Formatting is skipped while the source has compiler errors."
             return new PlaygroundFormatResponse(schemaVersion, false, normalizedFileName, normalizedSource, check.Diagnostics, check.Summary, warnings)
@@ -65,7 +66,7 @@ sealed class PlaygroundCompiler {
                 return new PlaygroundFormatResponse(schemaVersion, false, normalizedFileName, normalizedSource, check.Diagnostics, check.Summary, warnings)
             }
 
-            formatter := new Formatter()
+            formatter := new Formatter(null)
             formatResult := formatter.FormatSafe(normalizedSource, parseResult.CompilationUnit, lexer.Comments, normalizedFileName)
             return new PlaygroundFormatResponse(schemaVersion, formatResult.Success, normalizedFileName, formatResult.Text, check.Diagnostics, check.Summary, formatResult.Warnings)
         } catch ex: Exception {
@@ -81,14 +82,20 @@ sealed class PlaygroundCompiler {
         normalizedFileName := NormalizeExistingFileName(fileName, normalizedFiles)
         analysis := AnalyzeProject(normalizedFiles)
         items := new List<PlaygroundCompletionItem>()
-        context := CompletionContext.Unknown.ToString()
+        contextValue: object = CompletionContext.Unknown
+        context := contextValue.ToString()
         receiver: string? = null
         receiverType: string? = null
 
-        if analysis.Snapshot != null {
+        snapshot := analysis.Snapshot
+        if snapshot != null {
             engine := new CompletionEngine()
-            result := engine.GetCompletions(analysis.Snapshot, normalizedFileName, Math.Max(line, 1), Math.Max(column, 0), true)
-            context = result.Context.ToString()
+            snapshotValue := snapshot as ProjectSnapshot
+            completionLine := Math.Max(line, 1)
+            completionColumn := Math.Max(column, 0)
+            result: CompletionResult = engine.GetCompletions(snapshotValue, normalizedFileName, completionLine, completionColumn, true)
+            contextValue = result.Context
+            context = contextValue.ToString()
             receiver = result.Receiver
             receiverType = result.ReceiverType
             for item in FlattenCompletions(result) {
@@ -118,7 +125,11 @@ sealed class PlaygroundCompiler {
 
         diagnostics := Deduplicate(analysis.Diagnostics)
         summary := Summarize(diagnostics)
-        return new PlaygroundHoverResponse(schemaVersion, hover != null, normalizedFileName, hover, diagnostics, summary)
+        if hover == null {
+            return new PlaygroundHoverResponse(schemaVersion, false, normalizedFileName, null, diagnostics, summary)
+        }
+
+        return new PlaygroundHoverResponse(schemaVersion, true, normalizedFileName, hover, diagnostics, summary)
     }
 
     func RunProject(files: IEnumerable<PlaygroundFile>?, activeFile: string? = null): PlaygroundRunResponse {
@@ -130,7 +141,8 @@ sealed class PlaygroundCompiler {
         summary := Summarize(diagnostics)
 
         if summary.Errors > 0 {
-            return new PlaygroundRunResponse(schemaVersion, false, normalizedActiveFile, 1, string.Empty, "Run skipped because the program has compiler errors.", null, diagnostics, summary)
+            let unsupportedReason: string? = null
+            return new PlaygroundRunResponse(schemaVersion, false, normalizedActiveFile, 1, "", "Run skipped because the program has compiler errors.", unsupportedReason, diagnostics, summary)
         }
 
         if analysis.Snapshot == null {
@@ -144,9 +156,10 @@ sealed class PlaygroundCompiler {
 
         try {
             orderedUnits := new List<CompilationUnit>()
-            for path in analysis.Snapshot.SourceFiles {
+            sourceFiles := analysis.Snapshot.get_SourceFiles()
+            for path in sourceFiles {
                 unit: CompilationUnit? = null
-                if analysis.Snapshot.CompilationUnits.TryGetValue(path, out unit) {
+                if analysis.Snapshot.get_CompilationUnits().TryGetValue(path, out unit) {
                     if unit != null {
                         orderedUnits.Add(unit)
                     }
@@ -182,13 +195,19 @@ sealed class PlaygroundCompiler {
             totalLength = totalLength + playgroundFile.Code.Length
         }
         if totalLength > PlaygroundCompiler.MaxProjectSourceLength {
-            diagnostics.Add(new PlaygroundDiagnostic("PG001", "error", "Playground source is too large. Maximum project size is " + PlaygroundCompiler.MaxProjectSourceLength.ToString() + " characters.", files[0].Name, 1, 1, 1, null, "The hosted playground keeps analysis bounded so it can run reliably in the browser.", "Reduce the sample or use the local nlc toolchain for larger programs.", null))
+            firstFile := files[0]
+            maxProjectSourceLength := PlaygroundCompiler.MaxProjectSourceLength
+            message := "Playground source is too large. Maximum project size is " + maxProjectSourceLength.ToString() + " characters."
+            diagnostic := new PlaygroundDiagnostic("PG001", "error", message, firstFile.Name, 1, 1, 1, null, "The hosted playground keeps analysis bounded so it can run reliably in the browser.", "Reduce the sample or use the local nlc toolchain for larger programs.", null)
+            diagnostics.Add(diagnostic)
             return new ProjectAnalysis(null, diagnostics)
         }
 
         for playgroundFile in files {
             if playgroundFile.Code.Length > PlaygroundCompiler.MaxSourceLength {
-                diagnostics.Add(new PlaygroundDiagnostic("PG001", "error", "Playground file '" + playgroundFile.Name + "' is too large. Maximum file size is " + PlaygroundCompiler.MaxSourceLength.ToString() + " characters.", playgroundFile.Name, 1, 1, 1, null, "The hosted playground keeps per-file analysis bounded so it can run reliably in the browser.", "Reduce the sample or use the local nlc toolchain for larger programs.", null))
+                maxSourceLength := PlaygroundCompiler.MaxSourceLength
+                message := "Playground file '" + playgroundFile.Name + "' is too large. Maximum file size is " + maxSourceLength.ToString() + " characters."
+                diagnostics.Add(new PlaygroundDiagnostic("PG001", "error", message, playgroundFile.Name, 1, 1, 1, null, "The hosted playground keeps per-file analysis bounded so it can run reliably in the browser.", "Reduce the sample or use the local nlc toolchain for larger programs.", null))
             }
         }
         if diagnostics.Count > 0 {
@@ -209,11 +228,18 @@ sealed class PlaygroundCompiler {
         }
 
         config := ProjectFileParser.CreateDefault("NSharpPlayground")
-        config.Entry = files[0].Name
-        config.Exclude = new List<string>()
+        firstFile := files[0]
+        config.set_Entry(firstFile.Name)
+        config.set_Exclude(new List<string>())
         compiler := new MultiFileCompiler(paths, root, config, sourceOverrides)
         compiler.CompileForAnalysis()
-        snapshot := new ProjectSnapshot(root, compiler.CompilationUnits, compiler.SemanticModels, compiler.AllErrors, compiler.SourceFiles, compiler.ProjectIndex, compiler.SourceTexts)
+        compilationUnits := compiler.get_CompilationUnits()
+        semanticModels := compiler.get_SemanticModels()
+        allErrors := compiler.get_AllErrors()
+        sourceFiles := compiler.get_SourceFiles()
+        projectIndex := compiler.get_ProjectIndex()
+        sourceTexts := compiler.get_SourceTexts()
+        snapshot := new ProjectSnapshot(root, compilationUnits, semanticModels, allErrors, sourceFiles, projectIndex, sourceTexts, null, null)
 
         service := new CodeIntelligenceService()
         diagnostics := new List<PlaygroundDiagnostic>()
@@ -225,12 +251,12 @@ sealed class PlaygroundCompiler {
     }
 
     private static func AddLintDiagnostics(snapshot: ProjectSnapshot, diagnostics: List<PlaygroundDiagnostic>) {
-        linter := new Linter()
+        linter := new Linter(null)
         for pair in snapshot.CompilationUnits {
-            source := string.Empty
+            source := ""
             text: string? = null
             if snapshot.SourceTexts.TryGetValue(pair.Key, out text) {
-                source = text ?? string.Empty
+                source = text ?? ""
             }
             for finding in linter.Lint(pair.Value, Path.GetFileName(pair.Key), source) {
                 diagnostics.Add(ToPlaygroundDiagnostic(finding))
@@ -269,7 +295,7 @@ sealed class PlaygroundCompiler {
 
     private static func BuildFailedRunResponse(fileName: string, diagnostics: IReadOnlyList<PlaygroundDiagnostic>, stderr: string, unsupportedReason: string?): PlaygroundRunResponse {
         schemaVersion := PlaygroundCompiler.SchemaVersion
-        return new PlaygroundRunResponse(schemaVersion, false, fileName, 2, string.Empty, stderr, unsupportedReason, diagnostics, Summarize(diagnostics))
+        return new PlaygroundRunResponse(schemaVersion, false, fileName, 2, "", stderr, unsupportedReason, diagnostics, Summarize(diagnostics))
     }
 
     private static func Summarize(diagnostics: IEnumerable<PlaygroundDiagnostic>): PlaygroundSummary {
@@ -299,11 +325,14 @@ sealed class PlaygroundCompiler {
         } else if diagnostic.Severity == DiagnosticSeverity.Warning {
             severity = "warning"
         }
+        location := diagnostic.Location
+        line := location.Line
+        filePath := location.FilePath
         fileName := PlaygroundCompiler.DefaultFileName
-        if diagnostic.Location.FilePath != null {
-            fileName = NormalizeFileName(diagnostic.Location.FilePath)
+        if filePath != null {
+            fileName = NormalizeFileName(filePath)
         }
-        return new PlaygroundDiagnostic(diagnostic.Code, severity, diagnostic.Message, fileName, Math.Max(diagnostic.Location.Line, 1), Math.Max(diagnostic.Location.Column, 1), Math.Max(diagnostic.Length, 1), null, null, diagnostic.Suggestion, null)
+        return new PlaygroundDiagnostic(diagnostic.Code, severity, diagnostic.Message, fileName, Math.Max(line, 1), Math.Max(location.Column, 1), Math.Max(diagnostic.Length, 1), null, null, diagnostic.Suggestion, null)
     }
 
     private static func NormalizeSeverity(severity: string): string {
@@ -401,7 +430,7 @@ sealed class PlaygroundCompiler {
             }
         }
         if deduplicated.Count == 0 {
-            deduplicated.Add(new PlaygroundFile(PlaygroundCompiler.DefaultFileName, string.Empty))
+            deduplicated.Add(new PlaygroundFile("Program.nl", ""))
         }
         return deduplicated
     }
@@ -424,7 +453,7 @@ sealed class PlaygroundCompiler {
     }
 
     private static func NormalizeSource(source: string?): string {
-        value := source ?? string.Empty
+        value := source ?? ""
         return value.Replace("\r\n", "\n", StringComparison.Ordinal).Replace("\r", "\n", StringComparison.Ordinal)
     }
 
@@ -435,7 +464,8 @@ sealed class PlaygroundCompiler {
                 return normalized
             }
         }
-        return files[0].Name
+        firstFile := files[0]
+        return firstFile.Name
     }
 
     private static func NormalizeFileName(fileName: string?): string {

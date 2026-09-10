@@ -211,6 +211,23 @@ result := MathHelper.square(5)
 pi := MathHelper.Pi
 ```
 
+### Literal constant fields
+
+Classes can expose CLR literal fields with the `const` member modifier:
+
+```n#
+class Limits {
+    public const SchemaVersion: int = 2
+    public const MaxItems: int = 65536
+}
+```
+
+The supported constant-field form currently requires an `int` field initialized with a non-negative,
+unsuffixed integer literal from `0` through `2147483647`. It emits a static literal CLR field with
+the declared source visibility and a metadata constant value, and the field cannot be assigned
+after declaration. Other field types, suffixed or negative literals, and computed initializers are
+rejected until their constant metadata contract is supported.
+
 ## Structs
 
 Structs are value types:

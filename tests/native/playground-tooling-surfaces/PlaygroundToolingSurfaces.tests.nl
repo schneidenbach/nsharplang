@@ -110,6 +110,15 @@ func PgStaticText(owner: Type, memberName: string): string {
     return value.ToString() ?? "<null>"
 }
 
+func PgLiteralField(owner: Type, memberName: string): FieldInfo {
+    field := owner.GetField(memberName)
+    if field == null {
+        throw new InvalidOperationException("The production type exposed no literal field named " + memberName)
+    }
+
+    return field
+}
+
 func PgCompilerType(): Type {
     compilerType := Type.GetType("NSharpLang.Playground.PlaygroundCompiler, NSharpLang.Playground")
     if compilerType == null {
@@ -562,6 +571,74 @@ func PgRunFiles(code: string, activeFile: string): object {
     response := runMethod.Invoke(PgNewCompiler(), arguments)
     if response == null {
         throw new InvalidOperationException("The production RunProject entry point returned no result.")
+    }
+
+    return response
+}
+
+// Build a runner directly from two declarations with the same entry-point name. The analyzer
+// rejects duplicate declarations before production RunProject reaches the runner, so this keeps
+// the runner's dictionary replacement contract isolated: the later declaration must replace the
+// earlier value before Run selects the final dictionary entry.
+func PgRunDuplicateEntryPoint(): object {
+    parserType := Type.GetType("NSharpLang.Compiler.Columnar.ColumnarParserRecovery, NSharpLang.Compiler.Core")
+    unitType := Type.GetType("NSharpLang.Compiler.Ast.CompilationUnit, NSharpLang.Compiler.Core")
+    runnerType := Type.GetType("NSharpLang.Playground.PlaygroundRunner, NSharpLang.Playground")
+    if parserType == null || unitType == null || runnerType == null {
+        throw new InvalidOperationException("The production parser, compilation unit, or playground runner was not loadable.")
+    }
+
+    parseParameterTypes := new Type[](2)
+    parseParameterTypes[0] = typeof(string)
+    parseParameterTypes[1] = typeof(string)
+    parseMethod := parserType.GetMethod("ParseFileAst", parseParameterTypes)
+    if parseMethod == null {
+        throw new InvalidOperationException("The production ParseFileAst entry point was not found.")
+    }
+
+    source := "func main() {\n    print \"first\"\n}\n\nfunc main() {\n    print \"second\"\n}"
+    parseArguments := new object?[](2)
+    SetPgObject(parseArguments, 0, source)
+    SetPgObject(parseArguments, 1, "Program.nl")
+    parsed := parseMethod.Invoke(null, parseArguments)
+    if parsed == null {
+        throw new InvalidOperationException("The production parser returned no result.")
+    }
+
+    unit := PgMember(parsed, "CompilationUnit")
+    if unit == null {
+        throw new InvalidOperationException("The production parser returned no compilation unit.")
+    }
+
+    units := Array.CreateInstance(unitType, 1)
+    setArguments := new object?[](2)
+    SetPgObject(setArguments, 0, unit)
+    SetPgInt(setArguments, 1, 0)
+    setParameterTypes := new Type[](2)
+    setParameterTypes[0] = typeof(object)
+    setParameterTypes[1] = typeof(int)
+    setMethod := units.GetType().GetMethod("SetValue", setParameterTypes)
+    if setMethod == null {
+        throw new InvalidOperationException("The compilation unit array exposed no SetValue entry point.")
+    }
+    setMethod.Invoke(units, setArguments)
+
+    constructors := runnerType.GetConstructors()
+    if constructors.Length != 1 {
+        throw new InvalidOperationException("The production playground runner constructor shape changed.")
+    }
+    constructorArguments := new object?[](1)
+    SetPgObject(constructorArguments, 0, units)
+    runner := constructors[0].Invoke(constructorArguments)
+
+    runMethod := runnerType.GetMethod("Run", new Type[](0))
+    if runMethod == null {
+        throw new InvalidOperationException("The production playground runner Run entry point was not found.")
+    }
+    runArguments := new object?[](0)
+    response := runMethod.Invoke(runner, runArguments)
+    if response == null {
+        throw new InvalidOperationException("The production playground runner returned no result.")
     }
 
     return response
@@ -1305,9 +1382,40 @@ test "020 s38 playground tooling surfaces: Complete MemberAccess ReturnsClrStati
 // Each is a contract the deleted file never had.
 
 test "020 s38 playground tooling surfaces: T0 — the production statics, read through the dll route (T0, a control the C# never had)" {
-    assert PgStaticText(PgCompilerType(), "SchemaVersion") == "2"
-    assert PgStaticText(PgCompilerType(), "MaxSourceLength") == "65536"
-    assert PgStaticText(PgCompilerType(), "MaxProjectSourceLength") == "131072"
+    compilerType := PgCompilerType()
+    assert PgStaticText(compilerType, "SchemaVersion") == "2"
+    assert PgStaticText(compilerType, "MaxSourceLength") == "65536"
+    assert PgStaticText(compilerType, "MaxProjectSourceLength") == "131072"
+    schemaVersionField := PgLiteralField(compilerType, "SchemaVersion")
+    maxSourceLengthField := PgLiteralField(compilerType, "MaxSourceLength")
+    maxProjectSourceLengthField := PgLiteralField(compilerType, "MaxProjectSourceLength")
+    assert schemaVersionField.get_IsPublic()
+    assert schemaVersionField.get_IsStatic()
+    assert schemaVersionField.get_IsLiteral()
+    assert !schemaVersionField.get_IsInitOnly()
+    schemaVersionValue := schemaVersionField.GetRawConstantValue()
+    if schemaVersionValue == null {
+        throw new InvalidOperationException("SchemaVersion had no CLR constant value.")
+    }
+    assert schemaVersionValue.ToString() == "2"
+    assert maxSourceLengthField.get_IsPublic()
+    assert maxSourceLengthField.get_IsStatic()
+    assert maxSourceLengthField.get_IsLiteral()
+    assert !maxSourceLengthField.get_IsInitOnly()
+    maxSourceLengthValue := maxSourceLengthField.GetRawConstantValue()
+    if maxSourceLengthValue == null {
+        throw new InvalidOperationException("MaxSourceLength had no CLR constant value.")
+    }
+    assert maxSourceLengthValue.ToString() == "65536"
+    assert maxProjectSourceLengthField.get_IsPublic()
+    assert maxProjectSourceLengthField.get_IsStatic()
+    assert maxProjectSourceLengthField.get_IsLiteral()
+    assert !maxProjectSourceLengthField.get_IsInitOnly()
+    maxProjectSourceLengthValue := maxProjectSourceLengthField.GetRawConstantValue()
+    if maxProjectSourceLengthValue == null {
+        throw new InvalidOperationException("MaxProjectSourceLength had no CLR constant value.")
+    }
+    assert maxProjectSourceLengthValue.ToString() == "131072"
     assert PgStaticText(PgExamplesType(), "DefaultId") == "01-hello-world"
     assert PgExamples().Count == 10
     assert PgText(PgExample(0), "Id") == "01-hello-world"
@@ -1375,6 +1483,13 @@ test "020 s38 playground tooling surfaces: T2 — RunProject UnsupportedConstruc
     assert PgStderr(response) == "<null>"
     assert PgUnsupportedReason(response) == "<null>"
     assert PgCensus(response) == ""
+}
+
+test "020 s38 playground tooling surfaces: T4 — Run selects the final dictionary value after a duplicate entry-point replacement" {
+    response := PgRunDuplicateEntryPoint()
+    assert PgExitCode(response) == "0"
+    assert PgStdout(response) == "second\n"
+    assert PgStderr(response) == "<null>"
 }
 
 test "020 s38 playground tooling surfaces: T3 — Format over a source WITH a compiler error — the text comes back unchanged and the skip is stated as a warning (T3, a control the C# never had)" {
