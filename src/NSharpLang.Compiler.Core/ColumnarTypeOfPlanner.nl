@@ -1210,6 +1210,49 @@ class ColumnarTypeOfPlanner {
         if valueType == null || valueType.get_HasElementType() || ContainsBuilderBoundType(valueType) || ContainsOpenGenericParameters(valueType) {
             return false
         }
+        // `Assembly.GetType` accepts the open name but cannot reproduce the full name of a
+        // constructed generic (`List<Widget>` includes the argument identity in FullName).  The
+        // selected type is already a complete CLR object, so validate its definition in the same
+        // assembly and then validate each argument recursively.  This keeps the catalog rule
+        // nominal and works for both runtime and MetadataLoadContext Type universes.
+        if valueType.get_IsGenericType() && !valueType.get_IsGenericTypeDefinition() {
+            definition := valueType.GetGenericTypeDefinition()
+            definitionName := definition.FullName ?? ""
+            definitionIdentity := definition.get_AssemblyQualifiedName() ?? ""
+            if definitionName.Length == 0 || definitionIdentity.Length == 0 {
+                return false
+            }
+
+            try {
+                reproducedDefinition := definition.get_Assembly().GetType(definitionName)
+                if reproducedDefinition == null || !ExternalAssemblyScan.HasExactTypeIdentity(reproducedDefinition, definitionIdentity) || !TypeInfoIdentityFacts.HaveSameReflectionTypeIdentity(reproducedDefinition, definition) {
+                    return false
+                }
+
+                arguments := valueType.GetGenericArguments()
+                if arguments.Length == 0 {
+                    return false
+                }
+                argumentIndex := 0
+                while argumentIndex < arguments.Length {
+                    argument := arguments[argumentIndex]
+                    if argument == null || argument.get_IsPointer() || argument.get_IsByRef() || ContainsOpenGenericParameters(argument) || !IsSupportedType(argument) {
+                        return false
+                    }
+                    argumentIndex = argumentIndex + 1
+                }
+
+                // Reconstruct the selected closed identity from the reproduced definition. This
+                // catches wrappers that only preserve a familiar FullName while reporting another
+                // assembly-qualified identity, and keeps the validation inside the selected Type
+                // universe instead of asking the host runtime to resolve metadata types.
+                reproduced := reproducedDefinition.MakeGenericType(arguments)
+                reproducedIdentity := reproduced.get_AssemblyQualifiedName() ?? ""
+                return reproducedIdentity.Length > 0 && ExternalAssemblyScan.HasExactTypeIdentity(valueType, reproducedIdentity)
+            } catch {
+                return false
+            }
+        }
         fullName := valueType.FullName ?? ""
         identity := valueType.get_AssemblyQualifiedName() ?? ""
         if fullName.Length == 0 || identity.Length == 0 || ExternalAssemblyScan.HasExactTypeIdentity(RequiredVoidType(), identity) {
@@ -1419,8 +1462,20 @@ class ColumnarTypeOfPlanner {
         if valueType is TypeBuilder || IsEnumBuilder(valueType) || !valueType.get_IsGenericType() || valueType.get_IsGenericTypeDefinition() {
             return false
         }
-        name := valueType.GetGenericTypeDefinition().FullName ?? ""
-        return name == "System.Collections.Generic.List`1" || name == "System.Collections.Generic.Dictionary`2" || name == "System.Collections.Generic.SortedDictionary`2" || name == "System.Collections.Generic.HashSet`1" || name == "System.Collections.Generic.SortedSet`1" || name == "System.Collections.Generic.Stack`1" || name == "System.Collections.Generic.IReadOnlyList`1" || name == "System.Collections.Generic.IReadOnlyCollection`1" || name == "System.Collections.Generic.IReadOnlySet`1" || name == "System.Collections.Generic.IReadOnlyDictionary`2" || name == "System.Collections.Generic.IEnumerable`1"
+        definition := valueType.GetGenericTypeDefinition()
+        return HasExactRuntimeGenericDefinition(definition, typeof(List<int>).GetGenericTypeDefinition()) || HasExactRuntimeGenericDefinition(definition, typeof(Dictionary<int, int>).GetGenericTypeDefinition()) || HasExactRuntimeGenericDefinition(definition, typeof(SortedDictionary<int, int>).GetGenericTypeDefinition()) || HasExactRuntimeGenericDefinition(definition, typeof(HashSet<int>).GetGenericTypeDefinition()) || HasExactRuntimeGenericDefinition(definition, typeof(SortedSet<int>).GetGenericTypeDefinition()) || HasExactRuntimeGenericDefinition(definition, typeof(Stack<int>).GetGenericTypeDefinition()) || HasExactRuntimeGenericDefinition(definition, typeof(IReadOnlyList<int>).GetGenericTypeDefinition()) || HasExactRuntimeGenericDefinition(definition, typeof(IReadOnlyCollection<int>).GetGenericTypeDefinition()) || HasExactRuntimeGenericDefinition(definition, typeof(IReadOnlySet<int>).GetGenericTypeDefinition()) || HasExactRuntimeGenericDefinition(definition, typeof(IReadOnlyDictionary<int, int>).GetGenericTypeDefinition()) || HasExactRuntimeGenericDefinition(definition, typeof(IEnumerable<int>).GetGenericTypeDefinition())
+    }
+
+    static func HasExactRuntimeGenericDefinition(candidate: Type, expected: Type): bool {
+        if candidate == null || expected == null || !candidate.get_IsGenericTypeDefinition() || !expected.get_IsGenericTypeDefinition() {
+            return false
+        }
+        try {
+            identity := expected.get_AssemblyQualifiedName() ?? ""
+            return identity.Length > 0 && ExternalAssemblyScan.HasExactTypeIdentity(candidate, identity)
+        } catch {
+            return false
+        }
     }
 
     // HashSet<T> and Dictionary<T, TValue> expose IEqualityComparer<T> in their exact constructor

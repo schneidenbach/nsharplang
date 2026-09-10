@@ -116,3 +116,59 @@ test "type admission retains external generics closed over source builders" {
     // tuple-specific identity and element checks.
     assert ColumnarTypeOfPlanner.IsSupportedType(AdmissibilityClosed2("System.ValueTuple`2", typeof(int), sourceClass))
 }
+
+test "type admission validates closed generic arguments from an external assembly" {
+    foreignBuilder := TypeOfCreateBuilder(
+        "Catalog.ExternalGenericArgument",
+        "CatalogExternalGenericArgumentAsm",
+        0
+    )
+    foreign := IdentityBake(foreignBuilder)
+    listOfReference := AdmissibilityClosed1("System.Collections.Generic.List`1", foreign)
+    readOnlyListOfReference := AdmissibilityClosed1("System.Collections.Generic.IReadOnlyList`1", foreign)
+    readOnlyDictionaryOfReference := AdmissibilityClosed2("System.Collections.Generic.IReadOnlyDictionary`2", typeof(string), foreign)
+
+    assert ColumnarTypeOfPlanner.IsSupportedType(foreign)
+    assert ColumnarTypeOfPlanner.IsSupportedType(listOfReference)
+    assert ColumnarTypeOfPlanner.IsSupportedType(readOnlyListOfReference)
+    assert ColumnarTypeOfPlanner.IsSupportedType(readOnlyDictionaryOfReference)
+
+    rankTwoArray := typeof(int).MakeArrayType(2)
+    assert !ColumnarTypeOfPlanner.IsSupportedType(AdmissibilityClosed1("System.Collections.Generic.List`1", rankTwoArray))
+
+    closedIdentity := listOfReference.get_AssemblyQualifiedName() ?? ""
+    forged := CatalogReferenceArrayForgedIdentityType(listOfReference, closedIdentity + ", Foreign.Generic.Head")
+    assert !ColumnarTypeOfPlanner.IsSupportedCatalogType(forged)
+
+    foreignHeadBuilder := TypeOfCreateBuilder(
+        "System.Collections.Generic.List`1",
+        "CatalogForeignCollectionHeadAsm",
+        1
+    )
+    foreignHead := IdentityBake(foreignHeadBuilder)
+    foreignArguments := new Type[](1)
+    foreignArguments[0] = foreign
+    foreignClosed := foreignHead.MakeGenericType(foreignArguments)
+    assert !ColumnarTypeOfPlanner.IsSupportedCollectionType(foreignClosed)
+}
+
+test "type admission validates closed generic arguments in the metadata universe" {
+    scan := ExternalAssemblyScan.OpenWithReferences(null)
+    try {
+        context := scan.Context
+        assert context != null
+        core := context.LoadFromAssemblyName("System.Private.CoreLib")
+        currentAssembly := context.LoadFromAssemblyPath(typeof(ColumnarTypeOfPlanner).get_Assembly().get_Location())
+        externalArgument := currentAssembly.GetType("NSharpLang.Compiler.Columnar.ColumnarTypeOfPlanner")
+        listDefinition := core.GetType("System.Collections.Generic.List`1")
+        assert externalArgument != null
+        assert listDefinition != null
+        arguments := new Type[](1)
+        arguments[0] = externalArgument
+        listOfReference := listDefinition.MakeGenericType(arguments)
+        assert ColumnarTypeOfPlanner.IsSupportedCatalogType(listOfReference)
+        assert ColumnarTypeOfPlanner.IsSupportedType(listOfReference)
+    } finally {
+        scan.Dispose()
+    }
+}
