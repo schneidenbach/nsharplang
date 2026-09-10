@@ -36,8 +36,8 @@ Base: 06186dc6d (includes bootstrap/CI work; preserve it).
 | Complete LoadProjectConfig / LoadProjectReferences and assertions | Luna Max toolchain_build_tasks | Integrated; original lane retired | Owners and canonical SDK assertions integrated into candidate; 8,028 Core tests pass; 20 native SDK tests pass; final integration gate/push pending |
 | CLI command owners and assertions | Luna Max toolchain_facade | CheckCommand integrated through a46c04d1d; FixCommand next | CheckCommand C# owner and 559-line C# test file removed; lane native contracts 123/123; root default validation rejects two imported calls; correction assigned |
 | LSP signature/services | Queued | Signature branch preserved | Refresh unique signature work without restarting |
-| Playground compiler and interpreter | Luna Max toolchain_build_tasks | /private/tmp/nsharp-agent-wt/toolchain-playground; codex/toolchain-playground | Both N# owners build through real project references; runtime-companion prerequisite under review; final canonical routing pending |
-| Runtime ABI and bootstrap | Queued | No new worktree yet | Preserve CLR identity/behavior; verify actual proposed types |
+| Playground compiler and interpreter | Luna Max toolchain_build_tasks | /private/tmp/nsharp-agent-wt/toolchain-playground; codex/toolchain-playground | Integrated through 5480fc33a; both C# owners deleted; lane 150 native assertions pass; root combined build/native verification pending |
+| Runtime ABI and assertions | Luna Max toolchain_build_tasks | Starting codex/runtime-owner from 5480fc33a | Convert four remaining managed Runtime owners with CLR identity/behavior preserved; root owns seed publication |
 | Wasm host | Queued | No new worktree yet | Prove export integration and retain only necessary mechanical boundary |
 
 Assessment and actual probe evidence: /private/tmp/nsharp-other-projects-assessment-20260909/ASSESSMENT.md.
@@ -138,3 +138,14 @@ A finished lane is not completion of this whole objective.
   contracts pass 123/123; root default dev.sh build rejects GetArgumentSummary and FromCompilerError with NL402.
   Evidence: /private/tmp/toolchain-integrated-check-build-r1.log. The owner must resolve that
   integration gap before gate acceptance. No shared SDK seed or push yet.
+
+- Runtime assembly pairing is integrated at 4244403ac. Runtime handles match selected metadata
+  by exact assembly identity and MVID; known reference-assembly layouts retain their paired
+  implementation behavior, and identical modules retain compiler-context preference across paths.
+  All 8,070 Core canonical assertions pass (zero failed/skipped):
+  /private/tmp/toolchain-integrated-runtime-pair-canonicals-r1.log.
+- Playground compiler/interpreter ownership is integrated through 5480fc33a. Both C# files
+  (1,505 lines) are deleted. Lane tests execute 34 tooling and 116 diagnostic assertions successfully
+  against matching project outputs; root clean combined verification remains required.
+  Receipts: /private/tmp/playground-native-tooling-artifact-r2.log and
+  /private/tmp/playground-native-diagnostic-artifact-r2.log.
