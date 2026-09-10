@@ -218,7 +218,11 @@ class ColumnarExternalStaticMemberPlanner {
         receiverType := typeof(object)
         claimedBySource := false
         if !ColumnarGenericTypeReceiverFacts.TryResolveReceiverType(nodes, source, receiverNode, bindings, out receiverType, out claimedBySource) {
-            return false
+            if !claimedBySource {
+                return false
+            }
+
+            return TryAppendConstructedSourceGenericStaticMember(nodes, source, node, receiverNode, bindings, plan, out resultType)
         }
 
         memberName := nodes.Text(source, node)
@@ -248,6 +252,56 @@ class ColumnarExternalStaticMemberPlanner {
                 methodIndex := plan.AddMethod(getter)
                 plan.AppendMethodInstruction(ColumnarCodePlanContract.Call(), methodIndex)
                 resultType = getter.get_ReturnType()
+                return true
+            }
+        } catch ex: Exception {
+            plan.Rollback(checkpoint)
+            throw ex
+        }
+
+        plan.Rollback(checkpoint)
+        return false
+    }
+
+    // THE SAME GENERAL STATIC READ OVER A CONSTRUCTED SOURCE GENERIC TYPE — `PerTypeState<int>.Count`,
+    // `Result<int, string>.Empty`. It is the arm above with one substitution: a source type's members
+    // do not come from runtime reflection (a `TypeBuilder` instantiation answers no member query and
+    // throws if asked), they come from the live source definition, and the handle that reads one is
+    // the declaration REBOUND onto the instantiation. Everything else is identical — the field-vs-
+    // property split and the value type are read off the declaration, nothing is predicted from the
+    // member's name, and an instance member reached through the type name resolves to nothing and
+    // declines rather than emitting a load with no receiver.
+    static func TryAppendConstructedSourceGenericStaticMember(nodes: ColumnarNodeTable, source: string, node: int, receiverNode: int, bindings: ColumnarFragmentBindings, plan: ColumnarCodePlan, out resultType: Type): bool {
+        resultType = typeof(int)
+        receiverType := typeof(object)
+        if !ColumnarGenericTypeReceiverFacts.TryResolveSourceReceiverType(nodes, source, receiverNode, bindings, out receiverType) {
+            return false
+        }
+
+        owner := ColumnarGenericTypeReceiverFacts.FindSourceDefinition(receiverType, bindings.SourceTypeDefinitions)
+        if owner == null {
+            return false
+        }
+
+        memberName := nodes.Text(source, node)
+        checkpoint := plan.CreateCheckpoint()
+        try {
+            field: FieldInfo? = null
+            fieldType := typeof(object)
+            if ColumnarSourceGenericStaticMemberFacts.TryFindStaticField(receiverType, owner, memberName, out field, out fieldType) {
+                fieldIndex := plan.AddField(field)
+                plan.AppendFieldInstruction(ColumnarCodePlanContract.Ldsfld(), fieldIndex)
+                resultType = fieldType
+                return true
+            }
+
+            getter: MethodInfo? = null
+            setter: MethodInfo? = null
+            propertyType := typeof(object)
+            if ColumnarSourceGenericStaticMemberFacts.TryFindStaticProperty(receiverType, owner, memberName, out getter, out setter, out propertyType) && getter != null {
+                methodIndex := plan.AddMethod(getter)
+                plan.AppendMethodInstruction(ColumnarCodePlanContract.Call(), methodIndex)
+                resultType = propertyType
                 return true
             }
         } catch ex: Exception {

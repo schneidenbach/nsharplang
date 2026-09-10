@@ -800,30 +800,35 @@ test "THE CONVENTION IS CHECKED BEFORE THE DECLARED TYPE IS LOOKED UP OR THE SCO
 }
 
 // ---------------------------------------------------------------------------------------------
-// THE GENERIC-STATIC RULE
+// STATIC MEMBERS ON A GENERIC TYPE
 // ---------------------------------------------------------------------------------------------
 
-test "A GENERIC TYPE MAY NOT CARRY A STATIC MEMBER, AND THE REPORT NAMES ITS PARAMETERS" {
+// A static member of a generic type is now COMPILED, not refused: the CLR gives every constructed
+// instantiation its own storage for it, and the emitter names each one through
+// `TypeBuilder.GetField`/`GetMethod`. This walk therefore has nothing to say about the shape — the
+// pair of tests that used to demand `NL323` here (`Static field 'Cache' is not supported on generic
+// type 'Box<T>' yet`, and its static-method twin) assert the opposite contract now.
+test "A GENERIC TYPE CARRIES STATIC MEMBERS LIKE ANY OTHER TYPE, AND THE DECLARATION WALK IS SILENT" {
     harness := TypeDeclDefault()
     members := new List<Declaration>()
     members.Add(TypeDeclField("Cache", TypeDeclInt(), null, Modifiers.Static))
+    members.Add(TypeDeclProperty("Current", Modifiers.Static))
+    members.Add(TypeDeclFunction("Make", Modifiers.Static))
     declaration := TypeDeclClass("Box", members, TypeDeclTypeParameters("T"), null, Modifiers.None)
 
     TypeDeclRun(harness, harness.Declarations.BeginClass(declaration, harness.Assignability), null)
 
-    assert harness.Errors.Count == 1
-    assert harness.Errors[0].Code == ErrorCode.FeatureNotImplemented
-    assert harness.Errors[0].Message.Contains("Static field 'Cache'")
-    assert harness.Errors[0].Message.Contains("'Box<T>'")
+    assert harness.Errors.Count == 0
 }
 
-test "A STATIC METHOD AND A NON-GENERIC TYPE ANSWER THE GENERIC-STATIC RULE DIFFERENTLY" {
-    methodHarness := TypeDeclDefault()
-    methodMembers := new List<Declaration>()
-    methodMembers.Add(TypeDeclFunction("Make", Modifiers.Static))
-    TypeDeclRun(methodHarness, methodHarness.Declarations.BeginClass(TypeDeclClass("Box", methodMembers, TypeDeclTypeParameters("T"), null, Modifiers.None), methodHarness.Assignability), null)
-    assert methodHarness.Errors.Count == 1
-    assert methodHarness.Errors[0].Message.Contains("Static method 'Make'")
+// The generic and non-generic spellings are held to ONE rule, which is the whole point of removing
+// the old one: the same member set is silent on `Box<T>`, on `Box`, and on an interface.
+test "A STATIC METHOD READS THE SAME ON A GENERIC TYPE, A PLAIN TYPE AND AN INTERFACE" {
+    genericHarness := TypeDeclDefault()
+    genericMembers := new List<Declaration>()
+    genericMembers.Add(TypeDeclFunction("Make", Modifiers.Static))
+    TypeDeclRun(genericHarness, genericHarness.Declarations.BeginClass(TypeDeclClass("Box", genericMembers, TypeDeclTypeParameters("T"), null, Modifiers.None), genericHarness.Assignability), null)
+    assert genericHarness.Errors.Count == 0
 
     plainHarness := TypeDeclDefault()
     plainMembers := new List<Declaration>()
@@ -831,7 +836,6 @@ test "A STATIC METHOD AND A NON-GENERIC TYPE ANSWER THE GENERIC-STATIC RULE DIFF
     TypeDeclRun(plainHarness, plainHarness.Declarations.BeginClass(TypeDeclClass("Box", plainMembers, null, null, Modifiers.None), plainHarness.Assignability), null)
     assert plainHarness.Errors.Count == 0
 
-    // An INTERFACE is never asked at all, generic or not.
     interfaceHarness := TypeDeclDefault()
     interfaceMembers := new List<Declaration>()
     interfaceMembers.Add(TypeDeclFunction("Make", Modifiers.Static))

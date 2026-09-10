@@ -1414,7 +1414,7 @@ sealed class ColumnarIlEmitter {
         if (!TryEmitExpandedParamsCallArguments(callIdx, target.ParamTypes, target.ParamModifierKinds, true)) {
             return false
         }
-        _il.Emit(OpCodes.Call, target.Builder)
+        _il.Emit(OpCodes.Call, ColumnarSourceSelfInstantiation.Bind(target.Builder))
         columnarResolvedType = target.ReturnType
         return true
     }
@@ -1595,7 +1595,7 @@ sealed class ColumnarIlEmitter {
                 return false
             }
         }
-        _il.Emit(OpCodes.Callvirt, method.Builder)
+        _il.Emit(OpCodes.Callvirt, ColumnarSourceSelfInstantiation.Bind(method.Builder))
         columnarResolvedType = method.ReturnType
         return true
     }
@@ -1652,7 +1652,7 @@ sealed class ColumnarIlEmitter {
     private func TryEmitUserDefinedConversion(source: Type, target: Type, allowExplicit: bool): bool {
         let implicitConversion: NSharpLang.Compiler.Columnar.ColumnarStaticMethodDef? = null
         if (TryFindUserDefinedConversion(source, target, "op_Implicit", out implicitConversion) || (allowExplicit && TryFindUserDefinedConversion(source, target, "op_Explicit", out implicitConversion))) {
-            _il.Emit(OpCodes.Call, implicitConversion.Builder)
+            _il.Emit(OpCodes.Call, ColumnarSourceSelfInstantiation.Bind(implicitConversion.Builder))
             return true
         }
 
@@ -5363,11 +5363,44 @@ sealed class ColumnarIlEmitter {
                             if (!TryEmitAssignableValue(Child(expr, 1), staticPropWrite.PropertyType, out columnarDiscard16)) {
                                 return false
                             }
-                            _il.Emit(OpCodes.Call, staticPropWrite.Setter)
+                            _il.Emit(OpCodes.Call, ColumnarSourceSelfInstantiation.Bind(staticPropWrite.Setter))
                             return true
                         }
                         return false
                     }
+                }
+                // STATIC member write through a CONSTRUCTED GENERIC TYPE — `PerTypeState<int>.Count = 0`.
+                // The storage belongs to the instantiation, so the handle is the declaration REBOUND
+                // onto it; the value is checked against the SUBSTITUTED member type.
+                if (ColumnarGenericTypeReceiverFacts.IsReceiver(_nodes, fieldReceiver)) {
+                    let constructedWriteType: System.Type? = null
+                    let constructedWriteDef: NSharpLang.Compiler.Columnar.ColumnarStructDef? = null
+                    let constructedWriteArgs: System.Type[]? = null
+                    if (!TryResolveConstructedSourceGenericReceiver(fieldReceiver, out constructedWriteType) || !TryGetClosedReceiverDef(constructedWriteType, out constructedWriteDef, out constructedWriteArgs)) {
+                        return false
+                    }
+                    let constructedWriteField: System.Reflection.FieldInfo? = null
+                    let constructedWriteFieldType: System.Type? = null
+                    if (ColumnarSourceGenericStaticMemberFacts.TryFindStaticField(constructedWriteType, constructedWriteDef, memberName, out constructedWriteField, out constructedWriteFieldType)) {
+                        let columnarDiscard56: System.Type = null
+                        if (!TryEmitAssignableValue(Child(expr, 1), constructedWriteFieldType, out columnarDiscard56)) {
+                            return false
+                        }
+                        _il.Emit(OpCodes.Stsfld, constructedWriteField)
+                        return true
+                    }
+                    let constructedWriteGetter: System.Reflection.MethodInfo? = null
+                    let constructedWriteSetter: System.Reflection.MethodInfo? = null
+                    let constructedWritePropertyType: System.Type? = null
+                    if (ColumnarSourceGenericStaticMemberFacts.TryFindStaticProperty(constructedWriteType, constructedWriteDef, memberName, out constructedWriteGetter, out constructedWriteSetter, out constructedWritePropertyType) && constructedWriteSetter != null) {
+                        let columnarDiscard57: System.Type = null
+                        if (!TryEmitAssignableValue(Child(expr, 1), constructedWritePropertyType, out columnarDiscard57)) {
+                            return false
+                        }
+                        _il.Emit(OpCodes.Call, constructedWriteSetter)
+                        return true
+                    }
+                    return false
                 }
                 if (TryEmitSupportedBclPropertyAssignment(fieldReceiver, memberName, Child(expr, 1))) {
                     return true
@@ -5418,7 +5451,7 @@ sealed class ColumnarIlEmitter {
                             if (!EmitExpression(Child(expr, 1), out writePropValueType) || !TypesEquivalent(writePropValueType, writeProp.PropertyType)) {
                                 return false
                             }
-                            _il.Emit(OpCodes.Callvirt, writeProp.Setter)
+                            _il.Emit(OpCodes.Callvirt, ColumnarSourceSelfInstantiation.Bind(writeProp.Setter))
                             return true
                         }
                     }
@@ -5451,7 +5484,7 @@ sealed class ColumnarIlEmitter {
                     if (!TryEmitAssignableValue(Child(expr, 1), explicitThisPropertyTarget.PropertyType, out columnarDiscard18)) {
                         return false
                     }
-                    _il.Emit(OpCodes.Callvirt, explicitThisPropertyTarget.Setter)
+                    _il.Emit(OpCodes.Callvirt, ColumnarSourceSelfInstantiation.Bind(explicitThisPropertyTarget.Setter))
                     return true
                 }
                 return false
@@ -5653,16 +5686,16 @@ sealed class ColumnarIlEmitter {
                 if (!TryEmitAssignableValue(Child(expr, 1), thisPropertyTarget.PropertyType, out columnarDiscard21)) {
                     return false
                 }
-                _il.Emit(OpCodes.Callvirt, thisPropertyTarget.Setter)
+                _il.Emit(OpCodes.Callvirt, ColumnarSourceSelfInstantiation.Bind(thisPropertyTarget.Setter))
                 return true
             }
-            // Bare STATIC-field write inside an INSTANCE member body (`count = expr` where count is a static
-            // field on the chain). The N# pipeline's pinned ASYMMETRY: bare static-field access resolves in
-            // INSTANCE contexts only — a STATIC method body must qualify (`TypeName.field`), so this is gated
-            // on `_currentStruct` (null in static bodies → declines exactly where the pipeline errors). No
-            // receiver: `<value>; stsfld`. (Statics need no address, so value-type enclosing types are fine.)
+            // Bare STATIC-field write inside ANY member body of the declaring type (`count = expr` where count
+            // is a static field on the chain) — an instance method, a static method, an accessor or a static
+            // constructor. It is anchored on `_enclosingType` for the same reason the bare static READ is: the
+            // storage belongs to the type, so every body the type owns can name it. No receiver:
+            // `<value>; stsfld`. (Statics need no address, so value-type enclosing types are fine.)
             let bareStaticTarget: System.Reflection.Emit.FieldBuilder? = null
-            if (_currentStruct != null && ColumnarSourceMemberChainResolver.TryFindStaticFieldOnChain(_currentStruct, targetName, out bareStaticTarget)) {
+            if (_enclosingType != null && ColumnarSourceMemberChainResolver.TryFindStaticFieldOnChain(_enclosingType, targetName, out bareStaticTarget)) {
                 let columnarDiscard22: System.Type = null
                 if (!TryEmitAssignableValue(Child(expr, 1), bareStaticTarget.get_FieldType(), out columnarDiscard22)) {
                     return false
@@ -7920,19 +7953,21 @@ sealed class ColumnarIlEmitter {
                 }
             }
 
-            // Bare STATIC-member read inside an INSTANCE member body. The N# pipeline's pinned ASYMMETRY: bare
-            // static-member access resolves in INSTANCE contexts only (a static body must qualify with the type
-            // name) — gated on `_currentStruct`, which is null in static bodies, so those decline exactly
-            // where the pipeline errors. No receiver: `ldsfld` for a field, `call get_Name` for a property.
+            // Bare STATIC-member read inside ANY member body of the declaring type. A static member belongs to
+            // the TYPE, not to an instance, so it is in scope wherever the type's own code is — an instance
+            // method, a static method, a static property accessor and a static constructor alike. The anchor is
+            // therefore `_enclosingType` (set for static bodies too, and the real type behind a closure display)
+            // rather than the instance-only `_currentStruct`; bare STATIC-method calls already resolve through
+            // exactly that anchor. No receiver: `ldsfld` for a field, `call get_Name` for a property.
             let bareStaticField: System.Reflection.Emit.FieldBuilder? = null
-            if (_currentStruct != null && ColumnarSourceMemberChainResolver.TryFindStaticFieldOnChain(_currentStruct, name, out bareStaticField)) {
+            if (_enclosingType != null && ColumnarSourceMemberChainResolver.TryFindStaticFieldOnChain(_enclosingType, name, out bareStaticField)) {
                 _il.Emit(OpCodes.Ldsfld, bareStaticField)
                 columnarResolvedType = bareStaticField.get_FieldType()
                 return true
             }
             let bareStaticProp: NSharpLang.Compiler.Columnar.ColumnarPropertyDef? = null
-            if (_currentStruct != null && ColumnarSourceMemberChainResolver.TryFindStaticPropertyOnChain(_currentStruct, name, out bareStaticProp)) {
-                _il.Emit(OpCodes.Call, bareStaticProp.Getter)
+            if (_enclosingType != null && ColumnarSourceMemberChainResolver.TryFindStaticPropertyOnChain(_enclosingType, name, out bareStaticProp)) {
+                _il.Emit(OpCodes.Call, ColumnarSourceSelfInstantiation.Bind(bareStaticProp.Getter))
                 columnarResolvedType = bareStaticProp.PropertyType
                 return true
             }
@@ -8393,7 +8428,7 @@ sealed class ColumnarIlEmitter {
                             return Decline("emit.call.static-argument", "static call argument " + a.ToString() + " for '" + name + "' could not be emitted", Child(idx, a))
                         }
                     }
-                    _il.Emit(OpCodes.Call, ownStatic.Builder)
+                    _il.Emit(OpCodes.Call, ColumnarSourceSelfInstantiation.Bind(ownStatic.Builder))
                     columnarResolvedType = ownStatic.ReturnType
                     return true
                 }
@@ -8546,7 +8581,7 @@ sealed class ColumnarIlEmitter {
                     }
                     let staticPropRead: NSharpLang.Compiler.Columnar.ColumnarPropertyDef? = null
                     if (ColumnarSourceMemberChainResolver.TryFindStaticPropertyOnChain(staticOwner, ColumnarNodeTextFacts.Text(_nodes, _source, idx), out staticPropRead)) {
-                        _il.Emit(OpCodes.Call, staticPropRead.Getter)
+                        _il.Emit(OpCodes.Call, ColumnarSourceSelfInstantiation.Bind(staticPropRead.Getter))
                         columnarResolvedType = staticPropRead.PropertyType
                         return true
                     }
@@ -8582,7 +8617,7 @@ sealed class ColumnarIlEmitter {
                             EmitMemberWriteLocator(directReadChain)
                             directReadPropertyEmitter := _il
                             directReadPropertyOpcode := directReadOwnerDef.IsReference ? OpCodes.Callvirt : OpCodes.Call
-                            directReadPropertyEmitter.Emit(directReadPropertyOpcode, directReadProperty.Getter)
+                            directReadPropertyEmitter.Emit(directReadPropertyOpcode, ColumnarSourceSelfInstantiation.Bind(directReadProperty.Getter))
                             columnarResolvedType = directReadProperty.PropertyType
                             return true
                         }
@@ -8801,13 +8836,13 @@ sealed class ColumnarIlEmitter {
                 if (TryFindPropertyOnChain(fieldStruct, member, out propAccessor)) {
                     if (fieldStruct.IsReference) {
                         // Reference receiver: the object ref is already on the stack.
-                        _il.Emit(OpCodes.Callvirt, propAccessor.Getter)
+                        _il.Emit(OpCodes.Callvirt, ColumnarSourceSelfInstantiation.Bind(propAccessor.Getter))
                     } else {
                         // Value receiver: instance accessors need the receiver address.
                         propertyTemp := _il.DeclareLocal(structReceiverType)
                         _il.Emit(OpCodes.Stloc, propertyTemp)
                         _il.Emit(OpCodes.Ldloca, propertyTemp)
-                        _il.Emit(OpCodes.Call, propAccessor.Getter)
+                        _il.Emit(OpCodes.Call, ColumnarSourceSelfInstantiation.Bind(propAccessor.Getter))
                     }
                     columnarResolvedType = propAccessor.PropertyType
                     return true
@@ -10057,7 +10092,7 @@ sealed class ColumnarIlEmitter {
                         if (!TypesEquivalent(initPropertyValueType, initProperty.PropertyType) && !TryEmitImplicitWidening(initPropertyValueType, initProperty.PropertyType) && !ColumnarReferenceCoercionPlanner.TryEmitInterfaceUpcast(initPropertyValueType, initProperty.PropertyType, _structRegistry, _il) && !ColumnarReferenceConversionFacts.TryEmitReferenceConversion(initPropertyValueType, initProperty.PropertyType) && !ColumnarReferenceCoercionPlanner.TryEmitObjectConversion(initPropertyValueType, initProperty.PropertyType, _structRegistry, _il) && !TryEmitAnonymousUnionConversion(initPropertyValueType, initProperty.PropertyType)) {
                             return false
                         }
-                        _il.Emit(OpCodes.Callvirt, initProperty.Setter)
+                        _il.Emit(OpCodes.Callvirt, ColumnarSourceSelfInstantiation.Bind(initProperty.Setter))
                         continue
                     }
                     let initField: System.Reflection.Emit.FieldBuilder? = null
@@ -12116,7 +12151,7 @@ sealed class ColumnarIlEmitter {
                         if (_currentStruct.IsReference) {
                             propertyCallOpcode = OpCodes.Callvirt
                         }
-                        _il.Emit(propertyCallOpcode, thisProperty.Getter)
+                        _il.Emit(propertyCallOpcode, ColumnarSourceSelfInstantiation.Bind(thisProperty.Getter))
                         resolvedClrType = thisProperty.PropertyType
                     } else {
                         return false
@@ -12218,6 +12253,24 @@ sealed class ColumnarIlEmitter {
         return false
     }
 
+    // The CLOSED SOURCE type a kind-70 receiver names, or a decline. The canonical spelling comes
+    // from the receiver owner and the resolution from the ordinary body type resolver; the only thing
+    // added here is the demand that the head be a SOURCE generic, because an EXTERNAL one answers the
+    // runtime reflection surface instead and belongs to the external static-member planner.
+    private func TryResolveConstructedSourceGenericReceiver(receiver: int, out closedType: Type): bool {
+        closedType = null
+        let canonical: string? = null
+        if (!ColumnarGenericTypeReceiverFacts.TryBuildCanonical(_nodes, _source, receiver, out canonical)) {
+            return false
+        }
+        let resolved: System.Type? = null
+        if (!TryResolveBodyType(canonical, out resolved) || !ColumnarTypeOfPlanner.IsClosedSourceGeneric(resolved)) {
+            return false
+        }
+        closedType = resolved
+        return true
+    }
+
     private func TryEmitStaticCall(callIdx: int, typeName: string, member: string, argCount: int, legacyWholeSubtreePlanning: bool, out resolvedClrType: Type): bool {
         resolvedClrType = null
         userType: NSharpLang.Compiler.Columnar.ColumnarStructDef? = null
@@ -12246,7 +12299,7 @@ sealed class ColumnarIlEmitter {
                     return Decline("emit.call.static-user-argument", "static call argument " + a.ToString() + " for '" + typeName + "." + member + "' could not be emitted", Child(callIdx, a))
                 }
             }
-            _il.Emit(OpCodes.Call, userStatic.Builder)
+            _il.Emit(OpCodes.Call, ColumnarSourceSelfInstantiation.Bind(userStatic.Builder))
             resolvedClrType = userStatic.ReturnType
             return true
         }

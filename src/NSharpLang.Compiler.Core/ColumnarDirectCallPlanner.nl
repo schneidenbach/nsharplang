@@ -896,7 +896,26 @@ class ColumnarDirectCallPlanner {
             constructedClaimedBySource := false
             if !ColumnarGenericTypeReceiverFacts.TryResolveReceiverType(nodes, source, receiverNode, bindings, out constructedReceiverType, out constructedClaimedBySource) {
                 if constructedClaimedBySource {
+                    // A SOURCE-declared generic head — `Box<int>.Create(42)`,
+                    // `Result<int, string>.Ok(42)`. The static member is declared once on the OPEN
+                    // definition, so it is selected by the ordinary source static resolver against
+                    // the CONSTRUCTED type: that resolver already substitutes the receiver's type
+                    // arguments into the parameter and return types and rebinds the handle through
+                    // `TypeBuilder.GetMethod`, which is what a member of a constructed generic
+                    // `TypeBuilder` type requires. Nothing here is per-type: the definition is found
+                    // by builder identity, the overload by ordinary resolution.
                     ownership = ColumnarDirectCallOwnership.OwnedRejected
+                    constructedSourceType := typeof(object)
+                    if ColumnarGenericTypeReceiverFacts.TryResolveSourceReceiverType(nodes, source, receiverNode, bindings, out constructedSourceType) {
+                        constructedSourceOwner := ColumnarGenericTypeReceiverFacts.FindSourceDefinition(constructedSourceType, bindings.SourceTypeDefinitions)
+                        if constructedSourceOwner != null {
+                            constructedSourceSelection := ColumnarSourceDirectCallResolver.ResolveClassifiedStaticInCompilation(constructedSourceOwner, constructedSourceType, memberName, argumentTypes, argumentFacts, bindings.EnclosingTypeDefinition)
+                            if constructedSourceSelection.IsSelected && AppendSourceSelection(nodes, source, callNode, -1, false, bindings, handles, plan, callFragment, depth, argumentTypes, argumentFacts, constructedSourceSelection, out resultType) {
+                                ownership = ColumnarDirectCallOwnership.Planned
+                                return true
+                            }
+                        }
+                    }
                 }
 
                 plan.Rollback(checkpoint)

@@ -546,11 +546,13 @@ class ColumnarSourceDirectCallResolver {
     }
 
     static func SelectedInstance(root: ColumnarStructDef, owner: ColumnarStructDef, receiverType: Type, closed: bool, definition: ColumnarInstanceMethodDef, parameterTypes: Type[]): ColumnarSourceDirectCallSelection {
-        method: MethodInfo = definition.Builder
-        declaringType: Type = owner.Builder
+        // As in `SelectedStatic`: a generic definition's own code names its own methods through the
+        // current instantiation, never through a bare method-definition token.
+        declaringType: Type = ColumnarSourceSelfInstantiation.Of(owner.Builder)
+        method: MethodInfo = ColumnarSourceSelfInstantiation.BindOn(declaringType, definition.Builder)
         returnType := definition.ReturnType
         if closed {
-            rebound := TypeBuilder.GetMethod(receiverType, method)
+            rebound := TypeBuilder.GetMethod(receiverType, definition.Builder)
             if rebound == null {
                 throw new InvalidOperationException("TypeBuilder.GetMethod returned no exact closed source instance method.")
             }
@@ -564,11 +566,14 @@ class ColumnarSourceDirectCallResolver {
     }
 
     static func SelectedStatic(root: ColumnarStructDef, owner: ColumnarStructDef, ownerType: Type, closed: bool, definition: ColumnarStaticMethodDef, parameterTypes: Type[]): ColumnarSourceDirectCallSelection {
-        method: MethodInfo = definition.Builder
-        declaringType: Type = owner.Builder
+        // A member of a generic definition reached WITHOUT an instantiation is the type's own code
+        // naming itself: the handle must still go through the CURRENT INSTANTIATION, because a raw
+        // method-definition token names the open type and the CLR refuses to execute one.
+        declaringType: Type = ColumnarSourceSelfInstantiation.Of(owner.Builder)
+        method: MethodInfo = ColumnarSourceSelfInstantiation.BindOn(declaringType, definition.Builder)
         returnType := definition.ReturnType
         if closed {
-            rebound := TypeBuilder.GetMethod(ownerType, method)
+            rebound := TypeBuilder.GetMethod(ownerType, definition.Builder)
             if rebound == null {
                 throw new InvalidOperationException("TypeBuilder.GetMethod returned no exact closed source static method.")
             }
