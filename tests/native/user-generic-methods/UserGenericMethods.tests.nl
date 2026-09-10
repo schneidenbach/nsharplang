@@ -72,6 +72,32 @@ record Labelled(Label: string) {
     }
 }
 
+// AN UNCONSTRAINED TYPE PARAMETER MAY BE CLOSED OVER EITHER KIND, and its null questions have to
+// answer for both. The CLR has one instruction that does: `box !!T` yields the reference itself for a
+// reference instantiation and a fresh non-null box for a value one, so `value == null` is false for
+// every value instantiation and a real null test for every reference one — C#'s reading. Comparing
+// the raw stack value instead compared an unboxed `int` against a null reference and answered TRUE
+// for `Nullable<int>(0)`.
+struct Unconstrained<T> {
+    Value: T
+
+    constructor(value: T) {
+        Value = value
+    }
+
+    func IsNull(): bool {
+        return Value == null
+    }
+
+    func IsNotNull(): bool {
+        return Value != null
+    }
+
+    func OrElse(other: T): T {
+        return Value ?? other
+    }
+}
+
 // A REFERENCE generic owner, so the instance-call opcode split (callvirt for a reference receiver,
 // call on the address of a value receiver) is exercised on both sides.
 class Holder<T> {
@@ -213,6 +239,27 @@ func ConstrainedCalls(): int {
     return total + Constrained.ReadId<Identified>(identified)
 }
 
+func UnconstrainedNullAnswers(): string {
+    valueInstantiation := new Unconstrained<int>(0)
+    nullReference := new Unconstrained<string?>(null)
+    liveReference := new Unconstrained<string?>("x")
+    answers := ""
+    answers = answers + (valueInstantiation.IsNull() ? "1" : "0")
+    answers = answers + (valueInstantiation.IsNotNull() ? "1" : "0")
+    answers = answers + (nullReference.IsNull() ? "1" : "0")
+    answers = answers + (nullReference.IsNotNull() ? "1" : "0")
+    answers = answers + (liveReference.IsNull() ? "1" : "0")
+    answers = answers + (liveReference.IsNotNull() ? "1" : "0")
+    return answers
+}
+
+func UnconstrainedCoalesce(): string {
+    valueInstantiation := new Unconstrained<int>(0)
+    nullReference := new Unconstrained<string?>(null)
+    liveReference := new Unconstrained<string?>("x")
+    return valueInstantiation.OrElse(9).ToString() + (nullReference.OrElse("fallback") ?? "?") + (liveReference.OrElse("fallback") ?? "?")
+}
+
 // ---- REFLECTION HELPERS ------------------------------------------------------------------------
 
 func InstanceMethod(owner: Type, name: string): MethodInfo? {
@@ -312,6 +359,15 @@ test "a generic method on a reference generic owner runs both ways" {
 
 test "constrained generic methods run and their arguments satisfy the constraints" {
     assert ConstrainedCalls() == 18
+}
+
+test "an unconstrained type parameter answers its null questions for both kinds" {
+    // A VALUE instantiation is never null; a REFERENCE one answers by its reference.
+    assert UnconstrainedNullAnswers() == "011001"
+}
+
+test "coalescing over an unconstrained type parameter keeps the value instantiation's value" {
+    assert UnconstrainedCoalesce() == "0fallbackx"
 }
 
 test "a generic method is a real CLR generic method definition" {

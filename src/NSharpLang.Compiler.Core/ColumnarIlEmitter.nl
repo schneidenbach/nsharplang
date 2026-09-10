@@ -8967,8 +8967,18 @@ sealed class ColumnarIlEmitter {
                     columnarResolvedType = typeof(bool)
                     return true
                 }
-                if (nullCmpType.get_IsValueType()) {
-                    return false
+                if (nullCmpType.get_IsGenericParameter()) {
+                    // An UNCONSTRAINED type parameter may be closed over a value type OR a reference
+                    // type, and the CLR has one instruction that answers for both: `box !!T` yields
+                    // the reference itself for a reference type and a fresh non-null box for a value
+                    // type, so `T == null` is false for every value instantiation and a real null
+                    // test for every reference one — exactly C#'s reading. Comparing the raw stack
+                    // value would compare an unboxed `int` against a null reference.
+                    _il.Emit(OpCodes.Box, nullCmpType)
+                } else {
+                    if (nullCmpType.get_IsValueType()) {
+                        return false
+                    }
                 }
                 // plain value types never compare to null (the pipeline rejects).
                 _il.Emit(OpCodes.Ldnull)
@@ -9011,6 +9021,29 @@ sealed class ColumnarIlEmitter {
                     }
                     _il.MarkLabel(endLabel2)
                     columnarResolvedType = coalesceElement
+                    return true
+                }
+                if (coalesceLeft.get_IsGenericParameter()) {
+                    // The same reading for `??`: the NULLNESS question is asked of the boxed value,
+                    // while the RESULT stays `T`. The left operand is held in a temporary so the
+                    // box is only a test — a value instantiation always takes the left branch, and a
+                    // reference instantiation takes it exactly when the reference is non-null.
+                    typeParameterLocal := _il.DeclareLocal(coalesceLeft)
+                    _il.Emit(OpCodes.Stloc, typeParameterLocal)
+                    typeParameterLeftLabel := _il.DefineLabel()
+                    typeParameterEndLabel := _il.DefineLabel()
+                    _il.Emit(OpCodes.Ldloc, typeParameterLocal)
+                    _il.Emit(OpCodes.Box, coalesceLeft)
+                    _il.Emit(OpCodes.Brtrue, typeParameterLeftLabel)
+                    let typeParameterRightType: System.Type? = null
+                    if (!EmitExpression(Child(idx, 1), out typeParameterRightType) || !TypesEquivalent(typeParameterRightType, coalesceLeft)) {
+                        return false
+                    }
+                    _il.Emit(OpCodes.Br, typeParameterEndLabel)
+                    _il.MarkLabel(typeParameterLeftLabel)
+                    _il.Emit(OpCodes.Ldloc, typeParameterLocal)
+                    _il.MarkLabel(typeParameterEndLabel)
+                    columnarResolvedType = coalesceLeft
                     return true
                 }
                 if (coalesceLeft.get_IsValueType()) {
