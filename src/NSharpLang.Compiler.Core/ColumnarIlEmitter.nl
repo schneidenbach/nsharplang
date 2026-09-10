@@ -2032,6 +2032,19 @@ sealed class ColumnarIlEmitter {
                 ColumnarAttributeBlobs.ApplyToType(tb, byRefLikeCtor, declarationPlan.CustomAttributes.StructByRefLikeBlobs[s])
             }
 
+            // `readonly struct S`: the SAME `[IsReadOnly]` marker the C# compiler places on the type, from the
+            // same reference universe the value-struct union arm resolves it in. It is metadata only — the
+            // fields are already `initonly` because the analyzer proved every instance field carries
+            // `readonly` — but it is the bit every consumer (C#, F#, the CLR's own `in`-parameter rules)
+            // reads to know a copy is unnecessary.
+            if (declarationPlan.CustomAttributes.StructReadOnlyBlobs[s].Length > 0) {
+                structReadOnlyCtor := typeof(System.Runtime.CompilerServices.IsReadOnlyAttribute).GetConstructor(Type.EmptyTypes)
+                if (structReadOnlyCtor == null) {
+                    return false
+                }
+                ColumnarAttributeBlobs.ApplyToType(tb, structReadOnlyCtor, declarationPlan.CustomAttributes.StructReadOnlyBlobs[s])
+            }
+
             // Generic type parameters (`class Box<T>`): declared on the builder before any member signature
             // resolves (a member type naming T needs the GenericTypeParameterBuilder). Duplicate names decline in
             // the product parser wrapper before this point.

@@ -813,7 +813,8 @@ class ColumnarPropertyRows {
 
 // CUSTOM ATTRIBUTES, IN ATTACHMENT ORDER. Each outer index identifies its source declaration;
 // each inner sequence is the complete ordered attachment list for that owner. Empty means absent.
-// The first two families bind their sole constructor to IsByRefLike() and IsReadOnly() respectively.
+// The first three families bind their sole constructor to IsByRefLike(), IsReadOnly() (on a
+// `readonly struct`) and IsReadOnly() (on a value-struct union) respectively.
 // Test slots bind 0 to Trait(string, string), 1 to Fact(); slot order is data, not executor policy.
 // Source lists retain stable ordinals through emission. These rows capture attribute data, not the
 // rest of each source declaration; executors treat the resulting arrays as read-only.
@@ -821,12 +822,14 @@ class ColumnarPropertyRows {
 // and missing test constructors produce the existing emit.tests.framework decline before any test.
 class ColumnarCustomAttributeRows {
     StructByRefLikeBlobs: byte[][][]
+    StructReadOnlyBlobs: byte[][][]
     UnionReadOnlyBlobs: byte[][][]
     TestConstructorSlots: int[]
     TestBlobs: byte[][][]
 
-    constructor(structByRefLikeBlobs: byte[][][], unionReadOnlyBlobs: byte[][][], testConstructorSlots: int[], testBlobs: byte[][][]) {
+    constructor(structByRefLikeBlobs: byte[][][], structReadOnlyBlobs: byte[][][], unionReadOnlyBlobs: byte[][][], testConstructorSlots: int[], testBlobs: byte[][][]) {
         StructByRefLikeBlobs = structByRefLikeBlobs
+        StructReadOnlyBlobs = structReadOnlyBlobs
         UnionReadOnlyBlobs = unionReadOnlyBlobs
         TestConstructorSlots = testConstructorSlots
         TestBlobs = testBlobs
@@ -990,16 +993,23 @@ class ColumnarDeclarationPlanner {
         marker: byte[][] = null
         structs := program.Structs
         structBlobs := new byte[][][](structs.Count)
+        structReadOnlyBlobs := new byte[][][](structs.Count)
         index := 0
         while index < structs.Count {
             structBlobs[index] = empty
-            if structs[index].IsRefStruct {
+            structReadOnlyBlobs[index] = empty
+            if structs[index].IsRefStruct || structs[index].IsReadonlyStruct {
                 if marker == null {
                     noArgument = ColumnarAttributeBlobs.NoArgument()
                     marker = new byte[][](1)
                     marker[0] = noArgument
                 }
-                structBlobs[index] = marker
+                if structs[index].IsRefStruct {
+                    structBlobs[index] = marker
+                }
+                if structs[index].IsReadonlyStruct {
+                    structReadOnlyBlobs[index] = marker
+                }
             }
             index = index + 1
         }
@@ -1043,7 +1053,7 @@ class ColumnarDeclarationPlanner {
                 index = index + 1
             }
         }
-        return new ColumnarCustomAttributeRows(structBlobs, unionBlobs, slots, testBlobs)
+        return new ColumnarCustomAttributeRows(structBlobs, structReadOnlyBlobs, unionBlobs, slots, testBlobs)
     }
 
     // `TypeAttributes` (ECMA-335 II.23.1.15) as integers, for the same reason
@@ -1459,7 +1469,20 @@ class ColumnarDeclarationPlanner {
     // THE READONLY FLAG IS BOUNDS-GUARDED AND THAT GUARD IS THE COMPUTATION. `FieldReadonlyFlags` may
     // be SHORTER than `FieldNames` -- a field past its end is simply not readonly -- and reading it
     // unguarded would throw on a shape the emitter accepts today.
+    //
+    // EVERY INSTANCE FIELD OF A `readonly struct` IS INITONLY, whether or not the source spelled the
+    // word. The analyzer has already refused any SOURCE-declared instance field that did not (NL326),
+    // so the only fields this adds the bit to are the ones the compiler synthesized itself -- a primary
+    // constructor's captured parameters. C# emits those `initonly` for a readonly struct too, and it has
+    // to: the type carries `IsReadOnlyAttribute`, so callers stop making the defensive copies that would
+    // otherwise absorb a write through them. This is the ONE door that computes the InitOnly bit, so
+    // every downstream rule that asks `get_IsInitOnly()` -- field-init placement, `with`, object
+    // initializers, write targets -- follows from it.
     static func FieldIsReadonlyAt(input: ColumnarStructInput, index: int): bool {
+        if input.IsReadonlyStruct && index < input.FieldStaticFlags.Length && !input.FieldStaticFlags[index] {
+            return true
+        }
+
         if index < input.FieldReadonlyFlags.Length {
             return input.FieldReadonlyFlags[index]
         }

@@ -839,6 +839,101 @@ test "A STATIC METHOD AND A NON-GENERIC TYPE ANSWER THE GENERIC-STATIC RULE DIFF
     assert interfaceHarness.Errors.Count == 0
 }
 
+test "A READONLY STRUCT REFUSES A MUTABLE INSTANCE FIELD, AND THE REPORT LANDS ON THE FIELD NAME" {
+    harness := TypeDeclDefault()
+    members := new List<Declaration>()
+    members.Add(TypeDeclField("Mutable", TypeDeclInt(), null, Modifiers.None))
+    members.Add(TypeDeclField("Fixed", TypeDeclInt(), null, Modifiers.Readonly))
+    declaration := TypeDeclStruct("Point", members, null, null, Modifiers.Readonly)
+
+    TypeDeclRun(harness, harness.Declarations.BeginStruct(declaration, harness.Assignability), null)
+
+    assert harness.Errors.Count == 1
+    assert harness.Errors[0].Code == ErrorCode.MutableFieldInReadonlyStruct
+    assert harness.Errors[0].Message == "'Mutable' is a mutable instance field, but 'Point' is a readonly struct"
+    assert harness.Errors[0].Suggestion == "Declare the field 'readonly Mutable: <type>' so it can only be assigned in a constructor, or drop 'readonly' from 'readonly struct Point' if the value is meant to change after construction."
+}
+
+test "A PLAIN STRUCT WITH A READONLY FIELD IS NOT A READONLY STRUCT AND IS NEVER REPORTED" {
+    // `struct S { readonly X: int; Y: int }` is a MUTABLE struct that holds one immutable field.
+    // Conflating the two would flag the shape most of the corpus is already written in.
+    harness := TypeDeclDefault()
+    members := new List<Declaration>()
+    members.Add(TypeDeclField("Fixed", TypeDeclInt(), null, Modifiers.Readonly))
+    members.Add(TypeDeclField("Mutable", TypeDeclInt(), null, Modifiers.None))
+
+    TypeDeclRun(harness, harness.Declarations.BeginStruct(TypeDeclStruct("Point", members, null, null, Modifiers.None), harness.Assignability), null)
+
+    assert harness.Errors.Count == 0
+}
+
+test "A READONLY STRUCT'S STATIC, CONST AND INIT FIELDS ARE NOT THE INSTANCE STATE THE RULE OWNS" {
+    harness := TypeDeclDefault()
+    members := new List<Declaration>()
+    members.Add(TypeDeclField("Shared", TypeDeclInt(), null, Modifiers.Static))
+    members.Add(TypeDeclField("Limit", TypeDeclInt(), TypeDeclIntLiteral(), Modifiers.Const))
+    members.Add(TypeDeclField("Once", TypeDeclInt(), null, Modifiers.Init))
+    members.Add(TypeDeclField("Fixed", TypeDeclInt(), null, Modifiers.Readonly))
+
+    TypeDeclRun(harness, harness.Declarations.BeginStruct(TypeDeclStruct("Point", members, null, null, Modifiers.Readonly), harness.Assignability), null)
+
+    assert harness.Errors.Count == 0
+}
+
+test "A READONLY CLASS IS NEVER REPORTED BY THIS RULE — THE PARSER ALREADY REFUSED THE WORD" {
+    // `Modifiers.Readonly` cannot reach a ClassDeclaration through the parser (NL311 fires and the bit
+    // is not recorded), and the rule is a STRUCT rule even if one were constructed by hand.
+    harness := TypeDeclDefault()
+    members := new List<Declaration>()
+    members.Add(TypeDeclField("Mutable", TypeDeclInt(), null, Modifiers.None))
+
+    TypeDeclRun(harness, harness.Declarations.BeginClass(TypeDeclClass("Config", members, null, null, Modifiers.Readonly), harness.Assignability), null)
+
+    assert harness.Errors.Count == 0
+}
+
+test "A READONLY RECORD STRUCT IS HELD TO THE SAME RULE, AND A READONLY REFERENCE RECORD IS NOT" {
+    valueMembers := new List<Declaration>()
+    valueMembers.Add(TypeDeclField("Left", TypeDeclInt(), null, Modifiers.None))
+    valueHarness := TypeDeclDefault()
+    valueRecord := new RecordDeclaration("Pair", null, TypeDeclNoInterfaces(), valueMembers, null, true, Modifiers.Readonly, TypeDeclNoAttributes(), 7, 10)
+    TypeDeclRun(valueHarness, valueHarness.Declarations.BeginRecord(valueRecord, valueHarness.Assignability), null)
+    assert valueHarness.Errors.Count == 1
+    assert valueHarness.Errors[0].Code == ErrorCode.MutableFieldInReadonlyStruct
+    assert valueHarness.Errors[0].Suggestion.Contains("readonly record struct Pair")
+
+    referenceMembers := new List<Declaration>()
+    referenceMembers.Add(TypeDeclField("Left", TypeDeclInt(), null, Modifiers.None))
+    referenceHarness := TypeDeclDefault()
+    TypeDeclRun(referenceHarness, referenceHarness.Declarations.BeginRecord(TypeDeclRecord("Pair", referenceMembers, null, Modifiers.Readonly), referenceHarness.Assignability), null)
+    assert referenceHarness.Errors.Count == 0
+}
+
+test "A READONLY REF STRUCT NAMES ITSELF `ref struct` IN THE SUGGESTION" {
+    harness := TypeDeclDefault()
+    members := new List<Declaration>()
+    members.Add(TypeDeclField("Start", TypeDeclInt(), null, Modifiers.None))
+    declaration := new StructDeclaration("Window", null, TypeDeclNoInterfaces(), members, null, Modifiers.Readonly, TypeDeclNoAttributes(), 7, 10, true)
+
+    TypeDeclRun(harness, harness.Declarations.BeginStruct(declaration, harness.Assignability), null)
+
+    assert harness.Errors.Count == 1
+    assert harness.Errors[0].Suggestion.Contains("readonly ref struct Window")
+}
+
+test "EVERY MUTABLE INSTANCE FIELD OF A READONLY STRUCT IS REPORTED, NOT ONLY THE FIRST" {
+    harness := TypeDeclDefault()
+    members := new List<Declaration>()
+    members.Add(TypeDeclField("First", TypeDeclInt(), null, Modifiers.None))
+    members.Add(TypeDeclField("Second", TypeDeclInt(), null, Modifiers.None))
+
+    TypeDeclRun(harness, harness.Declarations.BeginStruct(TypeDeclStruct("Point", members, null, null, Modifiers.Readonly), harness.Assignability), null)
+
+    assert harness.Errors.Count == 2
+    assert harness.Errors[0].Message.Contains("'First'")
+    assert harness.Errors[1].Message.Contains("'Second'")
+}
+
 test "A TYPE PARAMETER IS DECLARED INTO THE SCOPE THE WALK JUST OPENED" {
     harness := TypeDeclDefault()
     declaration := TypeDeclClass("Box", TypeDeclNoMembers(), TypeDeclTypeParameters("T"), null, Modifiers.None)

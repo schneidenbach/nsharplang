@@ -41,6 +41,7 @@ enum ErrorCode {
     FeatureNotImplemented = 323,
     AbstractMemberNotImplemented = 324,
     InterfaceMemberNotImplemented = 325,
+    MutableFieldInReadonlyStruct = 326,
     WrongArgumentCount = 401,
     NoMatchingOverload = 402,
     InvalidParameter = 405,

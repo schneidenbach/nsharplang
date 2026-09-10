@@ -207,6 +207,11 @@ class ColumnarStructInput {
     IsReference: bool
     IsSealed: bool
     IsRefStruct: bool
+    // `readonly struct S` / `readonly ref struct S` / `readonly record struct S`: the declaration promises
+    // that no instance state changes after construction, which the assembly owner turns into an
+    // `IsReadOnlyAttribute` on the emitted type. The analyzer has already proved every instance field
+    // carries `readonly`, so this bit adds metadata and never changes layout or field attributes.
+    IsReadonlyStruct: bool
     BaseNames: string[]
     FieldStaticFlags: bool[]
     FieldReadonlyFlags: bool[]
@@ -235,6 +240,7 @@ class ColumnarStructInput {
         IsReference = isReference
         IsSealed = (visibilityModifierFlags & 128) != 0
         IsRefStruct = isRefStruct
+        IsReadonlyStruct = !isReference && (visibilityModifierFlags & 512) != 0
         BaseNames = baseNames ?? new string[](0)
         FieldStaticFlags = fieldStaticFlags ?? new bool[](fieldNames.Length)
         FieldReadonlyFlags = fieldReadonlyFlags ?? new bool[](fieldNames.Length)

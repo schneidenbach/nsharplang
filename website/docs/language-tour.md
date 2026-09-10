@@ -159,6 +159,80 @@ struct Rectangle {
 }
 ```
 
+### Readonly Structs
+
+Mark a struct `readonly` when none of its instance state changes after construction. The compiler
+holds you to the promise — every instance field must be declared `readonly` — and in exchange it
+puts `IsReadOnlyAttribute` on the emitted type, which is what lets callers pass the value around
+without defensive copies.
+
+```n#
+readonly struct Point {
+    readonly X: double
+    readonly Y: double
+
+    constructor(x: double, y: double) {
+        X = x
+        Y = y
+    }
+
+    func Distance(): double => Math.Sqrt(X * X + Y * Y)
+}
+```
+
+The modifier works on generic structs, on `ref struct` and on `record struct`, and modifier order
+is free — `public readonly struct` and `readonly public struct` mean the same thing:
+
+```n#
+readonly struct Box<T> {
+    readonly Value: T
+
+    constructor(value: T) {
+        Value = value
+    }
+}
+
+readonly ref struct Window {
+    readonly Start: int
+    readonly Length: int
+
+    constructor(start: int, length: int) {
+        Start = start
+        Length = length
+    }
+}
+
+readonly record struct Pair {
+    readonly Left: int
+    readonly Right: int
+
+    constructor(left: int, right: int) {
+        Left = left
+        Right = right
+    }
+}
+```
+
+`static` and `const` fields are unaffected — they are not instance state — and a primary
+constructor's captured parameters become readonly fields automatically:
+
+```n#
+readonly struct Counted(total: int, seen: int) {
+    static Instances: int = 0        // fine: not instance state
+
+    func Remaining(): int => total - seen
+}
+```
+
+Two things are **not** readonly structs and are never treated as one:
+
+- A plain `struct` that happens to have `readonly` fields. It stays a mutable struct.
+- A `class`, `record`, `interface` or `enum`. Those cannot carry the word at all
+  ([NL311](./errors/NL311.md)); mark their fields `readonly` individually instead.
+
+A mutable instance field inside a `readonly struct` is [NL326](./errors/NL326.md); assigning to a
+readonly field outside a constructor is [NL309](./errors/NL309.md).
+
 ## Unions
 
 Discriminated unions let you define a type that can be one of several cases. The compiler enforces exhaustive matching.

@@ -360,6 +360,17 @@ The pre-cutover goldens in `ColumnarParserAst.tests.nl` still pin the tree Parse
 golden written AFTER the cutover has no second parser to check it, and is a behavioural snapshot
 whose C#-asserted subset is a faithful restatement.
 
+**THE TYPE-LEVEL `readonly` MODIFIER** (`ParseTypeDeclarationModifiers`, `ColumnarParserRecovery.nl`) is
+taken separately from `ParseModifiers`, which deliberately has no `readonly` case so a member-level
+`readonly X: int` keeps its token for the field parser. The word is claimed as a TYPE modifier only when
+a type-declaration keyword follows it across the remaining modifier words and the `ref` of
+`readonly ref struct`, so modifier order is free (`public readonly struct` == `readonly public struct`);
+the scan names `public`/`private` explicitly because `ParserTokenFacts.IsModifierKeyword` excludes them.
+`readonly struct`, `readonly ref struct` and `readonly record struct` record `Modifiers.Readonly`;
+anything else reports **NL311 on the word** and keeps parsing the declaration without it (C# `CS0106`).
+Both the top-level and the member dispatch route through the one function, so a nested readonly struct
+behaves identically to a top-level one.
+
 ## Usage Example
 
 ```text
