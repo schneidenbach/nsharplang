@@ -155,20 +155,23 @@ sealed class PlaygroundCompiler {
             runner := new PlaygroundRunner(orderedUnits)
             run := runner.Run()
             return new PlaygroundRunResponse(schemaVersion, run.ExitCode == 0, normalizedActiveFile, run.ExitCode, run.Stdout, run.Stderr, null, diagnostics, summary)
-        } catch ex: PlaygroundRunUnsupportedException {
+        } catch caught: Exception {
+            unsupported := caught as PlaygroundRunUnsupportedException
+            if unsupported != null {
+                runDiagnostics := new List<PlaygroundDiagnostic>()
+                for diagnostic in diagnostics {
+                    runDiagnostics.Add(diagnostic)
+                }
+                runDiagnostics.Add(new PlaygroundDiagnostic(unsupported.Code, "error", unsupported.Message, normalizedActiveFile, 1, 1, 1, null, "The hosted playground intentionally runs a bounded browser execution subset.", "Install nlc locally for full CLR execution, or try one of the smaller runnable samples.", "Diagnostics, formatting, hover, and completions still work for this code in the browser."))
+                return BuildFailedRunResponse(normalizedActiveFile, Deduplicate(runDiagnostics), unsupported.Message, unsupported.Message)
+            }
+
             runDiagnostics := new List<PlaygroundDiagnostic>()
             for diagnostic in diagnostics {
                 runDiagnostics.Add(diagnostic)
             }
-            runDiagnostics.Add(new PlaygroundDiagnostic(ex.Code, "error", ex.Message, normalizedActiveFile, 1, 1, 1, null, "The hosted playground intentionally runs a bounded browser execution subset.", "Install nlc locally for full CLR execution, or try one of the smaller runnable samples.", "Diagnostics, formatting, hover, and completions still work for this code in the browser."))
-            return BuildFailedRunResponse(normalizedActiveFile, Deduplicate(runDiagnostics), ex.Message, ex.Message)
-        } catch ex: Exception {
-            runDiagnostics := new List<PlaygroundDiagnostic>()
-            for diagnostic in diagnostics {
-                runDiagnostics.Add(diagnostic)
-            }
-            runDiagnostics.Add(new PlaygroundDiagnostic("PG299", "error", "Run failed: " + ex.Message, normalizedActiveFile, 1, 1, 1, null, "The browser runner hit an unexpected execution failure.", "If this is reproducible, file an issue with the sample source.", null))
-            return BuildFailedRunResponse(normalizedActiveFile, Deduplicate(runDiagnostics), ex.Message, null)
+            runDiagnostics.Add(new PlaygroundDiagnostic("PG299", "error", "Run failed: " + caught.Message, normalizedActiveFile, 1, 1, 1, null, "The browser runner hit an unexpected execution failure.", "If this is reproducible, file an issue with the sample source.", null))
+            return BuildFailedRunResponse(normalizedActiveFile, Deduplicate(runDiagnostics), caught.Message, null)
         }
     }
 
