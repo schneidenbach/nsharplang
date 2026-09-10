@@ -211,3 +211,18 @@ evidence/integrated-fix-cli-build-r1.log and evidence/integrated-fix-cli-contrac
 The clean Fix worktree/branch is retired; verified persistent history bundle:
 /Users/spencer/repos/nsharp-worktrees/evidence/fix-command-completed.bundle.
 The remaining shared Check/backend assertions remain assigned to the separate lane.
+
+## CLI project boundary correction
+
+User clarified that CLI commands must not live in the Compiler project merely because it already
+builds N#. Move CheckCommand/FixCommand and their command-specific helper/state/test groups into
+a dedicated native NSharpLang.Cli.Core project. The existing CLI executable references it; the
+dependency direction is CLI host -> CLI.Core -> Compiler -> Compiler.Core. Compiler, Playground
+and SDK packages must not acquire a CLI command dependency. Reusable compiler-service FixApplicator
+remains in Compiler. This is one coherent CLI library, not a project per command.
+
+The bounded relocation is assigned to the Luna agent at
+/Users/spencer/repos/nsharp-worktrees/cli-native-owner (codex/cli-native-owner). Preserve exact
+command semantics and canonical tests, remove reverse test dependencies/host-assembly assumptions,
+and verify the published CLI closure. Shared CLI-only code still in Compiler.Core remains explicit
+placement debt to move with its complete caller group; do not introduce a reverse dependency.
