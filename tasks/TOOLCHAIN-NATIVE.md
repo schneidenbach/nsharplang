@@ -34,7 +34,7 @@ Base: 06186dc6d (includes bootstrap/CI work; preserve it).
 |---|---|---|---|
 | Complete Compiler service facade and assertions | Luna Max toolchain_facade | Integrated at 5691697ce; old lane retired | Four C# owners and remaining C# assertion removed; root combined build and 98 native tests pass; private package consumer passes; final gate pending |
 | Complete LoadProjectConfig / LoadProjectReferences and assertions | Luna Max toolchain_build_tasks | Integrated; original lane retired | Owners and canonical SDK assertions integrated into candidate; 8,028 Core tests pass; 20 native SDK tests pass; final integration gate/push pending |
-| CLI command owners and assertions | Luna Max toolchain_facade | CheckCommand integrated through a46c04d1d; FixCommand next | CheckCommand C# owner and 559-line C# test file removed; lane native contracts 123/123; array correction integrated through 6b3f4d669; combined compiler verification running |
+| CLI command owners and assertions | Luna Max toolchain_facade | CheckCommand integrated through a46c04d1d; FixCommand next | CheckCommand C# owner and 559-line C# test file removed; lane native contracts 123/123; array correction integrated through 6b3f4d669; root combined compiler canonicals pass 8,075/8,075 |
 | LSP signature/services | Queued | Signature branch preserved | Refresh unique signature work without restarting |
 | Playground compiler and interpreter | Luna Max toolchain_build_tasks | /private/tmp/nsharp-agent-wt/toolchain-playground; codex/toolchain-playground | Integrated through 5480fc33a; both C# owners deleted; lane 150 native assertions pass; root combined build/native verification pending |
 | Runtime ABI and assertions | Luna Max toolchain_build_tasks | Starting codex/runtime-owner from 5480fc33a | Convert four remaining managed Runtime owners with CLR identity/behavior preserved; root owns seed publication |
@@ -165,5 +165,11 @@ A finished lane is not completion of this whole objective.
   It unwraps only oblivious array annotations, keeps nullable element mismatches distinct, and
   restricts its additional reflected-call path to SZ arrays while preserving successful existing
   CLR matches. Typed null sourceTexts preserves the command failure/output behavior.
-  Lane canonical suite passes 8,074 tests; root combined verification is running.
+  Lane canonical suite passes 8,074 tests; root combined suite passes 8,075 with zero failures
+  or skips: /private/tmp/toolchain-integrated-check-array-canonicals-r1.log.
   FixCommand complete ownership and C# assertion migration has resumed in its existing worktree.
+
+- The partial runtime-pair correction clears ITaskItem[] but then fails ZipFile.ExtractToDirectory.
+  A forced rebuild of the same source with the preceding facade seed succeeds, confirming this
+  second failure belongs to the resolver regression. It is not a new SIMD or ZipFile feature gap.
+  The candidate remains unpublished while exact dependency selection is corrected.
