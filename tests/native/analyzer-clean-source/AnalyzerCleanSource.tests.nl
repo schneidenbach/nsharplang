@@ -4572,12 +4572,10 @@ test "020 s29 analyzer clean source: the parse is SILENT in both file-name spell
 //
 // THE TABLE. `GenericTypes_StaticMembers_ReportBeforeEmission` is the FIRST of `AnalyzerTests.cs`'s
 // 35 `[Theory]`s to leave the file, and it is a table here rather than three declarations because
-// BOTH its fixture and its message claim are interpolated per row. Every one of its four C#
-// parameters is load-bearing in the N# body. **AND THE PER-ROW PIN IMMEDIATELY FOUND A DEFECT THE
-// C# COULD NOT**: the three rows do not anchor alike. `field count` underlines `count` and
-// `property value` underlines `value`, but `method mk` underlines **`fu`** — column 12, length 2:
-// the column of the `func` keyword with the LENGTH of the member name. A single collapsed
-// assertion could not have said so; three separate `codeAnchor` values do.
+// its fixture is interpolated per row. The diagnostic it asserted is GONE — a static member of a
+// generic type is an ordinary member now — so the table asserts SILENCE on the same three fixtures,
+// one row per member kind, which is the claim a collapsed assertion could not make: a slice that
+// lifted the refusal for a field and left it for a property would still pass one.
 //
 // The fixtures are the deleted ones byte-for-byte: every literal was copied unmodified into a
 // generated console program that printed its sha256 and length, and the decoder that produced the
@@ -6915,26 +6913,29 @@ test "020 s30 analyzer error codes: `InvalidSyntax`: the whole census is pinned 
 // `method mk` underlines `fu` — column 12, length 2, the column of the `func` keyword carrying the
 // LENGTH of the member name. One collapsed assertion could not have said so; three separate values
 // do.
-test "020 s30 analyzer error codes: a static member on a GENERIC type is refused before emission, one row per member kind — the fixture and the message are BOTH interpolated per row, which is why this is a table and not three contracts, and the three rows do NOT anchor alike: `count` and `value` are underlined whole while `mk` underlines `fu`, the `func` keyword's column with the member name's length (was AnalyzerTests.GenericTypes_StaticMembers_ReportBeforeEmission, all three [InlineData] rows)" with (typeKind: string, memberSource: string, memberKind: string, memberName: string, census: string, codeRow: string, codeAnchor: string) [
-    ("class", "static count: int", "field", "count", "NL323:FeatureNotImplemented@3:12+5;", "FeatureNotImplemented|Static field 'count' is not supported on generic type 'Box<T>' yet|Move the static member to a non-generic helper type, or make it an instance member.|Error", "NL323@3:12+5"),
-    ("record", "static func mk(): int {\n        return 1\n    }", "method", "mk", "NL323:FeatureNotImplemented@3:12+2;", "FeatureNotImplemented|Static method 'mk' is not supported on generic type 'Box<T>' yet|Move the static member to a non-generic helper type, or make it an instance member.|Error", "NL323@3:12+2"),
-    ("struct", "static value: int {\n        get {\n            return 1\n        }\n    }", "property", "value", "NL323:FeatureNotImplemented@3:12+5;", "FeatureNotImplemented|Static property 'value' is not supported on generic type 'Box<T>' yet|Move the static member to a non-generic helper type, or make it an instance member.|Error", "NL323@3:12+5")
+// THE SAME THREE FIXTURES, UNDER THE CONTRACT THAT REPLACED THEM. `NL323 — Static field 'count' is
+// not supported on generic type 'Box<T>' yet` and its property and method twins are gone: a static
+// member of a generic type is an ordinary member, declared once on the open type, with the CLR's
+// per-constructed-type storage. The table stays a table and the three fixtures stay byte-for-byte
+// what they were, because what has to be pinned is that EVERY member kind is silent — a slice that
+// lifted the refusal for one kind and left it for another would pass a single collapsed assertion.
+// The anchor columns are gone with the diagnostic that carried them; `tests/native/generic-static-members`
+// is where the members are then RUN.
+test "020 s30 analyzer error codes: a static member on a GENERIC type analyses silently, one row per member kind — the fixture is interpolated per row, which is why this is a table and not three contracts (was AnalyzerTests.GenericTypes_StaticMembers_ReportBeforeEmission, all three [InlineData] rows, under the contract that replaced NL323)" with (typeKind: string, memberSource: string) [
+    ("class", "static count: int"),
+    ("record", "static func mk(): int {\n        return 1\n    }"),
+    ("struct", "static value: int {\n        get {\n            return 1\n        }\n    }")
 ] {
     source := typeKind + " Box<T> {\n    item: T\n    " + memberSource + "\n}\n\nfunc Use(): int {\n    return 0\n}"
     assert AcParseCensus(source) == ""
     assert AcParseSuccess(source) == "True"
     analysis := AcAnalyze(source)
-    assert AcCensus(analysis) == census
-    assert AcHasErrors(analysis) == "True"
-    assert AcErrorCount(analysis) == 1
-    assert AcCodeErrorCount(analysis, "FeatureNotImplemented") == 1
-    assert AcCodeCount(analysis, "FeatureNotImplemented") == 1
-    assert AcCodeRow(analysis, "FeatureNotImplemented") == codeRow
-    assert AcCodeAnchor(analysis, "FeatureNotImplemented") == codeAnchor
-    assert codeRow.Contains("Static " + memberKind + " '" + memberName + "'")
-    assert codeRow.Contains("generic type 'Box<T>'")
+    assert AcCensus(analysis) == ""
+    assert AcHasErrors(analysis) == "False"
+    assert AcErrorCount(analysis) == 0
+    assert AcCodeCount(analysis, "FeatureNotImplemented") == 0
     rich := AcAnalyzeWithSource(source)
-    assert AcCodeRow(rich, "FeatureNotImplemented") == codeRow
+    assert AcCensus(rich) == ""
 }
 
 // ══════════════════════════════════════════════════════════════════════════════════════════════
