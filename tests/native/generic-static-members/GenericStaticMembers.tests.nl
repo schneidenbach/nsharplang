@@ -116,6 +116,31 @@ struct Tally<TOk, TErr> {
     ErrValue: TErr => err
 }
 
+// CONVERSION OPERATORS ON A GENERIC TYPE. A conversion operator is a static method under a reserved
+// name (`op_Implicit`/`op_Explicit`), so it reaches the emitter through the same constructed-owner
+// path as `Create` above — but it is asked for from the OTHER end. `implicit operator Wrap<T>(value: T)`
+// is the shape `Union<T0, T1>` needs and it can only be written on the type converted TO: the `T` end
+// is whatever the instantiation supplies, and `int` declares nothing about `Wrap`.
+struct Wrap<T> {
+    Value: T
+
+    constructor(value: T) {
+        Value = value
+    }
+
+    implicit operator Wrap<T>(value: T) => new Wrap<T>(value)
+
+    explicit operator T(wrapped: Wrap<T>) => wrapped.Value
+}
+
+func TakeWrappedInt(wrapped: Wrap<int>): int {
+    return wrapped.Value
+}
+
+func ReturnWrappedText(): Wrap<string> {
+    return "returned"
+}
+
 // An accessor-bodied static property over a camelCase static field, so both accessors are exercised
 // through the type name.
 class Counter<T> {
@@ -195,6 +220,26 @@ test "static factories reach a private constructor of their own generic type" {
     swapped := Tally<string, int>.Ok("value")
     assert swapped.IsOk
     assert swapped.OkValue == "value"
+}
+
+test "an implicit conversion operator declared by a constructed generic converts into it" {
+    assigned: Wrap<int> = 5
+    assert assigned.Value == 5
+
+    text: Wrap<string> = "hello"
+    assert text.Value == "hello"
+
+    assert TakeWrappedInt(9) == 9
+    assert ReturnWrappedText().Value == "returned"
+}
+
+test "an explicit conversion operator declared by a constructed generic converts out of it" {
+    wrapped := new Wrap<int>(17)
+    unwrapped := (int)wrapped
+    assert unwrapped == 17
+
+    wrappedText := new Wrap<string>("out")
+    assert (string)wrappedText == "out"
 }
 
 test "operators declared on a generic struct bind on each constructed type" {
@@ -308,6 +353,23 @@ test "the constructed static method is the one declaration seen through its inst
     assert StaticMethodReturn(typeof(Box<string>), "Create") == typeof(Box<string>)
     assert StaticMethodFirstParameter(typeof(Box<int>), "Create") == typeof(int)
     assert StaticMethodFirstParameter(typeof(Box<string>), "Create") == typeof(string)
+}
+
+// The conversion operators are ordinary special-name statics on the OPEN definition, and each
+// instantiation sees them with its own arguments substituted — the same one-declaration/many-views
+// relation the static factory has.
+test "conversion operators are special-name statics on the open definition, seen per instantiation" {
+    definition := typeof(Wrap<int>).GetGenericTypeDefinition()
+    assert IsStaticSpecialName(definition, "op_Implicit")
+    assert IsStaticSpecialName(definition, "op_Explicit")
+
+    assert StaticMethodReturn(typeof(Wrap<int>), "op_Implicit") == typeof(Wrap<int>)
+    assert StaticMethodFirstParameter(typeof(Wrap<int>), "op_Implicit") == typeof(int)
+    assert StaticMethodReturn(typeof(Wrap<string>), "op_Implicit") == typeof(Wrap<string>)
+    assert StaticMethodFirstParameter(typeof(Wrap<string>), "op_Implicit") == typeof(string)
+
+    assert StaticMethodReturn(typeof(Wrap<int>), "op_Explicit") == typeof(int)
+    assert StaticMethodFirstParameter(typeof(Wrap<int>), "op_Explicit") == typeof(Wrap<int>)
 }
 
 // A private constructor stays private in metadata even though the type's own static factories reach

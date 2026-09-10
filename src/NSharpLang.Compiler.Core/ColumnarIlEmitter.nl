@@ -1650,9 +1650,9 @@ sealed class ColumnarIlEmitter {
     }
 
     private func TryEmitUserDefinedConversion(source: Type, target: Type, allowExplicit: bool): bool {
-        let implicitConversion: NSharpLang.Compiler.Columnar.ColumnarStaticMethodDef? = null
-        if (TryFindUserDefinedConversion(source, target, "op_Implicit", out implicitConversion) || (allowExplicit && TryFindUserDefinedConversion(source, target, "op_Explicit", out implicitConversion))) {
-            _il.Emit(OpCodes.Call, ColumnarSourceSelfInstantiation.Bind(implicitConversion.Builder))
+        let userConversion: System.Reflection.MethodInfo? = null
+        if (TryFindUserDefinedConversion(source, target, "op_Implicit", out userConversion) || (allowExplicit && TryFindUserDefinedConversion(source, target, "op_Explicit", out userConversion))) {
+            _il.Emit(OpCodes.Call, userConversion)
             return true
         }
 
@@ -1694,18 +1694,65 @@ sealed class ColumnarIlEmitter {
         return true
     }
 
-    private func TryFindUserDefinedConversion(source: Type, target: Type, methodName: string, out method: ColumnarStaticMethodDef): bool {
-        sourceDef := FindDefByType(source)
-        if (sourceDef != null && TryFindUserDefinedConversionOnType(sourceDef, source, target, methodName, out method)) {
-            return true
-        }
-
-        targetDef := FindDefByType(target)
-        if (targetDef != null && !Object.ReferenceEquals(targetDef, FindDefByType(source)) && TryFindUserDefinedConversionOnType(targetDef, source, target, methodName, out method)) {
-            return true
-        }
-
+    // A user-defined conversion is declared by the type it converts FROM or by the type it converts
+    // TO, so both are asked; the answer is the handle to CALL, already rebound onto its owner's
+    // instantiation when that owner is a constructed source generic.
+    private func TryFindUserDefinedConversion(source: Type, target: Type, methodName: string, out method: MethodInfo): bool {
         method = null
+        let sourceOwned: System.Reflection.MethodInfo? = null
+        if (TryFindUserDefinedConversionOnOwner(source, source, target, methodName, out sourceOwned)) {
+            method = sourceOwned
+            return true
+        }
+
+        let targetOwned: System.Reflection.MethodInfo? = null
+        if (!TypesEquivalent(source, target) && TryFindUserDefinedConversionOnOwner(target, source, target, methodName, out targetOwned)) {
+            method = targetOwned
+            return true
+        }
+
+        return false
+    }
+
+    // The owner is either a PLAIN source type — where the declared signature is already the exact
+    // one and the base chain participates — or a CONSTRUCTED source generic, where the declared
+    // signature is written in the type's own parameters (`implicit operator Wrap<T>(value: T)`) and
+    // means the SUBSTITUTED one on this instantiation. A constructed owner's own declaration is the
+    // whole candidate set: an operator inherited from a generic base would have to be re-instantiated
+    // through that base, which no shape in the corpus asks for and which would be a silent guess.
+    private func TryFindUserDefinedConversionOnOwner(ownerType: Type, source: Type, target: Type, methodName: string, out method: MethodInfo): bool {
+        method = null
+        plainDef := FindDefByType(ownerType)
+        if (plainDef != null) {
+            let plainConversion: NSharpLang.Compiler.Columnar.ColumnarStaticMethodDef? = null
+            if (!TryFindUserDefinedConversionOnType(plainDef, source, target, methodName, out plainConversion)) {
+                return false
+            }
+            method = ColumnarSourceSelfInstantiation.Bind(plainConversion.Builder)
+            return true
+        }
+
+        let closedDef: NSharpLang.Compiler.Columnar.ColumnarStructDef? = null
+        let closedArgs: System.Type[]? = null
+        if (!TryGetClosedReceiverDef(ownerType, out closedDef, out closedArgs)) {
+            return false
+        }
+        let closedOverloads: System.Collections.Generic.List<NSharpLang.Compiler.Columnar.ColumnarStaticMethodDef>? = null
+        if (!closedDef.StaticMethods.TryGetValue(methodName, out closedOverloads)) {
+            return false
+        }
+        for candidate in closedOverloads {
+            if (candidate.ParamTypes.Length != 1) {
+                continue
+            }
+            parameterType := ColumnarRuntimeInstanceMemberResolver.SubstituteClosedTypeArguments(candidate.ParamTypes[0], closedArgs)
+            returnType := ColumnarRuntimeInstanceMemberResolver.SubstituteClosedTypeArguments(candidate.ReturnType, closedArgs)
+            if (TypesEquivalent(parameterType, source) && TypesEquivalent(returnType, target)) {
+                method = TypeBuilder.GetMethod(ownerType, candidate.Builder)
+                return true
+            }
+        }
+
         return false
     }
 
@@ -13964,8 +14011,10 @@ sealed class ColumnarIlEmitter {
         }
         text := ColumnarNodeTextFacts.Text(_nodes, _source, node)
         // §10.2.4 — the literal ZERO adopts any enum type. The analyzer admits it at the same positions;
-        // an enum's storage is its underlying integer, so zero is an `ldc.i4.0`.
-        if (target.get_IsEnum()) {
+        // an enum's storage is its underlying integer, so zero is an `ldc.i4.0`. The enum question is
+        // asked through the GUARDED owner: a raw `get_IsEnum` routes through `IsSubclassOf`, which a
+        // `TypeBuilderInstantiation` target (`Wrap<int>` mid-emit) answers with NotSupportedException.
+        if (ColumnarTypeOfPlanner.IsEnumType(target)) {
             if (!ConstantConversionFacts.IsLiteralZero(text, negative)) {
                 return false
             }

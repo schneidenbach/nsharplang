@@ -708,9 +708,12 @@ class AnalyzerAssignability {
         return true
     }
 
-    // A user-defined implicit conversion operator declared BY the source type, whose parameter
-    // accepts the source and whose result the target accepts. Guarded against re-entry: a pair
-    // already being asked answers false rather than recursing.
+    // A user-defined implicit conversion operator whose parameter accepts the source and whose result
+    // the target accepts, declared BY EITHER END of the conversion. Both ends are asked because a
+    // conversion is written wherever it reads best: `implicit operator Fahrenheit(c: Celsius)` lives
+    // on the value being converted FROM, while a wrapper's `implicit operator Wrap<T>(value: T)` can
+    // only live on the type being converted TO — the `T` end may be `int`, which declares nothing.
+    // Guarded against re-entry: a pair already being asked answers false rather than recursing.
     func HasImplicitConversion(source: TypeInfo, target: TypeInfo): bool {
         if !conversionGuard.TryEnter(source, target) {
             return false
@@ -727,20 +730,27 @@ class AnalyzerAssignability {
     }
 
     func HasImplicitConversionCore(source: TypeInfo, target: TypeInfo): bool {
+        return DeclaresImplicitConversion(source, source, target) || DeclaresImplicitConversion(target, source, target)
+    }
+
+    // One end's declarations, asked about the whole conversion. The operator's own signature is read
+    // through the OWNER's substitution, so `implicit operator Wrap<T>(value: T)` reached as
+    // `Wrap<int>` is asked as `int -> Wrap<int>`.
+    func DeclaresImplicitConversion(owner: TypeInfo, source: TypeInfo, target: TypeInfo): bool {
         substitution: Dictionary<string, TypeInfo>? = null
-        declarationOwner := typeSubstitution.GetSourceDeclarationOwner(source, out substitution)
+        declarationOwner := typeSubstitution.GetSourceDeclarationOwner(owner, out substitution)
         if declarationOwner == null {
             return false
         }
 
-        sourceMembers := DeclaredMembersOf(declarationOwner)
-        if sourceMembers == null {
+        ownerMembers := DeclaredMembersOf(declarationOwner)
+        if ownerMembers == null {
             return false
         }
 
         index := 0
-        while index < sourceMembers.Length {
-            member := sourceMembers[index]
+        while index < ownerMembers.Length {
+            member := ownerMembers[index]
             if IsImplicitConversionOperator(member) {
                 parameterTypes := member.ParameterTypes
                 parameterType := typeSubstitution.ResolveTypeForSourceOwner(parameterTypes[0], declarationOwner, substitution)
