@@ -1,6 +1,7 @@
 namespace NSharpLang.CliCommandContracts.Tests
 
 import System
+import System.Collections.Generic
 import System.Diagnostics
 import System.IO
 import System.Text.Json
@@ -491,9 +492,9 @@ test "nlc query help exits 0, and an unknown query subcommand exits 1 through st
 //
 // The same three claims per command — exit 0, a silent stderr, the command's own `Usage:` line on
 // stdout — for the seven whose kernel bodies migrate to the estate this slice. SIX of the seven
-// were previously proven by an IN-PROCESS `XCommand.Execute(["--help"])` call, and FOUR of those
-// six still reach commands that are `.cs` files in `src/NSharpLang.Cli/Commands/` — `FixCommand`,
-// `LintCommand`, `WatchCommand` and `DocCommand`; `CheckCommand` and `TidyCommand` are now
+// were previously proven by an IN-PROCESS `XCommand.Execute(["--help"])` call, and THREE of those
+// six still reach commands that are `.cs` files in `src/NSharpLang.Cli/Commands/` — `LintCommand`,
+// `WatchCommand` and `DocCommand`; `CheckCommand`, `FixCommand` and `TidyCommand` are now
 // N#-owned. So these rows are the only thing in the repository that proves `nlc check` dispatches
 // to its N# owner at all. The seventh, `format`, had no command wrapper in the deleted body at all
 // — it went through the top-level dispatcher.
@@ -532,6 +533,400 @@ test "nlc fix --help exits 0, writes its usage to stdout, and says nothing on st
     assert run.Stderr.Trim().Length == 0
     assert run.Stdout.Contains("Usage: nlc fix [options] [project-dir]")
     assert run.Stdout.Contains("N# Auto-Fix")
+}
+
+// ═══ THE N# FIX OWNER, PROVEN THROUGH THE SHIPPED PROCESS ═════════════════════════════════════
+//
+// These process rows replace every assertion in `tests/FixCommandTests.cs`. The deleted file
+// called `FixCommand.Execute` behind Console.SetOut/SetError, which could neither prove CLI
+// dispatch nor observe the emitted streams on the IL path. Each successor below invokes the
+// shipped `nlc fix`, checks the exit code and the stream bytes, and inspects the same JSON/edit
+// fields before removing its temporary project.
+//
+// Mapping: the first row covers ShortHelpFlag_ShowsHelp, HelpSubcommand_ShowsHelp,
+// Help_DocumentsAllOptions and Help_DocumentsIncludeReviewNeeded; the empty/dry/apply rows cover
+// DryRun_EmptyProject_ExitCodeZero, DryRun_WithFixes_ExitCodeOneAndOkFalse,
+// DryRun_DoesNotModifyFiles, Apply_ModifiesFiles and Apply_JsonEnvelope_ReportsFixesApplied;
+// targeting/error/text/multi-file rows cover the corresponding FileFlag, MissingProject and text
+// tests; the envelope/edit/safety rows cover the structure, CRLF, safety and text-skipped tests;
+// the final exact-edit row covers all four coordinate helpers and the last-line preflight.
+
+test "nlc fix help routes preserve the documented options and help stream" {
+    shortRun := Nlc("fix -h")
+    wordRun := Nlc("fix help")
+    longRun := Nlc("fix --help")
+
+    assert shortRun.ExitCode == 0
+    assert wordRun.ExitCode == 0
+    assert longRun.ExitCode == 0
+    assert shortRun.Stderr.Length == 0
+    assert wordRun.Stderr.Length == 0
+    assert longRun.Stderr.Length == 0
+    assert shortRun.Stdout.Contains("Usage: nlc fix [options] [project-dir]")
+    assert wordRun.Stdout.Contains("Usage: nlc fix [options] [project-dir]")
+    assert longRun.Stdout.Contains("N# Auto-Fix")
+    assert longRun.Stdout.Contains("--json")
+    assert longRun.Stdout.Contains("--text")
+    assert longRun.Stdout.Contains("--project")
+    assert longRun.Stdout.Contains("--file")
+    assert longRun.Stdout.Contains("--dry-run")
+    assert longRun.Stdout.Contains("--include-review-needed")
+    assert longRun.Stdout.EndsWith(Environment.NewLine)
+}
+
+test "nlc fix empty dry run emits the versioned zero-work JSON envelope" {
+    directory := NewTempDirectory("nlc-fix-empty")
+    try {
+        run := NlcIn(directory, "fix --dry-run")
+
+        assert run.ExitCode == 0
+        assert run.Stderr.Length == 0
+        assert !run.Stdout.EndsWith(Environment.NewLine)
+        document := JsonDocument.Parse(run.Stdout)
+        root := document.RootElement
+        assert root.GetProperty("schemaVersion").GetInt32() == 2
+        assert TextOf(root.GetProperty("command")) == "fix"
+        assert root.GetProperty("ok").GetBoolean()
+        assert root.GetProperty("dryRun").GetBoolean()
+        assert root.GetProperty("filesModified").GetInt32() == 0
+        assert root.GetProperty("results").GetArrayLength() == 0
+        assert root.GetProperty("fixesApplied").GetArrayLength() == 0
+        document.Dispose()
+    } finally {
+        Directory.Delete(directory, true)
+    }
+}
+
+test "nlc fix dry run discovers fixes without writing and apply commits them atomically" {
+    directory := NewTempDirectory("nlc-fix-apply")
+    try {
+        source := "func Main() {\n    sb := new StringBuilder()\n}\n"
+        path := Path.Combine(directory, "Program.nl")
+        File.WriteAllText(path, source)
+
+        dryRun := NlcIn(directory, "fix --dry-run")
+        assert dryRun.ExitCode == 1
+        assert dryRun.Stderr.Length == 0
+        assert !dryRun.Stdout.EndsWith(Environment.NewLine)
+        dryDocument := JsonDocument.Parse(dryRun.Stdout)
+        dryRoot := dryDocument.RootElement
+        assert !dryRoot.GetProperty("ok").GetBoolean()
+        assert dryRoot.GetProperty("dryRun").GetBoolean()
+        assert dryRoot.GetProperty("filesModified").GetInt32() > 0
+        assert dryRoot.GetProperty("fixesApplied").GetArrayLength() > 0
+        dryDocument.Dispose()
+        assert File.ReadAllText(path) == source
+
+        applied := NlcIn(directory, "fix")
+        assert applied.ExitCode == 0
+        assert applied.Stderr.Length == 0
+        assert !applied.Stdout.EndsWith(Environment.NewLine)
+        appliedDocument := JsonDocument.Parse(applied.Stdout)
+        appliedRoot := appliedDocument.RootElement
+        assert TextOf(appliedRoot.GetProperty("command")) == "fix"
+        assert appliedRoot.GetProperty("ok").GetBoolean()
+        assert appliedRoot.GetProperty("fixesApplied").GetArrayLength() > 0
+        appliedDocument.Dispose()
+        assert File.ReadAllText(path) != source
+    } finally {
+        Directory.Delete(directory, true)
+    }
+}
+
+test "nlc fix file targeting, missing files and missing projects preserve JSON and text errors" {
+    directory := NewTempDirectory("nlc-fix-target")
+    try {
+        File.WriteAllText(Path.Combine(directory, "A.nl"), "func A() {\n    x := new StringBuilder()\n}\n")
+        File.WriteAllText(Path.Combine(directory, "B.nl"), "func B() {\n    y := new StringBuilder()\n}\n")
+
+        targeted := NlcIn(directory, "fix --file A.nl --dry-run")
+        assert targeted.ExitCode == 1
+        targetDocument := JsonDocument.Parse(targeted.Stdout)
+        targetFixes := targetDocument.RootElement.GetProperty("fixesApplied")
+        assert targetFixes.GetArrayLength() > 0
+        targetEnumerator := targetFixes.EnumerateArray()
+        while targetEnumerator.MoveNext() {
+            assert TextOf(targetEnumerator.Current.GetProperty("file")) == "A.nl"
+        }
+        targetDocument.Dispose()
+
+        missingFile := NlcIn(directory, "fix --file DoesNotExist.nl")
+        assert missingFile.ExitCode == 1
+        assert missingFile.Stderr.Length == 0
+        missingFileDocument := JsonDocument.Parse(missingFile.Stdout)
+        assert !missingFileDocument.RootElement.GetProperty("ok").GetBoolean()
+        assert TextOf(missingFileDocument.RootElement.GetProperty("error").GetProperty("message")).Contains("File not found")
+        missingFileDocument.Dispose()
+    } finally {
+        Directory.Delete(directory, true)
+    }
+
+    missing := MissingDirectoryPath("nlc-fix-missing")
+    jsonError := Nlc("fix --project \"" + missing + "\"")
+    assert jsonError.ExitCode == 1
+    assert jsonError.Stderr.Length == 0
+    errorDocument := JsonDocument.Parse(jsonError.Stdout)
+    assert !errorDocument.RootElement.GetProperty("ok").GetBoolean()
+    assert TextOf(errorDocument.RootElement.GetProperty("error").GetProperty("message")).Contains("Directory not found")
+    errorDocument.Dispose()
+
+    textError := Nlc("fix --project \"" + missing + "\" --text")
+    assert textError.ExitCode == 1
+    assert textError.Stdout.Length == 0
+    assert textError.Stderr.Contains("Directory not found: " + missing)
+    assert textError.Stderr.EndsWith(Environment.NewLine)
+}
+
+test "nlc fix text mode, multi-file output and edit details retain their contracts" {
+    empty := NewTempDirectory("nlc-fix-text-empty")
+    try {
+        noFiles := NlcIn(empty, "fix --text")
+        assert noFiles.ExitCode == 0
+        assert noFiles.Stdout.Length == 0
+        assert noFiles.Stderr.Contains("No .nl files found.")
+        assert noFiles.Stderr.EndsWith(Environment.NewLine)
+    } finally {
+        Directory.Delete(empty, true)
+    }
+
+    directory := NewTempDirectory("nlc-fix-text")
+    try {
+        source := "func Main() {\n    sb := new StringBuilder()\n}\n"
+        File.WriteAllText(Path.Combine(directory, "A.nl"), source)
+        File.WriteAllText(Path.Combine(directory, "B.nl"), source.Replace("Main", "Other"))
+
+        dryText := NlcIn(directory, "fix --dry-run --text")
+        assert dryText.ExitCode == 1
+        assert dryText.Stdout.Length == 0
+        assert dryText.Stderr.Contains("Would fix")
+        assert dryText.Stderr.EndsWith(Environment.NewLine)
+
+        applyText := NlcIn(directory, "fix --text")
+        assert applyText.ExitCode == 0
+        assert applyText.Stdout.Length == 0
+        assert applyText.Stderr.Contains("Fixed")
+        assert applyText.Stderr.EndsWith(Environment.NewLine)
+    } finally {
+        Directory.Delete(directory, true)
+    }
+
+    multi := NewTempDirectory("nlc-fix-multi")
+    try {
+        source := "func Main() {\n    sb := new StringBuilder()\n}\n"
+        File.WriteAllText(Path.Combine(multi, "A.nl"), source)
+        File.WriteAllText(Path.Combine(multi, "B.nl"), source.Replace("Main", "Other"))
+        run := NlcIn(multi, "fix --dry-run")
+        assert run.ExitCode == 1
+        document := JsonDocument.Parse(run.Stdout)
+        root := document.RootElement
+        assert TextOf(root.GetProperty("projectRoot")).Contains("/")
+        assert !TextOf(root.GetProperty("projectRoot")).Contains("\\")
+        fixes := root.GetProperty("fixesApplied")
+        assert fixes.GetArrayLength() >= 2
+        distinctFiles := new List<string>()
+        enumerator := fixes.EnumerateArray()
+        while enumerator.MoveNext() {
+            entry := enumerator.Current
+            fileValue := entry.GetProperty("file")
+            assert entry.GetProperty("diagnostic").ValueKind == JsonValueKind.String
+            assert entry.GetProperty("title").ValueKind == JsonValueKind.String
+            edits := entry.GetProperty("edits")
+            assert edits.GetArrayLength() > 0
+            if !distinctFiles.Contains(TextOf(fileValue)) {
+                distinctFiles.Add(TextOf(fileValue))
+            }
+
+            editEnumerator := edits.EnumerateArray()
+            assert editEnumerator.MoveNext()
+            edit := editEnumerator.Current
+            assert edit.GetProperty("startLine").ValueKind == JsonValueKind.Number
+            assert edit.GetProperty("startColumn").ValueKind == JsonValueKind.Number
+            assert edit.GetProperty("endLine").ValueKind == JsonValueKind.Number
+            assert edit.GetProperty("endColumn").ValueKind == JsonValueKind.Number
+            assert edit.GetProperty("newText").ValueKind == JsonValueKind.String
+        }
+        assert distinctFiles.Count >= 2
+        document.Dispose()
+    } finally {
+        Directory.Delete(multi, true)
+    }
+}
+
+test "nlc fix safety filtering reports every class and only applies allowed fixes" {
+    directory := NewTempDirectory("nlc-fix-safety")
+    try {
+        source := "import System.IO\n\nfunc Main() {\n    let unused = 42\n    if 1 != null {\n        print 1\n    }\n}\n"
+        path := Path.Combine(directory, "Program.nl")
+        File.WriteAllText(path, source)
+
+        defaultRun := NlcIn(directory, "fix --dry-run")
+        assert defaultRun.ExitCode == 1
+        defaultDocument := JsonDocument.Parse(defaultRun.Stdout)
+        defaultRoot := defaultDocument.RootElement
+        results := defaultRoot.GetProperty("results")
+        applied := defaultRoot.GetProperty("fixesApplied")
+        assert results.GetArrayLength() > applied.GetArrayLength()
+        assert results.GetRawText() != applied.GetRawText()
+        resultEnumerator := results.EnumerateArray()
+        while resultEnumerator.MoveNext() {
+            result := resultEnumerator.Current
+            safetyName := TextOf(result.GetProperty("safety"))
+            assert safetyName == "safe" || safetyName == "reviewNeeded" || safetyName == "suggestionOnly"
+        }
+        appliedEnumerator := applied.EnumerateArray()
+        while appliedEnumerator.MoveNext() {
+            assert TextOf(appliedEnumerator.Current.GetProperty("safety")) == "safe"
+        }
+        defaultDocument.Dispose()
+
+        includeRun := NlcIn(directory, "fix --dry-run --include-review-needed")
+        includeDocument := JsonDocument.Parse(includeRun.Stdout)
+        includeRoot := includeDocument.RootElement
+        assert includeRoot.GetProperty("includeReviewNeeded").GetBoolean()
+        includeApplied := includeRoot.GetProperty("fixesApplied")
+        includeEnumerator := includeApplied.EnumerateArray()
+        sawReview := false
+        while includeEnumerator.MoveNext() {
+            safetyName := TextOf(includeEnumerator.Current.GetProperty("safety"))
+            assert safetyName != "suggestionOnly"
+            if safetyName == "reviewNeeded" {
+                sawReview = true
+            }
+        }
+        assert sawReview
+        includeDocument.Dispose()
+    } finally {
+        Directory.Delete(directory, true)
+    }
+
+    suggestionDirectory := NewTempDirectory("nlc-fix-suggestion")
+    try {
+        File.WriteAllText(Path.Combine(suggestionDirectory, "Program.nl"), "func Main() {\n    let name = \"world\"\n    let greeting = \"hello \" + name\n    print greeting\n}\n")
+        suggestionRun := NlcIn(suggestionDirectory, "fix --dry-run --include-review-needed")
+        suggestionDocument := JsonDocument.Parse(suggestionRun.Stdout)
+        suggestionApplied := suggestionDocument.RootElement.GetProperty("fixesApplied")
+        suggestionEnumerator := suggestionApplied.EnumerateArray()
+        while suggestionEnumerator.MoveNext() {
+            assert TextOf(suggestionEnumerator.Current.GetProperty("safety")) != "suggestionOnly"
+        }
+        suggestionDocument.Dispose()
+    } finally {
+        Directory.Delete(suggestionDirectory, true)
+    }
+
+    skippedDirectory := NewTempDirectory("nlc-fix-skipped")
+    try {
+        skippedSource := "import System.IO\n\nfunc Main() {\n    let unused = 42\n}\n"
+        File.WriteAllText(Path.Combine(skippedDirectory, "Program.nl"), skippedSource)
+        skippedRun := NlcIn(skippedDirectory, "fix --text")
+        assert skippedRun.ExitCode == 0
+        assert skippedRun.Stdout.Length == 0
+        assert skippedRun.Stderr.Contains("Skipped")
+        assert skippedRun.Stderr.Contains("--include-review-needed")
+    } finally {
+        Directory.Delete(skippedDirectory, true)
+    }
+}
+
+test "nlc fix reports the exact edit coordinates for CR, CRLF, predicates and last-line deletion" {
+    crlf := NewTempDirectory("nlc-fix-crlf")
+    try {
+        crlfSource := "func main() {\r\n    try {\r\n    } catch {\r\n    }\r\n}"
+        crlfPath := Path.Combine(crlf, "Program.nl")
+        File.WriteAllText(crlfPath, crlfSource)
+        run := NlcIn(crlf, "fix --dry-run")
+        assert run.ExitCode == 1
+        document := JsonDocument.Parse(run.Stdout)
+        fixes := document.RootElement.GetProperty("fixesApplied")
+        enumerator := fixes.EnumerateArray()
+        found := false
+        while enumerator.MoveNext() {
+            if TextOf(enumerator.Current.GetProperty("diagnostic")) == "NL011" {
+                edits := enumerator.Current.GetProperty("edits")
+                editEnumerator := edits.EnumerateArray()
+                assert editEnumerator.MoveNext()
+                edit := editEnumerator.Current
+                assert edit.GetProperty("startLine").GetInt32() == 3
+                assert edit.GetProperty("startColumn").GetInt32() == 13
+                assert edit.GetProperty("endLine").GetInt32() == 3
+                assert edit.GetProperty("endColumn").GetInt32() == 13
+                found = true
+            }
+        }
+        assert found
+        document.Dispose()
+        assert File.ReadAllText(crlfPath) == crlfSource
+    } finally {
+        Directory.Delete(crlf, true)
+    }
+
+    cr := NewTempDirectory("nlc-fix-cr")
+    try {
+        crSource := "func main() {\r    try {\r    } catch {\r    }\r}\r"
+        crPath := Path.Combine(cr, "Program.nl")
+        File.WriteAllText(crPath, crSource)
+        run := NlcIn(cr, "fix --dry-run")
+        assert run.ExitCode == 1
+        document := JsonDocument.Parse(run.Stdout)
+        fixes := document.RootElement.GetProperty("fixesApplied")
+        enumerator := fixes.EnumerateArray()
+        found := false
+        while enumerator.MoveNext() {
+            if TextOf(enumerator.Current.GetProperty("diagnostic")) == "NL011" {
+                edit := ElementAt(enumerator.Current.GetProperty("edits"), 0)
+                assert edit.GetProperty("startLine").GetInt32() == 3
+                assert edit.GetProperty("startColumn").GetInt32() == 13
+                found = true
+            }
+        }
+        assert found
+        document.Dispose()
+        assert File.ReadAllText(crPath) == crSource
+    } finally {
+        Directory.Delete(cr, true)
+    }
+
+    predicate := NewTempDirectory("nlc-fix-predicate")
+    try {
+        predicateSource := "func Main() {\n    if 1 != null {\n        print 1\n    }\n}\n"
+        predicatePath := Path.Combine(predicate, "Program.nl")
+        File.WriteAllText(predicatePath, predicateSource)
+        run := NlcIn(predicate, "fix --dry-run")
+        assert run.ExitCode == 1
+        document := JsonDocument.Parse(run.Stdout)
+        edit := ElementAt(ElementAt(document.RootElement.GetProperty("fixesApplied"), 0).GetProperty("edits"), 0)
+        assert TextOf(ElementAt(document.RootElement.GetProperty("fixesApplied"), 0).GetProperty("diagnostic")) == "NL003"
+        assert edit.GetProperty("startLine").GetInt32() == 2
+        assert edit.GetProperty("startColumn").GetInt32() == 7
+        assert edit.GetProperty("endLine").GetInt32() == 2
+        assert edit.GetProperty("endColumn").GetInt32() == 16
+        assert TextOf(edit.GetProperty("newText")) == "true"
+        document.Dispose()
+        assert File.ReadAllText(predicatePath) == predicateSource
+    } finally {
+        Directory.Delete(predicate, true)
+    }
+
+    lastLine := NewTempDirectory("nlc-fix-last-line")
+    try {
+        path := Path.Combine(lastLine, "Program.nl")
+        File.WriteAllText(path, "import System.IO")
+        run := NlcIn(lastLine, "fix --file Program.nl --dry-run --include-review-needed")
+        assert run.ExitCode == 1
+        assert run.Stderr.Length == 0
+        assert File.ReadAllText(path) == "import System.IO"
+        document := JsonDocument.Parse(run.Stdout)
+        fix := ElementAt(document.RootElement.GetProperty("fixesApplied"), 0)
+        assert TextOf(fix.GetProperty("diagnostic")) == "NL010"
+        edit := ElementAt(fix.GetProperty("edits"), 0)
+        assert edit.GetProperty("startLine").GetInt32() == 1
+        assert edit.GetProperty("startColumn").GetInt32() == 0
+        assert edit.GetProperty("endLine").GetInt32() == 2
+        assert edit.GetProperty("endColumn").GetInt32() == 0
+        document.Dispose()
+    } finally {
+        Directory.Delete(lastLine, true)
+    }
 }
 
 test "nlc lint --help exits 0, writes its usage to stdout, and says nothing on stderr" {

@@ -42,45 +42,6 @@ public class CliCommandTests
         AssertJsonContract("check", stdout);
     }
 
-    [Fact]
-    public void FixCommand_Help_IsSideEffectFree()
-    {
-        var (exitCode, stdout, stderr) = CaptureConsole(() => FixCommand.Execute(new[] { "--help" }));
-
-        Assert.Equal(0, exitCode);
-        Assert.Contains("Usage: nlc fix", stdout);
-        Assert.True(string.IsNullOrWhiteSpace(stderr));
-    }
-
-    [Fact]
-    public void FixCommand_DryRun_DefaultsToJsonEnvelope()
-    {
-        var tempDir = Path.Combine(Path.GetTempPath(), $"nsharp-fix-{Guid.NewGuid():N}");
-        Directory.CreateDirectory(tempDir);
-
-        try
-        {
-            var (exitCode, stdout, stderr) = CaptureConsole(() =>
-                FixCommand.Execute(new[] { "--project", tempDir, "--dry-run" }));
-
-            Assert.Equal(0, exitCode);
-            Assert.True(string.IsNullOrWhiteSpace(stderr));
-
-            var doc = JsonDocument.Parse(stdout);
-            Assert.Equal("fix", doc.RootElement.GetProperty("command").GetString());
-            Assert.True(doc.RootElement.GetProperty("dryRun").GetBoolean());
-            Assert.True(doc.RootElement.GetProperty("ok").GetBoolean());
-            Assert.Equal(NormalizePath(Path.GetFullPath(tempDir)),
-                doc.RootElement.GetProperty("projectRoot").GetString());
-            Assert.Equal(0, doc.RootElement.GetProperty("results").GetArrayLength());
-            AssertJsonContract("fix", stdout);
-        }
-        finally
-        {
-            Directory.Delete(tempDir, true);
-        }
-    }
-
     [Theory]
     [MemberData(nameof(QueryJsonContractCases))]
     public void QueryCommand_EmitsStableJsonEnvelope(string contractName, string[] args)
@@ -1043,44 +1004,6 @@ func Main() {
             doc.RootElement.GetProperty("projectRoot").GetString());
         Assert.Contains("Directory not found",
             doc.RootElement.GetProperty("error").GetProperty("message").GetString());
-    }
-
-    [Fact]
-    public void FixCommand_DryRun_WithPendingFixes_UsesStructuredEnvelopeAndExitCodeOne()
-    {
-        var tempDir = Path.Combine(Path.GetTempPath(), $"nsharp-fix-{Guid.NewGuid():N}");
-        var sourceDir = Path.Combine(tempDir, "src");
-        Directory.CreateDirectory(sourceDir);
-
-        try
-        {
-            File.WriteAllText(Path.Combine(sourceDir, "Program.nl"), """
-func Main() {
-    sb := new StringBuilder()
-}
-""");
-
-            var (exitCode, stdout, stderr) = CaptureConsole(() =>
-                FixCommand.Execute(new[] { "--project", tempDir, "--file", Path.Combine("src", "Program.nl"), "--dry-run" }));
-
-            Assert.Equal(1, exitCode);
-            Assert.True(string.IsNullOrWhiteSpace(stderr));
-
-            var doc = JsonDocument.Parse(stdout);
-            Assert.Equal("fix", doc.RootElement.GetProperty("command").GetString());
-            Assert.False(doc.RootElement.GetProperty("ok").GetBoolean());
-            Assert.Equal(NormalizePath(Path.GetFullPath(tempDir)),
-                doc.RootElement.GetProperty("projectRoot").GetString());
-            Assert.Equal(1, doc.RootElement.GetProperty("filesModified").GetInt32());
-            Assert.Equal(1, doc.RootElement.GetProperty("results").GetArrayLength());
-            Assert.Equal(1, doc.RootElement.GetProperty("fixesApplied").GetArrayLength());
-            Assert.Equal("src/Program.nl",
-                doc.RootElement.GetProperty("fixesApplied")[0].GetProperty("file").GetString());
-        }
-        finally
-        {
-            Directory.Delete(tempDir, true);
-        }
     }
 
     [Fact]
