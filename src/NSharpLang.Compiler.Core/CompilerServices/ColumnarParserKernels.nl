@@ -1274,11 +1274,13 @@ class FunctionSignatureInfoOutputTable {
     ParamTupleNameCounts: int[]
     ParamTupleNameTexts: string[]
     ReturnTupleNameTexts: string[]
+    ReturnLabeledTypeTexts: string[]
+    ParamLabeledTypeTexts: string[]
     TypeParamTexts: string[]
     TypeParamSpecials: int[]
     TypeParamConstraintCounts: int[]
     TypeParamConstraintTypeTexts: string[]
-    constructor(functionNameTexts: string[], returnTypeTexts: string[], paramNameTexts: string[], paramTypeTexts: string[], paramModifierKinds: int[], paramDefaultKinds: int[], paramDefaultTexts: string[], paramTupleNameCounts: int[], paramTupleNameTexts: string[], returnTupleNameTexts: string[], typeParamTexts: string[], typeParamSpecials: int[], typeParamConstraintCounts: int[], typeParamConstraintTypeTexts: string[]) {
+    constructor(functionNameTexts: string[], returnTypeTexts: string[], paramNameTexts: string[], paramTypeTexts: string[], paramModifierKinds: int[], paramDefaultKinds: int[], paramDefaultTexts: string[], paramTupleNameCounts: int[], paramTupleNameTexts: string[], returnTupleNameTexts: string[], returnLabeledTypeTexts: string[], paramLabeledTypeTexts: string[], typeParamTexts: string[], typeParamSpecials: int[], typeParamConstraintCounts: int[], typeParamConstraintTypeTexts: string[]) {
         FunctionNameTexts = functionNameTexts
         ReturnTypeTexts = returnTypeTexts
         ParamNameTexts = paramNameTexts
@@ -1289,6 +1291,8 @@ class FunctionSignatureInfoOutputTable {
         ParamTupleNameCounts = paramTupleNameCounts
         ParamTupleNameTexts = paramTupleNameTexts
         ReturnTupleNameTexts = returnTupleNameTexts
+        ReturnLabeledTypeTexts = returnLabeledTypeTexts
+        ParamLabeledTypeTexts = paramLabeledTypeTexts
         TypeParamTexts = typeParamTexts
         TypeParamSpecials = typeParamSpecials
         TypeParamConstraintCounts = typeParamConstraintCounts
@@ -1507,11 +1511,13 @@ class ColumnarFunctionSignatureOutputTable {
     ParamTupleNameCounts: int[]
     ParamTupleNameTexts: string[]
     ReturnTupleNameTexts: string[]
+    ReturnLabeledTypeTexts: string[]
+    ParamLabeledTypeTexts: string[]
     TypeParamTexts: string[]
     TypeParamSpecials: int[]
     TypeParamConstraintCounts: int[]
     TypeParamConstraintTypeTexts: string[]
-    constructor(functionNameTexts: string[], returnTypeTexts: string[], paramNameTexts: string[], paramTypeTexts: string[], paramModifierKinds: int[], paramDefaultKinds: int[], paramDefaultTexts: string[], paramTupleNameCounts: int[], paramTupleNameTexts: string[], returnTupleNameTexts: string[], typeParamTexts: string[], typeParamSpecials: int[], typeParamConstraintCounts: int[], typeParamConstraintTypeTexts: string[]) {
+    constructor(functionNameTexts: string[], returnTypeTexts: string[], paramNameTexts: string[], paramTypeTexts: string[], paramModifierKinds: int[], paramDefaultKinds: int[], paramDefaultTexts: string[], paramTupleNameCounts: int[], paramTupleNameTexts: string[], returnTupleNameTexts: string[], returnLabeledTypeTexts: string[], paramLabeledTypeTexts: string[], typeParamTexts: string[], typeParamSpecials: int[], typeParamConstraintCounts: int[], typeParamConstraintTypeTexts: string[]) {
         FunctionNameTexts = functionNameTexts
         ReturnTypeTexts = returnTypeTexts
         ParamNameTexts = paramNameTexts
@@ -1522,6 +1528,8 @@ class ColumnarFunctionSignatureOutputTable {
         ParamTupleNameCounts = paramTupleNameCounts
         ParamTupleNameTexts = paramTupleNameTexts
         ReturnTupleNameTexts = returnTupleNameTexts
+        ReturnLabeledTypeTexts = returnLabeledTypeTexts
+        ParamLabeledTypeTexts = paramLabeledTypeTexts
         TypeParamTexts = typeParamTexts
         TypeParamSpecials = typeParamSpecials
         TypeParamConstraintCounts = typeParamConstraintCounts
@@ -3511,6 +3519,98 @@ func TypeReferenceCanonicalTextCore(source: string, nodes: TypeReferenceCanonica
             }
 
             builder.Append(TypeReferenceCanonicalTextCore(source, nodes, elem))
+            i = i + 1
+        }
+
+        builder.Append(')')
+        return builder.ToString()
+    }
+
+    return "?"
+}
+
+// The same spelling `TypeReferenceCanonicalTextCore` produces, except that a NAMED tuple element keeps
+// its label: `(Min:int,Max:int)`, `(A:int,D:(B:int,C:int))`, `List<(Min:int,Max:int)>`. The structural
+// canonical deliberately discards those labels, because a tuple's element names are metadata rather
+// than identity -- but `TupleElementNamesAttribute` needs them at EVERY level, including inside a
+// generic argument and inside a nested tuple, which is more than the top-level
+// `TypeReferenceTupleElementNamesCore` list carries. `ColumnarTupleElementNames.Flatten` reads this
+// form; nothing resolves a type from it.
+func TypeReferenceLabeledCanonicalTextCore(source: string, nodes: TypeReferenceCanonicalTable, root: int): string {
+    if root < 0 || root >= nodes.Kinds.Length {
+        return "?"
+    }
+
+    kind := nodes.Kinds[root]
+    if kind == 0 {
+        return source.Substring(nodes.ValueStarts[root], nodes.ValueLengths[root])
+    }
+
+    if kind == 1 {
+        builder := new StringBuilder(32)
+        builder.Append(source.Substring(nodes.ValueStarts[root], nodes.ValueLengths[root]))
+        builder.Append('<')
+        run := nodes.ChildStart[root]
+        i := 0
+        while i < nodes.ChildCount[root] {
+            if i > 0 {
+                builder.Append(',')
+            }
+
+            builder.Append(TypeReferenceLabeledCanonicalTextCore(source, nodes, nodes.ChildIndices[run + i]))
+            i = i + 1
+        }
+
+        builder.Append('>')
+        return builder.ToString()
+    }
+
+    if kind == 2 {
+        return TypeReferenceLabeledCanonicalTextCore(source, nodes, nodes.ChildIndices[nodes.ChildStart[root]]) + "[]"
+    }
+
+    if kind == 3 {
+        return TypeReferenceLabeledCanonicalTextCore(source, nodes, nodes.ChildIndices[nodes.ChildStart[root]]) + "?"
+    }
+
+    if kind == 4 {
+        builder := new StringBuilder(32)
+        run := nodes.ChildStart[root]
+        i := 0
+        while i < nodes.ChildCount[root] {
+            if i > 0 {
+                builder.Append('|')
+            }
+
+            builder.Append(TypeReferenceLabeledCanonicalTextCore(source, nodes, nodes.ChildIndices[run + i]))
+            i = i + 1
+        }
+
+        return builder.ToString()
+    }
+
+    if kind == 5 {
+        return "&" + TypeReferenceLabeledCanonicalTextCore(source, nodes, nodes.ChildIndices[nodes.ChildStart[root]])
+    }
+
+    if kind == 6 {
+        builder := new StringBuilder(32)
+        builder.Append('(')
+        run := nodes.ChildStart[root]
+        i := 0
+        while i < nodes.ChildCount[root] {
+            if i > 0 {
+                builder.Append(',')
+            }
+
+            elem := nodes.ChildIndices[run + i]
+            if nodes.Kinds[elem] == 7 {
+                builder.Append(source.Substring(nodes.ValueStarts[elem], nodes.ValueLengths[elem]))
+                builder.Append(':')
+                elem = nodes.ChildIndices[nodes.ChildStart[elem]]
+            }
+
+            builder.Append(TypeReferenceLabeledCanonicalTextCore(source, nodes, elem))
             i = i + 1
         }
 
@@ -11221,6 +11321,10 @@ func ParseFunctionSignatureInfoCore(source: string, tokens: ParserTokenTable, co
     returnRoot := signatureResult.Values[1]
     if returnRoot >= 0 {
         outputs.ReturnTypeTexts[0] = TypeReferenceCanonicalTextCore(source, canonicalNodes, returnRoot)
+        if outputs.ReturnLabeledTypeTexts.Length > 0 {
+            outputs.ReturnLabeledTypeTexts[0] = TypeReferenceLabeledCanonicalTextCore(source, canonicalNodes, returnRoot)
+        }
+
         returnTupleNames := new TypeReferenceTupleNameTable(outputs.ReturnTupleNameTexts)
         returnTupleNameCount = TypeReferenceTupleElementNamesCore(source, canonicalNodes, returnRoot, returnTupleNames)
         if returnTupleNameCount < 0 {
@@ -11228,6 +11332,9 @@ func ParseFunctionSignatureInfoCore(source: string, tokens: ParserTokenTable, co
         }
     } else {
         outputs.ReturnTypeTexts[0] = "void"
+        if outputs.ReturnLabeledTypeTexts.Length > 0 {
+            outputs.ReturnLabeledTypeTexts[0] = "void"
+        }
     }
 
     flatParamTupleNameCount := 0
@@ -11241,6 +11348,9 @@ func ParseFunctionSignatureInfoCore(source: string, tokens: ParserTokenTable, co
         paramRoot := parameters.TypeRoots[paramIndex]
         outputs.ParamNameTexts[paramIndex] = paramName
         outputs.ParamTypeTexts[paramIndex] = TypeReferenceCanonicalTextCore(source, canonicalNodes, paramRoot)
+        if paramIndex < outputs.ParamLabeledTypeTexts.Length {
+            outputs.ParamLabeledTypeTexts[paramIndex] = TypeReferenceLabeledCanonicalTextCore(source, canonicalNodes, paramRoot)
+        }
 
         paramTupleNames := new TypeReferenceTupleNameTable(tupleNames.Names)
         tupleNameCount := TypeReferenceTupleElementNamesCore(source, canonicalNodes, paramRoot, paramTupleNames)
@@ -12534,7 +12644,7 @@ func ParseInterfaceDeclarationSignatureInfoCore(source: string, tokens: ParserTo
     }
 
     modifierScratch := new int[](count + 1)
-    modifierOutputs := new FunctionSignatureInfoOutputTable(new string[](0), new string[](0), new string[](0), new string[](0), modifierScratch, new int[](count + 1), new string[](count + 1), new int[](0), new string[](0), new string[](0), new string[](0), new int[](0), new int[](0), new string[](0))
+    modifierOutputs := new FunctionSignatureInfoOutputTable(new string[](0), new string[](0), new string[](0), new string[](0), modifierScratch, new int[](count + 1), new string[](count + 1), new int[](0), new string[](0), new string[](0), new string[](0), new string[](0), new string[](0), new int[](0), new int[](0), new string[](0))
 
     flatParamCount := 0
     methodIndex := 0
@@ -12686,18 +12796,18 @@ func DirectLocalFunctionTokenIndicesCore(tokens: LocalFunctionTokenTable, nodes:
     return resultCount
 }
 
-func ParseColumnarProductFunctionInfoInto(source: string, tokenKinds: int[], tokenStarts: int[], tokenValueLengths: int[], count: int, funcIndex: int, isLocalFunction: int, outFunctionNameTexts: string[], outReturnTypeTexts: string[], outParamNameTexts: string[], outParamTypeTexts: string[], outParamModifierKinds: int[], outParamDefaultKinds: int[], outParamDefaultTexts: string[], outParamTupleNameCounts: int[], outParamTupleNameTexts: string[], outReturnTupleNameTexts: string[], outTypeParamTexts: string[], outTypeParamSpecials: int[], outTypeParamConstraintCounts: int[], outTypeParamConstraintTypeTexts: string[], outNodeKinds: int[], outValueStarts: int[], outValueLengths: int[], outChildStart: int[], outChildCount: int[], outChildIndices: int[], outSpanStarts: int[], outSpanLengths: int[], outLocalFunctionNodeIndices: int[], outLocalFunctionTokenIndices: int[], outResult: int[]): int {
+func ParseColumnarProductFunctionInfoInto(source: string, tokenKinds: int[], tokenStarts: int[], tokenValueLengths: int[], count: int, funcIndex: int, isLocalFunction: int, outFunctionNameTexts: string[], outReturnTypeTexts: string[], outParamNameTexts: string[], outParamTypeTexts: string[], outParamModifierKinds: int[], outParamDefaultKinds: int[], outParamDefaultTexts: string[], outParamTupleNameCounts: int[], outParamTupleNameTexts: string[], outReturnTupleNameTexts: string[], outReturnLabeledTypeTexts: string[], outParamLabeledTypeTexts: string[], outTypeParamTexts: string[], outTypeParamSpecials: int[], outTypeParamConstraintCounts: int[], outTypeParamConstraintTypeTexts: string[], outNodeKinds: int[], outValueStarts: int[], outValueLengths: int[], outChildStart: int[], outChildCount: int[], outChildIndices: int[], outSpanStarts: int[], outSpanLengths: int[], outLocalFunctionNodeIndices: int[], outLocalFunctionTokenIndices: int[], outResult: int[]): int {
     tokens := new ColumnarFunctionTokenTable(tokenKinds, tokenStarts, tokenValueLengths, count)
-    signatureOutputs := new ColumnarFunctionSignatureOutputTable(outFunctionNameTexts, outReturnTypeTexts, outParamNameTexts, outParamTypeTexts, outParamModifierKinds, outParamDefaultKinds, outParamDefaultTexts, outParamTupleNameCounts, outParamTupleNameTexts, outReturnTupleNameTexts, outTypeParamTexts, outTypeParamSpecials, outTypeParamConstraintCounts, outTypeParamConstraintTypeTexts)
+    signatureOutputs := new ColumnarFunctionSignatureOutputTable(outFunctionNameTexts, outReturnTypeTexts, outParamNameTexts, outParamTypeTexts, outParamModifierKinds, outParamDefaultKinds, outParamDefaultTexts, outParamTupleNameCounts, outParamTupleNameTexts, outReturnTupleNameTexts, outReturnLabeledTypeTexts, outParamLabeledTypeTexts, outTypeParamTexts, outTypeParamSpecials, outTypeParamConstraintCounts, outTypeParamConstraintTypeTexts)
     body := new ColumnarFunctionBodyTable(outNodeKinds, outValueStarts, outValueLengths, outChildStart, outChildCount, outChildIndices, outSpanStarts, outSpanLengths)
     locals := new ColumnarFunctionLocalTable(outLocalFunctionNodeIndices, outLocalFunctionTokenIndices)
     result := new ColumnarFunctionResultTable(outResult)
     return ParseColumnarFunctionInfoCore(source, tokens, funcIndex, isLocalFunction, signatureOutputs, body, locals, result)
 }
 
-func ParseColumnarProductFunctionSignatureInfoInto(source: string, tokenKinds: int[], tokenStarts: int[], tokenValueLengths: int[], count: int, funcIndex: int, outFunctionNameTexts: string[], outReturnTypeTexts: string[], outParamNameTexts: string[], outParamTypeTexts: string[], outParamModifierKinds: int[], outParamDefaultKinds: int[], outParamDefaultTexts: string[], outParamTupleNameCounts: int[], outParamTupleNameTexts: string[], outReturnTupleNameTexts: string[], outTypeParamTexts: string[], outTypeParamSpecials: int[], outTypeParamConstraintCounts: int[], outTypeParamConstraintTypeTexts: string[], outResult: int[]): int {
+func ParseColumnarProductFunctionSignatureInfoInto(source: string, tokenKinds: int[], tokenStarts: int[], tokenValueLengths: int[], count: int, funcIndex: int, outFunctionNameTexts: string[], outReturnTypeTexts: string[], outParamNameTexts: string[], outParamTypeTexts: string[], outParamModifierKinds: int[], outParamDefaultKinds: int[], outParamDefaultTexts: string[], outParamTupleNameCounts: int[], outParamTupleNameTexts: string[], outReturnTupleNameTexts: string[], outReturnLabeledTypeTexts: string[], outParamLabeledTypeTexts: string[], outTypeParamTexts: string[], outTypeParamSpecials: int[], outTypeParamConstraintCounts: int[], outTypeParamConstraintTypeTexts: string[], outResult: int[]): int {
     tokens := new ColumnarFunctionTokenTable(tokenKinds, tokenStarts, tokenValueLengths, count)
-    signatureOutputs := new ColumnarFunctionSignatureOutputTable(outFunctionNameTexts, outReturnTypeTexts, outParamNameTexts, outParamTypeTexts, outParamModifierKinds, outParamDefaultKinds, outParamDefaultTexts, outParamTupleNameCounts, outParamTupleNameTexts, outReturnTupleNameTexts, outTypeParamTexts, outTypeParamSpecials, outTypeParamConstraintCounts, outTypeParamConstraintTypeTexts)
+    signatureOutputs := new ColumnarFunctionSignatureOutputTable(outFunctionNameTexts, outReturnTypeTexts, outParamNameTexts, outParamTypeTexts, outParamModifierKinds, outParamDefaultKinds, outParamDefaultTexts, outParamTupleNameCounts, outParamTupleNameTexts, outReturnTupleNameTexts, outReturnLabeledTypeTexts, outParamLabeledTypeTexts, outTypeParamTexts, outTypeParamSpecials, outTypeParamConstraintCounts, outTypeParamConstraintTypeTexts)
     return ParseColumnarFunctionSignatureOnlyInfoCore(source, tokens, funcIndex, signatureOutputs, new ColumnarFunctionResultTable(outResult))
 }
 
@@ -12707,7 +12817,7 @@ func ParseColumnarFunctionSignatureOnlyInfoCore(source: string, tokens: Columnar
     }
 
     signatureTokens := new ParserTokenTable(tokens.Kinds, tokens.Starts, tokens.ValueLengths)
-    signatureOutput := new FunctionSignatureInfoOutputTable(signatureOutputs.FunctionNameTexts, signatureOutputs.ReturnTypeTexts, signatureOutputs.ParamNameTexts, signatureOutputs.ParamTypeTexts, signatureOutputs.ParamModifierKinds, signatureOutputs.ParamDefaultKinds, signatureOutputs.ParamDefaultTexts, signatureOutputs.ParamTupleNameCounts, signatureOutputs.ParamTupleNameTexts, signatureOutputs.ReturnTupleNameTexts, signatureOutputs.TypeParamTexts, signatureOutputs.TypeParamSpecials, signatureOutputs.TypeParamConstraintCounts, signatureOutputs.TypeParamConstraintTypeTexts)
+    signatureOutput := new FunctionSignatureInfoOutputTable(signatureOutputs.FunctionNameTexts, signatureOutputs.ReturnTypeTexts, signatureOutputs.ParamNameTexts, signatureOutputs.ParamTypeTexts, signatureOutputs.ParamModifierKinds, signatureOutputs.ParamDefaultKinds, signatureOutputs.ParamDefaultTexts, signatureOutputs.ParamTupleNameCounts, signatureOutputs.ParamTupleNameTexts, signatureOutputs.ReturnTupleNameTexts, signatureOutputs.ReturnLabeledTypeTexts, signatureOutputs.ParamLabeledTypeTexts, signatureOutputs.TypeParamTexts, signatureOutputs.TypeParamSpecials, signatureOutputs.TypeParamConstraintCounts, signatureOutputs.TypeParamConstraintTypeTexts)
     typeStack := new ParserArgumentStack(new int[](tokens.Count + 1))
     nodes := new ParserNodeTable(new int[](tokens.Count + 1), new int[](tokens.Count + 1), new int[](tokens.Count + 1), new int[](tokens.Count + 1), new int[](tokens.Count + 1), new int[](tokens.Count + 1), new int[](tokens.Count + 1))
     children := new ParserChildIndexTable(new int[](tokens.Count + 1))
@@ -12728,7 +12838,7 @@ func ParseColumnarFunctionInfoCore(source: string, tokens: ColumnarFunctionToken
     }
 
     signatureTokens := new ParserTokenTable(tokens.Kinds, tokens.Starts, tokens.ValueLengths)
-    signatureOutput := new FunctionSignatureInfoOutputTable(signatureOutputs.FunctionNameTexts, signatureOutputs.ReturnTypeTexts, signatureOutputs.ParamNameTexts, signatureOutputs.ParamTypeTexts, signatureOutputs.ParamModifierKinds, signatureOutputs.ParamDefaultKinds, signatureOutputs.ParamDefaultTexts, signatureOutputs.ParamTupleNameCounts, signatureOutputs.ParamTupleNameTexts, signatureOutputs.ReturnTupleNameTexts, signatureOutputs.TypeParamTexts, signatureOutputs.TypeParamSpecials, signatureOutputs.TypeParamConstraintCounts, signatureOutputs.TypeParamConstraintTypeTexts)
+    signatureOutput := new FunctionSignatureInfoOutputTable(signatureOutputs.FunctionNameTexts, signatureOutputs.ReturnTypeTexts, signatureOutputs.ParamNameTexts, signatureOutputs.ParamTypeTexts, signatureOutputs.ParamModifierKinds, signatureOutputs.ParamDefaultKinds, signatureOutputs.ParamDefaultTexts, signatureOutputs.ParamTupleNameCounts, signatureOutputs.ParamTupleNameTexts, signatureOutputs.ReturnTupleNameTexts, signatureOutputs.ReturnLabeledTypeTexts, signatureOutputs.ParamLabeledTypeTexts, signatureOutputs.TypeParamTexts, signatureOutputs.TypeParamSpecials, signatureOutputs.TypeParamConstraintCounts, signatureOutputs.TypeParamConstraintTypeTexts)
     typeStack := new ParserArgumentStack(new int[](tokens.Count + 1))
     nodes := new ParserNodeTable(new int[](tokens.Count + 1), new int[](tokens.Count + 1), new int[](tokens.Count + 1), new int[](tokens.Count + 1), new int[](tokens.Count + 1), new int[](tokens.Count + 1), new int[](tokens.Count + 1))
     children := new ParserChildIndexTable(new int[](tokens.Count + 1))
@@ -13645,7 +13755,7 @@ func ColumnarStructPropertyFlagHasMsBuildRequired(flags: int): bool {
 func ColumnarStructMethodUnsupportedStatus(source: string, tokens: ColumnarStructTokenTable, outputs: ColumnarStructOutputTable, methodCount: int): int {
     functionTokens := new ColumnarFunctionTokenTable(tokens.Kinds, tokens.Starts, tokens.ValueLengths, tokens.Count)
     cap := (tokens.Count + 1) * 4
-    signatureOutputs := new ColumnarFunctionSignatureOutputTable(new string[](1), new string[](1), new string[](cap), new string[](cap), new int[](cap), new int[](cap), new string[](cap), new int[](cap), new string[](cap), new string[](cap), new string[](cap), new int[](cap), new int[](cap), new string[](cap))
+    signatureOutputs := new ColumnarFunctionSignatureOutputTable(new string[](1), new string[](1), new string[](cap), new string[](cap), new int[](cap), new int[](cap), new string[](cap), new int[](cap), new string[](cap), new string[](cap), new string[](1), new string[](cap), new string[](cap), new int[](cap), new int[](cap), new string[](cap))
     body := new ColumnarFunctionBodyTable(new int[](cap), new int[](cap), new int[](cap), new int[](cap), new int[](cap), new int[](cap), new int[](cap), new int[](cap))
     locals := new ColumnarFunctionLocalTable(new int[](cap), new int[](cap))
     result := new ColumnarFunctionResultTable(new int[](9))
@@ -14823,7 +14933,7 @@ func ColumnarInterfaceMethodParamNamesDistinct(outputs: ColumnarInterfaceOutputT
 func InterfaceDefaultMethodLocalFunctionStatus(source: string, tokens: ColumnarInterfaceTokenTable, outputs: ColumnarInterfaceOutputTable, methodCount: int): int {
     functionTokens := new ColumnarFunctionTokenTable(tokens.Kinds, tokens.Starts, tokens.ValueLengths, tokens.Count)
     cap := tokens.Count + 1
-    signatureOutputs := new ColumnarFunctionSignatureOutputTable(new string[](1), new string[](1), new string[](cap), new string[](cap), new int[](cap), new int[](cap), new string[](cap), new int[](cap), new string[](cap), new string[](cap), new string[](cap), new int[](cap), new int[](cap), new string[](cap))
+    signatureOutputs := new ColumnarFunctionSignatureOutputTable(new string[](1), new string[](1), new string[](cap), new string[](cap), new int[](cap), new int[](cap), new string[](cap), new int[](cap), new string[](cap), new string[](cap), new string[](1), new string[](cap), new string[](cap), new int[](cap), new int[](cap), new string[](cap))
     body := new ColumnarFunctionBodyTable(new int[](cap), new int[](cap), new int[](cap), new int[](cap), new int[](cap), new int[](cap), new int[](cap), new int[](cap))
     locals := new ColumnarFunctionLocalTable(new int[](cap), new int[](cap))
     result := new ColumnarFunctionResultTable(new int[](9))

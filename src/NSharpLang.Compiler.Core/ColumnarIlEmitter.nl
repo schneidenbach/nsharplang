@@ -2519,18 +2519,20 @@ sealed class ColumnarIlEmitter {
                         pinvokeMergedImplementationFlagWord := pinvokeImportForMergeFlags.MergeImplementationFlags(pinvokeCurrentImplementationFlagWord)
                         pinvokeMergedImplementationFlags := (MethodImplAttributes)pinvokeMergedImplementationFlagWord
                         pinvokeMethodForSetFlags.SetImplementationFlags(pinvokeMergedImplementationFlags)
-                        if (!ColumnarParameterDefaultEmitter.DefineMethodParameterMetadataWithAttributes(pmb, sParamTypes, m.ParamNames, m.ParamModifierKinds, m.ParamDefaultKinds, m.ParamDefaultTexts, typeResolution.Enums, m.ParameterSourceAttributes, typeResolution)) {
+                        if (!ColumnarParameterDefaultEmitter.DefineMethodParameterMetadataWithAttributes(pmb, sParamTypes, m.ParamNames, m.ParamModifierKinds, m.ParamDefaultKinds, m.ParamDefaultTexts, typeResolution.Enums, m.ParameterSourceAttributes, typeResolution, m.ParamLabeledCanonicals)) {
                             return false
                         }
+                        ColumnarTupleElementNameEmitter.ApplyToReturn(pmb, m.ReturnLabeledCanonical)
                         overloads.Add(new ColumnarStaticMethodDef(pmb, sParamTypes, m.ParamModifierKinds, sSignatureReturn, m.ReturnTupleElementNames))
                         continue
                     }
 
                     smb := def.Builder.DefineMethod(m.Name, staticMethodAttributes, sSignatureReturn, sParamTypes)
                     ColumnarSourceAttributes.ApplyMethod(smb, m.SourceAttributes, typeResolution)
-                    if (!ColumnarParameterDefaultEmitter.DefineMethodParameterMetadataWithAttributes(smb, sParamTypes, m.ParamNames, m.ParamModifierKinds, m.ParamDefaultKinds, m.ParamDefaultTexts, typeResolution.Enums, m.ParameterSourceAttributes, typeResolution)) {
+                    if (!ColumnarParameterDefaultEmitter.DefineMethodParameterMetadataWithAttributes(smb, sParamTypes, m.ParamNames, m.ParamModifierKinds, m.ParamDefaultKinds, m.ParamDefaultTexts, typeResolution.Enums, m.ParameterSourceAttributes, typeResolution, m.ParamLabeledCanonicals)) {
                         return false
                     }
+                    ColumnarTupleElementNameEmitter.ApplyToReturn(smb, m.ReturnLabeledCanonical)
                     overloads.Add(new ColumnarStaticMethodDef(smb, sParamTypes, m.ParamModifierKinds, sSignatureReturn, m.ReturnTupleElementNames))
                     structMethodJobs.Add(new ValueTuple<ColumnarStructDef, ColumnarFunctionInput, MethodBuilder, Type, Type, Type, Dictionary<string, int>, ValueTuple<Dictionary<string, Type>, bool>>(def, m, smb, sSignatureReturn, sReturn, sAsyncWrappedReturn, sOrdinals, new ValueTuple<Dictionary<string, Type>, bool>(sParamTypeMap, true)))
                     continue
@@ -2616,9 +2618,10 @@ sealed class ColumnarIlEmitter {
                 }
                 mb := methodOverrideCompletion.DefineMethod(def.Builder)
                 ColumnarSourceAttributes.ApplyMethod(mb, m.SourceAttributes, typeResolution)
-                if (!ColumnarParameterDefaultEmitter.DefineMethodParameterMetadataWithAttributes(mb, mParamTypes, m.ParamNames, m.ParamModifierKinds, m.ParamDefaultKinds, m.ParamDefaultTexts, typeResolution.Enums, m.ParameterSourceAttributes, typeResolution)) {
+                if (!ColumnarParameterDefaultEmitter.DefineMethodParameterMetadataWithAttributes(mb, mParamTypes, m.ParamNames, m.ParamModifierKinds, m.ParamDefaultKinds, m.ParamDefaultTexts, typeResolution.Enums, m.ParameterSourceAttributes, typeResolution, m.ParamLabeledCanonicals)) {
                     return false
                 }
+                ColumnarTupleElementNameEmitter.ApplyToReturn(mb, m.ReturnLabeledCanonical)
                 methodOverrideCompletion.Apply(def.Builder, mb, typeResolution.Structs.StructuralTypeReferences)
                 AddInstanceMethod(
                     def,
@@ -3420,9 +3423,10 @@ sealed class ColumnarIlEmitter {
                 )
             }
             ColumnarSourceAttributes.ApplyMethod(methods[f], fn.SourceAttributes, typeResolution)
-            if (!ColumnarParameterDefaultEmitter.DefineMethodParameterMetadataWithAttributes(methods[f], paramTypes, fn.ParamNames, fn.ParamModifierKinds, fn.ParamDefaultKinds, fn.ParamDefaultTexts, typeResolution.Enums, fn.ParameterSourceAttributes, typeResolution)) {
+            if (!ColumnarParameterDefaultEmitter.DefineMethodParameterMetadataWithAttributes(methods[f], paramTypes, fn.ParamNames, fn.ParamModifierKinds, fn.ParamDefaultKinds, fn.ParamDefaultTexts, typeResolution.Enums, fn.ParameterSourceAttributes, typeResolution, fn.ParamLabeledCanonicals)) {
                 return false
             }
+            ColumnarTupleElementNameEmitter.ApplyToReturn(methods[f], fn.ReturnLabeledCanonical)
             ordinalsByFunc[f] = ordinals
             paramTypesByFunc[f] = paramTypeMap
             returnTypeByFunc[f] = asyncWrappedReturn ?? returnType
@@ -3552,25 +3556,15 @@ sealed class ColumnarIlEmitter {
                         localMethodReturnType,
                         localMethodParameterTypes
                     )
-                    if (!ColumnarParameterDefaultEmitter.DefineMethodParameterMetadata(localMethod, localParams, localFn.ParamNames, localFn.ParamModifierKinds, localFn.ParamDefaultKinds, localFn.ParamDefaultTexts, typeResolution.Enums)) {
+                    if (!ColumnarParameterDefaultEmitter.DefineMethodParameterMetadataWithAttributes(localMethod, localParams, localFn.ParamNames, localFn.ParamModifierKinds, localFn.ParamDefaultKinds, localFn.ParamDefaultTexts, typeResolution.Enums, null, null, localFn.ParamLabeledCanonicals)) {
                         return false
                     }
+                    ColumnarTupleElementNameEmitter.ApplyToReturn(localMethod, localFn.ReturnLabeledCanonical)
                     localFuncs[localFn.Name] = (localMethod, localParams, localReturn)
                     declaredLocalFuncNodes[nodeIndex] = localFn.Name
                 }
             }
-            fnParamTupleNames: Dictionary<string, string[]>? = null
-            if (fn.ParamTupleElementNames != null) {
-                for pn := 0; pn < fn.ParamNames.Length && pn < fn.ParamTupleElementNames.Length; pn++ {
-                    paramElementNames := fn.ParamTupleElementNames[pn]
-                    if (paramElementNames != null) {
-                        if (fnParamTupleNames == null) {
-                            fnParamTupleNames = new Dictionary<string, string[]>(StringComparer.Ordinal)
-                        }
-                        fnParamTupleNames[fn.ParamNames[pn]] = paramElementNames
-                    }
-                }
-            }
+            fnParamTupleNames := ColumnarTupleElementNames.ParameterNameMap(fn.ParamNames, fn.ParamTupleElementNames)
             // ASYNC bodies check return values against the INNER type; the method's CLR signature
             // (and every sibling call site) sees the WRAPPED type.
             bodyReturnType := asyncWrappedByFunc[f] != null ? asyncInnerByFunc[f] : returnTypeByFunc[f]
@@ -3901,6 +3895,10 @@ sealed class ColumnarIlEmitter {
             if (!methodJobIsStatic) {
                 methodJobCurrentStruct = job.Item1
             }
+            // A member's NAMED tuple parameters and the named tuples returned by free functions are
+            // visible from a method body exactly as they are from a free function's: the two
+            // spellings of "a function with a named tuple in its signature" behave the same.
+            methodJobParamTupleNames := ColumnarTupleElementNames.ParameterNameMap(job.Item2.ParamNames, job.Item2.ParamTupleElementNames)
             emitter := new ColumnarIlEmitter(
                 methodJobNodes,
                 methodJobSource,
@@ -3924,8 +3922,8 @@ sealed class ColumnarIlEmitter {
                 null,
                 null,
                 null,
-                null,
-                null,
+                siblingReturnTupleNames,
+                methodJobParamTupleNames,
                 null,
                 job.Item6,
                 match job.Item2.ReturnCanonical {

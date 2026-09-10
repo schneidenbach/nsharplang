@@ -223,7 +223,8 @@ class ColumnarConstructorDeclarationPlanner {
                                 ctor.Body.ParamModifierKinds,
                                 ctor.ParamDefaultKinds,
                                 canonicalDefaultTexts,
-                                typeResolution.Enums
+                                typeResolution.Enums,
+                                ctor.Body.ParamLabeledCanonicals
                             ) {
                                 return Declined(
                                     "emit.ctor.param-metadata",

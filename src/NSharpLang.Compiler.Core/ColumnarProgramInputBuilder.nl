@@ -981,6 +981,8 @@ sealed class ColumnarProgramInputBuilder {
         paramTupleNameCounts := new int[](cap)
         paramTupleNameTexts := new string[](cap)
         returnTupleNameTexts := new string[](cap)
+        returnLabeledTypeTexts := new string[](1)
+        paramLabeledTypeTexts := new string[](cap)
         typeParamTexts := new string[](cap)
         typeParamSpecials := new int[](cap)
         typeParamConstraintCounts := new int[](cap)
@@ -1016,6 +1018,8 @@ sealed class ColumnarProgramInputBuilder {
                 paramTupleNameCounts,
                 paramTupleNameTexts,
                 returnTupleNameTexts,
+                returnLabeledTypeTexts,
+                paramLabeledTypeTexts,
                 typeParamTexts,
                 typeParamSpecials,
                 typeParamConstraintCounts,
@@ -1041,6 +1045,8 @@ sealed class ColumnarProgramInputBuilder {
                 paramTupleNameCounts,
                 paramTupleNameTexts,
                 returnTupleNameTexts,
+                returnLabeledTypeTexts,
+                paramLabeledTypeTexts,
                 typeParamTexts,
                 typeParamSpecials,
                 typeParamConstraintCounts,
@@ -1066,6 +1072,7 @@ sealed class ColumnarProgramInputBuilder {
         returnCanonical := returnTypeTexts[0]
         paramNames := new string[](paramCount)
         paramCanonicals := new string[](paramCount)
+        paramLabeledCanonicals := new string[](paramCount)
         parsedParamModifierKinds := new int[](paramCount)
         parsedParamDefaultKinds := new int[](paramCount)
         parsedParamDefaultTexts := new string[](paramCount)
@@ -1077,6 +1084,7 @@ sealed class ColumnarProgramInputBuilder {
             paramType := paramTypeTexts[p]
             paramNames[p] = paramName
             paramCanonicals[p] = paramType
+            paramLabeledCanonicals[p] = paramLabeledTypeTexts[p] ?? paramType
             parsedParamModifierKinds[p] = paramModifierKinds[p]
             parsedParamDefaultKinds[p] = paramDefaultKinds[p]
             parsedParamDefaultTexts[p] = paramDefaultKinds[p] >= 0 ? paramDefaultTexts[p] : ""
@@ -1247,7 +1255,9 @@ sealed class ColumnarProgramInputBuilder {
             0,
             isBodylessNativeImport,
             nativeImportLibraryName,
-            nativeImportEntryPoint
+            nativeImportEntryPoint,
+            returnLabeledTypeTexts[0] ?? returnCanonical,
+            paramLabeledCanonicals
         )
         parsedInput.SourceAttributes = ColumnarSourceAttributes.Read(source, ck, cs, cv, funcIndex)
         parsedInput.ParameterSourceAttributes = ColumnarSourceAttributes.ReadParameters(source, ck, cs, cv, funcIndex, paramNames.Length)

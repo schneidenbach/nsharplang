@@ -75,6 +75,14 @@ class ColumnarFunctionInput {
     IsAsync: bool
     ReturnTupleElementNames: string[]?
     ParamTupleElementNames: string[][]?
+    // The return and parameter types as WRITTEN, keeping every tuple element label at every level:
+    // `(Min:int,Max:int)`, `(A:int,D:(B:int,C:int))`, `List<(Min:int,Max:int)>`. The structural
+    // canonicals above discard those labels because a tuple's element names are metadata rather than
+    // identity, and `ReturnTupleElementNames` carries only the TOP-LEVEL ones. Emitting
+    // `TupleElementNamesAttribute` the way C# does needs the nested and generic-argument names too,
+    // and this is the only column that still has them.
+    ReturnLabeledCanonical: string
+    ParamLabeledCanonicals: string[]
     TypeParamNames: string[]
     TypeParamSpecialConstraints: int[]
     TypeParamTypeConstraints: string[][]
@@ -137,7 +145,7 @@ class ColumnarFunctionInput {
         return HasAbstractModifier(flags) && !isStatic
     }
 
-    constructor(name: string, returnCanonical: string, paramNames: string[], paramCanonicals: string[], bodyNodes: ColumnarNodeTable, bodyRoot: int, isStatic: bool = false, typeParamNames: string[]? = null, typeParamSpecialConstraints: int[]? = null, typeParamTypeConstraints: string[][]? = null, returnTupleElementNames: string[]? = null, paramTupleElementNames: string[][]? = null, paramModifierKinds: int[]? = null, paramDefaultKinds: int[]? = null, paramDefaultTexts: string[]? = null, isAsync: bool = false, modifierFlags: int = 0, sourceFileId: int = 0, isBodylessNativeImport: bool = false, nativeImportLibraryName: string = "", nativeImportEntryPoint: string = "") {
+    constructor(name: string, returnCanonical: string, paramNames: string[], paramCanonicals: string[], bodyNodes: ColumnarNodeTable, bodyRoot: int, isStatic: bool = false, typeParamNames: string[]? = null, typeParamSpecialConstraints: int[]? = null, typeParamTypeConstraints: string[][]? = null, returnTupleElementNames: string[]? = null, paramTupleElementNames: string[][]? = null, paramModifierKinds: int[]? = null, paramDefaultKinds: int[]? = null, paramDefaultTexts: string[]? = null, isAsync: bool = false, modifierFlags: int = 0, sourceFileId: int = 0, isBodylessNativeImport: bool = false, nativeImportLibraryName: string = "", nativeImportEntryPoint: string = "", returnLabeledCanonical: string? = null, paramLabeledCanonicals: string[]? = null) {
         Name = name
         ReturnCanonical = returnCanonical
         IsAsync = isAsync
@@ -156,6 +164,8 @@ class ColumnarFunctionInput {
         IsStatic = isStatic
         ReturnTupleElementNames = returnTupleElementNames
         ParamTupleElementNames = paramTupleElementNames
+        ReturnLabeledCanonical = returnLabeledCanonical ?? returnCanonical
+        ParamLabeledCanonicals = paramLabeledCanonicals ?? paramCanonicals
         TypeParamNames = typeParamNames ?? new string[](0)
         TypeParamSpecialConstraints = typeParamSpecialConstraints ?? new int[](TypeParamNames.Length)
         if typeParamTypeConstraints == null {
