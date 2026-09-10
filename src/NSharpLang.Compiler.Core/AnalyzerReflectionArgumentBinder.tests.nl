@@ -4,7 +4,9 @@ import System
 import System.Collections.Generic
 import System.IO
 import System.Reflection
+import System.Reflection.Emit
 import NSharpLang.Compiler.Ast
+import NSharpLang.Compiler.Columnar
 
 // Native contracts for the reflection binder's pure interior.
 //
@@ -214,6 +216,61 @@ func BinderTryParseMethod(): MethodInfo {
     }
 
     throw new InvalidOperationException("int.TryParse(string, out int) was not found.")
+}
+
+func BinderArrayShapeMethod(methodName: string, rank: int): MethodInfo {
+    assemblyName := "NSharpTests.ReflectionArrayShapes"
+    dynamicAssembly := AssemblyBuilder.DefineDynamicAssembly(
+        new AssemblyName(assemblyName),
+        AssemblyBuilderAccess.Run
+    )
+    dynamicModule := dynamicAssembly.DefineDynamicModule(assemblyName)
+    builder := dynamicModule.DefineType(
+        "NSharpTests.ReflectionArrayShapes.Owner",
+        TypeAttributes.Public | TypeAttributes.Abstract | TypeAttributes.Sealed
+    )
+    parameters := new Type[](1)
+    parameters[0] = typeof(string).MakeArrayType(rank)
+    defineMethodTypes := new Type[](4)
+    defineMethodTypes[0] = typeof(string)
+    defineMethodTypes[1] = typeof(MethodAttributes)
+    defineMethodTypes[2] = typeof(Type)
+    defineMethodTypes[3] = typeof(Type[])
+    defineMethod := ExecutorRequiredMethod(typeof(TypeBuilder), "DefineMethod", defineMethodTypes)
+    defineMethodArguments := new object[](4)
+    reflectedMethodName: object = methodName
+    ExecutorSetObject(defineMethodArguments, 0, reflectedMethodName)
+    attributes := MethodAttributes.Public | MethodAttributes.Static | MethodAttributes.Abstract
+    methodAttributes: object = attributes
+    methodReturnType: object = BinderRuntimeType("System.Void, System.Private.CoreLib")
+    methodParameterTypes: object = parameters
+    ExecutorSetObject(defineMethodArguments, 1, methodAttributes)
+    ExecutorSetObject(defineMethodArguments, 2, methodReturnType)
+    ExecutorSetObject(defineMethodArguments, 3, methodParameterTypes)
+    method := TypeOfRequiredInvocation(defineMethod, builder, defineMethodArguments) as MethodBuilder
+    if method == null {
+        throw new InvalidOperationException("The reflected array-shape method was not defined.")
+    }
+    createType := ExecutorRequiredMethod(typeof(TypeBuilder), "CreateType", new Type[](0))
+    created := TypeOfRequiredInvocation(createType, builder, new object[](0)) as Type
+    if created == null {
+        throw new InvalidOperationException("The reflected array-shape fixture did not bake.")
+    }
+
+    resolved := created.GetMethod(methodName)
+    if resolved == null {
+        throw new InvalidOperationException("The reflected array-shape method was not found.")
+    }
+
+    return resolved
+}
+
+func BinderRankTwoArrayMethod(): MethodInfo {
+    return BinderArrayShapeMethod("AcceptRankTwo", 2)
+}
+
+func BinderNonSzArrayMethod(): MethodInfo {
+    return BinderArrayShapeMethod("AcceptNonSz", 1)
 }
 
 // The one BCL method here with a genuinely OPTIONAL parameter, so the default-filling phase binds
@@ -986,9 +1043,71 @@ test "a metadata-loaded check argument summary accepts an oblivious source array
             false,
             out score
         )
+
+        intArray: TypeInfo = new ArrayTypeInfo(new ObliviousTypeInfo(BuiltInTypes.Int))
+        assert !binder.TryScoreReflectionSuppliedArgument(
+            supplied,
+            parameter,
+            new Dictionary<Type, Type>(),
+            new Dictionary<Type, TypeInfo>(),
+            new Dictionary<int, FunctionTypeInfo>(),
+            BinderAnalyzed1(intArray),
+            false,
+            out score
+        )
     } finally {
         scan.Dispose()
     }
+}
+
+test "the reflected array compatibility escape refuses multidimensional parameters" {
+    method := BinderRankTwoArrayMethod()
+    parameter := method.GetParameters()[0]
+    binder := BinderDefault()
+    supplied := new SuppliedReflectionBoundArgument(
+        0,
+        parameter.get_ParameterType(),
+        BinderPositional("args"),
+        0
+    )
+    source: TypeInfo = new ArrayTypeInfo(new ObliviousTypeInfo(BuiltInTypes.String))
+    score := 0
+
+    assert !binder.TryScoreReflectionSuppliedArgument(
+        supplied,
+        parameter,
+        new Dictionary<Type, Type>(),
+        new Dictionary<Type, TypeInfo>(),
+        new Dictionary<int, FunctionTypeInfo>(),
+        BinderAnalyzed1(source),
+        false,
+        out score
+    )
+}
+
+test "the reflected array compatibility escape refuses non-SZ vector parameters" {
+    method := BinderNonSzArrayMethod()
+    parameter := method.GetParameters()[0]
+    binder := BinderDefault()
+    supplied := new SuppliedReflectionBoundArgument(
+        0,
+        parameter.get_ParameterType(),
+        BinderPositional("args"),
+        0
+    )
+    source: TypeInfo = new ArrayTypeInfo(new ObliviousTypeInfo(BuiltInTypes.String))
+    score := 0
+
+    assert !binder.TryScoreReflectionSuppliedArgument(
+        supplied,
+        parameter,
+        new Dictionary<Type, Type>(),
+        new Dictionary<Type, TypeInfo>(),
+        new Dictionary<int, FunctionTypeInfo>(),
+        BinderAnalyzed1(source),
+        false,
+        out score
+    )
 }
 
 // ------------------------------------------------------------------ the delegate arms

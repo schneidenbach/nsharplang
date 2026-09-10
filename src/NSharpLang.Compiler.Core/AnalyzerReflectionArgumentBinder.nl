@@ -4,6 +4,7 @@ import System
 import System.Collections.Generic
 import System.Reflection
 import NSharpLang.Compiler.Ast
+import NSharpLang.Compiler.Columnar
 
 
 // THE REFLECTION BINDER'S ARGUMENT MODEL.
@@ -394,8 +395,20 @@ class AnalyzerReflectionArgumentBinder {
             argumentClrType = clrTypeConversion.TryConvertTypeInfoToClrTypeForBinding(argumentType)
         }
 
+        if openParameterType.get_IsArray() && !ColumnarTypeEquivalenceFacts.IsSafeSzArrayType(openParameterType) {
+            return false
+        }
+
+        if argumentClrType != null && argumentClrType.get_IsArray() && !ColumnarTypeEquivalenceFacts.IsSafeSzArrayType(argumentClrType) {
+            return false
+        }
+
         if argumentClrType != null {
             if !AnalyzerOverloadFacts.TryMatchReflectionParameter(openParameterType, argumentClrType, bindings) {
+                // ConvertReflectionType deliberately represents every CLR array as the N# vector
+                // shape.  Keep the compatibility escape on that shape only: otherwise a reflected
+                // string[,] parameter would be mistaken for string[] after conversion and accept a
+                // call the CLR cannot make.
                 parameterTypeInfo := AnalyzerReflectionTypeConversion.ConvertReflectionType(openParameterType)
                 if !AnalyzerAssignabilityFacts.AreArrayTypesCompatible(parameterTypeInfo, argumentType) {
                     return false
