@@ -884,10 +884,73 @@ Inference is checked, not guessed: a type parameter two arguments would bind dif
 rather than a silent choice, and the inferred arguments are validated against the method's declared
 constraints.
 
+### Over your own type parameters
+
+Everything above holds when the type argument is a type parameter of the declaration you are writing
+in. `EqualityComparer<TOk>` inside `Outcome<TOk, TErr>` is the same external type as
+`EqualityComparer<int>` is outside it, so it needs no special spelling and no wrapper:
+
+```n#
+import System
+import System.Collections.Generic
+
+struct Outcome<TOk, TErr>: IEquatable<Outcome<TOk, TErr>> {
+    ok: TOk
+    err: TErr
+    state: int
+
+    constructor(ok: TOk, err: TErr, state: int) {
+        this.ok = ok
+        this.err = err
+        this.state = state
+    }
+
+    func Equals(other: Outcome<TOk, TErr>): bool {
+        if state != other.state {
+            return false
+        }
+        return EqualityComparer<TOk>.Default.Equals(ok, other.ok)
+    }
+
+    func GetHashCode(): int {
+        return HashCode.Combine(state, ok)
+    }
+}
+```
+
+Three separate places in that declaration name an external generic over its own parameters, and each
+is ordinary:
+
+- **A static receiver.** `EqualityComparer<TOk>.Default` reads the closed type's own `Default`
+  property, and `.Equals(a, b)` on the result is an ordinary instance call — the substituted member
+  types come out of the closed type's metadata, not out of a table.
+- **A base list.** `IEquatable<Outcome<TOk, TErr>>` names the type's own constructed self. The
+  interface lands in the emitted metadata as the CONSTRUCTED interface (`GetInterfaces()` reports
+  `IEquatable<Outcome<int, string>>` for `Outcome<int, string>`), and `func Equals(other: Outcome<TOk,
+  TErr>)` satisfies it: the BCL's own `EqualityComparer<Outcome<int, string>>.Default` picks the
+  `IEquatable<T>` comparer and calls straight into it. `class Node<T>: IComparable<Node<T>>` works
+  the same way, including through `Comparer<Node<string>>.Default`.
+- **Fields, parameters and returns.** `List<T>`, `Dictionary<string, T>`, `IEnumerable<T>`,
+  `KeyValuePair<TKey, TValue>`, `Func<T, bool>?`, `Action<T>?` and `T[]` are all ordinary member
+  types on a generic class or struct, and each instantiation carries its own closed field types.
+
+Any external generic definition works here, not a fixed set of BCL heads: the head resolves through
+ordinary scoped type resolution at the arity you wrote, and the arguments are closed with the CLR's
+own construction. A wrong arity is reported as an ordinary [NL207](/docs/errors/NL207), and an
+interface member you do not implement is reported as an ordinary [NL325](/docs/errors/NL325) naming
+the constructed interface.
+
 ### Current limits
 
 - An **array of a constructed external value-type generic** (`Vector<int>[]`) does not emit yet.
-  Arrays of your own types, of reference types and of the primitive types are unaffected.
+  Arrays of your own types, of reference types and of the primitive types are unaffected. The same
+  limit applies to an array of an external generic closed over your own type parameter
+  (`List<T>[]`); `T[]` itself is unaffected.
+- A **local, field or parameter typed by an external generic over one of your own COMPLETE types**
+  — `IEquatable<Plain>` where `Plain` is a type in this compilation, or
+  `IEquatable<Outcome<int, string>>` at a use site outside the declaration — is not admitted yet.
+  Writing the interface in the BASE LIST is unaffected, and so is reaching it through the BCL
+  (`EqualityComparer<Outcome<int, string>>.Default`).
 - A **generic method your own type declares** — `static func Of<U>(value: U)` on a class or struct,
   generic or not — is not compiled yet. A generic FREE function is unaffected.
 

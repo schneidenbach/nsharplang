@@ -1159,7 +1159,7 @@ class ColumnarTypeOfPlanner {
             return true
         }
         if ContainsBuilderBoundType(valueType) {
-            return IsSupportedCollectionType(valueType) || IsSupportedTaskType(valueType) || IsSupportedResultType(valueType) || IsSupportedAnonymousUnionType(valueType) || IsSupportedEnumeratorType(valueType) || IsSupportedListEnumeratorType(valueType) || IsSupportedDictionaryValueCollectionType(valueType) || IsSupportedDictionaryEnumeratorType(valueType) || IsSupportedDictionaryKeyEnumeratorType(valueType) || IsSupportedDictionaryValueEnumeratorType(valueType) || IsSupportedKeyValuePairType(valueType) || IsSupportedReferenceEqualityComparerType(valueType) || IsSupportedValueTuple(valueType)
+            return IsSupportedCollectionType(valueType) || IsSupportedTaskType(valueType) || IsSupportedResultType(valueType) || IsSupportedAnonymousUnionType(valueType) || IsSupportedEnumeratorType(valueType) || IsSupportedListEnumeratorType(valueType) || IsSupportedDictionaryValueCollectionType(valueType) || IsSupportedDictionaryEnumeratorType(valueType) || IsSupportedDictionaryKeyEnumeratorType(valueType) || IsSupportedDictionaryValueEnumeratorType(valueType) || IsSupportedKeyValuePairType(valueType) || IsSupportedReferenceEqualityComparerType(valueType) || IsSupportedValueTuple(valueType) || IsSupportedExternalConstruction(valueType)
         }
         if valueType.get_IsGenericType() && !valueType.get_IsGenericTypeDefinition() {
             definition := valueType.GetGenericTypeDefinition()
@@ -1210,6 +1210,10 @@ class ColumnarTypeOfPlanner {
         if valueType == null || valueType.get_HasElementType() || ContainsBuilderBoundType(valueType) || ContainsOpenGenericParameters(valueType) {
             return false
         }
+        return HasSelfConsistentCatalogIdentity(valueType)
+    }
+
+    static func HasSelfConsistentCatalogIdentity(valueType: Type): bool {
         fullName := valueType.FullName ?? ""
         identity := valueType.get_AssemblyQualifiedName() ?? ""
         if fullName.Length == 0 || identity.Length == 0 || ExternalAssemblyScan.HasExactTypeIdentity(RequiredVoidType(), identity) {
@@ -1221,6 +1225,72 @@ class ColumnarTypeOfPlanner {
         } catch {
             return false
         }
+    }
+
+    // AN EXTERNAL GENERIC CONSTRUCTED OVER THE ENCLOSING DECLARATION'S OWN TYPE PARAMETERS —
+    // `EqualityComparer<TOk>` and `IEquatable<Outcome<TOk, TErr>>` inside `Outcome<TOk, TErr>`,
+    // `Comparer<T>` and `Func<T, bool>` inside `Ranker<T>`. Its head is an ordinary external type the
+    // catalog verifies by exact identity, and its arguments are this declaration's own parameters (or
+    // shapes built from them), which are storable in their own right. Nothing consults the head's
+    // NAME, so one more BCL generic over `T` never needs another row in a family table — which is the
+    // point: a table cannot state a rule for a type argument it does not know.
+    //
+    // THE TYPE-PARAMETER MENTION IS THE WHOLE BOUNDARY, not decoration. A builder-bound construction
+    // over COMPLETE arguments — `Func<SourceClass>`, `IEnumerator<Box<int>>`,
+    // `Dictionary<string, SourceRow[]>.KeyCollection.Enumerator` — is a closed shape whose emission
+    // the family predicates above already own or deliberately decline, and this arm does not
+    // reinterpret their answer. By-ref-like heads stay out for the same reason: their lowerings are
+    // element-specific and `IsSupportedSpanLikeType` remains their only owner. The head must also
+    // come from a real reference, never from the assembly being emitted, so a source declaration
+    // that spells a BCL generic's name cannot borrow that name's admission.
+    static func IsSupportedExternalConstruction(valueType: Type): bool {
+        if valueType is TypeBuilder || IsEnumBuilder(valueType) || valueType.get_IsGenericParameter() || valueType.get_HasElementType() {
+            return false
+        }
+        if !valueType.get_IsGenericType() || valueType.get_IsGenericTypeDefinition() {
+            return false
+        }
+        definition := valueType.GetGenericTypeDefinition()
+        // The BY-REF-LIKE question is asked of the DEFINITION. A builder-bound instantiation refuses
+        // the read outright, so asking it would silently answer "not by-ref-like" for `Span<T>`.
+        if definition is TypeBuilder || IsEnumBuilder(definition) || IsEmittedAssemblyType(definition) || IsByRefLike(definition) || IsByRefLike(valueType) || !HasSelfConsistentCatalogIdentity(definition) {
+            return false
+        }
+        arguments := valueType.GetGenericArguments()
+        mentionsTypeParameter := false
+        i := 0
+        while i < arguments.Length {
+            if !IsSupportedType(arguments[i]) {
+                return false
+            }
+            if MentionsGenericParameter(arguments[i]) {
+                mentionsTypeParameter = true
+            }
+            i += 1
+        }
+        return mentionsTypeParameter
+    }
+
+    static func MentionsGenericParameter(valueType: Type): bool {
+        if valueType.get_IsGenericParameter() {
+            return true
+        }
+        if valueType.get_HasElementType() {
+            element := valueType.GetElementType()
+            return element != null && MentionsGenericParameter(element)
+        }
+        if !valueType.get_IsGenericType() {
+            return false
+        }
+        arguments := valueType.GetGenericArguments()
+        i := 0
+        while i < arguments.Length {
+            if MentionsGenericParameter(arguments[i]) {
+                return true
+            }
+            i += 1
+        }
+        return false
     }
 
     static func IsSupportedElementType(valueType: Type): bool {
@@ -1827,6 +1897,23 @@ class ColumnarTypeOfPlanner {
         return false
     }
 
+    // A definition that lives in an assembly this process is EMITTING is not an external reference,
+    // even after `CreateType` has baked it and even when its name matches a BCL generic exactly. The
+    // builder check alone is not enough: a baked type reports the underlying dynamic assembly rather
+    // than the builder that produced it.
+    static func IsEmittedAssemblyType(valueType: Type): bool {
+        if IsAssemblyBuilderBacked(valueType) {
+            return true
+        }
+        try {
+            return valueType.get_Assembly().get_IsDynamic()
+        } catch ex: NotSupportedException {
+            return true
+        } catch ex: NotImplementedException {
+            return true
+        }
+    }
+
     static func IsAssemblyBuilderBacked(valueType: Type): bool {
         assemblyObject: object = valueType.get_Assembly()
         assemblyType := assemblyObject.GetType()
@@ -1837,6 +1924,19 @@ class ColumnarTypeOfPlanner {
             assemblyType = assemblyType.get_BaseType()
         }
         return false
+    }
+
+    // `IsValueType` is one of the reads an unbaked builder handle refuses. A shape that cannot answer
+    // is not a value type for the purposes of the `?` suffix, which is the same answer the ordinary
+    // resolver reaches for every reference shape.
+    static func IsValueTypeShape(valueType: Type): bool {
+        try {
+            return valueType.get_IsValueType()
+        } catch ex: NotSupportedException {
+            return false
+        } catch ex: NotImplementedException {
+            return false
+        }
     }
 
     static func IsByRefLike(valueType: Type): bool {

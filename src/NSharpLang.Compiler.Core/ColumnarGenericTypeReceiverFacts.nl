@@ -3,6 +3,7 @@ namespace NSharpLang.Compiler.Columnar
 import System
 import System.Collections.Generic
 import System.Reflection
+import System.Reflection.Emit
 
 
 // THE ONE OWNER OF "WHAT TYPE DOES A `Name<Args>.` RECEIVER NAME".
@@ -18,13 +19,18 @@ import System.Reflection
 // table and no per-API modelling — the head resolves through ordinary scoped type resolution or the
 // receiver declines.
 //
-// THE SOURCE-CLAIMED ANSWER IS REPORTED SEPARATELY, NOT SWALLOWED. A receiver over a USER-declared
-// generic (`Box<int>.Create`) resolves to a `TypeBuilder` INSTANTIATION, whose reflection surface is
-// not the runtime one: `GetField`/`GetProperty`/`GetMethod` throw on it, and every member handle must
-// be rebound through `TypeBuilder.GetField`/`GetMethod`. The two are therefore separate answers, not
-// one: `TryResolveReceiverType` reports only the RUNTIME shape (and says `claimedBySource` when it
-// declined because the head was a source type), while `TryResolveSourceReceiverType` reports the
-// constructed SOURCE shape for the source member owners to resolve against.
+// THE SOURCE-DECLARED ANSWER IS REPORTED SEPARATELY, NOT SWALLOWED. A receiver over a USER-declared
+// generic (`Box<int>.Create`) resolves to a `TypeBuilder` INSTANTIATION, whose member surface comes
+// from the live source definition rather than from reflection. The two are therefore separate
+// answers, not one: `TryResolveReceiverType` reports the EXTERNAL shape (and says `claimedBySource`
+// when it declined because the head was a source type), while `TryResolveSourceReceiverType` reports
+// the constructed SOURCE shape for the source member owners to resolve against.
+//
+// WHICH OF THE TWO A RECEIVER IS, IS A PROPERTY OF ITS HEAD, NOT OF ITS ARGUMENTS. An external
+// generic closed over the ENCLOSING type's own parameters — `EqualityComparer<TOk>` inside
+// `Outcome<TOk, TErr>` — is an external receiver whose members happen to be builder-bound, and it is
+// answered here, through the same `TypeBuilder.GetField`/`GetMethod` rebinding the rest of the
+// backend uses for builder-bound external members.
 class ColumnarGenericTypeReceiverFacts {
     static func IsReceiver(nodes: ColumnarNodeTable, node: int): bool {
         return nodes != null && node >= 0 && node < nodes.Kinds.Length && nodes.Kind(node) == ColumnarExpressionNodeKind.GenericTypeReceiverExpression()
@@ -115,11 +121,15 @@ class ColumnarGenericTypeReceiverFacts {
             return false
         }
 
-        // A source-claimed head is a USER-declared generic type. Its constructed form is a
-        // `TypeBuilder` instantiation, which does not answer the runtime member queries this
-        // resolver's callers make, so it is reported as claimed-but-not-runtime and belongs to
-        // `TryResolveSourceReceiverType` instead.
-        if claimed {
+        // WHICH ANSWER THIS IS COMES FROM THE RESOLVED TYPE'S OWN IDENTITY, NOT FROM `claimed`.
+        // The scoped resolver reports `claimed` whenever ANY part of the spelling was answered by
+        // the source-declared bindings, and a TYPE PARAMETER is one of those parts: inside
+        // `Outcome<TOk, TErr>`, `EqualityComparer<TOk>` is claimed even though its head is a BCL
+        // type. Reading `claimed` as "the head is a source type" therefore routed every external
+        // generic constructed over the enclosing type's own parameters to the source member owners,
+        // which own no such declaration. The head is a source type exactly when the resolved
+        // constructed type's generic definition is a live `TypeBuilder`.
+        if ColumnarTypeOfPlanner.IsClosedSourceGeneric(candidate) || candidate is TypeBuilder {
             claimedBySource = true
             return false
         }
@@ -157,7 +167,7 @@ class ColumnarGenericTypeReceiverFacts {
 
         candidate := typeof(object)
         claimed := false
-        if !scope.TryResolveExactExplicitTypeInContext(nodes.EnclosingTypeName, canonical, bindings, out candidate, out claimed) || !claimed {
+        if !scope.TryResolveExactExplicitTypeInContext(nodes.EnclosingTypeName, canonical, bindings, out candidate, out claimed) {
             return false
         }
 
@@ -178,40 +188,114 @@ class ColumnarGenericTypeReceiverFacts {
         return ColumnarSourceDefinitionResolver.FindByBuilderIdentity(definitions, receiverType.GetGenericTypeDefinition())
     }
 
+    // A RUNTIME constructed type answers member queries itself; a BUILDER-BOUND one — an external
+    // definition closed over this compilation's own type parameters or emitted types, such as
+    // `EqualityComparer<TOk>` inside `Outcome<TOk, TErr>` — is a `TypeBuilderInstantiation`, whose
+    // `GetField`/`GetProperty`/`GetMethod` throw. Its members are read off the runtime generic
+    // DEFINITION and rebound onto the instantiation with `TypeBuilder.GetField`/`GetMethod`, exactly
+    // as every other builder-bound member owner in the backend already does.
+    static func IsBuilderBoundConstruction(receiverType: Type): bool {
+        if !ColumnarTypeOfPlanner.ContainsBuilderBoundType(receiverType) {
+            return false
+        }
+        if !receiverType.get_IsGenericType() || receiverType.get_IsGenericTypeDefinition() {
+            return false
+        }
+        return !(receiverType.GetGenericTypeDefinition() is TypeBuilder)
+    }
+
     // THE GENERAL STATIC READ. `GetField` / `GetProperty` with `Public | Static | DeclaredOnly`-free
     // flags over the CLOSED constructed type, which is ordinary CLR member resolution and reflects
     // the substituted member types for free — `Vector<int>.Zero` comes back as `Vector<int>` and
     // `EqualityComparer<int>.Default` as `EqualityComparer<int>` because that is what the closed
     // type's metadata says. An INSTANCE member reached through the type name answers nothing here,
-    // so it declines rather than emitting a load with no receiver.
-    static func TryResolveStaticField(receiverType: Type, memberName: string): FieldInfo? {
+    // so it declines rather than emitting a load with no receiver. The builder-bound arm reaches the
+    // same answer by substituting the definition's member type with the instantiation's arguments,
+    // because a rebound wrapper reports the OPEN member type.
+    static func TryResolveStaticField(receiverType: Type, memberName: string, out field: FieldInfo?, out fieldType: Type): bool {
+        field = null
+        fieldType = typeof(object)
         if receiverType == null || memberName == null || memberName.Length == 0 {
-            return null
+            return false
         }
 
-        field := receiverType.GetField(memberName, BindingFlags.Public | BindingFlags.Static)
-        if field == null || !field.get_IsStatic() {
-            return null
+        if IsBuilderBoundConstruction(receiverType) {
+            definition := receiverType.GetGenericTypeDefinition()
+            openField := definition.GetField(memberName, BindingFlags.Public | BindingFlags.Static)
+            if openField == null || !openField.get_IsStatic() {
+                return false
+            }
+
+            // A literal has no storage to rebind: its value is the same for every instantiation and
+            // the caller encodes it inline, so the definition's own handle is the exact answer.
+            if openField.get_IsLiteral() {
+                field = openField
+                fieldType = openField.get_FieldType()
+                return true
+            }
+
+            rebound := TypeBuilder.GetField(receiverType, openField)
+            if rebound == null {
+                return false
+            }
+
+            field = rebound
+            fieldType = ColumnarRuntimeInstanceMemberResolver.SubstituteClosedTypeArguments(openField.get_FieldType(), receiverType.GetGenericArguments())
+            return true
         }
 
-        return field
+        resolvedField := receiverType.GetField(memberName, BindingFlags.Public | BindingFlags.Static)
+        if resolvedField == null || !resolvedField.get_IsStatic() {
+            return false
+        }
+
+        field = resolvedField
+        fieldType = resolvedField.get_FieldType()
+        return true
     }
 
-    static func TryResolveStaticGetter(receiverType: Type, memberName: string): MethodInfo? {
+    static func TryResolveStaticGetter(receiverType: Type, memberName: string, out getter: MethodInfo?, out resultType: Type): bool {
+        getter = null
+        resultType = typeof(object)
         if receiverType == null || memberName == null || memberName.Length == 0 {
-            return null
+            return false
+        }
+
+        if IsBuilderBoundConstruction(receiverType) {
+            definition := receiverType.GetGenericTypeDefinition()
+            openProperty := definition.GetProperty(memberName, BindingFlags.Public | BindingFlags.Static)
+            if openProperty == null {
+                return false
+            }
+
+            openGetter := openProperty.GetGetMethod()
+            if openGetter == null || !openGetter.get_IsStatic() || openGetter.GetParameters().Length != 0 {
+                return false
+            }
+
+            rebound := TypeBuilder.GetMethod(receiverType, openGetter)
+            if rebound == null {
+                return false
+            }
+
+            reboundObject: object? = rebound
+            getter = (MethodInfo)reboundObject
+            resultType = ColumnarRuntimeInstanceMemberResolver.SubstituteClosedTypeArguments(openProperty.get_PropertyType(), receiverType.GetGenericArguments())
+            return true
         }
 
         property := receiverType.GetProperty(memberName, BindingFlags.Public | BindingFlags.Static)
         if property == null {
-            return null
+            return false
         }
 
-        getter := property.GetGetMethod()
-        if getter == null || !getter.get_IsStatic() || getter.GetParameters().Length != 0 {
-            return null
+        resolvedGetter := property.GetGetMethod()
+        if resolvedGetter == null || !resolvedGetter.get_IsStatic() || resolvedGetter.GetParameters().Length != 0 {
+            return false
         }
 
-        return getter
+        getter = resolvedGetter
+        resultType = resolvedGetter.get_ReturnType()
+        return true
     }
 }
