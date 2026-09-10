@@ -120,6 +120,58 @@ class AnalyzerTypeSubstitution {
             return new NullableTypeInfo(ResolveTypeWithSubstitution(nullable.InnerType, substitution))
         }
 
+        byRef := typeReference as ByRefTypeReference
+        if byRef != null {
+            return new ByRefTypeInfo(ResolveTypeWithSubstitution(byRef.InnerType, substitution))
+        }
+
+        // A TUPLE, a FUNCTION type and a UNION mention their inner references at their leaves just
+        // as a generic head does — `(T, int)`, `(T) -> TResult`, `T | string` all bind under a
+        // substitution — so each is rebuilt over rewritten inners rather than handed to the plain
+        // walk, which would resolve the bare parameter names against the reader's own scope.
+        tupleReference := typeReference as TupleTypeReference
+        if tupleReference != null {
+            elements := new List<TupleTypeElementInfo>()
+            elementIndex := 0
+            while elementIndex < tupleReference.Elements.Count {
+                element := tupleReference.Elements[elementIndex]
+                elements.Add(new TupleTypeElementInfo(element.Name, ResolveTypeWithSubstitution(element.Type, substitution)))
+                elementIndex = elementIndex + 1
+            }
+
+            return new TupleTypeInfo(elements)
+        }
+
+        functionReference := typeReference as FunctionTypeReference
+        if functionReference != null {
+            parameterTypes := new List<TypeInfo>()
+            parameterModifiers := new List<ParameterModifier>()
+            parameterIndex := 0
+            while parameterIndex < functionReference.ParameterTypes.Count {
+                parameterTypes.Add(ResolveTypeWithSubstitution(functionReference.ParameterTypes[parameterIndex], substitution))
+                parameterModifiers.Add(ParameterModifier.None)
+                parameterIndex = parameterIndex + 1
+            }
+
+            signature := new FunctionTypeInfo()
+            signature.ParameterTypes = parameterTypes
+            signature.ParameterModifiers = parameterModifiers
+            signature.ReturnType = ResolveTypeWithSubstitution(functionReference.ReturnType, substitution)
+            return signature
+        }
+
+        unionReference := typeReference as UnionTypeReference
+        if unionReference != null {
+            arms := new List<TypeInfo>()
+            armIndex := 0
+            while armIndex < unionReference.Arms.Count {
+                arms.Add(ResolveTypeWithSubstitution(unionReference.Arms[armIndex], substitution))
+                armIndex = armIndex + 1
+            }
+
+            return new AnonymousUnionTypeInfo(arms)
+        }
+
         return typeResolverValue.ResolveType(typeReference)
     }
 

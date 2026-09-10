@@ -378,6 +378,63 @@ class AnalyzerSyntheticCallFacts {
             return new ObliviousTypeInfo(obliviousInner)
         }
 
+        byRef := candidate as ByRefTypeInfo
+        if byRef != null {
+            byRefInner := ApplyGenericBindings(byRef.InnerType, bindings)
+            return new ByRefTypeInfo(byRefInner)
+        }
+
+        // A TUPLE and a FUNCTION type are composite shells like any other: `(T1, T2)` and
+        // `Func<TOk, TResult>` mention type parameters at their leaves, so a signature that returns
+        // or accepts one only closes when the shell is rebuilt over the substituted leaves. Element
+        // names and every declaration fact ride across unchanged.
+        tupleCandidate := candidate as TupleTypeInfo
+        if tupleCandidate != null {
+            substitutedElements := new List<TupleTypeElementInfo>()
+            elementIndex := 0
+            while elementIndex < tupleCandidate.Elements.Count {
+                element := tupleCandidate.Elements[elementIndex]
+                substitutedElements.Add(new TupleTypeElementInfo(element.Name, ApplyGenericBindings(element.Type, bindings)))
+                elementIndex = elementIndex + 1
+            }
+
+            return new TupleTypeInfo(substitutedElements)
+        }
+
+        functionCandidate := candidate as FunctionTypeInfo
+        if functionCandidate != null {
+            substitutedParameterTypes: List<TypeInfo>? = null
+            declaredParameterTypes := functionCandidate.ParameterTypes
+            if declaredParameterTypes != null {
+                substitutedParameterTypes = new List<TypeInfo>()
+                parameterIndex := 0
+                while parameterIndex < declaredParameterTypes.Count {
+                    substitutedParameterTypes.Add(ApplyGenericBindings(declaredParameterTypes[parameterIndex], bindings))
+                    parameterIndex = parameterIndex + 1
+                }
+            }
+
+            substitutedReturnType: TypeInfo? = null
+            declaredReturnType := functionCandidate.ReturnType
+            if declaredReturnType != null {
+                substitutedReturnType = ApplyGenericBindings(declaredReturnType, bindings)
+            }
+
+            return functionCandidate.WithSignatureTypes(substitutedParameterTypes, substitutedReturnType)
+        }
+
+        anonymousUnion := candidate as AnonymousUnionTypeInfo
+        if anonymousUnion != null {
+            substitutedArms := new List<TypeInfo>()
+            armIndex := 0
+            while armIndex < anonymousUnion.Arms.Count {
+                substitutedArms.Add(ApplyGenericBindings(anonymousUnion.Arms[armIndex], bindings))
+                armIndex = armIndex + 1
+            }
+
+            return new AnonymousUnionTypeInfo(substitutedArms)
+        }
+
         return candidate
     }
 
@@ -711,6 +768,21 @@ class AnalyzerSyntheticCallBinder {
         functionReference := parameterTypeReference as FunctionTypeReference
         if functionReference != null {
             CollectFunctionTypeParameterBounds(functionReference, argumentType, typeParameters, allBounds)
+            return
+        }
+
+        // `(T1, T2)` matched against an inferred tuple: element by element, positionally. Names do
+        // not participate — a tuple's element names are not part of its identity here.
+        tupleReference := parameterTypeReference as TupleTypeReference
+        if tupleReference != null {
+            argumentTuple := argumentType as TupleTypeInfo
+            if argumentTuple != null {
+                tupleIndex := 0
+                while tupleIndex < tupleReference.Elements.Count && tupleIndex < argumentTuple.Elements.Count {
+                    CollectTypeParameterBounds(tupleReference.Elements[tupleIndex].Type, argumentTuple.Elements[tupleIndex].Type, typeParameters, allBounds)
+                    tupleIndex = tupleIndex + 1
+                }
+            }
         }
     }
 
@@ -729,6 +801,16 @@ class AnalyzerSyntheticCallBinder {
                 }
             }
 
+            return
+        }
+
+        // A `Func<..>`/`Action<..>` PARAMETER matched against a lambda's inferred signature. The
+        // lambda answers as a `FunctionTypeInfo` rather than as an instantiation of the delegate, so
+        // the delegate spelling is read positionally — `Func` takes its last argument as the result,
+        // `Action` takes them all as parameters — and each position descends like any other.
+        argumentFunction := argumentType as FunctionTypeInfo
+        if argumentFunction != null {
+            CollectDelegateGenericTypeParameterBounds(generic, argumentFunction, typeParameters, allBounds)
             return
         }
 
@@ -771,6 +853,42 @@ class AnalyzerSyntheticCallBinder {
             converted := AnalyzerReflectionTypeConversion.ConvertReflectionType(typeArguments[index])
             CollectTypeParameterBounds(generic.TypeArguments[index], converted, typeParameters, allBounds)
             index = index + 1
+        }
+    }
+
+    // The delegate-SPELLING arm of the same descent: `Func<T1..Tn, TResult>` reads its last argument
+    // as the result and `Action<T1..Tn>` reads them all as parameters, which is exactly the reading
+    // `CreateFunctionTypeInfoFromGenericDelegate` gives the same two names. Any other head is not a
+    // delegate shape and contributes nothing.
+    func CollectDelegateGenericTypeParameterBounds(generic: GenericTypeReference, argumentFunction: FunctionTypeInfo, typeParameters: List<TypeParameter>, allBounds: Dictionary<string, List<TypeInfo>>) {
+        isFunc := AnalyzerOverloadFacts.GenericNamesMatch(generic.Name, "Func")
+        if !isFunc && !AnalyzerOverloadFacts.GenericNamesMatch(generic.Name, "Action") {
+            return
+        }
+
+        parameterCount := generic.TypeArguments.Count
+        if isFunc {
+            parameterCount = parameterCount - 1
+        }
+
+        if parameterCount < 0 {
+            return
+        }
+
+        argumentParameters := argumentFunction.ParameterTypes
+        if argumentParameters != null {
+            index := 0
+            while index < parameterCount && index < argumentParameters.Count {
+                CollectTypeParameterBounds(generic.TypeArguments[index], argumentParameters[index], typeParameters, allBounds)
+                index = index + 1
+            }
+        }
+
+        if isFunc {
+            argumentReturn := argumentFunction.ReturnType
+            if argumentReturn != null {
+                CollectTypeParameterBounds(generic.TypeArguments[generic.TypeArguments.Count - 1], argumentReturn, typeParameters, allBounds)
+            }
         }
     }
 
