@@ -292,14 +292,14 @@ test "the field rows publish every public and private FieldAttributes word" {
     assert ColumnarDeclarationPlanner.LiteralFieldAttribute() == 64
     assert ColumnarDeclarationPlanner.HasDefaultFieldAttribute() == 32768
 
-    assert ColumnarDeclarationPlanner.FieldAttributesFor(false, false, false) == 6
-    assert ColumnarDeclarationPlanner.FieldAttributesFor(false, true, false) == 38
-    assert ColumnarDeclarationPlanner.FieldAttributesFor(true, false, false) == 22
-    assert ColumnarDeclarationPlanner.FieldAttributesFor(true, true, false) == 54
-    assert ColumnarDeclarationPlanner.FieldAttributesFor(false, false, true) == 1
-    assert ColumnarDeclarationPlanner.FieldAttributesFor(false, true, true) == 33
-    assert ColumnarDeclarationPlanner.FieldAttributesFor(true, false, true) == 17
-    assert ColumnarDeclarationPlanner.FieldAttributesFor(true, true, true) == 49
+    assert ColumnarDeclarationPlanner.FieldAttributesFor(false, false, false, false) == 6
+    assert ColumnarDeclarationPlanner.FieldAttributesFor(false, true, false, false) == 38
+    assert ColumnarDeclarationPlanner.FieldAttributesFor(true, false, false, false) == 22
+    assert ColumnarDeclarationPlanner.FieldAttributesFor(true, true, false, false) == 54
+    assert ColumnarDeclarationPlanner.FieldAttributesFor(false, false, true, false) == 1
+    assert ColumnarDeclarationPlanner.FieldAttributesFor(false, true, true, false) == 33
+    assert ColumnarDeclarationPlanner.FieldAttributesFor(true, false, true, false) == 17
+    assert ColumnarDeclarationPlanner.FieldAttributesFor(true, true, true, false) == 49
     assert ColumnarDeclarationPlanner.FieldAttributesFor(false, false, false, true) == 32854
     assert ColumnarDeclarationPlanner.FieldAttributesFor(false, true, false, true) == 32854
 }
