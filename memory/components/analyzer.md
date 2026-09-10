@@ -1211,5 +1211,15 @@ Analyzer coverage is split deliberately across:
   `Analyze(unit, path, projectRoot, source)` entry points, with the parse census, the unit shape,
   every row's `Code|Message|Suggestion|Severity`, its `ContextualHint` and its `SourceSnippet`.
 
+**READONLY STRUCTS** (`AnalyzerTypeDeclarations.ValidateReadonlyStructInstanceFields`, phase 1). A
+`readonly struct` / `readonly ref struct` / `readonly record struct` must have every INSTANCE field
+declared `readonly`; a mutable one is **NL326** on the field name (C# `CS8340`). `static`, `const` and
+`init` fields are exempt — they are not the instance state the promise covers. A PLAIN struct with
+readonly fields is NOT a readonly struct and is never flagged. Writes to the readonly fields are the
+existing NL309 rule's business, unchanged. The emitted metadata half lives in
+`ColumnarDeclarationPlan.FieldIsReadonlyAt` (every instance field of a readonly struct is `initonly`,
+including a primary constructor's synthesized capture fields) and `ColumnarIlEmitter` (the
+`IsReadOnlyAttribute` on the type); `tests/native/readonly-structs` proves both by reflection.
+
 Keep ownership-policy tests beside the N# owner. C# tests should exercise only the remaining
 diagnostic/integration shell, not recreate semantic lookup or identity policy in test helpers.

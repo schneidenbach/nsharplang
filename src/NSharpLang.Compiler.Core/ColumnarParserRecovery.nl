@@ -1123,7 +1123,7 @@ class ColumnarParserRecovery {
         }
 
         ahead := 1
-        while Position + ahead < Tokens.Count && (ParserTokenFacts.IsModifierKeyword(Tokens[Position + ahead].Type) || Tokens[Position + ahead].Type == TokenType.Ref) {
+        while Position + ahead < Tokens.Count && IsReadonlyScanSkippableModifier(Tokens[Position + ahead].Type) {
             ahead = ahead + 1
         }
         if Position + ahead >= Tokens.Count {
@@ -1133,6 +1133,18 @@ class ColumnarParserRecovery {
             return true
         }
         return IsSoaRecordDeclarationStartAtOffset(ahead)
+    }
+
+    // What the forward scan walks over between `readonly` and the declaration keyword. `IsModifierKeyword`
+    // is `ParseModifiers`'s catch-all set and deliberately excludes `public`/`private` (the owner checks
+    // those FIRST, before the catch-all), so both are named here as well; `ref` is the middle word of
+    // `readonly ref struct`.
+    func IsReadonlyScanSkippableModifier(tokenType: TokenType): bool {
+        if ParserTokenFacts.IsModifierKeyword(tokenType) {
+            return true
+        }
+
+        return tokenType == TokenType.Public || tokenType == TokenType.Private || tokenType == TokenType.Ref
     }
 
     // The three struct spellings the word is legal on, tested at the declaration keyword itself (every
@@ -1152,7 +1164,23 @@ class ColumnarParserRecovery {
         suggestions := new List<string>()
         suggestions.Add("Remove 'readonly' from this declaration")
         suggestions.Add("Or make the type a struct: 'readonly struct " + ReadonlyModifierOwnerName() + " { … }'")
-        Report(ErrorCode.InvalidModifier, "'readonly' applies only to structs, but this declares a " + ReadonlyModifierOwnerKeyword(), readonlyToken.Line, readonlyToken.Column, "A 'readonly' type promises that none of its instance state can change after construction. Only a struct — 'readonly struct', 'readonly ref struct' or 'readonly record struct' — can make that promise; a " + ReadonlyModifierOwnerKeyword() + " cannot.", "Mark the individual members 'readonly' instead, or declare the type as a struct.", suggestions, readonlyToken.Value.Length)
+        ownerKeyword := ReadonlyModifierOwnerKeyword()
+        ownerPhrase := ReadonlyModifierArticle(ownerKeyword) + " " + ownerKeyword
+        Report(ErrorCode.InvalidModifier, "'readonly' applies only to structs, but this declares " + ownerPhrase, readonlyToken.Line, readonlyToken.Column, "A 'readonly' type promises that none of its instance state can change after construction. Only a struct — 'readonly struct', 'readonly ref struct' or 'readonly record struct' — can make that promise; " + ownerPhrase + " cannot.", "Mark the individual members 'readonly' instead, or declare the type as a struct.", suggestions, readonlyToken.Value.Length)
+    }
+
+    // "a class" but "an interface": the message reads like prose or it reads like a template.
+    func ReadonlyModifierArticle(keyword: string): string {
+        if keyword.Length == 0 {
+            return "a"
+        }
+
+        first := char.ToLowerInvariant(keyword[0])
+        if first == 'a' || first == 'e' || first == 'i' || first == 'o' || first == 'u' {
+            return "an"
+        }
+
+        return "a"
     }
 
     // The declaration keyword the misplaced `readonly` was written in front of, for the message.

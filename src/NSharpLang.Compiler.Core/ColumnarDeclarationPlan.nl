@@ -1469,7 +1469,20 @@ class ColumnarDeclarationPlanner {
     // THE READONLY FLAG IS BOUNDS-GUARDED AND THAT GUARD IS THE COMPUTATION. `FieldReadonlyFlags` may
     // be SHORTER than `FieldNames` -- a field past its end is simply not readonly -- and reading it
     // unguarded would throw on a shape the emitter accepts today.
+    //
+    // EVERY INSTANCE FIELD OF A `readonly struct` IS INITONLY, whether or not the source spelled the
+    // word. The analyzer has already refused any SOURCE-declared instance field that did not (NL326),
+    // so the only fields this adds the bit to are the ones the compiler synthesized itself -- a primary
+    // constructor's captured parameters. C# emits those `initonly` for a readonly struct too, and it has
+    // to: the type carries `IsReadOnlyAttribute`, so callers stop making the defensive copies that would
+    // otherwise absorb a write through them. This is the ONE door that computes the InitOnly bit, so
+    // every downstream rule that asks `get_IsInitOnly()` -- field-init placement, `with`, object
+    // initializers, write targets -- follows from it.
     static func FieldIsReadonlyAt(input: ColumnarStructInput, index: int): bool {
+        if input.IsReadonlyStruct && index < input.FieldStaticFlags.Length && !input.FieldStaticFlags[index] {
+            return true
+        }
+
         if index < input.FieldReadonlyFlags.Length {
             return input.FieldReadonlyFlags[index]
         }

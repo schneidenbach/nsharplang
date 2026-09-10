@@ -110,6 +110,7 @@ These are not style rules; style is `nlc format`'s job and produces no diagnosti
 | [`NL323`](./NL323.md) | A feature that parses but is deliberately not available in production builds. |
 | [`NL324`](./NL324.md) | An inherited `abstract` member with no implementation. |
 | [`NL325`](./NL325.md) | A declared interface the type does not fully implement. |
+| [`NL326`](./NL326.md) | A mutable instance field in a `readonly struct`. |
 
 ## Calls — `NL4xx`
 

@@ -308,6 +308,25 @@ test "a ref struct writes TWO keywords where a struct writes one" {
     assert FmtRender(reference) == "ref struct V {|}|"
 }
 
+test "a readonly struct writes the modifier BEFORE the keyword, where C# writes it" {
+    // `Modifiers.Readonly` already had a spelling in `FormatModifiers` for the FIELD-level word, and the
+    // type-level modifier is the same bit — so the canonical order the modifier list writes
+    // (public/private/internal/protected/static/virtual/abstract/sealed/partial/readonly) puts it in
+    // exactly the C# position for all three struct spellings.
+    value := new StructDeclaration("V", null, FmtNoTypes(), FmtNoMembers(), null, Modifiers.Readonly, FmtNoAttributes(), 1, 1, false)
+    assert FmtRender(value) == "readonly struct V {|}|"
+}
+
+test "a readonly ref struct writes readonly, then ref, then struct" {
+    reference := new StructDeclaration("V", null, FmtNoTypes(), FmtNoMembers(), null, Modifiers.Readonly, FmtNoAttributes(), 1, 1, true)
+    assert FmtRender(reference) == "readonly ref struct V {|}|"
+}
+
+test "a readonly record struct writes readonly, then record, then struct" {
+    valueRecord := new RecordDeclaration("P", null, FmtNoTypes(), FmtNoMembers(), null, true, Modifiers.Readonly, FmtNoAttributes(), 1, 1)
+    assert FmtRender(valueRecord) == "readonly record struct P {|}|"
+}
+
 test "a record struct writes struct as a SECOND keyword, not a different one" {
     valueRecord := new RecordDeclaration("P", null, FmtNoTypes(), FmtNoMembers(), null, true, Modifiers.None, FmtNoAttributes(), 1, 1)
     assert FmtRender(valueRecord) == "record struct P {|}|"

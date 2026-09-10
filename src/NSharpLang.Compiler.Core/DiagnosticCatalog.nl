@@ -145,6 +145,7 @@ class DiagnosticCatalog {
         AddCompiler(descriptors, ErrorCode.FeatureNotImplemented)
         AddCompiler(descriptors, ErrorCode.AbstractMemberNotImplemented)
         AddCompiler(descriptors, ErrorCode.InterfaceMemberNotImplemented)
+        AddCompiler(descriptors, ErrorCode.MutableFieldInReadonlyStruct)
 
         AddCompiler(descriptors, ErrorCode.WrongArgumentCount)
         AddCompiler(descriptors, ErrorCode.NoMatchingOverload)
@@ -202,7 +203,7 @@ class DiagnosticCatalog {
             return DiagnosticCategory.Type
         }
 
-        if value >= Convert.ToInt32(ErrorCode.UndefinedVariable) && value <= Convert.ToInt32(ErrorCode.InterfaceMemberNotImplemented) {
+        if value >= Convert.ToInt32(ErrorCode.UndefinedVariable) && value <= Convert.ToInt32(ErrorCode.MutableFieldInReadonlyStruct) {
             return DiagnosticCategory.Semantic
         }
 

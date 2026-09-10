@@ -910,3 +910,118 @@ test "020 s17 parser declarations: `this` parameters on a top-level function and
     expected := Golden.Unit(null, NoImports(), NoFileImports(), null, decls1, 2, 13)
     assert AstEq.Diff(expected, actual, "unit") == ""
 }
+
+// ---- the TYPE-LEVEL `readonly` modifier ----------------------------------------------------------
+//
+// `readonly` was a STATEMENT keyword and a FIELD modifier only: `readonly struct S { }` did not parse
+// at all, and reported the generic NL101 "Unexpected token 'readonly'" on the word. The contracts
+// below pin the three spellings the word is legal on (`struct`, `ref struct`, `record struct`), the
+// free modifier ORDER C# allows, and the precise NL311 the word gets in front of anything else — plus,
+// in each negative case, that the declaration it was written in front of still parses.
+
+test "readonly struct: the modifier lands in Modifiers and the node still anchors on `struct`" {
+    source := "readonly struct Point {\n    readonly X: int\n}\n"
+    assert PdCensus(source) == ""
+    actual := PdAst(source)
+    decls1 := new List<Declaration>()
+    members2 := new List<Declaration>()
+    members2.Add(Golden.FieldF("X", Golden.SimpleT("int", 2, 17, 20), null, Modifiers.Readonly, PropertyModifier.Readonly, 2, 5))
+    decls1.Add(Golden.StructF("Point", null, Golden.NoTypeRefs(), members2, null, Modifiers.Readonly, false, 1, 10))
+    expected := Golden.Unit(null, NoImports(), NoFileImports(), null, decls1, 1, 1)
+    assert AstEq.Diff(expected, actual, "unit") == ""
+}
+
+test "readonly struct: `public readonly` and `readonly public` fold to the SAME Modifiers value" {
+    leading := "public readonly struct Box {\n}\n"
+    trailing := "readonly public struct Box {\n}\n"
+    assert PdCensus(leading) == ""
+    assert PdCensus(trailing) == ""
+    decls1 := new List<Declaration>()
+    decls1.Add(Golden.StructF("Box", null, Golden.NoTypeRefs(), new List<Declaration>(), null, Golden.Mods2(Modifiers.Public, Modifiers.Readonly), false, 1, 17))
+    expected := Golden.Unit(null, NoImports(), NoFileImports(), null, decls1, 1, 1)
+    assert AstEq.Diff(expected, PdAst(leading), "unit") == ""
+    // The `readonly public` head anchors on the same `struct` column, so ONE golden serves both.
+    assert AstEq.Diff(expected, PdAst(trailing), "unit") == ""
+}
+
+test "readonly struct: a generic head keeps its type parameters and its constraint" {
+    source := "readonly struct Box<T> where T: class {\n    readonly Value: T\n}\n"
+    assert PdCensus(source) == ""
+    actual := PdAst(source)
+    tps1 := new List<TypeParameter>()
+    Golden.AddTP(tps1, "T")
+    members2 := new List<Declaration>()
+    members2.Add(Golden.FieldF("Value", Golden.SimpleT("T", 2, 21, 22), null, Modifiers.Readonly, PropertyModifier.Readonly, 2, 5))
+    cons3 := new List<GenericConstraint>()
+    Golden.AddConstraint(cons3, "T", Golden.NoTypeRefs(), SpecialConstraintKind.Class)
+    decls1 := new List<Declaration>()
+    decls1.Add(new NSharpLang.Compiler.Ast.StructDeclaration("Box", tps1, Golden.NoTypeRefs(), members2, null, Modifiers.Readonly, new List<AttributeNode>(), 1, 10, false, cons3))
+    expected := Golden.Unit(null, NoImports(), NoFileImports(), null, decls1, 1, 1)
+    assert AstEq.Diff(expected, actual, "unit") == ""
+}
+
+test "readonly struct: `readonly ref struct` sets BOTH the modifier and IsRefStruct" {
+    source := "readonly ref struct Window {\n}\n"
+    assert PdCensus(source) == ""
+    actual := PdAst(source)
+    decls1 := new List<Declaration>()
+    decls1.Add(Golden.StructF("Window", null, Golden.NoTypeRefs(), new List<Declaration>(), null, Modifiers.Readonly, true, 1, 14))
+    expected := Golden.Unit(null, NoImports(), NoFileImports(), null, decls1, 1, 1)
+    assert AstEq.Diff(expected, actual, "unit") == ""
+}
+
+test "readonly struct: `readonly record struct` sets the modifier on the record node" {
+    source := "readonly record struct Pair {\n}\n"
+    assert PdCensus(source) == ""
+    actual := PdAst(source)
+    decls1 := new List<Declaration>()
+    decls1.Add(Golden.RecordF("Pair", null, Golden.NoTypeRefs(), new List<Declaration>(), null, true, Modifiers.Readonly, 1, 10))
+    expected := Golden.Unit(null, NoImports(), NoFileImports(), null, decls1, 1, 1)
+    assert AstEq.Diff(expected, actual, "unit") == ""
+}
+
+test "readonly struct: a NESTED readonly struct takes the modifier through the member dispatch" {
+    source := "class Outer {\n    readonly struct Inner {\n    }\n}\n"
+    assert PdCensus(source) == ""
+    actual := PdAst(source)
+    members2 := new List<Declaration>()
+    members2.Add(Golden.StructF("Inner", null, Golden.NoTypeRefs(), new List<Declaration>(), null, Modifiers.Readonly, false, 2, 14))
+    decls1 := new List<Declaration>()
+    decls1.Add(Golden.ClassF("Outer", null, null, Golden.NoTypeRefs(), members2, null, Modifiers.None, 1, 1))
+    expected := Golden.Unit(null, NoImports(), NoFileImports(), null, decls1, 1, 1)
+    assert AstEq.Diff(expected, actual, "unit") == ""
+}
+
+test "readonly struct: a member-level `readonly X: int` is NOT the type modifier and keeps its token" {
+    // The scan only claims `readonly` when a type-declaration keyword follows it, so an ordinary
+    // readonly FIELD is untouched — which is the shape the whole existing corpus is written in.
+    source := "struct Point {\n    readonly X: int\n    Y: int\n}\n"
+    assert PdCensus(source) == ""
+    actual := PdAst(source)
+    members2 := new List<Declaration>()
+    members2.Add(Golden.FieldF("X", Golden.SimpleT("int", 2, 17, 20), null, Modifiers.Readonly, PropertyModifier.Readonly, 2, 5))
+    members2.Add(Golden.FieldF("Y", Golden.SimpleT("int", 3, 8, 11), null, Modifiers.None, PropertyModifier.None, 3, 5))
+    decls1 := new List<Declaration>()
+    decls1.Add(Golden.StructF("Point", null, Golden.NoTypeRefs(), members2, null, Modifiers.None, false, 1, 1))
+    expected := Golden.Unit(null, NoImports(), NoFileImports(), null, decls1, 1, 1)
+    assert AstEq.Diff(expected, actual, "unit") == ""
+}
+
+test "readonly struct: `readonly class` reports NL311 on the WORD and the class still parses" {
+    source := "readonly class Config {\n    Name: string\n}\n"
+    assert PdCensus(source) == "NL311@1:1+8;"
+    actual := PdAst(source)
+    members2 := new List<Declaration>()
+    members2.Add(Golden.FieldF("Name", Golden.SimpleT("string", 2, 11, 17), null, Modifiers.None, PropertyModifier.None, 2, 5))
+    decls1 := new List<Declaration>()
+    decls1.Add(Golden.ClassF("Config", null, null, Golden.NoTypeRefs(), members2, null, Modifiers.None, 1, 10))
+    expected := Golden.Unit(null, NoImports(), NoFileImports(), null, decls1, 1, 1)
+    assert AstEq.Diff(expected, actual, "unit") == ""
+}
+
+test "readonly struct: NL311 also covers record, interface, enum and union, and the modifier is not recorded" {
+    assert PdCensus("readonly record Person {\n}\n") == "NL311@1:1+8;"
+    assert PdCensus("readonly interface Greeter {\n}\n") == "NL311@1:1+8;"
+    assert PdCensus("readonly enum Color {\n    Red\n}\n") == "NL311@1:1+8;"
+    assert PdCensus("readonly union Shape {\n    Circle\n}\n") == "NL311@1:1+8;"
+}
