@@ -64,5 +64,7 @@ A finished lane is not completion of this whole objective.
   assertions that merely mirrored private field names. All 20 native SDK tests pass against a private package (22.7s). Receipt:
   /private/tmp/toolchain-integrated-sdk-receipt-r1.json. Final fresh integration gate remains pending.
 - Concurrent release task owns packaging/bootstrap delivery fixes and its clean-snapshot gates.
-  Root preserves that work, coordinates benchmark quiet periods and holds remote pushes until the
-  release task clears its Actions verification. No competing shared SDK feed writes are allowed.
+  All accepted release fixes through dc7efda2 are integrated into this candidate. GitHub run
+  34424070745 and its seven-asset unofficial prerelease passed verification; the remote hold is
+  lifted. This candidate still requires its own fresh integration gate before push. Root serializes
+  SDK seed/feed writes and retires lane worktrees only after their changes are accepted.
