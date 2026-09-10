@@ -346,19 +346,6 @@ class ColumnarConstructionPlanner {
         if IsSourceUnionType(targetType, bindings) {
             return false
         }
-        // These exact runtime value types are intentionally constructed as their CLR zero value.
-        // Neither exposes a public parameterless constructor, so the general runtime-constructor
-        // selector cannot represent their source-level `new T()` form.
-        if targetType == typeof(JsonElement) || targetType == typeof(Label) {
-            if nodes.ChildCount(candidate) != 1 {
-                return false
-            }
-            AppendDefaultValueConstruction(plan, targetType)
-            resultType = targetType
-            ownership = ColumnarDirectCallOwnership.Planned
-            return true
-        }
-
         if targetType.get_IsGenericType() && !targetType.get_IsGenericTypeDefinition() {
             if TryAppendClosedGenericConstruction(nodes, source, candidate, bindings, handles, plan, fragment, depth, targetType, out ownership, out legacyWholeSubtreePlanning) {
                 resultType = targetType
@@ -1294,6 +1281,13 @@ class ColumnarConstructionPlanner {
         parameters := new Type[](0)
         constructor: ConstructorInfo? = null
         if !TrySelectRuntimeConstructor(targetType, argumentTypes, argumentFacts, out constructor, out parameters) || constructor == null {
+            // A value type written `new S()` with no selectable constructor is its CLR zero value, the
+            // same reading C# gives it. `JsonElement` and `Label` used to be spelled out here one type
+            // at a time; every struct without a public parameterless constructor takes this route now.
+            if argumentCount == 0 && targetType.get_IsValueType() {
+                AppendDefaultValueConstruction(plan, targetType)
+                return true
+            }
             // OWNED AND REFUSED, never silently deferred: an unselectable construction is a decline the
             // trace shows, not a fall-through to another owner that would bind something else.
             ownership = ColumnarDirectCallOwnership.OwnedRejected
@@ -1417,135 +1411,89 @@ class ColumnarConstructionPlanner {
         return true
     }
 
+    // EVERY PUBLIC CONSTRUCTOR OF A CLOSED GENERIC TYPE IS A CANDIDATE, scored by the same argument
+    // flow the non-generic external path already uses. What stood here was a hand list keyed on
+    // `System.Collections.Generic.List`1`, `Dictionary`2`, `HashSet`1` and friends by FULL NAME, with
+    // one arm per remembered constructor shape (capacity, copy, comparer, copy+comparer). That list
+    // declined every other closed generic construction in the BCL -- `new Vector<int>(values, index)`
+    // among them -- and was exactly the kind of feature-specific allowlist this owner exists to remove.
+    //
+    // Two universes must both be served and they read their candidates from different places. A closed
+    // generic whose arguments are all RUNTIME types answers `GetConstructors()` with fully substituted
+    // signatures, so it selects exactly like a non-generic external type. A closed generic that is
+    // BUILDER-BOUND (`List<SomeNSharpClass>`) cannot: its members are only reachable through the open
+    // runtime definition, so candidates are read from the definition, their signatures are substituted
+    // with the closed arguments, and the selected one is rebound with `TypeBuilder.GetConstructor`.
     static func TryAppendClosedRuntimeConstruction(nodes: ColumnarNodeTable, source: string, node: int, bindings: ColumnarFragmentBindings, handles: ColumnarRangeIndexHandles, plan: ColumnarCodePlan, fragment: int, depth: int, targetType: Type, out ownership: ColumnarDirectCallOwnership, out legacyWholeSubtreePlanning: bool): bool {
         ownership = ColumnarDirectCallOwnership.OwnedRejected
         legacyWholeSubtreePlanning = false
         argumentCount := nodes.ChildCount(node) - 1
-        parameterTypes := new Type[](0)
-        openConstructor: ConstructorInfo? = null
-        openType := targetType.GetGenericTypeDefinition()
-
-        if IsSupportedValueTupleType(targetType) {
-            parameterTypes = targetType.GetGenericArguments()
-            if parameterTypes.Length != argumentCount {
-                return false
-            }
-            openConstructor = openType.GetConstructor(openType.GetGenericArguments())
-        } else if IsConstructibleCollectionDefinition(openType) {
-            if argumentCount == 0 {
-                parameterTypes = new Type[](0)
-                openConstructor = openType.GetConstructor(parameterTypes)
-            } else if argumentCount == 1 {
-                argumentTypes := new Type[](1)
-                argumentFacts := ColumnarDirectCallArgumentFacts.Empty(1)
-                argumentFacts.SourceTypeDefinitions = bindings.SourceTypeDefinitions
-                if !TryGetConstructorArguments(nodes, source, node, bindings, handles, depth, argumentTypes, argumentFacts, out ownership, out legacyWholeSubtreePlanning) {
-                    return false
-                }
-
-                capacityParameters := Types1(typeof(int))
-                if ColumnarSourceDirectCallResolver.ArgumentsScoreWithFacts(capacityParameters, argumentTypes, argumentFacts) >= 0 {
-                    parameterTypes = capacityParameters
-                    openConstructor = openType.GetConstructor(parameterTypes)
-                } else {
-                    bestScore := -1
-                    bestCount := 0
-                    if IsListKeyCollectionCopy(openType, targetType, argumentTypes[0]) {
-                        listConstructor := FindOpenListCopyConstructor(openType)
-                        if listConstructor != null {
-                            listOpenParameters := listConstructor.GetParameters()
-                            listType := SubstituteTypeArgument(listOpenParameters[0].get_ParameterType(), targetType.GetGenericArguments())
-                            listParameters := Types1(listType)
-                            listScore := ColumnarSourceDirectCallResolver.ArgumentsScoreWithFacts(listParameters, argumentTypes, argumentFacts)
-                            if listScore >= 0 {
-                                openConstructor = listConstructor
-                                parameterTypes = listParameters
-                                bestScore = listScore
-                                bestCount = 1
-                            }
-                        }
-                    }
-
-                    if IsDictionaryCopyCollectionDefinition(openType) {
-                        dictionaryConstructor := FindOpenDictionaryCopyConstructor(openType)
-                        if dictionaryConstructor != null {
-                            dictionaryOpenParameters := dictionaryConstructor.GetParameters()
-                            dictionaryType := SubstituteTypeArgument(dictionaryOpenParameters[0].get_ParameterType(), targetType.GetGenericArguments())
-                            dictionaryParameters := Types1(dictionaryType)
-                            dictionaryScore := ColumnarSourceDirectCallResolver.ArgumentsScoreWithFacts(dictionaryParameters, argumentTypes, argumentFacts)
-                            if dictionaryScore >= 0 {
-                                openConstructor = dictionaryConstructor
-                                parameterTypes = dictionaryParameters
-                                bestScore = dictionaryScore
-                                bestCount = 1
-                            }
-                        }
-                    }
-
-                    if IsComparerCollectionDefinition(openType) {
-                        comparerConstructor := FindOpenComparerConstructor(openType, ComparerDefinitionName(openType))
-                        if comparerConstructor != null {
-                            comparerOpenParameters := comparerConstructor.GetParameters()
-                            comparerType := SubstituteTypeArgument(comparerOpenParameters[0].get_ParameterType(), targetType.GetGenericArguments())
-                            comparerParameters := Types1(comparerType)
-                            comparerScore := ColumnarSourceDirectCallResolver.ArgumentsScoreWithFacts(comparerParameters, argumentTypes, argumentFacts)
-                            if comparerScore > bestScore {
-                                openConstructor = comparerConstructor
-                                parameterTypes = comparerParameters
-                                bestScore = comparerScore
-                                bestCount = 1
-                            } else if comparerScore >= 0 && comparerScore == bestScore {
-                                bestCount += 1
-                            }
-                        }
-                    }
-
-                    if bestCount != 1 {
-                        openConstructor = null
-                        parameterTypes = new Type[](0)
-                    }
-                }
-            } else if argumentCount == 2 && IsCopyComparerCollectionDefinition(openType) {
-                argumentTypes := new Type[](2)
-                argumentFacts := ColumnarDirectCallArgumentFacts.Empty(2)
-                argumentFacts.SourceTypeDefinitions = bindings.SourceTypeDefinitions
-                if !TryGetConstructorArguments(nodes, source, node, bindings, handles, depth, argumentTypes, argumentFacts, out ownership, out legacyWholeSubtreePlanning) {
-                    return false
-                }
-
-                openConstructor = FindOpenCopyComparerConstructor(openType, ComparerDefinitionName(openType))
-                if openConstructor == null {
-                    return false
-                }
-                openParameters := openConstructor.GetParameters()
-                parameterTypes = new Type[](2)
-                parameterTypes[0] = SubstituteTypeArgument(openParameters[0].get_ParameterType(), targetType.GetGenericArguments())
-                parameterTypes[1] = SubstituteTypeArgument(openParameters[1].get_ParameterType(), targetType.GetGenericArguments())
-                if ColumnarSourceDirectCallResolver.ArgumentsScoreWithFacts(parameterTypes, argumentTypes, argumentFacts) < 0 {
-                    return false
-                }
-            }
-        }
-        if openConstructor == null {
-            return false
-        }
-
         argumentTypes := new Type[](argumentCount)
         argumentFacts := ColumnarDirectCallArgumentFacts.Empty(argumentCount)
         argumentFacts.SourceTypeDefinitions = bindings.SourceTypeDefinitions
         if !TryGetConstructorArguments(nodes, source, node, bindings, handles, depth, argumentTypes, argumentFacts, out ownership, out legacyWholeSubtreePlanning) {
             return false
         }
+
+        parameterTypes := new Type[](0)
+        constructor: ConstructorInfo? = null
+        if !TrySelectClosedRuntimeConstructor(targetType, argumentTypes, argumentFacts, out constructor, out parameterTypes) || constructor == null {
+            // A value type written `new S()` with no selectable constructor is its CLR zero value, the
+            // same reading C# gives it. This is the general rule the JsonElement and Label arms used to
+            // spell one type at a time.
+            if argumentCount == 0 && targetType.get_IsValueType() {
+                AppendDefaultValueConstruction(plan, targetType)
+                return true
+            }
+            ownership = ColumnarDirectCallOwnership.OwnedRejected
+            legacyWholeSubtreePlanning = false
+            return false
+        }
         if !ColumnarDirectCallPlanner.AppendArguments(nodes, source, node, bindings, handles, plan, fragment, depth + 1, true, argumentTypes, parameterTypes, argumentFacts) {
             return false
         }
 
-        constructor := ResolveClosedRuntimeConstructor(targetType, openConstructor)
-        if constructor == null {
-            return false
-        }
         constructorIndex := plan.AddConstructorWithSignature(constructor, targetType, parameterTypes)
         plan.AppendConstructorInstruction(ColumnarCodePlanContract.Newobj(), constructorIndex)
+        return true
+    }
+
+    // Constructor selection for a closed generic target, in whichever universe its arguments live.
+    static func TrySelectClosedRuntimeConstructor(targetType: Type, argumentTypes: Type[], argumentFacts: ColumnarDirectCallArgumentFacts, out constructor: ConstructorInfo?, out parameterTypes: Type[]): bool {
+        constructor = null
+        parameterTypes = new Type[](0)
+        if targetType == null || !targetType.get_IsGenericType() || targetType.get_IsGenericTypeDefinition() {
+            return false
+        }
+        if !ContainsBuilderBoundType(targetType) {
+            return TrySelectRuntimeConstructor(targetType, argumentTypes, argumentFacts, out constructor, out parameterTypes)
+        }
+
+        openType := targetType.GetGenericTypeDefinition()
+        // A source-headed instantiation is the closed SOURCE path's business; only a runtime definition
+        // closed over a builder argument is served here.
+        if openType is TypeBuilder {
+            return false
+        }
+
+        closedArguments := targetType.GetGenericArguments()
+        applicable := new List<ConstructorInfo>()
+        applicableParameters := new List<Type[]>()
+        CollectApplicableRuntimeConstructors(RuntimeConstructorsOrEmpty(openType), closedArguments, argumentTypes, applicable, applicableParameters)
+        selectedIndex := BestSourceConstructorIndex(applicableParameters, argumentTypes, argumentFacts)
+        if selectedIndex < 0 {
+            return false
+        }
+        selected := applicable[selectedIndex]
+        selectedParameters := applicableParameters[selectedIndex]
+
+        rebound := TypeBuilder.GetConstructor(targetType, selected)
+        if rebound == null {
+            return false
+        }
+
+        constructor = rebound
+        parameterTypes = selectedParameters
         return true
     }
 
@@ -1882,27 +1830,64 @@ class ColumnarConstructionPlanner {
     // Conversion quality, not declaration order, owns source-constructor overload selection.
     // The direct-call score is larger for a more specific conversion (identity is the maximum),
     // so a unique highest score wins and only an equal-best set is ambiguous.
+    // The unique best candidate by argument flow, with C#'s better-conversion-target tie-break behind
+    // it: candidates that score EQUAL are re-compared on how specific their parameter types are, so an
+    // overload set whose parameters sit on one conversion chain selects the most specific member
+    // instead of declining as ambiguous. A tie no rule can break is still no selection.
     static func BestSourceConstructorIndex(candidateParameters: List<Type[]>, argumentTypes: Type[], argumentFacts: ColumnarDirectCallArgumentFacts): int {
-        bestIndex := -1
         bestScore := -1
-        bestCount := 0
+        tied := new List<int>()
         candidateIndex := 0
         while candidateIndex < candidateParameters.Count {
             expected := PrefixTypes(candidateParameters[candidateIndex], argumentTypes.Length)
             score := ColumnarSourceDirectCallResolver.ArgumentsScoreWithFacts(expected, argumentTypes, argumentFacts)
             if score > bestScore {
-                bestIndex = candidateIndex
                 bestScore = score
-                bestCount = 1
+                tied.Clear()
+                tied.Add(candidateIndex)
             } else if score >= 0 && score == bestScore {
-                bestCount += 1
+                tied.Add(candidateIndex)
             }
             candidateIndex += 1
         }
-        if bestCount != 1 {
+        if bestScore < 0 || tied.Count == 0 {
             return -1
         }
-        return bestIndex
+        if tied.Count == 1 {
+            return tied[0]
+        }
+
+        tiedParameters := new List<Type[]>()
+        for index in tied {
+            tiedParameters.Add(PrefixTypes(candidateParameters[index], argumentTypes.Length))
+        }
+        winner := MostSpecificParameterListIndex(tiedParameters, argumentFacts.SourceTypeDefinitions)
+        if winner < 0 {
+            return -1
+        }
+        return tied[winner]
+    }
+
+    // The one parameter list every other tied list loses to, or -1 when no list dominates the rest.
+    static func MostSpecificParameterListIndex(candidateParameters: List<Type[]>, sourceTypeDefinitions: IEnumerable<ColumnarStructDef>): int {
+        winner := 0
+        index := 1
+        while index < candidateParameters.Count {
+            if ColumnarSourceDirectCallResolver.IsBetterParameterList(candidateParameters[index], candidateParameters[winner], sourceTypeDefinitions) {
+                winner = index
+            }
+            index += 1
+        }
+
+        index = 0
+        while index < candidateParameters.Count {
+            if index != winner && !ColumnarSourceDirectCallResolver.IsBetterParameterList(candidateParameters[winner], candidateParameters[index], sourceTypeDefinitions) {
+                return -1
+            }
+            index += 1
+        }
+
+        return winner
     }
 
     static func AddDistinctConstructor(values: List<ColumnarConstructorDef>, candidate: ColumnarConstructorDef) {
@@ -1971,38 +1956,15 @@ class ColumnarConstructionPlanner {
             return false
         }
 
-        candidates := RuntimeConstructorsOrEmpty(targetType)
-        bestScore := -1
-        bestCount := 0
-        selected: ConstructorInfo? = null
-        selectedParameters := new Type[](0)
-        index := 0
-        while index < candidates.Length {
-            candidate := candidates[index]
-            if candidate != null && candidate.get_IsPublic() && !candidate.get_IsStatic() {
-                parameters := candidate.GetParameters()
-                if parameters != null && parameters.Length == argumentTypes.Length && !IsExcludedConstructorShape(candidate, parameters) {
-                    types := ConstructorParameterTypesOrNull(parameters)
-                    if types != null {
-                        score := ColumnarSourceDirectCallResolver.ArgumentsScoreWithFacts(types, argumentTypes, argumentFacts)
-                        if score > bestScore {
-                            bestScore = score
-                            bestCount = 1
-                            selected = candidate
-                            selectedParameters = types
-                        } else if score >= 0 && score == bestScore {
-                            bestCount = bestCount + 1
-                        }
-                    }
-                }
-            }
-
-            index = index + 1
-        }
-
-        if bestCount != 1 || selected == null || bestScore < 0 {
+        applicable := new List<ConstructorInfo>()
+        applicableParameters := new List<Type[]>()
+        CollectApplicableRuntimeConstructors(RuntimeConstructorsOrEmpty(targetType), new Type[](0), argumentTypes, applicable, applicableParameters)
+        selectedIndex := BestSourceConstructorIndex(applicableParameters, argumentTypes, argumentFacts)
+        if selectedIndex < 0 {
             return false
         }
+        selected := applicable[selectedIndex]
+        selectedParameters := applicableParameters[selectedIndex]
 
         declaringType := selected.get_DeclaringType()
         if declaringType == null || !ExternalAssemblyScan.HasExactTypeIdentity(declaringType, TargetTypeIdentity(targetType)) {
@@ -2017,6 +1979,45 @@ class ColumnarConstructionPlanner {
     // The owner check is by IDENTITY STRING, not by `==`: a constructor read out of one universe and a
     // target read out of another are different objects for the same type, and the emitter's whole
     // direction is to stop asking object questions about types.
+    // Every public instance constructor whose arity matches and whose SUBSTITUTED signature is
+    // emittable. `closedArguments` is empty for a constructor read off an already-closed type and
+    // carries the closed type arguments when the candidates come from an open generic definition,
+    // where the raw parameter types are still the definition's own type parameters -- so the
+    // emittable-signature test must run on the substituted form, never on the open one.
+    static func CollectApplicableRuntimeConstructors(candidates: ConstructorInfo[], closedArguments: Type[], argumentTypes: Type[], applicable: List<ConstructorInfo>, applicableParameters: List<Type[]>) {
+        index := 0
+        while index < candidates.Length {
+            candidate := candidates[index]
+            if candidate != null && candidate.get_IsPublic() && !candidate.get_IsStatic() && !IsExpandedConstructorShape(candidate) {
+                parameters := candidate.GetParameters()
+                if parameters != null && parameters.Length == argumentTypes.Length {
+                    openTypes := ConstructorParameterTypesOrNull(parameters)
+                    if openTypes != null {
+                        types := closedArguments.Length > 0 ? SubstituteTypeArguments(openTypes, closedArguments) : openTypes
+                        if !HasUnsupportedConstructorSignature(types) {
+                            applicable.Add(candidate)
+                            applicableParameters.Add(types)
+                        }
+                    }
+                }
+            }
+
+            index = index + 1
+        }
+    }
+
+    static func HasUnsupportedConstructorSignature(parameterTypes: Type[]): bool {
+        index := 0
+        while index < parameterTypes.Length {
+            parameterType := parameterTypes[index]
+            if parameterType == null || ColumnarOrdinaryRuntimeDirectCallResolver.IsUnsupportedSignatureType(parameterType) {
+                return true
+            }
+            index = index + 1
+        }
+        return false
+    }
+
     static func TargetTypeIdentity(targetType: Type): string {
         identity := targetType.get_AssemblyQualifiedName()
         if identity == null {
@@ -2050,12 +2051,18 @@ class ColumnarConstructionPlanner {
         }
     }
 
-    // A `params` tail or a vararg signature is an expansion the plan rows do not model, and a by-ref,
-    // pointer or open-generic parameter is not an emittable signature -- the same exclusions the
-    // ordinary call resolver applies to methods.
-    static func IsExcludedConstructorShape(candidate: ConstructorInfo, parameters: ParameterInfo[]): bool {
+    // A `params` tail or a vararg signature is an expansion the plan rows do not model. The
+    // EMITTABILITY of the parameter types is a separate question, asked by
+    // `HasUnsupportedConstructorSignature` on the SUBSTITUTED signature: an open generic parameter is
+    // unemittable as written but perfectly emittable once the closed type arguments are in place.
+    static func IsExpandedConstructorShape(candidate: ConstructorInfo): bool {
         convention := (int)candidate.get_CallingConvention()
         if (convention & ColumnarCodePlanReflectionContract.VarArgsCallingConventionFlag()) != 0 {
+            return true
+        }
+
+        parameters := candidate.GetParameters()
+        if parameters == null {
             return true
         }
 
@@ -2063,11 +2070,6 @@ class ColumnarConstructionPlanner {
         while index < parameters.Length {
             parameter := parameters[index]
             if parameter == null || ColumnarExtensionMethodResolver.IsParamsParameter(parameter) {
-                return true
-            }
-
-            parameterType := parameter.get_ParameterType()
-            if parameterType == null || ColumnarOrdinaryRuntimeDirectCallResolver.IsUnsupportedSignatureType(parameterType) {
                 return true
             }
 

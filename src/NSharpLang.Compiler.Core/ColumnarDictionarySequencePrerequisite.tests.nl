@@ -111,10 +111,14 @@ test "dictionary sequence prerequisite selects only the exact IDictionary copy c
 }
 
 test "dictionary sequence prerequisite retains ambiguity and unrelated copy-source rejections" {
-    DictionarySequenceConstructionRejected(typeof(IReadOnlyDictionary<string, string>))
+    // A key or value type the target does not name converts to NO dictionary constructor parameter and
+    // stays a rejection.
     DictionarySequenceConstructionRejected(typeof(IDictionary<int, string>))
     DictionarySequenceConstructionRejected(typeof(IDictionary<string, int>))
 
+    // Ordinary constructor resolution reaches `Dictionary<K,V>(IEnumerable<KeyValuePair<K,V>>)`, so a
+    // read-only dictionary and a bare key/value sequence now construct exactly as they do in C#. The
+    // allowlist these rows once pinned could only see the `IDictionary<K,V>` copy constructor.
     stringPair := DictionarySequencePairType(typeof(string), typeof(string))
     enumerableArguments := new Type[](1)
     enumerableArguments[0] = stringPair
@@ -122,7 +126,12 @@ test "dictionary sequence prerequisite retains ambiguity and unrelated copy-sour
         "System.Collections.Generic.IEnumerable`1",
         enumerableArguments
     )
-    DictionarySequenceConstructionRejected(enumerablePair)
+    sequencePlan := DictionarySequenceConstructionPlan(enumerablePair)
+    assert sequencePlan.ConstructorParameterTypes[0].Length == 1
+    assert sequencePlan.ConstructorParameterTypes[0][0] == enumerablePair
+    readOnlyPlan := DictionarySequenceConstructionPlan(typeof(IReadOnlyDictionary<string, string>))
+    assert readOnlyPlan.ConstructorParameterTypes[0].Length == 1
+    assert readOnlyPlan.ConstructorParameterTypes[0][0] == enumerablePair
 
     tree := ConstructionNewTree(
         "Dictionary<string,string>",
