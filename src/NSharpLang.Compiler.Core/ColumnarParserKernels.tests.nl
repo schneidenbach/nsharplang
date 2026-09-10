@@ -1485,3 +1485,38 @@ test "the generator column becomes the Modifiers.Generator word, and nothing els
     assert ColumnarFunctionModifierFlagsForGenerator(2) == 0
     assert ColumnarFunctionModifierFlagsForGenerator(4096) == 0
 }
+
+test "the method flag word also names `abstract` and `virtual`, and they do not answer for each other" {
+    assert Convert.ToInt32(Modifiers.Abstract) == 64
+    assert Convert.ToInt32(Modifiers.Virtual) == 32
+
+    assert !ColumnarStructMethodFlagIsAbstract(0)
+    assert !ColumnarStructMethodFlagIsVirtual(0)
+
+    assert ColumnarStructMethodFlagIsAbstract(Convert.ToInt32(Modifiers.Abstract))
+    assert !ColumnarStructMethodFlagIsVirtual(Convert.ToInt32(Modifiers.Abstract))
+
+    assert ColumnarStructMethodFlagIsVirtual(Convert.ToInt32(Modifiers.Virtual))
+    assert !ColumnarStructMethodFlagIsAbstract(Convert.ToInt32(Modifiers.Virtual))
+
+    // `abstract` is the bit BELOW `sealed` (128) and ABOVE `virtual` (32); neither neighbour answers
+    // for it, which is the whole reason these are bit tests over a shared word.
+    assert !ColumnarStructMethodFlagIsAbstract(Convert.ToInt32(Modifiers.Sealed))
+    assert !ColumnarStructMethodFlagIsAbstract(Convert.ToInt32(Modifiers.Override))
+
+    // The columnar input side reads the same word to the same answer, so a member that scanned as
+    // abstract is the one the emitter treats as bodyless.
+    assert ColumnarFunctionInput.AbstractModifierFlag() == 64
+    assert ColumnarFunctionInput.VirtualModifierFlag() == 32
+    assert ColumnarFunctionInput.SealedModifierFlag() == 128
+    assert ColumnarFunctionInput.HasAbstractModifier(Convert.ToInt32(Modifiers.Abstract))
+    assert ColumnarFunctionInput.HasVirtualModifier(Convert.ToInt32(Modifiers.Virtual))
+    assert ColumnarFunctionInput.HasSealedModifier(Convert.ToInt32(Modifiers.Sealed))
+
+    // A BODYLESS member is an abstract INSTANCE member. `static abstract` has no slot to be abstract
+    // in, so it must not be read as bodyless — it declines elsewhere instead of losing its body here.
+    assert ColumnarFunctionInput.IsBodylessAbstractMember(Convert.ToInt32(Modifiers.Abstract), false)
+    assert !ColumnarFunctionInput.IsBodylessAbstractMember(Convert.ToInt32(Modifiers.Abstract), true)
+    assert !ColumnarFunctionInput.IsBodylessAbstractMember(Convert.ToInt32(Modifiers.Virtual), false)
+    assert !ColumnarFunctionInput.IsBodylessAbstractMember(0, false)
+}

@@ -1265,3 +1265,48 @@ test "ordinary override execution consumes its ordered NSharp target row" {
     assert completion.Targets.Length == 1
     assert Object.ReferenceEquals(completion.Targets[0].Target, target)
 }
+
+test "an abstract class carries the Abstract typedef bit and a value type never can" {
+    // TypeAttributes.Abstract == 128. A top-level abstract class is Public|Abstract == 129; an
+    // abstract class that is ALSO sealed (which the language does not admit, but the word pair must
+    // not silently drop a bit here) is Public|Sealed|Abstract == 385.
+    assert ColumnarDeclarationPlanner.AbstractTypeAttribute() == 128
+    assert ColumnarDeclarationPlanner.StructTypeAttributesFor(true, false, true, false, 0) == 129
+    assert ColumnarDeclarationPlanner.StructTypeAttributesFor(true, true, true, false, 0) == 385
+
+    // A NESTED abstract class ORs its own visibility word instead of Public, and still gains Abstract.
+    assert ColumnarDeclarationPlanner.StructTypeAttributesFor(true, false, true, true, 2) == 130
+
+    // A value type is Sealed by construction and can never be abstract, so the flag is ignored.
+    assert ColumnarDeclarationPlanner.StructTypeAttributesFor(false, false, true, false, 0) == 257
+
+    // The four-argument overload is the same call with `abstract` off, so nothing that does not say
+    // `abstract` changes shape.
+    assert ColumnarDeclarationPlanner.StructTypeAttributesFor(true, false, false, 0) == ColumnarDeclarationPlanner.StructTypeAttributesFor(true, false, false, false, 0)
+    assert ColumnarDeclarationPlanner.StructTypeAttributesFor(false, true, true, 2) == ColumnarDeclarationPlanner.StructTypeAttributesFor(false, true, false, true, 2)
+}
+
+test "the inheritance words each add exactly the method attributes the CLR reads them as" {
+    // Public|HideBySig == 6|128 == 134 is the plain instance method every case starts from.
+    assert ColumnarDeclarationPlanner.StructInstanceMethodAttributes("Visible", 0) == 134
+
+    // Virtual (64) | NewSlot (256): `virtual` OPENS a slot and supplies a body.
+    assert ColumnarDeclarationPlanner.StructInstanceMethodAttributes("Visible", ColumnarFunctionInput.VirtualModifierFlag()) == 454
+
+    // ... and `abstract` opens one with Abstract (1024) and no body at all.
+    assert ColumnarDeclarationPlanner.StructInstanceMethodAttributes("Visible", ColumnarFunctionInput.AbstractModifierFlag()) == 1478
+
+    // `override` alone adds NOTHING here. The word is not evidence a slot exists to reuse; the
+    // override completion adds Virtual and withholds NewSlot only after it has PROVED which member is
+    // being overridden.
+    assert ColumnarDeclarationPlanner.StructInstanceMethodAttributes("Visible", ColumnarFunctionInput.OverrideModifierFlag()) == 134
+
+    // `sealed override` closes the reused slot with Final (32). `sealed` is meaningless without a
+    // slot, which is why it is only ever read together with `override`.
+    sealedOverride := ColumnarFunctionInput.OverrideModifierFlag() | ColumnarFunctionInput.SealedModifierFlag()
+    assert ColumnarDeclarationPlanner.StructInstanceMethodAttributes("Visible", sealedOverride) == 166
+    assert ColumnarDeclarationPlanner.FinalMethodAttribute() == 32
+
+    // Visibility still composes: a camelCase name is package-private (Assembly == 3) throughout.
+    assert ColumnarDeclarationPlanner.StructInstanceMethodAttributes("hidden", ColumnarFunctionInput.AbstractModifierFlag()) == 1475
+}

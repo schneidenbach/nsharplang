@@ -103,6 +103,106 @@ func main() {
 }
 ```
 
+### Inheritance: `abstract`, `virtual` and `override`
+
+A class may derive from one other class, listed after a colon. Members are **not** virtual by default,
+exactly as in C#: a base class opts a member into being replaceable with `virtual` (it supplies a body)
+or `abstract` (it supplies none), and a subclass replaces it with `override`.
+
+```n#
+abstract class Shape {
+    readonly name: string
+
+    constructor(name: string) {
+        this.name = name
+    }
+
+    Name: string => name
+
+    abstract func Area(): int          // no body — every concrete subclass must supply one
+
+    virtual func Describe(): string {  // a body a subclass MAY replace
+        return "a shape"
+    }
+}
+
+class Square: Shape {
+    readonly side: int
+
+    constructor(side: int) : base("square") {
+        this.side = side
+    }
+
+    override func Area(): int {
+        return side * side
+    }
+
+    sealed override func Describe(): string {   // no further subclass may replace this
+        return "a square"
+    }
+}
+```
+
+A class with any `abstract` member must itself be `abstract`, and an abstract class cannot be
+constructed — `new Shape("x")` is an error. An abstract class may sit anywhere in the chain, overriding
+some inherited members and leaving others for its own subclasses:
+
+```n#
+abstract class Rounded: Shape {
+    constructor() : base("rounded") {
+    }
+
+    override func Describe(): string {
+        return "something round"
+    }
+    // `Area` stays abstract — `Rounded` is abstract, so it need not supply one.
+}
+```
+
+Source order does not matter: a subclass may be written above its base in the same file, or in a
+different file of the same project.
+
+Generic classes take part in all of this. A generic class may derive from a non-generic base, a generic
+class may close a generic base over a concrete type, and a generic class may pass its own type parameter
+through to a generic base:
+
+```n#
+abstract class Box<T> {
+    abstract func Render(): string
+}
+
+class StringBox: Box<string> {          // closes the base over a concrete type
+    override func Render(): string {
+        return "a string"
+    }
+}
+
+class PairBox<T>: Box<T> {              // passes its own type parameter through
+    override func Render(): string {
+        return "a pair"
+    }
+}
+```
+
+**Diagnostics.** The compiler holds you to C#'s rules:
+
+| You wrote | You get |
+| --- | --- |
+| a concrete class that does not implement an inherited abstract member | [NL324](./errors/NL324.md) |
+| `new` on an abstract class | [NL803](./errors/NL803.md) |
+| `override` with no base member of that name, or a base member that is not `virtual`/`abstract`/`override` | [NL311](./errors/NL311.md) |
+
+Overriding a member of an **external** base class — one from the BCL or a NuGet package — works the same
+way and needs no extra ceremony:
+
+```n#
+class LengthComparer: StringComparer {
+    override func Compare(x: string, y: string): int {
+        return x.Length - y.Length
+    }
+}
+```
+
 ### Primary Constructors
 
 For simple types, put constructor parameters directly on the type declaration.
@@ -555,6 +655,61 @@ func main() {
     stack.Push(2)
     stack.Push(3)
     print stack.Pop()   // 3
+}
+```
+
+### Members typed by a generic over your own type parameter
+
+A member's type may be any generic — a collection, a dictionary, a delegate, an interface — closed
+over the declaring type's own type parameter. Nullable annotations compose with all of them.
+
+```n#
+import System
+import System.Collections.Generic
+
+class Registry<T> {
+    items: List<T> = []
+    byName: Dictionary<string, T> = [:]
+    onAdded: Action<T>?               // may be absent
+    readonly accept: Func<T, bool>
+
+    constructor(accept: Func<T, bool>) {
+        this.accept = accept
+    }
+
+    func Add(name: string, item: T): bool {
+        allowed := accept
+        if !allowed(item) {
+            return false
+        }
+
+        items.Add(item)
+        byName[name] = item
+
+        listener := onAdded
+        if listener != null {
+            listener(item)
+        }
+        return true
+    }
+}
+```
+
+`Action<T>?` and `Action<T>` are the *same* CLR type: in N#, as in C#, a nullable annotation on a
+reference type is a fact the compiler tracks about the value, not a different type in metadata.
+`Registry<int>` emits `onAdded` as `Action<int>` and `Registry<string>` emits it as `Action<string>`.
+
+A method-level type parameter works the same way:
+
+```n#
+func FirstMatch<T>(items: List<T>, accept: Func<T, bool>, fallback: T): T {
+    for item in items {
+        chooser := accept
+        if chooser(item) {
+            return item
+        }
+    }
+    return fallback
 }
 ```
 

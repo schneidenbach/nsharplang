@@ -723,6 +723,39 @@ class ColumnarCanonicalTypeResolver {
             return true
         }
 
+        // A NULLABLE ANNOTATION, read exactly as the ordinary walk reads it. `List<T>?` and
+        // `Action<T>?` are the same CLR types as `List<T>` and `Action<T>` — the `?` is the
+        // analyzer's flow fact, not a metadata one — and a value type lifts into `Nullable<T>`.
+        // Without this branch the annotation was simply part of the name, so a field spelled
+        // `remove: Action<THandler>?` resolved to nothing while `remove: Action<THandler>` resolved.
+        if canonical.EndsWith("?", StringComparison.Ordinal) {
+            annotated := ColumnarSelectedTypeReference.Missing(table)
+            if canonical.Length > 1 && TrySelectRuntimeTypeWithTypeParams(
+                canonical.Substring(0, canonical.Length - 1),
+                typeParams,
+                enumRegistry,
+                structRegistry,
+                unionRegistry,
+                out annotated
+            ) {
+                // `T?` on a TYPE PARAMETER stays `T`. Which of `Nullable<T>` and `T` it means is
+                // decided per instantiation, and the CLR has no way to write that down: C# emits the
+                // parameter itself and carries the annotation in an attribute.
+                if annotated.RuntimeType.get_IsGenericParameter() || !annotated.RuntimeType.get_IsValueType() {
+                    selected = annotated
+                    return true
+                }
+                if ColumnarTypeOfPlanner.IsLiftableNullableElement(annotated.RuntimeType) {
+                    nullableDefinition := ColumnarTypeOfPlanner.RequiredNullableDefinition()
+                    runtimeType := nullableDefinition.MakeGenericType(SelectedRuntimeTypes(SelectedSingle(annotated)))
+                    selected = ConstructedSelection(table, runtimeType, nullableDefinition, SelectedSingle(annotated))
+                    return true
+                }
+            }
+            selected = ColumnarSelectedTypeReference.Missing(table)
+            return false
+        }
+
         elementParameter := typeof(object)
         if canonical.EndsWith("[]", StringComparison.Ordinal) && typeParams.TryGetValue(
             canonical.Substring(0, canonical.Length - 2),
@@ -734,10 +767,17 @@ class ColumnarCanonicalTypeResolver {
             return true
         }
 
-        if canonical.StartsWith("Func<", StringComparison.Ordinal) || canonical.StartsWith("Action<", StringComparison.Ordinal) {
+        // The DELEGATE FAMILIES, resolved on this walk rather than the ordinary one so that a type
+        // parameter in scope is a name they can see. `Action<T>` and `Func<T, bool>` are ordinary
+        // constructed external generics; they were the only such family that could not name a type
+        // parameter, and only because this arm handed them to the wrong resolver.
+        genericHeadOpen := canonical.IndexOf('<')
+        if genericHeadOpen > 0 && canonical[canonical.Length - 1] == '>' && (canonical.StartsWith("Func<", StringComparison.Ordinal) || canonical.StartsWith("Action<", StringComparison.Ordinal)) {
             delegateSelected := ColumnarSelectedTypeReference.Missing(table)
-            if TrySelectRuntimeType(
-                canonical,
+            if TrySelectDelegateCanonical(
+                canonical.Substring(genericHeadOpen + 1, canonical.Length - genericHeadOpen - 2),
+                canonical[0] == 'F',
+                typeParams,
                 enumRegistry,
                 structRegistry,
                 unionRegistry,
@@ -1166,12 +1206,73 @@ class ColumnarCanonicalTypeResolver {
         return false
     }
 
-    // Delegate selection intentionally uses the ordinary resolver, even when invoked from a
-    // generic-aware entry point. This preserves the legacy order: resolve the Func return first,
-    // then reject arity, then resolve parameters.
+    // ONE delegate argument, resolved by whichever walk the caller is on. The only thing the two
+    // walks disagree about is what a bare name may mean, and the admissibility rule below is the
+    // same either way: a delegate is constructed from complete identities, and the ONE builder-bound
+    // shape it accepts is a generic PARAMETER — the same shape `List<T>` and `Dictionary<string, T>`
+    // already accept. A source class or struct is still refused, because `Action<MyClass>` would
+    // have to name a type that does not exist yet at the moment the delegate is constructed.
+    static func TrySelectDelegateArgument(
+        canonical: string,
+        typeParams: IReadOnlyDictionary<string, Type>?,
+        enumRegistry: ColumnarSemanticRegistry<ColumnarEnumDef>,
+        structRegistry: ColumnarSemanticRegistry<ColumnarStructDef>,
+        unionRegistry: ColumnarSemanticRegistry<ColumnarUnionDef>,
+        out selected: ColumnarSelectedTypeReference
+    ): bool {
+        table := structRegistry.StructuralTypeReferences
+        selected = ColumnarSelectedTypeReference.Missing(table)
+        resolved := ColumnarSelectedTypeReference.Missing(table)
+        if typeParams == null {
+            if !TrySelectRuntimeType(canonical, enumRegistry, structRegistry, unionRegistry, out resolved) {
+                return false
+            }
+        } else if !TrySelectRuntimeTypeWithTypeParams(canonical, typeParams, enumRegistry, structRegistry, unionRegistry, out resolved) {
+            return false
+        }
+
+        if !resolved.RuntimeType.get_IsGenericParameter() && resolved.RuntimeType.get_Assembly() is AssemblyBuilder {
+            return false
+        }
+
+        selected = resolved
+        return true
+    }
+
+    // The ordinary entry point: no type parameters are in scope, so every argument must be a
+    // complete external or source identity.
     static func TrySelectDelegateCanonical(
         argumentText: string,
         hasReturnSlot: bool,
+        enumRegistry: ColumnarSemanticRegistry<ColumnarEnumDef>,
+        structRegistry: ColumnarSemanticRegistry<ColumnarStructDef>,
+        unionRegistry: ColumnarSemanticRegistry<ColumnarUnionDef>,
+        out selected: ColumnarSelectedTypeReference
+    ): bool {
+        noTypeParams: IReadOnlyDictionary<string, Type>? = null
+        return TrySelectDelegateCanonical(
+            argumentText,
+            hasReturnSlot,
+            noTypeParams,
+            enumRegistry,
+            structRegistry,
+            unionRegistry,
+            out selected
+        )
+    }
+
+    // `Action<T>` / `Func<T, bool>` WHERE `T` IS THE DECLARING TYPE'S OWN TYPE PARAMETER.
+    //
+    // A delegate argument used to be resolved by the ordinary walk even when this was reached from a
+    // generic-aware entry point, so a type parameter was simply an unknown name and every field,
+    // parameter or local spelled over one declined. `List<T>` and `Dictionary<string, T>` already
+    // resolved; the delegate families did not, for no reason other than which resolver they called.
+    // They now call the same one their callers do, and the ORDER is unchanged: the `Func` return
+    // first, then arity, then the parameters.
+    static func TrySelectDelegateCanonical(
+        argumentText: string,
+        hasReturnSlot: bool,
+        typeParams: IReadOnlyDictionary<string, Type>?,
         enumRegistry: ColumnarSemanticRegistry<ColumnarEnumDef>,
         structRegistry: ColumnarSemanticRegistry<ColumnarStructDef>,
         unionRegistry: ColumnarSemanticRegistry<ColumnarUnionDef>,
@@ -1192,13 +1293,14 @@ class ColumnarCanonicalTypeResolver {
             parameterCount = parameterCount - 1
             returnCanonical := parts[parameterCount]
             if returnCanonical != "void" {
-                if !TrySelectRuntimeType(
+                if !TrySelectDelegateArgument(
                     returnCanonical,
+                    typeParams,
                     enumRegistry,
                     structRegistry,
                     unionRegistry,
                     out returnSelected
-                ) || returnSelected.RuntimeType.get_Assembly() is AssemblyBuilder {
+                ) {
                     selected = ColumnarSelectedTypeReference.Missing(table)
                     return false
                 }
@@ -1214,13 +1316,14 @@ class ColumnarCanonicalTypeResolver {
         i := 0
         while i < parameterCount {
             parameter := ColumnarSelectedTypeReference.Missing(table)
-            if parts[i] == "void" || !TrySelectRuntimeType(
+            if parts[i] == "void" || !TrySelectDelegateArgument(
                 parts[i],
+                typeParams,
                 enumRegistry,
                 structRegistry,
                 unionRegistry,
                 out parameter
-            ) || parameter.RuntimeType.get_Assembly() is AssemblyBuilder {
+            ) {
                 selected = ColumnarSelectedTypeReference.Missing(table)
                 return false
             }

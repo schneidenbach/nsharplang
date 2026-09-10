@@ -104,6 +104,39 @@ class ColumnarFunctionInput {
         return (flags & NativeImportModifierFlag()) != 0
     }
 
+    // The three INHERITANCE words a member may carry, read out of the same source modifier column
+    // the override request is. `abstract` and `virtual` each open a new virtual slot — the first
+    // without a body, the second with one — and `sealed` closes the slot an `override` reused.
+    static func AbstractModifierFlag(): int {
+        return Convert.ToInt32(Modifiers.Abstract)
+    }
+
+    static func HasAbstractModifier(flags: int): bool {
+        return (flags & AbstractModifierFlag()) != 0
+    }
+
+    static func VirtualModifierFlag(): int {
+        return Convert.ToInt32(Modifiers.Virtual)
+    }
+
+    static func HasVirtualModifier(flags: int): bool {
+        return (flags & VirtualModifierFlag()) != 0
+    }
+
+    static func SealedModifierFlag(): int {
+        return Convert.ToInt32(Modifiers.Sealed)
+    }
+
+    static func HasSealedModifier(flags: int): bool {
+        return (flags & SealedModifierFlag()) != 0
+    }
+
+    // A member with `abstract` and no `static` HAS NO BODY. The parser wrote no body nodes for it;
+    // every consumer that would otherwise walk one asks here first.
+    static func IsBodylessAbstractMember(flags: int, isStatic: bool): bool {
+        return HasAbstractModifier(flags) && !isStatic
+    }
+
     constructor(name: string, returnCanonical: string, paramNames: string[], paramCanonicals: string[], bodyNodes: ColumnarNodeTable, bodyRoot: int, isStatic: bool = false, typeParamNames: string[]? = null, typeParamSpecialConstraints: int[]? = null, typeParamTypeConstraints: string[][]? = null, returnTupleElementNames: string[]? = null, paramTupleElementNames: string[][]? = null, paramModifierKinds: int[]? = null, paramDefaultKinds: int[]? = null, paramDefaultTexts: string[]? = null, isAsync: bool = false, modifierFlags: int = 0, sourceFileId: int = 0, isBodylessNativeImport: bool = false, nativeImportLibraryName: string = "", nativeImportEntryPoint: string = "") {
         Name = name
         ReturnCanonical = returnCanonical
@@ -206,6 +239,10 @@ class ColumnarStructInput {
     Properties: IReadOnlyList<ColumnarPropertyInput>
     IsReference: bool
     IsSealed: bool
+    // `abstract class C` — the declaration says this type has no direct instances. The analyzer
+    // already refuses `new C()` (NL803) and an unimplemented inherited member (NL324); this is the
+    // metadata bit that makes the CLR agree.
+    IsAbstract: bool
     IsRefStruct: bool
     // `readonly struct S` / `readonly ref struct S` / `readonly record struct S`: the declaration promises
     // that no instance state changes after construction, which the assembly owner turns into an
@@ -239,6 +276,7 @@ class ColumnarStructInput {
         Properties = properties
         IsReference = isReference
         IsSealed = (visibilityModifierFlags & 128) != 0
+        IsAbstract = isReference && (visibilityModifierFlags & 64) != 0
         IsRefStruct = isRefStruct
         IsReadonlyStruct = !isReference && (visibilityModifierFlags & 512) != 0
         BaseNames = baseNames ?? new string[](0)

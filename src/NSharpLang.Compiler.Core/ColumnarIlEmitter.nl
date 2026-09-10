@@ -1182,7 +1182,7 @@ sealed class ColumnarIlEmitter {
         let boxedDelegateValueType: System.Type? = null
         let boxedDelegate: (BoxField: System.Reflection.FieldInfo, ValueType: System.Type) = (boxedDelegateBoxField, boxedDelegateValueType)
         if (_boxedCaptures != null && _boxedCaptures.TryGetValue(name, out boxedDelegate)) {
-            if (!ColumnarTypeOfPlanner.IsSupportedDelegateType(boxedDelegate.ValueType)) {
+            if (!IsSupportedContextualDelegateType(boxedDelegate.ValueType)) {
                 return false
             }
             delegateType = boxedDelegate.ValueType
@@ -1194,7 +1194,7 @@ sealed class ColumnarIlEmitter {
             let liftedDelegateValueType: System.Type? = null
             let liftedDelegate: (Box: System.Reflection.Emit.LocalBuilder, ValueType: System.Type) = (liftedDelegateBox, liftedDelegateValueType)
             if (_liftedLocals.TryGetValue(name, out liftedDelegate)) {
-                if (!ColumnarTypeOfPlanner.IsSupportedDelegateType(liftedDelegate.ValueType)) {
+                if (!IsSupportedContextualDelegateType(liftedDelegate.ValueType)) {
                     return false
                 }
                 delegateType = liftedDelegate.ValueType
@@ -1203,7 +1203,7 @@ sealed class ColumnarIlEmitter {
             } else {
                 let local: System.Reflection.Emit.LocalBuilder? = null
                 if (_locals.TryGetValue(name, out local)) {
-                    if (!ColumnarTypeOfPlanner.IsSupportedDelegateType(local.get_LocalType())) {
+                    if (!IsSupportedContextualDelegateType(local.get_LocalType())) {
                         return false
                     }
                     delegateType = local.get_LocalType()
@@ -1212,7 +1212,7 @@ sealed class ColumnarIlEmitter {
                     let ordinal: int = 0
                     if (_paramOrdinals.TryGetValue(name, out ordinal)) {
                         paramType := _paramTypes[name]
-                        if (!ColumnarTypeOfPlanner.IsSupportedDelegateType(paramType)) {
+                        if (!IsSupportedContextualDelegateType(paramType)) {
                             return false
                         }
                         delegateType = paramType
@@ -1223,13 +1223,18 @@ sealed class ColumnarIlEmitter {
                 }
             }
         }
-        invoke := delegateType.GetMethod("Invoke")
+        let invokeReturnType: System.Type = null
+        let invokeParameterTypes: System.Type[] = null
+        let invokeCtor: System.Reflection.ConstructorInfo = null
+        if (!TryGetSupportedDelegateSignature(delegateType, true, out invokeReturnType, out invokeParameterTypes, out invokeCtor)) {
+            return false
+        }
+        invoke := ResolveDelegateInvokeMethod(delegateType)
         if (invoke == null) {
             return false
         }
-        invokeParams := invoke.GetParameters()
         argCount := _nodes.ChildCount(callIdx) - 1
-        if (argCount != invokeParams.Length) {
+        if (argCount != invokeParameterTypes.Length) {
             return false
         }
         for a := 1; a <= argCount; a++ {
@@ -1237,15 +1242,35 @@ sealed class ColumnarIlEmitter {
             if (!EmitExpression(Child(callIdx, a), out argType)) {
                 return false
             }
-            invokeParameter := invokeParams[a - 1]
-            invokeParameterType := invokeParameter.get_ParameterType()
-            if (argType != invokeParameterType) {
+            if (argType != invokeParameterTypes[a - 1]) {
                 return false
             }
         }
         _il.Emit(OpCodes.Callvirt, invoke)
-        columnarResolvedType = invoke.get_ReturnType()
+        columnarResolvedType = invokeReturnType
         return true
+    }
+
+    // `Invoke` ON A DELEGATE INSTANTIATED OVER A TYPE PARAMETER.
+    //
+    // `Action<int>` is a baked runtime type and answers `GetMethod("Invoke")`. `Action<T>` where `T`
+    // is the declaring type's own parameter is a `TypeBuilderInstantiation`, and reflection member
+    // queries THROW on one; the only legal way to name one of its methods is to rebind the open
+    // definition's handle onto it, which is the same machinery every other builder-bound member
+    // resolution in this file uses. The signature is read separately, from the instantiation's
+    // generic arguments, because the rebound handle cannot be asked for its parameters either.
+    private static func ResolveDelegateInvokeMethod(delegateType: Type): MethodInfo? {
+        if (!ColumnarTypeOfPlanner.ContainsBuilderBoundType(delegateType)) {
+            return delegateType.GetMethod("Invoke")
+        }
+        if (!delegateType.get_IsGenericType() || delegateType.get_IsGenericTypeDefinition()) {
+            return null
+        }
+        openInvoke := delegateType.GetGenericTypeDefinition().GetMethod("Invoke")
+        if (openInvoke == null) {
+            return null
+        }
+        return ResolveClosedGenericMethod(delegateType, openInvoke)
     }
 
     // Emit a call to a GENERIC top-level sibling: emit the args while unifying the declared parameter shapes
@@ -2400,8 +2425,15 @@ sealed class ColumnarIlEmitter {
         // void allowed, OVERLOADS by distinct PARAM COUNT only (same-arity sets are parser declines; columnar
         // static-call resolution is arity-based). The N# struct parser wrapper rejects field/method and
         // static/instance name collisions before this pass. Builders + param types stored; bodies emit in PASS 2.
+        // BASE CLASSES DECLARE THEIR MEMBERS FIRST. A derived class's `override` is resolved against
+        // the base's own `MethodBuilder` handles, so the base must already have filled its
+        // declaration table when the derived class asks. Source order does not guarantee that and
+        // inheritance depth does; `structDepths` is already the depth of every type's chain, so the
+        // pass walks depth 0 first and keeps source order inside each depth.
+        structMethodOrder := ColumnarInheritanceDepthOrder.Sort(structDepths)
         structMethodJobs := new List<ValueTuple<ColumnarStructDef, ColumnarFunctionInput, MethodBuilder, Type, Type, Type, Dictionary<string, int>, ValueTuple<Dictionary<string, Type>, bool>>>()
-        for s := 0; s < structs.Count; s++ {
+        for so := 0; so < structMethodOrder.Length; so++ {
+            s := structMethodOrder[so]
             def := structDefsInOrder[s]
             typeResolution := structTypeResolutions[s]
             // Reference-type (record/class) instance methods are supported: the body emit (bare field -> `ldarg.0;
@@ -2578,7 +2610,7 @@ sealed class ColumnarIlEmitter {
                     mParamTypes,
                     typeResolution.Structs.StructuralTypeReferences
                 )
-                methodOverrideCompletion := methodOverride.Complete(def.ExactBaseType, m.Name, mSignatureReturn, mParamTypes, typeResolution.Structs.StructuralTypeReferences)
+                methodOverrideCompletion := methodOverride.Complete(def.ExactBaseType, def.BaseDef, m.Name, mSignatureReturn, mParamTypes, typeResolution.Structs.StructuralTypeReferences)
                 if (!methodOverrideCompletion.IsValid) {
                     return DeclineStatic(methodOverrideCompletion.DeclineCode, methodOverrideCompletion.DeclineMessage, methodOverrideCompletion.DeclineOwnerName, -1, 0)
                 }
@@ -2593,6 +2625,11 @@ sealed class ColumnarIlEmitter {
                     m.Name,
                     new ColumnarInstanceMethodDef(mb, mParamTypes, m.ParamModifierKinds, mSignatureReturn)
                 )
+                // An `abstract` member IS its declaration. There is no body to schedule, and
+                // emitting one would make the CLR reject the type.
+                if (ColumnarFunctionInput.IsBodylessAbstractMember(m.ModifierFlags, m.IsStatic)) {
+                    continue
+                }
                 structMethodJobs.Add(new ValueTuple<ColumnarStructDef, ColumnarFunctionInput, MethodBuilder, Type, Type, Type, Dictionary<string, int>, ValueTuple<Dictionary<string, Type>, bool>>(def, m, mb, mSignatureReturn, mReturn, mAsyncWrappedReturn, mOrdinals, new ValueTuple<Dictionary<string, Type>, bool>(mParamTypeMap, false)))
             }
         }

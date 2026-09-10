@@ -689,8 +689,20 @@ test "instance member planner owns inherited runtime properties and tuple names"
     inherited := InstanceMemberPlan(InstanceMemberTree("error", "Message"), inheritedBindings)
 
     assert inherited.ResultType == typeof(string)
-    assert inherited.MethodDeclaringTypes[0] == typeof(Exception)
+    // `ArgumentException` OVERRIDES `Message` — that is how the parameter name reaches the text — and
+    // the plan names the override the receiver's static type declares, which is what C# emits for a
+    // receiver of this type. It used to name `Exception`'s declaration instead, because the resolver
+    // forced the lookup onto `Exception` rather than asking the receiver; `callvirt` dispatches to
+    // the same body either way, but the handle written into metadata now matches the source.
+    assert inherited.MethodDeclaringTypes[0] == typeof(ArgumentException)
     assert inherited.OpCodeValues[1] == ColumnarCodePlanContract.Callvirt()
+
+    // A receiver whose static type does NOT override it still names `Exception`'s own declaration.
+    baseBindings := ColumnarRangePlannerEmptyBindings()
+    ColumnarRangePlannerAddParameter(baseBindings, "failure", 0, typeof(InvalidOperationException))
+    fromBase := InstanceMemberPlan(InstanceMemberTree("failure", "Message"), baseBindings)
+    assert fromBase.ResultType == typeof(string)
+    assert fromBase.MethodDeclaringTypes[0] == typeof(Exception)
 
     tupleBindings := ColumnarRangePlannerEmptyBindings()
     tupleType := typeof(ValueTuple<int, string>)
