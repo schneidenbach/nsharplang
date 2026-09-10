@@ -71,8 +71,10 @@ class CheckCommand {
                         ProgramCommandKernels.FormatElapsedMilliseconds(sw.ElapsedMilliseconds)))
                 } else {
                     diagnosticText := OutputFormatter.DiagnosticsToText(diagnostics)
+                    writer := Console.Error
+                    writer.Write(diagnosticText)
                     checkedInMessage := CheckCommandKernels.GetCheckedInMessage(ProgramCommandKernels.FormatElapsedMilliseconds(sw.ElapsedMilliseconds))
-                    Console.Error.WriteLine(diagnosticText + checkedInMessage)
+                    writer.WriteLine(checkedInMessage)
                 }
             } else if outputMode == 3 {
                 systemsJson := OutputFormatter.CheckSystemsReportToJson(
