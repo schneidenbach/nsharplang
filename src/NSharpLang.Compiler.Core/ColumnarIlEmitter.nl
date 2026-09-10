@@ -5122,7 +5122,38 @@ sealed class ColumnarIlEmitter {
                 // single-evaluation semantics), then get_Item, the op, set_Item.
                 if (_nodes.Kind(compoundTarget) == 10) {
                     let idxRecvType: System.Type? = null
-                    if (!EmitExpression(Child(compoundTarget, 0), out idxRecvType) || !IsSupportedIndexableCollectionType(idxRecvType)) {
+                    if (!EmitExpression(Child(compoundTarget, 0), out idxRecvType)) {
+                        return false
+                    }
+                    // AN ARRAY ELEMENT compound target (`totals[i] += v`). The array reference and the
+                    // index each evaluate ONCE into a temp and are then loaded twice -- once to read the
+                    // element and once to store it back -- so a side-effecting index expression runs a
+                    // single time, and the bounds check is the CLR's own on both halves.
+                    if (idxRecvType.get_IsSZArray()) {
+                        arrayElementType := idxRecvType.GetElementType()
+                        arrayTemp := _il.DeclareLocal(idxRecvType)
+                        _il.Emit(OpCodes.Stloc, arrayTemp)
+                        let arrayIndexType: System.Type? = null
+                        if (!EmitExpression(Child(compoundTarget, 1), out arrayIndexType) || arrayIndexType != typeof(int)) {
+                            return false
+                        }
+                        arrayIndexTemp := _il.DeclareLocal(typeof(int))
+                        _il.Emit(OpCodes.Stloc, arrayIndexTemp)
+                        _il.Emit(OpCodes.Ldloc, arrayTemp)
+                        _il.Emit(OpCodes.Ldloc, arrayIndexTemp)
+                        _il.Emit(OpCodes.Ldloc, arrayTemp)
+                        _il.Emit(OpCodes.Ldloc, arrayIndexTemp)
+                        EmitArrayElementLoad(arrayElementType)
+                        let arrayRhsType: System.Type? = null
+                        if (!TryEmitIntLiteralAsType(Child(expr, 1), arrayElementType, out arrayRhsType) && !EmitExpression(Child(expr, 1), out arrayRhsType)) {
+                            return false
+                        }
+                        if (!TryEmitCompoundOperation(assignOp, arrayElementType, arrayRhsType)) {
+                            return false
+                        }
+                        return EmitArrayElementStore(arrayElementType)
+                    }
+                    if (!IsSupportedIndexableCollectionType(idxRecvType)) {
                         return false
                     }
                     // Builder-bound collections never have the scalar/string elements compound
@@ -5154,22 +5185,8 @@ sealed class ColumnarIlEmitter {
                             return false
                         }
                     }
-                    if (!TypesEquivalent(idxRhsType, idxElemType)) {
+                    if (!TryEmitCompoundOperation(assignOp, idxElemType, idxRhsType)) {
                         return false
-                    }
-                    if (idxElemType == typeof(string)) {
-                        if (assignOp != "+=") {
-                            return false
-                        }
-                        _il.Emit(OpCodes.Call, typeof(string).GetMethod(nameof(string.Concat), [typeof(string), typeof(string)]))
-                    } else {
-                        if (idxElemType == typeof(int) || idxElemType == typeof(long) || idxElemType == typeof(ulong) || idxElemType == typeof(double) || idxElemType == typeof(float)) {
-                            idxCompoundIl := _il
-                            idxCompoundOpCode := assignOp == "+=" ? OpCodes.Add : assignOp == "-=" ? OpCodes.Sub : assignOp == "*=" ? OpCodes.Mul : idxElemType == typeof(ulong) ? OpCodes.Div_Un : OpCodes.Div
-                            idxCompoundIl.Emit(idxCompoundOpCode)
-                        } else {
-                            return false
-                        }
                     }
                     _il.Emit(OpCodes.Callvirt, ResolveClosedGenericMethod(idxRecvType, idxRecvDef.GetMethod("set_Item")))
                     return true
@@ -5194,25 +5211,15 @@ sealed class ColumnarIlEmitter {
                         return false
                     }
                     compoundMemberType := compoundMemberField.get_FieldType()
-                    if (compoundMemberType != typeof(string) && compoundMemberType != typeof(int) && compoundMemberType != typeof(long) && compoundMemberType != typeof(ulong) && compoundMemberType != typeof(double) && compoundMemberType != typeof(float)) {
-                        return false
-                    }
                     EmitMemberWriteLocator(compoundChain)
                     _il.Emit(OpCodes.Dup)
                     _il.Emit(OpCodes.Ldfld, compoundMemberField)
                     let compoundMemberValueType: System.Type? = null
-                    if (!TryEmitIntLiteralAsType(Child(expr, 1), compoundMemberType, out compoundMemberValueType) && (!EmitExpression(Child(expr, 1), out compoundMemberValueType) || !TypesEquivalent(compoundMemberValueType, compoundMemberType))) {
+                    if (!TryEmitIntLiteralAsType(Child(expr, 1), compoundMemberType, out compoundMemberValueType) && !EmitExpression(Child(expr, 1), out compoundMemberValueType)) {
                         return false
                     }
-                    if (compoundMemberType == typeof(string)) {
-                        if (assignOp != "+=") {
-                            return false
-                        }
-                        _il.Emit(OpCodes.Call, typeof(string).GetMethod(nameof(string.Concat), [typeof(string), typeof(string)]))
-                    } else {
-                        compoundMemberIl := _il
-                        compoundMemberOpCode := assignOp == "+=" ? OpCodes.Add : assignOp == "-=" ? OpCodes.Sub : assignOp == "*=" ? OpCodes.Mul : compoundMemberType == typeof(ulong) ? OpCodes.Div_Un : OpCodes.Div
-                        compoundMemberIl.Emit(compoundMemberOpCode)
+                    if (!TryEmitCompoundOperation(assignOp, compoundMemberType, compoundMemberValueType)) {
+                        return false
                     }
                     _il.Emit(OpCodes.Stfld, compoundMemberField)
                     return true
@@ -5248,33 +5255,12 @@ sealed class ColumnarIlEmitter {
                 }
                 // `u /= 3` — an in-range int literal adopts the target's type (N# constant conversion).
                 let compoundValueType: System.Type? = null
-                if (!TryEmitIntLiteralAsType(Child(expr, 1), compoundType, out compoundValueType) && (!EmitExpression(Child(expr, 1), out compoundValueType) || !TypesEquivalent(compoundValueType, compoundType))) {
+                if (!TryEmitIntLiteralAsType(Child(expr, 1), compoundType, out compoundValueType) && !EmitExpression(Child(expr, 1), out compoundValueType)) {
                     return false
                 }
 
-                if (compoundType == typeof(string)) {
-                    if (assignOp != "+=") {
-                        return false
-                    }
-                    _il.Emit(OpCodes.Call, typeof(string).GetMethod(nameof(string.Concat), [typeof(string), typeof(string)]))
-                } else {
-                    if (compoundType == typeof(decimal)) {
-                        compoundDecimalIl := _il
-                        compoundDecimalOpCode := OpCodes.Call
-                        compoundDecimalType := typeof(decimal)
-                        compoundDecimalMethodName := assignOp == "+=" ? "op_Addition" : assignOp == "-=" ? "op_Subtraction" : assignOp == "*=" ? "op_Multiply" : "op_Division"
-                        compoundDecimalParameterTypes := [typeof(decimal), typeof(decimal)]
-                        compoundDecimalMethod := compoundDecimalType.GetMethod(compoundDecimalMethodName, compoundDecimalParameterTypes)
-                        compoundDecimalIl.Emit(compoundDecimalOpCode, compoundDecimalMethod)
-                    } else {
-                        if (compoundType == typeof(int) || compoundType == typeof(long) || compoundType == typeof(ulong) || compoundType == typeof(double) || compoundType == typeof(float)) {
-                            compoundScalarIl := _il
-                            compoundScalarOpCode := assignOp == "+=" ? OpCodes.Add : assignOp == "-=" ? OpCodes.Sub : assignOp == "*=" ? OpCodes.Mul : compoundType == typeof(ulong) ? OpCodes.Div_Un : OpCodes.Div
-                            compoundScalarIl.Emit(compoundScalarOpCode)
-                        } else {
-                            return false
-                        }
-                    }
+                if (!TryEmitCompoundOperation(assignOp, compoundType, compoundValueType)) {
+                    return false
                 }
 
                 if (compoundLocal != null) {
@@ -5338,6 +5324,13 @@ sealed class ColumnarIlEmitter {
                     _il.Emit(OpCodes.Ldloc, valueTemp)
                     EmitStoreByRefElement(spanElementType)
                     return true
+                }
+                indexerWrote := false
+                if (TryEmitRuntimeIndexerWrite(target, Child(expr, 1), arrayType, out indexerWrote)) {
+                    return true
+                }
+                if (indexerWrote) {
+                    return false
                 }
                 if (!arrayType.get_IsSZArray()) {
                     return false
@@ -8035,6 +8028,9 @@ sealed class ColumnarIlEmitter {
                 columnarResolvedType = sourceUnarySelection.ReturnType
                 return true
             }
+            if (TryEmitRuntimeUserDefinedUnary(ColumnarNodeTextFacts.Text(_nodes, _source, idx), operandType, out columnarResolvedType)) {
+                return true
+            }
             columnarSwitchValue3 := ColumnarNodeTextFacts.Text(_nodes, _source, idx)
             if columnarSwitchValue3 == "-" {
                 // negate — Neg works on i4/i8/r8/r4; result is the operand's numeric type. N# forbids ulong.
@@ -8209,6 +8205,9 @@ sealed class ColumnarIlEmitter {
             if (TryEmitMixedNumericBinary(idx, op, out columnarResolvedType)) {
                 return true
             }
+            if (TryEmitRuntimeUserDefinedBinary(idx, op, out columnarResolvedType)) {
+                return true
+            }
 
             let leftType: System.Type? = null
             if (!EmitExpression(Child(idx, 0), out leftType)) {
@@ -8230,6 +8229,14 @@ sealed class ColumnarIlEmitter {
             if (sourceBinarySelection.IsSelected && sourceBinarySelection.Method != null) {
                 _il.Emit(OpCodes.Call, sourceBinarySelection.Method)
                 columnarResolvedType = sourceBinarySelection.ReturnType
+                return true
+            }
+            // THE SAME USER-DEFINED OPERATOR LOOKUP, from AFTER the operands. The preflight arm above
+            // serves every operand pair whose type can be read without emitting; an operand it cannot
+            // preflight (a unary over a call, `~Vector.Equals(a, b) & a`) arrives here with both values
+            // already on the stack, so only an operator whose parameters match them EXACTLY can be
+            // called -- a conversion would have to reach a value that is no longer reachable.
+            if (TryEmitEmittedOperandRuntimeBinary(op, leftType, rightType, out columnarResolvedType)) {
                 return true
             }
 
@@ -8999,6 +9006,9 @@ sealed class ColumnarIlEmitter {
                 _il.Emit(OpCodes.Call, itemGetter)
                 EmitLoadByRefElement(spanElementType)
                 columnarResolvedType = spanElementType
+                return true
+            }
+            if (TryEmitRuntimeIndexerRead(idx, indexedType, out columnarResolvedType)) {
                 return true
             }
             if (!indexedType.get_IsSZArray()) {
@@ -13341,6 +13351,233 @@ sealed class ColumnarIlEmitter {
             return true
         }
         return false
+    }
+
+    // A USER-DEFINED OPERATOR DECLARED BY AN EXTERNAL TYPE (`Vector<int> + Vector<int>`,
+    // `~mask & values`, `DateTime - DateTime`, `decimal * decimal`). The operand types are read by
+    // PREFLIGHT before anything is emitted, exactly as the mixed-numeric arm does, because the selected
+    // `op_*` decides what each operand must be converted to and a value already on the stack cannot be
+    // reached again. Both operands being IL primitives is the predefined surface's business and is
+    // refused here, so the ordinary `add`/`ceq` lowering below is untouched.
+    // The write twin: `receiver[index] = value` through a public `set_Item`. Only a REFERENCE receiver
+    // is served. A struct value on the stack can only be addressed through a temp, and a write into that
+    // temp would be lost -- an addressable struct indexer target is a separate shape, and declining is
+    // the honest answer for it rather than emitting a store nothing observes.
+    private func TryEmitRuntimeIndexerWrite(targetIdx: int, valueNode: int, receiverType: Type, out wrote: bool): bool {
+        wrote = false
+        if (receiverType.get_IsValueType() || receiverType.get_IsSZArray() || receiverType.get_IsArray() || receiverType.get_IsByRef() || receiverType.get_IsPointer() || receiverType.get_IsGenericParameter()) {
+            return false
+        }
+        indexType: System.Type? = null
+        valueType: System.Type? = null
+        if (!TryGetPreflightExpressionType(Child(targetIdx, 1), out indexType) || !TryGetPreflightExpressionType(valueNode, out valueType)) {
+            return false
+        }
+
+        argumentTypes := new System.Type[](2)
+        argumentTypes[0] = indexType
+        argumentTypes[1] = valueType
+        selection := ColumnarOrdinaryRuntimeDirectCallResolver.Resolve(receiverType, "set_Item", argumentTypes, false)
+        if (!selection.IsSelected || selection.Method == null) {
+            return false
+        }
+
+        wrote = true
+        if (!EmitArg(targetIdx, 1, selection.ParameterTypes[0])) {
+            return false
+        }
+        let assignedValueType: System.Type = null
+        if (!TryEmitAssignableValue(valueNode, selection.ParameterTypes[1], out assignedValueType)) {
+            return false
+        }
+        _il.Emit(OpCodes.Callvirt, selection.Method)
+        return true
+    }
+
+    // AN INDEXER DECLARED BY AN EXTERNAL TYPE (`v[i]` on `Vector<int>`), resolved as the ordinary
+    // instance call `get_Item` it is. The arms above keep their own exact lowerings for the shapes they
+    // already own -- string, the closed BCL collections, the span families, arrays -- so this serves only
+    // a receiver none of them claims, and it names no type of its own.
+    //
+    // The receiver value is already on the stack, so a VALUE-TYPE receiver is parked in a temp and
+    // re-loaded by ADDRESS: an instance member of a struct needs a managed pointer, and the index
+    // expression is evaluated after that store, preserving left-to-right order. Bounds behaviour is the
+    // BCL's own -- `Vector<T>`'s indexer raises IndexOutOfRangeException, and nothing here intercepts it.
+    private func TryEmitRuntimeIndexerRead(idx: int, receiverType: Type, out resolvedClrType: Type): bool {
+        resolvedClrType = null
+        if (receiverType.get_IsSZArray() || receiverType.get_IsArray() || receiverType.get_IsByRef() || receiverType.get_IsPointer() || receiverType.get_IsGenericParameter()) {
+            return false
+        }
+        indexType: System.Type? = null
+        if (!TryGetPreflightExpressionType(Child(idx, 1), out indexType)) {
+            return false
+        }
+
+        argumentTypes := new System.Type[](1)
+        argumentTypes[0] = indexType
+        selection := ColumnarOrdinaryRuntimeDirectCallResolver.Resolve(receiverType, "get_Item", argumentTypes, false)
+        if (!selection.IsSelected || selection.Method == null) {
+            return false
+        }
+
+        receiverTemp := _il.DeclareLocal(receiverType)
+        _il.Emit(OpCodes.Stloc, receiverTemp)
+        if (selection.ReceiverIsReference) {
+            _il.Emit(OpCodes.Ldloc, receiverTemp)
+        } else {
+            _il.Emit(OpCodes.Ldloca, receiverTemp)
+        }
+        if (!EmitArg(idx, 1, selection.ParameterTypes[0])) {
+            return false
+        }
+        if (selection.UsesCallVirtual) {
+            _il.Emit(OpCodes.Callvirt, selection.Method)
+        } else {
+            _il.Emit(OpCodes.Call, selection.Method)
+        }
+        resolvedClrType = selection.ReturnType
+        return true
+    }
+
+    private func TryEmitRuntimeUserDefinedBinary(idx: int, op: string, out resolvedClrType: Type): bool {
+        resolvedClrType = null
+        if (_nodes.ChildCount(idx) != 2) {
+            return false
+        }
+        leftNode := Child(idx, 0)
+        rightNode := Child(idx, 1)
+        leftType: System.Type? = null
+        rightType: System.Type? = null
+        if (!TryGetPreflightExpressionType(leftNode, out leftType) || !TryGetPreflightExpressionType(rightNode, out rightType)) {
+            return false
+        }
+        if (ColumnarRuntimeOperatorResolver.IsIlPrimitiveOperandType(leftType) && ColumnarRuntimeOperatorResolver.IsIlPrimitiveOperandType(rightType)) {
+            return false
+        }
+
+        selection := ColumnarRuntimeOperatorResolver.ResolveBinary(op, leftType, rightType)
+        if (!selection.IsSelected || selection.Method == null) {
+            return false
+        }
+        parameterTypes := selection.ParameterTypes
+        emittedLeft: System.Type? = null
+        if (!EmitExpression(leftNode, out emittedLeft) || (!TypesEquivalent(emittedLeft, parameterTypes[0]) && !TryEmitImplicitWidening(emittedLeft, parameterTypes[0]))) {
+            return false
+        }
+        emittedRight: System.Type? = null
+        if (!EmitExpression(rightNode, out emittedRight) || (!TypesEquivalent(emittedRight, parameterTypes[1]) && !TryEmitImplicitWidening(emittedRight, parameterTypes[1]))) {
+            return false
+        }
+
+        _il.Emit(OpCodes.Call, selection.Method)
+        resolvedClrType = selection.ReturnType
+        return true
+    }
+
+    // ONE COMPOUND-ASSIGNMENT OPERATION, for every target shape. `target op= value` lowers to
+    // load / operate / store, and only the load and the store differ between a local, a field, an array
+    // element and an indexer -- the OPERATION in the middle is the same question every time, asked with
+    // both values already on the stack.
+    //
+    // The predefined answers come first (string concatenation, then the exact scalar surface), and a
+    // pair neither serves falls to the user-defined operator its own types declare. `decimal += decimal`
+    // reaches that lookup rather than a spelled-out `op_Addition`, and so does
+    // `Vector<int> += Vector<int>`. The result must be exactly the target's type: a compound assignment
+    // stores back into the target, and N# has no implicit narrowing to hide there.
+    private func TryEmitCompoundOperation(assignOp: string, targetType: Type, valueType: Type): bool {
+        op := CompoundBinaryOperatorText(assignOp)
+        if (op == "") {
+            return false
+        }
+
+        if (targetType == typeof(string)) {
+            if (op != "+" || !TypesEquivalent(valueType, targetType)) {
+                return false
+            }
+            _il.Emit(OpCodes.Call, typeof(string).GetMethod(nameof(string.Concat), [typeof(string), typeof(string)]))
+            return true
+        }
+
+        if (TypesEquivalent(valueType, targetType) && (targetType == typeof(int) || targetType == typeof(long) || targetType == typeof(ulong) || targetType == typeof(double) || targetType == typeof(float))) {
+            scalarIl := _il
+            scalarOpCode := op == "+" ? OpCodes.Add : op == "-" ? OpCodes.Sub : op == "*" ? OpCodes.Mul : targetType == typeof(ulong) ? OpCodes.Div_Un : OpCodes.Div
+            scalarIl.Emit(scalarOpCode)
+            return true
+        }
+
+        selection := ColumnarRuntimeOperatorResolver.ResolveBinary(op, targetType, valueType)
+        if (!selection.IsSelected || selection.Method == null) {
+            return false
+        }
+        if (!TypesEquivalent(targetType, selection.ParameterTypes[0]) || !TypesEquivalent(valueType, selection.ParameterTypes[1])) {
+            return false
+        }
+        if (!TypesEquivalent(selection.ReturnType, targetType)) {
+            return false
+        }
+
+        _il.Emit(OpCodes.Call, selection.Method)
+        return true
+    }
+
+    private static func CompoundBinaryOperatorText(assignOp: string): string {
+        if (assignOp == "+=") {
+            return "+"
+        }
+        if (assignOp == "-=") {
+            return "-"
+        }
+        if (assignOp == "*=") {
+            return "*"
+        }
+        if (assignOp == "/=") {
+            return "/"
+        }
+        return ""
+    }
+
+    // The post-operand half of the user-defined binary operator lookup: both values are already on the
+    // stack, so the selected operator's parameters must match the emitted operand types exactly.
+    private func TryEmitEmittedOperandRuntimeBinary(op: string, leftType: Type, rightType: Type, out resolvedClrType: Type): bool {
+        resolvedClrType = null
+        if (ColumnarRuntimeOperatorResolver.IsIlPrimitiveOperandType(leftType) && ColumnarRuntimeOperatorResolver.IsIlPrimitiveOperandType(rightType)) {
+            return false
+        }
+
+        selection := ColumnarRuntimeOperatorResolver.ResolveBinary(op, leftType, rightType)
+        if (!selection.IsSelected || selection.Method == null) {
+            return false
+        }
+        parameterTypes := selection.ParameterTypes
+        if (!TypesEquivalent(leftType, parameterTypes[0]) || !TypesEquivalent(rightType, parameterTypes[1])) {
+            return false
+        }
+
+        _il.Emit(OpCodes.Call, selection.Method)
+        resolvedClrType = selection.ReturnType
+        return true
+    }
+
+    // The unary twin. The operand is already on the stack here -- there is only one, so a widening
+    // conversion can still be applied to it after the fact.
+    private func TryEmitRuntimeUserDefinedUnary(op: string, operandType: Type, out resolvedClrType: Type): bool {
+        resolvedClrType = null
+        if (ColumnarRuntimeOperatorResolver.IsIlPrimitiveOperandType(operandType)) {
+            return false
+        }
+
+        selection := ColumnarRuntimeOperatorResolver.ResolveUnary(op, operandType)
+        if (!selection.IsSelected || selection.Method == null) {
+            return false
+        }
+        parameterType := selection.ParameterTypes[0]
+        if (!TypesEquivalent(operandType, parameterType) && !TryEmitImplicitWidening(operandType, parameterType)) {
+            return false
+        }
+
+        _il.Emit(OpCodes.Call, selection.Method)
+        resolvedClrType = selection.ReturnType
+        return true
     }
 
     private func TryEmitMixedNumericBinary(idx: int, op: string, out resolvedClrType: Type): bool {

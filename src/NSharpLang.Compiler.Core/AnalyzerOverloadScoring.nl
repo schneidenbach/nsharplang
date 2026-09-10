@@ -776,6 +776,16 @@ class AnalyzerOverloadScoring {
             return 8
         }
 
+        // EXACT TYPE IDENTITY IS THE BEST MATCH WHETHER OR NOT THE CLR HAS A NAME FOR IT. The CLR
+        // comparison below cannot see an N#-declared type -- a constructed source generic converts to
+        // nothing -- so a parameter of exactly the argument's own type used to score the same 4 as a
+        // plain `object` parameter, and `obj is Outcome<TOk, TErr> other && Equals(other)` reported an
+        // ambiguity between `Equals(Outcome<TOk, TErr>)` and `Equals(object?)` that C# resolves without
+        // hesitating.
+        if TypeInfoIdentityFacts.AreEqual(resolvedParam, resolvedArg) {
+            return 8
+        }
+
         paramClr := clrTypeConversion.TryConvertTypeInfoToClrType(resolvedParam)
         argClr := clrTypeConversion.TryConvertTypeInfoToClrType(resolvedArg)
         if paramClr != null && argClr != null && paramClr == argClr {

@@ -405,6 +405,25 @@ class AnalyzerReflectionArgumentBinder {
             return true
         }
 
+        // A METHOD type parameter this call has not bound yet, met by an argument the CLR has no type
+        // for. Inside `struct Outcome<TOk, TErr>`, `HashCode.Combine(state, ok)` passes an argument whose
+        // type is TOk -- a type parameter of the ENCLOSING declaration, which converts to no CLR type at
+        // all, exactly and not as a surrogate. C# binds the method's own parameter to precisely that
+        // type; refusing it reported "no overload accepts 2 arguments with these types: byte, TOk" for a
+        // call that is simply generic.
+        //
+        // The binding is recorded on the N# side ONLY, because there is no CLR type to record. The
+        // closing walk knows that shape and leaves the method open rather than guessing a surrogate
+        // instantiation whose constraints it would then check against the wrong type.
+        if openParameterType.get_IsGenericParameter() && openParameterType.get_DeclaringMethod() != null && !bindings.ContainsKey(openParameterType) {
+            if !typeInfoBindings.ContainsKey(openParameterType) {
+                typeInfoBindings[openParameterType] = argumentType
+            }
+
+            score = 8
+            return true
+        }
+
         boundParameterType := AnalyzerReflectionTypeConversion.ApplyReflectionBindings(openParameterType, bindings)
         expectedType := AnalyzerReflectionTypeConversion.ConvertReflectionType(boundParameterType)
         if !assignability.IsAssignable(expectedType, argumentType) {
@@ -1257,6 +1276,12 @@ class AnalyzerReflectionArgumentBinder {
 
     // Close the runtime method over the inference, if it is still open. A type parameter the whole
     // pre-pass failed to bind is a non-finalisation, not a guess.
+    //
+    // A type parameter bound only on the N# SIDE is neither. Its binding is an N#-declared type the CLR
+    // has no name for -- the enclosing declaration's own type parameter, say -- so there is nothing to
+    // hand `MakeGenericMethod`, and substituting a surrogate would validate the declared constraints
+    // against a type the program never wrote. The method is left OPEN instead: the finalised signature
+    // and return type are read from the N# bindings, which is where the real answer already is.
     func CloseGenericRuntimeMethod(state: ReflectionCallFinalizeState): bool {
         if !state.RuntimeMethod.get_IsGenericMethodDefinition() {
             return true
@@ -1266,7 +1291,7 @@ class AnalyzerReflectionArgumentBinder {
         index := 0
         while index < genericArguments.Length {
             if !state.WorkingBindings.ContainsKey(genericArguments[index]) {
-                return false
+                return state.WorkingTypeInfoBindings.ContainsKey(genericArguments[index])
             }
 
             index = index + 1

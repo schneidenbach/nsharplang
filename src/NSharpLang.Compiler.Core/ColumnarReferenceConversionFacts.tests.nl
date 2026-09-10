@@ -225,7 +225,7 @@ test "reference equality comparer closes over a source class through the exact c
     }
 
     hashSetDefinition := typeof(HashSet<int>).GetGenericTypeDefinition()
-    comparerConstructor := ColumnarConstructionPlanner.FindOpenComparerConstructor(
+    comparerConstructor := ClosureCollectionOpenComparerConstructor(
         hashSetDefinition,
         "System.Collections.Generic.IEqualityComparer`1"
     )

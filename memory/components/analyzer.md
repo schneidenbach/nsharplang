@@ -938,6 +938,16 @@ For external methods with multiple overloads:
   as ambiguous rather than selected by declaration or reflection order.
 - N# overload groups use the same principle: argument types and conversion specificity decide the
   unique best candidate; incompatible candidates and equal-best ties are diagnostics.
+- Exact type identity is decided on the `TypeInfo` values, not only by reference or by CLR type. A
+  CONSTRUCTED SOURCE GENERIC converts to no CLR type at all, so without that rule
+  `Equals(Outcome<TOk, TErr>)` and `Equals(object?)` score the same and tie.
+- A generic method's own type parameter INFERS FROM AN ARGUMENT THE CLR HAS NO TYPE FOR — a type
+  parameter of the enclosing declaration, as in `HashCode.Combine(state, ok)` written inside
+  `struct Outcome<TOk, TErr>`. The binding is recorded on the N# side only, and the reflected method
+  is then left OPEN rather than closed over a surrogate whose declared constraints would be checked
+  against a type the program never wrote; the finalised signature and return type read from the N#
+  bindings. Emission of that call is a separate, still-open question (it needs a MethodSpec over an
+  emitted type's generic parameter).
 
 ## Type Checking
 
