@@ -5299,6 +5299,13 @@ sealed class ColumnarIlEmitter {
                     EmitStoreByRefElement(spanElementType)
                     return true
                 }
+                indexerWrote := false
+                if (TryEmitRuntimeIndexerWrite(target, Child(expr, 1), arrayType, out indexerWrote)) {
+                    return true
+                }
+                if (indexerWrote) {
+                    return false
+                }
                 if (!arrayType.get_IsSZArray()) {
                     return false
                 }
@@ -8965,6 +8972,9 @@ sealed class ColumnarIlEmitter {
                 _il.Emit(OpCodes.Call, itemGetter)
                 EmitLoadByRefElement(spanElementType)
                 columnarResolvedType = spanElementType
+                return true
+            }
+            if (TryEmitRuntimeIndexerRead(idx, indexedType, out columnarResolvedType)) {
                 return true
             }
             if (!indexedType.get_IsSZArray()) {
@@ -13303,6 +13313,86 @@ sealed class ColumnarIlEmitter {
     // `op_*` decides what each operand must be converted to and a value already on the stack cannot be
     // reached again. Both operands being IL primitives is the predefined surface's business and is
     // refused here, so the ordinary `add`/`ceq` lowering below is untouched.
+    // The write twin: `receiver[index] = value` through a public `set_Item`. Only a REFERENCE receiver
+    // is served. A struct value on the stack can only be addressed through a temp, and a write into that
+    // temp would be lost -- an addressable struct indexer target is a separate shape, and declining is
+    // the honest answer for it rather than emitting a store nothing observes.
+    private func TryEmitRuntimeIndexerWrite(targetIdx: int, valueNode: int, receiverType: Type, out wrote: bool): bool {
+        wrote = false
+        if (receiverType.get_IsValueType() || receiverType.get_IsSZArray() || receiverType.get_IsArray() || receiverType.get_IsByRef() || receiverType.get_IsPointer() || receiverType.get_IsGenericParameter()) {
+            return false
+        }
+        indexType: System.Type? = null
+        valueType: System.Type? = null
+        if (!TryGetPreflightExpressionType(Child(targetIdx, 1), out indexType) || !TryGetPreflightExpressionType(valueNode, out valueType)) {
+            return false
+        }
+
+        argumentTypes := new System.Type[](2)
+        argumentTypes[0] = indexType
+        argumentTypes[1] = valueType
+        selection := ColumnarOrdinaryRuntimeDirectCallResolver.Resolve(receiverType, "set_Item", argumentTypes, false)
+        if (!selection.IsSelected || selection.Method == null) {
+            return false
+        }
+
+        wrote = true
+        if (!EmitArg(targetIdx, 1, selection.ParameterTypes[0])) {
+            return false
+        }
+        let assignedValueType: System.Type = null
+        if (!TryEmitAssignableValue(valueNode, selection.ParameterTypes[1], out assignedValueType)) {
+            return false
+        }
+        _il.Emit(OpCodes.Callvirt, selection.Method)
+        return true
+    }
+
+    // AN INDEXER DECLARED BY AN EXTERNAL TYPE (`v[i]` on `Vector<int>`), resolved as the ordinary
+    // instance call `get_Item` it is. The arms above keep their own exact lowerings for the shapes they
+    // already own -- string, the closed BCL collections, the span families, arrays -- so this serves only
+    // a receiver none of them claims, and it names no type of its own.
+    //
+    // The receiver value is already on the stack, so a VALUE-TYPE receiver is parked in a temp and
+    // re-loaded by ADDRESS: an instance member of a struct needs a managed pointer, and the index
+    // expression is evaluated after that store, preserving left-to-right order. Bounds behaviour is the
+    // BCL's own -- `Vector<T>`'s indexer raises IndexOutOfRangeException, and nothing here intercepts it.
+    private func TryEmitRuntimeIndexerRead(idx: int, receiverType: Type, out resolvedClrType: Type): bool {
+        resolvedClrType = null
+        if (receiverType.get_IsSZArray() || receiverType.get_IsArray() || receiverType.get_IsByRef() || receiverType.get_IsPointer() || receiverType.get_IsGenericParameter()) {
+            return false
+        }
+        indexType: System.Type? = null
+        if (!TryGetPreflightExpressionType(Child(idx, 1), out indexType)) {
+            return false
+        }
+
+        argumentTypes := new System.Type[](1)
+        argumentTypes[0] = indexType
+        selection := ColumnarOrdinaryRuntimeDirectCallResolver.Resolve(receiverType, "get_Item", argumentTypes, false)
+        if (!selection.IsSelected || selection.Method == null) {
+            return false
+        }
+
+        receiverTemp := _il.DeclareLocal(receiverType)
+        _il.Emit(OpCodes.Stloc, receiverTemp)
+        if (selection.ReceiverIsReference) {
+            _il.Emit(OpCodes.Ldloc, receiverTemp)
+        } else {
+            _il.Emit(OpCodes.Ldloca, receiverTemp)
+        }
+        if (!EmitArg(idx, 1, selection.ParameterTypes[0])) {
+            return false
+        }
+        if (selection.UsesCallVirtual) {
+            _il.Emit(OpCodes.Callvirt, selection.Method)
+        } else {
+            _il.Emit(OpCodes.Call, selection.Method)
+        }
+        resolvedClrType = selection.ReturnType
+        return true
+    }
+
     private func TryEmitRuntimeUserDefinedBinary(idx: int, op: string, out resolvedClrType: Type): bool {
         resolvedClrType = null
         if (_nodes.ChildCount(idx) != 2) {
