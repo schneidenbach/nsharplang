@@ -168,10 +168,10 @@ without defensive copies.
 
 ```n#
 readonly struct Point {
-    readonly X: int
-    readonly Y: int
+    readonly X: double
+    readonly Y: double
 
-    constructor(x: int, y: int) {
+    constructor(x: double, y: double) {
         X = x
         Y = y
     }
