@@ -535,13 +535,15 @@ test "compile-time bench: the skipped source directories are exactly the twelve 
 // tests/native/diagnostic-honesty; 75 since the Analyzer SDK prerequisite added
 // tests/native/sdk-project-reference-boundary; 76 since diagnostics moved into
 // tests/native/language-server-diagnostics; 77 since reference resolution moved into
-// tests/native/reference-resolution.
-test "compile-time bench: the corpus is the 81 project.yml projects under examples, tests and templates" {
+// tests/native/reference-resolution; 82 since static members on generic types added
+// tests/native/generic-static-members.
+test "compile-time bench: the corpus is the 82 project.yml projects under examples, tests and templates" {
     projects := BenchCollectCorpusProjects(BenchRepositoryRoot())
-    assert projects.Count == 81
+    assert projects.Count == 82
     assert BenchListContains(projects, "examples/01-hello-world")
     assert BenchListContains(projects, "templates/nsharp-console")
     assert BenchListContains(projects, "tests/native/external-generic-construction")
+    assert BenchListContains(projects, "tests/native/generic-static-members")
     assert BenchListContains(projects, "tests/native/language-server-diagnostics")
     assert BenchListContains(projects, "tests/native/ownership-audit")
     assert BenchListContains(projects, "tests/native/reference-resolution")
