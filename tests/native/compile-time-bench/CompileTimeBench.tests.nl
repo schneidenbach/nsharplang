@@ -536,10 +536,11 @@ test "compile-time bench: the skipped source directories are exactly the twelve 
 // tests/native/sdk-project-reference-boundary; 76 since diagnostics moved into
 // tests/native/language-server-diagnostics; 77 since reference resolution moved into
 // tests/native/reference-resolution; 82 since static members on generic types added
-// tests/native/generic-static-members.
-test "compile-time bench: the corpus is the 82 project.yml projects under examples, tests and templates" {
+// tests/native/generic-static-members; 83 since the SimdReductions translation added
+// tests/native/simd-reductions.
+test "compile-time bench: the corpus is the 83 project.yml projects under examples, tests and templates" {
     projects := BenchCollectCorpusProjects(BenchRepositoryRoot())
-    assert projects.Count == 82
+    assert projects.Count == 83
     assert BenchListContains(projects, "examples/01-hello-world")
     assert BenchListContains(projects, "templates/nsharp-console")
     assert BenchListContains(projects, "tests/native/external-generic-construction")
@@ -548,6 +549,7 @@ test "compile-time bench: the corpus is the 82 project.yml projects under exampl
     assert BenchListContains(projects, "tests/native/ownership-audit")
     assert BenchListContains(projects, "tests/native/reference-resolution")
     assert BenchListContains(projects, "tests/native/sdk-project-reference-boundary")
+    assert BenchListContains(projects, "tests/native/simd-reductions")
     assert BenchListContains(projects, "tests/native/type-arity")
 }
 
