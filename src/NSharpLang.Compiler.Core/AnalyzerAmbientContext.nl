@@ -24,8 +24,9 @@ class AmbientContextFrame {
     BreakTargetFinallyDepth: int
     ContinueTargetFinallyDepth: int
     InConstructor: bool
+    MemberIsStatic: bool
 
-    constructor(returnType: TypeInfo?, declaration: FunctionDeclaration?, returnTypeWasOmitted: bool, isAsync: bool, inLoop: bool, finallyDepth: int, breakTargetFinallyDepth: int, continueTargetFinallyDepth: int, inConstructor: bool) {
+    constructor(returnType: TypeInfo?, declaration: FunctionDeclaration?, returnTypeWasOmitted: bool, isAsync: bool, inLoop: bool, finallyDepth: int, breakTargetFinallyDepth: int, continueTargetFinallyDepth: int, inConstructor: bool, memberIsStatic: bool) {
         ReturnType = returnType
         Function = declaration
         ReturnTypeWasOmitted = returnTypeWasOmitted
@@ -35,6 +36,7 @@ class AmbientContextFrame {
         BreakTargetFinallyDepth = breakTargetFinallyDepth
         ContinueTargetFinallyDepth = continueTargetFinallyDepth
         InConstructor = inConstructor
+        MemberIsStatic = memberIsStatic
     }
 }
 
@@ -182,6 +184,7 @@ class AnalyzerAmbientContext {
     currentTypeMembersValue: List<Declaration>?
     currentTypeNameValue: string?
     inConstructorValue: bool
+    memberIsStaticValue: bool
     allowEventReferenceValue: bool
     allowUnboundCallableReferenceValue: bool
     allowSyntheticSoaOperationReferenceValue: bool
@@ -209,6 +212,24 @@ class AnalyzerAmbientContext {
     // Whether the enclosing function is declared `generator` (`func*`). Read off the declaration
     // rather than recorded separately, exactly as the two C# readers did.
     CurrentFunctionDeclaresGenerator: bool => HasModifier(currentFunctionValue, Modifiers.Generator)
+
+    // WHETHER THE MEMBER WHOSE BODY IS OPEN IS DECLARED `static` — the fact NL327 asks, because a
+    // static member is called with no object and so `this` and `base` have nothing to name inside one.
+    //
+    // IT IS RECORDED AT THE MEMBER BOUNDARY RATHER THAN DERIVED FROM `CurrentFunction`, and the
+    // difference is two whole shapes. A LAMBDA has no declaration of its own — `EnterNestedBody`
+    // passes `null` — so a derived answer would say "not static" for `() => this.X` written inside a
+    // static method, which is exactly where the mistake is easiest to make. A PROPERTY OR INDEXER
+    // ACCESSOR has no `FunctionDeclaration` at all, so a derived answer could only ever say "not
+    // static" for `static Name: string => this.value`.
+    //
+    // A lambda and a local function therefore INHERIT the enclosing member's answer (they compile to
+    // members of the same type and see the same receiver, or the same absence of one), while a member
+    // boundary SETS it and restores the outer value on the way out. `false` is the default and the
+    // safe one: it means "assume there is a receiver", so a walk that has not passed a member
+    // boundary — a field initializer, a walk between declarations — reports nothing rather than
+    // reporting wrongly.
+    CurrentMemberIsStatic: bool => memberIsStaticValue
 
     // Whether the enclosing function is declared `async`, read off the declaration. This is a
     // DIFFERENT question from `CurrentFunctionIsAsync` even though the two always agree today: one
@@ -336,6 +357,7 @@ class AnalyzerAmbientContext {
         currentTypeMembersValue = null
         currentTypeNameValue = null
         inConstructorValue = false
+        memberIsStaticValue = false
         allowEventReferenceValue = false
         allowUnboundCallableReferenceValue = false
         allowSyntheticSoaOperationReferenceValue = false
@@ -360,6 +382,7 @@ class AnalyzerAmbientContext {
         breakTargetFinallyDepthValue = 0
         continueTargetFinallyDepthValue = 0
         inConstructorValue = false
+        memberIsStaticValue = false
     }
 
     // A CONSTRUCTOR BODY. This is a plain pair rather than a save/restore, exactly as the C# was: a
@@ -460,7 +483,7 @@ class AnalyzerAmbientContext {
     // matching `Exit` restores exactly the subset ITS boundary is responsible for, and the doc on
     // each pair names that subset.
     func Snapshot(): AmbientContextFrame {
-        return new AmbientContextFrame(currentReturnTypeValue, currentFunctionValue, returnTypeWasOmittedValue, isAsyncValue, inLoopValue, finallyDepthValue, breakTargetFinallyDepthValue, continueTargetFinallyDepthValue, inConstructorValue)
+        return new AmbientContextFrame(currentReturnTypeValue, currentFunctionValue, returnTypeWasOmittedValue, isAsyncValue, inLoopValue, finallyDepthValue, breakTargetFinallyDepthValue, continueTargetFinallyDepthValue, inConstructorValue, memberIsStaticValue)
     }
 
     // A TOP-LEVEL FUNCTION DECLARATION'S BODY. Sets the whole function family and leaves the
@@ -472,6 +495,7 @@ class AnalyzerAmbientContext {
         currentFunctionValue = declaration
         returnTypeWasOmittedValue = declaration.ReturnType == null
         isAsyncValue = HasModifier(declaration, Modifiers.Async)
+        memberIsStaticValue = HasModifier(declaration, Modifiers.Static)
         return saved
     }
 
@@ -484,6 +508,7 @@ class AnalyzerAmbientContext {
         currentFunctionValue = saved.Function
         returnTypeWasOmittedValue = saved.ReturnTypeWasOmitted
         isAsyncValue = saved.IsAsync
+        memberIsStaticValue = saved.MemberIsStatic
     }
 
     // A PROPERTY OR INDEXER ACCESSOR BODY. An accessor changes what a `return` must produce and
@@ -498,6 +523,21 @@ class AnalyzerAmbientContext {
 
     func ExitAccessorReturnType(saved: TypeInfo?) {
         currentReturnTypeValue = saved
+    }
+
+    // AN ACCESSOR'S RECEIVER, which is the ONE ambient fact an accessor body needs that its return
+    // type does not carry. It is a separate pair from the return-type one because the two are entered
+    // at different points in the accessor walk — the member's staticness is known from the
+    // declaration before either accessor is reached, while the return type differs between the getter
+    // and the setter — and a single pair would have to be opened twice for one member.
+    func EnterMemberIsStatic(memberIsStatic: bool): bool {
+        saved := memberIsStaticValue
+        memberIsStaticValue = memberIsStatic
+        return saved
+    }
+
+    func ExitMemberIsStatic(saved: bool) {
+        memberIsStaticValue = saved
     }
 
     // THE TYPE-DECLARATION FAMILY, WHICH IS TWO INDEPENDENT SLOTS RATHER THAN ONE FRAME, BECAUSE THE
@@ -1020,6 +1060,14 @@ class AnalyzerAmbientContext {
         }
 
         return false
+    }
+
+    // THE SAME TEST AGAINST A BARE MODIFIER SET, for the members that are not functions. A property
+    // and an indexer carry their modifiers without a `FunctionDeclaration` to read them off, and the
+    // accessor boundary needs the `static` bit exactly as the function boundary does.
+    static func ModifiersDeclareStatic(modifiers: Modifiers): bool {
+        staticBits := Convert.ToInt32(Modifiers.Static)
+        return (Convert.ToInt32(modifiers) & staticBits) == staticBits
     }
 
     static func HasModifier(declaration: FunctionDeclaration?, modifier: Modifiers): bool {

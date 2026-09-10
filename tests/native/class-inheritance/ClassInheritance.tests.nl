@@ -152,3 +152,42 @@ test "an override of a generic base's abstract member reuses its slot" {
     assert !render.get_IsAbstract()
     assert render.GetBaseDefinition().get_DeclaringType() == typeof(Box<string>)
 }
+
+// ---- base member access ----------------------------------------------------------------------
+
+// THE NON-VIRTUAL DISPATCH IS WHAT THIS ASSERTS. Each level's `Render` wraps its base's, so the one
+// string names all three exactly once. A `callvirt` on `base.Render()` would re-enter the most
+// derived override and never return.
+test "base.Method() reaches the implementation the override replaced, through three levels" {
+    assert LayerDispatch.RenderOf(new MiddleLayer()) == "middle(root)"
+    assert LayerDispatch.RenderOf(new LeafLayer()) == "leaf(middle(root))"
+}
+
+test "a base call passes its own arguments after the receiver" {
+    assert LayerDispatch.WrapOf(new MiddleLayer(), "x") == "m[x]"
+}
+
+test "base.Property reads the base's property, including one the direct base inherited" {
+    middle := new MiddleLayer()
+    assert middle.BaseLabel() == "layer"
+    assert middle.BaseDepth() == 1
+
+    leaf := new LeafLayer()
+    assert leaf.BaseLabelFromLeaf() == "layer"
+}
+
+test "base. reaches a closed generic base's own implementation" {
+    loud := new LoudBox("v")
+    assert loud.Kind() == "string-box!"
+    assert Dispatch.KindOf(loud) == "string-box!"
+    // `Render` is inherited untouched from `StringBox`, so the base call did not disturb the slot.
+    assert Dispatch.RenderOf(loud) == "string-box-render"
+}
+
+test "base. reaches System.Object when no base is written" {
+    rooted := new RootedOnObject(5)
+    // `System.Object.ToString` answers the runtime type's full name, so the string proves WHICH
+    // implementation ran as well as that it ran at all.
+    assert rooted.BaseText() == "NSharpLang.ClassInheritance.Tests.RootedOnObject"
+    assert rooted.BaseHash() == rooted.BaseHash()
+}

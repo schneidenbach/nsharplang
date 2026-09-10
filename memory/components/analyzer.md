@@ -1334,5 +1334,34 @@ settable named members and every instance field is now initonly) — the same de
 `record struct` with readonly fields already had; it needs a synthesized copy constructor, not a
 readonly-struct change.
 
+**`this` AND `base` AS EXPRESSIONS** (`AnalyzerCurrentInstanceReferences`, reached from `Analyzer`'s
+expression dispatch). Both words name the object the current member was called on. When there is one,
+`this` answers the enclosing type scope and `base` answers `AnalyzerDeclarationContext.ResolveBaseType`
+of it; when there is none, the reference is **NL327** at the word, in one of two sentences — a `static`
+member, or a top-level function that is not a member of any type. Before this owner the analyzer
+answered `unknown` and said nothing, and the mistake surfaced only as an emission decline with no
+source position on it.
+
+WHETHER THERE IS A RECEIVER IS A FACT ABOUT THE ENCLOSING MEMBER, NOT ABOUT THE EXPRESSION, and it is
+recorded on the ambient context (`AnalyzerAmbientContext.CurrentMemberIsStatic`) at the member boundary
+rather than derived from `CurrentFunction`. Two shapes are why: a LAMBDA has no declaration of its own
+(`EnterNestedBody` passes `null`) and so INHERITS its enclosing member's answer, and a PROPERTY or
+INDEXER accessor has no `FunctionDeclaration` at all — `Analyzer.AnalyzeDeclaration` opens the pair
+around `DriveAccessorBody` so an expression body answers it too. `false` is the default and the safe
+one: it means "assume there is a receiver", so a walk that has not passed a member boundary reports
+nothing rather than reporting wrongly.
+
+A member the base does not declare stays **NL303** naming the BASE's type; `base` itself was fine. The
+emission half is `ColumnarExpressionNodeKind.BaseMemberExpression()` (kind 71) out of
+`ParsePostfixExpressionNode`, `ColumnarDirectCallPlanner.TryAppendBaseCall` (non-virtual `call`, source
+base through `ColumnarSourceDirectCallResolver` and runtime base through the ordinary runtime resolver,
+an abstract base member refused) and `ColumnarBoundIdentifierPlanner`'s `BaseField`/`BaseProperty`
+selections. `tests/native/class-inheritance` proves the dispatch is non-virtual with a three-level
+chain whose answer names every level exactly once. KNOWN LIMITS, both PRE-EXISTING and both reproducible
+without `base`: a subclass that declares a property whose name a base already declares declines at
+`parse.struct`, and reading a property inherited from a CLOSED GENERIC ancestor two levels up
+(`Box<string>.Value` from a grandchild) fails plan validation with "reference receiver ... does not
+match its declaring type" for `this.Value` and `Value` alike.
+
 Keep ownership-policy tests beside the N# owner. C# tests should exercise only the remaining
 diagnostic/integration shell, not recreate semantic lookup or identity policy in test helpers.

@@ -404,6 +404,13 @@ class TypeReferenceTupleNameTable {
 //                                         property pattern entries.)
 //   PropertyPattern         -> kind 68  (`Prop` / `Prop: pat` inside object or union-case property patterns;
 //                                         property name in the value span, optional ONE child [pat].)
+//   BaseMemberExpression    -> kind 71  ( `base.Member` -- the member NAME in the value span, NO children,
+//                                         the span running from `base` through the name. The shape of the
+//                                         `this.Member` arm above it, with its own kind because the two
+//                                         dispatch differently: a member reached through `base` is bound
+//                                         NON-VIRTUALLY to the base's declaration, so it must never be
+//                                         mistaken for the `this` form. `base.M(args)` is a CallExpression
+//                                         over one of these; `base.P` on its own is the node itself. )
 //   RangeExpression         -> kind 69  (`start..end`, `start..`, `..end`, `..`; DotDot token in the
 //                                         value span. Children are the present endpoint expressions; with
 //                                         one child, compare its span start to the DotDot span to classify
@@ -412,7 +419,7 @@ class TypeReferenceTupleNameTable {
 // product handoff, and the emitter only needs the concrete expression shape.
 // Deferred (refused with -1, or the chain simply STOPS at them): `?.`/`?[` null-conditional access, generic
 //   method calls (callee<T>(...)), named (`name:`) call arguments outside constructor argument lists,
-//   `is`/`as` type tests; every other unlisted primary (this/base/default/...).
+//   `is`/`as` type tests; every other unlisted primary (this/default/... ; `base.Member` is kind 71).
 //   (Tuples `(a, b)` AND named tuples `(x: 1, y: 2)` PARSE — kinds 17/43; match,
 //   new-expressions, object initializers, bare-new and block-bodied lambdas have their own kinds above.)
 //   Literal VALUE materialization (unescaping strings/chars) is the host's job; this kernel records the
@@ -518,6 +525,10 @@ class ColumnarExpressionNodeKind {
 
     static func GenericTypeReceiverExpression(): int {
         return 70
+    }
+
+    static func BaseMemberExpression(): int {
+        return 71
     }
 
     // `checked(<expr>)` / `unchecked(<expr>)`. The KEYWORD lives in the value span and there is
@@ -5135,6 +5146,19 @@ func ParsePostfixExpressionNode(tokens: ParserTokenTable, count: int, st: Parser
         memberLength := tokens.ValueLengths[st.Pos + 2]
         memberEnd := memberStart + memberLength
         expr = EmitExpressionNode(st, nodes, ColumnarExpressionNodeKind.IdentifierExpression(), memberStart, memberLength, -1, 0, thisStart, memberEnd - thisStart)
+
+        st.Pos = st.Pos + 3
+    } else if st.Pos + 2 < count && tokens.Kinds[st.Pos] == 43 && tokens.Kinds[st.Pos + 1] == 124 && tokens.Kinds[st.Pos + 2] == 0 {
+
+        // `base.Member` (Base 43, Dot 124, Identifier 0) -- the same two-token prefix shape as the
+        // `this.` arm above, into a node kind of its own. The receiver is still argument zero, but the
+        // member it names is looked up in the BASE and dispatched non-virtually, and a kind that a
+        // planner could confuse with `this` would silently turn `base.M()` into infinite recursion.
+        baseStart := tokens.Starts[st.Pos]
+        baseMemberStart := tokens.Starts[st.Pos + 2]
+        baseMemberLength := tokens.ValueLengths[st.Pos + 2]
+        baseMemberEnd := baseMemberStart + baseMemberLength
+        expr = EmitExpressionNode(st, nodes, ColumnarExpressionNodeKind.BaseMemberExpression(), baseMemberStart, baseMemberLength, -1, 0, baseStart, baseMemberEnd - baseStart)
 
         st.Pos = st.Pos + 3
     } else {

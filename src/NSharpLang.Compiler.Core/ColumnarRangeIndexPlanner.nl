@@ -254,7 +254,7 @@ class ColumnarRangeIndexPlanner {
             return true
         }
 
-        if kind == ColumnarExpressionNodeKind.IdentifierExpression() {
+        if kind == ColumnarExpressionNodeKind.IdentifierExpression() || kind == ColumnarExpressionNodeKind.BaseMemberExpression() {
             return true
         }
 
@@ -446,7 +446,7 @@ class ColumnarRangeIndexPlanner {
             planned = ColumnarTypeOfPlanner.TryAppendTypeOf(nodes, source, node, bindings, plan, out resultType)
         } else if kind == ColumnarExpressionNodeKind.BoolLiteralExpression() {
             planned = TryPlanBooleanLiteral(nodes, source, node, plan, out resultType)
-        } else if kind == ColumnarExpressionNodeKind.IdentifierExpression() {
+        } else if kind == ColumnarExpressionNodeKind.IdentifierExpression() || kind == ColumnarExpressionNodeKind.BaseMemberExpression() {
             planned = ColumnarBoundIdentifierPlanner.TryAppend(nodes, source, node, bindings, plan, out resultType)
         } else if kind == ColumnarExpressionNodeKind.MemberAccessExpression() {
             planned = TryPlanEnumMember(nodes, source, node, bindings, plan, out resultType)

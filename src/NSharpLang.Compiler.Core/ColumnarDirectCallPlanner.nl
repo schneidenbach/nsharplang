@@ -163,7 +163,7 @@ class ColumnarDirectCallPlanner {
         }
 
         calleeKind := nodes.Kind(callee)
-        if calleeKind != ColumnarExpressionNodeKind.IdentifierExpression() && calleeKind != ColumnarExpressionNodeKind.MemberAccessExpression() && calleeKind != 38 {
+        if calleeKind != ColumnarExpressionNodeKind.IdentifierExpression() && calleeKind != ColumnarExpressionNodeKind.MemberAccessExpression() && calleeKind != 38 && calleeKind != ColumnarExpressionNodeKind.BaseMemberExpression() {
             return false
         }
 
@@ -230,6 +230,10 @@ class ColumnarDirectCallPlanner {
 
             if calleeKind == 38 {
                 return TryAppendExplicitGenericStaticCall(nodes, source, node, callee, bindings, handles, plan, callFragment, depth, argumentTypes, argumentFacts, checkpoint, out ownership, out legacyWholeSubtreePlanning, out resultType)
+            }
+
+            if calleeKind == ColumnarExpressionNodeKind.BaseMemberExpression() {
+                return TryAppendBaseCall(nodes, source, node, callee, bindings, handles, plan, callFragment, depth, argumentTypes, argumentFacts, checkpoint, out ownership, out legacyWholeSubtreePlanning, out resultType)
             }
 
             return TryAppendMemberCall(nodes, source, node, callee, bindings, handles, plan, callFragment, depth, argumentTypes, argumentFacts, checkpoint, out ownership, out legacyWholeSubtreePlanning, out resultType)
@@ -390,6 +394,116 @@ class ColumnarDirectCallPlanner {
         }
 
         return true
+    }
+
+    // `base.M(args)` — THE MEMBER THE BASE DECLARES, DISPATCHED NON-VIRTUALLY.
+    //
+    // Argument zero is the receiver here exactly as it is for an implicit-`this` call, so only two
+    // things differ, and both are the whole point of writing `base`:
+    //
+    //   * LOOKUP STARTS AT THE DIRECT BASE. An override that calls `base.M()` must reach the
+    //     implementation it replaced, so the subclass's own declaration is skipped rather than
+    //     preferred.
+    //   * DISPATCH IS `call`, NEVER `callvirt`. A virtual dispatch would re-enter the override and
+    //     recurse until the stack is gone; the whole reason the CLR has a non-virtual call on a
+    //     virtual method is this one form.
+    //
+    // Both halves of the base surface are covered by the owners that already exist: a base being
+    // emitted in this same compilation resolves through the source resolver against the recorded
+    // base definition, and a runtime base through the ordinary runtime resolver. An ABSTRACT base
+    // member is refused — there is no implementation to reach, and `call` on one is unverifiable IL.
+    static func TryAppendBaseCall(nodes: ColumnarNodeTable, source: string, callNode: int, callee: int, bindings: ColumnarFragmentBindings, handles: ColumnarRangeIndexHandles, plan: ColumnarCodePlan, callFragment: int, depth: int, argumentTypes: Type[], argumentFacts: ColumnarDirectCallArgumentFacts, checkpoint: ColumnarCodePlanCheckpoint, out ownership: ColumnarDirectCallOwnership, out legacyWholeSubtreePlanning: bool, out resultType: Type): bool {
+        ownership = ColumnarDirectCallOwnership.OwnedRejected
+        legacyWholeSubtreePlanning = false
+        resultType = typeof(int)
+        memberName := nodes.Text(source, callee)
+        current := bindings.CurrentInstance
+        currentDefinition: ColumnarStructDef? = null
+        if current != null {
+            currentDefinition = current.SourceDefinition
+        }
+
+        if nodes.ChildCount(callee) != 0 || memberName.Length == 0 || current == null || currentDefinition == null {
+            plan.Rollback(checkpoint)
+            return false
+        }
+
+        sourceBase := currentDefinition.BaseDef
+        exactBaseType := currentDefinition.ExactBaseType
+        if sourceBase != null && exactBaseType != null {
+            closedBase := ColumnarSourceDirectCallResolver.ExactSourceTypeMatch(sourceBase, exactBaseType)
+            sourceSelection := ColumnarSourceDirectCallResolver.ResolveKnownInstance(sourceBase, exactBaseType, closedBase, memberName, argumentTypes, argumentFacts, currentDefinition, true)
+
+            if sourceSelection.IsSelected && !sourceSelection.IsAbstract {
+                if !AppendSourceSelection(nodes, source, callNode, -1, true, bindings, handles, plan, callFragment, depth, argumentTypes, argumentFacts, NonVirtualBaseSelection(sourceSelection, current.ExactType), out resultType) {
+                    plan.Rollback(checkpoint)
+                    return false
+                }
+
+                ownership = ColumnarDirectCallOwnership.Planned
+                return true
+            }
+
+            if sourceSelection.IsSourceType && ColumnarSourceDirectCallResolver.HasInstanceDeclaration(sourceBase, memberName) {
+                plan.Rollback(checkpoint)
+                return false
+            }
+        }
+
+        // No source base declares the name — the base is a runtime class (declared or the implicit
+        // `System.Object`), and its members are ordinary runtime instance members.
+        runtimeBase := ResolveExternalRuntimeBase(currentDefinition)
+        if runtimeBase == null {
+            runtimeBase = typeof(object)
+        }
+
+        runtimeSelection := ColumnarOrdinaryRuntimeDirectCallResolver.ResolveWithFacts(runtimeBase, memberName, argumentTypes, argumentFacts, false)
+
+        runtimeMethod := runtimeSelection.Method
+        if !runtimeSelection.IsSelected || runtimeMethod == null || runtimeMethod.get_IsAbstract() {
+            plan.Rollback(checkpoint)
+            return false
+        }
+
+        receiverIndex := ColumnarBoundIdentifierPlanner.GetOrAddArgument(plan, 0, current.ExactType, false)
+        plan.AppendArgumentInstruction(ColumnarCodePlanContract.Ldarg(), receiverIndex)
+
+        if !AppendArguments(nodes, source, callNode, bindings, handles, plan, callFragment, depth + 1, ArgumentsAdmitPrimitiveBinary(), argumentTypes, runtimeSelection.ParameterTypes, argumentFacts) {
+            plan.Rollback(checkpoint)
+            return false
+        }
+
+        runtimeMethodIndex := plan.AddMethodWithSignature(runtimeMethod, runtimeSelection.DeclaringType, runtimeSelection.ParameterTypes, runtimeSelection.ReturnType, false, false)
+
+        plan.AppendMethodInstruction(ColumnarCodePlanContract.Call(), runtimeMethodIndex)
+        resultType = runtimeSelection.ReturnType
+        if callFragment != 0 && IsVoidType(resultType) {
+            plan.Rollback(checkpoint)
+            return false
+        }
+
+        ownership = ColumnarDirectCallOwnership.Planned
+        return true
+    }
+
+    // The base's selection, re-stated for the `base.` form: the RECEIVER is the current instance (it
+    // is argument zero, whatever the base's own type is) and the dispatch is non-virtual. Everything
+    // that names the member — the handle, its declaring type and its closed signature — is the base
+    // selection's own.
+    static func NonVirtualBaseSelection(selection: ColumnarSourceDirectCallSelection, receiverType: Type): ColumnarSourceDirectCallSelection {
+        return new ColumnarSourceDirectCallSelection(
+            selection.Status,
+            ColumnarSourceDirectCallDispatch.Call,
+            selection.SourceDefinition,
+            receiverType,
+            selection.DeclaringType,
+            selection.Method,
+            selection.ParameterTypes,
+            selection.ReturnType,
+            selection.ReceiverIsReference,
+            selection.IsStatic,
+            selection.IsAbstract
+        )
     }
 
     static func TryAppendBareCall(nodes: ColumnarNodeTable, source: string, callNode: int, callee: int, bindings: ColumnarFragmentBindings, handles: ColumnarRangeIndexHandles, plan: ColumnarCodePlan, callFragment: int, depth: int, argumentTypes: Type[], argumentFacts: ColumnarDirectCallArgumentFacts, checkpoint: ColumnarCodePlanCheckpoint, out ownership: ColumnarDirectCallOwnership, out legacyWholeSubtreePlanning: bool, out resultType: Type): bool {
@@ -1812,7 +1926,7 @@ class ColumnarDirectCallPlanner {
             return nodes.ChildCount(node) == 2 && IsAdmittedValueSyntax(nodes, nodes.Child(node, 1), depth + 1)
         }
 
-        if kind == ColumnarExpressionNodeKind.IntLiteralExpression() || kind == ColumnarExpressionNodeKind.FloatLiteralExpression() || kind == ColumnarExpressionNodeKind.CharLiteralExpression() || kind == ColumnarExpressionNodeKind.StringLiteralExpression() || kind == ColumnarExpressionNodeKind.BoolLiteralExpression() || kind == ColumnarExpressionNodeKind.NullLiteralExpression() || kind == ColumnarExpressionNodeKind.IdentifierExpression() || kind == ColumnarExpressionNodeKind.NameOfExpression() || kind == ColumnarExpressionNodeKind.TypeOfExpression() || kind == ColumnarExpressionNodeKind.RangeExpression() || kind == ColumnarExpressionNodeKind.IndexAccessExpression() || kind == ColumnarExpressionNodeKind.UnaryExpression() || kind == ColumnarExpressionNodeKind.MemberAccessExpression() {
+        if kind == ColumnarExpressionNodeKind.IntLiteralExpression() || kind == ColumnarExpressionNodeKind.FloatLiteralExpression() || kind == ColumnarExpressionNodeKind.CharLiteralExpression() || kind == ColumnarExpressionNodeKind.StringLiteralExpression() || kind == ColumnarExpressionNodeKind.BoolLiteralExpression() || kind == ColumnarExpressionNodeKind.NullLiteralExpression() || kind == ColumnarExpressionNodeKind.IdentifierExpression() || kind == ColumnarExpressionNodeKind.BaseMemberExpression() || kind == ColumnarExpressionNodeKind.NameOfExpression() || kind == ColumnarExpressionNodeKind.TypeOfExpression() || kind == ColumnarExpressionNodeKind.RangeExpression() || kind == ColumnarExpressionNodeKind.IndexAccessExpression() || kind == ColumnarExpressionNodeKind.UnaryExpression() || kind == ColumnarExpressionNodeKind.MemberAccessExpression() {
             return true
         }
 
@@ -1821,7 +1935,7 @@ class ColumnarDirectCallPlanner {
         }
 
         callee := UnwrapParentheses(nodes, nodes.Child(node, 0))
-        if callee < 0 || (nodes.Kind(callee) != ColumnarExpressionNodeKind.IdentifierExpression() && nodes.Kind(callee) != ColumnarExpressionNodeKind.MemberAccessExpression()) {
+        if callee < 0 || (nodes.Kind(callee) != ColumnarExpressionNodeKind.IdentifierExpression() && nodes.Kind(callee) != ColumnarExpressionNodeKind.MemberAccessExpression() && nodes.Kind(callee) != ColumnarExpressionNodeKind.BaseMemberExpression()) {
             return false
         }
 

@@ -184,6 +184,43 @@ class PairBox<T>: Box<T> {              // passes its own type parameter through
 }
 ```
 
+#### `base.` — the implementation you replaced
+
+An `override` that wants to *extend* the base's behaviour rather than discard it reaches it with
+`base.`. The lookup starts at the base class, so the override does not answer itself, and the call is
+dispatched **non-virtually** — which is the only thing that makes `base.Render()` inside `Render`
+terminate:
+
+```n#
+class Middle: Layer {
+    override func Render(): string {
+        return "middle(" + base.Render() + ")"       // "middle(root)"
+    }
+}
+
+class Leaf: Middle {
+    override func Render(): string {
+        return "leaf(" + base.Render() + ")"         // "leaf(middle(root))"
+    }
+}
+```
+
+`base.` is not limited to overrides — any instance member may use it — and it reads properties as well
+as calling methods:
+
+```n#
+class Dog: Animal {
+    func BaseName(): string {
+        return base.Name                             // the base's property, not the subclass's
+    }
+}
+```
+
+The base may be a class declared in the same project, one from the BCL or a NuGet package, or
+`System.Object` itself when no base is written (`base.ToString()` answers the runtime type's name). A
+constructor chains to a base constructor with `: base(...)` in its header, which is the same idea in the
+one place a member call cannot express it.
+
 **Diagnostics.** The compiler holds you to C#'s rules:
 
 | You wrote | You get |
@@ -191,6 +228,8 @@ class PairBox<T>: Box<T> {              // passes its own type parameter through
 | a concrete class that does not implement an inherited abstract member | [NL324](./errors/NL324.md) |
 | `new` on an abstract class | [NL803](./errors/NL803.md) |
 | `override` with no base member of that name, or a base member that is not `virtual`/`abstract`/`override` | [NL311](./errors/NL311.md) |
+| `base.Member` where the base class has no such member | [NL303](./errors/NL303.md) |
+| `this` or `base` in a `static` member or a top-level function | [NL327](./errors/NL327.md) |
 
 Overriding a member of an **external** base class — one from the BCL or a NuGet package — works the same
 way and needs no extra ceremony:
