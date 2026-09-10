@@ -41,9 +41,9 @@ class ColumnarRuntimeInstanceMemberSelection {
     }
 }
 
-// Runtime half of ordinary instance field/property binding. The allow-set deliberately matches
-// the former production case-8 clauses: it is not a general reflection or dynamic-member binder.
-// Selection completes before a code plan emits the receiver, so every false result is atomic.
+// Runtime half of ordinary instance field/property binding. The established catalog remains
+// explicit, while complete baked reference types may use the bounded ordinary readable-member tail
+// below. Selection completes before a code plan emits the receiver, so every false result is atomic.
 class ColumnarRuntimeInstanceMemberResolver {
     static func CanOwnReceiver(receiverType: Type): bool {
         if receiverType == null || IsSourceBuilderShape(receiverType) || receiverType.get_IsByRef() || receiverType.get_IsGenericTypeDefinition() || receiverType.get_IsSZArray() {
@@ -106,7 +106,11 @@ class ColumnarRuntimeInstanceMemberResolver {
             return true
         }
 
-        return false
+        // Referenced N# assemblies expose ordinary public object-model types alongside the
+        // established BCL/runtime catalog. Permit those baked reference shapes to reach the
+        // ordinary readable-member resolver; selection below still requires an exact public,
+        // instance, zero-argument property getter or field and an admitted result type.
+        return CanOwnOrdinaryExternalReceiver(receiverType)
     }
 
     // THE LINQ-TO-XML RECEIVERS THE DOC WALK HOLDS. Matched by exact metadata name, for the same
@@ -349,7 +353,38 @@ class ColumnarRuntimeInstanceMemberResolver {
             return TrySelectExpectedProperty(receiverType, receiverType, member, typeof(int), out selection)
         }
 
-        return false
+        return TrySelectOrdinaryReadableMember(receiverType, member, out selection)
+    }
+
+    static func CanOwnOrdinaryExternalReceiver(receiverType: Type): bool {
+        return !IsSourceBuilderShape(receiverType) && !ContainsBuilderBoundType(receiverType) && !receiverType.get_IsByRef() && !receiverType.get_IsGenericTypeDefinition() && IsSupportedExternalReferenceShape(receiverType) && ColumnarTypeOfPlanner.IsSupportedType(receiverType)
+    }
+
+    static func TrySelectOrdinaryReadableMember(receiverType: Type, member: string, out selection: ColumnarRuntimeInstanceMemberSelection): bool {
+        selection = EmptySelection()
+        if !CanOwnOrdinaryExternalReceiver(receiverType) {
+            return false
+        }
+
+        field := receiverType.GetField(member, BindingFlags.Public | BindingFlags.Instance)
+        if field != null {
+            declaringType := field.get_DeclaringType()
+            fieldType := field.get_FieldType()
+            if field.get_IsPublic() && !field.get_IsStatic() && !field.get_IsLiteral() && declaringType != null && ReceiverMatchesDeclaringType(receiverType, declaringType) && ColumnarTypeOfPlanner.IsSupportedType(fieldType) {
+                selection = new ColumnarRuntimeInstanceMemberSelection(true, declaringType, fieldType, field, null, !receiverType.get_IsValueType())
+                return true
+            }
+        }
+
+        getter: MethodInfo? = null
+        declaringType := typeof(object)
+        resultType := typeof(object)
+        if !TryResolvePublicGetter(receiverType, member, out getter, out declaringType, out resultType) || getter == null || !ColumnarTypeOfPlanner.IsSupportedType(resultType) || !ReceiverMatchesDeclaringType(receiverType, declaringType) {
+            return false
+        }
+
+        selection = new ColumnarRuntimeInstanceMemberSelection(false, declaringType, resultType, null, getter, !receiverType.get_IsValueType())
+        return true
     }
 
     static func TrySelectValueTupleField(receiverType: Type, member: string, out selection: ColumnarRuntimeInstanceMemberSelection): bool {

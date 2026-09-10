@@ -4,6 +4,7 @@ import System
 import System.Collections.Generic
 import System.Reflection
 import System.Reflection.Emit
+import NSharpLang.Compiler.CodeIntelligence
 
 class ColumnarInstanceMemberByRefProbe {
     static func SourceStruct(out _value: ColumnarBoundIdentifierCurrentStructProbe): bool {
@@ -29,6 +30,31 @@ class ColumnarInstanceMemberPrivateGetterProbe {
     func HiddenDelegate(): object {
         callback: Func<int> = () => value
         return callback
+    }
+}
+
+class ColumnarOrdinaryMemberBaseProbe {
+    BaseField: int
+    static ReadCount: int
+
+    BaseProperty: string => "base"
+
+    Observed: string {
+        get {
+            ColumnarOrdinaryMemberBaseProbe.ReadCount = ColumnarOrdinaryMemberBaseProbe.ReadCount + 1
+            return "observed"
+        }
+    }
+
+    static StaticProperty: int => 9
+
+    constructor() {
+        BaseField = 41
+    }
+}
+
+class ColumnarOrdinaryMemberDerivedProbe: ColumnarOrdinaryMemberBaseProbe {
+    constructor(): base() {
     }
 }
 
@@ -654,10 +680,14 @@ test "instance member planner owns typeof receivers and exact Type properties" {
     rejected := InstanceTypeOfMemberTree("string", "AssemblyQualifiedName")
     assert ColumnarInstanceMemberPlanner.ClaimsRoot(rejected.Nodes, rejected.Source, rejected.Root, bindings)
 
-    rejectedPlan := new ColumnarCodePlan()
-    assert ColumnarInstanceMemberPlanner.Plan(rejected.Nodes, rejected.Source, rejected.Root, bindings, rejectedPlan) == ColumnarFragmentPlanStatus.NotOwned
-
-    ColumnarRangePlannerAssertEmptyRollback(rejectedPlan)
+    ordinaryPlan := InstanceMemberPlan(rejected, bindings)
+    assert ordinaryPlan.ResultType == typeof(string)
+    assert ordinaryPlan.FragmentCount == 2
+    assert ordinaryPlan.OperationCount == 3
+    assert ordinaryPlan.OpCodeValues[0] == ColumnarCodePlanContract.Ldtoken()
+    assert ordinaryPlan.OpCodeValues[1] == ColumnarCodePlanContract.Call()
+    assert ordinaryPlan.OpCodeValues[2] == ColumnarCodePlanContract.Callvirt()
+    assert ExecutorRunV3ScalarPlan(ordinaryPlan, typeof(string)) == (typeof(string).get_AssemblyQualifiedName() ?? "")
 }
 
 test "instance member planner preserves local storage and runtime value spill forms" {
@@ -706,7 +736,7 @@ test "instance member planner owns inherited runtime properties and tuple names"
     assert tuple.OpCodeValues[3] == ColumnarCodePlanContract.Ldfld()
 }
 
-test "instance member planner terminally declines missing static and non-allowlisted members" {
+test "instance member planner terminally declines missing and static members and admits exact ordinary properties" {
     missingTree := InstanceMemberTree("version", "Missing")
     missingBindings := ColumnarRangePlannerEmptyBindings()
     ColumnarRangePlannerAddParameter(missingBindings, "version", 0, typeof(Version))
@@ -734,10 +764,11 @@ test "instance member planner terminally declines missing static and non-allowli
     ColumnarRangePlannerAddParameter(hiddenBindings, "type", 0, typeof(Type))
     assert ColumnarInstanceMemberPlanner.ClaimsRoot(hiddenTree.Nodes, hiddenTree.Source, hiddenTree.Root, hiddenBindings)
 
-    hiddenPlan := new ColumnarCodePlan()
-    assert ColumnarInstanceMemberPlanner.Plan(hiddenTree.Nodes, hiddenTree.Source, hiddenTree.Root, hiddenBindings, hiddenPlan) == ColumnarFragmentPlanStatus.NotOwned
-
-    ColumnarRangePlannerAssertEmptyRollback(hiddenPlan)
+    ordinaryPlan := InstanceMemberPlan(hiddenTree, hiddenBindings)
+    assert ordinaryPlan.ResultType == typeof(string)
+    assert ordinaryPlan.OperationCount == 2
+    assert ordinaryPlan.OpCodeValues[0] == ColumnarCodePlanContract.Ldarg()
+    assert ordinaryPlan.OpCodeValues[1] == ColumnarCodePlanContract.Callvirt()
 }
 
 test "instance member planner rejects corrupt and shadowed facts atomically" {
@@ -1086,6 +1117,78 @@ test "instance member runtime admission rejects pointer and open generic externa
     openGenericType := typeof(Dictionary<int, int>).GetGenericTypeDefinition()
     assert !ColumnarRuntimeInstanceMemberResolver.IsSupportedExternalReferenceShape(pointerType)
     assert !ColumnarRuntimeInstanceMemberResolver.IsSupportedExternalReferenceShape(openGenericType)
+
+    sourceBuilder := TypeOfCreateBuilder("OrdinaryMemberOpenSource", "OrdinaryMemberOpenSourceAsm", 0)
+    assert !ColumnarRuntimeInstanceMemberResolver.CanOwnOrdinaryExternalReceiver(sourceBuilder)
+
+    builderArgument: Type = sourceBuilder
+    builderArguments := new Type[](1)
+    builderArguments[0] = builderArgument
+    builderBoundList := typeof(List<int>).GetGenericTypeDefinition().MakeGenericType(builderArguments)
+    assert !ColumnarRuntimeInstanceMemberResolver.CanOwnOrdinaryExternalReceiver(builderBoundList)
+}
+
+test "ordinary baked receivers select inherited fields and getters and reject unsafe members" {
+    receiverType := typeof(ColumnarOrdinaryMemberDerivedProbe)
+    baseType := typeof(ColumnarOrdinaryMemberBaseProbe)
+
+    assert ColumnarRuntimeInstanceMemberResolver.CanOwnReceiver(receiverType)
+
+    inheritedField := ColumnarRuntimeInstanceMemberSelection.Empty()
+    assert ColumnarRuntimeInstanceMemberResolver.TrySelect(receiverType, "BaseField", out inheritedField)
+    assert inheritedField.IsField
+    assert inheritedField.DeclaringType == baseType
+    assert inheritedField.ResultType == typeof(int)
+    assert inheritedField.ReceiverIsReference
+
+    inheritedGetter := ColumnarRuntimeInstanceMemberSelection.Empty()
+    assert ColumnarRuntimeInstanceMemberResolver.TrySelect(receiverType, "BaseProperty", out inheritedGetter)
+    assert !inheritedGetter.IsField
+    assert inheritedGetter.DeclaringType == baseType
+    assert inheritedGetter.ResultType == typeof(string)
+    getter := inheritedGetter.Getter
+    if getter == null {
+        throw new InvalidOperationException("The inherited ordinary getter was not selected.")
+    }
+    assert getter.get_IsPublic()
+    assert !getter.get_IsStatic()
+    assert getter.GetParameters().Length == 0
+
+    staticMember := ColumnarRuntimeInstanceMemberSelection.Empty()
+    assert !ColumnarRuntimeInstanceMemberResolver.TrySelect(receiverType, "StaticProperty", out staticMember)
+
+    indexed := ColumnarRuntimeInstanceMemberSelection.Empty()
+    assert !ColumnarRuntimeInstanceMemberResolver.TrySelect(typeof(List<int>), "Item", out indexed)
+
+    facadeMatch := ColumnarRuntimeInstanceMemberSelection.Empty()
+    assert ColumnarRuntimeInstanceMemberResolver.TrySelect(typeof(CompilationUnitMatch), "FilePath", out facadeMatch)
+    assert !facadeMatch.IsField
+    assert facadeMatch.ResultType == typeof(string)
+    assert facadeMatch.DeclaringType == typeof(CompilationUnitMatch)
+}
+
+test "ordinary baked getter plans evaluate the receiver once and preserve getter side effects" {
+    bindings := ColumnarRangePlannerEmptyBindings()
+    ColumnarRangePlannerAddParameter(bindings, "receiver", 0, typeof(ColumnarOrdinaryMemberDerivedProbe))
+    plan := InstanceMemberPlan(InstanceMemberTree("receiver", "Observed"), bindings)
+
+    methodParameterTypes := new Type[](1)
+    methodParameterTypes[0] = typeof(ColumnarOrdinaryMemberDerivedProbe)
+    method := BoundDynamicMethod(
+        "OrdinaryMemberReceiverEvaluation",
+        typeof(string),
+        methodParameterTypes
+    )
+    il := method.GetILGenerator()
+    ColumnarCodePlanExecutor.Execute(plan, il)
+    il.Emit(OpCodes.Ret)
+
+    ColumnarOrdinaryMemberBaseProbe.ReadCount = 0
+    receiver := new ColumnarOrdinaryMemberDerivedProbe()
+    methodArguments := new object[](1)
+    ExecutorSetObject(methodArguments, 0, receiver)
+    assert BoundInvokeText(method, methodArguments) == "observed"
+    assert ColumnarOrdinaryMemberBaseProbe.ReadCount == 1
 }
 
 test "instance member planner terminally declines exact ref-return properties" {
@@ -1119,7 +1222,7 @@ test "instance member facade reports terminal ownership for every admitted recei
 
     InstanceFacadeAssertTerminal(InstanceMemberTree("receiver", "UtcNow"), typeof(DateTime), false, typeof(int))
 
-    InstanceFacadeAssertTerminal(InstanceMemberTree("receiver", "AssemblyQualifiedName"), typeof(Type), false, typeof(int))
+    InstanceFacadeAssertTerminal(InstanceMemberTree("receiver", "AssemblyQualifiedName"), typeof(Type), true, typeof(string))
 }
 
 test "range planner recursively owns instance member endpoints" {
