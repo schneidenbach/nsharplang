@@ -104,6 +104,7 @@ class AnalyzerAssignability {
     clrTypeConversion: AnalyzerClrTypeConversion
     conversionGuard: AnalyzerImplicitConversionGuard
     activeExternalDefinitions: HashSet<Type>
+    externalConversionOwners: Dictionary<Type, bool>
 
     constructor(context: AnalyzerDeclarationContext, facts: AnalyzerAssignabilityFacts, structural: AnalyzerStructuralAssignability, substitution: AnalyzerTypeSubstitution, clrConversion: AnalyzerClrTypeConversion, guard: AnalyzerImplicitConversionGuard) {
         declarationContext = context
@@ -113,6 +114,7 @@ class AnalyzerAssignability {
         clrTypeConversion = clrConversion
         conversionGuard = guard
         activeExternalDefinitions = new HashSet<Type>()
+        externalConversionOwners = new Dictionary<Type, bool>()
     }
 
     // 023/1e — THE TWO-ARGUMENT FORM IS THE CONSTANT-FREE ONE, AND IT STAYS THE DEFAULT.
@@ -282,9 +284,20 @@ class AnalyzerAssignability {
         sourceReflection := resolvedSource as ReflectionTypeInfo
         targetReflection := resolvedTarget as ReflectionTypeInfo
 
-        // Both sides reflected: CLR semantics decide.
+        // THE THREE REFLECTED ARMS TAKE AN ACCEPTANCE AND NOTHING ELSE. The CLR's own subtyping is
+        // the right answer for two types it knows about — but it is not the WHOLE answer, because a
+        // referenced assembly's type may also declare a user-defined conversion, and
+        // `IsAssignableFrom` knows nothing about `implicit operator XName(string)` or
+        // `implicit operator DateTimeOffset(DateTime)`. Each of these arms used to RETURN the CLR's
+        // verdict, which sent every such pair to a type error before the user-defined arm at the
+        // bottom of this sequence could be asked. A refusal now falls through, exactly as the
+        // constructed-generic bridge below already did.
+
+        // Both sides reflected: CLR semantics decide, when they say yes.
         if sourceReflection != null && targetReflection != null {
-            return AnalyzerConversionFacts.IsReflectionAssignableFrom(targetReflection.Type, sourceReflection.Type)
+            if AnalyzerConversionFacts.IsReflectionAssignableFrom(targetReflection.Type, sourceReflection.Type) {
+                return true
+            }
         }
 
         // Mixed: reflected target, built-in source — convert the source and compare in the CLR.
@@ -292,9 +305,8 @@ class AnalyzerAssignability {
             simpleSource := resolvedSource as SimpleTypeInfo
             if simpleSource != null {
                 sourceClrType := clrTypeConversion.TryConvertTypeInfoToClrType(resolvedSource)
-                if sourceClrType != null {
-                    targetClrType := targetReflection.Type
-                    return targetClrType.IsAssignableFrom(sourceClrType)
+                if sourceClrType != null && targetReflection.Type.IsAssignableFrom(sourceClrType) {
+                    return true
                 }
             }
         }
@@ -303,9 +315,8 @@ class AnalyzerAssignability {
         simpleTarget := resolvedTarget as SimpleTypeInfo
         if simpleTarget != null && sourceReflection != null {
             targetClrType := clrTypeConversion.TryConvertTypeInfoToClrType(resolvedTarget)
-            if targetClrType != null {
-                sourceClrType := sourceReflection.Type
-                return targetClrType.IsAssignableFrom(sourceClrType)
+            if targetClrType != null && targetClrType.IsAssignableFrom(sourceReflection.Type) {
+                return true
             }
         }
 
@@ -783,7 +794,60 @@ class AnalyzerAssignability {
     }
 
     func HasImplicitConversionCore(source: TypeInfo, target: TypeInfo): bool {
-        return DeclaresImplicitConversion(source, source, target) || DeclaresImplicitConversion(target, source, target)
+        if DeclaresImplicitConversion(source, source, target) || DeclaresImplicitConversion(target, source, target) {
+            return true
+        }
+
+        return ClassifyExternalConversion(source, target, false).IsSelected
+    }
+
+    // The EXTERNAL half of the user-defined conversion question. A referenced assembly's type — the
+    // runtime's `Union<T0, T1>`, a `DateTime`, a vendor wrapper — declares its operators in metadata
+    // rather than in a source declaration, so the arm above, which reads `DeclaredMembers`, can never
+    // see them. The answer comes from `ExternalUserDefinedConversions`, which is the SAME owner the
+    // emitter asks for the handle to call: an analyzer that accepted a conversion the emitter then
+    // could not find would turn a type error into a backend decline.
+    //
+    // Both ends convert through the EXACT CLR conversion, never the surrogate one, so an N#-declared
+    // type never reaches the metadata question as `object`.
+    func ClassifyExternalConversion(source: TypeInfo, target: TypeInfo, allowExplicit: bool): ExternalConversionSelection {
+        sourceClrType := clrTypeConversion.TryConvertTypeInfoToClrType(source)
+        if sourceClrType == null {
+            return ExternalConversionSelection.NoConversion()
+        }
+
+        targetClrType := clrTypeConversion.TryConvertTypeInfoToClrType(target)
+        if targetClrType == null {
+            return ExternalConversionSelection.NoConversion()
+        }
+
+        if !DeclaresExternalConversionOperators(sourceClrType) && !DeclaresExternalConversionOperators(targetClrType) {
+            return ExternalConversionSelection.NoConversion()
+        }
+
+        return ExternalUserDefinedConversions.Resolve(sourceClrType, targetClrType, allowExplicit)
+    }
+
+    // The classification a DIAGNOSTIC asks for, in the caller's own argument order. Assignability
+    // itself answers false for an ambiguous conversion — a tie is not a conversion — and a reporting
+    // site consults this to say WHY rather than repeating the ordinary "these types differ".
+    func ClassifyUserDefinedConversion(target: TypeInfo, source: TypeInfo): ExternalConversionSelection {
+        return ClassifyExternalConversion(source, target, false)
+    }
+
+    // Does either end declare any conversion operator at all — memoised, because assignability asks
+    // this of every pair it cannot otherwise relate and almost none of them name such a type. The
+    // memo is per-owner and this owner is rebuilt whenever the well-known-type bag is, so it never
+    // outlives the reflection context whose types key it.
+    func DeclaresExternalConversionOperators(candidate: Type): bool {
+        declares := false
+        if externalConversionOwners.TryGetValue(candidate, out declares) {
+            return declares
+        }
+
+        declares = ExternalUserDefinedConversions.DeclaresConversionOperators(candidate)
+        externalConversionOwners[candidate] = declares
+        return declares
     }
 
     // One end's declarations, asked about the whole conversion. The operator's own signature is read

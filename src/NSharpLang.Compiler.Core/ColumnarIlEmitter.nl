@@ -16,6 +16,7 @@ import System.Text
 import System.Text.Json
 import System.Threading
 import System.Threading.Tasks
+import NSharpLang.Compiler
 import YamlDotNet.Core
 import YamlDotNet.Core.Events
 import YamlDotNet.Serialization
@@ -2419,7 +2420,39 @@ sealed class ColumnarIlEmitter {
             return true
         }
 
-        return false
+        return TryEmitExternalUserDefinedConversion(source, target, allowExplicit)
+    }
+
+    // The EXTERNAL conversion, decided by the owner the ANALYZER decided with. The arm above reads the
+    // COLUMNAR declarations of the types this compilation is emitting; a referenced assembly's type
+    // declares its operators in metadata instead, and `ExternalUserDefinedConversions` selects among
+    // those by ECMA-334 §10.5.3/§10.5.4 rather than by exact-signature match — so `5` reaching an
+    // `implicit operator Union<long, string>(long)` widens into the parameter here exactly as the
+    // analyzer said it would, and a tie emits nothing rather than an arbitrary arm.
+    private func TryEmitExternalUserDefinedConversion(source: Type, target: Type, allowExplicit: bool): bool {
+        selection := ExternalUserDefinedConversions.Resolve(source, target, allowExplicit)
+        selected := selection.Method
+        if (!selection.IsSelected || selected == null) {
+            return false
+        }
+
+        // THE RESULT IS CHECKED BEFORE ANYTHING IS WRITTEN. A selected operator whose result still
+        // needs a conversion of its own would have to be called first and converted after, and a
+        // follow-on conversion this emitter cannot write would leave a half-emitted stream behind.
+        // Declining here costs a decline diagnostic; emitting there would cost an invalid method.
+        if (!TypesEquivalent(selected.get_ReturnType(), target)) {
+            return false
+        }
+
+        parameterType := ExternalUserDefinedConversions.ParameterTypeOf(selected)
+        if (!TypesEquivalent(source, parameterType)) {
+            if (!TryEmitImplicitWidening(source, parameterType) && !ColumnarReferenceCoercionPlanner.TryEmitObjectConversion(source, parameterType, _structRegistry, _il) && !ColumnarReferenceConversionFacts.TryEmitReferenceConversion(source, parameterType)) {
+                return false
+            }
+        }
+
+        _il.Emit(OpCodes.Call, selected)
+        return true
     }
 
     private func TryEmitResultFactoryCall(callIdx: int, name: string, out columnarResolvedType: Type): bool {
@@ -10689,14 +10722,16 @@ sealed class ColumnarIlEmitter {
             }
             return TryEmitArrayLiteralAsType(idx, literalElementType.MakeArrayType(), out columnarResolvedType)
         } else if columnarSwitchValue2 == 16 {
-            // Cast [type, operand] — explicit numeric conversion among int/long/char. child[0] is a
-            // TYPE subtree (Simple); child[1] is the operand. Other casts (to/from string, bool, etc.)
-            // decline (the N# backend path stays authoritative).
+            // Cast [type, operand]. child[0] is a TYPE subtree and child[1] is the operand. The type
+            // subtree is read through the ordinary canonical builder rather than as a bare name, so a
+            // written cast to a CONSTRUCTED type — `(Union<int, string>)5`, reaching the runtime
+            // union's implicit arm — resolves the same way the annotation `u: Union<int, string>`
+            // already did. A cast whose target this body cannot resolve still declines.
             castTypeNode := Child(idx, 0)
-            if (_nodes.Kind(castTypeNode) != 0) {
+            let castTargetName: System.String? = null
+            if (!TryBuildTypeNodeCanonical(castTypeNode, out castTargetName)) {
                 return false
             }
-            castTargetName := ColumnarNodeTextFacts.Text(_nodes, _source, castTypeNode)
             let targetType: System.Type? = null
             if (!ColumnarCanonicalTypeResolver.TryResolveBuiltin(castTargetName, out targetType) && !TryResolveBodyType(castTargetName, out targetType)) {
                 return false
