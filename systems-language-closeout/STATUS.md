@@ -37,6 +37,15 @@ Facade and MSBuild task lanes are running from `06186dc6d`; CLI/LSP/Playground/R
 Visual Studio is deferred; compiler completion and rename evidence below remain accepted.
 Shared compiler prerequisites, seeds and integration gates remain root-owned.
 
+**Capability-gap arc integrated, 2026-09-10** (readonly structs, static members on generic types,
+type identity by arity, constructed external generics; see
+[tasks/TOOLCHAIN-NATIVE.md](../tasks/TOOLCHAIN-NATIVE.md) "Compiler capability gaps for the Runtime
+conversion"). Integrated tip: `b6a574bd9` plus this record. Estate 8,339/8,339; 66 native projects all
+executing green; 399 C#; format and ilverify clean. Corpus pin 93. Visual VS Code click-through owed (the
+computer-use grant was denied at verification time); the rebuilt extension, the LSP-driven native suites
+and the VS Code-enabled gate are the IDE evidence. Fresh gate evidence for this revision is recorded in the
+follow-up "Record gate evidence" commit.
+
 **Compiler-only objective complete, 2026-09-09.** Final source/assertion audits find no surviving
 C# compiler-core owner or in-scope canonical assertion. The exact receiver-generic correction and
 all handoffs are integrated. Fresh final gate at `0cc84110` passes562s:399 C#/8017 N#, all56 native
@@ -2009,6 +2018,22 @@ One row per slice, newest first within each arc, verbatim from the slice records
 the LANDED coordinator commit (`(landed)`; proved by subject/body and `--numstat` against the row's own
 counts) — the records themselves were written before the coordinator committed, which is why some cells
 also carry the decode/baseline tip the slice measured at. Only non-slice notes carry `no commit`.
+
+### 4.0 Capability-gap arc (2026-09-10) — CLOSED at `b6a574bd9`
+
+| slice | commit | what moved | durable finding | headline numbers |
+|---|---|---|---|---|
+| cap-gaps-2026-09-10 | `b6a574bd9` | 20 stream merges (P R A E1 S A2 E2 G2 G1 T G3 Q A3 A4 ACC M X Y + 2 merge reconciliations) and 3 root fixes; four proven gaps plus the adjacent gaps their acceptance sources forced; faithful Result/Union/NSharpEventSubscription/SimdReductions translations as native tests | a stream that runs a partial native sweep hides regressions (three found only by full sweeps or the gate); a test build that fails reports total 0 and looks green to a `failed==0` filter; two streams implementing one operator (`?.`) must be reconciled to ONE owner, not merged side by side | estate 8,339; 66 native projects; corpus pin 93; unit 399 |
+
+- Root fixes on the integration branch: `6e65877f4` (an unguarded `X?` canonical branch hid every
+  nullable interface typed local), `a54d45799` (one admission owner for generics over type parameters),
+  the `base(base.Value)` and static-field-receiver `TryGetValue` regressions (A4), a double-`box` merge
+  collision producing unverifiable IL (A4).
+- Decisions recorded: explicit imports outrank project-wide auto-discovery (NL209 on a two-import tie;
+  auto-discovery kept as a documented feature); ambiguity between two external conversions stays NL202
+  with the tie named (no docs-page repro exists in the default reference set); ACC's general null guard
+  (kind 75) replaced A3's call-only `?.` (kind 74 now `default`).
+- Owed: the visual VS Code click-through at the pushed tip.
 
 ### 4.1 Task 015 — the emitter (box UNCHECKED, reopened at `6fcb41f64`)
 
