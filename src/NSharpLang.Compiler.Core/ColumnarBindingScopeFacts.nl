@@ -1618,7 +1618,16 @@ class ColumnarBindingScopeFacts {
         if ownerName.Contains(".") {
             // A value/function/type imported or declared at the root changes this into member
             // lookup on that binding; it is never a namespace-qualified source owner.
+            //
+            // NOT BLOCKED, and the difference is the whole answer for `Catalog.Codes.TryGetValue(...)`.
+            // `blocked` means "a source type owns this spelling and no later tier may reinterpret it",
+            // which is the opposite of what this arm just decided: the spelling is a MEMBER of a
+            // binding, so the value tier is exactly who should read `Catalog.Codes` and call an
+            // instance method on it. Reporting it blocked made the direct-call planner claim the call
+            // and reject it terminally, which took the whole subtree away from the owner that can
+            // emit it.
             if activeDeclaredNames.Contains(rootName) || activeImportedNames.Contains(rootName) {
+                blocked = false
                 return false
             }
             // A namespace-qualified project source type IS an owner: the Analyzer binds
