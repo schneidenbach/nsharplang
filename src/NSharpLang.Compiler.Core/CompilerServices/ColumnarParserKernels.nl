@@ -406,6 +406,10 @@ class TypeReferenceTupleNameTable {
 //                                         property pattern entries.)
 //   PropertyPattern         -> kind 68  (`Prop` / `Prop: pat` inside object or union-case property patterns;
 //                                         property name in the value span, optional ONE child [pat].)
+//   NullGuardExpression     -> kind 75  ( the receiver of a `?.` access (QuestionDot 118) -- ONE child
+//                                         [receiver], no value span, the receiver's own span. The access
+//                                         itself stays a kind-8 MemberAccess over it (and a kind-9 Call over
+//                                         that for `a?.M(x)`), so only the SHORT CIRCUIT is new. )
 //   DefaultExpression       -> kind 74  ( `default` (Default 34) -- the target-typed zero value; NO children
 //                                         and NO value span, exactly like the null literal (kind 5). The
 //                                         written-type form is spelled as an annotation in N# (`x: T = default`),
@@ -416,7 +420,7 @@ class TypeReferenceTupleNameTable {
 //                                         start-only vs end-only.)
 // `alloc <expr>` is parsed transparently: systems analysis owns allocation-policy enforcement before this
 // product handoff, and the emitter only needs the concrete expression shape.
-// Deferred (refused with -1, or the chain simply STOPS at them): `?.`/`?[` null-conditional access, generic
+// Deferred (refused with -1, or the chain simply STOPS at them): `?[` null-conditional INDEXING, generic
 //   method calls (callee<T>(...)), named (`name:`) call arguments outside constructor argument lists,
 //   `is`/`as` type tests; every other unlisted primary (this/base/...).
 //   (Tuples `(a, b)` AND named tuples `(x: 1, y: 2)` PARSE — kinds 17/43; match,
@@ -544,6 +548,14 @@ class ColumnarExpressionNodeKind {
 
     static func RangeExpression(): int {
         return 69
+    }
+
+    // `?.` — the RECEIVER half of a null-conditional access, wrapped around the receiver so the access
+    // itself stays an ordinary MemberAccess (kind 8) and an ordinary Call (kind 9) over it. ONE child
+    // (the receiver), no value span, and the receiver's own source span: everything about the access —
+    // its member name, its arguments — is the node above, unchanged.
+    static func NullGuardExpression(): int {
+        return 75
     }
 
     // `default` — the target-typed zero value. The keyword carries no type of its own (N# spells the
@@ -5280,6 +5292,26 @@ func ParsePostfixExpressionNode(tokens: ParserTokenTable, count: int, st: Parser
             memberEnd := memberStart + memberLength
             childRunStart := st.ChildCursor
             AppendExpressionChild(st, children, expr)
+            expr = EmitExpressionNode(st, nodes, ColumnarExpressionNodeKind.MemberAccessExpression(), memberStart, memberLength, childRunStart, 1, objSpanStart, memberEnd - objSpanStart)
+
+            st.Pos = pos + 2
+        } else if pos + 1 < count && tokens.Kinds[pos] == 118 && tokens.Kinds[pos + 1] == 0 {
+
+            // `receiver?.member` (QuestionDot 118) -- the `.` branch above with the receiver wrapped in a
+            // NULL GUARD (kind 75). Everything that reads an access reads the SAME kind-8 node it always
+            // did, and a following `(` still makes the ordinary kind-9 call over it, so `a?.M(x)` needs no
+            // shape of its own. What the guard adds is a place for the SHORT CIRCUIT: it is the node that
+            // tests the receiver once and, when it is null, abandons the rest of the chain.
+            objSpanStart := nodes.SpanStarts[expr]
+            guardSpanLength := nodes.SpanLengths[expr]
+            guardChildRun := st.ChildCursor
+            AppendExpressionChild(st, children, expr)
+            guard := EmitExpressionNode(st, nodes, ColumnarExpressionNodeKind.NullGuardExpression(), -1, 0, guardChildRun, 1, objSpanStart, guardSpanLength)
+            memberStart := tokens.Starts[pos + 1]
+            memberLength := tokens.ValueLengths[pos + 1]
+            memberEnd := memberStart + memberLength
+            childRunStart := st.ChildCursor
+            AppendExpressionChild(st, children, guard)
             expr = EmitExpressionNode(st, nodes, ColumnarExpressionNodeKind.MemberAccessExpression(), memberStart, memberLength, childRunStart, 1, objSpanStart, memberEnd - objSpanStart)
 
             st.Pos = pos + 2

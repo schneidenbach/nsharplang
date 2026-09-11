@@ -954,6 +954,7 @@ test "literal node-kind ledger owns every primary literal ordinal" {
     assert ColumnarPrimaryConstructorLiteralExpressionKind(45) == ColumnarExpressionNodeKind.BoolLiteralExpression()
     assert ColumnarPrimaryConstructorLiteralExpressionKind(46) == ColumnarExpressionNodeKind.NullLiteralExpression()
     assert ColumnarExpressionNodeKind.DefaultExpression() == 74
+    assert ColumnarExpressionNodeKind.NullGuardExpression() == 75
 }
 
 // `default` IS A PRIMARY, AND IT IS THE NULL LITERAL'S TWIN. Both keywords name the target type's zero
@@ -974,6 +975,90 @@ test "the default keyword parses as a childless primary carrying only its own sp
     assert probe.NodeSpanStarts[0] == 0
     assert probe.NodeSpanLengths[0] == source.Length
     assert source.Substring(probe.NodeSpanStarts[0], probe.NodeSpanLengths[0]) == "default"
+}
+
+// `?.` IS THE `.` ACCESS WITH A GUARDED RECEIVER. The access above it stays an ordinary kind-8
+// MemberAccess — same value span, same one child — so everything that already reads an access keeps
+// reading it, and a following `(` still builds the ordinary kind-9 call. Only the receiver changes: it
+// becomes a kind-75 NullGuard wrapping what was there, which is the node the short circuit hangs on.
+test "a null-conditional access wraps its receiver in a null guard" {
+    source := "user?.Name"
+    probe := new ColumnarNumericLiteralParseProbe(source)
+
+    root := probe.ParseResult[0]
+    assert probe.NodeKinds[root] == ColumnarExpressionNodeKind.MemberAccessExpression()
+    assert probe.NodeChildCounts[root] == 1
+    assert source.Substring(probe.NodeValueStarts[root], probe.NodeValueLengths[root]) == "Name"
+
+    guard := probe.NodeChildren[probe.NodeChildStarts[root]]
+    assert probe.NodeKinds[guard] == ColumnarExpressionNodeKind.NullGuardExpression()
+    assert probe.NodeChildCounts[guard] == 1
+    assert probe.NodeValueStarts[guard] == -1
+    assert probe.NodeSpanStarts[guard] == 0
+    assert probe.NodeSpanLengths[guard] == "user".Length
+
+    receiver := probe.NodeChildren[probe.NodeChildStarts[guard]]
+    assert probe.NodeKinds[receiver] == ColumnarExpressionNodeKind.IdentifierExpression()
+    assert source.Substring(probe.NodeValueStarts[receiver], probe.NodeValueLengths[receiver]) == "user"
+}
+
+test "an ordinary dot access carries no guard" {
+    probe := new ColumnarNumericLiteralParseProbe("user.Name")
+
+    root := probe.ParseResult[0]
+    assert probe.NodeKinds[root] == ColumnarExpressionNodeKind.MemberAccessExpression()
+    guardless := probe.NodeChildren[probe.NodeChildStarts[root]]
+    assert probe.NodeKinds[guardless] == ColumnarExpressionNodeKind.IdentifierExpression()
+}
+
+test "a null-conditional call is an ordinary call over a guarded access" {
+    source := "value?.ToString()"
+    probe := new ColumnarNumericLiteralParseProbe(source)
+
+    root := probe.ParseResult[0]
+    assert probe.NodeKinds[root] == ColumnarExpressionNodeKind.CallExpression()
+    callee := probe.NodeChildren[probe.NodeChildStarts[root]]
+    assert probe.NodeKinds[callee] == ColumnarExpressionNodeKind.MemberAccessExpression()
+    assert source.Substring(probe.NodeValueStarts[callee], probe.NodeValueLengths[callee]) == "ToString"
+    guard := probe.NodeChildren[probe.NodeChildStarts[callee]]
+    assert probe.NodeKinds[guard] == ColumnarExpressionNodeKind.NullGuardExpression()
+}
+
+test "every link of a chain carries its own guard" {
+    probe := new ColumnarNumericLiteralParseProbe("user?.Home?.City")
+
+    guards := 0
+    n := 0
+    while n < probe.NodeCount {
+        if probe.NodeKinds[n] == ColumnarExpressionNodeKind.NullGuardExpression() {
+            guards = guards + 1
+            assert probe.NodeChildCounts[n] == 1
+        }
+
+        n = n + 1
+    }
+
+    assert guards == 2
+}
+
+test "a guarded link followed by a plain one leaves the plain access unguarded" {
+    probe := new ColumnarNumericLiteralParseProbe("user?.Home.City")
+
+    guards := 0
+    n := 0
+    while n < probe.NodeCount {
+        if probe.NodeKinds[n] == ColumnarExpressionNodeKind.NullGuardExpression() {
+            guards = guards + 1
+        }
+
+        n = n + 1
+    }
+
+    assert guards == 1
+    root := probe.ParseResult[0]
+    assert probe.NodeKinds[root] == ColumnarExpressionNodeKind.MemberAccessExpression()
+    inner := probe.NodeChildren[probe.NodeChildStarts[root]]
+    assert probe.NodeKinds[inner] == ColumnarExpressionNodeKind.MemberAccessExpression()
 }
 
 // THE `is` PATTERN VARIABLE. It has nowhere else to go: a kind-46 child run is [value, typeRoot] and

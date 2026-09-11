@@ -49,6 +49,12 @@ sealed class ColumnarIlEmitter {
     private readonly _codePlan: ColumnarCodePlan
     private readonly _siblings: IReadOnlyDictionary<string, ColumnarSiblingMethodDefinition>
     private _siblingCallFacts: Dictionary<string, ColumnarSiblingCallFacts>?
+    // The null-conditional chains in flight: the node whose wrapper is open, and the stack of labels the
+    // guards branch to (a stack because a chain may appear inside another chain's arguments). A guard with
+    // no open chain has nowhere to go and declines.
+    private readonly _nullConditionalEscapes: Stack<Label>
+    private _nullConditionalRoot: int
+    private _nullConditionalReceivers: bool[]?
     private readonly _genericInterfaceConstraints: IReadOnlyDictionary<Type, Type[]>
     private readonly _enumRegistry: Dictionary<string, ColumnarEnumDef>
     private readonly _typeResolutionEnums: ColumnarSemanticRegistry<ColumnarEnumDef>
@@ -228,6 +234,9 @@ sealed class ColumnarIlEmitter {
         _asyncReturnsValueTask = false
         _inFinallyRegion = false
         _overflowCheckingEnabled = false
+        _nullConditionalRoot = -1
+        _nullConditionalEscapes = new Stack<Label>()
+        _nullConditionalReceivers = null
         _tupleNamesByVariable = new Dictionary<string, string[]>(StringComparer.Ordinal)
         _codePlan = new ColumnarCodePlan()
         _locals = new Dictionary<string, LocalBuilder>(StringComparer.Ordinal)
@@ -8745,7 +8754,176 @@ sealed class ColumnarIlEmitter {
     // function) on any unsupported form or a type mismatch the spike does not model. The reported type drives
     // correct opcode selection and prevents cross-type mixing (e.g. a bool leaking into int arithmetic) that
     // would diverge from N#'s type rules.
-    private func EmitExpression(idx: int, out columnarResolvedType: Type): bool => EmitExpressionCore(idx, out columnarResolvedType)
+    private func EmitExpression(idx: int, out columnarResolvedType: Type): bool {
+        // A NULL-CONDITIONAL CHAIN IS EMITTED FROM ITS ROOT, NOT FROM ITS GUARD. `a?.B.C` is ONE
+        // expression that is null when `a` is: the guard tests, and everything to its right is skipped.
+        // The node that owns that decision is the OUTERMOST access over the guard — the node the chain
+        // finally produces a value for — so the wrapper is entered there and the guard, reached later as
+        // part of the receiver, only has to branch to the escape label the wrapper left it.
+        if (idx != _nullConditionalRoot && IsNullConditionalChainRoot(idx)) {
+            return EmitNullConditionalChain(idx, out columnarResolvedType)
+        }
+        return EmitExpressionCore(idx, out columnarResolvedType)
+    }
+
+    // THE CHAIN ROOT, DECIDED STRUCTURALLY. A node is a root when its RECEIVER SPINE reaches a null
+    // guard and the node is not itself the receiver of another access — that second half is what makes
+    // `a?.B.C`'s root the `.C` and not the `a?.B`, which is the difference between C#'s short circuit and
+    // a null-reference exception on the second access. Parentheses are deliberately NOT walked: `(a?.B).C`
+    // ends the chain at the parenthesis in C# too, and not walking them makes the inner access its own
+    // root, which is exactly that reading.
+    private func IsNullConditionalChainRoot(node: int): bool {
+        if (!NodeSpineReachesNullGuard(node)) {
+            return false
+        }
+        receivers := NullConditionalReceiverNodes()
+        return node < 0 || node >= receivers.Length || !receivers[node]
+    }
+
+    private func NodeSpineReachesNullGuard(node: int): bool {
+        steps := 0
+        while (node >= 0 && steps <= 200) {
+            kind := _nodes.Kind(node)
+            if (kind == ColumnarExpressionNodeKind.NullGuardExpression()) {
+                return true
+            }
+            if ((kind != ColumnarExpressionNodeKind.MemberAccessExpression() && kind != ColumnarExpressionNodeKind.CallExpression() && kind != ColumnarExpressionNodeKind.IndexAccessExpression()) || _nodes.ChildCount(node) < 1) {
+                return false
+            }
+            node = Child(node, 0)
+            steps = steps + 1
+        }
+        return false
+    }
+
+    // Every node that stands as another access's RECEIVER, gathered once per emitter from the node
+    // table. It is the only fact the root test needs that a downward walk cannot answer.
+    private func NullConditionalReceiverNodes(): bool[] {
+        cached := _nullConditionalReceivers
+        if (cached != null) {
+            return cached
+        }
+        nodeCount := _nodes.Kinds.Length
+        receivers := new bool[](nodeCount)
+        for n := 0; n < nodeCount; n++ {
+            kind := _nodes.Kind(n)
+            if ((kind == ColumnarExpressionNodeKind.MemberAccessExpression() || kind == ColumnarExpressionNodeKind.CallExpression() || kind == ColumnarExpressionNodeKind.IndexAccessExpression()) && _nodes.ChildCount(n) >= 1) {
+                receiverNode := Child(n, 0)
+                if (receiverNode >= 0 && receiverNode < nodeCount) {
+                    receivers[receiverNode] = true
+                }
+            }
+        }
+        _nullConditionalReceivers = receivers
+        return receivers
+    }
+
+    // The chain's value, and the null it produces instead. The inner expression is emitted exactly as it
+    // would be without the `?`, with an escape label reserved for the guard; the two branches then have to
+    // agree on a type. C#'s rule is the one implemented: a REFERENCE result keeps its type and the escape
+    // yields the null reference; a VALUE result is LIFTED to `Nullable<T>` and the escape yields an empty
+    // one, which is why `s?.Length` is `int?` and not `int`; a `void` result — a conditional call written
+    // as a statement — has no value for either branch to produce.
+    private func EmitNullConditionalChain(root: int, out columnarResolvedType: Type): bool {
+        columnarResolvedType = null
+        previousRoot := _nullConditionalRoot
+        escape := _il.DefineLabel()
+        _nullConditionalRoot = root
+        _nullConditionalEscapes.Push(escape)
+        let innerType: System.Type? = null
+        let emitted: bool = false
+        try {
+            emitted = EmitExpression(root, out innerType)
+        } finally {
+            _nullConditionalRoot = previousRoot
+            _nullConditionalEscapes.Pop()
+        }
+        if (!emitted || innerType == null) {
+            return false
+        }
+        finished := _il.DefineLabel()
+        if (ColumnarCodePlanExecutor.IsVoidType(innerType)) {
+            _il.Emit(OpCodes.Br, finished)
+            _il.MarkLabel(escape)
+            _il.MarkLabel(finished)
+            columnarResolvedType = innerType
+            return true
+        }
+        if (innerType.get_IsGenericParameter() || innerType.get_IsByRef() || innerType.get_IsPointer()) {
+            // A result whose type is an open type parameter cannot be lifted: `Nullable<T>` demands a
+            // struct, and this position knows neither.
+            return false
+        }
+        if (innerType.get_IsValueType() && !ColumnarTypeOfPlanner.IsSupportedNullable(innerType)) {
+            liftedType := typeof(Nullable<int>).GetGenericTypeDefinition().MakeGenericType([innerType])
+            liftedCtor := liftedType.GetConstructor([innerType])
+            if (liftedCtor == null) {
+                return false
+            }
+            _il.Emit(OpCodes.Newobj, liftedCtor)
+            _il.Emit(OpCodes.Br, finished)
+            _il.MarkLabel(escape)
+            if (!EmitDefaultValueOfType(liftedType)) {
+                return false
+            }
+            _il.MarkLabel(finished)
+            columnarResolvedType = liftedType
+            return true
+        }
+        _il.Emit(OpCodes.Br, finished)
+        _il.MarkLabel(escape)
+        if (!EmitDefaultValueOfType(innerType)) {
+            return false
+        }
+        _il.MarkLabel(finished)
+        columnarResolvedType = innerType
+        return true
+    }
+
+    // THE GUARD ITSELF: evaluate the receiver once, and either leave it on the stack for the access
+    // above or abandon the chain. A REFERENCE receiver tests itself (`dup`/`brtrue`); a `Nullable<T>`
+    // receiver tests `HasValue` and hands the access its `Value`, which is the whole point of writing
+    // `?.` on one; an unconstrained TYPE PARAMETER boxes first, and the access is then made through the
+    // boxed reference — the same lowering C# uses, and the reason `T?.ToString()` reaches
+    // `object.ToString` for a value instantiation and the override for a reference one. A plain
+    // non-nullable value receiver has no null to test for, so `?` on one is refused rather than answered.
+    private func TryEmitNullGuard(idx: int, out columnarResolvedType: Type): bool {
+        columnarResolvedType = null
+        if (_nullConditionalEscapes.Count == 0 || _nodes.ChildCount(idx) != 1) {
+            return false
+        }
+        escape := _nullConditionalEscapes.Peek()
+        let receiverType: System.Type? = null
+        if (!EmitExpression(Child(idx, 0), out receiverType) || receiverType == null) {
+            return false
+        }
+        if (ColumnarTypeOfPlanner.IsSupportedNullable(receiverType)) {
+            nullableLocal := _il.DeclareLocal(receiverType)
+            _il.Emit(OpCodes.Stloc, nullableLocal)
+            _il.Emit(OpCodes.Ldloca, nullableLocal)
+            _il.Emit(OpCodes.Call, receiverType.GetMethod("get_HasValue"))
+            _il.Emit(OpCodes.Brfalse, escape)
+            _il.Emit(OpCodes.Ldloca, nullableLocal)
+            _il.Emit(OpCodes.Call, receiverType.GetMethod("get_Value"))
+            columnarResolvedType = receiverType.GetGenericArguments()[0]
+            return true
+        }
+        if (receiverType.get_IsGenericParameter()) {
+            _il.Emit(OpCodes.Box, receiverType)
+            columnarResolvedType = typeof(object)
+        } else if (!receiverType.get_IsValueType()) {
+            columnarResolvedType = receiverType
+        } else {
+            return false
+        }
+        present := _il.DefineLabel()
+        _il.Emit(OpCodes.Dup)
+        _il.Emit(OpCodes.Brtrue, present)
+        _il.Emit(OpCodes.Pop)
+        _il.Emit(OpCodes.Br, escape)
+        _il.MarkLabel(present)
+        return true
+    }
 
     private func EmitExpressionWithOverflowChecking(idx: int, enabled: bool, out columnarResolvedType: Type): bool {
         previous := _overflowCheckingEnabled
@@ -11184,6 +11362,8 @@ sealed class ColumnarIlEmitter {
                 return false
             }
             return true
+        } else if columnarSwitchValue2 == ColumnarExpressionNodeKind.NullGuardExpression() {
+            return TryEmitNullGuard(idx, out columnarResolvedType)
         } else if columnarSwitchValue2 == 46 || columnarSwitchValue2 == 47 {
             // bool; AsExpression [value, typeRoot] — `value as Type`: `isinst <T>` keeping the
             // target type (null on mismatch). The typeRoot resolves a UNION CASE (closed over a

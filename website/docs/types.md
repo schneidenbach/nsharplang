@@ -1030,6 +1030,11 @@ Two rules the compiler enforces about the type-argument list itself:
 - A method type parameter mentioned **only in a delegate's RESULT** is not inferred from the
   lambda's body: `outcome.Match(v => v.ToString(), e => e)` needs `Match<string>(...)` written out.
   The same limit applies to a generic FREE function with a `Func<TValue, TResult>` parameter.
+- **Null-conditional INDEXING** (`items?[0]`) is not compiled yet; `?.` on a member or a method is
+  unaffected, and an explicit null check reads the element.
+- An argument that must be **boxed into an `object` parameter of a GENERIC function**
+  (`Wrap<int>(value, fallback)` where `Wrap` takes `o: object?`) is not converted yet. The same
+  argument reaches a non-generic function's `object?` parameter without ceremony.
 
 ## Nullable Types
 
@@ -1063,13 +1068,49 @@ displayAge := age ?? 0
 
 ### Null-conditional Operator
 
+`a?.B` evaluates `a` once and reads `B` only if it is not null; if it is, the **whole chain to the
+right of the `?`** is skipped and the expression is null. That is why `user?.Address.City` never
+throws even when `Address` is a plain access: once `user` is null, nothing after the `?` runs.
+
 ```n#
 user: User? = GetUser()
-name := user?.Name  // null if user is null
+name := user?.Name           // string?  — null if user is null
 
-// Chaining
+// Chaining: null anywhere on the way is null at the end
 city := user?.Address?.City
+
+// Calls too
+text := user?.ToString() ?? "anonymous"
 ```
+
+The result is **lifted**: reading a member whose type is a value type gives you the nullable of it,
+because "no value" has to be expressible.
+
+```n#
+length := user?.Name?.Length      // int?, not int
+count := (user?.Name?.Length) ?? 0
+```
+
+Parentheses end a chain, exactly as they read: in `(user?.Address).City` the `?` guards only the
+first access, and the second one runs on whatever that produced.
+
+`?.` also works on a nullable value (`when?.Year` on a `DateTime?` reads `Year` off the value when
+there is one) and on an unconstrained type parameter, where it means the same thing for both kinds of
+instantiation — never null for a value one, a real check for a reference one:
+
+```n#
+struct Box<T> {
+    Value: T
+
+    constructor(value: T) {
+        Value = value
+    }
+
+    override func ToString(): string => Value?.ToString() ?? "<none>"
+}
+```
+
+Writing `?` on a plain, non-nullable value (`5?.ToString()`) is rejected: there is no null to test for.
 
 ### Null checks instead of null-forgiving
 
