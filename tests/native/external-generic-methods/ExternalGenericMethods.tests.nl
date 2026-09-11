@@ -25,7 +25,7 @@ class Plain {
     Name: string = "plain"
 }
 
-func PersonJson(): string {
+func AgesJson(): string {
     return "{\"Ada\":36,\"Grace\":45}"
 }
 
@@ -80,7 +80,7 @@ test "a written type argument names a SOURCE type the same compilation is emitti
 // A trailing optional parameter with a null metadata default is filled, so the site need not write
 // `options` to reach `Deserialize<TValue>(string, JsonSerializerOptions?)`.
 test "a written type argument reaches a method whose trailing optional is filled from its default" {
-    ages := JsonSerializer.Deserialize<Dictionary<string, int>>(PersonJson())
+    ages := JsonSerializer.Deserialize<Dictionary<string, int>>(AgesJson())
 
     assert ages != null
     assert ages.Count == 2
@@ -89,11 +89,11 @@ test "a written type argument reaches a method whose trailing optional is filled
 }
 
 test "the round trip through the written-argument serializer returns the same text" {
-    ages := JsonSerializer.Deserialize<Dictionary<string, int>>(PersonJson())
+    ages := JsonSerializer.Deserialize<Dictionary<string, int>>(AgesJson())
     written := JsonSerializer.Serialize<Dictionary<string, int>>(ages)
     again := JsonSerializer.Deserialize<Dictionary<string, int>>(written)
 
-    assert written == PersonJson()
+    assert written == AgesJson()
     assert again != null
     assert again["Ada"] == ages["Ada"]
     assert again["Grace"] == ages["Grace"]
