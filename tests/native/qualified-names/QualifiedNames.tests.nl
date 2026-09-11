@@ -56,6 +56,13 @@ test "a qualified type name used as a receiver answers the type it names" {
     assert System.String.IsNullOrEmpty("x") == false
 }
 
+test "a qualified static call into a namespace the file never imported resolves" {
+    values := new List<int>()
+    values.Add(4)
+    values.Add(5)
+    assert System.Linq.Enumerable.Count(values) == 2
+}
+
 // ── namespace aliases in expression position ──────────────────────────────────────────────────
 
 test "a namespace alias qualifies a static call" {
