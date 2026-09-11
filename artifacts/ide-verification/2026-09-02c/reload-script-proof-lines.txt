@@ -1,0 +1,3 @@
+5:   VS Code exited after 1s.
+102:5. Language server under test:
+103:   LanguageServer.dll pid 10584 started Wed Aug 5 21:29:33 2026 

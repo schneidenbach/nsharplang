@@ -1,6 +1,6 @@
 # N# Language Support for VS Code
 
-> **"Go for .NET"** - A tight, pragmatic language for the CLR with Go-inspired syntax and powerful .NET features
+> A tight, pragmatic language for the CLR with Go-inspired syntax, a rich type system, and powerful .NET features
 
 N# (`.nl` files) VS Code support with syntax highlighting, diagnostics, completions/hover/code actions where covered, and `nlc`-backed build/run/test tasks. Verify the extension against the current checkout before launch claims.
 
@@ -8,6 +8,7 @@ N# (`.nl` files) VS Code support with syntax highlighting, diagnostics, completi
 
 ### 🚀 IntelliSense & Code Completion
 - **Smart auto-completion** for keywords, types, and symbols
+- **External type imports** - Accepting a type marked `auto-import` inserts its namespace import. Existing imports and the current namespace/package stay in scope; imports follow file headers and preserve the document's line endings.
 - **Signature help** with parameter information
 - **Hover tooltips** showing type information
 - **Go to Definition** - Jump to symbol declarations
@@ -33,19 +34,15 @@ N# (`.nl` files) VS Code support with syntax highlighting, diagnostics, completi
 - **Remove unnecessary null checks**
 - More quick fixes coming soon!
 
-### 🧭 Run & Debug
-- **F5 support** - Launch executable N# projects from a `.nl` file without VS Code searching the Marketplace
-- **Breakpoints in `.nl` files** - Debug builds export a temporary C# bundle with `#line` mappings back to N# source
-- **Command palette** - `N#: Run Project` and `N#: Debug Project`
-
-Debugging uses the Microsoft C# extension CoreCLR debugger. Install `ms-dotnettools.csharp` for breakpoints and stepping.
+### 🧭 Run
+- **Command palette** - `N#: Run Project`
+- **Project tasks** - Build, run, and test executable N# projects from VS Code.
 
 ### ⚡ Tasks & Build Integration
 Automatic `nlc`-backed tasks for fresh `project.yml` templates:
 - `build` - Build your N# project with `nlc build` (Ctrl+Shift+B)
 - `run` - Run your application with `nlc run`
 - `test` - Run tests with `nlc test`
-- `debug build` - Export and build the temporary `.nsharp/debug` C# bundle used by F5
 
 The task provider respects the `nsharp.cli.path` setting. Leave it empty to use `nlc` from `PATH`, or set it to an absolute path to a repo-local/compiler-built executable.
 
@@ -97,12 +94,12 @@ code --install-extension nsharp-0.6.0.vsix
    code .
    ```
 5. **Start coding!** Open `Program.nl` and start writing N# code
-6. **Build/run/test/debug from VS Code** -- use the N# tasks, `N#: Run Project`, `N#: Debug Project`, or press F5 from a `.nl` file.
+6. **Build/run/test from VS Code** -- use the N# tasks or `N#: Run Project`.
 
 ## 📖 Example Code
 
 ```nsharp
-// N# - Go for .NET
+// N# - Go-inspired syntax, a richer type system
 package MyApp
 
 import System
@@ -218,7 +215,7 @@ The extension contributes the `catchResult` semantic token modifier. To customiz
 
 ## 🤝 Contributing
 
-Contributions welcome! Visit the [main repository](https://github.com/anthropics/NewCLILang) for:
+Contributions welcome! Visit the [main repository](https://github.com/schneidenbach/nsharplang) for:
 - Bug reports and feature requests
 - Contributing guidelines
 - Language design documentation
@@ -229,10 +226,10 @@ MIT
 
 ## 🔗 Links
 
-- [N# Language Documentation](https://github.com/anthropics/NewCLILang/tree/main/docs)
-- [GitHub Repository](https://github.com/anthropics/NewCLILang)
-- [Getting Started Guide](https://github.com/anthropics/NewCLILang/blob/main/docs/README.md)
-- [Language Reference](https://github.com/anthropics/NewCLILang/tree/main/docs/guide)
+- [N# Language Documentation](https://github.com/schneidenbach/nsharplang/tree/main/docs)
+- [GitHub Repository](https://github.com/schneidenbach/nsharplang)
+- [Getting Started Guide](https://github.com/schneidenbach/nsharplang/blob/main/docs/README.md)
+- [Language Reference](https://github.com/schneidenbach/nsharplang/tree/main/website/docs)
 
 ---
 

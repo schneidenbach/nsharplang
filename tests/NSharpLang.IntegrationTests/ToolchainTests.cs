@@ -35,6 +35,8 @@ public class ToolchainTests : IClassFixture<ToolchainFixture>
         Assert.Contains("nsharp-library", list.Stdout);
         Assert.Contains("nsharp-test", list.Stdout);
         Assert.Contains("nsharp-webapi", list.Stdout);
+        Assert.Contains("nsharp-systems-cli", list.Stdout);
+        Assert.Contains("nsharp-systems-lib", list.Stdout);
     }
 
     [DockerFact]
@@ -48,6 +50,8 @@ public class ToolchainTests : IClassFixture<ToolchainFixture>
             ("nsharp-library", UniqueDir("library-shape"), "Calculator.nl"),
             ("nsharp-test", UniqueDir("test-shape"), "Calculator.tests.nl"),
             ("nsharp-webapi", UniqueDir("webapi-shape"), "Controllers/WeatherController.nl"),
+            ("nsharp-systems-cli", UniqueDir("systems-cli-shape"), "Program.nl"),
+            ("nsharp-systems-lib", UniqueDir("systems-lib-shape"), "PacketCore.nl"),
         })
         {
             var create = await Bash($"dotnet new {shortName} -o {dir}");
@@ -75,6 +79,8 @@ public class ToolchainTests : IClassFixture<ToolchainFixture>
             ("library", "nsharp-library", new[] { "Calculator.nl" }),
             ("test", "nsharp-test", new[] { "Calculator.nl", "Calculator.tests.nl" }),
             ("webapi", "nsharp-webapi", new[] { "Program.nl", "Controllers/WeatherController.nl" }),
+            ("systems-cli", "nsharp-systems-cli", new[] { "Program.nl", "Systems.tests.nl" }),
+            ("systems-lib", "nsharp-systems-lib", new[] { "PacketCore.nl", "PacketCore.tests.nl" }),
         })
         {
             var nlcParent = UniqueDir($"nlc-new-{template}-parent");
@@ -188,7 +194,7 @@ public class ToolchainTests : IClassFixture<ToolchainFixture>
         var docsPath = Path.Combine(repoRoot, "templates", "README.md");
         var quickstarts = ReadTemplateQuickstarts(docsPath);
 
-        Assert.Equal(new[] { "console", "library", "test", "webapi" }, quickstarts.Select(q => q.Name).OrderBy(name => name));
+        Assert.Equal(new[] { "console", "library", "systems-console", "systems-library", "test", "webapi" }, quickstarts.Select(q => q.Name).OrderBy(name => name));
 
         foreach (var quickstart in quickstarts)
         {
@@ -276,7 +282,7 @@ public class ToolchainTests : IClassFixture<ToolchainFixture>
             return command;
 
         var escaped = command.Replace("'", "'\\''", StringComparison.Ordinal);
-        return "bash -lc 'set -e; " +
+        return "bash -c 'set -e; " +
                $"{escaped} > /tmp/nsharp-webapi-quickstart.log 2>&1 & pid=$!; " +
                "for i in $(seq 1 40); do " +
                "if curl -fsS http://127.0.0.1:5050/api/weather >/tmp/nsharp-webapi-quickstart-response.txt 2>/dev/null; then " +

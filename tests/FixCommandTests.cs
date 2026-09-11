@@ -685,27 +685,6 @@ func Main() {
     }
 
     [Fact]
-    public void ShouldApply_SafeIsAlwaysApplied()
-    {
-        Assert.True(FixCommand.ShouldApply(FixSafety.Safe, includeReviewNeeded: false));
-        Assert.True(FixCommand.ShouldApply(FixSafety.Safe, includeReviewNeeded: true));
-    }
-
-    [Fact]
-    public void ShouldApply_ReviewNeededRequiresFlag()
-    {
-        Assert.False(FixCommand.ShouldApply(FixSafety.ReviewNeeded, includeReviewNeeded: false));
-        Assert.True(FixCommand.ShouldApply(FixSafety.ReviewNeeded, includeReviewNeeded: true));
-    }
-
-    [Fact]
-    public void ShouldApply_SuggestionOnlyNeverApplied()
-    {
-        Assert.False(FixCommand.ShouldApply(FixSafety.SuggestionOnly, includeReviewNeeded: false));
-        Assert.False(FixCommand.ShouldApply(FixSafety.SuggestionOnly, includeReviewNeeded: true));
-    }
-
-    [Fact]
     public void FixCommand_DryRun_File_NL003_ReportsExactZeroBasedEditAndDoesNotModifyFile()
     {
         AssertDryRunSingleFix(

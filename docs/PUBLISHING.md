@@ -13,6 +13,11 @@ curl -fsSL https://raw.githubusercontent.com/schneidenbach/nsharplang/main/scrip
 That installer expects these artifacts to exist for the target version:
 
 - `nsharp-toolset.tar.gz`: package-manager-ready `nlc` and `nsharp-lsp` app payloads plus launchers
+- `SHA256SUMS`: checksums for the downloadable release assets. **Required.** `scripts/install.sh`
+  verifies every URL download against this asset and refuses to install on a missing or
+  mismatched checksum. `scripts/publish-toolset.sh` writes it next to the archive with the
+  toolset entry; append the VSIX entry before uploading:
+  `(cd artifacts && shasum -a 256 vscode/nsharp.vsix | sed 's|vscode/||' >> toolset/SHA256SUMS)`
 - `NSharpLang.Sdk`: MSBuild SDK restored by generated project build files
 - `NSharpLang.Templates`: `dotnet new` templates used by `nlc new`/template consumers
 - `NSharpLang.Compiler`: compiler API library used by SDK/tooling packages
@@ -104,9 +109,19 @@ export GITHUB_TOKEN=your_token_here
 NuGet cannot install VS Code extensions. Before announcing the installer as public-green, do one of:
 
 1. Publish `nsharp.nsharp` to the VS Code Marketplace/Open VSX, so `code --install-extension nsharp.nsharp --force` works; or
-2. Attach `artifacts/vscode/nsharp.vsix` to the latest GitHub Release. The public installer uses `https://github.com/schneidenbach/nsharplang/releases/latest/download/nsharp.vsix` as its automatic fallback.
+2. Attach `artifacts/vscode/nsharp.vsix` to the latest GitHub Release. The public installer uses `https://github.com/schneidenbach/nsharplang/releases/latest/download/nsharp.vsix` as its automatic fallback. When attaching a VSIX, its entry MUST also be present in the release's `SHA256SUMS` asset — the installer verifies the VSIX download and aborts if the entry is missing.
 
 If neither exists, block the release and state that the missing external artifact is the VS Code extension publication target.
+
+## Release Asset Integrity
+
+Every GitHub Release that carries downloadable assets MUST include a `SHA256SUMS` asset
+listing `nsharp-toolset.tar.gz` (written by `scripts/publish-toolset.sh`) and, when
+attached, `nsharp.vsix`. `scripts/install.sh` downloads `SHA256SUMS` from the same release
+path as the asset (override with `NSHARP_SUMS_URL`), and hard-fails on a missing sums
+asset, a missing entry, or a hash mismatch. `--no-verify` exists only for custom
+`--source` locations that intentionally have no checksums; never document it as part of
+the public install path.
 
 ## Uninstall / Update
 

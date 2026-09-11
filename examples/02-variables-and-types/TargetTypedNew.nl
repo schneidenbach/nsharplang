@@ -1,4 +1,4 @@
-// Target-Typed New Expressions (C# 9 Feature)
+// Target-Typed New Expressions
 // Demonstrates the `new()` syntax that infers type from context
 
 // 1. Simple class for demonstration
@@ -86,5 +86,5 @@ func Main() {
     print "2. Cleaner when the type is obvious from context"
     print "3. Works seamlessly with generics"
     print "4. Reduces redundancy in variable declarations"
-    print "5. Modern C# 9+ feature for concise syntax"
+    print "5. Concise syntax for context-typed construction"
 }

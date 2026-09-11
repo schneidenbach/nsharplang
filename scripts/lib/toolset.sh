@@ -340,7 +340,8 @@ nsharp_write_env_file() {
     mkdir -p "$(dirname "$env_file")"
     cat > "$env_file" <<EOF
 # Added by N# setup.
-export PATH="$install_dir/bin:\$PATH"
+export NSHARP_INSTALL_DIR="$install_dir"
+export PATH="\$NSHARP_INSTALL_DIR/bin:\$PATH"
 EOF
     if [[ -n "$dotnet_root" ]]; then
         {

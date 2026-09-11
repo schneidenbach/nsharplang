@@ -1,0 +1,10 @@
+name: SystemsProof43MonoWasmPlugin
+version: 0.1.0
+targetFramework: net10.0
+outputType: library
+entry: Program.nl
+language:
+  profile: systems
+  systems:
+    mode: strict
+    aotTarget: mono-wasm

@@ -17,6 +17,7 @@ echo "================================"
 mkdir -p artifacts/nuget artifacts/toolset artifacts/vscode
 
 nsharp_pack_package_set artifacts/nuget minimal
+python3 scripts/verify-release.py artifacts/nuget
 
 echo ""
 echo "Publishing package-manager toolset..."

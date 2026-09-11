@@ -5,7 +5,6 @@ using System.IO;
 using System.Linq;
 using System.Reflection;
 using System.Runtime.Loader;
-using System.Text.Json.Serialization;
 using System.Threading;
 using System.Threading.Tasks;
 using NSharpLang.Compiler;
@@ -16,33 +15,12 @@ namespace NSharpLang.Cli;
 
 partial class Program
 {
-    private const string CoverageUnsupportedMessage =
-        "Coverage collection is not available in nlc test yet. " +
-        "The current runner executes IL-backed xUnit/NUnit tests without instrumentation. " +
-        "Omit --coverage/--coverage-report until native coverage support lands.";
-
-    private sealed record NativeTestCase(
-        string DisplayName,
-        string FullyQualifiedName,
-        MethodInfo Method,
-        object?[] Arguments,
-        string? SkipReason);
-
-    private sealed record NativeTestResult(
-        string Name,
-        string DisplayName,
-        string Outcome,
-        string Duration,
-        string? ErrorMessage,
-        [property: JsonPropertyName("nsharpDescription")]
-        string? NSharpDescription);
-
     private sealed class NativeTestLoadContext(string assemblyDirectory)
         : AssemblyLoadContext(nameof(NativeTestLoadContext), isCollectible: true)
     {
         protected override Assembly? Load(AssemblyName assemblyName)
         {
-            var candidatePath = Path.Combine(assemblyDirectory, $"{assemblyName.Name}.dll");
+            var candidatePath = TestCommandKernels.GetAssemblyCandidatePath(assemblyDirectory, assemblyName.Name);
             if (File.Exists(candidatePath))
             {
                 return LoadFromAssemblyPath(candidatePath);
@@ -58,38 +36,40 @@ partial class Program
         ProjectConfig? projectConfig,
         string? filter,
         bool verbose,
-        bool jsonOutput,
+        int outputMode,
         int? timeoutMs,
         bool noCache,
         bool collectCoverage,
         bool coverageReport,
         Stopwatch stopwatch)
     {
-        var projectYmlPath = Path.Combine(projectRoot, "project.yml");
+        var projectYmlPath = TestCommandKernels.GetProjectYmlPath(projectRoot);
         if (!File.Exists(projectYmlPath))
         {
-            if (jsonOutput)
+            var message = TestCommandKernels.GetMissingProjectFileMessage();
+            if (TestCommandKernels.IsJsonOutputMode(outputMode))
             {
-                OutputNativeTestJson(projectRoot, false, Array.Empty<NativeTestResult>(), "IL-backed test runs require a project.yml file.");
-                return 1;
+                OutputNativeTestJson(projectRoot, false, Array.Empty<NativeTestResult>(), NativeTestSummary.EmptyFailure, message);
+                return TestCommandKernels.GetExitCode(false);
             }
 
-            return Error("IL-backed test runs require a project.yml file.");
+            return Error(message);
         }
 
         if (collectCoverage || coverageReport)
         {
-            if (jsonOutput)
+            var message = TestCommandKernels.GetCoverageUnsupportedMessage();
+            if (TestCommandKernels.IsJsonOutputMode(outputMode))
             {
-                OutputNativeTestJson(projectRoot, false, Array.Empty<NativeTestResult>(), CoverageUnsupportedMessage);
-                return 1;
+                OutputNativeTestJson(projectRoot, false, Array.Empty<NativeTestResult>(), NativeTestSummary.EmptyFailure, message);
+                return TestCommandKernels.GetExitCode(false);
             }
 
-            return Error(CoverageUnsupportedMessage);
+            return Error(message);
         }
 
         projectConfig ??= ProjectFileParser.Parse(projectYmlPath);
-        var testOutputDir = Path.Combine(projectRoot, "bin", "Debug", projectConfig.TargetFramework, "tests");
+        var testOutputDir = TestCommandKernels.GetTestOutputDirectory(projectRoot, projectConfig.TargetFramework);
         if (noCache && Directory.Exists(testOutputDir))
         {
             Directory.Delete(testOutputDir, recursive: true);
@@ -100,66 +80,69 @@ partial class Program
             var outputPath = BuildProjectWithIlBackendForCommand(
                 projectRoot,
                 projectConfig,
-                "Debug",
+                TestCommandKernels.GetTestBuildConfiguration(),
                 testOutputDir,
                 includeTests: true,
                 verbose: verbose);
 
             if (outputPath == null)
             {
-                if (jsonOutput)
+                var message = TestCommandKernels.GetBuildFailedMessage();
+                if (TestCommandKernels.IsJsonOutputMode(outputMode))
                 {
-                    OutputNativeTestJson(projectRoot, false, Array.Empty<NativeTestResult>(), "Test build failed.");
-                    return 1;
+                    OutputNativeTestJson(projectRoot, false, Array.Empty<NativeTestResult>(), NativeTestSummary.EmptyFailure, message);
+                    return TestCommandKernels.GetExitCode(false);
                 }
 
-                return Error("Test build failed.");
+                return Error(message);
             }
 
-            var testResults = string.Equals(projectConfig.TestFramework, "nunit", StringComparison.OrdinalIgnoreCase)
+            var testRun = TestCommandKernels.ShouldRunNUnit(projectConfig.TestFramework)
                 ? RunReflectionTests(outputPath, filter, verbose, timeoutMs)
                 : RunXunitTests(outputPath, filter, verbose, timeoutMs);
-            var ok = testResults.All(result => result.Outcome is "passed" or "skipped");
+            var testResults = testRun.Results;
+            var summary = TestCommandKernels.SummarizeNativeTestRun(testRun);
 
-            if (jsonOutput)
+            if (TestCommandKernels.IsJsonOutputMode(outputMode))
             {
-                OutputNativeTestJson(projectRoot, ok, testResults);
+                OutputNativeTestJson(projectRoot, summary.Ok, testResults, summary);
             }
             else
             {
-                var passed = testResults.Count(result => result.Outcome == "passed");
-                var failed = testResults.Count(result => result.Outcome == "failed");
-                var skipped = testResults.Count(result => result.Outcome == "skipped");
-                Console.WriteLine($"Passed: {passed}, Failed: {failed}, Skipped: {skipped}, Total: {testResults.Count}");
-                Console.WriteLine($"  Tests completed in {FormatElapsed(stopwatch.Elapsed)}");
+                Console.WriteLine(TestCommandKernels.GetSummaryMessage(
+                    summary.Passed,
+                    summary.Failed,
+                    summary.Skipped,
+                    summary.Total));
+                Console.WriteLine(TestCommandKernels.GetCompletedElapsedMessage(ProgramCommandKernels.FormatElapsedMilliseconds(stopwatch.ElapsedMilliseconds)));
             }
 
-            return ok ? 0 : 1;
+            return TestCommandKernels.GetExitCode(summary.Ok);
         }
         catch (Exception ex)
         {
-            if (!jsonOutput)
+            if (TestCommandKernels.IsTextOutputMode(outputMode))
             {
-                Console.WriteLine($"  Tests failed in {FormatElapsed(stopwatch.Elapsed)}");
+                Console.WriteLine(TestCommandKernels.GetFailedElapsedMessage(ProgramCommandKernels.FormatElapsedMilliseconds(stopwatch.ElapsedMilliseconds)));
             }
 
-            if (jsonOutput)
+            if (TestCommandKernels.IsJsonOutputMode(outputMode))
             {
-                OutputNativeTestJson(projectRoot, false, Array.Empty<NativeTestResult>(), ex.Message);
-                return 1;
+                OutputNativeTestJson(projectRoot, false, Array.Empty<NativeTestResult>(), NativeTestSummary.EmptyFailure, ex.Message);
+                return TestCommandKernels.GetExitCode(false);
             }
 
-            return Error($"Test failed: {ex.Message}");
+            return Error(TestCommandKernels.GetFailedMessage(ex.Message));
         }
     }
 
-    private static List<NativeTestResult> RunXunitTests(
+    private static NativeTestRun RunXunitTests(
         string assemblyPath,
         string? filter,
         bool verbose,
         int? timeoutMs)
     {
-        var assemblyDirectory = Path.GetDirectoryName(assemblyPath)
+        var assemblyDirectory = TestCommandKernels.GetAssemblyDirectory(assemblyPath)
             ?? throw new InvalidOperationException($"Could not determine the test assembly directory for '{assemblyPath}'.");
 
         Assembly? resolveFromTestOutput(AssemblyLoadContext context, AssemblyName assemblyName)
@@ -171,7 +154,7 @@ partial class Program
                 return alreadyLoaded;
             }
 
-            var candidatePath = Path.Combine(assemblyDirectory, $"{assemblyName.Name}.dll");
+            var candidatePath = TestCommandKernels.GetAssemblyCandidatePath(assemblyDirectory, assemblyName.Name);
             return File.Exists(candidatePath)
                 ? context.LoadFromAssemblyPath(candidatePath)
                 : null;
@@ -210,19 +193,32 @@ partial class Program
             discoverySink.Finished.WaitOne();
 
             var testCases = discoverySink.TestCases
-                .Where(testCase => MatchesXunitTestFilter(testCase, filter))
+                .Where(testCase =>
+                {
+                    if (string.IsNullOrWhiteSpace(filter))
+                    {
+                        return true;
+                    }
+
+                    var displayName = TestCommandKernels.GetPreferredDisplayName(GetXunitDescription(testCase), testCase.DisplayName);
+                    return TestCommandKernels.MatchesFilter(
+                        filter,
+                        displayName,
+                        testCase.DisplayName,
+                        GetXunitFullyQualifiedName(testCase));
+                })
                 .ToArray();
 
-            using var executionSink = new XunitResultSink(verbose);
+            using var executionSink = new XunitResultSink(verbose, testCases.Length);
             var executionOptions = TestFrameworkOptions.ForExecution(assemblyConfiguration);
             controller.RunTests(testCases, executionSink, executionOptions);
 
             if (!executionSink.WaitForCompletion(timeoutMs))
             {
-                throw new TimeoutException("Test run timed out.");
+                throw new TimeoutException(TestCommandKernels.GetRunTimedOutMessage());
             }
 
-            return executionSink.Results;
+            return executionSink.ToRun();
         }
         finally
         {
@@ -231,34 +227,35 @@ partial class Program
         }
     }
 
-    private sealed class XunitResultSink(bool verbose) : IMessageSink, IDisposable
+    private sealed class XunitResultSink(bool verbose, int expectedResultCount) : IMessageSink, IDisposable
     {
         private readonly ManualResetEventSlim _finished = new();
+        private int[] _outcomeRanks = new int[Math.Max(expectedResultCount, 4)];
+        private int _outcomeCount;
         private readonly List<NativeTestResult> _results = new();
-
-        public List<NativeTestResult> Results => _results;
 
         public bool OnMessage(IMessageSinkMessage message)
         {
             switch (message)
             {
                 case ITestPassed passed:
-                    AddResult(passed, "passed", null);
+                    AddResult(passed, TestCommandKernels.GetPassedOutcome(), null);
                     break;
                 case ITestSkipped skipped:
-                    AddResult(skipped, "skipped", skipped.Reason);
+                    AddResult(skipped, TestCommandKernels.GetSkippedOutcome(), skipped.Reason);
                     break;
                 case ITestFailed failed:
-                    AddResult(failed, "failed", FormatXunitFailure(failed));
+                    AddResult(failed, TestCommandKernels.GetFailedOutcome(), FormatXunitFailure(failed));
                     break;
                 case IErrorMessage error:
                     _results.Add(new NativeTestResult(
-                        "xunit.runner",
-                        "xUnit runner",
-                        "failed",
-                        "0.000s",
+                        TestCommandKernels.GetXunitRunnerErrorName(),
+                        TestCommandKernels.GetXunitRunnerErrorDisplayName(),
+                        TestCommandKernels.GetFailedOutcome(),
+                        TestCommandKernels.GetZeroTestDuration(),
                         FormatXunitFailure(error),
-                        "xUnit runner"));
+                        TestCommandKernels.GetXunitRunnerErrorDisplayName()));
+                    AddOutcomeRank(TestCommandKernels.GetNativeTestOutcomeRank(TestCommandKernels.GetFailedOutcome()));
                     break;
                 case ITestAssemblyFinished:
                     _finished.Set();
@@ -284,74 +281,65 @@ partial class Program
             _finished.Dispose();
         }
 
+        public NativeTestRun ToRun() => new(_results, _outcomeRanks, _outcomeCount);
+
         private void AddResult(ITestResultMessage message, string outcome, string? errorMessage)
         {
             var testCase = message.Test.TestCase;
-            var displayName = GetXunitDisplayName(message.Test);
+            var displayName = TestCommandKernels.GetPreferredDisplayName(GetXunitDescription(testCase), message.Test.DisplayName);
             var result = new NativeTestResult(
                 GetXunitFullyQualifiedName(testCase),
                 displayName,
                 outcome,
-                $"{message.ExecutionTime:F3}s",
+                TestCommandKernels.FormatTestDurationSeconds((double)message.ExecutionTime),
                 errorMessage,
-                GetXunitDescription(testCase) ?? displayName);
+                TestCommandKernels.GetPreferredDisplayName(GetXunitDescription(testCase), displayName));
 
             _results.Add(result);
+            AddOutcomeRank(TestCommandKernels.GetNativeTestOutcomeRank(outcome));
 
             if (!verbose)
             {
                 return;
             }
 
-            var prefix = outcome switch
+            Console.WriteLine(TestCommandKernels.GetVerboseMessage(
+                outcome,
+                displayName,
+                TestCommandKernels.FormatTestElapsedMilliseconds((double)(message.ExecutionTime * 1000)),
+                errorMessage));
+        }
+
+        private void AddOutcomeRank(int rank)
+        {
+            if (_outcomeCount == _outcomeRanks.Length)
             {
-                "passed" => "Passed",
-                "skipped" => "Skipped",
-                _ => "Failed"
-            };
-            Console.WriteLine(errorMessage == null
-                ? $"{prefix} {displayName} [{message.ExecutionTime * 1000:F0} ms]"
-                : $"{prefix} {displayName}: {errorMessage}");
+                Array.Resize(ref _outcomeRanks, Math.Max(_outcomeRanks.Length * 2, 4));
+            }
+
+            _outcomeRanks[_outcomeCount] = rank;
+            _outcomeCount++;
         }
     }
 
-    private static string GetXunitDisplayName(ITest test)
-        => GetXunitDescription(test.TestCase) ?? test.DisplayName;
-
     private static string? GetXunitDescription(ITestCase testCase)
-        => testCase.Traits.TryGetValue("NSharpDescription", out var descriptions)
+        => testCase.Traits.TryGetValue(TestCommandKernels.GetNSharpDescriptionTraitKey(), out var descriptions)
             ? descriptions.FirstOrDefault()
             : null;
 
     private static string GetXunitFullyQualifiedName(ITestCase testCase)
-        => $"{testCase.TestMethod.TestClass.Class.Name}.{testCase.TestMethod.Method.Name}";
+        => TestCommandKernels.GetTestFullName(testCase.TestMethod.TestClass.Class.Name, testCase.TestMethod.Method.Name);
 
     private static string FormatXunitFailure(IFailureInformation failure)
-        => string.Join(Environment.NewLine, failure.Messages.Where(message => !string.IsNullOrWhiteSpace(message)));
+        => TestCommandKernels.JoinFailureMessages(failure.Messages);
 
-    private static bool MatchesXunitTestFilter(ITestCase testCase, string? filter)
-    {
-        if (string.IsNullOrWhiteSpace(filter))
-        {
-            return true;
-        }
-
-        var displayName = GetXunitDescription(testCase) ?? testCase.DisplayName;
-        var fullyQualifiedName = GetXunitFullyQualifiedName(testCase);
-        return filter.Split('|', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
-            .Any(part =>
-                displayName.Contains(part, StringComparison.OrdinalIgnoreCase)
-                || testCase.DisplayName.Contains(part, StringComparison.OrdinalIgnoreCase)
-                || fullyQualifiedName.Contains(part, StringComparison.OrdinalIgnoreCase));
-    }
-
-    private static List<NativeTestResult> RunReflectionTests(
+    private static NativeTestRun RunReflectionTests(
         string assemblyPath,
         string? filter,
         bool verbose,
         int? timeoutMs)
     {
-        var assemblyDirectory = Path.GetDirectoryName(assemblyPath)
+        var assemblyDirectory = TestCommandKernels.GetAssemblyDirectory(assemblyPath)
             ?? throw new InvalidOperationException($"Could not determine the test assembly directory for '{assemblyPath}'.");
         var loadContext = new NativeTestLoadContext(assemblyDirectory);
 
@@ -359,16 +347,27 @@ partial class Program
         {
             var assembly = loadContext.LoadFromAssemblyPath(assemblyPath);
             var testCases = DiscoverNativeTests(assembly)
-                .Where(testCase => MatchesTestFilter(testCase, filter))
+                .Where(testCase =>
+                    string.IsNullOrWhiteSpace(filter)
+                    || TestCommandKernels.MatchesFilter(
+                        filter,
+                        testCase.DisplayName,
+                        string.Empty,
+                        testCase.FullyQualifiedName))
                 .ToArray();
 
             var results = new List<NativeTestResult>(testCases.Length);
+            var outcomeRanks = new int[testCases.Length];
+            var outcomeCount = 0;
             foreach (var testCase in testCases)
             {
-                results.Add(RunNativeTest(testCase, verbose, timeoutMs));
+                var result = RunNativeTest(testCase, verbose, timeoutMs);
+                results.Add(result);
+                outcomeRanks[outcomeCount] = TestCommandKernels.GetNativeTestOutcomeRank(result.Outcome);
+                outcomeCount++;
             }
 
-            return results;
+            return new NativeTestRun(results, outcomeRanks, outcomeCount);
         }
         finally
         {
@@ -389,29 +388,19 @@ partial class Program
 
                 var attributes = method.GetCustomAttributesData();
                 var isTest = attributes.Any(IsTestMethodAttribute);
-                if (!isTest && !string.Equals(type.Name, "NSharpTests", StringComparison.Ordinal))
+                if (!isTest && !TestCommandKernels.IsNSharpTestsTypeName(type.Name))
                 {
                     continue;
                 }
 
-                var displayName = GetNSharpDescription(attributes) ?? method.Name;
-                var skipReason = GetSkipReason(attributes);
-                var dataRows = GetInlineDataRows(attributes).ToArray();
-                if (dataRows.Length == 0)
-                {
-                    dataRows = new[] { Array.Empty<object?>() };
-                }
-
-                foreach (var row in dataRows)
-                {
-                    var suffix = row.Length == 0 ? string.Empty : $"({string.Join(", ", row.Select(value => value ?? "null"))})";
-                    yield return new NativeTestCase(
-                        displayName + suffix,
-                        $"{type.FullName}.{method.Name}",
-                        method,
-                        row,
-                        skipReason);
-                }
+                // ONE CASE PER METHOD. N# owns table-driven cases by LOWERING each row into its own
+                // test declaration before emit, so every row arrives here already named and already
+                // alone — there is no row expansion left for the runner to decide.
+                yield return new NativeTestCase(
+                    TestCommandKernels.GetPreferredDisplayName(GetNSharpDescription(attributes), method.Name),
+                    TestCommandKernels.GetTestFullName(type.FullName, method.Name),
+                    method,
+                    GetSkipReason(attributes));
             }
         }
     }
@@ -423,14 +412,14 @@ partial class Program
         {
             if (verbose)
             {
-                Console.WriteLine($"Skipped {testCase.DisplayName}: {testCase.SkipReason}");
+                Console.WriteLine(TestCommandKernels.GetVerboseSkippedMessage(testCase.DisplayName, testCase.SkipReason));
             }
 
             return new NativeTestResult(
                 testCase.FullyQualifiedName,
                 testCase.DisplayName,
-                "skipped",
-                "0.000s",
+                TestCommandKernels.GetSkippedOutcome(),
+                TestCommandKernels.GetZeroTestDuration(),
                 testCase.SkipReason,
                 testCase.DisplayName);
         }
@@ -440,28 +429,36 @@ partial class Program
             var instance = Activator.CreateInstance(testCase.Method.DeclaringType!);
             try
             {
-                InvokeLifecycle(instance, "InitializeAsync", timeoutMs);
-                InvokeLifecycle(instance, "Setup", timeoutMs);
-                InvokeTestMethod(instance, testCase.Method, testCase.Arguments, timeoutMs);
+                foreach (var lifecycleName in TestCommandKernels.GetPreTestLifecycleMethodNames())
+                {
+                    InvokeLifecycle(instance, lifecycleName, timeoutMs);
+                }
+
+                InvokeTestMethod(instance, testCase.Method, timeoutMs);
             }
             finally
             {
-                try { InvokeLifecycle(instance, "Teardown", timeoutMs); } catch { }
-                try { InvokeLifecycle(instance, "DisposeAsync", timeoutMs); } catch { }
+                foreach (var lifecycleName in TestCommandKernels.GetPostTestLifecycleMethodNames())
+                {
+                    try { InvokeLifecycle(instance, lifecycleName, timeoutMs); } catch { }
+                }
+
                 (instance as IDisposable)?.Dispose();
             }
 
             stopwatch.Stop();
             if (verbose)
             {
-                Console.WriteLine($"Passed {testCase.DisplayName} [{stopwatch.Elapsed.TotalMilliseconds:F0} ms]");
+                Console.WriteLine(TestCommandKernels.GetVerbosePassedMessage(
+                    testCase.DisplayName,
+                    TestCommandKernels.FormatTestElapsedMilliseconds(stopwatch.Elapsed.TotalMilliseconds)));
             }
 
             return new NativeTestResult(
                 testCase.FullyQualifiedName,
                 testCase.DisplayName,
-                "passed",
-                $"{stopwatch.Elapsed.TotalSeconds:F3}s",
+                TestCommandKernels.GetPassedOutcome(),
+                TestCommandKernels.FormatTestDurationSeconds(stopwatch.Elapsed.TotalSeconds),
                 null,
                 testCase.DisplayName);
         }
@@ -471,28 +468,28 @@ partial class Program
             var failure = UnwrapInvocationException(ex);
             if (verbose)
             {
-                Console.WriteLine($"Failed {testCase.DisplayName}: {failure.Message}");
+                Console.WriteLine(TestCommandKernels.GetVerboseFailedMessage(testCase.DisplayName, failure.Message));
             }
 
             return new NativeTestResult(
                 testCase.FullyQualifiedName,
                 testCase.DisplayName,
-                "failed",
-                $"{stopwatch.Elapsed.TotalSeconds:F3}s",
+                TestCommandKernels.GetFailedOutcome(),
+                TestCommandKernels.FormatTestDurationSeconds(stopwatch.Elapsed.TotalSeconds),
                 failure.Message,
                 testCase.DisplayName);
         }
     }
 
-    private static void InvokeTestMethod(object? instance, MethodInfo method, object?[] arguments, int? timeoutMs)
+    private static void InvokeTestMethod(object? instance, MethodInfo method, int? timeoutMs)
     {
-        if (method.GetParameters().Length != arguments.Length)
+        if (!TestCommandKernels.IsSupportedTestMethodArity(method.GetParameters().Length))
         {
-            throw new InvalidOperationException(
-                $"Test '{method.DeclaringType?.FullName}.{method.Name}' expects {method.GetParameters().Length} argument(s), but {arguments.Length} were supplied.");
+            throw new InvalidOperationException(TestCommandKernels.GetUnsupportedTestArityMessage(
+                TestCommandKernels.GetTestFullName(method.DeclaringType?.FullName, method.Name), method.GetParameters().Length));
         }
 
-        WaitForPossibleAsyncResult(method.Invoke(instance, arguments), timeoutMs);
+        WaitForPossibleAsyncResult(method.Invoke(instance, Array.Empty<object?>()), timeoutMs);
     }
 
     private static void InvokeLifecycle(object? instance, string methodName, int? timeoutMs)
@@ -539,41 +536,22 @@ partial class Program
 
         if (!task.Wait(timeoutMs.Value))
         {
-            throw new TimeoutException("Test timed out.");
+            throw new TimeoutException(TestCommandKernels.GetTestTimedOutMessage());
         }
-    }
-
-    private static bool MatchesTestFilter(NativeTestCase testCase, string? filter)
-    {
-        if (string.IsNullOrWhiteSpace(filter))
-        {
-            return true;
-        }
-
-        return filter.Split('|', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
-            .Any(part =>
-                testCase.DisplayName.Contains(part, StringComparison.OrdinalIgnoreCase)
-                || testCase.FullyQualifiedName.Contains(part, StringComparison.OrdinalIgnoreCase));
     }
 
     private static bool IsLifecycleMethod(MethodInfo method)
-        => method.Name is "Setup" or "Teardown" or "InitializeAsync" or "DisposeAsync" or "Dispose";
+        => TestCommandKernels.IsLifecycleMethodName(method.Name);
 
     private static bool IsTestMethodAttribute(CustomAttributeData attribute)
-    {
-        var name = attribute.AttributeType.FullName;
-        return name is "Xunit.FactAttribute"
-            or "Xunit.TheoryAttribute"
-            or "NUnit.Framework.TestAttribute"
-            or "NUnit.Framework.TestCaseAttribute";
-    }
+        => TestCommandKernels.IsTestMethodAttributeName(attribute.AttributeType.FullName);
 
     private static string? GetNSharpDescription(IEnumerable<CustomAttributeData> attributes)
     {
-        foreach (var attribute in attributes.Where(attribute => attribute.AttributeType.FullName == "Xunit.TraitAttribute"))
+        foreach (var attribute in attributes.Where(attribute => TestCommandKernels.IsXunitTraitAttributeName(attribute.AttributeType.FullName)))
         {
             if (attribute.ConstructorArguments.Count == 2
-                && string.Equals(attribute.ConstructorArguments[0].Value as string, "NSharpDescription", StringComparison.Ordinal)
+                && TestCommandKernels.IsNSharpDescriptionTraitName(attribute.ConstructorArguments[0].Value as string)
                 && attribute.ConstructorArguments[1].Value is string description)
             {
                 return description;
@@ -587,13 +565,13 @@ partial class Program
     {
         foreach (var attribute in attributes)
         {
-            if (attribute.AttributeType.FullName == "NUnit.Framework.IgnoreAttribute"
+            if (TestCommandKernels.IsNUnitIgnoreAttributeName(attribute.AttributeType.FullName)
                 && attribute.ConstructorArguments.FirstOrDefault().Value is string ignoreReason)
             {
                 return ignoreReason;
             }
 
-            var skip = attribute.NamedArguments.FirstOrDefault(argument => argument.MemberName == "Skip");
+            var skip = attribute.NamedArguments.FirstOrDefault(argument => TestCommandKernels.IsSkipNamedArgument(argument.MemberName));
             if (skip.TypedValue.Value is string skipReason)
             {
                 return skipReason;
@@ -601,32 +579,6 @@ partial class Program
         }
 
         return null;
-    }
-
-    private static IEnumerable<object?[]> GetInlineDataRows(IEnumerable<CustomAttributeData> attributes)
-    {
-        foreach (var attribute in attributes)
-        {
-            if (attribute.AttributeType.FullName is not ("Xunit.InlineDataAttribute" or "NUnit.Framework.TestCaseAttribute"))
-            {
-                continue;
-            }
-
-            if (attribute.ConstructorArguments.Count != 1)
-            {
-                continue;
-            }
-
-            var argument = attribute.ConstructorArguments[0];
-            if (argument.Value is IReadOnlyCollection<CustomAttributeTypedArgument> values)
-            {
-                yield return values.Select(value => value.Value).ToArray();
-            }
-            else
-            {
-                yield return new[] { argument.Value };
-            }
-        }
     }
 
     private static Exception UnwrapInvocationException(Exception ex)
@@ -651,43 +603,15 @@ partial class Program
         return ex;
     }
 
+    // The N# outcome summary is REQUIRED, and the SIGNATURE is what requires it — not a sentence.
     private static void OutputNativeTestJson(
         string projectRoot,
         bool ok,
         IReadOnlyList<NativeTestResult> testResults,
+        NativeTestSummary summary,
         string? errorMessage = null)
     {
-        var total = testResults.Count;
-        var passed = testResults.Count(result => result.Outcome == "passed");
-        var failed = testResults.Count(result => result.Outcome == "failed");
-        var skipped = testResults.Count(result => result.Outcome == "skipped");
-
-        var envelope = new
-        {
-            schemaVersion = 1,
-            command = "test",
-            ok,
-            projectRoot = projectRoot.Replace('\\', '/'),
-            error = errorMessage,
-            summary = new
-            {
-                total,
-                passed,
-                failed,
-                skipped,
-                duration = "0s"
-            },
-            results = testResults
-        };
-
-        var options = new System.Text.Json.JsonSerializerOptions
-        {
-            WriteIndented = true,
-            PropertyNamingPolicy = System.Text.Json.JsonNamingPolicy.CamelCase,
-            DefaultIgnoreCondition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull
-        };
-
-        Console.WriteLine(System.Text.Json.JsonSerializer.Serialize(envelope, options));
+        Console.WriteLine(TestCommandKernels.NativeTestJson(projectRoot, ok, testResults, errorMessage, summary));
     }
 
 }

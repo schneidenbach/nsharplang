@@ -1,4 +1,4 @@
-// File-scoped types (C# 11 feature)
+// File-scoped types
 // Types marked with 'file' are only visible within this file
 import System.Collections.Generic
 

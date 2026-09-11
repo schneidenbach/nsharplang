@@ -5,6 +5,7 @@ Discriminated unions are N#'s killer feature - they let you model data that can 
 ## What You'll Learn
 
 - Defining discriminated unions
+- Generic unions (`Result<T>`, `Option<T>`)
 - Pattern matching on unions
 - Using unions for error handling
 - Result types and Option types
@@ -12,21 +13,12 @@ Discriminated unions are N#'s killer feature - they let you model data that can 
 ## Files
 
 - **UnionsAndMatch.nl** - Basic union definition and matching
+- **GenericUnions.nl** - Generic unions: construction, type-argument inference, and matching
 - **ErrorHandling.nl** - Using unions for robust error handling
 
 ## Why Unions?
 
-In C#, you often use inheritance or nullable types to represent "one of several things". This is error-prone:
-
-```csharp
-// C# - Easy to forget to check!
-var result = GetUser(id);
-if (result != null) {  // Oops, forgot this check!
-    Console.WriteLine(result.Name);
-}
-```
-
-With unions, the compiler **forces** you to handle all cases:
+Unions model "one of several things" directly, and the compiler **forces** you to handle all cases:
 
 ```n#
 // N# - Compiler enforces exhaustive matching
@@ -44,7 +36,7 @@ match result {
 ```n#
 union Option<T> {
     Some { value: T }
-    None
+    None { }
 }
 ```
 
@@ -58,16 +50,17 @@ union Result<T> {
 
 func Divide(a: int, b: int): Result<double> {
     if b == 0 {
-        return Result<double>.Error("Cannot divide by zero")
+        return new Result.Error<double> { message: "Cannot divide by zero" }
     }
-    return Result<double>.Success(a / (double)b)
+    return new Result.Success<double> { value: a / (double)b }
 }
 
 result := Divide(10, 2)
-match result {
-    Success { value } => Console.WriteLine($"Result: {value}"),
-    Error { message } => Console.WriteLine($"Error: {message}")
+message := match result {
+    Result.Success { value } => $"Result: {value}",
+    Result.Error { message } => $"Error: {message}"
 }
+print message
 ```
 
 ### Exhaustiveness Checking
@@ -116,14 +109,14 @@ union PaymentMethod {
 }
 ```
 
-## Benefits Over C# Patterns
+## Benefits
 
-| Pattern | C# | N# Unions |
-|---------|-----|-----------|
-| Nullable | `T?` - can forget null check | `Option<T>` - compiler enforces |
-| Exceptions | Try-catch, can miss | `Result<T>` - explicit in signature |
-| Inheritance | Complex hierarchy | Simple, flat union |
-| Pattern matching | Partial, opt-in | Exhaustive, required |
+| Pattern | N# Unions |
+|---------|-----------|
+| Optional values | `Option<T>` keeps absence explicit |
+| Recoverable errors | `Result<T>` is explicit in the signature |
+| Variant data | Simple, flat union |
+| Pattern matching | Exhaustive, required |
 
 ## Next Steps
 

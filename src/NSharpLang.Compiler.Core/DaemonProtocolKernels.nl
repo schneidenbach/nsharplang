@@ -1,0 +1,357 @@
+namespace NSharpLang.Cli.Daemon
+
+import System.Collections.Generic
+import System.IO
+import System.Text.Json
+
+enum DaemonMethodKind {
+    Unknown = 0,
+    Ping = 1,
+    Shutdown = 2,
+    Status = 3,
+    Batch = 4,
+    Symbols = 5,
+    Outline = 6,
+    Diagnostics = 7,
+    Type = 8,
+    Definition = 9,
+    References = 10,
+    Completions = 11,
+    Inspect = 12
+}
+
+class DaemonParameterValidation {
+    IsValid: bool
+    QueryCommand: string
+    Message: string
+
+    constructor(isValid: bool, queryCommand: string, message: string) {
+        IsValid = isValid
+        QueryCommand = queryCommand
+        Message = message
+    }
+}
+
+class DaemonProtocolKernels {
+    static func GetSocketDir(): string {
+        return ".nlc"
+    }
+
+    static func GetSocketName(): string {
+        return "daemon.sock"
+    }
+
+    static func GetIdleTimeoutMinutes(): int {
+        return 30
+    }
+
+    static func GetConnectionTimeoutMilliseconds(): int {
+        return 5000
+    }
+
+    static func GetPingTimeoutMilliseconds(): int {
+        return 2000
+    }
+
+    static func GetParseErrorCode(): int {
+        return -32700
+    }
+
+    static func GetInvalidRequestErrorCode(): int {
+        return -32600
+    }
+
+    static func GetMethodNotFoundErrorCode(): int {
+        return -32601
+    }
+
+    static func GetInvalidParamsErrorCode(): int {
+        return -32602
+    }
+
+    static func GetInternalErrorCode(): int {
+        return -32603
+    }
+
+    static func GetPingMethod(): string {
+        return "daemon/ping"
+    }
+
+    static func GetShutdownMethod(): string {
+        return "daemon/shutdown"
+    }
+
+    static func GetStatusMethod(): string {
+        return "daemon/status"
+    }
+
+    static func GetSymbolsMethod(): string {
+        return "query/symbols"
+    }
+
+    static func GetBatchMethod(): string {
+        return "query/batch"
+    }
+
+    static func GetOutlineMethod(): string {
+        return "query/outline"
+    }
+
+    static func GetDiagnosticsMethod(): string {
+        return "query/diagnostics"
+    }
+
+    static func GetTypeMethod(): string {
+        return "query/type"
+    }
+
+    static func GetDefinitionMethod(): string {
+        return "query/definition"
+    }
+
+    static func GetReferencesMethod(): string {
+        return "query/references"
+    }
+
+    static func GetCompletionsMethod(): string {
+        return "query/completions"
+    }
+
+    static func GetInspectMethod(): string {
+        return "query/inspect"
+    }
+
+    static func GetPidFileName(): string {
+        return "daemon.pid"
+    }
+
+    static func GetPidFilePath(socketPath: string): string {
+        return Path.Combine(Path.GetDirectoryName(socketPath) ?? "", GetPidFileName())
+    }
+
+    static func GetAlreadyRunningMessage(projectRoot: string): string {
+        return "A daemon is already running for " + projectRoot + "."
+    }
+
+    static func GetMalformedRequestJsonMessage(): string {
+        return "Malformed daemon request JSON."
+    }
+
+    static func GetMissingMethodMessage(): string {
+        return "Daemon request must include a method."
+    }
+
+    static func GetPongResultJson(): string {
+        return "\"pong\""
+    }
+
+    static func GetShutdownResultJson(): string {
+        return "\"shutting down\""
+    }
+
+    static func FormatUptime(hours: int, minutes: int, seconds: int): string {
+        return hours.ToString() + "h " + minutes.ToString() + "m " + seconds.ToString() + "s"
+    }
+
+    static func FormatIdleTimeoutMinutes(minutes: int): string {
+        return minutes.ToString() + "m"
+    }
+
+    static func CreateCompactJsonOptions(): JsonSerializerOptions {
+        return new JsonSerializerOptions()
+    }
+
+    // The JSON-RPC 2.0 protocol version every daemon message carries. The specification fixes the
+    // value, but it was spelled three times — twice as a C# property initializer and once inside the
+    // envelope below — so it is spelled here once and read from there.
+    static func GetJsonRpcVersion(): string {
+        return "2.0"
+    }
+
+    // The five members of the `daemon/status` payload. Unlike the JSON-RPC envelope's own names,
+    // nothing outside N# fixes these: they are this product's vocabulary, and `StatusResultJson`
+    // below is the only place the wire is composed from them.
+    static func GetStatusPidField(): string {
+        return "pid"
+    }
+
+    static func GetStatusUptimeField(): string {
+        return "uptime"
+    }
+
+    static func GetStatusProjectRootField(): string {
+        return "projectRoot"
+    }
+
+    static func GetStatusCachedFilesField(): string {
+        return "cachedFiles"
+    }
+
+    static func GetStatusIdleTimeoutField(): string {
+        return "idleTimeout"
+    }
+
+    static func StatusResultJson(pid: int, uptime: string, projectRoot: string, cachedFiles: int, idleTimeout: string): string {
+        payload := new Dictionary<string, object>()
+        payload[GetStatusPidField()] = pid
+        payload[GetStatusUptimeField()] = uptime
+        payload[GetStatusProjectRootField()] = projectRoot
+        payload[GetStatusCachedFilesField()] = cachedFiles
+        payload[GetStatusIdleTimeoutField()] = idleTimeout
+        return JsonSerializer.Serialize(payload, CreateCompactJsonOptions())
+    }
+
+    static func ErrorResponseJson(id: int, code: int, message: string): string {
+        return "{\"jsonrpc\":" + JsonSerializer.Serialize(GetJsonRpcVersion(), CreateCompactJsonOptions()) + ",\"id\":" + id.ToString() + ",\"result\":null,\"error\":{\"code\":" + code.ToString() + ",\"message\":" + JsonSerializer.Serialize(message, CreateCompactJsonOptions()) + "}}"
+    }
+
+    static func ShouldUseProjectLocalSocket(projectLocalPath: string): bool {
+        return Utf8ByteCount(projectLocalPath) <= 100
+    }
+
+    static func GetCanonicalProjectRoot(projectRoot: string): string {
+        return Path.GetFullPath(projectRoot)
+    }
+
+    static func GetSocketPathForProject(canonicalRoot: string, tempPath: string, hashPrefix: string): string {
+        socketDir := GetSocketDir()
+        socketName := GetSocketName()
+        projectLocalPath := Path.Combine(Path.Combine(canonicalRoot, socketDir), socketName)
+        useProjectLocalSocket := ShouldUseProjectLocalSocket(projectLocalPath)
+        return GetSocketPath(canonicalRoot, socketDir, socketName, tempPath, hashPrefix, useProjectLocalSocket)
+    }
+
+    static func GetBatchDispatchAfterPrecheckMessage(): string {
+        return "Batch queries should be handled before single-request dispatch."
+    }
+
+    static func GetSocketPath(canonicalRoot: string, socketDir: string, socketName: string, tempPath: string, hashPrefix: string, useProjectLocalSocket: bool): string {
+        dir := Path.Combine(canonicalRoot, socketDir)
+        projectLocalPath := Path.Combine(dir, socketName)
+
+        if useProjectLocalSocket {
+            Directory.CreateDirectory(dir)
+            return projectLocalPath
+        }
+
+        runtimeRoot := Path.Combine(tempPath, "nlc-daemon")
+        runtimeDir := Path.Combine(runtimeRoot, hashPrefix)
+        Directory.CreateDirectory(runtimeDir)
+        return Path.Combine(runtimeDir, socketName)
+    }
+
+    static func GetMethodKind(method: string): DaemonMethodKind {
+        if method == GetPingMethod() {
+            return DaemonMethodKind.Ping
+        }
+
+        if method == GetShutdownMethod() {
+            return DaemonMethodKind.Shutdown
+        }
+
+        if method == GetStatusMethod() {
+            return DaemonMethodKind.Status
+        }
+
+        if method == GetBatchMethod() {
+            return DaemonMethodKind.Batch
+        }
+
+        if method == GetSymbolsMethod() {
+            return DaemonMethodKind.Symbols
+        }
+
+        if method == GetOutlineMethod() {
+            return DaemonMethodKind.Outline
+        }
+
+        if method == GetDiagnosticsMethod() {
+            return DaemonMethodKind.Diagnostics
+        }
+
+        if method == GetTypeMethod() {
+            return DaemonMethodKind.Type
+        }
+
+        if method == GetDefinitionMethod() {
+            return DaemonMethodKind.Definition
+        }
+
+        if method == GetReferencesMethod() {
+            return DaemonMethodKind.References
+        }
+
+        if method == GetCompletionsMethod() {
+            return DaemonMethodKind.Completions
+        }
+
+        if method == GetInspectMethod() {
+            return DaemonMethodKind.Inspect
+        }
+
+        return DaemonMethodKind.Unknown
+    }
+
+    static func IsQueryMethod(kind: DaemonMethodKind): bool {
+        return kind == DaemonMethodKind.Batch || kind == DaemonMethodKind.Symbols || kind == DaemonMethodKind.Outline || kind == DaemonMethodKind.Diagnostics || kind == DaemonMethodKind.Type || kind == DaemonMethodKind.Definition || kind == DaemonMethodKind.References || kind == DaemonMethodKind.Completions || kind == DaemonMethodKind.Inspect
+    }
+
+    static func ValidateRequiredParameters(kind: DaemonMethodKind, hasFile: bool): DaemonParameterValidation {
+        if kind == DaemonMethodKind.Outline && !hasFile {
+            return InvalidParameters("outline", DaemonServerMessageKernels.GetFileParameterRequiredMessage())
+        }
+
+        if kind == DaemonMethodKind.Type && !hasFile {
+            return InvalidParameters("type", DaemonServerMessageKernels.GetFileAndPosParametersRequiredMessage())
+        }
+
+        if kind == DaemonMethodKind.Definition && !hasFile {
+            return InvalidParameters("definition", DaemonServerMessageKernels.GetDefinitionTargetRequiredMessage())
+        }
+
+        if kind == DaemonMethodKind.References && !hasFile {
+            return InvalidParameters("references", DaemonServerMessageKernels.GetFileAndPosRequiredMessage())
+        }
+
+        if kind == DaemonMethodKind.Completions && !hasFile {
+            return InvalidParameters("completions", DaemonServerMessageKernels.GetFileAndPosRequiredMessage())
+        }
+
+        if kind == DaemonMethodKind.Inspect && !hasFile {
+            return InvalidParameters("inspect", DaemonServerMessageKernels.GetFileAndPosRequiredMessage())
+        }
+
+        return new DaemonParameterValidation(true, "", "")
+    }
+
+    static func InvalidParameters(queryCommand: string, message: string): DaemonParameterValidation {
+        return new DaemonParameterValidation(false, queryCommand, message)
+    }
+
+    static func Utf8ByteCount(text: string): int {
+        count := 0
+        index := 0
+        while index < text.Length {
+            code := (int)text[index]
+            if code <= 127 {
+                count = count + 1
+            } else if code <= 2047 {
+                count = count + 2
+            } else if code >= 55296 && code <= 56319 && index + 1 < text.Length {
+                nextCode := (int)text[index + 1]
+                if nextCode >= 56320 && nextCode <= 57343 {
+                    count = count + 4
+                    index = index + 1
+                } else {
+                    count = count + 3
+                }
+            } else {
+                count = count + 3
+            }
+
+            index = index + 1
+        }
+
+        return count
+    }
+}

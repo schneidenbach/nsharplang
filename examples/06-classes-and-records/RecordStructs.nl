@@ -1,7 +1,7 @@
 import System
 
 
-// Record Structs (C# 10) - Value-Type Records
+// Record Structs - Value-Type Records
 //
 // Record structs combine the benefits of:
 // - Value semantics (struct) for performance
@@ -17,7 +17,7 @@ record struct Point {
     Y: double
 }
 
-// Record struct with primary constructor (C# 12)
+// Record struct with primary constructor
 // Parameters become public properties automatically
 record struct Vector2D(x: double, y: double) {
 
@@ -80,7 +80,7 @@ record struct Duration(seconds: int) {
 }
 
 func Main() {
-    print "=== Record Structs (C# 10) ==="
+    print "=== Record Structs ==="
     print ""
 
     // Basic record struct usage

@@ -5,6 +5,7 @@ using System.Threading;
 using System.Threading.Tasks;
 using NSharpLang.Compiler;
 using NSharpLang.Compiler.Ast;
+using NSharpLang.Compiler.CodeIntelligence;
 using NSharpLang.LanguageServer.Services;
 using Microsoft.Extensions.Logging;
 using OmniSharp.Extensions.LanguageServer.Protocol;
@@ -141,8 +142,7 @@ public class GoToImplementationHandler : ImplementationHandlerBase
 
     /// <summary>
     /// Tests whether a single declaration implements or extends the target type.
-    /// Uses semantic comparison when available (matching resolved TypeInfo in the doc's Symbols),
-    /// falling back to conservative name matching.
+    /// Requires semantic comparison against the document's symbol table.
     /// </summary>
     private bool TryMatchImplementor(
         Declaration decl,
@@ -162,14 +162,14 @@ public class GoToImplementationHandler : ImplementationHandlerBase
                 // Check base class (only relevant when target is a class)
                 if (targetKind == TargetSymbolKind.Class && classDecl.BaseClass != null)
                 {
-                    matches = TypeReferenceMatchesName(classDecl.BaseClass, targetName);
+                    matches = CodeIntelligenceDisplayText.InterfaceNameMatches(classDecl.BaseClass, targetName);
                 }
 
                 // Check interfaces (relevant for both interface and class targets,
                 // since a class could appear in an implements list if it is the base)
                 if (!matches)
                 {
-                    matches = classDecl.Interfaces.Any(iface => TypeReferenceMatchesName(iface, targetName));
+                    matches = classDecl.Interfaces.Any(i => CodeIntelligenceDisplayText.InterfaceNameMatches(i, targetName));
                 }
 
                 if (matches && VerifySemantic(doc, classDecl.Name, targetName))
@@ -183,7 +183,7 @@ public class GoToImplementationHandler : ImplementationHandlerBase
 
             case StructDeclaration structDecl:
             {
-                if (structDecl.Interfaces.Any(iface => TypeReferenceMatchesName(iface, targetName)))
+                if (structDecl.Interfaces.Any(i => CodeIntelligenceDisplayText.InterfaceNameMatches(i, targetName)))
                 {
                     if (VerifySemantic(doc, structDecl.Name, targetName))
                     {
@@ -197,7 +197,7 @@ public class GoToImplementationHandler : ImplementationHandlerBase
 
             case RecordDeclaration recordDecl:
             {
-                if (recordDecl.Interfaces.Any(iface => TypeReferenceMatchesName(iface, targetName)))
+                if (recordDecl.Interfaces.Any(i => CodeIntelligenceDisplayText.InterfaceNameMatches(i, targetName)))
                 {
                     if (VerifySemantic(doc, recordDecl.Name, targetName))
                     {
@@ -214,49 +214,30 @@ public class GoToImplementationHandler : ImplementationHandlerBase
     }
 
     /// <summary>
-    /// Extracts the name from a TypeReference and compares it to the target.
-    /// Handles both <see cref="SimpleTypeReference"/> and <see cref="GenericTypeReference"/>.
-    /// </summary>
-    private static bool TypeReferenceMatchesName(TypeReference typeRef, string targetName)
-    {
-        return typeRef switch
-        {
-            SimpleTypeReference simple => string.Equals(simple.Name, targetName, StringComparison.Ordinal),
-            GenericTypeReference generic => string.Equals(generic.Name, targetName, StringComparison.Ordinal),
-            _ => false
-        };
-    }
-
-    /// <summary>
-    /// Semantic verification: if the implementing document has a Symbols dictionary, verify that
-    /// the implementor type actually resolves to a known type, and that the target name resolves
-    /// to a matching kind. This prevents false positives from coincidental name collisions across
+    /// Semantic verification: the implementing document must have a Symbols dictionary, the
+    /// implementor type must resolve to a known type, and the target name must resolve to a
+    /// matching kind. This prevents false positives from coincidental name collisions across
     /// unrelated namespaces.
-    /// Returns true if semantic info is unavailable (conservative: allow the match through).
     /// </summary>
     private static bool VerifySemantic(Models.DocumentState doc, string implementorName, string targetName)
     {
-        // If no symbol table is available, fall through — we already matched by name
         if (doc.Symbols == null)
-            return true;
+            return false;
 
-        // The implementor itself should be a known type in this document
         if (!doc.Symbols.TryGetValue(implementorName, out var implementorType))
-            return true; // Symbol table incomplete; allow conservative match
+            return false;
 
         // Verify the implementor is a concrete type (class/struct/record), not an interface itself
         // An interface extending another interface is not an "implementation"
         if (implementorType is InterfaceTypeInfo)
             return false;
 
-        // If the document also has the target in its symbol table, verify the target is
-        // the right kind (interface or class). If not present, we trust the AST match.
         if (doc.Symbols.TryGetValue(targetName, out var targetType))
         {
             return targetType is InterfaceTypeInfo or ClassTypeInfo;
         }
 
-        return true;
+        return false;
     }
 
     /// <summary>

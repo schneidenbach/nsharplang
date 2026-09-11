@@ -4,23 +4,15 @@
 #
 # This is the SINGLE SOURCE OF TRUTH for IL verification. It is invoked by
 # CI (.github/workflows/build.yml) and by the local full-suite gate
-# (tests/scripts/test-all-core.sh). It builds the product surface (example
-# projects, single-file examples, and representative test fixtures) with
-# `nlc build`, then runs `dotnet ilverify` over every emitted assembly,
-# resolving BCL/ASP.NET framework references.
+# (tests/scripts/test-all-core.sh). It builds examples, single-file examples,
+# and fixtures with `nlc build`, plus selected native regression projects with
+# `nlc test`, then verifies every emitted assembly with BCL/ASP.NET references.
 #
-# WHY THIS EXISTS: PR #160 shipped GC-unsafe IL that ECMA-335 verification
-# would have rejected, but it only crashed at runtime on Linux x64 and CI
-# never ran ilverify. This gate makes any new unverifiable IL a deterministic,
-# blocking failure on ubuntu-latest, independent of the host CPU/OS.
-#
-# IMPORTANT: `dotnet ilverify` exits 0 even when it reports verification
-# errors (it only returns non-zero on argument/load failures). We therefore
-# parse its textual output for errors rather than trusting the exit code, and
-# diff the findings against a committed baseline allowlist so the gate fails
-# ONLY on NEW errors.
+# `dotnet ilverify` exits 0 on verification errors, so this gate parses its output and rejects findings outside the baseline.
 #
 # Regenerate the baseline with:   scripts/ilverify.sh --update-baseline
+#
+# `--built-dirs-file` verifies only caller-supplied outputs (no compiler); `--build-native-tests` also emits selected native regression assemblies (standalone mode emits them by default).
 #
 set -euo pipefail
 
@@ -48,19 +40,41 @@ BASELINE_FILE="$REPO_ROOT/scripts/ilverify-baseline.txt"
 CLI_DLL="$REPO_ROOT/src/NSharpLang.Cli/bin/Debug/net10.0/Cli.dll"
 
 UPDATE_BASELINE=0
-for arg in "$@"; do
-    case "$arg" in
-        --update-baseline) UPDATE_BASELINE=1 ;;
+BUILT_DIRS_FILE=""
+BUILD_NATIVE_TESTS=0
+while [ "$#" -gt 0 ]; do
+    case "$1" in
+        --update-baseline)
+            UPDATE_BASELINE=1
+            shift
+            ;;
+        --built-dirs-file)
+            if [ "$#" -lt 2 ]; then
+                fail "--built-dirs-file requires a path argument"
+                exit 2
+            fi
+            BUILT_DIRS_FILE="$2"
+            shift 2
+            ;;
+        --built-dirs-file=*)
+            BUILT_DIRS_FILE="${1#--built-dirs-file=}"
+            shift
+            ;;
+        --build-native-tests)
+            BUILD_NATIVE_TESTS=1
+            shift
+            ;;
         -h|--help)
             grep '^#' "$0" | sed 's/^# \{0,1\}//'
             exit 0
             ;;
         *)
-            fail "Unknown argument: $arg"
+            fail "Unknown argument: $1"
             exit 2
             ;;
     esac
 done
+if [ -z "$BUILT_DIRS_FILE" ]; then BUILD_NATIVE_TESTS=1; fi
 
 # --------------------------------------------------------------------------
 # Locate the .NET runtime and ilverify
@@ -128,29 +142,22 @@ echo "    aspnet ref  : ${ASPNET_DIR:-<none>}"
 echo "    baseline    : $BASELINE_FILE"
 echo
 
-# --------------------------------------------------------------------------
-# Build the CLI compiler if needed
-# --------------------------------------------------------------------------
-if [ ! -f "$CLI_DLL" ]; then
+# Build the CLI only when this invocation owns emitted inputs.
+if [ "$BUILD_NATIVE_TESTS" = "1" ] && [ ! -f "$CLI_DLL" ]; then
     info "Building N# CLI (compiler)"
     dotnet build "$REPO_ROOT/src/NSharpLang.Cli/Cli.csproj" -v q
 fi
 
-# --------------------------------------------------------------------------
-# Build the product surface with nlc
-# --------------------------------------------------------------------------
-# We deliberately build into each project's own bin/ so reference assemblies
-# (runtime assets) land next to the output DLL, mirroring `nlc build`'s real
-# behavior. Verification then resolves refs from the framework dirs AND from
-# the output dir itself.
+# Build the product surface with nlc.
+# Project-local output keeps runtime assets beside each emitted assembly for resolution.
 BUILT_DIRS=()
+BUILT_TARGETS=()
 
 build_project() {
     local project_yml="$1"
     local dir
     dir="$(dirname "$project_yml")"
     rm -rf "$dir/bin" "$dir/obj" "$dir/nsharp" 2>/dev/null || true
-    rm -f "$dir"/*.g.csproj 2>/dev/null || true
     if (cd "$dir" && dotnet "$CLI_DLL" build >/dev/null 2>&1); then
         BUILT_DIRS+=("$dir/bin")
         return 0
@@ -173,38 +180,86 @@ build_single_file() {
     return 1
 }
 
+build_native_test() {
+    local label="$1" project="$2" assembly="$3"
+    info "Building $label native test assembly"
+    if dotnet "$CLI_DLL" test --project "$project" --no-cache --json && [ -f "$assembly" ]; then
+        BUILT_TARGETS+=("$assembly")
+        return 0
+    fi
+    fail "nlc test failed to emit the $label native test assembly"
+    echo "    Reproduce: dotnet \"$CLI_DLL\" test --project \"$project\" --no-cache --json"
+    return 1
+}
+
 BUILD_FAILED=0
 
-info "Building example/template/fixture projects"
-# Project-based examples and the representative issue-tracker fixture. We scope
-# fixtures narrowly: issue-tracker is the canonical end-to-end fixture and is
-# already exercised by the format/check gates, so its IL is product-relevant.
-PROJECT_YMLS="$(
-    {
-        find examples -name project.yml -type f 2>/dev/null
-        find tests/fixtures/issue-tracker -name project.yml -type f 2>/dev/null
-    } | sort -u
-)"
-while IFS= read -r project_yml; do
-    [ -z "$project_yml" ] && continue
-    build_project "$project_yml" || BUILD_FAILED=1
-done <<< "$PROJECT_YMLS"
+if [ -n "$BUILT_DIRS_FILE" ]; then
+    if [ ! -f "$BUILT_DIRS_FILE" ]; then
+        fail "Built output manifest not found: $BUILT_DIRS_FILE"
+        exit 2
+    fi
 
-info "Building single-file examples"
-# Single .nl files that are NOT part of a project directory (mirrors the
-# logic in tests/scripts/test-all-core.sh Step 9).
-while IFS= read -r nl_file; do
-    [ -z "$nl_file" ] && continue
-    dir="$(dirname "$nl_file")"
-    [ -f "$dir/project.yml" ] && continue
-    parent="$(dirname "$dir")"
-    [ -f "$parent/project.yml" ] && continue
-    build_single_file "$nl_file" || BUILD_FAILED=1
-done < <(find examples -name '*.nl' -type f 2>/dev/null | sort)
+    info "Using existing example/template/fixture build outputs"
+    while IFS= read -r built_output; do
+        [ -z "$built_output" ] && continue
+        if [ -f "$built_output" ]; then
+            BUILT_TARGETS+=("$built_output")
+        elif [ -d "$built_output" ]; then
+            BUILT_DIRS+=("$built_output")
+        else
+            fail "Built output not found: $built_output"
+            BUILD_FAILED=1
+        fi
+    done < "$BUILT_DIRS_FILE"
 
+    if [ "$((${#BUILT_TARGETS[@]} + ${#BUILT_DIRS[@]}))" -eq 0 ]; then
+        fail "Built output manifest was empty: $BUILT_DIRS_FILE"
+        exit 2
+    fi
+
+    if [ "$BUILD_FAILED" = "1" ]; then
+        fail "One or more expected build outputs were missing; cannot run IL verification."
+        exit 1
+    fi
+else
+    info "Building example/template/fixture projects"
+    # Include project examples and the canonical end-to-end issue-tracker fixture,
+    # which the format/check gates already exercise.
+    PROJECT_YMLS="$(
+        {
+            find examples -name project.yml -type f 2>/dev/null
+            find tests/fixtures/issue-tracker -name project.yml -type f 2>/dev/null
+        } | sort -u
+    )"
+    while IFS= read -r project_yml; do
+        [ -z "$project_yml" ] && continue
+        build_project "$project_yml" || BUILD_FAILED=1
+    done <<< "$PROJECT_YMLS"
+
+    info "Building single-file examples"
+    # Single .nl files outside project directories (mirrors full-gate Step 9).
+    while IFS= read -r nl_file; do
+        [ -z "$nl_file" ] && continue
+        dir="$(dirname "$nl_file")"
+        [ -f "$dir/project.yml" ] && continue
+        parent="$(dirname "$dir")"
+        [ -f "$parent/project.yml" ] && continue
+        build_single_file "$nl_file" || BUILD_FAILED=1
+    done < <(find examples -name '*.nl' -type f 2>/dev/null | sort)
+
+fi
+if [ "$BUILD_NATIVE_TESTS" = "1" ]; then
+    build_native_test "direct-call" "$REPO_ROOT/tests/native/direct-calls" "$REPO_ROOT/tests/native/direct-calls/bin/Debug/net10.0/tests/NSharpLang.DirectCalls.Tests.dll" || BUILD_FAILED=1
+    build_native_test "construction-array" "$REPO_ROOT/tests/native/construction-arrays" "$REPO_ROOT/tests/native/construction-arrays/bin/Debug/net10.0/tests/NSharpLang.ConstructionArrays.Tests.dll" || BUILD_FAILED=1
+    build_native_test "erased-enum identity" "$REPO_ROOT/tests/native/erased-enum-identity" "$REPO_ROOT/tests/native/erased-enum-identity/bin/Debug/net10.0/tests/NSharpLang.ErasedEnumIdentity.Tests.dll" || BUILD_FAILED=1
+    build_native_test "lambda placement" "$REPO_ROOT/tests/native/lambda-placement" "$REPO_ROOT/tests/native/lambda-placement/bin/Debug/net10.0/tests/NSharpLang.LambdaPlacement.Tests.dll" || BUILD_FAILED=1
+    build_native_test "record with" "$REPO_ROOT/tests/native/record-with" "$REPO_ROOT/tests/native/record-with/bin/Debug/net10.0/tests/NSharpLang.RecordWith.Tests.dll" || BUILD_FAILED=1
+    build_native_test "readonly init" "$REPO_ROOT/tests/native/readonly-init" "$REPO_ROOT/tests/native/readonly-init/bin/Debug/net10.0/tests/NSharpLang.ReadonlyInit.Tests.dll" || BUILD_FAILED=1
+    build_native_test "iterator" "$REPO_ROOT/tests/native/iterators" "$REPO_ROOT/tests/native/iterators/bin/Debug/net10.0/tests/NSharpLang.Iterators.Tests.dll" || BUILD_FAILED=1
+fi
 if [ "$BUILD_FAILED" = "1" ]; then
     fail "One or more nlc builds failed; cannot run IL verification."
-    echo "    Fix the build failures above and re-run."
     exit 1
 fi
 echo
@@ -212,17 +267,8 @@ echo
 # --------------------------------------------------------------------------
 # Collect every emitted assembly
 # --------------------------------------------------------------------------
-# Verify only the assemblies N# itself produced. We must NOT verify copied
-# framework/runtime reference DLLs (those are inputs, not N# output, and would
-# add unrelated BCL noise). Each project/single-file build above wrote into a
-# freshly-cleaned bin/, and `nlc build` emits exactly its own output assembly
-# there (exe -> sibling .runtimeconfig.json; lib -> bare .dll) without copying
-# framework reference DLLs. We therefore verify every .dll under those bins,
-# but defensively skip any DLL whose name matches a framework reference
-# assembly in case a future example ever copies runtime assets.
-# NOTE: macOS ships bash 3.2 (no associative arrays), and this script must run
-# locally there as well as on CI's bash 4+. We therefore use newline-delimited
-# strings for membership/dedupe instead of `declare -A`.
+# Exact product-gate outputs keep copied runtime assets as references, not targets;
+# directory discovery remains for standalone/backward-compatible invocation.
 TARGETS=()
 SEEN=$'\n'     # newline-delimited absolute paths already collected
 FRAMEWORK_NAMES=$'\n'  # newline-delimited basenames of framework assemblies
@@ -230,8 +276,15 @@ for dll in "$NETCORE_DIR"/*.dll; do FRAMEWORK_NAMES+="$(basename "$dll")"$'\n'; 
 if [ -n "$ASPNET_DIR" ]; then
     for dll in "$ASPNET_DIR"/*.dll; do FRAMEWORK_NAMES+="$(basename "$dll")"$'\n'; done
 fi
+if [ "${#BUILT_TARGETS[@]}" -gt 0 ]; then for built_target in "${BUILT_TARGETS[@]}"; do
+    name="$(basename "$built_target")"
+    real="$(cd "$(dirname "$built_target")" && pwd)/$name"
+    case "$SEEN" in *$'\n'"$real"$'\n'*) continue ;; esac
+    SEEN+="$real"$'\n'
+    TARGETS+=("$real")
+done; fi
 
-for bin_dir in "${BUILT_DIRS[@]}"; do
+if [ "${#BUILT_DIRS[@]}" -gt 0 ]; then for bin_dir in "${BUILT_DIRS[@]}"; do
     [ -d "$bin_dir" ] || continue
     while IFS= read -r dll; do
         name="$(basename "$dll")"
@@ -246,7 +299,7 @@ for bin_dir in "${BUILT_DIRS[@]}"; do
         SEEN+="$real"$'\n'
         TARGETS+=("$real")
     done < <(find "$bin_dir" -name '*.dll' -type f 2>/dev/null)
-done
+done; fi
 
 if [ "${#TARGETS[@]}" -eq 0 ]; then
     fail "No N# output assemblies found to verify."
@@ -281,10 +334,7 @@ for target in "${TARGETS[@]}"; do
     target_dir="$(dirname "$target")"
     asm_name="$(basename "$target")"
 
-    # Per-target refs: framework refs + sibling DLLs in the same output dir
-    # (covers multi-project references and copied runtime assets), excluding
-    # the target itself. The `+"..."` guard keeps empty-array expansion safe
-    # under `set -u` on bash 3.2 (macOS).
+    # Framework/sibling refs plus the `+"..."` guard support bash 3.2 `set -u`.
     local_refs=()
     for sibling in "$target_dir"/*.dll; do
         [ "$sibling" = "$target" ] && continue
@@ -332,10 +382,7 @@ for target in "${TARGETS[@]}"; do
         continue
     fi
 
-    # Extract verification findings. Two shapes appear:
-    #   [IL]: Error [Code]: [/abs/path : Ns.Type::Method(...)][offset 0x..] msg
-    #   [MD]: Error: <message referencing Class/Interface/Method>
-    # Normalize each to a stable, path-independent line:  <asm> | <code> | <detail>
+    # Normalize findings as: <assembly> | <code> | <member-or-detail>.
     # The `|| true` keeps a no-match grep (exit 1) from tripping `set -e`.
     while IFS= read -r line; do
         case "$line" in
@@ -416,8 +463,8 @@ if [ -n "$NEW_ERRORS" ]; then
     printf '%s\n' "$NEW_ERRORS" | sed 's/^/    /'
     echo
     echo -e "${RED}These assemblies contain unverifiable IL.${NC} This is the class of bug"
-    echo "that crashed on Linux x64 in PR #160. Fix the IL emission in"
-    echo "src/NSharpLang.Compiler/ILCompiler/ so the assembly verifies, OR — only if"
+    echo "that crashed on Linux x64 in PR #160. Fix the active N# IL emission path"
+    echo "so the assembly verifies, OR — only if"
     echo "the finding is genuinely benign and expected — record it in the baseline:"
     echo
     echo "    scripts/ilverify.sh --update-baseline   # then review the diff carefully"

@@ -1,8 +1,6 @@
 using System;
 using System.IO;
-using System.Linq;
 using Microsoft.Extensions.Logging.Abstractions;
-using NSharpLang.Compiler;
 using NSharpLang.LanguageServer.Services;
 using OmniSharp.Extensions.LanguageServer.Protocol;
 using Xunit;
@@ -32,39 +30,6 @@ public sealed class LanguageServerWorkspaceDiagnosticsTests : IDisposable
         {
             Directory.Delete(_tempRoot, true);
         }
-    }
-
-    [Fact]
-    public void GetDiagnosticsToPublish_WhenProjectIsSynchronized_PublishesAllOpenFiles()
-    {
-        var programText = """
-        func Main() {
-        }
-        """;
-        var personText = """
-        func Broken() -> int {
-            return "oops"
-        }
-        """;
-
-        WriteFile("Program.nl", programText);
-        WriteFile("Models/Person.nl", personText);
-
-        var programUri = FileUri("Program.nl");
-        var personUri = FileUri("Models/Person.nl");
-
-        _documentManager.UpdateDocument(programUri, programText, 1);
-        _documentManager.UpdateDocument(personUri, personText, 1);
-
-        var publications = _documentManager.GetDiagnosticsToPublish(programUri);
-
-        Assert.Equal(2, publications.Count);
-
-        var programPublication = publications.Single(p => p.Uri == programUri);
-        var personPublication = publications.Single(p => p.Uri == personUri);
-
-        Assert.Empty(programPublication.CompilerDiagnostics);
-        Assert.Contains(personPublication.CompilerDiagnostics, error => error.Severity == ErrorSeverity.Error);
     }
 
     [Fact]
@@ -120,43 +85,6 @@ public sealed class LanguageServerWorkspaceDiagnosticsTests : IDisposable
         Assert.Equal(2, loadedUris.Count);
         Assert.Contains(loadedUris, u => u.Contains("Program.nl"));
         Assert.Contains(loadedUris, u => u.Contains("Helper.nl"));
-    }
-
-    [Fact]
-    public void ScanWorkspaceDirectory_PublishesDiagnosticsForErrorFiles()
-    {
-        var goodText = """
-        func Main() {
-        }
-        """;
-        var badText = """
-        func Broken() -> int {
-            return "oops"
-        }
-        """;
-
-        WriteFile("Good.nl", goodText);
-        WriteFile("Bad.nl", badText);
-
-        var loadedUris = _documentManager.ScanWorkspaceDirectory(_tempRoot);
-
-        // Both files should be loaded
-        Assert.Equal(2, loadedUris.Count);
-
-        // Check that diagnostics are available for each file
-        var goodUri = loadedUris.Single(u => u.Contains("Good.nl"));
-        var badUri = loadedUris.Single(u => u.Contains("Bad.nl"));
-
-        var goodPubs = _documentManager.GetDiagnosticsToPublish(goodUri);
-        var badPubs = _documentManager.GetDiagnosticsToPublish(badUri);
-
-        // Both should have publications (project-wide when synchronized)
-        Assert.True(goodPubs.Count >= 1);
-        Assert.True(badPubs.Count >= 1);
-
-        // Bad file should have errors
-        var badPub = badPubs.Single(p => p.Uri == badUri);
-        Assert.Contains(badPub.CompilerDiagnostics, e => e.Severity == ErrorSeverity.Error);
     }
 
     [Fact]

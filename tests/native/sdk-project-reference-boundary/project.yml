@@ -1,0 +1,19 @@
+name: NSharpLang.SdkProjectReferenceBoundary.Tests
+backend: il
+outputType: library
+targetFramework: net10.0
+
+dependencies:
+  - dll: ../../../src/NSharpLang.Cli/bin/Debug/net10.0/NSharpLang.Compiler.Core.dll
+  - dll: ../../../src/NSharpLang.Build.Tasks/bin/Debug/net10.0/NSharpLang.Build.Tasks.dll
+  - dll: ../../../src/NSharpLang.Cli/bin/Debug/net10.0/Compiler.dll
+  - dll: ../../../src/NSharpLang.Cli/bin/Debug/net10.0/Microsoft.Build.Framework.dll
+  - dll: ../../../src/NSharpLang.Cli/bin/Debug/net10.0/Microsoft.Build.Utilities.Core.dll
+  - dll: ../../../src/NSharpLang.Cli/bin/Debug/net10.0/Microsoft.NET.StringTools.dll
+  - dll: ../../../src/NSharpLang.Cli/bin/Debug/net10.0/System.Configuration.ConfigurationManager.dll
+  - dll: ../../../src/NSharpLang.Cli/bin/Debug/net10.0/System.Diagnostics.EventLog.dll
+  - dll: ../../../src/NSharpLang.Cli/bin/Debug/net10.0/System.Reflection.MetadataLoadContext.dll
+  - dll: ../../../src/NSharpLang.Cli/bin/Debug/net10.0/System.Security.Cryptography.ProtectedData.dll
+  - dll: ../../../src/NSharpLang.Cli/bin/Debug/net10.0/YamlDotNet.dll
+  - nuget: Mono.Cecil
+    version: 0.11.6

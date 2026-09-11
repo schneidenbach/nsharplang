@@ -1,6 +1,6 @@
 # N# (NewLang Sharp)
 
-**Go for .NET: a pragmatic CLR language with small syntax, project-first tooling, and C# interop.**
+**A pragmatic CLR language with small syntax, a rich type system, project-first tooling, and an opt-in systems performance lane.**
 
 N# is in active development. The repository has a working compiler, SDK, CLI, templates, VS Code support, and examples, but not every product gate is launch-green yet. Treat this README as the current developer-facing map, not a claim that every planned language feature or IDE workflow is complete.
 
@@ -51,39 +51,34 @@ dotnet run --project src/NSharpLang.Cli/Cli.csproj -- run
 ## Philosophy
 
 - **Small syntax**: Go-inspired conveniences (`:=`, no semicolons, convention-based visibility)
-- **Pragmatic .NET**: embraces the CLR, nullable reality, NuGet, MSBuild, and C# interop
+- **Pragmatic .NET**: embraces the CLR, nullable reality, NuGet, and MSBuild
 - **Project-first workflow**: `project.yml` owns user-facing configuration; `.csproj` stays minimal
 - **Tooling matters**: `nlc check`, `nlc query`, formatting, tests, and VS Code support are product surface, not afterthoughts
 - **Evidence over hype**: docs should describe what is implemented and tested, not what the language hopes to become
 
 ## Why N#?
 
-N# explores a tighter, Go-flavored developer experience for .NET while keeping C# interop as a core design constraint. The goal is to emit types and assemblies that fit normal .NET workflows while giving N# source a smaller, more direct shape.
+N# borrows Go's ethos — a tighter developer experience, fast tooling, and performance as a
+first-class concern — but it is **not** "Go for .NET": it pairs that small syntax with a much
+richer type system and an opt-in systems lane for hot-path code. The goal is to emit types and assemblies that fit normal .NET
+workflows while giving N# source a smaller, more direct shape.
 
 | Area | N# direction |
 |------|--------------|
-| **Unions** | Discriminated unions that compile into C#-consumable shapes |
+| **Unions** | Discriminated unions that compile into CLR shapes |
 | **Records/classes** | Familiar .NET object model with terser syntax |
 | **Async** | `Task`/`ValueTask` interop instead of a separate async ecosystem |
 | **Nullability** | Works with .NET nullable reference types and explicit checks |
 | **Visibility** | Go-style casing by default, explicit modifiers for interop escapes |
+| **Systems lane** | Opt-in `[hot]`/`[boundary]` cost contracts, `Result<T,E>`, spans/`ref struct`, governed `unsafe`, SIMD auto-vectorization |
 
 ## Quick Example
 
 ```nsharp
-// Variables with type inference
-name := "Alice"
-items := [1, 2, 3, 4, 5]
-
 // Discriminated unions with pattern matching
 union Result<T> {
     Success { value: T }
     Failure { error: string }
-}
-
-message := result match {
-    Result.Success { value: x } => $"Got {x}",
-    Result.Failure { error: e } => $"Error: {e}"
 }
 
 // Duck interfaces (structural typing)
@@ -99,7 +94,21 @@ func Process(r: IReader) {
     print r.Read()
 }
 
-Process(new FileReader())
+func main() {
+    // Variables with type inference
+    name := "Alice"
+    items := [1, 2, 3, 4, 5]
+    print $"{name} has {items.Length} items"
+
+    result := new Result.Success<int> { value: 42 }
+    message := match result {
+        Result.Success { value: x } => $"Got {x}",
+        Result.Failure { error: e } => $"Error: {e}"
+    }
+    print message
+
+    Process(new FileReader())
+}
 ```
 
 ## Installation
@@ -153,27 +162,22 @@ nlc check --text
 # Code intelligence for humans, editors, and agents
 nlc query help
 
-# Export C# for inspection
-nlc export csharp --project . --output ./nsharp-csharp
-
 # Build with detailed output/timings for debugging
 nlc build --verbose --timings
 ```
-
-There is intentionally no public C# conversion workflow. Write N# directly, use `nlc check`, `nlc fix --dry-run`, `nlc format --check`, and tests for feedback, and keep C# export as an inspection tool.
 
 ## Current CLI Surface
 
 Current `nlc --help` lists these top-level commands:
 
 ```text
-build run restore publish pack clean check fix query daemon format lint test bench add tidy remove update tree audit new init export watch doc env doctor completion help
+build run new init test format lint clean watch doc completion check fix query daemon add tidy remove update publish tree audit env doctor restore pack help
 ```
 
 `nlc query help` lists these query commands:
 
 ```text
-batch symbols outline diagnostics type inspect definition/def references/refs completions doc hover call-graph implementors help
+batch symbols outline ast diagnostics type inspect definition/def references/refs completions doc hover call-graph implementors perf trusted help
 ```
 
 Shell completions are generated from the same registry. When docs drift, prefer the CLI help and `CommandRegistry` as the source of truth.
@@ -190,11 +194,18 @@ Shell completions are generated from the same registry. When docs drift, prefer 
 ### Advanced Types
 - Discriminated unions
 - Duck interfaces / structural typing
-- Records and classes
-- Required/init-style .NET interop patterns
+- Records and classes (incl. `ref struct`)
+- Generics with constraints, function/operator overloading, conversion operators
+- Required/init properties, indexers, type aliases
+
+### Systems N# (opt-in performance lane)
+- `[hot]`/`[boundary]` cost contracts with the `NSYS###` effect model
+- Allocation-free `Result<T,E>`, explicit `alloc`/`stackalloc`
+- `ref struct`, lifetime-checked spans, governed `unsafe` + `[trusted]`
+- SIMD auto-vectorization for supported reduction kernels — see [Systems N# guide](website/docs/systems.md)
 
 ### .NET Interop
-- C#-consumable generated assemblies and source where supported
+- CLR assemblies where supported
 - Ref/out parameters for .NET interop
 - Operator overloads and extension methods in covered scenarios
 - Async/await over .NET tasks
@@ -235,39 +246,23 @@ Do not claim the whole product is launch-ready/full-suite-green unless `./script
 
 N# projects are intended to work with standard .NET CI/CD tools. Template and example coverage exists in `ci/`, but verify the specific workflow before promising it in a release note or customer-facing page.
 
-See [CI/CD Guide](docs/guide/ci-cd.md) for current setup notes.
+See [CI/CD Guide](website/docs/ci-cd.md) for current setup notes.
 
 ## Documentation
 
-- **docs/DESIGN.md** - language design notes and intended semantics
-- **docs/guide/cli-reference.md** - CLI command reference aligned to current help/completions
+- **website/docs/language-tour.md** - the main language reference with runnable examples
+- **website/docs/systems.md** - Systems N#: the opt-in high-performance lane
+- **website/docs/types.md**, **functions.md**, **pattern-matching.md** - deep-dive language guides
+- **website/docs/cli-reference.md** - CLI command reference aligned to current help/completions
 - **memory/** - implementation notes, component docs, and known limitations
-- **docs/audits/** and **docs/talk/** - launch evidence, risk registers, and public-claim guardrails
-- **docs/** - user guides and references
+- **docs/audits/** - Systems N# adversarial review + verification evidence
+- **docs/design/** - current design notes and audited systems-language documents
+- **website/docs/** - the canonical language guides (the published documentation source)
 
 ## Architecture
 
 ```text
-.nl source → Lexer → Parser → Analyzer → IL compiler / generated C# paths → .NET assembly
+.nl source → Lexer → Parser → Analyzer → IL compiler → .NET assembly
 ```
 
-Some workflows emit generated C# for compiler inspection and interop debugging.
-
-## C# Interop Example
-
-N# code:
-
-```nsharp
-class Calculator {
-    func Add(x: int, y: int): int => x + y
-}
-```
-
-C# consumer:
-
-```csharp
-var calc = new Calculator();
-var result = calc.Add(2, 3);
-```
-
-Interop claims should stay tied to scenarios covered by tests/examples until broader gates are green.
+The compiler emits CLR IL directly (`--backend il`, the default).

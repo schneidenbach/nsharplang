@@ -1,0 +1,292 @@
+  Determining projects to restore...
+  All projects are up-to-date for restore.
+  Skipping CoreCompile for N# project; emitting direct IL assembly.
+  Emitting N# IL assembly to obj/Debug/net10.0/NSharpLang.Compiler.BootstrapServices.dll...
+  Emitted N# IL assembly to obj/Debug/net10.0/NSharpLang.Compiler.BootstrapServices.dll
+  NSharpLang.Compiler.BootstrapServices -> /private/tmp/nsharp-compile-bench/src/NSharpLang.Compiler.BootstrapServices/bin/Debug/net10.0/NSharpLang.Compiler.BootstrapServices.dll
+
+Project Evaluation Performance Summary:
+      205 ms  /private/tmp/nsharp-compile-bench/src/NSharpLang.Compiler.BootstrapServices/NSharpLang.Compiler.BootstrapServices.csproj   3 calls
+
+Project Performance Summary:
+    133010 ms  /private/tmp/nsharp-compile-bench/src/NSharpLang.Compiler.BootstrapServices/NSharpLang.Compiler.BootstrapServices.csproj   7 calls
+                196 ms  Restore                                    1 calls
+                  1 ms  _IsProjectRestoreSupported                 2 calls
+                  1 ms  _GenerateRestoreProjectPathWalk            1 calls
+                 60 ms  _GenerateRestoreGraphProjectEntry          1 calls
+                  6 ms  _GenerateProjectRestoreGraph               1 calls
+              132747 ms  Rebuild                                    1 calls
+
+Target Performance Summary:
+        0 ms  BeforeResGen                               1 calls
+        0 ms  BeforeBuild                                1 calls
+        0 ms  BeforeRebuild                              1 calls
+        0 ms  AfterBuild                                 1 calls
+        0 ms  BeforeClean                                1 calls
+        0 ms  GetReferenceAssemblyPaths                  1 calls
+        0 ms  ResolvePackageDependenciesForBuild         1 calls
+        0 ms  Clean                                      1 calls
+        0 ms  AfterClean                                 1 calls
+        0 ms  PrepareResourceNames                       1 calls
+        0 ms  ResGen                                     1 calls
+        0 ms  PrepareResources                           1 calls
+        0 ms  GetFrameworkPaths                          1 calls
+        0 ms  InitializeSourceControlInformation         1 calls
+        0 ms  BeforeResolveReferences                    1 calls
+        0 ms  AfterResGen                                1 calls
+        0 ms  _InitializeSourceControlInformationFromSourceControlManager   1 calls
+        0 ms  BeforeCompile                              1 calls
+        0 ms  _SetEmbeddedFilesFromSourceControlManagerUntrackedFiles   1 calls
+        0 ms  _InitializeSourceRootMappedPathsFromSourceControl   1 calls
+        0 ms  _InitializeSourceRootMappedPathsOpt        1 calls
+        0 ms  _SdkBeforeClean                            1 calls
+        0 ms  AfterRebuild                               1 calls
+        0 ms  CreateSatelliteAssemblies                  1 calls
+        0 ms  PrepareProjectReferences                   1 calls
+        0 ms  _CollectRestoreInputs                      1 calls
+        0 ms  CreateCustomManifestResourceNames          1 calls
+        0 ms  Compile                                    1 calls
+        0 ms  GenerateSourceLinkFile                     1 calls
+        0 ms  SetWin32ManifestProperties                 1 calls
+        0 ms  GenerateMSBuildEditorConfigFile            1 calls
+        0 ms  GenerateAssemblyInfo                       1 calls
+        0 ms  ValidateCommandLineProperties              1 calls
+        0 ms  _AddOutputPathToGlobalPropertiesToRemove   1 calls
+        0 ms  IncludeTransitiveProjectReferences         1 calls
+        0 ms  _GetRestoreSettingsCurrentProject          1 calls
+        0 ms  AfterResolveReferences                     1 calls
+        0 ms  _SdkBeforeRebuild                          1 calls
+        0 ms  _CopySourceItemsToOutputDirectory          1 calls
+        0 ms  CoreBuild                                  1 calls
+        0 ms  _GenerateRestoreProjectPathItemsCurrentProject   1 calls
+        0 ms  BuildOnlySettings                          1 calls
+        0 ms  _CheckForUnsupportedHostingUsage           1 calls
+        0 ms  _GenerateRestoreGraphProjectEntry          1 calls
+        0 ms  ResolveLockFileAnalyzers                   1 calls
+        0 ms  PrepareForRun                              1 calls
+        0 ms  GetTargetPath                              1 calls
+        0 ms  Build                                      1 calls
+        0 ms  EnableIntermediateOutputPathMismatchWarning   1 calls
+        0 ms  _DefaultMicrosoftNETPlatformLibrary        1 calls
+        0 ms  _CheckForUnsupportedArtifactsPath          1 calls
+        0 ms  ExpandSDKReferences                        1 calls
+        0 ms  ResolveSDKReferences                       1 calls
+        0 ms  Rebuild                                    1 calls
+        0 ms  _CheckAndUnsetUnsupportedPrefer32Bit       1 calls
+        0 ms  _ComputeNETCoreBuildOutputFiles            1 calls
+        0 ms  CleanReferencedProjects                    1 calls
+        0 ms  _CalculateIsVSTestTestProject              1 calls
+        0 ms  CopyAdditionalFiles                        1 calls
+        0 ms  _GetRestoreTargetFrameworkOverride         1 calls
+        0 ms  _PopulateCommonStateForGetCopyToOutputDirectoryItems   1 calls
+        0 ms  IgnoreJavaScriptOutputAssembly             1 calls
+        0 ms  _GetRestoreSettingsOverrides               1 calls
+        0 ms  AddImplicitDefineConstants                 1 calls
+        0 ms  _SplitProjectReferencesByFileExistence     1 calls
+        0 ms  AfterCompile                               1 calls
+        0 ms  AddSourceRevisionToInformationalVersion    1 calls
+        0 ms  _CheckForUnsupportedCppNETCoreVersion      3 calls
+        0 ms  _CheckForLanguageAndFeatureCombinationSupport   2 calls
+        0 ms  _CheckForObsoleteDotNetCliToolReferences   2 calls
+        0 ms  _SetSourceLinkFilePath                     1 calls
+        0 ms  ResolveLockFileCopyLocalFiles              1 calls
+        0 ms  ResolveReferences                          1 calls
+        0 ms  _SetTargetFrameworkMonikerAttribute        1 calls
+        0 ms  AddNSharpTestDependencies                  2 calls
+        0 ms  _IsProjectRestoreSupported                 1 calls
+        0 ms  _GenerateProjectRestoreGraph               1 calls
+        0 ms  CollectFrameworkReferences                 1 calls
+        0 ms  _GenerateRestoreDependencies               1 calls
+        0 ms  _CheckForUnsupportedNETCoreVersion         3 calls
+        0 ms  _GenerateProjectRestoreGraphCurrentProject   1 calls
+        0 ms  _GetRestoreSettingsPerFramework            1 calls
+        0 ms  _GenerateCompileInputs                     1 calls
+        0 ms  CollectNuGetAuditSuppressions              1 calls
+        0 ms  ResolveProjectReferences                   1 calls
+        0 ms  GenerateTargetFrameworkDefineConstants     1 calls
+        0 ms  CleanPublishFolder                         1 calls
+        0 ms  CoreCompile                                1 calls
+        0 ms  GenerateMSBuildEditorConfigFileShouldRun   1 calls
+        0 ms  _ComputeSkipAnalyzers                      1 calls
+        0 ms  CoreResGen                                 1 calls
+        0 ms  SourceControlManagerPublishTranslatedUrls   1 calls
+        0 ms  _GenerateRestoreProjectPathItems           1 calls
+        0 ms  _CheckForCompileOutputs                    1 calls
+        0 ms  GetAssemblyAttributes                      1 calls
+        0 ms  _CheckContainersPackage                    1 calls
+        0 ms  AddGlobalAnalyzerConfigForPackage_MicrosoftCodeAnalysisCSharpCodeStyle   1 calls
+        0 ms  GetAssemblyVersion                         1 calls
+        0 ms  _GenerateSatelliteAssemblyInputs           1 calls
+        0 ms  _BlockWinMDsOnUnsupportedTFMs              1 calls
+        0 ms  GetTargetPathWithTargetPlatformMoniker     1 calls
+        0 ms  ValidateExecutableReferences               1 calls
+        0 ms  _ComputeUserRuntimeAssemblies              1 calls
+        0 ms  _GenerateRestoreSpecs                      1 calls
+        0 ms  _GenerateRestoreProjectPathItemsPerFramework   1 calls
+        0 ms  CollectPrunePackageReferences              1 calls
+        0 ms  InitializeSourceRootMappedPaths            1 calls
+        0 ms  CollectCentralPackageVersions              1 calls
+        0 ms  SplitResourcesByCulture                    1 calls
+        0 ms  CollectPackageDownloads                    1 calls
+        0 ms  ResolveLockFileReferences                  1 calls
+        0 ms  _GenerateDotnetCliToolReferenceSpecs       1 calls
+        0 ms  _GenerateRestoreProjectSpec                1 calls
+        0 ms  _CheckForInvalidConfigurationAndPlatform   1 calls
+        0 ms  _ComputePackageReferencePublish            1 calls
+        0 ms  _GenerateRestoreProjectPathWalk            1 calls
+        0 ms  _GetProjectReferenceTargetFrameworkProperties   1 calls
+        0 ms  ApplyImplicitVersions                      2 calls
+        0 ms  PrepareForBuild                            1 calls
+        0 ms  _SourceLinkHasSingleProvider               1 calls
+        0 ms  _ComputeReferenceAssemblies                1 calls
+        0 ms  CollectPackageReferences                   2 calls
+        0 ms  IncrementalClean                           1 calls
+        1 ms  CheckForDuplicateItems                     1 calls
+        1 ms  CheckForImplicitPackageReferenceOverrides   2 calls
+        1 ms  AddGlobalAnalyzerConfigForPackage_MicrosoftCodeAnalysisNetAnalyzers   1 calls
+        1 ms  _GetRestoreTargetFrameworksOutput          1 calls
+        1 ms  _GenerateCompileDependencyCache            1 calls
+        1 ms  _InitializeBitbucketGitSourceLinkUrl       2 calls
+        1 ms  _InitializeAzureReposGitSourceLinkUrl      2 calls
+        1 ms  CreateGeneratedAssemblyInfoInputsCacheFile   1 calls
+        1 ms  _GetRestoreProjectStyle                    2 calls
+        1 ms  ResolvePackageAssets                       1 calls
+        1 ms  _InitializeGitLabSourceLinkUrl             2 calls
+        1 ms  _CollectTargetFrameworkForTelemetry        2 calls
+        1 ms  TranslateBitbucketGitUrlsInSourceControlInformation   1 calls
+        1 ms  TranslateAzureReposGitUrlsInSourceControlInformation   1 calls
+        1 ms  _GenerateSourceLinkFile                    1 calls
+        1 ms  _SetEmbeddedWin32ManifestProperties        1 calls
+        1 ms  TranslateGitLabUrlsInSourceControlInformation   1 calls
+        1 ms  _ComputeToolPackInputsToProcessFrameworkReferences   2 calls
+        1 ms  _GetCopyToOutputDirectoryItemsFromThisProject   1 calls
+        1 ms  LoadNSharpReferences                       2 calls
+        1 ms  ResolveOffByDefaultAnalyzers               1 calls
+        1 ms  _GetCopyToOutputDirectoryItemsFromTransitiveProjectReferences   1 calls
+        1 ms  _GenerateProjectRestoreGraphPerFramework   1 calls
+        1 ms  ResolveFrameworkReferences                 1 calls
+        1 ms  GenerateMSBuildEditorConfigFileCore        1 calls
+        2 ms  AssignTargetPaths                          1 calls
+        2 ms  CopyFilesToOutputDirectory                 1 calls
+        2 ms  UpdateAspNetToFrameworkReference           2 calls
+        2 ms  _HandlePackageFileConflicts                1 calls
+        2 ms  ResolveTargetingPackAssets                 1 calls
+        2 ms  _InitializeGitHubSourceLinkUrl             2 calls
+        2 ms  _LoadRestoreGraphEntryPoints               1 calls
+        2 ms  CoreClean                                  1 calls
+        2 ms  _GetAllRestoreProjectPathItems             1 calls
+        3 ms  CoreGenerateAssemblyInfo                   1 calls
+        3 ms  SetEmbeddedFilesFromSourceControlManagerUntrackedFiles   1 calls
+        3 ms  AddPrunePackageReferences                  1 calls
+        3 ms  _CleanGetCurrentAndPriorFileWrites         1 calls
+        3 ms  FindReferenceAssembliesForReferences       1 calls
+        4 ms  GetCopyToOutputDirectoryItems              1 calls
+        4 ms  TranslateGitHubUrlsInSourceControlInformation   1 calls
+        5 ms  GenerateNETCompatibleDefineConstants       1 calls
+        8 ms  ResolveAssemblyReferences                  1 calls
+       11 ms  InitializeSourceControlInformationFromSourceControlManager   1 calls
+       11 ms  _GetRestoreSettings                        1 calls
+       21 ms  ProcessFrameworkReferences                 2 calls
+       21 ms  GenerateBuildDependencyFile                1 calls
+       24 ms  _FilterRestoreGraphProjectInputItems       1 calls
+       25 ms  _ApplyNSharpProjectConfigForCurrentBuild   2 calls
+       68 ms  _GenerateRestoreGraph                      1 calls
+       97 ms  Restore                                    1 calls
+    132645 ms  EmitNSharpIlAssembly                       1 calls
+
+Task Performance Summary:
+        0 ms  GetRestoreNuGetAuditSuppressionsTask       1 calls
+        0 ms  GetRestorePackageDownloadsTask             1 calls
+        0 ms  GetRestoreFrameworkReferencesTask          1 calls
+        0 ms  GetAssemblyVersion                         1 calls
+        0 ms  AssignCulture                              1 calls
+        0 ms  GetRestoreProjectReferencesTask            1 calls
+        0 ms  CheckForUnsupportedWinMDReferences         1 calls
+        0 ms  SetRidAgnosticValueForProjects             1 calls
+        0 ms  ValidateExecutableReferences               1 calls
+        0 ms  ResolveFrameworkReferences                 1 calls
+        0 ms  Microsoft.SourceLink.Common.SourceLinkHasSingleProvider   1 calls
+        0 ms  Microsoft.CodeAnalysis.BuildTasks.MapSourceRoots   1 calls
+        0 ms  GetRestoreDotnetCliToolsTask               1 calls
+        0 ms  GetRestorePackageReferencesTask            1 calls
+        0 ms  JoinItems                                  1 calls
+        0 ms  FindAppConfigFile                          1 calls
+        0 ms  CheckForDuplicateFrameworkReferences       2 calls
+        0 ms  CopyRefAssembly                            1 calls
+        0 ms  MakeDir                                    2 calls
+        0 ms  ApplyImplicitVersions                      2 calls
+        0 ms  Hash                                       2 calls
+        0 ms  ReadLinesFromFile                          2 calls
+        0 ms  GenerateMSBuildEditorConfig                1 calls
+        0 ms  CheckForImplicitPackageReferenceOverrides   2 calls
+        0 ms  NuGetMessageTask                           1 calls
+        0 ms  AllowEmptyTelemetry                        2 calls
+        0 ms  Message                                    8 calls
+        0 ms  CheckForDuplicateItems                     3 calls
+        0 ms  ResolvePackageAssets                       1 calls
+        0 ms  GetProjectTargetFrameworksTask             1 calls
+        0 ms  Microsoft.SourceLink.Bitbucket.Git.GetSourceLinkUrl   2 calls
+        0 ms  Microsoft.SourceLink.AzureRepos.Git.GetSourceLinkUrl   2 calls
+        0 ms  GetRestoreProjectStyleTask                 2 calls
+        1 ms  CheckIfPackageReferenceShouldBeFrameworkReference   4 calls
+        1 ms  ResolveAppHosts                            2 calls
+        1 ms  Microsoft.SourceLink.GitLab.GetSourceLinkUrl   2 calls
+        1 ms  GetRestorePrunePackageReferencesTask       1 calls
+        1 ms  Microsoft.SourceLink.Bitbucket.Git.TranslateRepositoryUrls   1 calls
+        1 ms  Microsoft.SourceLink.AzureRepos.Git.TranslateRepositoryUrls   1 calls
+        1 ms  Microsoft.SourceLink.GitLab.TranslateRepositoryUrls   1 calls
+        1 ms  FindUnderPath                              7 calls
+        1 ms  CheckForDuplicateNuGetItemsTask            6 calls
+        1 ms  Microsoft.SourceLink.Common.GenerateSourceLinkFile   1 calls
+        1 ms  GetFrameworkPath                           1 calls
+        1 ms  Copy                                       1 calls
+        1 ms  GetPackageDirectory                       10 calls
+        1 ms  WriteLinesToFile                           4 calls
+        1 ms  Microsoft.SourceLink.GitHub.TranslateRepositoryUrls   1 calls
+        1 ms  LoadProjectReferences                      2 calls
+        1 ms  WarnForInvalidProjectsTask                 1 calls
+        1 ms  Delete                                     3 calls
+        1 ms  RemoveDuplicates                           8 calls
+        1 ms  AssignTargetPath                           6 calls
+        2 ms  ResolvePackageFileConflicts                1 calls
+        2 ms  Microsoft.SourceLink.GitHub.GetSourceLinkUrl   2 calls
+        2 ms  ResolveTargetingPackAssets                 1 calls
+        2 ms  ConvertToAbsolutePath                      3 calls
+        2 ms  WriteCodeFragment                          1 calls
+        3 ms  GetPackagesToPrune                         1 calls
+        3 ms  Microsoft.Build.Tasks.Git.GetUntrackedFiles   1 calls
+        3 ms  CallTarget                                 2 calls
+        8 ms  ResolveAssemblyReference                   1 calls
+       10 ms  Microsoft.Build.Tasks.Git.LocateRepository   1 calls
+       11 ms  GetRestoreSettingsTask                     1 calls
+       20 ms  ProcessFrameworkReferences                 2 calls
+       21 ms  GenerateDepsFile                           1 calls
+       24 ms  LoadProjectConfig                          2 calls
+       86 ms  MSBuild                                    7 calls
+       96 ms  RestoreTask                                1 calls
+    132644 ms  EmitIlAssembly                             1 calls
+
+Build succeeded.
+    0 Warning(s)
+    0 Error(s)
+
+Time Elapsed 00:02:13.15
+      133.26 real       120.43 user        15.93 sys
+           619560960  maximum resident set size
+                   0  average shared memory size
+                   0  average unshared data size
+                   0  average unshared stack size
+             2114264  page reclaims
+                   4  page faults
+                   0  swaps
+                   0  block input operations
+                   0  block output operations
+                   0  messages sent
+                   0  messages received
+                   0  signals received
+                  24  voluntary context switches
+               38727  involuntary context switches
+       2177772541050  instructions retired
+        547013121941  cycles elapsed
+           572507600  peak memory footprint
+REBUILD 3 EXIT: 0

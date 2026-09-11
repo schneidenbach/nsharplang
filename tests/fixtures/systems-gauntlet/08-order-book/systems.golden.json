@@ -1,0 +1,8 @@
+{
+  "schemaVersion": 1,
+  "case": "order-book update loop",
+  "expected": {
+    "failure": "hot API exposes Dictionary resize/dispatch shape",
+    "code": "NSYS070"
+  }
+}

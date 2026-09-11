@@ -98,6 +98,7 @@ def main() -> int:
     env = os.environ.copy()
     env["HOME"] = str(temp_root)
     env["DOTNET_CLI_HOME"] = str(dotnet_home)
+    env["NSHARP_INSTALL_DIR"] = str(install_dir)
     env["PATH"] = f"{install_dir / 'bin'}{os.pathsep}{env['PATH']}"
     if "DOTNET_ROOT" not in env:
         dotnet_root = subprocess.check_output(

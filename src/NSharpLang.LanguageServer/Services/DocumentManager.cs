@@ -22,14 +22,12 @@ public class DocumentManager
     private readonly ConcurrentDictionary<string, DocumentState> _documents = new();
     private readonly ConcurrentDictionary<string, DateTime> _lastAccessTimes = new();
     private readonly ILogger<DocumentManager> _logger;
-    private readonly Analyzer _sharedAnalyzer;
+    public Analyzer SharedAnalyzer { get; }
     private readonly CodeIntelligenceService _codeIntelligenceService = new();
     private readonly HashSet<string> _loadedProjectDirs = new();
     private readonly object _analyzerLock = new();
     private readonly object _projectSnapshotLock = new();
     private readonly ConcurrentDictionary<string, CachedProjectSnapshot> _projectSnapshots = new();
-    private readonly ConcurrentDictionary<string, CachedProjectSnapshot> _diskProjectSnapshots = new();
-    private readonly ConcurrentDictionary<string, Dictionary<string, List<ProjectSymbolInfo>>> _projectSymbolTables = new();
     private readonly ConcurrentDictionary<string, byte> _editorOpenUris = new();
     private readonly ConcurrentDictionary<string, byte> _workspaceRoots = new();
 
@@ -38,8 +36,8 @@ public class DocumentManager
         _logger = logger;
 
         // Initialize shared analyzer ONCE with system assemblies
-        _sharedAnalyzer = new Analyzer();
-        _sharedAnalyzer.LoadSystemAssemblies();
+        SharedAnalyzer = new Analyzer();
+        SharedAnalyzer.LoadSystemAssemblies();
 
         _logger.LogInformation("DocumentManager initialized with shared Analyzer (system assemblies loaded)");
     }
@@ -220,29 +218,6 @@ public class DocumentManager
     /// </summary>
     public bool HasDocument(string uri) => _documents.ContainsKey(uri);
 
-    public bool IsDocumentSynchronizedWithDisk(string uri)
-    {
-        if (!_documents.TryGetValue(uri, out var document))
-        {
-            return true;
-        }
-
-        var filePath = UriToFilePath(uri);
-        if (!File.Exists(filePath))
-        {
-            return false;
-        }
-
-        try
-        {
-            return string.Equals(document.Text, File.ReadAllText(filePath), StringComparison.Ordinal);
-        }
-        catch
-        {
-            return false;
-        }
-    }
-
     public void UpdateDocument(string uri, string text, int version)
     {
         try
@@ -272,8 +247,7 @@ public class DocumentManager
             state.Tokens = lexer.Tokenize();
             state.Comments = lexer.Comments;
 
-            var parser = new Parser(state.Tokens, filePath, text);  // Pass source code for error snippets
-            var parseResult = parser.ParseCompilationUnit();
+            var parseResult = NSharpLang.Compiler.Columnar.ColumnarParserRecovery.ParseFileAst(text, filePath);
             state.CompilationUnit = parseResult.CompilationUnit;
 
             // Start with parse errors
@@ -281,7 +255,8 @@ public class DocumentManager
 
             // Try to find and load project configuration
             var projectDir = Path.GetDirectoryName(filePath) ?? Environment.CurrentDirectory;
-            var projectConfig = ProjectFileParser.ParseFromDirectory(projectDir);
+            var projectConfig = ProjectFileParser.ParseFromDirectoryOrDefault(projectDir);
+            var analysisProjectRoot = ResolveAnalysisProjectRoot(projectDir);
 
             // Load assemblies from project configuration ONCE per project directory
             // Use lock to ensure thread-safe access to shared analyzer and loaded projects cache
@@ -290,7 +265,7 @@ public class DocumentManager
                 if (!_loadedProjectDirs.Contains(projectDir))
                 {
                     _logger.LogInformation("Loading assemblies for new project directory: {ProjectDir}", projectDir);
-                    _sharedAnalyzer.LoadFromProjectConfig(projectConfig, projectDir);
+                    SharedAnalyzer.LoadFromProjectConfig(projectConfig, projectDir);
                     _loadedProjectDirs.Add(projectDir);
                 }
             }
@@ -298,18 +273,8 @@ public class DocumentManager
             // Only run analysis if we have a valid compilation unit
             if (state.CompilationUnit != null)
             {
-                // Set project symbols for Go-style cross-file resolution.
-                // This allows single-file analysis to resolve types from other files
-                // in the same project without explicit import statements.
-                var projectRoot = FindProjectRoot(filePath);
-                var projectSymbols = GetOrBuildProjectSymbolTable(projectRoot);
-                lock (_analyzerLock)
-                {
-                    _sharedAnalyzer.SetProjectSymbols(projectSymbols);
-                }
-
                 // Use shared analyzer (thread-safe because Analyze doesn't mutate state)
-                var analysisResult = _sharedAnalyzer.Analyze(state.CompilationUnit, filePath, projectDir, text);
+                var analysisResult = SharedAnalyzer.Analyze(state.CompilationUnit, filePath, analysisProjectRoot, text);
                 diagnostics.AddRange(analysisResult.Errors);
 
                 // Store semantic model and binding map for IDE features
@@ -416,150 +381,6 @@ public class DocumentManager
         return results.Count > 0 ? results : null;
     }
 
-    public List<ReferenceResult>? FindStrictDocumentReferences(string uri, int line0, int character0)
-    {
-        var doc = GetDocument(uri);
-        if (doc?.Bindings == null || doc.Text == null)
-        {
-            return null;
-        }
-
-        var span = TryGetIdentifierSpanAtPosition(doc.Text, line0, character0);
-        if (span == null)
-        {
-            return null;
-        }
-
-        var filePath = UriToFilePath(uri);
-        var line = line0 + 1;
-        var declaration = doc.Bindings.GetBindingAt(filePath, line, span.Value.StartColumn)
-            ?? doc.Bindings.FindDeclarationsByName(span.Value.Name).FirstOrDefault(candidate =>
-                string.Equals(candidate.File, filePath, StringComparison.Ordinal)
-                && candidate.Line == line
-                && candidate.Column == span.Value.StartColumn);
-
-        if (declaration == null
-            || !string.Equals(declaration.File, filePath, StringComparison.Ordinal))
-        {
-            return null;
-        }
-
-        var results = new List<ReferenceResult>
-        {
-            new(
-                filePath,
-                declaration.Line,
-                declaration.Column,
-                declaration.Name.Length,
-                GetSourceContext(doc.Text, declaration.Line),
-                IsDefinition: true)
-        };
-
-        foreach (var usage in doc.Bindings.GetReferences(declaration))
-        {
-            var isDefinition = usage.File == declaration.File
-                && usage.Line == declaration.Line
-                && usage.Column == declaration.Column;
-            var overlapsDefinitionName = usage.File == declaration.File
-                && usage.Line == declaration.Line
-                && usage.Column >= declaration.Column
-                && usage.Column < declaration.Column + declaration.Name.Length;
-
-            if (isDefinition || overlapsDefinitionName)
-            {
-                continue;
-            }
-
-            if (!string.Equals(usage.File, filePath, StringComparison.Ordinal))
-            {
-                continue;
-            }
-
-            results.Add(new ReferenceResult(
-                filePath,
-                usage.Line,
-                usage.Column,
-                usage.Length,
-                GetSourceContext(doc.Text, usage.Line),
-                IsDefinition: false));
-        }
-
-        return results
-            .GroupBy(r => (r.File, r.Line, r.Column))
-            .Select(g => g.First())
-            .OrderBy(r => r.Line)
-            .ThenBy(r => r.Column)
-            .ToList();
-    }
-
-    public int CountDocumentDeclarations(string uri, string name)
-    {
-        var doc = GetDocument(uri);
-        if (doc?.Bindings != null)
-        {
-            var filePath = UriToFilePath(uri);
-            return doc.Bindings.FindDeclarationsByName(name)
-                .Count(declaration => string.Equals(declaration.File, filePath, StringComparison.Ordinal));
-        }
-
-        return doc?.SymbolLocations?.TryGetValue(name, out var locations) == true
-            ? locations.Count
-            : 0;
-    }
-
-    private static (int StartColumn, int EndColumn, string Name)? TryGetIdentifierSpanAtPosition(string text, int line0, int character0)
-    {
-        var lines = text.Split('\n');
-        if (line0 < 0 || line0 >= lines.Length)
-        {
-            return null;
-        }
-
-        var lineText = lines[line0].TrimEnd('\r');
-        if (lineText.Length == 0)
-        {
-            return null;
-        }
-
-        var index = Math.Clamp(character0, 0, lineText.Length - 1);
-        if (!EditorUtilities.IsIdentifierChar(lineText[index]))
-        {
-            if (character0 > 0
-                && character0 <= lineText.Length
-                && !EditorUtilities.IsIdentifierChar(lineText[Math.Min(character0, lineText.Length - 1)])
-                && EditorUtilities.IsIdentifierChar(lineText[character0 - 1]))
-            {
-                index = character0 - 1;
-            }
-            else
-            {
-                return null;
-            }
-        }
-
-        var start = index;
-        while (start > 0 && EditorUtilities.IsIdentifierChar(lineText[start - 1]))
-        {
-            start--;
-        }
-
-        var end = index;
-        while (end + 1 < lineText.Length && EditorUtilities.IsIdentifierChar(lineText[end + 1]))
-        {
-            end++;
-        }
-
-        return (start + 1, end + 1, lineText.Substring(start, end - start + 1));
-    }
-
-    private static string GetSourceContext(string source, int line)
-    {
-        var lines = source.Split('\n');
-        return line > 0 && line <= lines.Length
-            ? lines[line - 1].TrimEnd('\r')
-            : string.Empty;
-    }
-
     public bool HasSynchronizedProjectSnapshot(string uri)
     {
         return TryGetSynchronizedProjectSnapshot(uri, out _, out _, out _);
@@ -573,72 +394,9 @@ public class DocumentManager
             || _workspaceRoots.Keys.Any(root => IsPathUnderProject(filePath, root));
     }
 
-    /// <summary>
-    /// Finds definition using the disk-based project snapshot, bypassing the sync check.
-    /// Used as a fallback when open buffers differ from disk but cross-file semantic
-    /// definition resolution is still desired.
-    /// </summary>
-    public DefinitionResult? FindProjectDefinitionFromDisk(string uri, int line0, int character0)
-    {
-        if (!TryGetProjectSnapshotFromDisk(uri, out var projectRoot, out var filePath, out var snapshot))
-        {
-            return null;
-        }
-
-        return _codeIntelligenceService.FindDefinition(snapshot, filePath, line0 + 1, character0 + 1);
-    }
-
     public string GetProjectRootForUri(string uri)
     {
         return ResolveSemanticProjectRoot(UriToFilePath(uri));
-    }
-
-    /// <summary>
-    /// Converts an LSP document URI into the filesystem path used by compiler services.
-    /// </summary>
-    public string GetFilePathForUri(string uri)
-    {
-        return UriToFilePath(uri);
-    }
-
-    /// <summary>
-    /// Returns all currently known project symbols for completion. This uses open-buffer
-    /// document state so completion can see unsaved project files loaded by the workspace scan.
-    /// </summary>
-    public IReadOnlyList<ProjectSymbolInfo> GetProjectSymbolsForCompletion(string uri)
-    {
-        var filePath = UriToFilePath(uri);
-        var projectRoot = FindProjectRoot(filePath);
-        var projectSymbols = GetOrBuildProjectSymbolTable(projectRoot);
-
-        return projectSymbols.Values
-            .SelectMany(symbols => symbols)
-            .ToList();
-    }
-
-    public bool HasUnsavedOpenBuffersInProject(string uri)
-    {
-        var projectRoot = ResolveSemanticProjectRoot(UriToFilePath(uri));
-        foreach (var openUri in _editorOpenUris.Keys)
-        {
-            if (!_documents.TryGetValue(openUri, out var document))
-            {
-                continue;
-            }
-
-            var documentPath = UriToFilePath(document.Uri);
-            if (!IsPathUnderProject(documentPath, projectRoot))
-            {
-                continue;
-            }
-
-            if (!IsDocumentSynchronizedWithDisk(document.Uri))
-            {
-                return true;
-            }
-        }
-
-        return false;
     }
 
     public string ResolveProjectFilePath(string projectRoot, string relativeOrAbsolutePath)
@@ -721,99 +479,7 @@ public class DocumentManager
         return publications;
     }
 
-    /// <summary>
-    /// Find all references to a symbol name in a document's source text.
-    /// Returns 0-based line/column positions of each whole-word occurrence
-    /// that is a valid identifier (not inside a string literal or comment).
-    /// </summary>
-    public List<(int Line, int Column, int Length)> FindAllReferences(string uri, string symbolName)
-    {
-        var results = new List<(int Line, int Column, int Length)>();
-        var doc = GetDocument(uri);
-        if (doc?.Text == null || string.IsNullOrEmpty(symbolName)) return results;
-
-        // NOTE: BindingMap is stored for future use by handlers that need semantic resolution.
-        // For FindAllReferences in the LSP context, we continue using the battle-tested text search
-        // because the BindingMap doesn't yet cover all expression paths (interpolation, etc.).
-        // The CLI's CodeIntelligenceService.FindReferences() uses BindingMap directly.
-
-        // Text-based search
-        var lines = doc.Text.Split('\n');
-        for (int lineIdx = 0; lineIdx < lines.Length; lineIdx++)
-        {
-            var line = lines[lineIdx];
-            int searchStart = 0;
-            while (searchStart < line.Length)
-            {
-                int idx = line.IndexOf(symbolName, searchStart, StringComparison.Ordinal);
-                if (idx < 0) break;
-
-                // Check whole-word boundary
-                bool leftBound = idx == 0 || !IsIdentChar(line[idx - 1]);
-                bool rightBound = idx + symbolName.Length >= line.Length || !IsIdentChar(line[idx + symbolName.Length]);
-
-                if (leftBound && rightBound && !IsInsideStringOrComment(line, idx))
-                {
-                    results.Add((lineIdx, idx, symbolName.Length));
-                }
-
-                searchStart = idx + 1;
-            }
-        }
-
-        return results;
-    }
-
-    private static bool IsIdentChar(char c) => char.IsLetterOrDigit(c) || c == '_';
-
-    private static bool IsInsideStringOrComment(string line, int position)
-    {
-        // Track string/comment/interpolation state up to `position`.
-        // Inside an interpolated string, content between { } is CODE, not string.
-        bool inString = false;
-        bool isInterpolated = false;
-        int interpolationDepth = 0; // nesting depth of { } inside interpolated string
-        for (int i = 0; i < position && i < line.Length; i++)
-        {
-            var c = line[i];
-            if (inString && isInterpolated && interpolationDepth > 0)
-            {
-                // Inside an interpolation expression — treat as code
-                if (c == '{') interpolationDepth++;
-                else if (c == '}') interpolationDepth--;
-                // Don't check for string end while inside interpolation
-            }
-            else if (inString)
-            {
-                if (c == '\\') { i++; continue; } // skip escaped char
-                if (c == '"') inString = false;
-                else if (isInterpolated && c == '{')
-                {
-                    // Check for {{ (escaped brace, stays in string)
-                    if (i + 1 < line.Length && line[i + 1] == '{') { i++; continue; }
-                    interpolationDepth = 1; // entering interpolation expression
-                }
-            }
-            else
-            {
-                if (c == '$' && i + 1 < line.Length && line[i + 1] == '"')
-                {
-                    inString = true;
-                    isInterpolated = true;
-                    interpolationDepth = 0;
-                    i++; // skip the '"'
-                }
-                else if (c == '"') { inString = true; isInterpolated = false; interpolationDepth = 0; }
-                else if (c == '\'') { inString = true; isInterpolated = false; interpolationDepth = 0; }
-                else if (c == '/' && i + 1 < line.Length && line[i + 1] == '/') return true; // line comment
-            }
-        }
-        // If we're in a string but inside an interpolation expression, it's code
-        if (inString && isInterpolated && interpolationDepth > 0) return false;
-        return inString;
-    }
-
-    private bool TryGetSynchronizedProjectSnapshot(string uri, out string projectRoot, out string filePath, out ProjectSnapshot snapshot)
+    public bool TryGetSynchronizedProjectSnapshot(string uri, out string projectRoot, out string filePath, out ProjectSnapshot snapshot)
     {
         filePath = UriToFilePath(uri);
         projectRoot = ResolveSemanticProjectRoot(filePath);
@@ -886,94 +552,12 @@ public class DocumentManager
         }
     }
 
-    /// <summary>
-    /// Loads a project snapshot from disk without requiring open buffers to match disk.
-    /// Uses a separate cache that is not invalidated by editor keystrokes.
-    /// </summary>
-    private bool TryGetProjectSnapshotFromDisk(string uri, out string projectRoot, out string filePath, out ProjectSnapshot snapshot)
-    {
-        filePath = UriToFilePath(uri);
-        projectRoot = ResolveSemanticProjectRoot(filePath);
-        snapshot = null!;
-
-        if (!File.Exists(filePath))
-        {
-            return false;
-        }
-
-        var stamp = ComputeProjectSnapshotStamp(projectRoot).ToString(System.Globalization.CultureInfo.InvariantCulture);
-        if (stamp == "0")
-        {
-            return false;
-        }
-
-        lock (_projectSnapshotLock)
-        {
-            if (_diskProjectSnapshots.TryGetValue(projectRoot, out var cached) && cached.Stamp == stamp)
-            {
-                snapshot = cached.Snapshot;
-                return true;
-            }
-
-            try
-            {
-                snapshot = _codeIntelligenceService.LoadProject(projectRoot);
-                _diskProjectSnapshots[projectRoot] = new CachedProjectSnapshot(stamp, snapshot);
-                return true;
-            }
-            catch (Exception ex)
-            {
-                _logger.LogWarning(ex, "Failed to load disk-based project snapshot for {ProjectRoot}", projectRoot);
-                return false;
-            }
-        }
-    }
-
     private void InvalidateProjectSnapshot(string filePath)
     {
         foreach (var projectRoot in ResolvePossibleSemanticProjectRoots(filePath))
         {
             _projectSnapshots.TryRemove(projectRoot, out _);
-            _projectSymbolTables.TryRemove(projectRoot, out _);
         }
-    }
-
-    /// <summary>
-    /// Builds a project-wide symbol table from all parsed documents in the project.
-    /// This enables Go-style cross-file symbol resolution: all PascalCase declarations
-    /// are visible across files in the same project without explicit imports.
-    /// </summary>
-    private Dictionary<string, List<ProjectSymbolInfo>> GetOrBuildProjectSymbolTable(string projectRoot)
-    {
-        if (_projectSymbolTables.TryGetValue(projectRoot, out var cached))
-            return cached;
-
-        var table = new Dictionary<string, List<ProjectSymbolInfo>>();
-
-        foreach (var doc in _documents.Values)
-        {
-            if (doc.CompilationUnit == null)
-                continue;
-
-            var docPath = UriToFilePath(doc.Uri);
-            if (!IsPathUnderProject(docPath, projectRoot))
-                continue;
-
-            var symbols = Analyzer.ExtractProjectSymbols(doc.CompilationUnit, docPath, doc.Text);
-            foreach (var symbol in symbols)
-            {
-                if (!table.TryGetValue(symbol.Name, out var list))
-                {
-                    list = new List<ProjectSymbolInfo>();
-                    table[symbol.Name] = list;
-                }
-                list.Add(symbol);
-            }
-        }
-
-        _projectSymbolTables[projectRoot] = table;
-        _logger.LogDebug("Built project symbol table for {ProjectRoot}: {Count} symbols", projectRoot, table.Count);
-        return table;
     }
 
     private static string FindProjectRoot(string filePath)
@@ -994,6 +578,27 @@ public class DocumentManager
         }
 
         return Path.GetFullPath(directory);
+    }
+
+    private static string? ResolveAnalysisProjectRoot(string projectDir)
+    {
+        var fullProjectDir = Path.GetFullPath(projectDir);
+        if (File.Exists(Path.Combine(fullProjectDir, "project.yml")))
+        {
+            return fullProjectDir;
+        }
+
+        return IsFilesystemRoot(fullProjectDir) ? null : fullProjectDir;
+    }
+
+    private static bool IsFilesystemRoot(string directory)
+    {
+        var fullPath = Path.GetFullPath(directory)
+            .TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+        var rootPath = (Path.GetPathRoot(directory) ?? string.Empty)
+            .TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+
+        return string.Equals(fullPath, rootPath, StringComparison.OrdinalIgnoreCase);
     }
 
     private string ResolveSemanticProjectRoot(string filePath)
@@ -1196,27 +801,27 @@ public class DocumentManager
         {
             if (decl is ClassDeclaration classDecl)
             {
-                symbols[classDecl.Name] = new ClassTypeInfo(classDecl);
+                symbols[classDecl.Name] = NominalTypeInfoFactory.FromClassDeclaration(classDecl);
             }
             else if (decl is StructDeclaration structDecl)
             {
-                symbols[structDecl.Name] = new StructTypeInfo(structDecl);
+                symbols[structDecl.Name] = NominalTypeInfoFactory.FromStructDeclaration(structDecl);
             }
             else if (decl is RecordDeclaration recordDecl)
             {
-                symbols[recordDecl.Name] = new RecordTypeInfo(recordDecl);
+                symbols[recordDecl.Name] = NominalTypeInfoFactory.FromRecordDeclaration(recordDecl);
             }
             else if (decl is InterfaceDeclaration interfaceDecl)
             {
-                symbols[interfaceDecl.Name] = new InterfaceTypeInfo(interfaceDecl);
+                symbols[interfaceDecl.Name] = NominalTypeInfoFactory.FromInterfaceDeclaration(interfaceDecl);
             }
             else if (decl is EnumDeclaration enumDecl)
             {
-                symbols[enumDecl.Name] = new EnumTypeInfo(enumDecl);
+                symbols[enumDecl.Name] = EnumTypeInfoFactory.FromDeclaration(enumDecl);
             }
             else if (decl is UnionDeclaration unionDecl)
             {
-                symbols[unionDecl.Name] = new UnionTypeInfo(unionDecl);
+                symbols[unionDecl.Name] = UnionTypeInfoFactory.FromDeclaration(unionDecl);
             }
         }
 
@@ -1246,6 +851,10 @@ public class DocumentManager
             else if (decl is RecordDeclaration recordDecl)
             {
                 symbols[recordDecl.Name] = CreateTypeSymbol(recordDecl, text);
+            }
+            else if (decl is SoaRecordDeclaration soaRecordDecl)
+            {
+                symbols[soaRecordDecl.Name] = CreateSoaRecordSymbol(soaRecordDecl, text);
             }
             else if (decl is InterfaceDeclaration interfaceDecl)
             {
@@ -1327,6 +936,14 @@ public class DocumentManager
                 case RecordDeclaration recordDecl:
                     AddLocation(recordDecl.Name, SymbolKind.Record, recordDecl.Line, recordDecl.Column);
                     foreach (var member in recordDecl.Members) VisitDeclaration(member);
+                    break;
+
+                case SoaRecordDeclaration soaRecordDecl:
+                    AddLocation(soaRecordDecl.Name, SymbolKind.Record, soaRecordDecl.Line, soaRecordDecl.Column);
+                    foreach (var column in soaRecordDecl.Columns)
+                    {
+                        AddLocation(column.Name, SymbolKind.Field, column.Line, column.Column);
+                    }
                     break;
 
                 case InterfaceDeclaration interfaceDecl:
@@ -1628,6 +1245,26 @@ public class DocumentManager
             Modifiers = recordDecl.Modifiers
         };
         ExtractMembers(symbol, recordDecl.Members, text);
+        return symbol;
+    }
+
+    private SymbolInfo CreateSoaRecordSymbol(SoaRecordDeclaration soaRecordDecl, string text)
+    {
+        var symbol = new SymbolInfo(soaRecordDecl.Name, SymbolKind.Record)
+        {
+            TypeName = "soa",
+            Documentation = ExtractLeadingDocumentation(text, soaRecordDecl.Line),
+            Modifiers = soaRecordDecl.Modifiers
+        };
+
+        foreach (var column in soaRecordDecl.Columns)
+        {
+            symbol.Members.Add(new SymbolInfo(column.Name, SymbolKind.Field)
+            {
+                TypeName = column.Type.ToString()
+            });
+        }
+
         return symbol;
     }
 

@@ -37,6 +37,19 @@ public class IlVerifyBaselineEmptyTests
                 + string.Join("\n  ", findings));
     }
 
+    [Fact]
+    public void ProductGate_ReusesFreshlyBuiltOutputsForIlVerify()
+    {
+        var root = FindRepoRoot();
+        var ilverifyScript = File.ReadAllText(Path.Combine(root, "scripts", "ilverify.sh"));
+        var gateScript = File.ReadAllText(Path.Combine(root, "tests", "scripts", "test-all-core.sh"));
+
+        Assert.Contains("--built-dirs-file", ilverifyScript, StringComparison.Ordinal);
+        Assert.Contains("Using existing example/template/fixture build outputs", ilverifyScript, StringComparison.Ordinal);
+        Assert.Contains("ILVERIFY_BUILT_DIRS_FILE", gateScript, StringComparison.Ordinal);
+        Assert.Contains("--built-dirs-file \"$ILVERIFY_BUILT_DIRS_FILE\"", gateScript, StringComparison.Ordinal);
+    }
+
     private static string FindRepoRoot()
     {
         var dir = AppContext.BaseDirectory;

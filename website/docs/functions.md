@@ -32,6 +32,8 @@ func add(a: int, b: int): int {
 }
 ```
 
+Functions that return a value must declare that return type. Omitting the return type means the function returns `void`.
+
 ### Visibility
 
 Functions follow N#'s convention-based visibility:
@@ -81,6 +83,24 @@ message1 := greet("Alice")              // "Hello, Alice!"
 message2 := greet("Bob", "Hi")          // "Hi, Bob!"
 ```
 
+Enum members are compile-time constructor defaults too. The enum owner is bound
+where the constructor is declared, so imports at a call site cannot change it.
+
+```n#
+enum DeliveryMode {
+    Standard,
+    Express
+}
+
+class Quote {
+    Mode: DeliveryMode
+
+    constructor(mode: DeliveryMode = DeliveryMode.Standard) {
+        this.Mode = mode
+    }
+}
+```
+
 ### Params Arrays
 
 ```n#
@@ -97,7 +117,7 @@ result1 := sum(1, 2, 3)           // 6
 result2 := sum(1, 2, 3, 4, 5)     // 15
 ```
 
-### Params Collections (C# 13)
+### Params Collections
 
 N# supports params with any collection type:
 
@@ -163,6 +183,16 @@ func printMessage(msg: string) {
 }
 ```
 
+Returning a value from a void function is an error:
+
+```n#
+func answer() {
+    return 42
+}
+```
+
+Write `func answer(): int` when the function should return `42`.
+
 ### Nullable Return Types
 
 ```n#
@@ -186,6 +216,81 @@ func getDimensions(): (int, int) {
 (width, height) := getDimensions()
 Console.WriteLine($"{width}x{height}")
 ```
+
+#### Named Tuple Elements
+
+Name the elements to read them back by name instead of by position. The names are part of the
+declared type, so callers can use either the names or positional deconstruction:
+
+```n#
+func minMax(values: int[]): (Min: int, Max: int) {
+    low := values[0]
+    high := values[0]
+    for i := 1; i < values.Length; i++ {
+        if values[i] < low {
+            low = values[i]
+        }
+        if values[i] > high {
+            high = values[i]
+        }
+    }
+    return (low, high)
+}
+
+bounds := minMax([3, 1, 4])
+Console.WriteLine($"{bounds.Min}..{bounds.Max}")   // by name
+
+low, high := minMax([3, 1, 4])                     // or by position
+```
+
+Named tuple returns work the same way on free functions, static methods and instance methods:
+
+```n#
+class Sample {
+    static func range(values: int[]): (Min: int, Max: int) => minMax(values)
+
+    func shifted(values: int[], offset: int): (Min: int, Max: int) {
+        bounds := minMax(values)
+        return (bounds.Min + offset, bounds.Max + offset)
+    }
+}
+```
+
+A named tuple is a `System.ValueTuple` at the CLR level, so the underlying fields are still
+`Item1` / `Item2` — `bounds.Min` and `bounds.Item1` are the same field.
+
+#### Named Tuple Elements Across Assemblies
+
+The names are not erased. Because a named tuple has no CLR identity of its own, every .NET language
+records its element names in a `System.Runtime.CompilerServices.TupleElementNamesAttribute` on the
+signature POSITION — the return parameter, a parameter, a field, a property — and N# both writes and
+reads that attribute. So the names survive the assembly boundary in both directions:
+
+- A **C# consumer of an N# library** sees `(int Min, int Max)`, not a bare `ValueTuple<int, int>`.
+- **N# reading a C# library** resolves the C# side's declared names, so
+  `SimdReductions.MinMaxInt32(...).Min` works as well as `.Item1` does.
+
+The attribute is written for every position a named tuple appears in, including nested tuples and
+tuples inside a generic argument, and it is omitted entirely when nothing is named:
+
+```n#
+func pair(): (Min: int, Max: int)                 // Min, Max
+func nested(): (A: int, D: (B: int, C: int))      // A, D, B, C — the outer names come first
+func inGeneric(): List<(Min: int, Max: int)>      // Min, Max
+func positional(): (int, int)                     // no attribute at all
+```
+
+Element names are metadata, not identity — exactly as in C#. `(Min: int, Max: int)` and `(int, int)`
+are the same type, a value flows freely between them, and a name mismatch is never an error:
+
+```n#
+let bounds: (int, int) = minMax([3, 1, 4])        // fine: names are not part of the type
+let renamed: (Low: int, High: int) = minMax([3, 1, 4])
+```
+
+Two spellings are still unsupported: a tuple element may not be named individually
+(`(A: int, int)` — name all of them or none), and a field or property may not itself be declared with
+a tuple type.
 
 ## Lambda Expressions
 
@@ -253,7 +358,7 @@ async func processFile(path: string): Task<string> {
 }
 ```
 
-Explicit `Task<T>` signatures use C# async return semantics: return the `T`
+Explicit `Task<T>` signatures use task-like async return semantics: return the `T`
 value from the body and N# wraps it in `Task<T>`. Explicit `Task` signatures
 are unit-returning async methods, so no `return` statement is required after the
 last `await`.
@@ -360,6 +465,45 @@ func process<T>(item: T): string where T : IFormattable {
 func compare<T>(a: T, b: T): bool where T : IComparable<T> {
     return a.CompareTo(b) == 0
 }
+```
+
+When the type argument is a **value type** (a `struct`), calls to a constrained
+interface method dispatch through a `constrained.` prefix — the receiver is **not
+boxed**, so there is no heap allocation and the struct's own method is invoked
+directly:
+
+```n#
+interface Shape {
+    func Area(): int
+}
+
+struct Square : Shape {
+    side: int
+    func Area(): int => side * side
+}
+
+func totalArea<T>(s: T): int where T : Shape {
+    return s.Area()   // dispatched without boxing when T is Square
+}
+
+totalArea(new Square { side: 3 })   // 9
+```
+
+This holds even when the called method is inherited from a **base interface** of
+the constraint. Given `interface Shape : HasArea`, a function constrained to
+`T : Shape` can still call the inherited `Area()` without boxing:
+
+```n#
+interface HasArea { func Area(): int }
+interface Shape : HasArea { func Name(): string }
+
+struct Square : Shape {
+    side: int
+    func Area(): int => side * side
+    func Name(): string => "square"
+}
+
+func totalArea<T>(s: T): int where T : Shape => s.Area()   // resolves HasArea.Area
 ```
 
 ### Multiple Constraints
@@ -658,10 +802,10 @@ func main() {
 
 - **[Types Guide](types.md)** - Learn about classes, unions, records, and interfaces
 - **[Pattern Matching](pattern-matching.md)** - Deep dive into pattern matching
-- **[Language Tour](language-tour.md)** - Comprehensive language overview including async
+- **[Language Tour: Async/Await](language-tour.md#asyncawait)** - Async functions and streams
+- **[Systems N#](systems.md)** - `[hot]` functions, `Result<T,E>`, and the performance lane
 
 ## Resources
 
 - [Project README](https://github.com/schneidenbach/nsharplang/blob/main/README.md)
-- [Examples](/examples)
-- [Language Design](https://github.com/schneidenbach/nsharplang/blob/main/docs/DESIGN.md)
+- [Examples](/examples/)

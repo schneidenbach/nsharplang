@@ -1,0 +1,1 @@
+PASS: frame writer should be allocation-free and bounds-guarded.

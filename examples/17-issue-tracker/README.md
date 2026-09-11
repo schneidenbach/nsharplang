@@ -55,7 +55,7 @@ That makes the editor story explicit: this example is meant to work from the CLI
 
 ## What to look for
 
-Each backend file showcases specific N# features. This is not C# with a different coat of paint; the app leans on N# semantics.
+Each backend file showcases specific N# features and leans on N# semantics.
 
 ### `Models.nl` — Records and unions
 

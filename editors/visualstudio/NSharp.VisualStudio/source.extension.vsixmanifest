@@ -6,7 +6,7 @@
     <Description xml:space="preserve">N# language support for Visual Studio 2022. Provides syntax highlighting, project templates, and basic IDE integration for N# (.nl) files.</Description>
     <MoreInfo>https://github.com/nsharp-lang/nsharp</MoreInfo>
     <License>LICENSE.txt</License>
-    <Tags>nsharp, n#, dotnet, csharp, language</Tags>
+    <Tags>nsharp, n#, dotnet, language</Tags>
   </Metadata>
   <Installation>
     <InstallationTarget Id="Microsoft.VisualStudio.Community" Version="[17.0, 18.0)">

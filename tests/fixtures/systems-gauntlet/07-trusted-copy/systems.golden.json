@@ -1,0 +1,8 @@
+{
+  "schemaVersion": 1,
+  "case": "trusted safe wrapper over restricted unsafe copy",
+  "expected": {
+    "trustedSites": ["Copy"],
+    "failure": "BadCopy uses unsafe without governed trust"
+  }
+}

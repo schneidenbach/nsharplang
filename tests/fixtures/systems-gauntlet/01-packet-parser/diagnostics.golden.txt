@@ -1,0 +1,1 @@
+PASS: packet parser should have no systems errors after the length guard discharges the slice preconditions.

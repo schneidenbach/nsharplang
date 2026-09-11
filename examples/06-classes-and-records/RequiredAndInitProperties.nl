@@ -1,9 +1,9 @@
-// Example: Required and Init-Only Properties (C# 9 & 11 Features)
-// This demonstrates modern C# property features in N#
+// Example: Required and Init-Only Properties
+// This demonstrates N# property initialization features
 import System
 
 
-// Record with init-only properties (C# 9)
+// Record with init-only properties
 // Init properties can only be set during object initialization
 record Person {
     Name: string
@@ -14,7 +14,7 @@ record Person {
     IsAdult: bool => Age >= 18
 }
 
-// Class with required properties (C# 11)
+// Class with required properties
 // Required properties MUST be set during object creation
 class User {
     Id: string

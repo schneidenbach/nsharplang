@@ -104,8 +104,24 @@ Hello from N#!
 1. MSBuild loads `NSharpLang.Sdk` from `global.json`.
 2. The SDK reads `project.yml`.
 3. It discovers `.nl` files automatically, excluding `.tests.nl` from the main build.
-4. The compiler emits the project assembly directly via the IL backend during the build.
-5. MSBuild continues with the normal .NET pipeline using the emitted assembly, references, and runtime assets.
+4. `$(Configuration)` and `$(DefineConstants)` are folded into the project's `#if` symbols through the
+   same owners `nlc` uses, so `dotnet build` and `nlc build` resolve conditional compilation
+   identically: `DEBUG` is defined for every configuration except `Release`, and a define list accepts
+   both `;` and `,`, trims each symbol and drops empties.
+5. The compiler emits the project assembly directly via the IL backend during the build.
+6. The reference assembly MSBuild hands to downstream compilations is re-scoped before it is written.
+   The IL backend resolves BCL types through the runtime, so an emitted type reference points at
+   `System.Private.CoreLib` — the one runtime assembly with no reference-pack counterpart. Each such
+   reference is re-pointed at whichever referenced assembly owns the type (`System.Object` at
+   `System.Runtime`, `List<T>` at `System.Collections`), a defining assembly always outranking a
+   forwarding facade, and the now-unused `System.Private.CoreLib` reference is dropped. **This is what
+   makes an N# library consumable from C#**; without it `csc` reports `CS0012: The type 'Object' is
+   defined in an assembly that is not referenced.`
+7. MSBuild continues with the normal .NET pipeline using the emitted assembly, references, and runtime assets.
+
+Every decision in steps 4 and 6 lives in N#. `src/NSharpLang.Compiler.Core/EmitIlAssembly.nl`
+owns the MSBuild task and Mono.Cecil orchestration, while `SdkEmitTaskKernels.nl` owns its pure
+selection and formatting rules.
 
 ## Why `nlc` Is The Preferred Path
 
@@ -119,8 +135,8 @@ Do not add project settings to a hand-authored `.csproj`; fix the SDK/project.ym
 
 ```text
 src/
-├── NSharpLang.Build.Tasks/       # MSBuild task implementation
-│   ├── EmitIlAssembly.cs
+├── NSharpLang.Compiler.Core/     # N# compiler core and EmitIlAssembly task
+├── NSharpLang.Build.Tasks/       # C# project-configuration bootstrap tasks
 │   └── NSharpLang.Build.targets
 └── NSharpLang.Sdk/               # MSBuild SDK package
     ├── Sdk/
@@ -131,6 +147,6 @@ src/
 
 ## See Also
 
-- [Quick Start](QUICK-START.md)
+- [Getting Started](../website/docs/getting-started.md)
 - [Templates](../templates/README.md)
 - [Repository README](../README.md)

@@ -23,9 +23,6 @@ using DocumentUri = OmniSharp.Extensions.LanguageServer.Protocol.DocumentUri;
 
 namespace NSharpLang.LanguageServer.Handlers;
 
-/// <summary>
-/// Handles textDocument/codeAction requests for quick fixes and refactorings
-/// </summary>
 public class CodeActionHandler : CodeActionHandlerBase
 {
     private readonly DocumentManager _documentManager;
@@ -88,17 +85,6 @@ public class CodeActionHandler : CodeActionHandlerBase
                     codeActions.Add(lspCodeAction);
                 }
             }
-        }
-
-        // Get refactorings not tied to diagnostics
-        var line = (int)request.Range.Start.Line + 1; // Convert to 1-based
-        var column = (int)request.Range.Start.Character + 1;
-        var refactorings = _codeFixService.GetCodeActionsForDocument(doc.Ast, doc.Source, line, column);
-
-        foreach (var refactoring in refactorings)
-        {
-            var lspCodeAction = ConvertToLspCodeAction(refactoring, request.TextDocument.Uri, null);
-            codeActions.Add(lspCodeAction);
         }
 
         if (codeActions.Count == 0)

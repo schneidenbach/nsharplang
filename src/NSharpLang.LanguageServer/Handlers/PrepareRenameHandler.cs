@@ -87,12 +87,6 @@ public class PrepareRenameHandler : PrepareRenameHandlerBase
         var isKnownSymbol = hasStrictProjectRenameTarget;
         if (doc.SymbolLocations?.ContainsKey(word) == true)
             isKnownSymbol = true;
-        else if (doc.SemanticModel?.LookupIdentifier(word) != null)
-            isKnownSymbol = true;
-        else if (doc.SemanticModel?.Variables.ContainsKey(word) == true)
-            isKnownSymbol = true;
-        else if (doc.SemanticModel?.Functions.ContainsKey(word) == true)
-            isKnownSymbol = true;
 
         if (!isKnownSymbol)
         {
@@ -102,16 +96,9 @@ public class PrepareRenameHandler : PrepareRenameHandlerBase
 
         if (!hasSynchronizedProjectSnapshot)
         {
-            var documentReferences = _documentManager.FindStrictDocumentReferences(
-                uri,
-                request.Position.Line,
-                request.Position.Character);
-            if (documentReferences == null || documentReferences.Count == 0)
-            {
                 throw RenameRefused(
                     $"Rename for '{word}' is unavailable because semantic resolution could not safely identify the selected symbol. " +
                     "No edits were applied; refusing text-only rename to avoid editing unrelated symbols.");
-            }
         }
 
         // Return the range of the word and a placeholder

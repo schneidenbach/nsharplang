@@ -1,0 +1,14 @@
+name: NSharpLang.NativeComparison
+version: 0.1.0
+targetFramework: net10.0
+backend: il
+outputType: exe
+entry: Program.nl
+
+# `mode: audit` rather than `strict`: the kernels' `values[i]` accesses are unproven trap obligations
+# under `[hot]`, the ports keep their bounds checks too, and the `[allow(trap)]` waiver does not
+# survive `nlc format`. See the header of Kernels.nl.
+language:
+  profile: systems
+  systems:
+    mode: audit

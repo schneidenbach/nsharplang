@@ -9,7 +9,7 @@ Welcome to N#! This guide covers the fundamental syntax and features of the N# p
 
 ## What is N#?
 
-N# (pronounced "N Sharp") is a pragmatic, simple language for the .NET CLR. Think of it as "Go for .NET" - it combines Go's simplicity and clean syntax with the power of the .NET ecosystem.
+N# (pronounced "N Sharp") is a pragmatic, simple language for the .NET CLR. It shares Go's ethos of simplicity and clean syntax, but it is **not** "Go for .NET": N# pairs that small syntax with a much richer type system (discriminated unions, exhaustive pattern matching, structural typing) and an opt-in high-performance "systems" lane.
 
 **Key Features:**
 - Clean, minimal syntax (no semicolons!)
@@ -265,6 +265,10 @@ message := $"Hello, {name}! You are {age} years old."
 Console.WriteLine(message)
 ```
 
+Backslash escapes (`\n`, `\t`, `\e`, `\x1b`, `\u0041`, ...) are listed in the
+[language tour](./language-tour.md#escape-sequences). A backslash that starts no escape is an error
+([NL105](./errors/NL105.md)), so double it or use a raw `"""..."""` string.
+
 ## Imports and Packages
 
 ### Import Statements
@@ -339,7 +343,56 @@ func Create([FromBody] [Required] user: CreateUserRequest): IActionResult {
 }
 ```
 
+The columnar backend preserves external attributes with no constructor arguments or positional string arguments on classes, structs, functions, methods, and parameters. Attribute names resolve in the declaring file's scope, including the optional `Attribute` suffix. Other argument and declaration shapes still have selective support during the compiler migration.
+
 Parameter attributes are emitted as real CLR parameter metadata, so ASP.NET model-binding attributes such as `[FromBody]` and `[FromRoute]`, plus xUnit-style parameter attributes from referenced packages, are visible to the framework at runtime.
+
+### `[MethodImpl]` — the attribute that is not stored as an attribute
+
+`System.Runtime.CompilerServices.MethodImplAttribute` is a **pseudo-custom attribute**. The CLR does
+not keep a custom-attribute row for it. What it says goes into the implementation-flags column of the
+method definition row — the column the JIT reads when it decides whether a call may be inlined, and
+the one `MethodBase.GetMethodImplementationFlags()` reads back. N# writes it there, exactly as the C#
+compiler does, so it never appears in `GetCustomAttributes()` or `GetCustomAttributesData()`.
+
+```n#
+import System.Runtime.CompilerServices
+
+readonly struct Result {
+    state: byte
+
+    [MethodImpl(MethodImplOptions.AggressiveInlining | MethodImplOptions.AggressiveOptimization)]
+    constructor(state: byte) {
+        this.state = state
+    }
+
+    [MethodImpl(MethodImplOptions.AggressiveInlining | MethodImplOptions.AggressiveOptimization)]
+    IsOk: bool => state == 1
+
+    [MethodImpl(MethodImplOptions.NoInlining)]
+    func Describe(): string {
+        return IsOk ? "ok" : "err"
+    }
+}
+```
+
+It may be written on a **method**, a **free function**, an **operator**, a **generic method**, a
+**constructor**, a **property** and an **indexer**. N# has no attribute position inside accessor
+braces, so a property's or indexer's attributes are its **accessors'** attributes: the declaration
+above marks `get_IsOk`, and a property with both accessors marks both. That is N#'s spelling of what
+C# writes as a per-accessor `[MethodImpl]`.
+
+The option may be written as a single member, as a `|` combination, or fully qualified as
+`System.Runtime.CompilerServices.MethodImplOptions.NoInlining`. There is no way to name a constant of
+enum type at type scope in N# — `const` is a local-variable keyword, not a field modifier — so where
+C# would declare `private const MethodImplOptions HotPathImpl = ...` and reuse it, N# writes the
+combination at each member.
+
+Three mistakes are refused rather than dropped: the attribute on a declaration that has no
+implementation flags ([`NL930`](./errors/NL930.md)), a value with a bit no `MethodImplOptions` member
+defines ([`NL931`](./errors/NL931.md)), and a combination the CLR's type loader would reject —
+`Synchronized` on a value type's member, `InternalCall` or `Unmanaged` on a member with a body
+([`NL932`](./errors/NL932.md)).
 
 ## Example: Complete Program
 

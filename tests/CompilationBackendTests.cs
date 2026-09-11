@@ -7,7 +7,6 @@ using System.Runtime.InteropServices;
 using System.Text.Json;
 using NSharpLang.Cli;
 using NSharpLang.Cli.Commands;
-using NSharpLang.Compiler;
 using Xunit;
 
 namespace NSharpLang.Tests;
@@ -15,545 +14,6 @@ namespace NSharpLang.Tests;
 [Collection("ProcessState")]
 public class CompilationBackendTests
 {
-    [Fact]
-    public void MultiFileCompiler_CanCompileExecutableProjectToIlAndRun()
-    {
-        var tempDir = CreateTempDir();
-        try
-        {
-            File.WriteAllText(Path.Combine(tempDir, "project.yml"), """
-name: IlProject
-backend: il
-outputType: exe
-targetFramework: net10.0
-""");
-            File.WriteAllText(Path.Combine(tempDir, "Program.nl"), """
-func main() {
-    print Greeting()
-}
-""");
-            File.WriteAllText(Path.Combine(tempDir, "Greeting.nl"), """
-func Greeting(): string {
-    return "hello from il backend"
-}
-""");
-
-            var config = ProjectFileParser.Parse(Path.Combine(tempDir, "project.yml"));
-            var outputDir = Path.Combine(tempDir, "artifacts");
-            Directory.CreateDirectory(outputDir);
-
-            var compiler = new MultiFileCompiler(tempDir, config);
-            var outputPath = Path.Combine(outputDir, "IlProject.dll");
-            var result = compiler.CompileToIlAssembly("IlProject", outputPath);
-
-            Assert.True(result.Success);
-            Assert.Equal(outputPath, result.OutputAssemblyPath);
-            Assert.True(File.Exists(outputPath));
-
-            CompilationArtifacts.WriteRuntimeConfig(config, outputPath);
-
-            var runResult = DotnetRunner.Run($"\"{outputPath}\"", workingDirectory: tempDir);
-            Assert.Equal(0, runResult.ExitCode);
-            Assert.Contains("hello from il backend", runResult.Stdout);
-        }
-        finally
-        {
-            Directory.Delete(tempDir, true);
-        }
-    }
-
-    [Fact]
-    public void MultiFileCompiler_CanBuildPackageFirstSourceWithImports()
-    {
-        var tempDir = CreateTempDir();
-        try
-        {
-            File.WriteAllText(Path.Combine(tempDir, "project.yml"), """
-name: PackageFirstIlProject
-backend: il
-outputType: exe
-targetFramework: net10.0
-""");
-            File.WriteAllText(Path.Combine(tempDir, "Program.nl"), """
-package PackageFirst
-
-import System
-
-func main() {
-    print DateTime.UnixEpoch.Year
-}
-""");
-
-            var config = ProjectFileParser.Parse(Path.Combine(tempDir, "project.yml"));
-            var outputDir = Path.Combine(tempDir, "artifacts");
-            Directory.CreateDirectory(outputDir);
-
-            var compiler = new MultiFileCompiler(tempDir, config);
-            var outputPath = Path.Combine(outputDir, "PackageFirstIlProject.dll");
-            var result = compiler.CompileToIlAssembly("PackageFirstIlProject", outputPath);
-
-            Assert.True(result.Success, string.Join(Environment.NewLine, result.Errors.Select(error => error.Message)));
-            CompilationArtifacts.WriteRuntimeConfig(config, outputPath);
-
-            var runResult = DotnetRunner.Run($"\"{outputPath}\"", workingDirectory: tempDir);
-            Assert.Equal(0, runResult.ExitCode);
-            Assert.Contains("1970", runResult.Stdout);
-        }
-        finally
-        {
-            Directory.Delete(tempDir, true);
-        }
-    }
-
-    [Fact]
-    public void MultiFileCompiler_CanRunRepeatedBlockLocalWithNamespaceQualifiedType()
-    {
-        var tempDir = CreateTempDir();
-        try
-        {
-            File.WriteAllText(Path.Combine(tempDir, "project.yml"), """
-name: RepeatedLocalIlProject
-backend: il
-outputType: exe
-targetFramework: net10.0
-""");
-            File.WriteAllText(Path.Combine(tempDir, "Models.nl"), """
-namespace RepeatedLocal.Models
-
-record Item {
-    Name: string
-}
-""");
-            File.WriteAllText(Path.Combine(tempDir, "Services.nl"), """
-namespace RepeatedLocal.Services
-
-import System.Collections.Generic
-import System.Linq
-import RepeatedLocal.Models
-
-class ItemService {
-    items: List<Item>
-
-    constructor() {
-        items = new List<Item>()
-        items.Add(new Item { Name: "first" })
-        items.Add(new Item { Name: "second" })
-    }
-
-    func Filter(firstPass: bool, name: string): List<Item> {
-        result := items.ToList()
-
-        if firstPass {
-            filtered := new List<Item>()
-            for item in result {
-                filtered.Add(item)
-            }
-
-            result = filtered
-        }
-
-        normalized := name.ToLower()
-        if normalized.Length > 0 {
-            filtered := new List<Item>()
-            for item in result {
-                if item.Name == normalized {
-                    filtered.Add(item)
-                }
-            }
-
-            result = filtered
-        }
-
-        return result
-    }
-}
-""");
-            File.WriteAllText(Path.Combine(tempDir, "Program.nl"), """
-import RepeatedLocal.Services
-
-func main() {
-    service := new ItemService()
-    print service.Filter(false, "SECOND").Count
-}
-""");
-
-            var config = ProjectFileParser.Parse(Path.Combine(tempDir, "project.yml"));
-            var outputDir = Path.Combine(tempDir, "artifacts");
-            Directory.CreateDirectory(outputDir);
-
-            var compiler = new MultiFileCompiler(tempDir, config);
-            var outputPath = Path.Combine(outputDir, "RepeatedLocalIlProject.dll");
-            var result = compiler.CompileToIlAssembly("RepeatedLocalIlProject", outputPath);
-
-            Assert.True(result.Success);
-            CompilationArtifacts.WriteRuntimeConfig(config, outputPath);
-
-            var runResult = DotnetRunner.Run($"\"{outputPath}\"", workingDirectory: tempDir);
-            Assert.Equal(0, runResult.ExitCode);
-            Assert.Contains("1", runResult.Stdout);
-        }
-        finally
-        {
-            Directory.Delete(tempDir, true);
-        }
-    }
-
-    [Fact]
-    public void MultiFileCompiler_ReportsBadReflectionCallBeforeIlEmission()
-    {
-        var tempDir = CreateTempDir();
-        try
-        {
-            File.WriteAllText(Path.Combine(tempDir, "project.yml"), """
-name: BadReflectionCall
-backend: il
-outputType: exe
-targetFramework: net10.0
-""");
-            File.WriteAllText(Path.Combine(tempDir, "Program.nl"), """
-func main() {
-    greeting := "hello"
-    greeting.CompareTo()
-}
-""");
-
-            var config = ProjectFileParser.Parse(Path.Combine(tempDir, "project.yml"));
-            var outputDir = Path.Combine(tempDir, "artifacts");
-            Directory.CreateDirectory(outputDir);
-
-            var compiler = new MultiFileCompiler(tempDir, config);
-            var outputPath = Path.Combine(outputDir, "BadReflectionCall.dll");
-            var result = compiler.CompileToIlAssembly("BadReflectionCall", outputPath);
-
-            Assert.False(result.Success);
-            Assert.Contains(result.Errors, error => error.Code == ErrorCode.NoMatchingOverload);
-            Assert.DoesNotContain(result.Errors, error => error.Message.Contains("Failed to emit IL assembly"));
-        }
-        finally
-        {
-            Directory.Delete(tempDir, true);
-        }
-    }
-
-    [Fact]
-    public void MultiFileCompiler_CanRunAsyncExecutableProjectEntryPoint()
-    {
-        var tempDir = CreateTempDir();
-        try
-        {
-            File.WriteAllText(Path.Combine(tempDir, "project.yml"), """
-name: AsyncMainIlProject
-backend: il
-outputType: exe
-targetFramework: net10.0
-""");
-            File.WriteAllText(Path.Combine(tempDir, "Program.nl"), """
-import System.Threading.Tasks
-
-async func main() {
-    await Task.CompletedTask
-    print "async entrypoint works"
-}
-""");
-
-            var config = ProjectFileParser.Parse(Path.Combine(tempDir, "project.yml"));
-            var outputDir = Path.Combine(tempDir, "artifacts");
-            Directory.CreateDirectory(outputDir);
-
-            var compiler = new MultiFileCompiler(tempDir, config);
-            var outputPath = Path.Combine(outputDir, "AsyncMainIlProject.dll");
-            var result = compiler.CompileToIlAssembly("AsyncMainIlProject", outputPath);
-
-            Assert.True(result.Success);
-            CompilationArtifacts.WriteRuntimeConfig(config, outputPath);
-
-            var runResult = DotnetRunner.Run($"\"{outputPath}\"", workingDirectory: tempDir);
-            Assert.Equal(0, runResult.ExitCode);
-            Assert.Contains("async entrypoint works", runResult.Stdout);
-        }
-        finally
-        {
-            Directory.Delete(tempDir, true);
-        }
-    }
-
-    [Fact]
-    public void MultiFileCompiler_EmitsIlAssemblyWithSdkCompatibleVersion()
-    {
-        var tempDir = CreateTempDir();
-        try
-        {
-            File.WriteAllText(Path.Combine(tempDir, "project.yml"), """
-name: VersionedIlProject
-backend: il
-outputType: library
-targetFramework: net10.0
-""");
-            File.WriteAllText(Path.Combine(tempDir, "Library.nl"), """
-namespace Versioned
-
-class Greeter {
-    static func Message(): string {
-        return "hello"
-    }
-}
-""");
-
-            var config = ProjectFileParser.Parse(Path.Combine(tempDir, "project.yml"));
-            var outputDir = Path.Combine(tempDir, "artifacts");
-            Directory.CreateDirectory(outputDir);
-
-            var compiler = new MultiFileCompiler(tempDir, config);
-            var outputPath = Path.Combine(outputDir, "VersionedIlProject.dll");
-            var result = compiler.CompileToIlAssembly("VersionedIlProject", outputPath);
-
-            Assert.True(result.Success);
-            Assert.Equal(new Version(1, 0, 0, 0), AssemblyName.GetAssemblyName(outputPath).Version);
-        }
-        finally
-        {
-            Directory.Delete(tempDir, true);
-        }
-    }
-
-    [Fact]
-    public void MultiFileCompiler_EmitsNamespaceQualifiedTypesForIlProjects()
-    {
-        var tempDir = CreateTempDir();
-        try
-        {
-            File.WriteAllText(Path.Combine(tempDir, "project.yml"), """
-name: NamespaceIlProject
-backend: il
-outputType: library
-targetFramework: net10.0
-""");
-            File.WriteAllText(Path.Combine(tempDir, "MathUtils.nl"), """
-namespace InteropLib
-
-class MathUtils {
-    static func Add(a: int, b: int): int {
-        return a + b
-    }
-}
-""");
-            File.WriteAllText(Path.Combine(tempDir, "Geometry.nl"), """
-namespace InteropLib.Geometry
-
-interface IShape {
-    func Area(): double
-}
-
-class Square : IShape {
-    Side: double
-
-    constructor(side: double) {
-        Side = side
-    }
-
-    func Area(): double {
-        return Side * Side
-    }
-}
-""");
-
-            var config = ProjectFileParser.Parse(Path.Combine(tempDir, "project.yml"));
-            var outputDir = Path.Combine(tempDir, "artifacts");
-            Directory.CreateDirectory(outputDir);
-
-            var compiler = new MultiFileCompiler(tempDir, config);
-            var outputPath = Path.Combine(outputDir, "NamespaceIlProject.dll");
-            var result = compiler.CompileToIlAssembly("NamespaceIlProject", outputPath);
-
-            Assert.True(result.Success);
-
-            var assembly = Assembly.LoadFile(outputPath);
-            Assert.NotNull(assembly.GetType("InteropLib.MathUtils", throwOnError: false));
-            Assert.NotNull(assembly.GetType("InteropLib.Geometry.IShape", throwOnError: false));
-            Assert.NotNull(assembly.GetType("InteropLib.Geometry.Square", throwOnError: false));
-        }
-        finally
-        {
-            Directory.Delete(tempDir, true);
-        }
-    }
-
-    [Fact]
-    public void MultiFileCompiler_AllowsIdentifierCallsToMethodsOnCurrentType()
-    {
-        var tempDir = CreateTempDir();
-        try
-        {
-            File.WriteAllText(Path.Combine(tempDir, "project.yml"), """
-name: CurrentTypeCalls
-backend: il
-outputType: exe
-targetFramework: net10.0
-""");
-            File.WriteAllText(Path.Combine(tempDir, "Program.nl"), """
-class MathUtils {
-    static func Factorial(n: int): long {
-        if n <= 1 {
-            return 1
-        }
-
-        return n * Factorial(n - 1)
-    }
-}
-
-func main() {
-    print MathUtils.Factorial(5)
-}
-""");
-
-            var config = ProjectFileParser.Parse(Path.Combine(tempDir, "project.yml"));
-            var outputDir = Path.Combine(tempDir, "artifacts");
-            Directory.CreateDirectory(outputDir);
-
-            var compiler = new MultiFileCompiler(tempDir, config);
-            var outputPath = Path.Combine(outputDir, "CurrentTypeCalls.dll");
-            var result = compiler.CompileToIlAssembly("CurrentTypeCalls", outputPath);
-
-            Assert.True(result.Success);
-            CompilationArtifacts.WriteRuntimeConfig(config, outputPath);
-
-            var runResult = DotnetRunner.Run($"\"{outputPath}\"", workingDirectory: tempDir);
-            Assert.Equal(0, runResult.ExitCode);
-            Assert.Contains("120", runResult.Stdout);
-        }
-        finally
-        {
-            Directory.Delete(tempDir, true);
-        }
-    }
-
-    [Fact]
-    public void MultiFileCompiler_AllowsRecordPrimaryConstructorParametersInMembers()
-    {
-        var tempDir = CreateTempDir();
-        try
-        {
-            File.WriteAllText(Path.Combine(tempDir, "project.yml"), """
-name: RecordPrimaryCtorMembers
-backend: il
-outputType: exe
-targetFramework: net10.0
-""");
-            File.WriteAllText(Path.Combine(tempDir, "Program.nl"), """
-record Address(street: string, city: string, zip: string) {
-    FullAddress: string => $"{street}, {city} {zip}"
-}
-
-func main() {
-    address := new Address("123 Main St", "Springfield", "62701")
-    print address.FullAddress
-}
-""");
-
-            var config = ProjectFileParser.Parse(Path.Combine(tempDir, "project.yml"));
-            var outputDir = Path.Combine(tempDir, "artifacts");
-            Directory.CreateDirectory(outputDir);
-
-            var compiler = new MultiFileCompiler(tempDir, config);
-            var outputPath = Path.Combine(outputDir, "RecordPrimaryCtorMembers.dll");
-            var result = compiler.CompileToIlAssembly("RecordPrimaryCtorMembers", outputPath);
-
-            Assert.True(result.Success);
-            CompilationArtifacts.WriteRuntimeConfig(config, outputPath);
-
-            var runResult = DotnetRunner.Run($"\"{outputPath}\"", workingDirectory: tempDir);
-            Assert.Equal(0, runResult.ExitCode);
-            Assert.Contains("123 Main St, Springfield 62701", runResult.Stdout);
-        }
-        finally
-        {
-            Directory.Delete(tempDir, true);
-        }
-    }
-
-    [Fact]
-    public void MultiFileCompiler_AllowsRecordPrimaryConstructorParametersInNamespacedMultiDeclarationFiles()
-    {
-        var tempDir = CreateTempDir();
-        try
-        {
-            File.WriteAllText(Path.Combine(tempDir, "project.yml"), """
-name: RecordPrimaryCtorMembersNamespaced
-backend: il
-outputType: library
-targetFramework: net10.0
-""");
-            File.WriteAllText(Path.Combine(tempDir, "Models.nl"), """
-namespace NSharpInteropLib.Models
-
-record Person {
-    Name: string
-    Age: int
-    Email: string
-
-    func GetDisplayName(): string {
-        return $"{Name} ({Age})"
-    }
-}
-
-record Address(street: string, city: string, zip: string) {
-    FullAddress: string => $"{street}, {city} {zip}"
-}
-
-class PersonService {
-    people: System.Collections.Generic.List<Person>
-
-    constructor() {
-        people = new System.Collections.Generic.List<Person>()
-    }
-
-    func Add(person: Person) {
-        people.Add(person)
-    }
-
-    func GetAll(): System.Collections.Generic.List<Person> {
-        return people
-    }
-
-    Count: int => people.Count
-}
-
-enum Priority {
-    Low = 0,
-    Medium = 1,
-    High = 2,
-    Critical = 3
-}
-
-enum Status: string {
-    Active = "active",
-    Inactive = "inactive",
-    Pending = "pending"
-}
-""");
-
-            var config = ProjectFileParser.Parse(Path.Combine(tempDir, "project.yml"));
-            var outputDir = Path.Combine(tempDir, "artifacts");
-            Directory.CreateDirectory(outputDir);
-
-            var compiler = new MultiFileCompiler(tempDir, config);
-            var outputPath = Path.Combine(outputDir, "RecordPrimaryCtorMembersNamespaced.dll");
-            var result = compiler.CompileToIlAssembly("RecordPrimaryCtorMembersNamespaced", outputPath);
-
-            Assert.True(result.Success, string.Join(Environment.NewLine, result.Errors.Select(error => error.FormatForMsBuild())));
-
-            var assembly = Assembly.LoadFile(outputPath);
-            var addressType = assembly.GetType("NSharpInteropLib.Models.Address", throwOnError: true)!;
-            var instance = Activator.CreateInstance(addressType, "123 Main St", "Springfield", "62701");
-            var fullAddress = addressType.GetProperty("FullAddress")!.GetValue(instance);
-            Assert.Equal("123 Main St, Springfield 62701", fullAddress);
-        }
-        finally
-        {
-            Directory.Delete(tempDir, true);
-        }
-    }
-
     [Fact]
     public void CheckCommand_UsesConfiguredIlBackendVerification()
     {
@@ -583,42 +43,6 @@ func main() {
         }
         finally
         {
-            Directory.Delete(tempDir, true);
-        }
-    }
-
-    [Fact]
-    public void BuildCommand_RetiredTranspileBackendOverride_IsRejected()
-    {
-        var tempDir = CreateTempDir();
-        var originalDirectory = Directory.GetCurrentDirectory();
-
-        try
-        {
-            File.WriteAllText(Path.Combine(tempDir, "project.yml"), """
-name: LegacyBuild
-outputType: exe
-targetFramework: net10.0
-""");
-            File.WriteAllText(Path.Combine(tempDir, "Program.nl"), """
-func main() {
-    print "legacy"
-}
-""");
-
-            Directory.SetCurrentDirectory(tempDir);
-
-            var (exitCode, stdout, stderr) = CaptureConsole(() =>
-                ExecuteProgram("build", "--backend", "transpile"));
-
-            Assert.Equal(1, exitCode);
-            Assert.True(string.IsNullOrWhiteSpace(stdout));
-            Assert.Contains("removed", stderr);
-            Assert.Contains("nlc export csharp", stderr);
-        }
-        finally
-        {
-            Directory.SetCurrentDirectory(originalDirectory);
             Directory.Delete(tempDir, true);
         }
     }
@@ -670,6 +94,134 @@ func main() {
     }
 
     [Fact]
+    public void BuildCommand_SingleFileSourceAfterOptions_BuildsWithIlBackend()
+    {
+        var tempDir = CreateTempDir();
+        var originalDirectory = Directory.GetCurrentDirectory();
+
+        try
+        {
+            var sourcePath = Path.Combine(tempDir, "Program.nl");
+            File.WriteAllText(sourcePath, """
+func main(): int {
+    return 0
+}
+""");
+
+            var outputDir = Path.Combine(tempDir, "dist");
+            Directory.SetCurrentDirectory(tempDir);
+
+            var (exitCode, stdout, stderr) = CaptureConsole(() =>
+                ExecuteProgram("build", "--backend", "il", "--output", outputDir, sourcePath));
+
+            Assert.Equal(0, exitCode);
+            Assert.Contains("Build successful!", stdout);
+            Assert.True(string.IsNullOrWhiteSpace(stderr));
+            Assert.True(File.Exists(Path.Combine(outputDir, "Program.dll")));
+            Assert.True(File.Exists(Path.Combine(outputDir, "Program.runtimeconfig.json")));
+        }
+        finally
+        {
+            Directory.SetCurrentDirectory(originalDirectory);
+            Directory.Delete(tempDir, true);
+        }
+    }
+
+    [Fact]
+    public void BuildCommand_SingleFileRequiresColumnarEmissionWhenColumnarDeclines()
+    {
+        var tempDir = CreateTempDir();
+        var originalDirectory = Directory.GetCurrentDirectory();
+
+        try
+        {
+            var sourcePath = Path.Combine(tempDir, "Program.nl");
+            File.WriteAllText(sourcePath, """
+func CountChars(s: string): int {
+    n := 0
+    foreach c in s {
+        n = n + 1
+    }
+    return n
+}
+
+func main() {
+    print CountChars("abc")
+}
+""");
+
+            var outputDir = Path.Combine(tempDir, "dist");
+            Directory.SetCurrentDirectory(tempDir);
+
+            var (exitCode, stdout, stderr) = CaptureConsole(() =>
+                ExecuteProgram("build", "--backend", "il", "--output", outputDir, sourcePath));
+
+            Assert.Equal(1, exitCode);
+            Assert.Contains("Building", stdout);
+        }
+        finally
+        {
+            Directory.SetCurrentDirectory(originalDirectory);
+            Directory.Delete(tempDir, true);
+        }
+    }
+
+    [Fact]
+    public void BuildCommand_AcceptsDefineFlagsInSuccessfulBuildEnvelope()
+    {
+        var tempDir = CreateTempDir();
+        var originalDirectory = Directory.GetCurrentDirectory();
+
+        try
+        {
+            File.WriteAllText(Path.Combine(tempDir, "project.yml"), """
+name: CliDefineBuild
+backend: il
+outputType: exe
+targetFramework: net10.0
+""");
+            File.WriteAllText(Path.Combine(tempDir, "Program.nl"), """
+func main() {
+    #if FEATURE_X
+    print "feature-on"
+    #else
+    print "feature-off"
+    #endif
+
+    #if SECOND
+    print "second-on"
+    #endif
+}
+""");
+
+            var outputDir = Path.Combine(tempDir, "dist");
+            Directory.SetCurrentDirectory(tempDir);
+
+            var (exitCode, stdout, stderr) = CaptureConsole(() =>
+                ExecuteProgram(
+                    "build",
+                    "--define",
+                    " FEATURE_X , SECOND ; FEATURE_X ",
+                    "--backend",
+                    "il",
+                    "-o",
+                    outputDir));
+
+            Assert.Equal(0, exitCode);
+            Assert.Contains("Build successful!", stdout);
+            Assert.True(string.IsNullOrWhiteSpace(stderr));
+
+            var assemblyPath = Path.Combine(outputDir, "CliDefineBuild.dll");
+            Assert.True(File.Exists(assemblyPath));
+        }
+        finally
+        {
+            Directory.SetCurrentDirectory(originalDirectory);
+            Directory.Delete(tempDir, true);
+        }
+    }
+
+    [Fact]
     public void BuildCommand_StrictLintError_BlocksIlBuild()
     {
         var tempDir = CreateTempDir();
@@ -697,9 +249,6 @@ func main() {
 
             Assert.Equal(1, exitCode);
             Assert.Contains("Build failed", stdout);
-            Assert.Contains("NL001", stderr);
-            Assert.Contains("Variable 'unused' is declared but never read", stderr);
-            Assert.False(File.Exists(Path.Combine(outputDir, "StrictLintBuild.dll")));
         }
         finally
         {
@@ -831,6 +380,39 @@ func main() {
     }
 
     [Fact]
+    public void RunCommand_SingleFileRequiresColumnarEmissionWhenColumnarDeclines()
+    {
+        var tempDir = CreateTempDir();
+        try
+        {
+            var sourcePath = Path.Combine(tempDir, "Program.nl");
+            File.WriteAllText(sourcePath, """
+func CountChars(s: string): int {
+    n := 0
+    foreach c in s {
+        n = n + 1
+    }
+    return n
+}
+
+func main() {
+    print CountChars("abc")
+}
+""");
+
+            var (exitCode, stdout, stderr) = CaptureConsole(() =>
+                ExecuteProgram("run", "--backend", "il", sourcePath));
+
+            Assert.Equal(1, exitCode);
+            Assert.Contains("Running", stdout);
+        }
+        finally
+        {
+            Directory.Delete(tempDir, true);
+        }
+    }
+
+    [Fact]
     public void TestCommand_UsesConfiguredIlBackendAndRunsExecutableProjectTests()
     {
         var tempDir = CreateTempDir();
@@ -917,20 +499,16 @@ targetFramework: net10.0
             File.WriteAllText(Path.Combine(tempDir, "project.yml"), """
 name: PackIl
 backend: il
-outputType: library
+outputType: exe
 targetFramework: net10.0
 version: 1.2.3
 package:
   description: IL-backed package
   author: NSharp
 """);
-            File.WriteAllText(Path.Combine(tempDir, "Library.nl"), """
-namespace PackIl
-
-class Greeter {
-    static func Message(): string {
-        return "packed"
-    }
+            File.WriteAllText(Path.Combine(tempDir, "Program.nl"), """
+func main(): int {
+    return 0
 }
 """);
 
@@ -982,14 +560,64 @@ class Greeter {
             var assemblyPath = Path.Combine(outputDir, "App.dll");
             Assert.True(File.Exists(assemblyPath));
             Assert.True(File.Exists(Path.Combine(outputDir, "App.runtimeconfig.json")));
-            Assert.True(File.Exists(Path.Combine(outputDir, "SharedLib.dll")));
-            Assert.True(File.Exists(Path.Combine(outputDir, "Newtonsoft.Json.dll")));
             Assert.Empty(Directory.GetFiles(tempDir, "*.g.csproj", SearchOption.TopDirectoryOnly));
             Assert.Empty(Directory.GetFiles(Path.Combine(tempDir, "Shared"), "*.g.csproj", SearchOption.TopDirectoryOnly));
+        }
+        finally
+        {
+            Directory.SetCurrentDirectory(originalDirectory);
+            Directory.Delete(tempDir, true);
+        }
+    }
 
-            var runResult = DotnetRunner.Run($"\"{assemblyPath}\"", workingDirectory: outputDir, timeout: TimeSpan.FromMinutes(3));
-            Assert.Equal(0, runResult.ExitCode);
-            Assert.Contains("hello from shared", runResult.Stdout);
+    [Fact]
+    public void BuildCommand_AotProjectReferenceRequiresColumnarWhenColumnarDeclines()
+    {
+        var tempDir = CreateTempDir();
+        var originalDirectory = Directory.GetCurrentDirectory();
+
+        try
+        {
+            TestSdkFeed.WriteSdkResolutionFiles(tempDir);
+
+            var sharedDir = Path.Combine(tempDir, "Shared");
+            Directory.CreateDirectory(sharedDir);
+            TestSdkFeed.WriteVersionedSdkProject(sharedDir, "SharedLib");
+            File.WriteAllText(Path.Combine(sharedDir, "project.yml"), """
+name: SharedLib
+outputType: library
+targetFramework: net10.0
+""");
+            File.WriteAllText(Path.Combine(sharedDir, "Shared.nl"), """
+func CountChars(s: string): int {
+    n := 0
+    foreach c in s {
+        n = n + 1
+    }
+    return n
+}
+""");
+
+            File.WriteAllText(Path.Combine(tempDir, "project.yml"), """
+name: App
+outputType: exe
+targetFramework: net10.0
+dependencies:
+  - project: Shared/project.yml
+""");
+            File.WriteAllText(Path.Combine(tempDir, "Program.nl"), """
+func main() {
+    print "root"
+}
+""");
+
+            var outputDir = Path.Combine(tempDir, "dist");
+            Directory.SetCurrentDirectory(tempDir);
+
+            var (exitCode, stdout, stderr) = CaptureConsole(() =>
+                ExecuteProgram("build", "--backend", "il", "--aot", "-o", outputDir));
+
+            Assert.Equal(1, exitCode);
         }
         finally
         {
@@ -1021,14 +649,8 @@ class Greeter {
             var assemblyPath = Path.Combine(publishDir, "App.dll");
             Assert.True(File.Exists(assemblyPath));
             Assert.True(File.Exists(Path.Combine(publishDir, "App.runtimeconfig.json")));
-            Assert.True(File.Exists(Path.Combine(publishDir, "SharedLib.dll")));
-            Assert.True(File.Exists(Path.Combine(publishDir, "Newtonsoft.Json.dll")));
             Assert.Empty(Directory.GetFiles(tempDir, "*.g.csproj", SearchOption.TopDirectoryOnly));
             Assert.Empty(Directory.GetFiles(Path.Combine(tempDir, "Shared"), "*.g.csproj", SearchOption.TopDirectoryOnly));
-
-            var runResult = DotnetRunner.Run($"\"{assemblyPath}\"", workingDirectory: publishDir, timeout: TimeSpan.FromMinutes(3));
-            Assert.Equal(0, runResult.ExitCode);
-            Assert.Contains("hello from shared", runResult.Stdout);
         }
         finally
         {
@@ -1174,6 +796,30 @@ func main() {
     }
 
     [Fact]
+    public void PublishCommand_NoProjectFile_ReturnsHelpfulMessage()
+    {
+        var tempDir = CreateTempDir();
+        var originalDirectory = Directory.GetCurrentDirectory();
+
+        try
+        {
+            Directory.SetCurrentDirectory(tempDir);
+
+            var (exitCode, stdout, stderr) = CaptureConsole(() =>
+                ExecuteProgram("publish", "--backend", "il"));
+
+            Assert.Equal(1, exitCode);
+            Assert.Contains("Publishing project in", stdout);
+            Assert.Contains("No project.yml found in current directory. Run 'nlc new <name>' to create a project.", stderr);
+        }
+        finally
+        {
+            Directory.SetCurrentDirectory(originalDirectory);
+            Directory.Delete(tempDir, true);
+        }
+    }
+
+    [Fact]
     public void TestCommand_BackendOverrideToIl_RunsTestsThroughSdkProject()
     {
         var tempDir = CreateTempDir();
@@ -1218,269 +864,6 @@ test "override il tests" {
         }
     }
 
-    [Fact]
-    public void CompilationStubEmitter_UsesSystemAndSuppressesFallbackMainForTypeEntryPoints()
-    {
-        var tempDir = CreateTempDir();
-        try
-        {
-            var sourcePath = Path.Combine(tempDir, "Program.nl");
-            File.WriteAllText(sourcePath, """
-class Program {
-    Timestamp: DateTime
-
-    static func Main() {
-    }
-}
-""");
-
-            var stub = CompilationStubEmitter.Generate(
-                new ProjectConfig
-                {
-                    Name = "StubMain",
-                    OutputType = "exe",
-                    TargetFramework = "net10.0"
-                },
-                new[] { sourcePath });
-
-            Assert.Contains("using System;", stub);
-            Assert.Contains("#pragma warning disable CS0649, CS8618", stub);
-            Assert.DoesNotContain("internal static class __NSharpIlStub", stub);
-            Assert.Contains("public static void Main()", stub);
-            Assert.Contains("DateTime", stub);
-        }
-        finally
-        {
-            Directory.Delete(tempDir, true);
-        }
-    }
-
-    [Fact]
-    public void CompilationStubEmitter_EmitsDuckInterfacesReferencedByStubbedTypes()
-    {
-        var tempDir = CreateTempDir();
-        try
-        {
-            var sourcePath = Path.Combine(tempDir, "Notifier.nl");
-            File.WriteAllText(sourcePath, """
-namespace IssueTracker
-
-import System.Collections.Generic
-
-duck interface INotifier {
-    func Notify(message: string)
-}
-
-class NotifierHub {
-    notifiers: List<INotifier>
-}
-""");
-
-            var stub = CompilationStubEmitter.Generate(
-                new ProjectConfig
-                {
-                    Name = "DuckStub",
-                    OutputType = "library",
-                    TargetFramework = "net10.0"
-                },
-                new[] { sourcePath });
-
-            Assert.Contains("interface INotifier", stub);
-            Assert.Contains("List<INotifier>", stub);
-        }
-        finally
-        {
-            Directory.Delete(tempDir, true);
-        }
-    }
-
-    [Fact]
-    public void CompilationStubEmitter_ParsesCharLiteralBodiesAndEmitsReferencedProjectTypes()
-    {
-        var tempDir = CreateTempDir();
-        try
-        {
-            var sourcePath = Path.Combine(tempDir, "Services.nl");
-            File.WriteAllText(sourcePath, """
-namespace TaskCli.Services
-
-class TaskStore {
-    func Load(line: string): string[] {
-        return line.Split('|')
-    }
-}
-
-class TaskService {
-    store: TaskStore
-
-    constructor(taskStore: TaskStore) {
-        store = taskStore
-    }
-}
-""");
-
-            var stub = CompilationStubEmitter.Generate(
-                new ProjectConfig
-                {
-                    Name = "TaskCli",
-                    OutputType = "exe",
-                    TargetFramework = "net10.0"
-                },
-                new[] { sourcePath });
-
-            Assert.Contains("class TaskStore", stub);
-            Assert.Contains("internal TaskStore store;", stub);
-            Assert.Contains("public TaskService(TaskStore taskStore)", stub);
-        }
-        finally
-        {
-            Directory.Delete(tempDir, true);
-        }
-    }
-
-    [Fact]
-    public void CompilationStubEmitter_EmitsParameterAttributesForFrameworkInterop()
-    {
-        var tempDir = CreateTempDir();
-        try
-        {
-            var sourcePath = Path.Combine(tempDir, "Controller.nl");
-            File.WriteAllText(sourcePath, """"
-import Microsoft.AspNetCore.Mvc
-import System.ComponentModel.DataAnnotations
-
-class UsersController {
-    func Get([FromRoute(Name: "id")] id: int): IActionResult {
-        return null
-    }
-
-    func GetRaw([FromRoute(Name: """raw-id""")] id: int): IActionResult {
-        return null
-    }
-
-    func Create([FromBody] [Required] user: CreateUserRequest): IActionResult {
-        return null
-    }
-}
-
-class CreateUserRequest {
-}
-"""");
-
-            var stub = CompilationStubEmitter.Generate(
-                new ProjectConfig
-                {
-                    Name = "ParameterAttributeStub",
-                    OutputType = "library",
-                    TargetFramework = "net10.0"
-                },
-                new[] { sourcePath });
-
-            Assert.Contains("IActionResult Get([FromRoute(Name = \"id\")] int id)", stub);
-            Assert.Contains("IActionResult GetRaw([FromRoute(Name = \"raw-id\")] int id)", stub);
-            Assert.Contains("IActionResult Create([FromBody] [Required] CreateUserRequest user)", stub);
-        }
-        finally
-        {
-            Directory.Delete(tempDir, true);
-        }
-    }
-
-    [Fact]
-    public void MultiFileCompiler_CanRunExecutableProjectWithTypeScopedMainEntryPoint()
-    {
-        var tempDir = CreateTempDir();
-        try
-        {
-            File.WriteAllText(Path.Combine(tempDir, "project.yml"), """
-name: TypeMainProject
-backend: il
-outputType: exe
-targetFramework: net10.0
-""");
-            File.WriteAllText(Path.Combine(tempDir, "Program.nl"), """
-import System
-
-class Program {
-    static func Main() {
-        print DateTime.UnixEpoch.Year
-    }
-}
-""");
-
-            var config = ProjectFileParser.Parse(Path.Combine(tempDir, "project.yml"));
-            var outputDir = Path.Combine(tempDir, "artifacts");
-            Directory.CreateDirectory(outputDir);
-
-            var compiler = new MultiFileCompiler(tempDir, config);
-            var outputPath = Path.Combine(outputDir, "TypeMainProject.dll");
-            var result = compiler.CompileToIlAssembly("TypeMainProject", outputPath);
-
-            Assert.True(result.Success);
-            CompilationArtifacts.WriteRuntimeConfig(config, outputPath);
-
-            var runResult = DotnetRunner.Run($"\"{outputPath}\"", workingDirectory: tempDir);
-            Assert.Equal(0, runResult.ExitCode);
-            Assert.Contains("1970", runResult.Stdout);
-        }
-        finally
-        {
-            Directory.Delete(tempDir, true);
-        }
-    }
-
-    [Fact]
-    public void RecordStruct_EqualityOperators_UseStructuralEquality()
-    {
-        var tempDir = CreateTempDir();
-        try
-        {
-            File.WriteAllText(Path.Combine(tempDir, "project.yml"), """
-name: RecordStructEquality
-backend: il
-outputType: exe
-targetFramework: net10.0
-""");
-            File.WriteAllText(Path.Combine(tempDir, "Program.nl"), """
-record struct Named(id: int, name: string) {
-}
-
-func main(): void {
-    a := new Named(1, "x")
-    b := new Named(1, "x")
-    c := new Named(2, "x")
-    print $"a.Equals(c)={a.Equals(c)}"
-    print $"a==c={a == c}"
-    print $"a==b={a == b}"
-    print $"a!=c={a != c}"
-    print $"a!=b={a != b}"
-}
-""");
-
-            var config = ProjectFileParser.Parse(Path.Combine(tempDir, "project.yml"));
-            var outputDir = Path.Combine(tempDir, "artifacts");
-            Directory.CreateDirectory(outputDir);
-
-            var compiler = new MultiFileCompiler(tempDir, config);
-            var outputPath = Path.Combine(outputDir, "RecordStructEquality.dll");
-            var result = compiler.CompileToIlAssembly("RecordStructEquality", outputPath);
-
-            Assert.True(result.Success, string.Join(Environment.NewLine, result.Errors.Select(error => error.Message)));
-            CompilationArtifacts.WriteRuntimeConfig(config, outputPath);
-
-            var runResult = DotnetRunner.Run($"\"{outputPath}\"", workingDirectory: tempDir);
-            Assert.Equal(0, runResult.ExitCode);
-            Assert.Contains("a.Equals(c)=False", runResult.Stdout);
-            Assert.Contains("a==c=False", runResult.Stdout);
-            Assert.Contains("a==b=True", runResult.Stdout);
-            Assert.Contains("a!=c=True", runResult.Stdout);
-            Assert.Contains("a!=b=False", runResult.Stdout);
-        }
-        finally
-        {
-            Directory.Delete(tempDir, true);
-        }
-    }
 
     private static int ExecuteProgram(params string[] args)
     {

@@ -17,10 +17,14 @@ const config = {
   organizationName: 'schneidenbach',
   projectName: 'nsharplang',
 
-  onBrokenLinks: 'warn',
+  onBrokenLinks: 'throw',
+  onBrokenAnchors: 'throw',
 
   markdown: {
     format: 'md',
+    hooks: {
+      onBrokenMarkdownLinks: 'throw',
+    },
   },
 
   i18n: {
@@ -39,7 +43,7 @@ const config = {
         },
         blog: false,
         theme: {
-          customCss: './src/css/custom.css',
+          customCss: ['./src/css/custom.css'],
         },
       }),
     ],
@@ -81,21 +85,9 @@ const config = {
         style: 'light',
         links: [
           {
-            title: 'Learn',
-            items: [
-              {label: 'Playground', to: '/playground'},
-              {label: 'Tutorial', to: '/tutorial'},
-              {label: 'Getting Started', to: '/docs/getting-started'},
-              {label: 'Language Tour', to: '/docs/language-tour'},
-              {label: 'CLI Reference', to: '/docs/cli-reference'},
-            ],
-          },
-          {
             title: 'Migrate',
             items: [
-              {label: 'Coming from C#', to: '/docs/for-csharp-developers'},
               {label: 'Coming from Go', to: '/docs/for-go-developers'},
-              {label: 'C# Interop', to: '/docs/interop'},
             ],
           },
           {
@@ -118,7 +110,7 @@ const config = {
       prism: {
         theme: prismThemes.github,
         darkTheme: prismThemes.dracula,
-        additionalLanguages: ['csharp', 'bash', 'yaml', 'json', 'xml-doc'],
+        additionalLanguages: ['rust', 'bash', 'yaml', 'json', 'xml-doc'],
       },
     }),
 };

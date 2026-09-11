@@ -1,0 +1,259 @@
+namespace NSharpLang.Iterators.Tests
+
+import System.Collections.Generic
+import System.Threading.Tasks
+
+
+// Covered-shape synchronous iterators (`func*`) lowered by the N# iterator planner through the
+// columnar backend. Every definition here stays inside the covered surface: captured value
+// parameters, hoisted typed/inferred locals, while loops, if/else branches, arithmetic and
+// comparison operators, `yield`, `yield break`, for..in over array parameters, guard throws, and
+// for..in over IEnumerable<T>/List<T> sources (hoisted enumerators inside the try/fault region).
+
+// The canonical counting shape: one captured parameter and one hoisted local.
+func* CountTo(n: int): IEnumerable<int> {
+    i: int = 0
+    while i < n {
+        yield i
+        i = i + 1
+    }
+}
+
+// An infinite arithmetic sequence: two captured parameters plus an inferred hoisted local. Only
+// consumer-side early termination can end an enumeration.
+func* ArithmeticFrom(start: int, step: int): IEnumerable<int> {
+    value := start
+    while true {
+        yield value
+        value = value + step
+    }
+}
+
+// A guard clause ending in `yield break` before the first yield.
+func* UpToTwo(n: int): IEnumerable<int> {
+    if n <= 0 {
+        yield break
+    }
+
+    yield 1
+    yield 2
+}
+
+// A zero-yield iterator: the state machine goes straight to done.
+func* Nothing(): IEnumerable<int> {
+}
+
+// if/else branches inside the loop select which value each step yields.
+func* EvenScaled(n: int): IEnumerable<int> {
+    i: int = 0
+    while i < n {
+        if i % 2 == 0 {
+            yield i * 10
+        } else {
+            yield i
+        }
+
+        i = i + 1
+    }
+}
+
+// Array-driven iterators (sub-slice 4): for..in over a captured array parameter lowers to an index
+// loop over hoisted array/index fields.
+func* Values(xs: int[]): IEnumerable<int> {
+    for x in xs {
+        yield x
+    }
+}
+
+// Mid-array early exit: a guard `yield break` inside the loop.
+func* UntilNegative(xs: int[]): IEnumerable<int> {
+    for x in xs {
+        if x < 0 {
+            yield break
+        }
+
+        yield x
+    }
+}
+
+// Filter and transform inside the loop.
+func* EvenSquares(xs: int[]): IEnumerable<int> {
+    for x in xs {
+        if x % 2 == 0 {
+            yield x * x
+        }
+    }
+}
+
+// The guard-throw range shape: a lazily-raised ArgumentException plus direction-dependent loops
+// whose branches both declare `value` (same-typed disjoint redeclarations share one hoisted slot).
+func* RangeBy(start: int, end: int, step: int): IEnumerable<int> {
+    if step == 0 {
+        throw new ArgumentException("Step cannot be zero")
+    }
+
+    if step > 0 {
+        value := start
+        while value < end {
+            yield value
+            value = value + step
+        }
+    } else {
+        value := start
+        while value > end {
+            yield value
+            value = value + step
+        }
+    }
+}
+
+// The Fibonacci shape: guard yield breaks, multiple standalone yields, and local rotation.
+func* Fib(count: int): IEnumerable<int> {
+    if count <= 0 {
+        yield break
+    }
+
+    a: int = 0
+    b: int = 1
+    yield a
+    if count == 1 {
+        yield break
+    }
+
+    yield b
+    i: int = 2
+    while i < count {
+        next := a + b
+        yield next
+        a = b
+        b = next
+        i = i + 1
+    }
+}
+
+// Sequence-driven iterators (sub-slice 5): for..in over IEnumerable<T>/List<T> hoists the enumerator
+// into a state-machine field inside MoveNext's try/fault region.
+func* Chained(first: IEnumerable<int>, second: IEnumerable<int>): IEnumerable<int> {
+    for item in first {
+        yield item
+    }
+
+    for item in second {
+        yield item
+    }
+}
+
+func* Doubled(source: IEnumerable<int>): IEnumerable<int> {
+    for v in source {
+        yield v * 2
+    }
+}
+
+func* FromList(items: List<int>): IEnumerable<int> {
+    for item in items {
+        yield item
+    }
+}
+
+// A generic iterator (sub-slice 6): the state machine itself is generic, with T flowing through the
+// captured value, the current field, and the interface implementations.
+func* Repeat<T>(value: T, count: int): IEnumerable<T> {
+    i: int = 0
+    while i < count {
+        yield value
+        i = i + 1
+    }
+}
+
+// An instance-method iterator (sub-slice 6b): the receiver hoists as a captured `<>__this` field;
+// the body reads enclosing members and recurses through a member-call for..in source.
+class TreeNode {
+    readonly Value: int
+    readonly Children: List<TreeNode>
+
+    constructor(value: int) {
+        Value = value
+        Children = new List<TreeNode>()
+    }
+
+    func AddChild(value: int): TreeNode {
+        child := new TreeNode(value)
+        Children.Add(child)
+        return child
+    }
+
+    func* DepthFirstTraversal(): IEnumerable<int> {
+        yield Value
+        for child in Children {
+            for childValue in child.DepthFirstTraversal() {
+                yield childValue
+            }
+        }
+    }
+}
+
+// Async iterators (task 014): `async func*` returning IAsyncEnumerable<T> lowers to the planner's
+// async state machine (MoveNextCore/MoveNextAsync/DisposeAsync/GetAsyncEnumerator); every awaited
+// operand is a statement-position `await Task.Delay(<int>)` suspension point. Consumers drive the
+// machines through `await foreach` (the blocking-await consumer lowering).
+
+// The canonical async counting shape: classic C-style for with an await before each yield.
+async func* DelayedCountTo(n: int): IAsyncEnumerable<int> {
+    for i := 0; i < n; i++ {
+        await Task.Delay(1)
+        yield i
+    }
+}
+
+// Array-driven async transformation: for..in over a captured array, a string instance call, and a
+// string element type.
+async func* DelayedUpper(items: string[]): IAsyncEnumerable<string> {
+    for item in items {
+        await Task.Delay(1)
+        result := item.ToUpper()
+        yield result
+    }
+}
+
+// An infinite async stream stepping a postfix counter; only consumer-side termination ends it.
+async func* TickStream(): IAsyncEnumerable<int> {
+    i := 0
+    while true {
+        await Task.Delay(1)
+        yield i++
+    }
+}
+
+// Await-foreach consumers: ordinary async funcs driving the async machines to completion (or to an
+// early break, which exits through the DisposeAsync tail).
+async func SumDelayedAsync(n: int): Task<int> {
+    positional := 0
+    await foreach v in DelayedCountTo(n) {
+        positional = positional * 10 + v
+    }
+
+    return positional
+}
+
+async func JoinUpperAsync(items: string[]): Task<string> {
+    joined := ""
+    await foreach s in DelayedUpper(items) {
+        joined = joined + "|" + s
+    }
+
+    return joined
+}
+
+async func TakeTicksAsync(count: int): Task<int> {
+    taken := 0
+    positional := 0
+    await foreach v in TickStream() {
+        positional = positional * 10 + v
+        taken = taken + 1
+        if taken == count {
+            break
+        }
+    }
+
+    return positional
+}

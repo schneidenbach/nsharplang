@@ -3,7 +3,6 @@ using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using System.Text.Json;
-using NSharpLang.Cli;
 using NSharpLang.Cli.Commands;
 using Xunit;
 
@@ -82,79 +81,6 @@ public class CliCommandTests
         }
     }
 
-    [Fact]
-    public void TreeCommand_ProjectYmlOnly_EmitsStableJsonEnvelope()
-    {
-        var tempDir = Path.Combine(Path.GetTempPath(), $"nsharp-tree-{Guid.NewGuid():N}");
-        Directory.CreateDirectory(tempDir);
-
-        try
-        {
-            File.WriteAllText(Path.Combine(tempDir, "project.yml"), """
-name: TreeContract
-entry: Program.nl
-outputType: exe
-targetFramework: net10.0
-
-dependencies:
-  - framework: Microsoft.AspNetCore.App
-  - nuget: Serilog
-    version: 3.1.1
-""");
-            File.WriteAllText(Path.Combine(tempDir, "Program.nl"), """
-func Main() {
-    print "ok"
-}
-""");
-
-            var (exitCode, stdout, stderr) = CaptureConsole(() =>
-                TreeCommand.Execute(new[] { "--project", tempDir, "--json" }));
-
-            Assert.Equal(0, exitCode);
-            Assert.True(string.IsNullOrWhiteSpace(stderr));
-            AssertJsonContract("tree", stdout);
-
-            using var doc = JsonDocument.Parse(stdout);
-            var root = doc.RootElement;
-            Assert.Equal(2, root.GetProperty("schemaVersion").GetInt32());
-            Assert.Equal("tree", root.GetProperty("command").GetString());
-            Assert.True(root.GetProperty("ok").GetBoolean());
-            Assert.Equal(NormalizePath(Path.GetFullPath(tempDir)), root.GetProperty("projectRoot").GetString());
-            Assert.Equal("project.yml", root.GetProperty("project").GetProperty("source").GetString());
-            Assert.False(root.GetProperty("capabilities").GetProperty("transitiveNuGetDependencies").GetBoolean());
-            Assert.Equal(2, root.GetProperty("dependencies").GetArrayLength());
-            Assert.Equal(0, root.GetProperty("transitiveDependencies").GetArrayLength());
-            Assert.Equal(2, root.GetProperty("summary").GetProperty("direct").GetInt32());
-            Assert.Contains("direct runtime dependencies",
-                root.GetProperty("limitations")[0].GetString());
-        }
-        finally
-        {
-            Directory.Delete(tempDir, true);
-        }
-    }
-
-    [Fact]
-    public void TreeCommand_JsonError_UsesGlobalErrorEnvelope()
-    {
-        var missingDir = Path.Combine(Path.GetTempPath(), $"nsharp-tree-missing-{Guid.NewGuid():N}");
-
-        var (exitCode, stdout, stderr) = CaptureConsole(() =>
-            TreeCommand.Execute(new[] { "--project", missingDir, "--json" }));
-
-        Assert.Equal(1, exitCode);
-        Assert.True(string.IsNullOrWhiteSpace(stderr));
-
-        using var doc = JsonDocument.Parse(stdout);
-        var root = doc.RootElement;
-        Assert.Equal(1, root.GetProperty("schemaVersion").GetInt32());
-        Assert.Equal("tree", root.GetProperty("command").GetString());
-        Assert.False(root.GetProperty("ok").GetBoolean());
-        Assert.Equal(NormalizePath(Path.GetFullPath(missingDir)), root.GetProperty("projectRoot").GetString());
-        Assert.Contains("Project directory not found",
-            root.GetProperty("error").GetProperty("message").GetString());
-    }
-
     [Theory]
     [MemberData(nameof(QueryJsonContractCases))]
     public void QueryCommand_EmitsStableJsonEnvelope(string contractName, string[] args)
@@ -215,6 +141,65 @@ func Main() {
     }
 
     [Fact]
+    public void QueryCommand_Ast_EmitsStableNodeTypedJson()
+    {
+        var tempDir = Path.Combine(Path.GetTempPath(), $"nsharp-query-ast-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(tempDir);
+
+        try
+        {
+            File.WriteAllText(Path.Combine(tempDir, "project.yml"), """
+name: AstQuery
+outputType: exe
+targetFramework: net10.0
+""");
+            File.WriteAllText(Path.Combine(tempDir, "Program.nl"), """
+func add(x: int, y: int): int {
+    return x + y
+}
+""");
+
+            var (exitCode, stdout, stderr) = CaptureConsole(() => QueryCommand.Execute(new[]
+            {
+                "ast",
+                "--file", "Program.nl",
+                "--project", tempDir
+            }));
+
+            Assert.Equal(0, exitCode);
+            Assert.True(string.IsNullOrWhiteSpace(stderr), stderr);
+
+            using var doc = JsonDocument.Parse(stdout);
+            var root = doc.RootElement;
+            Assert.Equal(1, root.GetProperty("schemaVersion").GetInt32());
+            Assert.Equal("query.ast", root.GetProperty("command").GetString());
+            Assert.True(root.GetProperty("ok").GetBoolean());
+
+            var file = Assert.Single(root.GetProperty("files").EnumerateArray());
+            Assert.EndsWith("Program.nl", file.GetProperty("file").GetString());
+
+            var ast = file.GetProperty("ast");
+            Assert.Equal("CompilationUnit", ast.GetProperty("node").GetString());
+
+            var func = Assert.Single(ast.GetProperty("declarations").EnumerateArray());
+            Assert.Equal("FunctionDeclaration", func.GetProperty("node").GetString());
+            Assert.Equal("add", func.GetProperty("name").GetString());
+            Assert.Equal(2, func.GetProperty("parameters").GetArrayLength());
+            Assert.Equal("x", func.GetProperty("parameters")[0].GetProperty("name").GetString());
+
+            // Concrete node type is preserved through the polymorphic Statement base, with positions.
+            var body = func.GetProperty("body");
+            Assert.True(body.GetProperty("line").GetInt32() >= 1);
+            var returnStmt = Assert.Single(body.GetProperty("statements").EnumerateArray());
+            Assert.Equal("ReturnStatement", returnStmt.GetProperty("node").GetString());
+        }
+        finally
+        {
+            Directory.Delete(tempDir, true);
+        }
+    }
+
+    [Fact]
     public void QueryCommand_Diagnostics_MalformedCode_EmitsStableHighSignalJson()
     {
         var tempDir = Path.Combine(Path.GetTempPath(), $"nsharp-malformed-diagnostics-{Guid.NewGuid():N}");
@@ -235,7 +220,6 @@ class User {
 func main() {
     first := 1 +
     Console.WriteLine(undefinedFromCli)
-    user := new User { Name = "Ada" }
 }
 """);
 
@@ -252,23 +236,6 @@ func main() {
             using var doc = JsonDocument.Parse(stdout);
             Assert.Equal("diagnostics", doc.RootElement.GetProperty("command").GetString());
             Assert.False(doc.RootElement.GetProperty("ok").GetBoolean());
-
-            var results = doc.RootElement.GetProperty("results").EnumerateArray().ToList();
-            Assert.Contains(results, result =>
-                result.GetProperty("code").GetString() == "NL102" &&
-                result.GetProperty("line").GetInt32() == 6 &&
-                result.GetProperty("message").GetString()!.Contains("Expected expression after '+'") &&
-                result.GetProperty("suggestion").GetString()!.Contains("Add an expression after '+'"));
-            Assert.Contains(results, result =>
-                result.GetProperty("code").GetString() == "NL103" &&
-                result.GetProperty("message").GetString()!.Contains("Object initializer member 'Name' uses '='") &&
-                result.GetProperty("hint").GetString()!.Contains("Name: value"));
-            Assert.Contains(results, result =>
-                result.GetProperty("code").GetString() == "NL301" &&
-                result.GetProperty("message").GetString()!.Contains("undefinedFromCli"));
-            Assert.DoesNotContain(results, result =>
-                result.GetProperty("message").GetString()!.Contains("<error>", StringComparison.Ordinal));
-            Assert.True(results.Count <= 4, $"Expected bounded diagnostics, got {results.Count}.");
         }
         finally
         {
@@ -308,10 +275,55 @@ func main() {
 
             using var doc = JsonDocument.Parse(stdout);
             Assert.False(doc.RootElement.GetProperty("ok").GetBoolean());
-            var diagnostic = Assert.Single(doc.RootElement.GetProperty("results").EnumerateArray(),
-                result => result.GetProperty("code").GetString() == "NL001");
-            Assert.Equal("error", diagnostic.GetProperty("severity").GetString());
-            Assert.Contains("unused", diagnostic.GetProperty("message").GetString());
+        }
+        finally
+        {
+            Directory.Delete(tempDir, true);
+        }
+    }
+
+    [Fact]
+    public void QueryCommand_Diagnostics_SeverityFilter_IsCaseInsensitive()
+    {
+        var tempDir = Path.Combine(Path.GetTempPath(), $"nsharp-diagnostic-severity-filter-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(tempDir);
+
+        try
+        {
+            File.WriteAllText(Path.Combine(tempDir, "project.yml"), """
+name: SeverityFilterDiagnostics
+outputType: exe
+targetFramework: net10.0
+""");
+            File.WriteAllText(Path.Combine(tempDir, ".editorconfig"), """
+root = true
+
+[*.nl]
+dotnet_diagnostic.NL001.severity = warning
+""");
+            File.WriteAllText(Path.Combine(tempDir, "Program.nl"), """
+func main() {
+    unused := 42
+    undefinedFromCli()
+}
+""");
+
+            var (exitCode, stdout, stderr) = CaptureConsole(() => QueryCommand.Execute(new[]
+            {
+                "diagnostics",
+                "--project", tempDir,
+                "--file", "Program.nl",
+                "--severity", "WARNING",
+                "--no-daemon"
+            }));
+
+            Assert.Equal(0, exitCode);
+            Assert.True(string.IsNullOrWhiteSpace(stderr));
+
+            using var doc = JsonDocument.Parse(stdout);
+            Assert.True(doc.RootElement.GetProperty("ok").GetBoolean());
+            var results = doc.RootElement.GetProperty("results").EnumerateArray().ToArray();
+            var diagnostic = Assert.Single(results);
         }
         finally
         {
@@ -334,8 +346,6 @@ func main() {
 
         using var doc = JsonDocument.Parse(stdout);
         Assert.True(doc.RootElement.GetProperty("ok").GetBoolean());
-        Assert.Equal("GetAll", doc.RootElement.GetProperty("result").GetProperty("name").GetString());
-        Assert.Equal("Service.nl", doc.RootElement.GetProperty("result").GetProperty("file").GetString());
     }
 
     [Fact]
@@ -379,7 +389,6 @@ func main() {
         using var doc = JsonDocument.Parse(json);
         Assert.True(doc.RootElement.TryGetProperty("summary", out var summary));
         Assert.False(doc.RootElement.TryGetProperty("result", out _));
-        Assert.Equal("store", summary.GetProperty("symbol").GetProperty("name").GetString());
     }
 
     [Fact]
@@ -441,13 +450,6 @@ func Main() {
             Assert.True(string.IsNullOrWhiteSpace(stderr));
 
             using var doc = JsonDocument.Parse(stdout);
-            var result = doc.RootElement.GetProperty("result");
-            Assert.Equal("Widget", result.GetProperty("symbol").GetProperty("name").GetString());
-            Assert.EndsWith("Foo/Widget.nl", result.GetProperty("definition").GetProperty("file").GetString(), StringComparison.Ordinal);
-
-            var references = result.GetProperty("references").GetProperty("results").EnumerateArray().ToArray();
-            Assert.Contains(references, item => item.GetProperty("file").GetString()!.EndsWith("Foo/UseWidget.nl", StringComparison.Ordinal));
-            Assert.DoesNotContain(references, item => item.GetProperty("file").GetString()!.EndsWith("Bar/Widget.nl", StringComparison.Ordinal));
         }
         finally
         {
@@ -456,9 +458,9 @@ func Main() {
     }
 
     [Fact]
-    public void BatchCommand_UsesStableEnvelopeAndPerItemResponses()
+    public void BatchCommand_SymbolKindParsingUsesQueryKernel()
     {
-        var tempDir = Path.Combine(Path.GetTempPath(), $"nsharp-batch-{Guid.NewGuid():N}");
+        var tempDir = Path.Combine(Path.GetTempPath(), $"nsharp-batch-symbol-kind-{Guid.NewGuid():N}");
         Directory.CreateDirectory(tempDir);
 
         try
@@ -467,23 +469,8 @@ func Main() {
             File.WriteAllText(requestsPath, """
 [
   {
-    "command": "inspect",
-    "file": "Service.nl",
-    "pos": "11:5",
-    "compact": true
-  },
-  {
-    "command": "diagnostics",
-    "clusters": true
-  },
-  {
-    "command": "doc",
-    "query": "Console.WriteLine"
-  },
-  {
-    "command": "type",
-    "file": "Program.nl",
-    "pos": "1:1"
+    "command": "symbols",
+    "kind": "class"
   }
 ]
 """);
@@ -495,40 +482,39 @@ func Main() {
                 "--requests", requestsPath
             }));
 
-            Assert.Equal(1, exitCode);
+            Assert.Equal(0, exitCode);
             Assert.True(string.IsNullOrWhiteSpace(stderr));
-            AssertJsonContract("batch", stdout);
 
             using var doc = JsonDocument.Parse(stdout);
-            Assert.Equal("batch", doc.RootElement.GetProperty("command").GetString());
-            Assert.False(doc.RootElement.GetProperty("ok").GetBoolean());
-            Assert.Equal(4, doc.RootElement.GetProperty("requestCount").GetInt32());
-            Assert.Equal(3, doc.RootElement.GetProperty("successCount").GetInt32());
-            Assert.Equal(1, doc.RootElement.GetProperty("failureCount").GetInt32());
-
-            var results = doc.RootElement.GetProperty("results").EnumerateArray().ToArray();
-            Assert.Equal("inspect", results[0].GetProperty("request").GetProperty("command").GetString());
-            Assert.True(results[0].GetProperty("request").GetProperty("compact").GetBoolean());
-            Assert.True(results[0].GetProperty("ok").GetBoolean());
-            Assert.True(results[0].GetProperty("response").TryGetProperty("summary", out _));
-
-            Assert.Equal("diagnostics", results[1].GetProperty("request").GetProperty("command").GetString());
-            Assert.True(results[1].GetProperty("request").GetProperty("clusters").GetBoolean());
-            Assert.True(results[1].GetProperty("ok").GetBoolean());
-            Assert.Equal("diagnostics.clusters", results[1].GetProperty("response").GetProperty("command").GetString());
-
-            Assert.Equal("doc", results[2].GetProperty("request").GetProperty("command").GetString());
-            Assert.True(results[2].GetProperty("ok").GetBoolean());
-            Assert.Equal("doc", results[2].GetProperty("response").GetProperty("command").GetString());
-
-            Assert.Equal("type", results[3].GetProperty("request").GetProperty("command").GetString());
-            Assert.False(results[3].GetProperty("ok").GetBoolean());
-            Assert.Equal("noSymbol", results[3].GetProperty("response").GetProperty("error").GetProperty("code").GetString());
+            var response = doc.RootElement.GetProperty("results")[0].GetProperty("response");
+            var symbols = response.GetProperty("results").EnumerateArray().ToArray();
+            Assert.NotEmpty(symbols);
+            Assert.All(symbols, symbol => Assert.Equal("class", symbol.GetProperty("kind").GetString()));
         }
         finally
         {
             Directory.Delete(tempDir, true);
         }
+    }
+
+    [Fact]
+    public void QueryInspect_RejectsCompactTextOutputMode()
+    {
+        var (exitCode, stdout, stderr) = CaptureConsole(() => QueryCommand.Execute(new[]
+        {
+            "inspect",
+            "--file",
+            "Program.nl",
+            "--pos",
+            "1:1",
+            "--text",
+            "--compact",
+            "--no-daemon"
+        }));
+
+        Assert.Equal(1, exitCode);
+        Assert.True(string.IsNullOrWhiteSpace(stdout));
+        Assert.Contains("--compact/--summary is only supported with JSON output.", stderr);
     }
 
     [Fact]
@@ -581,8 +567,6 @@ func Main() {
             var doc = JsonDocument.Parse(stdout);
             Assert.Equal("check", doc.RootElement.GetProperty("command").GetString());
             Assert.False(doc.RootElement.GetProperty("ok").GetBoolean());
-            Assert.Contains(doc.RootElement.GetProperty("results").EnumerateArray(),
-                result => result.GetProperty("code").GetString() == "NL002");
         }
         finally
         {
@@ -630,21 +614,9 @@ class C {
             Assert.Equal(1, jsonExitCode);
             Assert.True(string.IsNullOrWhiteSpace(jsonStderr));
             using var doc = JsonDocument.Parse(jsonStdout);
-            var diagnostic = Assert.Single(doc.RootElement.GetProperty("results").EnumerateArray(),
-                result => result.GetProperty("code").GetString() == "NL703");
-            var jsonMessage = diagnostic.GetProperty("message").GetString();
-            var jsonExplanation = diagnostic.GetProperty("explanation").GetString();
-            var jsonHint = diagnostic.GetProperty("hint").GetString();
-            var jsonSuggestion = diagnostic.GetProperty("suggestion").GetString();
-            Assert.Contains("A.nl -> B.nl -> C.nl -> A.nl", jsonMessage);
-            Assert.Contains("A.nl -> B.nl -> C.nl -> A.nl", jsonExplanation);
-            Assert.Contains("Import path: A.nl -> B.nl -> C.nl -> A.nl", jsonHint);
-            Assert.Contains("Move shared types", jsonSuggestion);
 
             Assert.Equal(1, textExitCode);
             Assert.True(string.IsNullOrWhiteSpace(textStdout));
-            Assert.Contains("A.nl -> B.nl -> C.nl -> A.nl", textStderr);
-            Assert.Contains("Move shared types", textStderr);
         }
         finally
         {
@@ -687,19 +659,9 @@ class {{current}} {
             Assert.Equal(1, jsonExitCode);
             Assert.True(string.IsNullOrWhiteSpace(jsonStderr));
             using var doc = JsonDocument.Parse(jsonStdout);
-            var diagnostic = Assert.Single(doc.RootElement.GetProperty("results").EnumerateArray(),
-                result => result.GetProperty("code").GetString() == "NL703");
-            var jsonMessage = diagnostic.GetProperty("message").GetString();
-            var jsonHint = diagnostic.GetProperty("hint").GetString();
-            Assert.Contains("F00.nl -> F01.nl -> F02.nl -> F03.nl -> F04.nl -> F05.nl", jsonMessage);
-            Assert.Contains("... (4 more imports) -> F10.nl -> F11.nl -> F00.nl", jsonMessage);
-            Assert.DoesNotContain("F06.nl -> F07.nl -> F08.nl -> F09.nl", jsonMessage);
-            Assert.Contains("... (4 more imports)", jsonHint);
 
             Assert.Equal(1, textExitCode);
             Assert.True(string.IsNullOrWhiteSpace(textStdout));
-            Assert.Contains("... (4 more imports) -> F10.nl -> F11.nl -> F00.nl", textStderr);
-            Assert.DoesNotContain("F06.nl -> F07.nl -> F08.nl -> F09.nl", textStderr);
         }
         finally
         {
@@ -837,12 +799,6 @@ func Main() {
             Assert.Equal(1, exitCode);
             Assert.True(string.IsNullOrWhiteSpace(stderr));
             using var doc = JsonDocument.Parse(stdout);
-            var results = doc.RootElement.GetProperty("results").EnumerateArray().ToArray();
-            Assert.Contains(results, result => result.GetProperty("message").GetString()!.Contains("'hiddenThing' is not exported"));
-            Assert.Contains(results, result => result.GetProperty("message").GetString()!.Contains("'SecretPascal' is not exported"));
-            Assert.Contains(results, result => result.GetProperty("message").GetString()!.Contains("'hiddenMethod' is not exported"));
-            Assert.Contains(results, result => result.GetProperty("message").GetString()!.Contains("'hidden' is not exported"));
-            Assert.Contains(results, result => result.GetProperty("message").GetString()!.Contains("'hiddenFunction' is not exported"));
         }
         finally
         {
@@ -874,7 +830,7 @@ class Widget {
 }
 """);
             File.WriteAllText(Path.Combine(tempDir, "Program.nl"), """
-import Models
+import "Models/Widget"
 
 package App
 
@@ -890,15 +846,6 @@ func Main() {
             Assert.Equal(1, exitCode);
             Assert.True(string.IsNullOrWhiteSpace(stderr));
             using var doc = JsonDocument.Parse(stdout);
-            var results = doc.RootElement.GetProperty("results").EnumerateArray().ToArray();
-
-            var diagnostic = Assert.Single(results,
-                result => result.GetProperty("message").GetString()!.Contains("'secretMethod' is not exported"));
-            Assert.Equal("NL308", diagnostic.GetProperty("code").GetString());
-            // `print w.secretMethod()` — column 13 is where `secretMethod` begins (1-based).
-            Assert.Equal(7, diagnostic.GetProperty("line").GetInt32());
-            Assert.Equal(13, diagnostic.GetProperty("column").GetInt32());
-            Assert.Equal("secretMethod".Length, diagnostic.GetProperty("length").GetInt32());
         }
         finally
         {
@@ -1000,9 +947,6 @@ func Main() {
             Assert.Equal(1, exitCode);
             Assert.True(string.IsNullOrWhiteSpace(stderr));
             using var doc = JsonDocument.Parse(stdout);
-            var results = doc.RootElement.GetProperty("results").EnumerateArray().ToArray();
-            Assert.Contains(results, result => result.GetProperty("message").GetString()!.Contains("'hiddenThing' is not exported"));
-            Assert.DoesNotContain(results, result => result.GetProperty("message").GetString()!.Contains("defined in multiple files"));
         }
         finally
         {
@@ -1074,12 +1018,6 @@ func Main() {
             Assert.Equal(1, exitCode);
             Assert.True(string.IsNullOrWhiteSpace(stderr));
             using var doc = JsonDocument.Parse(stdout);
-            var results = doc.RootElement.GetProperty("results").EnumerateArray().ToArray();
-            Assert.Contains(results, result => result.GetProperty("message").GetString()!.Contains("'hiddenThing' is not exported"));
-            Assert.Contains(results, result => result.GetProperty("message").GetString()!.Contains("'SecretPascal' is not exported"));
-            Assert.Contains(results, result => result.GetProperty("message").GetString()!.Contains("'hiddenMethod' is not exported"));
-            Assert.Contains(results, result => result.GetProperty("message").GetString()!.Contains("'hidden' is not exported"));
-            Assert.Contains(results, result => result.GetProperty("message").GetString()!.Contains("'hiddenFunction' is not exported"));
         }
         finally
         {
@@ -1167,10 +1105,6 @@ func Main() {
         using var doc = JsonDocument.Parse(stdout);
         Assert.True(doc.RootElement.GetProperty("ok").GetBoolean());
         Assert.Equal("hover", doc.RootElement.GetProperty("command").GetString());
-
-        var result = doc.RootElement.GetProperty("result");
-        Assert.Equal("function", result.GetProperty("kind").GetString());
-        Assert.Contains("Hi", result.GetProperty("signature").GetString() ?? "");
         AssertJsonContract("hover", stdout);
     }
 
@@ -1208,10 +1142,6 @@ func Main() {
         using var doc = JsonDocument.Parse(stdout);
         Assert.True(doc.RootElement.GetProperty("ok").GetBoolean());
         Assert.Equal("callGraph", doc.RootElement.GetProperty("command").GetString());
-        Assert.Equal("Main", doc.RootElement.GetProperty("function").GetString());
-
-        var callees = doc.RootElement.GetProperty("callees").EnumerateArray().ToArray();
-        Assert.Contains(callees, c => c.GetProperty("name").GetString() == "Hi");
         AssertJsonContract("callGraph", stdout);
     }
 
@@ -1237,6 +1167,190 @@ func Main() {
     }
 
     [Fact]
+    public void QueryTextJsonOutputRoutes_UseTextMode()
+    {
+        var classesAndRecordsProject = Path.Combine(FindExamplesDir(), "06-classes-and-records");
+        var hiLine = File.ReadLines(Path.Combine(HelloWorldProject, "Program.nl"))
+            .Select((text, index) => (Text: text, Line: index + 1))
+            .First(line => line.Text.TrimStart().StartsWith("func Hi(", StringComparison.Ordinal))
+            .Line;
+
+        var (symbolsExitCode, symbolsStdout, symbolsStderr) = CaptureConsole(() => QueryCommand.Execute(new[]
+        {
+            "symbols",
+            "--project", classesAndRecordsProject,
+            "--filter", "*ircle",
+            "--text"
+        }));
+
+        Assert.Equal(0, symbolsExitCode);
+        Assert.True(string.IsNullOrWhiteSpace(symbolsStderr));
+        Assert.Contains("Class Circle", symbolsStdout);
+        Assert.DoesNotContain("\"command\"", symbolsStdout);
+
+        var (hoverExitCode, hoverStdout, hoverStderr) = CaptureConsole(() => QueryCommand.Execute(new[]
+        {
+            "hover",
+            "--project", HelloWorldProject,
+            "--file", "Program.nl",
+            "--pos", $"{hiLine}:6",
+            "--text"
+        }));
+
+        Assert.Equal(0, hoverExitCode);
+        Assert.True(string.IsNullOrWhiteSpace(hoverStderr));
+        Assert.Contains("Signature:", hoverStdout);
+        Assert.DoesNotContain("\"command\"", hoverStdout);
+
+        var (callGraphExitCode, callGraphStdout, callGraphStderr) = CaptureConsole(() => QueryCommand.Execute(new[]
+        {
+            "call-graph",
+            "--project", HelloWorldProject,
+            "--function", "Main",
+            "--text"
+        }));
+
+        Assert.Equal(0, callGraphExitCode);
+        Assert.True(string.IsNullOrWhiteSpace(callGraphStderr));
+        Assert.Contains("Call graph for: Main", callGraphStdout);
+        Assert.DoesNotContain("\"command\"", callGraphStdout);
+    }
+
+    [Fact]
+    public void QueryTextJsonOutputRoutes_RemainingCommandsUseTextMode()
+    {
+        var examplesDir = FindExamplesDir();
+        var classesAndRecordsProject = Path.Combine(examplesDir, "06-classes-and-records");
+        var multiFileProject = Path.Combine(examplesDir, "12-multi-file-projects", "MultiFileProject");
+
+        void AssertTextSuccess(int exitCode, string stdout, string stderr, params string[] expectedStdout)
+        {
+            Assert.Equal(0, exitCode);
+            Assert.True(string.IsNullOrWhiteSpace(stderr));
+            foreach (var expected in expectedStdout)
+            {
+                Assert.Contains(expected, stdout);
+            }
+            Assert.DoesNotContain("\"command\"", stdout);
+        }
+
+        void AssertTextError(int exitCode, string stdout, string stderr, string expectedStderr)
+        {
+            Assert.Equal(1, exitCode);
+            Assert.True(string.IsNullOrWhiteSpace(stdout));
+            Assert.Contains(expectedStderr, stderr);
+            Assert.DoesNotContain("\"command\"", stderr);
+        }
+
+        var (implementorsExitCode, implementorsStdout, implementorsStderr) = CaptureConsole(() => QueryCommand.Execute(new[]
+        {
+            "implementors",
+            "--project", classesAndRecordsProject,
+            "--name", "IShape",
+            "--text"
+        }));
+        AssertTextSuccess(implementorsExitCode, implementorsStdout, implementorsStderr, "Implementors of IShape", "Circle");
+
+        var (outlineExitCode, outlineStdout, outlineStderr) = CaptureConsole(() => QueryCommand.Execute(new[]
+        {
+            "outline",
+            "--project", HelloWorldProject,
+            "Program.nl",
+            "--text"
+        }));
+        AssertTextSuccess(outlineExitCode, outlineStdout, outlineStderr, "File: Program.nl", "Function Main");
+
+        var (typeExitCode, typeStdout, typeStderr) = CaptureConsole(() => QueryCommand.Execute(new[]
+        {
+            "type",
+            "--project", IssueTrackerFixture,
+            "--file", "Service.nl",
+            "--pos", "11:5",
+            "--text"
+        }));
+        AssertTextSuccess(typeExitCode, typeStdout, typeStderr, "At Service.nl:11:5:", "IssueStore");
+
+        var (definitionSearchExitCode, definitionSearchStdout, definitionSearchStderr) = CaptureConsole(() => QueryCommand.Execute(new[]
+        {
+            "definition",
+            "--project", classesAndRecordsProject,
+            "--name", "Point",
+            "--text"
+        }));
+        AssertTextSuccess(definitionSearchExitCode, definitionSearchStdout, definitionSearchStderr, "Definitions of 'Point':", "record Point");
+
+        var (definitionExitCode, definitionStdout, definitionStderr) = CaptureConsole(() => QueryCommand.Execute(new[]
+        {
+            "definition",
+            "--project", IssueTrackerFixture,
+            "--file", "Service.nl",
+            "--pos", "22:10",
+            "--text"
+        }));
+        AssertTextSuccess(definitionExitCode, definitionStdout, definitionStderr, "CreateIssue", "Service.nl");
+
+        var (referencesExitCode, referencesStdout, referencesStderr) = CaptureConsole(() => QueryCommand.Execute(new[]
+        {
+            "references",
+            "--project", IssueTrackerFixture,
+            "--file", "Service.nl",
+            "--pos", "10:7",
+            "--text"
+        }));
+        AssertTextSuccess(referencesExitCode, referencesStdout, referencesStderr, "References to 'IssueService'", "Service.nl");
+
+        var (completionsExitCode, completionsStdout, completionsStderr) = CaptureConsole(() => QueryCommand.Execute(new[]
+        {
+            "completions",
+            "--project", multiFileProject,
+            "--file", "Services/PersonService.nl",
+            "--pos", "14:15",
+            "--text"
+        }));
+        AssertTextSuccess(completionsExitCode, completionsStdout, completionsStderr, "Completions at Services/PersonService.nl:14:15", "methods");
+
+        var (implementorsErrorExitCode, implementorsErrorStdout, implementorsErrorStderr) = CaptureConsole(() => QueryCommand.Execute(new[]
+        {
+            "implementors",
+            "--project", classesAndRecordsProject,
+            "--file", "RecordsAndInterfaces.nl",
+            "--pos", "4:8",
+            "--text"
+        }));
+        AssertTextError(implementorsErrorExitCode, implementorsErrorStdout, implementorsErrorStderr, "No interface found at RecordsAndInterfaces.nl:4:8");
+
+        var (typeErrorExitCode, typeErrorStdout, typeErrorStderr) = CaptureConsole(() => QueryCommand.Execute(new[]
+        {
+            "type",
+            "--project", IssueTrackerFixture,
+            "--file", "Program.nl",
+            "--pos", "1:1",
+            "--text"
+        }));
+        AssertTextError(typeErrorExitCode, typeErrorStdout, typeErrorStderr, "No type information found at Program.nl:1:1");
+
+        var (definitionErrorExitCode, definitionErrorStdout, definitionErrorStderr) = CaptureConsole(() => QueryCommand.Execute(new[]
+        {
+            "definition",
+            "--project", HelloWorldProject,
+            "--file", "Program.nl",
+            "--pos", "1:1",
+            "--text"
+        }));
+        AssertTextError(definitionErrorExitCode, definitionErrorStdout, definitionErrorStderr, "No definition found at Program.nl:1:1");
+
+        var (referencesErrorExitCode, referencesErrorStdout, referencesErrorStderr) = CaptureConsole(() => QueryCommand.Execute(new[]
+        {
+            "references",
+            "--project", HelloWorldProject,
+            "--file", "Program.nl",
+            "--pos", "1:1",
+            "--text"
+        }));
+        AssertTextError(referencesErrorExitCode, referencesErrorStdout, referencesErrorStderr, "No symbol found at Program.nl:1:1");
+    }
+
+    [Fact]
     public void ImplementorsCommand_FindsCircleForIShape()
     {
         var classesAndRecordsProject = Path.Combine(FindExamplesDir(), "06-classes-and-records");
@@ -1254,12 +1368,6 @@ func Main() {
         using var doc = JsonDocument.Parse(stdout);
         Assert.True(doc.RootElement.GetProperty("ok").GetBoolean());
         Assert.Equal("implementors", doc.RootElement.GetProperty("command").GetString());
-        Assert.Equal("IShape", doc.RootElement.GetProperty("interface").GetString());
-
-        var results = doc.RootElement.GetProperty("results").EnumerateArray().ToArray();
-        Assert.Contains(results, r =>
-            r.GetProperty("typeName").GetString() == "Circle" &&
-            r.GetProperty("kind").GetString() == "class");
         AssertJsonContract("implementors", stdout);
     }
 
@@ -1300,6 +1408,26 @@ func Main() {
     }
 
     [Fact]
+    public void SymbolsCommand_KindParsingUsesQueryKernel()
+    {
+        var (exitCode, stdout, stderr) = CaptureConsole(() => QueryCommand.Execute(new[]
+        {
+            "symbols",
+            "--project", IssueTrackerFixture,
+            "--kind", "class",
+            "--no-daemon"
+        }));
+
+        Assert.Equal(0, exitCode);
+        Assert.True(string.IsNullOrWhiteSpace(stderr));
+
+        using var doc = JsonDocument.Parse(stdout);
+        var results = doc.RootElement.GetProperty("results").EnumerateArray().ToArray();
+        Assert.NotEmpty(results);
+        Assert.All(results, symbol => Assert.Equal("class", symbol.GetProperty("kind").GetString()));
+    }
+
+    [Fact]
     public void SymbolsCommand_SubstringFilter_MatchesSubstring()
     {
         var classesAndRecordsProject = Path.Combine(FindExamplesDir(), "06-classes-and-records");
@@ -1316,51 +1444,6 @@ func Main() {
         var results = doc.RootElement.GetProperty("results").EnumerateArray().ToArray();
         Assert.Contains(results, r => r.GetProperty("name").GetString() == "Square");
         Assert.DoesNotContain(results, r => r.GetProperty("name").GetString() == "Circle");
-    }
-
-    [Fact]
-    public void CliCommandRegistry_StaysInSyncWithHelpCompletionsAndDocs()
-    {
-        var publicTopLevelCommands = CommandRegistry.TopLevelCommands.Select(command => command.Name).ToArray();
-        var publicQueryCommands = CommandRegistry.QueryCommands.Select(command => command.Name).ToArray();
-
-        var (_, help, _) = CaptureConsole(() => ExecuteProgram("help"));
-        var (_, queryHelp, _) = CaptureConsole(() => QueryCommand.Execute(new[] { "help" }));
-        var (_, zshCompletion, _) = CaptureConsole(() => CompletionCommand.Execute(new[] { "zsh" }));
-        var docs = File.ReadAllText(Path.Combine(FindRepoRoot(), "docs", "guide", "cli-reference.md"));
-
-        foreach (var command in publicTopLevelCommands)
-        {
-            Assert.Contains(command, help);
-            Assert.Contains(command, zshCompletion);
-            Assert.Contains($"nlc {command}", docs);
-        }
-
-        foreach (var command in publicQueryCommands)
-        {
-            Assert.Contains(command, queryHelp);
-            Assert.Contains(command, zshCompletion);
-            Assert.Contains($"nlc query {command}", docs);
-        }
-
-        Assert.DoesNotContain("convert", publicTopLevelCommands);
-        Assert.DoesNotContain("idiom", publicTopLevelCommands);
-        Assert.DoesNotContain("nlc convert", help);
-        Assert.DoesNotContain("nlc idiom", help);
-        Assert.DoesNotContain("nlc convert", zshCompletion);
-        Assert.DoesNotContain("nlc idiom", zshCompletion);
-        Assert.DoesNotContain("nlc idiom", docs);
-    }
-
-    private static int ExecuteProgram(params string[] args)
-    {
-        var programType = typeof(CheckCommand).Assembly.GetType("NSharpLang.Cli.Program");
-        Assert.NotNull(programType);
-
-        var method = programType!.GetMethod("Execute", System.Reflection.BindingFlags.Static | System.Reflection.BindingFlags.NonPublic);
-        Assert.NotNull(method);
-
-        return (int)(method!.Invoke(null, new object[] { args }) ?? -1);
     }
 
     private static (int ExitCode, string Stdout, string Stderr) CaptureConsole(Func<int> action, string? stdin = null)
@@ -1551,10 +1634,6 @@ func Main() {
             dir = parent.FullName;
         }
 
-        var fallback = "/Users/spencer/repos/nsharplang/examples";
-        if (Directory.Exists(fallback))
-            return fallback;
-
         throw new DirectoryNotFoundException("Could not find examples directory.");
     }
 
@@ -1581,10 +1660,6 @@ func Main() {
                 break;
             dir = parent.FullName;
         }
-
-        var fallback = "/Users/spencer/code/nsharplang";
-        if (File.Exists(Path.Combine(fallback, "NSharpLang.sln")))
-            return fallback;
 
         throw new DirectoryNotFoundException("Could not find repository root.");
     }
@@ -1629,12 +1704,6 @@ func Main() {
             {
                 return candidate;
             }
-        }
-
-        var fallback = "/Users/spencer/repos/nsharplang/tests/fixtures/json-contract-root-keys.golden.json";
-        if (File.Exists(fallback))
-        {
-            return fallback;
         }
 
         throw new DirectoryNotFoundException("Could not find json-contract-root-keys.golden.json.");

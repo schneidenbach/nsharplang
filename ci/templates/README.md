@@ -151,7 +151,7 @@ Change build configuration:
 
 ## Documentation
 
-Full documentation: [docs/guide/ci-cd.md](../docs/guide/ci-cd.md)
+Full documentation: [CI/CD guide](../../website/docs/ci-cd.md)
 
 ## Support
 
