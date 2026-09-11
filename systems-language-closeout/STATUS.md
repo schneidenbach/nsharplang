@@ -43,8 +43,11 @@ type identity by arity, constructed external generics; see
 conversion"). Integrated tip: `b6a574bd9` plus this record. Estate 8,339/8,339; 66 native projects all
 executing green; 399 C#; format and ilverify clean. Corpus pin 93. Visual VS Code click-through owed (the
 computer-use grant was denied at verification time); the rebuilt extension, the LSP-driven native suites
-and the VS Code-enabled gate are the IDE evidence. Fresh gate evidence for this revision is recorded in the
-follow-up "Record gate evidence" commit.
+and the VS Code-enabled gate are the IDE evidence. Fresh gates at `5ca1a5110`: `VSCODE_TESTS=skip ./scripts/test-all.sh --commit` 706s (all steps,
+12 throughput cells, templates/examples, IL verification) and the VS Code-enabled `./scripts/test-all.sh
+--commit` 673s (smoke: extension, diagnostics, hover, completion); both ALL TESTS PASSED, logs at
+`/Users/spencer/repos/nsharp-worktrees/gap-briefs/gate-final-*-5ca1a5110.log`. This record is the only
+change after those gates.
 
 **Compiler-only objective complete, 2026-09-09.** Final source/assertion audits find no surviving
 C# compiler-core owner or in-scope canonical assertion. The exact receiver-generic correction and
