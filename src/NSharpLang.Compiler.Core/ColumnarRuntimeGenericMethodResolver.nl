@@ -128,6 +128,30 @@ class ColumnarRuntimeGenericMethodResolver {
     }
 
     static func IsInferableCandidate(candidate: MethodInfo, lookupType: Type, memberName: string, argumentCount: int, expectedStatic: bool): bool {
+        if !IsInferableCandidateShape(candidate, lookupType, memberName, expectedStatic) {
+            return false
+        }
+
+        parameters := candidate.GetParameters()
+        if parameters == null || parameters.Length != argumentCount {
+            return false
+        }
+        index := 0
+        while index < parameters.Length {
+            parameter := parameters[index]
+            if parameter == null || parameter.get_ParameterType() == null || ColumnarExtensionMethodResolver.IsParamsParameter(parameter) {
+                return false
+            }
+            index = index + 1
+        }
+        return true
+    }
+
+    // The half of candidate admission that does not depend on the call site's ARGUMENTS: a public,
+    // non-varargs generic method definition of this name and staticness, declared by the lookup type
+    // or by something the lookup type derives from. The explicit-type-argument tier asks the same
+    // question, so the two tiers cannot disagree about which declarations are reachable.
+    static func IsInferableCandidateShape(candidate: MethodInfo?, lookupType: Type, memberName: string, expectedStatic: bool): bool {
         if candidate == null || !candidate.get_IsPublic() || candidate.get_Name() != memberName || candidate.get_IsStatic() != expectedStatic {
             return false
         }
@@ -145,19 +169,6 @@ class ColumnarRuntimeGenericMethodResolver {
             if declaringType.get_IsValueType() || lookupType.get_IsValueType() || !RuntimeAssignableFrom(declaringType, lookupType) {
                 return false
             }
-        }
-
-        parameters := candidate.GetParameters()
-        if parameters == null || parameters.Length != argumentCount {
-            return false
-        }
-        index := 0
-        while index < parameters.Length {
-            parameter := parameters[index]
-            if parameter == null || parameter.get_ParameterType() == null || ColumnarExtensionMethodResolver.IsParamsParameter(parameter) {
-                return false
-            }
-            index = index + 1
         }
         return true
     }
@@ -517,5 +528,245 @@ class ColumnarRuntimeGenericMethodResolver {
             !expectedStatic && !lookupType.get_IsValueType(),
             false
         )
+    }
+}
+
+// ONE EXTERNAL METHOD SELECTED FOR A CALL SITE THAT WROTE ITS TYPE ARGUMENTS.
+//
+// `ExplicitArgumentCount` is how many of `ParameterTypes` the site supplies; every parameter from
+// there on is a trailing optional filled from its null metadata default, exactly as the ordinary
+// resolver's optional-fill tier does for a non-generic declaration.
+class ColumnarExplicitGenericCallSelection {
+    IsSelected: bool
+    Method: MethodInfo?
+    LookupType: Type
+    ParameterTypes: Type[]
+    ReturnType: Type
+    ExplicitArgumentCount: int
+    IsStatic: bool
+    UsesCallVirtual: bool
+
+    constructor(isSelected: bool, method: MethodInfo?, lookupType: Type, parameterTypes: Type[], returnType: Type, explicitArgumentCount: int, isStatic: bool, usesCallVirtual: bool) {
+        if lookupType == null || parameterTypes == null || returnType == null {
+            throw new InvalidOperationException("Explicit generic call selection facts cannot be null.")
+        }
+        if isSelected && (method == null || explicitArgumentCount < 0 || explicitArgumentCount > parameterTypes.Length) {
+            throw new InvalidOperationException("A selected explicit generic call requires an exact handle and a supplied-argument count within its signature.")
+        }
+        if !isSelected && (method != null || parameterTypes.Length != 0) {
+            throw new InvalidOperationException("An unselected explicit generic call cannot carry executable method facts.")
+        }
+
+        IsSelected = isSelected
+        Method = method
+        LookupType = lookupType
+        ParameterTypes = parameterTypes
+        ReturnType = returnType
+        ExplicitArgumentCount = explicitArgumentCount
+        IsStatic = isStatic
+        UsesCallVirtual = usesCallVirtual
+    }
+
+    static func None(lookupType: Type): ColumnarExplicitGenericCallSelection {
+        return new ColumnarExplicitGenericCallSelection(false, null, lookupType, new Type[](0), typeof(object), 0, false, false)
+    }
+}
+
+// EXTERNAL GENERIC METHODS, CLOSED OVER THE TYPE ARGUMENTS THE CALL SITE WROTE.
+//
+// This is the explicit twin of the inference tier above, and the ONLY difference between them is
+// where the type arguments come from: written by the site instead of unified from the arguments.
+// Everything after that is the same answer — `MakeGenericMethod` enforces the declared constraints,
+// the closed signature is SUBSTITUTED rather than read back, and the resulting handle is an ordinary
+// MethodInfo the call site emits with an ordinary `call`/`callvirt`.
+//
+// THE WRITTEN COUNT MUST MATCH THE DECLARATION'S ARITY (ECMA-334 §12.6.4.1): a candidate whose own
+// arity differs is not a candidate at all, so `Is<int, string>()` on `Is<T>()` never binds and the
+// call site reports the ordinary "no overload" arity diagnostic instead of closing something wrong.
+class ColumnarExplicitRuntimeGenericMethodResolver {
+
+    // The unique candidate for a site whose ARGUMENT TYPES are not all knowable ahead of emission — a
+    // lambda argument has no type until it is bound against the parameter it is passed to. A name
+    // that leaves more than one closed candidate at this arity is left to the scored overload below.
+    static func Resolve(lookupType: Type, memberName: string, typeArguments: Type[], argumentCount: int, expectedStatic: bool): ColumnarExplicitGenericCallSelection {
+        candidates := new List<MethodInfo>()
+        candidateParameters := new List<Type[]>()
+        candidateReturns := new List<Type>()
+        if !TryCollect(lookupType, memberName, typeArguments, argumentCount, expectedStatic, candidates, candidateParameters, candidateReturns) {
+            return ColumnarExplicitGenericCallSelection.None(lookupType)
+        }
+
+        if candidates.Count != 1 {
+            return ColumnarExplicitGenericCallSelection.None(lookupType)
+        }
+
+        return Selected(lookupType, candidates[0], candidateParameters[0], candidateReturns[0], argumentCount, expectedStatic)
+    }
+
+    // The same candidate set, ranked by the argument-flow scorer every other call selection uses. A
+    // site whose arguments all type ahead of emission gets ordinary overload resolution; a tie is
+    // refused rather than guessed.
+    static func ResolveWithFacts(lookupType: Type, memberName: string, typeArguments: Type[], argumentTypes: Type[], argumentFacts: ColumnarDirectCallArgumentFacts, expectedStatic: bool): ColumnarExplicitGenericCallSelection {
+        if argumentTypes == null {
+            throw new InvalidOperationException("Explicit generic method resolution inputs cannot be null.")
+        }
+        ColumnarSourceDirectCallResolver.ValidateArgumentFacts(argumentTypes, argumentFacts)
+
+        candidates := new List<MethodInfo>()
+        candidateParameters := new List<Type[]>()
+        candidateReturns := new List<Type>()
+        if !TryCollect(lookupType, memberName, typeArguments, argumentTypes.Length, expectedStatic, candidates, candidateParameters, candidateReturns) {
+            return ColumnarExplicitGenericCallSelection.None(lookupType)
+        }
+
+        bestScore := -1
+        bestParameterCount := 0
+        bestCount := 0
+        bestIndex := -1
+        index := 0
+        while index < candidates.Count {
+            parameterTypes := candidateParameters[index]
+            leading := LeadingParameterTypes(parameterTypes, argumentTypes.Length)
+            score := ColumnarSourceDirectCallResolver.ArgumentsScoreWithFacts(leading, argumentTypes, argumentFacts)
+            if score >= 0 {
+                parameterCount := parameterTypes.Length
+                if score > bestScore || (score == bestScore && parameterCount < bestParameterCount) {
+                    bestScore = score
+                    bestParameterCount = parameterCount
+                    bestCount = 1
+                    bestIndex = index
+                } else if score == bestScore && parameterCount == bestParameterCount {
+                    bestCount = bestCount + 1
+                }
+            }
+            index = index + 1
+        }
+
+        if bestCount != 1 || bestIndex < 0 {
+            return ColumnarExplicitGenericCallSelection.None(lookupType)
+        }
+
+        return Selected(lookupType, candidates[bestIndex], candidateParameters[bestIndex], candidateReturns[bestIndex], argumentTypes.Length, expectedStatic)
+    }
+
+    // Every declared generic method of `lookupType` whose name, staticness, own arity and parameter
+    // count admit this site, closed over the written type arguments. A candidate that
+    // `MakeGenericMethod` refuses (a violated constraint) is dropped here, which is what makes a
+    // constraint violation a "no such call" answer rather than an exception at emit.
+    static func TryCollect(lookupType: Type, memberName: string, typeArguments: Type[], argumentCount: int, expectedStatic: bool, candidates: List<MethodInfo>, candidateParameters: List<Type[]>, candidateReturns: List<Type>): bool {
+        if lookupType == null || memberName == null || typeArguments == null || typeArguments.Length == 0 || argumentCount < 0 {
+            throw new InvalidOperationException("Explicit generic method resolution inputs cannot be null.")
+        }
+
+        // The same owner boundary the inference tier keeps: a builder-bound or still-open lookup type
+        // has no reachable member table, and closing a method on one would need the TYPE's arguments
+        // bound at the same time.
+        if ColumnarRuntimeInstanceMemberResolver.ContainsBuilderBoundType(lookupType) || lookupType.get_IsGenericTypeDefinition() || lookupType.get_IsGenericParameter() {
+            return false
+        }
+
+        position := 0
+        while position < typeArguments.Length {
+            if typeArguments[position] == null {
+                return false
+            }
+            position = position + 1
+        }
+
+        declared := ColumnarRuntimeGenericMethodResolver.MethodsOrEmpty(lookupType)
+        exactArity := false
+        index := 0
+        while index < declared.Length {
+            candidate := declared[index]
+            parameters := AdmittedParameters(candidate, lookupType, memberName, typeArguments.Length, argumentCount, expectedStatic)
+            if parameters != null {
+                closed := ColumnarRuntimeGenericMethodResolver.CloseOrNull(candidate, typeArguments)
+                closedParameters := ColumnarRuntimeGenericMethodResolver.ClosedParameterTypesOrNull(candidate, typeArguments)
+                closedReturn := ColumnarRuntimeGenericMethodResolver.SubstituteMethodTypeArguments(candidate.get_ReturnType(), typeArguments)
+                if closed != null && closedParameters != null && closedReturn != null && TailFillable(parameters, closedParameters, argumentCount) {
+                    candidates.Add(closed)
+                    candidateParameters.Add(closedParameters)
+                    candidateReturns.Add(closedReturn)
+                    if closedParameters.Length == argumentCount {
+                        exactArity = true
+                    }
+                }
+            }
+            index = index + 1
+        }
+
+        // AN EXACTLY-MATCHING ARITY BEATS A FILLED TAIL, which is C#'s rule and the ordinary
+        // resolver's: optional-fill is only consulted when nothing takes the arguments as written.
+        if exactArity {
+            keep := 0
+            while keep < candidateParameters.Count {
+                if candidateParameters[keep].Length == argumentCount {
+                    keep = keep + 1
+                } else {
+                    candidates.RemoveAt(keep)
+                    candidateParameters.RemoveAt(keep)
+                    candidateReturns.RemoveAt(keep)
+                }
+            }
+        }
+
+        return candidates.Count > 0
+    }
+
+    // The candidate's parameters when its shape admits this site, or null. The exclusions are the
+    // inference tier's, plus the written-arity rule.
+    static func AdmittedParameters(candidate: MethodInfo?, lookupType: Type, memberName: string, typeArgumentCount: int, argumentCount: int, expectedStatic: bool): ParameterInfo[]? {
+        if !ColumnarRuntimeGenericMethodResolver.IsInferableCandidateShape(candidate, lookupType, memberName, expectedStatic) {
+            return null
+        }
+        if candidate.GetGenericArguments().Length != typeArgumentCount {
+            return null
+        }
+
+        parameters := candidate.GetParameters()
+        if parameters == null || parameters.Length < argumentCount {
+            return null
+        }
+        index := 0
+        while index < parameters.Length {
+            parameter := parameters[index]
+            if parameter == null || parameter.get_ParameterType() == null || ColumnarExtensionMethodResolver.IsParamsParameter(parameter) {
+                return null
+            }
+            index = index + 1
+        }
+        return parameters
+    }
+
+    static func TailFillable(parameters: ParameterInfo[], closedParameters: Type[], argumentCount: int): bool {
+        if parameters.Length != closedParameters.Length {
+            return false
+        }
+        index := argumentCount
+        while index < closedParameters.Length {
+            if !ColumnarExtensionMethodResolver.CanFillOptional(parameters[index], closedParameters[index]) {
+                return false
+            }
+            index = index + 1
+        }
+        return true
+    }
+
+    static func LeadingParameterTypes(parameterTypes: Type[], count: int): Type[] {
+        if parameterTypes.Length == count {
+            return parameterTypes
+        }
+        leading := new Type[](count)
+        index := 0
+        while index < count {
+            leading[index] = parameterTypes[index]
+            index = index + 1
+        }
+        return leading
+    }
+
+    static func Selected(lookupType: Type, method: MethodInfo, parameterTypes: Type[], returnType: Type, argumentCount: int, expectedStatic: bool): ColumnarExplicitGenericCallSelection {
+        usesCallVirtual := !expectedStatic && !lookupType.get_IsValueType()
+        return new ColumnarExplicitGenericCallSelection(true, method, lookupType, parameterTypes, returnType, argumentCount, expectedStatic, usesCallVirtual)
     }
 }

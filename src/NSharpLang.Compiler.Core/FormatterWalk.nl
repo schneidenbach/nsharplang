@@ -219,7 +219,7 @@ class FormatterWalk {
     // that follows it, and any comment between the last element and the closer above the closer —
     // which is where the leading-comment model puts every other comment in the file.
     func FormatArgumentList(arguments: List<Argument>, openLine: int, closeLine: int, builder: StringBuilder) {
-        wrapped := ShouldWrapList(openLine, closeLine, arguments.Count, MaxArgumentLine(arguments), LastArgumentSpansLines(arguments)) && ArgumentsCanBeginLines(arguments)
+        wrapped := ShouldWrapList(openLine, closeLine, arguments.Count, EffectiveMaxArgumentLine(arguments, openLine), LastArgumentSpansLines(arguments)) && ArgumentsCanBeginLines(arguments)
 
         // The gap tracker is written through a LOCAL, because the columnar backend declines a property
         // assignment whose receiver is a field (NL103, node kind 23). Every other write of it in the
@@ -288,6 +288,75 @@ class FormatterWalk {
     // The lowest line every argument starts at or above. `Argument` carries no position of its own —
     // its `name:` prefix and its `ref`/`out` modifier stand on the value's line — so the VALUE's line
     // is the argument's line.
+    // THE MAX ARGUMENT LINE, EXCEPT THAT AN ARGUMENT PUSHED DOWN BY THE ONE BEFORE IT DOES NOT COUNT.
+    //
+    // `maxElementLine == openLine` is how `ShouldWrapList` recognises a list written FLAT, and the hug
+    // exemption under it is what keeps `f(x => { … })` on one line. Asked of the raw lines, that test
+    // reads a SECOND block-bodied argument as a wrapped list — `u.Switch(a => { … }, b => { … })`
+    // prints flat, and on the next pass `b` starts on the line where `a`'s closing brace sits, so the
+    // formatter wrapped what it had just written and was NOT IDEMPOTENT (the safety check refused the
+    // file rather than corrupting it, so the shape was simply unformattable).
+    //
+    // An argument written across lines pushes every argument after it below the opener, so their lines
+    // are its doing rather than the author's. Reading only the arguments BEFORE the first such one
+    // makes the flat answer a fixed point, which is the property the formatter's own safety check
+    // demands.
+    // THE SHAPES THIS WALK WRITES ACROSS LINES NO MATTER HOW THEY WERE WRITTEN — a lambda with a
+    // block body and a `match`. `ExpressionSpansLines` is the wider question (it also answers yes for
+    // a list the AUTHOR wrapped); this is the half that is a property of the OUTPUT alone, which is
+    // what a fixed-point argument about the formatter's own result may rest on.
+    static func ExpressionAlwaysSpansLines(expression: Expression): bool {
+        lambda := expression as LambdaExpression
+        if lambda != null {
+            if lambda.BlockBody != null {
+                return true
+            }
+
+            lambdaBody := lambda.ExpressionBody
+            if lambdaBody != null {
+                return ExpressionAlwaysSpansLines(lambdaBody)
+            }
+
+            return false
+        }
+
+        onSubscription := expression as OnSubscriptionExpression
+        if onSubscription != null {
+            return ExpressionAlwaysSpansLines(onSubscription.Handler)
+        }
+
+        matchExpression := expression as MatchExpression
+        if matchExpression != null {
+            return true
+        }
+
+        return false
+    }
+
+    static func EffectiveMaxArgumentLine(arguments: List<Argument>, openLine: int): int {
+        index := 0
+        while index < arguments.Count {
+            value := arguments[index].Value
+
+            // An argument this walk ALWAYS writes across lines pushes every argument after it below
+            // the opener whatever the author wrote, so their lines say nothing about the list's shape
+            // and only the arguments before the first such one are asked. A merely WRAPPED argument
+            // does not count: its own wrapping is the author's and is preserved, so the lines after
+            // it still mean what they say.
+            if ExpressionAlwaysSpansLines(value) {
+                return openLine
+            }
+
+            if value.Line > openLine {
+                return MaxArgumentLine(arguments)
+            }
+
+            index = index + 1
+        }
+
+        return openLine
+    }
+
     static func MaxArgumentLine(arguments: List<Argument>): int {
         highest := 0
         index := 0
