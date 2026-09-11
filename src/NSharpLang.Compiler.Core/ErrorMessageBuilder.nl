@@ -129,6 +129,29 @@ class ErrorMessageBuilder {
         }
     }
 
+    // NL202, IN THE SHAPE A TIE NEEDS. The ordinary type-mismatch sentence — "these types are not
+    // compatible" — is exactly wrong here: the two types are compatible, TWICE OVER, and the value
+    // would silently become whichever operator happened to be found first. This is the same code
+    // (nothing new is being rejected; the assignment was already an error) with the message the
+    // reader can act on: both operators named, and the fix being to say which one by converting the
+    // value into that operator's parameter type first.
+    static func AmbiguousUserDefinedConversion(fileName: string?, line: int, column: int, sourceSnippet: string?, length: int, sourceType: string, targetType: string, firstOperator: string, secondOperator: string): CompilerError {
+        humanExplanation := "There is more than one way to convert `" + sourceType + "` to `" + targetType + "` on line " + IntText(line) + ":"
+        contextualHint := "`" + firstOperator + "` and `" + secondOperator + "` both accept a `" + sourceType + "`,\n" + "and neither of their parameter types converts to the other, so neither conversion is\n" + "more specific. C# reports this tie rather than choosing for you."
+
+        return new CompilerError(ErrorCode.TypeMismatch, "Converting '" + sourceType + "' to '" + targetType + "' is ambiguous between '" + firstOperator + "' and '" + secondOperator + "'", line, column, ErrorSeverity.Error) {
+            FileName: fileName,
+            SourceSnippet: sourceSnippet,
+            Length: length,
+            ActualType: sourceType,
+            ExpectedType: targetType,
+            HumanExplanation: humanExplanation,
+            ContextualHint: contextualHint,
+            Suggestion: "Convert the value to the parameter type of the operator you mean first, so only one conversion applies.",
+            DocsUrl: DiagnosticDocs.UrlFor("NL202")
+        }
+    }
+
     static func UndefinedFunction(fileName: string, line: int, column: int, sourceSnippet: string, length: int, functionName: string, similarNames: List<string>): CompilerError {
         humanExplanation := "I cannot find a function named `" + functionName + "` on line " + IntText(line) + ":"
         contextualHint := "Define `func " + functionName + "(...)` before calling it, or import the function if it lives elsewhere."

@@ -894,20 +894,27 @@ class AnalyzerFunctionBodies {
             return null
         }
 
-        ReportExpressionBodyTypeMismatch(declaration, expressionBody, returnType, expressionType)
+        // The classification is read from the STATE's oracle — the only one this owner can reach —
+        // and handed down rather than looked up again inside the report.
+        conversion := state.Assignability.ClassifyUserDefinedConversion(returnType, expressionType)
+        ReportExpressionBodyTypeMismatch(declaration, expressionBody, returnType, expressionType, conversion)
         return null
     }
 
     // THE EXPRESSION-BODY MISMATCH, IN BOTH ITS SHAPES. The rich builder points at the EXPRESSION and
     // names the function; the detail-only fallback points at the DECLARATION, because without source
     // text there is no span worth narrowing to.
-    func ReportExpressionBodyTypeMismatch(declaration: FunctionDeclaration, expressionBody: Expression, returnType: TypeInfo, expressionType: TypeInfo) {
+    func ReportExpressionBodyTypeMismatch(declaration: FunctionDeclaration, expressionBody: Expression, returnType: TypeInfo, expressionType: TypeInfo, conversion: ExternalConversionSelection) {
         span := spansValue.GetExpressionDiagnosticSpan(expressionBody)
         returnTypeName := TypeText(returnType)
         expressionTypeName := TypeText(expressionType)
         sourceSnippet := diagnosticsValue.SourceSnippet(span.Line)
         currentFilePath := diagnosticsValue.CurrentFilePath
         if sourceSnippet != null && currentFilePath != null {
+            if diagnosticsValue.ReportAmbiguousUserDefinedConversion(conversion, expressionTypeName, returnTypeName, span.Line, span.Column, span.Length) {
+                return
+            }
+
             diagnosticsValue.ReportBuilt(ErrorMessageBuilder.ReturnTypeMismatch(currentFilePath, span.Line, span.Column, sourceSnippet, span.Length, declaration.Name, expressionTypeName, returnTypeName))
             return
         }

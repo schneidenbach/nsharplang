@@ -831,6 +831,50 @@ func SumBlocks(values: int[], lanes: int): int {
 The built-in numeric, `bool`, `char` and `string` operators are unaffected: `1 + 2` is still a single
 IL instruction, not a method call.
 
+### Conversion operators
+
+A conversion operator is a member like any other, so the ones a referenced assembly's type declares
+are the ones you get — in an annotated local, an argument, a return, and a written cast:
+
+```n#
+import System
+import System.Xml.Linq
+import NSharpLang.Runtime
+
+func Tag(): XName {
+    name: XName = "entry"          // implicit operator XName(string)
+    return name
+}
+
+func Moment(instant: DateTime): DateTimeOffset {
+    return instant                 // implicit operator DateTimeOffset(DateTime)
+}
+
+func Arm(): Union<int, string> {
+    return 5                       // implicit operator Union<T0, T1>(T0)
+}
+
+func Rounded(value: double): decimal {
+    return (decimal)value          // explicit operator decimal(double) — the cast is required
+}
+```
+
+The operator is found on **either end** of the conversion, on the type converted from or the type
+converted to, so a wrapper's own inbound conversion works even when the other end is `int`. Selection
+follows C#'s rules: a built-in conversion always wins (`decimal d = 5` is numeric widening, not
+`decimal.op_Implicit`), a user-defined conversion is considered once and never chained with another,
+the source may widen into the operator's parameter, and when two operators are equally good the
+conversion is an **error** rather than an arbitrary pick — `Union<float, decimal> u = 5` reports a
+type mismatch, because `int` reaches `float` and `decimal` equally well and neither reaches the other.
+
+An `implicit` operator is reached without a cast and an `explicit` one only with one; a cast also
+reaches the implicit operators, so `(XName)"entry"` is the same conversion written out.
+
+A **lifted** conversion is not synthesised: `S? → T?` needs an operator that actually names the
+nullable types. And a conversion declared by a generic type is only reachable once that type is
+closed over real types — inside `func Wrap<T>(): Union<T, string>` the conversion from `T` does not
+resolve yet.
+
 ### Indexers
 
 An indexer is an ordinary member, so `receiver[index]` works on any type that declares one, and its
@@ -1084,6 +1128,10 @@ Two rules the compiler enforces about the type-argument list itself:
   argument reaches a non-generic function's `object?` parameter without ceremony.
 - A generic method called **directly on a call's RESULT** (`Make().As<int>()`) does not resolve; bind
   the receiver to a name first (`made := Make()` then `made.As<int>()`).
+- A **generic METHOD of an external type** does not bind: `u.Is<int>()` and
+  `r.Match<string>(ok, err)` on the runtime's `Union<T0, T1>` / `Result<TOk, TErr>`, and the static
+  `ResultFactory.Ok<int, string>(42)`, all fail to resolve. A generic method on one of *your own*
+  types is unaffected, and so is a non-generic member of the external type.
 - A **fully qualified** external type reaches fewer positions than an imported one. Written out
   (`NSharpLang.Runtime.Result<int, string>`) it works in `typeof`, in a `:=` initializer and as a
   local's declared type, but not as a `type` alias target, a parameter type, an annotated local's

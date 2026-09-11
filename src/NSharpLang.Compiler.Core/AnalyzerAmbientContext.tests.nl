@@ -643,7 +643,7 @@ test "A MISMATCH IN A TYPED FUNCTION NAMES BOTH TYPES AND THE FUNCTION" {
     harness := AmbientDefault()
     harness.Context.EnterFunctionDeclaration(AmbientFunction("f", AmbientIntType(), Modifiers.None), BuiltInTypes.Int)
 
-    harness.Context.ReportReturnValueMismatch(AmbientReturn(null), BuiltInTypes.String, BuiltInTypes.Int)
+    harness.Context.ReportReturnValueMismatch(AmbientReturn(null), BuiltInTypes.String, BuiltInTypes.Int, ExternalConversionSelection.NoConversion())
 
     assert harness.Errors.Count == 1
     assert harness.Errors[0].Code == ErrorCode.TypeMismatch
@@ -654,7 +654,7 @@ test "A MISMATCH IN A DECLARED-void FUNCTION SAYS SO" {
     harness := AmbientDefault()
     harness.Context.EnterFunctionDeclaration(AmbientFunction("f", new SimpleTypeReference("void", 7, 6), Modifiers.None), BuiltInTypes.Void)
 
-    harness.Context.ReportReturnValueMismatch(AmbientReturn(null), BuiltInTypes.Int, BuiltInTypes.Void)
+    harness.Context.ReportReturnValueMismatch(AmbientReturn(null), BuiltInTypes.Int, BuiltInTypes.Void, ExternalConversionSelection.NoConversion())
 
     assert harness.Errors[0].Message == "Function 'f' is declared to return 'void', but this code gives back 'int'"
 }
@@ -663,7 +663,7 @@ test "A MISMATCH IN AN OMITTED-RETURN-TYPE FUNCTION ASKS FOR THE ANNOTATION" {
     harness := AmbientDefault()
     harness.Context.EnterFunctionDeclaration(AmbientFunction("f", null, Modifiers.None), BuiltInTypes.Void)
 
-    harness.Context.ReportReturnValueMismatch(AmbientReturn(null), BuiltInTypes.Int, BuiltInTypes.Void)
+    harness.Context.ReportReturnValueMismatch(AmbientReturn(null), BuiltInTypes.Int, BuiltInTypes.Void, ExternalConversionSelection.NoConversion())
 
     assert harness.Errors[0].Message == "Function 'f' has no return type annotation, so it is treated as 'void', but this code gives back 'int'"
 }
@@ -672,7 +672,7 @@ test "A LAMBDA'S MISMATCH CALLS THE FUNCTION 'this function'" {
     harness := AmbientDefault()
     harness.Context.EnterNestedBody(null, BuiltInTypes.Int)
 
-    harness.Context.ReportReturnValueMismatch(AmbientReturn(null), BuiltInTypes.String, BuiltInTypes.Int)
+    harness.Context.ReportReturnValueMismatch(AmbientReturn(null), BuiltInTypes.String, BuiltInTypes.Int, ExternalConversionSelection.NoConversion())
 
     assert harness.Errors[0].Message == "Function 'this function' should return 'int', but this return statement gives back 'string'"
 }
@@ -681,7 +681,7 @@ test "THE DETAIL-ONLY MISMATCH REPORTS AT THE return KEYWORD" {
     harness := AmbientDefault()
     harness.Context.EnterFunctionDeclaration(AmbientFunction("f", AmbientIntType(), Modifiers.None), BuiltInTypes.Int)
 
-    harness.Context.ReportReturnValueMismatch(AmbientReturn(null), BuiltInTypes.String, BuiltInTypes.Int)
+    harness.Context.ReportReturnValueMismatch(AmbientReturn(null), BuiltInTypes.String, BuiltInTypes.Int, ExternalConversionSelection.NoConversion())
 
     assert harness.Errors[0].Line == 9
     assert harness.Errors[0].Column == 5
@@ -691,7 +691,7 @@ test "WITH A SNIPPET THE MISMATCH TAKES THE RICH ReturnTypeMismatch SHAPE" {
     harness := AmbientHarnessWith("func f(): int {\n\n\n\n\n\n\n\n    return \"x\"\n}\n")
     harness.Context.EnterFunctionDeclaration(AmbientFunction("f", AmbientIntType(), Modifiers.None), BuiltInTypes.Int)
 
-    harness.Context.ReportReturnValueMismatch(AmbientReturn(null), BuiltInTypes.String, BuiltInTypes.Int)
+    harness.Context.ReportReturnValueMismatch(AmbientReturn(null), BuiltInTypes.String, BuiltInTypes.Int, ExternalConversionSelection.NoConversion())
 
     assert harness.Errors.Count == 1
     assert harness.Errors[0].ActualType == "string"
@@ -705,7 +705,7 @@ test "AN OMITTED RETURN TYPE SQUIGGLES THE FUNCTION'S NAME, NOT THE RETURNED EXP
     harness := AmbientHarnessWith("func f() {\n\n\n\n\n\nfunc f() {\n\n    return 1\n}\n")
     harness.Context.EnterFunctionDeclaration(AmbientFunction("f", null, Modifiers.None), BuiltInTypes.Void)
 
-    harness.Context.ReportReturnValueMismatch(AmbientReturn(new IdentifierExpression("x", 9, 12)), BuiltInTypes.Int, BuiltInTypes.Void)
+    harness.Context.ReportReturnValueMismatch(AmbientReturn(new IdentifierExpression("x", 9, 12)), BuiltInTypes.Int, BuiltInTypes.Void, ExternalConversionSelection.NoConversion())
 
     assert harness.Errors[0].Line == 7
     assert harness.Errors[0].Column == 6
@@ -716,7 +716,7 @@ test "A WRITTEN RETURN TYPE SQUIGGLES THE RETURNED EXPRESSION" {
     harness := AmbientHarnessWith("func f(): int {\n\n\n\n\n\n\n\n    return x\n}\n")
     harness.Context.EnterFunctionDeclaration(AmbientFunction("f", AmbientIntType(), Modifiers.None), BuiltInTypes.Int)
 
-    harness.Context.ReportReturnValueMismatch(AmbientReturn(new IdentifierExpression("x", 9, 12)), BuiltInTypes.String, BuiltInTypes.Int)
+    harness.Context.ReportReturnValueMismatch(AmbientReturn(new IdentifierExpression("x", 9, 12)), BuiltInTypes.String, BuiltInTypes.Int, ExternalConversionSelection.NoConversion())
 
     assert harness.Errors[0].Line == 9
     assert harness.Errors[0].Column == 12

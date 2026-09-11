@@ -392,6 +392,12 @@ class AnalyzerSyntheticCallValidator {
 
         expectedTypeText := DescribeTypeForDiagnostic(expectedType)
 
+        conversion := assignability.ClassifyUserDefinedConversion(expectedType, argType)
+        argumentTypeText := DescribeTypeForDiagnostic(argType)
+        if diagnostics.ReportAmbiguousUserDefinedConversion(conversion, argumentTypeText, expectedTypeText, span.Line, span.Column, span.Length) {
+            return
+        }
+
         filePath := ""
         snippet := ""
         if TryGetRichContext(span.Line, out filePath, out snippet) && parameterName != null {

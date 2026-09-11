@@ -906,7 +906,10 @@ class AnalyzerAmbientContext {
         expected := state.ExpectedReturnValueType
         returnedType := state.ReturnedType
         if !state.Assignability.IsAssignable(expected, returnedType) {
-            ReportReturnValueMismatch(state.Statement, returnedType, expected)
+            // The classification is read from the STATE's oracle, which is the only place this owner
+            // can reach one, and handed down rather than looked up again inside the report.
+            conversion := state.Assignability.ClassifyUserDefinedConversion(expected, returnedType)
+            ReportReturnValueMismatch(state.Statement, returnedType, expected, conversion)
         }
     }
 
@@ -939,7 +942,7 @@ class AnalyzerAmbientContext {
     // that was WRITTEN says the function is declared to return nothing; anything else is an ordinary
     // type mismatch against the expected type. The span falls back through the returned expression
     // to the `return` keyword itself.
-    func ReportReturnValueMismatch(returnStatement: ReturnStatement, returnedType: TypeInfo, expectedReturnValueType: TypeInfo) {
+    func ReportReturnValueMismatch(returnStatement: ReturnStatement, returnedType: TypeInfo, expectedReturnValueType: TypeInfo, conversion: ExternalConversionSelection) {
         statementSnippet := diagnosticsValue.SourceSnippet(returnStatement.Line)
         currentFilePath := diagnosticsValue.CurrentFilePath
         if statementSnippet != null && currentFilePath != null {
@@ -956,6 +959,10 @@ class AnalyzerAmbientContext {
             spanLineSnippet := diagnosticsValue.SourceSnippet(span.Line)
             if spanLineSnippet != null {
                 diagnosticSourceSnippet = spanLineSnippet
+            }
+
+            if diagnosticsValue.ReportAmbiguousUserDefinedConversion(conversion, TypeText(returnedType), TypeText(expectedReturnValueType), span.Line, span.Column, span.Length) {
+                return
             }
 
             diagnosticsValue.ReportBuilt(BuildReturnValueMismatchError(currentFilePath, span, diagnosticSourceSnippet, returnedType, expectedReturnValueType))

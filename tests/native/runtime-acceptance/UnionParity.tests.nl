@@ -1,263 +1,311 @@
-namespace NSharpLang.RuntimeAcceptance.Parity
+namespace NSharpLang.RuntimeParity
 
 import System
 import NSharpLang.Runtime
 
-// THE C# SIDE OF THE UNION TRANSLATION. Every assertion here has a twin in `Union.tests.nl`, made on
-// the same inputs against the N# translation; together they are the claim that the two types behave
-// identically. The file lives in its own namespace and imports `NSharpLang.Runtime` because that is
-// the only spelling that reaches the C# `Union`: a source declaration is always the nearer one, so
-// inside `NSharpLang.RuntimeAcceptance` the bare name is the translation, and the qualified
-// `new NSharpLang.Runtime.Union<int, string>(5)` does not compile yet (website/docs/types.md,
-// "Current limits").
-func IntArm(): Union<int, string> {
+// THE TWO UNIONS, SIDE BY SIDE, ON THE SAME INPUTS.
+//
+// `Union.nl` is an N# translation of `src/NSharpLang.Runtime/Union.cs` and `Union.tests.nl` says
+// what the translation does. This file is the claim that the two types AGREE, and for that claim to
+// mean anything the two spellings here have to denote two different types.
+//
+// THE NAMESPACE IS THE WHOLE REASON THIS FILE IS SHAPED THIS WAY. A source declaration is always
+// the nearer name, and an ENCLOSING namespace counts as near: from `NSharpLang.RuntimeAcceptance`
+// — and from any child of it — the bare `Union` is the translation, and `import NSharpLang.Runtime`
+// does not change that. A file that lives under the translation's namespace and writes
+// `Union<int, string>` on both sides of an `assert` is therefore comparing the translation with
+// ITSELF, no matter what it imports. This namespace is NOT under `NSharpLang.RuntimeAcceptance`, so
+// the bare `Union` here is the imported C# type and the translation is reached by its full name.
+// The first test proves that from the emitted metadata rather than from this note.
+//
+// WHAT THIS FILE CANNOT YET SAY. `Is<T>()`, `TryGet<T>(out value)`, `As<T>()`, `Match<TResult>(...)`
+// and `Switch(...)` are asserted against the TRANSLATION in `Union.tests.nl` and have no row here,
+// because a GENERIC INSTANCE METHOD of an external constructed generic does not bind yet —
+// `u.Is<int>()` on the runtime union declines with "generic call 'u.Is' with 0 argument(s) could not
+// be resolved". That is a compiler gap, recorded in `website/docs/types.md` under "Current limits",
+// and not a claim that the two types differ.
+func TranslationIntArm(): NSharpLang.RuntimeAcceptance.Union<int, string> {
+    return new NSharpLang.RuntimeAcceptance.Union<int, string>(5)
+}
+
+func TranslationTextArm(): NSharpLang.RuntimeAcceptance.Union<int, string> {
+    return new NSharpLang.RuntimeAcceptance.Union<int, string>("five")
+}
+
+func RuntimeIntArm(): Union<int, string> {
     return new Union<int, string>(5)
 }
 
-func TextArm(): Union<int, string> {
+func RuntimeTextArm(): Union<int, string> {
     return new Union<int, string>("five")
 }
 
-func NullTextArm(): Union<string, int> {
+// The conversion in an ARGUMENT position, on each type.
+func RuntimeArmOf(value: Union<int, string>): int {
+    return value.Index
+}
+
+func TranslationArmOf(value: NSharpLang.RuntimeAcceptance.Union<int, string>): int {
+    return value.Index
+}
+
+// The conversion in a RETURN position, on each type.
+func RuntimeConvertedInt(): Union<int, string> {
+    return 5
+}
+
+func TranslationConvertedInt(): NSharpLang.RuntimeAcceptance.Union<int, string> {
+    return 5
+}
+
+func RuntimeConvertedText(): Union<int, string> {
+    return "five"
+}
+
+func TranslationConvertedText(): NSharpLang.RuntimeAcceptance.Union<int, string> {
+    return "five"
+}
+
+// A NULL PAYLOAD the type system still sees as the arm's type: a default array element is a `string`
+// value that is null at runtime.
+func NullText(): string {
     slots := new string[](1)
-    return new Union<string, int>(slots[0])
+    return slots[0]
 }
 
-func IntText(value: int): string {
-    return "int:" + value.ToString()
+test "the two spellings are two DIFFERENT types, which is what makes every row below a comparison" {
+    runtimeArm := RuntimeIntArm()
+    translationArm := TranslationIntArm()
+    runtimeBoxed: object = runtimeArm
+    translationBoxed: object = translationArm
+
+    runtimeDefinition := runtimeBoxed.GetType().GetGenericTypeDefinition()
+    translationDefinition := translationBoxed.GetType().GetGenericTypeDefinition()
+
+    assert runtimeDefinition.FullName == "NSharpLang.Runtime.Union`2"
+    assert translationDefinition.FullName == "NSharpLang.RuntimeAcceptance.Union`2"
+
+    // And the C# one really is the referenced assembly's, not a same-named source declaration.
+    assert runtimeDefinition.get_Assembly().get_FullName() != translationDefinition.get_Assembly().get_FullName()
 }
 
-func TextText(value: string): string {
-    return "text:" + (value ?? "")
+test "each constructor records the same arm on both types" {
+    runtimeInt := RuntimeIntArm()
+    translationInt := TranslationIntArm()
+    runtimeText := RuntimeTextArm()
+    translationText := TranslationTextArm()
+
+    assert runtimeInt.Index == translationInt.Index
+    assert runtimeText.Index == translationText.Index
+    assert runtimeInt.Index == 0
+    assert runtimeText.Index == 1
 }
 
-func SeenSet(slots: string[], value: string) {
-    slots[0] = value
+test "the IMPLICIT CONVERSIONS are the constructors, on both types" {
+    // This is the row the analyzer could not compile at all against the C# type: the conversion is
+    // declared by an EXTERNAL constructed generic, and the user-defined conversion search only read
+    // source declarations.
+    runtimeFromInt: Union<int, string> = 5
+    runtimeFromText: Union<int, string> = "five"
+    translationFromInt: NSharpLang.RuntimeAcceptance.Union<int, string> = 5
+    translationFromText: NSharpLang.RuntimeAcceptance.Union<int, string> = "five"
+
+    assert runtimeFromInt.Index == translationFromInt.Index
+    assert runtimeFromText.Index == translationFromText.Index
+    assert runtimeFromInt == RuntimeIntArm()
+    assert translationFromInt == TranslationIntArm()
+    assert runtimeFromText == RuntimeTextArm()
+    assert translationFromText == TranslationTextArm()
 }
 
-test "C# union: each constructor records its own arm" {
-    assert IntArm().Index == 0
-    assert TextArm().Index == 1
+test "a written CAST reaches the same conversion on both types" {
+    runtimeCast := (Union<int, string>)5
+    translationCast := (NSharpLang.RuntimeAcceptance.Union<int, string>)5
+
+    assert runtimeCast.Index == translationCast.Index
+    assert runtimeCast == RuntimeIntArm()
+    assert translationCast == TranslationIntArm()
 }
 
-test "C# union: the implicit conversions are the constructors" {
-    fromInt: Union<int, string> = 5
-    fromText: Union<int, string> = "five"
+test "the conversion reaches an ARGUMENT and a RETURN position on both types" {
+    assert RuntimeArmOf(5) == TranslationArmOf(5)
+    assert RuntimeArmOf("five") == TranslationArmOf("five")
+    assert RuntimeArmOf(5) == 0
+    assert RuntimeArmOf("five") == 1
 
-    assert fromInt.Index == 0
-    assert fromText.Index == 1
-    assert fromInt == IntArm()
-    assert fromText == TextArm()
+    runtimeReturnedInt := RuntimeConvertedInt()
+    translationReturnedInt := TranslationConvertedInt()
+    runtimeReturnedText := RuntimeConvertedText()
+    translationReturnedText := TranslationConvertedText()
+
+    assert runtimeReturnedInt.Index == translationReturnedInt.Index
+    assert runtimeReturnedText.Index == translationReturnedText.Index
+    assert runtimeReturnedInt.Index == 0
+    assert runtimeReturnedText.Index == 1
 }
 
-test "C# union: an uninitialized union has no arm" {
-    uninitialized: Union<int, string> = default
-    assert uninitialized.Index == -1
+test "an uninitialized union has no arm, on both types" {
+    runtimeUninitialized: Union<int, string> = default
+    translationUninitialized: NSharpLang.RuntimeAcceptance.Union<int, string> = default
+
+    assert runtimeUninitialized.Index == translationUninitialized.Index
+    assert runtimeUninitialized.Index == -1
 }
 
-test "C# union: Value hands back the payload of whichever arm is live" {
-    intPayload := IntArm().Value
-    textPayload := TextArm().Value
-    assert intPayload != null
-    assert textPayload != null
-    if intPayload != null {
-        assert intPayload.ToString() == "5"
+test "Value hands back the payload of whichever arm is live, on both types" {
+    runtimeIntArm := RuntimeIntArm()
+    translationIntArm := TranslationIntArm()
+    runtimeTextArm := RuntimeTextArm()
+    translationTextArm := TranslationTextArm()
+
+    runtimeInt := runtimeIntArm.Value
+    translationInt := translationIntArm.Value
+    runtimeText := runtimeTextArm.Value
+    translationText := translationTextArm.Value
+
+    assert runtimeInt != null
+    assert translationInt != null
+    assert runtimeText != null
+    assert translationText != null
+
+    if runtimeInt != null && translationInt != null {
+        assert runtimeInt.ToString() == translationInt.ToString()
+        assert runtimeInt.ToString() == "5"
     }
 
-    if textPayload != null {
-        assert textPayload.ToString() == "five"
+    if runtimeText != null && translationText != null {
+        assert runtimeText.ToString() == translationText.ToString()
+        assert runtimeText.ToString() == "five"
     }
 }
 
-test "C# union: Value on an uninitialized union throws the exact message" {
-    uninitialized: Union<int, string> = default
-    message := ""
+test "Value on an uninitialized union throws the SAME exception with the SAME message" {
+    runtimeUninitialized: Union<int, string> = default
+    translationUninitialized: NSharpLang.RuntimeAcceptance.Union<int, string> = default
+
+    runtimeMessage := "no throw"
     try {
-        reached := uninitialized.Value
-        message = "no throw"
+        reached := runtimeUninitialized.Value
         print reached
     } catch ex: InvalidOperationException {
-        message = ex.Message
+        runtimeMessage = ex.Message
     }
 
-    assert message == "The union value was not initialized with either arm."
-}
-
-test "C# union: Is answers for the live arm's type and its bases" {
-    intArm := IntArm()
-    textArm := TextArm()
-
-    assert intArm.Is<int>()
-    assert !intArm.Is<string>()
-    assert intArm.Is<object>()
-    assert textArm.Is<string>()
-    assert !textArm.Is<int>()
-    assert textArm.Is<object>()
-}
-
-test "C# union: Is on an uninitialized union throws the exact message" {
-    uninitialized: Union<int, string> = default
-    message := ""
+    translationMessage := "no throw"
     try {
-        reached := uninitialized.Is<int>()
-        message = "no throw: " + reached.ToString()
-    } catch ex: InvalidOperationException {
-        message = ex.Message
-    }
-
-    assert message == "The union value was not initialized with either arm."
-}
-
-test "C# union: TryGet writes only when the arm matches" {
-    intArm := IntArm()
-    textArm := TextArm()
-
-    value := -1
-    assert intArm.TryGet<int>(out value)
-    assert value == 5
-
-    missed := -1
-    assert !textArm.TryGet<int>(out missed)
-    assert missed == 0
-
-    text := "seed"
-    assert textArm.TryGet<string>(out text)
-    assert text == "five"
-
-    missedText := "seed"
-    assert !intArm.TryGet<string>(out missedText)
-    assert missedText == null
-}
-
-test "C# union: TryGet answers true for a null payload on a reference arm" {
-    nullArm := NullTextArm()
-    text := "seed"
-    assert nullArm.TryGet<string>(out text)
-    assert text == null
-}
-
-test "C# union: As hands back the payload when the arm matches" {
-    intArm := IntArm()
-    textArm := TextArm()
-
-    assert intArm.As<int>() == 5
-    assert textArm.As<string>() == "five"
-    assert intArm.As<object>() != null
-}
-
-test "C# union: As throws the exact cast message when the arm does not match" {
-    intArm := IntArm()
-    message := ""
-    try {
-        reached := intArm.As<string>()
-        message = "no throw: " + (reached ?? "")
-    } catch ex: InvalidCastException {
-        message = ex.Message
-    }
-
-    assert message == "Union value at index 0 cannot be read as 'System.String'."
-}
-
-test "C# union: As names the index of the arm that IS live" {
-    textArm := TextArm()
-    message := ""
-    try {
-        reached := textArm.As<int>()
-        message = "no throw: " + reached.ToString()
-    } catch ex: InvalidCastException {
-        message = ex.Message
-    }
-
-    assert message == "Union value at index 1 cannot be read as 'System.Int32'."
-}
-
-test "C# union: Match runs the live arm" {
-    intArm := IntArm()
-    textArm := TextArm()
-
-    assert intArm.Match<string>(v => IntText(v), t => TextText(t)) == "int:5"
-    assert textArm.Match<string>(v => IntText(v), t => TextText(t)) == "text:five"
-}
-
-test "C# union: Match on an uninitialized union throws the exact message" {
-    uninitialized: Union<int, string> = default
-    message := ""
-    try {
-        message = uninitialized.Match<string>(v => IntText(v), t => TextText(t))
-    } catch ex: InvalidOperationException {
-        message = ex.Message
-    }
-
-    assert message == "The union value was not initialized with either arm."
-}
-
-test "C# union: Match rejects a null arm" {
-    arms := new Func<int, string>[](1)
-    intArm := IntArm()
-
-    assert throws ArgumentNullException {
-        reached := intArm.Match<string>(arms[0], t => TextText(t))
+        reached := translationUninitialized.Value
         print reached
-    }
-}
-
-test "C# union: Switch runs the live arm and nothing else" {
-    seen := new string[](1)
-    intArm := IntArm()
-    textArm := TextArm()
-
-    intArm.Switch(v => SeenSet(seen, "int:" + v.ToString()), t => SeenSet(seen, "text:" + (t ?? "")))
-    assert seen[0] == "int:5"
-
-    textArm.Switch(v => SeenSet(seen, "no"), t => SeenSet(seen, "text:" + (t ?? "")))
-    assert seen[0] == "text:five"
-}
-
-test "C# union: Switch on an uninitialized union throws the exact message" {
-    uninitialized: Union<int, string> = default
-    seen := new string[](1)
-    message := ""
-    try {
-        uninitialized.Switch(v => SeenSet(seen, "no"), t => SeenSet(seen, "no"))
-        message = "no throw"
     } catch ex: InvalidOperationException {
-        message = ex.Message
+        translationMessage = ex.Message
     }
 
-    assert message == "The union value was not initialized with either arm."
+    assert runtimeMessage == translationMessage
+    assert runtimeMessage == "The union value was not initialized with either arm."
 }
 
-test "C# union: Switch rejects a null arm" {
-    arms := new Action<int>[](1)
-    seen := new string[](1)
-    intArm := IntArm()
+test "Equals agrees on every pair, on both types" {
+    runtimeUninitialized: Union<int, string> = default
+    translationUninitialized: NSharpLang.RuntimeAcceptance.Union<int, string> = default
+    runtimeIntArm := RuntimeIntArm()
+    translationIntArm := TranslationIntArm()
 
-    assert throws ArgumentNullException {
-        intArm.Switch(arms[0], t => SeenSet(seen, "no"))
-    }
+    assert runtimeIntArm.Equals(new Union<int, string>(5)) == translationIntArm.Equals(new NSharpLang.RuntimeAcceptance.Union<int, string>(5))
+    assert runtimeIntArm.Equals(new Union<int, string>(6)) == translationIntArm.Equals(new NSharpLang.RuntimeAcceptance.Union<int, string>(6))
+    assert runtimeIntArm.Equals(RuntimeTextArm()) == translationIntArm.Equals(TranslationTextArm())
+    assert runtimeUninitialized.Equals(new Union<int, string>(0)) == translationUninitialized.Equals(new NSharpLang.RuntimeAcceptance.Union<int, string>(0))
+
+    assert runtimeIntArm.Equals(new Union<int, string>(5))
+    assert !runtimeIntArm.Equals(new Union<int, string>(6))
+    assert !runtimeIntArm.Equals(RuntimeTextArm())
+    assert !runtimeUninitialized.Equals(new Union<int, string>(0))
 }
 
-test "C# union: equality, hashing and text" {
-    uninitialized: Union<int, string> = default
-    left: Union<int, string> = default
-    boxedSame: object = new Union<int, string>(5)
+test "a NULL payload on a reference arm compares equal to itself, on both types" {
+    runtimeNull: Union<string, int> = NullText()
+    runtimeOtherNull: Union<string, int> = NullText()
+    translationNull: NSharpLang.RuntimeAcceptance.Union<string, int> = NullText()
+    translationOtherNull: NSharpLang.RuntimeAcceptance.Union<string, int> = NullText()
 
-    assert IntArm().Equals(new Union<int, string>(5))
-    assert !IntArm().Equals(new Union<int, string>(6))
-    assert !IntArm().Equals(TextArm())
-    assert left.Equals(uninitialized)
-    assert IntArm().Equals(boxedSame)
-    assert IntArm() == new Union<int, string>(5)
-    assert IntArm() != TextArm()
-    assert IntArm().GetHashCode() == new Union<int, string>(5).GetHashCode()
-    assert IntArm().ToString() == "5"
-    assert TextArm().ToString() == "five"
-    assert uninitialized.ToString() == ""
-    assert NullTextArm().ToString() == ""
+    assert runtimeNull.Equals(runtimeOtherNull) == translationNull.Equals(translationOtherNull)
+    assert runtimeNull.Equals(runtimeOtherNull)
+    assert runtimeNull.Index == translationNull.Index
+    assert runtimeNull.Index == 0
 }
 
-test "C# union: the emitted metadata is the shape the translation matches" {
-    assert typeof(Union<int, string>).get_IsValueType()
-    assert typeof(Union<int, string>).GetGenericTypeDefinition().get_Name() == "Union`2"
-    assert typeof(Union<int, string>).GetConstructors().Length == 2
+test "the BOXED comparison answers the same on both types" {
+    runtimeBoxed: object = new Union<int, string>(5)
+    translationBoxed: object = new NSharpLang.RuntimeAcceptance.Union<int, string>(5)
+    runtimeIntArm := RuntimeIntArm()
+    translationIntArm := TranslationIntArm()
+
+    assert runtimeIntArm.Equals(runtimeBoxed) == translationIntArm.Equals(translationBoxed)
+    assert runtimeIntArm.Equals(runtimeBoxed)
+
+    // A box of the OTHER type is equal to neither, which is the check that would catch a file that
+    // had accidentally compared one type with itself.
+    assert !runtimeIntArm.Equals(translationBoxed)
+    assert !translationIntArm.Equals(runtimeBoxed)
+}
+
+test "== and != agree on both types" {
+    runtimeIntArm := RuntimeIntArm()
+    translationIntArm := TranslationIntArm()
+
+    assert (runtimeIntArm == new Union<int, string>(5)) == (translationIntArm == new NSharpLang.RuntimeAcceptance.Union<int, string>(5))
+    assert (runtimeIntArm != RuntimeTextArm()) == (translationIntArm != TranslationTextArm())
+    assert runtimeIntArm == new Union<int, string>(5)
+    assert runtimeIntArm != RuntimeTextArm()
+}
+
+test "GetHashCode agrees value for value, on both types" {
+    runtimeUninitialized: Union<int, string> = default
+    translationUninitialized: NSharpLang.RuntimeAcceptance.Union<int, string> = default
+    runtimeIntArm := RuntimeIntArm()
+    translationIntArm := TranslationIntArm()
+    runtimeTextArm := RuntimeTextArm()
+    translationTextArm := TranslationTextArm()
+
+    assert runtimeIntArm.GetHashCode() == translationIntArm.GetHashCode()
+    assert runtimeTextArm.GetHashCode() == translationTextArm.GetHashCode()
+    assert runtimeUninitialized.GetHashCode() == translationUninitialized.GetHashCode()
+
+    // And equal values still hash equally within each type.
+    assert runtimeIntArm.GetHashCode() == new Union<int, string>(5).GetHashCode()
+    assert translationIntArm.GetHashCode() == new NSharpLang.RuntimeAcceptance.Union<int, string>(5).GetHashCode()
+}
+
+test "ToString renders the same text, on both types" {
+    runtimeUninitialized: Union<int, string> = default
+    translationUninitialized: NSharpLang.RuntimeAcceptance.Union<int, string> = default
+    runtimeNull: Union<string, int> = NullText()
+    translationNull: NSharpLang.RuntimeAcceptance.Union<string, int> = NullText()
+    runtimeIntArm := RuntimeIntArm()
+    translationIntArm := TranslationIntArm()
+    runtimeTextArm := RuntimeTextArm()
+    translationTextArm := TranslationTextArm()
+
+    assert runtimeIntArm.ToString() == translationIntArm.ToString()
+    assert runtimeTextArm.ToString() == translationTextArm.ToString()
+    assert runtimeUninitialized.ToString() == translationUninitialized.ToString()
+    assert runtimeNull.ToString() == translationNull.ToString()
+
+    assert runtimeIntArm.ToString() == "5"
+    assert runtimeTextArm.ToString() == "five"
+    assert runtimeUninitialized.ToString() == ""
+    assert runtimeNull.ToString() == ""
+}
+
+test "the emitted metadata is the same shape on both types" {
+    runtimeType := typeof(Union<int, string>)
+    translationType := typeof(NSharpLang.RuntimeAcceptance.Union<int, string>)
+    runtimeDefinition := runtimeType.GetGenericTypeDefinition()
+    translationDefinition := translationType.GetGenericTypeDefinition()
+
+    assert runtimeType.get_IsValueType() == translationType.get_IsValueType()
+    assert runtimeDefinition.get_Name() == translationDefinition.get_Name()
+    assert runtimeType.GetConstructors().Length == translationType.GetConstructors().Length
+
+    assert runtimeType.get_IsValueType()
+    assert runtimeDefinition.get_Name() == "Union`2"
+    assert runtimeType.GetConstructors().Length == 2
 }

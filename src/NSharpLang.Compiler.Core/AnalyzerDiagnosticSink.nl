@@ -200,4 +200,18 @@ class AnalyzerDiagnosticSink {
         ReportBuilt(ErrorMessageBuilder.AmbiguousTypeReference(currentFilePathValue, line, column, SourceSnippet(line), Math.Max(1, name.Length), name, firstCandidate, secondCandidate))
         return true
     }
+
+    // THE VALUE COULD BE CONVERTED TWO WAYS AND NEITHER IS BETTER. Every position that is
+    // about to report NL202 asks this first, because a tie is a DIFFERENT failure from "these types
+    // are not compatible": the types are perfectly compatible, twice over, and naming the two
+    // operators is the only thing that tells a reader what to write instead. Answers false — and
+    // reports nothing — whenever the conversion is not a tie, so the caller's own report proceeds.
+    func ReportAmbiguousUserDefinedConversion(selection: ExternalConversionSelection, sourceType: string, targetType: string, line: int, column: int, length: int): bool {
+        if !selection.IsAmbiguous {
+            return false
+        }
+
+        ReportBuilt(ErrorMessageBuilder.AmbiguousUserDefinedConversion(currentFilePathValue, line, column, SourceSnippet(line), Math.Max(1, length), sourceType, targetType, selection.SelectedText, selection.CompetingText))
+        return true
+    }
 }
