@@ -1577,5 +1577,105 @@ gap); and `Task.FromResult(sourceValue)` is an unmodelled generic static call.
 `EqualityComparer<Outcome<int, string>>.Default.Equals` dispatching through the source `IEquatable`
 implementation and `List<Item>.Sort()` ordering by the source `IComparable<Item>`.
 
+**`this` AND `base` AS EXPRESSIONS** (`AnalyzerCurrentInstanceReferences`, reached from `Analyzer`'s
+expression dispatch). Both words name the object the current member was called on. When there is one,
+`this` answers the enclosing type scope and `base` answers `AnalyzerDeclarationContext.ResolveBaseType`
+of it; when there is none, the reference is **NL327** at the word, in one of two sentences — a `static`
+member, or a top-level function that is not a member of any type. Before this owner the analyzer
+answered `unknown` and said nothing, and the mistake surfaced only as an emission decline with no
+source position on it.
+
+WHETHER THERE IS A RECEIVER IS A FACT ABOUT THE ENCLOSING MEMBER, NOT ABOUT THE EXPRESSION, and it is
+recorded on the ambient context (`AnalyzerAmbientContext.CurrentMemberIsStatic`) at the member boundary
+rather than derived from `CurrentFunction`. Two shapes are why: a LAMBDA has no declaration of its own
+(`EnterNestedBody` passes `null`) and so INHERITS its enclosing member's answer, and a PROPERTY or
+INDEXER accessor has no `FunctionDeclaration` at all — `Analyzer.AnalyzeDeclaration` opens the pair
+around `DriveAccessorBody` so an expression body answers it too. `false` is the default and the safe
+one: it means "assume there is a receiver", so a walk that has not passed a member boundary reports
+nothing rather than reporting wrongly.
+
+A member the base does not declare stays **NL303** naming the BASE's type; `base` itself was fine. The
+emission half is `ColumnarExpressionNodeKind.BaseMemberExpression()` (kind 71) out of
+`ParsePostfixExpressionNode`, `ColumnarDirectCallPlanner.TryAppendBaseCall` (non-virtual `call`, source
+base through `ColumnarSourceDirectCallResolver` and runtime base through the ordinary runtime resolver,
+an abstract base member refused) and `ColumnarBoundIdentifierPlanner`'s `BaseField`/`BaseProperty`
+selections. `tests/native/class-inheritance` proves the dispatch is non-virtual with a three-level
+chain whose answer names every level exactly once. KNOWN LIMITS, both PRE-EXISTING and both reproducible
+without `base`: a subclass that declares a property whose name a base already declares declines at
+`parse.struct`, and reading a property inherited from a CLOSED GENERIC ancestor two levels up
+(`Box<string>.Value` from a grandchild) fails plan validation with "reference receiver ... does not
+match its declaring type" for `this.Value` and `Value` alike.
+
+**CALLING A DELEGATE, AND CALLING IT ONLY IF IT IS THERE.** Three gaps closed together, all in the
+columnar call path:
+
+1. `.Invoke` ON A DELEGATE OVER A TYPE PARAMETER declined at `emit.call.instance-member-unmodeled`.
+   `ColumnarOrdinaryRuntimeDirectCallResolver` already rebinds a member from the open definition for a
+   builder-bound instantiation (`TryGetBuilderBoundRuntimeDefinition` +
+   `SelectedBuilderBound` -> `TypeBuilder.GetMethod`) — and then refused the SUBSTITUTED signature,
+   because `IsUnsupportedSignatureType` rejected every generic parameter, including the ones
+   `ResolveParameterTypes` had just substituted in. It now takes the receiver's `closedArguments` and
+   accepts a generic parameter that is one of THEM; anything the substitution could not reach is still
+   genuinely open and still refused. (The three other callers pass an empty set, so their behaviour is
+   unchanged.)
+2. A BARE CALL ON A DELEGATE FIELD (`pick(item)`) declined at `emit.call.bare-unresolved`: the
+   bare-call arm only reached locals, parameters and lifted captures.
+   `ColumnarDirectCallPlanner.TryAppendDelegateInvoke` now resolves `Invoke` through the ORDINARY
+   runtime resolver with the CALLEE NODE ITSELF as the receiver, so `AppendExplicitReceiver` plans the
+   identifier exactly as it would anywhere else and any storage works — `this.` in front of it too.
+   `IsDelegateValueType` asks the CLR hierarchy (`typeof(Delegate).IsAssignableFrom`, through the open
+   definition for a builder-bound instantiation), never a list of delegate names. METHOD-BEATS-VALUE is
+   unchanged and pinned: a method of the name on any tier keeps the name.
+3. `?.` WAS A PARSE GAP. `ColumnarExpressionNodeKind.ConditionalMemberAccessExpression()` is kind 74
+   (`72`/`73` are the YIELD and AWAIT-FOREACH STATEMENT kinds — the expression and statement kinds share
+   one numbering space), built only for the CALL form, and `ColumnarIlEmitter.TryEmitConditionalCall`
+   lowers it to `<receiver>; stloc t; ldloc t; brfalse null; ldloc t; <args>; call; br end; null:
+   <default>; end:`. The result follows C#: void leaves nothing, a reference result is `ldnull`, and a
+   non-nullable value result is lifted to `Nullable<T>`. KNOWN LIMITS, all refused rather than
+   mis-compiled: the read form `a?.B`, a non-conditional link after a conditional one (`a?.M().B`),
+   `?[`, and a value-type receiver.
+
+**A `ref`/`out` ARGUMENT IS A CALL FACT, AND IT MAY NAME A FIELD.** The semantic call planner typed NO
+by-ref argument at all, so no by-ref call ever reached overload resolution:
+`Interlocked.Exchange` declined at `emit.call.static-member-unmodeled` for every receiver type
+(`Interlocked.Increment` only worked because it is a MODELED entry in `ColumnarIlEmitter`),
+`int.TryParse(text, out field)` at the same place, and `Fill(ref count)` on a field at
+`emit.expression-statement.call`. Seven owners together:
+
+- `ColumnarDirectCallArgumentFacts.IsByRefArgument` — a SYNTAX fact beside the literal ones, because
+  `f(x)` and `f(ref x)` are different calls at the same argument type. The recorded `argumentTypes`
+  entry stays the ELEMENT type, which is what a parameter's element type is compared against.
+- `ColumnarDirectCallPlanner.TryGetArgumentTypes` / `ByRefArgumentTarget` — the kind-54 modifier node
+  (`ref`/`out` only; `in` has its own resolution rules and is NOT admitted through this door).
+- `ColumnarSourceDirectCallResolver.ArgumentsScoreWithFacts` — the two spellings must agree in BOTH
+  directions and the element type is EXACT (an alias to a converted temporary would alias something
+  the caller cannot see).
+- `ColumnarBoundIdentifierPlanner.TryAppendAddressOf` — `ldloca` / `ldarga` (or `ldarg` for a
+  parameter that is itself by-ref) / `ldarg.0; ldflda`. It is NOT
+  `TryAppendReceiver(preserveValueStorage: true)`: that owner addresses only VALUE types, and a
+  `ref Action<T>` needs an address exactly as a `ref int` does.
+- `ColumnarOrdinaryRuntimeDirectCallResolver.IsUnsupportedParameterType` — a PARAMETER may be by-ref;
+  a RETURN may not. The two questions were one predicate, which made every by-ref overload invisible.
+- `ColumnarRuntimeGenericMethodResolver` — `Unify` already walked through a by-ref shell; what was
+  missing is that a `null` LITERAL contributes NOTHING to inference (ECMA-334 §12.6.3), the closed
+  signature's return comes from the same substitution the parameters do (a wrapper closed over a
+  builder-bound argument can report the raw `T`), and a shape closed over the declaration's own type
+  parameters is bindable (`CloseOrNull` is the arbiter).
+- `ColumnarCodePlanExecutor` — `ValidateCallArgument` requires an exact managed address for a by-ref
+  parameter and refuses one everywhere else; `ValidateParameterType` admits a by-ref slot;
+  `ResolveMemberSignatureType` substitutes THROUGH `T&` instead of hitting the compound refusal.
+
+A STATIC field is deliberately NOT addressable: its address is `ldsflda`, and the pinned stage-0 SDK
+that builds Compiler.Core does not model `OpCodes.Ldsflda` (`ColumnarExternalBindingPlans.tests.nl`
+pins the absence), so the instruction cannot be written until the SDK is repacked. A composed target
+(an array element, a nested member chain) is refused rather than approximated.
+
+**`x == null` ON A GENERIC PARAMETER WAS UNVERIFIABLE IL.** `ldnull; ceq` against a `T` is
+`StackUnexpected` to ilverify ("found Nullobjref, expected value 'T'"), which the tests never saw
+because the JIT accepts it. The value is now BOXED first, exactly as C# boxes an unconstrained
+`T == null`; `box` on a type that turns out to be a reference type at runtime is a no-op per
+ECMA-335, so the constrained case costs nothing. Found by running `scripts/ilverify.sh
+--built-dirs-file` over `tests/native/type-arity`, which the gate's own project list does not cover.
+
 Keep ownership-policy tests beside the N# owner. C# tests should exercise only the remaining
 diagnostic/integration shell, not recreate semantic lookup or identity policy in test helpers.

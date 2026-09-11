@@ -9064,6 +9064,14 @@ sealed class ColumnarIlEmitter {
                         return false
                     }
                 }
+                // A GENERIC PARAMETER IS BOXED FIRST. `T` and `null` are not the same verification
+                // type — ilverify reads `ldnull; ceq` against a `T` as StackUnexpected — so the value
+                // is boxed to `object` exactly as C# boxes an unconstrained `T == null`. `box` on a
+                // type that turns out to be a reference type at runtime is a no-op per ECMA-335, so
+                // the constrained case costs nothing and the unconstrained case is correct.
+                if (nullCmpType.get_IsGenericParameter()) {
+                    _il.Emit(OpCodes.Box, nullCmpType)
+                }
                 // plain value types never compare to null (the pipeline rejects).
                 _il.Emit(OpCodes.Ldnull)
                 _il.Emit(OpCodes.Ceq)
@@ -9290,6 +9298,9 @@ sealed class ColumnarIlEmitter {
         } else if columnarSwitchValue2 == 9 {
             // Calls not terminally owned by the N# direct-call planner.
             callee := Child(idx, 0)
+            if (_nodes.Kind(callee) == 74) {
+                return TryEmitConditionalCall(idx, callee, out columnarResolvedType)
+            }
             if (_nodes.Kind(callee) == 6) {
                 // bare identifier -> resolved in the N# pipeline's EMPIRICALLY PINNED order.
                 name := ColumnarNodeTextFacts.Text(_nodes, _source, callee)
@@ -12850,6 +12861,126 @@ sealed class ColumnarIlEmitter {
                 }
             }
         }
+    }
+
+    // `receiver?.Member(args)` — THE NULL-CONDITIONAL CALL.
+    //
+    // The receiver is evaluated EXACTLY ONCE (its value goes to a temp, which is what makes
+    // `Next()?.Run()` legal), tested for null, and the call is skipped entirely when it is null. What
+    // it lowers to is the shape a hand-written guard would produce and nothing more:
+    //
+    //     <receiver>; stloc t; ldloc t; brfalse null; ldloc t; <args>; call; br end; null: <default>; end:
+    //
+    // THE RESULT FOLLOWS C#'s RULE. A `void` member leaves nothing behind, a reference-typed one
+    // yields `null` when skipped, and a NON-NULLABLE VALUE-typed one is lifted to `T?` — `x?.Count`
+    // is an `int?`, not an `int`, because "skipped" has to be representable.
+    //
+    // The receiver must be a reference type. `?.` on a non-nullable value type is meaningless (it can
+    // never be null) and a `Nullable<T>` receiver is a different lowering — both decline here.
+    private func TryEmitConditionalCall(callIdx: int, callee: int, out resolvedClrType: Type): bool {
+        resolvedClrType = null
+        if (_nodes.ChildCount(callee) != 1) {
+            return false
+        }
+        memberName := ColumnarNodeTextFacts.Text(_nodes, _source, callee)
+        argCount := _nodes.ChildCount(callIdx) - 1
+        receiverType: System.Type? = null
+        if (!EmitExpression(Child(callee, 0), out receiverType)) {
+            return false
+        }
+        if (receiverType == null || receiverType.get_IsValueType() || receiverType.get_IsByRef() || receiverType.get_IsPointer() || receiverType.get_IsGenericParameter()) {
+            return false
+        }
+
+        receiverTemp := _il.DeclareLocal(receiverType)
+        _il.Emit(OpCodes.Stloc, receiverTemp)
+
+        nullLabel := _il.DefineLabel()
+        endLabel := _il.DefineLabel()
+        _il.Emit(OpCodes.Ldloc, receiverTemp)
+        _il.Emit(OpCodes.Brfalse, nullLabel)
+        _il.Emit(OpCodes.Ldloc, receiverTemp)
+
+        callResultType: System.Type? = null
+        if (!TryEmitConditionalMemberCall(callIdx, receiverType, memberName, argCount, out callResultType)) {
+            return false
+        }
+
+        if (callResultType == ColumnarTypeOfPlanner.RequiredVoidType()) {
+            _il.Emit(OpCodes.Br, endLabel)
+            _il.MarkLabel(nullLabel)
+            _il.MarkLabel(endLabel)
+            resolvedClrType = callResultType
+            return true
+        }
+
+        if (!callResultType.get_IsValueType()) {
+            _il.Emit(OpCodes.Br, endLabel)
+            _il.MarkLabel(nullLabel)
+            _il.Emit(OpCodes.Ldnull)
+            _il.MarkLabel(endLabel)
+            resolvedClrType = callResultType
+            return true
+        }
+
+        if (ColumnarTypeOfPlanner.IsSupportedNullable(callResultType)) {
+            // Already `T?`: the skipped path is the same type's own empty value.
+            liftedTemp := _il.DeclareLocal(callResultType)
+            _il.Emit(OpCodes.Br, endLabel)
+            _il.MarkLabel(nullLabel)
+            _il.Emit(OpCodes.Ldloca, liftedTemp)
+            _il.Emit(OpCodes.Initobj, callResultType)
+            _il.Emit(OpCodes.Ldloc, liftedTemp)
+            _il.MarkLabel(endLabel)
+            resolvedClrType = callResultType
+            return true
+        }
+
+        nullableType := typeof(Nullable<int>).GetGenericTypeDefinition().MakeGenericType([callResultType])
+        if (!ColumnarTypeOfPlanner.IsSupportedType(nullableType)) {
+            return false
+        }
+        nullableCtor := nullableType.GetConstructor([callResultType])
+        if (nullableCtor == null) {
+            return false
+        }
+        emptyTemp := _il.DeclareLocal(nullableType)
+        _il.Emit(OpCodes.Newobj, nullableCtor)
+        _il.Emit(OpCodes.Br, endLabel)
+        _il.MarkLabel(nullLabel)
+        _il.Emit(OpCodes.Ldloca, emptyTemp)
+        _il.Emit(OpCodes.Initobj, nullableType)
+        _il.Emit(OpCodes.Ldloc, emptyTemp)
+        _il.MarkLabel(endLabel)
+        resolvedClrType = nullableType
+        return true
+    }
+
+    // The member half of a null-conditional call, with the receiver ALREADY on the stack. A delegate's
+    // `Invoke` goes through the SAME owner the ordinary `t(v)` invocation uses — `TryResolveDelegateInvocation`,
+    // which answers a baked delegate directly and rebinds a builder-bound instantiation's `Invoke`
+    // through its open definition, the only way to name a member of one; every other member goes to
+    // the ordinary instance-call tier the dotted form reaches.
+    private func TryEmitConditionalMemberCall(callIdx: int, receiverType: Type, memberName: string, argCount: int, out resolvedClrType: Type): bool {
+        resolvedClrType = null
+        let invoke: System.Reflection.MethodInfo = null
+        let invokeParameterTypes: System.Type[] = null
+        let invokeReturnType: System.Type = null
+        if (IsInvocableDelegateType(receiverType) && TryResolveDelegateInvocation(receiverType, out invoke, out invokeParameterTypes, out invokeReturnType) && invoke.get_Name() == memberName) {
+            if (argCount != invokeParameterTypes.Length) {
+                return false
+            }
+            for a := 1; a <= argCount; a++ {
+                if (!EmitDeclaredCallArgument(Child(callIdx, a), invokeParameterTypes[a - 1], true)) {
+                    return false
+                }
+            }
+            _il.Emit(OpCodes.Callvirt, invoke)
+            resolvedClrType = invokeReturnType
+            return true
+        }
+
+        return TryEmitInstanceCall(callIdx, receiverType, memberName, argCount, true, out resolvedClrType)
     }
 
     private func TryEmitBclMethodCall(callIdx: int, callee: int, legacyWholeSubtreePlanning: bool, out resolvedClrType: Type): bool {
@@ -18750,6 +18881,11 @@ sealed class ColumnarIlEmitter {
                 targetType = paramType.get_IsByRef() ? paramType.GetElementType() : paramType
                 return true
             }
+            let bareField: System.Reflection.Emit.FieldBuilder? = null
+            if (TryFindBareByRefField(name, out bareField)) {
+                targetType = bareField.get_FieldType()
+                return true
+            }
             return false
         }
 
@@ -18759,6 +18895,32 @@ sealed class ColumnarIlEmitter {
             return true
         }
 
+        return false
+    }
+
+    // A BARE NAME THAT IS A FIELD OF THE TYPE BEING COMPILED — `count` and `this.count` alike, since
+    // the parser flattens the explicit receiver onto the same leaf. This is the storage a `ref`/`out`
+    // argument may name that neither the local table nor the parameter table knows about, and until
+    // it was answered here `Fill(ref count)` and `Interlocked.Exchange(ref remove, null)` had nowhere
+    // to take an address from.
+    //
+    // It carries the SAME gate the bare field WRITE carries and for the same reason: a value-type
+    // receiver reaches an instance body through a temp copy, so an address into its field would be an
+    // address into the copy. A reference type shares its storage, and a constructor body has the real
+    // thing.
+    //
+    // A STATIC field is deliberately not answered here. Its address is `ldsflda`, and this compiler's
+    // own source cannot yet spell `OpCodes.Ldsflda`: the pinned stage-0 SDK that builds Compiler.Core
+    // does not model that member (`ColumnarExternalBindingPlans.tests.nl` pins the absence), so the
+    // instruction cannot be written until the SDK is repacked. `ref <static field>` therefore keeps
+    // its existing decline rather than being emitted wrongly.
+    private func TryFindBareByRefField(name: string, out field: System.Reflection.Emit.FieldBuilder): bool {
+        field = null
+        let instanceField: System.Reflection.Emit.FieldBuilder? = null
+        if (_currentStruct != null && (_currentStruct.IsReference || _isConstructorBody) && ColumnarSourceMemberChainResolver.TryFindFieldOnChain(_currentStruct, name, out instanceField) && !instanceField.get_IsStatic()) {
+            field = instanceField
+            return true
+        }
         return false
     }
 
@@ -18792,6 +18954,15 @@ sealed class ColumnarIlEmitter {
                     return false
                 }
                 ColumnarArgumentInstructionEmitter.EmitLoadAddress(_il, ordinal)
+                return true
+            }
+            let bareField: System.Reflection.Emit.FieldBuilder? = null
+            if (TryFindBareByRefField(name, out bareField)) {
+                if (!TypesEquivalent(bareField.get_FieldType(), expectedElementType)) {
+                    return false
+                }
+                _il.Emit(OpCodes.Ldarg_0)
+                _il.Emit(OpCodes.Ldflda, bareField)
                 return true
             }
             return false

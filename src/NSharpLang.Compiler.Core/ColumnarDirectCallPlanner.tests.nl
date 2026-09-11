@@ -1639,3 +1639,55 @@ test "the receiver surface stays plain on both sides while the argument surface 
     plainPlan := DirectCallPlan(DirectCallParsedTree("x.ToString()"), plainBindings)
     assert plainPlan.ResultType == typeof(string)
 }
+
+// ── a delegate-typed value is callable from any storage ───────────────────────────────────────
+
+// IS THIS A DELEGATE? The question is asked of the CLR's own hierarchy rather than of a list of
+// delegate names, which is what makes a `Func`, an `Action`, an `EventHandler` and a delegate from a
+// referenced assembly answer alike — and what keeps a non-delegate out.
+test "a delegate value is recognised by the CLR hierarchy, not by name" {
+    assert ColumnarDirectCallPlanner.IsDelegateValueType(typeof(Action))
+    assert ColumnarDirectCallPlanner.IsDelegateValueType(typeof(Action<int>))
+    assert ColumnarDirectCallPlanner.IsDelegateValueType(typeof(Func<int, bool>))
+    assert ColumnarDirectCallPlanner.IsDelegateValueType(typeof(EventHandler))
+    assert ColumnarDirectCallPlanner.IsDelegateValueType(typeof(Comparison<int>))
+    assert ColumnarDirectCallPlanner.IsDelegateValueType(typeof(AsyncCallback))
+}
+
+// `Delegate` and `MulticastDelegate` are the BASES, not delegates: neither has an `Invoke` to call,
+// and treating one as callable would bind a member that does not exist.
+test "the delegate base classes and ordinary values are not delegate values" {
+    assert !ColumnarDirectCallPlanner.IsDelegateValueType(typeof(Delegate))
+    assert !ColumnarDirectCallPlanner.IsDelegateValueType(typeof(MulticastDelegate))
+    assert !ColumnarDirectCallPlanner.IsDelegateValueType(typeof(int))
+    assert !ColumnarDirectCallPlanner.IsDelegateValueType(typeof(string))
+    assert !ColumnarDirectCallPlanner.IsDelegateValueType(typeof(List<int>))
+    assert !ColumnarDirectCallPlanner.IsDelegateValueType(typeof(object))
+}
+
+// A BARE CALL ON A DELEGATE-TYPED VALUE IS `Invoke` ON ITS OWN TYPE, and the storage is whatever the
+// name denotes. Before this, only a local, a parameter or a lifted capture reached the delegate arm;
+// a FIELD declined at `emit.call.bare-unresolved`.
+test "a delegate parameter called bare plans Invoke on its own type" {
+    bindings := ColumnarRangePlannerEmptyBindings()
+    ColumnarRangePlannerAddParameter(bindings, "pick", 0, typeof(Func<int, bool>))
+    ColumnarRangePlannerAddParameter(bindings, "value", 1, typeof(int))
+
+    plan := DirectCallPlan(DirectCallParsedTree("pick(value)"), bindings)
+    assert plan.ResultType == typeof(bool)
+    assert DirectCallHasMethod(plan, "Invoke")
+    ColumnarCodePlanExecutor.Validate(plan)
+}
+
+// The same call written out. The two spellings must produce the same plan, because they are the same
+// call.
+test "the written .Invoke spelling plans the same call as the bare one" {
+    bindings := ColumnarRangePlannerEmptyBindings()
+    ColumnarRangePlannerAddParameter(bindings, "pick", 0, typeof(Func<int, bool>))
+    ColumnarRangePlannerAddParameter(bindings, "value", 1, typeof(int))
+
+    plan := DirectCallPlan(DirectCallParsedTree("pick.Invoke(value)"), bindings)
+    assert plan.ResultType == typeof(bool)
+    assert DirectCallHasMethod(plan, "Invoke")
+    ColumnarCodePlanExecutor.Validate(plan)
+}

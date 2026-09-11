@@ -50,7 +50,8 @@ class ColumnarRuntimeGenericMethodResolver {
 
         candidates := new List<MethodInfo>()
         candidateParameters := new List<Type[]>()
-        AppendClosedCandidates(lookupType, memberName, argumentTypes, candidates, candidateParameters, expectedStatic)
+        candidateReturns := new List<Type>()
+        AppendClosedCandidates(lookupType, memberName, argumentTypes, argumentFacts, candidates, candidateParameters, candidateReturns, expectedStatic)
         if candidates.Count == 0 {
             return Unselected(lookupType, expectedStatic)
         }
@@ -74,7 +75,7 @@ class ColumnarRuntimeGenericMethodResolver {
             lookupType,
             declaringType,
             candidateParameters[selectedIndex],
-            selected.get_ReturnType(),
+            candidateReturns[selectedIndex],
             kind,
             expectedStatic,
             receiverIsReference,
@@ -82,20 +83,27 @@ class ColumnarRuntimeGenericMethodResolver {
         )
     }
 
-    static func AppendClosedCandidates(lookupType: Type, memberName: string, argumentTypes: Type[], candidates: List<MethodInfo>, candidateParameters: List<Type[]>, expectedStatic: bool) {
+    static func AppendClosedCandidates(lookupType: Type, memberName: string, argumentTypes: Type[], argumentFacts: ColumnarDirectCallArgumentFacts, candidates: List<MethodInfo>, candidateParameters: List<Type[]>, candidateReturns: List<Type>, expectedStatic: bool) {
         declared := MethodsOrEmpty(lookupType)
         index := 0
         while index < declared.Length {
             candidate := declared[index]
             if IsInferableCandidate(candidate, lookupType, memberName, argumentTypes.Length, expectedStatic) {
-                inferred := InferTypeArgumentsOrNull(candidate, argumentTypes)
+                inferred := InferTypeArgumentsOrNull(candidate, argumentTypes, argumentFacts)
                 if inferred != null {
                     closed := CloseOrNull(candidate, inferred)
                     if closed != null {
                         closedParameters := ClosedParameterTypesOrNull(candidate, inferred)
-                        if closedParameters != null {
+                        closedReturn := SubstituteMethodTypeArguments(candidate.get_ReturnType(), inferred)
+                        if closedParameters != null && closedReturn != null {
+
+                            // The RETURN comes from the same substitution the parameters do, not from
+                            // the closed wrapper's own `ReturnType`. A wrapper built over a
+                            // builder-bound argument can report the raw `T` it was closed from, and
+                            // the plan's declared signature must be the shape the CALL SITE sees.
                             candidates.Add(closed)
                             candidateParameters.Add(closedParameters)
+                            candidateReturns.Add(closedReturn)
                         }
                     }
                 }
@@ -166,12 +174,24 @@ class ColumnarRuntimeGenericMethodResolver {
 
     // The type arguments the candidate's parameters infer, or null when a type parameter stays
     // unbound or two positions disagree.
-    static func InferTypeArgumentsOrNull(candidate: MethodInfo, argumentTypes: Type[]): Type[]? {
+    static func InferTypeArgumentsOrNull(candidate: MethodInfo, argumentTypes: Type[], argumentFacts: ColumnarDirectCallArgumentFacts): Type[]? {
         genericParameters := candidate.GetGenericArguments()
         bindings := new Dictionary<int, Type>()
         parameters := candidate.GetParameters()
         index := 0
         while index < parameters.Length {
+
+            // A `null` LITERAL CARRIES NO TYPE, so it contributes nothing to inference — ECMA-334
+            // §12.6.3 says the same, and the recorded `object` placeholder is a stand-in for "unknown"
+            // rather than an argument type. Unifying it would bind a parameter to `object` and then
+            // refuse the position that knows the real answer, which is exactly what
+            // `Interlocked.Exchange(ref remove, null)` did: `T` bound to the field's type from the
+            // by-ref position and was then contradicted by the null.
+            if argumentFacts.IsNullLiteral[index] {
+                index = index + 1
+                continue
+            }
+
             if !Unify(parameters[index].get_ParameterType(), argumentTypes[index], bindings) {
                 return null
             }
@@ -349,10 +369,18 @@ class ColumnarRuntimeGenericMethodResolver {
         if IsEmittedTypeParameter(argumentType) {
             return false
         }
-        if argumentType.get_ContainsGenericParameters() {
-            return true
+
+        // A SHAPE CLOSED OVER THE DECLARATION BEING EMITTED — `Action<THandler>` inside
+        // `NSharpEventSubscription<THandler>`. It is "open" only in the sense that its argument is a
+        // parameter of the type currently being written; at every instantiation it is a closed type,
+        // and `MakeGenericMethod` over it is the same Reflection.Emit shape a bare source type
+        // parameter already is. `CloseOrNull` is the arbiter: if Reflection refuses the
+        // instantiation, the candidate is dropped there rather than guessed at here.
+        if ColumnarRuntimeInstanceMemberResolver.ContainsBuilderBoundType(argumentType) {
+            return false
         }
-        return ColumnarRuntimeInstanceMemberResolver.ContainsBuilderBoundType(argumentType)
+
+        return argumentType.get_ContainsGenericParameters()
     }
 
     // A TYPE PARAMETER OF THE DECLARATION BEING EMITTED — `TOk` inside `Result<TOk, TErr>`, or a
@@ -400,7 +428,11 @@ class ColumnarRuntimeGenericMethodResolver {
         if IsEmittedTypeParameter(signatureType) {
             return false
         }
-        return ColumnarOrdinaryRuntimeDirectCallResolver.IsUnsupportedSignatureType(signatureType)
+
+        // A closed PARAMETER may be `ref`/`out` — `Interlocked.Exchange<T>(ref T, T)` closes to
+        // `(ref Action, Action)` and that is the whole shape. The element is asked the ordinary
+        // question; a by-ref of a by-ref is not a signature the CLR can spell.
+        return ColumnarOrdinaryRuntimeDirectCallResolver.IsUnsupportedParameterType(signatureType, new Type[](0))
     }
 
     // The definition's signature rewritten under the inferred arguments. Only the METHOD's own type

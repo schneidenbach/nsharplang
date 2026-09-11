@@ -577,6 +577,16 @@ class ColumnarOrdinaryRuntimeDirectCallResolver {
         return false
     }
 
+    // A RESOLVED SIGNATURE IS ONE THE EMITTER CAN SPELL, and after substitution the surviving generic
+    // parameters are not all the same thing. `closedArguments` are the type arguments the RECEIVER was
+    // closed over, and `ResolveParameterTypes` has already put them where the definition's own
+    // parameters stood — so a generic parameter still standing in the resolved signature is either one
+    // of THOSE (`Action<T>.Invoke(T)` inside `Holder<T>`, where `T` is the enclosing type's own
+    // parameter and is a perfectly emittable type in its body) or one the substitution could not
+    // reach, which is genuinely open and stays refused.
+    //
+    // A PARAMETER is asked the by-ref-aware question and a RETURN is not, because `ref`/`out` is a
+    // parameter spelling only.
     static func HasUnsupportedResolvedSignature(parameters: ParameterInfo[], parameterTypes: Type[], returnType: Type, closedArguments: Type[]): bool {
         if parameters.Length != parameterTypes.Length || IsUnsupportedResolvedSignatureType(returnType, closedArguments) {
             return true
@@ -584,7 +594,7 @@ class ColumnarOrdinaryRuntimeDirectCallResolver {
 
         index := 0
         while index < parameterTypes.Length {
-            if IsUnsupportedResolvedSignatureType(parameterTypes[index], closedArguments) {
+            if IsUnsupportedParameterType(parameterTypes[index], closedArguments) {
                 return true
             }
 
@@ -598,12 +608,26 @@ class ColumnarOrdinaryRuntimeDirectCallResolver {
         return IsUnsupportedResolvedSignatureType(signatureType, new Type[](0))
     }
 
+    // A PARAMETER may be `ref`/`out`; a RETURN type may not. The two questions were one predicate, and
+    // that made every by-ref overload invisible to ordinary resolution — `Interlocked.Exchange`,
+    // `int.TryParse`, every `TryGet`. What a by-ref parameter still may not be is a by-ref of something
+    // unsupported, so the element is asked the ordinary question.
+    static func IsUnsupportedParameterType(parameterType: Type, closedArguments: Type[]): bool {
+        if !parameterType.get_IsByRef() {
+            return IsUnsupportedResolvedSignatureType(parameterType, closedArguments)
+        }
+
+        elementType := parameterType.GetElementType()
+        return elementType == null || elementType.get_IsByRef() || IsUnsupportedResolvedSignatureType(elementType, closedArguments)
+    }
+
     // A generic parameter left in a RESOLVED signature normally means the substitution did not
     // happen, which is why it is refused. On a BUILDER-BOUND instantiation it can also be the
     // correct closed answer: inside `Outcome<TOk, TErr>`, `EqualityComparer<TOk>.Equals` genuinely
     // takes two `TOk`, and `TOk` is one of the instantiation's own arguments. The distinction is
     // identity, not shape — a parameter the instantiation actually substituted IN is closed here;
-    // any other one is still open.
+    // any other one is still open. Identity is asked as REFERENCE equality, because `==` on `Type`
+    // is not guaranteed to be reference identity for the builder-bound instantiations this walks.
     static func IsUnsupportedResolvedSignatureType(signatureType: Type, closedArguments: Type[]): bool {
         if signatureType.get_IsByRef() || signatureType.get_IsGenericTypeDefinition() {
             return true

@@ -184,6 +184,43 @@ class PairBox<T>: Box<T> {              // passes its own type parameter through
 }
 ```
 
+#### `base.` — the implementation you replaced
+
+An `override` that wants to *extend* the base's behaviour rather than discard it reaches it with
+`base.`. The lookup starts at the base class, so the override does not answer itself, and the call is
+dispatched **non-virtually** — which is the only thing that makes `base.Render()` inside `Render`
+terminate:
+
+```n#
+class Middle: Layer {
+    override func Render(): string {
+        return "middle(" + base.Render() + ")"       // "middle(root)"
+    }
+}
+
+class Leaf: Middle {
+    override func Render(): string {
+        return "leaf(" + base.Render() + ")"         // "leaf(middle(root))"
+    }
+}
+```
+
+`base.` is not limited to overrides — any instance member may use it — and it reads properties as well
+as calling methods:
+
+```n#
+class Dog: Animal {
+    func BaseName(): string {
+        return base.Name                             // the base's property, not the subclass's
+    }
+}
+```
+
+The base may be a class declared in the same project, one from the BCL or a NuGet package, or
+`System.Object` itself when no base is written (`base.ToString()` answers the runtime type's name). A
+constructor chains to a base constructor with `: base(...)` in its header, which is the same idea in the
+one place a member call cannot express it.
+
 **Diagnostics.** The compiler holds you to C#'s rules:
 
 | You wrote | You get |
@@ -191,6 +228,8 @@ class PairBox<T>: Box<T> {              // passes its own type parameter through
 | a concrete class that does not implement an inherited abstract member | [NL324](./errors/NL324.md) |
 | `new` on an abstract class | [NL803](./errors/NL803.md) |
 | `override` with no base member of that name, or a base member that is not `virtual`/`abstract`/`override` | [NL311](./errors/NL311.md) |
+| `base.Member` where the base class has no such member | [NL303](./errors/NL303.md) |
+| `this` or `base` in a `static` member or a top-level function | [NL327](./errors/NL327.md) |
 
 Overriding a member of an **external** base class — one from the BCL or a NuGet package — works the same
 way and needs no extra ceremony:
@@ -712,6 +751,106 @@ func FirstMatch<T>(items: List<T>, accept: Func<T, bool>, fallback: T): T {
     return fallback
 }
 ```
+
+### Calling a delegate
+
+`d(args)` and `d.Invoke(args)` are the same call — `Invoke` is an ordinary instance method of the
+delegate's own type — and either spelling works wherever the delegate is held: a local, a parameter,
+a captured variable, or a **field**:
+
+```n#
+class Pipeline<T> {
+    readonly accept: Func<T, bool>
+    onEach: Action<T>?
+
+    constructor(accept: Func<T, bool>) {
+        this.accept = accept
+    }
+
+    func Run(item: T): bool {
+        if !accept(item) {              // straight off the field
+            return false
+        }
+
+        this.accept.Invoke(item)        // the same call, written out
+        onEach?.Invoke(item)            // and only if there is a listener
+        return true
+    }
+}
+```
+
+A **method beats a delegate field of the same name**: if the type declares both a `Handle` method and
+a `Handle` delegate field, `Handle(1)` is the method. Reach the field through `.Invoke` when you mean
+the delegate.
+
+### Calling something only when it is there
+
+`receiver?.Member(args)` evaluates the receiver **once**, and skips the call entirely when it is
+null — the member is not reached at all, not reached and ignored. It is the shape a hand-written
+guard produces, without the local:
+
+```n#
+current := onEach
+current?.Invoke(item)                   // exactly: if current != null { current.Invoke(item) }
+```
+
+The result follows C#'s rule. A `void` member leaves nothing behind; a reference-typed one answers
+`null` when skipped; and a non-nullable value-typed one is **lifted to `T?`**, because "skipped" has
+to be representable:
+
+```n#
+count: int? = counter?.Read()           // int? — null when `counter` is null
+label: string? = counter?.Describe()    // string? for the same reason
+```
+
+**What is not supported yet.** The receiver must be a reference type, the `?.` must be followed by a
+call (`a?.B` as a plain read is not yet lowered), and no further link may follow it in the same
+chain — `a?.M().B` and `a?.B[0]` are refused rather than compiled, because a link written after a
+`?.` must be skipped along with it and that lowering is not in place. Write the guard by hand for
+those.
+
+### Passing storage with `ref` and `out`
+
+A `ref` or `out` argument passes the **caller's storage** rather than a value, so a write inside the
+callee lands where the caller can see it. The storage may be a local, a parameter, or a **field** —
+including one reached through `this.`:
+
+```n#
+import System.Threading
+
+class Counter {
+    count: int
+    text: string?
+
+    static func Fill(ref target: int, value: int) {
+        target = value
+    }
+
+    func Reset(value: int) {
+        Fill(ref count, value)               // a field's address
+    }
+
+    func Parse(input: string): bool {
+        return int.TryParse(input, out count)
+    }
+
+    func Claim(): string? {
+        return Interlocked.Exchange(ref text, null)
+    }
+}
+```
+
+The spelling is part of the call: `f(x)` and `f(ref x)` are different calls even when `x` has the
+same type, and only the second binds a `ref` parameter. The element type is **exact** — a by-ref
+argument aliases your storage, so `ref int` does not feed a `ref long` the way an ordinary `int` feeds
+a `long` parameter.
+
+A generic method infers its type argument from the by-ref position like any other:
+`Interlocked.Exchange(ref remove, null)` binds `T` to the field's own type, and the `null` — which
+carries no type of its own — converts to it.
+
+**Not yet supported:** a `ref` argument that names a `static` field, or a composed target such as an
+array element or a nested member chain. Copy to a local, pass `ref` to that, and write it back.
 
 ### Static members of a constructed generic type
 

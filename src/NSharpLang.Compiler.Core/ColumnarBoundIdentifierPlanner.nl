@@ -18,7 +18,9 @@ enum ColumnarBoundIdentifierKind {
     Parameter,
     ByRefParameter,
     CurrentField,
-    CurrentProperty
+    CurrentProperty,
+    BaseField,
+    BaseProperty
 }
 
 class ColumnarBoundIdentifierSelection {
@@ -61,7 +63,7 @@ class ColumnarBoundIdentifierPlanner {
         }
 
         candidate := UnwrapParentheses(nodes, node)
-        return candidate >= 0 && nodes.Kind(candidate) == ColumnarExpressionNodeKind.IdentifierExpression()
+        return candidate >= 0 && (nodes.Kind(candidate) == ColumnarExpressionNodeKind.IdentifierExpression() || nodes.Kind(candidate) == ColumnarExpressionNodeKind.BaseMemberExpression())
     }
 
     static func ClaimsRoot(nodes: ColumnarNodeTable, source: string, node: int, bindings: ColumnarFragmentBindings): bool {
@@ -70,7 +72,18 @@ class ColumnarBoundIdentifierPlanner {
         }
 
         candidate := UnwrapParentheses(nodes, node)
-        if candidate < 0 || candidate >= nodes.Kinds.Length || nodes.Kind(candidate) != ColumnarExpressionNodeKind.IdentifierExpression() || nodes.ChildCount(candidate) != 0 {
+        if candidate < 0 || candidate >= nodes.Kinds.Length || nodes.ChildCount(candidate) != 0 {
+            return false
+        }
+
+        // A `base.Member` read names no lexical binding at all: the only thing it can be is a member
+        // of the base, so this owner claims it outright and reports its own decline if the base has
+        // no such member.
+        if nodes.Kind(candidate) == ColumnarExpressionNodeKind.BaseMemberExpression() {
+            return true
+        }
+
+        if nodes.Kind(candidate) != ColumnarExpressionNodeKind.IdentifierExpression() {
             return false
         }
 
@@ -135,14 +148,14 @@ class ColumnarBoundIdentifierPlanner {
         ValidateInputs(nodes, source, node, bindings, plan)
         plan.PrepareV3()
         candidate := UnwrapParentheses(nodes, node)
-        if candidate < 0 || nodes.Kind(candidate) != ColumnarExpressionNodeKind.IdentifierExpression() {
+        if candidate < 0 || (nodes.Kind(candidate) != ColumnarExpressionNodeKind.IdentifierExpression() && nodes.Kind(candidate) != ColumnarExpressionNodeKind.BaseMemberExpression()) {
             return plan.Status
         }
 
         checkpoint := plan.CreateCheckpoint()
         try {
             resultType := typeof(int)
-            fragment := plan.BeginFragment(-1, ColumnarExpressionNodeKind.IdentifierExpression(), candidate)
+            fragment := plan.BeginFragment(-1, nodes.Kind(candidate), candidate)
 
             if !TryAppend(nodes, source, candidate, bindings, plan, out resultType) {
                 plan.Rollback(checkpoint)
@@ -160,7 +173,7 @@ class ColumnarBoundIdentifierPlanner {
 
     static func TryAppend(nodes: ColumnarNodeTable, source: string, node: int, bindings: ColumnarFragmentBindings, plan: ColumnarCodePlan, out resultType: Type): bool {
         resultType = typeof(int)
-        if nodes == null || source == null || bindings == null || plan == null || node < 0 || node >= nodes.Kinds.Length || nodes.Kind(node) != ColumnarExpressionNodeKind.IdentifierExpression() {
+        if nodes == null || source == null || bindings == null || plan == null || node < 0 || node >= nodes.Kinds.Length || (nodes.Kind(node) != ColumnarExpressionNodeKind.IdentifierExpression() && nodes.Kind(node) != ColumnarExpressionNodeKind.BaseMemberExpression()) {
             return false
         }
 
@@ -257,6 +270,32 @@ class ColumnarBoundIdentifierPlanner {
             } else {
                 plan.AppendMethodInstruction(ColumnarCodePlanContract.Callvirt(), methodIndex)
             }
+        } else if selection.Kind == ColumnarBoundIdentifierKind.BaseField {
+            currentInstanceType := RequiredType(selection.CurrentInstanceType, "Base-field selection has no current-instance type.")
+
+            argumentIndex := GetOrAddArgument(plan, 0, currentInstanceType, false)
+
+            plan.AppendArgumentInstruction(ColumnarCodePlanContract.Ldarg(), argumentIndex)
+            fieldIndex := plan.AddField(RequiredField(selection.FirstField, "Base-field selection has no exact field handle."))
+
+            plan.AppendFieldInstruction(ColumnarCodePlanContract.Ldfld(), fieldIndex)
+        } else if selection.Kind == ColumnarBoundIdentifierKind.BaseProperty {
+
+            // ALWAYS `call`, NEVER `callvirt`. `base.P` names the base's own accessor; dispatching it
+            // virtually would run the override that `base` was written to bypass — and in an
+            // overriding getter, would run itself.
+            currentInstanceType := RequiredType(selection.CurrentInstanceType, "Base-property selection has no current-instance type.")
+
+            argumentIndex := GetOrAddArgument(plan, 0, currentInstanceType, false)
+
+            plan.AppendArgumentInstruction(ColumnarCodePlanContract.Ldarg(), argumentIndex)
+            baseGetter := RequiredMethod(selection.Getter, "Base-property selection has no exact getter handle.")
+
+            baseDeclaringType := RequiredType(selection.DeclaringType, "Base-property selection has no exact declaring type.")
+
+            baseMethodIndex := plan.AddMethodWithSignature(baseGetter, baseDeclaringType, new Type[](0), selection.ResultType, false, false)
+
+            plan.AppendMethodInstruction(ColumnarCodePlanContract.Call(), baseMethodIndex)
         } else {
             throw new InvalidOperationException("Bound-identifier selection kind is invalid.")
         }
@@ -419,15 +458,127 @@ class ColumnarBoundIdentifierPlanner {
         return true
     }
 
+    // THE MANAGED ADDRESS OF A NAME, for a `ref`/`out` argument.
+    //
+    // A by-ref argument does not pass a value — it passes the CALLER'S STORAGE, so that a write inside
+    // the callee lands where the caller can see it. The three storages a name can be are the three
+    // this answers, and each has one instruction:
+    //
+    //   a LOCAL              -> `ldloca`
+    //   a PARAMETER          -> `ldarga`, or `ldarg` when the parameter is ITSELF by-ref (it already
+    //                           holds an address, and taking the address of the slot would alias the
+    //                           wrong thing)
+    //   an INSTANCE FIELD    -> `ldarg.0; ldflda`, which is also how `this.count` arrives, since the
+    //                           parser flattens the explicit receiver onto the same leaf
+    //
+    // IT IS NOT `TryAppendReceiver(preserveValueStorage: true)`. That owner takes an address only for a
+    // VALUE type, because its question is "must this member call see the original storage"; this one's
+    // question is "what storage does this name denote", and a `ref Action<T>` needs an address exactly
+    // as a `ref int` does.
+    //
+    // A lifted or boxed capture, a static field and every composed shape (an array element, a nested
+    // member chain) are refused rather than approximated: an address into the wrong storage is a
+    // silently wrong program.
+    static func TryAppendAddressOf(nodes: ColumnarNodeTable, source: string, node: int, bindings: ColumnarFragmentBindings, plan: ColumnarCodePlan, out elementType: Type): bool {
+        elementType = typeof(int)
+        if nodes == null || source == null || bindings == null || plan == null {
+            return false
+        }
+
+        candidate := UnwrapParentheses(nodes, node)
+        if candidate < 0 || nodes.Kind(candidate) != ColumnarExpressionNodeKind.IdentifierExpression() || nodes.ChildCount(candidate) != 0 {
+            return false
+        }
+
+        name := nodes.Text(source, candidate)
+        if name.Length == 0 {
+            return false
+        }
+
+        explicitThis := ColumnarExpressionSyntaxFacts.IsExplicitThisIdentifier(nodes, source, candidate)
+        if !explicitThis {
+            if bindings.Locals.ContainsKey(name) {
+                local := bindings.Locals[name]
+                if local == null || local.get_LocalType() == null {
+                    return false
+                }
+
+                localType := local.get_LocalType()
+                RequireStorableValueType(localType, "A by-reference local must have a storable type.")
+
+                localIndex := plan.AddAmbientLocal(local)
+                plan.AppendAmbientLocalInstruction(ColumnarCodePlanContract.Ldloca(), localIndex)
+
+                elementType = localType
+                return true
+            }
+
+            if bindings.ParameterOrdinals.ContainsKey(name) && bindings.ParameterTypes.ContainsKey(name) {
+                parameterType := bindings.ParameterTypes[name]
+                if parameterType.get_IsByRef() {
+                    byRefElement := parameterType.GetElementType()
+                    if byRefElement == null {
+                        return false
+                    }
+
+                    RequireStorableValueType(byRefElement, "A by-reference parameter must have a storable element type.")
+
+                    byRefIndex := GetOrAddArgument(plan, bindings.ParameterOrdinals[name], byRefElement, true)
+                    plan.AppendArgumentInstruction(ColumnarCodePlanContract.Ldarg(), byRefIndex)
+
+                    elementType = byRefElement
+                    return true
+                }
+
+                RequireStorableValueType(parameterType, "A by-reference parameter must have a storable type.")
+
+                argumentIndex := GetOrAddArgument(plan, bindings.ParameterOrdinals[name], parameterType, false)
+                plan.AppendArgumentInstruction(ColumnarCodePlanContract.Ldarga(), argumentIndex)
+
+                elementType = parameterType
+                return true
+            }
+        }
+
+        selection := EmptySelection()
+        if !TryResolveCurrentInstance(name, bindings, out selection) || selection.Kind != ColumnarBoundIdentifierKind.CurrentField {
+            return false
+        }
+
+        currentInstanceType := RequiredType(selection.CurrentInstanceType, "An addressable current-field selection has no current-instance type.")
+
+        receiverIndex := GetOrAddArgument(plan, 0, currentInstanceType, selection.CurrentInstanceIsAddress)
+        plan.AppendArgumentInstruction(ColumnarCodePlanContract.Ldarg(), receiverIndex)
+
+        field := RequiredField(selection.FirstField, "An addressable current-field selection has no exact field handle.")
+
+        declaringType := RequiredType(selection.DeclaringType, "An addressable current-field selection has no exact declaring type.")
+
+        fieldIndex := plan.AddFieldWithSignature(field, declaringType, selection.ResultType, false)
+        plan.AppendFieldInstruction(ColumnarCodePlanContract.Ldflda(), fieldIndex)
+
+        elementType = selection.ResultType
+        return true
+    }
+
     static func TryResolve(nodes: ColumnarNodeTable, source: string, node: int, bindings: ColumnarFragmentBindings, out selection: ColumnarBoundIdentifierSelection): bool {
         selection = EmptySelection()
-        if nodes == null || source == null || bindings == null || node < 0 || node >= nodes.Kinds.Length || nodes.Kind(node) != ColumnarExpressionNodeKind.IdentifierExpression() || nodes.ChildCount(node) != 0 {
+        if nodes == null || source == null || bindings == null || node < 0 || node >= nodes.Kinds.Length || nodes.ChildCount(node) != 0 {
+            return false
+        }
+
+        isBaseMember := nodes.Kind(node) == ColumnarExpressionNodeKind.BaseMemberExpression()
+        if !isBaseMember && nodes.Kind(node) != ColumnarExpressionNodeKind.IdentifierExpression() {
             return false
         }
 
         name := nodes.Text(source, node)
         if name.Length == 0 {
             return false
+        }
+
+        if isBaseMember {
+            return TryResolveBaseMember(name, bindings, out selection)
         }
 
         if ColumnarExpressionSyntaxFacts.IsExplicitThisIdentifier(nodes, source, node) {
@@ -581,6 +732,103 @@ class ColumnarBoundIdentifierPlanner {
         }
 
         return TryResolveCurrentInstance(name, bindings, out selection)
+    }
+
+    // `base.Name` AS A VALUE — the field or property the BASE declares.
+    //
+    // The current-instance walk above starts at the type being compiled, which is the right answer
+    // for `Name` and `this.Name` and the wrong one for `base.Name`: a member the subclass declares
+    // must not answer a reference that deliberately named its base. This walk starts one level up,
+    // in the source base chain when the base is being emitted alongside this type and in the runtime
+    // base's own metadata when it is a baked class. The receiver is argument zero either way — it is
+    // the same object; only the member and its dispatch differ.
+    static func TryResolveBaseMember(name: string, bindings: ColumnarFragmentBindings, out selection: ColumnarBoundIdentifierSelection): bool {
+        selection = EmptySelection()
+        root := bindings.CurrentInstance
+        if root == null {
+            return false
+        }
+
+        currentDefinition := root.SourceDefinition
+        if currentDefinition == null || !root.IsReference {
+            return false
+        }
+
+        receiverType := root.ExactType
+        sourceBase := currentDefinition.BaseDef
+        exactBaseType := currentDefinition.ExactBaseType
+        if sourceBase != null && exactBaseType != null {
+            baseDefinition := sourceBase
+            baseType := RequiredType(exactBaseType, "A source base declaration has no exact base type.")
+
+            openBaseType: Type = baseDefinition.Builder
+            baseFacts := ColumnarCurrentInstanceFacts.FromSourceDefinition(baseDefinition)
+            field: FieldInfo? = null
+            declaringType := typeof(object)
+            if ColumnarCurrentInstanceFacts.TryFindField(baseFacts, name, out field, out declaringType) {
+                if field == null || field.get_IsStatic() {
+                    throw new InvalidOperationException("Base-instance field facts do not identify exact instance storage.")
+                }
+
+                selectedField := field
+                selectedDeclaringType := declaringType
+                if baseType != declaringType && declaringType == openBaseType {
+                    selectedField = RebindField(baseType, field)
+                    selectedDeclaringType = baseType
+                }
+
+                fieldType := selectedField.get_FieldType()
+                RequireStorableValueType(fieldType, "Base-instance field facts must identify a storable value type.")
+
+                selection = new ColumnarBoundIdentifierSelection(ColumnarBoundIdentifierKind.BaseField, fieldType, 0, -1, null, selectedField, null, null, selectedDeclaringType, receiverType, false)
+
+                return true
+            }
+
+            getter: MethodInfo? = null
+            propertyType := typeof(object)
+            if ColumnarCurrentInstanceFacts.TryFindProperty(baseFacts, name, out getter, out propertyType, out declaringType) {
+                if getter == null || propertyType == null || getter.get_IsStatic() {
+                    throw new InvalidOperationException("Base-instance property facts do not identify an exact getter.")
+                }
+
+                if getter.get_IsAbstract() {
+                    return false
+                }
+
+                RequireStorableValueType(propertyType, "Base-instance property facts must identify a storable value type.")
+
+                selectedGetter := getter
+                selectedDeclaringType := declaringType
+                if baseType != declaringType && declaringType == openBaseType {
+                    selectedGetter = RebindMethod(baseType, getter)
+                    selectedDeclaringType = baseType
+                }
+
+                selection = new ColumnarBoundIdentifierSelection(ColumnarBoundIdentifierKind.BaseProperty, propertyType, 0, -1, null, null, null, selectedGetter, selectedDeclaringType, receiverType, false)
+
+                return true
+            }
+        }
+
+        runtimeBase := ColumnarDirectCallPlanner.ResolveExternalRuntimeBase(currentDefinition)
+        if runtimeBase == null {
+            runtimeBase = typeof(object)
+        }
+
+        runtimeSelection := ColumnarRuntimeInstanceMemberSelection.Empty()
+        if !ColumnarRuntimeInstanceMemberResolver.TrySelectAdmittedProperty(runtimeBase, runtimeBase, name, out runtimeSelection) {
+            return false
+        }
+
+        runtimeGetter := runtimeSelection.Getter
+        if runtimeGetter == null || runtimeGetter.get_IsAbstract() {
+            return false
+        }
+
+        selection = new ColumnarBoundIdentifierSelection(ColumnarBoundIdentifierKind.BaseProperty, runtimeSelection.ResultType, 0, -1, null, null, null, runtimeGetter, runtimeSelection.DeclaringType, receiverType, false)
+
+        return true
     }
 
     static func TryResolveCurrentInstance(name: string, bindings: ColumnarFragmentBindings, out selection: ColumnarBoundIdentifierSelection): bool {

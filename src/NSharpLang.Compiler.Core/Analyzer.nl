@@ -939,7 +939,13 @@ class Analyzer: IDisposable {
 
         propertyDeclaration := declaration as PropertyDeclaration
         if propertyDeclaration != null {
+
+            // A property's accessors and its expression body are a MEMBER body, so the receiver
+            // boundary is opened around the whole walk rather than inside it: `static P: int => this.x`
+            // must be told it has no `this` from the expression body as much as from a written getter.
+            savedPropertyReceiver := Ambient.EnterMemberIsStatic(AnalyzerAmbientContext.ModifiersDeclareStatic(propertyDeclaration.Modifiers))
             DriveAccessorBody(AccessorBodies.BeginProperty(propertyDeclaration, Ambient.CurrentTypeName, Assignability))
+            Ambient.ExitMemberIsStatic(savedPropertyReceiver)
             return
         }
 
@@ -951,7 +957,9 @@ class Analyzer: IDisposable {
 
         indexerDeclaration := declaration as IndexerDeclaration
         if indexerDeclaration != null {
+            savedIndexerReceiver := Ambient.EnterMemberIsStatic(AnalyzerAmbientContext.ModifiersDeclareStatic(indexerDeclaration.Modifiers))
             DriveAccessorBody(AccessorBodies.BeginIndexer(indexerDeclaration, Ambient.CurrentTypeName, Assignability))
+            Ambient.ExitMemberIsStatic(savedIndexerReceiver)
         }
     }
 
@@ -1611,6 +1619,8 @@ class Analyzer: IDisposable {
                     } else {
                         lambda := expression as LambdaExpression
                         genericTypeExpression := expression as GenericTypeExpression
+                        thisExpression := expression as ThisExpression
+                        baseExpression := expression as BaseExpression
                         if lambda != null {
                             result = DriveLambda(LambdaAnalysis.BeginLambda(lambda, Ambient.CurrentExpectedType, true, false))
                         } else if expression as CastExpression != null || expression as CheckedExpression != null || expression as UncheckedExpression != null || expression as TernaryExpression != null {
@@ -1619,10 +1629,10 @@ class Analyzer: IDisposable {
                             result = DriveArrayLiteral(ArrayLiteral.Begin(expression))
                         } else if expression as NewExpression != null {
                             result = DriveConstruction(Construction.Begin(expression))
-                        } else if expression as ThisExpression != null {
-                            result = Scopes.CurrentTypeScopeOrUnknown()
-                        } else if expression as BaseExpression != null {
-                            result = DeclarationContext.ResolveBaseType(Scopes.CurrentTypeScope())
+                        } else if thisExpression != null {
+                            result = AnalyzerCurrentInstanceReferences.ResolveThis(thisExpression, Scopes, Ambient, Diagnostics)
+                        } else if baseExpression != null {
+                            result = AnalyzerCurrentInstanceReferences.ResolveBase(baseExpression, Scopes, Ambient, DeclarationContext, Diagnostics)
                         } else if expression as MatchExpression != null {
                             result = DriveMatchExpression(MatchExpression.Begin(expression))
                         } else if genericTypeExpression != null {

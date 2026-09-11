@@ -94,3 +94,238 @@ func Sink<T>(items: List<T>, listener: Action<T>) {
         listener(item)
     }
 }
+
+// CALLING A DELEGATE, IN EVERY SPELLING AND FROM EVERY STORAGE.
+//
+// `d.Invoke(x)` and `d(x)` are the same call — `Invoke` is an ordinary instance method of the
+// delegate's own type — and neither one cared which storage the delegate came out of. Both facts had
+// holes:
+//
+//   * `.Invoke` ON A DELEGATE OVER A TYPE PARAMETER declined. `Action<T>` inside `Holder<T>` is a
+//     `TypeBuilderInstantiation`; the runtime call resolver already rebinds `Invoke` from the open
+//     definition for one of those, but then refused the SUBSTITUTED signature because `T` is a
+//     generic parameter — the very parameter the substitution had just put there.
+//   * A BARE CALL ON A DELEGATE FIELD (`pick(item)` without copying to a local first) declined at
+//     `emit.call.bare-unresolved`: the bare-call arm only looked at locals, parameters and lifted
+//     captures.
+//
+// A method of the same name still beats a delegate field of that name, which `Shadowed` pins.
+class Caller<T> {
+    readonly pick: Func<T, bool>
+    readonly onEach: Action<T>
+    readonly plain: Action
+    readonly counted: Action<int>
+
+    constructor(pick: Func<T, bool>, onEach: Action<T>, plain: Action, counted: Action<int>) {
+        this.pick = pick
+        this.onEach = onEach
+        this.plain = plain
+        this.counted = counted
+    }
+
+    // `.Invoke` written out, on a field whose type closes an external delegate over `T`.
+    func PickByInvokeOnField(item: T): bool {
+        return pick.Invoke(item)
+    }
+
+    // The same call through a local, which is where the delegate had to be copied before.
+    func PickByInvokeOnLocal(item: T): bool {
+        current := pick
+        return current.Invoke(item)
+    }
+
+    // The bare spelling, straight off the field.
+    func PickByFieldCall(item: T): bool {
+        return pick(item)
+    }
+
+    // The bare spelling with the receiver written.
+    func PickByThisFieldCall(item: T): bool {
+        return this.pick(item)
+    }
+
+    func AnnounceByInvoke(item: T) {
+        onEach.Invoke(item)
+    }
+
+    func AnnounceByFieldCall(item: T) {
+        onEach(item)
+    }
+
+    // A non-generic delegate field, at arity zero and at arity one.
+    func FirePlain() {
+        plain()
+    }
+
+    func FireCounted(value: int) {
+        counted.Invoke(value)
+    }
+}
+
+// A METHOD BEATS A FIELD OF THE SAME NAME. `Handle` is both a delegate field and a method here, and
+// `Handle(1)` must be the method — the same order the language holds everywhere else.
+class Shadowed {
+    readonly Handler: Action<int>
+    log: int
+
+    constructor(handler: Action<int>) {
+        Handler = handler
+        log = 0
+    }
+
+    Log: int => log
+
+    func Handle(value: int) {
+        log = log + value
+    }
+
+    func RunMethod(value: int) {
+        Handle(value)
+    }
+
+    func RunField(value: int) {
+        Handler(value)
+    }
+}
+
+// `receiver?.Member(args)` — THE NULL-CONDITIONAL CALL.
+//
+// The receiver is evaluated once, tested for null, and the call is skipped entirely when it is null.
+// The result follows C#'s rule: a `void` member leaves nothing, a reference-typed one answers `null`,
+// and a non-nullable value-typed one is lifted to `T?` because "skipped" has to be representable.
+class Conditional<T> {
+    onEach: Action<T>?
+    pick: Func<T, bool>?
+    counter: Counter?
+
+    constructor(onEach: Action<T>?, pick: Func<T, bool>?, counter: Counter?) {
+        this.onEach = onEach
+        this.pick = pick
+        this.counter = counter
+    }
+
+    // Void, straight off the field.
+    func AnnounceIfListening(item: T) {
+        onEach?.Invoke(item)
+    }
+
+    // Void, through a local — the shape a claim-once detach uses.
+    func AnnounceThroughLocal(item: T) {
+        current := onEach
+        current?.Invoke(item)
+    }
+
+    // A value result, lifted to `bool?`.
+    func PickIfPossible(item: T): bool? {
+        return pick?.Invoke(item)
+    }
+
+    // An ordinary instance member on a source type, with a reference result.
+    func LabelOrNull(): string? {
+        return counter?.Describe()
+    }
+
+    // An ordinary instance member with a value result, lifted the same way.
+    func CountOrNull(): int? {
+        return counter?.Read()
+    }
+}
+
+// A source type with an ordinary instance method, so the null-conditional call is proved on
+// something other than a delegate.
+class Counter {
+    count: int
+
+    constructor(count: int) {
+        this.count = count
+    }
+
+    func Read(): int {
+        return count
+    }
+
+    func Describe(): string {
+        return "count"
+    }
+}
+
+// A `ref`/`out` ARGUMENT THAT NAMES A FIELD, AND THE GENERIC STATIC THAT NEEDS ONE.
+//
+// A by-ref argument passes the CALLER'S STORAGE rather than a value, and the storage a name can be
+// was only ever a local or a parameter: `Fill(ref count)` on a FIELD declined at
+// `emit.expression-statement.call`, `int.TryParse(text, out field)` at
+// `emit.call.static-member-unmodeled`, and `Interlocked.Exchange` at the same place for EVERY
+// receiver type — the semantic call planner typed no by-ref argument at all, so no by-ref call ever
+// reached overload resolution.
+//
+// `Interlocked.Exchange<T>(ref T, T)` is the shape that needs all of it at once: a generic static
+// whose `T` is inferred from the by-ref argument, called with a `null` that must convert to the
+// inferred `T` rather than contradict it — and, in `Claim<T>`, with `T` bound to a delegate closed
+// over the declaring type's own parameter.
+class ByRefStorage {
+    count: int
+    text: string?
+
+    constructor(count: int) {
+        this.count = count
+        this.text = null
+    }
+
+    Count: int => count
+
+    Text: string? => text
+
+    static func Fill(ref target: int, value: int) {
+        target = value
+    }
+
+    // A user method with a `ref` parameter, given a FIELD.
+    func FillFromField(value: int) {
+        Fill(ref count, value)
+    }
+
+    // The same, given a LOCAL, so the pre-existing path is proved unchanged beside the new one.
+    static func FillLocal(value: int): int {
+        local := 0
+        Fill(ref local, value)
+        return local
+    }
+
+    // An external static with an `out` parameter, given a field.
+    func ParseIntoField(input: string): bool {
+        return int.TryParse(input, out count)
+    }
+
+    // The non-generic `Interlocked` overloads, on a field.
+    func Bump(): int {
+        return Interlocked.Increment(ref count)
+    }
+
+    func Claim(): int {
+        return Interlocked.Exchange(ref count, 0)
+    }
+
+    // The GENERIC `Exchange<T>`, closed over a reference type by inference, with a `null` value.
+    func ClaimText(): string? {
+        return Interlocked.Exchange(ref text, null)
+    }
+}
+
+// The same claim over a delegate closed over the declaring type's OWN type parameter — the runtime's
+// event-subscription shape, reduced to the one call.
+class Claim<T> {
+    remove: Action<T>?
+    readonly item: T
+
+    constructor(remove: Action<T>?, item: T) {
+        this.remove = remove
+        this.item = item
+    }
+
+    HasRemove: bool => remove != null
+
+    func Detach() {
+        current := Interlocked.Exchange(ref remove, null)
+        current?.Invoke(item)
+    }
+}

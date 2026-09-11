@@ -42,6 +42,13 @@ class ColumnarDirectCallArgumentFacts {
     IsNegativeIntegerLiteral: bool[]
     IntegerLiteralValues: long[]
     IsNullLiteral: bool[]
+
+    // WHETHER THE ARGUMENT WAS WRITTEN `ref x` / `out x`. It is a SYNTAX fact like the others here,
+    // and it has to be one: `f(x)` and `f(ref x)` are different calls even when `x` has the same type,
+    // and only the second may bind a `ref` parameter. The recorded `argumentTypes` entry stays the
+    // ELEMENT type (the storage's own type), because that is what the parameter's element type is
+    // compared against.
+    IsByRefArgument: bool[]
     SourceTypeDefinitions: IEnumerable<ColumnarStructDef>
 
     constructor(isUnsuffixedIntegerLiteral: bool[], isNegativeIntegerLiteral: bool[], integerLiteralValues: long[]) {
@@ -53,6 +60,7 @@ class ColumnarDirectCallArgumentFacts {
         IsNegativeIntegerLiteral = isNegativeIntegerLiteral
         IntegerLiteralValues = integerLiteralValues
         IsNullLiteral = new bool[](isUnsuffixedIntegerLiteral.Length)
+        IsByRefArgument = new bool[](isUnsuffixedIntegerLiteral.Length)
         SourceTypeDefinitions = new List<ColumnarStructDef>()
     }
 
@@ -931,6 +939,27 @@ class ColumnarSourceDirectCallResolver {
         score := 0
         index := 0
         while index < expected.Length {
+
+            // A `ref`/`out` PARAMETER AND A `ref`/`out` ARGUMENT MUST AGREE, AND EXACTLY. The argument
+            // aliases the caller's storage, so there is no conversion to make: the parameter's element
+            // type has to BE the storage's type, and the two spellings must match in both directions —
+            // `f(x)` may not bind a `ref` parameter and `f(ref x)` may not bind an ordinary one. A
+            // match is scored as the exact identity it is.
+            if expected[index].get_IsByRef() || argumentFacts.IsByRefArgument[index] {
+                if !expected[index].get_IsByRef() || !argumentFacts.IsByRefArgument[index] {
+                    return -1
+                }
+
+                byRefElement := expected[index].GetElementType()
+                if byRefElement == null || !ExactTypeShapeMatches(byRefElement, actual[index]) {
+                    return -1
+                }
+
+                score += 8
+                index += 1
+                continue
+            }
+
             argumentScore := argumentFacts.IsNullLiteral[index] ? (ColumnarNullableArgumentLowering.CanAdoptNull(expected[index]) ? 4 : -1) : ArgumentFlowScore(expected[index], actual[index], argumentFacts.SourceTypeDefinitions)
 
             if argumentScore < 0 && argumentFacts.IsUnsuffixedIntegerLiteral[index] && CanAdoptIntegerLiteralArgument(expected[index], argumentFacts.IntegerLiteralValues[index], argumentFacts.IsNegativeIntegerLiteral[index]) {
@@ -967,7 +996,7 @@ class ColumnarSourceDirectCallResolver {
     }
 
     static func ValidateArgumentFacts(argumentTypes: Type[], argumentFacts: ColumnarDirectCallArgumentFacts) {
-        if argumentTypes == null || argumentFacts == null || argumentFacts.IsUnsuffixedIntegerLiteral == null || argumentFacts.IsNegativeIntegerLiteral == null || argumentFacts.IntegerLiteralValues == null || argumentFacts.IsNullLiteral == null || argumentFacts.SourceTypeDefinitions == null || argumentFacts.IsUnsuffixedIntegerLiteral.Length != argumentTypes.Length || argumentFacts.IsNegativeIntegerLiteral.Length != argumentTypes.Length || argumentFacts.IntegerLiteralValues.Length != argumentTypes.Length || argumentFacts.IsNullLiteral.Length != argumentTypes.Length {
+        if argumentTypes == null || argumentFacts == null || argumentFacts.IsUnsuffixedIntegerLiteral == null || argumentFacts.IsNegativeIntegerLiteral == null || argumentFacts.IntegerLiteralValues == null || argumentFacts.IsNullLiteral == null || argumentFacts.IsByRefArgument == null || argumentFacts.SourceTypeDefinitions == null || argumentFacts.IsUnsuffixedIntegerLiteral.Length != argumentTypes.Length || argumentFacts.IsNegativeIntegerLiteral.Length != argumentTypes.Length || argumentFacts.IntegerLiteralValues.Length != argumentTypes.Length || argumentFacts.IsNullLiteral.Length != argumentTypes.Length || argumentFacts.IsByRefArgument.Length != argumentTypes.Length {
             throw new InvalidOperationException("Direct-call argument syntax facts must match the argument types.")
         }
 
@@ -987,6 +1016,10 @@ class ColumnarSourceDirectCallResolver {
 
             if argumentFacts.IsNullLiteral[index] && (argumentFacts.IsUnsuffixedIntegerLiteral[index] || argumentFacts.IsNegativeIntegerLiteral[index]) {
                 throw new InvalidOperationException("A direct-call argument cannot be both null and an integer literal.")
+            }
+
+            if argumentFacts.IsByRefArgument[index] && (argumentFacts.IsNullLiteral[index] || argumentFacts.IsUnsuffixedIntegerLiteral[index] || argumentFacts.IsNegativeIntegerLiteral[index]) {
+                throw new InvalidOperationException("A by-reference direct-call argument names storage, so it cannot also be a literal.")
             }
 
             index += 1

@@ -384,10 +384,10 @@ class AnalyzerSyntheticCallFacts {
             return new ByRefTypeInfo(byRefInner)
         }
 
-        // A TUPLE and a FUNCTION type are composite shells like any other: `(T1, T2)` and
-        // `Func<TOk, TResult>` mention type parameters at their leaves, so a signature that returns
-        // or accepts one only closes when the shell is rebuilt over the substituted leaves. Element
-        // names and every declaration fact ride across unchanged.
+        // A TUPLE, a FUNCTION type and an ANONYMOUS UNION are composite shells like any other:
+        // `(T1, T2)`, `Func<TOk, TResult>` and `int | T` mention type parameters at their leaves, so
+        // a signature that returns or accepts one only closes when the shell is rebuilt over the
+        // substituted leaves. Element names and every declaration fact ride across unchanged.
         tupleCandidate := candidate as TupleTypeInfo
         if tupleCandidate != null {
             substitutedElements := new List<TupleTypeElementInfo>()
@@ -403,24 +403,7 @@ class AnalyzerSyntheticCallFacts {
 
         functionCandidate := candidate as FunctionTypeInfo
         if functionCandidate != null {
-            substitutedParameterTypes: List<TypeInfo>? = null
-            declaredParameterTypes := functionCandidate.ParameterTypes
-            if declaredParameterTypes != null {
-                substitutedParameterTypes = new List<TypeInfo>()
-                parameterIndex := 0
-                while parameterIndex < declaredParameterTypes.Count {
-                    substitutedParameterTypes.Add(ApplyGenericBindings(declaredParameterTypes[parameterIndex], bindings))
-                    parameterIndex = parameterIndex + 1
-                }
-            }
-
-            substitutedReturnType: TypeInfo? = null
-            declaredReturnType := functionCandidate.ReturnType
-            if declaredReturnType != null {
-                substitutedReturnType = ApplyGenericBindings(declaredReturnType, bindings)
-            }
-
-            return functionCandidate.WithSignatureTypes(substitutedParameterTypes, substitutedReturnType)
+            return ApplyGenericBindingsToFunctionType(functionCandidate, bindings)
         }
 
         anonymousUnion := candidate as AnonymousUnionTypeInfo
@@ -436,6 +419,65 @@ class AnalyzerSyntheticCallFacts {
         }
 
         return candidate
+    }
+
+    // A FUNCTION TYPE IS A COMPOSITE SHELL LIKE ANY OTHER. `Func<T, bool>` written as a parameter
+    // reaches the analyzer already reified into a `FunctionTypeInfo`, so leaving it out of the walk
+    // above meant its `T` survived inference: the call then compared `Func<int, bool>` against a
+    // signature that still said `T`, and reported NL202 with both sides rendered as the same word.
+    //
+    // The rebuilt signature substitutes the PARAMETER and RETURN types and carries every other fact
+    // through `WithSignatureTypes`, because none of them describes a type: the names, the arity band,
+    // the params flag and the source references belong to the declaration, not to this instantiation.
+    // A function type that declares its OWN type parameters shadows the outer binding for those
+    // names, exactly as a nested generic declaration does.
+    static func ApplyGenericBindingsToFunctionType(functionType: FunctionTypeInfo, bindings: Dictionary<string, TypeInfo>): FunctionTypeInfo {
+        effectiveBindings := WithoutShadowedTypeParameters(functionType.TypeParameters, bindings)
+
+        substitutedParameterTypes: List<TypeInfo>? = null
+        parameterTypes := functionType.ParameterTypes
+        if parameterTypes != null {
+            substitutedParameterTypes = new List<TypeInfo>()
+            index := 0
+            while index < parameterTypes.Count {
+                substitutedParameterTypes.Add(ApplyGenericBindings(parameterTypes[index], effectiveBindings))
+                index = index + 1
+            }
+        }
+
+        substitutedReturnType: TypeInfo? = null
+        returnType := functionType.ReturnType
+        if returnType != null {
+            substitutedReturnType = ApplyGenericBindings(returnType, effectiveBindings)
+        }
+
+        return functionType.WithSignatureTypes(substitutedParameterTypes, substitutedReturnType)
+    }
+
+    // The binding minus every name the inner signature declares for itself. An empty result is
+    // returned as an empty dictionary rather than null, so the walk's "no bindings" early exit means
+    // exactly what it says.
+    static func WithoutShadowedTypeParameters(typeParameters: List<TypeParameter>?, bindings: Dictionary<string, TypeInfo>): Dictionary<string, TypeInfo> {
+        if typeParameters == null || typeParameters.Count == 0 {
+            return bindings
+        }
+
+        shadowed := new HashSet<string>(StringComparer.Ordinal)
+        index := 0
+        while index < typeParameters.Count {
+            shadowed.Add(typeParameters[index].Name)
+            index = index + 1
+        }
+
+        remaining := new Dictionary<string, TypeInfo>()
+        for entry in bindings {
+            key := entry.Key
+            if !shadowed.Contains(key) {
+                remaining[key] = entry.Value
+            }
+        }
+
+        return remaining
     }
 
     // THE NUMERIC ARM OF THE LEAST UPPER BOUND: the WIDEST type in the fixed widening order

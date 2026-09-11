@@ -449,6 +449,23 @@ class AnalyzerProjectTypeDiscovery {
         return true
     }
 
+    // A NAMESPACE-QUALIFIED PROJECT TYPE — the `Example` half of `Example.Handle`.
+    //
+    // The visible-namespace walk above answers a BARE name by trying every namespace the file can
+    // see. A qualified reference has already NAMED its namespace, so exactly one is asked and the
+    // file's imports do not enter into it. The export rule is the same one: the file's own namespace
+    // needs no export, every other one does.
+    func ResolveNamespaceQualifiedProjectType(namespaceName: string, name: string, currentNamespace: string?, out typeInfo: TypeInfo, out declaration: SymbolDeclaration?): bool {
+        if TryResolveProjectTypeInNamespace(name, namespaceName, currentNamespace, out typeInfo, out declaration) {
+            RecordDeclarationFile(name, declaration)
+            return true
+        }
+
+        typeInfo = BuiltInTypes.Unknown
+        declaration = null
+        return false
+    }
+
     // One visible namespace. A namespace that is NOT the file's own requires the declaration to be
     // exported; the file's own namespace does not.
     func TryResolveProjectTypeInNamespace(name: string, namespaceName: string?, currentNamespace: string?, out typeInfo: TypeInfo, out declaration: SymbolDeclaration?): bool {

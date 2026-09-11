@@ -297,3 +297,80 @@ test "a lone generic type owns the written-name slot" {
     assert analysis.Model.TypesByIdentity.TryGetValue("Box`1", out identity)
     assert AnalyzerTypeReferenceFacts.GenericHeadArity(identity) == 1
 }
+
+// ── one identity, two spellings ───────────────────────────────────────────────────────────────
+
+// A NAMESPACE-QUALIFIED REFERENCE AND A BARE ONE NAME THE SAME TYPE. `Example.Handle` used to fall
+// out of the bottom of the resolution walk as an unresolved-external placeholder, a second instance
+// beside the one `Handle` resolves to — so a function declared to return the qualified spelling
+// refused every value the bare spelling accepted. Both arities are pinned, because the defect was
+// not arity-related and neither is the fix.
+test "a namespace-qualified return type accepts what the bare spelling accepts" {
+    source := "namespace Example\n\nclass Handle {\n}\n\nclass Handle<T>: Example.Handle {\n    Value: T\n\n    constructor(value: T) {\n        Value = value\n    }\n}\n\nfunc MakeGeneric(): Example.Handle {\n    return new Handle<string>(\"h\")\n}\n"
+    assert TypeArityErrorCodes(TypeArityAnalysisErrors(source)) == ""
+}
+
+test "a namespace-qualified return type accepts a non-generic subclass" {
+    source := "namespace Example\n\nclass Handle {\n    constructor() {\n    }\n}\n\nclass Sub: Handle {\n    constructor(): base() {\n    }\n}\n\nfunc MakeSub(): Example.Handle {\n    return new Sub()\n}\n"
+    assert TypeArityErrorCodes(TypeArityAnalysisErrors(source)) == ""
+}
+
+// The qualified spelling is the SAME declaration, so go-to-definition on it lands where the bare
+// spelling lands rather than nowhere.
+test "go-to-definition on a namespace-qualified reference reaches the declaration" {
+    source := "namespace Example\n\nclass Handle {\n    constructor() {\n    }\n}\n\nfunc Make(): Example.Handle {\n    return new Handle()\n}\n"
+    analysis := TypeArityAnalyze(source)
+    assert TypeArityErrorCodes(analysis.Errors) == ""
+
+    bindings := analysis.Bindings
+    assert bindings != null
+
+    annotation := bindings.GetBindingAt(analysis.FilePath, 8, 14)
+    assert annotation != null
+    assert annotation.Name == "Handle"
+    assert annotation.Line == 3
+}
+
+// The channel resolves a NAMESPACE, not any dotted prefix: a name whose prefix names no namespace of
+// this project still falls through, and a leaf that namespace does not declare is still unresolved.
+test "a qualified name whose namespace declares no such type stays unresolved" {
+    source := "namespace Example\n\nclass Handle {\n    constructor() {\n    }\n}\n\nfunc Make(): Example.Missing {\n    return new Handle()\n}\n"
+    errors := TypeArityAnalysisErrors(source)
+    assert errors.Count == 1
+    assert errors[0].Code == ErrorCode.TypeMismatch
+}
+
+test "a qualified name under a namespace this project does not declare stays unresolved" {
+    source := "namespace Example\n\nclass Handle {\n    constructor() {\n    }\n}\n\nfunc Make(): Nowhere.Handle {\n    return new Handle()\n}\n"
+    errors := TypeArityAnalysisErrors(source)
+    assert errors.Count == 1
+    assert errors[0].Code == ErrorCode.TypeMismatch
+}
+
+// ── a function type is a composite shell under inference ──────────────────────────────────────
+
+// `Func<T, bool>` reaches the analyzer already reified into a `FunctionTypeInfo`, which the
+// generic-binding walk did not rebuild — so `T` survived inference and the call compared
+// `Func<int, bool>` against a signature that still said `T`.
+test "a delegate parameter over a type parameter accepts the closed delegate" {
+    source := "func FirstMatch<T>(items: T[], pick: Func<T, bool>, fallback: T): T {\n    for item in items {\n        chooser := pick\n        if chooser(item) {\n            return item\n        }\n    }\n    return fallback\n}\n\nfunc Use(): int {\n    p: Func<int, bool> = x => x > 1\n    items: int[] = [1, 2, 3]\n    return FirstMatch(items, p, 0)\n}\n"
+    assert TypeArityErrorCodes(TypeArityAnalysisErrors(source)) == ""
+}
+
+test "an explicit type argument closes the same delegate parameter" {
+    source := "func FirstMatch<T>(items: T[], pick: Func<T, bool>, fallback: T): T {\n    for item in items {\n        chooser := pick\n        if chooser(item) {\n            return item\n        }\n    }\n    return fallback\n}\n\nfunc Use(): int {\n    p: Func<int, bool> = x => x > 1\n    items: int[] = [1, 2, 3]\n    return FirstMatch<int>(items, p, 0)\n}\n"
+    assert TypeArityErrorCodes(TypeArityAnalysisErrors(source)) == ""
+}
+
+// The substitution must not make every delegate acceptable: a signature that disagrees after
+// substitution is still NL202, and the report now NAMES both signatures instead of rendering the
+// analyzer's own class name twice.
+test "a delegate whose closed signature disagrees is still reported, with both signatures named" {
+    source := "func FirstMatch<T>(items: T[], pick: Func<T, bool>, fallback: T): T {\n    for item in items {\n        chooser := pick\n        if chooser(item) {\n            return item\n        }\n    }\n    return fallback\n}\n\nfunc Use(): int {\n    p: Func<int, string> = x => \"no\"\n    items: int[] = [1, 2, 3]\n    return FirstMatch(items, p, 0)\n}\n"
+    errors := TypeArityAnalysisErrors(source)
+    assert errors.Count == 1
+    assert errors[0].Code == ErrorCode.TypeMismatch
+    assert errors[0].ActualType == "(int) -> string"
+    assert errors[0].ExpectedType == "(int) -> bool"
+    assert errors[0].Message == "Cannot pass `(int) -> string` as argument for parameter `pick` of type `(int) -> bool`"
+}

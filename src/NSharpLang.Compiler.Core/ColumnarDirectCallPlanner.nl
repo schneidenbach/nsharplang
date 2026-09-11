@@ -163,7 +163,7 @@ class ColumnarDirectCallPlanner {
         }
 
         calleeKind := nodes.Kind(callee)
-        if calleeKind != ColumnarExpressionNodeKind.IdentifierExpression() && calleeKind != ColumnarExpressionNodeKind.MemberAccessExpression() && calleeKind != 38 {
+        if calleeKind != ColumnarExpressionNodeKind.IdentifierExpression() && calleeKind != ColumnarExpressionNodeKind.MemberAccessExpression() && calleeKind != 38 && calleeKind != ColumnarExpressionNodeKind.BaseMemberExpression() {
             return false
         }
 
@@ -200,10 +200,11 @@ class ColumnarDirectCallPlanner {
             // early so the inherited-external arm in TryAppendBareCall can select and plan them.
             hasInheritedExternal := currentDefinition != null && !ColumnarSourceDirectCallResolver.HasInstanceDeclaration(currentDefinition, bareName) && HasInheritedExternalInstanceMethod(currentDefinition, bareName, argumentCount)
 
-            // A delegate-typed local/parameter/lifted/boxed value with no same-named method tier is
-            // invoked through its Invoke method. Let those bare calls flow to the delegate-invoke
-            // owner instead of declining early.
-            if !explicitThis && !hasInstance && !hasStatic && !hasSibling && !hasInheritedExternal && !bindings.IsSiblingShadowedByValue(bareName) {
+            // A delegate-typed value with no same-named method tier is invoked through its Invoke
+            // method — a local, a parameter, a lifted capture or a FIELD of the current instance
+            // alike. Let those bare calls flow to the delegate-invoke owner instead of declining
+            // early.
+            if !explicitThis && !hasInstance && !hasStatic && !hasSibling && !hasInheritedExternal && !bindings.IsSiblingShadowedByValue(bareName) && !IsDelegateValueCallee(nodes, source, callee, bindings) {
                 return false
             }
         }
@@ -230,6 +231,10 @@ class ColumnarDirectCallPlanner {
 
             if calleeKind == 38 {
                 return TryAppendExplicitGenericStaticCall(nodes, source, node, callee, bindings, handles, plan, callFragment, depth, argumentTypes, argumentFacts, checkpoint, out ownership, out legacyWholeSubtreePlanning, out resultType)
+            }
+
+            if calleeKind == ColumnarExpressionNodeKind.BaseMemberExpression() {
+                return TryAppendBaseCall(nodes, source, node, callee, bindings, handles, plan, callFragment, depth, argumentTypes, argumentFacts, checkpoint, out ownership, out legacyWholeSubtreePlanning, out resultType)
             }
 
             return TryAppendMemberCall(nodes, source, node, callee, bindings, handles, plan, callFragment, depth, argumentTypes, argumentFacts, checkpoint, out ownership, out legacyWholeSubtreePlanning, out resultType)
@@ -392,6 +397,116 @@ class ColumnarDirectCallPlanner {
         return true
     }
 
+    // `base.M(args)` — THE MEMBER THE BASE DECLARES, DISPATCHED NON-VIRTUALLY.
+    //
+    // Argument zero is the receiver here exactly as it is for an implicit-`this` call, so only two
+    // things differ, and both are the whole point of writing `base`:
+    //
+    //   * LOOKUP STARTS AT THE DIRECT BASE. An override that calls `base.M()` must reach the
+    //     implementation it replaced, so the subclass's own declaration is skipped rather than
+    //     preferred.
+    //   * DISPATCH IS `call`, NEVER `callvirt`. A virtual dispatch would re-enter the override and
+    //     recurse until the stack is gone; the whole reason the CLR has a non-virtual call on a
+    //     virtual method is this one form.
+    //
+    // Both halves of the base surface are covered by the owners that already exist: a base being
+    // emitted in this same compilation resolves through the source resolver against the recorded
+    // base definition, and a runtime base through the ordinary runtime resolver. An ABSTRACT base
+    // member is refused — there is no implementation to reach, and `call` on one is unverifiable IL.
+    static func TryAppendBaseCall(nodes: ColumnarNodeTable, source: string, callNode: int, callee: int, bindings: ColumnarFragmentBindings, handles: ColumnarRangeIndexHandles, plan: ColumnarCodePlan, callFragment: int, depth: int, argumentTypes: Type[], argumentFacts: ColumnarDirectCallArgumentFacts, checkpoint: ColumnarCodePlanCheckpoint, out ownership: ColumnarDirectCallOwnership, out legacyWholeSubtreePlanning: bool, out resultType: Type): bool {
+        ownership = ColumnarDirectCallOwnership.OwnedRejected
+        legacyWholeSubtreePlanning = false
+        resultType = typeof(int)
+        memberName := nodes.Text(source, callee)
+        current := bindings.CurrentInstance
+        currentDefinition: ColumnarStructDef? = null
+        if current != null {
+            currentDefinition = current.SourceDefinition
+        }
+
+        if nodes.ChildCount(callee) != 0 || memberName.Length == 0 || current == null || currentDefinition == null {
+            plan.Rollback(checkpoint)
+            return false
+        }
+
+        sourceBase := currentDefinition.BaseDef
+        exactBaseType := currentDefinition.ExactBaseType
+        if sourceBase != null && exactBaseType != null {
+            closedBase := ColumnarSourceDirectCallResolver.ExactSourceTypeMatch(sourceBase, exactBaseType)
+            sourceSelection := ColumnarSourceDirectCallResolver.ResolveKnownInstance(sourceBase, exactBaseType, closedBase, memberName, argumentTypes, argumentFacts, currentDefinition, true)
+
+            if sourceSelection.IsSelected && !sourceSelection.IsAbstract {
+                if !AppendSourceSelection(nodes, source, callNode, -1, true, bindings, handles, plan, callFragment, depth, argumentTypes, argumentFacts, NonVirtualBaseSelection(sourceSelection, current.ExactType), out resultType) {
+                    plan.Rollback(checkpoint)
+                    return false
+                }
+
+                ownership = ColumnarDirectCallOwnership.Planned
+                return true
+            }
+
+            if sourceSelection.IsSourceType && ColumnarSourceDirectCallResolver.HasInstanceDeclaration(sourceBase, memberName) {
+                plan.Rollback(checkpoint)
+                return false
+            }
+        }
+
+        // No source base declares the name — the base is a runtime class (declared or the implicit
+        // `System.Object`), and its members are ordinary runtime instance members.
+        runtimeBase := ResolveExternalRuntimeBase(currentDefinition)
+        if runtimeBase == null {
+            runtimeBase = typeof(object)
+        }
+
+        runtimeSelection := ColumnarOrdinaryRuntimeDirectCallResolver.ResolveWithFacts(runtimeBase, memberName, argumentTypes, argumentFacts, false)
+
+        runtimeMethod := runtimeSelection.Method
+        if !runtimeSelection.IsSelected || runtimeMethod == null || runtimeMethod.get_IsAbstract() {
+            plan.Rollback(checkpoint)
+            return false
+        }
+
+        receiverIndex := ColumnarBoundIdentifierPlanner.GetOrAddArgument(plan, 0, current.ExactType, false)
+        plan.AppendArgumentInstruction(ColumnarCodePlanContract.Ldarg(), receiverIndex)
+
+        if !AppendArguments(nodes, source, callNode, bindings, handles, plan, callFragment, depth + 1, ArgumentsAdmitPrimitiveBinary(), argumentTypes, runtimeSelection.ParameterTypes, argumentFacts) {
+            plan.Rollback(checkpoint)
+            return false
+        }
+
+        runtimeMethodIndex := plan.AddMethodWithSignature(runtimeMethod, runtimeSelection.DeclaringType, runtimeSelection.ParameterTypes, runtimeSelection.ReturnType, false, false)
+
+        plan.AppendMethodInstruction(ColumnarCodePlanContract.Call(), runtimeMethodIndex)
+        resultType = runtimeSelection.ReturnType
+        if callFragment != 0 && IsVoidType(resultType) {
+            plan.Rollback(checkpoint)
+            return false
+        }
+
+        ownership = ColumnarDirectCallOwnership.Planned
+        return true
+    }
+
+    // The base's selection, re-stated for the `base.` form: the RECEIVER is the current instance (it
+    // is argument zero, whatever the base's own type is) and the dispatch is non-virtual. Everything
+    // that names the member — the handle, its declaring type and its closed signature — is the base
+    // selection's own.
+    static func NonVirtualBaseSelection(selection: ColumnarSourceDirectCallSelection, receiverType: Type): ColumnarSourceDirectCallSelection {
+        return new ColumnarSourceDirectCallSelection(
+            selection.Status,
+            ColumnarSourceDirectCallDispatch.Call,
+            selection.SourceDefinition,
+            receiverType,
+            selection.DeclaringType,
+            selection.Method,
+            selection.ParameterTypes,
+            selection.ReturnType,
+            selection.ReceiverIsReference,
+            selection.IsStatic,
+            selection.IsAbstract
+        )
+    }
+
     static func TryAppendBareCall(nodes: ColumnarNodeTable, source: string, callNode: int, callee: int, bindings: ColumnarFragmentBindings, handles: ColumnarRangeIndexHandles, plan: ColumnarCodePlan, callFragment: int, depth: int, argumentTypes: Type[], argumentFacts: ColumnarDirectCallArgumentFacts, checkpoint: ColumnarCodePlanCheckpoint, out ownership: ColumnarDirectCallOwnership, out legacyWholeSubtreePlanning: bool, out resultType: Type): bool {
         ownership = ColumnarDirectCallOwnership.NotOwned
         legacyWholeSubtreePlanning = false
@@ -426,8 +541,15 @@ class ColumnarDirectCallPlanner {
         // method-beats-value order means any instance method (at any arity) on the current type, any
         // static method at this arity on the enclosing type, or any sibling keeps the name terminal
         // for its own owner, so those cases fall through to ordinary resolution below.
-        if !explicitThis && bindings.IsSiblingShadowedByValue(memberName) && !bindings.HasSiblingCallable(memberName) && !HasCurrentInstanceMethodAnyArity(bindings, memberName) && !HasEnclosingStaticMethodAtArity(bindings, memberName, argumentTypes.Length) {
-            return TryAppendDelegateInvoke(nodes, source, callNode, callee, bindings, handles, plan, callFragment, depth, argumentTypes, checkpoint, out ownership, out legacyWholeSubtreePlanning, out resultType)
+        // The name must not be a METHOD's on any tier — the mechanical host's pinned
+        // method-beats-value order means any instance method (at any arity) on the current type, any
+        // static method at this arity on the enclosing type, or any sibling keeps the name terminal
+        // for its own owner. What is left is a delegate-typed VALUE, and it no longer matters whether
+        // that value shadows a sibling nor whether the receiver was written: a delegate field of the
+        // current instance is as callable as a delegate local, `this.` in front of it changes
+        // nothing, and all of them are `Invoke` on the value's own type.
+        if !bindings.HasSiblingCallable(memberName) && !HasCurrentInstanceMethodAnyArity(bindings, memberName) && !HasEnclosingStaticMethodAtArity(bindings, memberName, argumentTypes.Length) && ((!explicitThis && bindings.IsSiblingShadowedByValue(memberName)) || IsDelegateValueCallee(nodes, source, callee, bindings)) {
+            return TryAppendDelegateInvoke(nodes, source, callNode, callee, bindings, handles, plan, callFragment, depth, argumentTypes, argumentFacts, checkpoint, out ownership, out legacyWholeSubtreePlanning, out resultType)
         }
 
         current := bindings.CurrentInstance
@@ -699,35 +821,25 @@ class ColumnarDirectCallPlanner {
         return true
     }
 
-    // Invoke a delegate-typed value binding (`zero()` where `zero: Func<int>`): load the delegate
-    // value, emit each argument exactly typed against Invoke's parameters, and `callvirt Invoke`.
-    // Only closed System.Func/System.Action over baked runtime types are admitted, and every
-    // argument must land on Invoke's parameter type with no implicit conversion — the mechanical
-    // host's stored-delegate arm accepts exactly this shape. Anything outside it (a non-delegate
-    // value, an arity mismatch, an argument the planner cannot lower to the exact type, or a void
-    // result in a value position) yields the whole subtree to the legacy delegate-invoke arm.
-    static func TryAppendDelegateInvoke(nodes: ColumnarNodeTable, source: string, callNode: int, callee: int, bindings: ColumnarFragmentBindings, handles: ColumnarRangeIndexHandles, plan: ColumnarCodePlan, callFragment: int, depth: int, argumentTypes: Type[], checkpoint: ColumnarCodePlanCheckpoint, out ownership: ColumnarDirectCallOwnership, out legacyWholeSubtreePlanning: bool, out resultType: Type): bool {
+    // `d(args)` — CALLING A DELEGATE-TYPED VALUE WITHOUT WRITING `.Invoke`.
+    //
+    // The two spellings are the same call, so this owner answers the bare one by resolving the same
+    // member the dotted one resolves: `Invoke` on the delegate's own type, through the ordinary
+    // runtime resolver, with the CALLEE NODE ITSELF as the receiver. Nothing about the delegate is
+    // special-cased — the arguments are appended by the shared argument walk against `Invoke`'s
+    // parameter types, and the dispatch is the `callvirt` any instance method of a reference type
+    // gets.
+    //
+    // The value may be a local, a parameter, a lifted capture or a FIELD of the current instance:
+    // whichever it is, `AppendExplicitReceiver` plans the identifier exactly as it would in any other
+    // receiver position, so a delegate field no longer has to be copied to a local first.
+    static func TryAppendDelegateInvoke(nodes: ColumnarNodeTable, source: string, callNode: int, callee: int, bindings: ColumnarFragmentBindings, handles: ColumnarRangeIndexHandles, plan: ColumnarCodePlan, callFragment: int, depth: int, argumentTypes: Type[], argumentFacts: ColumnarDirectCallArgumentFacts, checkpoint: ColumnarCodePlanCheckpoint, out ownership: ColumnarDirectCallOwnership, out legacyWholeSubtreePlanning: bool, out resultType: Type): bool {
         ownership = ColumnarDirectCallOwnership.NotOwned
         legacyWholeSubtreePlanning = false
         resultType = typeof(int)
 
         delegateType := typeof(object)
-        if !ColumnarBoundIdentifierPlanner.TryGetBoundType(nodes, source, callee, bindings, out delegateType) || !ColumnarRuntimeInstanceMemberResolver.IsSupportedDelegateType(delegateType) {
-            legacyWholeSubtreePlanning = true
-            plan.Rollback(checkpoint)
-            return false
-        }
-
-        invoke := delegateType.GetMethod("Invoke")
-        if invoke == null || invoke.get_IsStatic() || invoke.get_IsGenericMethod() {
-            legacyWholeSubtreePlanning = true
-            plan.Rollback(checkpoint)
-            return false
-        }
-
-        parameters := invoke.GetParameters()
-        returnType := invoke.get_ReturnType()
-        if parameters == null || returnType == null || parameters.Length != argumentTypes.Length {
+        if !ColumnarBoundIdentifierPlanner.TryGetBoundType(nodes, source, callee, bindings, out delegateType) || !IsDelegateValueType(delegateType) {
             legacyWholeSubtreePlanning = true
             plan.Rollback(checkpoint)
             return false
@@ -740,60 +852,9 @@ class ColumnarDirectCallPlanner {
             return false
         }
 
-        delegateFragment := plan.BeginFragment(callFragment, nodes.Kind(calleeCandidate), calleeCandidate)
-        loadedType := typeof(object)
-        if !ColumnarBoundIdentifierPlanner.TryAppend(nodes, source, calleeCandidate, bindings, plan, out loadedType) || loadedType != delegateType {
-            legacyWholeSubtreePlanning = true
-            plan.Rollback(checkpoint)
-            return false
-        }
+        selection := ColumnarOrdinaryRuntimeDirectCallResolver.ResolveWithFacts(delegateType, "Invoke", argumentTypes, argumentFacts, false)
 
-        plan.CompleteFragment(delegateFragment, loadedType)
-
-        parameterTypes := new Type[](parameters.Length)
-        index := 0
-        while index < parameters.Length {
-            parameter := parameters[index]
-            if parameter == null {
-                throw new InvalidOperationException("Delegate Invoke parameters cannot be null.")
-            }
-
-            expected := parameter.get_ParameterType()
-            if expected == null {
-                throw new InvalidOperationException("Delegate Invoke parameter types cannot be null.")
-            }
-
-            parameterTypes[index] = expected
-            actual := typeof(int)
-            // ⚠ THE NINTH ARGUMENT SITE, AND UNTIL `015-B13` THE ONE THAT DISAGREED WITH ITS OWN TYPE
-            // SIDE. This loop is the only argument list in this owner that does not route through
-            // `AppendArguments`, so `015-B9`'s threading never reached it and it kept a hard-coded PLAIN
-            // surface. Its TYPE side did not: `TryGetArgumentTypes` is called exactly ONCE in the tree,
-            // with `ArgumentsAdmitPrimitiveBinary()`, and `TryAppendBareCall` hands the very
-            // `argumentTypes` it produced into this function. So `d(a + b)` typed successfully and then
-            // FAILED here — precisely the "a type side that admitted more than the append side would
-            // only manufacture declines one step later" that the RECEIVER comment below states as the
-            // reason receivers stay plain on BOTH sides. Reading the same named decision the other eight
-            // sites read is what makes the two sides agree; it is not a new rule.
-            argumentPlanned := false
-            if ArgumentsAdmitPrimitiveBinary() {
-                argumentPlanned = ColumnarRangeIndexPlanner.TryAppendConstructionValue(nodes, source, nodes.Child(callNode, index + 1), bindings, handles, plan, callFragment, depth + 1, out actual)
-            } else {
-                argumentPlanned = ColumnarRangeIndexPlanner.TryAppendPlannableValue(nodes, source, nodes.Child(callNode, index + 1), bindings, handles, plan, callFragment, depth + 1, out actual)
-            }
-            if !argumentPlanned || actual != expected {
-                legacyWholeSubtreePlanning = true
-                plan.Rollback(checkpoint)
-                return false
-            }
-
-            index += 1
-        }
-
-        methodIndex := plan.AddMethodWithSignature(invoke, delegateType, parameterTypes, returnType, false, invoke.get_IsAbstract())
-        plan.AppendMethodInstruction(ColumnarCodePlanContract.Callvirt(), methodIndex)
-        resultType = returnType
-        if callFragment != 0 && IsVoidType(resultType) {
+        if !selection.IsSelected || !AppendOrdinaryRuntimeSelection(nodes, source, callNode, calleeCandidate, bindings, handles, plan, callFragment, depth, argumentTypes, argumentFacts, selection, out resultType) {
             legacyWholeSubtreePlanning = true
             plan.Rollback(checkpoint)
             return false
@@ -801,6 +862,41 @@ class ColumnarDirectCallPlanner {
 
         ownership = ColumnarDirectCallOwnership.Planned
         return true
+    }
+
+    // IS THIS VALUE A DELEGATE? The question is asked of the CLR's own hierarchy rather than of a
+    // list of delegate names, so a `Func`, an `Action`, an `EventHandler` and a delegate declared by
+    // a referenced assembly all answer alike.
+    //
+    // A delegate instantiated over a type parameter of the type being emitted — `Action<T>` inside
+    // `Holder<T>` — is a `TypeBuilderInstantiation`, and reflection queries THROW on one; its open
+    // definition is a baked runtime type and answers for it, because closing a generic type cannot
+    // change what it derives from.
+    static func IsDelegateValueType(valueType: Type): bool {
+        candidate := valueType
+        if valueType.get_IsGenericType() && !valueType.get_IsGenericTypeDefinition() && ColumnarRuntimeInstanceMemberResolver.ContainsBuilderBoundType(valueType) {
+            candidate = valueType.GetGenericTypeDefinition()
+        }
+
+        if candidate is TypeBuilder || candidate.get_IsGenericParameter() || candidate == typeof(Delegate) || candidate == typeof(MulticastDelegate) {
+            return false
+        }
+
+        try {
+            return typeof(Delegate).IsAssignableFrom(candidate)
+        } catch ex: NotSupportedException {
+            return false
+        } catch ex: NotImplementedException {
+            return false
+        }
+    }
+
+    // Does this bare callee name a delegate-typed value? Asked before the method tiers are consulted
+    // is wrong and asked after them is right, so this is only ever a LAST classification: a method of
+    // the name wins wherever one exists.
+    static func IsDelegateValueCallee(nodes: ColumnarNodeTable, source: string, callee: int, bindings: ColumnarFragmentBindings): bool {
+        calleeType := typeof(object)
+        return ColumnarBoundIdentifierPlanner.TryGetBoundType(nodes, source, callee, bindings, out calleeType) && IsDelegateValueType(calleeType)
     }
 
     // A same-named instance method anywhere on the current type's hierarchy keeps a bare call
@@ -1515,6 +1611,27 @@ class ColumnarDirectCallPlanner {
         index := 0
         while index < parameterTypes.Length {
             argumentNode := nodes.Child(callNode, index + 1)
+
+            // A `ref`/`out` ARGUMENT PASSES STORAGE, NOT A VALUE. The written `ref x` is a modifier
+            // node over the name, and what goes on the stack is the name's managed address, so this
+            // arm bypasses the value walk entirely — there is no conversion to apply and no temporary
+            // to make, because either would alias something the caller cannot see.
+            if argumentFacts.IsByRefArgument[index] {
+                byRefTarget := ByRefArgumentTarget(nodes, source, argumentNode)
+                byRefElement := typeof(int)
+                if byRefTarget < 0 || !parameterTypes[index].get_IsByRef() || !ColumnarBoundIdentifierPlanner.TryAppendAddressOf(nodes, source, byRefTarget, bindings, plan, out byRefElement) {
+                    return false
+                }
+
+                expectedElement := parameterTypes[index].GetElementType()
+                if expectedElement == null || !ColumnarSourceDirectCallResolver.ExactTypeShapeMatches(expectedElement, byRefElement) {
+                    return false
+                }
+
+                index += 1
+                continue
+            }
+
             if argumentFacts.IsNullLiteral[index] {
                 candidate := UnwrapParentheses(nodes, argumentNode)
                 if candidate < 0 || !ColumnarNullableArgumentLowering.TryAppendNullArgument(plan, parentFragment, nodes.Kind(candidate), candidate, parameterTypes[index]) {
@@ -1702,6 +1819,19 @@ class ColumnarDirectCallPlanner {
                 continue
             }
 
+            byRefTarget := ByRefArgumentTarget(nodes, source, argumentNode)
+            if byRefTarget >= 0 {
+                byRefStorageType := typeof(int)
+                if !ColumnarBoundIdentifierPlanner.TryGetBoundType(nodes, source, byRefTarget, bindings, out byRefStorageType) || IsVoidType(byRefStorageType) {
+                    return false
+                }
+
+                argumentTypes[index] = byRefStorageType
+                argumentFacts.IsByRefArgument[index] = true
+                index += 1
+                continue
+            }
+
             argumentType := typeof(int)
             if !TryGetPlannableValueType(nodes, source, argumentNode, bindings, handles, depth + 1, allowPrimitiveBinary, out argumentType, out nestedOwnership) || IsVoidType(argumentType) {
                 return false
@@ -1720,6 +1850,25 @@ class ColumnarDirectCallPlanner {
         }
 
         return true
+    }
+
+    // THE NAME UNDER A `ref x` / `out x` ARGUMENT, or -1 when the argument is not one.
+    //
+    // Kind 54 is the argument-modifier node: the keyword lives in its value span and it has exactly
+    // one child, the storage being passed. `in` is NOT answered here — it is a read-only reference
+    // with its own overload-resolution rules, and admitting it through the `ref`/`out` door would bind
+    // the wrong overload.
+    static func ByRefArgumentTarget(nodes: ColumnarNodeTable, source: string, argumentNode: int): int {
+        if argumentNode < 0 || argumentNode >= nodes.Kinds.Length || nodes.Kind(argumentNode) != 54 || nodes.ChildCount(argumentNode) != 1 {
+            return -1
+        }
+
+        modifier := nodes.Text(source, argumentNode)
+        if modifier != "ref" && modifier != "out" {
+            return -1
+        }
+
+        return nodes.Child(argumentNode, 0)
     }
 
     static func TryGetTargetTypedIntegerArgumentValue(nodes: ColumnarNodeTable, source: string, node: int, out value: long, out isNegative: bool): bool {
@@ -1822,7 +1971,7 @@ class ColumnarDirectCallPlanner {
             return nodes.ChildCount(node) == 2 && IsAdmittedValueSyntax(nodes, nodes.Child(node, 1), depth + 1)
         }
 
-        if kind == ColumnarExpressionNodeKind.IntLiteralExpression() || kind == ColumnarExpressionNodeKind.FloatLiteralExpression() || kind == ColumnarExpressionNodeKind.CharLiteralExpression() || kind == ColumnarExpressionNodeKind.StringLiteralExpression() || kind == ColumnarExpressionNodeKind.BoolLiteralExpression() || kind == ColumnarExpressionNodeKind.NullLiteralExpression() || kind == ColumnarExpressionNodeKind.IdentifierExpression() || kind == ColumnarExpressionNodeKind.NameOfExpression() || kind == ColumnarExpressionNodeKind.TypeOfExpression() || kind == ColumnarExpressionNodeKind.RangeExpression() || kind == ColumnarExpressionNodeKind.IndexAccessExpression() || kind == ColumnarExpressionNodeKind.UnaryExpression() || kind == ColumnarExpressionNodeKind.MemberAccessExpression() {
+        if kind == ColumnarExpressionNodeKind.IntLiteralExpression() || kind == ColumnarExpressionNodeKind.FloatLiteralExpression() || kind == ColumnarExpressionNodeKind.CharLiteralExpression() || kind == ColumnarExpressionNodeKind.StringLiteralExpression() || kind == ColumnarExpressionNodeKind.BoolLiteralExpression() || kind == ColumnarExpressionNodeKind.NullLiteralExpression() || kind == ColumnarExpressionNodeKind.IdentifierExpression() || kind == ColumnarExpressionNodeKind.BaseMemberExpression() || kind == ColumnarExpressionNodeKind.NameOfExpression() || kind == ColumnarExpressionNodeKind.TypeOfExpression() || kind == ColumnarExpressionNodeKind.RangeExpression() || kind == ColumnarExpressionNodeKind.IndexAccessExpression() || kind == ColumnarExpressionNodeKind.UnaryExpression() || kind == ColumnarExpressionNodeKind.MemberAccessExpression() {
             return true
         }
 
@@ -1831,7 +1980,7 @@ class ColumnarDirectCallPlanner {
         }
 
         callee := UnwrapParentheses(nodes, nodes.Child(node, 0))
-        if callee < 0 || (nodes.Kind(callee) != ColumnarExpressionNodeKind.IdentifierExpression() && nodes.Kind(callee) != ColumnarExpressionNodeKind.MemberAccessExpression()) {
+        if callee < 0 || (nodes.Kind(callee) != ColumnarExpressionNodeKind.IdentifierExpression() && nodes.Kind(callee) != ColumnarExpressionNodeKind.MemberAccessExpression() && nodes.Kind(callee) != ColumnarExpressionNodeKind.BaseMemberExpression()) {
             return false
         }
 

@@ -390,12 +390,7 @@ class AnalyzerSyntheticCallValidator {
             parameterNameText = parameterName
         }
 
-        expectedTypeText := "unknown"
-        expectedTypeObject := expectedType as object
-        renderedExpectedType := expectedTypeObject.ToString()
-        if renderedExpectedType != null {
-            expectedTypeText = renderedExpectedType
-        }
+        expectedTypeText := DescribeTypeForDiagnostic(expectedType)
 
         filePath := ""
         snippet := ""
@@ -736,13 +731,27 @@ class AnalyzerSyntheticCallValidator {
             return "method group '" + AnalyzerCallableReferenceFacts.GetCallableReferenceName(argument.Value, resolvedType) + "'"
         }
 
-        argumentTypeObject := argumentType as object
-        renderedArgumentType := argumentTypeObject.ToString()
-        if renderedArgumentType == null {
+        return DescribeTypeForDiagnostic(argumentType)
+    }
+
+    // A TYPE AS A READER SEES IT. Every `TypeInfo` renders through its own `ToString`, except a
+    // FUNCTION type: that class has none, so a mismatch between two delegate signatures used to say
+    // `NSharpLang.Compiler.FunctionTypeInfo` on BOTH sides of the report and tell the reader nothing
+    // at all. The structural renderer already exists for hover and nullability text — `(int) -> bool`
+    // — and this is the one place a diagnostic asks it for a signature.
+    static func DescribeTypeForDiagnostic(candidate: TypeInfo): string {
+        functionType := candidate as FunctionTypeInfo
+        if functionType != null {
+            return NullabilityTypeDisplay.FormatFunctionType(functionType)
+        }
+
+        candidateObject := candidate as object
+        rendered := candidateObject.ToString()
+        if rendered == null {
             return "unknown"
         }
 
-        return renderedArgumentType
+        return rendered
     }
 
     // The same name as a PHRASE. An ordinary type is quoted; a method group already carries its own

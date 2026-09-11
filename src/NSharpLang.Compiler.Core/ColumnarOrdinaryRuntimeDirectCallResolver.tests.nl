@@ -177,15 +177,34 @@ test "ordinary runtime direct calls exclude generic params byref and optional ex
     assert paramsCall.IsExcluded
     assert paramsCall.Method == null
 
+    // A BY-REF PARAMETER IS NO LONGER AN UNREPRESENTABLE SHAPE. `int.TryParse(string, out int)` binds
+    // when the argument is WRITTEN `out` (the contract below), so an argument that is not written
+    // `out` is an overload that does not bind — REJECTED — rather than a shape with no owner.
     byRefCall := ColumnarOrdinaryRuntimeDirectCallResolver.Resolve(typeof(int), "TryParse", OrdinaryRuntimeArgumentTypes2(typeof(string), typeof(int)), true)
-    assert byRefCall.Status == ColumnarOrdinaryRuntimeDirectCallStatus.Excluded
-    assert byRefCall.IsExcluded
+    assert byRefCall.Status == ColumnarOrdinaryRuntimeDirectCallStatus.Rejected
+    assert byRefCall.IsOwnedRejected
     assert byRefCall.Method == null
 
     optionalExpansion := ColumnarOrdinaryRuntimeDirectCallResolver.Resolve(typeof(string), "Split", OrdinaryRuntimeArgumentTypes1(typeof(char)), false)
     assert optionalExpansion.Status == ColumnarOrdinaryRuntimeDirectCallStatus.Excluded
     assert optionalExpansion.IsExcluded
     assert optionalExpansion.Method == null
+}
+
+// The other half of the rule above: WRITTEN `out`, the same overload binds, and its parameter list
+// carries the by-ref spelling the call site has to honour.
+test "ordinary runtime direct calls select a by-reference overload when the argument is written by-ref" {
+    facts := ColumnarDirectCallArgumentFacts.Empty(2)
+    facts.IsByRefArgument[1] = true
+
+    selection := ColumnarOrdinaryRuntimeDirectCallResolver.ResolveWithFacts(typeof(int), "TryParse", OrdinaryRuntimeArgumentTypes2(typeof(string), typeof(int)), facts, true)
+    assert selection.IsSelected
+    assert selection.Method != null
+    assert selection.ParameterTypes.Length == 2
+    assert selection.ParameterTypes[0] == typeof(string)
+    assert selection.ParameterTypes[1] == typeof(int).MakeByRefType()
+    assert selection.ReturnType == typeof(bool)
+    assert selection.IsStatic
 }
 
 test "ordinary runtime direct calls select optional parameters when every argument is explicit" {
