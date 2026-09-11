@@ -74,6 +74,35 @@ class ExternalConversionSelection {
         CompetingMethod = competingMethod
     }
 
+    // The operator as a diagnostic names it: `Union<float, decimal>.op_Implicit(float)`. Metadata
+    // names only, with the arity suffix stripped and the owner's arguments written out, because that
+    // is the spelling the reader has in front of them.
+    func OperatorText(method: MethodInfo?): string {
+        if method == null {
+            return ""
+        }
+
+        owner := method.get_DeclaringType()
+        ownerText := "?"
+        if owner != null {
+            ownerText = ExternalUserDefinedConversions.TypeText(owner)
+        }
+
+        parameters := method.GetParameters()
+        parameterText := "?"
+        if parameters.Length == 1 {
+            parameterType := parameters[0].get_ParameterType()
+            if parameterType != null {
+                parameterText = ExternalUserDefinedConversions.TypeText(parameterType)
+            }
+        }
+
+        return ownerText + "." + method.get_Name() + "(" + parameterText + ")"
+    }
+
+    SelectedText: string => OperatorText(Method)
+    CompetingText: string => OperatorText(CompetingMethod)
+
     static func NoConversion(): ExternalConversionSelection {
         return new ExternalConversionSelection(ExternalConversionStatus.None, null, null)
     }
@@ -88,6 +117,51 @@ class ExternalConversionSelection {
 }
 
 class ExternalUserDefinedConversions {
+
+    // A reflected type as a reader spells it: the bare name, the arity suffix dropped, and the
+    // arguments written out. Metadata only — no N# keyword table is consulted, because this text is
+    // for a diagnostic rather than for resolution.
+    static func TypeText(candidate: Type): string {
+        if candidate.get_IsArray() {
+            elementType := candidate.GetElementType()
+            if elementType != null {
+                return TypeText(elementType) + "[]"
+            }
+        }
+
+        // A primitive is spelled the way the PROGRAM spells it — `float`, not `Single` — so the two
+        // halves of the diagnostic read as one sentence. The table is the analyzer's own, keyed on
+        // metadata name, so it is exact under a MetadataLoadContext too.
+        builtIn := AnalyzerReflectionTypeConversion.ConvertBuiltInReflectionType(candidate.get_FullName())
+        if builtIn != null {
+            boxed := builtIn as object
+            rendered := boxed.ToString()
+            if rendered != null {
+                return rendered
+            }
+        }
+
+        name := candidate.get_Name()
+        tick := name.IndexOf('`')
+        if tick < 0 {
+            return name
+        }
+
+        rendered := name.Substring(0, tick) + "<"
+        arguments := candidate.GetGenericArguments()
+        index := 0
+        while index < arguments.Length {
+            if index > 0 {
+                rendered = rendered + ", "
+            }
+
+            rendered = rendered + TypeText(arguments[index])
+            index += 1
+        }
+
+        return rendered + ">"
+    }
+
     static func NullableDefinitionFullName(): string {
         return "System.Nullable`1"
     }

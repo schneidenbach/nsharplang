@@ -256,3 +256,37 @@ test "the built-in relation still answers first — a numeric widening is never 
     assert assignability.IsAssignable(decimalTarget, BuiltInTypes.Int)
     assert !assignability.IsAssignable(BuiltInTypes.Int, decimalTarget)
 }
+
+test "an ambiguous selection renders both operators the way the program spells them" {
+    unionType := ExternalConversionUnionOf(typeof(float), typeof(decimal))
+    tie := ExternalUserDefinedConversions.ResolveImplicit(typeof(int), unionType)
+    assert tie.IsAmbiguous
+
+    // Metadata names would say `Union<Single, Decimal>.op_Implicit(Single)`; the diagnostic says it
+    // in the language's own words, so it reads as one sentence with the types around it.
+    rendered := tie.SelectedText + " | " + tie.CompetingText
+    assert rendered == "Union<float, decimal>.op_Implicit(float) | Union<float, decimal>.op_Implicit(decimal)" || rendered == "Union<float, decimal>.op_Implicit(decimal) | Union<float, decimal>.op_Implicit(float)"
+
+    // An unresolved selection has nothing to name.
+    none := ExternalUserDefinedConversions.ResolveImplicit(typeof(bool), unionType)
+    assert none.SelectedText == ""
+    assert none.CompetingText == ""
+}
+
+test "a type renders with its arity suffix dropped and its arguments written out" {
+    assert ExternalUserDefinedConversions.TypeText(typeof(int)) == "int"
+    assert ExternalUserDefinedConversions.TypeText(typeof(string)) == "string"
+    assert ExternalUserDefinedConversions.TypeText(typeof(DateTime)) == "DateTime"
+    assert ExternalUserDefinedConversions.TypeText(typeof(int).MakeArrayType()) == "int[]"
+    assert ExternalUserDefinedConversions.TypeText(ExternalConversionUnionOf(typeof(int), typeof(string))) == "Union<int, string>"
+}
+
+test "the ambiguity report is NL202 with the sentence a tie needs, naming both operators" {
+    error := ErrorMessageBuilder.AmbiguousUserDefinedConversion("App.nl", 7, 12, "    return 5", 1, "int", "Union<float, decimal>", "Union<float, decimal>.op_Implicit(float)", "Union<float, decimal>.op_Implicit(decimal)")
+
+    assert error.Code == ErrorCode.TypeMismatch
+    assert error.Message == "Converting 'int' to 'Union<float, decimal>' is ambiguous between 'Union<float, decimal>.op_Implicit(float)' and 'Union<float, decimal>.op_Implicit(decimal)'"
+    assert error.ActualType == "int"
+    assert error.ExpectedType == "Union<float, decimal>"
+    assert error.DocsUrl == DiagnosticDocs.UrlFor("NL202")
+}
