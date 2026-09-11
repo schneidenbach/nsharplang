@@ -523,6 +523,127 @@ class ColumnarFunctionBodyYieldProbe {
     }
 }
 
+// Parses a whole `func` via the product function ABI and reports every DefaultExpression (kind 74)
+// the body emitted, plus the shape of the first one. Same raw-array emit shape as the yield probe so it
+// materializes under the stage-0 columnar backend.
+class ColumnarFunctionBodyDefaultProbe {
+    Status: int
+    DefaultNodeCount: int
+    FirstDefaultChildCount: int
+    FirstDefaultValueStart: int
+
+    constructor(source: string) {
+        capacity := source.Length * 3 + 16
+        rawKinds := new int[](capacity)
+        rawStarts := new int[](capacity)
+        rawValueLengths := new int[](capacity)
+        tokenKinds := new int[](capacity)
+        tokenStarts := new int[](capacity)
+        tokenValueLengths := new int[](capacity)
+        tokenCounts := new int[](2)
+        tokenCount := TokenizeColumnarSourceInto(
+            source,
+            rawKinds,
+            rawStarts,
+            rawValueLengths,
+            tokenKinds,
+            tokenStarts,
+            tokenValueLengths,
+            tokenCounts
+        )
+
+        funcIndex := 0
+        while funcIndex < tokenCount && tokenKinds[funcIndex] != 7 {
+            funcIndex = funcIndex + 1
+        }
+
+        functionNameTexts := new string[](1)
+        returnTypeTexts := new string[](1)
+        paramNameTexts := new string[](capacity)
+        paramTypeTexts := new string[](capacity)
+        paramModifierKinds := new int[](capacity)
+        paramDefaultKinds := new int[](capacity)
+        paramDefaultTexts := new string[](capacity)
+        paramTupleNameCounts := new int[](capacity)
+        paramTupleNameTexts := new string[](capacity)
+        returnTupleNameTexts := new string[](capacity)
+        returnLabeledTypeTexts := new string[](capacity)
+        paramLabeledTypeTexts := new string[](capacity)
+        typeParamTexts := new string[](capacity)
+        typeParamSpecials := new int[](capacity)
+        typeParamConstraintCounts := new int[](capacity)
+        typeParamConstraintTypeTexts := new string[](capacity)
+        nodeKinds := new int[](capacity)
+        valueStarts := new int[](capacity)
+        valueLengths := new int[](capacity)
+        childStart := new int[](capacity)
+        childCount := new int[](capacity)
+        childIndices := new int[](capacity)
+        spanStarts := new int[](capacity)
+        spanLengths := new int[](capacity)
+        localFunctionNodeIndices := new int[](capacity)
+        localFunctionTokenIndices := new int[](capacity)
+        result := new int[](9)
+
+        Status = ParseColumnarProductFunctionInfoInto(
+            source,
+            tokenKinds,
+            tokenStarts,
+            tokenValueLengths,
+            tokenCount,
+            funcIndex,
+            0,
+            functionNameTexts,
+            returnTypeTexts,
+            paramNameTexts,
+            paramTypeTexts,
+            paramModifierKinds,
+            paramDefaultKinds,
+            paramDefaultTexts,
+            paramTupleNameCounts,
+            paramTupleNameTexts,
+            returnTupleNameTexts,
+            returnLabeledTypeTexts,
+            paramLabeledTypeTexts,
+            typeParamTexts,
+            typeParamSpecials,
+            typeParamConstraintCounts,
+            typeParamConstraintTypeTexts,
+            nodeKinds,
+            valueStarts,
+            valueLengths,
+            childStart,
+            childCount,
+            childIndices,
+            spanStarts,
+            spanLengths,
+            localFunctionNodeIndices,
+            localFunctionTokenIndices,
+            result
+        )
+
+        DefaultNodeCount = 0
+        FirstDefaultChildCount = -1
+        FirstDefaultValueStart = -2
+        if Status >= 0 {
+            bodyNodeCount := result[7]
+            n := 0
+            while n < bodyNodeCount {
+                if nodeKinds[n] == ColumnarExpressionNodeKind.DefaultExpression() {
+                    if DefaultNodeCount == 0 {
+                        FirstDefaultChildCount = childCount[n]
+                        FirstDefaultValueStart = valueStarts[n]
+                    }
+
+                    DefaultNodeCount = DefaultNodeCount + 1
+                }
+
+                n = n + 1
+            }
+        }
+    }
+}
+
 // Parses a whole `func` via the product function ABI and captures the shape of the first
 // AwaitForeachStatement (kind 73) in the emitted body node table: the loop-variable value-span text,
 // the child count, and the child kinds ([collection, body]). Same raw-array emit shape as the yield
@@ -705,6 +826,69 @@ test "literal node-kind ledger owns every primary literal ordinal" {
     assert ColumnarPrimaryConstructorLiteralExpressionKind(44) == ColumnarExpressionNodeKind.BoolLiteralExpression()
     assert ColumnarPrimaryConstructorLiteralExpressionKind(45) == ColumnarExpressionNodeKind.BoolLiteralExpression()
     assert ColumnarPrimaryConstructorLiteralExpressionKind(46) == ColumnarExpressionNodeKind.NullLiteralExpression()
+    assert ColumnarExpressionNodeKind.DefaultExpression() == 74
+}
+
+// `default` IS A PRIMARY, AND IT IS THE NULL LITERAL'S TWIN. Both keywords name the target type's zero
+// value and neither carries an operand, so both record NO value span and NO children — the whole of the
+// node is its kind and the keyword's source span. The type is not the parser's to know: the position the
+// expression sits in supplies it, which is why nothing here mentions one.
+test "the default keyword parses as a childless primary carrying only its own span" {
+    source := "default"
+    probe := new ColumnarNumericLiteralParseProbe(source)
+
+    assert probe.NodeCount == 1
+    assert probe.ParseResult[0] == 0
+    assert probe.ParseResult[1] == 1
+    assert probe.NodeKinds[0] == ColumnarExpressionNodeKind.DefaultExpression()
+    assert probe.NodeChildCounts[0] == 0
+    assert probe.NodeValueStarts[0] == -1
+    assert probe.NodeValueLengths[0] == 0
+    assert probe.NodeSpanStarts[0] == 0
+    assert probe.NodeSpanLengths[0] == source.Length
+    assert source.Substring(probe.NodeSpanStarts[0], probe.NodeSpanLengths[0]) == "default"
+}
+
+test "default composes as an ordinary operand of the expression grammar" {
+    source := "Wrap(default, 1)"
+    probe := new ColumnarNumericLiteralParseProbe(source)
+
+    assert probe.NodeCount > 0
+    defaultNodes := 0
+    n := 0
+    while n < probe.NodeCount {
+        if probe.NodeKinds[n] == ColumnarExpressionNodeKind.DefaultExpression() {
+            defaultNodes = defaultNodes + 1
+            assert probe.NodeChildCounts[n] == 0
+            assert source.Substring(probe.NodeSpanStarts[n], probe.NodeSpanLengths[n]) == "default"
+        }
+
+        n = n + 1
+    }
+
+    assert defaultNodes == 1
+    assert probe.NodeKinds[probe.ParseResult[0]] == ColumnarExpressionNodeKind.CallExpression()
+}
+
+test "a function body carrying default parses through the product function ABI" {
+    probe := new ColumnarFunctionBodyDefaultProbe("func Zero(): int {\n    return default\n}")
+
+    assert probe.Status >= 0
+    assert probe.DefaultNodeCount == 1
+    assert probe.FirstDefaultChildCount == 0
+    assert probe.FirstDefaultValueStart == -1
+}
+
+test "a struct member body carrying default no longer declines the declaration" {
+    probe := new ColumnarStructDeclarationParseProbe(
+        "class Zeroed<T> {\n    Value: T\n\n    constructor(value: T) {\n        Value = value\n    }\n\n    static func Empty(): Zeroed<T> {\n        return new Zeroed<T>(default)\n    }\n}"
+    )
+
+    assert probe.FieldCount == 1
+    assert probe.Result[2] == 1
+    assert probe.Result[7] == 1
+    assert probe.StructNameTexts[0] == "Zeroed"
+    assert probe.TypeParamTexts[0] == "T"
 }
 
 test "constructor parser preserves dotted enum member defaults" {

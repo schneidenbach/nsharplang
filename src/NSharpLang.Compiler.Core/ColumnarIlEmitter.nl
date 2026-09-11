@@ -5655,7 +5655,7 @@ sealed class ColumnarIlEmitter {
                             if (TryEmitArrayLiteralAsType(retNode, _returnType, out retType)) {
                             } else {
                                 // target-typed array literal return.
-                                if (TryEmitNullLiteralAsType(retNode, _returnType, out retType)) {
+                                if (TryEmitZeroLiteralAsType(retNode, _returnType, out retType)) {
                                 } else {
                                     // `return null` on a reference-typed function.
                                     if (ColumnarTypeOfPlanner.IsSupportedNullable(_returnType)) {
@@ -5807,7 +5807,7 @@ sealed class ColumnarIlEmitter {
                                 } else {
                                     // `values: T[] = [a, b]` — the target array type owns the element type.
                                     let columnarDiscard11: System.Type = null
-                                    if (TryEmitNullLiteralAsType(declaredInit, declaredType, out columnarDiscard11)) {
+                                    if (TryEmitZeroLiteralAsType(declaredInit, declaredType, out columnarDiscard11)) {
                                     } else {
                                         // `s: string? = null` (a `?`-annotated reference resolves to its element type).
                                         if (ColumnarTypeOfPlanner.IsSupportedNullable(declaredType)) {
@@ -6324,7 +6324,7 @@ sealed class ColumnarIlEmitter {
                             if (TryEmitIntLiteralAsType(Child(expr, 1), writeField.get_FieldType(), out writeValueType)) {
                             } else {
                                 // constant adoption (`s.B = 5` on a small-int field).
-                                if (TryEmitNullLiteralAsType(Child(expr, 1), writeField.get_FieldType(), out writeValueType)) {
+                                if (TryEmitZeroLiteralAsType(Child(expr, 1), writeField.get_FieldType(), out writeValueType)) {
                                 } else {
                                     // `c.name = null` on a reference-typed field.
                                     if (!EmitExpression(Child(expr, 1), out writeValueType)) {
@@ -6441,7 +6441,7 @@ sealed class ColumnarIlEmitter {
                             if (TryEmitArrayLiteralAsType(Child(expr, 1), assignTarget.get_LocalType(), out valueType)) {
                             } else {
                                 // target-typed array literal re-store.
-                                if (TryEmitNullLiteralAsType(Child(expr, 1), assignTarget.get_LocalType(), out valueType)) {
+                                if (TryEmitZeroLiteralAsType(Child(expr, 1), assignTarget.get_LocalType(), out valueType)) {
                                 } else {
                                     // `s = null` on a reference-typed local.
                                     if (ColumnarTypeOfPlanner.IsSupportedNullable(assignTarget.get_LocalType())) {
@@ -6493,7 +6493,7 @@ sealed class ColumnarIlEmitter {
                             if (TryEmitIntLiteralAsType(Child(expr, 1), paramElementType, out byRefParamValueType)) {
                             } else {
                                 // constant conversion onto the byref parameter's element type.
-                                if (TryEmitNullLiteralAsType(Child(expr, 1), paramElementType, out byRefParamValueType)) {
+                                if (TryEmitZeroLiteralAsType(Child(expr, 1), paramElementType, out byRefParamValueType)) {
                                 } else {
                                     // `out value = null` on a reference-typed byref parameter.
                                     if (ColumnarTypeOfPlanner.IsSupportedNullable(paramElementType)) {
@@ -6530,7 +6530,7 @@ sealed class ColumnarIlEmitter {
                         if (TryEmitIntLiteralAsType(Child(expr, 1), _paramTypes[targetName], out paramValueType)) {
                         } else {
                             // constant conversion onto the param's declared type.
-                            if (TryEmitNullLiteralAsType(Child(expr, 1), _paramTypes[targetName], out paramValueType)) {
+                            if (TryEmitZeroLiteralAsType(Child(expr, 1), _paramTypes[targetName], out paramValueType)) {
                             } else {
                                 // `s = null` on a reference-typed param.
                                 if (ColumnarTypeOfPlanner.IsSupportedNullable(_paramTypes[targetName])) {
@@ -10240,7 +10240,7 @@ sealed class ColumnarIlEmitter {
                         if (TryEmitIntLiteralAsType(ctorArgNode, chosenParamTypes[a], out ctorArgType)) {
                         } else {
                             // Unsuffixed integer literal adopted to the declared constructor parameter type.
-                            if (TryEmitNullLiteralAsType(ctorArgNode, chosenParamTypes[a], out ctorArgType)) {
+                            if (TryEmitZeroLiteralAsType(ctorArgNode, chosenParamTypes[a], out ctorArgType)) {
                             } else {
                                 // Null adopted to the declared reference/nullable constructor parameter type.
                                 if (!EmitExpression(ctorArgNode, out ctorArgType)) {
@@ -10395,6 +10395,12 @@ sealed class ColumnarIlEmitter {
                 for a := 0; a < closedCtorArgCount; a++ {
                     expectedArgType := ColumnarRuntimeInstanceMemberResolver.SubstituteClosedTypeArguments(chosenOpenParamTypes[a], closedTypeArguments)
                     let closedArgType: System.Type? = null
+                    // The two keyword literals take the SUBSTITUTED parameter type, exactly as they do for a
+                    // non-generic user constructor above: `new Box<int>(default)` is `default(int)` because
+                    // that is what the parameter is on this instantiation.
+                    if (TryEmitZeroLiteralAsType(Child(idx, 1 + a), expectedArgType, out closedArgType)) {
+                        continue
+                    }
                     if (!EmitExpression(Child(idx, 1 + a), out closedArgType) || !TypesEquivalent(closedArgType, expectedArgType)) {
                         return false
                     }
@@ -10724,7 +10730,7 @@ sealed class ColumnarIlEmitter {
                         _il.Emit(OpCodes.Dup)
                         propertyType := property.get_PropertyType()
                         let propertyValueType: System.Type = null
-                        if (TryEmitNullLiteralAsType(valueNode, propertyType, out propertyValueType)) {
+                        if (TryEmitZeroLiteralAsType(valueNode, propertyType, out propertyValueType)) {
                         } else {
                             // Null adopted to the declared reference property type.
                             if (!EmitExpression(valueNode, out propertyValueType)) {
@@ -10787,7 +10793,7 @@ sealed class ColumnarIlEmitter {
                             propertyType := constructedClosedArgs.Length == 0 ? userInitProperty.PropertyType : ColumnarRuntimeInstanceMemberResolver.SubstituteClosedTypeArguments(userInitProperty.PropertyType, constructedClosedArgs)
                             _il.Emit(OpCodes.Dup)
                             let propertyValueType: System.Type = null
-                            if (TryEmitNullLiteralAsType(valueNode, propertyType, out propertyValueType)) {
+                            if (TryEmitZeroLiteralAsType(valueNode, propertyType, out propertyValueType)) {
                             } else {
                                 // Null adopted to the declared reference/nullable property type.
                                 if (!EmitExpression(valueNode, out propertyValueType)) {
@@ -10812,7 +10818,7 @@ sealed class ColumnarIlEmitter {
                             userFieldType := constructedClosedArgs.Length == 0 ? userInitField.get_FieldType() : ColumnarRuntimeInstanceMemberResolver.SubstituteClosedTypeArguments(userInitField.get_FieldType(), constructedClosedArgs)
                             _il.Emit(OpCodes.Dup)
                             let userFieldValueType: System.Type = null
-                            if (TryEmitNullLiteralAsType(valueNode, userFieldType, out userFieldValueType)) {
+                            if (TryEmitZeroLiteralAsType(valueNode, userFieldType, out userFieldValueType)) {
                             } else {
                                 // Null adopted to the declared reference/nullable field type.
                                 if (!EmitExpression(valueNode, out userFieldValueType)) {
@@ -10841,7 +10847,7 @@ sealed class ColumnarIlEmitter {
                     if ((property != null && property.get_SetMethod() != null)) {
                         propertyType := property.get_PropertyType()
                         let propertyValueType: System.Type = null
-                        if (TryEmitNullLiteralAsType(valueNode, propertyType, out propertyValueType)) {
+                        if (TryEmitZeroLiteralAsType(valueNode, propertyType, out propertyValueType)) {
                         } else {
                             // Null adopted to the declared reference/nullable property type.
                             if (!EmitExpression(valueNode, out propertyValueType)) {
@@ -10864,7 +10870,7 @@ sealed class ColumnarIlEmitter {
                     }
                     fieldType := field.get_FieldType()
                     let fieldValueType: System.Type = null
-                    if (TryEmitNullLiteralAsType(valueNode, fieldType, out fieldValueType)) {
+                    if (TryEmitZeroLiteralAsType(valueNode, fieldType, out fieldValueType)) {
                     } else {
                         // Null adopted to the declared reference/nullable field type.
                         if (!EmitExpression(valueNode, out fieldValueType)) {
@@ -11048,7 +11054,7 @@ sealed class ColumnarIlEmitter {
                         }
                         _il.Emit(OpCodes.Dup)
                         let initPropertyValueType: System.Type = null
-                        if (TryEmitNullLiteralAsType(valueNode, initProperty.PropertyType, out initPropertyValueType)) {
+                        if (TryEmitZeroLiteralAsType(valueNode, initProperty.PropertyType, out initPropertyValueType)) {
                         } else {
                             // Null adopted to the declared reference/nullable property type.
                             if (!EmitExpression(valueNode, out initPropertyValueType)) {
@@ -14921,7 +14927,7 @@ sealed class ColumnarIlEmitter {
 
         propertyType := property.get_PropertyType()
         valueType: Type = null
-        if (TryEmitNullLiteralAsType(valueNode, propertyType, out valueType)) {
+        if (TryEmitZeroLiteralAsType(valueNode, propertyType, out valueType)) {
         } else {
             // Null adopted to the declared reference property type.
             if (!EmitExpression(valueNode, out valueType)) {
@@ -14967,7 +14973,7 @@ sealed class ColumnarIlEmitter {
     private func TryEmitValueAsNullable(node: int, target: Type, out resolvedClrType: Type): bool {
         resolvedClrType = null
         element := target.GetGenericArguments()[0]
-        if (_nodes.Kind(node) == 5) {
+        if (_nodes.Kind(node) == 5 || _nodes.Kind(node) == ColumnarExpressionNodeKind.DefaultExpression()) {
             defaultLocal := _il.DeclareLocal(target)
             _il.Emit(OpCodes.Ldloca, defaultLocal)
             _il.Emit(OpCodes.Initobj, target)
@@ -14999,16 +15005,57 @@ sealed class ColumnarIlEmitter {
         return true
     }
 
-    // A bare NULL literal (kind 5) adopts any REFERENCE-typed target (`return null` on a string
-    // function, `s = null`, a null argument) — N#'s null-assignability for the modelled set. Value-typed
-    // targets decline (Nullable<T> is the N2 rung).
-    private func TryEmitNullLiteralAsType(node: int, target: Type, out resolvedClrType: Type): bool {
+    // THE TWO KEYWORD LITERALS THAT SPELL A TARGET TYPE'S ZERO VALUE, in the one place that knows the
+    // target. A bare NULL literal (kind 5) adopts any REFERENCE-typed target (`return null` on a string
+    // function, `s = null`, a null argument) — N#'s null-assignability for the modelled set; a value-typed
+    // target declines, because `null` is not a value of one. `default` (kind 74) adopts EVERY target,
+    // including a value type and an unconstrained type PARAMETER, because that is what the keyword means.
+    private func TryEmitZeroLiteralAsType(node: int, target: Type, out resolvedClrType: Type): bool {
         resolvedClrType = null
-        if (_nodes.Kind(node) != 5 || target.get_IsValueType()) {
+        nodeKind := _nodes.Kind(node)
+        if (nodeKind == ColumnarExpressionNodeKind.DefaultExpression()) {
+            if (!EmitDefaultValueOfType(target)) {
+                return false
+            }
+            resolvedClrType = target
+            return true
+        }
+        if (nodeKind != 5 || target.get_IsValueType()) {
             return false
         }
         _il.Emit(OpCodes.Ldnull)
         resolvedClrType = target
+        return true
+    }
+
+    // `default` OF A TARGET TYPE, as one value on the stack. A REFERENCE target's zero value is the null
+    // reference and loads as one. Every other target — a struct, an enum, a `Nullable<T>`, and a type
+    // PARAMETER whose instantiation is not known here — is zeroed in place: `initobj` over a fresh local's
+    // address writes the type's all-zero representation whatever that turns out to be, which is the only
+    // spelling that stays correct for an unconstrained `T` closed over both kinds. It is also what the CLR
+    // gives a `default(T)` in C#, instruction for instruction.
+    // The predicate half of `EmitDefaultValueOfType`, asked before anything is on the stack. Every type a
+    // value can be written as has a zero value; only the two positions that are not value positions at
+    // all — a by-ref target and `void` — have none.
+    private func CanEmitDefaultValueOfType(target: Type): bool {
+        if (target == null || target.get_IsByRef()) {
+            return false
+        }
+        return !ColumnarCodePlanExecutor.IsVoidType(target)
+    }
+
+    private func EmitDefaultValueOfType(target: Type): bool {
+        if (!CanEmitDefaultValueOfType(target)) {
+            return false
+        }
+        if (!target.get_IsValueType() && !target.get_IsGenericParameter()) {
+            _il.Emit(OpCodes.Ldnull)
+            return true
+        }
+        zeroLocal := _il.DeclareLocal(target)
+        _il.Emit(OpCodes.Ldloca, zeroLocal)
+        _il.Emit(OpCodes.Initobj, target)
+        _il.Emit(OpCodes.Ldloc, zeroLocal)
         return true
     }
 
@@ -15125,6 +15172,9 @@ sealed class ColumnarIlEmitter {
 
     private func CanEmitAssignableValueAsType(valueNode: int, targetType: Type): bool {
         valueNode = UnwrapParenthesizedNode(valueNode)
+        if (_nodes.Kind(valueNode) == ColumnarExpressionNodeKind.DefaultExpression()) {
+            return CanEmitDefaultValueOfType(targetType)
+        }
         if (_nodes.Kind(valueNode) == 5) {
             return !targetType.get_IsValueType() || ColumnarTypeOfPlanner.IsSupportedNullable(targetType)
         }
@@ -15970,6 +16020,9 @@ sealed class ColumnarIlEmitter {
 
     private func CanEmitConstructorArgumentAs(argNode: int, expectedType: Type): bool {
         argNode = UnwrapParenthesizedNode(argNode)
+        if (_nodes.Kind(argNode) == ColumnarExpressionNodeKind.DefaultExpression()) {
+            return CanEmitDefaultValueOfType(expectedType)
+        }
         if (_nodes.Kind(argNode) == 5) {
             return !expectedType.get_IsValueType()
         }
@@ -16007,7 +16060,7 @@ sealed class ColumnarIlEmitter {
 
     private func EmitConstructorArgumentValueAs(argNode: int, expected: Type): bool {
         let argType: System.Type? = null
-        return (TryEmitTargetTypedNewAsType(argNode, expected, out argType) || TryEmitCollectionLiteralAsType(argNode, expected, out argType) || TryEmitArrayLiteralAsType(argNode, expected, out argType) || TryEmitNullLiteralAsType(argNode, expected, out argType) || TryEmitIntLiteralAsType(argNode, expected, out argType) || EmitExpression(argNode, out argType)) && (TypesEquivalent(argType, expected) || TryEmitImplicitWidening(argType, expected) || TryEmitSpanConversion(argType, expected) || ColumnarReferenceCoercionPlanner.TryEmitInterfaceUpcast(argType, expected, _structRegistry, _il) || ColumnarReferenceCoercionPlanner.TryEmitExternalInterfaceUpcast(argType, expected, _structRegistry, _il) || ColumnarReferenceConversionFacts.TryEmitReferenceConversion(argType, expected) || ColumnarReferenceCoercionPlanner.TryEmitObjectConversion(argType, expected, _structRegistry, _il) || TryEmitAnonymousUnionConversion(argType, expected) || TryEmitUserDefinedConversion(argType, expected, false))
+        return (TryEmitTargetTypedNewAsType(argNode, expected, out argType) || TryEmitCollectionLiteralAsType(argNode, expected, out argType) || TryEmitArrayLiteralAsType(argNode, expected, out argType) || TryEmitZeroLiteralAsType(argNode, expected, out argType) || TryEmitIntLiteralAsType(argNode, expected, out argType) || EmitExpression(argNode, out argType)) && (TypesEquivalent(argType, expected) || TryEmitImplicitWidening(argType, expected) || TryEmitSpanConversion(argType, expected) || ColumnarReferenceCoercionPlanner.TryEmitInterfaceUpcast(argType, expected, _structRegistry, _il) || ColumnarReferenceCoercionPlanner.TryEmitExternalInterfaceUpcast(argType, expected, _structRegistry, _il) || ColumnarReferenceConversionFacts.TryEmitReferenceConversion(argType, expected) || ColumnarReferenceCoercionPlanner.TryEmitObjectConversion(argType, expected, _structRegistry, _il) || TryEmitAnonymousUnionConversion(argType, expected) || TryEmitUserDefinedConversion(argType, expected, false))
     }
 
     private func TryGetPreflightExpressionType(node: int, out columnarResolvedType: Type): bool {
@@ -18477,6 +18530,9 @@ sealed class ColumnarIlEmitter {
         if (allowLambdaLiteral && CanEmitLocalFunctionMethodGroupAsDelegate(argNode, expectedParamType)) {
             return true
         }
+        if (_nodes.Kind(argNode) == ColumnarExpressionNodeKind.DefaultExpression()) {
+            return CanEmitDefaultValueOfType(expectedParamType)
+        }
         if (_nodes.Kind(argNode) == 5) {
             return !expectedParamType.get_IsValueType() || ColumnarTypeOfPlanner.IsSupportedNullable(expectedParamType)
         }
@@ -18509,7 +18565,7 @@ sealed class ColumnarIlEmitter {
     // Interface-typed arguments accept implementers through the same upcast/box path as sibling calls.
     private func EmitArg(callIdx: int, argPosition: int, expected: Type): bool {
         let argType: System.Type? = null
-        return (TryEmitTargetTypedNewAsType(Child(callIdx, argPosition), expected, out argType) || TryEmitCollectionLiteralAsType(Child(callIdx, argPosition), expected, out argType) || TryEmitArrayLiteralAsType(Child(callIdx, argPosition), expected, out argType) || TryEmitNullLiteralAsType(Child(callIdx, argPosition), expected, out argType) || TryEmitIntLiteralAsType(Child(callIdx, argPosition), expected, out argType) || EmitExpression(Child(callIdx, argPosition), out argType)) && (TypesEquivalent(argType, expected) || TryEmitSpanConversion(argType, expected) || ColumnarReferenceCoercionPlanner.TryEmitInterfaceUpcast(argType, expected, _structRegistry, _il) || ColumnarReferenceCoercionPlanner.TryEmitExternalInterfaceUpcast(argType, expected, _structRegistry, _il) || ColumnarReferenceConversionFacts.TryEmitReferenceConversion(argType, expected) || ColumnarReferenceCoercionPlanner.TryEmitObjectConversion(argType, expected, _structRegistry, _il) || TryEmitAnonymousUnionConversion(argType, expected) || TryEmitUserDefinedConversion(argType, expected, false))
+        return (TryEmitTargetTypedNewAsType(Child(callIdx, argPosition), expected, out argType) || TryEmitCollectionLiteralAsType(Child(callIdx, argPosition), expected, out argType) || TryEmitArrayLiteralAsType(Child(callIdx, argPosition), expected, out argType) || TryEmitZeroLiteralAsType(Child(callIdx, argPosition), expected, out argType) || TryEmitIntLiteralAsType(Child(callIdx, argPosition), expected, out argType) || EmitExpression(Child(callIdx, argPosition), out argType)) && (TypesEquivalent(argType, expected) || TryEmitSpanConversion(argType, expected) || ColumnarReferenceCoercionPlanner.TryEmitInterfaceUpcast(argType, expected, _structRegistry, _il) || ColumnarReferenceCoercionPlanner.TryEmitExternalInterfaceUpcast(argType, expected, _structRegistry, _il) || ColumnarReferenceConversionFacts.TryEmitReferenceConversion(argType, expected) || ColumnarReferenceCoercionPlanner.TryEmitObjectConversion(argType, expected, _structRegistry, _il) || TryEmitAnonymousUnionConversion(argType, expected) || TryEmitUserDefinedConversion(argType, expected, false))
     }
 
     private func EmitDeclaredCallArgument(argNode: int, expectedParamType: Type, allowLambdaLiteral: bool): bool {
@@ -18541,7 +18597,7 @@ sealed class ColumnarIlEmitter {
             return true
         }
         let ignoredNullType: System.Type? = null
-        if (TryEmitNullLiteralAsType(argNode, expectedParamType, out ignoredNullType)) {
+        if (TryEmitZeroLiteralAsType(argNode, expectedParamType, out ignoredNullType)) {
             return true
         }
         if (ColumnarTypeOfPlanner.IsSupportedNullable(expectedParamType)) {
@@ -18898,7 +18954,7 @@ sealed class ColumnarIlEmitter {
                         if (TryEmitArrayLiteralAsType(valueNode, targetType, out valueType)) {
                         } else {
                             // target-typed array literal.
-                            if (TryEmitNullLiteralAsType(valueNode, targetType, out valueType)) {
+                            if (TryEmitZeroLiteralAsType(valueNode, targetType, out valueType)) {
                             } else {
                                 // `null` adopted to a reference or nullable storage type.
                                 if (ColumnarTypeOfPlanner.IsSupportedNullable(targetType)) {

@@ -27,6 +27,37 @@ let pi: double = 3.14159
 let maxRetries := 3
 ```
 
+### `default`
+
+`default` is the zero value of whatever type the position it is written in expects — `0` for a
+number, `false` for a `bool`, the null reference for a class, string or array, an all-zero struct,
+and, inside a generic body, whichever of those the type argument turns out to be. It carries no type
+of its own, so it is written bare and the target supplies the type:
+
+```n#
+count: int = default              // 0
+name: string? = default           // null
+when: DateTime = default          // 0001-01-01
+
+func Zero<T>(): T {
+    return default                // 0 for Zero<int>(), null for Zero<string?>()
+}
+
+func TryFirst(values: int[], out first: int): bool {
+    if values.Length > 0 {
+        first = values[0]
+        return true
+    }
+
+    first = default               // the out parameter still gets a value
+    return false
+}
+```
+
+The same reading holds in an argument (`new Box<T>(default)`), in a `return`, and on either side of
+an assignment. A `default` with no target — nothing to be the zero value *of* — is an error, not an
+inference.
+
 ## Functions
 
 Functions use the `func` keyword. Parameters are `name: type`, return type comes after the parameter list.

@@ -404,6 +404,10 @@ class TypeReferenceTupleNameTable {
 //                                         property pattern entries.)
 //   PropertyPattern         -> kind 68  (`Prop` / `Prop: pat` inside object or union-case property patterns;
 //                                         property name in the value span, optional ONE child [pat].)
+//   DefaultExpression       -> kind 74  ( `default` (Default 34) -- the target-typed zero value; NO children
+//                                         and NO value span, exactly like the null literal (kind 5). The
+//                                         written-type form is spelled as an annotation in N# (`x: T = default`),
+//                                         so the keyword never carries a type child. )
 //   RangeExpression         -> kind 69  (`start..end`, `start..`, `..end`, `..`; DotDot token in the
 //                                         value span. Children are the present endpoint expressions; with
 //                                         one child, compare its span start to the DotDot span to classify
@@ -412,7 +416,7 @@ class TypeReferenceTupleNameTable {
 // product handoff, and the emitter only needs the concrete expression shape.
 // Deferred (refused with -1, or the chain simply STOPS at them): `?.`/`?[` null-conditional access, generic
 //   method calls (callee<T>(...)), named (`name:`) call arguments outside constructor argument lists,
-//   `is`/`as` type tests; every other unlisted primary (this/base/default/...).
+//   `is`/`as` type tests; every other unlisted primary (this/base/...).
 //   (Tuples `(a, b)` AND named tuples `(x: 1, y: 2)` PARSE — kinds 17/43; match,
 //   new-expressions, object initializers, bare-new and block-bodied lambdas have their own kinds above.)
 //   Literal VALUE materialization (unescaping strings/chars) is the host's job; this kernel records the
@@ -538,6 +542,13 @@ class ColumnarExpressionNodeKind {
 
     static func RangeExpression(): int {
         return 69
+    }
+
+    // `default` — the target-typed zero value. The keyword carries no type of its own (N# spells the
+    // typed form as an annotation, `x: T = default`), so the node has NO children and NO value span,
+    // and every consumer reads the target type from the position the expression sits in.
+    static func DefaultExpression(): int {
+        return 74
     }
 }
 
@@ -4517,6 +4528,14 @@ func ParsePrimaryExpressionNode(tokens: ParserTokenTable, count: int, st: Parser
     if kind == 46 {
         st.Pos = pos + 1
         return EmitExpressionNode(st, nodes, ColumnarExpressionNodeKind.NullLiteralExpression(), -1, 0, -1, 0, tokenStart, tokenLength)
+    }
+
+    // `default` (Default 34) — the null literal's twin: a keyword primary with no operand whose TYPE
+    // comes from the position it is written in. It is recorded with no value span for the same reason
+    // `null` is, and its full source span is the keyword.
+    if kind == 34 {
+        st.Pos = pos + 1
+        return EmitExpressionNode(st, nodes, ColumnarExpressionNodeKind.DefaultExpression(), -1, 0, -1, 0, tokenStart, tokenLength)
     }
 
     if kind == 131 {
