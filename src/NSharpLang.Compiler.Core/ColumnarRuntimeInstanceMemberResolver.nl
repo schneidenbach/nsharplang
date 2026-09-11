@@ -106,7 +106,30 @@ class ColumnarRuntimeInstanceMemberResolver {
             return true
         }
 
-        return false
+        return IsOrdinaryExternalReferenceReceiver(receiverType)
+    }
+
+    // AN ORDINARY EXTERNAL REFERENCE RECEIVER — any class or interface that came from referenced
+    // metadata rather than from this compilation's builders. It is the receiver half of the same
+    // generalisation the exception arm made: there is no rule that distinguishes `MethodInfo` from
+    // `ArgumentNullException`, and the named rows above only ever recorded which receiver had been
+    // needed first. Every read through it still passes the admitted-value-type fence, so what a
+    // property RETURNS is still decided by `IsAdmittedValueType` and not by this predicate.
+    //
+    // VALUE TYPES ARE NOT GENERALISED. A struct receiver needs an address and its readable members
+    // interact with copy semantics, mutation through `this`, and the by-ref-like fence; the named
+    // value-type rows above each carry that decision. Arrays are excluded because their members are
+    // the array arm's, and anything builder-bound is excluded because it is source, not external.
+    static func IsOrdinaryExternalReferenceReceiver(receiverType: Type): bool {
+        if receiverType == null || receiverType.get_IsValueType() || receiverType.get_HasElementType() || receiverType.get_IsPointer() {
+            return false
+        }
+
+        if ContainsOpenGenericParameters(receiverType) || ContainsBuilderBoundType(receiverType) || IsSourceBuilderShape(receiverType) {
+            return false
+        }
+
+        return receiverType.get_IsClass() || receiverType.get_IsInterface()
     }
 
     // THE LINQ-TO-XML RECEIVERS THE DOC WALK HOLDS. Matched by exact metadata name, for the same
@@ -358,6 +381,15 @@ class ColumnarRuntimeInstanceMemberResolver {
             return TrySelectExpectedProperty(receiverType, receiverType, member, typeof(int), out selection)
         }
 
+        // THE GENERAL ARM, LAST, so every named row above keeps its exact expected result and only a
+        // receiver none of them claimed reaches here. `m.Name` on a `MethodInfo` and `list.Count` on
+        // an `IList<T>` are ordinary readable instance properties; refusing them while accepting
+        // `m.get_Name()` — the accessor spelling for the very same getter — was a gap in which
+        // receivers had been listed, not a rule.
+        if IsOrdinaryExternalReferenceReceiver(receiverType) {
+            return TrySelectAdmittedProperty(receiverType, receiverType, member, out selection)
+        }
+
         return false
     }
 
@@ -418,7 +450,7 @@ class ColumnarRuntimeInstanceMemberResolver {
         getter: MethodInfo? = null
         declaringType := typeof(object)
         resultType := typeof(object)
-        if !TryResolvePublicGetter(lookupType, member, out getter, out declaringType, out resultType) || getter == null || !IsAdmittedValueType(resultType) || !ReceiverMatchesDeclaringType(receiverType, declaringType) {
+        if !TryResolveInheritedPublicGetter(lookupType, member, out getter, out declaringType, out resultType) || getter == null || !IsAdmittedValueType(resultType) || !ReceiverMatchesDeclaringType(receiverType, declaringType) {
             return false
         }
 
@@ -426,6 +458,36 @@ class ColumnarRuntimeInstanceMemberResolver {
         selection = new ColumnarRuntimeInstanceMemberSelection(false, declaringType, resultType, null, getter, receiverIsReference)
 
         return true
+    }
+
+    // AN INTERFACE DOES NOT INHERIT ITS BASES' MEMBERS THROUGH `GetProperty`, which is why
+    // `IList<T>.Count` — declared on `ICollection<T>` — resolved nothing while the same read on
+    // `List<T>` resolved. A class receiver already walks its base chain in metadata, so the extra
+    // sweep runs ONLY for an interface, in `GetInterfaces()` order, and the first base that declares
+    // the name wins. `ReceiverMatchesDeclaringType` still has to accept the owner it finds.
+    static func TryResolveInheritedPublicGetter(lookupType: Type, member: string, out getter: MethodInfo?, out declaringType: Type, out resultType: Type): bool {
+        if TryResolvePublicGetter(lookupType, member, out getter, out declaringType, out resultType) {
+            return true
+        }
+
+        if !lookupType.get_IsInterface() {
+            return false
+        }
+
+        baseInterfaces := lookupType.GetInterfaces()
+        index := 0
+        while index < baseInterfaces.Length {
+            if TryResolvePublicGetter(baseInterfaces[index], member, out getter, out declaringType, out resultType) {
+                return true
+            }
+
+            index = index + 1
+        }
+
+        getter = null
+        declaringType = typeof(object)
+        resultType = typeof(object)
+        return false
     }
 
     static func TryResolvePublicGetter(lookupType: Type, member: string, out getter: MethodInfo?, out declaringType: Type, out resultType: Type): bool {

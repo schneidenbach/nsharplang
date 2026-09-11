@@ -1,5 +1,6 @@
 namespace NSharpLang.Compiler
 
+import System
 import System.Collections.Generic
 
 
@@ -28,6 +29,37 @@ class LinterNamespaceImportUsage {
         }
 
         return ContainsAny(memberAccessNames, knownMembers)
+    }
+
+    // AN ALIASED IMPORT IS USED WHEN ITS ALIAS IS WRITTEN, and it is the ONLY spelling that can use
+    // it: an alias-qualified reference never writes one of the namespace's own type names, so the
+    // known-name tables above cannot answer for one and every aliased import was reported unused.
+    //
+    // THE ALIAS APPEARS IN TWO SHAPES and both count. In expression position `Txt.Encoding` records
+    // the receiver identifier `Txt`; at a type position `new Txt.StringBuilder()` records the WHOLE
+    // dotted spelling `Txt.StringBuilder`, because a type reference is collected by its written name.
+    // So a bare match answers the first and a dotted-root match answers the second.
+    static func IsAliasUsed(aliasName: string, codeIdentifiers: HashSet<string>, memberAccessNames: HashSet<string>): bool {
+        if aliasName == null || aliasName.Length == 0 {
+            return false
+        }
+
+        if codeIdentifiers.Contains(aliasName) || memberAccessNames.Contains(aliasName) {
+            return true
+        }
+
+        return HasDottedRoot(codeIdentifiers, aliasName) || HasDottedRoot(memberAccessNames, aliasName)
+    }
+
+    static func HasDottedRoot(names: HashSet<string>, rootName: string): bool {
+        prefix := rootName + "."
+        for name in names {
+            if name.StartsWith(prefix, StringComparison.Ordinal) {
+                return true
+            }
+        }
+
+        return false
     }
 
     static func ContainsAny(names: HashSet<string>, candidates: string[]): bool {

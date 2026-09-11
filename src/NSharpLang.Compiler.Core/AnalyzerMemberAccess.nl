@@ -7,7 +7,7 @@ import System.Reflection
 import NSharpLang.Compiler.Ast
 
 
-// THE ONE STEP A MEMBER ACCESS TAKES AND THE TWO FORMS THAT TAKE NONE.
+// THE ONE STEP A MEMBER ACCESS TAKES AND THE THREE FORMS THAT TAKE NONE.
 //
 // A member access has exactly ONE operand — its receiver — so its WALK has exactly one kind. There
 // is no second walk kind for `a?.b`: the null-conditional flag is read FOUR times and every one of
@@ -30,10 +30,12 @@ import NSharpLang.Compiler.Ast
 // standing gotcha and not a catalog gap. The rendering therefore lives here, with the rule that
 // decides whether it is owed.
 //
-// TWO FORMS ANSWER BEFORE THE WALK STEP AND SO NEVER ASK FOR IT: an import ALIAS access
-// (`Alias.Symbol`), which is a table lookup and not an expression at all, and a QUALIFIED EXTERNAL
-// TYPE (`System.Text.StringBuilder`), whose receiver is a namespace prefix that would be meaningless
-// to analyse. Both are decided before the first `NextStep` returns, which is why they cost no walk.
+// THREE FORMS ANSWER BEFORE THE WALK STEP AND SO NEVER ASK FOR IT: an import ALIAS access
+// (`Alias.Symbol`), which is a table lookup and not an expression at all; a QUALIFIED TYPE RECEIVER
+// (`System.Text.StringBuilder.Append`), whose receiver is a namespace prefix that would be
+// meaningless to analyse; and a QUALIFIED TYPE NAME standing on its own (`System.Console`), which is
+// a type-valued expression exactly as the bare `Console` is. All three are decided before the first
+// `NextStep` returns, which is why they cost no walk.
 //
 // The numbering is this walk's own protocol with its own driver and starts at 1; the other walks'
 // numbers mean different operations and none of them is a shared vocabulary.
@@ -255,9 +257,22 @@ class AnalyzerMemberAccess {
         }
 
         typeReceiver: TypeInfo = BuiltInTypes.Unknown
-        if TryResolveQualifiedExternalType(member.Object, out typeReceiver) {
+        if TryResolveQualifiedTypeName(member.Object, out typeReceiver) {
             state.Phase = 99
             Finish(state, typeReceiver)
+            return null
+        }
+
+        // THE DOTTED NAME THAT IS ITSELF A TYPE, which is the same answer a bare name that names a
+        // type gives: `AnalyzerIdentifierResolution`'s type channels hand the TypeInfo back as the
+        // expression's own value, so `System.Console` and `Console` mean one thing. Without this
+        // channel the walk would analyse `System` as a value and report NL301 on it — which is
+        // exactly what a static call spelled `System.Console.WriteLine(…)` used to do, because the
+        // reflected bind analyses the callee's receiver a second time as an expression.
+        qualifiedType: TypeInfo = BuiltInTypes.Unknown
+        if TryResolveQualifiedTypeName(member, out qualifiedType) {
+            state.ResultType = qualifiedType
+            state.Phase = 99
             return null
         }
 
@@ -554,7 +569,7 @@ class AnalyzerMemberAccess {
 
         memberAccess := expression as MemberAccessExpression
         if memberAccess != null {
-            if TryResolveQualifiedExternalType(memberAccess, out resolvedType) {
+            if TryResolveQualifiedTypeName(memberAccess, out resolvedType) {
                 return true
             }
 
@@ -569,18 +584,26 @@ class AnalyzerMemberAccess {
         return false
     }
 
-    // A DOTTED NAME THAT IS A CLR TYPE — `System.Text.StringBuilder` — and the SEVEN vetoes that must
-    // all miss before it is accepted. Their ORDER is the whole rule: every one of them names
-    // something the developer wrote that would OUTRANK an assembly type of the same root, so a
-    // project type, a local, a local type, a using alias, an import alias, an enclosing-type member
-    // and a project function each stop the probe before it ever looks at metadata. Without them a
-    // project function named `Log` would be shadowed by an assembly's `Log.Write`.
+    // A DOTTED NAME THAT NAMES A TYPE — `System.Text.StringBuilder`, `MyApp.Models.Person`, or the
+    // same two reached through a namespace alias — and the SIX vetoes that must all miss before the
+    // name is read as a qualification at all. Their ORDER is the whole rule: every one of them names
+    // something the developer wrote that would OUTRANK a namespace of the same root, so a local, a
+    // local type, a file-import alias, a project type of that root name, an enclosing-type member and
+    // a project function each stop the probe before it looks at a namespace. Without them a project
+    // function named `Log` would be shadowed by an assembly's `Log.Write`.
     //
-    // The disjunction is written as sequential returns rather than a chain of `||` so the
-    // short-circuit ORDER is visible: four of these seven vetoes ask a collaborator a question that
-    // costs a scan, and the C# original's operator precedence is the only thing that kept them from
-    // all running.
-    func TryResolveQualifiedExternalType(expression: Expression, out resolvedType: TypeInfo): bool {
+    // The CHEAP vetoes run first and the four that cost a scan run after them, which is what keeps
+    // this affordable now that it is asked of a member access TWICE — once about its receiver and
+    // once about the node itself. Reordering vetoes is safe because every one of them answers "not a
+    // qualified name"; only the alias arm below both vetoes and answers, so it keeps its place.
+    //
+    // A USING ALIAS IS NOT A VETO ANY MORE, it is a channel: `import NSharpLang.Runtime as Rt` makes
+    // `Rt.SimdReductions` mean the aliased namespace's type, which is what the same alias already
+    // meant at a declared-type position (`AnalyzerDeclarationPolicy.ResolveThroughNamespaceAlias`).
+    //
+    // WHAT IT RESOLVES TO, in the documented order — a PROJECT type in the named namespace first,
+    // because project types outrank CLR types, then a CLR type from the referenced assemblies.
+    func TryResolveQualifiedTypeName(expression: Expression, out resolvedType: TypeInfo): bool {
         resolvedType = BuiltInTypes.Unknown
         if expression as MemberAccessExpression == null {
             return false
@@ -592,10 +615,16 @@ class AnalyzerMemberAccess {
         }
 
         rootName := ExternalQualifiedTypeResolver.RootName(qualifiedName)
-        currentType := scopesValue.CurrentTypeScope()
-        separator := qualifiedName.LastIndexOf(".")
-        currentUnitNamespace := UnitNamespace()
+        if scopesValue.LookupSymbol(rootName) != null || scopesValue.LookupType(rootName) != null || importedSymbolsByAliasValue.ContainsKey(rootName) {
+            return false
+        }
 
+        aliasedNamespace := ""
+        if usingAliasesValue.TryGetValue(rootName, out aliasedNamespace) {
+            return TryResolveTypeInNamespaceOrAssemblies(aliasedNamespace + qualifiedName.Substring(rootName.Length), out resolvedType)
+        }
+
+        currentUnitNamespace := UnitNamespace()
         visibleNamespaces := AnalyzerTypeReferenceFacts.VisibleTypeNamespaces(currentUnitNamespace, usingNamespacesValue)
         for visibleNamespace in visibleNamespaces {
             namespaceType: TypeInfo = BuiltInTypes.Unknown
@@ -605,10 +634,7 @@ class AnalyzerMemberAccess {
             }
         }
 
-        if scopesValue.LookupSymbol(rootName) != null || scopesValue.LookupType(rootName) != null || usingAliasesValue.ContainsKey(rootName) || importedSymbolsByAliasValue.ContainsKey(rootName) {
-            return false
-        }
-
+        currentType := scopesValue.CurrentTypeScope()
         if currentType != null && !BuiltInTypes.IsUnknown(memberResolutionValue.ResolveMember(currentType, rootName, true, ambientValue.CurrentTypeName)) {
             return false
         }
@@ -619,11 +645,22 @@ class AnalyzerMemberAccess {
             return false
         }
 
+        return TryResolveTypeInNamespaceOrAssemblies(qualifiedName, out resolvedType)
+    }
+
+    // THE TWO PLACES A QUALIFIED NAME'S TYPE CAN LIVE, in the documented order: the project's own
+    // sources, split at the LAST dot into a namespace and a type name, and then the referenced
+    // assemblies. A project type is required to be EXPORTED unless the reader is in its own
+    // namespace, which is `TryResolveProjectTypeInNamespace`'s rule and not a second one here.
+    func TryResolveTypeInNamespaceOrAssemblies(qualifiedName: string, out resolvedType: TypeInfo): bool {
+        resolvedType = BuiltInTypes.Unknown
+        separator := qualifiedName.LastIndexOf(".")
         if separator > 0 {
-            qualifiedType: TypeInfo = BuiltInTypes.Unknown
-            qualifiedDeclaration: SymbolDeclaration? = null
-            if projectDiscoveryValue.TryResolveProjectTypeInNamespace(qualifiedName.Substring(separator + 1), qualifiedName.Substring(0, separator), currentUnitNamespace, out qualifiedType, out qualifiedDeclaration) {
-                return false
+            projectType: TypeInfo = BuiltInTypes.Unknown
+            projectDeclaration: SymbolDeclaration? = null
+            if projectDiscoveryValue.TryResolveProjectTypeInNamespace(qualifiedName.Substring(separator + 1), qualifiedName.Substring(0, separator), UnitNamespace(), out projectType, out projectDeclaration) {
+                resolvedType = declarationContextValue.ResolveDeclaredAlias(projectType)
+                return !BuiltInTypes.IsUnknown(resolvedType)
             }
         }
 

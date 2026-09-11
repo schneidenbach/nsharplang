@@ -586,6 +586,21 @@ class AnalyzerTypeResolver {
             return nestedType
         }
 
+        // NL209, at a TYPE position. The channels above all answer from ONE place, so a name that
+        // reached here is about to be resolved from an import — and an import is where two
+        // declarations can supply one spelling. The report is not gated on the unresolved-type
+        // opt-in: an ambiguity is an error about a name that DOES resolve, twice, so the leniency
+        // that exists for names which resolve through another channel does not apply to it.
+        if line > 0 {
+            ambiguousFirst := ""
+            ambiguousSecond := ""
+            if projectDiscoveryValue.TryFindAmbiguousImportedType(lookupName, AnalyzerProjectSourceProvider.UnitNamespace(compilationUnitValue), out ambiguousFirst, out ambiguousSecond) {
+                if MarkUnresolvedTypeReported(writtenName, line, column) {
+                    diagnosticsValue.ReportAmbiguousTypeReference(writtenName, ambiguousFirst, ambiguousSecond, line, column)
+                }
+            }
+        }
+
         projectType: TypeInfo = BuiltInTypes.Unknown
         projectDeclaration: SymbolDeclaration? = null
         inaccessibleProjectFile: string? = null

@@ -81,6 +81,7 @@ These are not style rules; style is `nlc format`'s job and produces no diagnosti
 | `NL204` | A cast or `as` between types with no conversion. |
 | [`NL207`](./NL207.md) | A type argument that is not a legal argument here. |
 | [`NL208`](./NL208.md) | A type argument that violates the parameter's constraints. |
+| [`NL209`](./NL209.md) | A name two different imports both supply. |
 
 ## Semantics — `NL3xx`
 

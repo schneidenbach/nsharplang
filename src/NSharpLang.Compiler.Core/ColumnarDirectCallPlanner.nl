@@ -269,7 +269,7 @@ class ColumnarDirectCallPlanner {
         }
 
         scope := nodes.BindingScope
-        if scope != null && scope.IsImportAliasRoot(rootName) {
+        if scope != null && scope.IsFileImportAliasRoot(rootName) {
             legacyWholeSubtreePlanning = true
             plan.Rollback(checkpoint)
             return false
@@ -956,11 +956,13 @@ class ColumnarDirectCallPlanner {
                 return false
             }
 
-            if scope != null && scope.IsImportAliasRoot(rootName) {
+            if scope != null && scope.IsFileImportAliasRoot(rootName) {
 
                 // File-import alias calls include call-style newtype construction and other
                 // alias-member forms outside fixed direct-method ownership. Preserve the entire
-                // subtree for their owning lowering; never reinterpret the alias as a type.
+                // subtree for their owning lowering; never reinterpret the alias as a type. A
+                // NAMESPACE alias is deliberately not here: it qualifies a type name rather than
+                // binding one, and the owner resolution below expands it.
                 ownership = ColumnarDirectCallOwnership.NotOwned
                 legacyWholeSubtreePlanning = true
                 plan.Rollback(checkpoint)

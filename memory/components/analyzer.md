@@ -494,10 +494,11 @@ keeping the caller's FIRST candidate so the suggestion is stable rather than has
 #### The eight channels
 
 `ResolveSimpleType(name, line, column)` tries, IN ORDER: the built-in name table; the scope stack; the
-current file's import aliases; a dotted nested type; project-wide discovery; a namespace alias
-resolved as a type; the referenced-assembly probe; and finally an unresolved `ExternalTypeInfo`
-placeholder. The order is behaviour — a local declaration shadows a project type, and a project type
-outranks a CLR type of the same name — and so is the fact that the last channel is a PLACEHOLDER
+current file's import aliases; a dotted nested type; the AMBIGUITY GATE (below); project-wide
+discovery; a namespace alias resolved as a type; the referenced-assembly probe; and finally an
+unresolved `ExternalTypeInfo` placeholder. The order is behaviour — a local declaration shadows a
+project type, and a project type outranks a CLR type of the same name — and so is the fact that the
+last channel is a PLACEHOLDER
 rather than an error type: analysis carries on with a named stand-in.
 
 The using-alias channel is measured DEAD in every population (corpus, unit suite and fixtures) and is
@@ -510,6 +511,58 @@ no binding, reports nothing, and — for a generic reference — skips the whole
 resolved `GenericTypeInfo` carries no definition. One asymmetry follows from the ordering and is
 deliberate: `var` at a real position is refused with `NL103`, while `var` at line 0 falls through
 every channel to the placeholder, because the `var` check is the only thing that recognises it.
+
+#### The ambiguity gate and the import-precedence rule (NL209)
+
+Every channel above the gate answers from ONE place — a scope, the enclosing type, the built-in
+table — so a name that reaches it is about to be resolved from an IMPORT, and an import is the only
+place two declarations can supply one spelling. `AnalyzerProjectTypeDiscovery.TryFindAmbiguousImportedType`
+answers whether they do, and the two report-capable owners (`AnalyzerTypeResolver` at a type
+position, `AnalyzerIdentifierResolution` at an expression position) render it through
+`AnalyzerDiagnosticSink.ReportAmbiguousTypeReference`. They share the unresolved-reference dedupe
+set, so one position is told once.
+
+TWO EXCLUSIONS, both C#'s. The file's OWN namespace wins outright — a closer declaration is not a
+tie — and the project-wide unique-exported FALLBACK is never a candidate, because it is the channel
+that runs when no import supplies the name.
+
+ONE MEASURED LIMIT. The metadata half of the tie check is asked only once the SOURCE half has
+matched: an assembly sweep is imports × assemblies of `Assembly.GetType`, a miss is deliberately not
+cached, and running it for every name that reaches the gate would put that cost on `Console`, `List`
+and every other ordinary CLR spelling. So two IMPORTED CLR namespaces that declare the same spelling
+still resolve first-import-wins. That limit is written down on `website/docs/errors/NL209.md`.
+
+**AN EXPLICIT IMPORT OUTRANKS PROJECT-WIDE AUTO-DISCOVERY, and that ordering is a correctness fix.**
+`ResolveVisibleProjectType`'s third outcome — the unique-exported fallback — matches by unqualified
+name across every exported source declaration in the compilation, whatever namespace it lives in and
+whether or not the file imported it. It used to run BEFORE the referenced-assembly probe, so a source
+`class SimdReductions` in a namespace a file never imported silently replaced the
+`NSharpLang.Runtime.SimdReductions` that file's own `import` brought in, with no diagnostic: a whole
+parity harness became a self-comparison. The fallback is now skipped when
+`AnalyzerExternalTypeProbe.ResolveImportedExternalType` — the IMPORT-QUALIFIED half of the ordered
+probe, with no exported-name scan behind it — answers for the name.
+
+**THE EMITTER APPLIES THE SAME PRECEDENCE, and it has to.** `ColumnarBindingScopeFacts` reaches the
+same fork through `TryFindUniqueExportedSourceName`, and it consults
+`ColumnarExternalTypeCatalog.TryGetImported` — the catalog's own imports-only probe — at both sites.
+A program that passed analysis and then declined at emit is what disagreement here looks like.
+
+#### Qualified names in expression position
+
+`AnalyzerMemberAccess.TryResolveQualifiedTypeName` is the whole of it, and it is asked TWICE per
+member access: once about the RECEIVER (`System.Console` under `System.Console.WriteLine`) and once
+about the NODE ITSELF, which is the channel that makes a dotted type name a type-valued expression
+exactly as `AnalyzerIdentifierResolution` makes a bare one. Without the second, the reflected bind's
+SECOND analysis of a callee's receiver (`AnalyzerCallAnalysis` phase 30, which deliberately repeats
+the walk) analysed `System` as a value and reported NL301 — which is why a qualified CALL failed
+while a qualified static READ in the same file resolved.
+
+It resolves, in order: a namespace ALIAS expanded to its target (`import System.IO as Io` makes
+`Io.Path` mean `System.IO.Path`); a PROJECT type in the named namespace, split at the last dot,
+subject to the ordinary export rule; then a CLR type through `ExternalQualifiedTypeResolver`. Its six
+vetoes — a local, a local type, a file-import alias, a project type of the ROOT name, an
+enclosing-type member and a project function — all still fire first, and they are ordered cheap-first
+because this owner is now asked twice per node.
 
 #### The ten report sites
 

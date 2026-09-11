@@ -300,12 +300,19 @@ class AnalyzerProjectTypeDiscovery {
     // name -> declaring file, the snapshot the project index is built from. Owned by the shell and
     // cleared per analysis, so it is handed in once and written through.
     typeDeclarationFiles: Dictionary<string, string>
+    // The EXTERNAL half of the same question, because the project-wide fallback below has to know
+    // whether an explicitly imported CLR type already answers the name. Handed in rather than
+    // rebuilt: its cache is part of its answer. ABSENT means no assemblies are loaded — a contract
+    // harness with no metadata load context — and then no imported CLR type can exist, which is the
+    // same answer a probe over an empty assembly list gives.
+    externalTypeProbe: AnalyzerExternalTypeProbe?
 
-    constructor(sourceProvider: AnalyzerProjectSourceProvider, context: AnalyzerDeclarationContext, usingNamespaceNames: List<string>, declarationFiles: Dictionary<string, string>) {
+    constructor(sourceProvider: AnalyzerProjectSourceProvider, context: AnalyzerDeclarationContext, usingNamespaceNames: List<string>, declarationFiles: Dictionary<string, string>, externalProbe: AnalyzerExternalTypeProbe? = null) {
         sources = sourceProvider
         declarationContext = context
         usingNamespaces = usingNamespaceNames
         typeDeclarationFiles = declarationFiles
+        externalTypeProbe = externalProbe
     }
 
     // THE TYPE CHANNEL, whole. Three outcomes in one call, because their ORDER is the semantics
@@ -340,6 +347,23 @@ class AnalyzerProjectTypeDiscovery {
             }
         }
 
+        // AN EXPLICIT IMPORT IS NOT A LAST RESORT, AND THE FALLBACK BELOW IS.
+        //
+        // The sweep above is what the file ASKED for: its own namespace and the namespaces it wrote
+        // an `import` for. The fallback is project-wide auto-discovery — a convenience that finds a
+        // type nothing in this file named. An imported CLR type is an explicit reference, so it must
+        // outrank the fallback, and until this guard it did not: a source class named
+        // `SimdReductions` in a namespace this file never imported silently replaced the
+        // `NSharpLang.Runtime.SimdReductions` the file's own `import` brought in, with no
+        // diagnostic, and a parity harness became a self-comparison. Answering false here hands the
+        // name to the caller's external channel, which resolves it through the imports in order.
+        importProbe := externalTypeProbe
+        if importProbe != null && importProbe.ResolveImportedExternalType(TypeArityNames.Display(name)) != null {
+            typeInfo = BuiltInTypes.Unknown
+            declaration = null
+            return false
+        }
+
         if TryResolveUniqueExportedProjectType(name, out typeInfo, out declaration) {
             RecordDeclarationFile(name, declaration)
             return true
@@ -348,6 +372,81 @@ class AnalyzerProjectTypeDiscovery {
         typeInfo = BuiltInTypes.Unknown
         declaration = null
         return false
+    }
+
+    // TWO IMPORTS THAT SUPPLY ONE NAME, which is an error rather than a race: C# reports CS0104 for
+    // exactly this shape and so does N#, because whichever import happened to be written first is
+    // not what the developer meant to select.
+    //
+    // WHAT IS *NOT* AMBIGUOUS, and both exclusions are C#'s: the file's OWN namespace wins outright
+    // over any import (a closer declaration is not a tie), and the project-wide auto-discovery
+    // fallback is never a candidate (it is what runs when NO import supplies the name). So this asks
+    // only about the IMPORTED namespaces, and only once a name has already resolved through one of
+    // them — a name that resolves from the current namespace or from a local scope never reaches it.
+    //
+    // The two candidates come back FULLY QUALIFIED, in import order, so the report can name both and
+    // suggest the qualification that settles it.
+    func TryFindAmbiguousImportedType(name: string, currentNamespace: string?, out firstCandidate: string, out secondCandidate: string): bool {
+        firstCandidate = ""
+        secondCandidate = ""
+        writtenName := TypeArityNames.Display(name)
+
+        ownType: TypeInfo = BuiltInTypes.Unknown
+        ownDeclaration: SymbolDeclaration? = null
+        if TryResolveProjectTypeInNamespace(name, currentNamespace, currentNamespace, out ownType, out ownDeclaration) {
+            return false
+        }
+
+        matchedNamespace: string? = null
+        index := 0
+        while index < usingNamespaces.Count {
+            candidateNamespace := usingNamespaces[index]
+            index = index + 1
+            if string.Equals(candidateNamespace, currentNamespace, StringComparison.Ordinal) {
+                continue
+            }
+
+            candidateType: TypeInfo = BuiltInTypes.Unknown
+            candidateDeclaration: SymbolDeclaration? = null
+            if !TryResolveProjectTypeInNamespace(name, candidateNamespace, currentNamespace, out candidateType, out candidateDeclaration) {
+                continue
+            }
+
+            if matchedNamespace == null {
+                matchedNamespace = candidateNamespace
+                firstCandidate = candidateNamespace + "." + writtenName
+                continue
+            }
+
+            secondCandidate = candidateNamespace + "." + writtenName
+            return true
+        }
+
+        // THE METADATA HALF IS ASKED ONLY WHEN THE SOURCE HALF ALREADY MATCHED, and that is a
+        // MEASURED limit rather than a rule: an assembly sweep is imports x assemblies of
+        // `Assembly.GetType`, a miss is deliberately not cached, and running it for every name that
+        // reaches this gate would put that cost on `Console`, `List` and every other ordinary CLR
+        // spelling. A source declaration in an imported namespace is rare, so asking then is cheap.
+        //
+        // WHAT THAT LEAVES UNREPORTED, named so it is a known limit and not a silent one: two
+        // IMPORTED CLR namespaces that declare the same spelling still resolve first-import-wins,
+        // the order `AnalyzerExternalTypeProbe` has always had. Qualify the reference to settle it.
+        if matchedNamespace == null {
+            return false
+        }
+
+        ambiguityProbe := externalTypeProbe
+        if ambiguityProbe == null {
+            return false
+        }
+
+        firstExternalNamespace := ""
+        if !ambiguityProbe.TryFindImportedExternalNamespace(writtenName, matchedNamespace, out firstExternalNamespace) {
+            return false
+        }
+
+        secondCandidate = firstExternalNamespace + "." + writtenName
+        return true
     }
 
     // One visible namespace. A namespace that is NOT the file's own requires the declaration to be

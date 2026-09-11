@@ -149,10 +149,14 @@ test "source static owner scope resolves source aliases before import aliases" {
     importAliasNames[1] = "caller.nl"
     importAliasScope := SourceOwnerScope(importAliasSources, importAliasNames, SourceOwnerEmptyStructs(), 1)
 
-    SourceOwnerAssertBlocked(importAliasScope, "", "Lib", "Lib.Owner", new string[](0))
+    // A NAMESPACE ALIAS IS A QUALIFICATION, not a binding: `import Demo as Lib` makes `Lib.Owner`
+    // name the same declaration `Demo.Owner` names, which is what the Analyzer binds it to. This
+    // used to be terminal — the alias table holds file aliases and namespace aliases alike, and the
+    // owner tier refused both — so an alias-qualified static call could not be emitted at all.
+    SourceOwnerAssertResolved(importAliasScope, "", "Lib", "Lib.Owner", "Demo.Owner")
 }
 
-test "source static owner scope fences qualified source names and unrelated short ambiguity" {
+test "source static owner scope resolves qualified source names and fences unrelated short ambiguity" {
     sources := new string[](3)
     fileNames := new string[](3)
     sources[0] = "namespace Left\nclass Owner {}\n"
@@ -163,8 +167,13 @@ test "source static owner scope fences qualified source names and unrelated shor
     fileNames[2] = "caller.nl"
     scope := SourceOwnerScope(sources, fileNames, SourceOwnerEmptyStructs(), 2)
 
-    SourceOwnerAssertBlocked(scope, "", "Left", "Left.Owner", new string[](0))
+    // THE QUALIFIED SPELLING NAMES ONE DECLARATION and is not affected by the ambiguity of the bare
+    // one: `Left.Owner` says which `Owner` it means. It used to be terminal, which is what made
+    // `MyApp.Models.Person.Create()` impossible to emit.
+    SourceOwnerAssertResolved(scope, "", "Left", "Left.Owner", "Left.Owner")
 
+    // The BARE spelling is still not a source owner: two namespaces declare it and neither is this
+    // file's own, so nothing here chooses between them.
     SourceOwnerAssertNotSource(scope, "Owner", "Owner")
 }
 

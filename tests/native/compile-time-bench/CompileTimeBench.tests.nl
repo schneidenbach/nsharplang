@@ -543,11 +543,13 @@ test "compile-time bench: the skipped source directories are exactly the twelve 
 // over a declaration's own type parameters added tests/native/constructed-generic-interop; 87 since
 // generic methods on user types added tests/native/user-generic-methods; 88 since named tuple
 // element metadata added tests/native/tuple-names; 89 since external generics over complete source
-// types added tests/native/complete-source-generic-args.
-test "compile-time bench: the corpus is the 89 project.yml projects under examples, tests and templates" {
+// types added tests/native/complete-source-generic-args; 90 since qualified names added
+// tests/native/qualified-names.
+test "compile-time bench: the corpus is the 90 project.yml projects under examples, tests and templates" {
     projects := BenchCollectCorpusProjects(BenchRepositoryRoot())
-    assert projects.Count == 89
+    assert projects.Count == 90
     assert BenchListContains(projects, "examples/01-hello-world")
+    assert BenchListContains(projects, "tests/native/qualified-names")
     assert BenchListContains(projects, "templates/nsharp-console")
     assert BenchListContains(projects, "tests/native/complete-source-generic-args")
     assert BenchListContains(projects, "tests/native/complete-source-generic-args")
@@ -557,6 +559,7 @@ test "compile-time bench: the corpus is the 89 project.yml projects under exampl
     assert BenchListContains(projects, "tests/native/user-generic-methods")
     assert BenchListContains(projects, "tests/native/language-server-diagnostics")
     assert BenchListContains(projects, "tests/native/ownership-audit")
+    assert BenchListContains(projects, "tests/native/qualified-names")
     assert BenchListContains(projects, "tests/native/reference-resolution")
     assert BenchListContains(projects, "tests/native/sdk-project-reference-boundary")
     assert BenchListContains(projects, "tests/native/simd-reductions")

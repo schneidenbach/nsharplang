@@ -17,6 +17,7 @@ enum ErrorCode {
     InvalidCast = 204,
     InvalidTypeArgument = 207,
     GenericConstraintViolation = 208,
+    AmbiguousTypeReference = 209,
     UndefinedVariable = 301,
     UndefinedMember = 303,
     DefiniteAssignmentError = 304,

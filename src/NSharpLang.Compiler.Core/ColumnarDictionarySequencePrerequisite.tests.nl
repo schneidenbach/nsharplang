@@ -350,12 +350,22 @@ test "dictionary sequence prerequisite selects exact acquisition movement curren
         sequence
     )
 
-    assert ColumnarOrdinaryRuntimeDirectCallResolver.Resolve(
+    // AN INHERITED INTERFACE MEMBER IS AN ORDINARY MEMBER. `Reset` and `MoveNext` are declared on
+    // the non-generic `IEnumerator` that every `IEnumerator<T>` extends, and reflection does not put
+    // them in `GetMethods()` — so they used to resolve for ONE named element shape (the string/string
+    // pair the analyzer's own loop needed) and for nothing else. The candidate sweep now walks the
+    // base interfaces for every interface receiver, so the shape of the element stops deciding
+    // whether an inherited member exists.
+    reset := ColumnarOrdinaryRuntimeDirectCallResolver.Resolve(
         enumerator,
         "Reset",
         noArguments,
         false
-    ).IsNotFound
+    )
+    assert reset.IsSelected
+    assert reset.DeclaringType.FullName == "System.Collections.IEnumerator"
+    assert reset.ReturnType == ColumnarTypeOfPlanner.RequiredVoidType()
+    assert reset.UsesCallVirtual
 
     intPair := DictionarySequencePairType(typeof(string), typeof(int))
     intSequenceArguments := new Type[](1)
@@ -364,12 +374,16 @@ test "dictionary sequence prerequisite selects exact acquisition movement curren
         "System.Collections.Generic.IEnumerator`1",
         intSequenceArguments
     )
-    assert ColumnarOrdinaryRuntimeDirectCallResolver.Resolve(
+    intMovement := ColumnarOrdinaryRuntimeDirectCallResolver.Resolve(
         intEnumerator,
         "MoveNext",
         noArguments,
         false
-    ).IsNotFound
+    )
+    assert intMovement.IsSelected
+    assert intMovement.LookupType == intEnumerator
+    assert intMovement.DeclaringType.FullName == "System.Collections.IEnumerator"
+    assert intMovement.ReturnType == typeof(bool)
     assert ColumnarOrdinaryRuntimeDirectCallResolver.Resolve(
         enumerator,
         "MoveNext",

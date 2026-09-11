@@ -109,6 +109,26 @@ class ErrorMessageBuilder {
         }
     }
 
+    // NL209. TWO IMPORTS SUPPLY THIS NAME AND NEITHER IS CLOSER, so the compiler will not pick one:
+    // whichever `import` happens to be written first is not what the developer meant to select. Both
+    // candidates are named IN FULL, because the fix is to write one of them — and the qualification
+    // the hint suggests is the FIRST, which is the one a first-import-wins order would have chosen
+    // silently.
+    static func AmbiguousTypeReference(fileName: string?, line: int, column: int, sourceSnippet: string?, length: int, name: string, firstCandidate: string, secondCandidate: string): CompilerError {
+        humanExplanation := "`" + name + "` could mean either of two types on line " + IntText(line) + ", and both are in scope here:"
+        contextualHint := "`" + firstCandidate + "` and `" + secondCandidate + "` are brought in by different imports,\n" + "so neither one is closer than the other. A type declared in this file's own namespace\n" + "would win outright; two imports tie."
+
+        return new CompilerError(ErrorCode.AmbiguousTypeReference, "'" + name + "' is ambiguous between '" + firstCandidate + "' and '" + secondCandidate + "'", line, column, ErrorSeverity.Error) {
+            FileName: fileName,
+            SourceSnippet: sourceSnippet,
+            Length: length,
+            HumanExplanation: humanExplanation,
+            ContextualHint: contextualHint,
+            Suggestion: "Write the one you mean in full — '" + firstCandidate + "' — or remove the import that supplies the other.",
+            DocsUrl: DiagnosticDocs.UrlFor("NL209")
+        }
+    }
+
     static func UndefinedFunction(fileName: string, line: int, column: int, sourceSnippet: string, length: int, functionName: string, similarNames: List<string>): CompilerError {
         humanExplanation := "I cannot find a function named `" + functionName + "` on line " + IntText(line) + ":"
         contextualHint := "Define `func " + functionName + "(...)` before calling it, or import the function if it lives elsewhere."
