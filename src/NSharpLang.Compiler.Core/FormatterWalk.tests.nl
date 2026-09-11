@@ -932,3 +932,76 @@ test "a case with two statements keeps both inside its braces, which no unbraced
     statement := new SwitchStatement(FwkIdentifier("value"), cases, 0, 0)
     assert FwkStatementText(statement) == "switch value {|    default => {|        first|        second|    }|}|"
 }
+
+// ---- the hug exemption and MORE THAN ONE block-bodied argument ------------------------------------
+//
+// `ShouldWrapList` recognises a list written FLAT by `maxElementLine == openLine`, and the hug
+// exemption under that is what keeps `f(x => { … })` on one line. Asked of the RAW argument lines, a
+// SECOND block-bodied argument defeats it: after the flat print the second lambda begins on the line
+// where the first one's closing brace sits, so the next pass wrapped what the previous one had just
+// written. The formatter's own idempotency check caught that and refused the file, which made
+// `u.Switch(a => { … }, b => { … })` unformattable rather than mis-formatted.
+//
+// `EffectiveMaxArgumentLine` is the fix and it is about the OUTPUT: an argument this walk ALWAYS
+// writes across lines pushes every argument after it below the opener whatever the author wrote, so
+// their lines are not asked. A merely WRAPPED argument is excluded — its wrapping is the author's and
+// is preserved.
+
+func FwkBlockLambda(name: string, line: int): Argument {
+    parameters := FwkEmptyParameters()
+    parameters.Add(FwkParameter(name, "var"))
+    lambda := new LambdaExpression(parameters, null, FwkOneStatementBlock(), line, 1)
+    return new Argument(null, lambda, ArgumentModifier.None)
+}
+
+func FwkPlainArgument(name: string, line: int): Argument {
+    return new Argument(null, new IdentifierExpression(name, line, 1), ArgumentModifier.None)
+}
+
+func FwkArgumentList(first: Argument, second: Argument): List<Argument> {
+    arguments := FwkEmptyArguments()
+    arguments.Add(first)
+    arguments.Add(second)
+    return arguments
+}
+
+test "a second block-bodied argument does not turn a flat list into a wrapped one" {
+    // Both lambdas written on the opener's line: the list is flat and stays flat.
+    flat := FwkArgumentList(FwkBlockLambda("a", 1), FwkBlockLambda("b", 1))
+    assert FormatterWalk.EffectiveMaxArgumentLine(flat, 1) == 1
+
+    // The SAME list as the flat print leaves it — the second lambda now begins on the line where the
+    // first one's brace closed. It is still the flat list, which is what makes the print a fixed point.
+    printed := FwkArgumentList(FwkBlockLambda("a", 1), FwkBlockLambda("b", 3))
+    assert FormatterWalk.EffectiveMaxArgumentLine(printed, 1) == 1
+}
+
+test "an argument the AUTHOR wrapped still reports its own line" {
+    // A plain argument below the opener is a wrapped list, and nothing about the hug changes that.
+    wrapped := FwkArgumentList(FwkPlainArgument("a", 2), FwkPlainArgument("b", 3))
+    assert FormatterWalk.EffectiveMaxArgumentLine(wrapped, 1) == 3
+
+    // A wrapped argument does NOT swallow the lines after it: only a shape this walk always writes
+    // across lines does, and a plain identifier on a later line is the author's own wrapping.
+    mixed := FwkArgumentList(FwkPlainArgument("a", 1), FwkPlainArgument("b", 2))
+    assert FormatterWalk.EffectiveMaxArgumentLine(mixed, 1) == 2
+}
+
+test "only the shapes this walk ALWAYS writes across lines swallow the lines after them" {
+    parameters := FwkEmptyParameters()
+    parameters.Add(FwkParameter("x", "var"))
+
+    blockLambda := new LambdaExpression(parameters, null, FwkOneStatementBlock(), 0, 0)
+    expressionLambda := new LambdaExpression(parameters, FwkIdentifier("x"), null, 0, 0)
+
+    assert FormatterWalk.ExpressionAlwaysSpansLines(blockLambda)
+    assert !FormatterWalk.ExpressionAlwaysSpansLines(expressionLambda)
+    assert !FormatterWalk.ExpressionAlwaysSpansLines(FwkIdentifier("x"))
+
+    // A `new` whose own argument list the author wrapped spans lines, but it is not one of these:
+    // its wrapping is preserved rather than forced, so the arguments after it still mean their lines.
+    wrappedNew := new NewExpression(FwkType("Foo"), FwkArgumentList(FwkPlainArgument("a", 2), FwkPlainArgument("b", 3)), null, 1, 1, null)
+    wrappedNew.EndLine = 4
+    assert FormatterWalk.ExpressionSpansLines(wrappedNew)
+    assert !FormatterWalk.ExpressionAlwaysSpansLines(wrappedNew)
+}

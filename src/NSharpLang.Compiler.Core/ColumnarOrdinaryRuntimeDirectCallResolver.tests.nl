@@ -340,3 +340,72 @@ test "ordinary runtime builder-bound selection is independent of open candidate 
     assert forward.UsesCallVirtual
     assert reverse.UsesCallVirtual
 }
+
+// ─── THE UNIQUENESS TIER: A SITE WHOSE ARGUMENTS CANNOT BE TYPED YET ──────────────────────────────
+//
+// A LAMBDA ARGUMENT HAS NO TYPE UNTIL IT IS BOUND to the parameter it is passed to, so a call like
+// `u.Switch(a => …, b => …)` cannot be scored. Scoring is the ONLY thing this tier gives up:
+// candidate admission, the excluded shapes and the dispatch rule are the resolver's own.
+
+test "the uniqueness tier selects the one declaration of a name at an arity" {
+    forEach := ColumnarOrdinaryRuntimeDirectCallResolver.ResolveUniqueAtArity(typeof(System.Collections.Generic.List<int>), "ForEach", 1, false)
+
+    assert forEach.IsSelected
+    assert forEach.ParameterTypes.Length == 1
+    assert forEach.ParameterTypes[0] == typeof(Action<int>)
+    assert forEach.UsesCallVirtual
+    assert !forEach.IsStatic
+}
+
+// THE SIGNATURE IS THE RECEIVER'S, not the definition's: `List<int>.Find` takes `Predicate<int>` and
+// answers `int`.
+test "the selected signature is substituted by the receiver's own type arguments" {
+    find := ColumnarOrdinaryRuntimeDirectCallResolver.ResolveUniqueAtArity(typeof(System.Collections.Generic.List<int>), "Find", 1, false)
+
+    assert find.IsSelected
+    assert find.ParameterTypes[0] == typeof(Predicate<int>)
+    assert find.ReturnType == typeof(int)
+}
+
+// A STATIC member of a CONSTRUCTED owner is chosen on the closed type, which is what makes
+// `Comparison<int>` — rather than an open `Comparison<T>` — the parameter a lambda takes its shape
+// from.
+test "a static member of a constructed generic owner is selected on the CLOSED type" {
+    create := ColumnarOrdinaryRuntimeDirectCallResolver.ResolveUniqueAtArity(typeof(System.Collections.Generic.Comparer<int>), "Create", 1, true)
+
+    assert create.IsSelected
+    assert create.ParameterTypes[0] == typeof(Comparison<int>)
+    assert create.ReturnType == typeof(System.Collections.Generic.Comparer<int>)
+    assert create.IsStatic
+    assert !create.UsesCallVirtual
+}
+
+// MORE THAN ONE CANDIDATE IS REFUSED RATHER THAN GUESSED, because the argument types are exactly what
+// would have chosen between them.
+test "a name with several declarations at the arity is refused" {
+    assert !ColumnarOrdinaryRuntimeDirectCallResolver.ResolveUniqueAtArity(typeof(System.Text.StringBuilder), "Append", 1, false).IsSelected
+    assert !ColumnarOrdinaryRuntimeDirectCallResolver.ResolveUniqueAtArity(typeof(Console), "WriteLine", 1, true).IsSelected
+}
+
+// The tier's exclusions are the resolver's own: a GENERIC declaration belongs to the generic tiers,
+// a wrong arity is not a candidate, and staticness must match.
+test "the uniqueness tier keeps the resolver's own exclusions" {
+    // Generic: `ConvertAll<TOutput>` is the explicit/inference tiers' shape, not this one.
+    assert !ColumnarOrdinaryRuntimeDirectCallResolver.ResolveUniqueAtArity(typeof(System.Collections.Generic.List<int>), "ConvertAll", 1, false).IsSelected
+
+    // Arity: `ForEach` takes one argument and nothing else.
+    assert !ColumnarOrdinaryRuntimeDirectCallResolver.ResolveUniqueAtArity(typeof(System.Collections.Generic.List<int>), "ForEach", 2, false).IsSelected
+
+    // Staticness: `ForEach` is an instance method.
+    assert !ColumnarOrdinaryRuntimeDirectCallResolver.ResolveUniqueAtArity(typeof(System.Collections.Generic.List<int>), "ForEach", 1, true).IsSelected
+
+    // A name nothing declares.
+    assert !ColumnarOrdinaryRuntimeDirectCallResolver.ResolveUniqueAtArity(typeof(System.Collections.Generic.List<int>), "NoSuchMember", 0, false).IsSelected
+}
+
+// An OPEN owner has no reachable member table, so it keeps the exact resolver's answer.
+test "an open generic owner selects nothing" {
+    listDefinition := typeof(System.Collections.Generic.List<int>).GetGenericTypeDefinition()
+
+    assert !ColumnarOrdinaryRuntimeDirectCallResolver.ResolveUniqueAtArity(listDefinition, "ForEach", 1, false).IsSelected
+}
