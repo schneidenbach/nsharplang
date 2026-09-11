@@ -1126,6 +1126,66 @@ NOT YET: a generic method declared by an `interface` (refused at parse into colu
 inferring a type parameter that appears only in a delegate's RESULT from the lambda's body — the same
 limit a generic FREE function with a `Func<TValue, TResult>` parameter has.
 
+### Generic methods declared by EXTERNAL types
+
+The analyzer side of a reflected generic call has always accepted a written type-argument list:
+`AnalyzerReflectionArgumentBinder` requires the candidate to be a generic method DEFINITION whose own
+arity equals the written count, converts each written argument with `TryConvertWrittenTypeArgument`
+(an N#-only type contributes `object` as its CLR binding surrogate), and seeds the candidate's
+bindings with it before the arguments are bound. A count that matches nothing simply drops the
+candidate.
+
+What that left was a REPORT, not a binding: a dropped candidate reached
+`AnalyzerReflectionCallReporter.ReportUnboundCall`, which recited the ARGUMENT types (NL402) for a
+mistake that is about the TYPE-argument list. `TryReportWrittenTypeArgumentArity` now answers first
+and reports NL207 in the exact words `ValidateWrittenTypeArgumentCount` uses for a source
+declaration. It is deliberately silent whenever the list is not the whole story — a candidate of the
+written arity exists, or the name declares several arities and none is the written one — so those
+still get the ordinary overload report, which lists every signature.
+
+The EMIT side is where the gap actually was, and it is `ColumnarExplicitRuntimeGenericMethodResolver`
+(in `ColumnarRuntimeGenericMethodResolver.nl`), the explicit twin of the inference tier beside it:
+
+- Candidate admission is SHARED — `IsInferableCandidateShape` is the half of the inference tier's
+  rule that does not depend on the arguments — so the two tiers cannot disagree about which
+  declarations are reachable. The explicit tier adds only the arity rule.
+- `MakeGenericMethod` is what enforces the declared constraints; a candidate it refuses is dropped,
+  which is how a constraint violation becomes a "no such call" answer rather than an exception at
+  emit.
+- The closed signature is SUBSTITUTED rather than read back, for the reason the inference tier states:
+  a `MethodBuilderInstantiation` reports the DEFINITION's own parameters.
+- A trailing optional whose metadata default is the null reference is filled (the ordinary resolver's
+  `CanFillOptional`), so `JsonSerializer.Deserialize<T>(json)` binds without `options`.
+- Two entry points: `ResolveWithFacts` scores the candidates with the shared argument-flow scorer when
+  the site's arguments all type ahead of emission; `Resolve` requires a UNIQUE candidate at the arity,
+  which is the only honest answer for a site carrying a lambda or an `out`.
+
+`ColumnarIlEmitter.TryEmitExplicitGenericExternalCall` is the call site. It reads the parser's kind-38
+callee exactly as `TryEmitExplicitGenericSourceCall` does — the node keeps only the dotted NAME, so a
+lexical value binding in front of the member is an INSTANCE receiver and anything else that resolves
+to a type is a STATIC owner — and emits each argument against the SUBSTITUTED parameter type, which
+is what gives a lambda argument its contextual shape and sends an `out` argument through the by-ref
+path.
+
+Two neighbours moved with it, because the same "the planner cannot type these arguments" problem
+produced them:
+
+- `ColumnarOrdinaryRuntimeDirectCallResolver.ResolveUniqueAtArity` is the non-generic counterpart
+  (`u.Switch(a => ..., b => ...)`, `items.ForEach(...)`, `Comparer<int>.Create(...)`). The emitter's
+  arm runs ahead of its per-receiver residual table and preflights every argument with
+  `CanDeclaredCallArgumentMatch` before emitting the first one, so a selection it cannot complete
+  leaves the stack untouched.
+- `TryGetSupportedDelegateSignature` read a delegate's signature from its NAME — an Action/Func table
+  — so `Predicate<T>`, `Comparison<T>` and every user-written delegate had no lambda form. Any other
+  delegate now reads its signature from its own `Invoke`.
+
+NOT YET: a written type-argument list directly on a call's RESULT (`Make().As<int>()`). The parser's
+kind-38 node keeps only the callee's TEXT, so the receiver subtree is gone by the time the emitter
+sees it and `Make().Is` is not a name anything can resolve; bind the receiver first. An ORDINARY
+member off a call result does read — `ColumnarIlEmitter`'s member-access arm asks
+`ColumnarRuntimeInstanceMemberResolver` and spills a value receiver for its address, where it used to
+consult a per-receiver residual table (`Make().IsOk` read and `Make().Index` did not).
+
 ## Type Checking
 
 ### Assignment Compatibility

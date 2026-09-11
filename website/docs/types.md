@@ -928,6 +928,73 @@ Inference is checked, not guessed: a type parameter two arguments would bind dif
 rather than a silent choice, and the inferred arguments are validated against the method's declared
 constraints.
 
+#### Writing the type arguments
+
+When inference has nothing to go on — a method whose type parameters appear only in its RESULT, or
+only in a lambda's parameter — write the list. It works on a static method, on an instance method,
+and on a method of a constructed generic receiver:
+
+```n#
+import System.Collections.Generic
+import System.Text.Json
+import System.Threading.Tasks
+import NSharpLang.Runtime
+
+func Ages(json: string): Dictionary<string, int> {
+    // A trailing optional whose default is null is filled, so `options` need not be written.
+    return JsonSerializer.Deserialize<Dictionary<string, int>>(json)
+}
+
+func Texts(values: List<int>): List<string> {
+    // An INSTANCE generic method; the lambda is bound against Converter<int, string>.
+    return values.ConvertAll<string>(v => v.ToString())
+}
+
+func Ready(value: int): Task<int> {
+    return Task.FromResult<int>(value)   // written where inference would also have done
+}
+
+func Descending(): Comparer<int> {
+    // A static member of a CONSTRUCTED owner: the member is chosen on Comparer<int>, so the
+    // lambda takes its shape from Comparison<int>.
+    return Comparer<int>.Create((left, right) => right - left)
+}
+
+func Describe(u: Union<int, string>): string {
+    if u.Is<int>() {
+        seen := -1
+        if u.TryGet<int>(out seen) {          // an `out` parameter over the written argument
+            return u.As<int>().ToString() + "/" + seen.ToString()
+        }
+    }
+
+    return u.Match<string>(a => a.ToString(), b => b)
+}
+
+func Wrap(value: int): Result<int, string> {
+    return ResultFactory.Ok<int, string>(value)   // a generic STATIC on an external type
+}
+```
+
+The rules are the ones C# states, and they are the same rules your own generic methods follow:
+
+- The **count must match the declaration's arity**. `u.Is<int, string>()` against `Is<T>()` is
+  [NL207](./errors/NL207.md), in the same words a method of your own would report.
+- The written arguments are **validated against the declared constraints**, so a type argument a
+  constraint refuses does not bind.
+- A **trailing optional** parameter whose default is `null` is filled, which is why
+  `JsonSerializer.Deserialize<T>(json)` needs no `options`.
+- A **lambda argument** is bound against the SUBSTITUTED parameter type, so it knows its own
+  parameter and result types; that is what makes `Match<string>(a => ..., b => ...)` and
+  `Comparer<int>.Create((a, b) => a - b)` write the way they do.
+- An `out` or `ref` parameter over a type parameter closes the same way: `TryGet<int>(out seen)`
+  passes the address of an `int`.
+
+Overload resolution over the written list is the ordinary one whenever the arguments have types of
+their own. A call whose arguments cannot all be typed before they are bound — one carrying a lambda,
+or an `out` — binds only when the name leaves exactly ONE candidate at that arity; an ambiguity there
+is refused rather than guessed, because the argument types are what would have chosen between them.
+
 ### Over your own type parameters
 
 Everything above holds when the type argument is a type parameter of the declaration you are writing
@@ -1126,17 +1193,14 @@ Two rules the compiler enforces about the type-argument list itself:
 - An argument that must be **boxed into an `object` parameter of a GENERIC function**
   (`Wrap<int>(value, fallback)` where `Wrap` takes `o: object?`) is not converted yet. The same
   argument reaches a non-generic function's `object?` parameter without ceremony.
-- A generic method called **directly on a call's RESULT** (`Make().As<int>()`) does not resolve; bind
-  the receiver to a name first (`made := Make()` then `made.As<int>()`).
-- A **generic METHOD of an external type** does not bind: `u.Is<int>()` and
-  `r.Match<string>(ok, err)` on the runtime's `Union<T0, T1>` / `Result<TOk, TErr>`, and the static
-  `ResultFactory.Ok<int, string>(42)`, all fail to resolve. A generic method on one of *your own*
-  types is unaffected, and so is a non-generic member of the external type.
+- A generic method written with its type arguments **directly on a call's RESULT**
+  (`Make().As<int>()`) does not resolve; bind the receiver to a name first (`made := Make()` then
+  `made.As<int>()`). An ordinary member off a call result (`Make().Index`) is unaffected.
 - A **fully qualified** external type reaches fewer positions than an imported one. Written out
-  (`NSharpLang.Runtime.Result<int, string>`) it works in `typeof`, in a `:=` initializer and as a
-  local's declared type, but not as a `type` alias target, a parameter type, an annotated local's
-  initializer, a `new` expression, or the receiver of a generic or `out`-taking member. Importing the
-  namespace and using the simple name reaches all of those.
+  (`NSharpLang.Runtime.Result<int, string>`) it works in `typeof`, in a `:=` initializer, as a
+  local's declared type and as the receiver of a generic or `out`-taking member, but not as a `type`
+  alias target, a parameter type, an annotated local's initializer, or a `new` expression. Importing
+  the namespace and using the simple name reaches all of those.
 - `default` is written **bare**; the C#-style `default(T)` is not N# syntax — the parser reads it as
   the keyword followed by a call, and the analyzer reports a call on a maybe-null value. Annotate the
   target instead (`x: T = default`, `return default` on a typed function).

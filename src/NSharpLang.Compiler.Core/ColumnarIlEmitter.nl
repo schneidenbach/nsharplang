@@ -10283,6 +10283,37 @@ sealed class ColumnarIlEmitter {
                     columnarResolvedType = structReceiverType.GetGenericArguments()[member == "Key" ? 0 : 1]
                     return true
                 }
+                // ORDINARY CLR MEMBER RESOLUTION for a receiver that is a VALUE rather than a storage
+                // location — a call result, an element, anything the instance-member planner could not
+                // claim. Reaching a member through one of those was a per-receiver residual table, so
+                // `Make().IsOk` on the runtime `Result` read while `Make().Index` on the runtime
+                // `Union` declined; the resolver the planner itself uses answers both the same way,
+                // and a VALUE receiver is spilled so the getter has the address it takes.
+                runtimeMember := ColumnarRuntimeInstanceMemberSelection.Empty()
+                if (ColumnarRuntimeInstanceMemberResolver.TrySelect(structReceiverType, member, out runtimeMember)) {
+                    if (!runtimeMember.ReceiverIsReference) {
+                        runtimeMemberTemp := _il.DeclareLocal(structReceiverType)
+                        _il.Emit(OpCodes.Stloc, runtimeMemberTemp)
+                        _il.Emit(OpCodes.Ldloca, runtimeMemberTemp)
+                    }
+                    if (runtimeMember.IsField) {
+                        if (runtimeMember.Field == null) {
+                            return false
+                        }
+                        _il.Emit(OpCodes.Ldfld, runtimeMember.Field)
+                    } else {
+                        if (runtimeMember.Getter == null) {
+                            return false
+                        }
+                        runtimeMemberOpcode := match runtimeMember.ReceiverIsReference {
+                            true => OpCodes.Callvirt,
+                            _ => OpCodes.Call
+                        }
+                        _il.Emit(runtimeMemberOpcode, runtimeMember.Getter)
+                    }
+                    columnarResolvedType = runtimeMember.ResultType
+                    return true
+                }
                 fieldStruct := ColumnarSourceDefinitionResolver.FindByBuilderIdentity(_structRegistry.get_Values(), structReceiverType)
                 if (fieldStruct == null) {
                     // A CLOSED user-generic receiver (`Box<int>`): resolve on the OPEN definition (own

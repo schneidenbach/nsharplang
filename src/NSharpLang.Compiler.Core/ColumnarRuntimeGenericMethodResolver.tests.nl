@@ -150,3 +150,145 @@ test "runtime generic method resolver closes a method over a type parameter of t
     listDefinition := typeof(List<int>).GetGenericTypeDefinition()
     assert !ColumnarRuntimeGenericMethodResolver.Resolve(typeof(HashCode), "Combine", GenericMethodTypes2(typeof(byte), listDefinition), true).IsSelected
 }
+
+// ─── THE EXPLICIT TWIN: TYPE ARGUMENTS THE CALL SITE WROTE ────────────────────────────────────────
+
+func ExplicitGenericRequiredMethod(selection: ColumnarExplicitGenericCallSelection): MethodInfo {
+    method := selection.Method
+    if method == null {
+        throw new InvalidOperationException("A selected explicit generic call must carry a method handle.")
+    }
+    return method
+}
+
+test "explicit generic resolver closes a STATIC method over the written type arguments" {
+    linqEnumerable := typeof(System.Linq.Enumerable)
+
+    empty := ColumnarExplicitRuntimeGenericMethodResolver.Resolve(linqEnumerable, "Empty", GenericMethodTypes1(typeof(int)), 0, true)
+
+    assert empty.IsSelected
+    emptyMethod := ExplicitGenericRequiredMethod(empty)
+    assert !emptyMethod.get_IsGenericMethodDefinition()
+    assert emptyMethod.GetGenericArguments()[0] == typeof(int)
+    assert empty.ParameterTypes.Length == 0
+    assert empty.ExplicitArgumentCount == 0
+    assert empty.ReturnType == typeof(IEnumerable<int>)
+    assert empty.IsStatic
+    assert !empty.UsesCallVirtual
+}
+
+// NOTHING IS INFERRED HERE: `Empty<string>()` and `Empty<int>()` differ only in what was written, and
+// each closes over exactly that.
+test "a different written argument closes a different instantiation of the same method" {
+    linqEnumerable := typeof(System.Linq.Enumerable)
+
+    ints := ColumnarExplicitRuntimeGenericMethodResolver.Resolve(linqEnumerable, "Empty", GenericMethodTypes1(typeof(int)), 0, true)
+    texts := ColumnarExplicitRuntimeGenericMethodResolver.Resolve(linqEnumerable, "Empty", GenericMethodTypes1(typeof(string)), 0, true)
+
+    assert ints.IsSelected
+    assert texts.IsSelected
+    assert ints.ReturnType != texts.ReturnType
+    assert texts.ReturnType == typeof(IEnumerable<string>)
+}
+
+test "explicit generic resolver closes an INSTANCE method and reports the receiver's dispatch" {
+    listOfInt := typeof(List<int>)
+
+    convert := ColumnarExplicitRuntimeGenericMethodResolver.Resolve(listOfInt, "ConvertAll", GenericMethodTypes1(typeof(string)), 1, false)
+
+    assert convert.IsSelected
+    assert convert.ParameterTypes.Length == 1
+    assert convert.ParameterTypes[0] == typeof(Converter<int, string>)
+    assert convert.ReturnType == typeof(List<string>)
+    assert !convert.IsStatic
+
+    // A reference receiver dispatches virtually; a VALUE receiver takes an address and a plain call.
+    assert convert.UsesCallVirtual
+}
+
+// A STATIC call is a plain `call` whatever the owner is, and the written arguments are the
+// instantiation — `HashCode.Combine<byte, string>` takes exactly those two.
+test "a static call reports a non-virtual dispatch and the substituted parameters" {
+    hashOwner := typeof(HashCode)
+
+    combine := ColumnarExplicitRuntimeGenericMethodResolver.Resolve(hashOwner, "Combine", GenericMethodTypes2(typeof(byte), typeof(string)), 2, true)
+
+    assert combine.IsSelected
+    assert !combine.UsesCallVirtual
+    assert combine.IsStatic
+    assert combine.ParameterTypes[0] == typeof(byte)
+    assert combine.ParameterTypes[1] == typeof(string)
+    assert combine.ReturnType == typeof(int)
+}
+
+// A TRAILING OPTIONAL whose metadata default is the null reference is filled, which is the whole
+// reason `JsonSerializer.Deserialize<T>(json)` binds without writing `options`.
+test "a trailing optional with a null default is filled, and the supplied count says how many were written" {
+    serializer := typeof(System.Text.Json.JsonSerializer)
+
+    // `Deserialize<TValue>` declares eight one-argument-plus-options overloads, so the source it reads
+    // from is what picks one.
+    deserialize := ColumnarExplicitRuntimeGenericMethodResolver.ResolveWithFacts(serializer, "Deserialize", GenericMethodTypes1(typeof(string)), GenericMethodTypes1(typeof(string)), ColumnarDirectCallArgumentFacts.Empty(1), true)
+
+    assert deserialize.IsSelected
+    assert deserialize.ParameterTypes.Length == 2
+    assert deserialize.ExplicitArgumentCount == 1
+    assert deserialize.ParameterTypes[0] == typeof(string)
+    assert deserialize.ParameterTypes[1] == typeof(System.Text.Json.JsonSerializerOptions)
+    assert deserialize.ReturnType == typeof(string)
+}
+
+// THE WRITTEN COUNT MUST MATCH THE DECLARATION'S ARITY. A candidate of another arity is not a
+// candidate at all, so nothing is closed and the call site reports the ordinary arity diagnostic.
+test "a written type-argument count the declaration does not have selects nothing" {
+    linqEnumerable := typeof(System.Linq.Enumerable)
+
+    assert !ColumnarExplicitRuntimeGenericMethodResolver.Resolve(linqEnumerable, "Empty", GenericMethodTypes2(typeof(int), typeof(string)), 0, true).IsSelected
+
+    hashOwner := typeof(HashCode)
+    assert !ColumnarExplicitRuntimeGenericMethodResolver.Resolve(hashOwner, "Combine", GenericMethodTypes1(typeof(byte)), 2, true).IsSelected
+}
+
+// CONSTRAINTS ARE ENFORCED BY `MakeGenericMethod`, so a violated one drops the candidate here rather
+// than throwing at emit. `Enum.Parse<TEnum>(string) where TEnum : struct, Enum` takes an enum and
+// nothing else.
+test "a written type argument the declared constraints refuse selects nothing" {
+    enumOwner := typeof(Enum)
+
+    // `Parse<TEnum>` declares a `string` and a `ReadOnlySpan<char>` overload at this arity, so the
+    // argument type is what picks one.
+    textArgument := GenericMethodTypes1(typeof(string))
+    accepted := ColumnarExplicitRuntimeGenericMethodResolver.ResolveWithFacts(enumOwner, "Parse", GenericMethodTypes1(typeof(DayOfWeek)), textArgument, ColumnarDirectCallArgumentFacts.Empty(1), true)
+    refused := ColumnarExplicitRuntimeGenericMethodResolver.ResolveWithFacts(enumOwner, "Parse", GenericMethodTypes1(typeof(string)), textArgument, ColumnarDirectCallArgumentFacts.Empty(1), true)
+
+    assert accepted.IsSelected
+    assert accepted.ReturnType == typeof(DayOfWeek)
+    assert !refused.IsSelected
+}
+
+// A NAME AND ARITY THAT LEAVE MORE THAN ONE CANDIDATE are refused by the uniqueness tier, because the
+// argument TYPES are exactly what would have chosen between them — and a site that reaches this tier
+// (a lambda argument, an `out`) does not have them. The scored tier answers the same call once the
+// types are known.
+test "an ambiguity is refused by the uniqueness tier and resolved by the scored one" {
+    linqEnumerable := typeof(System.Linq.Enumerable)
+
+    // `Enumerable.Select<TSource, TResult>` declares two arity-2 overloads: over `Func<T, TResult>`
+    // and over `Func<T, int, TResult>`.
+    ambiguous := ColumnarExplicitRuntimeGenericMethodResolver.Resolve(linqEnumerable, "Select", GenericMethodTypes2(typeof(int), typeof(string)), 2, true)
+    assert !ambiguous.IsSelected
+
+    argumentTypes := GenericMethodTypes2(typeof(IEnumerable<int>), typeof(Func<int, string>))
+    scored := ColumnarExplicitRuntimeGenericMethodResolver.ResolveWithFacts(linqEnumerable, "Select", GenericMethodTypes2(typeof(int), typeof(string)), argumentTypes, ColumnarDirectCallArgumentFacts.Empty(2), true)
+    assert scored.IsSelected
+    assert scored.ParameterTypes[1] == typeof(Func<int, string>)
+    assert scored.ReturnType == typeof(IEnumerable<string>)
+}
+
+// The owner boundary the inference tier keeps, kept here for the same reason: an open definition has
+// no reachable member table and a method of one could not be closed without the TYPE's arguments.
+test "an open or builder-bound owner selects nothing" {
+    listDefinition := typeof(List<int>).GetGenericTypeDefinition()
+
+    assert !ColumnarExplicitRuntimeGenericMethodResolver.Resolve(listDefinition, "ConvertAll", GenericMethodTypes1(typeof(string)), 1, false).IsSelected
+}

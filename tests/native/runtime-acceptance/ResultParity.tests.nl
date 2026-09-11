@@ -17,13 +17,10 @@ import NSharpLang.Runtime
 // carries the rows that need the C# type by SIMPLE name — an `out` parameter's receiver — plus the
 // identity proof neither file could make before.
 //
-// WHAT THIS FILE CANNOT YET SAY. `Match<TResult>(...)` is asserted against the translation in
-// `Result.tests.nl` and has no row here: a GENERIC INSTANCE METHOD of an external constructed
-// generic does not bind yet (`r.Match<string>(...)` declines with "generic call 'r.Match' with 2
-// argument(s) could not be resolved"), and neither does a generic STATIC method of an external
-// type, which is what keeps `ResultFactory.Ok<int, string>(42)` out of this file. Both are compiler
-// gaps, recorded in `website/docs/types.md` under "Current limits", and neither is a claim that the
-// two types differ.
+// `Match<TResult>(...)` and `ResultFactory.Ok<int, string>(42)` had no row here until generic
+// methods declared by an EXTERNAL type could be called — the first is a generic INSTANCE method of
+// an external constructed generic, the second a generic STATIC one — and both are compared against
+// the C# type below.
 func RuntimeOk(): Result<int, string> {
     return Result<int, string>.Ok(42)
 }
@@ -265,4 +262,83 @@ test "the emitted metadata is the same shape on both types" {
 
     assert runtimeType.get_IsValueType()
     assert runtimeDefinition.get_Name() == "Result`2"
+}
+
+// ─── THE GENERIC METHODS ──────────────────────────────────────────────────────────────────────────
+
+test "Match<TResult> runs the live arm and returns the same text, on both types" {
+    runtimeOk := RuntimeOk()
+    runtimeErr := RuntimeErr()
+    translationOk := TranslationOk()
+    translationErr := TranslationErr()
+
+    runtimeFromOk := runtimeOk.Match<string>(v => v.ToString(), e => e)
+    translationFromOk := translationOk.Match<string>(v => v.ToString(), e => e)
+    runtimeFromErr := runtimeErr.Match<string>(v => v.ToString(), e => e)
+    translationFromErr := translationErr.Match<string>(v => v.ToString(), e => e)
+
+    assert runtimeFromOk == translationFromOk
+    assert runtimeFromErr == translationFromErr
+    assert runtimeFromOk == "42"
+    assert runtimeFromErr == "failure"
+}
+
+test "Match<TResult> on an UNINITIALIZED result throws the same message, on both types" {
+    runtimeUninitialized: Result<int, string> = default
+    translationUninitialized: NSharpLang.RuntimeAcceptance.Result<int, string> = default
+
+    runtimeMessage := "no throw"
+    try {
+        reached := runtimeUninitialized.Match<string>(v => v.ToString(), e => e)
+        print reached
+    } catch ex: InvalidOperationException {
+        runtimeMessage = ex.Message
+    }
+
+    translationMessage := "no throw"
+    try {
+        reached := translationUninitialized.Match<string>(v => v.ToString(), e => e)
+        print reached
+    } catch ex: InvalidOperationException {
+        translationMessage = ex.Message
+    }
+
+    assert runtimeMessage == translationMessage
+    assert runtimeMessage == "The result value was not initialized with either arm."
+}
+
+// The FACTORY is the generic STATIC half: `ResultFactory.Ok<TOk, TErr>` writes both of the result's
+// own type arguments at the call, and neither can be inferred from the single value argument.
+test "ResultFactory.Ok and Err build the same results as the type's own factories, on both types" {
+    runtimeFactoryOk := ResultFactory.Ok<int, string>(42)
+    translationFactoryOk := NSharpLang.RuntimeAcceptance.ResultFactory.Ok<int, string>(42)
+    runtimeFactoryErr := ResultFactory.Err<int, string>("failure")
+    translationFactoryErr := NSharpLang.RuntimeAcceptance.ResultFactory.Err<int, string>("failure")
+
+    assert runtimeFactoryOk.IsOk == translationFactoryOk.IsOk
+    assert runtimeFactoryErr.IsErr == translationFactoryErr.IsErr
+    assert runtimeFactoryOk.OkValue == translationFactoryOk.OkValue
+    assert runtimeFactoryErr.ErrValue == translationFactoryErr.ErrValue
+
+    assert runtimeFactoryOk == RuntimeOk()
+    assert translationFactoryOk == TranslationOk()
+    assert runtimeFactoryErr == RuntimeErr()
+    assert translationFactoryErr == TranslationErr()
+}
+
+test "the factory's result is the CONSTRUCTED type the written arguments name, on both types" {
+    runtimeFactoryOk := ResultFactory.Ok<int, string>(42)
+    translationFactoryOk := NSharpLang.RuntimeAcceptance.ResultFactory.Ok<int, string>(42)
+    runtimeBoxed: object = runtimeFactoryOk
+    translationBoxed: object = translationFactoryOk
+
+    runtimeArguments := runtimeBoxed.GetType().GetGenericArguments()
+    translationArguments := translationBoxed.GetType().GetGenericArguments()
+
+    assert runtimeArguments.Length == translationArguments.Length
+    assert runtimeArguments.Length == 2
+    assert runtimeArguments[0].FullName == translationArguments[0].FullName
+    assert runtimeArguments[1].FullName == translationArguments[1].FullName
+    assert runtimeArguments[0].FullName == "System.Int32"
+    assert runtimeArguments[1].FullName == "System.String"
 }
