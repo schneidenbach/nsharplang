@@ -1227,6 +1227,46 @@ as `ex.Message` does. The admitted-value-type fence still decides what may be re
 Before this, `Message` was the single modelled member — not because it was different, but because it
 was the one that had been needed. Do not add exception members back by name.
 
+## `[MethodImpl]` — the pseudo-custom attribute
+
+`System.Runtime.CompilerServices.MethodImplAttribute` is never a custom-attribute row. The CLR keeps
+what it says in the method definition row's implementation-flags column, so N# routes it there and
+only there, exactly as the C# compiler does. Two owners split the work:
+
+- `MethodImplAttributeFacts.nl` (analyzer side) answers the rules. It recognises the attribute by the
+  resolved type's FULL NAME, never by spelling, so a user type that happens to be called
+  `MethodImplAttribute` stays an ordinary attribute. It reads `MethodImplOptions` off the attribute's
+  own one-argument enum constructor and `MethodCodeType` off its own named-argument field, rather
+  than looking either up by name, so the project's reference set decides what the enums are.
+- `ColumnarMethodImplAttributes.nl` (emit side) turns the attribute into
+  `MethodBuilder.SetImplementationFlags` / `ConstructorBuilder.SetImplementationFlags`, and
+  `ColumnarSourceAttributes.Bind` REFUSES it so no blob is ever written. That refusal is the C#
+  parity: `GetCustomAttributesData()` on an N#-emitted member answers the same nothing.
+
+`ColumnarSourceAttributeInput` therefore carries three things rather than one: the decoded
+`Arguments` (string literals only), `ArgumentTexts` (every argument exactly as written, whatever its
+shape) and `IsStringArgumentList` (whether a blob could be written at all). Before this, an attribute
+whose arguments were not all string literals was dropped by the reader without a word.
+
+Three diagnostics state what the attribute cannot do:
+
+| Code | Rule |
+|---|---|
+| `NL930` | `[MethodImpl]` on a declaration with no implementation-flags column — a type, a field, an enum, an interface, a union. |
+| `NL931` | A value with a bit no `MethodImplOptions` member defines (the C# `ERR_InvalidAttributeArgument` rule). |
+| `NL932` | A combination the type loader refuses: `Synchronized` on a value type's member, `InternalCall` or `Unmanaged` on a member with a body. |
+
+`NL932`'s value-type half is asked from the STRUCT's own declaration over its members, because the
+enclosing type's kind is not in hand when a member is validated on its own; the other two rules are
+the member's own and are asked there. Nothing is measured twice.
+
+N# has no attribute position inside accessor braces, so a property's or indexer's attributes are its
+ACCESSORS' attributes — `ColumnarProgramInputBuilder` copies the property's `SourceAttributes` onto
+both the getter's and the setter's `ColumnarFunctionInput`. That is N#'s spelling of C#'s per-accessor
+`[MethodImpl]`. There is also no way to name a constant of enum type at type scope: `const` is a
+local-variable keyword, not a field modifier, so the `private const MethodImplOptions HotPathImpl`
+shape C# uses in `src/NSharpLang.Runtime/Result.cs` is written out at each member instead.
+
 ## Convention-Based Visibility
 
 Enforced by Analyzer:

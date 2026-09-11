@@ -182,6 +182,9 @@ class DiagnosticCatalog {
         AddCompiler(descriptors, ErrorCode.PossibleNullAccess)
         AddCompiler(descriptors, ErrorCode.NullabilityWarning)
         AddCompiler(descriptors, ErrorCode.ReferenceLoadFailure)
+        AddCompiler(descriptors, ErrorCode.MethodImplTargetInvalid)
+        AddCompiler(descriptors, ErrorCode.MethodImplOptionUndefined)
+        AddCompiler(descriptors, ErrorCode.MethodImplOptionRefusedByClr)
         AddCompiler(descriptors, ErrorCode.InternalCompilerError)
     }
 

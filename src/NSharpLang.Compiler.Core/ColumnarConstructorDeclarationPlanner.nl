@@ -216,6 +216,17 @@ class ColumnarConstructorDeclarationPlanner {
                             }
 
                             builder := definition.DefineUserConstructor(parameterTypes, ctor.ParamDefaultKinds, canonicalDefaultTexts, ctor.VisibilityModifierFlags)
+                            if !ColumnarMethodImplAttributes.TryApplyToConstructor(builder, ctor.Body.SourceAttributes, typeResolution) {
+                                return Declined(
+                                    "emit.methodimpl.options",
+                                    "[MethodImpl] needs a compile-time MethodImplOptions value",
+                                    BuilderName(definition) + ".constructor",
+                                    objectConstructor,
+                                    constructorJobs,
+                                    initializerJobs,
+                                    defaultConstructorJobs
+                                )
+                            }
                             if !ColumnarParameterDefaultEmitter.DefineConstructorParameterMetadataWithTupleNames(
                                 builder,
                                 parameterTypes,

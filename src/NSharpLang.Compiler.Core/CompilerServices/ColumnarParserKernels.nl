@@ -201,10 +201,19 @@ class ParserTokenTable {
     Kinds: int[]
     Starts: int[]
     ValueLengths: int[]
-    constructor(kinds: int[], starts: int[], valueLengths: int[]) {
+    // THE SOURCE TEXT THE OFFSETS INDEX INTO, so the kernels can answer "does this token begin a new
+    // line". A postfix chain ends at a continuation token on a new line — the production parser's rule
+    // (`Current().Line > Previous().Line` in `ParsePostfix`) — and without it `x => value` followed by
+    // the NEXT member's `[Attribute]` reads as `value[Attribute]`. The compacted token stream this
+    // table wraps has already dropped the newline tokens (kind 136), so the gap between the previous
+    // token's end and this token's start is the only remaining witness. Null in the few kernels that
+    // wrap a token run without the text; those never parse a postfix chain.
+    Source: string?
+    constructor(kinds: int[], starts: int[], valueLengths: int[], source: string? = null) {
         Kinds = kinds
         Starts = starts
         ValueLengths = valueLengths
+        Source = source
     }
 }
 
@@ -5276,6 +5285,39 @@ func ParsePrimaryExpressionNode(tokens: ParserTokenTable, count: int, st: Parser
     return -1
 }
 
+// DOES THE TOKEN AT `index` BEGIN A NEW SOURCE LINE? The answer is the text between the previous
+// token's end and this token's start: whitespace and comments, and a line break if there is one. The
+// scan is bounded by that gap, so the common same-line answer costs a character or two.
+//
+// The first token of a run begins no chain continuation and answers false, and so does a table with
+// no source text.
+func ParserTokenBeginsLine(tokens: ParserTokenTable, index: int): bool {
+    source := tokens.Source ?? ""
+    if source.Length == 0 || index <= 0 || index >= tokens.Starts.Length {
+        return false
+    }
+
+    gapEnd := tokens.Starts[index]
+    if gapEnd > source.Length {
+        gapEnd = source.Length
+    }
+
+    scan := tokens.Starts[index - 1] + tokens.ValueLengths[index - 1]
+    if scan < 0 {
+        scan = 0
+    }
+
+    while scan < gapEnd {
+        if source[scan] == '\n' {
+            return true
+        }
+
+        scan = scan + 1
+    }
+
+    return false
+}
+
 func ParsePostfixExpressionNode(tokens: ParserTokenTable, count: int, st: ParserState, argStack: ParserArgumentStack, nodes: ParserExpressionNodeTable, children: ParserChildIndexTable, depth: int): int {
     expr := -1
     if st.Pos + 2 < count && tokens.Kinds[st.Pos] == 42 && tokens.Kinds[st.Pos + 1] == 124 && tokens.Kinds[st.Pos + 2] == 0 {
@@ -5310,7 +5352,15 @@ func ParsePostfixExpressionNode(tokens: ParserTokenTable, count: int, st: Parser
     while matched {
         pos := st.Pos
 
-        if pos + 1 < count && tokens.Kinds[pos] == 124 && tokens.Kinds[pos + 1] == 0 {
+        if pos < count && tokens.Kinds[pos] != 124 && tokens.Kinds[pos] != 118 && ParserTokenBeginsLine(tokens, pos) {
+
+            // A NEW LINE ENDS THE CHAIN (ParsePostfix :4411 — `Current().Line > Previous().Line` with
+            // no continuing `.` / `?.`). Only Dot 124 and QuestionDot 118 carry an access chain across
+            // a line break. A `[`, `(`, `<` or `with` that OPENS a line begins the next thing in the
+            // file — most often the next member's `[Attribute]` list after an expression-bodied member
+            // — and reading it as a suffix silently rewrites the program instead of failing.
+            matched = false
+        } else if pos + 1 < count && tokens.Kinds[pos] == 124 && tokens.Kinds[pos + 1] == 0 {
             objSpanStart := nodes.SpanStarts[expr]
             memberStart := tokens.Starts[pos + 1]
             memberLength := tokens.ValueLengths[pos + 1]
@@ -5596,7 +5646,7 @@ func ParsePostfixExpressionNode(tokens: ParserTokenTable, count: int, st: Parser
     // (PostfixUnary kind 44, the operator token in the value span, ONE child [target]; `n++++` does
     // not re-enter, matching the production grammar). The emitter validates the target (a bare
     // local/param) and keeps the expression value as the PRE-step value.
-    if st.Pos < count {
+    if st.Pos < count && !ParserTokenBeginsLine(tokens, st.Pos) {
         postOp := tokens.Kinds[st.Pos]
         if postOp == 113 || postOp == 114 {
             postOpStart := tokens.Starts[st.Pos]
@@ -7046,7 +7096,7 @@ func ParseColumnarExpressionInto(source: string, tokenKinds: int[], tokenStarts:
         return -1
     }
 
-    tokens := new ParserTokenTable(tokenKinds, tokenStarts, tokenValueLengths)
+    tokens := new ParserTokenTable(tokenKinds, tokenStarts, tokenValueLengths, source)
     argStack := new ParserArgumentStack(new int[](parseCount + 1))
     nodes := new ParserExpressionNodeTable(outNodeKinds, outValueStarts, outValueLengths, outChildStart, outChildCount, outSpanStarts, outSpanLengths)
     children := new ParserChildIndexTable(outChildIndices)
@@ -8016,7 +8066,7 @@ func TopLevelColumnarFunctionDeclarationIndicesCore(source: string, rawTokens: P
         gi = gi + 1
     }
 
-    if TopLevelFunctionPreamblesAreValidCore(compactTokens, compactCount, indices, funcCount) == 0 {
+    if TopLevelFunctionPreamblesAreValidCore(source, compactTokens, compactCount, indices, funcCount) == 0 {
         return -1
     }
 
@@ -8156,7 +8206,7 @@ func TopLevelFunctionPreambleAttributeOpen(tokens: ParserDeclarationTokenTable, 
     return -1
 }
 
-func TopLevelFunctionPreamblesAreValidCore(tokens: ParserDeclarationTokenTable, count: int, indices: TopLevelDeclarationIndexTable, funcCount: int): int {
+func TopLevelFunctionPreamblesAreValidCore(source: string, tokens: ParserDeclarationTokenTable, count: int, indices: TopLevelDeclarationIndexTable, funcCount: int): int {
     i := 0
     while i < funcCount {
         funcIndex := indices.Indices[i]
@@ -8169,7 +8219,7 @@ func TopLevelFunctionPreamblesAreValidCore(tokens: ParserDeclarationTokenTable, 
         if preceding >= 0 && tokens.Kinds[preceding] != 130 {
             if tokens.Kinds[preceding] == 4 {
                 if preceding - 1 < 0 || tokens.Kinds[preceding - 1] != 17 {
-                    if i == 0 || TopLevelExpressionBodiedFunctionEndsAt(tokens, count, indices.Indices[i - 1], funcIndex) == 0 {
+                    if i == 0 || TopLevelExpressionBodiedFunctionEndsAt(source, tokens, count, indices.Indices[i - 1], funcIndex) == 0 {
                         return 0
                     }
                 }
@@ -8198,7 +8248,7 @@ func TopLevelFunctionPreamblesAreValidCore(tokens: ParserDeclarationTokenTable, 
             isAliasedFileImportHeader := headerWalk >= 0 && tokens.Kinds[headerWalk] == 4 && headerWalk - 1 >= 0 && tokens.Kinds[headerWalk - 1] == 17
 
             if headerWalk == preceding || headerWalk < 0 || (tokens.Kinds[headerWalk] != 15 && tokens.Kinds[headerWalk] != 17 && tokens.Kinds[headerWalk] != 18 && !isAliasedFileImportHeader) {
-                if i == 0 || TopLevelExpressionBodiedFunctionEndsAt(tokens, count, indices.Indices[i - 1], funcIndex) == 0 {
+                if i == 0 || TopLevelExpressionBodiedFunctionEndsAt(source, tokens, count, indices.Indices[i - 1], funcIndex) == 0 {
                     return 0
                 }
             }
@@ -8210,17 +8260,17 @@ func TopLevelFunctionPreamblesAreValidCore(tokens: ParserDeclarationTokenTable, 
     return 1
 }
 
-func TopLevelExpressionBodiedFunctionEndsAt(tokens: ParserDeclarationTokenTable, count: int, funcIndex: int, nextFuncIndex: int): int {
+func TopLevelExpressionBodiedFunctionEndsAt(source: string, tokens: ParserDeclarationTokenTable, count: int, funcIndex: int, nextFuncIndex: int): int {
     if funcIndex < 0 || funcIndex >= count || nextFuncIndex <= funcIndex || nextFuncIndex > count || tokens.Kinds[funcIndex] != 7 {
         return 0
     }
 
-    signatureEnd := ParseDeclarationFunctionSignatureEndCore(tokens, count, funcIndex)
+    signatureEnd := ParseDeclarationFunctionSignatureEndCore(source, tokens, count, funcIndex)
     if signatureEnd < 0 || signatureEnd >= count || tokens.Kinds[signatureEnd] != 120 {
         return 0
     }
 
-    expressionEnd := ParseDeclarationExpressionBodyEndCore(tokens, count, signatureEnd)
+    expressionEnd := ParseDeclarationExpressionBodyEndCore(source, tokens, count, signatureEnd)
     if expressionEnd < 0 {
         return 0
     }
@@ -8870,7 +8920,7 @@ func ParseColumnarTestInfoInto(source: string, rawTokenKinds: int[], rawTokenSta
     outResult[4] = -1
     outResult[5] = 0
 
-    statementTokens := new ParserTokenTable(rawTokenKinds, rawTokenStarts, rawTokenValueLengths)
+    statementTokens := new ParserTokenTable(rawTokenKinds, rawTokenStarts, rawTokenValueLengths, source)
     argStack := new ParserArgumentStack(new int[](rawCount + 1))
     nodes := new ParserExpressionNodeTable(bodyKinds, bodyValueStarts, bodyValueLengths, bodyChildStarts, bodyChildCounts, bodySpanStarts, bodySpanLengths)
     children := new ParserChildIndexTable(bodyChildIndices)
@@ -9964,8 +10014,8 @@ func ColumnarFunctionModifierFlagsForGenerator(generatorFlag: int): int {
     return 0
 }
 
-func ParseDeclarationFunctionSignatureEndCore(tokens: ParserDeclarationTokenTable, count: int, funcIndex: int): int {
-    signatureTokens := new ParserTokenTable(tokens.Kinds, tokens.Starts, tokens.ValueLengths)
+func ParseDeclarationFunctionSignatureEndCore(source: string, tokens: ParserDeclarationTokenTable, count: int, funcIndex: int): int {
+    signatureTokens := new ParserTokenTable(tokens.Kinds, tokens.Starts, tokens.ValueLengths, source)
     typeStack := new ParserArgumentStack(new int[](count + 1))
     nodes := new ParserNodeTable(new int[](count + 1), new int[](count + 1), new int[](count + 1), new int[](count + 1), new int[](count + 1), new int[](count + 1), new int[](count + 1))
     children := new ParserChildIndexTable(new int[](count + 1))
@@ -10304,12 +10354,12 @@ func ParseDeclarationSimpleInitializerEndCore(tokens: ParserDeclarationTokenTabl
     return pos
 }
 
-func ParseDeclarationInitializerExpressionEndCore(tokens: ParserDeclarationTokenTable, count: int, pos: int): int {
+func ParseDeclarationInitializerExpressionEndCore(source: string, tokens: ParserDeclarationTokenTable, count: int, pos: int): int {
     if pos < 0 || pos >= count {
         return -1
     }
 
-    expressionTokens := new ParserTokenTable(tokens.Kinds, tokens.Starts, tokens.ValueLengths)
+    expressionTokens := new ParserTokenTable(tokens.Kinds, tokens.Starts, tokens.ValueLengths, source)
     argStack := new ParserArgumentStack(new int[](count + 1))
     nodes := new ParserExpressionNodeTable(new int[](count + 1), new int[](count + 1), new int[](count + 1), new int[](count + 1), new int[](count + 1), new int[](count + 1), new int[](count + 1))
     children := new ParserChildIndexTable(new int[](count + 1))
@@ -10800,7 +10850,7 @@ func ParseStructDeclarationCore(source: string, tokens: ParserDeclarationTokenTa
                 decl.PropIndices[propCount] = memberStart
                 decl.PropStaticFlags[propCount] = memberModifiers.Values[0] | (memberModifiers.Values[4] * 2)
                 propCount = propCount + 1
-                pos = ParseDeclarationExpressionBodyEndCore(tokens, count, pos)
+                pos = ParseDeclarationExpressionBodyEndCore(source, tokens, count, pos)
                 if pos < 0 {
                     return -1
                 }
@@ -10826,7 +10876,7 @@ func ParseStructDeclarationCore(source: string, tokens: ParserDeclarationTokenTa
                                 return -1
                             }
 
-                            initEnd = ParseDeclarationInitializerExpressionEndCore(tokens, count, pos)
+                            initEnd = ParseDeclarationInitializerExpressionEndCore(source, tokens, count, pos)
                             if initEnd < 0 {
                                 return -1
                             }
@@ -10842,7 +10892,7 @@ func ParseStructDeclarationCore(source: string, tokens: ParserDeclarationTokenTa
                 } else if !ParseDeclarationSimpleInitializerTokenIsLiteral(initKind) {
                     initEnd := ParseDeclarationSimpleInitializerEndCore(tokens, count, pos, initializerTypeResult)
                     if initEnd < 0 {
-                        initEnd = ParseDeclarationInitializerExpressionEndCore(tokens, count, pos)
+                        initEnd = ParseDeclarationInitializerExpressionEndCore(source, tokens, count, pos)
                         if initEnd < 0 {
                             return -1
                         }
@@ -10930,7 +10980,7 @@ func ParseStructDeclarationCore(source: string, tokens: ParserDeclarationTokenTa
                 methodFlags = methodFlags | 4096
             }
 
-            signatureEnd := ParseDeclarationFunctionSignatureEndCore(tokens, count, memberStart)
+            signatureEnd := ParseDeclarationFunctionSignatureEndCore(source, tokens, count, memberStart)
             if signatureEnd < 0 || signatureEnd >= count {
                 return -1
             }
@@ -11018,7 +11068,7 @@ func ParseStructDeclarationCore(source: string, tokens: ParserDeclarationTokenTa
             pos = propBodyPos
 
             if tokens.Kinds[pos] == 120 {
-                pos = ParseDeclarationExpressionBodyEndCore(tokens, count, pos)
+                pos = ParseDeclarationExpressionBodyEndCore(source, tokens, count, pos)
                 if pos < 0 {
                     return -1
                 }
@@ -11034,7 +11084,7 @@ func ParseStructDeclarationCore(source: string, tokens: ParserDeclarationTokenTa
         }
 
         if pos < count && tokens.Kinds[pos] == 120 {
-            pos = ParseDeclarationExpressionBodyEndCore(tokens, count, pos)
+            pos = ParseDeclarationExpressionBodyEndCore(source, tokens, count, pos)
             if pos < 0 {
                 return -1
             }
@@ -11076,12 +11126,12 @@ func ParseStructDeclarationCore(source: string, tokens: ParserDeclarationTokenTa
     return fieldCount
 }
 
-func ParseDeclarationExpressionBodyEndCore(tokens: ParserDeclarationTokenTable, count: int, arrowIndex: int): int {
+func ParseDeclarationExpressionBodyEndCore(source: string, tokens: ParserDeclarationTokenTable, count: int, arrowIndex: int): int {
     if arrowIndex < 0 || arrowIndex >= count || tokens.Kinds[arrowIndex] != 120 {
         return -1
     }
 
-    expressionTokens := new ParserTokenTable(tokens.Kinds, tokens.Starts, tokens.ValueLengths)
+    expressionTokens := new ParserTokenTable(tokens.Kinds, tokens.Starts, tokens.ValueLengths, source)
     argStack := new ParserArgumentStack(new int[](count + 1))
     nodes := new ParserExpressionNodeTable(new int[](count + 1), new int[](count + 1), new int[](count + 1), new int[](count + 1), new int[](count + 1), new int[](count + 1), new int[](count + 1))
     children := new ParserChildIndexTable(new int[](count + 1))
@@ -11152,7 +11202,7 @@ func ParseConstructorChainInfoCore(source: string, tokens: ParserDeclarationToke
     pos = pos + 1
 
     scratchCapacity := (count + 1) * 4
-    expressionTokens := new ParserTokenTable(tokens.Kinds, tokens.Starts, tokens.ValueLengths)
+    expressionTokens := new ParserTokenTable(tokens.Kinds, tokens.Starts, tokens.ValueLengths, source)
     expressionArgs := new ParserArgumentStack(new int[](scratchCapacity))
     expressionNodes := new ParserExpressionNodeTable(
         new int[](scratchCapacity),
@@ -12921,7 +12971,7 @@ func ParseColumnarFunctionSignatureOnlyInfoCore(source: string, tokens: Columnar
         return -1
     }
 
-    signatureTokens := new ParserTokenTable(tokens.Kinds, tokens.Starts, tokens.ValueLengths)
+    signatureTokens := new ParserTokenTable(tokens.Kinds, tokens.Starts, tokens.ValueLengths, source)
     signatureOutput := new FunctionSignatureInfoOutputTable(signatureOutputs.FunctionNameTexts, signatureOutputs.ReturnTypeTexts, signatureOutputs.ParamNameTexts, signatureOutputs.ParamTypeTexts, signatureOutputs.ParamModifierKinds, signatureOutputs.ParamDefaultKinds, signatureOutputs.ParamDefaultTexts, signatureOutputs.ParamTupleNameCounts, signatureOutputs.ParamTupleNameTexts, signatureOutputs.ReturnTupleNameTexts, signatureOutputs.ReturnLabeledTypeTexts, signatureOutputs.ParamLabeledTypeTexts, signatureOutputs.TypeParamTexts, signatureOutputs.TypeParamSpecials, signatureOutputs.TypeParamConstraintCounts, signatureOutputs.TypeParamConstraintTypeTexts)
     typeStack := new ParserArgumentStack(new int[](tokens.Count + 1))
     nodes := new ParserNodeTable(new int[](tokens.Count + 1), new int[](tokens.Count + 1), new int[](tokens.Count + 1), new int[](tokens.Count + 1), new int[](tokens.Count + 1), new int[](tokens.Count + 1), new int[](tokens.Count + 1))
@@ -12942,7 +12992,7 @@ func ParseColumnarFunctionInfoCore(source: string, tokens: ColumnarFunctionToken
         return -1
     }
 
-    signatureTokens := new ParserTokenTable(tokens.Kinds, tokens.Starts, tokens.ValueLengths)
+    signatureTokens := new ParserTokenTable(tokens.Kinds, tokens.Starts, tokens.ValueLengths, source)
     signatureOutput := new FunctionSignatureInfoOutputTable(signatureOutputs.FunctionNameTexts, signatureOutputs.ReturnTypeTexts, signatureOutputs.ParamNameTexts, signatureOutputs.ParamTypeTexts, signatureOutputs.ParamModifierKinds, signatureOutputs.ParamDefaultKinds, signatureOutputs.ParamDefaultTexts, signatureOutputs.ParamTupleNameCounts, signatureOutputs.ParamTupleNameTexts, signatureOutputs.ReturnTupleNameTexts, signatureOutputs.ReturnLabeledTypeTexts, signatureOutputs.ParamLabeledTypeTexts, signatureOutputs.TypeParamTexts, signatureOutputs.TypeParamSpecials, signatureOutputs.TypeParamConstraintCounts, signatureOutputs.TypeParamConstraintTypeTexts)
     typeStack := new ParserArgumentStack(new int[](tokens.Count + 1))
     nodes := new ParserNodeTable(new int[](tokens.Count + 1), new int[](tokens.Count + 1), new int[](tokens.Count + 1), new int[](tokens.Count + 1), new int[](tokens.Count + 1), new int[](tokens.Count + 1), new int[](tokens.Count + 1))
@@ -12974,7 +13024,7 @@ func ParseColumnarFunctionInfoCore(source: string, tokens: ColumnarFunctionToken
     if tokens.Kinds[bodyBrace] == 129 {
         bodyNodeCount = ParseColumnarFunctionBodyNodesCore(source, tokens, bodyBrace, body, bodyResult)
     } else {
-        bodyNodeCount = ParseColumnarFunctionExpressionBodyNodesCore(tokens, bodyBrace, body, bodyResult)
+        bodyNodeCount = ParseColumnarFunctionExpressionBodyNodesCore(source, tokens, bodyBrace, body, bodyResult)
     }
 
     if bodyNodeCount <= 0 {
@@ -13015,7 +13065,7 @@ func ParseColumnarFunctionInfoCore(source: string, tokens: ColumnarFunctionToken
 }
 
 func ParseColumnarFunctionBodyNodesCore(source: string, tokens: ColumnarFunctionTokenTable, bodyBrace: int, body: ColumnarFunctionBodyTable, result: ColumnarFunctionResultTable): int {
-    statementTokens := new ParserTokenTable(tokens.Kinds, tokens.Starts, tokens.ValueLengths)
+    statementTokens := new ParserTokenTable(tokens.Kinds, tokens.Starts, tokens.ValueLengths, source)
     argStack := new ParserArgumentStack(new int[](tokens.Count + 1))
     nodes := new ParserExpressionNodeTable(body.NodeKinds, body.ValueStarts, body.ValueLengths, body.ChildStart, body.ChildCount, body.SpanStarts, body.SpanLengths)
     children := new ParserChildIndexTable(body.ChildIndices)
@@ -13023,12 +13073,12 @@ func ParseColumnarFunctionBodyNodesCore(source: string, tokens: ColumnarFunction
     return ParseStatementNodesCore(source, statementTokens, tokens.Count, bodyBrace, argStack, nodes, children, statementResult)
 }
 
-func ParseColumnarFunctionExpressionBodyNodesCore(tokens: ColumnarFunctionTokenTable, arrowIndex: int, body: ColumnarFunctionBodyTable, result: ColumnarFunctionResultTable): int {
+func ParseColumnarFunctionExpressionBodyNodesCore(source: string, tokens: ColumnarFunctionTokenTable, arrowIndex: int, body: ColumnarFunctionBodyTable, result: ColumnarFunctionResultTable): int {
     if arrowIndex < 0 || arrowIndex >= tokens.Count || tokens.Kinds[arrowIndex] != 120 || result.Values.Length < 2 {
         return -1
     }
 
-    expressionTokens := new ParserTokenTable(tokens.Kinds, tokens.Starts, tokens.ValueLengths)
+    expressionTokens := new ParserTokenTable(tokens.Kinds, tokens.Starts, tokens.ValueLengths, source)
     argStack := new ParserArgumentStack(new int[](tokens.Count + 1))
     nodes := new ParserExpressionNodeTable(body.NodeKinds, body.ValueStarts, body.ValueLengths, body.ChildStart, body.ChildCount, body.SpanStarts, body.SpanLengths)
     children := new ParserChildIndexTable(body.ChildIndices)
@@ -13117,7 +13167,7 @@ func ParseColumnarConstructorInfoCore(source: string, tokens: ColumnarConstructo
         return ParseColumnarPrimaryConstructorInfoCore(source, tokens, ctorIndex, signatureOutputs, body, result)
     }
 
-    signatureTokens := new ParserTokenTable(tokens.Kinds, tokens.Starts, tokens.ValueLengths)
+    signatureTokens := new ParserTokenTable(tokens.Kinds, tokens.Starts, tokens.ValueLengths, source)
     signatureOutput := new ConstructorSignatureOutputTable(signatureOutputs.ParamNameTexts, signatureOutputs.ParamTypeTexts, signatureOutputs.ParamLabeledTypeTexts, signatureOutputs.ArgKinds, signatureOutputs.ArgStarts, signatureOutputs.ArgLengths, signatureOutputs.ArgTexts)
     typeStack := new ParserArgumentStack(new int[](tokens.Count + 1))
     nodes := new ParserNodeTable(new int[](tokens.Count + 1), new int[](tokens.Count + 1), new int[](tokens.Count + 1), new int[](tokens.Count + 1), new int[](tokens.Count + 1), new int[](tokens.Count + 1), new int[](tokens.Count + 1))
@@ -13431,7 +13481,7 @@ func ParseColumnarPrimaryConstructorInfoCore(source: string, tokens: ColumnarCon
     typeResult := new ParserDeclarationResultTable(new int[](2))
     memberModifierValues := new int[](2)
     memberModifiers := new ParserDeclarationResultTable(memberModifierValues)
-    expressionTokens := new ParserTokenTable(tokens.Kinds, tokens.Starts, tokens.ValueLengths)
+    expressionTokens := new ParserTokenTable(tokens.Kinds, tokens.Starts, tokens.ValueLengths, source)
     expressionNodes := new ParserExpressionNodeTable(body.NodeKinds, body.ValueStarts, body.ValueLengths, body.ChildStart, body.ChildCount, body.SpanStarts, body.SpanLengths)
     expressionChildren := new ParserChildIndexTable(body.ChildIndices)
     expressionStack := new ParserArgumentStack(new int[](tokens.Count + 1))
@@ -13622,7 +13672,7 @@ func ParseColumnarPrimaryConstructorInfoCore(source: string, tokens: ColumnarCon
 }
 
 func ParseColumnarConstructorBodyNodesCore(source: string, tokens: ColumnarConstructorTokenTable, bodyBrace: int, body: ColumnarConstructorBodyTable, result: ColumnarConstructorResultTable): int {
-    statementTokens := new ParserTokenTable(tokens.Kinds, tokens.Starts, tokens.ValueLengths)
+    statementTokens := new ParserTokenTable(tokens.Kinds, tokens.Starts, tokens.ValueLengths, source)
     argStack := new ParserArgumentStack(new int[](tokens.Count + 1))
     nodes := new ParserExpressionNodeTable(body.NodeKinds, body.ValueStarts, body.ValueLengths, body.ChildStart, body.ChildCount, body.SpanStarts, body.SpanLengths)
     children := new ParserChildIndexTable(body.ChildIndices)
@@ -14895,7 +14945,7 @@ func ParseColumnarInterfaceInfoInto(source: string, tokenKinds: int[], tokenStar
 }
 
 func ParseColumnarInterfaceInfoCore(source: string, tokens: ColumnarInterfaceTokenTable, interfaceIndex: int, scratch: ColumnarInterfaceBaseScratchTable, outputs: ColumnarInterfaceOutputTable, result: ColumnarInterfaceResultTable): int {
-    signatureTokens := new ParserTokenTable(tokens.Kinds, tokens.Starts, tokens.ValueLengths)
+    signatureTokens := new ParserTokenTable(tokens.Kinds, tokens.Starts, tokens.ValueLengths, source)
     baseOutputs := new InterfaceSignatureBaseOutputTable(scratch.BaseNameStarts, scratch.BaseNameLengths, outputs.BaseNameTexts, outputs.InterfaceNameTexts, outputs.TypeParamTexts, outputs.WhereOwnerTexts, outputs.WhereItemCodes, outputs.WhereTypeTexts)
     methodOutputs := new InterfaceSignatureMethodOutputTable(outputs.MethodFuncIndices, outputs.MethodNameTexts, outputs.MethodReturnTexts, outputs.MethodParamCounts, outputs.MethodBodyFlags, outputs.MethodParamNameTexts, outputs.MethodParamTypeTexts, outputs.MethodParamModifierKinds)
     typeStack := new ParserArgumentStack(new int[](tokens.Count + 1))
@@ -15116,7 +15166,7 @@ func ParseColumnarPropertyInfoCore(source: string, tokens: ColumnarPropertyToken
     if tokens.Kinds[getBodyBrace] == 129 {
         getBodyNodeCount = ParseColumnarPropertyBodyNodesCore(source, tokens, getBodyBrace, getBody, getBodyResult)
     } else {
-        getBodyNodeCount = ParseColumnarPropertyExpressionBodyNodesCore(tokens, getBodyBrace, getBody, getBodyResult)
+        getBodyNodeCount = ParseColumnarPropertyExpressionBodyNodesCore(source, tokens, getBodyBrace, getBody, getBodyResult)
     }
 
     if getBodyNodeCount <= 0 {
@@ -15191,7 +15241,7 @@ func ColumnarPropertyDirectLocalFunctionStatus(tokens: ColumnarPropertyTokenTabl
 }
 
 func ParseColumnarPropertyBodyNodesCore(source: string, tokens: ColumnarPropertyTokenTable, bodyBrace: int, body: ColumnarPropertyBodyTable, result: ColumnarPropertyResultTable): int {
-    statementTokens := new ParserTokenTable(tokens.Kinds, tokens.Starts, tokens.ValueLengths)
+    statementTokens := new ParserTokenTable(tokens.Kinds, tokens.Starts, tokens.ValueLengths, source)
     argStack := new ParserArgumentStack(new int[](tokens.Count + 1))
     nodes := new ParserExpressionNodeTable(body.NodeKinds, body.ValueStarts, body.ValueLengths, body.ChildStart, body.ChildCount, body.SpanStarts, body.SpanLengths)
     children := new ParserChildIndexTable(body.ChildIndices)
@@ -15199,12 +15249,12 @@ func ParseColumnarPropertyBodyNodesCore(source: string, tokens: ColumnarProperty
     return ParseStatementNodesCore(source, statementTokens, tokens.Count, bodyBrace, argStack, nodes, children, statementResult)
 }
 
-func ParseColumnarPropertyExpressionBodyNodesCore(tokens: ColumnarPropertyTokenTable, arrowIndex: int, body: ColumnarPropertyBodyTable, result: ColumnarPropertyResultTable): int {
+func ParseColumnarPropertyExpressionBodyNodesCore(source: string, tokens: ColumnarPropertyTokenTable, arrowIndex: int, body: ColumnarPropertyBodyTable, result: ColumnarPropertyResultTable): int {
     if arrowIndex < 0 || arrowIndex >= tokens.Count || tokens.Kinds[arrowIndex] != 120 || result.Values.Length < 2 {
         return -1
     }
 
-    expressionTokens := new ParserTokenTable(tokens.Kinds, tokens.Starts, tokens.ValueLengths)
+    expressionTokens := new ParserTokenTable(tokens.Kinds, tokens.Starts, tokens.ValueLengths, source)
     argStack := new ParserArgumentStack(new int[](tokens.Count + 1))
     nodes := new ParserExpressionNodeTable(body.NodeKinds, body.ValueStarts, body.ValueLengths, body.ChildStart, body.ChildCount, body.SpanStarts, body.SpanLengths)
     children := new ParserChildIndexTable(body.ChildIndices)

@@ -546,11 +546,12 @@ test "compile-time bench: the skipped source directories are exactly the twelve 
 // types added tests/native/complete-source-generic-args; 90 since qualified names added
 // tests/native/qualified-names; 91 since the faithful N# translations of `Result<TOk, TErr>` and
 // `Union<T0, T1>` added tests/native/runtime-acceptance.
-test "compile-time bench: the corpus is the 91 project.yml projects under examples, tests and templates" {
+test "compile-time bench: the corpus is the 92 project.yml projects under examples, tests and templates" {
     projects := BenchCollectCorpusProjects(BenchRepositoryRoot())
-    assert projects.Count == 91
+    assert projects.Count == 92
     assert BenchListContains(projects, "examples/01-hello-world")
     assert BenchListContains(projects, "tests/native/qualified-names")
+    assert BenchListContains(projects, "tests/native/methodimpl-attributes")
     assert BenchListContains(projects, "templates/nsharp-console")
     assert BenchListContains(projects, "tests/native/complete-source-generic-args")
     assert BenchListContains(projects, "tests/native/constructed-generic-interop")

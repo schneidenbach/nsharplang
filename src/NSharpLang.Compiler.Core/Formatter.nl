@@ -243,10 +243,11 @@ class Formatter {
         index = 0
         while index < ast.Declarations.Count {
             declaration := ast.Declarations[index]
-            state.EmitCommentsBefore(declaration.Line, builder)
+            declarationStart := DeclarationFacts.GetDeclarationStartLine(declaration)
+            state.EmitCommentsBefore(declarationStart, builder)
             // The tracker accounts for any comments just emitted, so a comment closes the gap it
             // stood in and the blank line is not written twice.
-            if index > 0 && state.HasBlankLineBefore(declaration.Line) {
+            if index > 0 && state.HasBlankLineBefore(declarationStart) {
                 builder.AppendLine()
             }
 
@@ -270,8 +271,9 @@ class Formatter {
         index := 0
         while index < members.Count {
             member := members[index]
-            state.EmitCommentsBefore(member.Line, builder)
-            if index > 0 && state.HasBlankLineBefore(member.Line) {
+            memberStart := DeclarationFacts.GetDeclarationStartLine(member)
+            state.EmitCommentsBefore(memberStart, builder)
+            if index > 0 && state.HasBlankLineBefore(memberStart) {
                 builder.AppendLine()
             }
 

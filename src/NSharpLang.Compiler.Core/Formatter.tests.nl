@@ -714,3 +714,41 @@ test "a null configuration is the default configuration, which is four spaces" {
     formatter.FormatDeclaration(FmtClass("Holder", FmtOne(FmtField("a", "int", 1)), 1), builder)
     assert FmtShow(builder) == "class Holder {|    a: int|}|"
 }
+
+// ── a declaration begins at its ATTRIBUTE LIST, not at its keyword ─────────────────────────────
+//
+// The comment tracker and the blank-line gap both measure from a declaration's start line. Measuring
+// from the KEYWORD counts the attribute lines as part of the gap, so a member written as a comment,
+// an `[Attribute]` and a keyword formatted with a blank line pushed BETWEEN the comment and the
+// attribute — which detaches the comment from the member it documents, and does it on every
+// format-on-save.
+
+func FmtAttribute(name: string, line: int): List<AttributeNode> {
+    attributes := new List<AttributeNode>()
+    attributes.Add(new AttributeNode(name, new List<Argument>(), line, 5))
+    return attributes
+}
+
+func FmtComments(text: string, line: int): List<CommentTrivia> {
+    comments := new List<CommentTrivia>()
+    comments.Add(new CommentTrivia(line, 1, text, false))
+    return comments
+}
+
+test "a comment above an attributed declaration stays attached to its attribute" {
+    // `a: int` on line 1, a comment on line 3, `[Marker]` on line 4, `b: int` on line 5 — adjacent,
+    // so the source's ONE blank line (line 2) is the only one written.
+    marked := FmtField("b", "int", 5)
+    marked.Attributes = FmtAttribute("Marker", 4)
+    unit := FmtUnit(FmtMembers(FmtField("a", "int", 1), marked))
+    formatter := FmtFormatter()
+    assert FmtShowText(formatter.Format(unit, FmtComments("// note", 3))) == "a: int||// note|[Marker]|b: int|"
+}
+
+test "a source blank line between a comment and an attribute is still preserved" {
+    marked := FmtField("b", "int", 6)
+    marked.Attributes = FmtAttribute("Marker", 5)
+    unit := FmtUnit(FmtMembers(FmtField("a", "int", 1), marked))
+    formatter := FmtFormatter()
+    assert FmtShowText(formatter.Format(unit, FmtComments("// note", 3))) == "a: int||// note||[Marker]|b: int|"
+}

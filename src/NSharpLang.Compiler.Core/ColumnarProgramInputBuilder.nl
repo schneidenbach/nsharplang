@@ -1462,6 +1462,7 @@ sealed class ColumnarProgramInputBuilder {
             isSynthesizedInitializer,
             0
         )
+        body.SourceAttributes = ColumnarSourceAttributes.Read(source, ck, cs, cv, ctorIndex)
         parsedInput.ChainArgNodes = chainArgNodes
         parsedInput.ChainArgRoots = chainArgRoots
         input = parsedInput
@@ -1597,6 +1598,16 @@ sealed class ColumnarProgramInputBuilder {
             return DeclineAtToken(ColumnarParseDeclines.PropertyAccessorKind, cs, cv, propIndex, propName)
         }
 
+        // N# WRITES ATTRIBUTES ON THE PROPERTY, NEVER ON AN ACCESSOR — there is no `[...]` position
+        // inside the accessor braces to write one in — so a property's attributes are the attributes
+        // of EVERY accessor it declares. `[MethodImpl(...)]` on a property therefore marks its getter
+        // and its setter alike, which is the only reading that can express what C#'s per-accessor
+        // `[MethodImpl]` expresses.
+        propertyAttributes := ColumnarSourceAttributes.Read(source, ck, cs, cv, propIndex)
+        getter.SourceAttributes = propertyAttributes
+        if setter != null {
+            setter.SourceAttributes = propertyAttributes
+        }
         input = new ColumnarPropertyInput(propName, propType, getter, setter, isStatic, 0, hasMsBuildRequiredAttribute)
         return true
     }
