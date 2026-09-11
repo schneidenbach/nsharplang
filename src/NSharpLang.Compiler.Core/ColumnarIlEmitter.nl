@@ -9052,25 +9052,25 @@ sealed class ColumnarIlEmitter {
                     return true
                 }
                 if (nullCmpType.get_IsGenericParameter()) {
-                    // An UNCONSTRAINED type parameter may be closed over a value type OR a reference
-                    // type, and the CLR has one instruction that answers for both: `box !!T` yields
-                    // the reference itself for a reference type and a fresh non-null box for a value
-                    // type, so `T == null` is false for every value instantiation and a real null
-                    // test for every reference one — exactly C#'s reading. Comparing the raw stack
-                    // value would compare an unboxed `int` against a null reference.
+                    // A GENERIC PARAMETER IS BOXED EXACTLY ONCE, and once is load-bearing in both
+                    // directions. An UNCONSTRAINED type parameter may be closed over a value type OR
+                    // a reference type, and the CLR has one instruction that answers for both:
+                    // `box !!T` yields the reference itself for a reference type and a fresh non-null
+                    // box for a value type, so `T == null` is false for every value instantiation and
+                    // a real null test for every reference one — exactly C#'s reading. Comparing the
+                    // raw stack value would compare an unboxed `int` against a null reference, and
+                    // `T` and `null` are not the same verification type either (ilverify reads
+                    // `ldnull; ceq` against a `T` as StackUnexpected).
+                    //
+                    // A SECOND `box` IS NOT A NO-OP. The first one leaves an `object` on the stack,
+                    // which is not the `!T` the next `box !T` expects — ilverify reports
+                    // "found ref 'T', expected value 'T'", and for a value-type instantiation the
+                    // second box would box a reference that is already a box.
                     _il.Emit(OpCodes.Box, nullCmpType)
                 } else {
                     if (nullCmpType.get_IsValueType()) {
                         return false
                     }
-                }
-                // A GENERIC PARAMETER IS BOXED FIRST. `T` and `null` are not the same verification
-                // type — ilverify reads `ldnull; ceq` against a `T` as StackUnexpected — so the value
-                // is boxed to `object` exactly as C# boxes an unconstrained `T == null`. `box` on a
-                // type that turns out to be a reference type at runtime is a no-op per ECMA-335, so
-                // the constrained case costs nothing and the unconstrained case is correct.
-                if (nullCmpType.get_IsGenericParameter()) {
-                    _il.Emit(OpCodes.Box, nullCmpType)
                 }
                 // plain value types never compare to null (the pipeline rejects).
                 _il.Emit(OpCodes.Ldnull)
