@@ -1466,5 +1466,26 @@ outside `IsSupportedType`; widening it flips six deliberate estate boundaries in
 `ColumnarCatalogTypeAdmission`, `ColumnarEnumeratorProtocol`, `ColumnarDictionaryKeyEnumeratorPrerequisite`,
 `ColumnarTypeOfPlanner` and `ColumnarReferenceConversionFacts`, so it is its own slice.
 
+**THE RUNTIME ACCEPTANCE TRANSLATIONS** (`tests/native/runtime-acceptance`) are the reference for what
+a complete generic type looks like in N#: `Result<TOk, TErr>` and `Union<T0, T1>` from
+`src/NSharpLang.Runtime` written member for member as readonly generic structs with private
+constructors, static factories, `out`-shaped `Try` reads, generic methods (`Match<TResult>`,
+`Is<T>`, `TryGet<T>`, `As<T>`), conversion operators, `==`/`!=`, `IEquatable<Self>` base lists and
+`EqualityComparer<T>.Default` equality. The project asserts behaviour AND parity: the same inputs are
+run against the C# types from the referenced runtime assembly, reached by IMPORTING
+`NSharpLang.Runtime` from a sibling namespace that declares no `Result`/`Union` of its own (a source
+declaration is always the nearer name, and a fully qualified external type reaches fewer positions
+than an imported one — see `website/docs/types.md`'s "Current limits"). Five compiler defects were
+found by writing it and are fixed there: an implicit-`this` instance call inside a GENERIC type named
+the receiver by the open definition while the handle named the instantiation (the plan executor threw
+rather than declined); a generic type's own generic STATIC call was emitted against the open
+definition ("the method itself or the containing type is not fully instantiated" at run time); a
+property read inside a string INTERPOLATION had the same open-definition getter; `(T)value` over an
+`object` emitted `castclass !T`, which is invalid IL for a value instantiation rather than a wrong
+answer; and a generic method with an `out`/`ref` parameter over its own type parameter was
+uncallable. `Type.IsSZArray` is now reached only through `ColumnarTypeEquivalenceFacts.IsSafeSzArrayType`
+compiler-wide, because Reflection.Emit's generic-parameter builder throws `NotImplementedException`
+from it and every raw call was a latent crash inside a generic body.
+
 Keep ownership-policy tests beside the N# owner. C# tests should exercise only the remaining
 diagnostic/integration shell, not recreate semantic lookup or identity policy in test helpers.

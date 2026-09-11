@@ -542,10 +542,11 @@ test "compile-time bench: the skipped source directories are exactly the twelve 
 // tests/native/class-inheritance and tests/native/generic-member-types; 86 since .NET generic interop
 // over a declaration's own type parameters added tests/native/constructed-generic-interop; 87 since
 // generic methods on user types added tests/native/user-generic-methods; 88 since named tuple
-// element metadata added tests/native/tuple-names.
-test "compile-time bench: the corpus is the 88 project.yml projects under examples, tests and templates" {
+// element metadata added tests/native/tuple-names; 89 since the faithful N# translations of
+// `Result<TOk, TErr>` and `Union<T0, T1>` added tests/native/runtime-acceptance.
+test "compile-time bench: the corpus is the 89 project.yml projects under examples, tests and templates" {
     projects := BenchCollectCorpusProjects(BenchRepositoryRoot())
-    assert projects.Count == 88
+    assert projects.Count == 89
     assert BenchListContains(projects, "examples/01-hello-world")
     assert BenchListContains(projects, "templates/nsharp-console")
     assert BenchListContains(projects, "tests/native/constructed-generic-interop")
@@ -558,6 +559,7 @@ test "compile-time bench: the corpus is the 88 project.yml projects under exampl
     assert BenchListContains(projects, "tests/native/sdk-project-reference-boundary")
     assert BenchListContains(projects, "tests/native/simd-reductions")
     assert BenchListContains(projects, "tests/native/tuple-names")
+    assert BenchListContains(projects, "tests/native/runtime-acceptance")
     assert BenchListContains(projects, "tests/native/tuple-names")
     assert BenchListContains(projects, "tests/native/type-arity")
     assert BenchListContains(projects, "tests/native/user-generic-methods")

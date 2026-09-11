@@ -1035,6 +1035,17 @@ Two rules the compiler enforces about the type-argument list itself:
 - An argument that must be **boxed into an `object` parameter of a GENERIC function**
   (`Wrap<int>(value, fallback)` where `Wrap` takes `o: object?`) is not converted yet. The same
   argument reaches a non-generic function's `object?` parameter without ceremony.
+- A generic method called **directly on a call's RESULT** (`Make().As<int>()`) does not resolve; bind
+  the receiver to a name first (`made := Make()` then `made.As<int>()`).
+- A **fully qualified** external type reaches fewer positions than an imported one. Written out
+  (`NSharpLang.Runtime.Result<int, string>`) it works in `typeof`, in a `:=` initializer and as a
+  local's declared type, but not as a `type` alias target, a parameter type, an annotated local's
+  initializer, a `new` expression, or the receiver of a generic or `out`-taking member. Importing the
+  namespace and using the simple name reaches all of those.
+- A **catch clause's exception type must be a simple name**: `catch ex: System.InvalidOperationException`
+  does not parse, `import System` plus `catch ex: InvalidOperationException` does. Relatedly, a type
+  used ONLY as a catch type or only inside a delegate type in a signature does not yet count as a use
+  of its import, so `NL010` can report an import that is in fact needed.
 
 ## Nullable Types
 
