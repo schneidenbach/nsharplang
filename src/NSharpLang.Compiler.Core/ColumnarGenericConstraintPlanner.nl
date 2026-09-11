@@ -492,7 +492,7 @@ class ColumnarGenericConstraintPlanner {
             return false
         }
 
-        if sourceType.get_IsSZArray() {
+        if ColumnarTypeEquivalenceFacts.IsSafeSzArrayType(sourceType) {
             element: Type = null
             if !TrySubstituteGenericTypeArguments(
                 typeParams,

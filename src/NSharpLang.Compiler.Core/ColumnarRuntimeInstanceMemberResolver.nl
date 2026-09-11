@@ -46,7 +46,7 @@ class ColumnarRuntimeInstanceMemberSelection {
 // Selection completes before a code plan emits the receiver, so every false result is atomic.
 class ColumnarRuntimeInstanceMemberResolver {
     static func CanOwnReceiver(receiverType: Type): bool {
-        if receiverType == null || IsSourceBuilderShape(receiverType) || receiverType.get_IsByRef() || receiverType.get_IsGenericTypeDefinition() || receiverType.get_IsSZArray() {
+        if receiverType == null || IsSourceBuilderShape(receiverType) || receiverType.get_IsByRef() || receiverType.get_IsGenericTypeDefinition() || ColumnarTypeEquivalenceFacts.IsSafeSzArrayType(receiverType) {
             return false
         }
 
@@ -587,7 +587,7 @@ class ColumnarRuntimeInstanceMemberResolver {
             return true
         }
 
-        if valueType.get_IsSZArray() {
+        if ColumnarTypeEquivalenceFacts.IsSafeSzArrayType(valueType) {
             elementType := valueType.GetElementType()
             return elementType != null && ContainsBuilderBoundType(elementType)
         }
@@ -638,7 +638,7 @@ class ColumnarRuntimeInstanceMemberResolver {
             return SubstituteClosedTypeArguments(byRefElement, closedArguments).MakeByRefType()
         }
 
-        if signatureType.get_IsSZArray() {
+        if ColumnarTypeEquivalenceFacts.IsSafeSzArrayType(signatureType) {
             elementType := signatureType.GetElementType()
             if elementType == null {
                 return signatureType
@@ -676,7 +676,7 @@ class ColumnarRuntimeInstanceMemberResolver {
             return true
         }
 
-        if left.get_IsSZArray() && right.get_IsSZArray() {
+        if ColumnarTypeEquivalenceFacts.IsSafeSzArrayType(left) && ColumnarTypeEquivalenceFacts.IsSafeSzArrayType(right) {
             leftElement := left.GetElementType()
             rightElement := right.GetElementType()
             return leftElement != null && rightElement != null && ExactTypeShapeMatches(leftElement, rightElement)
@@ -972,7 +972,7 @@ class ColumnarRuntimeInstanceMemberResolver {
             return true
         }
 
-        if valueType.get_IsSZArray() {
+        if ColumnarTypeEquivalenceFacts.IsSafeSzArrayType(valueType) {
             elementType := valueType.GetElementType()
             return elementType != null && IsSupportedElementType(elementType)
         }
@@ -1159,7 +1159,7 @@ class ColumnarRuntimeInstanceMemberResolver {
             return true
         }
 
-        if valueType.get_IsSZArray() {
+        if ColumnarTypeEquivalenceFacts.IsSafeSzArrayType(valueType) {
             elementType := valueType.GetElementType()
             return elementType != null && IsSupportedElementType(elementType)
         }

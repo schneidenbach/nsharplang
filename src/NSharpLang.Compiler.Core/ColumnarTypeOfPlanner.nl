@@ -1147,7 +1147,7 @@ class ColumnarTypeOfPlanner {
         }
         if valueType.get_HasElementType() {
             element := valueType.GetElementType()
-            return valueType.get_IsSZArray() && element != null && IsSupportedElementType(element)
+            return ColumnarTypeEquivalenceFacts.IsSafeSzArrayType(valueType) && element != null && IsSupportedElementType(element)
         }
         // Reflection.Emit cannot resolve a closed type containing a source builder through
         // Assembly.GetType. Its existing collection/task/result/union rebinding lowerings own these
@@ -1297,7 +1297,7 @@ class ColumnarTypeOfPlanner {
         if valueType == typeof(bool) || valueType == typeof(int) || valueType == typeof(uint) || valueType == typeof(long) || valueType == typeof(ulong) || valueType == typeof(byte) || valueType == typeof(sbyte) || valueType == typeof(short) || valueType == typeof(ushort) || valueType == typeof(char) || valueType == typeof(string) || valueType == typeof(double) || valueType == typeof(float) || valueType == typeof(IntPtr) || valueType == typeof(UIntPtr) || valueType == typeof(object) || valueType == typeof(Type) || valueType == typeof(Version) || valueType == typeof(Assembly) || IsEnumType(valueType) || valueType is TypeBuilder || valueType.get_IsGenericParameter() || ColumnarExternalBindingPlans.IsSupportedRuntimeTypeName(valueType.FullName) || IsSupportedNullable(valueType) {
             return true
         }
-        if valueType.get_IsSZArray() {
+        if ColumnarTypeEquivalenceFacts.IsSafeSzArrayType(valueType) {
             element := valueType.GetElementType()
             return element != null && IsSupportedElementType(element)
         }
@@ -1821,7 +1821,7 @@ class ColumnarTypeOfPlanner {
         if valueType is TypeBuilder || IsEnumBuilder(valueType) || valueType.get_IsGenericParameter() {
             return true
         }
-        if valueType.get_IsSZArray() {
+        if ColumnarTypeEquivalenceFacts.IsSafeSzArrayType(valueType) {
             element := valueType.GetElementType()
             return element != null && ContainsBuilderBoundType(element)
         }
@@ -1853,7 +1853,7 @@ class ColumnarTypeOfPlanner {
         if valueType is TypeBuilder || valueType.get_IsGenericParameter() {
             return true
         }
-        if valueType.get_IsSZArray() {
+        if ColumnarTypeEquivalenceFacts.IsSafeSzArrayType(valueType) {
             element := valueType.GetElementType()
             return element != null && ContainsNonEnumBuilderBoundType(element)
         }
@@ -1953,8 +1953,8 @@ class ColumnarTypeOfPlanner {
         if left == right {
             return true
         }
-        if left.get_IsSZArray() || right.get_IsSZArray() {
-            if !left.get_IsSZArray() || !right.get_IsSZArray() {
+        if ColumnarTypeEquivalenceFacts.IsSafeSzArrayType(left) || ColumnarTypeEquivalenceFacts.IsSafeSzArrayType(right) {
+            if !ColumnarTypeEquivalenceFacts.IsSafeSzArrayType(left) || !ColumnarTypeEquivalenceFacts.IsSafeSzArrayType(right) {
                 return false
             }
             leftElement := left.GetElementType()

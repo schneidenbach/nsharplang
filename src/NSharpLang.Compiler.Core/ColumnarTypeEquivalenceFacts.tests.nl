@@ -1,6 +1,9 @@
 namespace NSharpLang.Compiler.Columnar
 
 import System
+import System.Collections.Generic
+import System.IO
+import System.Reflection
 import System.Reflection.Emit
 
 // THE CONTRACT FOR THE PORTED EMIT-TIME TYPE IDENTITY (015-B10).
@@ -195,4 +198,92 @@ func TypeEquivalenceHandleIsRefused(candidate: Type): bool {
     } catch {
         return true
     }
+}
+
+// ── `Type.IsSZArray` IS REACHED ONLY THROUGH THE SAFE PREDICATE ───────────────────────────────────
+//
+// Reflection.Emit's `GenericTypeParameterBuilder` throws `NotImplementedException` from
+// `Type.IsSZArray`, so a raw call is not a wrong answer — it is a CRASH out of the compiler, and one
+// that only appears once a generic body asks the question. It appeared exactly that way: a generic
+// readonly struct whose property getter called one of its own methods brought the whole compile down
+// with "The method or operation is not implemented", from an array question nobody was asking.
+// `IsSafeSzArrayType` answers the same question (a type parameter is not an array) without the throw,
+// so this guard states that every other owner goes through it. The one raw call is the one INSIDE the
+// predicate, which has already ruled the parameter out.
+
+func SzArrayGuardRepositoryRoot(): string {
+    current: string? = AppContext.BaseDirectory
+    while current != null {
+        directory := current ?? ""
+        if File.Exists(Path.Combine(directory, "NSharpLang.sln")) && Directory.Exists(Path.Combine(directory, "src")) {
+            return directory
+        }
+
+        parent := Path.GetDirectoryName(directory)
+        if parent == null || parent == "" || parent == directory {
+            current = null
+        } else {
+            current = parent
+        }
+    }
+
+    throw new InvalidOperationException("Could not locate the repository root above the estate's output directory.")
+}
+
+func SzArrayGuardCompilerSources(): List<string> {
+    root := SzArrayGuardRepositoryRoot()
+    core := Path.Combine(Path.Combine(root, "src"), "NSharpLang.Compiler.Core")
+    collected := new List<string>()
+    for path in Directory.GetFiles(core, "*.nl", SearchOption.AllDirectories) {
+        if !path.EndsWith(".tests.nl", StringComparison.Ordinal) {
+            collected.Add(path)
+        }
+    }
+
+    return collected
+}
+
+test "every compiler owner asks the SZ-array question through the safe predicate" {
+    sources := SzArrayGuardCompilerSources()
+    assert sources.Count > 100, "the guard must be reading the compiler's own sources"
+
+    offenders := new List<string>()
+    rawCalls := 0
+    for path in sources {
+        text := File.ReadAllText(path)
+        if !text.Contains("get_IsSZArray()") {
+            continue
+        }
+
+        fileName := Path.GetFileName(path)
+        for line in text.Replace("\r\n", "\n").Split('\n') {
+            if !line.Contains("get_IsSZArray()") {
+                continue
+            }
+
+            rawCalls = rawCalls + 1
+            if fileName != "ColumnarTypeEquivalenceFacts.nl" {
+                offenders.Add(fileName + ": " + line.Trim())
+            }
+        }
+    }
+
+    assert offenders.Count == 0, "raw get_IsSZArray() calls must go through ColumnarTypeEquivalenceFacts.IsSafeSzArrayType"
+    // Exactly one raw call survives: the guarded one inside the predicate itself.
+    assert rawCalls == 1
+}
+
+test "the safe predicate answers without throwing for a generic parameter" {
+    // The builder that throws: a method type parameter, asked the array question the way every
+    // signature walk asks it.
+    assembly := AssemblyBuilder.DefineDynamicAssembly(new AssemblyName("SzArrayGuardProbe"), AssemblyBuilderAccess.Run)
+    module := assembly.DefineDynamicModule("SzArrayGuardProbe")
+    owner := module.DefineType("Probe", TypeAttributes.Public)
+    method := owner.DefineMethod("Generic", MethodAttributes.Public | MethodAttributes.Static)
+    parameters := method.DefineGenericParameters(["T"])
+
+    assert parameters.Length == 1
+    assert !ColumnarTypeEquivalenceFacts.IsSafeSzArrayType(parameters[0])
+    assert ColumnarTypeEquivalenceFacts.IsSafeSzArrayType(typeof(int[]))
+    assert !ColumnarTypeEquivalenceFacts.IsSafeSzArrayType(typeof(int))
 }

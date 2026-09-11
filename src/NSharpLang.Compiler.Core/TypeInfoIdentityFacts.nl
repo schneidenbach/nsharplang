@@ -180,7 +180,7 @@ class TypeInfoIdentityFacts {
         }
 
         if left.get_IsArray() || right.get_IsArray() {
-            if !left.get_IsArray() || !right.get_IsArray() || left.GetArrayRank() != right.GetArrayRank() || left.get_IsSZArray() != right.get_IsSZArray() {
+            if !left.get_IsArray() || !right.get_IsArray() || left.GetArrayRank() != right.GetArrayRank() || ColumnarTypeEquivalenceFacts.IsSafeSzArrayType(left) != ColumnarTypeEquivalenceFacts.IsSafeSzArrayType(right) {
                 return false
             }
             leftElement := left.GetElementType()

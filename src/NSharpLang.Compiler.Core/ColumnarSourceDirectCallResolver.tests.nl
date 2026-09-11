@@ -1136,6 +1136,19 @@ test "source direct-call resolver closes source generic signatures and exact han
     assert openSelection.ParameterTypes[0] == typeParameter
     assert openSelection.ReturnType == typeParameter
 
+    // THE RECEIVER IS NAMED THE SAME WAY THE METHOD IS. `this` inside a generic definition is a value
+    // of the CURRENT INSTANTIATION, and the plan records both the receiver's semantic type and the
+    // method's declaring type: while the receiver said "the open definition" and the handle said "the
+    // instantiation", the plan executor THREW ("value-type receiver for 'X' requires an exact managed
+    // address" / "reference receiver for 'X' does not match its declaring type") instead of declining —
+    // a crash for source as ordinary as a generic struct whose property getter calls its own method.
+    assert !Object.ReferenceEquals(openSelection.ReceiverType, genericOwnerType)
+    assert openSelection.ReceiverType.get_IsGenericType()
+    assert !openSelection.ReceiverType.get_IsGenericTypeDefinition()
+    assert openSelection.ReceiverType.GetGenericTypeDefinition() == genericOwnerType
+    assert openSelection.ReceiverType.GetGenericArguments()[0] == typeParameter
+    assert openSelection.DeclaringType.GetGenericTypeDefinition() == genericOwnerType
+
     closedArguments := new Type[](1)
     closedArguments[0] = typeof(int)
     closedType := genericOwnerType.MakeGenericType(closedArguments)

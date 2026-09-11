@@ -437,7 +437,7 @@ class ColumnarRuntimeGenericMethodResolver {
         if signatureType.get_IsArray() {
             // A multi-dimensional array is left to the tier that grows a call site for one; its rank
             // would have to be reconstructed, and no shape in the corpus asks for it.
-            if !signatureType.get_IsSZArray() {
+            if !ColumnarTypeEquivalenceFacts.IsSafeSzArrayType(signatureType) {
                 return null
             }
             arrayElement := SubstituteMethodTypeArguments(signatureType.GetElementType(), typeArguments)

@@ -377,7 +377,7 @@ class ColumnarMethodBodyPlanner {
         if valueType.get_IsGenericParameter() {
             return true
         }
-        if valueType.get_IsSZArray() {
+        if ColumnarTypeEquivalenceFacts.IsSafeSzArrayType(valueType) {
             element := valueType.GetElementType()
             if element != null && element.get_IsGenericParameter() {
                 return true

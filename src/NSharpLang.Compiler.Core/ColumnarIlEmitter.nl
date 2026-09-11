@@ -1511,11 +1511,23 @@ sealed class ColumnarIlEmitter {
             return false
         }
         for a := 1; a <= argCount; a++ {
+            declared := target.ParamTypes[a - 1]
+            // The same by-ref rule as the source-method arm: an address is not a value, so it is
+            // substituted and addressed rather than emitted and unified.
+            if (declared.get_IsByRef()) {
+                let byRefElement: System.Type = null
+                if (!ColumnarGenericConstraintPlanner.TrySubstituteGenericTypeArguments(target.TypeParams, binding, declared.GetElementType(), out byRefElement)) {
+                    return false
+                }
+                if (!EmitByRefCallArgument(Child(callIdx, a), byRefElement.MakeByRefType())) {
+                    return false
+                }
+                continue
+            }
             let gArgType: System.Type? = null
             if (!EmitExpression(Child(callIdx, a), out gArgType)) {
                 return false
             }
-            declared := target.ParamTypes[a - 1]
             if (!ColumnarGenericCallBindingPlanner.TryUnifyGenericCallArgument(target.TypeParams, binding, declared, gArgType)) {
                 return false
             }
@@ -1860,6 +1872,22 @@ sealed class ColumnarIlEmitter {
 
         for a := 1; a <= argCount; a++ {
             declared := effectiveParamTypes[a - 1]
+            // A BY-REF PARAMETER IS AN ADDRESS, NOT A VALUE, so it can never be unified from an emitted
+            // argument type: `out result: T` arrives as a kind-54 ref/out argument whose target has to be
+            // addressed against the SUBSTITUTED element type. Substituting the element and rebuilding the
+            // managed reference is the same answer the declaration made, and without it every generic
+            // method with an `out`/`ref` parameter over its own type parameter was uncallable —
+            // `TryGet<T>(out value)` included.
+            if (declared.get_IsByRef()) {
+                let byRefElement: System.Type = null
+                if (!ColumnarGenericConstraintPlanner.TrySubstituteGenericTypeArguments(generics.TypeParams, binding, declared.GetElementType(), out byRefElement)) {
+                    return false
+                }
+                if (!EmitByRefCallArgument(Child(callIdx, a), byRefElement.MakeByRefType())) {
+                    return false
+                }
+                continue
+            }
             let contextualParamType: System.Type = null
             if (ColumnarGenericConstraintPlanner.TrySubstituteGenericTypeArguments(generics.TypeParams, binding, declared, out contextualParamType)) {
                 // Every type parameter this position mentions is already bound, so the argument can be
@@ -2036,6 +2064,14 @@ sealed class ColumnarIlEmitter {
             if (_enclosingType == null || !Object.ReferenceEquals(_enclosingType.Builder, ownerBuilder)) {
                 return false
             }
+            // AND THE CALL MUST GO THROUGH THAT INSTANTIATION. A generic type's static method has no
+            // callable slot on the OPEN definition: `MakeGenericMethod` over the raw builder produces a
+            // handle the CLR refuses at run time with "the method itself or the containing type is not
+            // fully instantiated" — an exception at the call, not a decline at compile time. The instance
+            // path already rebinds onto `selfOwner`; this one did not, so a generic type calling one of
+            // its own generic statics emitted bad IL. The instantiation's arguments ARE the definition's
+            // own parameters, so the signature substitution is the identity and only the handle moves.
+            return TryEmitSourceStaticGenericCallOn(callIdx, method, binding, selfOwner, selfOwner.GetGenericArguments(), out columnarResolvedType)
         }
         return TryEmitSourceStaticGenericCallOn(callIdx, method, binding, null, null, out columnarResolvedType)
     }
@@ -4106,7 +4142,7 @@ sealed class ColumnarIlEmitter {
                                         genericReturnSupported = true
                                     } else {
                                         genericReturnIsParameterArray := false
-                                        genericReturnIsSzArray := returnType.get_IsSZArray()
+                                        genericReturnIsSzArray := ColumnarTypeEquivalenceFacts.IsSafeSzArrayType(returnType)
                                         if (genericReturnIsSzArray) {
                                             genericReturnElement := returnType.GetElementType()
                                             genericReturnIsParameterArray = genericReturnElement.get_IsGenericParameter()
@@ -4144,7 +4180,7 @@ sealed class ColumnarIlEmitter {
                             genericParameterSupported = true
                         } else {
                             genericParameterIsParameterArray := false
-                            genericParameterIsSzArray := pt.get_IsSZArray()
+                            genericParameterIsSzArray := ColumnarTypeEquivalenceFacts.IsSafeSzArrayType(pt)
                             if (genericParameterIsSzArray) {
                                 genericParameterElement := pt.GetElementType()
                                 genericParameterIsParameterArray = genericParameterElement.get_IsGenericParameter()
@@ -5735,7 +5771,7 @@ sealed class ColumnarIlEmitter {
             if (!EmitExpression(Child(idx, 0), out initType)) {
                 return Decline("emit.local.initializer", "local initializer expression emission declined for '" + name + "'", Child(idx, 0))
             }
-            if (!(initType.get_IsGenericParameter() || (initType.get_IsSZArray() && initType.GetElementType().get_IsGenericParameter()) || ColumnarTypeOfPlanner.IsSupportedType(initType))) {
+            if (!(initType.get_IsGenericParameter() || (ColumnarTypeEquivalenceFacts.IsSafeSzArrayType(initType) && initType.GetElementType().get_IsGenericParameter()) || ColumnarTypeOfPlanner.IsSupportedType(initType))) {
                 return Decline("emit.local.unsupported-type", "local initializer type is not supported for '" + name + "': " + initType.FullName, idx)
             }
             // L3b: a lifted candidate (captured by some lambda AND bare-assigned) declares as a shared
@@ -6012,7 +6048,7 @@ sealed class ColumnarIlEmitter {
                     // index each evaluate ONCE into a temp and are then loaded twice -- once to read the
                     // element and once to store it back -- so a side-effecting index expression runs a
                     // single time, and the bounds check is the CLR's own on both halves.
-                    if (idxRecvType.get_IsSZArray()) {
+                    if (ColumnarTypeEquivalenceFacts.IsSafeSzArrayType(idxRecvType)) {
                         arrayElementType := idxRecvType.GetElementType()
                         arrayTemp := _il.DeclareLocal(idxRecvType)
                         _il.Emit(OpCodes.Stloc, arrayTemp)
@@ -6215,7 +6251,7 @@ sealed class ColumnarIlEmitter {
                 if (indexerWrote) {
                     return false
                 }
-                if (!arrayType.get_IsSZArray()) {
+                if (!ColumnarTypeEquivalenceFacts.IsSafeSzArrayType(arrayType)) {
                     return false
                 }
                 // Stelem order is (array, index, value): emit the array ref, the int index, the value, store.
@@ -6879,7 +6915,7 @@ sealed class ColumnarIlEmitter {
                 }
                 return true
             }
-            if (!collectionType.get_IsSZArray()) {
+            if (!ColumnarTypeEquivalenceFacts.IsSafeSzArrayType(collectionType)) {
                 return false
             }
             elementType := collectionType.GetElementType()
@@ -9995,7 +10031,7 @@ sealed class ColumnarIlEmitter {
                 return false
             }
             if (member == "Length") {
-                if (receiverType.get_IsSZArray()) {
+                if (ColumnarTypeEquivalenceFacts.IsSafeSzArrayType(receiverType)) {
                     _il.Emit(OpCodes.Ldlen)
                     // pushes the array length as a native int...
                     _il.Emit(OpCodes.Conv_I4)
@@ -10153,7 +10189,7 @@ sealed class ColumnarIlEmitter {
             if (TryEmitRuntimeIndexerRead(idx, indexedType, out columnarResolvedType)) {
                 return true
             }
-            if (!indexedType.get_IsSZArray()) {
+            if (!ColumnarTypeEquivalenceFacts.IsSafeSzArrayType(indexedType)) {
                 return false
             }
             let arrayIndexType: System.Type? = null
@@ -10211,7 +10247,7 @@ sealed class ColumnarIlEmitter {
                         return false
                     }
                     let charArrType: System.Type? = null
-                    if (!EmitExpression(Child(idx, 1), out charArrType) || !charArrType.get_IsSZArray() || charArrType.GetElementType() != typeof(char)) {
+                    if (!EmitExpression(Child(idx, 1), out charArrType) || !ColumnarTypeEquivalenceFacts.IsSafeSzArrayType(charArrType) || charArrType.GetElementType() != typeof(char)) {
                         return false
                     }
                     if (!EmitArg(idx, 2, typeof(int)) || !EmitArg(idx, 3, typeof(int))) {
@@ -10573,9 +10609,14 @@ sealed class ColumnarIlEmitter {
                 for a := 0; a < closedCtorArgCount; a++ {
                     expectedArgType := ColumnarRuntimeInstanceMemberResolver.SubstituteClosedTypeArguments(chosenOpenParamTypes[a], closedTypeArguments)
                     let closedArgType: System.Type? = null
-                    // The two keyword literals take the SUBSTITUTED parameter type, exactly as they do for a
-                    // non-generic user constructor above: `new Box<int>(default)` is `default(int)` because
-                    // that is what the parameter is on this instantiation.
+                    // The two keyword literals and an unsuffixed integer literal take the SUBSTITUTED
+                    // parameter type, exactly as they do for a non-generic user constructor above:
+                    // `new Box<int>(default)` is `default(int)` because that is what the parameter is on
+                    // this instantiation, and `new Tagged<T>(v, 1)` writes the `1` as the `byte` the
+                    // parameter declares.
+                    if (TryEmitIntLiteralAsType(Child(idx, 1 + a), expectedArgType, out closedArgType)) {
+                        continue
+                    }
                     if (TryEmitZeroLiteralAsType(Child(idx, 1 + a), expectedArgType, out closedArgType)) {
                         continue
                     }
@@ -10665,6 +10706,18 @@ sealed class ColumnarIlEmitter {
                             return true
                         }
                     }
+                }
+                // A TYPE PARAMETER TARGET IS `unbox.any`, NEVER `castclass`. `(T0)value` has to be
+                // correct for BOTH instantiations of an unconstrained parameter, and only `unbox.any`
+                // is: it unwraps a boxed value type and behaves exactly as `castclass` for a reference
+                // one — which is why C# emits it here. `castclass !T0` over a value instantiation is not
+                // a wrong answer but INVALID IL, and it reached the runtime as "Common Language Runtime
+                // detected an invalid program" because a generic parameter reports `IsValueType` false
+                // and fell into the reference arm below.
+                if (sourceType == typeof(object) && targetType.get_IsGenericParameter()) {
+                    _il.Emit(OpCodes.Unbox_Any, targetType)
+                    columnarResolvedType = targetType
+                    return true
                 }
                 if (sourceType == typeof(object) && !targetType.get_IsValueType()) {
                     _il.Emit(OpCodes.Castclass, targetType)
@@ -12060,7 +12113,7 @@ sealed class ColumnarIlEmitter {
             return false
         }
 
-        if (ownerType.get_IsSZArray() && member == "Length") {
+        if (ColumnarTypeEquivalenceFacts.IsSafeSzArrayType(ownerType) && member == "Length") {
             _il.Emit(OpCodes.Ldloc, ownerLocal)
             _il.Emit(OpCodes.Ldlen)
             _il.Emit(OpCodes.Conv_I4)
@@ -12117,7 +12170,7 @@ sealed class ColumnarIlEmitter {
     }
 
     private func EmitArrayListPattern(patternNode: int, matchValueType: Type, matchLocal: LocalBuilder, successLabel: Label, failLabel: Label): bool {
-        if (_nodes.Kind(patternNode) != 65 || !matchValueType.get_IsSZArray()) {
+        if (_nodes.Kind(patternNode) != 65 || !ColumnarTypeEquivalenceFacts.IsSafeSzArrayType(matchValueType)) {
             return false
         }
         elementType := matchValueType.GetElementType()
@@ -12787,7 +12840,7 @@ sealed class ColumnarIlEmitter {
     private func IsSupportedMatchValueType(t: Type): bool {
         let columnarDiscard69: NSharpLang.Compiler.Columnar.ColumnarUnionDef = null
         let columnarDiscard70: System.Type[] = null
-        return t == typeof(int) || t == typeof(long) || t == typeof(ulong) || t == typeof(char) || t == typeof(bool) || t == typeof(double) || t == typeof(float) || t == typeof(string) || (t.get_IsSZArray() && ColumnarTypeOfPlanner.IsSupportedElementType(t.GetElementType())) || ColumnarTypeOfPlanner.IsEnumType(t) || t is TypeBuilder || ColumnarTypeOfPlanner.IsClosedSourceGeneric(t) || ColumnarTypeOfPlanner.IsSupportedAnonymousUnionType(t) || TryGetUnionDefForMatchValue(t, out columnarDiscard69, out columnarDiscard70)
+        return t == typeof(int) || t == typeof(long) || t == typeof(ulong) || t == typeof(char) || t == typeof(bool) || t == typeof(double) || t == typeof(float) || t == typeof(string) || (ColumnarTypeEquivalenceFacts.IsSafeSzArrayType(t) && ColumnarTypeOfPlanner.IsSupportedElementType(t.GetElementType())) || ColumnarTypeOfPlanner.IsEnumType(t) || t is TypeBuilder || ColumnarTypeOfPlanner.IsClosedSourceGeneric(t) || ColumnarTypeOfPlanner.IsSupportedAnonymousUnionType(t) || TryGetUnionDefForMatchValue(t, out columnarDiscard69, out columnarDiscard70)
     }
 
     // True when `type` is the struct of a value-struct (payload-free tag) union. Used to decline `is`/`as` whose
@@ -14169,7 +14222,7 @@ sealed class ColumnarIlEmitter {
             // -> void. The array's element type drives the generic instantiation; the value must match the
             // element type; ranged fills additionally require int startIndex/count.
             arrayType: System.Type? = null
-            if (!EmitExpression(Child(callIdx, 1), out arrayType) || !arrayType.get_IsSZArray()) {
+            if (!EmitExpression(Child(callIdx, 1), out arrayType) || !ColumnarTypeEquivalenceFacts.IsSafeSzArrayType(arrayType)) {
                 return false
             }
             elementType := arrayType.GetElementType()
@@ -14198,7 +14251,7 @@ sealed class ColumnarIlEmitter {
                 return false
             }
             arrayType: System.Type? = null
-            if (!TryGetAddressableTargetType(Child(refArg, 0), out arrayType) || !arrayType.get_IsSZArray()) {
+            if (!TryGetAddressableTargetType(Child(refArg, 0), out arrayType) || !ColumnarTypeEquivalenceFacts.IsSafeSzArrayType(arrayType)) {
                 return false
             }
             elementType := arrayType.GetElementType()
@@ -14222,7 +14275,7 @@ sealed class ColumnarIlEmitter {
             // Keep this to one supported SZ array; key/value parallel arrays and comparison-delegate
             // overloads stay declined.
             arrayType: System.Type? = null
-            if (!EmitExpression(Child(callIdx, 1), out arrayType) || !arrayType.get_IsSZArray()) {
+            if (!EmitExpression(Child(callIdx, 1), out arrayType) || !ColumnarTypeEquivalenceFacts.IsSafeSzArrayType(arrayType)) {
                 return false
             }
             elementType := arrayType.GetElementType()
@@ -14250,7 +14303,7 @@ sealed class ColumnarIlEmitter {
             // Array.Reverse<T>(T[] array) and Array.Reverse<T>(T[] array, int index, int length) -> void. Keep
             // this to one supported SZ array; non-generic Array and unsupported element shapes stay declined.
             arrayType: System.Type? = null
-            if (!EmitExpression(Child(callIdx, 1), out arrayType) || !arrayType.get_IsSZArray()) {
+            if (!EmitExpression(Child(callIdx, 1), out arrayType) || !ColumnarTypeEquivalenceFacts.IsSafeSzArrayType(arrayType)) {
                 return false
             }
             elementType := arrayType.GetElementType()
@@ -14272,7 +14325,7 @@ sealed class ColumnarIlEmitter {
             // Array.Clear(Array) and Array.Clear(Array, int, int) -> void. The emitted argument remains the
             // concrete T[] reference; the BCL parameter is System.Array, so no copy or element loop is introduced.
             arrayType: System.Type? = null
-            if (!EmitExpression(Child(callIdx, 1), out arrayType) || !arrayType.get_IsSZArray()) {
+            if (!EmitExpression(Child(callIdx, 1), out arrayType) || !ColumnarTypeEquivalenceFacts.IsSafeSzArrayType(arrayType)) {
                 return false
             }
             elementType := arrayType.GetElementType()
@@ -14300,7 +14353,7 @@ sealed class ColumnarIlEmitter {
             // Array.Copy(Array, Array, int) and Array.Copy(Array, int, Array, int, int) -> void. Keep this slice
             // to exact same-element SZ-array copies; wider Array covariance and long-index overloads stay declined.
             sourceArrayType: System.Type? = null
-            if (!EmitExpression(Child(callIdx, 1), out sourceArrayType) || !sourceArrayType.get_IsSZArray()) {
+            if (!EmitExpression(Child(callIdx, 1), out sourceArrayType) || !ColumnarTypeEquivalenceFacts.IsSafeSzArrayType(sourceArrayType)) {
                 return false
             }
 
@@ -14333,7 +14386,7 @@ sealed class ColumnarIlEmitter {
     }
 
     private static func AreSameSupportedArrayType(sourceArrayType: Type, destinationArrayType: Type): bool {
-        if (!sourceArrayType.get_IsSZArray() || !destinationArrayType.get_IsSZArray()) {
+        if (!ColumnarTypeEquivalenceFacts.IsSafeSzArrayType(sourceArrayType) || !ColumnarTypeEquivalenceFacts.IsSafeSzArrayType(destinationArrayType)) {
             return false
         }
         sourceElementType := sourceArrayType.GetElementType()
@@ -14392,7 +14445,7 @@ sealed class ColumnarIlEmitter {
             m := methods[methodIndex]
             if (m.get_Name() == "Sort" && m.get_IsGenericMethodDefinition() && m.GetGenericArguments().Length == 1) {
                 parameters := m.GetParameters()
-                if (parameters.Length == parameterCount && parameters[0].get_ParameterType().get_IsSZArray() && parameters[0].get_ParameterType().GetElementType().get_IsGenericParameter()) {
+                if (parameters.Length == parameterCount && ColumnarTypeEquivalenceFacts.IsSafeSzArrayType(parameters[0].get_ParameterType()) && parameters[0].get_ParameterType().GetElementType().get_IsGenericParameter()) {
                     rangeParametersMatch := parameterCount < 3 || (parameters[1].get_ParameterType() == typeof(int) && parameters[2].get_ParameterType() == typeof(int))
                     if (rangeParametersMatch) {
                         comparerMatches := true
@@ -14418,7 +14471,7 @@ sealed class ColumnarIlEmitter {
                 continue
             }
             parameters := m.GetParameters()
-            if (parameters.Length != parameterCount || !parameters[0].get_ParameterType().get_IsSZArray() || !parameters[0].get_ParameterType().GetElementType().get_IsGenericParameter()) {
+            if (parameters.Length != parameterCount || !ColumnarTypeEquivalenceFacts.IsSafeSzArrayType(parameters[0].get_ParameterType()) || !parameters[0].get_ParameterType().GetElementType().get_IsGenericParameter()) {
                 continue
             }
             if (parameterCount == 1 || (parameters[1].get_ParameterType() == typeof(int) && parameters[2].get_ParameterType() == typeof(int))) {
@@ -14681,7 +14734,7 @@ sealed class ColumnarIlEmitter {
     // the honest answer for it rather than emitting a store nothing observes.
     private func TryEmitRuntimeIndexerWrite(targetIdx: int, valueNode: int, receiverType: Type, out wrote: bool): bool {
         wrote = false
-        if (receiverType.get_IsValueType() || receiverType.get_IsSZArray() || receiverType.get_IsArray() || receiverType.get_IsByRef() || receiverType.get_IsPointer() || receiverType.get_IsGenericParameter()) {
+        if (receiverType.get_IsValueType() || ColumnarTypeEquivalenceFacts.IsSafeSzArrayType(receiverType) || receiverType.get_IsArray() || receiverType.get_IsByRef() || receiverType.get_IsPointer() || receiverType.get_IsGenericParameter()) {
             return false
         }
         indexType: System.Type? = null
@@ -14721,7 +14774,7 @@ sealed class ColumnarIlEmitter {
     // BCL's own -- `Vector<T>`'s indexer raises IndexOutOfRangeException, and nothing here intercepts it.
     private func TryEmitRuntimeIndexerRead(idx: int, receiverType: Type, out resolvedClrType: Type): bool {
         resolvedClrType = null
-        if (receiverType.get_IsSZArray() || receiverType.get_IsArray() || receiverType.get_IsByRef() || receiverType.get_IsPointer() || receiverType.get_IsGenericParameter()) {
+        if (ColumnarTypeEquivalenceFacts.IsSafeSzArrayType(receiverType) || receiverType.get_IsArray() || receiverType.get_IsByRef() || receiverType.get_IsPointer() || receiverType.get_IsGenericParameter()) {
             return false
         }
         indexType: System.Type? = null
@@ -15278,7 +15331,7 @@ sealed class ColumnarIlEmitter {
 
     private func CanUseArrayLiteralAsType(node: int, target: Type): bool {
         node = UnwrapParenthesizedNode(node)
-        if (_nodes.Kind(node) != 58 || !target.get_IsSZArray()) {
+        if (_nodes.Kind(node) != 58 || !ColumnarTypeEquivalenceFacts.IsSafeSzArrayType(target)) {
             return false
         }
         elementType := target.GetElementType()
@@ -18907,7 +18960,7 @@ sealed class ColumnarIlEmitter {
     }
 
     private static func CanUseSpanConversion(sourceType: Type, targetType: Type): bool {
-        if (sourceType.get_IsSZArray() && ColumnarTypeOfPlanner.IsSupportedSpanLikeType(targetType)) {
+        if (ColumnarTypeEquivalenceFacts.IsSafeSzArrayType(sourceType) && ColumnarTypeOfPlanner.IsSupportedSpanLikeType(targetType)) {
             return TypesEquivalent(sourceType.GetElementType(), targetType.GetGenericArguments()[0])
         }
         if (ColumnarTypeOfPlanner.IsSupportedSpanType(sourceType) && ColumnarTypeOfPlanner.IsSupportedReadOnlySpanType(targetType)) {
@@ -18920,7 +18973,7 @@ sealed class ColumnarIlEmitter {
         if (!CanUseSpanConversion(sourceType, targetType)) {
             return false
         }
-        if (sourceType.get_IsSZArray()) {
+        if (ColumnarTypeEquivalenceFacts.IsSafeSzArrayType(sourceType)) {
             elementArrayType := targetType.GetGenericArguments()[0].MakeArrayType()
             ctor := targetType.GetConstructor([elementArrayType])
             if (ctor == null) {
@@ -19950,8 +20003,13 @@ sealed class ColumnarIlEmitter {
                     let thisProperty: NSharpLang.Compiler.Columnar.ColumnarPropertyDef? = null
                     if (_currentStruct != null && TryFindPropertyOnChain(_currentStruct, rootName, out thisProperty)) {
                         rootThis = true
-                        rootGetter = thisProperty.Getter
-                        rootType = _currentStruct.Builder
+                        // THE GETTER IS NAMED THROUGH THE CURRENT INSTANTIATION, like every other
+                        // self-call. A raw accessor builder names the OPEN definition, which the CLR
+                        // refuses to execute ("the method itself or the containing type is not fully
+                        // instantiated") — a run-time failure from a hole as ordinary as `$"{Index}"`
+                        // inside a generic type. `Bind` is the identity on a non-generic owner.
+                        rootGetter = ColumnarSourceSelfInstantiation.Bind(thisProperty.Getter)
+                        rootType = ColumnarSourceSelfInstantiation.Of(_currentStruct.Builder)
                         valueType = thisProperty.PropertyType
                     } else {
                         return false
@@ -19965,7 +20023,7 @@ sealed class ColumnarIlEmitter {
             if (rootThis || rootGetter != null || hops.Count != 0) {
                 return false
             }
-            if (!rootType.get_IsSZArray()) {
+            if (!ColumnarTypeEquivalenceFacts.IsSafeSzArrayType(rootType)) {
                 return false
             }
             let constantIndex: int = 0

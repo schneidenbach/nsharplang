@@ -1544,7 +1544,7 @@ class ColumnarConstructionPlanner {
             }
             return SubstituteTypeArgument(element, arguments).MakeByRefType()
         }
-        if signatureType.get_IsSZArray() {
+        if ColumnarTypeEquivalenceFacts.IsSafeSzArrayType(signatureType) {
             element := signatureType.GetElementType()
             if element == null {
                 throw new InvalidOperationException("Construction array signature has no element type.")

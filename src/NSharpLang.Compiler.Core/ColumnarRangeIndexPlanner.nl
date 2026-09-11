@@ -865,7 +865,7 @@ class ColumnarRangeIndexPlanner {
 
         isString := indexedType == typeof(string)
         isList := IsClosedListType(indexedType)
-        if !isString && !isList && !indexedType.get_IsSZArray() {
+        if !isString && !isList && !ColumnarTypeEquivalenceFacts.IsSafeSzArrayType(indexedType) {
             return false
         }
 
