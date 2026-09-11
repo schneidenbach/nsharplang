@@ -602,15 +602,19 @@ sealed class ColumnarIlEmitter {
         if (enumBuilderType != null) {
             return false
         }
-        if (!t.get_IsGenericType()) {
-            return false
-        }
         if (t.get_IsGenericTypeDefinition()) {
             return false
+        }
+        if (!t.get_IsGenericType()) {
+            // A NON-GENERIC DELEGATE HAS NO TYPE ARGUMENTS TO CHECK, so it goes straight to its own
+            // `Invoke`. `Action` and `ThreadStart` answered above because they are the two the corpus
+            // writes; every other one — `EventHandler`, a user-written `delegate` — reaches here.
+            return TryGetRuntimeDelegateInvokeSignature(t, out returnType, out parameterTypes) && TryResolveDelegateConstructor(t, out delegateCtor)
         }
         let def: System.Type = null
         def = t.GetGenericTypeDefinition()
         args := t.GetGenericArguments()
+        readSignatureFromInvoke := false
 
         if (def == typeof(Action<int>).GetGenericTypeDefinition() || def == typeof(Action<int, int>).GetGenericTypeDefinition() || def == typeof(Action<int, int, int>).GetGenericTypeDefinition() || def == typeof(Action<int, int, int, int>).GetGenericTypeDefinition()) {
             returnType = ColumnarTypeOfPlanner.RequiredVoidType()
@@ -621,7 +625,13 @@ sealed class ColumnarIlEmitter {
                 parameterTypes = new Type[args.Length - 1]
                 System.Array.Copy(args, parameterTypes, args.Length - 1)
             } else {
-                return false
+                // ANY OTHER CONSTRUCTED DELEGATE, READ FROM ITS OWN `Invoke`. A delegate's signature is
+                // not a fact about its NAME: `Predicate<T>` and `Comparison<T>` carry theirs exactly
+                // where `Action` and `Func` carry theirs, and reading it from the same place is what
+                // lets `items.Find(x => ...)` and `Comparer<int>.Create((a, b) => ...)` take a lambda.
+                // The two shapes above keep their direct reading because a builder-bound `Action<T>`
+                // cannot be reflected at all, and those are the instantiations that reach it.
+                readSignatureFromInvoke = true
             }
         }
 
@@ -640,12 +650,66 @@ sealed class ColumnarIlEmitter {
             }
         }
 
+        if (readSignatureFromInvoke && !TryGetRuntimeDelegateInvokeSignature(t, out returnType, out parameterTypes)) {
+            return false
+        }
+
         openCtor := def.GetConstructor([typeof(object), typeof(IntPtr)])
         if (openCtor == null) {
             return false
         }
         delegateCtor = ColumnarTypeOfPlanner.ContainsBuilderBoundType(t) ? TypeBuilder.GetConstructor(t, openCtor) : t.GetConstructor([typeof(object), typeof(IntPtr)])
         return delegateCtor != null
+    }
+
+    // THE SIGNATURE A BAKED DELEGATE DECLARES ON ITS `Invoke`. Only a delegate answers — a type that
+    // merely has a method of that name is not one — and only a signature the emitter can spell: a
+    // by-ref or pointer position has no lambda form, and every remaining type must be one the backend
+    // models.
+    private static func TryGetRuntimeDelegateInvokeSignature(t: Type, out returnType: Type, out parameterTypes: Type[]): bool {
+        returnType = null
+        parameterTypes = System.Array.Empty<Type>()
+        if (ColumnarTypeOfPlanner.ContainsBuilderBoundType(t) || !IsRuntimeDelegateType(t)) {
+            return false
+        }
+        invoke := t.GetMethod("Invoke")
+        if (invoke == null) {
+            return false
+        }
+        invokeReturnType := invoke.get_ReturnType()
+        if (invokeReturnType == null || invokeReturnType.get_IsByRef() || invokeReturnType.get_IsPointer()) {
+            return false
+        }
+        if (!ColumnarCodePlanExecutor.IsVoidType(invokeReturnType) && !ColumnarTypeOfPlanner.IsSupportedType(invokeReturnType)) {
+            return false
+        }
+        invokeParameters := invoke.GetParameters()
+        invokeParameterTypes := new Type[invokeParameters.Length]
+        for p := 0; p < invokeParameters.Length; p++ {
+            invokeParameterType := invokeParameters[p].get_ParameterType()
+            if (invokeParameterType == null || invokeParameterType.get_IsByRef() || invokeParameterType.get_IsPointer() || !ColumnarTypeOfPlanner.IsSupportedType(invokeParameterType)) {
+                return false
+            }
+            invokeParameterTypes[p] = invokeParameterType
+        }
+        returnType = invokeReturnType
+        parameterTypes = invokeParameterTypes
+        return true
+    }
+
+    private static func TryResolveDelegateConstructor(t: Type, out delegateCtor: ConstructorInfo): bool {
+        delegateCtor = t.GetConstructor([typeof(object), typeof(IntPtr)])
+        return delegateCtor != null
+    }
+
+    // WHETHER THIS IS A DELEGATE AT ALL — `System.MulticastDelegate` somewhere on the base chain.
+    private static func IsRuntimeDelegateType(t: Type): bool {
+        for current := t.get_BaseType(); current != null; current = current.get_BaseType() {
+            if (current == typeof(MulticastDelegate) || current == typeof(Delegate)) {
+                return true
+            }
+        }
+        return false
     }
 
     // A GENERIC method declared by a user TYPE. Reflection.Emit fixes the order — the builder exists
@@ -2342,6 +2406,78 @@ sealed class ColumnarIlEmitter {
             _ => OpCodes.Call
         }
         _il.Emit(callOpcode, selection.Method)
+        columnarResolvedType = selection.ReturnType
+        return true
+    }
+
+    // THE ORDINARY EXTERNAL CALL FOR A SITE WHOSE ARGUMENTS CANNOT ALL BE TYPED BEFORE EMISSION.
+    //
+    // The direct-call planner owns every external call whose arguments it can type, and it types them
+    // BEFORE it chooses the overload. A LAMBDA ARGUMENT HAS NO TYPE UNTIL IT IS BOUND to the parameter
+    // it is passed to, so a call like `u.Switch(a => ..., b => ...)` leaves the planner with nothing to
+    // select on and arrives here. The member is chosen by ordinary CLR member resolution restricted to
+    // the ONE declaration of that name at this arity — an ambiguity is refused, because the argument
+    // types are exactly what would have chosen between them — and each argument is then emitted
+    // against its declared parameter type, which is what gives a lambda its contextual shape.
+    private func TryEmitOrdinaryRuntimeStaticCall(callIdx: int, ownerType: Type, member: string, argCount: int, out columnarResolvedType: Type): bool {
+        columnarResolvedType = null
+        selection := ColumnarOrdinaryRuntimeDirectCallResolver.ResolveUniqueAtArity(ownerType, member, argCount, true)
+        if (!selection.IsSelected || selection.Method == null || !CanEmitOrdinaryRuntimeCallArguments(callIdx, selection.ParameterTypes)) {
+            return false
+        }
+        return EmitOrdinaryRuntimeCallArgumentsAndDispatch(callIdx, selection, out columnarResolvedType)
+    }
+
+    // The instance form. THE RECEIVER VALUE IS ALREADY ON THE STACK, so a value receiver has to be
+    // spilled to reach its address: an instance method on a value type takes a managed pointer.
+    private func TryEmitOrdinaryRuntimeInstanceCall(callIdx: int, receiverType: Type, member: string, argCount: int, out columnarResolvedType: Type): bool {
+        columnarResolvedType = null
+        selection := ColumnarOrdinaryRuntimeDirectCallResolver.ResolveUniqueAtArity(receiverType, member, argCount, false)
+        if (!selection.IsSelected || selection.Method == null || !CanEmitOrdinaryRuntimeCallArguments(callIdx, selection.ParameterTypes)) {
+            return false
+        }
+        if (receiverType.get_IsValueType()) {
+            // A method the value type INHERITS would need a box or a `constrained.` prefix, which is a
+            // different dispatch; only the type's own declarations bind here.
+            if (!ColumnarRuntimeInstanceMemberResolver.ExactTypeShapeMatches(selection.DeclaringType, receiverType)) {
+                return false
+            }
+            spilledReceiver := _il.DeclareLocal(receiverType)
+            _il.Emit(OpCodes.Stloc, spilledReceiver)
+            _il.Emit(OpCodes.Ldloca, spilledReceiver)
+        }
+        return EmitOrdinaryRuntimeCallArgumentsAndDispatch(callIdx, selection, out columnarResolvedType)
+    }
+
+    // EVERY ARGUMENT IS CHECKED BEFORE THE FIRST ONE IS EMITTED. This tier runs ahead of the emitter's
+    // remaining per-API residuals, so a selection it abandoned halfway would leave the arguments it had
+    // already written on the stack in front of whichever arm answered next. The check is the same
+    // predicate the planned-external door uses, asked of the same declared parameter types.
+    private func CanEmitOrdinaryRuntimeCallArguments(callIdx: int, parameterTypes: Type[]): bool {
+        if (_nodes.ChildCount(callIdx) - 1 != parameterTypes.Length) {
+            return false
+        }
+        for a := 0; a < parameterTypes.Length; a++ {
+            if (!CanDeclaredCallArgumentMatch(Child(callIdx, a + 1), parameterTypes[a], true)) {
+                return false
+            }
+        }
+        return true
+    }
+
+    private func EmitOrdinaryRuntimeCallArgumentsAndDispatch(callIdx: int, selection: ColumnarOrdinaryRuntimeDirectCallSelection, out columnarResolvedType: Type): bool {
+        columnarResolvedType = null
+        parameterTypes := selection.ParameterTypes
+        for a := 0; a < parameterTypes.Length; a++ {
+            if (!EmitDeclaredCallArgument(Child(callIdx, a + 1), parameterTypes[a], true)) {
+                return false
+            }
+        }
+        ordinaryCallOpcode := match selection.UsesCallVirtual {
+            true => OpCodes.Callvirt,
+            _ => OpCodes.Call
+        }
+        _il.Emit(ordinaryCallOpcode, selection.Method)
         columnarResolvedType = selection.ReturnType
         return true
     }
@@ -13336,6 +13472,15 @@ sealed class ColumnarIlEmitter {
                     }
                 }
             }
+
+            // The same receiver, for a STATIC member declared by a type from a REFERENCED ASSEMBLY
+            // (`Comparer<int>.Create(...)`). The instantiation is resolved first, so the member is
+            // chosen on the CLOSED type and its signature is already substituted — which is what lets a
+            // lambda argument take its shape from `Comparison<int>` rather than from an open `T`.
+            let externalConstructedOwner: System.Type? = null
+            if (TryResolveGenericTypeReceiverCanonical(receiver, out constructedReceiverCanonical) && TryResolveBodyType(constructedReceiverCanonical, out externalConstructedOwner) && TryEmitOrdinaryRuntimeStaticCall(callIdx, externalConstructedOwner, memberName, argCount, out resolvedClrType)) {
+                return true
+            }
         }
 
         addressableReceiverType: System.Type? = null
@@ -17743,6 +17888,13 @@ sealed class ColumnarIlEmitter {
             }
             _il.Emit(OpCodes.Callvirt, delegateInvoke)
             columnarResolvedType = delegateInvokeReturnType
+            return true
+        }
+
+        // ORDINARY CLR MEMBER RESOLUTION over the receiver's own type, ahead of the per-API residuals
+        // below. The direct-call planner owns every external instance call whose arguments it can
+        // type; what reaches here is the rest, and a lambda argument is why there is a rest.
+        if (TryEmitOrdinaryRuntimeInstanceCall(callIdx, receiverType, member, argCount, out columnarResolvedType)) {
             return true
         }
 

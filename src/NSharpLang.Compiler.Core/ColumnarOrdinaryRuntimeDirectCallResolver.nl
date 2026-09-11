@@ -455,6 +455,65 @@ class ColumnarOrdinaryRuntimeDirectCallResolver {
         return Empty(ColumnarOrdinaryRuntimeDirectCallStatus.NotFound, lookupType, expectedStatic)
     }
 
+    // THE UNIQUE DECLARATION OF THIS NAME AT THIS ARITY, for a call site whose arguments cannot all be
+    // typed before emission.
+    //
+    // A LAMBDA ARGUMENT HAS NO TYPE UNTIL IT IS BOUND against the parameter it is passed to, so
+    // `u.Switch(a => ..., b => ...)` cannot be scored the way an ordinary call is — and scoring is the
+    // only thing this tier gives up. Candidate admission, the excluded shapes and the dispatch rule
+    // are the resolver's own, so a method reachable here is a method reachable there.
+    //
+    // MORE THAN ONE CANDIDATE IS REFUSED RATHER THAN GUESSED, because the argument types are exactly
+    // what would have chosen between them: a site that leaves an ambiguity has to say more.
+    static func ResolveUniqueAtArity(lookupType: Type, memberName: string, argumentCount: int, expectedStatic: bool): ColumnarOrdinaryRuntimeDirectCallSelection {
+        if lookupType == null || memberName == null || argumentCount < 0 {
+            throw new InvalidOperationException("Ordinary runtime direct-call inputs cannot be null.")
+        }
+
+        // A builder-bound owner's members are reachable only through its open definition, where the
+        // TYPE's arguments would have to be closed alongside the call. That pairing keeps the exact
+        // resolver's answer.
+        genericDefinition := typeof(object)
+        closedArguments := new Type[](0)
+        if TryGetBuilderBoundRuntimeDefinition(lookupType, out genericDefinition, out closedArguments) || lookupType.get_IsGenericTypeDefinition() || lookupType.get_IsGenericParameter() {
+            return Empty(ColumnarOrdinaryRuntimeDirectCallStatus.NotFound, lookupType, expectedStatic)
+        }
+
+        candidates := CandidatesOrEmpty(lookupType)
+        selected: MethodInfo? = null
+        selectedParameters := new Type[](0)
+        selectedCount := 0
+        index := 0
+        while index < candidates.Length {
+            candidate := candidates[index]
+            index = index + 1
+            if candidate == null || !IsPublicCandidateForLookup(candidate, lookupType, memberName, expectedStatic) {
+                continue
+            }
+
+            parameters := candidate.GetParameters()
+            if parameters == null || parameters.Length != argumentCount || IsIntrinsicExcludedShape(candidate, parameters) {
+                continue
+            }
+
+            parameterTypes := ResolveParameterTypes(candidate, lookupType, parameters, closedArguments)
+            returnType := ResolveReturnType(candidate, lookupType, closedArguments)
+            if HasUnsupportedResolvedSignature(parameters, parameterTypes, returnType, closedArguments) || !CanDispatch(candidate, lookupType, expectedStatic) {
+                continue
+            }
+
+            selectedCount = selectedCount + 1
+            selected = candidate
+            selectedParameters = parameterTypes
+        }
+
+        if selectedCount != 1 || selected == null {
+            return Empty(ColumnarOrdinaryRuntimeDirectCallStatus.NotFound, lookupType, expectedStatic)
+        }
+
+        return Selected(lookupType, selected, selectedParameters, expectedStatic)
+    }
+
     static func ValidateBuilderBoundCandidates(candidates: MethodInfo[]) {
         index := 0
         while index < candidates.Length {
