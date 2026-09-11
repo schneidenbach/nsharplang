@@ -110,7 +110,13 @@ test "type admission retains external generics closed over source builders" {
     // direct set key. Constructed builder-bound shapes remain outside that narrower key surface.
     assert ColumnarTypeOfPlanner.IsSupportedType(AdmissibilityClosed1("System.Collections.Generic.HashSet`1", sourceClass))
     assert ColumnarTypeOfPlanner.IsAdmissibleHashSetElement(sourceClass)
-    assert !ColumnarTypeOfPlanner.IsSupportedType(AdmissibilityClosed1("System.Func`1", sourceClass))
+    // `Func<SourceArgument>` is an ordinary delegate REFERENCE. It has no rebinding lowering and
+    // needs none: what a field, local or argument of this type does is store, load and pass a
+    // reference, which the general external-construction arm answers for any external head closed
+    // over something this compilation can already store. Its element is NOT thereby a set key —
+    // that is the narrower question `IsAdmissibleHashSetElement` above still owns.
+    assert ColumnarTypeOfPlanner.IsSupportedType(AdmissibilityClosed1("System.Func`1", sourceClass))
+    assert !ColumnarTypeOfPlanner.IsAdmissibleHashSetElement(AdmissibilityClosed1("System.Func`1", sourceClass))
     // Exact CLR ValueTuple shapes can carry a complete source reference while the source assembly
     // is still being built; namesakes and every other builder-bound shape remain excluded by the
     // tuple-specific identity and element checks.

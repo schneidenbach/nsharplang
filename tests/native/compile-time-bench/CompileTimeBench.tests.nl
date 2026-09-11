@@ -542,12 +542,15 @@ test "compile-time bench: the skipped source directories are exactly the twelve 
 // tests/native/class-inheritance and tests/native/generic-member-types; 86 since .NET generic interop
 // over a declaration's own type parameters added tests/native/constructed-generic-interop; 87 since
 // generic methods on user types added tests/native/user-generic-methods; 88 since named tuple
-// element metadata added tests/native/tuple-names.
-test "compile-time bench: the corpus is the 88 project.yml projects under examples, tests and templates" {
+// element metadata added tests/native/tuple-names; 89 since external generics over complete source
+// types added tests/native/complete-source-generic-args.
+test "compile-time bench: the corpus is the 89 project.yml projects under examples, tests and templates" {
     projects := BenchCollectCorpusProjects(BenchRepositoryRoot())
-    assert projects.Count == 88
+    assert projects.Count == 89
     assert BenchListContains(projects, "examples/01-hello-world")
     assert BenchListContains(projects, "templates/nsharp-console")
+    assert BenchListContains(projects, "tests/native/complete-source-generic-args")
+    assert BenchListContains(projects, "tests/native/complete-source-generic-args")
     assert BenchListContains(projects, "tests/native/constructed-generic-interop")
     assert BenchListContains(projects, "tests/native/external-generic-construction")
     assert BenchListContains(projects, "tests/native/generic-static-members")

@@ -54,24 +54,27 @@ test "an external generic over the enclosing declaration's own parameter is a st
     assert ColumnarTypeOfPlanner.IsSupportedType(nested)
 }
 
-// The general arm is a rule about a SPELLING THAT MENTIONS a type parameter, not a licence to admit
-// every builder-bound construction. A construction over complete arguments has a real lowering that
-// decides its own admissibility, and this arm must not reinterpret that answer.
-test "a builder-bound construction over complete arguments keeps its family boundary" {
+// A COMPLETE SOURCE TYPE IS AN ORDINARY GENERIC ARGUMENT. The mention of a visible type parameter
+// used to be this arm's whole boundary; it is not one any more, because the question the arm answers
+// — can this compilation STORE a value of this shape — has the same answer either way. What is still
+// outside it is a head whose storage is not ordinary (by-ref-like) and a head that is not really
+// external (a namesake declared by the assembly being emitted, covered by the test below).
+test "a builder-bound construction over complete arguments is an ordinary storable reference" {
     owner := InteropSourceOwner("Interop.Complete", 0)
     ownerType: Type = owner
 
     delegateOverSource := AdmissibilityClosed1("System.Func`1", ownerType)
-    assert ColumnarTypeOfPlanner.ContainsBuilderBoundType(delegateOverSource)
-    assert !ColumnarTypeOfPlanner.IsSupportedExternalConstruction(delegateOverSource)
-    assert !ColumnarTypeOfPlanner.IsSupportedType(delegateOverSource)
+    assert ColumnarTypeOfPlanner.ContainsBuilderBoundType(delegateOverSource), "delegate over a complete source type is builder-bound"
+    assert ColumnarTypeOfPlanner.IsSupportedExternalConstruction(delegateOverSource), "delegate over a complete source type is an external construction"
+    assert ColumnarTypeOfPlanner.IsSupportedType(delegateOverSource), "delegate over a complete source type is storable"
 
     // A by-ref-like head stays with its element-specific owner even over a type parameter.
     parameterOwner := InteropSourceOwner("Interop.SpanOwner`1", 1)
     parameter := InteropTypeParameter(parameterOwner)
     span := AdmissibilitySpan(parameter)
-    assert !ColumnarTypeOfPlanner.IsSupportedExternalConstruction(span)
-    assert !ColumnarTypeOfPlanner.IsSupportedType(span)
+    assert !ColumnarTypeOfPlanner.IsSupportedExternalConstruction(span), "a by-ref-like head is not an external construction"
+    assert !ColumnarTypeOfPlanner.IsSupportedExternalGenericOverTypeParameters(span), "a by-ref-like head is not an external generic over type parameters either"
+    assert !ColumnarTypeOfPlanner.IsSupportedType(span), "a by-ref-like head over a type parameter is not storable"
 }
 
 // A source declaration that spells a BCL generic's exact name cannot borrow that name's admission:

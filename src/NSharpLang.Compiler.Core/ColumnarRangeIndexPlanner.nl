@@ -864,8 +864,9 @@ class ColumnarRangeIndexPlanner {
         }
 
         isString := indexedType == typeof(string)
-        isList := IsClosedListType(indexedType)
-        if !isString && !isList && !indexedType.get_IsSZArray() {
+        indexerParameterType := typeof(int)
+        isIndexedCollection := TryGetOrdinaryIndexerParameterType(indexedType, out indexerParameterType)
+        if !isString && !isIndexedCollection && !indexedType.get_IsSZArray() {
             return false
         }
 
@@ -874,14 +875,15 @@ class ColumnarRangeIndexPlanner {
             return false
         }
 
-        // List<T> exposes only the ordinary `get_Item(int)` indexer — it has no Index/Range form —
-        // so a non-int selector stays with its existing owner.
-        if isList {
-            if accessType != typeof(int) || !allowOrdinaryIntIndex {
+        // An indexed COLLECTION exposes only its ordinary `get_Item` indexer — it has no Index/Range
+        // form — so the selector must be exactly that indexer's parameter type (`int` for a list, the
+        // KEY for a dictionary), and any other selector stays with its existing owner.
+        if isIndexedCollection {
+            if !ColumnarTypeEquivalenceFacts.TypesEquivalent(accessType, indexerParameterType) || !allowOrdinaryIntIndex {
                 return false
             }
 
-            return PlanListOrdinaryIndex(plan, indexedType, out resultType)
+            return PlanCollectionOrdinaryIndex(plan, indexedType, indexerParameterType, out resultType)
         }
 
         if accessType == typeof(int) {
@@ -915,24 +917,37 @@ class ColumnarRangeIndexPlanner {
         return PlanArrayRange(plan, handles, indexedType, out resultType)
     }
 
-    // A closed System.Collections.Generic.List<T> (over a baked or builder-bound element). The open
-    // definition and every other collection stay with their existing owners.
-    static func IsClosedListType(candidate: Type): bool {
-        if candidate == null || candidate is TypeBuilder || !candidate.get_IsGenericType() || candidate.get_IsGenericTypeDefinition() {
+    // THE ORDINARY-INDEXER SURFACE THE DIRECT EMITTER ALREADY READS: a closed admitted collection
+    // whose `get_Item` takes one argument — `int` for a list, the KEY type for any dictionary head.
+    // The open definition, every other collection and every non-collection stay with their existing
+    // owners. This exists so a plan-side value (a constructor argument, an array element) reads an
+    // indexer exactly where a direct-emitted statement does; a narrower plan-side list would make
+    // `new KeyValuePair<string, int>(key, index[key])` decline while `v := index[key]` emits.
+    static func TryGetOrdinaryIndexerParameterType(candidate: Type, out parameterType: Type): bool {
+        parameterType = typeof(int)
+        if candidate == null || candidate is TypeBuilder || !candidate.get_IsGenericType() || candidate.get_IsGenericTypeDefinition() || !ColumnarTypeOfPlanner.IsSupportedCollectionType(candidate) {
             return false
         }
 
-        return candidate.GetGenericTypeDefinition() == typeof(List<int>).GetGenericTypeDefinition()
+        definition := candidate.GetGenericTypeDefinition()
+        if definition == typeof(List<int>).GetGenericTypeDefinition() {
+            return true
+        }
+        if ColumnarGenericCallBindingPlanner.IsAnyDictionaryCollectionDefinition(definition) {
+            parameterType = candidate.GetGenericArguments()[0]
+            return true
+        }
+        return false
     }
 
-    // `list[i]` lowers to `callvirt get_Item(int)` on the closed List<T>, returning the exact element
-    // type. The ordinary runtime resolver rebinds the getter for a source-builder element (its
-    // return type is substituted to the closed element), matching the legacy List-indexer emission.
-    static func PlanListOrdinaryIndex(plan: ColumnarCodePlan, listType: Type, out resultType: Type): bool {
+    // `list[i]` / `map[key]` lowers to `callvirt get_Item(...)` on the closed collection, returning
+    // the exact element type. The ordinary runtime resolver rebinds the getter for a source-builder
+    // element (its return type is substituted to the closed element), matching the legacy emission.
+    static func PlanCollectionOrdinaryIndex(plan: ColumnarCodePlan, collectionType: Type, indexerParameterType: Type, out resultType: Type): bool {
         resultType = typeof(int)
-        intArguments := new Type[](1)
-        intArguments[0] = typeof(int)
-        selection := ColumnarOrdinaryRuntimeDirectCallResolver.ResolveWithFacts(listType, "get_Item", intArguments, ColumnarDirectCallArgumentFacts.Empty(1), false)
+        indexerArguments := new Type[](1)
+        indexerArguments[0] = indexerParameterType
+        selection := ColumnarOrdinaryRuntimeDirectCallResolver.ResolveWithFacts(collectionType, "get_Item", indexerArguments, ColumnarDirectCallArgumentFacts.Empty(1), false)
         if !selection.IsSelected {
             return false
         }

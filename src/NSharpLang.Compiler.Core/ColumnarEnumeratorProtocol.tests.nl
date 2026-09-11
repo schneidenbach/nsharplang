@@ -73,9 +73,16 @@ test "exact typed enumerators are admitted only as storable protocol state" {
         "System.Collections.Generic.IEnumerator`1",
         unsupportedElement
     )
+    // THE PROTOCOL QUESTION AND THE STORAGE QUESTION ARE DIFFERENT QUESTIONS, and only the first
+    // one is this predicate's. `IEnumerator<Box<int>>` over a closed SOURCE generic stores like any
+    // other interface reference — the general external-construction arm says so — but the
+    // enumerator PROTOCOL (acquire, MoveNext, typed Current, dispose) is driven by lowerings whose
+    // element rule is `IsAdmissibleCollectionElement`, and that rule still refuses this element.
+    // A foreach or a `for-in` over it therefore still declines at the site that would drive it.
     assert ColumnarTypeOfPlanner.ContainsBuilderBoundType(unsupportedEnumerator)
     assert !ColumnarTypeOfPlanner.IsSupportedEnumeratorType(unsupportedEnumerator)
-    assert !ColumnarTypeOfPlanner.IsSupportedType(unsupportedEnumerator)
+    assert ColumnarTypeOfPlanner.IsSupportedType(unsupportedEnumerator)
+    assert !ColumnarTypeOfPlanner.IsAdmissibleCollectionElement(unsupportedElement)
 
     foreignDefinition := IdentityBake(
         TypeOfCreateBuilder(
@@ -253,8 +260,29 @@ test "IEnumerator admits the already-owned closed KeyValuePair shell with a sour
         "System.Collections.Generic.IEnumerator`1",
         unsupportedElement
     )
+    // `Tuple<SourceClass>` is not a key/value pair and is not a collection element, so this
+    // enumerator is not storable PROTOCOL state and no enumeration lowering will drive it. It is
+    // still an ordinary interface reference that a local or field may hold, which is all
+    // `IsSupportedType` answers.
     assert ColumnarTypeOfPlanner.ContainsBuilderBoundType(unsupportedEnumerator)
     assert !ColumnarTypeOfPlanner.IsSupportedKeyValuePairType(unsupportedElement)
     assert !ColumnarTypeOfPlanner.IsSupportedEnumeratorType(unsupportedEnumerator)
-    assert !ColumnarTypeOfPlanner.IsSupportedType(unsupportedEnumerator)
+    assert ColumnarTypeOfPlanner.IsSupportedType(unsupportedEnumerator)
+    assert !ColumnarTypeOfPlanner.IsAdmissibleCollectionElement(unsupportedElement)
+
+    // THE INHERITED-ENUMERATOR SELECTOR IS UNMOVED BY ANY OF THIS. Its rule is the receiver's exact
+    // shape — a string key and one direct source-CLASS value — and not the admissibility of what it
+    // would return, so every shape it already refused it still refuses.
+    assert ColumnarTypeOfPlanner.IsSupportedType(
+        EnumeratorProtocolClosed1(
+            "System.Collections.Generic.IEnumerator`1",
+            typeof(KeyValuePair<string, int>).GetGenericTypeDefinition().MakeGenericType(sourceValueArguments)
+        )
+    )
+    assert ColumnarOrdinaryRuntimeDirectCallResolver.Resolve(
+        sourceValueDictionary,
+        "GetEnumerator",
+        new Type[](0),
+        false
+    ).IsNotFound
 }

@@ -1460,11 +1460,69 @@ a generic type DEFINITION standing in for its own instantiation must be substitu
 `ColumnarCodePlanExecutor.ResolveMemberSignatureType`) — `EqualityComparer<T>.Default` is typed
 `EqualityComparer<T>`, which the CLR spells as the definition itself. `tests/native/constructed-generic-interop`
 executes all of it, including BCL dispatch THROUGH the constructed interface with an equality that is
-deliberately not field-wise. KNOWN LIMIT: a local/field/parameter typed by an external generic over a
-COMPLETE source type (`IEquatable<Plain>`, `IEquatable<Outcome<int, string>>` at a use site) is still
-outside `IsSupportedType`; widening it flips six deliberate estate boundaries in
-`ColumnarCatalogTypeAdmission`, `ColumnarEnumeratorProtocol`, `ColumnarDictionaryKeyEnumeratorPrerequisite`,
-`ColumnarTypeOfPlanner` and `ColumnarReferenceConversionFacts`, so it is its own slice.
+deliberately not field-wise.
+
+
+## External Generics Over Complete Source Types
+
+`ColumnarTypeOfPlanner.IsSupportedExternalConstruction` no longer requires the spelling to mention a
+visible type parameter. Its question is STORABILITY and only that: an external head the catalog
+verifies by exact identity, over arguments this compilation can already store, is an ordinary
+reference or value whether those arguments are finished or not. `IEquatable<Plain>`, `Comparer<Item>`,
+`Func<Plain, bool>` and `IEquatable<Outcome<int, string>>` reach the surface through it. Three shapes
+stay out: a by-ref-like head (asked of the DEFINITION, because a builder-bound instantiation refuses
+the read), `Nullable<T>` (routed to `IsSupportedNullable` by `IsSupportedType` before this arm, so
+lifting keeps one owner), and a head declared by the assembly being emitted.
+
+The narrower family predicates beside it are NOT a second opinion about storage. Each states a rule
+its own LOWERING needs — a collection element it will box or copy, a dictionary key it will hash, an
+enumerator protocol it will drive — and each lowering asks its own predicate directly. A shape
+admitted by the general arm that no lowering models is stored, loaded and passed; the operation that
+is not modelled still declines at the site that would have to emit it. That split is what the six
+rewritten estate boundaries now state (`ColumnarCatalogTypeAdmission`, `ColumnarEnumeratorProtocol`
+twice, `ColumnarDictionaryKeyEnumeratorPrerequisite`, `ColumnarTypeOfPlanner`,
+`ColumnarReferenceConversionFacts`): the family predicate's answer is unchanged in every one of them;
+only `IsSupportedType` moved.
+
+Three resolution facts go with it, all in `ColumnarCanonicalTypeResolver.nl`:
+
+- `TrySelectExternalGenericConstruction` serves BOTH walks. `typeParams` is null on the ordinary
+  walk, and the arguments resolve through whichever walk the caller is on.
+- A MODELED ROW THAT OWNS THE HEAD IS TERMINAL. Each row sets `claimedHead` where it matches its
+  head, and a claimed head never falls through to the general arm — otherwise `Dictionary<Plain,
+  string>` would bypass the key-hashability rule that is the entire reason the Dictionary row exists.
+- THE TWO WALKS STATE THE SAME ELEMENT POLICIES. The type-parameter walk's `IEnumerable<` row used to
+  admit only two exact shapes, and it had no row at all for `IReadOnlyList`/`IReadOnlyCollection`/
+  `IReadOnlySet`/`IReadOnlyDictionary` — so a BODY LOCAL typed `IEnumerable<int>` resolved to nothing
+  while the identical signature spelling resolved. A body's resolver is not a narrower language.
+
+`ColumnarReferenceConversionFacts` gained the matching conversion halves:
+
+- `TryClassifyExactSourceInterfaceUpcast` accepts a CLOSED INSTANTIATION of a source generic as the
+  source, substituting the instantiation's arguments through the declaration's own
+  `ExternalInterfaces`. The walk stops at that declaration: an inherited edge is written in the
+  BASE's parameters and mapping this instantiation's arguments onto them needs a recorded base map
+  this fact does not carry, so it declines rather than guessing by position.
+- `IsExternalConstructionUpcast` answers one external generic converting to another while an argument
+  is still a builder (`EqualityComparer<Plain>` into `IEqualityComparer<Plain>`), by substituting the
+  instantiation's arguments through the DEFINITION's base chain and interface list. `IsAssignableFrom`
+  cannot be asked about these instantiations at all.
+- `ColumnarReferenceCoercionPlanner.TryEmitExternalInterfaceUpcast` is now the emission half of that
+  single fact rather than a second walk, and it is wired into every conversion chain in
+  `ColumnarIlEmitter` — return, typed local, assignment, field, property, object initializer,
+  constructor argument, by-ref argument — where before only the ARGUMENT chains had it. A value that
+  could be passed into an interface but not stored in one was the gap.
+
+KNOWN LIMITS, all separately owned: a COLLECTION whose element is an array of a source type
+(`List<Plain[]>`) keeps `IsAdmissibleCollectionElement`'s narrower rule; implementing `IEnumerable<T>`
+on a source class emits a type the CLR refuses to load, because the inherited non-generic
+`IEnumerable.GetEnumerator()` differs only by return type and N# has no explicit interface
+implementation (the same is true of `class Bag: IEnumerable<int>`, so it is not a generic-argument
+gap); and `Task.FromResult(sourceValue)` is an unmodelled generic static call.
+
+`tests/native/complete-source-generic-args` executes the whole surface, including
+`EqualityComparer<Outcome<int, string>>.Default.Equals` dispatching through the source `IEquatable`
+implementation and `List<Item>.Sort()` ordering by the source `IComparable<Item>`.
 
 Keep ownership-policy tests beside the N# owner. C# tests should exercise only the remaining
 diagnostic/integration shell, not recreate semantic lookup or identity policy in test helpers.

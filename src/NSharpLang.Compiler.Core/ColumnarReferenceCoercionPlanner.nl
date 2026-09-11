@@ -71,38 +71,41 @@ class ColumnarReferenceCoercionPlanner {
         return true
     }
 
+    // A SOURCE TYPE FLOWING INTO AN EXTERNAL INTERFACE IT IMPLEMENTS — `Plain` into
+    // `IEquatable<Plain>`, `Outcome<int, string>` into `IEquatable<Outcome<int, string>>`,
+    // `Node` into `IDisposable`. Whether the edge exists is not this planner's question:
+    // `ColumnarReferenceConversionFacts` owns the declaration walk (and reports whether the
+    // implementer is a reference), so selection, preflight and emission cannot disagree about it.
+    // What is owned here is the EMISSION: a value implementer boxes, a reference implementer needs
+    // no instruction at all.
+    //
+    // Source-declared interface targets keep `CanUseInterfaceUpcast` as their owner; a target that
+    // is itself a source declaration is refused here so the two never answer the same question.
+    static func TryClassifyExternalInterfaceUpcast(
+        valueType: Type,
+        targetType: Type,
+        structRegistry: IReadOnlyDictionary<string, ColumnarStructDef>,
+        out valueIsReference: bool
+    ): bool {
+        valueIsReference = false
+        if !targetType.get_IsInterface() || ColumnarReferenceConversionFacts.IsDynamicDeclarationType(targetType) {
+            return false
+        }
+        return ColumnarReferenceConversionFacts.TryClassifyExactSourceInterfaceUpcast(
+            valueType,
+            targetType,
+            structRegistry.get_Values(),
+            out valueIsReference
+        )
+    }
+
     static func CanUseExternalInterfaceUpcast(
         valueType: Type,
         targetType: Type,
         structRegistry: IReadOnlyDictionary<string, ColumnarStructDef>
     ): bool {
-        if !targetType.get_IsInterface() {
-            return false
-        }
-        valueBuilder := valueType as TypeBuilder
-        if valueBuilder == null {
-            return false
-        }
-        valueDefinition := ColumnarSourceDefinitionResolver.FindByBuilderIdentity(
-            structRegistry.get_Values(),
-            valueBuilder
-        )
-        if valueDefinition == null {
-            return false
-        }
-
-        externalEnumerator := valueDefinition.ExternalInterfaces.GetEnumerator()
-        try {
-            while externalEnumerator.MoveNext() {
-                externalInterface := externalEnumerator.get_Current()
-                if externalInterface == targetType || targetType.IsAssignableFrom(externalInterface) {
-                    return true
-                }
-            }
-        } finally {
-            externalEnumerator.Dispose()
-        }
-        return false
+        valueIsReference := false
+        return TryClassifyExternalInterfaceUpcast(valueType, targetType, structRegistry, out valueIsReference)
     }
 
     static func TryEmitExternalInterfaceUpcast(
@@ -111,37 +114,14 @@ class ColumnarReferenceCoercionPlanner {
         structRegistry: IReadOnlyDictionary<string, ColumnarStructDef>,
         il: ILGenerator
     ): bool {
-        if !CanUseExternalInterfaceUpcast(valueType, targetType, structRegistry) {
+        valueIsReference := false
+        if !TryClassifyExternalInterfaceUpcast(valueType, targetType, structRegistry, out valueIsReference) {
             return false
         }
-
-        valueBuilder := valueType as TypeBuilder
-        if valueBuilder == null {
-            return false
+        if !valueIsReference {
+            il.Emit(OpCodes.Box, valueType)
         }
-        valueDefinition := ColumnarSourceDefinitionResolver.FindByBuilderIdentity(
-            structRegistry.get_Values(),
-            valueBuilder
-        )
-        if valueDefinition == null {
-            return false
-        }
-
-        externalEnumerator := valueDefinition.ExternalInterfaces.GetEnumerator()
-        try {
-            while externalEnumerator.MoveNext() {
-                externalInterface := externalEnumerator.get_Current()
-                if externalInterface == targetType || targetType.IsAssignableFrom(externalInterface) {
-                    if !valueDefinition.IsReference {
-                        il.Emit(OpCodes.Box, valueBuilder)
-                    }
-                    return true
-                }
-            }
-        } finally {
-            externalEnumerator.Dispose()
-        }
-        return false
+        return true
     }
 
     static func CanUseObjectConversion(source: Type, target: Type): bool {

@@ -210,7 +210,7 @@ test "canonical resolver keeps named tuples and explicit ValueTuple admission di
     assert selected.Key == null
 }
 
-test "canonical resolver preserves the generic manual-family fence and exact-map precedence" {
+test "canonical resolver resolves a read-only collection on either walk and keeps exact-map precedence" {
     resolution := CanonicalResolverBaselineResolution()
     ordinary := typeof(string)
     assert ColumnarCanonicalTypeResolver.TryResolveType(
@@ -225,9 +225,12 @@ test "canonical resolver preserves the generic manual-family fence and exact-map
         typeof(int)
     )
 
+    // ONE ELEMENT POLICY PER FAMILY, WHICHEVER WALK ASKS. The type-parameter walk had no row for the
+    // read-only views at all, so a body local spelling one resolved to nothing while the identical
+    // signature spelling resolved. That was the gap: a body's resolver is not a narrower LANGUAGE.
     emptyMap := new Dictionary<string, Type>(StringComparer.Ordinal)
     generic := typeof(string)
-    assert !ColumnarCanonicalTypeResolver.TryResolveTypeWithTypeParams(
+    assert ColumnarCanonicalTypeResolver.TryResolveTypeWithTypeParams(
         "IReadOnlyList<int>",
         emptyMap,
         resolution.Enums,
@@ -235,7 +238,7 @@ test "canonical resolver preserves the generic manual-family fence and exact-map
         resolution.Unions,
         out generic
     )
-    assert generic == null
+    assert generic == ordinary
 
     sources := new string[](1)
     fileNames := new string[](1)

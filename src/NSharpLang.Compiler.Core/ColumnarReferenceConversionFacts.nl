@@ -34,6 +34,10 @@ class ColumnarReferenceConversionFacts {
             return true
         }
 
+        if IsExternalConstructionUpcast(sourceType, targetType, false) {
+            return true
+        }
+
         if sourceType.get_IsSZArray() && targetType.get_IsGenericType() && !targetType.get_IsGenericTypeDefinition() {
             targetDefinition := targetType.GetGenericTypeDefinition()
             if (targetDefinition == typeof(IReadOnlyList<int>).GetGenericTypeDefinition() || targetDefinition == typeof(IReadOnlyCollection<int>).GetGenericTypeDefinition() || targetDefinition == typeof(IEnumerable<int>).GetGenericTypeDefinition()) && ColumnarTypeEquivalenceFacts.TypesEquivalent(sourceType.GetElementType(), targetType.GetGenericArguments()[0]) {
@@ -95,8 +99,20 @@ class ColumnarReferenceConversionFacts {
         sourceIsReference = false
         sourceBuilder := sourceType as TypeBuilder
         targetBuilder := targetType as TypeBuilder
+        // A CLOSED INSTANTIATION OF A SOURCE GENERIC is the same declaration with its arguments
+        // supplied — `Outcome<int, string>` is `Outcome<TOk, TErr>` with two slots filled. Its
+        // declaration therefore answers the interface question, and the arguments are what turn the
+        // declaration's own `IEquatable<Outcome<TOk, TErr>>` into `IEquatable<Outcome<int, string>>`.
+        closedArguments := System.Array.Empty<Type>()
         if sourceBuilder == null {
-            return false
+            if !sourceType.get_IsGenericType() || sourceType.get_IsGenericTypeDefinition() {
+                return false
+            }
+            sourceBuilder = sourceType.GetGenericTypeDefinition() as TypeBuilder
+            if sourceBuilder == null {
+                return false
+            }
+            closedArguments = sourceType.GetGenericArguments()
         }
 
         sourceDefinition: ColumnarStructDef? = null
@@ -130,6 +146,9 @@ class ColumnarReferenceConversionFacts {
 
         matched := false
         if targetBuilder != null {
+            if closedArguments.Length > 0 {
+                return false
+            }
             if targetDefinition == null || !targetDefinition.IsInterface {
                 return false
             }
@@ -141,7 +160,11 @@ class ColumnarReferenceConversionFacts {
             if targetType.get_IsByRef() || targetType.get_IsPointer() || targetType.get_IsGenericParameter() || !targetType.get_IsInterface() || IsDynamicDeclarationType(targetType) {
                 return false
             }
-            matched = SourceDefinitionImplementsExternalInterface(sourceDefinition, targetType, new HashSet<object>())
+            if closedArguments.Length > 0 {
+                matched = ConstructedSourceImplementsExternalInterface(sourceDefinition, targetType, closedArguments)
+            } else {
+                matched = SourceDefinitionImplementsExternalInterface(sourceDefinition, targetType, new HashSet<object>())
+            }
         }
 
         if matched {
@@ -149,6 +172,39 @@ class ColumnarReferenceConversionFacts {
             return true
         }
 
+        return false
+    }
+
+    // ONE DECLARATION'S OWN EXTERNAL INTERFACES, SUBSTITUTED. The colon-list a generic declaration
+    // wrote is spelled in that declaration's own type parameters, and a closed instantiation's
+    // arguments fill exactly those slots by position — that is the whole substitution, and it is the
+    // only one this compilation can prove without a recorded base map.
+    //
+    // The walk therefore stops at this declaration. An inherited edge — a base class's or a source
+    // base interface's external interfaces — is written in the BASE's parameters, and mapping this
+    // instantiation's arguments onto them needs the recorded constructed base type, which this fact
+    // does not carry. Declining there is the decline-safe answer: the conversion is refused, never
+    // guessed by position across a different declaration's parameter list.
+    static func ConstructedSourceImplementsExternalInterface(source: ColumnarStructDef, target: Type, closedArguments: Type[]): bool {
+        if source == null || target == null || closedArguments == null || source.ExternalInterfaces == null {
+            throw new InvalidOperationException("Constructed source external-interface facts cannot be null.")
+        }
+        if !target.get_IsInterface() {
+            throw new InvalidOperationException("A source external-interface conversion target must be an interface.")
+        }
+
+        for externalInterface in source.ExternalInterfaces {
+            if externalInterface == null || !externalInterface.get_IsInterface() {
+                throw new InvalidOperationException("Source external-interface facts must identify exact interfaces.")
+            }
+            substituted := ColumnarRuntimeInstanceMemberResolver.SubstituteClosedTypeArguments(
+                externalInterface,
+                closedArguments
+            )
+            if RuntimeInterfaceEqualsOrExtends(substituted, target) {
+                return true
+            }
+        }
         return false
     }
 
@@ -292,6 +348,10 @@ class ColumnarReferenceConversionFacts {
 
     static func IsExactKnownUpcast(sourceType: Type, targetType: Type): bool {
         if IsExactDynamicBaseUpcast(sourceType, targetType) {
+            return true
+        }
+
+        if IsExternalConstructionUpcast(sourceType, targetType, true) {
             return true
         }
 
@@ -483,6 +543,59 @@ class ColumnarReferenceConversionFacts {
             depth += 1
         }
         return false
+    }
+
+    // ONE EXTERNAL GENERIC UPCASTING TO ANOTHER WHILE AN ARGUMENT IS STILL A BUILDER —
+    // `EqualityComparer<Plain>` into `IEqualityComparer<Plain>`, `List<Plain>` into
+    // `IEnumerable<Plain>`. `IsAssignableFrom` cannot answer for these: the instantiation contains a
+    // type that does not exist yet, and reflection refuses the question outright.
+    //
+    // The DEFINITION can answer it, though. `EqualityComparer<T>`'s base chain and interface list
+    // are complete reflected types spelled in `T`, and this instantiation supplies `T`; substituting
+    // gives the real closed shapes this value converts to, and the target is compared against them.
+    // Nothing here consults a NAME, so no collection or comparer needs a row of its own — which is
+    // the point, because a row cannot be written for a BCL type nobody has needed yet.
+    //
+    // `exact` selects the identity predicate the caller owns: emission accepts the builder-aware
+    // equivalence, and the sealed-plan validator insists on structural identity.
+    static func IsExternalConstructionUpcast(sourceType: Type, targetType: Type, exact: bool): bool {
+        if sourceType == null || targetType == null || !sourceType.get_IsGenericType() || sourceType.get_IsGenericTypeDefinition() {
+            return false
+        }
+
+        definition := sourceType.GetGenericTypeDefinition()
+        if definition == null || definition is TypeBuilder || ColumnarTypeOfPlanner.IsEmittedAssemblyType(definition) {
+            return false
+        }
+
+        arguments := sourceType.GetGenericArguments()
+        if definition.GetGenericArguments().Length != arguments.Length {
+            return false
+        }
+
+        baseCandidate := definition.get_BaseType()
+        while baseCandidate != null {
+            if UpcastReaches(baseCandidate, arguments, targetType, exact) {
+                return true
+            }
+            baseCandidate = baseCandidate.get_BaseType()
+        }
+
+        for implemented in definition.GetInterfaces() {
+            if UpcastReaches(implemented, arguments, targetType, exact) {
+                return true
+            }
+        }
+
+        return false
+    }
+
+    static func UpcastReaches(openCandidate: Type, closedArguments: Type[], targetType: Type, exact: bool): bool {
+        substituted := ColumnarRuntimeInstanceMemberResolver.SubstituteClosedTypeArguments(openCandidate, closedArguments)
+        if exact {
+            return ExactTypeShapeMatches(substituted, targetType)
+        }
+        return ColumnarTypeEquivalenceFacts.TypesEquivalent(substituted, targetType)
     }
 
     static func IsDynamicDeclarationType(valueType: Type): bool {

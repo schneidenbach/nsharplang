@@ -376,9 +376,17 @@ test "the assignability owner admits only the real IReadOnlyList to IEnumerable 
         enumerableInt,
         AssignabilityKnownGeneric("IReadOnlyList", enumerableOpen, BuiltInTypes.Int)
     )) == "decided:false"
-    // This broader CLR relation remains outside the deliberately closed modeled table in this slice.
-    assert !assignability.IsAssignable(
+    // THE MODELED TABLE IS NOT THE WHOLE ANSWER ANY MORE, and this relation is the CLR's own:
+    // `IReadOnlyCollection<T>` extends `IEnumerable<T>`, and the assignability owner reads that off
+    // the DEFINITION's interface list with this instantiation's arguments substituted in. The table
+    // above still decides what it decides; the definition walk answers what no row covers.
+    assert assignability.IsAssignable(
         enumerableInt,
+        AssignabilityKnownGeneric("IReadOnlyCollection", readOnlyCollectionOpen, BuiltInTypes.Int)
+    )
+    // The ELEMENT still has to match — the walk substitutes, it does not erase.
+    assert !assignability.IsAssignable(
+        enumerableLong,
         AssignabilityKnownGeneric("IReadOnlyCollection", readOnlyCollectionOpen, BuiltInTypes.Int)
     )
 }

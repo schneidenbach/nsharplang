@@ -55,6 +55,24 @@ class AnalyzerReflectionTypeOverride {
         return new AnalyzerReflectionTypeOverride(typeInfoOverrides, clrBindings, true, hasTypeInfoOverrides)
     }
 
+    // THE INSTANTIATION'S OWN ARGUMENTS, BY POSITION. A member read off an OPEN definition is
+    // spelled in that definition's parameters, and a constructed spelling supplies exactly those
+    // slots — `Comparer<T>.Default` typed `Comparer<T>` becomes `Comparer<Item>` and nothing else
+    // has to know about it. This is the one honest way to type a member of an external generic
+    // closed over a type the CLR has no handle for yet: the surrogate `object` a source type binds
+    // as is a BINDING device, and it must never survive into the answer.
+    static func ForGenericArguments(definition: Type, genericType: GenericTypeInfo): AnalyzerReflectionTypeOverride {
+        overrides := new Dictionary<Type, TypeInfo>()
+        parameters := definition.GetGenericArguments()
+        index := 0
+        while index < parameters.Length && index < genericType.TypeArguments.Count {
+            overrides[parameters[index]] = genericType.TypeArguments[index]
+            index = index + 1
+        }
+
+        return AnalyzerReflectionTypeOverride.Direct(overrides, null)
+    }
+
     // The answer for one position. Never null: an override that has nothing to say still answers the
     // plain conversion, which is exactly what the C# lambdas this replaces did.
     func Answer(clrType: Type): TypeInfo {
