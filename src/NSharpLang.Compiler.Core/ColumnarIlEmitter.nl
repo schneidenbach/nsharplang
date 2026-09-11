@@ -20332,6 +20332,15 @@ sealed class ColumnarIlEmitter {
         if kind == ColumnarExpressionNodeKind.NameOfExpression() || kind == ColumnarExpressionNodeKind.TypeOfExpression() {
             return false
         }
+        // `base.Member` AND `base.Method()` ARE CURRENT-INSTANCE ACCESS, exactly as `this.Member` is.
+        // `base` is the same reference `this` is — it only changes which declaration the name binds
+        // to and how the call dispatches — so reading through it before the base constructor has run
+        // reads storage that does not exist yet. It reaches this walk as a node kind of its own
+        // (`BaseMemberExpression`, a leaf carrying the member name), so the identifier arm below
+        // cannot see it and neither can the child walk: a `base.M()` call node's callee IS this node.
+        if kind == ColumnarExpressionNodeKind.BaseMemberExpression() {
+            return true
+        }
         if kind == ColumnarExpressionNodeKind.IdentifierExpression() {
             name := ColumnarNodeTextFacts.Text(_nodes, _source, node)
             spanStart := _nodes.SpanStart(node)
