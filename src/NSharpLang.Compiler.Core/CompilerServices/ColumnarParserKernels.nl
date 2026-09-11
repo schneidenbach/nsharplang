@@ -364,8 +364,10 @@ class TypeReferenceTupleNameTable {
 //   MustExpression          -> kind 45  ( `must <operand>` (Must 20) -- the prefix null-assert, ONE child;
 //                                         unwraps a Nullable<T> to T or null-checks a reference, throwing
 //                                         InvalidOperationException when null. )
-//   IsExpression            -> kind 46  ( `value is Type` (Is 47) -- children [value, typeRoot]; the
-//                                         typeRoot is a TYPE subtree (scans walk child 0 only). )
+//   IsExpression            -> kind 46  ( `value is Type [name]` (Is 47) -- children [value, typeRoot]; the
+//                                         typeRoot is a TYPE subtree (scans walk child 0 only). The optional
+//                                         PATTERN VARIABLE is the value span: present = the declared name,
+//                                         absent = (-1, 0). `as` (kind 47) never carries one. )
 //   AsExpression            -> kind 47  ( `value as Type` (As 48) -- the null-propagating cast twin of
 //                                         kind 46; same child shape. )
 //   WithExpression          -> kind 52  ( `expr with { Field: value, ... }` (With 71) -- the kind-36
@@ -5828,10 +5830,29 @@ func ParseBinaryExpressionNode(tokens: ParserTokenTable, count: int, st: ParserS
 
         isAsSpanStart := nodes.SpanStarts[left]
         isAsSpanEnd := nodes.SpanStarts[isAsType] + nodes.SpanLengths[isAsType]
+        // THE PATTERN VARIABLE (`value is Type name`) LIVES IN THE VALUE SPAN. `as` never has one, and
+        // `is` has no other use for the slot, so the binding needs no extra child — which matters because
+        // a kind-46 child run is [value, typeRoot] and every scan walks child 0 as a value and child 1 as
+        // a TYPE. Absent, the slot stays (-1, 0), exactly as before.
+        //
+        // The name must sit on the SAME LINE as the end of the type: statements are newline-terminated,
+        // so an identifier opening the next line starts a new statement. This is the production parser's
+        // gate (ColumnarParserRecovery.ParseRelational), and WITHOUT it the columnar kernel used to stop
+        // the expression at the type and leave `name` to be read as a fresh statement — `return o is string s && s.Length > 0`
+        // silently became a `return` followed by an unreachable expression statement.
+        isAsBindingStart := -1
+        isAsBindingLength := 0
+        if isAsKind == 46 && st.Pos < count && tokens.Kinds[st.Pos] == 0 && !ParserSourceHasLineBreakBetween(st.Source, isAsSpanEnd, tokens.Starts[st.Pos]) {
+            isAsBindingStart = tokens.Starts[st.Pos]
+            isAsBindingLength = tokens.ValueLengths[st.Pos]
+            isAsSpanEnd = isAsBindingStart + isAsBindingLength
+            st.Pos = st.Pos + 1
+        }
+
         isAsChildRun := st.ChildCursor
         AppendExpressionChild(st, children, left)
         AppendExpressionChild(st, children, isAsType)
-        left = EmitExpressionNode(st, nodes, isAsKind, -1, 0, isAsChildRun, 2, isAsSpanStart, isAsSpanEnd - isAsSpanStart)
+        left = EmitExpressionNode(st, nodes, isAsKind, isAsBindingStart, isAsBindingLength, isAsChildRun, 2, isAsSpanStart, isAsSpanEnd - isAsSpanStart)
     }
 
     keepGoing := true

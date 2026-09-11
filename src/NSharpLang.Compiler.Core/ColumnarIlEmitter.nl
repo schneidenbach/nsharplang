@@ -11201,6 +11201,7 @@ sealed class ColumnarIlEmitter {
                 return false
             }
             isAsTypeRoot := Child(idx, 1)
+            isTypeTest := _nodes.Kind(idx) == 46
             targetTestType: Type? = null
             if (_nodes.Kind(isAsTypeRoot) == 0) {
                 isAsName := ColumnarNodeTextFacts.Text(_nodes, _source, isAsTypeRoot)
@@ -11215,9 +11216,18 @@ sealed class ColumnarIlEmitter {
                 } else {
                     // not a case of the scrutinee's union — the pipeline rejects.
                     let plainTarget: System.Type? = null
-                    if (TryResolveBodyType(isAsName, out plainTarget) && !plainTarget.get_IsValueType()) {
+                    if (TryResolveBodyType(isAsName, out plainTarget) && IsSupportedTypeTestTarget(plainTarget, isTypeTest)) {
                         targetTestType = plainTarget
                     }
+                }
+            } else {
+                // A WRITTEN-OUT TYPE that is not a bare name — `obj is Result<TOk, TErr>`, `o is int[]` —
+                // is the SAME question asked of a bigger type tree, so it is canonicalized and resolved
+                // through the body resolver the `new` arm already uses. Only the spelling differed.
+                let constructedCanonical: string? = null
+                let constructedTarget: System.Type? = null
+                if (TryBuildTypeNodeCanonical(isAsTypeRoot, out constructedCanonical) && TryResolveBodyType(constructedCanonical, out constructedTarget) && IsSupportedTypeTestTarget(constructedTarget, isTypeTest)) {
+                    targetTestType = constructedTarget
                 }
             }
             if (targetTestType == null) {
@@ -11234,8 +11244,11 @@ sealed class ColumnarIlEmitter {
             if (ColumnarReferenceCoercionPlanner.RequiresBoxBeforeReferenceTest(testedType, _structRegistry)) {
                 _il.Emit(OpCodes.Box, testedType)
             }
+            if (isTypeTest && _nodes.ValueStart(idx) >= 0) {
+                return TryEmitTypeTestBinding(idx, targetTestType, out columnarResolvedType)
+            }
             _il.Emit(OpCodes.Isinst, targetTestType)
-            if (_nodes.Kind(idx) == 46) {
+            if (isTypeTest) {
                 _il.Emit(OpCodes.Ldnull)
                 _il.Emit(OpCodes.Cgt_Un)
                 columnarResolvedType = typeof(bool)
@@ -15543,6 +15556,57 @@ sealed class ColumnarIlEmitter {
     // kind 7 single-child wrapper = transparent
     // named/parenthesized type element). Other type-node kinds decline until their consumers own the
     // corresponding emit path.
+    // WHAT A TYPE TEST MAY BE ASKED ABOUT. `isinst` takes any class, interface, value type or type
+    // PARAMETER token and answers "is the reference a boxed one of these": a value-type target is as
+    // ordinary a question as a reference one, and C# answers both. `as` is the narrower operator — it
+    // hands back the TYPE, and there is no null to hand back for a non-nullable value type, so C#
+    // forbids it there and so does this. A `Nullable<T>` target is excluded from BOTH: C# reads
+    // `o is int?` as `o is int` because a boxed `Nullable<int>` is a boxed `int`, and an `isinst` against
+    // the nullable itself would answer false for every value — a wrong answer is worse than a decline.
+    private func IsSupportedTypeTestTarget(target: Type, isTypeTest: bool): bool {
+        if (target == null || target.get_IsByRef() || target.get_IsPointer() || ColumnarCodePlanExecutor.IsVoidType(target)) {
+            return false
+        }
+        if (ColumnarTypeOfPlanner.IsSupportedNullable(target)) {
+            return false
+        }
+        if (isTypeTest) {
+            return true
+        }
+        return !target.get_IsValueType() && !target.get_IsGenericParameter()
+    }
+
+    // `value is Type name` — the test AND the binding, in the one lowering C# uses for both kinds of
+    // target. The `isinst` result is kept on the stack, tested once, and on the matching branch converted
+    // with `unbox.any`, which unwraps a boxed value type and behaves as `castclass` for a reference one —
+    // the single spelling that stays correct for an unconstrained type parameter closed over either kind.
+    // The variable is a real local from here on, so the rest of the enclosing block reads it like any
+    // other; a name that would SHADOW a visible binding declines rather than silently rebinding, which is
+    // the rule the `catch` binding already follows.
+    private func TryEmitTypeTestBinding(idx: int, targetTestType: Type, out columnarResolvedType: Type): bool {
+        columnarResolvedType = typeof(bool)
+        bindingName := ColumnarNodeTextFacts.Text(_nodes, _source, idx)
+        if (bindingName.Length == 0 || bindingName == "_" || ColumnarClosureBindingPlanner.IsVisibleBindingName(bindingName, _locals, _paramOrdinals, _liftedLocals, _boxedCaptures, _enclosingBindingNames)) {
+            return false
+        }
+        bindingLocal := _il.DeclareLocal(targetTestType)
+        matched := _il.DefineLabel()
+        finished := _il.DefineLabel()
+        _il.Emit(OpCodes.Isinst, targetTestType)
+        _il.Emit(OpCodes.Dup)
+        _il.Emit(OpCodes.Brtrue, matched)
+        _il.Emit(OpCodes.Pop)
+        _il.Emit(OpCodes.Ldc_I4_0)
+        _il.Emit(OpCodes.Br, finished)
+        _il.MarkLabel(matched)
+        _il.Emit(OpCodes.Unbox_Any, targetTestType)
+        _il.Emit(OpCodes.Stloc, bindingLocal)
+        _il.Emit(OpCodes.Ldc_I4_1)
+        _il.MarkLabel(finished)
+        _locals[bindingName] = bindingLocal
+        return true
+    }
+
     private func TryBuildTypeNodeCanonical(typeNode: int, out canonical: string): bool {
         typeNodeKind := _nodes.Kind(typeNode)
         if (typeNodeKind == 0) {

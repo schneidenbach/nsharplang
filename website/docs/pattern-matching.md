@@ -11,6 +11,7 @@ N# provides powerful pattern matching with compile-time exhaustiveness checking 
 
 - [Match Expressions](#match-expressions)
 - [Pattern Types](#pattern-types)
+- [`is` Type Tests and Pattern Variables](#4a-is-type-tests-and-pattern-variables)
 - [Exhaustiveness Checking](#exhaustiveness-checking)
 - [Pattern Guards](#pattern-guards)
 - [Advanced Patterns](#advanced-patterns)
@@ -159,6 +160,72 @@ canProcess := match item {
     _ => false
 }
 ```
+
+### 4a. `is` Type Tests and Pattern Variables
+
+Outside a `match`, `is` asks the same type question as one arm of it: `value is Type` answers `true`
+when the value is of that type, and `false` for anything else — including `null`, which is of no type.
+The target can be a class, an interface, a struct, an array, an enum, one of your own generic types at
+a written instantiation, or a type parameter in scope:
+
+```n#
+func Describe(value: object?): string {
+    if value is int {
+        return "a number"
+    }
+
+    if value is string {
+        return "text"
+    }
+
+    return "something else"
+}
+```
+
+Add a name after the type and the test also **binds** the value at that type, for use wherever the
+test has proved true:
+
+```n#
+func Length(value: object?): int {
+    if value is string text {
+        return text.Length              // `text` is a string here
+    }
+
+    return 0
+}
+
+func Trimmed(value: object?): string =>
+    value is string text && text.Length > 2 ? text.Trim() : ""
+```
+
+The name is a real local from that point on, and the binding is written on the **same line** as the
+type — a name that opens the next line is the start of a new statement, not the pattern variable.
+A name that would shadow a parameter or an existing local is rejected.
+
+The binding works the same way over a type parameter, which is how a generic container reads a value
+back out at its own element type:
+
+```n#
+struct Slot<T> {
+    Value: T
+
+    constructor(value: T) {
+        Value = value
+    }
+
+    func Or(candidate: object?): T {
+        if candidate is T typed {
+            return typed                 // unboxed for Slot<int>, cast for Slot<string>
+        }
+
+        return Value
+    }
+}
+```
+
+`as` is the other half of the pair and is narrower: it converts and yields `null` on a mismatch, so it
+applies only where `null` is a value of the target type — a class, an interface or an array, never a
+plain struct.
 
 ### 5. Property Patterns
 

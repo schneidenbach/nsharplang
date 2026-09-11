@@ -523,6 +523,133 @@ class ColumnarFunctionBodyYieldProbe {
     }
 }
 
+// Parses a whole `func` via the product function ABI and reports every IsExpression (kind 46) in the
+// emitted body node table: how many there are, the first one's PATTERN VARIABLE text ("" when the node
+// carries none), and how many statements the body block holds — the last of which is what catches a
+// swallowed binding, because an orphaned name becomes an extra statement. Same raw-array emit shape as
+// the yield probe so it materializes under the stage-0 columnar backend.
+class ColumnarFunctionBodyIsPatternProbe {
+    Status: int
+    IsNodeCount: int
+    FirstBindingText: string
+    StatementCount: int
+
+    constructor(source: string) {
+        capacity := source.Length * 3 + 16
+        rawKinds := new int[](capacity)
+        rawStarts := new int[](capacity)
+        rawValueLengths := new int[](capacity)
+        tokenKinds := new int[](capacity)
+        tokenStarts := new int[](capacity)
+        tokenValueLengths := new int[](capacity)
+        tokenCounts := new int[](2)
+        tokenCount := TokenizeColumnarSourceInto(
+            source,
+            rawKinds,
+            rawStarts,
+            rawValueLengths,
+            tokenKinds,
+            tokenStarts,
+            tokenValueLengths,
+            tokenCounts
+        )
+
+        funcIndex := 0
+        while funcIndex < tokenCount && tokenKinds[funcIndex] != 7 {
+            funcIndex = funcIndex + 1
+        }
+
+        functionNameTexts := new string[](1)
+        returnTypeTexts := new string[](1)
+        paramNameTexts := new string[](capacity)
+        paramTypeTexts := new string[](capacity)
+        paramModifierKinds := new int[](capacity)
+        paramDefaultKinds := new int[](capacity)
+        paramDefaultTexts := new string[](capacity)
+        paramTupleNameCounts := new int[](capacity)
+        paramTupleNameTexts := new string[](capacity)
+        returnTupleNameTexts := new string[](capacity)
+        returnLabeledTypeTexts := new string[](capacity)
+        paramLabeledTypeTexts := new string[](capacity)
+        typeParamTexts := new string[](capacity)
+        typeParamSpecials := new int[](capacity)
+        typeParamConstraintCounts := new int[](capacity)
+        typeParamConstraintTypeTexts := new string[](capacity)
+        nodeKinds := new int[](capacity)
+        valueStarts := new int[](capacity)
+        valueLengths := new int[](capacity)
+        childStart := new int[](capacity)
+        childCount := new int[](capacity)
+        childIndices := new int[](capacity)
+        spanStarts := new int[](capacity)
+        spanLengths := new int[](capacity)
+        localFunctionNodeIndices := new int[](capacity)
+        localFunctionTokenIndices := new int[](capacity)
+        result := new int[](9)
+
+        Status = ParseColumnarProductFunctionInfoInto(
+            source,
+            tokenKinds,
+            tokenStarts,
+            tokenValueLengths,
+            tokenCount,
+            funcIndex,
+            0,
+            functionNameTexts,
+            returnTypeTexts,
+            paramNameTexts,
+            paramTypeTexts,
+            paramModifierKinds,
+            paramDefaultKinds,
+            paramDefaultTexts,
+            paramTupleNameCounts,
+            paramTupleNameTexts,
+            returnTupleNameTexts,
+            returnLabeledTypeTexts,
+            paramLabeledTypeTexts,
+            typeParamTexts,
+            typeParamSpecials,
+            typeParamConstraintCounts,
+            typeParamConstraintTypeTexts,
+            nodeKinds,
+            valueStarts,
+            valueLengths,
+            childStart,
+            childCount,
+            childIndices,
+            spanStarts,
+            spanLengths,
+            localFunctionNodeIndices,
+            localFunctionTokenIndices,
+            result
+        )
+
+        IsNodeCount = 0
+        FirstBindingText = ""
+        StatementCount = 0
+        if Status >= 0 {
+            bodyNodeCount := result[7]
+            bodyRoot := result[6]
+            if bodyRoot >= 0 && bodyRoot < bodyNodeCount && nodeKinds[bodyRoot] == 25 {
+                StatementCount = childCount[bodyRoot]
+            }
+
+            n := 0
+            while n < bodyNodeCount {
+                if nodeKinds[n] == 46 {
+                    if IsNodeCount == 0 && valueStarts[n] >= 0 {
+                        FirstBindingText = source.Substring(valueStarts[n], valueLengths[n])
+                    }
+
+                    IsNodeCount = IsNodeCount + 1
+                }
+
+                n = n + 1
+            }
+        }
+    }
+}
+
 // Parses a whole `func` via the product function ABI and reports every DefaultExpression (kind 74)
 // the body emitted, plus the shape of the first one. Same raw-array emit shape as the yield probe so it
 // materializes under the stage-0 columnar backend.
@@ -847,6 +974,83 @@ test "the default keyword parses as a childless primary carrying only its own sp
     assert probe.NodeSpanStarts[0] == 0
     assert probe.NodeSpanLengths[0] == source.Length
     assert source.Substring(probe.NodeSpanStarts[0], probe.NodeSpanLengths[0]) == "default"
+}
+
+// THE `is` PATTERN VARIABLE. It has nowhere else to go: a kind-46 child run is [value, typeRoot] and
+// every scan reads child 0 as a value and child 1 as a TYPE, so the binding is the node's VALUE span —
+// the slot `is` otherwise leaves empty and `as` never uses. Without it the kernel stopped the expression
+// at the type and left the name to be read as a FRESH STATEMENT, which is how
+// `return o is string s && s.Length > 0` silently became a return plus dead code.
+test "an is-expression records its pattern variable in the value span" {
+    source := "o is string s"
+    probe := new ColumnarNumericLiteralParseProbe(source)
+
+    root := probe.ParseResult[0]
+    assert probe.NodeKinds[root] == 46
+    assert probe.NodeChildCounts[root] == 2
+    assert probe.NodeValueStarts[root] == source.Length - 1
+    assert probe.NodeValueLengths[root] == 1
+    assert source.Substring(probe.NodeValueStarts[root], probe.NodeValueLengths[root]) == "s"
+    assert probe.NodeSpanStarts[root] == 0
+    assert probe.NodeSpanLengths[root] == source.Length
+}
+
+test "an is-expression without a pattern variable leaves the value span empty" {
+    source := "o is string"
+    probe := new ColumnarNumericLiteralParseProbe(source)
+
+    root := probe.ParseResult[0]
+    assert probe.NodeKinds[root] == 46
+    assert probe.NodeChildCounts[root] == 2
+    assert probe.NodeValueStarts[root] == -1
+    assert probe.NodeValueLengths[root] == 0
+}
+
+test "an as-expression never claims a following identifier" {
+    source := "o as string"
+    probe := new ColumnarNumericLiteralParseProbe(source)
+
+    root := probe.ParseResult[0]
+    assert probe.NodeKinds[root] == 47
+    assert probe.NodeValueStarts[root] == -1
+}
+
+test "a pattern variable on the next line stays a new statement" {
+    // Statements are newline-terminated, so an identifier opening the next line is not the binding —
+    // and the tokenizer has already removed the newline by the time the kernel sees the stream, so the
+    // gate has to read the SOURCE between the two spans. Without it `other` became the binding and the
+    // `:= 42` that follows it was orphaned.
+    probe := new ColumnarFunctionBodyIsPatternProbe(
+        "func F(o: object?): bool {\n    flag := o is string\n    other := 42\n    return flag && other > 0\n}"
+    )
+
+    assert probe.Status >= 0
+    assert probe.IsNodeCount == 1
+    assert probe.FirstBindingText == ""
+    assert probe.StatementCount == 3
+}
+
+test "a pattern variable on the same line is the binding" {
+    probe := new ColumnarFunctionBodyIsPatternProbe(
+        "func F(o: object?): bool {\n    return o is string text && text.Length > 0\n}"
+    )
+
+    assert probe.Status >= 0
+    assert probe.IsNodeCount == 1
+    assert probe.FirstBindingText == "text"
+    assert probe.StatementCount == 1
+}
+
+test "a pattern variable binds tighter than the conjunction that reads it" {
+    source := "o is string s && s.Length > 0"
+    probe := new ColumnarNumericLiteralParseProbe(source)
+
+    root := probe.ParseResult[0]
+    assert probe.NodeKinds[root] == ColumnarExpressionNodeKind.BinaryExpression()
+    assert probe.NodeChildCounts[root] == 2
+    left := probe.NodeChildren[probe.NodeChildStarts[root]]
+    assert probe.NodeKinds[left] == 46
+    assert source.Substring(probe.NodeValueStarts[left], probe.NodeValueLengths[left]) == "s"
 }
 
 test "default composes as an ordinary operand of the expression grammar" {
