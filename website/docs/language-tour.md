@@ -27,6 +27,37 @@ let pi: double = 3.14159
 let maxRetries := 3
 ```
 
+### `default`
+
+`default` is the zero value of whatever type the position it is written in expects — `0` for a
+number, `false` for a `bool`, the null reference for a class, string or array, an all-zero struct,
+and, inside a generic body, whichever of those the type argument turns out to be. It carries no type
+of its own, so it is written bare and the target supplies the type:
+
+```n#
+count: int = default              // 0
+name: string? = default           // null
+when: DateTime = default          // 0001-01-01
+
+func Zero<T>(): T {
+    return default                // 0 for Zero<int>(), null for Zero<string?>()
+}
+
+func TryFirst(values: int[], out first: int): bool {
+    if values.Length > 0 {
+        first = values[0]
+        return true
+    }
+
+    first = default               // the out parameter still gets a value
+    return false
+}
+```
+
+The same reading holds in an argument (`new Box<T>(default)`), in a `return`, and on either side of
+an assignment. A `default` with no target — nothing to be the zero value *of* — is an error, not an
+inference.
+
 ## Functions
 
 Functions use the `func` keyword. Parameters are `name: type`, return type comes after the parameter list.
@@ -816,11 +847,14 @@ count: int? = counter?.Read()           // int? — null when `counter` is null
 label: string? = counter?.Describe()    // string? for the same reason
 ```
 
-**What is not supported yet.** The receiver must be a reference type, the `?.` must be followed by a
-call (`a?.B` as a plain read is not yet lowered), and no further link may follow it in the same
-chain — `a?.M().B` and `a?.B[0]` are refused rather than compiled, because a link written after a
-`?.` must be skipped along with it and that lowering is not in place. Write the guard by hand for
-those.
+The `?.` skips **the whole rest of the chain**, not just the next link: `a?.M().B` is null when `a`
+is, and the `.B` is never reached. Parentheses end the chain, exactly as in C#, so `(a?.B).C` reads
+`.C` on whatever `a?.B` produced. A receiver may be a reference, a `Nullable<T>` (the access runs on
+its `Value`), or an unconstrained type parameter; a plain non-nullable value type has no null to test
+for and is refused. See [Types](types.md#null-conditional-operator) for the full rules.
+
+**What is not supported yet.** `?[` null-conditional **indexing** is not compiled. Write the guard by
+hand for that one.
 
 ### Passing storage with `ref` and `out`
 

@@ -866,7 +866,7 @@ class ColumnarRangeIndexPlanner {
         isString := indexedType == typeof(string)
         indexerParameterType := typeof(int)
         isIndexedCollection := TryGetOrdinaryIndexerParameterType(indexedType, out indexerParameterType)
-        if !isString && !isIndexedCollection && !indexedType.get_IsSZArray() {
+        if !isString && !isIndexedCollection && !ColumnarTypeEquivalenceFacts.IsSafeSzArrayType(indexedType) {
             return false
         }
 

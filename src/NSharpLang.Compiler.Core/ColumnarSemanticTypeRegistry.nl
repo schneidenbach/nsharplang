@@ -418,7 +418,7 @@ class ColumnarExactTypeResolver {
             canonical = valueType.get_Name()
             return true
         }
-        if valueType.get_IsSZArray() {
+        if ColumnarTypeEquivalenceFacts.IsSafeSzArrayType(valueType) {
             elementCanonical := ""
             elementType := valueType.GetElementType()
             if elementType == null {

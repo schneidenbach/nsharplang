@@ -157,7 +157,7 @@ class ColumnarDirectCallConstructedConversions {
             }
         }
 
-        if actualType.get_IsSZArray() && expectedType.get_IsGenericType() && !expectedType.get_IsGenericTypeDefinition() {
+        if ColumnarTypeEquivalenceFacts.IsSafeSzArrayType(actualType) && expectedType.get_IsGenericType() && !expectedType.get_IsGenericTypeDefinition() {
             actualElement := actualType.GetElementType()
             expectedArguments := expectedType.GetGenericArguments()
             if actualElement != null && expectedArguments.Length == 1 && ColumnarSourceDirectCallResolver.ExactTypeShapeMatches(expectedArguments[0], actualElement) {

@@ -222,8 +222,8 @@ class ColumnarNullableArgumentLowering {
             return true
         }
 
-        if left.get_IsSZArray() || right.get_IsSZArray() {
-            if !left.get_IsSZArray() || !right.get_IsSZArray() {
+        if ColumnarTypeEquivalenceFacts.IsSafeSzArrayType(left) || ColumnarTypeEquivalenceFacts.IsSafeSzArrayType(right) {
+            if !ColumnarTypeEquivalenceFacts.IsSafeSzArrayType(left) || !ColumnarTypeEquivalenceFacts.IsSafeSzArrayType(right) {
                 return false
             }
 

@@ -467,8 +467,8 @@ class ColumnarExtensionMethodResolver {
             return existing == actualType
         }
 
-        if parameterType.get_IsSZArray() {
-            if !actualType.get_IsSZArray() {
+        if ColumnarTypeEquivalenceFacts.IsSafeSzArrayType(parameterType) {
+            if !ColumnarTypeEquivalenceFacts.IsSafeSzArrayType(actualType) {
                 return false
             }
 

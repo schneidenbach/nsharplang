@@ -3,18 +3,18 @@ namespace NSharpLang.Compiler
 import System
 
 
-// THE NULL-CONDITIONAL CALL, AND WHAT IT IS DELIBERATELY NOT.
+// THE NULL-CONDITIONAL CALL, IN THE SHAPE THE BACKEND ACTUALLY BUILDS.
 //
-// `receiver?.Member(args)` is the ONE shape the columnar parser builds for `?.`, and it is built into
-// a NODE KIND OF ITS OWN rather than into `MemberAccessExpression`, because the two do not mean the
-// same thing: this one evaluates its receiver once, tests it for null, and skips the member entirely.
-// A planner that read it as an ordinary member access would silently drop the null test, which is a
-// wrong program rather than a slow one.
+// `receiver?.Member(args)` is NOT a node kind of its own. The `?.` wraps the RECEIVER in a kind-75
+// `NullGuardExpression`, and everything above it stays what it always was: an ordinary kind-8
+// `MemberAccessExpression` naming the member, and an ordinary kind-9 `CallExpression` over that for
+// the argument list. That is what lets a conditional call reach the SAME owners the dotted
+// `current.Invoke(h)` reaches — a delegate's `Invoke` included — instead of a parallel call tier.
 //
-// The three refusals below are the whole safety argument for a link-at-a-time parser. `a?.B` as a
-// READ, and any NON-conditional link written after a conditional one, would both have to be skipped
-// along with the conditional — a chain the kernel cannot express — so the DECLARATION is refused
-// instead of half-lowered. `?.M()?.N()` is allowed because `(a?.M())?.N()` means the same thing.
+// The guard is where the SHORT CIRCUIT hangs: `ColumnarIlEmitter` emits the chain from its root, so
+// `a?.M().B` skips the `.B` along with the call rather than refusing the declaration.
+// `ColumnarParserKernels.tests.nl` pins the guard's own shape; the contracts here are the CALL forms
+// the delegate-invocation work depends on.
 func ConditionalCallTree(source: string): ColumnarNodeTable {
     probe := new ColumnarNumericLiteralParseProbe(source)
     if probe.NodeCount <= 0 || probe.ParseResult[0] < 0 {
@@ -35,7 +35,7 @@ func ConditionalCallRoot(source: string): int {
 
 // ── the shape ─────────────────────────────────────────────────────────────────────────────────
 
-test "a null-conditional call is a call over a conditional-member node that names the member" {
+test "a null-conditional call is an ordinary call over an ordinary access with a guarded receiver" {
     source := "handler?.Invoke(value)"
     nodes := ConditionalCallTree(source)
     root := ConditionalCallRoot(source)
@@ -44,11 +44,15 @@ test "a null-conditional call is a call over a conditional-member node that name
     assert nodes.ChildCount(root) == 2
 
     callee := nodes.Child(root, 0)
-    assert nodes.Kind(callee) == ColumnarExpressionNodeKind.ConditionalMemberAccessExpression()
+    assert nodes.Kind(callee) == ColumnarExpressionNodeKind.MemberAccessExpression()
     assert nodes.Text(source, callee) == "Invoke"
     assert nodes.ChildCount(callee) == 1
 
-    receiver := nodes.Child(callee, 0)
+    guard := nodes.Child(callee, 0)
+    assert nodes.Kind(guard) == ColumnarExpressionNodeKind.NullGuardExpression()
+    assert nodes.ChildCount(guard) == 1
+
+    receiver := nodes.Child(guard, 0)
     assert nodes.Kind(receiver) == ColumnarExpressionNodeKind.IdentifierExpression()
     assert nodes.Text(source, receiver) == "handler"
 
@@ -57,63 +61,101 @@ test "a null-conditional call is a call over a conditional-member node that name
     assert nodes.Text(source, argument) == "value"
 }
 
-// The conditional link's kind must not collide with a STATEMENT kind: the two families share one
-// numbering space in the node table, and 72 and 73 are already the yield and await-foreach statements.
-test "the conditional-member kind is its own number, distinct from the neighbours it sits between" {
-    assert ColumnarExpressionNodeKind.ConditionalMemberAccessExpression() == 74
-    assert ColumnarExpressionNodeKind.ConditionalMemberAccessExpression() != ColumnarExpressionNodeKind.MemberAccessExpression()
-    assert ColumnarExpressionNodeKind.ConditionalMemberAccessExpression() != ColumnarExpressionNodeKind.BaseMemberExpression()
-    assert ColumnarExpressionNodeKind.ConditionalMemberAccessExpression() != ColumnarExpressionNodeKind.GenericTypeReceiverExpression()
+// The guard's kind must not collide with a STATEMENT kind: the two families share one numbering
+// space in the node table, and 72, 73 and 74 are already the yield, await-foreach and `default` kinds.
+test "the null-guard kind is its own number, distinct from the neighbours it sits between" {
+    assert ColumnarExpressionNodeKind.NullGuardExpression() == 75
+    assert ColumnarExpressionNodeKind.NullGuardExpression() != ColumnarExpressionNodeKind.MemberAccessExpression()
+    assert ColumnarExpressionNodeKind.NullGuardExpression() != ColumnarExpressionNodeKind.BaseMemberExpression()
+    assert ColumnarExpressionNodeKind.NullGuardExpression() != ColumnarExpressionNodeKind.DefaultExpression()
+    assert ColumnarExpressionNodeKind.NullGuardExpression() != ColumnarExpressionNodeKind.GenericTypeReceiverExpression()
 }
 
-test "a conditional call over a member-access receiver keeps the receiver chain under it" {
+test "a conditional call over a member-access receiver keeps the receiver chain under the guard" {
     source := "owner.handler?.Invoke(value)"
     nodes := ConditionalCallTree(source)
     root := ConditionalCallRoot(source)
 
     callee := nodes.Child(root, 0)
-    assert nodes.Kind(callee) == ColumnarExpressionNodeKind.ConditionalMemberAccessExpression()
+    assert nodes.Kind(callee) == ColumnarExpressionNodeKind.MemberAccessExpression()
+    assert nodes.Text(source, callee) == "Invoke"
 
-    receiver := nodes.Child(callee, 0)
+    guard := nodes.Child(callee, 0)
+    assert nodes.Kind(guard) == ColumnarExpressionNodeKind.NullGuardExpression()
+
+    receiver := nodes.Child(guard, 0)
     assert nodes.Kind(receiver) == ColumnarExpressionNodeKind.MemberAccessExpression()
     assert nodes.Text(source, receiver) == "handler"
 }
 
-// `(a?.M())?.N()` is what `a?.M()?.N()` means, so a second conditional link over the first is exact
-// rather than an approximation.
-test "a conditional call may be the receiver of another conditional call" {
+// `(a?.M())?.N()` is what `a?.M()?.N()` means, so a second guard over the first call is exact rather
+// than an approximation.
+test "a conditional call may itself be the guarded receiver of another conditional call" {
     source := "first?.Next()?.Run(value)"
     nodes := ConditionalCallTree(source)
     root := ConditionalCallRoot(source)
 
     assert nodes.Kind(root) == ColumnarExpressionNodeKind.CallExpression()
     outerCallee := nodes.Child(root, 0)
-    assert nodes.Kind(outerCallee) == ColumnarExpressionNodeKind.ConditionalMemberAccessExpression()
+    assert nodes.Kind(outerCallee) == ColumnarExpressionNodeKind.MemberAccessExpression()
     assert nodes.Text(source, outerCallee) == "Run"
 
-    innerCall := nodes.Child(outerCallee, 0)
+    outerGuard := nodes.Child(outerCallee, 0)
+    assert nodes.Kind(outerGuard) == ColumnarExpressionNodeKind.NullGuardExpression()
+
+    innerCall := nodes.Child(outerGuard, 0)
     assert nodes.Kind(innerCall) == ColumnarExpressionNodeKind.CallExpression()
 
     innerCallee := nodes.Child(innerCall, 0)
-    assert nodes.Kind(innerCallee) == ColumnarExpressionNodeKind.ConditionalMemberAccessExpression()
+    assert nodes.Kind(innerCallee) == ColumnarExpressionNodeKind.MemberAccessExpression()
     assert nodes.Text(source, innerCallee) == "Next"
+    assert nodes.Kind(nodes.Child(innerCallee, 0)) == ColumnarExpressionNodeKind.NullGuardExpression()
 }
 
-// ── what it refuses ───────────────────────────────────────────────────────────────────────────
+// ── what it no longer refuses ─────────────────────────────────────────────────────────────────
 
-test "a null-conditional READ is refused rather than lowered as an unconditional one" {
-    assert ConditionalCallRoot("handler?.Length") < 0
-    assert ConditionalCallRoot("owner.handler?.Value") < 0
+// The READ form and a plain link written after a conditional one were both REFUSED while the chain
+// was built a link at a time and had nowhere to put the short circuit. The guard is that place, so
+// both parse — and the emitter's chain root is what makes the plain link skip along with the
+// conditional one.
+test "a null-conditional READ is the same access with a guarded receiver" {
+    source := "handler?.Length"
+    nodes := ConditionalCallTree(source)
+    root := ConditionalCallRoot(source)
+
+    assert nodes.Kind(root) == ColumnarExpressionNodeKind.MemberAccessExpression()
+    assert nodes.Text(source, root) == "Length"
+    assert nodes.Kind(nodes.Child(root, 0)) == ColumnarExpressionNodeKind.NullGuardExpression()
 }
 
-// A link written after a conditional one has to be skipped along WITH it; a chain built a link at a
-// time cannot say that, so it refuses.
-test "a non-conditional link after a conditional one is refused" {
-    assert ConditionalCallRoot("handler?.Invoke(value).Length") < 0
-    assert ConditionalCallRoot("handler?.Invoke(value)[0]") < 0
+test "a non-conditional link after a conditional one parses, and only the conditional link is guarded" {
+    source := "handler?.Invoke(value).Length"
+    nodes := ConditionalCallTree(source)
+    root := ConditionalCallRoot(source)
+
+    assert nodes.Kind(root) == ColumnarExpressionNodeKind.MemberAccessExpression()
+    assert nodes.Text(source, root) == "Length"
+
+    call := nodes.Child(root, 0)
+    assert nodes.Kind(call) == ColumnarExpressionNodeKind.CallExpression()
+
+    callee := nodes.Child(call, 0)
+    assert nodes.Kind(callee) == ColumnarExpressionNodeKind.MemberAccessExpression()
+    assert nodes.Kind(nodes.Child(callee, 0)) == ColumnarExpressionNodeKind.NullGuardExpression()
 }
 
-test "the ordinary chain is untouched by the rule" {
+test "an indexed link after a conditional one parses the same way" {
+    source := "handler?.Invoke(value)[0]"
+    nodes := ConditionalCallTree(source)
+    root := ConditionalCallRoot(source)
+
+    assert nodes.Kind(root) == ColumnarExpressionNodeKind.IndexAccessExpression()
+    call := nodes.Child(root, 0)
+    assert nodes.Kind(call) == ColumnarExpressionNodeKind.CallExpression()
+    assert nodes.Kind(nodes.Child(nodes.Child(call, 0), 0)) == ColumnarExpressionNodeKind.NullGuardExpression()
+}
+
+test "the ordinary chain carries no guard at all" {
     source := "owner.handler.Invoke(value).Length"
     nodes := ConditionalCallTree(source)
     root := ConditionalCallRoot(source)
@@ -121,4 +163,16 @@ test "the ordinary chain is untouched by the rule" {
     assert root >= 0
     assert nodes.Kind(root) == ColumnarExpressionNodeKind.MemberAccessExpression()
     assert nodes.Text(source, root) == "Length"
+
+    guards := 0
+    node := 0
+    while node < nodes.Kinds.Length {
+        if nodes.Kind(node) == ColumnarExpressionNodeKind.NullGuardExpression() {
+            guards = guards + 1
+        }
+
+        node = node + 1
+    }
+
+    assert guards == 0
 }

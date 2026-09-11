@@ -15,6 +15,11 @@ class ColumnarReferenceConversionFacts {
     // guarded runtime question is followed by the exact collection edges already owned by emission.
     // Keep TypesEquivalent here: emission historically accepts its richer builder-aware equivalence,
     // while IsExactKnownUpcast below deliberately uses the stricter structural identity predicate.
+    // EVERY ARRAY QUESTION HERE GOES THROUGH `IsSafeSzArrayType`, NOT `IsSZArray`. Reflection.Emit's
+    // generic-parameter builder throws `NotImplementedException` from `Type.IsSZArray` — a CRASH out of
+    // the compiler rather than an answer — and this owner is asked about bare type parameters on every
+    // assignment inside a generic body. The safe predicate answers the same question (a type parameter
+    // is not an array) without the throw.
     static func TryEmitReferenceConversion(sourceType: Type, targetType: Type): bool {
         if sourceType == ColumnarTypeOfPlanner.RequiredVoidType() || sourceType.get_IsValueType() || targetType.get_IsValueType() {
             return false
@@ -38,7 +43,7 @@ class ColumnarReferenceConversionFacts {
             return true
         }
 
-        if sourceType.get_IsSZArray() && targetType.get_IsGenericType() && !targetType.get_IsGenericTypeDefinition() {
+        if ColumnarTypeEquivalenceFacts.IsSafeSzArrayType(sourceType) && targetType.get_IsGenericType() && !targetType.get_IsGenericTypeDefinition() {
             targetDefinition := targetType.GetGenericTypeDefinition()
             if (targetDefinition == typeof(IReadOnlyList<int>).GetGenericTypeDefinition() || targetDefinition == typeof(IReadOnlyCollection<int>).GetGenericTypeDefinition() || targetDefinition == typeof(IEnumerable<int>).GetGenericTypeDefinition()) && ColumnarTypeEquivalenceFacts.TypesEquivalent(sourceType.GetElementType(), targetType.GetGenericArguments()[0]) {
                 return true
@@ -363,7 +368,7 @@ class ColumnarReferenceConversionFacts {
             return true
         }
 
-        if targetType.get_IsGenericType() && !targetType.get_IsGenericTypeDefinition() && sourceType.get_IsSZArray() {
+        if targetType.get_IsGenericType() && !targetType.get_IsGenericTypeDefinition() && ColumnarTypeEquivalenceFacts.IsSafeSzArrayType(sourceType) {
             sourceElement := sourceType.GetElementType()
             targetArguments := targetType.GetGenericArguments()
             if sourceElement == null || targetArguments.Length != 1 || !ExactTypeShapeMatches(sourceElement, targetArguments[0]) {
@@ -610,8 +615,8 @@ class ColumnarReferenceConversionFacts {
             return true
         }
 
-        if left.get_IsSZArray() || right.get_IsSZArray() {
-            if !left.get_IsSZArray() || !right.get_IsSZArray() {
+        if ColumnarTypeEquivalenceFacts.IsSafeSzArrayType(left) || ColumnarTypeEquivalenceFacts.IsSafeSzArrayType(right) {
+            if !ColumnarTypeEquivalenceFacts.IsSafeSzArrayType(left) || !ColumnarTypeEquivalenceFacts.IsSafeSzArrayType(right) {
                 return false
             }
 

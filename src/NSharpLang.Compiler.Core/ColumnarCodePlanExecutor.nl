@@ -2169,7 +2169,7 @@ class ColumnarCodePlanExecutor {
             }
             return declaringArguments[position]
         }
-        if signatureType.get_IsSZArray() {
+        if ColumnarTypeEquivalenceFacts.IsSafeSzArrayType(signatureType) {
             elementType := signatureType.GetElementType()
             if elementType == null {
                 throw new InvalidOperationException(schemaName + " method array signature has no element type.")
@@ -2372,7 +2372,7 @@ class ColumnarCodePlanExecutor {
     }
 
     static func RequireSzArray(arrayType: Type, isAddress: bool, schemaName: string): Type {
-        if isAddress || arrayType == null || !arrayType.get_IsSZArray() {
+        if isAddress || arrayType == null || !ColumnarTypeEquivalenceFacts.IsSafeSzArrayType(arrayType) {
             throw new InvalidOperationException(schemaName + " array operations require a single-dimensional zero-based array value.")
         }
         elementType := arrayType.GetElementType()

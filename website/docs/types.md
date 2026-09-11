@@ -1077,6 +1077,29 @@ Two rules the compiler enforces about the type-argument list itself:
 - A method type parameter mentioned **only in a delegate's RESULT** is not inferred from the
   lambda's body: `outcome.Match(v => v.ToString(), e => e)` needs `Match<string>(...)` written out.
   The same limit applies to a generic FREE function with a `Func<TValue, TResult>` parameter.
+- **Null-conditional INDEXING** (`items?[0]`) is not compiled yet; `?.` on a member or a method is
+  unaffected, and an explicit null check reads the element.
+- An argument that must be **boxed into an `object` parameter of a GENERIC function**
+  (`Wrap<int>(value, fallback)` where `Wrap` takes `o: object?`) is not converted yet. The same
+  argument reaches a non-generic function's `object?` parameter without ceremony.
+- A generic method called **directly on a call's RESULT** (`Make().As<int>()`) does not resolve; bind
+  the receiver to a name first (`made := Make()` then `made.As<int>()`).
+- A **fully qualified** external type reaches fewer positions than an imported one. Written out
+  (`NSharpLang.Runtime.Result<int, string>`) it works in `typeof`, in a `:=` initializer and as a
+  local's declared type, but not as a `type` alias target, a parameter type, an annotated local's
+  initializer, a `new` expression, or the receiver of a generic or `out`-taking member. Importing the
+  namespace and using the simple name reaches all of those.
+- `default` is written **bare**; the C#-style `default(T)` is not N# syntax — the parser reads it as
+  the keyword followed by a call, and the analyzer reports a call on a maybe-null value. Annotate the
+  target instead (`x: T = default`, `return default` on a typed function).
+- A `[MethodImpl(...)]` attribute is **accepted and then dropped**: the source compiles with no
+  diagnostic, and the emitted method's `GetMethodImplementationFlags()` is `0` whether the argument is
+  a single `MethodImplOptions` value or a flags combination. Treat inlining hints as unavailable
+  rather than applied.
+- A **catch clause's exception type must be a simple name**: `catch ex: System.InvalidOperationException`
+  does not parse, `import System` plus `catch ex: InvalidOperationException` does. Relatedly, a type
+  used ONLY as a catch type or only inside a delegate type in a signature does not yet count as a use
+  of its import, so `NL010` can report an import that is in fact needed.
 
 ## Nullable Types
 
@@ -1110,13 +1133,49 @@ displayAge := age ?? 0
 
 ### Null-conditional Operator
 
+`a?.B` evaluates `a` once and reads `B` only if it is not null; if it is, the **whole chain to the
+right of the `?`** is skipped and the expression is null. That is why `user?.Address.City` never
+throws even when `Address` is a plain access: once `user` is null, nothing after the `?` runs.
+
 ```n#
 user: User? = GetUser()
-name := user?.Name  // null if user is null
+name := user?.Name           // string?  — null if user is null
 
-// Chaining
+// Chaining: null anywhere on the way is null at the end
 city := user?.Address?.City
+
+// Calls too
+text := user?.ToString() ?? "anonymous"
 ```
+
+The result is **lifted**: reading a member whose type is a value type gives you the nullable of it,
+because "no value" has to be expressible.
+
+```n#
+length := user?.Name?.Length      // int?, not int
+count := (user?.Name?.Length) ?? 0
+```
+
+Parentheses end a chain, exactly as they read: in `(user?.Address).City` the `?` guards only the
+first access, and the second one runs on whatever that produced.
+
+`?.` also works on a nullable value (`when?.Year` on a `DateTime?` reads `Year` off the value when
+there is one) and on an unconstrained type parameter, where it means the same thing for both kinds of
+instantiation — never null for a value one, a real check for a reference one:
+
+```n#
+struct Box<T> {
+    Value: T
+
+    constructor(value: T) {
+        Value = value
+    }
+
+    override func ToString(): string => Value?.ToString() ?? "<none>"
+}
+```
+
+Writing `?` on a plain, non-nullable value (`5?.ToString()`) is rejected: there is no null to test for.
 
 ### Null checks instead of null-forgiving
 

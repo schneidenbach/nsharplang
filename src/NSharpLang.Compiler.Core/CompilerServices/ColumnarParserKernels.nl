@@ -364,8 +364,10 @@ class TypeReferenceTupleNameTable {
 //   MustExpression          -> kind 45  ( `must <operand>` (Must 20) -- the prefix null-assert, ONE child;
 //                                         unwraps a Nullable<T> to T or null-checks a reference, throwing
 //                                         InvalidOperationException when null. )
-//   IsExpression            -> kind 46  ( `value is Type` (Is 47) -- children [value, typeRoot]; the
-//                                         typeRoot is a TYPE subtree (scans walk child 0 only). )
+//   IsExpression            -> kind 46  ( `value is Type [name]` (Is 47) -- children [value, typeRoot]; the
+//                                         typeRoot is a TYPE subtree (scans walk child 0 only). The optional
+//                                         PATTERN VARIABLE is the value span: present = the declared name,
+//                                         absent = (-1, 0). `as` (kind 47) never carries one. )
 //   AsExpression            -> kind 47  ( `value as Type` (As 48) -- the null-propagating cast twin of
 //                                         kind 46; same child shape. )
 //   WithExpression          -> kind 52  ( `expr with { Field: value, ... }` (With 71) -- the kind-36
@@ -404,13 +406,6 @@ class TypeReferenceTupleNameTable {
 //                                         property pattern entries.)
 //   PropertyPattern         -> kind 68  (`Prop` / `Prop: pat` inside object or union-case property patterns;
 //                                         property name in the value span, optional ONE child [pat].)
-//   ConditionalMemberAccessExpression
-//                           -> kind 74  (`receiver?.Member` -- the member NAME in the value span, ONE child
-//                                         [receiver], the span running from the receiver through the name.
-//                                         It is ONLY built for the CALL form: `receiver?.M(args)` is a
-//                                         CallExpression over one of these, and a bare `receiver?.M` read
-//                                         refuses the declaration. A NON-conditional link may not follow one
-//                                         in the same postfix chain -- see ParsePostfixExpressionNode.)
 //   BaseMemberExpression    -> kind 71  ( `base.Member` -- the member NAME in the value span, NO children,
 //                                         the span running from `base` through the name. The shape of the
 //                                         `this.Member` arm above it, with its own kind because the two
@@ -418,16 +413,24 @@ class TypeReferenceTupleNameTable {
 //                                         NON-VIRTUALLY to the base's declaration, so it must never be
 //                                         mistaken for the `this` form. `base.M(args)` is a CallExpression
 //                                         over one of these; `base.P` on its own is the node itself. )
+//   NullGuardExpression     -> kind 75  ( the receiver of a `?.` access (QuestionDot 118) -- ONE child
+//                                         [receiver], no value span, the receiver's own span. The access
+//                                         itself stays a kind-8 MemberAccess over it (and a kind-9 Call over
+//                                         that for `a?.M(x)`), so only the SHORT CIRCUIT is new. )
+//   DefaultExpression       -> kind 74  ( `default` (Default 34) -- the target-typed zero value; NO children
+//                                         and NO value span, exactly like the null literal (kind 5). The
+//                                         written-type form is spelled as an annotation in N# (`x: T = default`),
+//                                         so the keyword never carries a type child. )
 //   RangeExpression         -> kind 69  (`start..end`, `start..`, `..end`, `..`; DotDot token in the
 //                                         value span. Children are the present endpoint expressions; with
 //                                         one child, compare its span start to the DotDot span to classify
 //                                         start-only vs end-only.)
 // `alloc <expr>` is parsed transparently: systems analysis owns allocation-policy enforcement before this
 // product handoff, and the emitter only needs the concrete expression shape.
-// Deferred (refused with -1, or the chain simply STOPS at them): `?[` null-conditional indexing and the
-//   null-conditional READ form `a?.B`, generic
+// Deferred (refused with -1, or the chain simply STOPS at them): `?[` null-conditional INDEXING, generic
 //   method calls (callee<T>(...)), named (`name:`) call arguments outside constructor argument lists,
-//   `is`/`as` type tests; every other unlisted primary (this/default/... ; `base.Member` is kind 71).
+//   `is`/`as` type tests; every other unlisted primary (this/... ; `base.Member` is kind 71 and
+//   `default` is kind 74).
 //   (Tuples `(a, b)` AND named tuples `(x: 1, y: 2)` PARSE — kinds 17/43; match,
 //   new-expressions, object initializers, bare-new and block-bodied lambdas have their own kinds above.)
 //   Literal VALUE materialization (unescaping strings/chars) is the host's job; this kernel records the
@@ -539,15 +542,6 @@ class ColumnarExpressionNodeKind {
         return 71
     }
 
-    // `receiver?.Member` — the null-conditional link. It carries the SAME shape as
-    // `MemberAccessExpression` (member name in the value span, ONE child: the receiver) and a kind of
-    // its own, because the two do not mean the same thing: this one evaluates its receiver ONCE and
-    // yields `null` without touching the member when that receiver is null. A planner that read it as
-    // an ordinary member access would silently drop the null test.
-    static func ConditionalMemberAccessExpression(): int {
-        return 74
-    }
-
     // `checked(<expr>)` / `unchecked(<expr>)`. The KEYWORD lives in the value span and there is
     // exactly ONE child. Unlike every other name on this ledger it has no N# planner behind it:
     // `ColumnarIlEmitter.EmitExpressionCore`'s own `case 57` is the owner, and it lowers to nothing
@@ -566,6 +560,21 @@ class ColumnarExpressionNodeKind {
 
     static func RangeExpression(): int {
         return 69
+    }
+
+    // `?.` — the RECEIVER half of a null-conditional access, wrapped around the receiver so the access
+    // itself stays an ordinary MemberAccess (kind 8) and an ordinary Call (kind 9) over it. ONE child
+    // (the receiver), no value span, and the receiver's own source span: everything about the access —
+    // its member name, its arguments — is the node above, unchanged.
+    static func NullGuardExpression(): int {
+        return 75
+    }
+
+    // `default` — the target-typed zero value. The keyword carries no type of its own (N# spells the
+    // typed form as an annotation, `x: T = default`), so the node has NO children and NO value span,
+    // and every consumer reads the target type from the position the expression sits in.
+    static func DefaultExpression(): int {
+        return 74
     }
 }
 
@@ -4547,6 +4556,14 @@ func ParsePrimaryExpressionNode(tokens: ParserTokenTable, count: int, st: Parser
         return EmitExpressionNode(st, nodes, ColumnarExpressionNodeKind.NullLiteralExpression(), -1, 0, -1, 0, tokenStart, tokenLength)
     }
 
+    // `default` (Default 34) — the null literal's twin: a keyword primary with no operand whose TYPE
+    // comes from the position it is written in. It is recorded with no value span for the same reason
+    // `null` is, and its full source span is the keyword.
+    if kind == 34 {
+        st.Pos = pos + 1
+        return EmitExpressionNode(st, nodes, ColumnarExpressionNodeKind.DefaultExpression(), -1, 0, -1, 0, tokenStart, tokenLength)
+    }
+
     if kind == 131 {
         return ParseArrayLiteralExpressionNode(tokens, count, st, argStack, nodes, children, depth)
     }
@@ -5289,59 +5306,37 @@ func ParsePostfixExpressionNode(tokens: ParserTokenTable, count: int, st: Parser
         }
     }
 
-    // WHETHER A NULL-CONDITIONAL LINK IS OPEN IN THIS CHAIN.
-    //
-    // `a?.M()` short-circuits the WHOLE remainder of its access chain in C#: `a?.M().B` is null when
-    // `a` is null, and the `.B` is never reached. This kernel builds a chain link at a time, so a `.B`
-    // built over a `?.` node would run unconditionally — the wrong program, not a slower one. Rather
-    // than emit that, the chain REFUSES to continue with a non-conditional link once a conditional one
-    // is open. The `(` that the conditional link requires is inside the short-circuit and is allowed,
-    // and so is a further `?.` link (`a?.M()?.N()` is `(a?.M())?.N()`, which means the same thing).
-    conditionalOpen := false
     matched := true
     while matched {
         pos := st.Pos
 
-        if pos + 1 < count && tokens.Kinds[pos] == 118 && tokens.Kinds[pos + 1] == 0 {
-
-            // `receiver?.Member(args)` (QuestionDot 118, Identifier 0, LeftParen 127).
-            //
-            // ONLY THE CALL FORM. A null-conditional READ (`a?.B` with no argument list) yields
-            // `null` for a reference member and `B?` for a value-type one, and neither shape has an
-            // owner on this side yet; refusing the whole declaration is what it already did, and is
-            // better than an access that reads the member unconditionally.
-            if pos + 2 >= count || tokens.Kinds[pos + 2] != 127 {
-                return -1
-            }
-
-            conditionalSpanStart := nodes.SpanStarts[expr]
-            conditionalMemberStart := tokens.Starts[pos + 1]
-            conditionalMemberLength := tokens.ValueLengths[pos + 1]
-            conditionalMemberEnd := conditionalMemberStart + conditionalMemberLength
-            conditionalChildRunStart := st.ChildCursor
-            AppendExpressionChild(st, children, expr)
-            expr = EmitExpressionNode(st, nodes, ColumnarExpressionNodeKind.ConditionalMemberAccessExpression(), conditionalMemberStart, conditionalMemberLength, conditionalChildRunStart, 1, conditionalSpanStart, conditionalMemberEnd - conditionalSpanStart)
-
-            conditionalOpen = true
-            st.Pos = pos + 2
-        } else if conditionalOpen && !(pos < count && tokens.Kinds[pos] == 127) {
-
-            // A chain that has an open null-conditional link ends here. `(` continues it (the call is
-            // inside the short-circuit); anything else would have to run unconditionally.
-            // Dot 124, LeftBracket 131, QuestionBracket 119, With 71 and Less 100 (a generic call's
-            // type-argument list) are the tokens that would open another link.
-            if pos < count && (tokens.Kinds[pos] == 124 || tokens.Kinds[pos] == 131 || tokens.Kinds[pos] == 119 || tokens.Kinds[pos] == 71 || tokens.Kinds[pos] == 100) {
-                return -1
-            }
-
-            matched = false
-        } else if pos + 1 < count && tokens.Kinds[pos] == 124 && tokens.Kinds[pos + 1] == 0 {
+        if pos + 1 < count && tokens.Kinds[pos] == 124 && tokens.Kinds[pos + 1] == 0 {
             objSpanStart := nodes.SpanStarts[expr]
             memberStart := tokens.Starts[pos + 1]
             memberLength := tokens.ValueLengths[pos + 1]
             memberEnd := memberStart + memberLength
             childRunStart := st.ChildCursor
             AppendExpressionChild(st, children, expr)
+            expr = EmitExpressionNode(st, nodes, ColumnarExpressionNodeKind.MemberAccessExpression(), memberStart, memberLength, childRunStart, 1, objSpanStart, memberEnd - objSpanStart)
+
+            st.Pos = pos + 2
+        } else if pos + 1 < count && tokens.Kinds[pos] == 118 && tokens.Kinds[pos + 1] == 0 {
+
+            // `receiver?.member` (QuestionDot 118) -- the `.` branch above with the receiver wrapped in a
+            // NULL GUARD (kind 75). Everything that reads an access reads the SAME kind-8 node it always
+            // did, and a following `(` still makes the ordinary kind-9 call over it, so `a?.M(x)` needs no
+            // shape of its own. What the guard adds is a place for the SHORT CIRCUIT: it is the node that
+            // tests the receiver once and, when it is null, abandons the rest of the chain.
+            objSpanStart := nodes.SpanStarts[expr]
+            guardSpanLength := nodes.SpanLengths[expr]
+            guardChildRun := st.ChildCursor
+            AppendExpressionChild(st, children, expr)
+            guard := EmitExpressionNode(st, nodes, ColumnarExpressionNodeKind.NullGuardExpression(), -1, 0, guardChildRun, 1, objSpanStart, guardSpanLength)
+            memberStart := tokens.Starts[pos + 1]
+            memberLength := tokens.ValueLengths[pos + 1]
+            memberEnd := memberStart + memberLength
+            childRunStart := st.ChildCursor
+            AppendExpressionChild(st, children, guard)
             expr = EmitExpressionNode(st, nodes, ColumnarExpressionNodeKind.MemberAccessExpression(), memberStart, memberLength, childRunStart, 1, objSpanStart, memberEnd - objSpanStart)
 
             st.Pos = pos + 2
@@ -5892,10 +5887,29 @@ func ParseBinaryExpressionNode(tokens: ParserTokenTable, count: int, st: ParserS
 
         isAsSpanStart := nodes.SpanStarts[left]
         isAsSpanEnd := nodes.SpanStarts[isAsType] + nodes.SpanLengths[isAsType]
+        // THE PATTERN VARIABLE (`value is Type name`) LIVES IN THE VALUE SPAN. `as` never has one, and
+        // `is` has no other use for the slot, so the binding needs no extra child — which matters because
+        // a kind-46 child run is [value, typeRoot] and every scan walks child 0 as a value and child 1 as
+        // a TYPE. Absent, the slot stays (-1, 0), exactly as before.
+        //
+        // The name must sit on the SAME LINE as the end of the type: statements are newline-terminated,
+        // so an identifier opening the next line starts a new statement. This is the production parser's
+        // gate (ColumnarParserRecovery.ParseRelational), and WITHOUT it the columnar kernel used to stop
+        // the expression at the type and leave `name` to be read as a fresh statement — `return o is string s && s.Length > 0`
+        // silently became a `return` followed by an unreachable expression statement.
+        isAsBindingStart := -1
+        isAsBindingLength := 0
+        if isAsKind == 46 && st.Pos < count && tokens.Kinds[st.Pos] == 0 && !ParserSourceHasLineBreakBetween(st.Source, isAsSpanEnd, tokens.Starts[st.Pos]) {
+            isAsBindingStart = tokens.Starts[st.Pos]
+            isAsBindingLength = tokens.ValueLengths[st.Pos]
+            isAsSpanEnd = isAsBindingStart + isAsBindingLength
+            st.Pos = st.Pos + 1
+        }
+
         isAsChildRun := st.ChildCursor
         AppendExpressionChild(st, children, left)
         AppendExpressionChild(st, children, isAsType)
-        left = EmitExpressionNode(st, nodes, isAsKind, -1, 0, isAsChildRun, 2, isAsSpanStart, isAsSpanEnd - isAsSpanStart)
+        left = EmitExpressionNode(st, nodes, isAsKind, isAsBindingStart, isAsBindingLength, isAsChildRun, 2, isAsSpanStart, isAsSpanEnd - isAsSpanStart)
     }
 
     keepGoing := true

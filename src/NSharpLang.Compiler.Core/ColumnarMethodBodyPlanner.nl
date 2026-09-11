@@ -377,7 +377,7 @@ class ColumnarMethodBodyPlanner {
         if valueType.get_IsGenericParameter() {
             return true
         }
-        if valueType.get_IsSZArray() {
+        if ColumnarTypeEquivalenceFacts.IsSafeSzArrayType(valueType) {
             element := valueType.GetElementType()
             if element != null && element.get_IsGenericParameter() {
                 return true
@@ -926,7 +926,11 @@ class ColumnarMethodBodyPlanner {
         // 46 Is, 47 As, 52 With, 53 Await, 59 AnonymousObjectInitializer, 64 SpreadArgument.
         // 57 CHECKED-CONTEXT LEFT THIS LIST in `015-B13`: it is the one claimed kind whose host arm is
         // not a planner call at all, so the door reproduces it directly.
-        return kind == 46 || kind == 47 || kind == 52 || kind == 53 || kind == 59 || kind == 64
+        // 74 Default and 75 NullGuard: both are TARGET-DIRECTED rather than self-describing. `default`
+        // takes its type from the position it sits in, which the host's target-typed pre-passes supply and
+        // this door does not; a null guard is one half of a chain whose OTHER half — the escape label and
+        // the lifted result — the host's chain wrapper owns. Neither is a row this door can promise.
+        return kind == 46 || kind == 47 || kind == 52 || kind == 53 || kind == 59 || kind == 64 || kind == ColumnarExpressionNodeKind.DefaultExpression() || kind == ColumnarExpressionNodeKind.NullGuardExpression()
     }
 
     // THE LEDGER THE DOOR PARTITIONS — every node kind the parser can produce in a return-VALUE
@@ -935,7 +939,7 @@ class ColumnarMethodBodyPlanner {
     // totality property is a fact something can assert, not a promise a comment makes: for every kind
     // here, exactly one of `IsClaimedExpressionKind` and `IsDeclinedExpressionKind` holds.
     static func ExpressionKindLedger(): int[] {
-        return [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 15, 16, 17, 18, 36, 39, 42, 44, 45, 46, 47, 52, 53, 55, 57, 58, 59, 62, 64, 69]
+        return [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 15, 16, 17, 18, 36, 39, 42, 44, 45, 46, 47, 52, 53, 55, 57, 58, 59, 62, 64, 69, 74, 75]
     }
 
     // THE IDENTIFIER CLASSES. `ColumnarBoundIdentifierPlanner` is the SOLE owner of lexical

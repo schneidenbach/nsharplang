@@ -740,6 +740,12 @@ class ColumnarBindingScopeFacts {
             importIndex = importIndex + 1
         }
 
+        enclosingSourceName := ""
+        if TryFindEnclosingNamespaceSourceName(facts, canonical, out enclosingSourceName) {
+            claimed = true
+            return TrySelectExactSourceDeclarationName(enclosingSourceName, true, activeAliases, depth + 1, out exactName)
+        }
+
         uniqueClaimed := false
         if !HasImportedExternalTypeAtFile(sourceFileId, canonical) {
             if TrySelectUniqueExportedSourceDeclarationName(canonical, activeAliases, depth + 1, out exactName, out uniqueClaimed) {
@@ -1149,6 +1155,15 @@ class ColumnarBindingScopeFacts {
             importIndex = importIndex + 1
         }
 
+        enclosingSourceName := ""
+        if TryFindEnclosingNamespaceSourceName(facts, canonical, out enclosingSourceName) {
+            claimed = true
+            if TryResolveExactSourceBinding(enclosingSourceName, true, bindings, activeAliases, depth + 1, out result, out sourceClaimed) {
+                return true
+            }
+            return false
+        }
+
         uniqueSourceName := ""
         uniqueSourceClaimed := false
         if !HasImportedExternalTypeAtFile(sourceFileId, canonical) {
@@ -1248,6 +1263,40 @@ class ColumnarBindingScopeFacts {
             return false
         }
         return TryResolveExplicitAliasTarget(aliasFileId, declarationName, aliasTarget, bindings, activeAliases, depth + 1, out result)
+    }
+
+    // A SOURCE TYPE IN AN ENCLOSING NAMESPACE IS PART OF THIS FILE'S OWN SCOPE. The file's own
+    // namespace is answered by the callers above; a file in `A.B.C` also sits inside `A.B` and `A`,
+    // and an exported declaration there is in scope without an import, exactly as C# reads it. This
+    // is NOT the project-wide unique-exported fallback the callers reach next: that one finds a
+    // declaration in an UNRELATED namespace and deliberately loses to an imported external type (the
+    // shadowing hazard), while an enclosing namespace is lexically nearer than any import. Without
+    // this step the SAME spelling resolved two ways inside one file — a signature saw the enclosing
+    // declaration and a body local saw the imported external type of that name.
+    func TryFindEnclosingNamespaceSourceName(facts: ColumnarSourceBindingFacts, canonical: string, out exactName: string): bool {
+        exactName = ""
+        if canonical == null || canonical.Length == 0 || canonical.Contains(".") {
+            return false
+        }
+
+        enclosingNamespace := facts.NamespaceName
+        while enclosingNamespace.Length > 0 {
+            separatorIndex := enclosingNamespace.Length - 1
+            while separatorIndex >= 0 && enclosingNamespace[separatorIndex] != '.' {
+                separatorIndex = separatorIndex - 1
+            }
+            if separatorIndex < 0 {
+                return false
+            }
+
+            enclosingNamespace = enclosingNamespace.Substring(0, separatorIndex)
+            candidateName := enclosingNamespace + "." + canonical
+            if exportedSourceTypeNames.Contains(candidateName) || exportedSourceTypeAliasNames.Contains(candidateName) {
+                exactName = candidateName
+                return true
+            }
+        }
+        return false
     }
 
     // AN EXPLICIT IMPORT IS NOT A LAST RESORT, AND THE UNIQUE-EXPORTED SOURCE FALLBACK IS. The
@@ -1877,6 +1926,20 @@ class ColumnarBindingScopeFacts {
             runtimeType = typeof(byte)
         } else if name == "sbyte" || name == "SByte" || name == "System.SByte" {
             runtimeType = typeof(sbyte)
+        } else if name == "float" || name == "Single" || name == "System.Single" {
+            runtimeType = typeof(float)
+        } else if name == "double" || name == "Double" || name == "System.Double" {
+            runtimeType = typeof(double)
+        } else if name == "decimal" || name == "Decimal" || name == "System.Decimal" {
+            runtimeType = typeof(decimal)
+        } else if name == "bool" || name == "Boolean" || name == "System.Boolean" {
+            runtimeType = typeof(bool)
+        } else if name == "char" || name == "Char" || name == "System.Char" {
+            runtimeType = typeof(char)
+        } else if name == "string" || name == "String" || name == "System.String" {
+            runtimeType = typeof(string)
+        } else if name == "object" || name == "Object" || name == "System.Object" {
+            runtimeType = typeof(object)
         } else {
             return false
         }

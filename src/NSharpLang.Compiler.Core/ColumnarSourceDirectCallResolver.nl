@@ -558,6 +558,15 @@ class ColumnarSourceDirectCallResolver {
         // current instantiation, never through a bare method-definition token.
         declaringType: Type = ColumnarSourceSelfInstantiation.Of(owner.Builder)
         method: MethodInfo = ColumnarSourceSelfInstantiation.BindOn(declaringType, definition.Builder)
+        // THE RECEIVER IS NAMED THE SAME WAY THE METHOD IS. `this` inside a GENERIC definition is a
+        // value of the CURRENT INSTANTIATION, not of the open definition, and the plan records both the
+        // receiver's semantic type and the method's declaring type: naming the receiver by the open
+        // builder while the handle names the instantiation made them disagree, and the plan executor
+        // threw ("value-type receiver for 'X' requires an exact managed address" / "reference receiver
+        // for 'X' does not match its declaring type") rather than declining — a crash out of the
+        // compiler for source as ordinary as a generic struct whose property getter calls one of its own
+        // methods. `Of` is the identity on every non-generic owner, so nothing else moves.
+        receiverType = ColumnarSourceSelfInstantiation.Of(receiverType)
         returnType := definition.ReturnType
         if closed {
             rebound := TypeBuilder.GetMethod(receiverType, definition.Builder)
@@ -1305,7 +1314,7 @@ class ColumnarSourceDirectCallResolver {
             return arguments[position]
         }
 
-        if signatureType.get_IsSZArray() {
+        if ColumnarTypeEquivalenceFacts.IsSafeSzArrayType(signatureType) {
             element := signatureType.GetElementType()
             if element == null {
                 throw new InvalidOperationException("Source direct-call array signature has no element type.")
@@ -1399,7 +1408,7 @@ class ColumnarSourceDirectCallResolver {
                     throw new InvalidOperationException("Source direct-call parameter modifier fact is invalid.")
                 }
 
-                if modifier == 3 && (index != parameterTypes.Length - 1 || !parameterTypes[index].get_IsSZArray()) {
+                if modifier == 3 && (index != parameterTypes.Length - 1 || !ColumnarTypeEquivalenceFacts.IsSafeSzArrayType(parameterTypes[index])) {
                     throw new InvalidOperationException("A params source-call fact must describe the final array parameter.")
                 }
 

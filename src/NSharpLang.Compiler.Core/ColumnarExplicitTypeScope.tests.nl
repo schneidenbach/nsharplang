@@ -672,6 +672,53 @@ test "program exact type resolution selects one exported cross namespace name" {
     assert reportName == "NSharpLang.Compiler.Performance.SystemsReport"
 }
 
+// AN ENCLOSING NAMESPACE IS THIS FILE'S OWN SCOPE, NOT THE PROJECT-WIDE POOL. `A.B` sits inside `A`,
+// so a declaration in `A` is in scope there without an import — and it is nearer than anything the
+// unique-exported fallback could find, which is what makes the answer unambiguous even though a
+// SECOND `Widget` exists in an unrelated namespace. Both walks must agree: a signature and a body
+// local spelling the same name in one file cannot resolve to two different types.
+test "program exact type resolution selects an enclosing namespace name over the ambiguous pool" {
+    enclosingBuilder := TypeOfCreateSourceBuilder("A.Widget", false)
+    unrelatedBuilder := TypeOfCreateSourceBuilder("Unrelated.Widget", false)
+    definitions := new List<ColumnarStructDef>()
+    definitions.Add(ExactTypeDefinition(enclosingBuilder, "A.Widget"))
+    definitions.Add(ExactTypeDefinition(unrelatedBuilder, "Unrelated.Widget"))
+    bindings := ExactTypeResolutionBindings(definitions)
+
+    sources := new string[](3)
+    fileNames := new string[](3)
+    sources[0] = "namespace A\nclass Widget {}\n"
+    sources[1] = "namespace Unrelated\nclass Widget {}\n"
+    sources[2] = "namespace A.B\nclass Consumer {}\n"
+    fileNames[0] = "exact-program/enclosing-outer.nl"
+    fileNames[1] = "exact-program/enclosing-unrelated.nl"
+    fileNames[2] = "exact-program/enclosing-inner.nl"
+    program := ExactTypeProgram(sources, fileNames)
+
+    widgetType := typeof(object)
+    widgetClaimed := false
+    assert program.TryResolveExactExplicitTypeForFile(
+        2,
+        "Widget",
+        bindings,
+        out widgetType,
+        out widgetClaimed
+    )
+    assert widgetClaimed
+    assert ColumnarConstructionPlanner.SameObject(widgetType, enclosingBuilder)
+
+    widgetName := ""
+    widgetNameClaimed := false
+    assert program.TryResolveExactSourceDeclarationNameForFile(
+        2,
+        "Widget",
+        out widgetName,
+        out widgetNameClaimed
+    )
+    assert widgetNameClaimed
+    assert widgetName == "A.Widget"
+}
+
 test "program exact type resolution rejects ambiguous exported cross namespace names" {
     leftBuilder := TypeOfCreateSourceBuilder("Left.Widget", false)
     rightBuilder := TypeOfCreateSourceBuilder("Right.Widget", false)
