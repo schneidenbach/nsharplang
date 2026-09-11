@@ -72,5 +72,8 @@ enum ErrorCode {
     PossibleNullAccess = 905,
     NullabilityWarning = 907,
     ReferenceLoadFailure = 923,
-    InternalCompilerError = 924
+    InternalCompilerError = 924,
+    MethodImplTargetInvalid = 930,
+    MethodImplOptionUndefined = 931,
+    MethodImplOptionRefusedByClr = 932
 }

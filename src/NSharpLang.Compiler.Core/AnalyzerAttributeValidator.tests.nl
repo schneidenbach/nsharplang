@@ -1455,3 +1455,139 @@ test "the declaration door reaches the native-import signature rule — the sign
     assert AttrCodes(harness.Errors) == expected
     assert AttrRow(harness.Errors, harness.Errors.Count - 1).Contains("can't marshal parameter 'data'")
 }
+
+// ── `[MethodImpl]`, THE PSEUDO-CUSTOM ATTRIBUTE ────────────────────────────────
+//
+// It never becomes a custom-attribute row: what it says goes into the method definition row's
+// implementation flags. Three things follow that the ordinary constructor-and-named-member walk
+// cannot ask — where it may be written, which values it may carry, and which combinations the TYPE
+// LOADER refuses. The last of those is the one worth having: without it the program compiles and
+// throws `TypeLoadException` the first time the type is touched.
+//
+// The names are FULLY QUALIFIED here because this harness imports no namespaces; the rule itself is
+// indifferent to the spelling and answers on the resolved type's identity.
+
+func AttrMethodImplNode(arguments: List<Argument>): AttributeNode {
+    return AttrNode("System.Runtime.CompilerServices.MethodImpl", arguments)
+}
+
+func AttrMethodImplOption(name: string): Expression {
+    return AttrDotted("System.Runtime.CompilerServices.MethodImplOptions", name)
+}
+
+func AttrMethodImplWith(value: Expression): AttributeNode {
+    arguments := AttrArgs()
+    AttrArg(arguments, value, null)
+    return AttrMethodImplNode(arguments)
+}
+
+func AttrHasCode(errors: List<CompilerError>, code: ErrorCode): bool {
+    for error in errors {
+        if error.Code == code {
+            return true
+        }
+    }
+
+    return false
+}
+
+func AttrMethodImplFunction(node: AttributeNode, body: BlockStatement?): FunctionDeclaration {
+    return new FunctionDeclaration("Run", new List<Parameter>(), null, body, null, null, null, Modifiers.None, AttrNodes(node), false, null, false, false, 5, 1)
+}
+
+func AttrEmptyBody(): BlockStatement {
+    return new BlockStatement(new List<Statement>(), 6, 1)
+}
+
+test "a method carries implementation flags, so a well-formed MethodImpl on one is silent" {
+    harness := AttributeHarnessNew()
+    declared := AttrMethodImplFunction(AttrMethodImplWith(AttrMethodImplOption("AggressiveInlining")), AttrEmptyBody())
+
+    harness.Validator.ValidateDeclarationAttributeArguments(declared)
+
+    assert !AttrHasCode(harness.Errors, ErrorCode.MethodImplTargetInvalid)
+    assert !AttrHasCode(harness.Errors, ErrorCode.MethodImplOptionUndefined)
+    assert !AttrHasCode(harness.Errors, ErrorCode.MethodImplOptionRefusedByClr)
+}
+
+test "a FIELD has no implementation flags, and a MethodImpl on one is refused rather than dropped" {
+    harness := AttributeHarnessNew()
+    node := AttrMethodImplWith(AttrMethodImplOption("NoInlining"))
+    declared := new FieldDeclaration("amount", AttrSimple("int"), null, Modifiers.None, PropertyModifier.None, AttrNodes(node), 5, 1)
+
+    harness.Validator.ValidateDeclarationAttributeArguments(declared)
+
+    assert AttrHasCode(harness.Errors, ErrorCode.MethodImplTargetInvalid)
+}
+
+test "a CLASS, an INTERFACE, an ENUM and a PARAMETER are refused for the same reason" {
+    classHarness := AttributeHarnessNew()
+    declaredClass := new ClassDeclaration("Holder", null, null, new List<TypeReference>(), new List<Declaration>(), null, Modifiers.None, AttrNodes(AttrMethodImplWith(AttrMethodImplOption("NoInlining"))), 5, 1)
+    classHarness.Validator.ValidateDeclarationAttributeArguments(declaredClass)
+    assert AttrHasCode(classHarness.Errors, ErrorCode.MethodImplTargetInvalid)
+
+    interfaceHarness := AttributeHarnessNew()
+    declaredInterface := new InterfaceDeclaration("IThing", null, new List<TypeReference>(), new List<Declaration>(), Modifiers.None, false, AttrNodes(AttrMethodImplWith(AttrMethodImplOption("NoInlining"))), 5, 1)
+    interfaceHarness.Validator.ValidateDeclarationAttributeArguments(declaredInterface)
+    assert AttrHasCode(interfaceHarness.Errors, ErrorCode.MethodImplTargetInvalid)
+
+    enumHarness := AttributeHarnessNew()
+    declaredEnum := new EnumDeclaration("Colors", new List<EnumMember>(), EnumType.Int, Modifiers.None, AttrNodes(AttrMethodImplWith(AttrMethodImplOption("NoInlining"))), 5, 1)
+    enumHarness.Validator.ValidateDeclarationAttributeArguments(declaredEnum)
+    assert AttrHasCode(enumHarness.Errors, ErrorCode.MethodImplTargetInvalid)
+
+    parameterHarness := AttributeHarnessNew()
+    parameterHarness.Validator.ValidateParameterAttributeArguments(AttrParameterWith(AttrMethodImplWith(AttrMethodImplOption("NoInlining"))))
+    assert AttrHasCode(parameterHarness.Errors, ErrorCode.MethodImplTargetInvalid)
+}
+
+test "a bit no MethodImplOptions member defines is refused, and a defined one is not" {
+    undefinedHarness := AttributeHarnessNew()
+    undefined := AttrMethodImplFunction(AttrMethodImplWith(AttrInt("1024")), AttrEmptyBody())
+    undefinedHarness.Validator.ValidateDeclarationAttributeArguments(undefined)
+    assert AttrHasCode(undefinedHarness.Errors, ErrorCode.MethodImplOptionUndefined)
+
+    definedHarness := AttributeHarnessNew()
+    defined := AttrMethodImplFunction(AttrMethodImplWith(AttrInt("256")), AttrEmptyBody())
+    definedHarness.Validator.ValidateDeclarationAttributeArguments(defined)
+    assert !AttrHasCode(definedHarness.Errors, ErrorCode.MethodImplOptionUndefined)
+}
+
+test "InternalCall on a member that HAS a body is refused, and on a bodyless one it is not" {
+    withBody := AttributeHarnessNew()
+    declaredWithBody := AttrMethodImplFunction(AttrMethodImplWith(AttrMethodImplOption("InternalCall")), AttrEmptyBody())
+    withBody.Validator.ValidateDeclarationAttributeArguments(declaredWithBody)
+    assert AttrHasCode(withBody.Errors, ErrorCode.MethodImplOptionRefusedByClr)
+
+    bodyless := AttributeHarnessNew()
+    declaredBodyless := AttrMethodImplFunction(AttrMethodImplWith(AttrMethodImplOption("InternalCall")), null)
+    bodyless.Validator.ValidateDeclarationAttributeArguments(declaredBodyless)
+    assert !AttrHasCode(bodyless.Errors, ErrorCode.MethodImplOptionRefusedByClr)
+}
+
+test "Synchronized is refused on a STRUCT's member and accepted on a class's" {
+    // The rule is asked from the TYPE's declaration, over its members, because a member measured on
+    // its own does not know what kind of type encloses it.
+    members := new List<Declaration>()
+    members.Add(AttrMethodImplFunction(AttrMethodImplWith(AttrMethodImplOption("Synchronized")), AttrEmptyBody()))
+    structHarness := AttributeHarnessNew()
+    declaredStruct := new StructDeclaration("Counter", null, new List<TypeReference>(), members, null, Modifiers.None, new List<AttributeNode>(), 5, 1)
+    structHarness.Validator.ValidateDeclarationAttributeArguments(declaredStruct)
+    assert AttrHasCode(structHarness.Errors, ErrorCode.MethodImplOptionRefusedByClr)
+
+    classMembers := new List<Declaration>()
+    classMembers.Add(AttrMethodImplFunction(AttrMethodImplWith(AttrMethodImplOption("Synchronized")), AttrEmptyBody()))
+    classHarness := AttributeHarnessNew()
+    declaredClass := new ClassDeclaration("Counter", null, null, new List<TypeReference>(), classMembers, null, Modifiers.None, new List<AttributeNode>(), 5, 1)
+    classHarness.Validator.ValidateDeclarationAttributeArguments(declaredClass)
+    assert !AttrHasCode(classHarness.Errors, ErrorCode.MethodImplOptionRefusedByClr)
+}
+
+test "an ORDINARY attribute in any of those positions is not touched by the MethodImpl rule" {
+    harness := AttributeHarnessNew()
+    declared := new FieldDeclaration("amount", AttrSimple("int"), null, Modifiers.None, PropertyModifier.None, AttrNodes(AttrNode("System.Obsolete", AttrArgs())), 5, 1)
+
+    harness.Validator.ValidateDeclarationAttributeArguments(declared)
+
+    assert !AttrHasCode(harness.Errors, ErrorCode.MethodImplTargetInvalid)
+}

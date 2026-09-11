@@ -164,7 +164,7 @@ test "NO descriptor stores a docs URL, so the deleted stored-URL arm cannot come
 
 test "EVERY code is distinct, and the catalog is exactly its two builders" {
     codes := DctCodes()
-    assert codes.Count == 82
+    assert codes.Count == 85
 
     duplicates := 0
     outer := 0
@@ -184,7 +184,7 @@ test "EVERY code is distinct, and the catalog is exactly its two builders" {
     assert duplicates == 0
 
     // The builders, counted where they are OBSERVABLE: the linter rows are the ones sourced to the
-    // linter, the rest are the compiler's. 72 + 10 = 82, so nothing is uncounted or double-counted.
+    // linter, the rest are the compiler's. 75 + 10 = 85, so nothing is uncounted or double-counted.
     //
     // The performance and AOT categories are asserted at ZERO, not omitted. A row in either one is
     // a row for a rule this compiler does not produce - that is exactly how NL950-954 and NL960-963
@@ -196,7 +196,7 @@ test "EVERY code is distinct, and the catalog is exactly its two builders" {
     assert linterRows == 10
     assert performanceRows == 0
     assert aotRows == 0
-    assert compilerRows == 72
+    assert compilerRows == 75
     assert compilerRows + linterRows == codes.Count
 }
 
