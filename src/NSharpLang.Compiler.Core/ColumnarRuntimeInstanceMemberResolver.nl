@@ -106,7 +106,39 @@ class ColumnarRuntimeInstanceMemberResolver {
             return true
         }
 
-        return IsOrdinaryExternalReferenceReceiver(receiverType)
+        return IsOrdinaryExternalReferenceReceiver(receiverType) || IsOrdinaryExternalValueReceiver(receiverType)
+    }
+
+    // AN ORDINARY EXTERNAL VALUE RECEIVER — the struct counterpart of the reference arm below, and
+    // the same generalisation for the same reason. The named value-type rows above recorded which
+    // struct had been needed first, not a rule: `Result<TOk, TErr>` and `KeyValuePair<TKey, TValue>`
+    // are listed and the runtime's `Union<T0, T1>` beside them is not, so `u.Index` declined while
+    // `r.IsOk` resolved, and no property of any other referenced struct could be read at all.
+    //
+    // WHAT STILL SEPARATES A STRUCT FROM A CLASS IS KEPT. A BY-REF-LIKE struct cannot be held in
+    // every slot a read needs, and the `Span`-shaped rows above own that decision; an ENUM's members
+    // are the enum arm's; and anything builder-bound or still open is source rather than external.
+    // Everything a read actually depends on is decided elsewhere and unchanged: the selection records
+    // `receiverIsReference` false so the receiver is addressed rather than loaded, only PUBLIC
+    // GETTERS are resolved so no mutation through `this` is reachable, and what a property may RETURN
+    // is still the admitted-value-type fence's answer.
+    static func IsOrdinaryExternalValueReceiver(receiverType: Type): bool {
+        if receiverType == null {
+            return false
+        }
+
+        // THE BUILDER SCREEN RUNS FIRST, and the order is load-bearing rather than tidy: a
+        // `TypeBuilderInstantiation` throws `NotSupportedException` out of `IsEnum`, so a question
+        // about a type still being emitted has to be refused before any such property is read.
+        if ContainsOpenGenericParameters(receiverType) || ContainsBuilderBoundType(receiverType) || IsSourceBuilderShape(receiverType) {
+            return false
+        }
+
+        if !receiverType.get_IsValueType() || receiverType.get_HasElementType() || receiverType.get_IsPointer() || receiverType.get_IsEnum() {
+            return false
+        }
+
+        return !IsByRefLike(receiverType)
     }
 
     // AN ORDINARY EXTERNAL REFERENCE RECEIVER — any class or interface that came from referenced
@@ -386,7 +418,7 @@ class ColumnarRuntimeInstanceMemberResolver {
         // an `IList<T>` are ordinary readable instance properties; refusing them while accepting
         // `m.get_Name()` — the accessor spelling for the very same getter — was a gap in which
         // receivers had been listed, not a rule.
-        if IsOrdinaryExternalReferenceReceiver(receiverType) {
+        if IsOrdinaryExternalReferenceReceiver(receiverType) || IsOrdinaryExternalValueReceiver(receiverType) {
             return TrySelectAdmittedProperty(receiverType, receiverType, member, out selection)
         }
 
