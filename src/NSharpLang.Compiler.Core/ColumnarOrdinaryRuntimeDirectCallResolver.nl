@@ -542,7 +542,7 @@ class ColumnarOrdinaryRuntimeDirectCallResolver {
 
         index := 0
         while index < parameterTypes.Length {
-            if IsUnsupportedSignatureType(parameterTypes[index], closedArguments) {
+            if IsUnsupportedParameterType(parameterTypes[index], closedArguments) {
                 return true
             }
 
@@ -550,6 +550,19 @@ class ColumnarOrdinaryRuntimeDirectCallResolver {
         }
 
         return false
+    }
+
+    // A PARAMETER may be `ref`/`out`; a RETURN type may not. The two questions were one predicate, and
+    // that made every by-ref overload invisible to ordinary resolution — `Interlocked.Exchange`,
+    // `int.TryParse`, every `TryGet`. What a by-ref parameter still may not be is a by-ref of something
+    // unsupported, so the element is asked the ordinary question.
+    static func IsUnsupportedParameterType(parameterType: Type, closedArguments: Type[]): bool {
+        if !parameterType.get_IsByRef() {
+            return IsUnsupportedSignatureType(parameterType, closedArguments)
+        }
+
+        elementType := parameterType.GetElementType()
+        return elementType == null || elementType.get_IsByRef() || IsUnsupportedSignatureType(elementType, closedArguments)
     }
 
     static func IsUnsupportedSignatureType(signatureType: Type, closedArguments: Type[]): bool {

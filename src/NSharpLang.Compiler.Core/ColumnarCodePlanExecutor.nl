@@ -1174,7 +1174,7 @@ class ColumnarCodePlanExecutor {
             declaredParameters := plan.MethodParameterTypes[methodIndex]
             declaredIndex := 0
             while declaredIndex < declaredParameters.Length {
-                ValidateStorableType(declaredParameters[declaredIndex], "method argument", schemaName)
+                ValidateParameterType(declaredParameters[declaredIndex], schemaName)
                 declaredIndex += 1
             }
             ValidateDeclaredMethodSignatureIfAvailable(plan, methodIndex, method, schemaName)
@@ -1190,7 +1190,7 @@ class ColumnarCodePlanExecutor {
         i := 0
         while i < parameters.Length {
             parameterType := ResolveMemberSignatureType(parameters[i].get_ParameterType(), declaringArguments, genericArguments, schemaName)
-            ValidateStorableType(parameterType, "method argument", schemaName)
+            ValidateParameterType(parameterType, schemaName)
             i += 1
         }
     }
@@ -1319,6 +1319,22 @@ class ColumnarCodePlanExecutor {
         }
         ValidateStorableType(declaringType, "field receiver", schemaName)
         ValidateStorableType(field.get_FieldType(), "field result", schemaName)
+    }
+
+    // A PARAMETER may be `ref`/`out` — it names the caller's storage rather than a value — and what it
+    // may be a reference TO is exactly what any other slot may hold. Every other role stays storable.
+    static func ValidateParameterType(parameterType: Type, schemaName: string) {
+        if !parameterType.get_IsByRef() {
+            ValidateStorableType(parameterType, "method argument", schemaName)
+            return
+        }
+
+        elementType := parameterType.GetElementType()
+        if elementType == null || elementType.get_IsByRef() {
+            throw new InvalidOperationException(schemaName + " by-reference method arguments must reference a storable type.")
+        }
+
+        ValidateStorableType(elementType, "method argument", schemaName)
     }
 
     static func ValidateStorableType(valueType: Type, role: string, schemaName: string) {
@@ -2013,9 +2029,7 @@ class ColumnarCodePlanExecutor {
             while parameterIndex >= 0 {
                 value := state.Pop()
                 parameterType := parameters[parameterIndex]
-                if value.IsAddress || !IsStackCompatible(parameterType, value.ValueType, value.ValueKind, value.LiteralKnown, value.LiteralValue) {
-                    throw new InvalidOperationException(schemaName + " call argument " + parameterIndex.ToString() + " for '" + method.get_Name() + "' does not match its exact parameter type (expected '" + parameterType.ToString() + "', found '" + value.ValueType.ToString() + "', stack kind " + value.ValueKind.ToString() + ").")
-                }
+                ValidateCallArgument(parameterType, value, parameterIndex, method.get_Name(), schemaName)
                 parameterIndex -= 1
             }
 
@@ -2037,9 +2051,7 @@ class ColumnarCodePlanExecutor {
         while parameterIndex >= 0 {
             value := state.Pop()
             parameterType := ResolveMemberSignatureType(parameters[parameterIndex].get_ParameterType(), declaringArguments, genericArguments, schemaName)
-            if value.IsAddress || !IsStackCompatible(parameterType, value.ValueType, value.ValueKind, value.LiteralKnown, value.LiteralValue) {
-                throw new InvalidOperationException(schemaName + " call argument " + parameterIndex.ToString() + " for '" + method.get_Name() + "' does not match its exact parameter type (expected '" + parameterType.ToString() + "', found '" + value.ValueType.ToString() + "', stack kind " + value.ValueKind.ToString() + ").")
-            }
+            ValidateCallArgument(parameterType, value, parameterIndex, method.get_Name(), schemaName)
             parameterIndex -= 1
         }
 
@@ -2050,6 +2062,31 @@ class ColumnarCodePlanExecutor {
         }
         returnType := ResolveMemberSignatureType(signatureMethod.get_ReturnType(), declaringArguments, genericArguments, schemaName)
         ApplyMethodReturn(plan, operationIndex, returnType, isStatic, method.get_Name(), parameters.Length, method.get_IsSpecialName(), receiver, state, schemaName)
+    }
+
+    // ONE ARGUMENT AGAINST ONE PARAMETER, and the by-ref case is the reason this is its own owner.
+    //
+    // An ordinary parameter takes a VALUE and an address is a category error there; a `ref`/`out`
+    // parameter is the exact mirror — it takes a MANAGED ADDRESS of the parameter's element type and
+    // nothing else. Both arms are exact: neither admits a conversion, because a by-ref argument
+    // aliases the caller's storage and a conversion would alias a temporary instead.
+    static func ValidateCallArgument(parameterType: Type, value: ColumnarCodePlanStackNode, parameterIndex: int, methodName: string, schemaName: string) {
+        if parameterType.get_IsByRef() {
+            elementType := parameterType.GetElementType()
+            if elementType == null {
+                throw new InvalidOperationException(schemaName + " by-reference parameter " + parameterIndex.ToString() + " for '" + methodName + "' has no element type.")
+            }
+
+            if !value.IsAddress || value.ValueKind != ColumnarCodePlanStackValueKind.Exact() || !ExactTypeShapeMatches(elementType, value.ValueType) {
+                throw new InvalidOperationException(schemaName + " call argument " + parameterIndex.ToString() + " for '" + methodName + "' requires an exact managed address of '" + elementType.ToString() + "' (found '" + value.ValueType.ToString() + "', address " + value.IsAddress.ToString() + ", stack kind " + value.ValueKind.ToString() + ").")
+            }
+
+            return
+        }
+
+        if value.IsAddress || !IsStackCompatible(parameterType, value.ValueType, value.ValueKind, value.LiteralKnown, value.LiteralValue) {
+            throw new InvalidOperationException(schemaName + " call argument " + parameterIndex.ToString() + " for '" + methodName + "' does not match its exact parameter type (expected '" + parameterType.ToString() + "', found '" + value.ValueType.ToString() + "', stack kind " + value.ValueKind.ToString() + ").")
+        }
     }
 
     static func ApplyMethodReturn(plan: ColumnarCodePlan, operationIndex: int, returnType: Type, isStatic: bool, methodName: string, parameterCount: int, isSpecialName: bool, receiver: ColumnarCodePlanStackNode?, state: ColumnarCodePlanStackState, schemaName: string) {
@@ -2124,6 +2161,19 @@ class ColumnarCodePlanExecutor {
                 i += 1
             }
             return definition.MakeGenericType(resolvedArguments)
+        }
+        if signatureType.get_IsByRef() {
+
+            // `ref T` / `out T`. Substituting THROUGH the reference is the whole point — a generic
+            // method closed over `T` has `T&` in its raw signature, and the closed shape is a reference
+            // to the substituted element. Without this arm the raw `T&` reached the compound refusal
+            // below and every closed by-ref signature was rejected.
+            byRefElement := signatureType.GetElementType()
+            if byRefElement == null {
+                throw new InvalidOperationException(schemaName + " by-reference method signature has no element type.")
+            }
+
+            return ResolveMemberSignatureType(byRefElement, declaringArguments, methodArguments, schemaName).MakeByRefType()
         }
         if signatureType.get_HasElementType() {
             compoundElement := signatureType.GetElementType()

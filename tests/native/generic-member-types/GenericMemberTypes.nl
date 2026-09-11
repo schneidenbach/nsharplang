@@ -248,3 +248,84 @@ class Counter {
         return "count"
     }
 }
+
+// A `ref`/`out` ARGUMENT THAT NAMES A FIELD, AND THE GENERIC STATIC THAT NEEDS ONE.
+//
+// A by-ref argument passes the CALLER'S STORAGE rather than a value, and the storage a name can be
+// was only ever a local or a parameter: `Fill(ref count)` on a FIELD declined at
+// `emit.expression-statement.call`, `int.TryParse(text, out field)` at
+// `emit.call.static-member-unmodeled`, and `Interlocked.Exchange` at the same place for EVERY
+// receiver type — the semantic call planner typed no by-ref argument at all, so no by-ref call ever
+// reached overload resolution.
+//
+// `Interlocked.Exchange<T>(ref T, T)` is the shape that needs all of it at once: a generic static
+// whose `T` is inferred from the by-ref argument, called with a `null` that must convert to the
+// inferred `T` rather than contradict it — and, in `Claim<T>`, with `T` bound to a delegate closed
+// over the declaring type's own parameter.
+class ByRefStorage {
+    count: int
+    text: string?
+
+    constructor(count: int) {
+        this.count = count
+        this.text = null
+    }
+
+    Count: int => count
+
+    Text: string? => text
+
+    static func Fill(ref target: int, value: int) {
+        target = value
+    }
+
+    // A user method with a `ref` parameter, given a FIELD.
+    func FillFromField(value: int) {
+        Fill(ref count, value)
+    }
+
+    // The same, given a LOCAL, so the pre-existing path is proved unchanged beside the new one.
+    static func FillLocal(value: int): int {
+        local := 0
+        Fill(ref local, value)
+        return local
+    }
+
+    // An external static with an `out` parameter, given a field.
+    func ParseIntoField(input: string): bool {
+        return int.TryParse(input, out count)
+    }
+
+    // The non-generic `Interlocked` overloads, on a field.
+    func Bump(): int {
+        return Interlocked.Increment(ref count)
+    }
+
+    func Claim(): int {
+        return Interlocked.Exchange(ref count, 0)
+    }
+
+    // The GENERIC `Exchange<T>`, closed over a reference type by inference, with a `null` value.
+    func ClaimText(): string? {
+        return Interlocked.Exchange(ref text, null)
+    }
+}
+
+// The same claim over a delegate closed over the declaring type's OWN type parameter — the runtime's
+// event-subscription shape, reduced to the one call.
+class Claim<T> {
+    remove: Action<T>?
+    readonly item: T
+
+    constructor(remove: Action<T>?, item: T) {
+        this.remove = remove
+        this.item = item
+    }
+
+    HasRemove: bool => remove != null
+
+    func Detach() {
+        current := Interlocked.Exchange(ref remove, null)
+        current?.Invoke(item)
+    }
+}

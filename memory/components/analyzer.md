@@ -1392,24 +1392,47 @@ columnar call path:
    mis-compiled: the read form `a?.B`, a non-conditional link after a conditional one (`a?.M().B`),
    `?[`, and a value-type receiver.
 
-**A `ref`/`out` ARGUMENT MAY NAME A FIELD.** `ColumnarIlEmitter.EmitAddressOfByRefTarget` and
-`TryGetAddressableTargetType` reached locals, parameters and dotted member chains but not a BARE field
-name — which is also how `this.count` arrives, since the parser flattens the explicit receiver onto the
-same leaf. `TryFindBareByRefField` answers it and the address is `ldarg.0; ldflda`, under the same gate
-the bare field WRITE carries (a reference receiver, or a constructor body): a value-type receiver
-reaches an instance body through a temp copy, so an address into its field would be an address into the
-copy. A STATIC field is deliberately NOT answered: its address is `ldsflda`, and the pinned stage-0 SDK
-that builds Compiler.Core does not model `OpCodes.Ldsflda` (`ColumnarExternalBindingPlans.tests.nl`
-pins the absence), so the instruction cannot be written until the SDK is repacked.
+**A `ref`/`out` ARGUMENT IS A CALL FACT, AND IT MAY NAME A FIELD.** The semantic call planner typed NO
+by-ref argument at all, so no by-ref call ever reached overload resolution:
+`Interlocked.Exchange` declined at `emit.call.static-member-unmodeled` for every receiver type
+(`Interlocked.Increment` only worked because it is a MODELED entry in `ColumnarIlEmitter`),
+`int.TryParse(text, out field)` at the same place, and `Fill(ref count)` on a field at
+`emit.expression-statement.call`. Seven owners together:
 
-STILL OPEN: `Interlocked.Exchange(ref x, v)` declines at `emit.call.static-member-unmodeled` for every
-receiver type. `Interlocked.Increment` only works because it is a MODELED entry in `ColumnarIlEmitter`;
-the semantic call planner types NO by-ref argument at all (`TryGetArgumentTypes` has no arm for the
-kind-54 `ref`/`out` node), so no by-ref call reaches ordinary or generic overload resolution. Closing it
-means by-ref argument facts on `ColumnarDirectCallArgumentFacts`, address appending in
-`AppendArguments`, by-ref scoring in `ArgumentsScoreWithFacts`, a by-ref arm in
-`ColumnarRuntimeGenericMethodResolver` (infer `T` from the byref argument, convert `null` to it), and
-plan-executor validation of an address for a by-ref parameter.
+- `ColumnarDirectCallArgumentFacts.IsByRefArgument` — a SYNTAX fact beside the literal ones, because
+  `f(x)` and `f(ref x)` are different calls at the same argument type. The recorded `argumentTypes`
+  entry stays the ELEMENT type, which is what a parameter's element type is compared against.
+- `ColumnarDirectCallPlanner.TryGetArgumentTypes` / `ByRefArgumentTarget` — the kind-54 modifier node
+  (`ref`/`out` only; `in` has its own resolution rules and is NOT admitted through this door).
+- `ColumnarSourceDirectCallResolver.ArgumentsScoreWithFacts` — the two spellings must agree in BOTH
+  directions and the element type is EXACT (an alias to a converted temporary would alias something
+  the caller cannot see).
+- `ColumnarBoundIdentifierPlanner.TryAppendAddressOf` — `ldloca` / `ldarga` (or `ldarg` for a
+  parameter that is itself by-ref) / `ldarg.0; ldflda`. It is NOT
+  `TryAppendReceiver(preserveValueStorage: true)`: that owner addresses only VALUE types, and a
+  `ref Action<T>` needs an address exactly as a `ref int` does.
+- `ColumnarOrdinaryRuntimeDirectCallResolver.IsUnsupportedParameterType` — a PARAMETER may be by-ref;
+  a RETURN may not. The two questions were one predicate, which made every by-ref overload invisible.
+- `ColumnarRuntimeGenericMethodResolver` — `Unify` already walked through a by-ref shell; what was
+  missing is that a `null` LITERAL contributes NOTHING to inference (ECMA-334 §12.6.3), the closed
+  signature's return comes from the same substitution the parameters do (a wrapper closed over a
+  builder-bound argument can report the raw `T`), and a shape closed over the declaration's own type
+  parameters is bindable (`CloseOrNull` is the arbiter).
+- `ColumnarCodePlanExecutor` — `ValidateCallArgument` requires an exact managed address for a by-ref
+  parameter and refuses one everywhere else; `ValidateParameterType` admits a by-ref slot;
+  `ResolveMemberSignatureType` substitutes THROUGH `T&` instead of hitting the compound refusal.
+
+A STATIC field is deliberately NOT addressable: its address is `ldsflda`, and the pinned stage-0 SDK
+that builds Compiler.Core does not model `OpCodes.Ldsflda` (`ColumnarExternalBindingPlans.tests.nl`
+pins the absence), so the instruction cannot be written until the SDK is repacked. A composed target
+(an array element, a nested member chain) is refused rather than approximated.
+
+**`x == null` ON A GENERIC PARAMETER WAS UNVERIFIABLE IL.** `ldnull; ceq` against a `T` is
+`StackUnexpected` to ilverify ("found Nullobjref, expected value 'T'"), which the tests never saw
+because the JIT accepts it. The value is now BOXED first, exactly as C# boxes an unconstrained
+`T == null`; `box` on a type that turns out to be a reference type at runtime is a no-op per
+ECMA-335, so the constrained case costs nothing. Found by running `scripts/ilverify.sh
+--built-dirs-file` over `tests/native/type-arity`, which the gate's own project list does not cover.
 
 Keep ownership-policy tests beside the N# owner. C# tests should exercise only the remaining
 diagnostic/integration shell, not recreate semantic lookup or identity policy in test helpers.

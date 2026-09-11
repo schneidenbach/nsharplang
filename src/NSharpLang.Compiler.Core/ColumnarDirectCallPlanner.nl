@@ -1601,6 +1601,27 @@ class ColumnarDirectCallPlanner {
         index := 0
         while index < parameterTypes.Length {
             argumentNode := nodes.Child(callNode, index + 1)
+
+            // A `ref`/`out` ARGUMENT PASSES STORAGE, NOT A VALUE. The written `ref x` is a modifier
+            // node over the name, and what goes on the stack is the name's managed address, so this
+            // arm bypasses the value walk entirely — there is no conversion to apply and no temporary
+            // to make, because either would alias something the caller cannot see.
+            if argumentFacts.IsByRefArgument[index] {
+                byRefTarget := ByRefArgumentTarget(nodes, source, argumentNode)
+                byRefElement := typeof(int)
+                if byRefTarget < 0 || !parameterTypes[index].get_IsByRef() || !ColumnarBoundIdentifierPlanner.TryAppendAddressOf(nodes, source, byRefTarget, bindings, plan, out byRefElement) {
+                    return false
+                }
+
+                expectedElement := parameterTypes[index].GetElementType()
+                if expectedElement == null || !ColumnarSourceDirectCallResolver.ExactTypeShapeMatches(expectedElement, byRefElement) {
+                    return false
+                }
+
+                index += 1
+                continue
+            }
+
             if argumentFacts.IsNullLiteral[index] {
                 candidate := UnwrapParentheses(nodes, argumentNode)
                 if candidate < 0 || !ColumnarNullableArgumentLowering.TryAppendNullArgument(plan, parentFragment, nodes.Kind(candidate), candidate, parameterTypes[index]) {
@@ -1788,6 +1809,19 @@ class ColumnarDirectCallPlanner {
                 continue
             }
 
+            byRefTarget := ByRefArgumentTarget(nodes, source, argumentNode)
+            if byRefTarget >= 0 {
+                byRefStorageType := typeof(int)
+                if !ColumnarBoundIdentifierPlanner.TryGetBoundType(nodes, source, byRefTarget, bindings, out byRefStorageType) || IsVoidType(byRefStorageType) {
+                    return false
+                }
+
+                argumentTypes[index] = byRefStorageType
+                argumentFacts.IsByRefArgument[index] = true
+                index += 1
+                continue
+            }
+
             argumentType := typeof(int)
             if !TryGetPlannableValueType(nodes, source, argumentNode, bindings, handles, depth + 1, allowPrimitiveBinary, out argumentType, out nestedOwnership) || IsVoidType(argumentType) {
                 return false
@@ -1806,6 +1840,25 @@ class ColumnarDirectCallPlanner {
         }
 
         return true
+    }
+
+    // THE NAME UNDER A `ref x` / `out x` ARGUMENT, or -1 when the argument is not one.
+    //
+    // Kind 54 is the argument-modifier node: the keyword lives in its value span and it has exactly
+    // one child, the storage being passed. `in` is NOT answered here — it is a read-only reference
+    // with its own overload-resolution rules, and admitting it through the `ref`/`out` door would bind
+    // the wrong overload.
+    static func ByRefArgumentTarget(nodes: ColumnarNodeTable, source: string, argumentNode: int): int {
+        if argumentNode < 0 || argumentNode >= nodes.Kinds.Length || nodes.Kind(argumentNode) != 54 || nodes.ChildCount(argumentNode) != 1 {
+            return -1
+        }
+
+        modifier := nodes.Text(source, argumentNode)
+        if modifier != "ref" && modifier != "out" {
+            return -1
+        }
+
+        return nodes.Child(argumentNode, 0)
     }
 
     static func TryGetTargetTypedIntegerArgumentValue(nodes: ColumnarNodeTable, source: string, node: int, out value: long, out isNegative: bool): bool {

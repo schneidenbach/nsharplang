@@ -809,6 +809,49 @@ chain — `a?.M().B` and `a?.B[0]` are refused rather than compiled, because a l
 `?.` must be skipped along with it and that lowering is not in place. Write the guard by hand for
 those.
 
+### Passing storage with `ref` and `out`
+
+A `ref` or `out` argument passes the **caller's storage** rather than a value, so a write inside the
+callee lands where the caller can see it. The storage may be a local, a parameter, or a **field** —
+including one reached through `this.`:
+
+```n#
+import System.Threading
+
+class Counter {
+    count: int
+    text: string?
+
+    static func Fill(ref target: int, value: int) {
+        target = value
+    }
+
+    func Reset(value: int) {
+        Fill(ref count, value)               // a field's address
+    }
+
+    func Parse(input: string): bool {
+        return int.TryParse(input, out count)
+    }
+
+    func Claim(): string? {
+        return Interlocked.Exchange(ref text, null)
+    }
+}
+```
+
+The spelling is part of the call: `f(x)` and `f(ref x)` are different calls even when `x` has the
+same type, and only the second binds a `ref` parameter. The element type is **exact** — a by-ref
+argument aliases your storage, so `ref int` does not feed a `ref long` the way an ordinary `int` feeds
+a `long` parameter.
+
+A generic method infers its type argument from the by-ref position like any other:
+`Interlocked.Exchange(ref remove, null)` binds `T` to the field's own type, and the `null` — which
+carries no type of its own — converts to it.
+
+**Not yet supported:** a `ref` argument that names a `static` field, or a composed target such as an
+array element or a nested member chain. Copy to a local, pass `ref` to that, and write it back.
+
 ### Static members of a constructed generic type
 
 Write the closed type and then the member: `Vector<int>.Count`, `EqualityComparer<string>.Default`.

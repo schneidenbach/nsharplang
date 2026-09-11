@@ -320,3 +320,60 @@ test "a value-typed null-conditional result is lifted to its nullable form" {
     lifted := DeclaredStaticMethodReturnType(typeof(Conditional<int>), "CountOrNull")
     assert lifted == typeof(Nullable<int>)
 }
+
+// ---- by-ref arguments ------------------------------------------------------------------------
+
+test "a ref argument may name a field, and the local form is unchanged" {
+    storage := new ByRefStorage(1)
+    storage.FillFromField(9)
+    assert storage.Count == 9
+
+    assert ByRefStorage.FillLocal(4) == 4
+}
+
+test "an out argument may name a field" {
+    storage := new ByRefStorage(1)
+    assert storage.ParseIntoField("42")
+    assert storage.Count == 42
+
+    assert !storage.ParseIntoField("not-a-number")
+    assert storage.Count == 0
+}
+
+test "the non-generic Interlocked overloads take a field's address" {
+    storage := new ByRefStorage(5)
+    assert storage.Bump() == 6
+    assert storage.Count == 6
+
+    assert storage.Claim() == 6
+    assert storage.Count == 0
+}
+
+// `Exchange<T>` is a GENERIC static: `T` is inferred from the by-ref argument, and the `null` value
+// converts to it instead of contradicting it.
+test "the generic Interlocked.Exchange claims a reference field exactly once" {
+    storage := new ByRefStorage(0)
+    assert storage.ParseIntoField("7")
+    assert storage.ClaimText() == null
+    assert storage.Text == null
+}
+
+// THE ACCEPTANCE SHAPE, reduced: `T` binds to a delegate closed over the declaring type's own
+// parameter, and the claim leaves nothing for a second caller.
+test "a claim over a delegate field detaches exactly once" {
+    seen := new List<int>()
+    remove: Action<int> = value => {
+        seen.Add(value)
+    }
+    claim := new Claim<int>(remove, 3)
+    assert claim.HasRemove
+
+    claim.Detach()
+    assert !claim.HasRemove
+    assert seen.Count == 1
+    assert seen[0] == 3
+
+    claim.Detach()
+    claim.Detach()
+    assert seen.Count == 1
+}

@@ -8258,6 +8258,14 @@ sealed class ColumnarIlEmitter {
                 if (nullCmpType.get_IsValueType()) {
                     return false
                 }
+                // A GENERIC PARAMETER IS BOXED FIRST. `T` and `null` are not the same verification
+                // type — ilverify reads `ldnull; ceq` against a `T` as StackUnexpected — so the value
+                // is boxed to `object` exactly as C# boxes an unconstrained `T == null`. `box` on a
+                // type that turns out to be a reference type at runtime is a no-op per ECMA-335, so
+                // the constrained case costs nothing and the unconstrained case is correct.
+                if (nullCmpType.get_IsGenericParameter()) {
+                    _il.Emit(OpCodes.Box, nullCmpType)
+                }
                 // plain value types never compare to null (the pipeline rejects).
                 _il.Emit(OpCodes.Ldnull)
                 _il.Emit(OpCodes.Ceq)
@@ -12009,7 +12017,7 @@ sealed class ColumnarIlEmitter {
         if (!EmitExpression(Child(callee, 0), out receiverType)) {
             return false
         }
-        if (receiverType == null || receiverType.get_IsValueType() || receiverType.get_IsByRef() || receiverType.get_IsPointer()) {
+        if (receiverType == null || receiverType.get_IsValueType() || receiverType.get_IsByRef() || receiverType.get_IsPointer() || receiverType.get_IsGenericParameter()) {
             return false
         }
 

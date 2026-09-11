@@ -2,6 +2,7 @@ namespace NSharpLang.TypeArity.Tests
 
 import System
 import System.Collections.Generic
+import System.Threading
 
 
 // THE ACCEPTANCE CONSUMER: `src/NSharpLang.Runtime/NSharpEventSubscription.cs`, WRITTEN IN N#.
@@ -19,37 +20,26 @@ import System.Collections.Generic
 // IT IS A TEST SOURCE, NOT A REPLACEMENT. `src/NSharpLang.Runtime/*.cs` has its own owner and is not
 // touched; this is the same design under the same public names in a test namespace.
 //
-// ONE THING DIFFERS FROM THE C#, AND IT IS NOT ARITY-RELATED — it reproduces on the pre-existing
-// compiler and on this one alike:
-//
-//   The once-only claim is a READ-THEN-NULL rather than `Interlocked.Exchange(ref remove, null)`.
-//   A `ref` argument that names a FIELD now takes an address (`ldflda`), so `Fill(ref count)` and
-//   `int.TryParse(text, out field)` both compile; what is still missing is `Interlocked.Exchange`
-//   itself, which is a GENERIC static (`Exchange<T>(ref T, T)`) whose `ref T` parameter has to be
-//   inferred from a by-ref argument — the semantic call planner types no by-ref argument at all yet,
-//   so the call declines at `emit.call.static-member-unmodeled`. The OBSERVABLE contract the C#
-//   documents — "safe to call more than once; subsequent calls are no-ops" — is preserved and is
-//   asserted below; the ATOMICITY under concurrent callers is not.
-//
-// Everything else is the original: the two names, the abstract base and its abstract member, the
-// sealed generic subclass, its `where THandler: Delegate` constraint, its `Action<THandler>?` remove
-// field and `readonly THandler` handler field, the constructor's null checks with the parameter names
-// the C# passes to `nameof`, the `override`, and the null-conditional detach.
+// NOTHING DIFFERS FROM THE C# ANY MORE. This is the same program: the two names, the abstract base
+// and its abstract member, the sealed generic subclass, its `where THandler: Delegate` constraint,
+// its `Action<THandler>?` remove field and `readonly THandler` handler field, the constructor's null
+// checks with the parameter names the C# passes to `nameof`, the `override`, the atomic
+// `Interlocked.Exchange(ref remove, null)` claim, and the null-conditional detach.
 
 // Handle returned by an N# `on` event subscription. Hold onto it and pass it to `off` to detach the
 // handler again. Unlike .NET's native `-=`, the handle remembers the exact delegate that was added,
 // so unsubscribing a lambda just works.
-public abstract class NSharpEventSubscription {
+abstract class NSharpEventSubscription {
 
     // Detach the handler that this subscription added. Safe to call more than once; subsequent calls
     // are no-ops.
-    public abstract func Unsubscribe()
+    abstract func Unsubscribe()
 }
 
 // Strongly-typed event subscription handle. Constructed by emitted IL for the `on` keyword: it
 // captures the event's `remove_` accessor (already bound to the event's owner) together with the
 // handler delegate that was added. `THandler` is the event's handler delegate type.
-public sealed class NSharpEventSubscription<THandler>: NSharpEventSubscription where THandler: Delegate {
+sealed class NSharpEventSubscription<THandler>: NSharpEventSubscription where THandler: Delegate {
     remove: Action<THandler>?
     readonly handler: THandler
 
@@ -68,11 +58,10 @@ public sealed class NSharpEventSubscription<THandler>: NSharpEventSubscription w
 
     Handler: THandler => handler
 
-    public override func Unsubscribe() {
-        // Claim the remove accessor so a repeated off-call detaches exactly once — the second caller
-        // sees null and does nothing.
-        current := remove
-        remove = null
+    override func Unsubscribe() {
+        // Atomically claim the remove accessor so concurrent (and repeated) off-calls detach exactly
+        // once — the loser of the race sees null and does nothing.
+        current := Interlocked.Exchange(ref remove, null)
         current?.Invoke(handler)
     }
 }

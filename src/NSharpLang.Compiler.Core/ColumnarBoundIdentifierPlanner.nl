@@ -458,6 +458,109 @@ class ColumnarBoundIdentifierPlanner {
         return true
     }
 
+    // THE MANAGED ADDRESS OF A NAME, for a `ref`/`out` argument.
+    //
+    // A by-ref argument does not pass a value — it passes the CALLER'S STORAGE, so that a write inside
+    // the callee lands where the caller can see it. The three storages a name can be are the three
+    // this answers, and each has one instruction:
+    //
+    //   a LOCAL              -> `ldloca`
+    //   a PARAMETER          -> `ldarga`, or `ldarg` when the parameter is ITSELF by-ref (it already
+    //                           holds an address, and taking the address of the slot would alias the
+    //                           wrong thing)
+    //   an INSTANCE FIELD    -> `ldarg.0; ldflda`, which is also how `this.count` arrives, since the
+    //                           parser flattens the explicit receiver onto the same leaf
+    //
+    // IT IS NOT `TryAppendReceiver(preserveValueStorage: true)`. That owner takes an address only for a
+    // VALUE type, because its question is "must this member call see the original storage"; this one's
+    // question is "what storage does this name denote", and a `ref Action<T>` needs an address exactly
+    // as a `ref int` does.
+    //
+    // A lifted or boxed capture, a static field and every composed shape (an array element, a nested
+    // member chain) are refused rather than approximated: an address into the wrong storage is a
+    // silently wrong program.
+    static func TryAppendAddressOf(nodes: ColumnarNodeTable, source: string, node: int, bindings: ColumnarFragmentBindings, plan: ColumnarCodePlan, out elementType: Type): bool {
+        elementType = typeof(int)
+        if nodes == null || source == null || bindings == null || plan == null {
+            return false
+        }
+
+        candidate := UnwrapParentheses(nodes, node)
+        if candidate < 0 || nodes.Kind(candidate) != ColumnarExpressionNodeKind.IdentifierExpression() || nodes.ChildCount(candidate) != 0 {
+            return false
+        }
+
+        name := nodes.Text(source, candidate)
+        if name.Length == 0 {
+            return false
+        }
+
+        explicitThis := ColumnarExpressionSyntaxFacts.IsExplicitThisIdentifier(nodes, source, candidate)
+        if !explicitThis {
+            if bindings.Locals.ContainsKey(name) {
+                local := bindings.Locals[name]
+                if local == null || local.get_LocalType() == null {
+                    return false
+                }
+
+                localType := local.get_LocalType()
+                RequireStorableValueType(localType, "A by-reference local must have a storable type.")
+
+                localIndex := plan.AddAmbientLocal(local)
+                plan.AppendAmbientLocalInstruction(ColumnarCodePlanContract.Ldloca(), localIndex)
+
+                elementType = localType
+                return true
+            }
+
+            if bindings.ParameterOrdinals.ContainsKey(name) && bindings.ParameterTypes.ContainsKey(name) {
+                parameterType := bindings.ParameterTypes[name]
+                if parameterType.get_IsByRef() {
+                    byRefElement := parameterType.GetElementType()
+                    if byRefElement == null {
+                        return false
+                    }
+
+                    RequireStorableValueType(byRefElement, "A by-reference parameter must have a storable element type.")
+
+                    byRefIndex := GetOrAddArgument(plan, bindings.ParameterOrdinals[name], byRefElement, true)
+                    plan.AppendArgumentInstruction(ColumnarCodePlanContract.Ldarg(), byRefIndex)
+
+                    elementType = byRefElement
+                    return true
+                }
+
+                RequireStorableValueType(parameterType, "A by-reference parameter must have a storable type.")
+
+                argumentIndex := GetOrAddArgument(plan, bindings.ParameterOrdinals[name], parameterType, false)
+                plan.AppendArgumentInstruction(ColumnarCodePlanContract.Ldarga(), argumentIndex)
+
+                elementType = parameterType
+                return true
+            }
+        }
+
+        selection := EmptySelection()
+        if !TryResolveCurrentInstance(name, bindings, out selection) || selection.Kind != ColumnarBoundIdentifierKind.CurrentField {
+            return false
+        }
+
+        currentInstanceType := RequiredType(selection.CurrentInstanceType, "An addressable current-field selection has no current-instance type.")
+
+        receiverIndex := GetOrAddArgument(plan, 0, currentInstanceType, selection.CurrentInstanceIsAddress)
+        plan.AppendArgumentInstruction(ColumnarCodePlanContract.Ldarg(), receiverIndex)
+
+        field := RequiredField(selection.FirstField, "An addressable current-field selection has no exact field handle.")
+
+        declaringType := RequiredType(selection.DeclaringType, "An addressable current-field selection has no exact declaring type.")
+
+        fieldIndex := plan.AddFieldWithSignature(field, declaringType, selection.ResultType, false)
+        plan.AppendFieldInstruction(ColumnarCodePlanContract.Ldflda(), fieldIndex)
+
+        elementType = selection.ResultType
+        return true
+    }
+
     static func TryResolve(nodes: ColumnarNodeTable, source: string, node: int, bindings: ColumnarFragmentBindings, out selection: ColumnarBoundIdentifierSelection): bool {
         selection = EmptySelection()
         if nodes == null || source == null || bindings == null || node < 0 || node >= nodes.Kinds.Length || nodes.ChildCount(node) != 0 {
