@@ -1724,6 +1724,20 @@ class ColumnarBindingScopeFacts {
             runtimeType = typeof(byte)
         } else if name == "sbyte" || name == "SByte" || name == "System.SByte" {
             runtimeType = typeof(sbyte)
+        } else if name == "float" || name == "Single" || name == "System.Single" {
+            runtimeType = typeof(float)
+        } else if name == "double" || name == "Double" || name == "System.Double" {
+            runtimeType = typeof(double)
+        } else if name == "decimal" || name == "Decimal" || name == "System.Decimal" {
+            runtimeType = typeof(decimal)
+        } else if name == "bool" || name == "Boolean" || name == "System.Boolean" {
+            runtimeType = typeof(bool)
+        } else if name == "char" || name == "Char" || name == "System.Char" {
+            runtimeType = typeof(char)
+        } else if name == "string" || name == "String" || name == "System.String" {
+            runtimeType = typeof(string)
+        } else if name == "object" || name == "Object" || name == "System.Object" {
+            runtimeType = typeof(object)
         } else {
             return false
         }

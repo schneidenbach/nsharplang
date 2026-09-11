@@ -418,12 +418,96 @@ test "external static-member planner refuses a misspelled or wrongly cased enum 
     ExternalStampScope(absent, "import System.Reflection\n")
     ExternalAssertDeclines(absent, ColumnarRangePlannerEmptyBindings())
 
-    // A NON-enum owner is untouched by the rule and still needs its own row: `String` resolves, and
-    // `Empty` is a public static literal field on it, but its value type and member kind are not
-    // derivable from the owner, so the general rule must not claim it.
-    nonEnum := ExternalStaticMemberTree("String", "Empty")
-    ExternalStampScope(nonEnum, "import System\n")
-    ExternalAssertDeclines(nonEnum, ColumnarRangePlannerEmptyBindings())
+    // An owner that does not resolve stays refused whether or not it is an enum.
+    misspelledNonEnum := ExternalStaticMemberTree("Strings", "Empty")
+    ExternalStampScope(misspelledNonEnum, "import System\n")
+    ExternalAssertDeclines(misspelledNonEnum, ColumnarRangePlannerEmptyBindings())
+}
+
+// THE GENERAL ARM, WHICH USED TO BE A ROW PER MEMBER. `String.Empty` was the recorded negative here:
+// it resolves, `Empty` is a public static field on it, and the old note said its value type and member
+// kind "are not derivable from the owner". They are — the owner's metadata states both — so the rule is
+// now the general one and the negative is a positive.
+test "external static-member planner reads any resolvable external static field" {
+    emptyTree := ExternalStaticMemberTree("String", "Empty")
+    ExternalStampScope(emptyTree, "import System\n")
+    emptyPlan := ExternalPlan(emptyTree, ColumnarRangePlannerEmptyBindings())
+    assert emptyPlan.ResultType == typeof(string)
+    assert emptyPlan.FieldCount == 1
+    assert emptyPlan.MethodCount == 0
+    assert emptyPlan.OperationCount == 1
+    assert emptyPlan.OpCodeValues[0] == ColumnarCodePlanContract.Ldsfld()
+    assert emptyPlan.Fields[0].get_DeclaringType() == typeof(string)
+
+    // The keyword spelling is the same type and reaches the same field.
+    keywordTree := ExternalStaticMemberTree("string", "Empty")
+    ExternalStampScope(keywordTree, "import System\n")
+    keywordPlan := ExternalPlan(keywordTree, ColumnarRangePlannerEmptyBindings())
+    assert keywordPlan.ResultType == typeof(string)
+    assert keywordPlan.FieldCount == 1
+    assert Object.ReferenceEquals(keywordPlan.Fields[0], typeof(string).GetField("Empty"))
+
+    // `Boolean.TrueString` is a static READONLY string field, not a constant, so it reads the same way.
+    trueTextTree := ExternalStaticMemberTree("Boolean", "TrueString")
+    ExternalStampScope(trueTextTree, "import System\n")
+    trueTextPlan := ExternalPlan(trueTextTree, ColumnarRangePlannerEmptyBindings())
+    assert trueTextPlan.ResultType == typeof(string)
+    assert trueTextPlan.OpCodeValues[0] == ColumnarCodePlanContract.Ldsfld()
+    assert ExecutorRunV3ScalarPlan(trueTextPlan, typeof(string)) == "True"
+
+    // A value-typed static field is the same read.
+    guidTree := ExternalStaticMemberTree("Guid", "Empty")
+    ExternalStampScope(guidTree, "import System\n")
+    guidPlan := ExternalPlan(guidTree, ColumnarRangePlannerEmptyBindings())
+    assert guidPlan.ResultType == typeof(Guid)
+    assert guidPlan.OpCodeValues[0] == ColumnarCodePlanContract.Ldsfld()
+}
+
+// A `const` HAS NO FIELD, so the recorded constant is the program. The pinned path's literal reader
+// recomputes a non-enum constant from the member NAME on a MinValue/MaxValue assumption; this one reads
+// the value that is actually there, which is the whole reason `Math.PI` can bind at all.
+test "external static-member planner reads a constant field by its recorded value" {
+    piTree := ExternalStaticMemberTree("Math", "PI")
+    ExternalStampScope(piTree, "import System\n")
+    piPlan := ExternalPlan(piTree, ColumnarRangePlannerEmptyBindings())
+    assert piPlan.ResultType == typeof(double)
+    assert piPlan.FieldCount == 0
+    assert piPlan.OperationCount == 1
+    assert piPlan.OpCodeValues[0] == ColumnarCodePlanContract.LdcR8()
+    assert ExecutorRunV3ScalarPlan(piPlan, typeof(double)) == 3.141592653589793.ToString()
+
+    ticksTree := ExternalStaticMemberTree("TimeSpan", "TicksPerSecond")
+    ExternalStampScope(ticksTree, "import System\n")
+    ticksPlan := ExternalPlan(ticksTree, ColumnarRangePlannerEmptyBindings())
+    assert ticksPlan.ResultType == typeof(long)
+    assert ticksPlan.OpCodeValues[0] == ColumnarCodePlanContract.LdcI8()
+    assert ExecutorRunV3ScalarPlan(ticksPlan, typeof(long)) == "10000000"
+
+    textTree := ExternalStaticMemberTree("RuntimeFeature", "PortablePdb")
+    ExternalStampScope(textTree, "import System.Runtime.CompilerServices\n")
+    textPlan := ExternalPlan(textTree, ColumnarRangePlannerEmptyBindings())
+    assert textPlan.ResultType == typeof(string)
+    assert textPlan.OpCodeValues[0] == ColumnarCodePlanContract.Ldstr()
+    assert ExecutorRunV3ScalarPlan(textPlan, typeof(string)) == "PortablePdb"
+}
+
+// The rule admits STATIC members and nothing else: a type name is not a value, so an instance member
+// reached through one has no receiver and declines rather than emitting a load without one.
+test "external static-member planner refuses an instance member reached through the type name" {
+    instanceProperty := ExternalStaticMemberTree("String", "Length")
+    ExternalStampScope(instanceProperty, "import System\n")
+    ExternalAssertDeclines(instanceProperty, ColumnarRangePlannerEmptyBindings())
+
+    absentMember := ExternalStaticMemberTree("Guid", "NotAMember")
+    ExternalStampScope(absentMember, "import System\n")
+    ExternalAssertDeclines(absentMember, ColumnarRangePlannerEmptyBindings())
+
+    // A nearer lexical binding still wins over the general rule.
+    shadowed := ExternalStaticMemberTree("String", "Empty")
+    ExternalStampScope(shadowed, "import System\n")
+    shadowBindings := ExternalBindings(null, null, null, null, null)
+    ColumnarRangePlannerAddParameter(shadowBindings, "String", 0, typeof(int))
+    ExternalAssertDeclines(shadowed, shadowBindings)
 }
 
 test "external static-member planner owns closed pool properties and exact type aliases" {
