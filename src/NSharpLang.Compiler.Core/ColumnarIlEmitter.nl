@@ -2246,6 +2246,106 @@ sealed class ColumnarIlEmitter {
         return TryEmitSourceStaticGenericCall(callIdx, staticOwner, staticMethod, staticBinding, out columnarResolvedType)
     }
 
+    // AN EXPLICIT GENERIC CALL WHOSE TARGET IS DECLARED BY A REFERENCED ASSEMBLY — the external
+    // counterpart of `TryEmitExplicitGenericSourceCall` above, and it reads the callee exactly the
+    // same way, because the parser's kind-38 node keeps only the dotted NAME: a lexical value binding
+    // in front of the member names an INSTANCE receiver (`u.Is<int>()`), and anything else that
+    // resolves to a type names a STATIC owner (`ResultFactory.Ok<int, string>(42)`).
+    //
+    // THERE IS NO PER-API TABLE HERE. The member is chosen by ordinary CLR member resolution over the
+    // receiver's own type, the written type arguments close it through `MakeGenericMethod` (which is
+    // what enforces the declared constraints), and every argument is then emitted against the
+    // SUBSTITUTED parameter type — so a lambda argument binds to the closed delegate it is passed to
+    // and an `out` argument goes through the by-ref path, with no shape knowing which API it serves.
+    private func TryEmitExplicitGenericExternalCall(callIdx: int, callee: int, calleeName: string, out columnarResolvedType: Type): bool {
+        columnarResolvedType = null
+        typeArgCount := _nodes.ChildCount(callee)
+        if (typeArgCount <= 0) {
+            return false
+        }
+        separator := calleeName.LastIndexOf(".", StringComparison.Ordinal)
+        if (separator <= 0 || separator == calleeName.Length - 1) {
+            return false
+        }
+        receiverText := calleeName.Substring(0, separator)
+        memberName := calleeName.Substring(separator + 1)
+        argCount := _nodes.ChildCount(callIdx) - 1
+        let typeArguments: System.Type[]? = null
+        if (!TryResolveWrittenTypeArguments(callee, typeArgCount, out typeArguments)) {
+            return false
+        }
+
+        let receiverType: System.Type? = null
+        if (TryGetNamedValueBindingType(receiverText, out receiverType) && receiverType != null) {
+            instanceSelection := SelectExplicitGenericExternalCall(callIdx, receiverType, memberName, typeArguments, argCount, false)
+            if (!instanceSelection.IsSelected) {
+                return false
+            }
+            // A VALUE receiver's instance method takes a managed pointer, so the binding is loaded by
+            // address; a reference receiver is loaded by value and dispatched with `callvirt`.
+            if (!EmitNamedValueBindingLoad(receiverText, receiverType.get_IsValueType())) {
+                return false
+            }
+            return EmitExplicitGenericExternalCall(callIdx, instanceSelection, out columnarResolvedType)
+        }
+
+        if (_locals.ContainsKey(receiverText) || _liftedLocals.ContainsKey(receiverText) || _paramOrdinals.ContainsKey(receiverText)) {
+            return false
+        }
+        let ownerType: System.Type? = null
+        if (!TryResolveBodyType(receiverText, out ownerType) || ownerType == null) {
+            return false
+        }
+        staticSelection := SelectExplicitGenericExternalCall(callIdx, ownerType, memberName, typeArguments, argCount, true)
+        if (!staticSelection.IsSelected) {
+            return false
+        }
+        return EmitExplicitGenericExternalCall(callIdx, staticSelection, out columnarResolvedType)
+    }
+
+    // The member this call site selects. A site whose arguments all type ahead of emission gets
+    // ordinary scored overload resolution; one that carries a lambda or an `out` argument has no type
+    // to score with, so it binds only when the name leaves exactly ONE closed candidate at this
+    // arity — an ambiguity is refused rather than guessed.
+    private func SelectExplicitGenericExternalCall(callIdx: int, lookupType: Type, memberName: string, typeArguments: Type[], argCount: int, expectedStatic: bool): ColumnarExplicitGenericCallSelection {
+        unique := ColumnarExplicitRuntimeGenericMethodResolver.Resolve(lookupType, memberName, typeArguments, argCount, expectedStatic)
+        if (unique.IsSelected) {
+            return unique
+        }
+        argumentTypes := new Type[argCount]
+        for a := 0; a < argCount; a++ {
+            let argType: System.Type? = null
+            if (!TryGetPreflightExpressionType(Child(callIdx, a + 1), out argType) || argType == null) {
+                return ColumnarExplicitGenericCallSelection.None(lookupType)
+            }
+            argumentTypes[a] = argType
+        }
+        return ColumnarExplicitRuntimeGenericMethodResolver.ResolveWithFacts(lookupType, memberName, typeArguments, argumentTypes, ColumnarDirectCallArgumentFacts.Empty(argCount), expectedStatic)
+    }
+
+    // The arguments, then the instruction. The receiver (if any) is already on the stack.
+    private func EmitExplicitGenericExternalCall(callIdx: int, selection: ColumnarExplicitGenericCallSelection, out columnarResolvedType: Type): bool {
+        columnarResolvedType = null
+        parameterTypes := selection.ParameterTypes
+        for a := 0; a < selection.ExplicitArgumentCount; a++ {
+            if (!EmitDeclaredCallArgument(Child(callIdx, a + 1), parameterTypes[a], true)) {
+                return false
+            }
+        }
+        // Every parameter past the supplied arguments is a trailing optional whose metadata default
+        // is the null reference — the same fill the ordinary resolver's optional tier emits.
+        for filled := selection.ExplicitArgumentCount; filled < parameterTypes.Length; filled++ {
+            _il.Emit(OpCodes.Ldnull)
+        }
+        callOpcode := match selection.UsesCallVirtual {
+            true => OpCodes.Callvirt,
+            _ => OpCodes.Call
+        }
+        _il.Emit(callOpcode, selection.Method)
+        columnarResolvedType = selection.ReturnType
+        return true
+    }
+
     // Emit a bare (implicit-`this`) INSTANCE method call: `ldarg.0; <args>; call/callvirt`. Used by tiers 1 and 4
     // of the bare-call resolution (own-declared and inherited instance methods). Declines on an arity or arg-type
     // mismatch. A reference `this` calls via callvirt (matching the external-receiver path); a value-type `this`
@@ -9727,6 +9827,10 @@ sealed class ColumnarIlEmitter {
                 // the sibling rule below, because that rule is about BARE names and a source-method
                 // callee may be dotted (`Plain.Pair<int, string>`, `box.Map<string>`).
                 if (TryEmitExplicitGenericSourceCall(idx, callee, gName, out columnarResolvedType)) {
+                    return true
+                }
+                // The same reading of the callee, for a target declared by a REFERENCED ASSEMBLY.
+                if (TryEmitExplicitGenericExternalCall(idx, callee, gName, out columnarResolvedType)) {
                     return true
                 }
                 // The callee resolves exactly like a bare identifier: locals/params shadow-decline; only a
