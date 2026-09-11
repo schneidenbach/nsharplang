@@ -3242,6 +3242,9 @@ sealed class ColumnarIlEmitter {
                         smb = def.Builder.DefineMethod(m.Name, staticMethodAttributes, sSignatureReturn, sParamTypes)
                     }
                     ColumnarSourceAttributes.ApplyMethod(smb, m.SourceAttributes, sTypeResolution)
+                    if (!ColumnarMethodImplAttributes.TryApplyToMethod(smb, m.SourceAttributes, sTypeResolution)) {
+                        return DeclineStatic("emit.methodimpl.options", "[MethodImpl] needs a compile-time MethodImplOptions value", m.Name, -1, 0)
+                    }
                     if (!ColumnarParameterDefaultEmitter.DefineMethodParameterMetadataWithAttributes(smb, sParamTypes, m.ParamNames, m.ParamModifierKinds, m.ParamDefaultKinds, m.ParamDefaultTexts, sTypeResolution.Enums, m.ParameterSourceAttributes, sTypeResolution, m.ParamLabeledCanonicals)) {
                         return false
                     }
@@ -3327,6 +3330,9 @@ sealed class ColumnarIlEmitter {
                     declaredGenericInstance.SetReturnType(mSignatureReturn)
                     declaredGenericInstance.SetParameters(mParamTypes)
                     ColumnarSourceAttributes.ApplyMethod(declaredGenericInstance, m.SourceAttributes, mTypeResolution)
+                    if (!ColumnarMethodImplAttributes.TryApplyToMethod(declaredGenericInstance, m.SourceAttributes, mTypeResolution)) {
+                        return DeclineStatic("emit.methodimpl.options", "[MethodImpl] needs a compile-time MethodImplOptions value", m.Name, -1, 0)
+                    }
                     if (!ColumnarParameterDefaultEmitter.DefineMethodParameterMetadataWithAttributes(declaredGenericInstance, mParamTypes, m.ParamNames, m.ParamModifierKinds, m.ParamDefaultKinds, m.ParamDefaultTexts, mTypeResolution.Enums, m.ParameterSourceAttributes, mTypeResolution, m.ParamLabeledCanonicals)) {
                         return false
                     }
@@ -3385,6 +3391,9 @@ sealed class ColumnarIlEmitter {
                 }
                 mb := methodOverrideCompletion.DefineMethod(def.Builder)
                 ColumnarSourceAttributes.ApplyMethod(mb, m.SourceAttributes, typeResolution)
+                if (!ColumnarMethodImplAttributes.TryApplyToMethod(mb, m.SourceAttributes, typeResolution)) {
+                    return DeclineStatic("emit.methodimpl.options", "[MethodImpl] needs a compile-time MethodImplOptions value", m.Name, -1, 0)
+                }
                 if (!ColumnarParameterDefaultEmitter.DefineMethodParameterMetadataWithAttributes(mb, mParamTypes, m.ParamNames, m.ParamModifierKinds, m.ParamDefaultKinds, m.ParamDefaultTexts, typeResolution.Enums, m.ParameterSourceAttributes, typeResolution, m.ParamLabeledCanonicals)) {
                     return false
                 }
@@ -3452,6 +3461,9 @@ sealed class ColumnarIlEmitter {
                         staticPropertySetterAttributes
                     )
                     staticGetter := staticAccessors.Getter
+                    if (!ColumnarMethodImplAttributes.TryApplyToMethod(staticGetter, prop.Getter.SourceAttributes, typeResolution)) {
+                        return DeclineStatic("emit.methodimpl.options", "[MethodImpl] needs a compile-time MethodImplOptions value", prop.Name, -1, 0)
+                    }
                     structMethodJobs.Add(new ValueTuple<ColumnarStructDef, ColumnarFunctionInput, MethodBuilder, Type, Type, Type, Dictionary<string, int>, ValueTuple<Dictionary<string, Type>, bool>>(def, prop.Getter, staticGetter, propType, propType, null, new Dictionary<string, int>(StringComparer.Ordinal), new ValueTuple<Dictionary<string, Type>, bool>(new Dictionary<string, Type>(StringComparer.Ordinal), true)))
                     staticProperty := def.Builder.DefineProperty(prop.Name, PropertyAttributes.None, propType, Type.EmptyTypes)
                     if declarationPlan.Properties.HasMsBuildRequiredAttribute[s][pi] {
@@ -3467,6 +3479,9 @@ sealed class ColumnarIlEmitter {
                     staticSetter := staticAccessors.Setter
                     if (prop.Setter != null) {
                         exactStaticSetter := staticSetter
+                        if (!ColumnarMethodImplAttributes.TryApplyToMethod(exactStaticSetter, prop.Setter.SourceAttributes, typeResolution)) {
+                            return DeclineStatic("emit.methodimpl.options", "[MethodImpl] needs a compile-time MethodImplOptions value", prop.Name, -1, 0)
+                        }
                         if (!ColumnarParameterDefaultEmitter.DefineMethodParameterMetadata(exactStaticSetter, [propType], ["value"], Array.Empty<int>(), Array.Empty<int>(), Array.Empty<string?>(), typeResolution.Enums)) {
                             return false
                         }
@@ -3499,6 +3514,9 @@ sealed class ColumnarIlEmitter {
                     propertySetterAttributes
                 )
                 getter := accessors.Getter
+                if (!ColumnarMethodImplAttributes.TryApplyToMethod(getter, prop.Getter.SourceAttributes, typeResolution)) {
+                    return DeclineStatic("emit.methodimpl.options", "[MethodImpl] needs a compile-time MethodImplOptions value", prop.Name, -1, 0)
+                }
                 structMethodJobs.Add(new ValueTuple<ColumnarStructDef, ColumnarFunctionInput, MethodBuilder, Type, Type, Type, Dictionary<string, int>, ValueTuple<Dictionary<string, Type>, bool>>(def, prop.Getter, getter, propType, propType, null, new Dictionary<string, int>(StringComparer.Ordinal), new ValueTuple<Dictionary<string, Type>, bool>(new Dictionary<string, Type>(StringComparer.Ordinal), false)))
                 property := def.Builder.DefineProperty(prop.Name, PropertyAttributes.None, propType, Type.EmptyTypes)
                 if declarationPlan.Properties.HasMsBuildRequiredAttribute[s][pi] {
@@ -3514,6 +3532,9 @@ sealed class ColumnarIlEmitter {
                 setter := accessors.Setter
                 if (prop.Setter != null) {
                     exactSetter := setter
+                    if (!ColumnarMethodImplAttributes.TryApplyToMethod(exactSetter, prop.Setter.SourceAttributes, typeResolution)) {
+                        return DeclineStatic("emit.methodimpl.options", "[MethodImpl] needs a compile-time MethodImplOptions value", prop.Name, -1, 0)
+                    }
                     if (!ColumnarParameterDefaultEmitter.DefineMethodParameterMetadata(exactSetter, [propType], ["value"], Array.Empty<int>(), Array.Empty<int>(), Array.Empty<string?>(), typeResolution.Enums)) {
                         return false
                     }
@@ -4190,6 +4211,9 @@ sealed class ColumnarIlEmitter {
                 )
             }
             ColumnarSourceAttributes.ApplyMethod(methods[f], fn.SourceAttributes, typeResolution)
+            if (!ColumnarMethodImplAttributes.TryApplyToMethod(methods[f], fn.SourceAttributes, typeResolution)) {
+                return DeclineStatic("emit.methodimpl.options", "[MethodImpl] needs a compile-time MethodImplOptions value", fn.Name, -1, 0)
+            }
             if (!ColumnarParameterDefaultEmitter.DefineMethodParameterMetadataWithAttributes(methods[f], paramTypes, fn.ParamNames, fn.ParamModifierKinds, fn.ParamDefaultKinds, fn.ParamDefaultTexts, typeResolution.Enums, fn.ParameterSourceAttributes, typeResolution, fn.ParamLabeledCanonicals)) {
                 return false
             }
