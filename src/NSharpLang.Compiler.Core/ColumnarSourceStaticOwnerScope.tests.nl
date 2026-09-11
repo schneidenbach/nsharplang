@@ -324,3 +324,24 @@ test "direct-call planner does not reinterpret value and callable roots as sourc
     assert callableOwnership == ColumnarDirectCallOwnership.NotOwned
     assert callableLegacy
 }
+
+// A DOTTED SPELLING ROOTED AT A DECLARED OR IMPORTED BINDING IS MEMBER LOOKUP, NOT A BLOCKED OWNER.
+//
+// `Catalog.Codes.TryGetValue(...)` asks this tier whether `Catalog.Codes` names a source TYPE. It
+// does not — `Catalog` is a declaration in this file and `Codes` is its static field — so the answer
+// is "not a source owner", and `blocked` must say so. Reporting it BLOCKED means "a source type owns
+// this spelling and no later tier may reinterpret it", which made the direct-call planner claim the
+// call and reject it terminally instead of leaving the static-field read plus instance call to the
+// owner that emits them.
+test "source static owner scope leaves a member spelling rooted at a declared binding to the value tier" {
+    sources := new string[](1)
+    fileNames := new string[](1)
+    sources[0] = "class Catalog {\n    static Codes: string = \"\"\n}\n"
+    fileNames[0] = "catalog.nl"
+    scope := SourceOwnerScope(sources, fileNames, SourceOwnerEmptyStructs(), 0)
+
+    SourceOwnerAssertNotSource(scope, "Catalog", "Catalog.Codes")
+
+    // The BARE spelling is still the source type it always was.
+    SourceOwnerAssertResolved(scope, "", "Catalog", "Catalog", "Catalog")
+}

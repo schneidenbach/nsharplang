@@ -221,6 +221,19 @@ The base may be a class declared in the same project, one from the BCL or a NuGe
 constructor chains to a base constructor with `: base(...)` in its header, which is the same idea in the
 one place a member call cannot express it.
 
+What `base.` may **not** do is appear in the arguments of that header. `base` is the same reference
+`this` is — it only changes which declaration a name binds to and how a call dispatches — so reading
+through it before the base constructor has run would read storage that does not exist yet:
+
+```n#
+class Derived: Base {
+    constructor(): base(base.Value) {}                // rejected: no instance exists yet
+}
+```
+
+`this.Value`, a bare field name, and an instance call in a chain argument are rejected for the same
+reason. Compute the value from the constructor's own parameters, or from a `static` helper.
+
 **Diagnostics.** The compiler holds you to C#'s rules:
 
 | You wrote | You get |

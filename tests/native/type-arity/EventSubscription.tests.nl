@@ -265,3 +265,40 @@ test "the constructor's parameters are the C# ones" {
     assert parameters[1].get_ParameterType().get_IsGenericParameter()
     assert parameters[1].get_ParameterType().get_Name() == "THandler"
 }
+
+// A NULL TEST ON A TYPE PARAMETER BOXES EXACTLY ONCE, AND THE COUNT IS THE CONTRACT.
+//
+// `handler == null` on a `THandler` is emitted as `box !T; ldnull; ceq`: `box` yields the reference
+// itself for a reference instantiation and a fresh non-null box for a value one, which is C#'s
+// reading of `T == null` for both. A SECOND `box` is not a harmless repeat — the first leaves an
+// `object` where the second expects a `!T`, which is unverifiable IL ("found ref 'THandler',
+// expected value 'THandler'") and, for a value-type instantiation, would box a box.
+//
+// The constructor is the one method in this file that asks the question, so a scan of its IL bytes
+// finds the `box` opcode (0x8C) exactly once. The scan is a tripwire, not a disassembler: reflection
+// hands back raw bytes, so a future token operand could in principle add a count — and would fail
+// here with the number it found rather than letting a second real `box` back in.
+test "a null test on the type parameter boxes exactly once" {
+    definition := typeof(NSharpEventSubscription<Action<int>>).GetGenericTypeDefinition()
+    constructors := definition.GetConstructors()
+    assert constructors.Length == 1
+
+    body := constructors[0].GetMethodBody()
+    if body == null {
+        throw new InvalidOperationException("The constructor has no IL body")
+    }
+    il := body.GetILAsByteArray()
+    if il == null {
+        throw new InvalidOperationException("The constructor body has no IL bytes")
+    }
+
+    boxCount := 0
+    index := 0
+    while index < il.Length {
+        if il[index] == 0x8C {
+            boxCount = boxCount + 1
+        }
+        index = index + 1
+    }
+    assert boxCount == 1, "box opcodes in the constructor: " + boxCount.ToString()
+}

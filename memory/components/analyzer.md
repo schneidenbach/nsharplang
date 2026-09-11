@@ -1600,7 +1600,17 @@ emission half is `ColumnarExpressionNodeKind.BaseMemberExpression()` (kind 71) o
 base through `ColumnarSourceDirectCallResolver` and runtime base through the ordinary runtime resolver,
 an abstract base member refused) and `ColumnarBoundIdentifierPlanner`'s `BaseField`/`BaseProperty`
 selections. `tests/native/class-inheritance` proves the dispatch is non-virtual with a three-level
-chain whose answer names every level exactly once. KNOWN LIMITS, both PRE-EXISTING and both reproducible
+chain whose answer names every level exactly once.
+
+A CONSTRUCTOR INITIALIZER'S ARGUMENTS MAY NOT READ THROUGH `base` any more than through `this`, and
+the guard is `ColumnarIlEmitter.ConstructorChainArgumentNodeUsesCurrentInstance`: kind 71 is a LEAF
+carrying the member name, so neither the identifier arm nor the child walk can see it and it needs an
+arm of its own. Without it `constructor(): base(base.Value) {}` emitted a field read before the base
+constructor had run (C# reports the CS0027 family). The decline is `emit.ctor.chain-instance`, the
+same one `this.Value`, a bare field name and an instance call in a chain argument reach; there is no
+analyzer diagnostic for any of them, so the four stay at parity.
+
+KNOWN LIMITS, both PRE-EXISTING and both reproducible
 without `base`: a subclass that declares a property whose name a base already declares declines at
 `parse.struct`, and reading a property inherited from a CLOSED GENERIC ancestor two levels up
 (`Box<string>.Value` from a grandchild) fails plan validation with "reference receiver ... does not

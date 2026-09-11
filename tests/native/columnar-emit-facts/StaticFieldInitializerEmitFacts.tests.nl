@@ -1,6 +1,7 @@
 namespace NSharpLang.ColumnarEmitFacts.Tests
 
 import System
+import System.Collections.Generic
 import System.Reflection
 
 class StaticInitializerOrderState {
@@ -121,4 +122,47 @@ test "declared static helper initializers pass string and qualified nameof argum
     assert emptyField.get_Name() == "Empty"
     assert tupleField.get_FieldType() == typeof(int)
     assert emptyField.get_FieldType() == typeof(string)
+}
+
+// A STATIC FIELD IS A VALUE, AND ITS OWN INSTANCE MEMBERS ARE REACHABLE THROUGH IT.
+//
+// `Catalog.Codes.TryGetValue(code, out value)` is a static-field READ followed by an ordinary
+// instance call, not a static call on a type named `Catalog.Codes`. The direct-call planner used to
+// claim the spelling as a source static owner, fail to find such a type, and reject the whole
+// subtree terminally — which took `TryGetValue` (and `ContainsKey`, and every other member of a
+// static field's own type) away from the owner that emits it.
+//
+// The `out` local is the shape that made the loss visible: a by-ref argument only began reaching
+// overload resolution once by-ref arguments were typed, and the claim-and-reject verdict came with
+// it.
+class StaticReceiverCatalog {
+    static Codes: Dictionary<int, int> = StaticReceiverBuildCodes()
+    static Label: string = "systems"
+}
+
+func StaticReceiverBuildCodes(): Dictionary<int, int> {
+    map := new Dictionary<int, int>()
+    map[1] = 100
+    map[2] = 200
+    return map
+}
+
+func StaticReceiverLookup(code: int): int {
+    value := 0
+    if StaticReceiverCatalog.Codes.TryGetValue(code, out value) {
+        return value
+    }
+    return -1
+}
+
+test "a static field receiver reaches its own instance members including a by-ref out argument" {
+    assert StaticReceiverLookup(1) == 100
+    assert StaticReceiverLookup(2) == 200
+    assert StaticReceiverLookup(3) == -1
+
+    // The same receiver with no by-ref argument at all, which the terminal claim also swallowed.
+    assert StaticReceiverCatalog.Codes.ContainsKey(1)
+    assert !StaticReceiverCatalog.Codes.ContainsKey(9)
+    assert StaticReceiverCatalog.Codes.Count == 2
+    assert StaticReceiverCatalog.Label.StartsWith("sys")
 }
