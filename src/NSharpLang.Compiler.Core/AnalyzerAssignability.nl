@@ -103,6 +103,7 @@ class AnalyzerAssignability {
     typeSubstitution: AnalyzerTypeSubstitution
     clrTypeConversion: AnalyzerClrTypeConversion
     conversionGuard: AnalyzerImplicitConversionGuard
+    activeExternalDefinitions: HashSet<Type>
 
     constructor(context: AnalyzerDeclarationContext, facts: AnalyzerAssignabilityFacts, structural: AnalyzerStructuralAssignability, substitution: AnalyzerTypeSubstitution, clrConversion: AnalyzerClrTypeConversion, guard: AnalyzerImplicitConversionGuard) {
         declarationContext = context
@@ -111,6 +112,7 @@ class AnalyzerAssignability {
         typeSubstitution = substitution
         clrTypeConversion = clrConversion
         conversionGuard = guard
+        activeExternalDefinitions = new HashSet<Type>()
     }
 
     // 023/1e — THE TWO-ARGUMENT FORM IS THE CONSTANT-FREE ONE, AND IT STAYS THE DEFAULT.
@@ -406,6 +408,7 @@ class AnalyzerAssignability {
     func IsSubtypeOf(source: TypeInfo, target: TypeInfo): bool {
         effectiveSource := source
         substitution: Dictionary<string, TypeInfo>? = null
+        externalDefinition: Type? = null
         genericSource := effectiveSource as GenericTypeInfo
         if genericSource != null {
             genericDefinition := typeSubstitution.ResolveGenericDefinition(genericSource)
@@ -414,6 +417,8 @@ class AnalyzerAssignability {
                 if reflectionDefinition == null {
                     substitution = declarationContext.CreateGenericSubstitution(genericDefinition, genericSource.TypeArguments)
                     effectiveSource = genericDefinition
+                } else {
+                    externalDefinition = reflectionDefinition.Type
                 }
             }
         }
@@ -492,7 +497,55 @@ class AnalyzerAssignability {
             }
         }
 
+        // AN EXTERNAL GENERIC CONSTRUCTED OVER A TYPE THE CLR HAS NO HANDLE FOR — `Comparer<Item>`
+        // where `Item` is a type this compilation is still emitting. Neither bridge above can ask
+        // the CLR about it: the exact conversion has no closed type to offer, and the surrogate one
+        // would erase every argument to `object`, which answers `Comparer<A>` IS an `IComparer<B>`.
+        //
+        // Its DEFINITION is a real reflected type, though, and the definition's base and interface
+        // lists are spelled in the definition's own parameters — which this instantiation supplies
+        // by position. Substituting them yields real N# types (`IComparer<Item>`), and the ordinary
+        // assignability question is asked of those. No surrogate reaches the answer.
+        if externalDefinition != null && !IsSubtypeWalkActive(externalDefinition) {
+            return ExternalDefinitionSubtypeReaches(externalDefinition, genericSource, target)
+        }
+
         return false
+    }
+
+    // The substituted base and interface lists of one constructed external generic. Re-entrancy is
+    // fenced per definition because a definition's own interface list can name the definition again
+    // (`Comparer<T>` implements `IComparer<T>`, whose walk would ask about `Comparer<T>` once more
+    // through a user-defined conversion probe).
+    func ExternalDefinitionSubtypeReaches(definition: Type, genericSource: GenericTypeInfo?, target: TypeInfo): bool {
+        if genericSource == null || definition.GetGenericArguments().Length != genericSource.TypeArguments.Count {
+            return false
+        }
+
+        typeOverride := AnalyzerReflectionTypeOverride.ForGenericArguments(definition, genericSource)
+        activeExternalDefinitions.Add(definition)
+        try {
+            baseDefinition := definition.get_BaseType()
+            if baseDefinition != null && !baseDefinition.get_IsGenericParameter() {
+                if IsAssignable(target, NullabilityMetadataReflection.ConvertReflectedType(baseDefinition, null, typeOverride)) {
+                    return true
+                }
+            }
+
+            for implemented in definition.GetInterfaces() {
+                if IsAssignable(target, NullabilityMetadataReflection.ConvertReflectedType(implemented, null, typeOverride)) {
+                    return true
+                }
+            }
+        } finally {
+            activeExternalDefinitions.Remove(definition)
+        }
+
+        return false
+    }
+
+    func IsSubtypeWalkActive(definition: Type): bool {
+        return activeExternalDefinitions.Contains(definition)
     }
 
     // A method group against a real CLR delegate's signature: the same score the overload resolver

@@ -438,6 +438,7 @@ class ColumnarCanonicalTypeResolver {
         unionRegistry: ColumnarSemanticRegistry<ColumnarUnionDef>,
         out selected: ColumnarSelectedTypeReference
     ): bool {
+        claimedHead := false
         if TrySelectTypeParameterModeledFamily(
             canonical,
             genericOpen,
@@ -445,9 +446,18 @@ class ColumnarCanonicalTypeResolver {
             enumRegistry,
             structRegistry,
             unionRegistry,
+            out claimedHead,
             out selected
         ) {
             return true
+        }
+
+        // A ROW THAT OWNS THIS HEAD HAS ALREADY ANSWERED. Its element policy — a dictionary
+        // key must be hashable, a span element must be blittable, a collection element must be
+        // storable — is the entire reason the row exists, so its decline is TERMINAL and the
+        // general arm never reinterprets it. The general arm is for heads no row covers.
+        if claimedHead {
+            return false
         }
 
         modeledSelection := selected
@@ -476,12 +486,15 @@ class ColumnarCanonicalTypeResolver {
         enumRegistry: ColumnarSemanticRegistry<ColumnarEnumDef>,
         structRegistry: ColumnarSemanticRegistry<ColumnarStructDef>,
         unionRegistry: ColumnarSemanticRegistry<ColumnarUnionDef>,
+        out claimedHead: bool,
         out selected: ColumnarSelectedTypeReference
     ): bool {
         table := structRegistry.StructuralTypeReferences
         selected = ColumnarSelectedTypeReference.Missing(table)
+        claimedHead = false
 
         if genericOpen == 4 && canonical.StartsWith("Span<", StringComparison.Ordinal) {
+            claimedHead = true
             arguments := new ColumnarSelectedTypeReference[](0)
             if TrySelectTypeParameterArguments(
                 canonical.Substring(5, canonical.Length - 6),
@@ -501,6 +514,7 @@ class ColumnarCanonicalTypeResolver {
         }
 
         if genericOpen == 12 && canonical.StartsWith("ReadOnlySpan<", StringComparison.Ordinal) {
+            claimedHead = true
             arguments := new ColumnarSelectedTypeReference[](0)
             if TrySelectTypeParameterArguments(
                 canonical.Substring(13, canonical.Length - 14),
@@ -520,6 +534,7 @@ class ColumnarCanonicalTypeResolver {
         }
 
         if genericOpen == 10 && canonical.StartsWith("ValueTuple<", StringComparison.Ordinal) {
+            claimedHead = true
             argumentCanonicals := ColumnarTypeCanonicalizer.SplitTopLevelCommas(
                 canonical.Substring(11, canonical.Length - 12)
             )
@@ -548,6 +563,7 @@ class ColumnarCanonicalTypeResolver {
         }
 
         if genericOpen == 4 && canonical.StartsWith("Task<", StringComparison.Ordinal) {
+            claimedHead = true
             arguments := new ColumnarSelectedTypeReference[](0)
             if TrySelectTypeParameterArguments(
                 canonical.Substring(5, canonical.Length - 6),
@@ -567,6 +583,7 @@ class ColumnarCanonicalTypeResolver {
         }
 
         if genericOpen == 9 && canonical.StartsWith("ValueTask<", StringComparison.Ordinal) {
+            claimedHead = true
             arguments := new ColumnarSelectedTypeReference[](0)
             if TrySelectTypeParameterArguments(
                 canonical.Substring(10, canonical.Length - 11),
@@ -586,6 +603,7 @@ class ColumnarCanonicalTypeResolver {
         }
 
         if genericOpen == 6 && canonical.StartsWith("Result<", StringComparison.Ordinal) {
+            claimedHead = true
             argumentCanonicals := ColumnarTypeCanonicalizer.SplitTopLevelCommas(
                 canonical.Substring(7, canonical.Length - 8)
             )
@@ -616,6 +634,7 @@ class ColumnarCanonicalTypeResolver {
         }
 
         if genericOpen == 4 && canonical.StartsWith("List<", StringComparison.Ordinal) {
+            claimedHead = true
             arguments := new ColumnarSelectedTypeReference[](0)
             if TrySelectTypeParameterArguments(canonical.Substring(5, canonical.Length - 6), 1, typeParams, enumRegistry, structRegistry, unionRegistry, out arguments) && (arguments[0].RuntimeType is GenericTypeParameterBuilder || ColumnarTypeOfPlanner.IsAdmissibleCollectionElement(arguments[0].RuntimeType)) {
                 definition := typeof(List<int>).GetGenericTypeDefinition()
@@ -627,6 +646,7 @@ class ColumnarCanonicalTypeResolver {
         }
 
         if genericOpen == 7 && canonical.StartsWith("HashSet<", StringComparison.Ordinal) {
+            claimedHead = true
             arguments := new ColumnarSelectedTypeReference[](0)
             if TrySelectTypeParameterArguments(canonical.Substring(8, canonical.Length - 9), 1, typeParams, enumRegistry, structRegistry, unionRegistry, out arguments) && (arguments[0].RuntimeType is GenericTypeParameterBuilder || ColumnarTypeOfPlanner.IsAdmissibleHashSetElement(arguments[0].RuntimeType)) {
                 definition := typeof(HashSet<int>).GetGenericTypeDefinition()
@@ -638,6 +658,7 @@ class ColumnarCanonicalTypeResolver {
         }
 
         if genericOpen == 9 && canonical.StartsWith("SortedSet<", StringComparison.Ordinal) {
+            claimedHead = true
             arguments := new ColumnarSelectedTypeReference[](0)
             if TrySelectTypeParameterArguments(canonical.Substring(10, canonical.Length - 11), 1, typeParams, enumRegistry, structRegistry, unionRegistry, out arguments) && (arguments[0].RuntimeType is GenericTypeParameterBuilder || ColumnarTypeOfPlanner.IsAdmissibleCollectionElement(arguments[0].RuntimeType)) {
                 definition := typeof(SortedSet<int>).GetGenericTypeDefinition()
@@ -649,6 +670,7 @@ class ColumnarCanonicalTypeResolver {
         }
 
         if genericOpen == 5 && canonical.StartsWith("Stack<", StringComparison.Ordinal) {
+            claimedHead = true
             arguments := new ColumnarSelectedTypeReference[](0)
             if TrySelectTypeParameterArguments(canonical.Substring(6, canonical.Length - 7), 1, typeParams, enumRegistry, structRegistry, unionRegistry, out arguments) && (arguments[0].RuntimeType is GenericTypeParameterBuilder || ColumnarTypeOfPlanner.IsAdmissibleCollectionElement(arguments[0].RuntimeType)) {
                 definition := typeof(Stack<int>).GetGenericTypeDefinition()
@@ -659,15 +681,19 @@ class ColumnarCanonicalTypeResolver {
             return false
         }
 
-        // Body-local resolution normally keeps the generic-signature family's narrower collection
-        // fence. The Analyzer source needs precisely its inherited string dictionary-entry view,
-        // and the SDK task needs the exact Cecil sequence shapes admitted by the type planner.
+        // ONE ELEMENT POLICY PER FAMILY, WHICHEVER WALK ASKS. A body local typed `IEnumerable<int>`
+        // is the same sequence a signature spells, and the two walks disagreeing about it was an
+        // accident of which resolver a body reaches, not a rule: the ordinary collection-element
+        // policy is the rule, and the two exact shapes below (the Analyzer's inherited string
+        // dictionary-entry view, the SDK task's Cecil sequences) are ADDITIONS to it, not a
+        // replacement for it.
         if genericOpen == 11 && canonical.StartsWith("IEnumerable<", StringComparison.Ordinal) {
+            claimedHead = true
             arguments := new ColumnarSelectedTypeReference[](0)
             if TrySelectTypeParameterArguments(canonical.Substring(12, canonical.Length - 13), 1, typeParams, enumRegistry, structRegistry, unionRegistry, out arguments) {
                 definition := typeof(IEnumerable<int>).GetGenericTypeDefinition()
                 runtimeType := definition.MakeGenericType(SelectedRuntimeTypes(arguments))
-                if IsExactStringDictionaryEntryElement(arguments[0].RuntimeType) || ColumnarTypeOfPlanner.IsSupportedCecilSequenceType(runtimeType) {
+                if arguments[0].RuntimeType is GenericTypeParameterBuilder || ColumnarTypeOfPlanner.IsAdmissibleCollectionElement(arguments[0].RuntimeType) || IsExactStringDictionaryEntryElement(arguments[0].RuntimeType) || ColumnarTypeOfPlanner.IsSupportedCecilSequenceType(runtimeType) {
                     selected = ConstructedSelection(table, runtimeType, definition, arguments)
                     return true
                 }
@@ -675,9 +701,62 @@ class ColumnarCanonicalTypeResolver {
             return false
         }
 
-        if genericOpen == 10 && canonical.StartsWith("Dictionary<", StringComparison.Ordinal) {
+        // THE READ-ONLY COLLECTION VIEWS, WITH THE SAME ELEMENT AND KEY POLICIES THE ORDINARY WALK
+        // APPLIES. They had no row on this walk at all, which meant a body local spelling one
+        // reached the general arm and its `IReadOnlySet` element or `IReadOnlyDictionary` key was
+        // never asked the hashability question a signature would have asked it.
+        if genericOpen == 13 && canonical.StartsWith("IReadOnlyList<", StringComparison.Ordinal) {
+            claimedHead = true
             arguments := new ColumnarSelectedTypeReference[](0)
-            if TrySelectTypeParameterArguments(canonical.Substring(11, canonical.Length - 12), 2, typeParams, enumRegistry, structRegistry, unionRegistry, out arguments) && (ColumnarTypeOfPlanner.IsAdmissibleSourceReferenceKey(arguments[0].RuntimeType) || !ColumnarTypeOfPlanner.ContainsBuilderBoundType(arguments[0].RuntimeType)) && (arguments[1].RuntimeType is GenericTypeParameterBuilder || ColumnarTypeOfPlanner.IsAdmissibleCollectionElement(arguments[1].RuntimeType)) {
+            if TrySelectTypeParameterArguments(canonical.Substring(14, canonical.Length - 15), 1, typeParams, enumRegistry, structRegistry, unionRegistry, out arguments) && (arguments[0].RuntimeType is GenericTypeParameterBuilder || ColumnarTypeOfPlanner.IsAdmissibleCollectionElement(arguments[0].RuntimeType)) {
+                definition := typeof(IReadOnlyList<int>).GetGenericTypeDefinition()
+                runtimeType := definition.MakeGenericType(SelectedRuntimeTypes(arguments))
+                selected = ConstructedSelection(table, runtimeType, definition, arguments)
+                return true
+            }
+            return false
+        }
+
+        if genericOpen == 19 && canonical.StartsWith("IReadOnlyCollection<", StringComparison.Ordinal) {
+            claimedHead = true
+            arguments := new ColumnarSelectedTypeReference[](0)
+            if TrySelectTypeParameterArguments(canonical.Substring(20, canonical.Length - 21), 1, typeParams, enumRegistry, structRegistry, unionRegistry, out arguments) && (arguments[0].RuntimeType is GenericTypeParameterBuilder || ColumnarTypeOfPlanner.IsAdmissibleCollectionElement(arguments[0].RuntimeType)) {
+                definition := typeof(IReadOnlyCollection<int>).GetGenericTypeDefinition()
+                runtimeType := definition.MakeGenericType(SelectedRuntimeTypes(arguments))
+                selected = ConstructedSelection(table, runtimeType, definition, arguments)
+                return true
+            }
+            return false
+        }
+
+        if genericOpen == 12 && canonical.StartsWith("IReadOnlySet<", StringComparison.Ordinal) {
+            claimedHead = true
+            arguments := new ColumnarSelectedTypeReference[](0)
+            if TrySelectTypeParameterArguments(canonical.Substring(13, canonical.Length - 14), 1, typeParams, enumRegistry, structRegistry, unionRegistry, out arguments) && (arguments[0].RuntimeType is GenericTypeParameterBuilder || ColumnarTypeOfPlanner.IsAdmissibleHashSetElement(arguments[0].RuntimeType)) {
+                definition := typeof(IReadOnlySet<int>).GetGenericTypeDefinition()
+                runtimeType := definition.MakeGenericType(SelectedRuntimeTypes(arguments))
+                selected = ConstructedSelection(table, runtimeType, definition, arguments)
+                return true
+            }
+            return false
+        }
+
+        if genericOpen == 19 && canonical.StartsWith("IReadOnlyDictionary<", StringComparison.Ordinal) {
+            claimedHead = true
+            arguments := new ColumnarSelectedTypeReference[](0)
+            if TrySelectTypeParameterArguments(canonical.Substring(20, canonical.Length - 21), 2, typeParams, enumRegistry, structRegistry, unionRegistry, out arguments) && (arguments[0].RuntimeType is GenericTypeParameterBuilder || ColumnarTypeOfPlanner.IsAdmissibleSourceReferenceKey(arguments[0].RuntimeType) || !ColumnarTypeOfPlanner.ContainsBuilderBoundType(arguments[0].RuntimeType)) && (arguments[1].RuntimeType is GenericTypeParameterBuilder || ColumnarTypeOfPlanner.IsAdmissibleCollectionElement(arguments[1].RuntimeType)) {
+                definition := ColumnarTypeOfPlanner.RequiredReadOnlyDictionaryDefinition()
+                runtimeType := definition.MakeGenericType(SelectedRuntimeTypes(arguments))
+                selected = ConstructedSelection(table, runtimeType, definition, arguments)
+                return true
+            }
+            return false
+        }
+
+        if genericOpen == 10 && canonical.StartsWith("Dictionary<", StringComparison.Ordinal) {
+            claimedHead = true
+            arguments := new ColumnarSelectedTypeReference[](0)
+            if TrySelectTypeParameterArguments(canonical.Substring(11, canonical.Length - 12), 2, typeParams, enumRegistry, structRegistry, unionRegistry, out arguments) && (arguments[0].RuntimeType is GenericTypeParameterBuilder || ColumnarTypeOfPlanner.IsAdmissibleSourceReferenceKey(arguments[0].RuntimeType) || !ColumnarTypeOfPlanner.ContainsBuilderBoundType(arguments[0].RuntimeType)) && (arguments[1].RuntimeType is GenericTypeParameterBuilder || ColumnarTypeOfPlanner.IsAdmissibleCollectionElement(arguments[1].RuntimeType)) {
                 definition := typeof(Dictionary<int, int>).GetGenericTypeDefinition()
                 runtimeType := definition.MakeGenericType(SelectedRuntimeTypes(arguments))
                 selected = ConstructedSelection(table, runtimeType, definition, arguments)
@@ -687,8 +766,9 @@ class ColumnarCanonicalTypeResolver {
         }
 
         if genericOpen == 16 && canonical.StartsWith("SortedDictionary<", StringComparison.Ordinal) {
+            claimedHead = true
             arguments := new ColumnarSelectedTypeReference[](0)
-            if TrySelectTypeParameterArguments(canonical.Substring(17, canonical.Length - 18), 2, typeParams, enumRegistry, structRegistry, unionRegistry, out arguments) && !ColumnarTypeOfPlanner.ContainsBuilderBoundType(arguments[0].RuntimeType) && (arguments[1].RuntimeType is GenericTypeParameterBuilder || ColumnarTypeOfPlanner.IsAdmissibleCollectionElement(arguments[1].RuntimeType)) {
+            if TrySelectTypeParameterArguments(canonical.Substring(17, canonical.Length - 18), 2, typeParams, enumRegistry, structRegistry, unionRegistry, out arguments) && (arguments[0].RuntimeType is GenericTypeParameterBuilder || !ColumnarTypeOfPlanner.ContainsBuilderBoundType(arguments[0].RuntimeType)) && (arguments[1].RuntimeType is GenericTypeParameterBuilder || ColumnarTypeOfPlanner.IsAdmissibleCollectionElement(arguments[1].RuntimeType)) {
                 definition := typeof(SortedDictionary<int, int>).GetGenericTypeDefinition()
                 runtimeType := definition.MakeGenericType(SelectedRuntimeTypes(arguments))
                 selected = ConstructedSelection(table, runtimeType, definition, arguments)
@@ -701,20 +781,23 @@ class ColumnarCanonicalTypeResolver {
     }
 
     // THE GENERAL ARM BEHIND THE FAMILY ROWS ABOVE, and the reason a new row is never needed for a
-    // BCL generic written over the enclosing declaration's own type parameters. The rows above state
-    // narrower ELEMENT policies for the families whose lowerings care (spans, collection elements,
-    // dictionary keys); when a row declines, or names a head nobody wrote a row for, the ordinary
-    // answer is the CLR's own: resolve the open definition through ordinary scoped type resolution at
-    // the written arity, resolve each argument the same way this function resolves any other, and
-    // close it with `MakeGenericType`. Nothing here consults a name.
+    // BCL generic a source file writes. The rows above state narrower ELEMENT policies for the
+    // families whose lowerings care (spans, collection elements, dictionary keys); when a row
+    // declines, or names a head nobody wrote a row for, the ordinary answer is the CLR's own:
+    // resolve the open definition through ordinary scoped type resolution at the written arity,
+    // resolve each argument the same way this function resolves any other, and close it with
+    // `MakeGenericType`. Nothing here consults a name.
     //
-    // It applies ONLY to a spelling that mentions one of those type parameters. A fully concrete
-    // spelling keeps the exact family boundary it has today: those constructions have real
-    // lowerings that decide their own admissibility, and this arm must not reinterpret their answer.
+    // It serves BOTH walks. `typeParams` is the enclosing declaration's visible type parameters when
+    // there are any, and null on the ordinary walk; the arguments are resolved by whichever walk the
+    // caller is on, so `IComparer<T>` inside a generic declaration and `IEquatable<Plain>` at file
+    // scope reach the same construction. Admissibility of the closed shape is then
+    // `ColumnarTypeOfPlanner.IsSupportedType`'s single answer, and a rejection a modeled row already
+    // recorded with its exact runtime shape survives a decline here.
     static func TrySelectExternalGenericConstruction(
         canonical: string,
         genericOpen: int,
-        typeParams: IReadOnlyDictionary<string, Type>,
+        typeParams: IReadOnlyDictionary<string, Type>?,
         enumRegistry: ColumnarSemanticRegistry<ColumnarEnumDef>,
         structRegistry: ColumnarSemanticRegistry<ColumnarStructDef>,
         unionRegistry: ColumnarSemanticRegistry<ColumnarUnionDef>,
@@ -722,9 +805,6 @@ class ColumnarCanonicalTypeResolver {
     ): bool {
         table := structRegistry.StructuralTypeReferences
         selected = ColumnarSelectedTypeReference.Missing(table)
-        if !MentionsVisibleTypeParameter(canonical, typeParams) {
-            return false
-        }
 
         headName := canonical.Substring(0, genericOpen)
         if headName.Length == 0 {
@@ -751,9 +831,19 @@ class ColumnarCanonicalTypeResolver {
         }
 
         arguments := new ColumnarSelectedTypeReference[](0)
-        if !TrySelectTypeParameterCanonicalList(
+        if typeParams != null {
+            if !TrySelectTypeParameterCanonicalList(
+                argumentCanonicals,
+                typeParams,
+                enumRegistry,
+                structRegistry,
+                unionRegistry,
+                out arguments
+            ) {
+                return false
+            }
+        } else if !TrySelectOrdinaryCanonicalList(
             argumentCanonicals,
-            typeParams,
             enumRegistry,
             structRegistry,
             unionRegistry,
@@ -1113,6 +1203,10 @@ class ColumnarCanonicalTypeResolver {
         return true
     }
 
+    // THE MODELED ROWS FIRST, THEN THE GENERAL ARM — the ordinary walk's half of the same rule the
+    // type-parameter walk follows. A modeled row keeps its narrower element policy and its recorded
+    // rejection; a head no row covers, or a row that declined, falls through to the CLR's own answer
+    // in `TrySelectExternalGenericConstruction`.
     static func TrySelectOrdinaryGenericFamily(
         canonical: string,
         genericOpen: int,
@@ -1121,10 +1215,61 @@ class ColumnarCanonicalTypeResolver {
         unionRegistry: ColumnarSemanticRegistry<ColumnarUnionDef>,
         out selected: ColumnarSelectedTypeReference
     ): bool {
+        claimedHead := false
+        if TrySelectOrdinaryModeledFamily(
+            canonical,
+            genericOpen,
+            enumRegistry,
+            structRegistry,
+            unionRegistry,
+            out claimedHead,
+            out selected
+        ) {
+            return true
+        }
+
+        // A ROW THAT OWNS THIS HEAD HAS ALREADY ANSWERED. Its element policy — a dictionary
+        // key must be hashable, a span element must be blittable, a collection element must be
+        // storable — is the entire reason the row exists, so its decline is TERMINAL and the
+        // general arm never reinterprets it. The general arm is for heads no row covers.
+        if claimedHead {
+            return false
+        }
+
+        modeledSelection := selected
+        if TrySelectExternalGenericConstruction(
+            canonical,
+            genericOpen,
+            null,
+            enumRegistry,
+            structRegistry,
+            unionRegistry,
+            out selected
+        ) {
+            return true
+        }
+
+        if modeledSelection.HasRuntimeType {
+            selected = modeledSelection
+        }
+        return false
+    }
+
+    static func TrySelectOrdinaryModeledFamily(
+        canonical: string,
+        genericOpen: int,
+        enumRegistry: ColumnarSemanticRegistry<ColumnarEnumDef>,
+        structRegistry: ColumnarSemanticRegistry<ColumnarStructDef>,
+        unionRegistry: ColumnarSemanticRegistry<ColumnarUnionDef>,
+        out claimedHead: bool,
+        out selected: ColumnarSelectedTypeReference
+    ): bool {
         table := structRegistry.StructuralTypeReferences
         selected = ColumnarSelectedTypeReference.Missing(table)
+        claimedHead = false
 
         if genericOpen == 4 && canonical.StartsWith("Span<", StringComparison.Ordinal) {
+            claimedHead = true
             arguments := new ColumnarSelectedTypeReference[](0)
             if TrySelectOrdinaryArguments(
                 canonical.Substring(5, canonical.Length - 6),
@@ -1143,6 +1288,7 @@ class ColumnarCanonicalTypeResolver {
         }
 
         if genericOpen == 12 && canonical.StartsWith("ReadOnlySpan<", StringComparison.Ordinal) {
+            claimedHead = true
             arguments := new ColumnarSelectedTypeReference[](0)
             if TrySelectOrdinaryArguments(
                 canonical.Substring(13, canonical.Length - 14),
@@ -1161,6 +1307,7 @@ class ColumnarCanonicalTypeResolver {
         }
 
         if genericOpen == 10 && canonical.StartsWith("ValueTuple<", StringComparison.Ordinal) {
+            claimedHead = true
             argumentCanonicals := ColumnarTypeCanonicalizer.SplitTopLevelCommas(
                 canonical.Substring(11, canonical.Length - 12)
             )
@@ -1188,6 +1335,7 @@ class ColumnarCanonicalTypeResolver {
         }
 
         if genericOpen == 6 && canonical.StartsWith("Action<", StringComparison.Ordinal) {
+            claimedHead = true
             return TrySelectDelegateCanonical(
                 canonical.Substring(7, canonical.Length - 8),
                 false,
@@ -1199,6 +1347,7 @@ class ColumnarCanonicalTypeResolver {
         }
 
         if genericOpen == 4 && canonical.StartsWith("Task<", StringComparison.Ordinal) {
+            claimedHead = true
             arguments := new ColumnarSelectedTypeReference[](0)
             if TrySelectOrdinaryArguments(
                 canonical.Substring(5, canonical.Length - 6),
@@ -1217,6 +1366,7 @@ class ColumnarCanonicalTypeResolver {
         }
 
         if genericOpen == 9 && canonical.StartsWith("ValueTask<", StringComparison.Ordinal) {
+            claimedHead = true
             arguments := new ColumnarSelectedTypeReference[](0)
             if TrySelectOrdinaryArguments(
                 canonical.Substring(10, canonical.Length - 11),
@@ -1235,6 +1385,7 @@ class ColumnarCanonicalTypeResolver {
         }
 
         if genericOpen == 6 && canonical.StartsWith("Result<", StringComparison.Ordinal) {
+            claimedHead = true
             argumentCanonicals := ColumnarTypeCanonicalizer.SplitTopLevelCommas(
                 canonical.Substring(7, canonical.Length - 8)
             )
@@ -1264,6 +1415,7 @@ class ColumnarCanonicalTypeResolver {
         }
 
         if genericOpen == 4 && canonical.StartsWith("List<", StringComparison.Ordinal) {
+            claimedHead = true
             arguments := new ColumnarSelectedTypeReference[](0)
             if TrySelectOrdinaryArguments(canonical.Substring(5, canonical.Length - 6), 1, enumRegistry, structRegistry, unionRegistry, out arguments) && ColumnarTypeOfPlanner.IsAdmissibleCollectionElement(arguments[0].RuntimeType) {
                 definition := typeof(List<int>).GetGenericTypeDefinition()
@@ -1275,6 +1427,7 @@ class ColumnarCanonicalTypeResolver {
         }
 
         if genericOpen == 7 && canonical.StartsWith("HashSet<", StringComparison.Ordinal) {
+            claimedHead = true
             arguments := new ColumnarSelectedTypeReference[](0)
             if TrySelectOrdinaryArguments(canonical.Substring(8, canonical.Length - 9), 1, enumRegistry, structRegistry, unionRegistry, out arguments) && ColumnarTypeOfPlanner.IsAdmissibleHashSetElement(arguments[0].RuntimeType) {
                 definition := typeof(HashSet<int>).GetGenericTypeDefinition()
@@ -1286,6 +1439,7 @@ class ColumnarCanonicalTypeResolver {
         }
 
         if genericOpen == 9 && canonical.StartsWith("SortedSet<", StringComparison.Ordinal) {
+            claimedHead = true
             arguments := new ColumnarSelectedTypeReference[](0)
             if TrySelectOrdinaryArguments(canonical.Substring(10, canonical.Length - 11), 1, enumRegistry, structRegistry, unionRegistry, out arguments) && ColumnarTypeOfPlanner.IsAdmissibleCollectionElement(arguments[0].RuntimeType) {
                 definition := typeof(SortedSet<int>).GetGenericTypeDefinition()
@@ -1297,6 +1451,7 @@ class ColumnarCanonicalTypeResolver {
         }
 
         if genericOpen == 5 && canonical.StartsWith("Stack<", StringComparison.Ordinal) {
+            claimedHead = true
             arguments := new ColumnarSelectedTypeReference[](0)
             if TrySelectOrdinaryArguments(canonical.Substring(6, canonical.Length - 7), 1, enumRegistry, structRegistry, unionRegistry, out arguments) && ColumnarTypeOfPlanner.IsAdmissibleCollectionElement(arguments[0].RuntimeType) {
                 definition := typeof(Stack<int>).GetGenericTypeDefinition()
@@ -1308,6 +1463,7 @@ class ColumnarCanonicalTypeResolver {
         }
 
         if genericOpen == 13 && canonical.StartsWith("IReadOnlyList<", StringComparison.Ordinal) {
+            claimedHead = true
             arguments := new ColumnarSelectedTypeReference[](0)
             if TrySelectOrdinaryArguments(canonical.Substring(14, canonical.Length - 15), 1, enumRegistry, structRegistry, unionRegistry, out arguments) && ColumnarTypeOfPlanner.IsAdmissibleCollectionElement(arguments[0].RuntimeType) {
                 definition := typeof(IReadOnlyList<int>).GetGenericTypeDefinition()
@@ -1319,6 +1475,7 @@ class ColumnarCanonicalTypeResolver {
         }
 
         if genericOpen == 19 && canonical.StartsWith("IReadOnlyCollection<", StringComparison.Ordinal) {
+            claimedHead = true
             arguments := new ColumnarSelectedTypeReference[](0)
             if TrySelectOrdinaryArguments(canonical.Substring(20, canonical.Length - 21), 1, enumRegistry, structRegistry, unionRegistry, out arguments) && ColumnarTypeOfPlanner.IsAdmissibleCollectionElement(arguments[0].RuntimeType) {
                 definition := typeof(IReadOnlyCollection<int>).GetGenericTypeDefinition()
@@ -1330,6 +1487,7 @@ class ColumnarCanonicalTypeResolver {
         }
 
         if genericOpen == 12 && canonical.StartsWith("IReadOnlySet<", StringComparison.Ordinal) {
+            claimedHead = true
             arguments := new ColumnarSelectedTypeReference[](0)
             if TrySelectOrdinaryArguments(canonical.Substring(13, canonical.Length - 14), 1, enumRegistry, structRegistry, unionRegistry, out arguments) && ColumnarTypeOfPlanner.IsAdmissibleHashSetElement(arguments[0].RuntimeType) {
                 definition := typeof(IReadOnlySet<int>).GetGenericTypeDefinition()
@@ -1341,6 +1499,7 @@ class ColumnarCanonicalTypeResolver {
         }
 
         if genericOpen == 11 && canonical.StartsWith("IEnumerable<", StringComparison.Ordinal) {
+            claimedHead = true
             arguments := new ColumnarSelectedTypeReference[](0)
             if TrySelectOrdinaryArguments(canonical.Substring(12, canonical.Length - 13), 1, enumRegistry, structRegistry, unionRegistry, out arguments) && ColumnarTypeOfPlanner.IsAdmissibleCollectionElement(arguments[0].RuntimeType) {
                 definition := typeof(IEnumerable<int>).GetGenericTypeDefinition()
@@ -1352,6 +1511,7 @@ class ColumnarCanonicalTypeResolver {
         }
 
         if genericOpen == 10 && canonical.StartsWith("Dictionary<", StringComparison.Ordinal) {
+            claimedHead = true
             arguments := new ColumnarSelectedTypeReference[](0)
             if TrySelectOrdinaryArguments(canonical.Substring(11, canonical.Length - 12), 2, enumRegistry, structRegistry, unionRegistry, out arguments) && ColumnarTypeOfPlanner.IsAdmissibleDictionaryKeyInCompilation(arguments[0].RuntimeType, structRegistry.Values) && ColumnarTypeOfPlanner.IsAdmissibleCollectionElement(arguments[1].RuntimeType) {
                 definition := typeof(Dictionary<int, int>).GetGenericTypeDefinition()
@@ -1363,6 +1523,7 @@ class ColumnarCanonicalTypeResolver {
         }
 
         if genericOpen == 19 && canonical.StartsWith("IReadOnlyDictionary<", StringComparison.Ordinal) {
+            claimedHead = true
             arguments := new ColumnarSelectedTypeReference[](0)
             if TrySelectOrdinaryArguments(canonical.Substring(20, canonical.Length - 21), 2, enumRegistry, structRegistry, unionRegistry, out arguments) && ColumnarTypeOfPlanner.IsAdmissibleDictionaryKeyInCompilation(arguments[0].RuntimeType, structRegistry.Values) && ColumnarTypeOfPlanner.IsAdmissibleCollectionElement(arguments[1].RuntimeType) {
                 definition := ColumnarTypeOfPlanner.RequiredReadOnlyDictionaryDefinition()
@@ -1374,6 +1535,7 @@ class ColumnarCanonicalTypeResolver {
         }
 
         if genericOpen == 16 && canonical.StartsWith("SortedDictionary<", StringComparison.Ordinal) {
+            claimedHead = true
             arguments := new ColumnarSelectedTypeReference[](0)
             if TrySelectOrdinaryArguments(canonical.Substring(17, canonical.Length - 18), 2, enumRegistry, structRegistry, unionRegistry, out arguments) && !ColumnarTypeOfPlanner.ContainsBuilderBoundType(arguments[0].RuntimeType) && ColumnarTypeOfPlanner.IsAdmissibleCollectionElement(arguments[1].RuntimeType) {
                 definition := typeof(SortedDictionary<int, int>).GetGenericTypeDefinition()
@@ -1412,7 +1574,19 @@ class ColumnarCanonicalTypeResolver {
             return false
         }
 
-        if !resolved.RuntimeType.get_IsGenericParameter() && resolved.RuntimeType.get_Assembly() is AssemblyBuilder {
+        if resolved.RuntimeType.get_IsGenericParameter() {
+            selected = resolved
+            return true
+        }
+
+        // A DELEGATE ARGUMENT IS AN ORDINARY STORABLE TYPE, and that is the whole rule. It used to
+        // refuse anything belonging to the assembly being emitted, on the grounds that
+        // `Action<MyClass>` would name a type that does not exist yet — but `MakeGenericType` over a
+        // `TypeBuilder` answers a real handle, and a `Func<Plain, bool>` field, parameter, local or
+        // return is an ordinary delegate reference. What a generic argument may still never be is
+        // BY-REF-LIKE: the CLR refuses that instantiation outright, and asking for it would throw
+        // where this resolver must decline.
+        if ColumnarTypeOfPlanner.IsByRefLike(resolved.RuntimeType) || !ColumnarTypeOfPlanner.IsSupportedType(resolved.RuntimeType) {
             return false
         }
 

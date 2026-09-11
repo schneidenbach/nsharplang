@@ -198,6 +198,17 @@ class AnalyzerMemberResolution {
                     // a field, but the method arm is deliberately not reached through it.
                     bindingClrType := clrTypeConversion.TryConvertTypeInfoToClrTypeForBinding(current)
                     if bindingClrType != null {
+                        // THE SURROGATE IS A BINDING DEVICE, NOT AN ANSWER. `Comparer<Item>` binds
+                        // as `Comparer<object>` because `Item` has no CLR handle while it is being
+                        // emitted, and reading `Default` off that instantiation would answer
+                        // `Comparer<object?>` — a type nothing in this compilation can be assigned
+                        // to. Read the member off the OPEN DEFINITION instead and substitute the
+                        // SPELLED arguments by position, so the answer names `Item` again.
+                        surrogateMemberType: TypeInfo = BuiltInTypes.Unknown
+                        if genericCandidate != null && TryResolveConstructedGenericPropertyOrField(bindingClrType, genericCandidate, memberName, includeStaticMembers, out surrogateMemberType) {
+                            return surrogateMemberType
+                        }
+
                         bindingMemberType: TypeInfo = BuiltInTypes.Unknown
                         if TryResolveReflectionPropertyOrField(bindingClrType, memberName, includeStaticMembers, out bindingMemberType) {
                             return bindingMemberType
@@ -377,6 +388,39 @@ class AnalyzerMemberResolution {
 
     // Public instance members always; static members only when the name was written against the
     // TYPE rather than against a value.
+    // A PROPERTY OR FIELD OF A CONSTRUCTED GENERIC WHOSE ARGUMENTS ONLY BOUND AS SURROGATES.
+    // The definition is a real reflection type in the binding type's own universe, so its member is
+    // readable; what the member's type mentions are the DEFINITION's parameters, which the spelled
+    // arguments replace by position. Arity is checked because a spelling and a definition that
+    // disagree about it cannot be substituted at all.
+    static func TryResolveConstructedGenericPropertyOrField(bindingClrType: Type, genericType: GenericTypeInfo, memberName: string, includeStaticMembers: bool, out memberType: TypeInfo): bool {
+        memberType = BuiltInTypes.Unknown
+        if !bindingClrType.get_IsGenericType() || bindingClrType.get_IsGenericTypeDefinition() {
+            return false
+        }
+
+        definition := bindingClrType.GetGenericTypeDefinition()
+        if definition.GetGenericArguments().Length != genericType.TypeArguments.Count {
+            return false
+        }
+
+        typeOverride := AnalyzerReflectionTypeOverride.ForGenericArguments(definition, genericType)
+        memberFlags := GetReflectionMemberFlags(includeStaticMembers)
+        property := definition.GetProperty(memberName, memberFlags)
+        if property != null {
+            memberType = NullabilityMetadataReflection.ConvertPropertyWithOverride(property, typeOverride)
+            return true
+        }
+
+        field := definition.GetField(memberName, memberFlags)
+        if field != null {
+            memberType = NullabilityMetadataReflection.ConvertFieldWithOverride(field, typeOverride)
+            return true
+        }
+
+        return false
+    }
+
     static func GetReflectionMemberFlags(includeStaticMembers: bool): BindingFlags {
         memberFlags := BindingFlags.Public | BindingFlags.Instance
         if includeStaticMembers {

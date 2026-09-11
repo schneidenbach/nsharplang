@@ -1159,13 +1159,17 @@ class ColumnarTypeOfPlanner {
             return true
         }
         if ContainsBuilderBoundType(valueType) {
-            return IsSupportedCollectionType(valueType) || IsSupportedTaskType(valueType) || IsSupportedResultType(valueType) || IsSupportedAnonymousUnionType(valueType) || IsSupportedEnumeratorType(valueType) || IsSupportedListEnumeratorType(valueType) || IsSupportedDictionaryValueCollectionType(valueType) || IsSupportedDictionaryEnumeratorType(valueType) || IsSupportedDictionaryKeyEnumeratorType(valueType) || IsSupportedDictionaryValueEnumeratorType(valueType) || IsSupportedKeyValuePairType(valueType) || IsSupportedReferenceEqualityComparerType(valueType) || IsSupportedValueTuple(valueType) || IsSupportedExternalGenericOverTypeParameters(valueType) || IsSupportedExternalConstruction(valueType)
-        }
-        if valueType.get_IsGenericType() && !valueType.get_IsGenericTypeDefinition() {
-            definition := valueType.GetGenericTypeDefinition()
-            if ExternalAssemblyScan.HasExactTypeIdentity(definition, RequiredNullableDefinition().get_AssemblyQualifiedName() ?? "") {
+            // `Nullable<T>` keeps ONE owner on both sides of this branch. Its lifting rules decide
+            // which elements have a modelled null-carrying representation, and a builder-bound
+            // argument must not reach the general external-construction arm and borrow an answer
+            // the lifting rules never gave.
+            if IsExactNullableConstruction(valueType) {
                 return IsSupportedNullable(valueType)
             }
+            return IsSupportedCollectionType(valueType) || IsSupportedTaskType(valueType) || IsSupportedResultType(valueType) || IsSupportedAnonymousUnionType(valueType) || IsSupportedEnumeratorType(valueType) || IsSupportedListEnumeratorType(valueType) || IsSupportedDictionaryValueCollectionType(valueType) || IsSupportedDictionaryEnumeratorType(valueType) || IsSupportedDictionaryKeyEnumeratorType(valueType) || IsSupportedDictionaryValueEnumeratorType(valueType) || IsSupportedKeyValuePairType(valueType) || IsSupportedReferenceEqualityComparerType(valueType) || IsSupportedValueTuple(valueType) || IsSupportedExternalGenericOverTypeParameters(valueType) || IsSupportedExternalConstruction(valueType)
+        }
+        if IsExactNullableConstruction(valueType) {
+            return IsSupportedNullable(valueType)
         }
         if IsByRefLike(valueType) {
             return IsSupportedSpanLikeType(valueType)
@@ -1190,7 +1194,11 @@ class ColumnarTypeOfPlanner {
             return false
         }
         definition := valueType.GetGenericTypeDefinition()
-        if definition == null || ContainsBuilderBoundType(definition) {
+        // THE BY-REF-LIKE QUESTION IS ASKED OF THE DEFINITION, for the same reason its sibling arm
+        // asks it there: a builder-bound instantiation REFUSES the read and answers "not
+        // by-ref-like", so `Span<T>` over a declaration's own parameter would slip through the
+        // instantiation check above. `IsSupportedSpanLikeType` is the only owner of a span shape.
+        if definition == null || ContainsBuilderBoundType(definition) || IsByRefLike(definition) {
             return false
         }
 
@@ -1264,22 +1272,30 @@ class ColumnarTypeOfPlanner {
         }
     }
 
-    // AN EXTERNAL GENERIC CONSTRUCTED OVER THE ENCLOSING DECLARATION'S OWN TYPE PARAMETERS —
+    // AN EXTERNAL GENERIC CONSTRUCTED OVER ANYTHING THIS COMPILATION CAN ALREADY STORE —
     // `EqualityComparer<TOk>` and `IEquatable<Outcome<TOk, TErr>>` inside `Outcome<TOk, TErr>`,
-    // `Comparer<T>` and `Func<T, bool>` inside `Ranker<T>`. Its head is an ordinary external type the
-    // catalog verifies by exact identity, and its arguments are this declaration's own parameters (or
-    // shapes built from them), which are storable in their own right. Nothing consults the head's
-    // NAME, so one more BCL generic over `T` never needs another row in a family table — which is the
-    // point: a table cannot state a rule for a type argument it does not know.
+    // `Comparer<T>` and `Func<T, bool>` inside `Ranker<T>`, and equally `IEquatable<Plain>`,
+    // `Comparer<Item>`, `Func<Plain, bool>` and `IEquatable<Outcome<int, string>>` written at file
+    // scope over a COMPLETE source type. Its head is an ordinary external type the catalog verifies
+    // by exact identity, and each argument is storable in its own right. Nothing consults the head's
+    // NAME, so one more BCL generic never needs another row in a family table — which is the point:
+    // a table cannot state a rule for a type argument it does not know.
     //
-    // THE TYPE-PARAMETER MENTION IS THE WHOLE BOUNDARY, not decoration. A builder-bound construction
-    // over COMPLETE arguments — `Func<SourceClass>`, `IEnumerator<Box<int>>`,
-    // `Dictionary<string, SourceRow[]>.KeyCollection.Enumerator` — is a closed shape whose emission
-    // the family predicates above already own or deliberately decline, and this arm does not
-    // reinterpret their answer. By-ref-like heads stay out for the same reason: their lowerings are
-    // element-specific and `IsSupportedSpanLikeType` remains their only owner. The head must also
-    // come from a real reference, never from the assembly being emitted, so a source declaration
-    // that spells a BCL generic's name cannot borrow that name's admission.
+    // WHAT THIS ANSWERS IS STORABILITY, AND ONLY THAT. A field, local, parameter, return or base-list
+    // interface of this shape is an ordinary reference or an ordinary value: the CLR gives the
+    // instantiation a real handle whether its arguments are finished or not. The narrower family
+    // predicates beside it are not a second opinion about storage — each states a rule its own
+    // LOWERING needs (a collection element it will box or copy, a dictionary key it will hash, an
+    // enumerator whose protocol it will drive), and each lowering asks its own predicate directly.
+    // A shape admitted here that no lowering models is stored, loaded and passed; the operation that
+    // is not modelled still declines at the site that would have to emit it.
+    //
+    // Three shapes remain out. A BY-REF-LIKE head, asked of the DEFINITION because a builder-bound
+    // instantiation refuses the read, keeps `IsSupportedSpanLikeType` as its only owner — its
+    // lowerings are element-specific and it may not be a field at all. `Nullable<T>` is routed to
+    // `IsSupportedNullable` by `IsSupportedType` before this arm is reached, so lifting keeps one
+    // owner. And the head must come from a real reference, never from the assembly being emitted, so
+    // a source declaration that spells a BCL generic's name cannot borrow that name's admission.
     static func IsSupportedExternalConstruction(valueType: Type): bool {
         if valueType is TypeBuilder || IsEnumBuilder(valueType) || valueType.get_IsGenericParameter() || valueType.get_HasElementType() {
             return false
@@ -1294,40 +1310,14 @@ class ColumnarTypeOfPlanner {
             return false
         }
         arguments := valueType.GetGenericArguments()
-        mentionsTypeParameter := false
         i := 0
         while i < arguments.Length {
             if !IsSupportedType(arguments[i]) {
                 return false
             }
-            if MentionsGenericParameter(arguments[i]) {
-                mentionsTypeParameter = true
-            }
             i += 1
         }
-        return mentionsTypeParameter
-    }
-
-    static func MentionsGenericParameter(valueType: Type): bool {
-        if valueType.get_IsGenericParameter() {
-            return true
-        }
-        if valueType.get_HasElementType() {
-            element := valueType.GetElementType()
-            return element != null && MentionsGenericParameter(element)
-        }
-        if !valueType.get_IsGenericType() {
-            return false
-        }
-        arguments := valueType.GetGenericArguments()
-        i := 0
-        while i < arguments.Length {
-            if MentionsGenericParameter(arguments[i]) {
-                return true
-            }
-            i += 1
-        }
-        return false
+        return arguments.Length > 0
     }
 
     static func IsSupportedElementType(valueType: Type): bool {
@@ -1343,6 +1333,14 @@ class ColumnarTypeOfPlanner {
 
     static func IsLiftableNullableElement(valueType: Type): bool {
         return valueType == typeof(int) || valueType == typeof(long) || valueType == typeof(ulong) || valueType == typeof(uint) || valueType == typeof(short) || valueType == typeof(ushort) || valueType == typeof(byte) || valueType == typeof(sbyte) || valueType == typeof(bool) || valueType == typeof(char) || valueType == typeof(double) || valueType == typeof(float) || valueType == typeof(decimal) || valueType == typeof(TimeSpan) || IsSupportedValueTuple(valueType)
+    }
+
+    static func IsExactNullableConstruction(valueType: Type): bool {
+        if !valueType.get_IsGenericType() || valueType.get_IsGenericTypeDefinition() {
+            return false
+        }
+        definition := valueType.GetGenericTypeDefinition()
+        return ExternalAssemblyScan.HasExactTypeIdentity(definition, RequiredNullableDefinition().get_AssemblyQualifiedName() ?? "")
     }
 
     static func IsSupportedNullable(valueType: Type): bool {

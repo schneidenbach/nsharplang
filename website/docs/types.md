@@ -940,19 +940,66 @@ own construction. A wrong arity is reported as an ordinary [NL207](/docs/errors/
 interface member you do not implement is reported as an ordinary [NL325](/docs/errors/NL325) naming
 the constructed interface.
 
+### Over your own complete types
+
+The same three places accept an external generic closed over a COMPLETE type of your compilation —
+a class, struct, record, union, nested type, an array of one, or a closed instantiation of one of
+your own generics — and it does not have to be the enclosing declaration:
+
+```n#
+struct Plain: IEquatable<Plain> {
+    value: int
+    tag: string
+
+    func Equals(other: Plain): bool => value == other.value
+    func GetHashCode(): int => value
+}
+
+class Item: IComparable<Item> {
+    rank: int
+    func CompareTo(other: Item): int => other.rank - rank
+}
+
+func Report(rows: List<Plain>, seed: IEquatable<Plain>): KeyValuePair<string, Plain> {
+    matcher: Func<Plain, bool> = row => row.Value > 0
+    ordered: IComparer<Item> = Comparer<Item>.Default
+    byName: Dictionary<string, Plain> = new Dictionary<string, Plain>()
+    ...
+}
+```
+
+- **A base list.** `struct Plain: IEquatable<Plain>` and `class Item: IComparable<Item>` land the
+  CONSTRUCTED interface in the emitted metadata, and the BCL dispatches through it:
+  `EqualityComparer<Plain>.Default.Equals` calls your `Equals`, and `List<Item>.Sort()` orders by
+  your `CompareTo`. The same holds for a closed instantiation of your own generic —
+  `EqualityComparer<Outcome<int, string>>.Default` reaches `Outcome<TOk, TErr>`'s implementation.
+- **Locals, fields, parameters and returns.** `IEquatable<Plain>`, `IEquatable<Outcome<int, string>>`,
+  `Comparer<Item>`, `Func<Plain, bool>`, `KeyValuePair<string, Plain>`, `IEnumerable<Plain>` and
+  `Dictionary<string, Plain>` are ordinary member and local types. Assigning your value into a
+  constructed interface it implements is the ordinary conversion — a class needs no instruction, a
+  struct boxes.
+- **Static receivers.** `EqualityComparer<Plain>.Default`, `Comparer<Item>.Default` and
+  `Comparer<Outcome<int, string>>.Default` read the closed type's own member.
+
 ### Current limits
 
 - An **array of a constructed external value-type generic** (`Vector<int>[]`) does not emit yet.
   Arrays of your own types, of reference types and of the primitive types are unaffected. The same
   limit applies to an array of an external generic closed over your own type parameter
   (`List<T>[]`); `T[]` itself is unaffected.
-- A **local, field or parameter typed by an external generic over one of your own COMPLETE types**
-  — `IEquatable<Plain>` where `Plain` is a type in this compilation, or
-  `IEquatable<Outcome<int, string>>` at a use site outside the declaration — is not admitted yet.
-  Writing the interface in the BASE LIST is unaffected, and so is reaching it through the BCL
-  (`EqualityComparer<Outcome<int, string>>.Default`).
+- A **COLLECTION whose element is an array of one of your own types** — `List<Plain[]>`,
+  `Dictionary<string, Plain[]>` — is not admitted; the collection lowerings keep a narrower element
+  rule than the general one. `Plain[]` as an ordinary generic argument (`Func<Plain[], bool>`) is
+  unaffected, and so is `Plain[]` itself.
+- **Implementing `IEnumerable<T>` on your own class** compiles, but the emitted type cannot be
+  loaded: `IEnumerable<T>` inherits the non-generic `IEnumerable.GetEnumerator()`, which differs from
+  the generic one only by return type, and N# has no explicit interface implementation to spell it.
+  This is not specific to your own type argument — `class Bag: IEnumerable<int>` has the same
+  problem. Return `IEnumerable<T>` from a method instead of implementing it.
 - A **generic method your own type declares** — `static func Of<U>(value: U)` on a class or struct,
   generic or not — is not compiled yet. A generic FREE function is unaffected.
+- A **lambda assigned to a delegate FIELD inside a constructor** is not emitted, for any delegate
+  (`Func<int, bool>` too). Build it in a local, or return it from a function.
 
 ## Nullable Types
 

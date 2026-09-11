@@ -975,7 +975,7 @@ test "typeof rejects structurally equivalent source array union arms" {
     ColumnarRangePlannerAssertEmptyRollback(plan)
 }
 
-test "typeof delegate target keeps direct emit broader than receiver preflight" {
+test "typeof delegate target emits and preflights the same delegate over a source collection" {
     sourceBuilder := TypeOfCreateSourceBuilder("TypeOfDelegateElement", false)
     bindings := ColumnarRangePlannerEmptyBindings()
     definitions := new ColumnarStructDef[](1)
@@ -1027,9 +1027,16 @@ test "typeof delegate target keeps direct emit broader than receiver preflight" 
     assert resultType == typeof(Type)
     il.Emit(OpCodes.Ret)
 
+    // DIRECT EMIT AND THE RECEIVER PREFLIGHT NOW AGREE, and the asymmetry they used to have was the
+    // gap, not the contract: the preflight's question is `IsSupportedType` of the delegate, and a
+    // `Func<List<SourceElement>, int>` is an ordinary delegate reference the general
+    // external-construction arm admits. A `typeof` whose argument emitted but could not be
+    // preflighted was a value the planner could produce and not describe.
     preflight := new ColumnarCodePlan()
+    preflight.PrepareV3()
+    preflightOuter := preflight.BeginFragment(-1, 7101, tree.Root)
     preflightType := typeof(object)
-    assert !ColumnarTypeOfPlanner.TryGetType(
+    assert ColumnarTypeOfPlanner.TryAppendTypeOf(
         tree.Nodes,
         tree.Source,
         tree.Root,
@@ -1038,7 +1045,9 @@ test "typeof delegate target keeps direct emit broader than receiver preflight" 
         out preflightType
     )
     assert preflightType == typeof(Type)
-    ColumnarRangePlannerAssertEmptyRollback(preflight)
+    preflight.CompleteFragment(preflightOuter, preflightType)
+    preflight.CompleteV3(preflightType)
+    ColumnarCodePlanExecutor.Validate(preflight)
 }
 
 test "typeof append composes recursively and rolls back atomically on decline" {

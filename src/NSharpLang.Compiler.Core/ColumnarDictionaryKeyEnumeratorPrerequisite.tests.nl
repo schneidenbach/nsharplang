@@ -115,8 +115,13 @@ test "dictionary Keys concrete enumerator retains the collection element boundar
         sourceArray
     )
 
-    assert !ColumnarTypeOfPlanner.IsSupportedDictionaryKeyEnumeratorType(rejected)
-    assert !ColumnarTypeOfPlanner.IsSupportedType(rejected)
+    // THE COLLECTION-ELEMENT BOUNDARY IS THIS PREREQUISITE'S, AND IT HOLDS: the acquisition,
+    // movement, `Current` and disposal lowerings below are written for an element this compilation
+    // can yield, and an array of a source builder is not one. Storing the enumerator STRUCT itself
+    // is a different question with a different answer — it is an ordinary value whose CLR handle
+    // exists — so `IsSupportedType` admits it while nothing will drive its protocol.
+    assert !ColumnarTypeOfPlanner.IsSupportedDictionaryKeyEnumeratorType(rejected), "an array-of-source element is outside the key-enumerator prerequisite"
+    assert ColumnarTypeOfPlanner.IsSupportedType(rejected), "the enumerator struct itself is an ordinary storable value"
 }
 
 test "dictionary Keys concrete enumerator selects exact acquisition movement Current and disposal" {

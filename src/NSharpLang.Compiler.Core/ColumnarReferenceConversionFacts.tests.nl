@@ -279,9 +279,15 @@ test "reference equality comparer closes over a source class through the exact c
         "ReferenceConversionTypedComparerNamesake",
         0
     )
-    assert !ColumnarTypeOfPlanner.IsSupportedType(valueComparer)
-    assert !ColumnarTypeOfPlanner.IsSupportedType(interfaceComparer)
-    assert !ColumnarTypeOfPlanner.IsSupportedType(wrongInterface)
+    // STORABILITY IS NOT CONVERTIBILITY, and this contract is about the second one. All three of
+    // these comparer shells are ordinary interface references a local or a constructor parameter may
+    // hold — the general external-construction arm says so. What none of them is, is a target the
+    // BCL's `ReferenceEqualityComparer` singleton converts INTO: that singleton implements
+    // `IEqualityComparer<object>`, so it upcasts to the comparer over a source CLASS and to nothing
+    // else. The conversion assertions below are the boundary, and they are unchanged.
+    assert ColumnarTypeOfPlanner.IsSupportedType(valueComparer)
+    assert ColumnarTypeOfPlanner.IsSupportedType(interfaceComparer)
+    assert ColumnarTypeOfPlanner.IsSupportedType(wrongInterface)
     assert !ColumnarReferenceConversionFacts.IsExactKnownUpcast(
         runtimeComparer,
         wrongValueComparer

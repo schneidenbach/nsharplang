@@ -19,6 +19,12 @@ func DictionarySequencePairType(first: Type, second: Type): Type {
     return DictionarySequenceClosedTwo(definition, first, second)
 }
 
+func DictionarySequenceOneType(argument: Type): Type[] {
+    arguments := new Type[](1)
+    arguments[0] = argument
+    return arguments
+}
+
 func DictionarySequenceGenericType(fullName: string, arguments: Type[]): Type {
     definition := Type.GetType(fullName)
     if definition == null {
@@ -185,7 +191,12 @@ test "dictionary sequence prerequisite retains ambiguity and unrelated copy-sour
     assert !legacy
 }
 
-test "dictionary sequence prerequisite admits only the exact body-local string entry sequence" {
+// THE BODY-LOCAL SEQUENCE IS THE SAME SEQUENCE A SIGNATURE SPELLS. This prerequisite once admitted
+// only the exact `IEnumerable<KeyValuePair<string, string>>` shape the Analyzer source needed,
+// because the type-parameter walk had no general answer for anything else; it now applies the
+// ordinary collection-element policy, so any sequence a signature could name a body local can name
+// too. What the policy still refuses is an element this compilation cannot yield.
+test "dictionary sequence prerequisite resolves a body-local sequence by the ordinary element policy" {
     resolution := CanonicalResolverBaselineResolution()
     typeParameters := new Dictionary<string, Type>(StringComparer.Ordinal)
     pair := DictionarySequencePairType(typeof(string), typeof(string))
@@ -204,8 +215,8 @@ test "dictionary sequence prerequisite admits only the exact body-local string e
         resolution.Structs,
         resolution.Unions,
         out resolved
-    )
-    assert resolved == expected
+    ), "dictionary-sequence body-local assertion 1"
+    assert resolved == expected, "dictionary-sequence body-local assertion 2"
 
     resolved = typeof(object)
     assert ColumnarCanonicalTypeResolver.TryResolveTypeWithTypeParams(
@@ -215,41 +226,62 @@ test "dictionary sequence prerequisite admits only the exact body-local string e
         resolution.Structs,
         resolution.Unions,
         out resolved
-    )
-    assert resolved == expected
+    ), "dictionary-sequence body-local assertion 3"
+    assert resolved == expected, "dictionary-sequence body-local assertion 4"
 
     resolved = typeof(object)
-    assert !ColumnarCanonicalTypeResolver.TryResolveTypeWithTypeParams(
+    assert ColumnarCanonicalTypeResolver.TryResolveTypeWithTypeParams(
         "IEnumerable<KeyValuePair<string,int>>",
         typeParameters,
         resolution.Enums,
         resolution.Structs,
         resolution.Unions,
         out resolved
-    )
-    assert resolved == null
+    ), "dictionary-sequence body-local assertion 5"
+    assert resolved == DictionarySequenceGenericType(
+        "System.Collections.Generic.IEnumerable`1",
+        DictionarySequenceOneType(DictionarySequencePairType(typeof(string), typeof(int)))
+    ), "dictionary-sequence body-local assertion 6"
 
     resolved = typeof(object)
-    assert !ColumnarCanonicalTypeResolver.TryResolveTypeWithTypeParams(
+    assert ColumnarCanonicalTypeResolver.TryResolveTypeWithTypeParams(
         "IEnumerable<KeyValuePair<int,string>>",
         typeParameters,
         resolution.Enums,
         resolution.Structs,
         resolution.Unions,
         out resolved
-    )
-    assert resolved == null
+    ), "dictionary-sequence body-local assertion 7"
+    assert resolved == DictionarySequenceGenericType(
+        "System.Collections.Generic.IEnumerable`1",
+        DictionarySequenceOneType(DictionarySequencePairType(typeof(int), typeof(string)))
+    ), "dictionary-sequence body-local assertion 8"
 
     resolved = typeof(object)
-    assert !ColumnarCanonicalTypeResolver.TryResolveTypeWithTypeParams(
+    assert ColumnarCanonicalTypeResolver.TryResolveTypeWithTypeParams(
         "IEnumerable<string>",
         typeParameters,
         resolution.Enums,
         resolution.Structs,
         resolution.Unions,
         out resolved
-    )
-    assert resolved == null
+    ), "dictionary-sequence body-local assertion 9"
+    assert resolved == DictionarySequenceGenericType(
+        "System.Collections.Generic.IEnumerable`1",
+        DictionarySequenceOneType(typeof(string))
+    ), "dictionary-sequence body-local assertion 10"
+
+    // AND THE TWO WALKS AGREE, which is the whole point of the change: the body-local answer and the
+    // signature answer for one spelling are now the same type, not two different policies.
+    ordinaryResolved := typeof(object)
+    assert ColumnarCanonicalTypeResolver.TryResolveType(
+        "IEnumerable<string>",
+        resolution.Enums,
+        resolution.Structs,
+        resolution.Unions,
+        out ordinaryResolved
+    ), "the ordinary walk resolves the same sequence spelling"
+    assert ordinaryResolved == resolved, "both walks answer one type for one spelling"
 }
 
 test "dictionary sequence prerequisite selects exact acquisition movement current and disposal handles" {
