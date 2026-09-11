@@ -24,12 +24,14 @@ import System.Collections.Generic
 //     and the name carries the visibility. `_ok` is `ok`, and the two members whose PARAMETER shares
 //     that name say `this.ok` for the field, exactly as the constructor does.
 //
-// `[MethodImpl(...)]` IS ABSENT, AND THAT IS A RECORDED GAP, NOT A CHOICE. The C# marks its hot
-// members `MethodImplOptions.AggressiveInlining | MethodImplOptions.AggressiveOptimization`. N#
-// parses attributes but the columnar backend preserves only those with no constructor arguments or
-// positional string arguments (website/docs/basics.md), so an attribute whose single argument is an
-// ENUM FLAGS COMBINATION cannot be written. Inlining hints do not change observable behaviour, so
-// every assertion in the test file holds without them.
+// `[MethodImpl(...)]` IS ABSENT, AND THE EXACT FAILURE IS WORTH WRITING DOWN. The C# marks its hot
+// members `MethodImplOptions.AggressiveInlining | MethodImplOptions.AggressiveOptimization`. Writing
+// that here COMPILES — no diagnostic, no decline — but the attribute is then SILENTLY DROPPED:
+// `GetMethodImplementationFlags()` on the emitted method answers 0, for the combination, for a single
+// `AggressiveInlining`, and for an unmarked method alike (measured on the tip CLI). Carrying a
+// declaration the backend discards would put something in this surface that is not true of the
+// emitted type, so it is left out and recorded instead. Inlining hints change no observable
+// behaviour, and every assertion in the test files holds without them.
 readonly struct Result<TOk, TErr>: IEquatable<Result<TOk, TErr>> {
     readonly ok: TOk
     readonly err: TErr

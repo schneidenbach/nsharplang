@@ -1,6 +1,7 @@
 namespace NSharpLang.RuntimeAcceptance
 
 import System
+import System.Collections.Generic
 import System.Reflection
 
 // WHAT THIS PROJECT IS. `Result.nl` and `Union.nl` are N# translations of the two generic types in
@@ -395,6 +396,36 @@ test "the CLR name carries the arity, and the type parameters are two" {
     assert typeof(Result<int, string>).GetGenericArguments().Length == 2
     assert typeof(Result<int, string>).GetGenericArguments()[0] == typeof(int)
     assert typeof(Result<int, string>).GetGenericArguments()[1] == typeof(string)
+}
+
+// INTERFACE DISPATCH THROUGH THE BASE LIST, ASKED THE WAY THE BCL ASKS IT. `EqualityComparer<T>` picks
+// `IEquatable<T>`'s implementation when the type has one, so a comparer over the CONSTRUCTED
+// translation reaches `Equals(Result<int, string>)` — the declared implementation — rather than the
+// object overload. That is the whole observable meaning of the base list, and it is asserted here
+// because the direct spelling cannot be: a local typed by an external generic over a COMPLETE source
+// type (`e: IEquatable<Result<int, string>> = r`) still declines at
+// `emit.typed-local.unsupported-type`, which is a separate stream's slice.
+test "the declared IEquatable implementation is what BCL dispatch reaches" {
+    ok := Result<int, string>.Ok(42)
+    sameOk := Result<int, string>.Ok(42)
+    otherOk := Result<int, string>.Ok(7)
+    err := Result<int, string>.Err("failure")
+    uninitialized: Result<int, string> = default
+    alsoUninitialized: Result<int, string> = default
+
+    // The comparer is used in place rather than bound to a name: a LOCAL typed by an external generic
+    // over a complete source type is the same decline as the `IEquatable<...>` local above.
+    assert EqualityComparer<Result<int, string>>.Default.Equals(ok, sameOk)
+    assert !EqualityComparer<Result<int, string>>.Default.Equals(ok, otherOk)
+    assert !EqualityComparer<Result<int, string>>.Default.Equals(ok, err)
+    assert EqualityComparer<Result<int, string>>.Default.Equals(uninitialized, alsoUninitialized)
+    assert EqualityComparer<Result<int, string>>.Default.GetHashCode(ok) == ok.GetHashCode()
+
+    runtimeOk := NSharpLang.Runtime.Result<int, string>.Ok(42)
+    runtimeSame := NSharpLang.Runtime.Result<int, string>.Ok(42)
+    runtimeErr := NSharpLang.Runtime.Result<int, string>.Err("failure")
+    assert EqualityComparer<NSharpLang.Runtime.Result<int, string>>.Default.Equals(runtimeOk, runtimeSame)
+    assert !EqualityComparer<NSharpLang.Runtime.Result<int, string>>.Default.Equals(runtimeOk, runtimeErr)
 }
 
 test "the constructed type implements IEquatable of itself" {

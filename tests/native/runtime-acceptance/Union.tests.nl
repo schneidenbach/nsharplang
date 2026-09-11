@@ -1,6 +1,7 @@
 namespace NSharpLang.RuntimeAcceptance
 
 import System
+import System.Collections.Generic
 import System.Reflection
 
 // `Union.nl` IS THE N# TRANSLATION OF `src/NSharpLang.Runtime/Union.cs`, AND THIS IS WHAT IT DOES.
@@ -324,6 +325,25 @@ func UnionImplementsInterface(candidate: Type, wanted: Type): bool {
     }
 
     return false
+}
+
+// INTERFACE DISPATCH THROUGH THE BASE LIST, asked the way the BCL asks it: `EqualityComparer<T>` picks
+// `IEquatable<T>`'s implementation when the type has one, so a comparer over the constructed
+// translation reaches the declared `Equals(Union<T0, T1>)` rather than the object overload. The
+// comparer is used in place rather than bound to a name — a LOCAL typed by an external generic over a
+// complete source type still declines at `emit.local.unsupported-type`, which is a separate slice.
+test "the declared IEquatable implementation is what BCL dispatch reaches" {
+    intArm := IntArm()
+    sameIntArm := new Union<int, string>(5)
+    otherIntArm := new Union<int, string>(6)
+    uninitialized: Union<int, string> = default
+    alsoUninitialized: Union<int, string> = default
+
+    assert EqualityComparer<Union<int, string>>.Default.Equals(intArm, sameIntArm)
+    assert !EqualityComparer<Union<int, string>>.Default.Equals(intArm, otherIntArm)
+    assert !EqualityComparer<Union<int, string>>.Default.Equals(intArm, TextArm())
+    assert EqualityComparer<Union<int, string>>.Default.Equals(uninitialized, alsoUninitialized)
+    assert EqualityComparer<Union<int, string>>.Default.GetHashCode(intArm) == intArm.GetHashCode()
 }
 
 test "the union is a readonly value type named for its arity" {

@@ -1042,6 +1042,13 @@ Two rules the compiler enforces about the type-argument list itself:
   local's declared type, but not as a `type` alias target, a parameter type, an annotated local's
   initializer, a `new` expression, or the receiver of a generic or `out`-taking member. Importing the
   namespace and using the simple name reaches all of those.
+- `default` is written **bare**; the C#-style `default(T)` is not N# syntax — the parser reads it as
+  the keyword followed by a call, and the analyzer reports a call on a maybe-null value. Annotate the
+  target instead (`x: T = default`, `return default` on a typed function).
+- A `[MethodImpl(...)]` attribute is **accepted and then dropped**: the source compiles with no
+  diagnostic, and the emitted method's `GetMethodImplementationFlags()` is `0` whether the argument is
+  a single `MethodImplOptions` value or a flags combination. Treat inlining hints as unavailable
+  rather than applied.
 - A **catch clause's exception type must be a simple name**: `catch ex: System.InvalidOperationException`
   does not parse, `import System` plus `catch ex: InvalidOperationException` does. Relatedly, a type
   used ONLY as a catch type or only inside a delegate type in a signature does not yet count as a use
