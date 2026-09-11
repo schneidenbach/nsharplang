@@ -271,6 +271,36 @@ THE DISPATCH ORDER IS THE SPECIFICATION. Moving one arm past another changes the
   wrapper's `implicit operator Wrap<T>(value: T)` can only be declared on the target: the `T` end may
   be `int`, which declares nothing about `Wrap`. Each end's operator signature is read through that
   end's OWN substitution, so reached as `Wrap<int>` the operator is asked as `int -> Wrap<int>`.
+- The three REFLECTED arms (both ends reflected; reflected target with a built-in source; built-in
+  target with a reflected source) take an ACCEPTANCE and nothing else. They used to RETURN the CLR's
+  `IsAssignableFrom` verdict, which sent every reflected pair to a type error before the user-defined
+  arm below could be asked — `IsAssignableFrom` knows nothing about `implicit operator XName(string)`
+  or `implicit operator DateTimeOffset(DateTime)`. A refusal now falls through, exactly as the
+  constructed-generic bridge beside them already did.
+
+USER-DEFINED CONVERSIONS AN EXTERNAL TYPE DECLARES ARE A SEPARATE ARM WITH A SHARED OWNER.
+`DeclaresImplicitConversion` reads `DeclaredMembers`, which only a SOURCE declaration has, so a
+referenced assembly's `op_Implicit` / `op_Explicit` was invisible to it. `ClassifyExternalConversion`
+converts both ends through the EXACT CLR conversion (never the surrogate one) and asks
+`ExternalUserDefinedConversions` — the SAME owner `ColumnarIlEmitter.TryEmitUserDefinedConversion`
+asks for the handle to call, so the analyzer cannot accept a conversion the emitter then declines.
+
+That owner implements ECMA-334 §10.5.3 (implicit) and §10.5.4 (explicit) rather than an exact
+signature match: candidates are the operators declared by the source type, by the target type and by
+their base classes (read `DeclaredOnly` per level — conversion operators are not inherited members);
+applicability is decided by STANDARD conversions only, which is also why the search never recurses;
+and the most specific source and target types must be spanned by exactly ONE operator. A tie is
+`Ambiguous` and selects nothing, so `Union<float, decimal> u = 5` stays a type error rather than an
+arbitrary arm. `AnalyzerAssignability.ClassifyUserDefinedConversion` is the classification a
+reporting site can consult to say WHY; assignability itself still answers only true or false.
+
+A cheap memo (`externalConversionOwners`) answers "does either end declare ANY conversion operator"
+before a candidate list is built, because assignability asks this of every pair it cannot otherwise
+relate and almost none of them name such a type.
+
+NOT YET: a LIFTED user-defined conversion (`S? -> T?` synthesised from `S -> T`), and a conversion
+declared by an external generic that is not yet closed over real types — inside
+`func Wrap<T>(): Union<T, string>` the instantiation is builder-bound and contributes no candidates.
 
 THE RE-ENTRANCY GUARD IS CORRECTNESS, NOT AN OPTIMISATION. A user-defined implicit conversion can
 name types whose own conversions name it back; without the active-pair guard `HasImplicitConversion`
@@ -1104,7 +1134,7 @@ limit a generic FREE function with a `Func<TValue, TResult>` parameter has.
 - Inheritance (class → base class)
 - Interface implementation (class → interface)
 - Duck interface structural typing (see [Duck interfaces](../../website/docs/types.md#duck-interfaces))
-- User-defined implicit conversions
+- User-defined implicit conversions, declared by a SOURCE type or by an EXTERNAL one
 - Nullable conversions (`T → T?`)
 - CLR-backed assignability and the explicitly modeled generic collection variance/conversions
 - Exact array-to-span and `Span<T>`-to-`ReadOnlySpan<T>` conversions with preserved element identity

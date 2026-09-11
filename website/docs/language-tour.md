@@ -1253,6 +1253,10 @@ type converted to — which is what lets a wrapper declare its own inbound conve
 [static members of your own generic types](#static-members-of-your-own-generic-types) for the
 generic form, `implicit operator Wrap<T>(value: T)`.
 
+The same rules reach the conversions a **.NET type** declares, so `name: XName = "entry"` and
+`offset: DateTimeOffset = instant` work without ceremony — see
+[conversion operators of .NET types](types.md#conversion-operators).
+
 ## Type Aliases
 
 Create a transparent alias for a longer type — fully interchangeable with the underlying
