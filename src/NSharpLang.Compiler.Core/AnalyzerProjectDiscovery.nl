@@ -378,11 +378,13 @@ class AnalyzerProjectTypeDiscovery {
     // exactly this shape and so does N#, because whichever import happened to be written first is
     // not what the developer meant to select.
     //
-    // WHAT IS *NOT* AMBIGUOUS, and both exclusions are C#'s: the file's OWN namespace wins outright
-    // over any import (a closer declaration is not a tie), and the project-wide auto-discovery
-    // fallback is never a candidate (it is what runs when NO import supplies the name). So this asks
-    // only about the IMPORTED namespaces, and only once a name has already resolved through one of
-    // them — a name that resolves from the current namespace or from a local scope never reaches it.
+    // WHAT IS *NOT* AMBIGUOUS, and every exclusion is C#'s: the file's own namespace and each
+    // ENCLOSING namespace outward win outright over any import (a lexically closer declaration is not
+    // a tie — `SimpleNamePrecedence` rules 1 and 2), and the project-wide auto-discovery fallback is
+    // never a candidate (it is what runs when NO import supplies the name). So this asks only about
+    // the genuinely IMPORTED namespaces, and only once a name has already resolved through one of
+    // them — a name that resolves lexically or from a local scope never reaches it. An `import` that
+    // merely names an enclosing namespace is redundant, not a rival, so it is skipped here too.
     //
     // The two candidates come back FULLY QUALIFIED, in import order, so the report can name both and
     // suggest the qualification that settles it.
@@ -391,10 +393,15 @@ class AnalyzerProjectTypeDiscovery {
         secondCandidate = ""
         writtenName := TypeArityNames.Display(name)
 
-        ownType: TypeInfo = BuiltInTypes.Unknown
-        ownDeclaration: SymbolDeclaration? = null
-        if TryResolveProjectTypeInNamespace(name, currentNamespace, currentNamespace, out ownType, out ownDeclaration) {
-            return false
+        lexical := SimpleNamePrecedence.LexicalNamespaces(currentNamespace)
+        lexicalIndex := 0
+        while lexicalIndex < lexical.Count {
+            lexicalType: TypeInfo = BuiltInTypes.Unknown
+            lexicalDeclaration: SymbolDeclaration? = null
+            if TryResolveProjectTypeInNamespace(name, lexical[lexicalIndex], currentNamespace, out lexicalType, out lexicalDeclaration) {
+                return false
+            }
+            lexicalIndex = lexicalIndex + 1
         }
 
         matchedNamespace: string? = null
@@ -402,7 +409,7 @@ class AnalyzerProjectTypeDiscovery {
         while index < usingNamespaces.Count {
             candidateNamespace := usingNamespaces[index]
             index = index + 1
-            if string.Equals(candidateNamespace, currentNamespace, StringComparison.Ordinal) {
+            if SimpleNamePrecedence.IsLexicalNamespace(currentNamespace, candidateNamespace) {
                 continue
             }
 

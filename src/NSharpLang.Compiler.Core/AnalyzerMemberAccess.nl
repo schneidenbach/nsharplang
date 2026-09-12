@@ -652,15 +652,26 @@ class AnalyzerMemberAccess {
     // sources, split at the LAST dot into a namespace and a type name, and then the referenced
     // assemblies. A project type is required to be EXPORTED unless the reader is in its own
     // namespace, which is `TryResolveProjectTypeInNamespace`'s rule and not a second one here.
+    //
+    // The namespace half is read through the file's LEXICAL chain (`SimpleNamePrecedence`), the same
+    // owner the declared-type resolver uses, so `Ast.Node` written inside `App` finds `App.Ast.Node`
+    // in expression position exactly as it does at a type position.
     func TryResolveTypeInNamespaceOrAssemblies(qualifiedName: string, out resolvedType: TypeInfo): bool {
         resolvedType = BuiltInTypes.Unknown
         separator := qualifiedName.LastIndexOf(".")
         if separator > 0 {
-            projectType: TypeInfo = BuiltInTypes.Unknown
-            projectDeclaration: SymbolDeclaration? = null
-            if projectDiscoveryValue.TryResolveProjectTypeInNamespace(qualifiedName.Substring(separator + 1), qualifiedName.Substring(0, separator), UnitNamespace(), out projectType, out projectDeclaration) {
-                resolvedType = declarationContextValue.ResolveDeclaredAlias(projectType)
-                return !BuiltInTypes.IsUnknown(resolvedType)
+            currentNamespace := UnitNamespace()
+            leafName := qualifiedName.Substring(separator + 1)
+            qualifiers := SimpleNamePrecedence.QualifierNamespaces(currentNamespace, qualifiedName.Substring(0, separator))
+            qualifierIndex := 0
+            while qualifierIndex < qualifiers.Count {
+                projectType: TypeInfo = BuiltInTypes.Unknown
+                projectDeclaration: SymbolDeclaration? = null
+                if projectDiscoveryValue.TryResolveProjectTypeInNamespace(leafName, qualifiers[qualifierIndex], currentNamespace, out projectType, out projectDeclaration) {
+                    resolvedType = declarationContextValue.ResolveDeclaredAlias(projectType)
+                    return !BuiltInTypes.IsUnknown(resolvedType)
+                }
+                qualifierIndex = qualifierIndex + 1
             }
         }
 

@@ -683,10 +683,10 @@ class ColumnarBindingScopeFacts {
                 claimed = true
                 return TrySelectExactSourceDeclarationName(importedRootName + "." + tailName, true, activeAliases, depth + 1, out exactName)
             }
-            activeNestedName := ExactNameInFacts(facts, canonical)
-            if activeNestedName != canonical && (sourceTypeNames.Contains(activeNestedName) || ambiguousSourceTypeNames.Contains(activeNestedName)) {
+            lexicalNestedName := ""
+            if TryFindLexicalNestedSourceName(facts, canonical, out lexicalNestedName) {
                 claimed = true
-                return TrySelectExactSourceDeclarationName(activeNestedName, true, activeAliases, depth + 1, out exactName)
+                return TrySelectExactSourceDeclarationName(lexicalNestedName, true, activeAliases, depth + 1, out exactName)
             }
             if facts.AliasNames.Contains(rootName) || facts.TypeAliasTargets.ContainsKey(rootName) {
                 claimed = true
@@ -730,6 +730,12 @@ class ColumnarBindingScopeFacts {
             return TrySelectExactSourceDeclarationName(currentExactName, false, activeAliases, depth + 1, out exactName)
         }
 
+        enclosingSourceName := ""
+        if TryFindEnclosingNamespaceSourceName(facts, canonical, out enclosingSourceName) {
+            claimed = true
+            return TrySelectExactSourceDeclarationName(enclosingSourceName, true, activeAliases, depth + 1, out exactName)
+        }
+
         importIndex := 0
         while importIndex < facts.UnaliasedNamespaceImports.Count {
             importedExactName := facts.UnaliasedNamespaceImports[importIndex] + "." + canonical
@@ -738,12 +744,6 @@ class ColumnarBindingScopeFacts {
                 return TrySelectExactSourceDeclarationName(importedExactName, true, activeAliases, depth + 1, out exactName)
             }
             importIndex = importIndex + 1
-        }
-
-        enclosingSourceName := ""
-        if TryFindEnclosingNamespaceSourceName(facts, canonical, out enclosingSourceName) {
-            claimed = true
-            return TrySelectExactSourceDeclarationName(enclosingSourceName, true, activeAliases, depth + 1, out exactName)
         }
 
         uniqueClaimed := false
@@ -1084,11 +1084,11 @@ class ColumnarBindingScopeFacts {
                 importedNestedClaimed := false
                 return TryResolveExactSourceBinding(importedRootName + "." + tailName, true, bindings, activeAliases, depth + 1, out result, out importedNestedClaimed)
             }
-            activeNestedName := ExactNameInFacts(facts, canonical)
-            if activeNestedName != canonical && (sourceTypeNames.Contains(activeNestedName) || ambiguousSourceTypeNames.Contains(activeNestedName)) {
+            lexicalNestedName := ""
+            if TryFindLexicalNestedSourceName(facts, canonical, out lexicalNestedName) {
                 claimed = true
-                activeNestedClaimed := false
-                return TryResolveExactSourceBinding(activeNestedName, true, bindings, activeAliases, depth + 1, out result, out activeNestedClaimed)
+                lexicalNestedClaimed := false
+                return TryResolveExactSourceBinding(lexicalNestedName, true, bindings, activeAliases, depth + 1, out result, out lexicalNestedClaimed)
             }
             if facts.AliasNames.Contains(rootName) || facts.TypeAliasTargets.ContainsKey(rootName) {
                 claimed = true
@@ -1142,6 +1142,15 @@ class ColumnarBindingScopeFacts {
             return false
         }
 
+        enclosingSourceName := ""
+        if TryFindEnclosingNamespaceSourceName(facts, canonical, out enclosingSourceName) {
+            claimed = true
+            if TryResolveExactSourceBinding(enclosingSourceName, true, bindings, activeAliases, depth + 1, out result, out sourceClaimed) {
+                return true
+            }
+            return false
+        }
+
         importIndex := 0
         while importIndex < facts.UnaliasedNamespaceImports.Count {
             importedExactName := facts.UnaliasedNamespaceImports[importIndex] + "." + canonical
@@ -1153,15 +1162,6 @@ class ColumnarBindingScopeFacts {
                 return false
             }
             importIndex = importIndex + 1
-        }
-
-        enclosingSourceName := ""
-        if TryFindEnclosingNamespaceSourceName(facts, canonical, out enclosingSourceName) {
-            claimed = true
-            if TryResolveExactSourceBinding(enclosingSourceName, true, bindings, activeAliases, depth + 1, out result, out sourceClaimed) {
-                return true
-            }
-            return false
         }
 
         uniqueSourceName := ""
@@ -1266,35 +1266,58 @@ class ColumnarBindingScopeFacts {
     }
 
     // A SOURCE TYPE IN AN ENCLOSING NAMESPACE IS PART OF THIS FILE'S OWN SCOPE. The file's own
-    // namespace is answered by the callers above; a file in `A.B.C` also sits inside `A.B` and `A`,
-    // and an exported declaration there is in scope without an import, exactly as C# reads it. This
-    // is NOT the project-wide unique-exported fallback the callers reach next: that one finds a
-    // declaration in an UNRELATED namespace and deliberately loses to an imported external type (the
-    // shadowing hazard), while an enclosing namespace is lexically nearer than any import. Without
-    // this step the SAME spelling resolved two ways inside one file — a signature saw the enclosing
-    // declaration and a body local saw the imported external type of that name.
+    // namespace is answered by the callers before this; a file in `A.B.C` also sits inside `A.B`,
+    // `A` and the global namespace, and an exported declaration there is in scope without an import,
+    // exactly as C# reads it. So this runs BEFORE the callers' import walk (`SimpleNamePrecedence`
+    // rule 2 outranks rule 3), and it is NOT the project-wide unique-exported fallback they reach
+    // last: that one finds a declaration in an UNRELATED namespace and deliberately loses to an
+    // imported external type (the shadowing hazard), while an enclosing namespace is lexically
+    // nearer than any import. Without this step the SAME spelling resolved two ways inside one file
+    // — a signature saw the enclosing declaration and a body local saw the imported external type of
+    // that name.
+    //
+    // The namespace chain itself is `SimpleNamePrecedence`'s, the same owner the analyzer's
+    // `VisibleTypeNamespaces` reads, so the two walks cannot drift.
+    // A DOTTED SPELLING READ THROUGH THE FILE'S LEXICAL CHAIN. `Ast.Node` inside `A.B` names
+    // `A.B.Ast.Node`, then `A.Ast.Node`; the absolute `Ast.Node` is the callers' own next step, so the
+    // global end of the chain is skipped here. This is the emitter's half of the analyzer's
+    // qualified-name channel, and both read the chain from `SimpleNamePrecedence`.
+    func TryFindLexicalNestedSourceName(facts: ColumnarSourceBindingFacts, canonical: string, out exactName: string): bool {
+        exactName = ""
+        lexical := SimpleNamePrecedence.LexicalNamespaces(facts.NamespaceName)
+        index := 0
+        while index < lexical.Count {
+            lexicalNamespace := lexical[index]
+            index = index + 1
+            if lexicalNamespace == null || lexicalNamespace.Length == 0 {
+                continue
+            }
+
+            candidateName := lexicalNamespace + "." + canonical
+            if sourceTypeNames.Contains(candidateName) || ambiguousSourceTypeNames.Contains(candidateName) {
+                exactName = candidateName
+                return true
+            }
+        }
+        return false
+    }
+
     func TryFindEnclosingNamespaceSourceName(facts: ColumnarSourceBindingFacts, canonical: string, out exactName: string): bool {
         exactName = ""
         if canonical == null || canonical.Length == 0 || canonical.Contains(".") {
             return false
         }
 
-        enclosingNamespace := facts.NamespaceName
-        while enclosingNamespace.Length > 0 {
-            separatorIndex := enclosingNamespace.Length - 1
-            while separatorIndex >= 0 && enclosingNamespace[separatorIndex] != '.' {
-                separatorIndex = separatorIndex - 1
-            }
-            if separatorIndex < 0 {
-                return false
-            }
-
-            enclosingNamespace = enclosingNamespace.Substring(0, separatorIndex)
-            candidateName := enclosingNamespace + "." + canonical
+        enclosing := SimpleNamePrecedence.EnclosingNamespaceNames(facts.NamespaceName)
+        index := 0
+        while index < enclosing.Count {
+            enclosingNamespace := enclosing[index]
+            candidateName := enclosingNamespace.Length == 0 ? canonical : enclosingNamespace + "." + canonical
             if exportedSourceTypeNames.Contains(candidateName) || exportedSourceTypeAliasNames.Contains(candidateName) {
                 exactName = candidateName
                 return true
             }
+            index = index + 1
         }
         return false
     }
@@ -1767,6 +1790,13 @@ class ColumnarBindingScopeFacts {
         return false
     }
 
+    // THE OWNER-POSITION HALF OF THE SAME PRECEDENCE RULE. `Owner.Member` asks this about `Owner`,
+    // and it must answer exactly what a simple type name resolves to: the file's own namespace, then
+    // each ENCLOSING namespace outward (ending at the global namespace), then the file's imports in
+    // import order. Enclosing before imports is `SimpleNamePrecedence` rule 2 before rule 3 — the
+    // global-namespace probe used to sit AFTER the import walk here, which is a second spelling of
+    // the order and drifted from it. Source types in UNRELATED named namespaces are still not
+    // consulted: they are the auto-discovery fallback and do not shadow a runtime import.
     func TryResolveProjectSourceTypeName(name: string, out exactName: string, out blocked: bool): bool {
         exactName = ""
         blocked = false
@@ -1783,6 +1813,22 @@ class ColumnarBindingScopeFacts {
             return true
         }
 
+        enclosing := SimpleNamePrecedence.EnclosingNamespaceNames(activeNamespaceName)
+        enclosingIndex := 0
+        while enclosingIndex < enclosing.Count {
+            enclosingNamespace := enclosing[enclosingIndex]
+            enclosingName := enclosingNamespace.Length == 0 ? name : enclosingNamespace + "." + name
+            if exportedSourceTypeNames.Contains(enclosingName) {
+                if ambiguousSourceTypeNames.Contains(enclosingName) {
+                    blocked = true
+                    return false
+                }
+                exactName = enclosingName
+                return true
+            }
+            enclosingIndex = enclosingIndex + 1
+        }
+
         importIndex := 0
         while importIndex < activeUnaliasedNamespaceImports.Count {
             importedName := activeUnaliasedNamespaceImports[importIndex] + "." + name
@@ -1796,39 +1842,39 @@ class ColumnarBindingScopeFacts {
             }
             importIndex = importIndex + 1
         }
-
-        // A global exported declaration remains visible from a namespaced file. Source types in
-        // unrelated named namespaces intentionally do not shadow runtime imports.
-        if exportedSourceTypeNames.Contains(name) {
-            if ambiguousSourceTypeNames.Contains(name) {
-                blocked = true
-                return false
-            }
-            exactName = name
-            return true
-        }
         return false
     }
 
+    // A QUALIFIED SOURCE OWNER, READ THROUGH THE FILE'S LEXICAL CHAIN. `Ast.Node` written inside
+    // `App` names `App.Ast.Node` before it can name a global `Ast.Node`, because the leftmost segment
+    // of a qualified name is looked up by the same rule a simple name is (`SimpleNamePrecedence`) —
+    // which is how the analyzer's qualified-name channel reads it, and the two must agree.
     func TryResolveQualifiedSourceTypeName(ownerName: string, out exactName: string): bool {
         exactName = ""
-        if !sourceTypeNames.Contains(ownerName) || ambiguousSourceTypeNames.Contains(ownerName) {
-            return false
-        }
+        candidates := SimpleNamePrecedence.QualifierNamespaces(activeNamespaceName, ownerName)
+        index := 0
+        while index < candidates.Count {
+            candidateName := candidates[index]
+            index = index + 1
+            if !sourceTypeNames.Contains(candidateName) || ambiguousSourceTypeNames.Contains(candidateName) {
+                continue
+            }
 
-        separator := ownerName.Length - 1
-        while separator >= 0 && ownerName[separator] != '.' {
-            separator = separator - 1
+            separator := candidateName.Length - 1
+            while separator >= 0 && candidateName[separator] != '.' {
+                separator = separator - 1
+            }
+            if separator <= 0 {
+                continue
+            }
+            candidateNamespace := candidateName.Substring(0, separator)
+            if candidateNamespace != activeNamespaceName && !exportedSourceTypeNames.Contains(candidateName) {
+                continue
+            }
+            exactName = candidateName
+            return true
         }
-        if separator <= 0 {
-            return false
-        }
-        ownerNamespace := ownerName.Substring(0, separator)
-        if ownerNamespace != activeNamespaceName && !exportedSourceTypeNames.Contains(ownerName) {
-            return false
-        }
-        exactName = ownerName
-        return true
+        return false
     }
 
     // Direct-call selection discovers the exact method identity from the resolved runtime owner,
@@ -2015,6 +2061,21 @@ class ColumnarBindingScopeFacts {
         if activeNamespaceName.Length > 0 && sourceTypeNames.Contains(activeNamespaceName + "." + rootName) {
             return true
         }
+        // The veto must cover every namespace `TryResolveProjectSourceTypeName` would answer from, or
+        // an enclosing-namespace source type resolves there while an external owner of the same
+        // spelling binds here. The global namespace is already covered above.
+        enclosing := SimpleNamePrecedence.EnclosingNamespaceNames(activeNamespaceName)
+        enclosingIndex := 0
+        while enclosingIndex < enclosing.Count {
+            enclosingNamespace := enclosing[enclosingIndex]
+            if enclosingNamespace.Length > 0 {
+                enclosingName := enclosingNamespace + "." + rootName
+                if exportedSourceTypeNames.Contains(enclosingName) || exportedSourceTypeAliasNames.Contains(enclosingName) {
+                    return true
+                }
+            }
+            enclosingIndex = enclosingIndex + 1
+        }
         importIndex := 0
         while importIndex < activeUnaliasedNamespaceImports.Count {
             importedName := activeUnaliasedNamespaceImports[importIndex] + "." + rootName
@@ -2121,11 +2182,24 @@ class ColumnarBindingScopeFacts {
             }
             scan--
         }
+        ownerNamespace := separator >= 0 ? ownerName.Substring(0, separator) : ""
         if separator >= 0 {
-            sameNamespace := ownerName.Substring(0, separator + 1) + baseName
+            sameNamespace := ownerNamespace + "." + baseName
             if sourceTypeKindsByExactName.ContainsKey(sameNamespace) {
                 return sameNamespace
             }
+        }
+        // An ENCLOSING namespace outranks an import here too (`SimpleNamePrecedence` rule 2 before
+        // rule 3): a base name is a simple type name and resolves by the one precedence rule.
+        enclosing := SimpleNamePrecedence.EnclosingNamespaceNames(ownerNamespace)
+        enclosingIndex := 0
+        while enclosingIndex < enclosing.Count {
+            enclosingNamespace := enclosing[enclosingIndex]
+            enclosingName := enclosingNamespace.Length == 0 ? baseName : enclosingNamespace + "." + baseName
+            if sourceTypeKindsByExactName.ContainsKey(enclosingName) {
+                return enclosingName
+            }
+            enclosingIndex = enclosingIndex + 1
         }
         fileFacts := new ColumnarSourceBindingFacts()
         if fileFactsById.TryGetValue(sourceFileId, out fileFacts) {
@@ -2137,9 +2211,6 @@ class ColumnarBindingScopeFacts {
                 }
                 importIndex = importIndex + 1
             }
-        }
-        if sourceTypeKindsByExactName.ContainsKey(baseName) {
-            return baseName
         }
         return ""
     }

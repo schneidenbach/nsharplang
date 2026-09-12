@@ -20,8 +20,10 @@ import System.Collections.Generic
 //     external text, arity cannot be checked here". Zero and -1 are DIFFERENT answers: zero means "I
 //     know this head and it is not generic" (which the caller reports), -1 means "I do not know".
 //   * VisibleTypeNamespaces — the ordered candidate namespaces for project-wide type discovery: the
-//     current one first (as null when the file declares none — the global namespace is a real
-//     candidate, not an absence), then each import in IMPORT ORDER, first occurrence winning.
+//     LEXICAL chain first (the file's own namespace, then each enclosing one outward, ending at the
+//     global namespace — null is a real candidate, not an absence), then each import in IMPORT
+//     ORDER, first occurrence winning. It delegates to `SimpleNamePrecedence`, which is the one
+//     owner of that order and is read by the emitter's binding scope as well.
 //
 // Do not reintroduce any of this in C#, and do not add reporting here.
 class AnalyzerTypeReferenceFacts {
@@ -241,29 +243,14 @@ class AnalyzerTypeReferenceFacts {
         return -1
     }
 
-    // The ordered candidate namespaces for project-wide type and function discovery. A null entry is
-    // the GLOBAL namespace and is a genuine candidate: a file with no package/namespace declaration
-    // discovers other such files. Imports follow in declaration order, deduplicated against the
-    // current namespace and each other.
+    // The ordered candidate namespaces for project-wide type and function discovery: the LEXICAL
+    // chain first (the file's own namespace, then each enclosing namespace outward, ending at the
+    // global namespace), then the file's imports in declaration order. A null entry is the GLOBAL
+    // namespace and is a genuine candidate, not an absence.
+    //
+    // The order is `SimpleNamePrecedence`'s and is not restated here: the emitter's binding scope
+    // reads the same owner, and a second spelling of it is how the two walks drifted apart.
     static func VisibleTypeNamespaces(currentNamespace: string?, usingNamespaces: List<string>): List<string?> {
-        seen := new HashSet<string>(StringComparer.Ordinal)
-        visible := new List<string?>()
-
-        if currentNamespace == null {
-            visible.Add(null)
-        } else if seen.Add(currentNamespace) {
-            visible.Add(currentNamespace)
-        }
-
-        index := 0
-        while index < usingNamespaces.Count {
-            namespaceName := usingNamespaces[index]
-            if seen.Add(namespaceName) {
-                visible.Add(namespaceName)
-            }
-            index = index + 1
-        }
-
-        return visible
+        return SimpleNamePrecedence.CandidateNamespaces(currentNamespace, usingNamespaces)
     }
 }
