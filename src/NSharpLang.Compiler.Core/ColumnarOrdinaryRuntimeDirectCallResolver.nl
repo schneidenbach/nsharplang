@@ -481,6 +481,14 @@ class ColumnarOrdinaryRuntimeDirectCallResolver {
             return Empty(ColumnarOrdinaryRuntimeDirectCallStatus.NotFound, lookupType, expectedStatic)
         }
 
+        // A SOURCE owner — a `TypeBuilder`, or an instantiation of one — is not an ordinary RUNTIME
+        // receiver at all: its members belong to the exact source resolver, and the reflection objects
+        // an instantiation hands out cannot even be asked about their custom attributes (the base
+        // `ParameterInfo` answers "not implemented"), so it must be refused before any candidate is read.
+        if ColumnarRuntimeInstanceMemberResolver.ContainsBuilderBoundType(lookupType) {
+            return Empty(ColumnarOrdinaryRuntimeDirectCallStatus.NotFound, lookupType, expectedStatic)
+        }
+
         candidates := CandidatesOrEmpty(lookupType)
         selected: MethodInfo? = null
         selectedParameters := new Type[](0)

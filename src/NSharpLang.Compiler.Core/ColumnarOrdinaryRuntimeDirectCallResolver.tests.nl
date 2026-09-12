@@ -457,3 +457,33 @@ test "an open generic owner selects nothing" {
 
     assert !ColumnarOrdinaryRuntimeDirectCallResolver.ResolveUniqueAtArity(listDefinition, "ForEach", 1, false).IsSelected
 }
+
+// A SOURCE OWNER IS NEVER AN ORDINARY RUNTIME RECEIVER. An instantiation of a source generic hands out
+// reflection objects whose parameters cannot even be asked about their custom attributes (the base
+// `ParameterInfo` answers "not implemented"), so the resolver must refuse the owner before it reads a
+// single candidate; the exact source resolver owns those members. This is the shape that crashed the
+// compiler's own test estate once instance calls started reaching the ordinary runtime tier.
+test "ordinary runtime resolution refuses an instantiation of a source generic without reading its candidates" {
+    builderDefinition := TypeOfCreateBuilder(
+        "OrdinaryRuntimeSourceOwner",
+        "ColumnarOrdinaryRuntime.SourceOwner",
+        1
+    )
+    builderDefinitionType: Type = builderDefinition
+    builderParameter := builderDefinition.GetGenericArguments()[0]
+    builderDefinition.DefineMethod(
+        "Pick",
+        (MethodAttributes)22,
+        builderParameter,
+        OrdinaryRuntimeArgumentTypes2(builderParameter, typeof(bool))
+    )
+    builderClosed := builderDefinitionType.MakeGenericType(OrdinaryRuntimeArgumentTypes1(typeof(int)))
+    assert ColumnarRuntimeInstanceMemberResolver.ContainsBuilderBoundType(builderClosed)
+
+    selection := ColumnarOrdinaryRuntimeDirectCallResolver.ResolveUniqueAtArity(builderClosed, "Pick", 2, false)
+    assert !selection.IsSelected
+    assert selection.Status == ColumnarOrdinaryRuntimeDirectCallStatus.NotFound
+
+    // The open definition itself and the bare builder are refused the same way.
+    assert !ColumnarOrdinaryRuntimeDirectCallResolver.ResolveUniqueAtArity(builderDefinitionType, "Pick", 2, false).IsSelected
+}
