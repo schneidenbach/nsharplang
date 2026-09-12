@@ -129,10 +129,10 @@ func OverloadTypeName(typeInfo: TypeInfo?): string {
 }
 
 func OverloadSignature(parameterTypes: List<TypeInfo>): FunctionTypeInfo {
-    modifiers := new List<ParameterModifier>()
+    modifiers := new List<Ast.ParameterModifier>()
     index := 0
     while index < parameterTypes.Count {
-        modifiers.Add(ParameterModifier.None)
+        modifiers.Add(Ast.ParameterModifier.None)
         index = index + 1
     }
 
@@ -582,7 +582,7 @@ test "a lambda may only take a broad delegate parameter when every parameter is 
 func OverloadLambda(parameterName: string, typeName: string): LambdaExpression {
     parameterType: TypeReference = new SimpleTypeReference(typeName)
     parameters := new List<Parameter>()
-    parameters.Add(new Parameter(parameterName, parameterType, null, false, ParameterModifier.None, null, 1, 1, false, null))
+    parameters.Add(new Parameter(parameterName, parameterType, null, false, Ast.ParameterModifier.None, null, 1, 1, false, null))
     return new LambdaExpression(parameters, null, null, 1, 1)
 }
 
@@ -606,7 +606,7 @@ test "a broad delegate lambda contributes its annotated parameters with no modif
         assert parameterTypes.Count == 1
         modifiers := signature.ParameterModifiers
         assert modifiers != null
-        assert modifiers[0] == ParameterModifier.None
+        assert modifiers[0] == Ast.ParameterModifier.None
         assert signature.ReturnType == null
 
         // An un-annotated lambda produces NO signature rather than a partial one.
@@ -645,9 +645,9 @@ test "a source params index needs the flag, a full-length modifier list and the 
     withoutFlag := OverloadSignature(types)
     assert AnalyzerOverloadFacts.GetSyntheticParamsParameterIndex(withoutFlag, 2) == -1
 
-    modifiers := new List<ParameterModifier>()
-    modifiers.Add(ParameterModifier.None)
-    modifiers.Add(ParameterModifier.Params)
+    modifiers := new List<Ast.ParameterModifier>()
+    modifiers.Add(Ast.ParameterModifier.None)
+    modifiers.Add(Ast.ParameterModifier.Params)
     withParams := OverloadSignature(types)
     withParams.HasParamsParameter = true
     withParams.ParameterModifiers = modifiers
@@ -657,9 +657,9 @@ test "a source params index needs the flag, a full-length modifier list and the 
     assert AnalyzerOverloadFacts.GetSyntheticParamsParameterIndex(withParams, 1) == -1
 
     // Nor is a modifier in the wrong position.
-    misplaced := new List<ParameterModifier>()
-    misplaced.Add(ParameterModifier.Params)
-    misplaced.Add(ParameterModifier.None)
+    misplaced := new List<Ast.ParameterModifier>()
+    misplaced.Add(Ast.ParameterModifier.Params)
+    misplaced.Add(Ast.ParameterModifier.None)
     withMisplaced := OverloadSignature(types)
     withMisplaced.HasParamsParameter = true
     withMisplaced.ParameterModifiers = misplaced
@@ -757,10 +757,10 @@ test "params inference reads a params reference's element rather than the sequen
 }
 
 test "a ref or out source parameter carries a by-ref type, idempotently" {
-    modifiers := new List<ParameterModifier>()
-    modifiers.Add(ParameterModifier.Ref)
-    modifiers.Add(ParameterModifier.Out)
-    modifiers.Add(ParameterModifier.None)
+    modifiers := new List<Ast.ParameterModifier>()
+    modifiers.Add(Ast.ParameterModifier.Ref)
+    modifiers.Add(Ast.ParameterModifier.Out)
+    modifiers.Add(Ast.ParameterModifier.None)
     signature := OverloadSignature(OverloadTypeList(BuiltInTypes.Int))
     signature.ParameterModifiers = modifiers
 
@@ -964,10 +964,10 @@ test "a source parameter renders its modifier, its source type name and its defa
     sourceTypes.Add(new SimpleTypeReference("int"))
     sourceTypes.Add(new SimpleTypeReference("string"))
     sourceTypes.Add(new ArrayTypeReference(new SimpleTypeReference("int")))
-    modifiers := new List<ParameterModifier>()
-    modifiers.Add(ParameterModifier.Ref)
-    modifiers.Add(ParameterModifier.None)
-    modifiers.Add(ParameterModifier.Params)
+    modifiers := new List<Ast.ParameterModifier>()
+    modifiers.Add(Ast.ParameterModifier.Ref)
+    modifiers.Add(Ast.ParameterModifier.None)
+    modifiers.Add(Ast.ParameterModifier.Params)
     names := new List<string>()
     names.Add("a")
     names.Add("b")

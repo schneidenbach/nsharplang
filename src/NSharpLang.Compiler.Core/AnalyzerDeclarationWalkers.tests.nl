@@ -211,7 +211,7 @@ func DeclWalkParams(): List<Parameter> {
 }
 
 func DeclWalkParam(parameters: List<Parameter>, name: string, typeName: string, line: int, column: int) {
-    parameters.Add(new Parameter(name, new SimpleTypeReference(typeName, line, column), null, false, ParameterModifier.None, null, line, column, false, null))
+    parameters.Add(new Parameter(name, new SimpleTypeReference(typeName, line, column), null, false, Ast.ParameterModifier.None, null, line, column, false, null))
 }
 
 func DeclWalkTest(parameters: List<Parameter>?, cases: List<List<Expression>>?): TestDeclaration {

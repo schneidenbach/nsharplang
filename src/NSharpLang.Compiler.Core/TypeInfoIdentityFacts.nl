@@ -378,10 +378,10 @@ class TypeInfoIdentityFacts {
         return name.Substring(lastDot + 1)
     }
 
-    static func FunctionParameterModifierAt(function: FunctionTypeInfo, parameterIndex: int): ParameterModifier {
+    static func FunctionParameterModifierAt(function: FunctionTypeInfo, parameterIndex: int): Ast.ParameterModifier {
         modifiers := function.ParameterModifiers
         if modifiers == null {
-            return ParameterModifier.None
+            return Ast.ParameterModifier.None
         }
         return modifiers[parameterIndex]
     }

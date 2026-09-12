@@ -67,7 +67,7 @@ func SyntheticBinder(): AnalyzerSyntheticCallBinder {
 func SyntheticSignature(
     parameterNames: List<string>,
     parameterTypes: List<TypeInfo>,
-    modifiers: List<ParameterModifier>
+    modifiers: List<Ast.ParameterModifier>
 ): FunctionTypeInfo {
     signature := new FunctionTypeInfo()
     signature.SyntheticName = "f"
@@ -100,11 +100,11 @@ func SyntheticIntTypes(count: int): List<TypeInfo> {
     return types
 }
 
-func SyntheticModifiers(count: int): List<ParameterModifier> {
-    modifiers := new List<ParameterModifier>()
+func SyntheticModifiers(count: int): List<Ast.ParameterModifier> {
+    modifiers := new List<Ast.ParameterModifier>()
     index := 0
     while index < count {
-        modifiers.Add(ParameterModifier.None)
+        modifiers.Add(Ast.ParameterModifier.None)
         index = index + 1
     }
 
@@ -128,7 +128,7 @@ func SyntheticParams(leading: int): FunctionTypeInfo {
     tail: TypeInfo = new ArrayTypeInfo(BuiltInTypes.Int)
     types.Add(tail)
     modifiers := SyntheticModifiers(leading)
-    modifiers.Add(ParameterModifier.Params)
+    modifiers.Add(Ast.ParameterModifier.Params)
     signature := SyntheticSignature(names, types, modifiers)
     signature.HasParamsParameter = true
     return signature
@@ -840,8 +840,8 @@ test "a params parameter that is not an array describes nothing and is SKIPPED, 
     // A malformed signature: the params position's type is a scalar.
     names := SyntheticNames(1)
     types := SyntheticIntTypes(1)
-    modifiers := new List<ParameterModifier>()
-    modifiers.Add(ParameterModifier.Params)
+    modifiers := new List<Ast.ParameterModifier>()
+    modifiers.Add(Ast.ParameterModifier.Params)
     signature := SyntheticSignature(names, types, modifiers)
     signature.HasParamsParameter = true
 

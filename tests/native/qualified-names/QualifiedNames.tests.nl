@@ -174,3 +174,51 @@ test "an instance property read through an external interface receiver resolves"
     assert view.Count == 3
     assert view.Count == view.get_Count()
 }
+
+// ── the lexical chain ─────────────────────────────────────────────────────────────────────────
+//
+// `Enclosing.nl` declares `NSharpLang.QualifiedNames.Random`, which ENCLOSES this file's
+// `NSharpLang.QualifiedNames.Tests`. `import System` supplies `System.Random`. A lexically nearer
+// declaration wins outright — C#'s rule for `using`, and now N#'s — so the bare spelling is the
+// source type, with no ambiguity to report. Both halves are proved again: the assertions type-check
+// (analysis) and they run (emission).
+
+test "a declaration in an enclosing namespace wins a name an import also supplies" {
+    value := new Random()
+    assert value.Marker == "enclosing-random"
+    assert Random.Origin() == "enclosing"
+    assert typeof(Random).get_FullName() == "NSharpLang.QualifiedNames.Random"
+}
+
+test "the import the enclosing declaration outranks is still reachable by its qualified name" {
+    generator := new System.Random(7)
+    assert generator.Next(1, 2) == 1
+    assert typeof(System.Random).get_FullName() == "System.Random"
+}
+
+// ── a qualifier is read through the same chain ────────────────────────────────────────────────
+//
+// The LEFTMOST segment of a qualified name is looked up exactly as a simple name is, so a CHILD of
+// an enclosing namespace can be named by its last segments instead of its whole path. Nothing here
+// imports `NSharpLang.QualifiedNames.Library` or `...Shadow`; `Library` and `Shadow` are found
+// because the enclosing `NSharpLang.QualifiedNames` contains them.
+
+test "a partially qualified source static call resolves through the enclosing namespace" {
+    assert Library.Helper.Twice(4) == 8
+    assert Library.Helper.Answer == 42
+    assert Library.Helper.Concat("a", "b") == "ab"
+}
+
+test "a partially qualified name reaches the same declaration the absolute one does" {
+    assert Library.Helper.Twice(4) == NSharpLang.QualifiedNames.Library.Helper.Twice(4)
+    assert Convert.ToInt32(Library.Season.Autumn) == 2
+    assert Shadow.Version.Origin() == "shadow"
+    assert typeof(Shadow.Version) == typeof(NSharpLang.QualifiedNames.Shadow.Version)
+}
+
+test "a partially qualified name is usable at a declared-type position" {
+    value: Shadow.Version = new Shadow.Version()
+    assert value.Marker == "source-version"
+    season: Library.Season = Library.Season.Winter
+    assert Convert.ToInt32(season) == 3
+}

@@ -214,7 +214,7 @@ func BodyStepKinds(steps: List<FunctionBodyStep>): string {
 }
 
 func BodyParameter(name: string, typeName: string, line: int, column: int): Parameter {
-    return new Parameter(name, new SimpleTypeReference(typeName, line, column), null, false, ParameterModifier.None, null, line, column, false, null)
+    return new Parameter(name, new SimpleTypeReference(typeName, line, column), null, false, Ast.ParameterModifier.None, null, line, column, false, null)
 }
 
 func BodyParameters(): List<Parameter> {
@@ -1004,7 +1004,7 @@ func BodyCountCode(harness: FunctionBodyHarness, code: ErrorCode): int {
 }
 
 func BodyThisParameter(): Parameter {
-    return new Parameter("self", new SimpleTypeReference("int", 7, 20), null, true, ParameterModifier.None, null, 7, 20, false, null)
+    return new Parameter("self", new SimpleTypeReference("int", 7, 20), null, true, Ast.ParameterModifier.None, null, 7, 20, false, null)
 }
 
 // A block that does NOT always return: one bare expression statement and nothing else.

@@ -104,7 +104,7 @@ func FactoryUnderTest(): AnalyzerFunctionTypeFactory {
 
 func FactoryParameter(name: string, typeName: string): Parameter {
     reference: TypeReference = new SimpleTypeReference(typeName)
-    return new Parameter(name, reference, null, false, ParameterModifier.None, null, 1, 1, false, null)
+    return new Parameter(name, reference, null, false, Ast.ParameterModifier.None, null, 1, 1, false, null)
 }
 
 func FactoryDeclaration(
@@ -195,7 +195,7 @@ test "the Func arity table takes the last argument as the return type" {
     modifiers := signature.ParameterModifiers
     assert modifiers != null
     assert modifiers.Count == 2
-    assert modifiers[0] == ParameterModifier.None
+    assert modifiers[0] == Ast.ParameterModifier.None
 
     // `Func<T>` is the degenerate case: no parameters, the single argument IS the return.
     nullaryType := FactoryClosed1("System.Func`1, System.Private.CoreLib", typeof(int))
@@ -269,8 +269,8 @@ test "a reflection parameter's modifier is read off its by-ref direction" {
     assert tryParse != null
 
     parameters := tryParse.GetParameters()
-    assert AnalyzerFunctionTypeFactory.GetReflectionParameterModifier(parameters[0]) == ParameterModifier.None
-    assert AnalyzerFunctionTypeFactory.GetReflectionParameterModifier(parameters[1]) == ParameterModifier.Out
+    assert AnalyzerFunctionTypeFactory.GetReflectionParameterModifier(parameters[0]) == Ast.ParameterModifier.None
+    assert AnalyzerFunctionTypeFactory.GetReflectionParameterModifier(parameters[1]) == Ast.ParameterModifier.Out
 }
 
 test "only an async NON-generator is wrapped in the task family" {
@@ -367,7 +367,7 @@ test "a defaulted parameter lowers the required count and a params parameter is 
     defaultedType: TypeReference = new SimpleTypeReference("string")
     defaultValue: Expression = new StringLiteralExpression("x", 1, 1)
     parameters.Add(
-        new Parameter("second", defaultedType, defaultValue, false, ParameterModifier.None, null, 1, 1, false, null)
+        new Parameter("second", defaultedType, defaultValue, false, Ast.ParameterModifier.None, null, 1, 1, false, null)
     )
     declaration := FactoryDeclaration("Defaulted", parameters, "bool", Modifiers.None)
     signature := factory.CreateFromDeclaration(declaration, null)
@@ -379,7 +379,7 @@ test "a defaulted parameter lowers the required count and a params parameter is 
     spreadParameters := new List<Parameter>()
     spreadParameters.Add(FactoryParameter("first", "int"))
     spreadParameters.Add(
-        new Parameter("rest", paramsType, null, false, ParameterModifier.Params, null, 1, 1, false, null)
+        new Parameter("rest", paramsType, null, false, Ast.ParameterModifier.Params, null, 1, 1, false, null)
     )
     spread := FactoryDeclaration("Spread", spreadParameters, "bool", Modifiers.None)
     spreadSignature := factory.CreateFromDeclaration(spread, null)
@@ -458,9 +458,9 @@ test "a declared member's signature reads its arrays and its required count off 
     stringReference: TypeReference = new SimpleTypeReference("string")
     parameterTypes[0] = intReference
     parameterTypes[1] = stringReference
-    parameterModifiers := new ParameterModifier[](2)
-    parameterModifiers[0] = ParameterModifier.None
-    parameterModifiers[1] = ParameterModifier.None
+    parameterModifiers := new Ast.ParameterModifier[](2)
+    parameterModifiers[0] = Ast.ParameterModifier.None
+    parameterModifiers[1] = Ast.ParameterModifier.None
 
     boolReference: TypeReference = new SimpleTypeReference("bool")
     noTypeParameters := new TypeParameter[](0)

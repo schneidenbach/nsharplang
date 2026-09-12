@@ -353,7 +353,7 @@ func PatternClassWithProperty(
         0,
         new string[](0),
         new TypeReference[](0),
-        new ParameterModifier[](0),
+        new Ast.ParameterModifier[](0),
         0,
         false,
         false,

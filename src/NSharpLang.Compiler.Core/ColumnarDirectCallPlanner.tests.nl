@@ -1737,7 +1737,7 @@ test "direct-call planner yields the whole subtree for a by-ref sibling paramete
     parameterTypes := new Type[](1)
     parameterTypes[0] = typeof(int).MakeByRefType()
     modifierKinds := new int[](1)
-    modifierKinds[0] = (int)ParameterModifier.Ref
+    modifierKinds[0] = (int)Ast.ParameterModifier.Ref
     facts := DirectCallSiblingFactsWithModifiers("DirectCallSiblingByRefHost", "Bump", parameterTypes, modifierKinds, typeof(int), 0)
     bindings := DirectCallSiblingBindings("Bump", facts)
     tree := DirectCallBareTree("Bump", DirectCallOneText("5"), DirectCallOneKind(ColumnarExpressionNodeKind.IntLiteralExpression()))

@@ -283,7 +283,7 @@ func AccessorProperty(name: string, typeReference: TypeReference, getBody: Block
 }
 
 func AccessorParameter(name: string, typeName: string, line: int, column: int): Parameter {
-    return new Parameter(name, new SimpleTypeReference(typeName, line, column), null, false, ParameterModifier.None, null, line, column, false, null)
+    return new Parameter(name, new SimpleTypeReference(typeName, line, column), null, false, Ast.ParameterModifier.None, null, line, column, false, null)
 }
 
 func AccessorParameters(): List<Parameter> {

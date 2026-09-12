@@ -528,7 +528,7 @@ class AnalyzerDeclarationPolicy {
         parameter := state.Parameters[state.Index]
 
         // Neither a `this` receiver nor a `params` tail can carry a default, so neither rule applies.
-        if parameter.IsThis || parameter.Modifier == ParameterModifier.Params {
+        if parameter.IsThis || parameter.Modifier == Ast.ParameterModifier.Params {
             state.Index = state.Index + 1
             return null
         }

@@ -1032,3 +1032,118 @@ test "a source type in one import ties with a CLR type in another" {
     // import and by no source namespace, so nothing here answers for it.
     assert !discovery.TryFindAmbiguousImportedType("Console", "Mine", out first, out second)
 }
+
+// ---- the lexical chain: an enclosing namespace outranks an import -------------------------------
+
+test "an enclosing namespace wins outright over an import that supplies the same name" {
+    // `App` declares `Version`; the file sits in `App.Models` and imports `System`, which declares
+    // `System.Version`. C# reads the enclosing declaration — it is lexically nearer than any import —
+    // so this is a RESOLUTION and not an ambiguity.
+    provider := ProjectProviderOf(
+        ["/p/outer.nl"],
+        [ProjectSourceOf("App", "public class Version {\n}\n")]
+    )
+    discovery := ProjectDiscoveryWithProbeOf(provider, ["System"])
+
+    resolved := BuiltInTypes.Unknown as TypeInfo
+    declaration: SymbolDeclaration? = null
+    inaccessible: string? = null
+    assert discovery.ResolveVisibleProjectType(
+        "Version",
+        "App.Models",
+        true,
+        out resolved,
+        out declaration,
+        out inaccessible
+    )
+    assert Path.GetFileName(declaration.File) == "outer.nl"
+
+    first := ""
+    second := ""
+    assert !discovery.TryFindAmbiguousImportedType("Version", "App.Models", out first, out second)
+
+    // The chain reaches ALL the way out, one namespace at a time, and it is the same answer from two
+    // levels down.
+    assert discovery.ResolveVisibleProjectType(
+        "Version",
+        "App.Models.Internal",
+        true,
+        out resolved,
+        out declaration,
+        out inaccessible
+    )
+    assert !discovery.TryFindAmbiguousImportedType("Version", "App.Models.Internal", out first, out second)
+
+    // IMPORTING THE ENCLOSING NAMESPACE CHANGES NOTHING. It was already in scope, so the import is
+    // redundant rather than a second candidate that could tie with `System`.
+    alsoImported := ProjectDiscoveryWithProbeOf(provider, ["App", "System"])
+    assert !alsoImported.TryFindAmbiguousImportedType("Version", "App.Models", out first, out second)
+    assert alsoImported.ResolveVisibleProjectType(
+        "Version",
+        "App.Models",
+        true,
+        out resolved,
+        out declaration,
+        out inaccessible
+    )
+}
+
+test "a sibling namespace is not lexical, so an import takes the name from it" {
+    // `App.Ast` neither encloses `App.Columnar` nor is enclosed by it. Nothing about the file's
+    // position brings it into scope, so the imported `System.Version` wins and discovery stands
+    // aside — the caller's external channel answers.
+    provider := ProjectProviderOf(
+        ["/p/sibling.nl"],
+        [ProjectSourceOf("App.Ast", "public class Version {\n}\n")]
+    )
+    discovery := ProjectDiscoveryWithProbeOf(provider, ["System"])
+
+    resolved := BuiltInTypes.Unknown as TypeInfo
+    declaration: SymbolDeclaration? = null
+    inaccessible: string? = null
+    assert !discovery.ResolveVisibleProjectType(
+        "Version",
+        "App.Columnar",
+        true,
+        out resolved,
+        out declaration,
+        out inaccessible
+    )
+    assert inaccessible == null
+
+    // A file that IMPORTS the sibling namespace reaches it — but then two imports supply the name,
+    // and that is the ambiguity the developer has to settle by qualifying.
+    importing := ProjectDiscoveryWithProbeOf(provider, ["App.Ast", "System"])
+    first := ""
+    second := ""
+    assert importing.TryFindAmbiguousImportedType("Version", "App.Columnar", out first, out second)
+    assert first == "App.Ast.Version"
+    assert second == "System.Version"
+}
+
+test "a global-namespace declaration is the outermost lexical step, ahead of an import" {
+    // The global namespace encloses every file, so an exported declaration there is in scope from a
+    // namespaced file without an import — and, being lexical, it outranks one.
+    provider := ProjectProviderOf(
+        ["/p/global.nl"],
+        [ProjectSourceOf(null, "public class Version {\n}\n")]
+    )
+    discovery := ProjectDiscoveryWithProbeOf(provider, ["System"])
+
+    resolved := BuiltInTypes.Unknown as TypeInfo
+    declaration: SymbolDeclaration? = null
+    inaccessible: string? = null
+    assert discovery.ResolveVisibleProjectType(
+        "Version",
+        "App.Models",
+        true,
+        out resolved,
+        out declaration,
+        out inaccessible
+    )
+    assert Path.GetFileName(declaration.File) == "global.nl"
+
+    first := ""
+    second := ""
+    assert !discovery.TryFindAmbiguousImportedType("Version", "App.Models", out first, out second)
+}

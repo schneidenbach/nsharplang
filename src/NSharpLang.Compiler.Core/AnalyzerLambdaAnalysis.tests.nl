@@ -132,11 +132,11 @@ func LambdaParams(): List<Parameter> {
 // The parser writes `var` as the placeholder type for an untyped lambda parameter, so this is the
 // shape EVERY lambda a program can spell has.
 func LambdaParam(parameters: List<Parameter>, name: string, line: int, column: int) {
-    parameters.Add(new Parameter(name, new SimpleTypeReference("var", line, column), null, false, ParameterModifier.None, null, line, column, false, null))
+    parameters.Add(new Parameter(name, new SimpleTypeReference("var", line, column), null, false, Ast.ParameterModifier.None, null, line, column, false, null))
 }
 
 func LambdaTypedParam(parameters: List<Parameter>, name: string, typeName: string, line: int, column: int) {
-    parameters.Add(new Parameter(name, new SimpleTypeReference(typeName, line, column), null, false, ParameterModifier.None, null, line, column, false, null))
+    parameters.Add(new Parameter(name, new SimpleTypeReference(typeName, line, column), null, false, Ast.ParameterModifier.None, null, line, column, false, null))
 }
 
 func LambdaExpr(parameters: List<Parameter>, body: Expression): LambdaExpression {

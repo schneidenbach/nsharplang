@@ -1072,11 +1072,11 @@ test "every unassigned field gets its OWN report" {
 // that throws owes nothing; a loop body may run zero times, so it assigns nothing.
 
 func DaOutParameter(name: string, line: int, column: int): Parameter {
-    return new Parameter(name, new SimpleTypeReference("int", line, column), null, false, ParameterModifier.Out, null, line, column, false, null)
+    return new Parameter(name, new SimpleTypeReference("int", line, column), null, false, Ast.ParameterModifier.Out, null, line, column, false, null)
 }
 
 func DaRefParameter(name: string, line: int, column: int): Parameter {
-    return new Parameter(name, new SimpleTypeReference("int", line, column), null, false, ParameterModifier.Ref, null, line, column, false, null)
+    return new Parameter(name, new SimpleTypeReference("int", line, column), null, false, Ast.ParameterModifier.Ref, null, line, column, false, null)
 }
 
 func DaFunctionWithParameters(name: string, parameters: List<Parameter>): FunctionDeclaration {

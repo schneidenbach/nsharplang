@@ -345,3 +345,52 @@ test "source static owner scope leaves a member spelling rooted at a declared bi
     // The BARE spelling is still the source type it always was.
     SourceOwnerAssertResolved(scope, "", "Catalog", "Catalog", "Catalog")
 }
+
+// ---- the lexical chain, the emitter's half of the one precedence rule ---------------------------
+
+test "source static owner scope reads an enclosing namespace before any import" {
+    sources := new string[](3)
+    fileNames := new string[](3)
+    sources[0] = "namespace App\nclass Owner {}\n"
+    sources[1] = "namespace Other\nclass Owner {}\n"
+    sources[2] = "namespace App.Models.Internal\nimport Other\n"
+    fileNames[0] = "outer.nl"
+    fileNames[1] = "other.nl"
+    fileNames[2] = "inner.nl"
+    scope := SourceOwnerScope(sources, fileNames, SourceOwnerEmptyStructs(), 2)
+
+    // `App` encloses `App.Models.Internal`, so its exported `Owner` is in scope WITHOUT an import and
+    // outranks the `Other.Owner` the file did import. That is `SimpleNamePrecedence` rule 2 ahead of
+    // rule 3, and it is the same answer the analyzer's discovery walk gives — which is the point: the
+    // two used to disagree, and a program that passed analysis then declined at emission.
+    SourceOwnerAssertResolved(scope, "", "Owner", "Owner", "App.Owner")
+
+    // A NON-EXPORTED declaration in an enclosing namespace is not in scope there — a file only sees
+    // its own namespace's private declarations — so the import answers instead.
+    sources[0] = "namespace App\nprivate class Owner {}\n"
+    unexported := SourceOwnerScope(sources, fileNames, SourceOwnerEmptyStructs(), 2)
+    SourceOwnerAssertResolved(unexported, "", "Owner", "Owner", "Other.Owner")
+}
+
+test "source static owner scope gives a sibling namespace no standing without an import" {
+    sources := new string[](2)
+    fileNames := new string[](2)
+    sources[0] = "namespace App.Ast\nclass Owner {}\n"
+    sources[1] = "namespace App.Columnar\n"
+    fileNames[0] = "ast.nl"
+    fileNames[1] = "columnar.nl"
+    scope := SourceOwnerScope(sources, fileNames, SourceOwnerEmptyStructs(), 1)
+
+    // `App.Ast` is a SIBLING of `App.Columnar`: it neither encloses the file nor is imported by it,
+    // so the bare spelling is not this file's `Owner`. (The project-wide unique-exported fallback is
+    // what answers it, and only while no import supplies the name.)
+    SourceOwnerAssertResolved(scope, "", "Owner", "Owner", "App.Ast.Owner")
+
+    // THE QUALIFIER CLIMBS THE SAME CHAIN. `Ast.Owner` written inside `App.Columnar` means
+    // `App.Ast.Owner`, because the leftmost segment of a qualified name is looked up exactly as a
+    // simple name is — the enclosing `App` has an `Ast` namespace in it.
+    SourceOwnerAssertResolved(scope, "", "Ast", "Ast.Owner", "App.Ast.Owner")
+
+    // And the absolute spelling still names the same declaration.
+    SourceOwnerAssertResolved(scope, "", "App", "App.Ast.Owner", "App.Ast.Owner")
+}

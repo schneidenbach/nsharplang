@@ -337,7 +337,7 @@ func BinderLambda(parameterCount: int, typeName: string): Argument {
             parameterType,
             null,
             false,
-            ParameterModifier.None,
+            Ast.ParameterModifier.None,
             null,
             1,
             1,
@@ -397,8 +397,8 @@ func BinderSourceFunction(name: string, parameter: TypeInfo, returnType: TypeInf
     parameterTypes := new List<TypeInfo>()
     parameterTypes.Add(parameter)
     signature.ParameterTypes = parameterTypes
-    modifiers := new List<ParameterModifier>()
-    modifiers.Add(ParameterModifier.None)
+    modifiers := new List<Ast.ParameterModifier>()
+    modifiers.Add(Ast.ParameterModifier.None)
     signature.ParameterModifiers = modifiers
     signature.ReturnType = returnType
     return signature
@@ -409,8 +409,8 @@ func BinderAnonymousFunction(parameter: TypeInfo, returnType: TypeInfo): Functio
     parameterTypes := new List<TypeInfo>()
     parameterTypes.Add(parameter)
     signature.ParameterTypes = parameterTypes
-    modifiers := new List<ParameterModifier>()
-    modifiers.Add(ParameterModifier.None)
+    modifiers := new List<Ast.ParameterModifier>()
+    modifiers.Add(Ast.ParameterModifier.None)
     signature.ParameterModifiers = modifiers
     signature.ReturnType = returnType
     return signature

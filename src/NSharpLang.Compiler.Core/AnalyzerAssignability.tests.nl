@@ -68,10 +68,10 @@ func AssignabilityDefault(): AnalyzerAssignability {
 }
 
 func AssignabilityLambda(parameters: List<TypeInfo>, returnType: TypeInfo?): FunctionTypeInfo {
-    modifiers := new List<ParameterModifier>()
+    modifiers := new List<Ast.ParameterModifier>()
     index := 0
     while index < parameters.Count {
-        modifiers.Add(ParameterModifier.None)
+        modifiers.Add(Ast.ParameterModifier.None)
         index = index + 1
     }
 
@@ -349,16 +349,16 @@ test "a method-group match needs equal arity and equal ref-ness, and params eras
 
     // `params` is a call-site convenience and is NOT part of a delegate's signature.
     paramsSource := AssignabilityMethodGroup(AssignabilityOne(BuiltInTypes.Int), BuiltInTypes.Int)
-    paramsModifiers := new List<ParameterModifier>()
-    paramsModifiers.Add(ParameterModifier.Params)
+    paramsModifiers := new List<Ast.ParameterModifier>()
+    paramsModifiers.Add(Ast.ParameterModifier.Params)
     paramsSource.ParameterModifiers = paramsModifiers
     paramsScore := 0
     assert assignability.TryGetRuntimeDelegateMethodGroupMatchScore(paramsSource, target, out paramsScore)
 
     // `ref` is load-bearing and is not erased.
     refSource := AssignabilityMethodGroup(AssignabilityOne(BuiltInTypes.Int), BuiltInTypes.Int)
-    refModifiers := new List<ParameterModifier>()
-    refModifiers.Add(ParameterModifier.Ref)
+    refModifiers := new List<Ast.ParameterModifier>()
+    refModifiers.Add(Ast.ParameterModifier.Ref)
     refSource.ParameterModifiers = refModifiers
     refScore := 0
     assert !assignability.TryGetRuntimeDelegateMethodGroupMatchScore(refSource, target, out refScore)

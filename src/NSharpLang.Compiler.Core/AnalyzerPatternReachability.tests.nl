@@ -1005,7 +1005,7 @@ func ReachabilityConversionOperatorClass(name: string): TypeInfo {
         1,
         new string[](0),
         new TypeReference[](0),
-        new ParameterModifier[](0),
+        new Ast.ParameterModifier[](0),
         1,
         false,
         false,

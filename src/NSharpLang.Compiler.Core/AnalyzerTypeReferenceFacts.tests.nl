@@ -338,8 +338,9 @@ test "generic head arity treats a reflected type as generic only when it is an o
     assert AnalyzerTypeReferenceFacts.GenericHeadArity(new ReflectionTypeInfo(typeof(int[]))) == 0
 }
 
-test "visible type namespaces put the current one first, then imports in order, deduplicated" {
-    // No package or namespace declaration: the GLOBAL namespace is a real candidate and comes first.
+test "visible type namespaces put the whole lexical chain first, then imports in order" {
+    // No package or namespace declaration: the GLOBAL namespace is a real candidate and is the whole
+    // chain.
     assert ReferenceFactsNamespaceText(
         AnalyzerTypeReferenceFacts.VisibleTypeNamespaces(null, ReferenceFactsNamespaces([]))
     ) == "<global>"
@@ -350,30 +351,34 @@ test "visible type namespaces put the current one first, then imports in order, 
         )
     ) == "<global>,System,System.Text"
 
-    // A declared namespace comes first, then the imports in declaration order.
+    // A DECLARED NAMESPACE BRINGS ITS ENCLOSING ONES WITH IT, and every one of them is ahead of every
+    // import: a lexically nearer declaration wins outright, which is the rule C# applies to `using`
+    // and the reason a file in `App.Models` reads a bare `Person` as `App.Person` when `App` declares
+    // one, whatever an import supplies.
     assert ReferenceFactsNamespaceText(
         AnalyzerTypeReferenceFacts.VisibleTypeNamespaces("Alpha", ReferenceFactsNamespaces([]))
-    ) == "Alpha"
+    ) == "Alpha,<global>"
     assert ReferenceFactsNamespaceText(
         AnalyzerTypeReferenceFacts.VisibleTypeNamespaces(
-            "Alpha",
+            "Alpha.Inner.Deep",
             ReferenceFactsNamespaces(["System", "System.Text", "System.IO"])
         )
-    ) == "Alpha,System,System.Text,System.IO"
+    ) == "Alpha.Inner.Deep,Alpha.Inner,Alpha,<global>,System,System.Text,System.IO"
 
-    // The current namespace is not repeated when it is also imported, wherever the import sits.
+    // A lexical namespace is not repeated when it is also imported, wherever the import sits: such an
+    // import is redundant rather than a second, competing candidate.
     assert ReferenceFactsNamespaceText(
         AnalyzerTypeReferenceFacts.VisibleTypeNamespaces(
-            "Alpha",
+            "Alpha.Inner",
             ReferenceFactsNamespaces(["Alpha", "System"])
         )
-    ) == "Alpha,System"
+    ) == "Alpha.Inner,Alpha,<global>,System"
     assert ReferenceFactsNamespaceText(
         AnalyzerTypeReferenceFacts.VisibleTypeNamespaces(
             "Alpha",
             ReferenceFactsNamespaces(["System", "Alpha"])
         )
-    ) == "Alpha,System"
+    ) == "Alpha,<global>,System"
 
     // Duplicate imports collapse to their FIRST occurrence, which is what keeps the candidate order
     // stable when the same namespace is imported twice.
@@ -382,7 +387,7 @@ test "visible type namespaces put the current one first, then imports in order, 
             "Alpha",
             ReferenceFactsNamespaces(["System", "System", "System.Text", "System"])
         )
-    ) == "Alpha,System,System.Text"
+    ) == "Alpha,<global>,System,System.Text"
 
     // Deduplication is case-SENSITIVE: namespaces that differ only in case are different candidates.
     assert ReferenceFactsNamespaceText(
@@ -390,7 +395,7 @@ test "visible type namespaces put the current one first, then imports in order, 
             "Alpha",
             ReferenceFactsNamespaces(["alpha", "ALPHA", "Alpha"])
         )
-    ) == "Alpha,alpha,ALPHA"
+    ) == "Alpha,<global>,alpha,ALPHA"
 
     // The global namespace never suppresses an import, and an empty import name is a real (if
     // useless) candidate rather than being silently dropped.

@@ -488,7 +488,7 @@ test "an unresolved name falls through to the extension surface, with the WRITTE
             new SimpleTypeReference("string"),
             null,
             false,
-            ParameterModifier.None,
+            Ast.ParameterModifier.None,
             null,
             1,
             1,

@@ -510,7 +510,7 @@ func DeclarationPolicyDrive(harness: DeclarationPolicyHarness, state: ParameterW
 }
 
 func DeclarationPolicyParam(name: string, typeName: string, defaultValue: Expression?): Parameter {
-    return new Parameter(name, new SimpleTypeReference(typeName, 0, 0), defaultValue, false, ParameterModifier.None, null, 1, 1, false, null)
+    return new Parameter(name, new SimpleTypeReference(typeName, 0, 0), defaultValue, false, Ast.ParameterModifier.None, null, 1, 1, false, null)
 }
 
 func DeclarationPolicyParamList(parameters: List<Parameter>): List<Parameter> {
@@ -602,8 +602,8 @@ test "an identifier is not a default the compiler can evaluate" {
 
 test "a `this` parameter and a `params` parameter are skipped by BOTH rules" {
     harness := DeclarationPolicyHarnessNew()
-    receiver := new Parameter("self", new SimpleTypeReference("Widget", 0, 0), null, true, ParameterModifier.None, null, 1, 1, false, null)
-    rest := new Parameter("rest", new SimpleTypeReference("int", 0, 0), null, false, ParameterModifier.Params, null, 1, 1, false, null)
+    receiver := new Parameter("self", new SimpleTypeReference("Widget", 0, 0), null, true, Ast.ParameterModifier.None, null, 1, 1, false, null)
+    rest := new Parameter("rest", new SimpleTypeReference("int", 0, 0), null, false, Ast.ParameterModifier.Params, null, 1, 1, false, null)
     parameters := new List<Parameter>()
     parameters.Add(DeclarationPolicyParam("a", "int", new IntLiteralExpression("1", 1, 1)))
     parameters.Add(receiver)

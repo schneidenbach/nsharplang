@@ -35,11 +35,11 @@ func IdentityFunction(parameterType: TypeInfo, returnType: TypeInfo): FunctionTy
 }
 
 func IdentityFunctionWithModifier(
-    modifier: ParameterModifier,
+    modifier: Ast.ParameterModifier,
     hasParams: bool
 ): FunctionTypeInfo {
     result := IdentityFunction(BuiltInTypes.Int, BuiltInTypes.String)
-    modifiers := new List<ParameterModifier>()
+    modifiers := new List<Ast.ParameterModifier>()
     modifiers.Add(modifier)
     result.ParameterModifiers = modifiers
     result.HasParamsParameter = hasParams
@@ -229,16 +229,16 @@ test "type info identity compares recursive structural shapes exactly" {
         IdentityFunction(new SimpleTypeInfo("int"), new SimpleTypeInfo("string"))
     )
     assert !TypeInfoIdentityFacts.AreEqual(
-        IdentityFunctionWithModifier(ParameterModifier.Ref, false),
-        IdentityFunctionWithModifier(ParameterModifier.Out, false)
+        IdentityFunctionWithModifier(Ast.ParameterModifier.Ref, false),
+        IdentityFunctionWithModifier(Ast.ParameterModifier.Out, false)
     )
     assert !TypeInfoIdentityFacts.AreEqual(
-        IdentityFunctionWithModifier(ParameterModifier.None, false),
-        IdentityFunctionWithModifier(ParameterModifier.Params, false)
+        IdentityFunctionWithModifier(Ast.ParameterModifier.None, false),
+        IdentityFunctionWithModifier(Ast.ParameterModifier.Params, false)
     )
     assert !TypeInfoIdentityFacts.AreEqual(
-        IdentityFunctionWithModifier(ParameterModifier.Params, false),
-        IdentityFunctionWithModifier(ParameterModifier.Params, true)
+        IdentityFunctionWithModifier(Ast.ParameterModifier.Params, false),
+        IdentityFunctionWithModifier(Ast.ParameterModifier.Params, true)
     )
 }
 

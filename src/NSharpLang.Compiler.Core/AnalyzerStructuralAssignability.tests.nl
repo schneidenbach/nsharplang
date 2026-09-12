@@ -82,7 +82,7 @@ func StructuralMember(
         parameterTypes.Length,
         new string[](parameterTypes.Length),
         parameterTypes,
-        new ParameterModifier[](parameterTypes.Length),
+        new Ast.ParameterModifier[](parameterTypes.Length),
         parameterTypes.Length,
         false,
         false,

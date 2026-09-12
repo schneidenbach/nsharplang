@@ -450,7 +450,7 @@ class AnalyzerOverloadFacts {
             return -1
         }
 
-        if parameterModifiers[expectedCount - 1] != ParameterModifier.Params {
+        if parameterModifiers[expectedCount - 1] != Ast.ParameterModifier.Params {
             return -1
         }
 
@@ -556,7 +556,7 @@ class AnalyzerOverloadFacts {
         }
 
         modifier := modifiers[parameterIndex]
-        if modifier != ParameterModifier.Ref && modifier != ParameterModifier.Out {
+        if modifier != Ast.ParameterModifier.Ref && modifier != Ast.ParameterModifier.Out {
             return parameterType
         }
 
@@ -707,15 +707,15 @@ class AnalyzerOverloadFacts {
         modifierText := ""
         if modifiers != null && index < modifiers.Count {
             modifier := modifiers[index]
-            if modifier == ParameterModifier.Ref {
+            if modifier == Ast.ParameterModifier.Ref {
                 modifierText = "ref "
             }
 
-            if modifier == ParameterModifier.Out {
+            if modifier == Ast.ParameterModifier.Out {
                 modifierText = "out "
             }
 
-            if modifier == ParameterModifier.Params {
+            if modifier == Ast.ParameterModifier.Params {
                 modifierText = "params "
             }
         }
@@ -732,7 +732,7 @@ class AnalyzerOverloadFacts {
 
         defaultValue := ""
         if index >= requiredCount && modifiers != null {
-            if index >= modifiers.Count || modifiers[index] != ParameterModifier.Params {
+            if index >= modifiers.Count || modifiers[index] != Ast.ParameterModifier.Params {
                 defaultValue = " = ..."
             }
         }
@@ -931,11 +931,11 @@ class AnalyzerOverloadScoring {
         }
 
         parameterTypes := new List<TypeInfo>()
-        parameterModifiers := new List<ParameterModifier>()
+        parameterModifiers := new List<Ast.ParameterModifier>()
         index := 0
         while index < lambda.Parameters.Count {
             parameterTypes.Add(typeResolver.ResolveType(lambda.Parameters[index].Type))
-            parameterModifiers.Add(ParameterModifier.None)
+            parameterModifiers.Add(Ast.ParameterModifier.None)
             index = index + 1
         }
 

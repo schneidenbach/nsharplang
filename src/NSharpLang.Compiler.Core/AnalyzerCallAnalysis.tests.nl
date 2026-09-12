@@ -167,11 +167,11 @@ func CallWalkNames(count: int): List<string> {
     return names
 }
 
-func CallWalkModifiers(count: int): List<ParameterModifier> {
-    modifiers := new List<ParameterModifier>()
+func CallWalkModifiers(count: int): List<Ast.ParameterModifier> {
+    modifiers := new List<Ast.ParameterModifier>()
     index := 0
     while index < count {
-        modifiers.Add(ParameterModifier.None)
+        modifiers.Add(Ast.ParameterModifier.None)
         index = index + 1
     }
 

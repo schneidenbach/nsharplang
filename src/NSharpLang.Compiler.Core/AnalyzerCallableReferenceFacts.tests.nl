@@ -39,15 +39,15 @@ func CallableSourceFunction(sourceName: string?): FunctionTypeInfo {
     return result
 }
 
-func CallableModifierFunction(modifiers: List<ParameterModifier>?): FunctionTypeInfo {
+func CallableModifierFunction(modifiers: List<Ast.ParameterModifier>?): FunctionTypeInfo {
     result := new FunctionTypeInfo()
     result.SourceName = "Probe"
     result.ParameterModifiers = modifiers
     return result
 }
 
-func CallableModifierList(values: ParameterModifier[]): List<ParameterModifier> {
-    result := new List<ParameterModifier>()
+func CallableModifierList(values: Ast.ParameterModifier[]): List<Ast.ParameterModifier> {
+    result := new List<Ast.ParameterModifier>()
     index := 0
     while index < values.Length {
         result.Add(values[index])
@@ -212,17 +212,17 @@ test "runtime delegate classification excludes the two abstract delegate roots" 
 
 test "the delegate parameter modifier read is total over absent and short modifier lists" {
     absent := CallableModifierFunction(null)
-    assert AnalyzerCallableReferenceFacts.GetFunctionParameterModifier(absent, 0) == ParameterModifier.None
-    assert AnalyzerCallableReferenceFacts.GetFunctionParameterModifier(absent, 5) == ParameterModifier.None
+    assert AnalyzerCallableReferenceFacts.GetFunctionParameterModifier(absent, 0) == Ast.ParameterModifier.None
+    assert AnalyzerCallableReferenceFacts.GetFunctionParameterModifier(absent, 5) == Ast.ParameterModifier.None
 
-    empty := CallableModifierFunction(new List<ParameterModifier>())
-    assert AnalyzerCallableReferenceFacts.GetFunctionParameterModifier(empty, 0) == ParameterModifier.None
+    empty := CallableModifierFunction(new List<Ast.ParameterModifier>())
+    assert AnalyzerCallableReferenceFacts.GetFunctionParameterModifier(empty, 0) == Ast.ParameterModifier.None
 
-    values := new ParameterModifier[](4)
-    values[0] = ParameterModifier.None
-    values[1] = ParameterModifier.Ref
-    values[2] = ParameterModifier.Out
-    values[3] = ParameterModifier.Params
+    values := new Ast.ParameterModifier[](4)
+    values[0] = Ast.ParameterModifier.None
+    values[1] = Ast.ParameterModifier.Ref
+    values[2] = Ast.ParameterModifier.Out
+    values[3] = Ast.ParameterModifier.Params
     populated := CallableModifierFunction(CallableModifierList(values))
 
     index := 0
@@ -238,29 +238,29 @@ test "the delegate parameter modifier read is total over absent and short modifi
     }
 
     // Reading PAST the list is `None`, not a fault: an unmodified trailing parameter is the norm.
-    assert AnalyzerCallableReferenceFacts.GetFunctionParameterModifier(populated, 4) == ParameterModifier.None
-    assert AnalyzerCallableReferenceFacts.GetFunctionParameterModifier(populated, 99) == ParameterModifier.None
+    assert AnalyzerCallableReferenceFacts.GetFunctionParameterModifier(populated, 4) == Ast.ParameterModifier.None
+    assert AnalyzerCallableReferenceFacts.GetFunctionParameterModifier(populated, 99) == Ast.ParameterModifier.None
 
     // And reading BEFORE it is `None` too — the guard the completion engine's deleted copy carried
     // (task 019 slice 1). Without it this is an index fault, not an answer.
-    assert AnalyzerCallableReferenceFacts.GetFunctionParameterModifier(populated, -1) == ParameterModifier.None
-    assert AnalyzerCallableReferenceFacts.GetFunctionParameterModifier(populated, -99) == ParameterModifier.None
-    assert AnalyzerCallableReferenceFacts.GetFunctionParameterModifier(absent, -1) == ParameterModifier.None
-    assert AnalyzerCallableReferenceFacts.GetFunctionParameterModifier(empty, -1) == ParameterModifier.None
+    assert AnalyzerCallableReferenceFacts.GetFunctionParameterModifier(populated, -1) == Ast.ParameterModifier.None
+    assert AnalyzerCallableReferenceFacts.GetFunctionParameterModifier(populated, -99) == Ast.ParameterModifier.None
+    assert AnalyzerCallableReferenceFacts.GetFunctionParameterModifier(absent, -1) == Ast.ParameterModifier.None
+    assert AnalyzerCallableReferenceFacts.GetFunctionParameterModifier(empty, -1) == Ast.ParameterModifier.None
 }
 
 test "delegate signature matching erases params and keeps ref and out" {
     // `params` is a call-site convenience, not part of the signature.
-    assert AnalyzerCallableReferenceFacts.NormalizeDelegateParameterModifier(ParameterModifier.Params) == ParameterModifier.None
+    assert AnalyzerCallableReferenceFacts.NormalizeDelegateParameterModifier(Ast.ParameterModifier.Params) == Ast.ParameterModifier.None
 
     // Everything else is load-bearing and survives unchanged.
-    assert AnalyzerCallableReferenceFacts.NormalizeDelegateParameterModifier(ParameterModifier.None) == ParameterModifier.None
-    assert AnalyzerCallableReferenceFacts.NormalizeDelegateParameterModifier(ParameterModifier.Ref) == ParameterModifier.Ref
-    assert AnalyzerCallableReferenceFacts.NormalizeDelegateParameterModifier(ParameterModifier.Out) == ParameterModifier.Out
+    assert AnalyzerCallableReferenceFacts.NormalizeDelegateParameterModifier(Ast.ParameterModifier.None) == Ast.ParameterModifier.None
+    assert AnalyzerCallableReferenceFacts.NormalizeDelegateParameterModifier(Ast.ParameterModifier.Ref) == Ast.ParameterModifier.Ref
+    assert AnalyzerCallableReferenceFacts.NormalizeDelegateParameterModifier(Ast.ParameterModifier.Out) == Ast.ParameterModifier.Out
 
     // The erasure makes a params arity match a plain one, and does NOT collapse ref into out.
-    assert AnalyzerCallableReferenceFacts.NormalizeDelegateParameterModifier(ParameterModifier.Params) == AnalyzerCallableReferenceFacts.NormalizeDelegateParameterModifier(ParameterModifier.None)
-    assert AnalyzerCallableReferenceFacts.NormalizeDelegateParameterModifier(ParameterModifier.Ref) != AnalyzerCallableReferenceFacts.NormalizeDelegateParameterModifier(ParameterModifier.Out)
+    assert AnalyzerCallableReferenceFacts.NormalizeDelegateParameterModifier(Ast.ParameterModifier.Params) == AnalyzerCallableReferenceFacts.NormalizeDelegateParameterModifier(Ast.ParameterModifier.None)
+    assert AnalyzerCallableReferenceFacts.NormalizeDelegateParameterModifier(Ast.ParameterModifier.Ref) != AnalyzerCallableReferenceFacts.NormalizeDelegateParameterModifier(Ast.ParameterModifier.Out)
 }
 
 test "Func reifies its last type argument as the return type" {
@@ -294,7 +294,7 @@ test "Func reifies its last type argument as the return type" {
         while index < modifiers.Count {
             // The type arguments are carried through by identity, and every modifier is `None`.
             assert parameterTypes[index] == arguments[index]
-            assert modifiers[index] == ParameterModifier.None
+            assert modifiers[index] == Ast.ParameterModifier.None
             index += 1
         }
 
@@ -338,7 +338,7 @@ test "Action reifies every type argument as a parameter and returns void" {
         index := 0
         while index < parameterTypes.Count {
             assert parameterTypes[index] == arguments[index]
-            assert modifiers[index] == ParameterModifier.None
+            assert modifiers[index] == Ast.ParameterModifier.None
             index += 1
         }
 

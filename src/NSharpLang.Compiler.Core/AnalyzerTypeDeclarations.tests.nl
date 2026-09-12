@@ -305,7 +305,7 @@ func TypeDeclOneParameter(parameter: Parameter): List<Parameter> {
 }
 
 func TypeDeclParameter(name: string, typeName: string, line: int, column: int): Parameter {
-    return new Parameter(name, new SimpleTypeReference(typeName, line, column), null, false, ParameterModifier.None, null, line, column, false, null)
+    return new Parameter(name, new SimpleTypeReference(typeName, line, column), null, false, Ast.ParameterModifier.None, null, line, column, false, null)
 }
 
 func TypeDeclTypeParameters(name: string): List<TypeParameter> {
@@ -1286,7 +1286,7 @@ func TypeDeclMemberInfo(name: string, modifierBits: int): DeclaredMemberInfo {
         0,
         new string[](0),
         new TypeReference[](0),
-        new ParameterModifier[](0),
+        new Ast.ParameterModifier[](0),
         0,
         false,
         false,
@@ -1325,7 +1325,7 @@ func TypeDeclPropertyMemberInfo(name: string, modifierBits: int): DeclaredMember
         0,
         new string[](0),
         new TypeReference[](0),
-        new ParameterModifier[](0),
+        new Ast.ParameterModifier[](0),
         0,
         false,
         false,
@@ -1369,7 +1369,7 @@ func TypeDeclDefaultedMemberInfo(name: string, kind: DeclaredMemberKind): Declar
         0,
         new string[](0),
         new TypeReference[](0),
-        new ParameterModifier[](0),
+        new Ast.ParameterModifier[](0),
         0,
         false,
         false,

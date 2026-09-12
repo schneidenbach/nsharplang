@@ -131,11 +131,11 @@ func VNames(count: int): List<string> {
     return names
 }
 
-func VModifiers(count: int): List<ParameterModifier> {
-    modifiers := new List<ParameterModifier>()
+func VModifiers(count: int): List<Ast.ParameterModifier> {
+    modifiers := new List<Ast.ParameterModifier>()
     index := 0
     while index < count {
-        modifiers.Add(ParameterModifier.None)
+        modifiers.Add(Ast.ParameterModifier.None)
         index = index + 1
     }
 
@@ -215,8 +215,8 @@ func VArgs2(first: Expression, second: Expression): List<Argument> {
 // `f(params p1: int[])` — the tail modifier is what makes the position a params tail at all.
 func VParamsSignature(): FunctionTypeInfo {
     signature := VSignature(VTypes1(new ArrayTypeInfo(BuiltInTypes.Int)))
-    modifiers := new List<ParameterModifier>()
-    modifiers.Add(ParameterModifier.Params)
+    modifiers := new List<Ast.ParameterModifier>()
+    modifiers.Add(Ast.ParameterModifier.Params)
     signature.ParameterModifiers = modifiers
     signature.HasParamsParameter = true
     signature.SourceParameterTypes = VRefs1(
@@ -597,8 +597,8 @@ test "a ref parameter's expected type is by-REF" {
     errors := ValidatorErrors()
     owner := ValidatorOwner(errors)
     signature := VSignature(VTypes1(BuiltInTypes.Int))
-    modifiers := new List<ParameterModifier>()
-    modifiers.Add(ParameterModifier.Ref)
+    modifiers := new List<Ast.ParameterModifier>()
+    modifiers.Add(Ast.ParameterModifier.Ref)
     signature.ParameterModifiers = modifiers
 
     call := VCall(VArgs1(VIdentifier("a")))

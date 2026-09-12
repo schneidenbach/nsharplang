@@ -97,7 +97,7 @@ class AnalyzerFunctionTypeFactory {
 
         invokeParameters := invokeMethod.GetParameters()
         parameterTypeList := new List<TypeInfo>()
-        parameterModifierList := new List<ParameterModifier>()
+        parameterModifierList := new List<Ast.ParameterModifier>()
         invokeIndex := 0
         while invokeIndex < invokeParameters.Length {
             parameter := invokeParameters[invokeIndex]
@@ -133,7 +133,7 @@ class AnalyzerFunctionTypeFactory {
         parameterNames := new List<string>()
         parameterTypes := new List<TypeInfo>()
         sourceParameterTypes := new List<TypeReference>()
-        parameterModifiers := new List<ParameterModifier>()
+        parameterModifiers := new List<Ast.ParameterModifier>()
         requiredParameterCount := 0
         index := 0
         while index < parameters.Count {
@@ -142,7 +142,7 @@ class AnalyzerFunctionTypeFactory {
             parameterTypes.Add(ResolveDeclarationReference(parameter.Type, methodSubstitution, declarationFile))
             sourceParameterTypes.Add(parameter.Type)
             parameterModifiers.Add(parameter.Modifier)
-            if parameter.Modifier != ParameterModifier.Params && parameter.DefaultValue == null {
+            if parameter.Modifier != Ast.ParameterModifier.Params && parameter.DefaultValue == null {
                 requiredParameterCount = requiredParameterCount + 1
             }
 
@@ -152,7 +152,7 @@ class AnalyzerFunctionTypeFactory {
         hasParamsParameter := false
         if parameters.Count > 0 {
             lastParameter := parameters[parameters.Count - 1]
-            hasParamsParameter = lastParameter.Modifier == ParameterModifier.Params
+            hasParamsParameter = lastParameter.Modifier == Ast.ParameterModifier.Params
         }
 
         declaredReturnType := declaration.ReturnType
@@ -336,17 +336,17 @@ class AnalyzerFunctionTypeFactory {
     }
 
     // A by-ref reflection parameter carries its direction; everything else has none.
-    static func GetReflectionParameterModifier(parameter: ParameterInfo): ParameterModifier {
+    static func GetReflectionParameterModifier(parameter: ParameterInfo): Ast.ParameterModifier {
         parameterType := parameter.get_ParameterType()
         if !parameterType.get_IsByRef() {
-            return ParameterModifier.None
+            return Ast.ParameterModifier.None
         }
 
         if parameter.get_IsOut() {
-            return ParameterModifier.Out
+            return Ast.ParameterModifier.Out
         }
 
-        return ParameterModifier.Ref
+        return Ast.ParameterModifier.Ref
     }
 
     // `Expression<TDelegate>` unwraps to `TDelegate` when that argument really is a delegate. The
@@ -546,11 +546,11 @@ class AnalyzerFunctionTypeFactory {
         return false
     }
 
-    static func RepeatNoModifier(count: int): List<ParameterModifier> {
-        modifiers := new List<ParameterModifier>()
+    static func RepeatNoModifier(count: int): List<Ast.ParameterModifier> {
+        modifiers := new List<Ast.ParameterModifier>()
         index := 0
         while index < count {
-            modifiers.Add(ParameterModifier.None)
+            modifiers.Add(Ast.ParameterModifier.None)
             index = index + 1
         }
 
@@ -584,8 +584,8 @@ class AnalyzerFunctionTypeFactory {
         return result
     }
 
-    static func ToModifierList(values: ParameterModifier[]): List<ParameterModifier> {
-        result := new List<ParameterModifier>()
+    static func ToModifierList(values: Ast.ParameterModifier[]): List<Ast.ParameterModifier> {
+        result := new List<Ast.ParameterModifier>()
         index := 0
         while index < values.Length {
             result.Add(values[index])

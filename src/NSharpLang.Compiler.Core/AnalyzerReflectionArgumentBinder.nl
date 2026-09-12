@@ -670,7 +670,7 @@ class AnalyzerReflectionArgumentBinder {
 
         invokeParameters := invokeMethod.GetParameters()
         parameterTypeList := new List<TypeInfo>()
-        parameterModifierList := new List<ParameterModifier>()
+        parameterModifierList := new List<Ast.ParameterModifier>()
         invokeIndex := 0
         while invokeIndex < invokeParameters.Length {
             invokeParameter := invokeParameters[invokeIndex]

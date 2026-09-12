@@ -260,7 +260,7 @@ func AttrNullableOf(valueType: Type): Type {
 
 func AttrParameterWith(node: AttributeNode): List<Parameter> {
     parameters := new List<Parameter>()
-    parameters.Add(new Parameter("value", new SimpleTypeReference("int", 5, 20), null, false, ParameterModifier.None, AttrNodes(node), 5, 20, false, null))
+    parameters.Add(new Parameter("value", new SimpleTypeReference("int", 5, 20), null, false, Ast.ParameterModifier.None, AttrNodes(node), 5, 20, false, null))
     return parameters
 }
 
@@ -1297,7 +1297,7 @@ func AttrNativeParameters(): List<Parameter> {
 }
 
 func AttrNativeParameter(parameters: List<Parameter>, name: string, parameterType: TypeReference) {
-    parameters.Add(new Parameter(name, parameterType, null, false, ParameterModifier.None, null, 12, 21, false, null))
+    parameters.Add(new Parameter(name, parameterType, null, false, Ast.ParameterModifier.None, null, 12, 21, false, null))
 }
 
 func AttrNativeImportOf(attributeName: string, parameters: List<Parameter>, returnType: TypeReference?): FunctionDeclaration {

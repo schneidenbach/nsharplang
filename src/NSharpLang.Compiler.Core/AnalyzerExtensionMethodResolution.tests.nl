@@ -96,7 +96,7 @@ func ExtensionReceiverDefault(): ExtensionReceiverHarness {
 
 func ExtensionReceiverParameter(name: string, typeName: string): Parameter {
     reference: TypeReference = new SimpleTypeReference(typeName)
-    return new Parameter(name, reference, null, false, ParameterModifier.None, null, 1, 1, false, null)
+    return new Parameter(name, reference, null, false, Ast.ParameterModifier.None, null, 1, 1, false, null)
 }
 
 func ExtensionReceiverDeclaration(
