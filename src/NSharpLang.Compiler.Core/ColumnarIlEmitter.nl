@@ -6567,8 +6567,15 @@ sealed class ColumnarIlEmitter {
                 // then demanded exact type equality, so `b[0] = 65` on a `byte[]` declined while
                 // `v: byte = 65` and `Take(65)` into a `byte` parameter both worked. The rule was
                 // never missing — this site just did not ask for it.
+                //
+                // AND THE ANSWER IS THE SEAM'S, NOT A SECOND OPINION. `TryEmitAssignableValue` has
+                // already emitted whatever conversion the store needs — the box for `o[0] = 5` on an
+                // `object[]`, nothing at all for `o[0] = "a"` — and reports the value's OWN type,
+                // which for a widening store is not the element type. Re-testing that reported type
+                // for equality rejected every store that converted, which is why a reference into an
+                // `object[]` element did not emit while the same widening at a CALL was free.
                 let elementValueType: System.Type? = null
-                if (!TryEmitAssignableValue(Child(expr, 1), elementType, out elementValueType) || !TypesEquivalent(elementValueType, elementType)) {
+                if (!TryEmitAssignableValue(Child(expr, 1), elementType, out elementValueType)) {
                     return false
                 }
                 if (!EmitArrayElementStore(elementType)) {
@@ -11060,6 +11067,17 @@ sealed class ColumnarIlEmitter {
                 columnarResolvedType = targetType
                 return true
             }
+            // AN EXPLICIT CAST PERMITS EVERY IMPLICIT CONVERSION (C# §10.3: the set of explicit
+            // conversions includes the implicit ones), so the upcasts route through the SAME funnel an
+            // assignment and an argument already use rather than through a second, narrower list.
+            // `(object)name` is the shape converted C# writes whenever it builds an `object[]`, and it
+            // declined here while the identical widening at a call site was free. The numeric casts
+            // are NOT routed through this: an explicit numeric cast may narrow, and the scalar arm
+            // below owns the whole target-driven opcode table.
+            if (!ColumnarNumericFacts.IsCastableScalar(targetType) && (ColumnarReferenceCoercionPlanner.TryEmitInterfaceUpcast(sourceType, targetType, _structRegistry, _il) || ColumnarReferenceConversionFacts.TryEmitReferenceConversion(sourceType, targetType) || ColumnarReferenceCoercionPlanner.TryEmitObjectConversion(sourceType, targetType, _structRegistry, _il))) {
+                columnarResolvedType = targetType
+                return true
+            }
             if (!ColumnarNumericFacts.IsCastableScalar(targetType)) {
                 if (sourceType == typeof(object)) {
                     targetBuilder := targetType as TypeBuilder
@@ -11092,6 +11110,15 @@ sealed class ColumnarIlEmitter {
                     return true
                 }
                 return false
+            }
+            // UNBOXING TO A SCALAR is the mirror of the boxing conversion above, and it has the same
+            // three legal sources C# gives it: `object`, `System.ValueType`, and an interface the
+            // boxed type implements. `unbox.any` is the opcode for all three, and it is the same one
+            // the non-scalar target arm already emits for a source-defined struct.
+            if (targetType.get_IsValueType() && !sourceType.get_IsValueType() && !sourceType.get_IsGenericParameter() && (sourceType == typeof(object) || sourceType == typeof(ValueType) || sourceType.get_IsInterface())) {
+                _il.Emit(OpCodes.Unbox_Any, targetType)
+                columnarResolvedType = targetType
+                return true
             }
             // An i4-underlying enum operand is its int on the stack, so `enum as <numeric>` is a cast FROM int:
             // enum->int is identity (no opcode), enum->long/double/etc. widens exactly like int->long/double. The
