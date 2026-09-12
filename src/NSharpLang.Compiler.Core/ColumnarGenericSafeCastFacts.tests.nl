@@ -124,3 +124,17 @@ test "a source type shadows the read-only collection head" {
     shadowedSource := "import System.Collections.Generic\n\nclass IReadOnlyList {}\n\nfunc AsShadowed(value: object?): object? {\n    return value as IReadOnlyList<int>\n}\n"
     assert GenericSafeCastDeclines(shadowedSource)
 }
+
+// THE VALUE-TYPE RULE BELONGS TO THE OPERATOR, NOT TO THE TARGET. `as` refuses a value target above
+// because it must hand back the TYPE and a non-nullable value type has no null to hand back. `is`
+// asks a different question — `isinst` takes a value-type token and answers "is this reference a
+// boxed one of these" — so it accepts the same target, for a primitive and equally for a source
+// struct closed over its own type parameters, which is how a `readonly struct` writes the
+// `override func Equals(obj: object?)` every `IEquatable<T>` implementation needs.
+test "an is-test accepts the value target its sibling safe cast refuses" {
+    primitiveSource := "func IsInt(value: object?): bool {\n    return value is int\n}\n"
+    assert !GenericSafeCastDeclines(primitiveSource)
+
+    selfTypedSource := "import System\nimport System.Collections.Generic\n\nreadonly struct Box<T>: IEquatable<Box<T>> {\n    readonly value: T\n\n    constructor(value: T) {\n        this.value = value\n    }\n\n    func Equals(other: Box<T>): bool {\n        return EqualityComparer<T>.Default.Equals(value, other.value)\n    }\n\n    override func Equals(obj: object?): bool {\n        return obj is Box<T> other && Equals(other)\n    }\n\n    override func GetHashCode(): int {\n        return 0\n    }\n}\n"
+    assert !GenericSafeCastDeclines(selfTypedSource)
+}

@@ -11909,7 +11909,13 @@ sealed class ColumnarIlEmitter {
                     targetTestType = constructedTarget
                 }
             }
-            if (targetTestType == null || targetTestType.get_IsValueType()) {
+            // WHETHER A VALUE-TYPE TARGET IS ALLOWED IS THE OPERATOR'S QUESTION, AND IT IS ASKED ABOVE.
+            // `IsSupportedTypeTestTarget` answers it per operator — `is` accepts any target because
+            // `isinst` takes a value-type token and answers "is the reference a boxed one of these",
+            // while `as` refuses one because it has no null to hand back — and the union-case arm
+            // resolves its own tag test. A second, blanket value-type refusal here would overrule that
+            // rule for `is` and reject `obj is Result<TOk, TErr> other` inside the struct itself.
+            if (targetTestType == null) {
                 return false
             }
             // A VALUE-TYPED OPERAND BOXES BEFORE THE REFERENCE TEST. `isinst` reads the top of the stack
