@@ -257,6 +257,7 @@ if [ "$BUILD_NATIVE_TESTS" = "1" ]; then
     build_native_test "record with" "$REPO_ROOT/tests/native/record-with" "$REPO_ROOT/tests/native/record-with/bin/Debug/net10.0/tests/NSharpLang.RecordWith.Tests.dll" || BUILD_FAILED=1
     build_native_test "readonly init" "$REPO_ROOT/tests/native/readonly-init" "$REPO_ROOT/tests/native/readonly-init/bin/Debug/net10.0/tests/NSharpLang.ReadonlyInit.Tests.dll" || BUILD_FAILED=1
     build_native_test "iterator" "$REPO_ROOT/tests/native/iterators" "$REPO_ROOT/tests/native/iterators/bin/Debug/net10.0/tests/NSharpLang.Iterators.Tests.dll" || BUILD_FAILED=1
+    build_native_test "census flow rules" "$REPO_ROOT/tests/native/census-flow-rules" "$REPO_ROOT/tests/native/census-flow-rules/bin/Debug/net10.0/tests/NSharpLang.CensusFlowRules.Tests.dll" || BUILD_FAILED=1
 fi
 if [ "$BUILD_FAILED" = "1" ]; then
     fail "One or more nlc builds failed; cannot run IL verification."

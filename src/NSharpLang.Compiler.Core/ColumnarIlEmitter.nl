@@ -39,12 +39,12 @@ sealed class ColumnarIlEmitter {
     private _protectedResult: LocalBuilder?
     private _protectedDone: Label
     private _protectedDoneCreated: bool
-    private _inProtectedRegion: bool
+    private _protectedDepth: int
     private readonly _asyncReturnType: Type?
     private readonly _asyncResultType: Type?
     private readonly _asyncReturnsValueTask: bool
     private readonly _asyncBareReturnDeclines: bool
-    private _inFinallyRegion: bool
+    private _finallyDepth: int
     private _overflowCheckingEnabled: bool
     private readonly _il: ILGenerator
     private readonly _codePlan: ColumnarCodePlan
@@ -69,7 +69,7 @@ sealed class ColumnarIlEmitter {
     private readonly _currentStruct: ColumnarStructDef?
     private readonly _enclosingType: ColumnarStructDef?
     private readonly _locals: Dictionary<string, LocalBuilder>
-    private readonly _loopLabels: Stack<(Break: Label, Continue: Label, InProtectedRegion: bool, InFinallyRegion: bool)>
+    private readonly _loopLabels: Stack<(Break: Label, Continue: Label, ProtectedDepth: int, FinallyDepth: int)>
     private static readonly s_sumInt32Reduction: MethodInfo = ResolveSimdReductionHelper(nameof(NSharpLang.Runtime.SimdReductions.SumInt32))
     private static readonly s_sumUInt32Reduction: MethodInfo = ResolveSimdReductionHelper(nameof(NSharpLang.Runtime.SimdReductions.SumUInt32))
     private static readonly s_sumInt64Reduction: MethodInfo = ResolveSimdReductionHelper(nameof(NSharpLang.Runtime.SimdReductions.SumInt64))
@@ -231,9 +231,9 @@ sealed class ColumnarIlEmitter {
         // fields explicitly so N# constructor validation sees the same initial state on every path.
         _protectedDone = new Label()
         _protectedDoneCreated = false
-        _inProtectedRegion = false
+        _protectedDepth = 0
         _asyncReturnsValueTask = false
-        _inFinallyRegion = false
+        _finallyDepth = 0
         _overflowCheckingEnabled = false
         _nullConditionalRoot = -1
         _nullConditionalEscapes = new Stack<Label>()
@@ -241,7 +241,7 @@ sealed class ColumnarIlEmitter {
         _tupleNamesByVariable = new Dictionary<string, string[]>(StringComparer.Ordinal)
         _codePlan = new ColumnarCodePlan()
         _locals = new Dictionary<string, LocalBuilder>(StringComparer.Ordinal)
-        _loopLabels = new Stack<(Break: Label, Continue: Label, InProtectedRegion: bool, InFinallyRegion: bool)>()
+        _loopLabels = new Stack<(Break: Label, Continue: Label, ProtectedDepth: int, FinallyDepth: int)>()
         _bodyRoot = -1
         _liftedLocals = new Dictionary<string, (Box: LocalBuilder, ValueType: Type)>(StringComparer.Ordinal)
         _visibleLocalFuncs = new HashSet<string>(StringComparer.Ordinal)
@@ -5507,15 +5507,15 @@ sealed class ColumnarIlEmitter {
             // tail; a UNIT body falling off the end wraps the completed task; the catch converts
             // the thrown exception into a faulted task (Task.FromException, + the ValueTask ctor).
             // Value bodies must still always-return (the analyzer's rule — unit-task asyncs are
-            // exempt). Nested try/lock statements decline via _inProtectedRegion (one region per
-            // body — the existing rung scope), so the guard's region nesting stays flat.
+            // exempt). A try/lock inside the body nests INSIDE this guard, which the depth counter
+            // tracks: every return still leaves to the one shared tail.
             if (_asyncResultType != null && !AlwaysReturns(bodyRoot)) {
                 return false
             }
             _protectedResult = _il.DeclareLocal(_asyncReturnType)
             _protectedDone = _il.DefineLabel()
             _protectedDoneCreated = true
-            _inProtectedRegion = true
+            _protectedDepth = _protectedDepth + 1
             _il.BeginExceptionBlock()
             asyncFallsThrough := _asyncResultType == null && !AlwaysReturns(bodyRoot)
             if (!EmitStatement(bodyRoot)) {
@@ -5531,7 +5531,7 @@ sealed class ColumnarIlEmitter {
             _il.Emit(OpCodes.Stloc, _protectedResult)
             _il.Emit(OpCodes.Leave, _protectedDone)
             _il.EndExceptionBlock()
-            _inProtectedRegion = false
+            _protectedDepth = _protectedDepth - 1
             _il.MarkLabel(_protectedDone)
             _il.Emit(OpCodes.Ldloc, _protectedResult)
             _il.Emit(OpCodes.Ret)
@@ -5795,8 +5795,11 @@ sealed class ColumnarIlEmitter {
             // whitelist exception types decline (the pipeline's catch-all defect #16 and dead-clause
             // defect #17 are inherited by neither). Returns inside any region go through the leave
             // tail; an optional trailing kind-25 child is the FINALLY block (E4); break/continue emit
-            // `leave` when crossing the boundary. NESTED try declines (one level this rung).
-            if (_nodes.ChildCount(idx) < 2 || _inProtectedRegion) {
+            // `leave` when crossing the boundary. NESTING is tracked by DEPTH, not by a flag: a
+            // `leave` out of an inner region to the body tail is legal IL at any depth and the CLR
+            // runs every intervening `finally` on the way, which is exactly what a nested `using`
+            // that returns needs.
+            if (_nodes.ChildCount(idx) < 2) {
                 return false
             }
             if (_protectedResult == null && _returnType != ColumnarTypeOfPlanner.RequiredVoidType()) {
@@ -5806,7 +5809,7 @@ sealed class ColumnarIlEmitter {
                 _protectedDone = _il.DefineLabel()
                 _protectedDoneCreated = true
             }
-            _inProtectedRegion = true
+            _protectedDepth = _protectedDepth + 1
             _il.BeginExceptionBlock()
             if (!EmitStatement(Child(idx, 0))) {
                 return false
@@ -5820,9 +5823,9 @@ sealed class ColumnarIlEmitter {
                         return false
                     }
                     _il.BeginFinallyBlock()
-                    _inFinallyRegion = true
+                    _finallyDepth = _finallyDepth + 1
                     finallyOk := EmitStatement(clause)
-                    _inFinallyRegion = false
+                    _finallyDepth = _finallyDepth - 1
                     if (!finallyOk) {
                         return false
                     }
@@ -5864,7 +5867,7 @@ sealed class ColumnarIlEmitter {
             // the binding is scoped to its own clause.
 
             _il.EndExceptionBlock()
-            _inProtectedRegion = false
+            _protectedDepth = _protectedDepth - 1
             return true
         } else if columnarSwitchValue0 == 51 {
             // LockStatement [lockee, body] — `Monitor.Enter(obj); try { body } finally
@@ -5872,8 +5875,8 @@ sealed class ColumnarIlEmitter {
             // REFERENCE value: the analyzer rejects value-type lockees with NL320 (legacy emitter
             // defect #21 fixed front-door; the CS0185 analog), so none can reach emit on the
             // production path — the decline below stays as this emitter's contract guard.
-            // One protected region per body (nested forms decline), exactly as for try.
-            if (_nodes.ChildCount(idx) != 2 || _inProtectedRegion) {
+            // Regions nest by DEPTH, exactly as for try.
+            if (_nodes.ChildCount(idx) != 2) {
                 return false
             }
             let lockeeType: System.Type? = null
@@ -5895,18 +5898,18 @@ sealed class ColumnarIlEmitter {
             _il.Emit(OpCodes.Stloc, lockLocal)
             _il.Emit(OpCodes.Ldloc, lockLocal)
             _il.Emit(OpCodes.Call, typeof(System.Threading.Monitor).GetMethod(nameof(System.Threading.Monitor.Enter), [typeof(object)]))
-            _inProtectedRegion = true
+            _protectedDepth = _protectedDepth + 1
             _il.BeginExceptionBlock()
             if (!EmitStatement(Child(idx, 1))) {
                 return false
             }
             _il.BeginFinallyBlock()
-            _inFinallyRegion = true
+            _finallyDepth = _finallyDepth + 1
             _il.Emit(OpCodes.Ldloc, lockLocal)
             _il.Emit(OpCodes.Call, typeof(System.Threading.Monitor).GetMethod(nameof(System.Threading.Monitor.Exit), [typeof(object)]))
-            _inFinallyRegion = false
+            _finallyDepth = _finallyDepth - 1
             _il.EndExceptionBlock()
-            _inProtectedRegion = false
+            _protectedDepth = _protectedDepth - 1
             return true
         } else if columnarSwitchValue0 == 48 {
             // Throw [exception] — `throw <expr>`: emit the exception REFERENCE and `throw`. The
@@ -5949,7 +5952,7 @@ sealed class ColumnarIlEmitter {
             // void function, or a value-less one in a value function, declines (mismatched arity). A
             // generic-union case construction with NO type args ADOPTS the return type's arguments here
             // (`return new Opt.None` on `(): Opt<int>` — one of the two pipeline-accepted adoption sites).
-            if (_inFinallyRegion) {
+            if (_finallyDepth > 0) {
                 return false
             }
             // a return cannot leave a finally handler (illegal IL) — analyzer-
@@ -5958,7 +5961,7 @@ sealed class ColumnarIlEmitter {
                 if (_nodes.ChildCount(idx) != 0) {
                     return false
                 }
-                if (_inProtectedRegion) {
+                if (_protectedDepth > 0) {
                     if (_asyncReturnType != null) {
                         // a bare `return` in a UNIT async body — legal ONLY when the unit-ness
                         // is IMPLICIT (no annotation): the pipeline's NL305 unit-task exemption
@@ -6022,7 +6025,7 @@ sealed class ColumnarIlEmitter {
             if (!TypesEquivalent(retType, _returnType) && !TryEmitImplicitWidening(retType, _returnType) && !ColumnarReferenceCoercionPlanner.TryEmitInterfaceUpcast(retType, _returnType, _structRegistry, _il) && !ColumnarReferenceCoercionPlanner.TryEmitExternalInterfaceUpcast(retType, _returnType, _structRegistry, _il) && !ColumnarReferenceConversionFacts.TryEmitReferenceConversion(retType, _returnType) && !ColumnarReferenceCoercionPlanner.TryEmitObjectConversion(retType, _returnType, _structRegistry, _il) && !TryEmitAnonymousUnionConversion(retType, _returnType) && !TryEmitUserDefinedConversion(retType, _returnType, false)) {
                 return Decline("emit.return.type-mismatch", "return expression type '" + retType.FullName + "' does not match declared return type '" + _returnType.FullName + "'", retNode)
             }
-            if (_inProtectedRegion) {
+            if (_protectedDepth > 0) {
                 // ASYNC: the INNER value wraps into the completed task before the store (the
                 // legacy emitter's EmitWrapCurrentAsyncReturn before its structured return).
                 if (_asyncReturnType != null) {
@@ -6972,7 +6975,7 @@ sealed class ColumnarIlEmitter {
             outerLifted := new HashSet<string>(_liftedLocals.Keys, StringComparer.Ordinal)
             // `break` exits to endLabel, `continue` re-tests at checkLabel; both reach their target with an
             // empty stack (the body up to the transfer is net-zero), so they are stack-consistent.
-            _loopLabels.Push((endLabel, checkLabel, _inProtectedRegion, _inFinallyRegion))
+            _loopLabels.Push((endLabel, checkLabel, _protectedDepth, _finallyDepth))
             bodyEmitted := EmitStatement(body)
             _loopLabels.Pop()
             if (!bodyEmitted) {
@@ -7109,7 +7112,7 @@ sealed class ColumnarIlEmitter {
             }
             _il.Emit(OpCodes.Brfalse, endLabel)
 
-            _loopLabels.Push((endLabel, contLabel, _inProtectedRegion, _inFinallyRegion))
+            _loopLabels.Push((endLabel, contLabel, _protectedDepth, _finallyDepth))
             forBodyEmitted := EmitStatement(body)
             _loopLabels.Pop()
             if (!forBodyEmitted) {
@@ -7188,7 +7191,7 @@ sealed class ColumnarIlEmitter {
                 _il.Emit(OpCodes.Stloc, listLoopVar)
                 _locals[varName] = listLoopVar
 
-                _loopLabels.Push((disposeLabel, listLoopStart, _inProtectedRegion, _inFinallyRegion))
+                _loopLabels.Push((disposeLabel, listLoopStart, _protectedDepth, _finallyDepth))
                 listBodyEmitted := EmitStatement(body)
                 _loopLabels.Pop()
                 if (!listBodyEmitted) {
@@ -7246,7 +7249,7 @@ sealed class ColumnarIlEmitter {
             _il.Emit(OpCodes.Stloc, loopVar)
             _locals[varName] = loopVar
 
-            _loopLabels.Push((endLabel, contLabel, _inProtectedRegion, _inFinallyRegion))
+            _loopLabels.Push((endLabel, contLabel, _protectedDepth, _finallyDepth))
             foreachBodyEmitted := EmitStatement(body)
             _loopLabels.Pop()
             if (!foreachBodyEmitted) {
@@ -7324,7 +7327,7 @@ sealed class ColumnarIlEmitter {
             awaitLoopVar := _il.DeclareLocal(streamElementType)
             _il.Emit(OpCodes.Stloc, awaitLoopVar)
             _locals[awaitVarName] = awaitLoopVar
-            _loopLabels.Push((awaitDisposeLabel, awaitLoopStart, _inProtectedRegion, _inFinallyRegion))
+            _loopLabels.Push((awaitDisposeLabel, awaitLoopStart, _protectedDepth, _finallyDepth))
             awaitBodyEmitted := EmitStatement(awaitBody)
             _loopLabels.Pop()
             if (!awaitBodyEmitted) {
@@ -7368,7 +7371,7 @@ sealed class ColumnarIlEmitter {
             // try { v = <call> } catch (Exception e) { err = e }. The initializer is a single
             // expression, so no control transfer can cross the protected region.
             if (AnalyzerVariableDeclaration.IsErrorCaptureForm(nameCount, ColumnarNodeTextFacts.Text(_nodes, _source, Child(idx, nameCount - 1)))) {
-                if (_inProtectedRegion || _inFinallyRegion) {
+                if (_protectedDepth > 0 || _finallyDepth > 0) {
                     return false
                 }
                 errResultName := ColumnarNodeTextFacts.Text(_nodes, _source, Child(idx, 0))
@@ -7394,10 +7397,10 @@ sealed class ColumnarIlEmitter {
                 _il.Emit(OpCodes.Stloc, errLocal)
 
                 _il.BeginExceptionBlock()
-                _inProtectedRegion = true
+                _protectedDepth = _protectedDepth + 1
                 let errValueType: System.Type? = null
                 errValueOk := EmitExpression(valueNode, out errValueType)
-                _inProtectedRegion = false
+                _protectedDepth = _protectedDepth - 1
                 if (!errValueOk) {
                     return Decline("emit.tuple-error.value", "error-tuple value expression could not be emitted", valueNode)
                 }
@@ -7472,11 +7475,11 @@ sealed class ColumnarIlEmitter {
                 return false
             }
             breakTarget := _loopLabels.Peek()
-            if (_inFinallyRegion && !breakTarget.Item4) {
+            if (_finallyDepth > breakTarget.Item4) {
                 return false
             }
             breakIl := _il
-            breakOpCode := _inProtectedRegion && !breakTarget.Item3 ? OpCodes.Leave : OpCodes.Br
+            breakOpCode := _protectedDepth > breakTarget.Item3 ? OpCodes.Leave : OpCodes.Br
             breakLabel := breakTarget.Item1
             breakIl.Emit(breakOpCode, breakLabel)
             return true
@@ -7487,11 +7490,11 @@ sealed class ColumnarIlEmitter {
                 return false
             }
             continueTarget := _loopLabels.Peek()
-            if (_inFinallyRegion && !continueTarget.Item4) {
+            if (_finallyDepth > continueTarget.Item4) {
                 return false
             }
             continueIl := _il
-            continueOpCode := _inProtectedRegion && !continueTarget.Item3 ? OpCodes.Leave : OpCodes.Br
+            continueOpCode := _protectedDepth > continueTarget.Item3 ? OpCodes.Leave : OpCodes.Br
             continueLabel := continueTarget.Item2
             continueIl.Emit(continueOpCode, continueLabel)
             return true
@@ -7531,7 +7534,7 @@ sealed class ColumnarIlEmitter {
             // fall-through throws "Expected exception ... was not thrown"; catching the expected
             // type pops it. Control transfers out of the body (return/break/continue) and nesting
             // inside another protected region decline (the try arm's conservative discipline).
-            if (_nodes.ChildCount(idx) != 1 || _inProtectedRegion || _inFinallyRegion) {
+            if (_nodes.ChildCount(idx) != 1 || _protectedDepth > 0 || _finallyDepth > 0) {
                 return false
             }
             let expectedExceptionType: System.Type? = null
@@ -7549,9 +7552,9 @@ sealed class ColumnarIlEmitter {
             _il.Emit(OpCodes.Ldc_I4_0)
             _il.Emit(OpCodes.Stloc, assertThrowsMissed)
             _il.BeginExceptionBlock()
-            _inProtectedRegion = true
+            _protectedDepth = _protectedDepth + 1
             assertThrowsBodyOk := EmitStatement(assertThrowsBody)
-            _inProtectedRegion = false
+            _protectedDepth = _protectedDepth - 1
             if (!assertThrowsBodyOk) {
                 return false
             }

@@ -87,29 +87,36 @@ class ColumnarMethodBodyPlanner {
         return false
     }
 
-    // 49 Try — the analyzer's rule VERBATIM: exits iff the TRY block exits AND there is at least ONE
-    // catch AND every catch clause's block exits. The FINALLY (a trailing kind-25 child) is IGNORED —
-    // probe-pinned: a zero-catch `try { return } finally { }` NEVER satisfies always-returns (the
-    // pipeline demands a trailing return, NL305).
+    // 49 Try — the analyzer's rule VERBATIM: the FINALLY (a trailing non-kind-50 child) settles it by
+    // itself when the finally block exits, and otherwise the TRY block and EVERY catch clause's block
+    // must exit. A zero-catch `try { return } finally { ... }` therefore DOES satisfy always-returns,
+    // which is what C#'s end-point rule says and what every `using` that returns lowers to.
     static func TryStatementAlwaysReturns(nodes: ColumnarNodeTable, node: int): bool {
-        if !AlwaysReturns(nodes, nodes.Child(node, 0)) {
-            return false
-        }
-
-        sawCatch := false
         n := 1
         while n < nodes.ChildCount(node) {
             clause := nodes.Child(node, n)
             // 50 CatchClause; anything else at this position is the finally block.
+            if nodes.Kind(clause) != 50 && AlwaysReturns(nodes, clause) {
+                return true
+            }
+            n = n + 1
+        }
+
+        if !AlwaysReturns(nodes, nodes.Child(node, 0)) {
+            return false
+        }
+
+        n = 1
+        while n < nodes.ChildCount(node) {
+            clause := nodes.Child(node, n)
             if nodes.Kind(clause) == 50 {
-                sawCatch = true
                 if !AlwaysReturns(nodes, nodes.Child(clause, nodes.ChildCount(clause) - 1)) {
                     return false
                 }
             }
             n = n + 1
         }
-        return sawCatch
+        return true
     }
 
     // Whether the subtree rooted at `node` contains a Return statement (kind 20) anywhere. Expression

@@ -26,9 +26,10 @@ import NSharpLang.Compiler.Ast
 // so a function whose only return is broken text is told it is missing a return. A BARE `return` has
 // no expression to be broken and always answers true.
 //
-// (4) `try` AND `switch` ARE THE TWO ARMS THAT REASON ABOUT COMPLETENESS, AND BOTH REFUSE BY DEFAULT.
-// A `try` with no catch clauses answers false however its body ends; a `switch` with no default
-// answers false however exhaustive its patterns look.
+// (4) `try` AND `switch` ARE THE TWO ARMS THAT REASON ABOUT COMPLETENESS. A `try` follows C#'s
+// end-point rule — the guarded body and every handler leave, or the `finally` leaves by itself — so a
+// zero-catch `try { return } finally { ... }` DOES leave. A `switch` still refuses by default: with no
+// default case it answers false however exhaustive its patterns look.
 //
 // (5) THE THREE WRAPPER BLOCKS ARE TRANSPARENT AND THE `if` ARM IS NOT. `alloc`, `allow` and `unsafe`
 // answer exactly what their body answers; an `if` answers only when it has an else AND both branches
@@ -263,9 +264,21 @@ test "A try LEAVES ONLY WHEN THE GUARDED BODY AND EVERY HANDLER LEAVE" {
     assert AnalyzerStatementTermination.AlwaysReturns(TerminationTry(TerminationReturningBlock(), catches, null))
 }
 
-test "A try WITH NO CATCH CLAUSES DOES NOT LEAVE, EVEN WITH A LEAVING BODY AND A finally" {
-    // A `finally` does not stop the exception, so there is a path out that does not return.
-    assert !AnalyzerStatementTermination.AlwaysReturns(TerminationTry(TerminationReturningBlock(), new List<CatchClause>(), TerminationReturningBlock()))
+test "A try WITH NO CATCH CLAUSES LEAVES WHEN ITS GUARDED BODY DOES, finally OR NOT" {
+    // C#'s end-point rule, and the shape every `using` that returns lowers to. The exception the
+    // body might raise unwinds past the caller; it is not a path that falls off the end.
+    assert AnalyzerStatementTermination.AlwaysReturns(TerminationTry(TerminationReturningBlock(), new List<CatchClause>(), TerminationReturningBlock()))
+    assert AnalyzerStatementTermination.AlwaysReturns(TerminationTry(TerminationReturningBlock(), new List<CatchClause>(), TerminationEmptyBlock()))
+    assert !AnalyzerStatementTermination.AlwaysReturns(TerminationTry(TerminationEmptyBlock(), new List<CatchClause>(), TerminationEmptyBlock()))
+}
+
+test "A finally THAT LEAVES SETTLES THE WHOLE try BY ITSELF" {
+    // Nothing can fall out of the statement once the finally block leaves on every path, whatever
+    // the guarded body and the handlers did.
+    fallingCatch := new List<CatchClause>()
+    fallingCatch.Add(TerminationCatch(TerminationEmptyBlock()))
+
+    assert AnalyzerStatementTermination.AlwaysReturns(TerminationTry(TerminationEmptyBlock(), fallingCatch, TerminationReturningBlock()))
 }
 
 test "A FALLING BODY OR ONE FALLING HANDLER REFUTES THE WHOLE try" {

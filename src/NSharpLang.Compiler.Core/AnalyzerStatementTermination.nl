@@ -31,10 +31,12 @@ import NSharpLang.Compiler.Ast
 // not name — a loop, a `using`, a bare expression, a local function — answers FALSE. A `while true`
 // whose body never breaks does leave every path, and this walk says it does not; the cost is a
 // missing-return complaint a developer resolves by writing the return, which is a false POSITIVE on a
-// rule whose false NEGATIVE would be unverifiable IL. `try` is the same argument in miniature: it
-// answers true only when the try block AND every catch block leave, and a `try` with no catch clauses
-// answers FALSE regardless of what its body does, because a `finally` alone does not stop the
-// exception.
+// rule whose false NEGATIVE would be unverifiable IL.
+//
+// `try` IS THE ONE SHAPE WHERE THAT CONSERVATISM WOULD BE WRONG RATHER THAN MERELY COSTLY, because
+// C#'s `using` lowers to it. It follows C#'s end-point rule exactly: the guarded block and every
+// handler must leave, OR the `finally` must leave by itself. A `try` with a `finally` and no handler
+// therefore leaves whenever its body does.
 //
 // A SWITCH IS THE ONLY SHAPE THAT REASONS ABOUT COMPLETENESS. It leaves only when it has a `default`
 // case and EVERY case — the default included — contains at least one statement that leaves. A case
@@ -162,19 +164,30 @@ class AnalyzerStatementTermination {
         return false
     }
 
-    // A `try` LEAVES ONLY WHEN THE GUARDED BODY AND EVERY HANDLER LEAVE. With no handler at all it
-    // does not leave, because the exception it might raise has nowhere to go and the `finally` that
-    // may follow does not stop it.
+    // A `try` LEAVES WHEN ITS END POINT IS UNREACHABLE — C#'s rule (§13.2 "End points and
+    // reachability"), spelled here as the two ways an end point can be unreachable.
+    //
+    // THE `finally` ALONE CAN SETTLE IT. If the finally block leaves on every path — it throws, or it
+    // returns — then nothing can fall out of the `try` statement whatever the guarded body did, so
+    // the statement leaves.
+    //
+    // OTHERWISE EVERY WAY OUT OF THE BODY MUST LEAVE: the guarded block, and each handler that could
+    // catch for it. A `try` with NO handlers is settled by the guarded block alone, which is why
+    // `try { return x } finally { ... }` leaves — and it is why every C# `using` that returns
+    // compiles, because `using` lowers to exactly that shape. The exception the body might raise is
+    // not a way out of the FUNCTION that falls off its end; it unwinds past the caller, and a rule
+    // about missing returns has nothing to say about it.
     static func TryAlwaysReturns(tryStatement: TryStatement): bool {
+        finallyBlock := tryStatement.FinallyBlock
+        if finallyBlock != null && AlwaysReturns(finallyBlock) {
+            return true
+        }
+
         if !AlwaysReturns(tryStatement.TryBlock) {
             return false
         }
 
         catchClauses := tryStatement.CatchClauses
-        if catchClauses.Count == 0 {
-            return false
-        }
-
         index := 0
         while index < catchClauses.Count {
             if !AlwaysReturns(catchClauses[index].Block) {

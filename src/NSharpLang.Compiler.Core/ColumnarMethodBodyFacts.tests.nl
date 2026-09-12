@@ -482,11 +482,10 @@ test "the columnar termination rule answers both ways at every statement kind it
     assert !ColumnarMethodBodyPlanner.AlwaysReturns(MethodBodyFactsNodes(lockFallsKinds, noElseCounts, blockChildren, zeros, zeros, 1), 0)
 }
 
-// 49 Try is the arm with the analyzer's asymmetric rule, so it gets its own block: the try block must
-// exit, there must be at least ONE catch, EVERY catch must exit, and a FINALLY is ignored entirely.
-// The zero-catch case is the one that surprises, and it is the one a mutation is most likely to get
-// backwards.
-test "the try arm of the termination rule demands a catch and ignores the finally" {
+// 49 Try is the arm with the analyzer's end-point rule, so it gets its own block: the try block must
+// exit and EVERY catch must exit, OR the FINALLY must exit by itself. The zero-catch case is the one
+// a mutation is most likely to get backwards, and it is the one every `using` that returns produces.
+test "the try arm of the termination rule reads the handlers and the finally the analyzer's way" {
     // [try, catch] where both exit — the only shape that exits.
     tryKinds := MethodBodyFactsInts4(49, 20, 50, 20)
     tryCounts := MethodBodyFactsInts4(2, 0, 1, 0)
@@ -503,11 +502,24 @@ test "the try arm of the termination rule demands a catch and ignores the finall
     assert !ColumnarMethodBodyPlanner.AlwaysReturns(MethodBodyFactsNodes(catchFallsKinds, tryCounts, tryChildren, tryZeros, tryZeros, 1), 0)
 
     // ZERO catches: `try { return } finally { return }`. The finally arrives as a trailing kind-25
-    // child and the rule IGNORES it, so this does NOT always-return — probe-pinned behaviour the
-    // pipeline depends on (it demands a trailing return, NL305).
+    // child; with no handler the guarded block settles it, so this DOES always-return — the shape a
+    // C# `using` that returns lowers to.
     finallyKinds := MethodBodyFactsInts4(49, 20, 25, 20)
     finallyCounts := MethodBodyFactsInts4(2, 0, 1, 0)
-    assert !ColumnarMethodBodyPlanner.AlwaysReturns(MethodBodyFactsNodes(finallyKinds, finallyCounts, tryChildren, tryZeros, tryZeros, 1), 0)
+    assert ColumnarMethodBodyPlanner.AlwaysReturns(MethodBodyFactsNodes(finallyKinds, finallyCounts, tryChildren, tryZeros, tryZeros, 1), 0)
+
+    // ZERO catches and a guarded block that FALLS THROUGH, with a finally that also falls through —
+    // nothing exits, so neither does the statement.
+    finallyFallsKinds := MethodBodyFactsInts4(49, 23, 25, 23)
+    assert !ColumnarMethodBodyPlanner.AlwaysReturns(MethodBodyFactsNodes(finallyFallsKinds, finallyCounts, tryChildren, tryZeros, tryZeros, 1), 0)
+
+    // A FINALLY THAT EXITS SETTLES IT ALONE: the guarded block falls through and the single catch
+    // falls through, and the statement still exits.
+    finallySettlesKinds := MethodBodyFactsInts6(49, 23, 50, 25, 23, 20)
+    finallySettlesCounts := MethodBodyFactsInts6(3, 0, 1, 1, 0, 0)
+    finallySettlesChildren := MethodBodyFactsInts5(1, 2, 3, 4, 5)
+    finallySettlesZeros := MethodBodyFactsInts6(0, 0, 0, 0, 0, 0)
+    assert ColumnarMethodBodyPlanner.AlwaysReturns(MethodBodyFactsNodes(finallySettlesKinds, finallySettlesCounts, finallySettlesChildren, finallySettlesZeros, finallySettlesZeros, 1), 0)
 
     // TWO catches, the SECOND of which falls through — every clause has to exit, not just the first.
     // A rule that stopped at the first catch it saw would answer `true` here.
