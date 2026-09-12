@@ -129,19 +129,29 @@ class Greeter {
     }
 }
 
-// THE FIXTURE EXPRESSION IS A DECLINING SHAPE, AND WHICH ONE IS INCIDENTAL. These three rows are
-// about the REPORT — its site, its message, the file it lands in and the span it covers — so they
-// need any expression the backend refuses, and they say which one they used only because the span
-// has to be counted from it. `value.GetType().AssemblyQualifiedName` was that expression until
-// ordinary CLR member resolution began answering a member read off a call RESULT, which made it
-// compile; `value.GetType().GUID.ToString()` is the same kind of shape and declines at the same site.
+// THE FIXTURE SHAPE IS A DECLINING ONE, AND WHICH ONE IS INCIDENTAL. These three rows are about the
+// REPORT — its site, its message, the file it lands in and the span it covers — so they need any
+// shape the backend refuses, and they say which one they used only because the span has to be counted
+// from it. TWO EXPRESSIONS HAVE ALREADY BEEN OUTGROWN HERE: `value.GetType().AssemblyQualifiedName`
+// stopped declining when ordinary CLR member resolution began answering a member read off a call
+// RESULT, and `value.GetType().GUID.ToString()` stopped when the same tier reached one rung further.
+// A shape that merely happens to be unreached today is therefore the wrong fixture.
+//
+// `lanes: Vector<int>[]` is chosen instead because it is a WRITTEN-DOWN limit: an array of a
+// constructed external value-type generic is the first bullet under "Current limits" in
+// `website/docs/types.md`, so the day it starts compiling is a day the documentation changes with it
+// and these rows are revisited on purpose rather than by surprise. The decline site moves with it —
+// a typed LOCAL declaration rather than a return expression — and nothing else about the rows does.
 test "CompileToIlAssembly_SingleFileDeclineReportsReasonAndSpan" {
     compilation := EmitterCanonicalCompileSingle(
         "SingleDecline",
         "library",
         """
+import System.Numerics
+
 func TypeName(value: string): string? {
-    return value.GetType().GUID.ToString()
+    lanes: Vector<int>[] = []
+    return value + lanes.Length.ToString()
 }
 """
     )
@@ -149,15 +159,15 @@ func TypeName(value: string): string? {
         error := EmitterCanonicalFindSingleError(compilation, "DiagnosticId", "NL103")
         assert !compilation.Succeeded
         assert EmitterCanonicalErrorText(error, "Message").Contains(
-            "Declined at emit.return.expression: return expression could not be emitted in 'TypeName' (Program.nl:2:12).",
+            "Declined at emit.typed-local.unsupported-type: typed local declaration type is not supported for 'lanes': Vector<int>[] in 'TypeName' (Program.nl:4:5).",
             StringComparison.Ordinal
         )
         assert Path.GetFullPath(EmitterCanonicalErrorText(error, "FileName")) == Path.GetFullPath(
             Path.Combine(compilation.FixtureRoot, "Program.nl")
         )
-        assert EmitterCanonicalErrorInt(error, "Line") == 2
-        assert EmitterCanonicalErrorInt(error, "Column") == 12
-        assert EmitterCanonicalErrorInt(error, "Length") == 31
+        assert EmitterCanonicalErrorInt(error, "Line") == 4
+        assert EmitterCanonicalErrorInt(error, "Column") == 5
+        assert EmitterCanonicalErrorInt(error, "Length") == 25
     } finally {
         EmitterCanonicalCleanup(compilation)
     }
@@ -169,7 +179,7 @@ test "CompileToIlAssembly_TwoFileDeclineMapsMergedOffsetToOwningFile" {
     fileNames[0] = "First.nl"
     contents[0] = "func Keep(): int {\n    return 1\n}"
     fileNames[1] = "Second.nl"
-    contents[1] = "func TypeName(value: string): string? {\n    return value.GetType().GUID.ToString()\n}"
+    contents[1] = "import System.Numerics\n\nfunc TypeName(value: string): string? {\n    lanes: Vector<int>[] = []\n    return value + lanes.Length.ToString()\n}"
     compilation := EmitterCanonicalCompile(
         "TwoFileDecline",
         EmitterCanonicalProjectYml("TwoFileDecline", "library"),
@@ -180,12 +190,12 @@ test "CompileToIlAssembly_TwoFileDeclineMapsMergedOffsetToOwningFile" {
     try {
         error := EmitterCanonicalFindSingleError(compilation, "DiagnosticId", "NL103")
         assert !compilation.Succeeded
-        assert EmitterCanonicalErrorText(error, "Message").Contains("(Second.nl:2:12).", StringComparison.Ordinal)
+        assert EmitterCanonicalErrorText(error, "Message").Contains("(Second.nl:4:5).", StringComparison.Ordinal)
         assert Path.GetFullPath(EmitterCanonicalErrorText(error, "FileName")) == Path.GetFullPath(
             Path.Combine(compilation.FixtureRoot, "Second.nl")
         )
-        assert EmitterCanonicalErrorInt(error, "Line") == 2
-        assert EmitterCanonicalErrorInt(error, "Column") == 12
+        assert EmitterCanonicalErrorInt(error, "Line") == 4
+        assert EmitterCanonicalErrorInt(error, "Column") == 5
     } finally {
         EmitterCanonicalCleanup(compilation)
     }
@@ -288,17 +298,20 @@ test "CompileToIlAssembly_DeclineLogEnvVarWritesTraceToStderr" {
         "TraceDecline",
         "library",
         """
+import System.Numerics
+
 func TypeName(value: string): string? {
-    return value.GetType().GUID.ToString()
+    lanes: Vector<int>[] = []
+    return value + lanes.Length.ToString()
 }
 """,
         "NSHARP_COLUMNAR_DECLINE_LOG",
         "1"
     )
     try {
-        assert captured.Stderr.Contains("decline site=emit.return.expression", StringComparison.Ordinal)
-        assert captured.Stderr.Contains("return expression could not be emitted", StringComparison.Ordinal)
-        assert captured.Stderr.Contains("location=Program.nl:2:12", StringComparison.Ordinal)
+        assert captured.Stderr.Contains("decline site=emit.typed-local.unsupported-type", StringComparison.Ordinal)
+        assert captured.Stderr.Contains("typed local declaration type is not supported for 'lanes': Vector<int>[]", StringComparison.Ordinal)
+        assert captured.Stderr.Contains("location=Program.nl:4:5", StringComparison.Ordinal)
     } finally {
         EmitterCanonicalCleanup(captured.Compilation)
     }

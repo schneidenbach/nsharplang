@@ -1054,13 +1054,20 @@ test "nlc check on a clean project emits a versioned success envelope after IL v
     }
 }
 
+// THE FIXTURE MUST BE A WRITTEN-DOWN LIMIT, NOT MERELY AN UNREACHED SHAPE. This row pins the SHAPE OF
+// THE REPORT a columnar decline produces once semantic analysis has already passed — exit code, clean
+// stderr, the JSON envelope, and the one NL103 result with its file and line. It therefore needs some
+// source the backend refuses, and `Array.AsReadOnly(values)` stopped being one as ordinary external
+// member resolution grew. `lanes: Vector<int>[]` is a DOCUMENTED remaining limit — an array of a
+// constructed external value-type generic, the first bullet under "Current limits" in
+// `website/docs/types.md` — so it cannot start compiling without that page changing too.
 test "nlc check reports an IL verification decline after semantic analysis succeeds" {
     directory := NewTempDirectory("nlc-check-ilverify-failure")
     try {
         WriteCheckProject(
             directory,
             "CheckIlVerifyFailure",
-            "import System\n\nfunc main() {\n    values: int[] = [1]\n    view := Array.AsReadOnly(values)\n    print view.Count\n}\n"
+            "import System.Numerics\n\nfunc main() {\n    lanes: Vector<int>[] = []\n    print lanes.Length\n}\n"
         )
 
         run := NlcIn(directory, "check")
@@ -1079,8 +1086,9 @@ test "nlc check reports an IL verification decline after semantic analysis succe
         result := ElementAt(root.GetProperty("results"), 0)
         assert TextOf(result.GetProperty("code")) == "NL103"
         assert TextOf(result.GetProperty("message")).Contains("Columnar emission is required")
-        assert TextOf(result.GetProperty("message")).Contains("Array.AsReadOnly")
-        assert result.GetProperty("line").GetInt32() == 5
+        assert TextOf(result.GetProperty("message")).Contains("Declined at emit.typed-local.unsupported-type")
+        assert TextOf(result.GetProperty("message")).Contains("Vector<int>[]")
+        assert result.GetProperty("line").GetInt32() == 4
         assert root.GetProperty("summary").GetProperty("errors").GetInt32() == 1
         document.Dispose()
     } finally {
