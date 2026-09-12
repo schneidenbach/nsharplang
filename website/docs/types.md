@@ -1189,10 +1189,6 @@ Two rules the compiler enforces about the type-argument list itself:
   Arrays of your own types, of reference types and of the primitive types are unaffected. The same
   limit applies to an array of an external generic closed over your own type parameter
   (`List<T>[]`); `T[]` itself is unaffected.
-- A **COLLECTION whose element is an array of one of your own types** — `List<Plain[]>`,
-  `Dictionary<string, Plain[]>` — is not admitted; the collection lowerings keep a narrower element
-  rule than the general one. `Plain[]` as an ordinary generic argument (`Func<Plain[], bool>`) is
-  unaffected, and so is `Plain[]` itself.
 - **Implementing `IEnumerable<T>` on your own class** compiles, but the emitted type cannot be
   loaded: `IEnumerable<T>` inherits the non-generic `IEnumerable.GetEnumerator()`, which differs from
   the generic one only by return type, and N# has no explicit interface implementation to spell it.
