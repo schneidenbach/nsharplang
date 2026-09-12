@@ -1235,6 +1235,31 @@ For non-nullable fields:
 - Analyzer tracks which fields are assigned
 - Reports error if field not initialized
 
+### Statement termination — the one judgement, two questions
+
+`AnalyzerStatementTermination` is the analyzer's only control-flow-termination judgement, and it has
+two entry points over ONE walk (`Walk(statement, breakLeaves, continueLeaves)`):
+
+- `AlwaysReturns` — "does every path end in a `return` or a `throw`". The missing-return rule
+  (`NL305`) and the unreachable-code rule ask it. Both jumps are off, because a `break` out of a loop
+  is not a way out of the function.
+- `AlwaysLeaves` — "does every path leave the block that contains this statement". Only the
+  guard-clause rule (`AnalyzerLoopSequence.AdvanceIfGuardClause`) asks it, so that
+  `if x == null { break }` and `if x == null { continue }` narrow what follows exactly as
+  `return`/`throw` do. Both jumps are on.
+
+`break` and `continue` travel as separate flags because they bind to different constructs: descending
+into a `switch` stops counting `break` (it leaves the switch, not the branch) and keeps counting
+`continue` (it still leaves the enclosing loop); a `finally` block counts neither, since a jump out of
+one is not legal IL. A loop body is never descended into, so a `break` written inside a nested loop
+escapes nothing.
+
+`try` follows C#'s end-point rule (§13.2): the statement leaves when the `finally` block leaves by
+itself, or when the guarded block AND every handler leave. A zero-catch `try { return x } finally { ... }`
+therefore leaves — which is what every C# `using` that returns lowers to.
+`ColumnarMethodBodyPlanner.AlwaysReturns` is the node-table mirror of the same rule and must be kept
+verbatim-identical to it.
+
 ### Error Tuple Result Availability
 For Go-style error tuples (`result, err := MightFail()`):
 - The result is available only on paths where the paired `err` is proven `null`

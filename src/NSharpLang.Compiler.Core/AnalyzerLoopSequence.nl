@@ -1485,18 +1485,24 @@ class AnalyzerLoopSequence {
     // what the code AFTER the `if` knows. The termination questions are asked in the then/else order
     // `Analyzer.cs` asked them, and the else question is not asked at all when there is no else
     // branch — which is the same answer, and is preserved as the same shape.
+    //
+    // THE QUESTION IS `AlwaysLeaves`, NOT `AlwaysReturns`, and the difference is the whole rule. What
+    // the surviving flow knows depends on whether the BRANCH is gone, not on whether the FUNCTION is
+    // over: `if x == null { break }` and `if x == null { continue }` remove the branch exactly as
+    // `return` and `throw` do, and the code after them is reached only when the condition was false.
+    // The missing-return rule cannot use this answer and does not ask for it.
     func AdvanceIfGuardClause(state: LoopStatementState): LoopStatementRequest? {
         state.Phase = 99
-        thenAlwaysReturns := AnalyzerStatementTermination.AlwaysReturns(state.Body)
+        thenAlwaysLeaves := AnalyzerStatementTermination.AlwaysLeaves(state.Body)
         elseBody := state.ElseBody
-        elseAlwaysReturns := elseBody != null && AnalyzerStatementTermination.AlwaysReturns(elseBody)
+        elseAlwaysLeaves := elseBody != null && AnalyzerStatementTermination.AlwaysLeaves(elseBody)
 
-        if thenAlwaysReturns && !elseAlwaysReturns && ElseNarrowingCount(state) > 0 {
+        if thenAlwaysLeaves && !elseAlwaysLeaves && ElseNarrowingCount(state) > 0 {
             ApplyElseNarrowings(state)
             return null
         }
 
-        if elseAlwaysReturns && NarrowingCount(state) > 0 {
+        if elseAlwaysLeaves && NarrowingCount(state) > 0 {
             ApplyBodyNarrowings(state)
         }
 

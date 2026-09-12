@@ -1306,6 +1306,46 @@ displayName := optionalName ?? "anonymous"
 
 `null!`, `default!`, and blind `.Value` access are not N# style. Replace suppression with explicit nullable handling.
 
+### Guard clauses narrow everything after them
+
+A branch that the flow can never come back from hands what follows it the fact the branch it did not
+take proved. `return` and `throw` do that, and so do `break` and `continue` — the branch is gone
+either way, so the code after the `if` is reached only when the condition was false:
+
+```n#
+func TotalLength(items: string?[]): int {
+    total := 0
+    for item in items {
+        if item == null {
+            continue
+        }
+
+        // `item` is `string` here — the only way to reach this line is past the guard.
+        total = total + item.Length
+    }
+
+    return total
+}
+```
+
+The jump has to leave *this* branch, not something inside it. A `break` written inside a loop or a
+`switch` that is itself inside the branch belongs to that loop or that switch, so the branch is still
+there afterwards and nothing is narrowed:
+
+```n#
+if item == null {
+    switch mode {
+        case 1 => break     // leaves the `switch`, not the `if`
+        default => break
+    }
+}
+
+length := item.Length       // still an error: `item` is maybe-null
+```
+
+A `continue` in that same position *does* narrow, because it belongs to the enclosing loop, which is
+outside the branch.
+
 ## Type Aliases
 
 Create transparent type aliases (interchangeable with the underlying type):
