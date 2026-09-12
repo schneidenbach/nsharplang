@@ -917,6 +917,34 @@ N# resolution. Static field/property selection and emitted-plan validation are N
 Do not add emitter-side static-member whitelists, reflection scans, preload policy, or parallel
 scope analyzers. Extend the N# catalog, binding facts, and planner instead.
 
+### Which runtime handle a reference contract pairs with
+
+A catalog entry has two halves: the METADATA image the `MetadataLoadContext` reads (a `ref/<tfm>`
+facade, a framework pack, or a plain assembly) and the RUNTIME handle Reflection.Emit writes types
+from. `ExternalAssemblyScan.SelectRuntimeAssemblyByMetadata` is the single place that pairs them, and
+it asks, in order:
+
+1. the project's own output, for an `obj/**/ref` or `obj/**/refint` input — and nothing else, ever;
+2. the contract's own runtime asset (`lib/<tfm>` beside a `ref/<tfm>`, or the shared framework file
+   behind a `packs/*.Ref` image) if that exact file is loaded;
+3. a loaded assembly with the same identity AND the same module identity, i.e. the same build from
+   another file;
+4. the assembly the compiler's OWN LOAD CONTEXT BINDS for that identity.
+
+Step 4 is not a fallback for untidy inputs, it is the normal answer whenever the compiler runs inside
+a host that already owns an implementation of the identity — MSBuild's `Microsoft.Build.*`, or the
+SDK's own copy of a package the project restored (`System.Reflection.MetadataLoadContext`,
+`Microsoft.NET.StringTools`). A process cannot hold two assemblies of one identity in one load
+context, so that handle is the only executable implementation the contract can ever have; refusing it
+leaves the reference with no runtime types and the emitter declines (`emit.declaration.field-type`,
+`emit.body`) rather than finding a better one.
+
+The question is asked OF THE BINDER (`IsContextBoundRuntimeAssembly`), never by comparing load-context
+objects: MSBuild loads the build task and Compiler.Core into a context of its own while keeping
+`Microsoft.Build.Framework` in the context that one defers to, so a context-object comparison calls
+the host's own implementation foreign. It stays exact in both directions — the binder must answer with
+THAT assembly, so a same-identity build sitting in an unrelated load context is still refused.
+
 ### MetadataLoadContext Host Verdict
 
 Compiler Core carries the `System.Reflection.MetadataLoadContext` 10.0.5 dependency, but the N#

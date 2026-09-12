@@ -531,9 +531,10 @@ class ExternalAssemblyScan {
             return RuntimeAssemblyPathMatches(runtimeAssembly, runtimePath)
         }
 
-        // Framework packs and NuGet compile assets are metadata images. Their implementation may
-        // already be loaded by the compiler's own context from a different path (MSBuild task
-        // probing is the important example), so an exact compiler-context AQN is executable when
+        // Framework packs and NuGet compile assets are metadata images. The implementation the
+        // compiler binds for that identity may already be loaded from a different path (the
+        // compiler running as an MSBuild task, against MSBuild's own `Microsoft.Build.*`, is the
+        // important example), so the handle the compiler's binder answers with is executable when
         // the path-shaped runtime contract is present even if the physical paths differ. Foreign
         // same-AQN handles remain ineligible and reference-only inputs stay metadata-only when no
         // usable contract exists.
@@ -547,7 +548,7 @@ class ExternalAssemblyScan {
                 return true
             }
 
-            return CompilerAssemblyReferencesIdentity(entry.Identity) && IsCompilerContextRuntimeAssembly(runtimeAssembly)
+            return CompilerAssemblyReferencesIdentity(entry.Identity) && IsCompilerBoundRuntimeAssembly(runtimeAssembly, entry.Identity)
         }
 
         runtimeModuleVersionId := RuntimeAssemblyModuleVersionId(runtimeAssembly)
@@ -615,9 +616,9 @@ class ExternalAssemblyScan {
             return null
         }
 
-        // NuGet/framework reference contracts may have no usable path pair in the host process.
-        // Preserve the compiler-context exact-AQN dependency in that case; arbitrary loaded
-        // assemblies and project ref/refint paths never enter this branch.
+        // NuGet/framework reference contracts may have no matching loaded path in the host process.
+        // Preserve the exact-AQN dependency the compiler's own binder answers with in that case;
+        // arbitrary loaded assemblies and project ref/refint paths never enter this branch.
         if IsHostDependencyReferencePath(metadataPath) {
             runtimePath := RuntimePathForReferenceContract(metadataPath)
             index = 0
@@ -630,10 +631,14 @@ class ExternalAssemblyScan {
                 index = index + 1
             }
 
+            if !CompilerAssemblyReferencesIdentity(identity) || !HasUsableRuntimeContract(metadataPath) {
+                return null
+            }
+
             index = 0
             while index < candidates.Count {
                 candidate := candidates[index]
-                if RuntimeAssemblyHasIdentity(candidate, identity) && IsCompilerContextRuntimeAssembly(candidate) && CompilerAssemblyReferencesIdentity(identity) && HasUsableRuntimeContract(metadataPath) {
+                if IsCompilerBoundRuntimeAssembly(candidate, identity) {
                     return candidate
                 }
 
@@ -644,25 +649,44 @@ class ExternalAssemblyScan {
         }
 
         metadataModuleVersionId := RuntimeAssemblyModuleVersionId(metadataAssembly)
-        if metadataModuleVersionId.Length == 0 {
-            return null
-        }
+        if metadataModuleVersionId.Length > 0 {
 
-        // A matching path is stronger than load order when two builds carry the same CLR identity.
-        index = 0
-        while index < candidates.Count {
-            candidate := candidates[index]
-            if RuntimeAssemblyHasIdentity(candidate, identity) && RuntimeAssemblyModuleVersionId(candidate) == metadataModuleVersionId && RuntimeAssemblyPathMatches(candidate, metadataPath) {
-                return candidate
+            // A matching path is stronger than load order when two builds carry the same CLR identity.
+            index = 0
+            while index < candidates.Count {
+                candidate := candidates[index]
+                if RuntimeAssemblyHasIdentity(candidate, identity) && RuntimeAssemblyModuleVersionId(candidate) == metadataModuleVersionId && RuntimeAssemblyPathMatches(candidate, metadataPath) {
+                    return candidate
+                }
+
+                index = index + 1
             }
 
-            index = index + 1
+            index = 0
+            while index < candidates.Count {
+                candidate := candidates[index]
+                if RuntimeAssemblyHasIdentity(candidate, identity) && RuntimeAssemblyModuleVersionId(candidate) == metadataModuleVersionId {
+                    return candidate
+                }
+
+                index = index + 1
+            }
         }
 
+        // THE HOST'S OWN COPY OF THE SAME IDENTITY, WHICH IS THE ONLY HANDLE THERE CAN BE. A module
+        // identity separates two BUILDS that share a CLR identity, and it is the right tie-break
+        // while several candidates are in play. It is the wrong REQUIREMENT: a process cannot hold
+        // two assemblies of one identity in one load context, so when the compiler's own context
+        // already binds this identity from a file of its own -- the SDK's copy of a package the
+        // project also restored, which is ordinary whenever the compiler runs inside MSBuild -- that
+        // handle is the only executable implementation the contract can ever have, and refusing it
+        // leaves the reference with no runtime types rather than with a better one. Project
+        // reference contracts return above and never reach this; a same-identity build sitting in
+        // some unrelated context is still refused, because the binder must answer with it.
         index = 0
         while index < candidates.Count {
             candidate := candidates[index]
-            if RuntimeAssemblyHasIdentity(candidate, identity) && RuntimeAssemblyModuleVersionId(candidate) == metadataModuleVersionId {
+            if IsCompilerBoundRuntimeAssembly(candidate, identity) {
                 return candidate
             }
 
@@ -812,14 +836,46 @@ class ExternalAssemblyScan {
         return false
     }
 
-    static func IsCompilerContextRuntimeAssembly(assembly: Assembly?): bool {
-        if assembly == null {
+    static func CompilerLoadContext(): AssemblyLoadContext? {
+        return AssemblyLoadContext.GetLoadContext(typeof(ExternalAssemblyScan).get_Assembly())
+    }
+
+    // WHICH HANDLE A LOAD CONTEXT EXECUTES AGAINST FOR AN IDENTITY -- asked of the binder rather
+    // than answered by comparing load-context objects. Owning the assembly is only ONE of the ways
+    // a context supplies it: a context that does not carry a name delegates the load, so the exact
+    // handle a context binds can legitimately live in the context it defers to.
+    //
+    // That is not an exotic case, it is how the compiler runs inside MSBuild. MSBuild loads the
+    // build task and this library into a load context of its own and keeps its own
+    // `Microsoft.Build.*` implementation in the context that one defers to, so a context-OBJECT
+    // comparison calls the host's implementation foreign, leaves the package reference contract for
+    // it with no executable implementation, and the field type `ITaskItem[]` resolves to nothing --
+    // which is exactly what stopped the compiler rebuilding itself.
+    //
+    // The question stays exact in both directions: the binder must answer with THIS assembly, so a
+    // same-identity build loaded into an unrelated context is still refused, and an identity the
+    // context cannot bind at all answers no.
+    static func IsContextBoundRuntimeAssembly(context: AssemblyLoadContext?, assembly: Assembly?, identity: string): bool {
+        if context == null || assembly == null || !RuntimeAssemblyHasIdentity(assembly, identity) {
             return false
         }
 
-        compilerContext := AssemblyLoadContext.GetLoadContext(typeof(ExternalAssemblyScan).get_Assembly())
-        assemblyContext := AssemblyLoadContext.GetLoadContext(assembly)
-        return compilerContext != null && Object.ReferenceEquals(compilerContext, assemblyContext)
+        if Object.ReferenceEquals(AssemblyLoadContext.GetLoadContext(assembly), context) {
+            return true
+        }
+
+        try {
+            bound := context.LoadFromAssemblyName(new AssemblyName(identity))
+            return Object.ReferenceEquals(bound, assembly)
+        } catch {
+
+            // A name this context cannot bind is not an executable implementation for it.
+            return false
+        }
+    }
+
+    static func IsCompilerBoundRuntimeAssembly(assembly: Assembly?, identity: string): bool {
+        return IsContextBoundRuntimeAssembly(CompilerLoadContext(), assembly, identity)
     }
 
     // Framework reference packs do not have NuGet's lib/<tfm> sibling. The implementation is in
@@ -883,7 +939,7 @@ class ExternalAssemblyScan {
 
         if runtimeAssemblies != null && runtimeAssemblies.ContainsKey(identity) {
             selected := runtimeAssemblies[identity]
-            if RuntimeAssemblyHasIdentity(selected, identity) && CompilerAssemblyReferencesIdentity(identity) && IsCompilerContextRuntimeAssembly(selected) && HasUsableRuntimeContract(referencePath) {
+            if CompilerAssemblyReferencesIdentity(identity) && IsCompilerBoundRuntimeAssembly(selected, identity) && HasUsableRuntimeContract(referencePath) {
                 return selected
             }
         }
@@ -1106,7 +1162,7 @@ class ExternalAssemblyScan {
                 return null
             }
 
-            if IsHostDependencyReferencePath(path) && CompilerAssemblyReferencesIdentity(identity) && IsCompilerContextRuntimeAssembly(selected) && HasUsableRuntimeContract(path) {
+            if IsHostDependencyReferencePath(path) && CompilerAssemblyReferencesIdentity(identity) && IsCompilerBoundRuntimeAssembly(selected, identity) && HasUsableRuntimeContract(path) {
                 return selected
             }
 

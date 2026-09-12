@@ -8,25 +8,32 @@ import System.Reflection.Emit
 import System.Runtime.Loader
 import Microsoft.Build.Framework
 
+// The reference packs sit in `<dotnet root>/packs` beside the `shared` directory the running
+// framework lives in. Counting parent directories off `GetRuntimeDirectory()` gets this wrong,
+// because that path ends in a separator and the first `GetDirectoryName` only strips it -- which
+// lands on `<dotnet root>/shared` and finds no packs at all on an installation whose root is not
+// where the count assumed. The production kernel already locates the `shared` root for any layout,
+// so ask it and take the directory holding it.
 func RuntimePairingFindReferencePackAssembly(simpleName: string): string {
-    runtimeDirectory := RuntimeEnvironment.GetRuntimeDirectory()
-    versionDirectory := Path.GetDirectoryName(runtimeDirectory)
-    frameworkDirectory := Path.GetDirectoryName(versionDirectory ?? "")
-    dotnetRoot := Path.GetDirectoryName(frameworkDirectory ?? "")
-    if dotnetRoot == null {
-        return ""
-    }
+    sharedRoots := CompilationReferenceResolverKernels.GetDotnetSharedRootCandidates(RuntimeEnvironment.GetRuntimeDirectory())
+    rootIndex := 0
+    while rootIndex < sharedRoots.Length {
+        dotnetRoot := Path.GetDirectoryName(sharedRoots[rootIndex])
+        referencePackRoot := Path.Combine(Path.Combine(dotnetRoot ?? "", "packs"), "Microsoft.NETCore.App.Ref")
+        if dotnetRoot != null && Directory.Exists(referencePackRoot) {
+            versionDirectories := Directory.GetDirectories(referencePackRoot, "*", SearchOption.TopDirectoryOnly)
+            index := 0
+            while index < versionDirectories.Length {
+                candidate := Path.Combine(Path.Combine(Path.Combine(versionDirectories[index], "ref"), "net10.0"), simpleName + ".dll")
+                if File.Exists(candidate) {
+                    return candidate
+                }
 
-    referencePackRoot := Path.Combine(Path.Combine(dotnetRoot, "packs"), "Microsoft.NETCore.App.Ref")
-    versionDirectories := Directory.GetDirectories(referencePackRoot, "*", SearchOption.TopDirectoryOnly)
-    index := 0
-    while index < versionDirectories.Length {
-        candidate := Path.Combine(Path.Combine(Path.Combine(versionDirectories[index], "ref"), "net10.0"), simpleName + ".dll")
-        if File.Exists(candidate) {
-            return candidate
+                index = index + 1
+            }
         }
 
-        index = index + 1
+        rootIndex = rootIndex + 1
     }
 
     return ""
@@ -294,7 +301,7 @@ test "unrelated compiler-context assemblies cannot satisfy a NuGet reference con
 
     compilerRuntime := RuntimePairingLoadAssembly(compilerContext, runtimePath)
     identity := compilerRuntime.GetName().get_FullName()
-    assert ExternalAssemblyScan.IsCompilerContextRuntimeAssembly(compilerRuntime)
+    assert ExternalAssemblyScan.IsCompilerBoundRuntimeAssembly(compilerRuntime, identity)
     assert !ExternalAssemblyScan.CompilerAssemblyReferencesIdentity(identity)
 
     root := Path.Combine(Path.GetTempPath(), "nsharp-runtime-pairing-unrelated-" + Guid.NewGuid().ToString("N"))
@@ -313,4 +320,141 @@ test "unrelated compiler-context assemblies cannot satisfy a NuGet reference con
             Directory.Delete(root, true)
         }
     }
+}
+
+func RuntimePairingInvokeHostedStatic(host: Assembly, methodName: string, arguments: object?[]): object? {
+    hostedType := host.GetType("NSharpLang.Compiler.ExternalAssemblyScan")
+    if hostedType == null {
+        throw new InvalidOperationException("The hosted ExternalAssemblyScan type was not found.")
+    }
+
+    method := hostedType.GetMethod(methodName)
+    if method == null {
+        throw new InvalidOperationException("The hosted method '" + methodName + "' was not found.")
+    }
+
+    return method.Invoke(null, arguments)
+}
+
+func RuntimePairingPair(first: object?, second: object?): object?[] {
+    arguments := new object?[](2)
+    RuntimePairingSetObject(arguments, 0, first)
+    RuntimePairingSetObject(arguments, 1, second)
+    return arguments
+}
+
+func RuntimePairingTriple(first: object?, second: object?, third: object?): object?[] {
+    arguments := new object?[](3)
+    RuntimePairingSetObject(arguments, 0, first)
+    RuntimePairingSetObject(arguments, 1, second)
+    RuntimePairingSetObject(arguments, 2, third)
+    return arguments
+}
+
+// THE COMPILER RUNNING INSIDE ITS HOST, which is how it rebuilds itself. MSBuild loads the build
+// task and this library into a load context of its own and keeps its own `Microsoft.Build.*`
+// implementation in the context that one defers to. The package reference contract for
+// `Microsoft.Build.Framework` therefore has to pair with a handle the compiler's context does not
+// OWN but does BIND; a load-context object comparison answers no, the contract is left with no
+// executable implementation, and the field type `ITaskItem[]` resolves to nothing.
+//
+// The topology is reproduced rather than modelled: a second copy of this library is loaded into a
+// context of its own, so inside that copy `CompilerLoadContext()` is that context while the host's
+// `Microsoft.Build.Framework` stays in the context it defers to. Both the pairing decision and the
+// reference-contract lookup that consumes it are then asked of the hosted copy.
+test "a compiler hosted in a delegating load context pairs a package reference with its host implementation" {
+    corePath := typeof(ExternalAssemblyScan).get_Assembly().get_Location()
+    assert corePath.Length > 0 && File.Exists(corePath)
+
+    referencePath := RuntimePairingFindNuGetReferenceAssembly("microsoft.build.framework", "Microsoft.Build.Framework")
+    assert referencePath.Length > 0
+    assert ExternalAssemblyScan.IsHostDependencyReferencePath(referencePath)
+    assert ExternalAssemblyScan.HasUsableRuntimeContract(referencePath)
+
+    hostRuntime := typeof(ITaskItem).get_Assembly()
+    identity := hostRuntime.GetName().get_FullName()
+    assert AssemblyName.GetAssemblyName(referencePath).get_FullName() == identity
+    assert Path.GetFullPath(hostRuntime.get_Location()) != Path.GetFullPath(ExternalAssemblyScan.RuntimePathForReferenceContract(referencePath)), "The host implementation must come from a different file than the package's own runtime asset."
+
+    hostedContext := RuntimePairingCreateNonCollectibleContext()
+    hostedCore := RuntimePairingLoadAssembly(hostedContext, corePath)
+    assert !Object.ReferenceEquals(hostedCore, typeof(ExternalAssemblyScan).get_Assembly()), "The hosted copy must be a distinct load of this library."
+    assert !Object.ReferenceEquals(AssemblyLoadContext.GetLoadContext(hostedCore), AssemblyLoadContext.GetLoadContext(hostRuntime)), "A context-object comparison must answer no for this pair; only the binder question can answer yes."
+
+    assert Convert.ToBoolean(
+        RuntimePairingInvokeHostedStatic(hostedCore, "IsCompilerBoundRuntimeAssembly", RuntimePairingPair(hostRuntime, identity))
+    ), "A compiler context that defers a name it does not carry binds the handle its host owns."
+
+    byIdentity := new Dictionary<string, Assembly>(StringComparer.Ordinal)
+    byIdentity[identity] = hostRuntime
+    hostedSelection := RuntimePairingInvokeHostedStatic(hostedCore, "TryLoadExactRuntimeAssembly", RuntimePairingTriple(byIdentity, referencePath, identity)) as Assembly
+    assert Object.ReferenceEquals(hostedSelection, hostRuntime), "The package reference contract must keep the implementation the hosted compiler executes against."
+
+    foreignContext := RuntimePairingCreateNonCollectibleContext()
+    foreignRuntime := RuntimePairingLoadAssembly(foreignContext, hostRuntime.get_Location())
+    assert !Object.ReferenceEquals(foreignRuntime, hostRuntime)
+    assert foreignRuntime.GetName().get_FullName() == identity
+    assert !Convert.ToBoolean(
+        RuntimePairingInvokeHostedStatic(hostedCore, "IsCompilerBoundRuntimeAssembly", RuntimePairingPair(foreignRuntime, identity))
+    ), "A same-identity build loaded into an unrelated context is not what the hosted compiler binds."
+
+    wrongIdentity := "Microsoft.Build.Framework, Version=0.0.0.0, Culture=neutral, PublicKeyToken=b03f5f7f11d50a3a"
+    assert !Convert.ToBoolean(
+        RuntimePairingInvokeHostedStatic(hostedCore, "IsCompilerBoundRuntimeAssembly", RuntimePairingPair(hostRuntime, wrongIdentity))
+    ), "The binder question stays exact; a different identity cannot be satisfied."
+}
+
+test "the binder question refuses absent contexts, absent handles and unbindable identities" {
+    hostRuntime := typeof(ITaskItem).get_Assembly()
+    identity := hostRuntime.GetName().get_FullName()
+    delegatingContext := RuntimePairingCreateNonCollectibleContext() as AssemblyLoadContext
+    assert delegatingContext != null
+
+    assert ExternalAssemblyScan.IsContextBoundRuntimeAssembly(delegatingContext, hostRuntime, identity)
+    assert !ExternalAssemblyScan.IsContextBoundRuntimeAssembly(null, hostRuntime, identity)
+    assert !ExternalAssemblyScan.IsContextBoundRuntimeAssembly(delegatingContext, null, identity)
+    assert !ExternalAssemblyScan.IsContextBoundRuntimeAssembly(delegatingContext, hostRuntime, "")
+
+    unbindable := RuntimePairingCreateAssembly("NSharpTests.NeverOnDisk, Version=1.0.0.0, Culture=neutral, PublicKeyToken=null")
+    assert !ExternalAssemblyScan.IsContextBoundRuntimeAssembly(delegatingContext, unbindable, unbindable.GetName().get_FullName()), "A name no context can bind is not an executable implementation."
+}
+
+// THE HOST'S OWN COPY OF A RESTORED PACKAGE. The SDK that hosts the compiler ships its own build of
+// packages the project also restores -- `System.Reflection.MetadataLoadContext` and
+// `Microsoft.NET.StringTools` are the ones the compiler meets while rebuilding itself -- so the
+// implementation loaded for the contract's identity is a DIFFERENT FILE with a DIFFERENT MODULE
+// IDENTITY. Requiring the module identities to agree discards that handle and leaves the reference
+// with no runtime types at all, which is worse than the handle it refused: the process cannot hold a
+// second assembly of one identity, so there is no other implementation to find.
+test "a package contract keeps the host's own copy of its identity when the module identities differ" {
+    hostRuntime := typeof(ExternalAssemblyScan).get_Assembly()
+    identity := hostRuntime.GetName().get_FullName()
+    contractPath := Path.Combine(Path.GetTempPath(), "nsharp-runtime-pairing-host-copy-" + Guid.NewGuid().ToString("N") + "/package/1.0.0/lib/net10.0/" + Path.GetFileName(hostRuntime.get_Location()))
+    assert !ExternalAssemblyScan.IsProjectReferenceAssemblyPath(contractPath)
+    assert !ExternalAssemblyScan.IsHostDependencyReferencePath(contractPath)
+
+    otherBuild := RuntimePairingCreateAssembly(identity)
+    assert otherBuild.GetName().get_FullName() == identity
+    assert ExternalAssemblyScan.RuntimeAssemblyModuleVersionId(otherBuild) != ExternalAssemblyScan.RuntimeAssemblyModuleVersionId(hostRuntime), "The contract must describe a different build of the same identity."
+
+    hostCandidates := new Assembly[](1)
+    hostCandidates[0] = hostRuntime
+    assert Object.ReferenceEquals(
+        ExternalAssemblyScan.SelectRuntimeAssemblyByMetadata(hostCandidates, otherBuild, identity, contractPath),
+        hostRuntime
+    ), "The implementation the compiler binds for the identity is the contract's only executable handle."
+
+    foreignContext := RuntimePairingCreateNonCollectibleContext()
+    foreignRuntime := RuntimePairingLoadAssembly(foreignContext, hostRuntime.get_Location())
+    assert !Object.ReferenceEquals(foreignRuntime, hostRuntime)
+    foreignCandidates := new Assembly[](1)
+    foreignCandidates[0] = foreignRuntime
+    assert ExternalAssemblyScan.SelectRuntimeAssemblyByMetadata(foreignCandidates, otherBuild, identity, contractPath) == null, "A same-identity build in an unrelated context is still not the compiler's implementation."
+
+    entries := new List<ExternalAssemblyCatalogEntry>()
+    entry := new ExternalAssemblyCatalogEntry(hostRuntime.GetName(), identity, contractPath, hostRuntime, true)
+    entry.AttachMetadataAssembly(otherBuild)
+    entries.Add(entry)
+    ExternalAssemblyScan.ReconcileRuntimeAssemblies(entries, ExternalAssemblyScan.LoadedForEmissionByIdentity())
+    assert Object.ReferenceEquals(entries[0].RuntimeAssembly, hostRuntime), "Reconciliation must not discard the only implementation the contract can have."
 }
