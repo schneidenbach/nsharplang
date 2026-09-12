@@ -40,7 +40,7 @@ import NSharpLang.Compiler.Ast
 // (which reflects as `initonly`), a MUTABLE instance field, and a PROPERTY, whose whole job here is to
 // CLAIM its name and stop the walk.
 class WriteTargetReadonlyProbe {
-    public const Imported: int = 7
+    const Imported: int = 7
     readonly Total: int
     Mutable: int
     Named: int => 0

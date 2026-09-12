@@ -1881,7 +1881,6 @@ class ColumnarDirectCallPlanner {
             throw new InvalidOperationException("Direct-call argument syntax facts must match the argument type slots.")
         }
 
-
         index := 0
         while index < argumentTypes.Length {
             argumentNode := nodes.Child(callNode, index + 1)

@@ -241,7 +241,6 @@ class SdkProjectConfiguration {
         return result
     }
 
-
     static func PackageTagsValue(tags: List<string>?): string {
         if tags == null || tags.Count == 0 {
             return ""
@@ -269,5 +268,4 @@ class SdkProjectConfiguration {
 
         return fileName
     }
-
 }
