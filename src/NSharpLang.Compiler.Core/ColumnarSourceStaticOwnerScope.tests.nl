@@ -382,9 +382,9 @@ test "source static owner scope gives a sibling namespace no standing without an
     scope := SourceOwnerScope(sources, fileNames, SourceOwnerEmptyStructs(), 1)
 
     // `App.Ast` is a SIBLING of `App.Columnar`: it neither encloses the file nor is imported by it,
-    // so the bare spelling is not this file's `Owner`. (The project-wide unique-exported fallback is
-    // what answers it, and only while no import supplies the name.)
-    SourceOwnerAssertResolved(scope, "", "Owner", "Owner", "App.Ast.Owner")
+    // so the bare spelling is not this file's `Owner` and this tier answers nothing for it — NOT
+    // blocked, so the later tiers still get their turn.
+    SourceOwnerAssertNotSource(scope, "Owner", "Owner")
 
     // THE QUALIFIER CLIMBS THE SAME CHAIN. `Ast.Owner` written inside `App.Columnar` means
     // `App.Ast.Owner`, because the leftmost segment of a qualified name is looked up exactly as a
