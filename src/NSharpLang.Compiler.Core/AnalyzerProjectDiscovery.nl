@@ -565,16 +565,21 @@ class AnalyzerProjectTypeDiscovery {
         return TryFindInaccessibleVisibleDeclaration(name, currentNamespace, true, out filePath)
     }
 
-    // "A visible namespace OTHER than my own declares this name and does not export it." The file's
-    // OWN namespace is skipped: a name that is not exported is still visible inside its own
-    // namespace, so finding it there is not an accessibility failure.
+    // "A namespace I IMPORTED declares this name and does not export it." Every LEXICAL namespace is
+    // skipped, and for two different reasons that come to the same answer. The file's OWN namespace:
+    // a name that is not exported is still visible inside it, so finding it there is not an
+    // accessibility failure at all. An ENCLOSING namespace: the file never asked for it — it is in
+    // scope because of where the file sits — so a private declaration out there must not hijack a
+    // name the file did explicitly import. The lookup walks past it instead, which is exactly what
+    // the emitter's binding scope does (`TryFindEnclosingNamespaceSourceName` matches only EXPORTED
+    // names and its caller then tries the imports).
     func TryFindInaccessibleVisibleDeclaration(name: string, currentNamespace: string?, wantFunctions: bool, out filePath: string?): bool {
         visible := AnalyzerTypeReferenceFacts.VisibleTypeNamespaces(currentNamespace, usingNamespaces)
         paths := sources.SourceFilePaths()
         namespaceIndex := 0
         while namespaceIndex < visible.Count {
             visibleNamespace := visible[namespaceIndex]
-            if !string.Equals(visibleNamespace, currentNamespace, StringComparison.Ordinal) {
+            if !SimpleNamePrecedence.IsLexicalNamespace(currentNamespace, visibleNamespace) {
                 fileIndex := 0
                 while fileIndex < paths.Count {
                     candidatePath := paths[fileIndex]

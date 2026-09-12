@@ -552,9 +552,11 @@ position, `AnalyzerIdentifierResolution` at an expression position) render it th
 `AnalyzerDiagnosticSink.ReportAmbiguousTypeReference`. They share the unresolved-reference dedupe
 set, so one position is told once.
 
-TWO EXCLUSIONS, both C#'s. The file's OWN namespace wins outright — a closer declaration is not a
-tie — and the project-wide unique-exported FALLBACK is never a candidate, because it is the channel
-that runs when no import supplies the name.
+TWO EXCLUSIONS, both C#'s. THE WHOLE LEXICAL CHAIN wins outright — a lexically closer declaration is
+not a tie, so the file's own namespace AND every enclosing namespace outward (ending at the global
+namespace) stand the gate down, and an `import` that merely names one of them is skipped as redundant
+rather than counted as a rival — and the project-wide unique-exported FALLBACK is never a candidate,
+because it is the channel that runs when no import supplies the name.
 
 ONE MEASURED LIMIT. The metadata half of the tie check is asked only once the SOURCE half has
 matched: an assembly sweep is imports × assemblies of `Assembly.GetType`, a miss is deliberately not
@@ -1813,18 +1815,58 @@ columnar call path:
    result is `ldnull`, and a non-nullable value result is lifted to `Nullable<T>`. KNOWN LIMITS: `?[`
    null-conditional indexing, and a plain non-nullable value receiver (which has no null to test for).
 
-**AN ENCLOSING NAMESPACE IS THE FILE'S OWN SCOPE.** `ColumnarBindingScopeFacts` resolves a bare type
-name through the file's declarations, its imports, then its own namespace — and now, before the
-project-wide unique-exported fallback, through each ENCLOSING namespace
-(`TryFindEnclosingNamespaceSourceName`, asked by both the explicit-type walk and the
-declaration-name walk). A file in `A.B` sits inside `A`, so an exported declaration there is in scope
-without an import, exactly as C# reads it. This is NOT the auto-discovery fallback beside it: that
-one finds a declaration in an UNRELATED namespace and deliberately loses to an imported external type
-(the shadowing hazard `tests/native/qualified-names` pins), while an enclosing namespace is
-lexically nearer than any import. Without the step the SAME spelling resolved two ways inside one
-file — a signature saw the enclosing declaration and a body local saw the imported external type of
-that name (`emit.typed-local.type-mismatch` naming both), which is what
-`tests/native/runtime-acceptance` reproduced.
+**AN ENCLOSING NAMESPACE IS THE FILE'S OWN SCOPE, AND ONE OWNER SAYS SO.** `SimpleNamePrecedence` is
+the single ordering both halves of the compiler read:
+
+1. built-ins and lexical scope;
+2. the file's own namespace, then each ENCLOSING namespace outward, ending at the global namespace —
+   an exported declaration there wins outright, with no diagnostic;
+3. the file's explicit namespace imports (exactly one supplying the name wins; two or more is NL209);
+4. project-wide auto-discovery of a unique exported project type, which never overrides 2 or 3.
+
+`LexicalNamespaces` is step 2, `CandidateNamespaces` is 2+3, `IsLexicalNamespace` answers "does this
+namespace win by nearness rather than by being imported", `EnclosingNamespaceNames` is step 2 alone in
+the emitter's `""`-for-global spelling, and `QualifierNamespaces` applies the same chain to the
+LEFTMOST segment of a qualified name.
+
+FOUR WALKS READ IT AND USED TO SPELL IT THEMSELVES: `AnalyzerTypeReferenceFacts.VisibleTypeNamespaces`
+(now a delegation), `AnalyzerProjectTypeDiscovery` (the ambiguity gate and the inaccessible-declaration
+probe, which now stands down for the whole chain), `AnalyzerDeclarationContext.ResolveTypeName` (the
+cross-file signature resolver, which resolves against the file that WROTE the declaration and so
+climbs THAT file's chain), and `ColumnarBindingScopeFacts` (both bare-name walks,
+`TryResolveProjectSourceTypeName`, `ResolveSourceBaseName` and the `BlocksSourceType` veto).
+
+The drift the single owner removes was real and two-sided. The ANALYZER never climbed at all, so it
+reported 84 false NL209s over the compiler's own estate (`TypeInfo` 43, `TokenType` 41) for names its
+enclosing `NSharpLang.Compiler` declares. The EMITTER climbed, but AFTER the imports, and
+`TryResolveProjectSourceTypeName` probed the global namespace after them as well — so the SAME
+spelling resolved two ways inside one file (a signature saw the enclosing declaration and a body local
+saw the imported external type, `emit.typed-local.type-mismatch` naming both, which is what
+`tests/native/runtime-acceptance` reproduced).
+
+Step 2 is NOT the auto-discovery fallback beside it: that one finds a declaration in an UNRELATED
+namespace and deliberately loses to an imported external type (the shadowing hazard
+`tests/native/qualified-names` pins), while an enclosing namespace is lexically nearer than any
+import. A SIBLING namespace (`A.Ast` beside `A.Columnar`) is not lexical at all and reaches a file
+only by import.
+
+A NON-EXPORTED declaration in an enclosing namespace is walked PAST rather than claiming the name or
+reporting NL308: the file never asked for that namespace, so a private declaration out there must not
+take a name the file explicitly imported. Both halves agree on that — the emitter matches only
+`exportedSourceTypeNames`, and `TryFindInaccessibleVisibleDeclaration` skips every lexical namespace.
+
+**A QUALIFIER CLIMBS THE SAME CHAIN.** The leftmost segment of a namespace-or-type-name is looked up
+the way a simple name is, so `Ast.ParameterModifier` written inside `NSharpLang.Compiler` — or inside
+`NSharpLang.Compiler.Columnar`, which reaches it through the enclosing `NSharpLang.Compiler` — names
+`NSharpLang.Compiler.Ast.ParameterModifier`, and the written spelling is always the chain's last
+candidate so an absolute qualifier still resolves. Imports are deliberately NOT in that chain: an
+import brings a namespace's TYPES into a file, never its sub-namespaces, exactly as C# reads it. Wired
+through `AnalyzerTypeResolver.TryResolveNamespaceQualifiedType`,
+`AnalyzerMemberAccess.TryResolveTypeInNamespaceOrAssemblies` (expression position),
+`AnalyzerDeclarationContext.ResolveTypeName`'s dotted branch (cross-file signatures — without it a
+relative qualifier in a signature read from another file resolved to `unknown`, which surfaced as
+`List<unknown>` at the caller's assignment) and the binding scope's dotted walks plus
+`TryResolveQualifiedSourceTypeName`.
 
 **A `ref`/`out` ARGUMENT IS A CALL FACT, AND IT MAY NAME A FIELD.** The semantic call planner typed NO
 by-ref argument at all, so no by-ref call ever reached overload resolution:

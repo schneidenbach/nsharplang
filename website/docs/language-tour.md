@@ -1724,15 +1724,21 @@ func Report(parts: List<string>): string {
 }
 ```
 
-The same spelling reaches your own project's namespaces:
+The same spelling reaches your own project's namespaces — and you only have to write the part
+that is not already implied by where you are. The **leftmost segment** of a qualified name is looked
+up the same way a bare name is: your own namespace first, then each enclosing one outward. So from
+inside `MyApp`, `Models.Person` means `MyApp.Models.Person`:
 
 ```n#
 package MyApp
 
-func Create(): MyApp.Models.Person {
-    return MyApp.Models.Person.Default
+func Create(): Models.Person {
+    return Models.Person.Default          // same declaration as MyApp.Models.Person.Default
 }
 ```
+
+That shorthand is *lexical*, never imported: an `import` brings a namespace's **types** into your
+file, not its sub-namespaces. `import System` does not make `Reflection.TypeInfo` a name.
 
 An **alias** qualifies exactly the same way — `import System.IO as Io` makes `Io.Path.Combine(a, b)`
 mean `System.IO.Path.Combine(a, b)`:
@@ -1756,14 +1762,24 @@ A bare name is resolved in this order, and the first channel that answers wins:
 
 1. **Your file's own namespace.** A type declared alongside you is what the name means, whatever
    your imports bring in. Files that share a namespace see each other's types with no import.
-2. **Your imports, in the order you wrote them** — a source namespace and a .NET namespace count
+2. **Each enclosing namespace, outward** — `App.Models.Internal` then looks in `App.Models`, then
+   `App`, then the global namespace. An exported declaration out there is *nearer* than anything you
+   imported, so it wins outright and there is nothing to disambiguate. This is why a file in
+   `App.Models` reads a bare `Person` as `App.Person` when `App` declares one, even with
+   `import System` in scope.
+3. **Your imports, in the order you wrote them** — a source namespace and a .NET namespace count
    equally here. If two imports supply the same name, that is [NL209](errors/NL209.md): neither is
    closer, so the compiler asks you to say which one you mean.
-3. **Project-wide auto-discovery.** An exported type anywhere in your project is usable by its bare
+4. **Project-wide auto-discovery.** An exported type anywhere in your project is usable by its bare
    name without an import, as long as exactly one declaration has that name. This is a convenience,
    so it ranks *below* anything you imported explicitly — a `class Version` of your own in a
    namespace you never imported does not take the name `Version` away from `import System`.
-4. **The referenced assemblies**, by simple name.
+5. **The referenced assemblies**, by simple name.
+
+Steps 1 and 2 are the *lexical* half of the rule: they are about where your file sits, not about
+what it asked for. Everything after them is about what the file asked for. A **sibling** namespace is
+not lexical — `App.Ast` neither contains nor is contained by `App.Columnar` — so it reaches you only
+through an import and competes at step 3 like any other.
 
 When two declarations tie, or when auto-discovery picks up a name you did not mean, write the
 qualified name. It is never ambiguous.

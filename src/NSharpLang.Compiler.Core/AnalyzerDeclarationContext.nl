@@ -994,15 +994,29 @@ class AnalyzerDeclarationContext {
                 return BuiltInTypes.Unknown
             }
 
-            packageType := BuiltInTypes.Unknown as TypeInfo
-            packageClaimed := false
-            if TryResolveDeclarationInNamespace(name, facts.NamespaceName, false, activeAliases, out packageType, out packageClaimed) {
-                claimed = true
-                return packageType
-            }
-            if packageClaimed {
-                claimed = true
-                return BuiltInTypes.Unknown
+            // THE LEXICAL CHAIN, from `SimpleNamePrecedence` — the same owner the analyzer's
+            // visible-namespace walk and the emitter's binding scope read. The declaring file's own
+            // namespace needs no export and CLAIMS the name (a private sibling declaration is what
+            // the name means, even when it does not resolve); an ENCLOSING namespace requires an
+            // export and, when it has none, is walked past rather than claiming — the file never
+            // asked for that namespace, so a private declaration there must not take a name the file
+            // explicitly imported.
+            lexical := SimpleNamePrecedence.LexicalNamespaces(facts.NamespaceName)
+            lexicalIndex := 0
+            while lexicalIndex < lexical.Count {
+                lexicalNamespace := lexical[lexicalIndex]
+                lexicalIndex = lexicalIndex + 1
+                isOwnNamespace := string.Equals(lexicalNamespace, facts.NamespaceName, StringComparison.Ordinal)
+                lexicalType := BuiltInTypes.Unknown as TypeInfo
+                lexicalClaimed := false
+                if TryResolveDeclarationInNamespace(name, lexicalNamespace, !isOwnNamespace, activeAliases, out lexicalType, out lexicalClaimed) {
+                    claimed = true
+                    return lexicalType
+                }
+                if lexicalClaimed && isOwnNamespace {
+                    claimed = true
+                    return BuiltInTypes.Unknown
+                }
             }
 
             fileImportIndex := 0
@@ -1141,15 +1155,26 @@ class AnalyzerDeclarationContext {
             return BuiltInTypes.Unknown
         }
 
-        qualifiedType := BuiltInTypes.Unknown as TypeInfo
-        qualifiedClaimed := false
-        if TryResolveQualifiedProjectType(name, facts.NamespaceName, activeAliases, out qualifiedType, out qualifiedClaimed) {
-            claimed = true
-            return qualifiedType
-        }
-        if qualifiedClaimed {
-            claimed = true
-            return BuiltInTypes.Unknown
+        // THE QUALIFIER CLIMBS THE LEXICAL CHAIN, exactly as the analyzer's own type resolver reads a
+        // qualified name: `Ast.Node` written inside `App` names `App.Ast.Node` before it can name an
+        // absolute `Ast.Node`, because the leftmost segment of a namespace-or-type-name is looked up
+        // the way a simple name is. The written spelling is the chain's last candidate, so an
+        // absolute qualifier still resolves. This walk resolves a declaration's types against the
+        // file that WROTE them, so the chain is that file's and not the reader's.
+        qualifierCandidates := SimpleNamePrecedence.QualifierNamespaces(facts.NamespaceName, name)
+        qualifierIndex := 0
+        while qualifierIndex < qualifierCandidates.Count {
+            qualifiedType := BuiltInTypes.Unknown as TypeInfo
+            qualifiedClaimed := false
+            if TryResolveQualifiedProjectType(qualifierCandidates[qualifierIndex], facts.NamespaceName, activeAliases, out qualifiedType, out qualifiedClaimed) {
+                claimed = true
+                return qualifiedType
+            }
+            if qualifiedClaimed {
+                claimed = true
+                return BuiltInTypes.Unknown
+            }
+            qualifierIndex = qualifierIndex + 1
         }
         runtimeType := BuiltInTypes.Unknown as TypeInfo
         if TryResolveExternal(name, out runtimeType) {
