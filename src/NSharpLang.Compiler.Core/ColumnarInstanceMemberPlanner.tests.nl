@@ -740,17 +740,22 @@ test "instance member planner owns typeof receivers and exact Type properties" {
     assert plan.OpCodeValues[2] == ColumnarCodePlanContract.Callvirt()
     assert ExecutorRunV3ScalarPlan(plan, typeof(string)) == "String"
 
-    rejected := InstanceTypeOfMemberTree("string", "AssemblyQualifiedName")
-    assert ColumnarInstanceMemberPlanner.ClaimsRoot(rejected.Nodes, rejected.Source, rejected.Root, bindings)
+    // ORDINARY IS ORDINARY. `AssemblyQualifiedName` used to be refused here, not because a
+    // reflection handle cannot answer it but because the receiver's readable members were a list of
+    // four names. Any readable instance property on an ordinary external reference receiver now
+    // resolves, and the admitted-value-type fence still decides what it may return — a `string`
+    // passes exactly as `Name`'s does.
+    generalized := InstanceTypeOfMemberTree("string", "AssemblyQualifiedName")
+    assert ColumnarInstanceMemberPlanner.ClaimsRoot(generalized.Nodes, generalized.Source, generalized.Root, bindings)
 
-    ordinaryPlan := InstanceMemberPlan(rejected, bindings)
-    assert ordinaryPlan.ResultType == typeof(string)
-    assert ordinaryPlan.FragmentCount == 2
-    assert ordinaryPlan.OperationCount == 3
-    assert ordinaryPlan.OpCodeValues[0] == ColumnarCodePlanContract.Ldtoken()
-    assert ordinaryPlan.OpCodeValues[1] == ColumnarCodePlanContract.Call()
-    assert ordinaryPlan.OpCodeValues[2] == ColumnarCodePlanContract.Callvirt()
-    assert ExecutorRunV3ScalarPlan(ordinaryPlan, typeof(string)) == (typeof(string).get_AssemblyQualifiedName() ?? "")
+    generalizedPlan := InstanceMemberPlan(generalized, bindings)
+    assert generalizedPlan.ResultType == typeof(string)
+    assert generalizedPlan.FragmentCount == 2
+    assert generalizedPlan.OperationCount == 3
+    assert generalizedPlan.OpCodeValues[0] == ColumnarCodePlanContract.Ldtoken()
+    assert generalizedPlan.OpCodeValues[1] == ColumnarCodePlanContract.Call()
+    assert generalizedPlan.OpCodeValues[2] == ColumnarCodePlanContract.Callvirt()
+    assert ExecutorRunV3ScalarPlan(generalizedPlan, typeof(string)) == (typeof(string).get_AssemblyQualifiedName() ?? "")
 }
 
 test "instance member planner preserves local storage and runtime value spill forms" {
@@ -782,8 +787,20 @@ test "instance member planner owns inherited runtime properties and tuple names"
     inherited := InstanceMemberPlan(InstanceMemberTree("error", "Message"), inheritedBindings)
 
     assert inherited.ResultType == typeof(string)
-    assert inherited.MethodDeclaringTypes[0] == typeof(Exception)
+    // `ArgumentException` OVERRIDES `Message` — that is how the parameter name reaches the text — and
+    // the plan names the override the receiver's static type declares, which is what C# emits for a
+    // receiver of this type. It used to name `Exception`'s declaration instead, because the resolver
+    // forced the lookup onto `Exception` rather than asking the receiver; `callvirt` dispatches to
+    // the same body either way, but the handle written into metadata now matches the source.
+    assert inherited.MethodDeclaringTypes[0] == typeof(ArgumentException)
     assert inherited.OpCodeValues[1] == ColumnarCodePlanContract.Callvirt()
+
+    // A receiver whose static type does NOT override it still names `Exception`'s own declaration.
+    baseBindings := ColumnarRangePlannerEmptyBindings()
+    ColumnarRangePlannerAddParameter(baseBindings, "failure", 0, typeof(InvalidOperationException))
+    fromBase := InstanceMemberPlan(InstanceMemberTree("failure", "Message"), baseBindings)
+    assert fromBase.ResultType == typeof(string)
+    assert fromBase.MethodDeclaringTypes[0] == typeof(Exception)
 
     tupleBindings := ColumnarRangePlannerEmptyBindings()
     tupleType := typeof(ValueTuple<int, string>)
@@ -822,16 +839,31 @@ test "instance member planner terminally declines missing and static members and
 
     ColumnarRangePlannerAssertEmptyRollback(staticPlan)
 
+    // WHAT IS STILL REFUSED IS A MISSING MEMBER AND A STATIC ONE, not an unlisted name: an ordinary
+    // readable property on a reflection handle is owned now, so the third case here is a receiver
+    // whose member does not exist at all rather than one that merely was not spelled out.
+    unknownTypeMemberTree := InstanceMemberTree("type", "NotAMemberOfType")
+    unknownTypeBindings := ColumnarRangePlannerEmptyBindings()
+    ColumnarRangePlannerAddParameter(unknownTypeBindings, "type", 0, typeof(Type))
+    assert ColumnarInstanceMemberPlanner.ClaimsRoot(unknownTypeMemberTree.Nodes, unknownTypeMemberTree.Source, unknownTypeMemberTree.Root, unknownTypeBindings)
+
+    unknownTypeMemberPlan := new ColumnarCodePlan()
+    assert ColumnarInstanceMemberPlanner.Plan(unknownTypeMemberTree.Nodes, unknownTypeMemberTree.Source, unknownTypeMemberTree.Root, unknownTypeBindings, unknownTypeMemberPlan) == ColumnarFragmentPlanStatus.NotOwned
+
+    ColumnarRangePlannerAssertEmptyRollback(unknownTypeMemberPlan)
+
+    // …and the member that DOES exist on the same receiver plans the ordinary two-operation read
+    // through the parameter, which is the shape the general arm produces for a reference receiver.
     hiddenTree := InstanceMemberTree("type", "AssemblyQualifiedName")
     hiddenBindings := ColumnarRangePlannerEmptyBindings()
     ColumnarRangePlannerAddParameter(hiddenBindings, "type", 0, typeof(Type))
     assert ColumnarInstanceMemberPlanner.ClaimsRoot(hiddenTree.Nodes, hiddenTree.Source, hiddenTree.Root, hiddenBindings)
 
-    ordinaryPlan := InstanceMemberPlan(hiddenTree, hiddenBindings)
-    assert ordinaryPlan.ResultType == typeof(string)
-    assert ordinaryPlan.OperationCount == 2
-    assert ordinaryPlan.OpCodeValues[0] == ColumnarCodePlanContract.Ldarg()
-    assert ordinaryPlan.OpCodeValues[1] == ColumnarCodePlanContract.Callvirt()
+    hiddenPlan := InstanceMemberPlan(hiddenTree, hiddenBindings)
+    assert hiddenPlan.ResultType == typeof(string)
+    assert hiddenPlan.OperationCount == 2
+    assert hiddenPlan.OpCodeValues[0] == ColumnarCodePlanContract.Ldarg()
+    assert hiddenPlan.OpCodeValues[1] == ColumnarCodePlanContract.Callvirt()
 }
 
 test "instance member planner rejects corrupt and shadowed facts atomically" {
@@ -1180,16 +1212,19 @@ test "instance member runtime admission rejects pointer and open generic externa
     openGenericType := typeof(Dictionary<int, int>).GetGenericTypeDefinition()
     assert !ColumnarRuntimeInstanceMemberResolver.IsSupportedExternalReferenceShape(pointerType)
     assert !ColumnarRuntimeInstanceMemberResolver.IsSupportedExternalReferenceShape(openGenericType)
-    assert !ColumnarRuntimeInstanceMemberResolver.CanOwnOrdinaryExternalReceiver(typeof(Span<int>))
+    assert !ColumnarRuntimeInstanceMemberResolver.IsOrdinaryExternalValueReceiver(typeof(Span<int>))
+    assert !ColumnarRuntimeInstanceMemberResolver.IsOrdinaryExternalReferenceReceiver(typeof(Span<int>))
 
     sourceBuilder := TypeOfCreateBuilder("OrdinaryMemberOpenSource", "OrdinaryMemberOpenSourceAsm", 0)
-    assert !ColumnarRuntimeInstanceMemberResolver.CanOwnOrdinaryExternalReceiver(sourceBuilder)
+    assert !ColumnarRuntimeInstanceMemberResolver.IsOrdinaryExternalValueReceiver(sourceBuilder)
+    assert !ColumnarRuntimeInstanceMemberResolver.IsOrdinaryExternalReferenceReceiver(sourceBuilder)
 
     builderArgument: Type = sourceBuilder
     builderArguments := new Type[](1)
     builderArguments[0] = builderArgument
     builderBoundList := typeof(List<int>).GetGenericTypeDefinition().MakeGenericType(builderArguments)
-    assert !ColumnarRuntimeInstanceMemberResolver.CanOwnOrdinaryExternalReceiver(builderBoundList)
+    assert !ColumnarRuntimeInstanceMemberResolver.IsOrdinaryExternalValueReceiver(builderBoundList)
+    assert !ColumnarRuntimeInstanceMemberResolver.IsOrdinaryExternalReferenceReceiver(builderBoundList)
 }
 
 test "ordinary baked receivers select inherited fields and getters and reject unsafe members" {
@@ -1256,7 +1291,7 @@ test "ordinary baked getter plans evaluate the receiver once and preserve getter
 }
 
 test "ordinary value receivers select Location fields and address parameters" {
-    assert ColumnarRuntimeInstanceMemberResolver.CanOwnOrdinaryExternalReceiver(typeof(Location))
+    assert ColumnarRuntimeInstanceMemberResolver.IsOrdinaryExternalValueReceiver(typeof(Location))
 
     lineSelection := ColumnarRuntimeInstanceMemberSelection.Empty()
     assert ColumnarRuntimeInstanceMemberResolver.TrySelect(typeof(Location), "Line", out lineSelection)
@@ -1439,7 +1474,11 @@ test "instance member facade reports terminal ownership for every admitted recei
 
     InstanceFacadeAssertTerminal(InstanceMemberTree("receiver", "UtcNow"), typeof(DateTime), false, typeof(int))
 
+    // An ordinary readable property on a reflection handle is OWNED now — the receiver list stopped
+    // deciding which of a type's members exist. A member that does not exist is still terminal.
     InstanceFacadeAssertTerminal(InstanceMemberTree("receiver", "AssemblyQualifiedName"), typeof(Type), true, typeof(string))
+
+    InstanceFacadeAssertTerminal(InstanceMemberTree("receiver", "NotAMemberOfType"), typeof(Type), false, typeof(int))
 }
 
 test "range planner recursively owns instance member endpoints" {

@@ -952,7 +952,7 @@ class ColumnarParserRecovery {
         // Modifiers value Parser.cs :215 hangs on the declaration node.
         attributes := ParseAttributes()
         attrsOk := AttributesMaterializable
-        modifiers := ParseModifiers()
+        modifiers := ParseTypeDeclarationModifiers()
 
         if Check(TokenType.Func) {
             ParseFunctionName(modifiers, attributes, attrsOk)
@@ -1086,6 +1086,135 @@ class ColumnarParserRecovery {
             return System.Convert.ToInt32(Modifiers.File)
         }
         return 0
+    }
+
+    // `readonly struct S { … }` — the TYPE-level `readonly` modifier. `ParseModifiers` deliberately does
+    // not recognize `readonly` (a member-level `readonly X: int` needs the token left in place for
+    // `ParseFieldDeclaration`'s property-modifier loop), so the type-level spelling is taken here and only
+    // here: when `readonly` is followed — across any remaining modifier words, and across the `ref` of
+    // `readonly ref struct` — by a type-declaration keyword. Modifier ORDER is free, exactly as it is in C#,
+    // so `public readonly struct` and `readonly public struct` fold to the same `Modifiers` value.
+    //
+    // C# accepts the word on a struct only (`readonly struct`, `readonly ref struct`,
+    // `readonly record struct`) and answers CS0106 everywhere else. N# answers NL311 on the WORD, then keeps
+    // parsing the declaration as though it had not been written, so the rest of the type still reports its
+    // own faults instead of vanishing behind a syntax cascade.
+    func ParseTypeDeclarationModifiers(): Modifiers {
+        modifiers := ParseModifiers()
+        if !IsTypeLevelReadonlyModifierAhead() {
+            return modifiers
+        }
+
+        readonlyToken := Current()
+        Advance()
+        trailing := ParseModifiers()
+        value := System.Convert.ToInt32(modifiers) | System.Convert.ToInt32(trailing)
+        if IsReadonlyEligibleDeclarationStart() {
+            value = value | System.Convert.ToInt32(Modifiers.Readonly)
+        } else {
+            ReportReadonlyModifierNotOnStruct(readonlyToken)
+        }
+        return (Modifiers)value
+    }
+
+    // `readonly` is the type-level modifier only when a type-declaration keyword follows it. Everything in
+    // between is a modifier word (`readonly public struct`) or the `ref` of `readonly ref struct`; a
+    // `readonly X: int` field stops the scan at the identifier and keeps its token.
+    func IsTypeLevelReadonlyModifierAhead(): bool {
+        if !Check(TokenType.Readonly) {
+            return false
+        }
+
+        ahead := 1
+        while Position + ahead < Tokens.Count && IsReadonlyScanSkippableModifier(Tokens[Position + ahead].Type) {
+            ahead = ahead + 1
+        }
+        if Position + ahead >= Tokens.Count {
+            return false
+        }
+        if ParserTokenFacts.IsTypeDeclarationKeyword(Tokens[Position + ahead].Type) {
+            return true
+        }
+        if Tokens[Position + ahead].Type == TokenType.Duck && Position + ahead + 1 < Tokens.Count && Tokens[Position + ahead + 1].Type == TokenType.Interface {
+            return true
+        }
+        return IsSoaRecordDeclarationStartAtOffset(ahead)
+    }
+
+    // What the forward scan walks over between `readonly` and the declaration keyword. `IsModifierKeyword`
+    // is `ParseModifiers`'s catch-all set and deliberately excludes `public`/`private` (the owner checks
+    // those FIRST, before the catch-all), so both are named here as well; `ref` is the middle word of
+    // `readonly ref struct`.
+    func IsReadonlyScanSkippableModifier(tokenType: TokenType): bool {
+        if ParserTokenFacts.IsModifierKeyword(tokenType) {
+            return true
+        }
+
+        return tokenType == TokenType.Public || tokenType == TokenType.Private || tokenType == TokenType.Ref
+    }
+
+    // The three struct spellings the word is legal on, tested at the declaration keyword itself (every
+    // modifier word has already been consumed): `struct S`, `ref struct S`, `record struct S`.
+    func IsReadonlyEligibleDeclarationStart(): bool {
+        if Check(TokenType.Struct) {
+            return true
+        }
+        if Check(TokenType.Ref) && LookAhead(1).Type == TokenType.Struct {
+            return true
+        }
+        return Check(TokenType.Record) && LookAhead(1).Type == TokenType.Struct
+    }
+
+    // The squiggle goes on `readonly` itself, not on the type name: the word is the thing that has to go.
+    func ReportReadonlyModifierNotOnStruct(readonlyToken: Token) {
+        suggestions := new List<string>()
+        suggestions.Add("Remove 'readonly' from this declaration")
+        suggestions.Add("Or make the type a struct: 'readonly struct " + ReadonlyModifierOwnerName() + " { … }'")
+        ownerKeyword := ReadonlyModifierOwnerKeyword()
+        ownerPhrase := ReadonlyModifierArticle(ownerKeyword) + " " + ownerKeyword
+        Report(ErrorCode.InvalidModifier, "'readonly' applies only to structs, but this declares " + ownerPhrase, readonlyToken.Line, readonlyToken.Column, "A 'readonly' type promises that none of its instance state can change after construction. Only a struct — 'readonly struct', 'readonly ref struct' or 'readonly record struct' — can make that promise; " + ownerPhrase + " cannot.", "Mark the individual members 'readonly' instead, or declare the type as a struct.", suggestions, readonlyToken.Value.Length)
+    }
+
+    // "a class" but "an interface": the message reads like prose or it reads like a template.
+    func ReadonlyModifierArticle(keyword: string): string {
+        if keyword.Length == 0 {
+            return "a"
+        }
+
+        first := char.ToLowerInvariant(keyword[0])
+        if first == 'a' || first == 'e' || first == 'i' || first == 'o' || first == 'u' {
+            return "an"
+        }
+
+        return "a"
+    }
+
+    // The declaration keyword the misplaced `readonly` was written in front of, for the message.
+    func ReadonlyModifierOwnerKeyword(): string {
+        if IsSoaRecordDeclarationStart() {
+            return "soa record"
+        }
+        if Check(TokenType.Duck) && LookAhead(1).Type == TokenType.Interface {
+            return "duck interface"
+        }
+        if Check(TokenType.Type) {
+            return "type alias"
+        }
+        return Current().Value
+    }
+
+    // The declaration's own name, when it is already visible, so the suggestion reads like the code the
+    // developer is looking at. A malformed head falls back to a placeholder rather than guessing.
+    func ReadonlyModifierOwnerName(): string {
+        offset := 1
+        if IsSoaRecordDeclarationStart() || (Check(TokenType.Duck) && LookAhead(1).Type == TokenType.Interface) {
+            offset = 2
+        }
+        candidate := LookAhead(offset)
+        if candidate.Type == TokenType.Identifier {
+            return candidate.Value
+        }
+        return "S"
     }
 
     func IsSoaRecordDeclarationStart(): bool {
@@ -1890,7 +2019,7 @@ class ColumnarParserRecovery {
         // captured modifiers + attributes into a nested type declaration (same as the top-level dispatch).
         attributes := ParseAttributes()
         attrsOk := AttributesMaterializable
-        modifiers := ParseModifiers()
+        modifiers := ParseTypeDeclarationModifiers()
 
         // Nested type declarations (Parser.cs :1428-1460), in the same dispatch order.
         if Check(TokenType.Class) {
@@ -6777,6 +6906,9 @@ class ColumnarParserRecovery {
     // generic-call `<…>(…)`, and `with {…}` sub-grammars with their error sites (the call-argument family
     // via ParseArgumentList; the index / call closes route through the Stage-9 closing-delimiter recovery).
     func ParsePostfix(): ExprResult {
+        // The chain's first token. When the chain so far spells a dotted NAME, this IS the type-name
+        // token a `Name<Args>.` receiver anchors and spans from.
+        chainStartToken := Current()
         result := ParsePrimaryExprValue()
 
         looping := true
@@ -6785,7 +6917,24 @@ class ColumnarParserRecovery {
             if Current().Line > Previous().Line && !Check(TokenType.Dot) && !Check(TokenType.QuestionDot) {
                 looping = false
             } else {
-                if Check(TokenType.Dot) || Check(TokenType.QuestionDot) {
+                // `Name<Args>.` / `A.B.Name<Args>.` — a CONSTRUCTED GENERIC TYPE RECEIVER. Decided
+                // before the generic-CALL arm below, because that arm's Parser.cs-faithful lookahead
+                // answers true at the first `,` and would take `Dictionary<string, int>.Something`
+                // for a `Method<T>(` it then has to report as missing its parentheses.
+                genericTypeReceiverName: string? = null
+                if Check(TokenType.Less) && IsGenericTypeArgumentListBeforeDot() {
+                    genericTypeReceiverName = GenericTypeReceiverName(result.Node)
+                }
+                if genericTypeReceiverName != null {
+                    typeArgumentList := ParseCallTypeArguments()
+                    receiverResult := new ExprResult(new RecoverySpan(chainStartToken.Line, chainStartToken.Column, MaxInt(1, genericTypeReceiverName.Length)), false)
+                    if typeArgumentList != null {
+                        constructedType := new GenericTypeReference(genericTypeReceiverName, typeArgumentList, chainStartToken.Line, chainStartToken.Column)
+                        constructedType.Span = SpanFromTokensSingleLine(chainStartToken, Previous())
+                        receiverResult.Node = new GenericTypeExpression(constructedType, chainStartToken.Line, chainStartToken.Column)
+                    }
+                    result = receiverResult
+                } else if Check(TokenType.Dot) || Check(TokenType.QuestionDot) {
                     result = ParseMemberAccess(result)
                 } else {
                     if Check(TokenType.LeftBracket) || Check(TokenType.QuestionBracket) {
@@ -7161,6 +7310,78 @@ class ColumnarParserRecovery {
             }
         }
         return false
+    }
+
+    // The CONSTRUCTED GENERIC TYPE RECEIVER twin of IsGenericMethodCall: from the `<` at the cursor,
+    // scan a candidate TYPE-ARGUMENT list — identifiers, dots, commas, array brackets, nullable
+    // suffixes, balanced tuple parentheses with their element-name colons, and nested
+    // `<` / `>` / `>>` — and answer true ONLY when the matching close is followed DIRECTLY by a `.`.
+    // That trailing `.` is the whole disambiguation: `Vector<int>.Count` is a type receiver, while
+    // `a < b && c > d`, `a < b > (c)` and `x < y.Z` are comparisons and answer false here.
+    //
+    // The `>>` split is accounted the way ConsumeGreater accounts it (one `>>` closes two levels), and
+    // the paren depth is tracked so a `)` that belongs to an ENCLOSING expression — the `)` of
+    // `(a < b) && (c > d).Foo` — ends the scan instead of being read as a tuple close.
+    //
+    // Pure lookahead — no cursor mutation, no diagnostics.
+    func IsGenericTypeArgumentListBeforeDot(): bool {
+        lookAheadPos := Position + 1
+        depth := 1
+        parenDepth := 0
+        while lookAheadPos < Tokens.Count {
+            tokenType := Tokens[lookAheadPos].Type
+            if tokenType == TokenType.Identifier || tokenType == TokenType.Dot || tokenType == TokenType.Comma || tokenType == TokenType.LeftBracket || tokenType == TokenType.RightBracket || tokenType == TokenType.Question || tokenType == TokenType.QuestionBracket || tokenType == TokenType.Colon {
+                lookAheadPos = lookAheadPos + 1
+            } else if tokenType == TokenType.LeftParen {
+                parenDepth = parenDepth + 1
+                lookAheadPos = lookAheadPos + 1
+            } else if tokenType == TokenType.RightParen {
+                if parenDepth == 0 {
+                    return false
+                }
+                parenDepth = parenDepth - 1
+                lookAheadPos = lookAheadPos + 1
+            } else if tokenType == TokenType.Less {
+                depth = depth + 1
+                lookAheadPos = lookAheadPos + 1
+            } else if tokenType == TokenType.Greater {
+                depth = depth - 1
+                lookAheadPos = lookAheadPos + 1
+                if depth == 0 {
+                    return parenDepth == 0 && lookAheadPos < Tokens.Count && Tokens[lookAheadPos].Type == TokenType.Dot
+                }
+            } else if tokenType == TokenType.RightShift {
+                depth = depth - 2
+                lookAheadPos = lookAheadPos + 1
+                if depth == 0 {
+                    return parenDepth == 0 && lookAheadPos < Tokens.Count && Tokens[lookAheadPos].Type == TokenType.Dot
+                }
+                if depth < 0 {
+                    return false
+                }
+            } else {
+                return false
+            }
+        }
+        return false
+    }
+
+    // The DOTTED NAME a parsed receiver spells, or null when it is not a name at all. Only a bare
+    // identifier and a chain of plain `.` member accesses over one can name a type, so `f(x)<int>.Y`
+    // and `a?.B<int>.Y` answer null and their `<` stays a comparison.
+    func GenericTypeReceiverName(receiver: Expression?): string? {
+        identifier := receiver as IdentifierExpression
+        if identifier != null {
+            return identifier.Name
+        }
+        memberAccess := receiver as MemberAccessExpression
+        if memberAccess != null && !memberAccess.IsNullConditional {
+            ownerName := GenericTypeReceiverName(memberAccess.Object)
+            if ownerName != null {
+                return ownerName + "." + memberAccess.MemberName
+            }
+        }
+        return null
     }
 
     // Parser.cs ParseCallTypeArguments (:2086): `<Type, Type, …>` with the split-`>>`-aware ConsumeGreater.

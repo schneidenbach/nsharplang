@@ -442,16 +442,10 @@ class CodeIntelligenceTypeResolution {
         return null
     }
 
+    // ONE OWNER for "this instantiation's arguments, by position": the analyzer's own conversion
+    // layer. Hover and `query type` read the same substitution the type checker reads.
     static func BuildGenericArgumentOverride(definition: Type, genericType: GenericTypeInfo): AnalyzerReflectionTypeOverride {
-        overrides := new Dictionary<Type, TypeInfo>()
-        parameters := definition.GetGenericArguments()
-        index := 0
-        while index < parameters.Length && index < genericType.TypeArguments.Count {
-            overrides[parameters[index]] = genericType.TypeArguments[index]
-            index = index + 1
-        }
-
-        return AnalyzerReflectionTypeOverride.Direct(overrides, null)
+        return AnalyzerReflectionTypeOverride.ForGenericArguments(definition, genericType)
     }
 
     // THE PROBE ORDER IS PROPERTY, THEN FIELD, THEN METHOD — the same order and the same reason as

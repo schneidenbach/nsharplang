@@ -746,6 +746,14 @@ class AnalyzerImports {
             index = index + 1
             aliasedSymbols[symbol.Name] = symbol.Type
             aliasedDeclarations[symbol.Name] = symbol.Declaration
+            // A GENERIC TYPE IS ALSO REACHABLE BY ITS IDENTITY. The bare name stays, because that is
+            // what an alias-qualified spelling and a completion label read; the `Name``N key is what
+            // an arity-qualified probe asks for.
+            typeKey := TypeArityNames.Key(symbol.Name, AnalyzerTypeReferenceFacts.GenericHeadArity(symbol.Type))
+            if typeKey != symbol.Name {
+                aliasedSymbols[typeKey] = symbol.Type
+                aliasedDeclarations[typeKey] = symbol.Declaration
+            }
             if AnalyzerBindingFacts.IsTypeDeclarationKind(symbol.Declaration.Kind) {
                 RecordDeclarationFile(symbol)
             }
@@ -766,13 +774,17 @@ class AnalyzerImports {
             RecordImportReference(symbol.Name, resolvedPath, fileImport, AnalyzerBindingFacts.IsTypeDeclarationKind(symbol.Declaration.Kind))
 
             globalScope := scopes.GlobalScope()
+            declarationKey := symbol.Name
             if symbol.Declaration.Kind == "function" {
                 globalScope.Symbols[symbol.Name] = symbol.Type
             } else {
-                globalScope.Types[symbol.Name] = symbol.Type
+                // An imported TYPE enters the global scope under its identity, so an imported
+                // `Handle` and an imported `Handle<T>` are two bindings rather than one overwrite.
+                declarationKey = TypeArityNames.Key(symbol.Name, AnalyzerTypeReferenceFacts.GenericHeadArity(symbol.Type))
+                globalScope.DeclareType(declarationKey, symbol.Type)
                 model := semanticModel
                 if model != null {
-                    model.RecordType(symbol.Name, symbol.Type)
+                    model.RecordType(declarationKey, symbol.Type)
                 }
 
                 if AnalyzerBindingFacts.IsTypeDeclarationKind(symbol.Declaration.Kind) {
@@ -780,7 +792,7 @@ class AnalyzerImports {
                 }
             }
 
-            globalScope.RecordDeclarationLocation(symbol.Name, symbol.Declaration.File, symbol.Declaration.Line, symbol.Declaration.Column, symbol.Declaration.Kind)
+            globalScope.RecordDeclarationLocation(declarationKey, symbol.Declaration.File, symbol.Declaration.Line, symbol.Declaration.Column, symbol.Declaration.Kind)
 
             bindings := bindingMap
             if bindings != null {

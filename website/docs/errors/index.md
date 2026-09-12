@@ -81,6 +81,7 @@ These are not style rules; style is `nlc format`'s job and produces no diagnosti
 | `NL204` | A cast or `as` between types with no conversion. |
 | [`NL207`](./NL207.md) | A type argument that is not a legal argument here. |
 | [`NL208`](./NL208.md) | A type argument that violates the parameter's constraints. |
+| [`NL209`](./NL209.md) | A name two different imports both supply. |
 
 ## Semantics — `NL3xx`
 
@@ -110,6 +111,8 @@ These are not style rules; style is `nlc format`'s job and produces no diagnosti
 | [`NL323`](./NL323.md) | A feature that parses but is deliberately not available in production builds. |
 | [`NL324`](./NL324.md) | An inherited `abstract` member with no implementation. |
 | [`NL325`](./NL325.md) | A declared interface the type does not fully implement. |
+| [`NL326`](./NL326.md) | A mutable instance field in a `readonly struct`. |
+| [`NL327`](./NL327.md) | `this` or `base` where there is no current instance. |
 
 ## Calls — `NL4xx`
 
@@ -168,6 +171,9 @@ These are not style rules; style is `nlc format`'s job and produces no diagnosti
 | [`NL905`](./NL905.md) | A nullable value dereferenced, indexed or called without a guard. |
 | [`NL907`](./NL907.md) | A nullability mismatch across an assignment or a call. |
 | [`NL923`](./NL923.md) | A referenced assembly failed to load, and names went unresolved because of it. **Advisory warning** — the one code in this range that never blocks a build. |
+| [`NL930`](./NL930.md) | `[MethodImpl]` on a declaration that has no implementation flags to set. |
+| [`NL931`](./NL931.md) | A `[MethodImpl]` value with a bit no `MethodImplOptions` member defines. |
+| [`NL932`](./NL932.md) | A `MethodImplOptions` combination the CLR's type loader will refuse for this member. |
 
 ## Systems policy — `NSYSxxx`
 

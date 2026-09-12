@@ -1049,6 +1049,11 @@ class AnalyzerExpressionStatements {
             return DescribeExpression(uncheckedExpression.Expression)
         }
 
+        genericTypeExpression := expression as GenericTypeExpression
+        if genericTypeExpression != null {
+            return TypeReferenceFacts.GetDisplayName(genericTypeExpression.Type)
+        }
+
         binary := expression as BinaryExpression
         if binary != null {
             return "binary expression"

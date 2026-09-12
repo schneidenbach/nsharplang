@@ -117,6 +117,15 @@ class ColumnarExternalStaticMemberPlanner {
             throw new InvalidOperationException("External static-member append requires an open schema-v3 or method-body plan.")
         }
 
+        // A CONSTRUCTED GENERIC TYPE RECEIVER — `Vector<int>.Count`, `EqualityComparer<int>.Default` —
+        // takes the GENERAL static read below rather than the identity-pinned table: a closed generic
+        // owner has no hand-written row and needs none, because the closed type's own metadata already
+        // states the substituted member type. `TryGetQualifiedName` cannot spell a kind-70 node
+        // either, so this arm comes first.
+        if ColumnarGenericTypeReceiverFacts.IsReceiver(nodes, nodes.Child(node, 0)) {
+            return TryAppendConstructedGenericStaticMember(nodes, source, node, nodes.Child(node, 0), bindings, plan, out resultType)
+        }
+
         ownerName := ""
         rootName := ""
         if !TryGetQualifiedName(nodes, source, nodes.Child(node, 0), 0, out ownerName, out rootName) || bindings.IsValueBinding(rootName) || bindings.IsCallable(rootName) || bindings.Enums.ContainsKey(ownerName) || bindings.Enums.ContainsKey(rootName) {
@@ -126,7 +135,11 @@ class ColumnarExternalStaticMemberPlanner {
         memberName := nodes.Text(source, node)
         selection := ColumnarExternalBindingPlans.GetStaticMemberPlan(ownerName, memberName)
         if !selection.IsSupported {
-            return TryAppendExternalEnumMember(nodes, plan, ownerName, rootName, memberName, out resultType)
+            if TryAppendExternalEnumMember(nodes, plan, ownerName, rootName, memberName, out resultType) {
+                return true
+            }
+
+            return TryAppendResolvedExternalStaticMember(nodes, plan, ownerName, rootName, memberName, out resultType)
         }
 
         checkpoint := plan.CreateCheckpoint()
@@ -183,6 +196,116 @@ class ColumnarExternalStaticMemberPlanner {
                     return false
                 }
 
+                methodIndex := plan.AddMethod(getter)
+                plan.AppendMethodInstruction(ColumnarCodePlanContract.Call(), methodIndex)
+                resultType = propertyType
+                return true
+            }
+        } catch ex: Exception {
+            plan.Rollback(checkpoint)
+            throw ex
+        }
+
+        plan.Rollback(checkpoint)
+        return false
+    }
+
+    // THE GENERAL STATIC READ OVER A CLOSED CONSTRUCTED GENERIC TYPE. It is the enum arm's rule
+    // applied to one more shape: resolve the owner through ordinary scoped type resolution, then ask
+    // the resolved type what the member IS. Nothing about the member is predicted from its name — the
+    // field-vs-property split, the value type and the substitution all come out of the closed type's
+    // metadata, which is exactly what a table row could not state for a type argument the row does
+    // not know. An instance member reached through the type name resolves to nothing here and
+    // declines, rather than emitting a load with no receiver.
+    static func TryAppendConstructedGenericStaticMember(nodes: ColumnarNodeTable, source: string, node: int, receiverNode: int, bindings: ColumnarFragmentBindings, plan: ColumnarCodePlan, out resultType: Type): bool {
+        resultType = typeof(int)
+        receiverType := typeof(object)
+        claimedBySource := false
+        if !ColumnarGenericTypeReceiverFacts.TryResolveReceiverType(nodes, source, receiverNode, bindings, out receiverType, out claimedBySource) {
+            if !claimedBySource {
+                return false
+            }
+
+            return TryAppendConstructedSourceGenericStaticMember(nodes, source, node, receiverNode, bindings, plan, out resultType)
+        }
+
+        memberName := nodes.Text(source, node)
+        checkpoint := plan.CreateCheckpoint()
+        try {
+            field: FieldInfo? = null
+            fieldType := typeof(object)
+            if ColumnarGenericTypeReceiverFacts.TryResolveStaticField(receiverType, memberName, out field, out fieldType) && field != null {
+                if field.get_IsLiteral() {
+                    if !TryAppendLiteralField(plan, field, fieldType, memberName) {
+                        plan.Rollback(checkpoint)
+                        return false
+                    }
+
+                    resultType = fieldType
+                    return true
+                }
+
+                // A rebound builder-bound field reports the OPEN definition's field type, so the
+                // planner-owned constructed signature travels with the handle.
+                fieldIndex := ColumnarGenericTypeReceiverFacts.IsBuilderBoundConstruction(receiverType) ? plan.AddFieldWithSignature(field, receiverType, fieldType, true) : plan.AddField(field)
+                plan.AppendFieldInstruction(ColumnarCodePlanContract.Ldsfld(), fieldIndex)
+                resultType = fieldType
+                return true
+            }
+
+            getter: MethodInfo? = null
+            getterResultType := typeof(object)
+            if ColumnarGenericTypeReceiverFacts.TryResolveStaticGetter(receiverType, memberName, out getter, out getterResultType) && getter != null {
+                methodIndex := ColumnarGenericTypeReceiverFacts.IsBuilderBoundConstruction(receiverType) ? plan.AddMethodWithSignature(getter, receiverType, new Type[](0), getterResultType, true, false) : plan.AddMethod(getter)
+                plan.AppendMethodInstruction(ColumnarCodePlanContract.Call(), methodIndex)
+                resultType = getterResultType
+                return true
+            }
+        } catch ex: Exception {
+            plan.Rollback(checkpoint)
+            throw ex
+        }
+
+        plan.Rollback(checkpoint)
+        return false
+    }
+
+    // THE SAME GENERAL STATIC READ OVER A CONSTRUCTED SOURCE GENERIC TYPE — `PerTypeState<int>.Count`,
+    // `Result<int, string>.Empty`. It is the arm above with one substitution: a source type's members
+    // do not come from runtime reflection (a `TypeBuilder` instantiation answers no member query and
+    // throws if asked), they come from the live source definition, and the handle that reads one is
+    // the declaration REBOUND onto the instantiation. Everything else is identical — the field-vs-
+    // property split and the value type are read off the declaration, nothing is predicted from the
+    // member's name, and an instance member reached through the type name resolves to nothing and
+    // declines rather than emitting a load with no receiver.
+    static func TryAppendConstructedSourceGenericStaticMember(nodes: ColumnarNodeTable, source: string, node: int, receiverNode: int, bindings: ColumnarFragmentBindings, plan: ColumnarCodePlan, out resultType: Type): bool {
+        resultType = typeof(int)
+        receiverType := typeof(object)
+        if !ColumnarGenericTypeReceiverFacts.TryResolveSourceReceiverType(nodes, source, receiverNode, bindings, out receiverType) {
+            return false
+        }
+
+        owner := ColumnarGenericTypeReceiverFacts.FindSourceDefinition(receiverType, bindings.SourceTypeDefinitions)
+        if owner == null {
+            return false
+        }
+
+        memberName := nodes.Text(source, node)
+        checkpoint := plan.CreateCheckpoint()
+        try {
+            field: FieldInfo? = null
+            fieldType := typeof(object)
+            if ColumnarSourceGenericStaticMemberFacts.TryFindStaticField(receiverType, owner, memberName, out field, out fieldType) {
+                fieldIndex := plan.AddField(field)
+                plan.AppendFieldInstruction(ColumnarCodePlanContract.Ldsfld(), fieldIndex)
+                resultType = fieldType
+                return true
+            }
+
+            getter: MethodInfo? = null
+            setter: MethodInfo? = null
+            propertyType := typeof(object)
+            if ColumnarSourceGenericStaticMemberFacts.TryFindStaticProperty(receiverType, owner, memberName, out getter, out setter, out propertyType) && getter != null {
                 methodIndex := plan.AddMethod(getter)
                 plan.AppendMethodInstruction(ColumnarCodePlanContract.Call(), methodIndex)
                 resultType = propertyType
@@ -256,6 +379,146 @@ class ColumnarExternalStaticMemberPlanner {
 
         resultType = fieldType
         return true
+    }
+
+    // THE GENERAL EXTERNAL STATIC READ, AND WHY IT IS NOT A ROW. The identity-pinned table above spells
+    // an owner, a member, a member KIND and a value TYPE by hand, one row per member, and the note beside
+    // the enum arm claimed a non-enum static needs that because "its value type and its field-vs-property
+    // kind are not derivable from the owner alone". They are: the resolved owner's own metadata states
+    // both, which is exactly how `TryAppendConstructedGenericStaticMember` reads
+    // `EqualityComparer<int>.Default` with no row and no prediction. The missing rule was the rule, not
+    // the rows — `string.Empty` and `Guid.Empty` are as ordinary as `Type.EmptyTypes`, which only binds
+    // because someone wrote it down.
+    //
+    // So: the owner resolves through the SAME scoped resolution the enum arm uses — the same alias,
+    // source-shadowing, import-order and type-parameter fences — and then the TYPE is asked what the
+    // member is. A FIELD reads by `ldsfld` (a `const` by its recorded constant, below); a PROPERTY reads
+    // through its static getter. Nothing is predicted from a name. An instance member reached through the
+    // type name resolves to nothing here and declines rather than emitting a load with no receiver, and a
+    // member DECLARED on a base is left to the identity-pinned path, which admits those one at a time
+    // because the declaring identity is a separate admission from the receiving type's.
+    static func TryAppendResolvedExternalStaticMember(nodes: ColumnarNodeTable, plan: ColumnarCodePlan, ownerName: string, rootName: string, memberName: string, out resultType: Type): bool {
+        resultType = typeof(int)
+        scope := nodes.BindingScope
+        ownerType := typeof(object)
+        if nodes.HasAdditionalRootBinding(rootName) || scope == null || memberName.Length == 0 {
+            return false
+        }
+
+        if !scope.TryResolveExternalStaticOwnerType(nodes.EnclosingTypeName, nodes.VisibleTypeParameterNames, rootName, ownerName, out ownerType) {
+            return false
+        }
+
+        // An enum owner has already had its say one arm up, with its own int32-representability fence.
+        if ownerType.get_IsEnum() {
+            return false
+        }
+
+        checkpoint := plan.CreateCheckpoint()
+        try {
+            field := ownerType.GetField(memberName)
+            if field != null && field.get_IsPublic() && field.get_IsStatic() && field.get_DeclaringType() == ownerType {
+                fieldType := field.get_FieldType()
+                if field.get_IsLiteral() {
+                    if !TryAppendExternalConstantField(plan, field, fieldType) {
+                        plan.Rollback(checkpoint)
+                        return false
+                    }
+
+                    resultType = fieldType
+                    return true
+                }
+
+                fieldIndex := plan.AddField(field)
+                plan.AppendFieldInstruction(ColumnarCodePlanContract.Ldsfld(), fieldIndex)
+                resultType = fieldType
+                return true
+            }
+
+            property := ownerType.GetProperty(memberName)
+            if property != null {
+                getter := property.GetGetMethod()
+                if getter != null && getter.get_IsPublic() && getter.get_IsStatic() && getter.get_DeclaringType() == ownerType && getter.GetParameters().Length == 0 {
+                    methodIndex := plan.AddMethod(getter)
+                    plan.AppendMethodInstruction(ColumnarCodePlanContract.Call(), methodIndex)
+                    resultType = getter.get_ReturnType()
+                    return true
+                }
+            }
+        } catch ex: Exception {
+            plan.Rollback(checkpoint)
+            throw ex
+        }
+
+        plan.Rollback(checkpoint)
+        return false
+    }
+
+    // A `const` HAS NO FIELD TO LOAD — the constant itself is the program — so it is read out of the
+    // Constant table and written as the literal instruction its type calls for. This is deliberately NOT
+    // `TryAppendLiteralField`: that one RECOMPUTES a non-enum constant from the member NAME on the
+    // assumption that it is `MinValue` or `MaxValue`, which is true of the pinned rows it serves and of
+    // nothing else. Here the recorded value is the value. The unsigned widths are reinterpreted rather
+    // than converted, because `ldc.i4`/`ldc.i8` take the bit pattern and N#'s default arithmetic context
+    // is unchecked — the same reinterpretation C# performs for `uint.MaxValue`.
+    static func TryAppendExternalConstantField(plan: ColumnarCodePlan, field: FieldInfo, fieldType: Type): bool {
+        value := field.GetRawConstantValue()
+        if value == null {
+            return false
+        }
+
+        constantType := fieldType
+        if constantType.get_IsEnum() {
+            if !IsInt32RepresentableEnum(constantType) {
+                return false
+            }
+
+            constantType = constantType.GetEnumUnderlyingType()
+        }
+
+        if constantType == typeof(int) || constantType == typeof(short) || constantType == typeof(ushort) || constantType == typeof(byte) || constantType == typeof(sbyte) || constantType == typeof(bool) || constantType == typeof(char) {
+            plan.AppendInt32Instruction(ColumnarCodePlanContract.LdcI4(), plan.AddInt32(Convert.ToInt32(value)))
+            return true
+        }
+
+        if constantType == typeof(uint) {
+            unsignedValue := Convert.ToUInt32(value)
+            plan.AppendInt32Instruction(ColumnarCodePlanContract.LdcI4(), plan.AddInt32((int)unsignedValue))
+            return true
+        }
+
+        if constantType == typeof(long) {
+            plan.AppendInt64Instruction(ColumnarCodePlanContract.LdcI8(), plan.AddInt64(Convert.ToInt64(value)))
+            return true
+        }
+
+        if constantType == typeof(ulong) {
+            unsignedWideValue := Convert.ToUInt64(value)
+            plan.AppendInt64Instruction(ColumnarCodePlanContract.LdcI8(), plan.AddInt64((long)unsignedWideValue))
+            return true
+        }
+
+        if constantType == typeof(float) {
+            plan.AppendSingleInstruction(ColumnarCodePlanContract.LdcR4(), plan.AddSingle(Convert.ToSingle(value)))
+            return true
+        }
+
+        if constantType == typeof(double) {
+            plan.AppendDoubleInstruction(ColumnarCodePlanContract.LdcR8(), plan.AddDouble(Convert.ToDouble(value)))
+            return true
+        }
+
+        if constantType == typeof(string) {
+            textValue := value as string
+            if textValue == null {
+                return false
+            }
+
+            plan.AppendStringInstruction(ColumnarCodePlanContract.Ldstr(), plan.AddString(textValue))
+            return true
+        }
+
+        return false
     }
 
     // Every value of these backings fits int32 without loss, so `Convert.ToInt32` over the constant

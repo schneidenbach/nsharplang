@@ -109,6 +109,49 @@ class ErrorMessageBuilder {
         }
     }
 
+    // NL209. TWO IMPORTS SUPPLY THIS NAME AND NEITHER IS CLOSER, so the compiler will not pick one:
+    // whichever `import` happens to be written first is not what the developer meant to select. Both
+    // candidates are named IN FULL, because the fix is to write one of them — and the qualification
+    // the hint suggests is the FIRST, which is the one a first-import-wins order would have chosen
+    // silently.
+    static func AmbiguousTypeReference(fileName: string?, line: int, column: int, sourceSnippet: string?, length: int, name: string, firstCandidate: string, secondCandidate: string): CompilerError {
+        humanExplanation := "`" + name + "` could mean either of two types on line " + IntText(line) + ", and both are in scope here:"
+        contextualHint := "`" + firstCandidate + "` and `" + secondCandidate + "` are brought in by different imports,\n" + "so neither one is closer than the other. A type declared in this file's own namespace\n" + "would win outright; two imports tie."
+
+        return new CompilerError(ErrorCode.AmbiguousTypeReference, "'" + name + "' is ambiguous between '" + firstCandidate + "' and '" + secondCandidate + "'", line, column, ErrorSeverity.Error) {
+            FileName: fileName,
+            SourceSnippet: sourceSnippet,
+            Length: length,
+            HumanExplanation: humanExplanation,
+            ContextualHint: contextualHint,
+            Suggestion: "Write the one you mean in full — '" + firstCandidate + "' — or remove the import that supplies the other.",
+            DocsUrl: DiagnosticDocs.UrlFor("NL209")
+        }
+    }
+
+    // NL202, IN THE SHAPE A TIE NEEDS. The ordinary type-mismatch sentence — "these types are not
+    // compatible" — is exactly wrong here: the two types are compatible, TWICE OVER, and the value
+    // would silently become whichever operator happened to be found first. This is the same code
+    // (nothing new is being rejected; the assignment was already an error) with the message the
+    // reader can act on: both operators named, and the fix being to say which one by converting the
+    // value into that operator's parameter type first.
+    static func AmbiguousUserDefinedConversion(fileName: string?, line: int, column: int, sourceSnippet: string?, length: int, sourceType: string, targetType: string, firstOperator: string, secondOperator: string): CompilerError {
+        humanExplanation := "There is more than one way to convert `" + sourceType + "` to `" + targetType + "` on line " + IntText(line) + ":"
+        contextualHint := "`" + firstOperator + "` and `" + secondOperator + "` both accept a `" + sourceType + "`,\n" + "and neither of their parameter types converts to the other, so neither conversion is\n" + "more specific. C# reports this tie rather than choosing for you."
+
+        return new CompilerError(ErrorCode.TypeMismatch, "Converting '" + sourceType + "' to '" + targetType + "' is ambiguous between '" + firstOperator + "' and '" + secondOperator + "'", line, column, ErrorSeverity.Error) {
+            FileName: fileName,
+            SourceSnippet: sourceSnippet,
+            Length: length,
+            ActualType: sourceType,
+            ExpectedType: targetType,
+            HumanExplanation: humanExplanation,
+            ContextualHint: contextualHint,
+            Suggestion: "Convert the value to the parameter type of the operator you mean first, so only one conversion applies.",
+            DocsUrl: DiagnosticDocs.UrlFor("NL202")
+        }
+    }
+
     static func UndefinedFunction(fileName: string, line: int, column: int, sourceSnippet: string, length: int, functionName: string, similarNames: List<string>): CompilerError {
         humanExplanation := "I cannot find a function named `" + functionName + "` on line " + IntText(line) + ":"
         contextualHint := "Define `func " + functionName + "(...)` before calling it, or import the function if it lives elsewhere."
@@ -424,6 +467,49 @@ class ErrorMessageBuilder {
             ContextualHint: contextualHint,
             Suggestions: OptionalNames(similarMembers),
             DocsUrl: DiagnosticDocs.UrlFor("NL303")
+        }
+    }
+
+    // NL327 — `this` or `base` WHERE THERE IS NO OBJECT TO NAME.
+    //
+    // One builder answers both words because the mistake is one mistake: the reader wrote the name of
+    // the receiver in a place that has no receiver. What differs is WHY there is none, and that half
+    // is what the reader actually needs, so the two causes get different sentences rather than one
+    // hedged sentence covering both — a `static` member can drop the `static`, and a top-level
+    // function has no type to be a member of at all.
+    //
+    // `memberName` is the enclosing member's name when the walk knows it (it always does for a
+    // declared function) and empty for a body with no name of its own, in which case the sentence
+    // talks about "this code" rather than naming something the reader cannot see.
+    static func NoCurrentInstance(fileName: string, line: int, column: int, sourceSnippet: string, keyword: string, memberName: string, memberIsStatic: bool): CompilerError {
+        subject := "this code"
+        if memberName.Length > 0 {
+            subject = "`" + memberName + "`"
+        }
+
+        named := "the object the current member was called on"
+        if keyword == "base" {
+            named = "the object the current member was called on, viewed as its base class"
+        }
+
+        humanExplanation := "`" + keyword + "` names " + named + ", and " + subject + " runs without one:"
+        headline := "'" + keyword + "' cannot be used outside a type"
+        contextualHint := "A top-level function is not a member of any type, so nothing called it on an object."
+        suggestion := "Move this code into an instance member of a class, or take the object it needs as a parameter."
+        if memberIsStatic {
+            headline = "'" + keyword + "' cannot be used in a static member"
+            contextualHint = "A `static` member belongs to the type itself and is called with no object.\nOnly an instance member — a method, property, indexer or constructor declared without `static` — has a receiver."
+            suggestion = "Drop `static` from " + subject + ", or use a value the member already has instead of `" + keyword + "`."
+        }
+
+        return new CompilerError(ErrorCode.NoCurrentInstance, headline, line, column, ErrorSeverity.Error) {
+            FileName: fileName,
+            SourceSnippet: sourceSnippet,
+            Length: keyword.Length,
+            HumanExplanation: humanExplanation,
+            ContextualHint: contextualHint,
+            Suggestion: suggestion,
+            DocsUrl: DiagnosticDocs.UrlFor("NL327")
         }
     }
 

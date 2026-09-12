@@ -16,6 +16,7 @@ import System.Text
 import System.Text.Json
 import System.Threading
 import System.Threading.Tasks
+import NSharpLang.Compiler
 import YamlDotNet.Core
 import YamlDotNet.Core.Events
 import YamlDotNet.Serialization
@@ -49,6 +50,12 @@ sealed class ColumnarIlEmitter {
     private readonly _codePlan: ColumnarCodePlan
     private readonly _siblings: IReadOnlyDictionary<string, ColumnarSiblingMethodDefinition>
     private _siblingCallFacts: Dictionary<string, ColumnarSiblingCallFacts>?
+    // The null-conditional chains in flight: the node whose wrapper is open, and the stack of labels the
+    // guards branch to (a stack because a chain may appear inside another chain's arguments). A guard with
+    // no open chain has nowhere to go and declines.
+    private readonly _nullConditionalEscapes: Stack<Label>
+    private _nullConditionalRoot: int
+    private _nullConditionalReceivers: bool[]?
     private readonly _genericInterfaceConstraints: IReadOnlyDictionary<Type, Type[]>
     private readonly _enumRegistry: Dictionary<string, ColumnarEnumDef>
     private readonly _typeResolutionEnums: ColumnarSemanticRegistry<ColumnarEnumDef>
@@ -228,6 +235,9 @@ sealed class ColumnarIlEmitter {
         _asyncReturnsValueTask = false
         _inFinallyRegion = false
         _overflowCheckingEnabled = false
+        _nullConditionalRoot = -1
+        _nullConditionalEscapes = new Stack<Label>()
+        _nullConditionalReceivers = null
         _tupleNamesByVariable = new Dictionary<string, string[]>(StringComparer.Ordinal)
         _codePlan = new ColumnarCodePlan()
         _locals = new Dictionary<string, LocalBuilder>(StringComparer.Ordinal)
@@ -450,20 +460,45 @@ sealed class ColumnarIlEmitter {
         }
     }
 
+    // FOUR SPELLINGS REACH ONE DEFINITION, and the exact name is the only one that is authoritative.
+    // A generic declaration's exact name carries its arity (`Probe.Box``1`), so the arity-stripped
+    // forms are registered beside it as ALIASES — first declaration wins, which means a non-generic
+    // `Subscription` keeps the bare spelling and a `Subscription<T>` declared beside it is reachable
+    // only through its identity. Every lookup that has no arity to offer therefore still resolves,
+    // and it resolves to the type the language says a bare name means.
     private static func TryRegisterStructAlias(registry: Dictionary<string, ColumnarStructDef>, name: string, def: ColumnarStructDef): void {
-        shortName := ColumnarTypeCanonicalizer.UnqualifiedTypeName(name)
-        if (!registry.ContainsKey(shortName)) {
-            registry[shortName] = def
+        TryRegisterStructAliasName(registry, ColumnarTypeCanonicalizer.UnqualifiedTypeName(name), def)
+        bareName := TypeArityNames.Display(name)
+        if (bareName != name) {
+            TryRegisterStructAliasName(registry, bareName, def)
+            TryRegisterStructAliasName(registry, ColumnarTypeCanonicalizer.UnqualifiedTypeName(bareName), def)
+        }
+    }
+
+    private static func TryRegisterStructAliasName(registry: Dictionary<string, ColumnarStructDef>, aliasName: string, def: ColumnarStructDef): void {
+        if (aliasName.Length > 0 && !registry.ContainsKey(aliasName)) {
+            registry[aliasName] = def
         }
     }
 
     private static func TryRegisterUnionAlias(registry: Dictionary<string, ColumnarUnionDef>, name: string, def: ColumnarUnionDef): void {
-        shortName := ColumnarTypeCanonicalizer.UnqualifiedTypeName(name)
-        if (!registry.ContainsKey(shortName)) {
-            registry[shortName] = def
+        TryRegisterUnionAliasName(registry, ColumnarTypeCanonicalizer.UnqualifiedTypeName(name), def)
+        bareName := TypeArityNames.Display(name)
+        if (bareName != name) {
+            TryRegisterUnionAliasName(registry, bareName, def)
+            TryRegisterUnionAliasName(registry, ColumnarTypeCanonicalizer.UnqualifiedTypeName(bareName), def)
         }
     }
 
+    private static func TryRegisterUnionAliasName(registry: Dictionary<string, ColumnarUnionDef>, aliasName: string, def: ColumnarUnionDef): void {
+        if (aliasName.Length > 0 && !registry.ContainsKey(aliasName)) {
+            registry[aliasName] = def
+        }
+    }
+
+    // The spelling a case is WRITTEN under: `Option.Some`, never `Option``1.Some`. A generic union's
+    // identity carries its arity, but the source that names one of its cases does not, so the arity
+    // is stripped here alongside the namespace.
     private static func ShortUnionCaseKey(qualifiedCase: string): string {
         lastDot := qualifiedCase.LastIndexOf('.')
         if (lastDot <= 0 || lastDot + 1 >= qualifiedCase.Length) {
@@ -471,7 +506,7 @@ sealed class ColumnarIlEmitter {
         }
         unionName := qualifiedCase.Substring(0, lastDot)
         caseName := qualifiedCase.Substring(lastDot + 1)
-        return ColumnarTypeCanonicalizer.UnqualifiedTypeName(unionName) + "." + caseName
+        return TypeArityNames.Display(ColumnarTypeCanonicalizer.UnqualifiedTypeName(unionName)) + "." + caseName
     }
 
     private static func IsSupportedIndexableCollectionType(t: Type): bool {
@@ -603,15 +638,19 @@ sealed class ColumnarIlEmitter {
         if (enumBuilderType != null) {
             return false
         }
-        if (!t.get_IsGenericType()) {
-            return false
-        }
         if (t.get_IsGenericTypeDefinition()) {
             return false
+        }
+        if (!t.get_IsGenericType()) {
+            // A NON-GENERIC DELEGATE HAS NO TYPE ARGUMENTS TO CHECK, so it goes straight to its own
+            // `Invoke`. `Action` and `ThreadStart` answered above because they are the two the corpus
+            // writes; every other one — `EventHandler`, a user-written `delegate` — reaches here.
+            return TryGetRuntimeDelegateInvokeSignature(t, out returnType, out parameterTypes) && TryResolveDelegateConstructor(t, out delegateCtor)
         }
         let def: System.Type = null
         def = t.GetGenericTypeDefinition()
         args := t.GetGenericArguments()
+        readSignatureFromInvoke := false
 
         if (def == typeof(Action<int>).GetGenericTypeDefinition() || def == typeof(Action<int, int>).GetGenericTypeDefinition() || def == typeof(Action<int, int, int>).GetGenericTypeDefinition() || def == typeof(Action<int, int, int, int>).GetGenericTypeDefinition()) {
             returnType = ColumnarTypeOfPlanner.RequiredVoidType()
@@ -622,7 +661,13 @@ sealed class ColumnarIlEmitter {
                 parameterTypes = new Type[args.Length - 1]
                 System.Array.Copy(args, parameterTypes, args.Length - 1)
             } else {
-                return false
+                // ANY OTHER CONSTRUCTED DELEGATE, READ FROM ITS OWN `Invoke`. A delegate's signature is
+                // not a fact about its NAME: `Predicate<T>` and `Comparison<T>` carry theirs exactly
+                // where `Action` and `Func` carry theirs, and reading it from the same place is what
+                // lets `items.Find(x => ...)` and `Comparer<int>.Create((a, b) => ...)` take a lambda.
+                // The two shapes above keep their direct reading because a builder-bound `Action<T>`
+                // cannot be reflected at all, and those are the instantiations that reach it.
+                readSignatureFromInvoke = true
             }
         }
 
@@ -641,12 +686,239 @@ sealed class ColumnarIlEmitter {
             }
         }
 
+        if (readSignatureFromInvoke && !TryGetRuntimeDelegateInvokeSignature(t, out returnType, out parameterTypes)) {
+            return false
+        }
+
         openCtor := def.GetConstructor([typeof(object), typeof(IntPtr)])
         if (openCtor == null) {
             return false
         }
         delegateCtor = ColumnarTypeOfPlanner.ContainsBuilderBoundType(t) ? TypeBuilder.GetConstructor(t, openCtor) : t.GetConstructor([typeof(object), typeof(IntPtr)])
         return delegateCtor != null
+    }
+
+    // THE SIGNATURE A BAKED DELEGATE DECLARES ON ITS `Invoke`. Only a delegate answers — a type that
+    // merely has a method of that name is not one — and only a signature the emitter can spell: a
+    // by-ref or pointer position has no lambda form, and every remaining type must be one the backend
+    // models.
+    private static func TryGetRuntimeDelegateInvokeSignature(t: Type, out returnType: Type, out parameterTypes: Type[]): bool {
+        returnType = null
+        parameterTypes = System.Array.Empty<Type>()
+        if (ColumnarTypeOfPlanner.ContainsBuilderBoundType(t) || !IsRuntimeDelegateType(t)) {
+            return false
+        }
+        invoke := t.GetMethod("Invoke")
+        if (invoke == null) {
+            return false
+        }
+        invokeReturnType := invoke.get_ReturnType()
+        if (invokeReturnType == null || invokeReturnType.get_IsByRef() || invokeReturnType.get_IsPointer()) {
+            return false
+        }
+        if (!ColumnarCodePlanExecutor.IsVoidType(invokeReturnType) && !ColumnarTypeOfPlanner.IsSupportedType(invokeReturnType)) {
+            return false
+        }
+        invokeParameters := invoke.GetParameters()
+        invokeParameterTypes := new Type[invokeParameters.Length]
+        for p := 0; p < invokeParameters.Length; p++ {
+            invokeParameterType := invokeParameters[p].get_ParameterType()
+            if (invokeParameterType == null || invokeParameterType.get_IsByRef() || invokeParameterType.get_IsPointer() || !ColumnarTypeOfPlanner.IsSupportedType(invokeParameterType)) {
+                return false
+            }
+            invokeParameterTypes[p] = invokeParameterType
+        }
+        returnType = invokeReturnType
+        parameterTypes = invokeParameterTypes
+        return true
+    }
+
+    private static func TryResolveDelegateConstructor(t: Type, out delegateCtor: ConstructorInfo): bool {
+        delegateCtor = t.GetConstructor([typeof(object), typeof(IntPtr)])
+        return delegateCtor != null
+    }
+
+    // WHETHER THIS IS A DELEGATE AT ALL — `System.MulticastDelegate` somewhere on the base chain.
+    private static func IsRuntimeDelegateType(t: Type): bool {
+        for current := t.get_BaseType(); current != null; current = current.get_BaseType() {
+            if (current == typeof(MulticastDelegate) || current == typeof(Delegate)) {
+                return true
+            }
+        }
+        return false
+    }
+
+    // A GENERIC method declared by a user TYPE. Reflection.Emit fixes the order — the builder exists
+    // first, its type parameters are declared next, and only then may the signature name them — so
+    // this step hands back the builder together with the resolution scope every later step needs.
+    // The map MERGES the declaring type's parameters with the method's own, because a method on
+    // `Box<T>` may spell either (`func Map<TResult>(f: Func<T, TResult>): Box<TResult>`); only the
+    // METHOD's own parameters are registered as method-owned, since the type's are already
+    // registered against the type. Constraints are applied last, once the whole map exists, so a
+    // constraint may name another of the method's parameters or one of the type's.
+    private static func TryDeclareSourceGenericMethod(
+        def: ColumnarStructDef,
+        method: ColumnarFunctionInput,
+        methodOrdinal: int,
+        methodAttributes: MethodAttributes,
+        typeResolutionCatalog: ColumnarSemanticTypeResolutionCatalog,
+        out builder: MethodBuilder,
+        out typeParameterMap: Dictionary<string, Type>,
+        out typeResolution: ColumnarSemanticTypeResolution,
+        out generics: ColumnarGenericMethodFacts
+    ): bool {
+        builder = null
+        typeParameterMap = null
+        typeResolution = null
+        generics = null
+
+        declaredBuilder := def.Builder.DefineMethod(method.Name, methodAttributes)
+        gpBuilders := declaredBuilder.DefineGenericParameters(method.TypeParamNames)
+        methodOwnedTypeParams := new Dictionary<string, Type>(StringComparer.Ordinal)
+        mergedTypeParams := new Dictionary<string, Type>(StringComparer.Ordinal)
+        ownerTypeParams := def.GenericParameters
+        if (ownerTypeParams != null) {
+            for ownerPair in ownerTypeParams {
+                mergedTypeParams[ownerPair.Key] = ownerPair.Value
+            }
+        }
+
+        methodTypeParams := new Type[gpBuilders.Length]
+        for g := 0; g < gpBuilders.Length; g++ {
+            gpBuilder := gpBuilders[g]
+            gpType: Type = gpBuilder
+            methodOwnedTypeParams[method.TypeParamNames[g]] = gpType
+            mergedTypeParams[method.TypeParamNames[g]] = gpType
+            methodTypeParams[g] = gpType
+        }
+
+        declaredResolution := typeResolutionCatalog.ForSourceTypeMethod(
+            method.SourceFileId,
+            def.DeclaredTypeName,
+            methodOrdinal,
+            methodOwnedTypeParams,
+            mergedTypeParams
+        )
+        let specialConstraints: int[] = null
+        let baseConstraints: Type[] = null
+        let interfaceConstraints: Type[][] = null
+        if (!ColumnarGenericConstraintPlanner.TryApplyGenericParameterConstraints(
+            gpBuilders,
+            method.TypeParamSpecialConstraints,
+            method.TypeParamTypeConstraints,
+            mergedTypeParams,
+            methodTypeParams,
+            declaredResolution,
+            out specialConstraints,
+            out baseConstraints,
+            out interfaceConstraints
+        )) {
+            return false
+        }
+
+        builder = declaredBuilder
+        typeParameterMap = mergedTypeParams
+        typeResolution = declaredResolution
+        generics = new ColumnarGenericMethodFacts(methodTypeParams, specialConstraints, baseConstraints, interfaceConstraints)
+        return true
+    }
+
+    // A signature position that MENTIONS a type parameter. `T`, `T[]`, `Box<T>`, `Func<T, TResult>`
+    // and `(T1, T2)` are all open shapes the ordinary supported-type predicates cannot answer — they
+    // describe CLOSED types, and an open one has no closed identity to admit. The shape is therefore
+    // admitted STRUCTURALLY here, and the real admission happens at the call site, where the binding
+    // substitutes and the closed result is checked by the ordinary predicate. Nothing is emitted from
+    // an open shape: a body that cannot operate on one declines rather than emitting bad IL.
+    private static func MentionsGenericParameter(candidate: Type): bool {
+        if (candidate.get_IsGenericParameter()) {
+            return true
+        }
+        if (candidate.get_HasElementType()) {
+            element := candidate.GetElementType()
+            return element != null && MentionsGenericParameter(element)
+        }
+        if (!candidate.get_IsGenericType()) {
+            return false
+        }
+        arguments := candidate.GetGenericArguments()
+        for argumentIndex := 0; argumentIndex < arguments.Length; argumentIndex++ {
+            if (MentionsGenericParameter(arguments[argumentIndex])) {
+                return true
+            }
+        }
+        return false
+    }
+
+    // The structural admission itself: a bare parameter, an array or by-ref over an admissible
+    // element, or a generic instantiation whose every argument is admissible.
+    private static func IsAdmissibleOpenSignatureShape(candidate: Type): bool {
+        if (candidate.get_IsGenericParameter()) {
+            return true
+        }
+        if (candidate.get_IsPointer()) {
+            return false
+        }
+        if (candidate.get_HasElementType()) {
+            element := candidate.GetElementType()
+            if (element == null) {
+                return false
+            }
+            if (candidate.get_IsByRef()) {
+                return IsAdmissibleOpenSignatureShape(element)
+            }
+            return ColumnarTypeEquivalenceFacts.IsSafeSzArrayType(candidate) && IsAdmissibleOpenSignatureShape(element)
+        }
+        if (!candidate.get_IsGenericType() || candidate.get_IsGenericTypeDefinition()) {
+            return false
+        }
+        arguments := candidate.GetGenericArguments()
+        for argumentIndex := 0; argumentIndex < arguments.Length; argumentIndex++ {
+            argument := arguments[argumentIndex]
+            if (MentionsGenericParameter(argument)) {
+                if (!IsAdmissibleOpenSignatureShape(argument)) {
+                    return false
+                }
+                continue
+            }
+            if (!ColumnarTypeOfPlanner.IsSupportedType(argument)) {
+                return false
+            }
+        }
+        return true
+    }
+
+    private static func IsSupportedGenericSignatureValueType(candidate: Type): bool {
+        if (MentionsGenericParameter(candidate)) {
+            return IsAdmissibleOpenSignatureShape(candidate)
+        }
+        return ColumnarTypeOfPlanner.IsSupportedType(candidate)
+    }
+
+    private static func IsSupportedGenericSignatureParameterType(candidate: Type): bool {
+        if (MentionsGenericParameter(candidate)) {
+            return IsAdmissibleOpenSignatureShape(candidate)
+        }
+        return ColumnarInterfaceRealization.IsSupportedParameterType(candidate)
+    }
+
+    // The generic facts recorded for a declared source method, found by the exact builder identity
+    // the declaration pass stored. The body pass has the builder but not the definition row.
+    private static func FindSourceMethodGenerics(def: ColumnarStructDef, builder: MethodBuilder): ColumnarGenericMethodFacts? {
+        for staticPair in def.StaticMethods {
+            for staticCandidate in staticPair.Value {
+                if (Object.ReferenceEquals(staticCandidate.Builder, builder)) {
+                    return staticCandidate.Generics
+                }
+            }
+        }
+        for instancePair in def.MethodOverloads {
+            for instanceCandidate in instancePair.Value {
+                if (Object.ReferenceEquals(instanceCandidate.Builder, builder)) {
+                    return instanceCandidate.Generics
+                }
+            }
+        }
+        return null
     }
 
     private static func AddInstanceMethod(def: ColumnarStructDef, name: string, method: ColumnarInstanceMethodDef): void {
@@ -1087,7 +1359,7 @@ sealed class ColumnarIlEmitter {
         if (!EmitExpression(bodyNode, out bodyType)) {
             return false
         }
-        if (!TypesEquivalent(bodyType, returnType) && !TryEmitImplicitWidening(bodyType, returnType) && !ColumnarReferenceCoercionPlanner.TryEmitInterfaceUpcast(bodyType, returnType, _structRegistry, _il) && !ColumnarReferenceConversionFacts.TryEmitReferenceConversion(bodyType, returnType) && !ColumnarReferenceCoercionPlanner.TryEmitObjectConversion(bodyType, returnType, _structRegistry, _il) && !TryEmitAnonymousUnionConversion(bodyType, returnType) && !TryEmitUserDefinedConversion(bodyType, returnType, false)) {
+        if (!TypesEquivalent(bodyType, returnType) && !TryEmitImplicitWidening(bodyType, returnType) && !ColumnarReferenceCoercionPlanner.TryEmitInterfaceUpcast(bodyType, returnType, _structRegistry, _il) && !ColumnarReferenceCoercionPlanner.TryEmitExternalInterfaceUpcast(bodyType, returnType, _structRegistry, _il) && !ColumnarReferenceConversionFacts.TryEmitReferenceConversion(bodyType, returnType) && !ColumnarReferenceCoercionPlanner.TryEmitObjectConversion(bodyType, returnType, _structRegistry, _il) && !TryEmitAnonymousUnionConversion(bodyType, returnType) && !TryEmitUserDefinedConversion(bodyType, returnType, false)) {
             return false
         }
         lambdaIl.Emit(OpCodes.Ret)
@@ -1193,7 +1465,7 @@ sealed class ColumnarIlEmitter {
         let boxedDelegateValueType: System.Type? = null
         let boxedDelegate: (BoxField: System.Reflection.FieldInfo, ValueType: System.Type) = (boxedDelegateBoxField, boxedDelegateValueType)
         if (_boxedCaptures != null && _boxedCaptures.TryGetValue(name, out boxedDelegate)) {
-            if (!ColumnarTypeOfPlanner.IsSupportedDelegateType(boxedDelegate.ValueType)) {
+            if (!IsSupportedContextualDelegateType(boxedDelegate.ValueType)) {
                 return false
             }
             delegateType = boxedDelegate.ValueType
@@ -1205,7 +1477,7 @@ sealed class ColumnarIlEmitter {
             let liftedDelegateValueType: System.Type? = null
             let liftedDelegate: (Box: System.Reflection.Emit.LocalBuilder, ValueType: System.Type) = (liftedDelegateBox, liftedDelegateValueType)
             if (_liftedLocals.TryGetValue(name, out liftedDelegate)) {
-                if (!ColumnarTypeOfPlanner.IsSupportedDelegateType(liftedDelegate.ValueType)) {
+                if (!IsSupportedContextualDelegateType(liftedDelegate.ValueType)) {
                     return false
                 }
                 delegateType = liftedDelegate.ValueType
@@ -1214,7 +1486,7 @@ sealed class ColumnarIlEmitter {
             } else {
                 let local: System.Reflection.Emit.LocalBuilder? = null
                 if (_locals.TryGetValue(name, out local)) {
-                    if (!ColumnarTypeOfPlanner.IsSupportedDelegateType(local.get_LocalType())) {
+                    if (!IsInvocableDelegateType(local.get_LocalType())) {
                         return false
                     }
                     delegateType = local.get_LocalType()
@@ -1223,7 +1495,7 @@ sealed class ColumnarIlEmitter {
                     let ordinal: int = 0
                     if (_paramOrdinals.TryGetValue(name, out ordinal)) {
                         paramType := _paramTypes[name]
-                        if (!ColumnarTypeOfPlanner.IsSupportedDelegateType(paramType)) {
+                        if (!IsInvocableDelegateType(paramType)) {
                             return false
                         }
                         delegateType = paramType
@@ -1234,13 +1506,14 @@ sealed class ColumnarIlEmitter {
                 }
             }
         }
-        invoke := delegateType.GetMethod("Invoke")
-        if (invoke == null) {
+        let invoke: System.Reflection.MethodInfo = null
+        let invokeParameterTypes: System.Type[] = null
+        let invokeReturnType: System.Type = null
+        if (!TryResolveDelegateInvocation(delegateType, out invoke, out invokeParameterTypes, out invokeReturnType)) {
             return false
         }
-        invokeParams := invoke.GetParameters()
         argCount := _nodes.ChildCount(callIdx) - 1
-        if (argCount != invokeParams.Length) {
+        if (argCount != invokeParameterTypes.Length) {
             return false
         }
         for a := 1; a <= argCount; a++ {
@@ -1248,14 +1521,83 @@ sealed class ColumnarIlEmitter {
             if (!EmitExpression(Child(callIdx, a), out argType)) {
                 return false
             }
-            invokeParameter := invokeParams[a - 1]
-            invokeParameterType := invokeParameter.get_ParameterType()
-            if (argType != invokeParameterType) {
+            // BUILDER-AWARE EQUIVALENCE, not reference equality. `TypeBuilder.MakeArrayType()` hands
+            // back a FRESH handle every call, so the `Plain[]` a local was declared with and the
+            // `Plain[]` read out of this delegate's generic arguments are two objects for one type.
+            // Reference equality made `Func<Plain[], bool>` storable but not invocable.
+            if (!TypesEquivalent(argType, invokeParameterTypes[a - 1])) {
                 return false
             }
         }
         _il.Emit(OpCodes.Callvirt, invoke)
-        columnarResolvedType = invoke.get_ReturnType()
+        columnarResolvedType = invokeReturnType
+        return true
+    }
+
+    // A delegate slot this emitter can invoke: the modelled closed shapes, a contextual signature the
+    // storable-type rules admit (a delegate over one of this compilation's own complete types), plus
+    // an instantiation that mentions a type parameter, whose `Invoke` is reached through its open
+    // definition below.
+    private static func IsInvocableDelegateType(candidate: Type): bool {
+        if (ColumnarTypeOfPlanner.IsSupportedDelegateType(candidate) || IsSupportedContextualDelegateType(candidate)) {
+            return true
+        }
+        let openInvoke: System.Reflection.MethodInfo = null
+        let openParameterTypes: System.Type[] = null
+        let openReturnType: System.Type = null
+        return MentionsGenericParameter(candidate) && TryResolveDelegateInvocation(candidate, out openInvoke, out openParameterTypes, out openReturnType)
+    }
+
+    // THE DELEGATE'S `Invoke`, ITS PARAMETER SHAPES AND ITS RESULT. A baked delegate answers all
+    // three itself. An instantiation that MENTIONS a type parameter — `f: Func<T, TResult>` in a
+    // generic member — is builder-bound and cannot: its members are read from the open DEFINITION and
+    // rebound onto the instantiation with `TypeBuilder.GetMethod`, and the definition's own `Invoke`
+    // signature is substituted by the instantiation's arguments.
+    private static func TryResolveDelegateInvocation(delegateType: Type, out invoke: MethodInfo, out parameterTypes: Type[], out returnType: Type): bool {
+        invoke = null
+        parameterTypes = null
+        returnType = null
+        if (!ColumnarTypeOfPlanner.ContainsBuilderBoundType(delegateType)) {
+            bakedInvoke := delegateType.GetMethod("Invoke")
+            if (bakedInvoke == null) {
+                return false
+            }
+            bakedParameters := bakedInvoke.GetParameters()
+            bakedParameterTypes := new Type[bakedParameters.Length]
+            for bakedIndex := 0; bakedIndex < bakedParameters.Length; bakedIndex++ {
+                bakedParameterTypes[bakedIndex] = bakedParameters[bakedIndex].get_ParameterType()
+            }
+            invoke = bakedInvoke
+            parameterTypes = bakedParameterTypes
+            returnType = bakedInvoke.get_ReturnType()
+            return true
+        }
+
+        if (!delegateType.get_IsGenericType() || delegateType.get_IsGenericTypeDefinition()) {
+            return false
+        }
+        definition := delegateType.GetGenericTypeDefinition()
+        if (definition is TypeBuilder || !typeof(Delegate).IsAssignableFrom(definition)) {
+            return false
+        }
+        openInvoke := definition.GetMethod("Invoke")
+        if (openInvoke == null) {
+            return false
+        }
+        definitionParameters := definition.GetGenericArguments()
+        typeArguments := delegateType.GetGenericArguments()
+        openParameters := openInvoke.GetParameters()
+        resolvedParameterTypes := new Type[openParameters.Length]
+        for openIndex := 0; openIndex < openParameters.Length; openIndex++ {
+            resolvedParameterTypes[openIndex] = SubstituteOwnerTypeArguments(openParameters[openIndex].get_ParameterType(), definitionParameters, typeArguments)
+        }
+        reboundInvoke := TypeBuilder.GetMethod(delegateType, openInvoke)
+        if (reboundInvoke == null) {
+            return false
+        }
+        invoke = reboundInvoke
+        parameterTypes = resolvedParameterTypes
+        returnType = SubstituteOwnerTypeArguments(openInvoke.get_ReturnType(), definitionParameters, typeArguments)
         return true
     }
 
@@ -1276,11 +1618,23 @@ sealed class ColumnarIlEmitter {
             return false
         }
         for a := 1; a <= argCount; a++ {
+            declared := target.ParamTypes[a - 1]
+            // The same by-ref rule as the source-method arm: an address is not a value, so it is
+            // substituted and addressed rather than emitted and unified.
+            if (declared.get_IsByRef()) {
+                let byRefElement: System.Type = null
+                if (!ColumnarGenericConstraintPlanner.TrySubstituteGenericTypeArguments(target.TypeParams, binding, declared.GetElementType(), out byRefElement)) {
+                    return false
+                }
+                if (!EmitByRefCallArgument(Child(callIdx, a), byRefElement.MakeByRefType())) {
+                    return false
+                }
+                continue
+            }
             let gArgType: System.Type? = null
             if (!EmitExpression(Child(callIdx, a), out gArgType)) {
                 return false
             }
-            declared := target.ParamTypes[a - 1]
             if (!ColumnarGenericCallBindingPlanner.TryUnifyGenericCallArgument(target.TypeParams, binding, declared, gArgType)) {
                 return false
             }
@@ -1450,7 +1804,7 @@ sealed class ColumnarIlEmitter {
         if (!TryEmitExpandedParamsCallArguments(callIdx, target.ParamTypes, target.ParamModifierKinds, true)) {
             return false
         }
-        _il.Emit(OpCodes.Call, target.Builder)
+        _il.Emit(OpCodes.Call, ColumnarSourceSelfInstantiation.Bind(target.Builder))
         columnarResolvedType = target.ReturnType
         return true
     }
@@ -1580,6 +1934,590 @@ sealed class ColumnarIlEmitter {
         return TryGetPreflightExpressionType(argNode, out argType) && ColumnarGenericCallBindingPlanner.TryUnifyGenericCallArgument(typeParams, binding, declared, argType)
     }
 
+    // CLOSE a generic method declared by a SOURCE type at a call site.
+    //
+    // The receiver, if any, is ALREADY on the stack — this owner emits only the arguments and the
+    // call, exactly like the non-generic arms it sits beside. `binding` arrives PRE-SEEDED from
+    // written type arguments and EMPTY for an inferred call; the unify loop then either VERIFIES an
+    // argument against the seeded binding or binds from it. Constraints are validated here because
+    // Reflection.Emit does not validate them when `MakeGenericMethod` closes an unbaked builder.
+    //
+    // ON A CONSTRUCTED OWNER THE ORDER IS FIXED BY REFLECTION.EMIT: the declaration is first rebound
+    // onto the instantiation with `TypeBuilder.GetMethod`, and only the rebound handle can be closed
+    // with `MakeGenericMethod`. The declared shapes are read through the owner's arguments FIRST, so
+    // the unify loop sees `Func<int, TResult>` rather than `Func<T, TResult>` and binds only the
+    // METHOD's parameters.
+    private func TryEmitGenericSourceMethodCall(
+        callIdx: int,
+        generics: ColumnarGenericMethodFacts,
+        builder: MethodBuilder,
+        declaredParamTypes: Type[],
+        declaredReturnType: Type,
+        binding: Type[],
+        constructedOwner: Type?,
+        ownerTypeArguments: Type[]?,
+        callOpcode: OpCode,
+        out columnarResolvedType: Type
+    ): bool {
+        columnarResolvedType = null
+        argCount := _nodes.ChildCount(callIdx) - 1
+        if (argCount != declaredParamTypes.Length || binding.Length != generics.TypeParams.Length) {
+            return false
+        }
+
+        effectiveParamTypes := declaredParamTypes
+        effectiveReturnType := declaredReturnType
+        if (constructedOwner != null && ownerTypeArguments != null) {
+            ownerParameters := constructedOwner.GetGenericTypeDefinition().GetGenericArguments()
+            substitutedParamTypes := new Type[declaredParamTypes.Length]
+            for p := 0; p < declaredParamTypes.Length; p++ {
+                substitutedParamTypes[p] = SubstituteOwnerTypeArguments(declaredParamTypes[p], ownerParameters, ownerTypeArguments)
+            }
+            effectiveParamTypes = substitutedParamTypes
+            effectiveReturnType = SubstituteOwnerTypeArguments(declaredReturnType, ownerParameters, ownerTypeArguments)
+        }
+
+        for a := 1; a <= argCount; a++ {
+            declared := effectiveParamTypes[a - 1]
+            // A BY-REF PARAMETER IS AN ADDRESS, NOT A VALUE, so it can never be unified from an emitted
+            // argument type: `out result: T` arrives as a kind-54 ref/out argument whose target has to be
+            // addressed against the SUBSTITUTED element type. Substituting the element and rebuilding the
+            // managed reference is the same answer the declaration made, and without it every generic
+            // method with an `out`/`ref` parameter over its own type parameter was uncallable —
+            // `TryGet<T>(out value)` included.
+            if (declared.get_IsByRef()) {
+                let byRefElement: System.Type = null
+                if (!ColumnarGenericConstraintPlanner.TrySubstituteGenericTypeArguments(generics.TypeParams, binding, declared.GetElementType(), out byRefElement)) {
+                    return false
+                }
+                if (!EmitByRefCallArgument(Child(callIdx, a), byRefElement.MakeByRefType())) {
+                    return false
+                }
+                continue
+            }
+            let contextualParamType: System.Type = null
+            if (ColumnarGenericConstraintPlanner.TrySubstituteGenericTypeArguments(generics.TypeParams, binding, declared, out contextualParamType)) {
+                // Every type parameter this position mentions is already bound, so the argument can be
+                // emitted against a CLOSED expected type — which is what a contextual lambda needs.
+                if (!EmitDeclaredCallArgument(Child(callIdx, a), contextualParamType, true)) {
+                    return false
+                }
+                continue
+            }
+            let argType: System.Type? = null
+            if (!EmitExpression(Child(callIdx, a), out argType)) {
+                return false
+            }
+            if (!ColumnarGenericCallBindingPlanner.TryUnifyGenericCallArgument(generics.TypeParams, binding, declared, argType)) {
+                return false
+            }
+        }
+
+        boundArgs := new Type[binding.Length]
+        for b := 0; b < binding.Length; b++ {
+            if (binding[b] == null) {
+                return false
+            }
+            boundArgs[b] = binding[b]
+        }
+
+        if (!ColumnarGenericConstraintPlanner.TryValidateGenericSiblingConstraints(
+            generics.TypeParams,
+            generics.SpecialConstraints,
+            generics.BaseConstraints,
+            generics.InterfaceConstraints,
+            binding,
+            boundArgs,
+            _structRegistry
+        )) {
+            return false
+        }
+
+        genericDefinition: MethodInfo = builder
+        if (constructedOwner != null) {
+            genericDefinition = ColumnarSourceSelfInstantiation.BindOn(constructedOwner, builder)
+        }
+        instantiated := genericDefinition.MakeGenericMethod(boundArgs)
+        _il.Emit(callOpcode, instantiated)
+        return ColumnarGenericCallBindingPlanner.TrySubstituteReturnType(generics.TypeParams, binding, effectiveReturnType, out columnarResolvedType)
+    }
+
+    // Substitute the OWNER's type arguments into a declared shape while leaving the METHOD's own
+    // type parameters OPEN. Ownership is decided by exact identity against the owner definition's
+    // parameters rather than by POSITION: a method parameter and a type parameter share positions,
+    // and an unbaked `GenericTypeParameterBuilder` does not reliably report its declaring method, so
+    // a positional rule silently closes `Same<TOther>(other: TOther)` over the receiver's argument.
+    private static func SubstituteOwnerTypeArguments(signatureType: Type, ownerParameters: Type[], ownerArguments: Type[]): Type {
+        if (signatureType.get_IsGenericParameter()) {
+            for ownerIndex := 0; ownerIndex < ownerParameters.Length && ownerIndex < ownerArguments.Length; ownerIndex++ {
+                if (Object.ReferenceEquals(ownerParameters[ownerIndex], signatureType)) {
+                    return ownerArguments[ownerIndex]
+                }
+            }
+            return signatureType
+        }
+        if (signatureType.get_IsByRef()) {
+            byRefElement := signatureType.GetElementType()
+            if (byRefElement == null) {
+                return signatureType
+            }
+            return SubstituteOwnerTypeArguments(byRefElement, ownerParameters, ownerArguments).MakeByRefType()
+        }
+        if (ColumnarTypeEquivalenceFacts.IsSafeSzArrayType(signatureType)) {
+            elementType := signatureType.GetElementType()
+            if (elementType == null) {
+                return signatureType
+            }
+            return SubstituteOwnerTypeArguments(elementType, ownerParameters, ownerArguments).MakeArrayType()
+        }
+        if (signatureType.get_IsGenericType() && !signatureType.get_IsGenericTypeDefinition()) {
+            arguments := signatureType.GetGenericArguments()
+            substitutedArguments := new Type[arguments.Length]
+            changed := false
+            for argumentIndex := 0; argumentIndex < arguments.Length; argumentIndex++ {
+                substitutedArguments[argumentIndex] = SubstituteOwnerTypeArguments(arguments[argumentIndex], ownerParameters, ownerArguments)
+                if (!Object.ReferenceEquals(substitutedArguments[argumentIndex], arguments[argumentIndex])) {
+                    changed = true
+                }
+            }
+            if (!changed) {
+                return signatureType
+            }
+            return signatureType.GetGenericTypeDefinition().MakeGenericType(substitutedArguments)
+        }
+        return signatureType
+    }
+
+    // The canonical spelling of a CONSTRUCTED GENERIC TYPE receiver node (`Box<int>` before a `.`):
+    // its head name in the value span, its type arguments as TYPE-kernel children.
+    private func TryResolveGenericTypeReceiverCanonical(receiver: int, out canonical: string): bool {
+        canonical = null
+        if (_nodes.Kind(receiver) != 70 || _nodes.ChildCount(receiver) <= 0) {
+            return false
+        }
+        spelling := new StringBuilder()
+        spelling.Append(ColumnarNodeTextFacts.Text(_nodes, _source, receiver))
+        spelling.Append("<")
+        for typeArgumentIndex := 0; typeArgumentIndex < _nodes.ChildCount(receiver); typeArgumentIndex++ {
+            if (typeArgumentIndex > 0) {
+                spelling.Append(",")
+            }
+            let typeArgumentCanonical: string? = null
+            if (!TryBuildTypeNodeCanonical(Child(receiver, typeArgumentIndex), out typeArgumentCanonical)) {
+                return false
+            }
+            spelling.Append(typeArgumentCanonical)
+        }
+        spelling.Append(">")
+        canonical = spelling.ToString()
+        return true
+    }
+
+    // The written type arguments of an explicit generic callee, resolved in the body's own scope.
+    private func TryResolveWrittenTypeArguments(callee: int, expectedCount: int, out binding: Type[]): bool {
+        binding = null
+        if (_nodes.ChildCount(callee) != expectedCount) {
+            return false
+        }
+        written := new Type[expectedCount]
+        for ta := 0; ta < expectedCount; ta++ {
+            let canonicalTypeArg: string? = null
+            let writtenType: System.Type? = null
+            if (!TryBuildTypeNodeCanonical(Child(callee, ta), out canonicalTypeArg) || !TryResolveBodyType(canonicalTypeArg, out writtenType)) {
+                return false
+            }
+            if (!ColumnarTypeOfPlanner.IsSupportedType(writtenType)) {
+                return false
+            }
+            written[ta] = writtenType
+        }
+        binding = written
+        return true
+    }
+
+    // A generic method reached through the implicit `this` of the declaring type. A generic OWNER
+    // calls itself through its own self-instantiation, which is the instantiation `this` has.
+    private func TryEmitImplicitThisGenericCall(callIdx: int, method: ColumnarInstanceMethodDef, binding: Type[], out columnarResolvedType: Type): bool {
+        columnarResolvedType = null
+        generics := method.Generics
+        if (generics == null || _currentStruct == null) {
+            return false
+        }
+        _il.Emit(OpCodes.Ldarg_0)
+        selfOwner := ColumnarSourceSelfInstantiation.Of(_currentStruct.Builder)
+        let constructedOwner: System.Type? = null
+        let ownerArguments: System.Type[]? = null
+        if (!Object.ReferenceEquals(selfOwner, _currentStruct.Builder)) {
+            constructedOwner = selfOwner
+        }
+        callOpcode := match _currentStruct.IsReference {
+            true => OpCodes.Callvirt,
+            _ => OpCodes.Call
+        }
+        return TryEmitGenericSourceMethodCall(callIdx, generics, method.Builder, method.ParamTypes, method.ReturnType, binding, constructedOwner, ownerArguments, callOpcode, out columnarResolvedType)
+    }
+
+    // A generic STATIC method on a source type, called with no receiver. A GENERIC owner has no
+    // callable static slot until the owner itself is constructed: from inside the declaring type the
+    // instantiation is the type's own (`Box<T>` in `Box<T>`'s own code), and from outside the call
+    // site must have written one (`Box<int>.Of(4)`), which the caller resolves and passes here.
+    private func TryEmitSourceStaticGenericCall(callIdx: int, owner: ColumnarStructDef, method: ColumnarStaticMethodDef, binding: Type[], out columnarResolvedType: Type): bool {
+        columnarResolvedType = null
+        ownerBuilder := owner.Builder
+        selfOwner := ColumnarSourceSelfInstantiation.Of(ownerBuilder)
+        if (!Object.ReferenceEquals(selfOwner, ownerBuilder)) {
+            // The owner is generic and the site named it bare. Only the declaring type's own code
+            // can do that; anywhere else there is no instantiation to call on.
+            if (_enclosingType == null || !Object.ReferenceEquals(_enclosingType.Builder, ownerBuilder)) {
+                return false
+            }
+            // AND THE CALL MUST GO THROUGH THAT INSTANTIATION. A generic type's static method has no
+            // callable slot on the OPEN definition: `MakeGenericMethod` over the raw builder produces a
+            // handle the CLR refuses at run time with "the method itself or the containing type is not
+            // fully instantiated" — an exception at the call, not a decline at compile time. The instance
+            // path already rebinds onto `selfOwner`; this one did not, so a generic type calling one of
+            // its own generic statics emitted bad IL. The instantiation's arguments ARE the definition's
+            // own parameters, so the signature substitution is the identity and only the handle moves.
+            return TryEmitSourceStaticGenericCallOn(callIdx, method, binding, selfOwner, selfOwner.GetGenericArguments(), out columnarResolvedType)
+        }
+        return TryEmitSourceStaticGenericCallOn(callIdx, method, binding, null, null, out columnarResolvedType)
+    }
+
+    private func TryEmitSourceStaticGenericCallOn(callIdx: int, method: ColumnarStaticMethodDef, binding: Type[], constructedOwner: Type?, ownerTypeArguments: Type[]?, out columnarResolvedType: Type): bool {
+        columnarResolvedType = null
+        generics := method.Generics
+        if (generics == null) {
+            return false
+        }
+        return TryEmitGenericSourceMethodCall(callIdx, generics, method.Builder, method.ParamTypes, method.ReturnType, binding, constructedOwner, ownerTypeArguments, OpCodes.Call, out columnarResolvedType)
+    }
+
+    // The declared type of a lexical value binding, WITHOUT emitting anything. A dotted explicit
+    // generic callee keeps only its name, so the receiver's type has to be known before the load
+    // opcode can be chosen.
+    private func TryGetNamedValueBindingType(name: string, out bindingType: Type): bool {
+        bindingType = null
+        let local: System.Reflection.Emit.LocalBuilder? = null
+        if (_locals.TryGetValue(name, out local)) {
+            bindingType = local.get_LocalType()
+            return true
+        }
+        let ordinal: int = 0
+        if (_paramOrdinals.TryGetValue(name, out ordinal)) {
+            let paramType: System.Type? = null
+            if (!_paramTypes.TryGetValue(name, out paramType) || paramType.get_IsByRef()) {
+                return false
+            }
+            bindingType = paramType
+            return true
+        }
+        return false
+    }
+
+    // The matching load. A VALUE receiver's instance method takes a managed pointer, so the binding
+    // is loaded by ADDRESS; a reference receiver is loaded by value.
+    private func EmitNamedValueBindingLoad(name: string, asAddress: bool): bool {
+        let local: System.Reflection.Emit.LocalBuilder? = null
+        if (_locals.TryGetValue(name, out local)) {
+            if (asAddress) {
+                _il.Emit(OpCodes.Ldloca, local)
+            } else {
+                _il.Emit(OpCodes.Ldloc, local)
+            }
+            return true
+        }
+        let ordinal: int = 0
+        if (_paramOrdinals.TryGetValue(name, out ordinal)) {
+            if (asAddress) {
+                ColumnarArgumentInstructionEmitter.EmitLoadAddress(_il, ordinal)
+            } else {
+                ColumnarArgumentInstructionEmitter.EmitLoad(_il, ordinal)
+            }
+            return true
+        }
+        return false
+    }
+
+    // An EXPLICIT generic call `Target<T1, T2>(args)` whose target is declared by a SOURCE type. The
+    // callee node keeps only the dotted NAME, so the three spellings are read off that name: a bare
+    // name (the declaring type's own instance or static method), `Type.Member` (a static on a named
+    // source type) and `binding.Member` (an instance on a lexical value binding).
+    private func TryEmitExplicitGenericSourceCall(callIdx: int, callee: int, calleeName: string, out columnarResolvedType: Type): bool {
+        columnarResolvedType = null
+        argCount := _nodes.ChildCount(callIdx) - 1
+        typeArgCount := _nodes.ChildCount(callee)
+        if (typeArgCount <= 0) {
+            return false
+        }
+        separator := calleeName.LastIndexOf(".", StringComparison.Ordinal)
+        if (separator < 0) {
+            let ownInstance: NSharpLang.Compiler.Columnar.ColumnarInstanceMethodDef? = null
+            if (_currentStruct != null && TrySelectGenericInstanceMethodOnChain(_currentStruct, calleeName, argCount, typeArgCount, out ownInstance)) {
+                let ownBinding: System.Type[]? = null
+                if (!TryResolveWrittenTypeArguments(callee, typeArgCount, out ownBinding)) {
+                    return false
+                }
+                return TryEmitImplicitThisGenericCall(callIdx, ownInstance, ownBinding, out columnarResolvedType)
+            }
+            let ownStatic: NSharpLang.Compiler.Columnar.ColumnarStaticMethodDef? = null
+            if (_enclosingType != null && TryFindGenericStaticMethodOnChain(_enclosingType, calleeName, argCount, typeArgCount, out ownStatic)) {
+                let ownStaticBinding: System.Type[]? = null
+                if (!TryResolveWrittenTypeArguments(callee, typeArgCount, out ownStaticBinding)) {
+                    return false
+                }
+                return TryEmitSourceStaticGenericCall(callIdx, _enclosingType, ownStatic, ownStaticBinding, out columnarResolvedType)
+            }
+            return false
+        }
+
+        receiverText := calleeName.Substring(0, separator)
+        memberName := calleeName.Substring(separator + 1)
+
+        let receiverType: System.Type? = null
+        if (TryGetNamedValueBindingType(receiverText, out receiverType)) {
+            let receiverDef: NSharpLang.Compiler.Columnar.ColumnarStructDef? = null
+            let receiverArguments: System.Type[]? = null
+            let constructedOwner: System.Type? = null
+            receiverBuilder := receiverType as TypeBuilder
+            if (receiverBuilder != null) {
+                receiverDef = ColumnarSourceDefinitionResolver.FindByBuilderIdentity(_structRegistry.get_Values(), receiverBuilder)
+            } else {
+                let closedDef: NSharpLang.Compiler.Columnar.ColumnarStructDef? = null
+                let closedArguments: System.Type[]? = null
+                if (TryGetClosedReceiverDef(receiverType, out closedDef, out closedArguments)) {
+                    receiverDef = closedDef
+                    receiverArguments = closedArguments
+                    constructedOwner = receiverType
+                }
+            }
+            if (receiverDef == null) {
+                return false
+            }
+            let instanceMethod: NSharpLang.Compiler.Columnar.ColumnarInstanceMethodDef? = null
+            if (!TrySelectGenericInstanceMethodOnChain(receiverDef, memberName, argCount, typeArgCount, out instanceMethod)) {
+                return false
+            }
+            instanceGenerics := instanceMethod.Generics
+            if (instanceGenerics == null) {
+                return false
+            }
+            let instanceBinding: System.Type[]? = null
+            if (!TryResolveWrittenTypeArguments(callee, typeArgCount, out instanceBinding)) {
+                return false
+            }
+            if (!EmitNamedValueBindingLoad(receiverText, !receiverDef.IsReference)) {
+                return false
+            }
+            instanceCallOpcode := match receiverDef.IsReference {
+                true => OpCodes.Callvirt,
+                _ => OpCodes.Call
+            }
+            return TryEmitGenericSourceMethodCall(callIdx, instanceGenerics, instanceMethod.Builder, instanceMethod.ParamTypes, instanceMethod.ReturnType, instanceBinding, constructedOwner, receiverArguments, instanceCallOpcode, out columnarResolvedType)
+        }
+
+        // A CONSTRUCTED owner (`Box<int>.Of<int>(4)`) resolves to the closed type first, so the call
+        // is rebound onto that instantiation; a bare owner name goes through the enclosing-type rule.
+        let constructedStaticOwner: System.Type? = null
+        let constructedStaticArguments: System.Type[]? = null
+        let staticOwner: NSharpLang.Compiler.Columnar.ColumnarStructDef? = null
+        let writtenOwnerType: System.Type? = null
+        let writtenOwnerDef: NSharpLang.Compiler.Columnar.ColumnarStructDef? = null
+        let writtenOwnerArguments: System.Type[]? = null
+        if (TryResolveBodyType(receiverText, out writtenOwnerType) && TryGetClosedReceiverDef(writtenOwnerType, out writtenOwnerDef, out writtenOwnerArguments)) {
+            staticOwner = writtenOwnerDef
+            constructedStaticOwner = writtenOwnerType
+            constructedStaticArguments = writtenOwnerArguments
+        } else {
+            if (!_typeResolutionStructs.TryGetValue(receiverText, out staticOwner)) {
+                return false
+            }
+        }
+        let staticMethod: NSharpLang.Compiler.Columnar.ColumnarStaticMethodDef? = null
+        if (!TryFindGenericStaticMethodOnChain(staticOwner, memberName, argCount, typeArgCount, out staticMethod)) {
+            return false
+        }
+        let staticBinding: System.Type[]? = null
+        if (!TryResolveWrittenTypeArguments(callee, typeArgCount, out staticBinding)) {
+            return false
+        }
+        if (constructedStaticOwner != null) {
+            return TryEmitSourceStaticGenericCallOn(callIdx, staticMethod, staticBinding, constructedStaticOwner, constructedStaticArguments, out columnarResolvedType)
+        }
+        return TryEmitSourceStaticGenericCall(callIdx, staticOwner, staticMethod, staticBinding, out columnarResolvedType)
+    }
+
+    // AN EXPLICIT GENERIC CALL WHOSE TARGET IS DECLARED BY A REFERENCED ASSEMBLY — the external
+    // counterpart of `TryEmitExplicitGenericSourceCall` above, and it reads the callee exactly the
+    // same way, because the parser's kind-38 node keeps only the dotted NAME: a lexical value binding
+    // in front of the member names an INSTANCE receiver (`u.Is<int>()`), and anything else that
+    // resolves to a type names a STATIC owner (`ResultFactory.Ok<int, string>(42)`).
+    //
+    // THERE IS NO PER-API TABLE HERE. The member is chosen by ordinary CLR member resolution over the
+    // receiver's own type, the written type arguments close it through `MakeGenericMethod` (which is
+    // what enforces the declared constraints), and every argument is then emitted against the
+    // SUBSTITUTED parameter type — so a lambda argument binds to the closed delegate it is passed to
+    // and an `out` argument goes through the by-ref path, with no shape knowing which API it serves.
+    private func TryEmitExplicitGenericExternalCall(callIdx: int, callee: int, calleeName: string, out columnarResolvedType: Type): bool {
+        columnarResolvedType = null
+        typeArgCount := _nodes.ChildCount(callee)
+        if (typeArgCount <= 0) {
+            return false
+        }
+        separator := calleeName.LastIndexOf(".", StringComparison.Ordinal)
+        if (separator <= 0 || separator == calleeName.Length - 1) {
+            return false
+        }
+        receiverText := calleeName.Substring(0, separator)
+        memberName := calleeName.Substring(separator + 1)
+        argCount := _nodes.ChildCount(callIdx) - 1
+        let typeArguments: System.Type[]? = null
+        if (!TryResolveWrittenTypeArguments(callee, typeArgCount, out typeArguments)) {
+            return false
+        }
+
+        let receiverType: System.Type? = null
+        if (TryGetNamedValueBindingType(receiverText, out receiverType) && receiverType != null) {
+            instanceSelection := SelectExplicitGenericExternalCall(callIdx, receiverType, memberName, typeArguments, argCount, false)
+            if (!instanceSelection.IsSelected) {
+                return false
+            }
+            // A VALUE receiver's instance method takes a managed pointer, so the binding is loaded by
+            // address; a reference receiver is loaded by value and dispatched with `callvirt`.
+            if (!EmitNamedValueBindingLoad(receiverText, receiverType.get_IsValueType())) {
+                return false
+            }
+            return EmitExplicitGenericExternalCall(callIdx, instanceSelection, out columnarResolvedType)
+        }
+
+        if (_locals.ContainsKey(receiverText) || _liftedLocals.ContainsKey(receiverText) || _paramOrdinals.ContainsKey(receiverText)) {
+            return false
+        }
+        let ownerType: System.Type? = null
+        if (!TryResolveBodyType(receiverText, out ownerType) || ownerType == null) {
+            return false
+        }
+        staticSelection := SelectExplicitGenericExternalCall(callIdx, ownerType, memberName, typeArguments, argCount, true)
+        if (!staticSelection.IsSelected) {
+            return false
+        }
+        return EmitExplicitGenericExternalCall(callIdx, staticSelection, out columnarResolvedType)
+    }
+
+    // The member this call site selects. A site whose arguments all type ahead of emission gets
+    // ordinary scored overload resolution; one that carries a lambda or an `out` argument has no type
+    // to score with, so it binds only when the name leaves exactly ONE closed candidate at this
+    // arity — an ambiguity is refused rather than guessed.
+    private func SelectExplicitGenericExternalCall(callIdx: int, lookupType: Type, memberName: string, typeArguments: Type[], argCount: int, expectedStatic: bool): ColumnarExplicitGenericCallSelection {
+        unique := ColumnarExplicitRuntimeGenericMethodResolver.Resolve(lookupType, memberName, typeArguments, argCount, expectedStatic)
+        if (unique.IsSelected) {
+            return unique
+        }
+        argumentTypes := new Type[argCount]
+        for a := 0; a < argCount; a++ {
+            let argType: System.Type? = null
+            if (!TryGetPreflightExpressionType(Child(callIdx, a + 1), out argType) || argType == null) {
+                return ColumnarExplicitGenericCallSelection.None(lookupType)
+            }
+            argumentTypes[a] = argType
+        }
+        return ColumnarExplicitRuntimeGenericMethodResolver.ResolveWithFacts(lookupType, memberName, typeArguments, argumentTypes, ColumnarDirectCallArgumentFacts.Empty(argCount), expectedStatic)
+    }
+
+    // The arguments, then the instruction. The receiver (if any) is already on the stack.
+    private func EmitExplicitGenericExternalCall(callIdx: int, selection: ColumnarExplicitGenericCallSelection, out columnarResolvedType: Type): bool {
+        columnarResolvedType = null
+        parameterTypes := selection.ParameterTypes
+        for a := 0; a < selection.ExplicitArgumentCount; a++ {
+            if (!EmitDeclaredCallArgument(Child(callIdx, a + 1), parameterTypes[a], true)) {
+                return false
+            }
+        }
+        // Every parameter past the supplied arguments is a trailing optional whose metadata default
+        // is the null reference — the same fill the ordinary resolver's optional tier emits.
+        for filled := selection.ExplicitArgumentCount; filled < parameterTypes.Length; filled++ {
+            _il.Emit(OpCodes.Ldnull)
+        }
+        callOpcode := match selection.UsesCallVirtual {
+            true => OpCodes.Callvirt,
+            _ => OpCodes.Call
+        }
+        _il.Emit(callOpcode, selection.Method)
+        columnarResolvedType = selection.ReturnType
+        return true
+    }
+
+    // THE ORDINARY EXTERNAL CALL FOR A SITE WHOSE ARGUMENTS CANNOT ALL BE TYPED BEFORE EMISSION.
+    //
+    // The direct-call planner owns every external call whose arguments it can type, and it types them
+    // BEFORE it chooses the overload. A LAMBDA ARGUMENT HAS NO TYPE UNTIL IT IS BOUND to the parameter
+    // it is passed to, so a call like `u.Switch(a => ..., b => ...)` leaves the planner with nothing to
+    // select on and arrives here. The member is chosen by ordinary CLR member resolution restricted to
+    // the ONE declaration of that name at this arity — an ambiguity is refused, because the argument
+    // types are exactly what would have chosen between them — and each argument is then emitted
+    // against its declared parameter type, which is what gives a lambda its contextual shape.
+    private func TryEmitOrdinaryRuntimeStaticCall(callIdx: int, ownerType: Type, member: string, argCount: int, out columnarResolvedType: Type): bool {
+        columnarResolvedType = null
+        selection := ColumnarOrdinaryRuntimeDirectCallResolver.ResolveUniqueAtArity(ownerType, member, argCount, true)
+        if (!selection.IsSelected || selection.Method == null || !CanEmitOrdinaryRuntimeCallArguments(callIdx, selection.ParameterTypes)) {
+            return false
+        }
+        return EmitOrdinaryRuntimeCallArgumentsAndDispatch(callIdx, selection, out columnarResolvedType)
+    }
+
+    // The instance form. THE RECEIVER VALUE IS ALREADY ON THE STACK, so a value receiver has to be
+    // spilled to reach its address: an instance method on a value type takes a managed pointer.
+    private func TryEmitOrdinaryRuntimeInstanceCall(callIdx: int, receiverType: Type, member: string, argCount: int, out columnarResolvedType: Type): bool {
+        columnarResolvedType = null
+        selection := ColumnarOrdinaryRuntimeDirectCallResolver.ResolveUniqueAtArity(receiverType, member, argCount, false)
+        if (!selection.IsSelected || selection.Method == null || !CanEmitOrdinaryRuntimeCallArguments(callIdx, selection.ParameterTypes)) {
+            return false
+        }
+        if (receiverType.get_IsValueType()) {
+            // A method the value type INHERITS would need a box or a `constrained.` prefix, which is a
+            // different dispatch; only the type's own declarations bind here.
+            if (!ColumnarRuntimeInstanceMemberResolver.ExactTypeShapeMatches(selection.DeclaringType, receiverType)) {
+                return false
+            }
+            spilledReceiver := _il.DeclareLocal(receiverType)
+            _il.Emit(OpCodes.Stloc, spilledReceiver)
+            _il.Emit(OpCodes.Ldloca, spilledReceiver)
+        }
+        return EmitOrdinaryRuntimeCallArgumentsAndDispatch(callIdx, selection, out columnarResolvedType)
+    }
+
+    // EVERY ARGUMENT IS CHECKED BEFORE THE FIRST ONE IS EMITTED. This tier runs ahead of the emitter's
+    // remaining per-API residuals, so a selection it abandoned halfway would leave the arguments it had
+    // already written on the stack in front of whichever arm answered next. The check is the same
+    // predicate the planned-external door uses, asked of the same declared parameter types.
+    private func CanEmitOrdinaryRuntimeCallArguments(callIdx: int, parameterTypes: Type[]): bool {
+        if (_nodes.ChildCount(callIdx) - 1 != parameterTypes.Length) {
+            return false
+        }
+        for a := 0; a < parameterTypes.Length; a++ {
+            if (!CanDeclaredCallArgumentMatch(Child(callIdx, a + 1), parameterTypes[a], true)) {
+                return false
+            }
+        }
+        return true
+    }
+
+    private func EmitOrdinaryRuntimeCallArgumentsAndDispatch(callIdx: int, selection: ColumnarOrdinaryRuntimeDirectCallSelection, out columnarResolvedType: Type): bool {
+        columnarResolvedType = null
+        parameterTypes := selection.ParameterTypes
+        for a := 0; a < parameterTypes.Length; a++ {
+            if (!EmitDeclaredCallArgument(Child(callIdx, a + 1), parameterTypes[a], true)) {
+                return false
+            }
+        }
+        ordinaryCallOpcode := match selection.UsesCallVirtual {
+            true => OpCodes.Callvirt,
+            _ => OpCodes.Call
+        }
+        _il.Emit(ordinaryCallOpcode, selection.Method)
+        columnarResolvedType = selection.ReturnType
+        return true
+    }
+
     // Emit a bare (implicit-`this`) INSTANCE method call: `ldarg.0; <args>; call/callvirt`. Used by tiers 1 and 4
     // of the bare-call resolution (own-declared and inherited instance methods). Declines on an arity or arg-type
     // mismatch. A reference `this` calls via callvirt (matching the external-receiver path); a value-type `this`
@@ -1631,7 +2569,7 @@ sealed class ColumnarIlEmitter {
                 return false
             }
         }
-        _il.Emit(OpCodes.Callvirt, method.Builder)
+        _il.Emit(OpCodes.Callvirt, ColumnarSourceSelfInstantiation.Bind(method.Builder))
         columnarResolvedType = method.ReturnType
         return true
     }
@@ -1648,13 +2586,75 @@ sealed class ColumnarIlEmitter {
                 continue
             }
             for candidate in overloads {
-                if (candidate.ParamTypes.Length == argCount) {
+                if (candidate.Generics == null && candidate.ParamTypes.Length == argCount) {
                     method = candidate
                     return true
                 }
             }
         }
         method = null
+        return false
+    }
+
+    // The GENERIC counterparts of the two selectors above. `typeArgCount` is the number of type
+    // arguments the call site WROTE, or -1 when it wrote none and they are to be inferred; a written
+    // count that does not match the declaration's arity is not a candidate, which is how
+    // `Pair<int>(1, "a")` fails to bind rather than binding and then failing to close.
+    private static func TrySelectGenericInstanceMethodOnChain(def: ColumnarStructDef, name: string, argCount: int, typeArgCount: int, out method: ColumnarInstanceMethodDef): bool {
+        method = null
+        for d := def; d != null; d = d.BaseDef {
+            let overloads: System.Collections.Generic.List<NSharpLang.Compiler.Columnar.ColumnarInstanceMethodDef>? = null
+            if (!d.MethodOverloads.TryGetValue(name, out overloads)) {
+                continue
+            }
+            selectedOnLevel: ColumnarInstanceMethodDef? = null
+            for candidate in overloads {
+                candidateGenerics := candidate.Generics
+                if (candidateGenerics == null || candidate.ParamTypes.Length != argCount) {
+                    continue
+                }
+                if (typeArgCount >= 0 && candidateGenerics.TypeParams.Length != typeArgCount) {
+                    continue
+                }
+                if (selectedOnLevel != null) {
+                    return false
+                }
+                selectedOnLevel = candidate
+            }
+            if (selectedOnLevel != null) {
+                method = selectedOnLevel
+                return true
+            }
+        }
+        return false
+    }
+
+    private static func TryFindGenericStaticMethodOnChain(def: ColumnarStructDef, name: string, argCount: int, typeArgCount: int, out method: ColumnarStaticMethodDef): bool {
+        method = null
+        for d := def; d != null; d = d.BaseDef {
+            let overloads: System.Collections.Generic.List<NSharpLang.Compiler.Columnar.ColumnarStaticMethodDef>? = null
+            if (!d.StaticMethods.TryGetValue(name, out overloads)) {
+                continue
+            }
+            selectedOnLevel: ColumnarStaticMethodDef? = null
+            for candidate in overloads {
+                candidateGenerics := candidate.Generics
+                if (candidateGenerics == null || candidate.ParamTypes.Length != argCount) {
+                    continue
+                }
+                if (typeArgCount >= 0 && candidateGenerics.TypeParams.Length != typeArgCount) {
+                    continue
+                }
+                if (selectedOnLevel != null) {
+                    return false
+                }
+                selectedOnLevel = candidate
+            }
+            if (selectedOnLevel != null) {
+                method = selectedOnLevel
+                return true
+            }
+        }
         return false
     }
 
@@ -1686,13 +2686,45 @@ sealed class ColumnarIlEmitter {
     }
 
     private func TryEmitUserDefinedConversion(source: Type, target: Type, allowExplicit: bool): bool {
-        let implicitConversion: NSharpLang.Compiler.Columnar.ColumnarStaticMethodDef? = null
-        if (TryFindUserDefinedConversion(source, target, "op_Implicit", out implicitConversion) || (allowExplicit && TryFindUserDefinedConversion(source, target, "op_Explicit", out implicitConversion))) {
-            _il.Emit(OpCodes.Call, implicitConversion.Builder)
+        let userConversion: System.Reflection.MethodInfo? = null
+        if (TryFindUserDefinedConversion(source, target, "op_Implicit", out userConversion) || (allowExplicit && TryFindUserDefinedConversion(source, target, "op_Explicit", out userConversion))) {
+            _il.Emit(OpCodes.Call, userConversion)
             return true
         }
 
-        return false
+        return TryEmitExternalUserDefinedConversion(source, target, allowExplicit)
+    }
+
+    // The EXTERNAL conversion, decided by the owner the ANALYZER decided with. The arm above reads the
+    // COLUMNAR declarations of the types this compilation is emitting; a referenced assembly's type
+    // declares its operators in metadata instead, and `ExternalUserDefinedConversions` selects among
+    // those by ECMA-334 §10.5.3/§10.5.4 rather than by exact-signature match — so `5` reaching an
+    // `implicit operator Union<long, string>(long)` widens into the parameter here exactly as the
+    // analyzer said it would, and a tie emits nothing rather than an arbitrary arm.
+    private func TryEmitExternalUserDefinedConversion(source: Type, target: Type, allowExplicit: bool): bool {
+        selection := ExternalUserDefinedConversions.Resolve(source, target, allowExplicit)
+        selected := selection.Method
+        if (!selection.IsSelected || selected == null) {
+            return false
+        }
+
+        // THE RESULT IS CHECKED BEFORE ANYTHING IS WRITTEN. A selected operator whose result still
+        // needs a conversion of its own would have to be called first and converted after, and a
+        // follow-on conversion this emitter cannot write would leave a half-emitted stream behind.
+        // Declining here costs a decline diagnostic; emitting there would cost an invalid method.
+        if (!TypesEquivalent(selected.get_ReturnType(), target)) {
+            return false
+        }
+
+        parameterType := ExternalUserDefinedConversions.ParameterTypeOf(selected)
+        if (!TypesEquivalent(source, parameterType)) {
+            if (!TryEmitImplicitWidening(source, parameterType) && !ColumnarReferenceCoercionPlanner.TryEmitObjectConversion(source, parameterType, _structRegistry, _il) && !ColumnarReferenceConversionFacts.TryEmitReferenceConversion(source, parameterType)) {
+                return false
+            }
+        }
+
+        _il.Emit(OpCodes.Call, selected)
+        return true
     }
 
     private func TryEmitResultFactoryCall(callIdx: int, name: string, out columnarResolvedType: Type): bool {
@@ -1730,18 +2762,65 @@ sealed class ColumnarIlEmitter {
         return true
     }
 
-    private func TryFindUserDefinedConversion(source: Type, target: Type, methodName: string, out method: ColumnarStaticMethodDef): bool {
-        sourceDef := FindDefByType(source)
-        if (sourceDef != null && TryFindUserDefinedConversionOnType(sourceDef, source, target, methodName, out method)) {
-            return true
-        }
-
-        targetDef := FindDefByType(target)
-        if (targetDef != null && !Object.ReferenceEquals(targetDef, FindDefByType(source)) && TryFindUserDefinedConversionOnType(targetDef, source, target, methodName, out method)) {
-            return true
-        }
-
+    // A user-defined conversion is declared by the type it converts FROM or by the type it converts
+    // TO, so both are asked; the answer is the handle to CALL, already rebound onto its owner's
+    // instantiation when that owner is a constructed source generic.
+    private func TryFindUserDefinedConversion(source: Type, target: Type, methodName: string, out method: MethodInfo): bool {
         method = null
+        let sourceOwned: System.Reflection.MethodInfo? = null
+        if (TryFindUserDefinedConversionOnOwner(source, source, target, methodName, out sourceOwned)) {
+            method = sourceOwned
+            return true
+        }
+
+        let targetOwned: System.Reflection.MethodInfo? = null
+        if (!TypesEquivalent(source, target) && TryFindUserDefinedConversionOnOwner(target, source, target, methodName, out targetOwned)) {
+            method = targetOwned
+            return true
+        }
+
+        return false
+    }
+
+    // The owner is either a PLAIN source type — where the declared signature is already the exact
+    // one and the base chain participates — or a CONSTRUCTED source generic, where the declared
+    // signature is written in the type's own parameters (`implicit operator Wrap<T>(value: T)`) and
+    // means the SUBSTITUTED one on this instantiation. A constructed owner's own declaration is the
+    // whole candidate set: an operator inherited from a generic base would have to be re-instantiated
+    // through that base, which no shape in the corpus asks for and which would be a silent guess.
+    private func TryFindUserDefinedConversionOnOwner(ownerType: Type, source: Type, target: Type, methodName: string, out method: MethodInfo): bool {
+        method = null
+        plainDef := FindDefByType(ownerType)
+        if (plainDef != null) {
+            let plainConversion: NSharpLang.Compiler.Columnar.ColumnarStaticMethodDef? = null
+            if (!TryFindUserDefinedConversionOnType(plainDef, source, target, methodName, out plainConversion)) {
+                return false
+            }
+            method = ColumnarSourceSelfInstantiation.Bind(plainConversion.Builder)
+            return true
+        }
+
+        let closedDef: NSharpLang.Compiler.Columnar.ColumnarStructDef? = null
+        let closedArgs: System.Type[]? = null
+        if (!TryGetClosedReceiverDef(ownerType, out closedDef, out closedArgs)) {
+            return false
+        }
+        let closedOverloads: System.Collections.Generic.List<NSharpLang.Compiler.Columnar.ColumnarStaticMethodDef>? = null
+        if (!closedDef.StaticMethods.TryGetValue(methodName, out closedOverloads)) {
+            return false
+        }
+        for candidate in closedOverloads {
+            if (candidate.ParamTypes.Length != 1) {
+                continue
+            }
+            parameterType := ColumnarRuntimeInstanceMemberResolver.SubstituteClosedTypeArguments(candidate.ParamTypes[0], closedArgs)
+            returnType := ColumnarRuntimeInstanceMemberResolver.SubstituteClosedTypeArguments(candidate.ReturnType, closedArgs)
+            if (TypesEquivalent(parameterType, source) && TypesEquivalent(returnType, target)) {
+                method = TypeBuilder.GetMethod(ownerType, candidate.Builder)
+                return true
+            }
+        }
+
         return false
     }
 
@@ -2051,7 +3130,9 @@ sealed class ColumnarIlEmitter {
                     return DeclineStatic("emit.declaration.nested-owner", "nested type owner could not be resolved for '" + exactStructName + "'", st.Name, -1, 0)
                 }
                 nestedStructBuilder := enclosingDef.Builder
-                nestedStructName := st.Name
+                // The nested CLR name is the exact name's LAST segment, so a nested generic type
+                // keeps its metadata arity suffix (`Outer+Inner``1`).
+                nestedStructName := ColumnarTypeCanonicalizer.UnqualifiedTypeName(exactStructName)
                 nestedStructTypeAttributes := typeAttributes
                 nestedStructIsReference := st.IsReference
                 nestedStructParentType := match nestedStructIsReference {
@@ -2066,6 +3147,19 @@ sealed class ColumnarIlEmitter {
                     return false
                 }
                 ColumnarAttributeBlobs.ApplyToType(tb, byRefLikeCtor, declarationPlan.CustomAttributes.StructByRefLikeBlobs[s])
+            }
+
+            // `readonly struct S`: the SAME `[IsReadOnly]` marker the C# compiler places on the type, from the
+            // same reference universe the value-struct union arm resolves it in. It is metadata only — the
+            // fields are already `initonly` because the analyzer proved every instance field carries
+            // `readonly` — but it is the bit every consumer (C#, F#, the CLR's own `in`-parameter rules)
+            // reads to know a copy is unnecessary.
+            if (declarationPlan.CustomAttributes.StructReadOnlyBlobs[s].Length > 0) {
+                structReadOnlyCtor := typeof(System.Runtime.CompilerServices.IsReadOnlyAttribute).GetConstructor(Type.EmptyTypes)
+                if (structReadOnlyCtor == null) {
+                    return false
+                }
+                ColumnarAttributeBlobs.ApplyToType(tb, structReadOnlyCtor, declarationPlan.CustomAttributes.StructReadOnlyBlobs[s])
             }
 
             // Generic type parameters (`class Box<T>`): declared on the builder before any member signature
@@ -2108,7 +3202,7 @@ sealed class ColumnarIlEmitter {
         unionExactNames := new string[unions.Count]
         for u := 0; u < unions.Count; u++ {
             un := unions[u]
-            exactUnionName := program.ExactTypeNameForFile(un.Name, un.SourceFileId)
+            exactUnionName := program.ExactUnionTypeName(un)
             unionExactNames[u] = exactUnionName
             if (un.IsValueStruct) {
                 structTb := module.DefineType(
@@ -2358,8 +3452,15 @@ sealed class ColumnarIlEmitter {
         // void allowed, OVERLOADS by distinct PARAM COUNT only (same-arity sets are parser declines; columnar
         // static-call resolution is arity-based). The N# struct parser wrapper rejects field/method and
         // static/instance name collisions before this pass. Builders + param types stored; bodies emit in PASS 2.
+        // BASE CLASSES DECLARE THEIR MEMBERS FIRST. A derived class's `override` is resolved against
+        // the base's own `MethodBuilder` handles, so the base must already have filled its
+        // declaration table when the derived class asks. Source order does not guarantee that and
+        // inheritance depth does; `structDepths` is already the depth of every type's chain, so the
+        // pass walks depth 0 first and keeps source order inside each depth.
+        structMethodOrder := ColumnarInheritanceDepthOrder.Sort(structDepths)
         structMethodJobs := new List<ValueTuple<ColumnarStructDef, ColumnarFunctionInput, MethodBuilder, Type, Type, Type, Dictionary<string, int>, ValueTuple<Dictionary<string, Type>, bool>>>()
-        for s := 0; s < structs.Count; s++ {
+        for so := 0; so < structMethodOrder.Length; so++ {
+            s := structMethodOrder[so]
             def := structDefsInOrder[s]
             typeResolution := structTypeResolutions[s]
             // Reference-type (record/class) instance methods are supported: the body emit (bare field -> `ldarg.0;
@@ -2369,12 +3470,38 @@ sealed class ColumnarIlEmitter {
             for mi := 0; mi < structs[s].Methods.Count; mi++ {
                 m := structs[s].Methods[mi]
                 if (m.IsStatic) {
+                    staticMethodAttributes := (MethodAttributes)declarationPlan.Methods.StructMethodAttributeWords[s][mi]
+                    // A GENERIC static method on a user type declares REAL CLR method type parameters:
+                    // the builder and its `DefineGenericParameters` call must come BEFORE the signature
+                    // can name them, so the declaration is ordered around that and the signature is set
+                    // afterwards. Every type in the signature then resolves in a map that MERGES the
+                    // declaring type's parameters with the method's own.
+                    let sGenerics: NSharpLang.Compiler.Columnar.ColumnarGenericMethodFacts? = null
+                    let sTypeParamMap: System.Collections.Generic.Dictionary<string, System.Type>? = null
+                    let sGenericBuilder: System.Reflection.Emit.MethodBuilder? = null
+                    sTypeResolution := typeResolution
+                    if (m.TypeParamNames.Length > 0) {
+                        if (m.IsAsync) {
+                            return DeclineStatic("emit.declaration.method-return", "generic async static method is not modeled for '" + structs[s].Name + "." + m.Name + "'", structs[s].Name, -1, 0)
+                        }
+                        if (ColumnarFunctionInput.HasNativeImportModifier(m.ModifierFlags)) {
+                            return DeclineStatic("emit.declaration.method-generic", "native-import method '" + structs[s].Name + "." + m.Name + "' cannot declare type parameters", structs[s].Name, -1, 0)
+                        }
+                        let declaredStaticBuilder: System.Reflection.Emit.MethodBuilder = null
+                        let declaredStaticTypeParams: System.Collections.Generic.Dictionary<string, System.Type> = null
+                        let declaredStaticResolution: NSharpLang.Compiler.Columnar.ColumnarSemanticTypeResolution = null
+                        let declaredStaticGenerics: NSharpLang.Compiler.Columnar.ColumnarGenericMethodFacts = null
+                        if (!TryDeclareSourceGenericMethod(def, m, mi, staticMethodAttributes, typeResolutionCatalog, out declaredStaticBuilder, out declaredStaticTypeParams, out declaredStaticResolution, out declaredStaticGenerics)) {
+                            return DeclineStatic("emit.declaration.method-generic-constraint", "generic constraints on '" + structs[s].Name + "." + m.Name + "' are not modeled", structs[s].Name, -1, 0)
+                        }
+                        sGenericBuilder = declaredStaticBuilder
+                        sTypeParamMap = declaredStaticTypeParams
+                        sTypeResolution = declaredStaticResolution
+                        sGenerics = declaredStaticGenerics
+                    }
                     let sReturn: System.Type = null
                     sAsyncWrappedReturn: Type? = null
                     if (m.IsAsync) {
-                        if (m.TypeParamNames.Length > 0) {
-                            return DeclineStatic("emit.declaration.method-return", "generic async static method is not modeled for '" + structs[s].Name + "." + m.Name + "'", structs[s].Name, -1, 0)
-                        }
                         if (!ColumnarInterfaceRealization.TryComputeAsyncReturnShape(m.Name, m.ReturnCanonical, typeResolution.Enums, typeResolution.Structs, typeResolution.Unions, out sReturn, out sAsyncWrappedReturn)) {
                             return DeclineStatic("emit.declaration.method-return", "async static method return type '" + m.ReturnCanonical + "' could not be resolved for '" + structs[s].Name + "." + m.Name + "'", structs[s].Name, -1, 0)
                         }
@@ -2382,8 +3509,14 @@ sealed class ColumnarIlEmitter {
                         if (m.ReturnCanonical == "void") {
                             sReturn = ColumnarTypeOfPlanner.RequiredVoidType()
                         } else {
-                            if (!ColumnarCanonicalTypeResolver.TryResolveType(m.ReturnCanonical, typeResolution.Enums, typeResolution.Structs, typeResolution.Unions, out sReturn) || !ColumnarTypeOfPlanner.IsSupportedType(sReturn)) {
-                                return DeclineStatic("emit.declaration.method-return", "static method return type '" + m.ReturnCanonical + "' could not be resolved for '" + structs[s].Name + "." + m.Name + "'", structs[s].Name, -1, 0)
+                            if (sTypeParamMap != null) {
+                                if (!ColumnarCanonicalTypeResolver.TryResolveTypeWithTypeParams(m.ReturnCanonical, sTypeParamMap, sTypeResolution.Enums, sTypeResolution.Structs, sTypeResolution.Unions, out sReturn) || !IsSupportedGenericSignatureValueType(sReturn)) {
+                                    return DeclineStatic("emit.declaration.method-return", "generic static method return type '" + m.ReturnCanonical + "' could not be resolved for '" + structs[s].Name + "." + m.Name + "'", structs[s].Name, -1, 0)
+                                }
+                            } else {
+                                if (!ColumnarCanonicalTypeResolver.TryResolveType(m.ReturnCanonical, typeResolution.Enums, typeResolution.Structs, typeResolution.Unions, out sReturn) || !ColumnarTypeOfPlanner.IsSupportedType(sReturn)) {
+                                    return DeclineStatic("emit.declaration.method-return", "static method return type '" + m.ReturnCanonical + "' could not be resolved for '" + structs[s].Name + "." + m.Name + "'", structs[s].Name, -1, 0)
+                                }
                             }
                         }
                     }
@@ -2393,8 +3526,14 @@ sealed class ColumnarIlEmitter {
                     sParamTypeMap := new Dictionary<string, Type>(StringComparer.Ordinal)
                     for i := 0; i < m.ParamNames.Length; i++ {
                         let pt: System.Type? = null
-                        if (!ColumnarCanonicalTypeResolver.TryResolveType(m.ParamCanonicals[i], typeResolution.Enums, typeResolution.Structs, typeResolution.Unions, out pt) || !ColumnarInterfaceRealization.IsSupportedParameterType(pt)) {
-                            return DeclineStatic("emit.declaration.method-param", "static method parameter type '" + m.ParamCanonicals[i] + "' could not be resolved for '" + structs[s].Name + "." + m.Name + "'", structs[s].Name, -1, 0)
+                        if (sTypeParamMap != null) {
+                            if (!ColumnarCanonicalTypeResolver.TryResolveTypeWithTypeParams(m.ParamCanonicals[i], sTypeParamMap, sTypeResolution.Enums, sTypeResolution.Structs, sTypeResolution.Unions, out pt) || !IsSupportedGenericSignatureParameterType(pt)) {
+                                return DeclineStatic("emit.declaration.method-param", "generic static method parameter type '" + m.ParamCanonicals[i] + "' could not be resolved for '" + structs[s].Name + "." + m.Name + "'", structs[s].Name, -1, 0)
+                            }
+                        } else {
+                            if (!ColumnarCanonicalTypeResolver.TryResolveType(m.ParamCanonicals[i], typeResolution.Enums, typeResolution.Structs, typeResolution.Unions, out pt) || !ColumnarInterfaceRealization.IsSupportedParameterType(pt)) {
+                                return DeclineStatic("emit.declaration.method-param", "static method parameter type '" + m.ParamCanonicals[i] + "' could not be resolved for '" + structs[s].Name + "." + m.Name + "'", structs[s].Name, -1, 0)
+                            }
                         }
                         sParamTypes[i] = pt
                         sOrdinals[m.ParamNames[i]] = i
@@ -2405,7 +3544,6 @@ sealed class ColumnarIlEmitter {
                         overloads = new List<ColumnarStaticMethodDef>()
                         def.StaticMethods[m.Name] = overloads
                     }
-                    staticMethodAttributes := (MethodAttributes)declarationPlan.Methods.StructMethodAttributeWords[s][mi]
                     sSignatureReturn := sAsyncWrappedReturn ?? sReturn
                     nativeImport := declarationPlan.PInvokes.Methods[s][mi]
                     if (nativeImport != null) {
@@ -2445,28 +3583,69 @@ sealed class ColumnarIlEmitter {
                         pinvokeMergedImplementationFlagWord := pinvokeImportForMergeFlags.MergeImplementationFlags(pinvokeCurrentImplementationFlagWord)
                         pinvokeMergedImplementationFlags := (MethodImplAttributes)pinvokeMergedImplementationFlagWord
                         pinvokeMethodForSetFlags.SetImplementationFlags(pinvokeMergedImplementationFlags)
-                        if (!ColumnarParameterDefaultEmitter.DefineMethodParameterMetadataWithAttributes(pmb, sParamTypes, m.ParamNames, m.ParamModifierKinds, m.ParamDefaultKinds, m.ParamDefaultTexts, typeResolution.Enums, m.ParameterSourceAttributes, typeResolution)) {
+                        if (!ColumnarParameterDefaultEmitter.DefineMethodParameterMetadataWithAttributes(pmb, sParamTypes, m.ParamNames, m.ParamModifierKinds, m.ParamDefaultKinds, m.ParamDefaultTexts, typeResolution.Enums, m.ParameterSourceAttributes, typeResolution, m.ParamLabeledCanonicals)) {
                             return false
                         }
-                        overloads.Add(new ColumnarStaticMethodDef(pmb, sParamTypes, m.ParamModifierKinds, sSignatureReturn))
+                        ColumnarTupleElementNameEmitter.ApplyToReturn(pmb, m.ReturnLabeledCanonical)
+                        overloads.Add(new ColumnarStaticMethodDef(pmb, sParamTypes, m.ParamModifierKinds, sSignatureReturn, m.ReturnTupleElementNames))
                         continue
                     }
 
-                    smb := def.Builder.DefineMethod(m.Name, staticMethodAttributes, sSignatureReturn, sParamTypes)
-                    ColumnarSourceAttributes.ApplyMethod(smb, m.SourceAttributes, typeResolution)
-                    if (!ColumnarParameterDefaultEmitter.DefineMethodParameterMetadataWithAttributes(smb, sParamTypes, m.ParamNames, m.ParamModifierKinds, m.ParamDefaultKinds, m.ParamDefaultTexts, typeResolution.Enums, m.ParameterSourceAttributes, typeResolution)) {
+                    let smb: System.Reflection.Emit.MethodBuilder = null
+                    if (sGenericBuilder != null) {
+                        declaredGenericStatic := sGenericBuilder
+                        declaredGenericStatic.SetReturnType(sSignatureReturn)
+                        declaredGenericStatic.SetParameters(sParamTypes)
+                        smb = declaredGenericStatic
+                    } else {
+                        smb = def.Builder.DefineMethod(m.Name, staticMethodAttributes, sSignatureReturn, sParamTypes)
+                    }
+                    ColumnarSourceAttributes.ApplyMethod(smb, m.SourceAttributes, sTypeResolution)
+                    if (!ColumnarMethodImplAttributes.TryApplyToMethod(smb, m.SourceAttributes, sTypeResolution)) {
+                        return DeclineStatic("emit.methodimpl.options", "[MethodImpl] needs a compile-time MethodImplOptions value", m.Name, -1, 0)
+                    }
+                    if (!ColumnarParameterDefaultEmitter.DefineMethodParameterMetadataWithAttributes(smb, sParamTypes, m.ParamNames, m.ParamModifierKinds, m.ParamDefaultKinds, m.ParamDefaultTexts, sTypeResolution.Enums, m.ParameterSourceAttributes, sTypeResolution, m.ParamLabeledCanonicals)) {
                         return false
                     }
-                    overloads.Add(new ColumnarStaticMethodDef(smb, sParamTypes, m.ParamModifierKinds, sSignatureReturn))
+                    ColumnarTupleElementNameEmitter.ApplyToReturn(smb, m.ReturnLabeledCanonical)
+                    staticDefinition := new ColumnarStaticMethodDef(smb, sParamTypes, m.ParamModifierKinds, sSignatureReturn, m.ReturnTupleElementNames)
+                    staticDefinition.Generics = sGenerics
+                    overloads.Add(staticDefinition)
                     structMethodJobs.Add(new ValueTuple<ColumnarStructDef, ColumnarFunctionInput, MethodBuilder, Type, Type, Type, Dictionary<string, int>, ValueTuple<Dictionary<string, Type>, bool>>(def, m, smb, sSignatureReturn, sReturn, sAsyncWrappedReturn, sOrdinals, new ValueTuple<Dictionary<string, Type>, bool>(sParamTypeMap, true)))
                     continue
+                }
+                // A GENERIC instance method follows the same Reflection.Emit ordering as the static
+                // one. It does NOT take part in interface/base override resolution: a method that
+                // declares its own type parameters cannot match a non-generic declaration's signature,
+                // and an explicit `override` on one needs generic-aware base matching that this slice
+                // does not model — so it declines instead of silently emitting a NEW slot.
+                let mGenerics: NSharpLang.Compiler.Columnar.ColumnarGenericMethodFacts? = null
+                let mTypeParamMap: System.Collections.Generic.Dictionary<string, System.Type>? = null
+                let mGenericBuilder: System.Reflection.Emit.MethodBuilder? = null
+                mTypeResolution := typeResolution
+                methodOverride := declarationPlan.MethodOverrides.Methods[s][mi]
+                if (m.TypeParamNames.Length > 0) {
+                    if (m.IsAsync) {
+                        return DeclineStatic("emit.declaration.method-return", "generic async method is not modeled for '" + structs[s].Name + "." + m.Name + "'", structs[s].Name, -1, 0)
+                    }
+                    if (ColumnarFunctionInput.HasOverrideModifier(m.ModifierFlags)) {
+                        return DeclineStatic("emit.declaration.method-generic", "generic method '" + structs[s].Name + "." + m.Name + "' cannot be declared 'override'", structs[s].Name, -1, 0)
+                    }
+                    let declaredInstanceBuilder: System.Reflection.Emit.MethodBuilder = null
+                    let declaredInstanceTypeParams: System.Collections.Generic.Dictionary<string, System.Type> = null
+                    let declaredInstanceResolution: NSharpLang.Compiler.Columnar.ColumnarSemanticTypeResolution = null
+                    let declaredInstanceGenerics: NSharpLang.Compiler.Columnar.ColumnarGenericMethodFacts = null
+                    if (!TryDeclareSourceGenericMethod(def, m, mi, (MethodAttributes)methodOverride.BaseMethodAttributes, typeResolutionCatalog, out declaredInstanceBuilder, out declaredInstanceTypeParams, out declaredInstanceResolution, out declaredInstanceGenerics)) {
+                        return DeclineStatic("emit.declaration.method-generic-constraint", "generic constraints on '" + structs[s].Name + "." + m.Name + "' are not modeled", structs[s].Name, -1, 0)
+                    }
+                    mGenericBuilder = declaredInstanceBuilder
+                    mTypeParamMap = declaredInstanceTypeParams
+                    mTypeResolution = declaredInstanceResolution
+                    mGenerics = declaredInstanceGenerics
                 }
                 let mReturn: System.Type = null
                 mAsyncWrappedReturn: Type? = null
                 if (m.IsAsync) {
-                    if (m.TypeParamNames.Length > 0) {
-                        return DeclineStatic("emit.declaration.method-return", "generic async method is not modeled for '" + structs[s].Name + "." + m.Name + "'", structs[s].Name, -1, 0)
-                    }
                     if (!ColumnarInterfaceRealization.TryComputeAsyncReturnShape(m.Name, m.ReturnCanonical, typeResolution.Enums, typeResolution.Structs, typeResolution.Unions, out mReturn, out mAsyncWrappedReturn)) {
                         return DeclineStatic("emit.declaration.method-return", "async method return type '" + m.ReturnCanonical + "' could not be resolved for '" + structs[s].Name + "." + m.Name + "'", structs[s].Name, -1, 0)
                     }
@@ -2474,8 +3653,14 @@ sealed class ColumnarIlEmitter {
                     if (m.ReturnCanonical == "void") {
                         mReturn = ColumnarTypeOfPlanner.RequiredVoidType()
                     } else {
-                        if (!ColumnarCanonicalTypeResolver.TryResolveMemberType(m.ReturnCanonical, def, typeResolution.Enums, typeResolution.Structs, typeResolution.Unions, out mReturn) || !ColumnarTypeOfPlanner.IsSupportedType(mReturn)) {
-                            return DeclineStatic("emit.declaration.method-return", "method return type '" + m.ReturnCanonical + "' could not be resolved for '" + structs[s].Name + "." + m.Name + "'", structs[s].Name, -1, 0)
+                        if (mTypeParamMap != null) {
+                            if (!ColumnarCanonicalTypeResolver.TryResolveTypeWithTypeParams(m.ReturnCanonical, mTypeParamMap, mTypeResolution.Enums, mTypeResolution.Structs, mTypeResolution.Unions, out mReturn) || !IsSupportedGenericSignatureValueType(mReturn)) {
+                                return DeclineStatic("emit.declaration.method-return", "generic method return type '" + m.ReturnCanonical + "' could not be resolved for '" + structs[s].Name + "." + m.Name + "'", structs[s].Name, -1, 0)
+                            }
+                        } else {
+                            if (!ColumnarCanonicalTypeResolver.TryResolveMemberType(m.ReturnCanonical, def, typeResolution.Enums, typeResolution.Structs, typeResolution.Unions, out mReturn) || !ColumnarTypeOfPlanner.IsSupportedType(mReturn)) {
+                                return DeclineStatic("emit.declaration.method-return", "method return type '" + m.ReturnCanonical + "' could not be resolved for '" + structs[s].Name + "." + m.Name + "'", structs[s].Name, -1, 0)
+                            }
                         }
                     }
                 }
@@ -2486,17 +3671,40 @@ sealed class ColumnarIlEmitter {
                 mParamTypeMap := new Dictionary<string, Type>(StringComparer.Ordinal)
                 for i := 0; i < m.ParamNames.Length; i++ {
                     let pt: System.Type? = null
-                    if (!ColumnarCanonicalTypeResolver.TryResolveMemberType(m.ParamCanonicals[i], def, typeResolution.Enums, typeResolution.Structs, typeResolution.Unions, out pt) || !ColumnarInterfaceRealization.IsSupportedParameterType(pt)) {
-                        return DeclineStatic("emit.declaration.method-param", "method parameter type '" + m.ParamCanonicals[i] + "' could not be resolved for '" + structs[s].Name + "." + m.Name + "'", structs[s].Name, -1, 0)
+                    if (mTypeParamMap != null) {
+                        if (!ColumnarCanonicalTypeResolver.TryResolveTypeWithTypeParams(m.ParamCanonicals[i], mTypeParamMap, mTypeResolution.Enums, mTypeResolution.Structs, mTypeResolution.Unions, out pt) || !IsSupportedGenericSignatureParameterType(pt)) {
+                            return DeclineStatic("emit.declaration.method-param", "generic method parameter type '" + m.ParamCanonicals[i] + "' could not be resolved for '" + structs[s].Name + "." + m.Name + "'", structs[s].Name, -1, 0)
+                        }
+                    } else {
+                        if (!ColumnarCanonicalTypeResolver.TryResolveMemberType(m.ParamCanonicals[i], def, typeResolution.Enums, typeResolution.Structs, typeResolution.Unions, out pt) || !ColumnarInterfaceRealization.IsSupportedParameterType(pt)) {
+                            return DeclineStatic("emit.declaration.method-param", "method parameter type '" + m.ParamCanonicals[i] + "' could not be resolved for '" + structs[s].Name + "." + m.Name + "'", structs[s].Name, -1, 0)
+                        }
                     }
                     mParamTypes[i] = pt
                     mOrdinals[m.ParamNames[i]] = i + 1
                     mParamTypeMap[m.ParamNames[i]] = pt
                 }
+                if (mGenericBuilder != null) {
+                    declaredGenericInstance := mGenericBuilder
+                    declaredGenericInstance.SetReturnType(mSignatureReturn)
+                    declaredGenericInstance.SetParameters(mParamTypes)
+                    ColumnarSourceAttributes.ApplyMethod(declaredGenericInstance, m.SourceAttributes, mTypeResolution)
+                    if (!ColumnarMethodImplAttributes.TryApplyToMethod(declaredGenericInstance, m.SourceAttributes, mTypeResolution)) {
+                        return DeclineStatic("emit.methodimpl.options", "[MethodImpl] needs a compile-time MethodImplOptions value", m.Name, -1, 0)
+                    }
+                    if (!ColumnarParameterDefaultEmitter.DefineMethodParameterMetadataWithAttributes(declaredGenericInstance, mParamTypes, m.ParamNames, m.ParamModifierKinds, m.ParamDefaultKinds, m.ParamDefaultTexts, mTypeResolution.Enums, m.ParameterSourceAttributes, mTypeResolution, m.ParamLabeledCanonicals)) {
+                        return false
+                    }
+                    ColumnarTupleElementNameEmitter.ApplyToReturn(declaredGenericInstance, m.ReturnLabeledCanonical)
+                    genericInstanceDefinition := new ColumnarInstanceMethodDef(declaredGenericInstance, mParamTypes, m.ParamModifierKinds, mSignatureReturn, m.ReturnTupleElementNames)
+                    genericInstanceDefinition.Generics = mGenerics
+                    AddInstanceMethod(def, m.Name, genericInstanceDefinition)
+                    structMethodJobs.Add(new ValueTuple<ColumnarStructDef, ColumnarFunctionInput, MethodBuilder, Type, Type, Type, Dictionary<string, int>, ValueTuple<Dictionary<string, Type>, bool>>(def, m, declaredGenericInstance, mSignatureReturn, mReturn, mAsyncWrappedReturn, mOrdinals, new ValueTuple<Dictionary<string, Type>, bool>(mParamTypeMap, false)))
+                    continue
+                }
                 // Resolution remains at the declaration phase because source builders and closed handles
                 // do not exist when the initial rows are planned. N# owns target deduplication, final
                 // attributes, base-target resolution and application order.
-                methodOverride := declarationPlan.MethodOverrides.Methods[s][mi]
                 for implementedInterface in def.ImplementedInterfaces {
                     methodOverride.TryAddSourceInterfaceTarget(
                         implementedInterface,
@@ -2536,21 +3744,30 @@ sealed class ColumnarIlEmitter {
                     mParamTypes,
                     typeResolution.Structs.StructuralTypeReferences
                 )
-                methodOverrideCompletion := methodOverride.Complete(def.ExactBaseType, m.Name, mSignatureReturn, mParamTypes, typeResolution.Structs.StructuralTypeReferences)
+                methodOverrideCompletion := methodOverride.Complete(def.ExactBaseType, def.BaseDef, m.Name, mSignatureReturn, mParamTypes, typeResolution.Structs.StructuralTypeReferences)
                 if (!methodOverrideCompletion.IsValid) {
                     return DeclineStatic(methodOverrideCompletion.DeclineCode, methodOverrideCompletion.DeclineMessage, methodOverrideCompletion.DeclineOwnerName, -1, 0)
                 }
                 mb := methodOverrideCompletion.DefineMethod(def.Builder)
                 ColumnarSourceAttributes.ApplyMethod(mb, m.SourceAttributes, typeResolution)
-                if (!ColumnarParameterDefaultEmitter.DefineMethodParameterMetadataWithAttributes(mb, mParamTypes, m.ParamNames, m.ParamModifierKinds, m.ParamDefaultKinds, m.ParamDefaultTexts, typeResolution.Enums, m.ParameterSourceAttributes, typeResolution)) {
+                if (!ColumnarMethodImplAttributes.TryApplyToMethod(mb, m.SourceAttributes, typeResolution)) {
+                    return DeclineStatic("emit.methodimpl.options", "[MethodImpl] needs a compile-time MethodImplOptions value", m.Name, -1, 0)
+                }
+                if (!ColumnarParameterDefaultEmitter.DefineMethodParameterMetadataWithAttributes(mb, mParamTypes, m.ParamNames, m.ParamModifierKinds, m.ParamDefaultKinds, m.ParamDefaultTexts, typeResolution.Enums, m.ParameterSourceAttributes, typeResolution, m.ParamLabeledCanonicals)) {
                     return false
                 }
+                ColumnarTupleElementNameEmitter.ApplyToReturn(mb, m.ReturnLabeledCanonical)
                 methodOverrideCompletion.Apply(def.Builder, mb, typeResolution.Structs.StructuralTypeReferences)
                 AddInstanceMethod(
                     def,
                     m.Name,
-                    new ColumnarInstanceMethodDef(mb, mParamTypes, m.ParamModifierKinds, mSignatureReturn)
+                    new ColumnarInstanceMethodDef(mb, mParamTypes, m.ParamModifierKinds, mSignatureReturn, m.ReturnTupleElementNames)
                 )
+                // An `abstract` member IS its declaration. There is no body to schedule, and
+                // emitting one would make the CLR reject the type.
+                if (ColumnarFunctionInput.IsBodylessAbstractMember(m.ModifierFlags, m.IsStatic)) {
+                    continue
+                }
                 structMethodJobs.Add(new ValueTuple<ColumnarStructDef, ColumnarFunctionInput, MethodBuilder, Type, Type, Type, Dictionary<string, int>, ValueTuple<Dictionary<string, Type>, bool>>(def, m, mb, mSignatureReturn, mReturn, mAsyncWrappedReturn, mOrdinals, new ValueTuple<Dictionary<string, Type>, bool>(mParamTypeMap, false)))
             }
         }
@@ -2603,6 +3820,9 @@ sealed class ColumnarIlEmitter {
                         staticPropertySetterAttributes
                     )
                     staticGetter := staticAccessors.Getter
+                    if (!ColumnarMethodImplAttributes.TryApplyToMethod(staticGetter, prop.Getter.SourceAttributes, typeResolution)) {
+                        return DeclineStatic("emit.methodimpl.options", "[MethodImpl] needs a compile-time MethodImplOptions value", prop.Name, -1, 0)
+                    }
                     structMethodJobs.Add(new ValueTuple<ColumnarStructDef, ColumnarFunctionInput, MethodBuilder, Type, Type, Type, Dictionary<string, int>, ValueTuple<Dictionary<string, Type>, bool>>(def, prop.Getter, staticGetter, propType, propType, null, new Dictionary<string, int>(StringComparer.Ordinal), new ValueTuple<Dictionary<string, Type>, bool>(new Dictionary<string, Type>(StringComparer.Ordinal), true)))
                     staticProperty := def.Builder.DefineProperty(prop.Name, PropertyAttributes.None, propType, Type.EmptyTypes)
                     if declarationPlan.Properties.HasMsBuildRequiredAttribute[s][pi] {
@@ -2627,6 +3847,9 @@ sealed class ColumnarIlEmitter {
                     staticSetter := staticAccessors.Setter
                     if (prop.Setter != null) {
                         exactStaticSetter := staticSetter
+                        if (!ColumnarMethodImplAttributes.TryApplyToMethod(exactStaticSetter, prop.Setter.SourceAttributes, typeResolution)) {
+                            return DeclineStatic("emit.methodimpl.options", "[MethodImpl] needs a compile-time MethodImplOptions value", prop.Name, -1, 0)
+                        }
                         if (!ColumnarParameterDefaultEmitter.DefineMethodParameterMetadata(exactStaticSetter, [propType], ["value"], Array.Empty<int>(), Array.Empty<int>(), Array.Empty<string?>(), typeResolution.Enums)) {
                             return false
                         }
@@ -2659,6 +3882,9 @@ sealed class ColumnarIlEmitter {
                     propertySetterAttributes
                 )
                 getter := accessors.Getter
+                if (!ColumnarMethodImplAttributes.TryApplyToMethod(getter, prop.Getter.SourceAttributes, typeResolution)) {
+                    return DeclineStatic("emit.methodimpl.options", "[MethodImpl] needs a compile-time MethodImplOptions value", prop.Name, -1, 0)
+                }
                 structMethodJobs.Add(new ValueTuple<ColumnarStructDef, ColumnarFunctionInput, MethodBuilder, Type, Type, Type, Dictionary<string, int>, ValueTuple<Dictionary<string, Type>, bool>>(def, prop.Getter, getter, propType, propType, null, new Dictionary<string, int>(StringComparer.Ordinal), new ValueTuple<Dictionary<string, Type>, bool>(new Dictionary<string, Type>(StringComparer.Ordinal), false)))
                 property := def.Builder.DefineProperty(prop.Name, PropertyAttributes.None, propType, Type.EmptyTypes)
                 if declarationPlan.Properties.HasMsBuildRequiredAttribute[s][pi] {
@@ -2683,6 +3909,9 @@ sealed class ColumnarIlEmitter {
                 setter := accessors.Setter
                 if (prop.Setter != null) {
                     exactSetter := setter
+                    if (!ColumnarMethodImplAttributes.TryApplyToMethod(exactSetter, prop.Setter.SourceAttributes, typeResolution)) {
+                        return DeclineStatic("emit.methodimpl.options", "[MethodImpl] needs a compile-time MethodImplOptions value", prop.Name, -1, 0)
+                    }
                     if (!ColumnarParameterDefaultEmitter.DefineMethodParameterMetadata(exactSetter, [propType], ["value"], Array.Empty<int>(), Array.Empty<int>(), Array.Empty<string?>(), typeResolution.Enums)) {
                         return false
                     }
@@ -3272,7 +4501,7 @@ sealed class ColumnarIlEmitter {
                                         genericReturnSupported = true
                                     } else {
                                         genericReturnIsParameterArray := false
-                                        genericReturnIsSzArray := returnType.get_IsSZArray()
+                                        genericReturnIsSzArray := ColumnarTypeEquivalenceFacts.IsSafeSzArrayType(returnType)
                                         if (genericReturnIsSzArray) {
                                             genericReturnElement := returnType.GetElementType()
                                             genericReturnIsParameterArray = genericReturnElement.get_IsGenericParameter()
@@ -3310,7 +4539,7 @@ sealed class ColumnarIlEmitter {
                             genericParameterSupported = true
                         } else {
                             genericParameterIsParameterArray := false
-                            genericParameterIsSzArray := pt.get_IsSZArray()
+                            genericParameterIsSzArray := ColumnarTypeEquivalenceFacts.IsSafeSzArrayType(pt)
                             if (genericParameterIsSzArray) {
                                 genericParameterElement := pt.GetElementType()
                                 genericParameterIsParameterArray = genericParameterElement.get_IsGenericParameter()
@@ -3359,9 +4588,13 @@ sealed class ColumnarIlEmitter {
                 )
             }
             ColumnarSourceAttributes.ApplyMethod(methods[f], fn.SourceAttributes, typeResolution)
-            if (!ColumnarParameterDefaultEmitter.DefineMethodParameterMetadataWithAttributes(methods[f], paramTypes, fn.ParamNames, fn.ParamModifierKinds, fn.ParamDefaultKinds, fn.ParamDefaultTexts, typeResolution.Enums, fn.ParameterSourceAttributes, typeResolution)) {
+            if (!ColumnarMethodImplAttributes.TryApplyToMethod(methods[f], fn.SourceAttributes, typeResolution)) {
+                return DeclineStatic("emit.methodimpl.options", "[MethodImpl] needs a compile-time MethodImplOptions value", fn.Name, -1, 0)
+            }
+            if (!ColumnarParameterDefaultEmitter.DefineMethodParameterMetadataWithAttributes(methods[f], paramTypes, fn.ParamNames, fn.ParamModifierKinds, fn.ParamDefaultKinds, fn.ParamDefaultTexts, typeResolution.Enums, fn.ParameterSourceAttributes, typeResolution, fn.ParamLabeledCanonicals)) {
                 return false
             }
+            ColumnarTupleElementNameEmitter.ApplyToReturn(methods[f], fn.ReturnLabeledCanonical)
             ordinalsByFunc[f] = ordinals
             paramTypesByFunc[f] = paramTypeMap
             returnTypeByFunc[f] = asyncWrappedReturn ?? returnType
@@ -3491,25 +4724,15 @@ sealed class ColumnarIlEmitter {
                         localMethodReturnType,
                         localMethodParameterTypes
                     )
-                    if (!ColumnarParameterDefaultEmitter.DefineMethodParameterMetadata(localMethod, localParams, localFn.ParamNames, localFn.ParamModifierKinds, localFn.ParamDefaultKinds, localFn.ParamDefaultTexts, typeResolution.Enums)) {
+                    if (!ColumnarParameterDefaultEmitter.DefineMethodParameterMetadataWithAttributes(localMethod, localParams, localFn.ParamNames, localFn.ParamModifierKinds, localFn.ParamDefaultKinds, localFn.ParamDefaultTexts, typeResolution.Enums, null, null, localFn.ParamLabeledCanonicals)) {
                         return false
                     }
+                    ColumnarTupleElementNameEmitter.ApplyToReturn(localMethod, localFn.ReturnLabeledCanonical)
                     localFuncs[localFn.Name] = (localMethod, localParams, localReturn)
                     declaredLocalFuncNodes[nodeIndex] = localFn.Name
                 }
             }
-            fnParamTupleNames: Dictionary<string, string[]>? = null
-            if (fn.ParamTupleElementNames != null) {
-                for pn := 0; pn < fn.ParamNames.Length && pn < fn.ParamTupleElementNames.Length; pn++ {
-                    paramElementNames := fn.ParamTupleElementNames[pn]
-                    if (paramElementNames != null) {
-                        if (fnParamTupleNames == null) {
-                            fnParamTupleNames = new Dictionary<string, string[]>(StringComparer.Ordinal)
-                        }
-                        fnParamTupleNames[fn.ParamNames[pn]] = paramElementNames
-                    }
-                }
-            }
+            fnParamTupleNames := ColumnarTupleElementNames.ParameterNameMap(fn.ParamNames, fn.ParamTupleElementNames)
             // ASYNC bodies check return values against the INNER type; the method's CLR signature
             // (and every sibling call site) sees the WRAPPED type.
             bodyReturnType := asyncWrappedByFunc[f] != null ? asyncInnerByFunc[f] : returnTypeByFunc[f]
@@ -3819,9 +5042,37 @@ sealed class ColumnarIlEmitter {
                 }
                 continue
             }
+            // A GENERIC member's body sees BOTH scopes: the declaring type's parameters and the
+            // method's own, read straight off the builder the declaration pass closed over. Its
+            // interface constraints ride along so a constrained call on one of them resolves.
+            memberBodyTypeParameters := job.Item1.GenericParameters
+            memberGenericInterfaceConstraints := ColumnarIlEmitter.s_noGenericInterfaceConstraints
+            memberMethodBuilder := job.Item3
+            if (memberMethodBuilder.get_IsGenericMethodDefinition()) {
+                memberMethodTypeParams := memberMethodBuilder.GetGenericArguments()
+                mergedMemberTypeParameters := new Dictionary<string, Type>(StringComparer.Ordinal)
+                ownerMemberTypeParameters := job.Item1.GenericParameters
+                if (ownerMemberTypeParameters != null) {
+                    for ownerMemberPair in ownerMemberTypeParameters {
+                        mergedMemberTypeParameters[ownerMemberPair.Key] = ownerMemberPair.Value
+                    }
+                }
+                for tp := 0; tp < job.Item2.TypeParamNames.Length && tp < memberMethodTypeParams.Length; tp++ {
+                    mergedMemberTypeParameters[job.Item2.TypeParamNames[tp]] = memberMethodTypeParams[tp]
+                }
+                memberBodyTypeParameters = mergedMemberTypeParameters
+                memberGenerics := FindSourceMethodGenerics(job.Item1, memberMethodBuilder)
+                if (memberGenerics != null) {
+                    memberGenericInterfaceConstraints = ColumnarGenericConstraintPlanner.BuildGenericInterfaceConstraintMap(
+                        memberGenerics.TypeParams,
+                        memberGenerics.InterfaceConstraints,
+                        ColumnarIlEmitter.s_noGenericInterfaceConstraints
+                    )
+                }
+            }
             bodyTypeResolution := typeResolutionCatalog.For(
                 job.Item2.SourceFileId,
-                job.Item1.GenericParameters,
+                memberBodyTypeParameters,
                 job.Item1.DeclaredTypeName
             )
             methodJobNodes := job.Item2.BodyNodes
@@ -3840,6 +5091,10 @@ sealed class ColumnarIlEmitter {
             if (!methodJobIsStatic) {
                 methodJobCurrentStruct = job.Item1
             }
+            // A member's NAMED tuple parameters and the named tuples returned by free functions are
+            // visible from a method body exactly as they are from a free function's: the two
+            // spellings of "a function with a named tuple in its signature" behave the same.
+            methodJobParamTupleNames := ColumnarTupleElementNames.ParameterNameMap(job.Item2.ParamNames, job.Item2.ParamTupleElementNames)
             emitter := new ColumnarIlEmitter(
                 methodJobNodes,
                 methodJobSource,
@@ -3863,8 +5118,8 @@ sealed class ColumnarIlEmitter {
                 null,
                 null,
                 null,
-                null,
-                null,
+                siblingReturnTupleNames,
+                methodJobParamTupleNames,
                 null,
                 job.Item6,
                 match job.Item2.ReturnCanonical {
@@ -3873,8 +5128,8 @@ sealed class ColumnarIlEmitter {
                     _ => false
                 },
                 referenceAssemblyPaths,
-                null,
-                job.Item1.GenericParameters,
+                memberGenericInterfaceConstraints,
+                memberBodyTypeParameters,
                 bodyTypeResolution.Enums,
                 bodyTypeResolution.Structs,
                 bodyTypeResolution.Unions
@@ -3926,6 +5181,9 @@ sealed class ColumnarIlEmitter {
                 job.Struct.GenericParameters,
                 job.Struct.DeclaredTypeName
             )
+            // A constructor's NAMED tuple parameters, and the named tuples free functions return, are
+            // visible from a constructor body exactly as they are from any other body.
+            ctorJobParamTupleNames := ColumnarTupleElementNames.ParameterNameMapFromLabeled(job.Ctor.Body.ParamNames, job.Ctor.Body.ParamLabeledCanonicals)
             emitter := new ColumnarIlEmitter(
                 job.Ctor.Body.BodyNodes,
                 ctorSource,
@@ -3949,8 +5207,8 @@ sealed class ColumnarIlEmitter {
                 null,
                 null,
                 null,
-                null,
-                null,
+                siblingReturnTupleNames,
+                ctorJobParamTupleNames,
                 null,
                 null,
                 false,
@@ -4804,7 +6062,7 @@ sealed class ColumnarIlEmitter {
                             if (TryEmitArrayLiteralAsType(retNode, _returnType, out retType)) {
                             } else {
                                 // target-typed array literal return.
-                                if (TryEmitNullLiteralAsType(retNode, _returnType, out retType)) {
+                                if (TryEmitZeroLiteralAsType(retNode, _returnType, out retType)) {
                                 } else {
                                     // `return null` on a reference-typed function.
                                     if (ColumnarTypeOfPlanner.IsSupportedNullable(_returnType)) {
@@ -4824,7 +6082,7 @@ sealed class ColumnarIlEmitter {
                     }
                 }
             }
-            if (!TypesEquivalent(retType, _returnType) && !TryEmitImplicitWidening(retType, _returnType) && !ColumnarReferenceCoercionPlanner.TryEmitInterfaceUpcast(retType, _returnType, _structRegistry, _il) && !ColumnarReferenceConversionFacts.TryEmitReferenceConversion(retType, _returnType) && !ColumnarReferenceCoercionPlanner.TryEmitObjectConversion(retType, _returnType, _structRegistry, _il) && !TryEmitAnonymousUnionConversion(retType, _returnType) && !TryEmitUserDefinedConversion(retType, _returnType, false)) {
+            if (!TypesEquivalent(retType, _returnType) && !TryEmitImplicitWidening(retType, _returnType) && !ColumnarReferenceCoercionPlanner.TryEmitInterfaceUpcast(retType, _returnType, _structRegistry, _il) && !ColumnarReferenceCoercionPlanner.TryEmitExternalInterfaceUpcast(retType, _returnType, _structRegistry, _il) && !ColumnarReferenceConversionFacts.TryEmitReferenceConversion(retType, _returnType) && !ColumnarReferenceCoercionPlanner.TryEmitObjectConversion(retType, _returnType, _structRegistry, _il) && !TryEmitAnonymousUnionConversion(retType, _returnType) && !TryEmitUserDefinedConversion(retType, _returnType, false)) {
                 return Decline("emit.return.type-mismatch", "return expression type '" + retType.FullName + "' does not match declared return type '" + _returnType.FullName + "'", retNode)
             }
             if (_inProtectedRegion) {
@@ -4875,7 +6133,7 @@ sealed class ColumnarIlEmitter {
             if (!EmitExpression(Child(idx, 0), out initType)) {
                 return Decline("emit.local.initializer", "local initializer expression emission declined for '" + name + "'", Child(idx, 0))
             }
-            if (!(initType.get_IsGenericParameter() || (initType.get_IsSZArray() && initType.GetElementType().get_IsGenericParameter()) || ColumnarTypeOfPlanner.IsSupportedType(initType))) {
+            if (!(initType.get_IsGenericParameter() || (ColumnarTypeEquivalenceFacts.IsSafeSzArrayType(initType) && initType.GetElementType().get_IsGenericParameter()) || ColumnarTypeOfPlanner.IsSupportedType(initType))) {
                 return Decline("emit.local.unsupported-type", "local initializer type is not supported for '" + name + "': " + initType.FullName, idx)
             }
             // L3b: a lifted candidate (captured by some lambda AND bare-assigned) declares as a shared
@@ -4956,7 +6214,7 @@ sealed class ColumnarIlEmitter {
                                 } else {
                                     // `values: T[] = [a, b]` — the target array type owns the element type.
                                     let columnarDiscard11: System.Type = null
-                                    if (TryEmitNullLiteralAsType(declaredInit, declaredType, out columnarDiscard11)) {
+                                    if (TryEmitZeroLiteralAsType(declaredInit, declaredType, out columnarDiscard11)) {
                                     } else {
                                         // `s: string? = null` (a `?`-annotated reference resolves to its element type).
                                         if (ColumnarTypeOfPlanner.IsSupportedNullable(declaredType)) {
@@ -4970,7 +6228,7 @@ sealed class ColumnarIlEmitter {
                                             if (!EmitExpression(declaredInit, out declaredInitType)) {
                                                 return Decline("emit.typed-local.initializer", "typed local initializer expression emission declined for '" + declaredName + "'", declaredInit)
                                             }
-                                            if (!TypesEquivalent(declaredInitType, declaredType) && !TryEmitImplicitWidening(declaredInitType, declaredType) && !ColumnarReferenceCoercionPlanner.TryEmitInterfaceUpcast(declaredInitType, declaredType, _structRegistry, _il) && !ColumnarReferenceConversionFacts.TryEmitReferenceConversion(declaredInitType, declaredType) && !ColumnarReferenceCoercionPlanner.TryEmitObjectConversion(declaredInitType, declaredType, _structRegistry, _il) && !TryEmitAnonymousUnionConversion(declaredInitType, declaredType) && !TryEmitUserDefinedConversion(declaredInitType, declaredType, false)) {
+                                            if (!TypesEquivalent(declaredInitType, declaredType) && !TryEmitImplicitWidening(declaredInitType, declaredType) && !ColumnarReferenceCoercionPlanner.TryEmitInterfaceUpcast(declaredInitType, declaredType, _structRegistry, _il) && !ColumnarReferenceCoercionPlanner.TryEmitExternalInterfaceUpcast(declaredInitType, declaredType, _structRegistry, _il) && !ColumnarReferenceConversionFacts.TryEmitReferenceConversion(declaredInitType, declaredType) && !ColumnarReferenceCoercionPlanner.TryEmitObjectConversion(declaredInitType, declaredType, _structRegistry, _il) && !TryEmitAnonymousUnionConversion(declaredInitType, declaredType) && !TryEmitUserDefinedConversion(declaredInitType, declaredType, false)) {
                                                 return Decline("emit.typed-local.type-mismatch", "typed local initializer type '" + declaredInitType.FullName + "' does not match declared type '" + declaredType.FullName + "' for '" + declaredName + "'", declaredInit)
                                             }
                                         }
@@ -5145,7 +6403,38 @@ sealed class ColumnarIlEmitter {
                 // single-evaluation semantics), then get_Item, the op, set_Item.
                 if (_nodes.Kind(compoundTarget) == 10) {
                     let idxRecvType: System.Type? = null
-                    if (!EmitExpression(Child(compoundTarget, 0), out idxRecvType) || !IsSupportedIndexableCollectionType(idxRecvType)) {
+                    if (!EmitExpression(Child(compoundTarget, 0), out idxRecvType)) {
+                        return false
+                    }
+                    // AN ARRAY ELEMENT compound target (`totals[i] += v`). The array reference and the
+                    // index each evaluate ONCE into a temp and are then loaded twice -- once to read the
+                    // element and once to store it back -- so a side-effecting index expression runs a
+                    // single time, and the bounds check is the CLR's own on both halves.
+                    if (ColumnarTypeEquivalenceFacts.IsSafeSzArrayType(idxRecvType)) {
+                        arrayElementType := idxRecvType.GetElementType()
+                        arrayTemp := _il.DeclareLocal(idxRecvType)
+                        _il.Emit(OpCodes.Stloc, arrayTemp)
+                        let arrayIndexType: System.Type? = null
+                        if (!EmitExpression(Child(compoundTarget, 1), out arrayIndexType) || arrayIndexType != typeof(int)) {
+                            return false
+                        }
+                        arrayIndexTemp := _il.DeclareLocal(typeof(int))
+                        _il.Emit(OpCodes.Stloc, arrayIndexTemp)
+                        _il.Emit(OpCodes.Ldloc, arrayTemp)
+                        _il.Emit(OpCodes.Ldloc, arrayIndexTemp)
+                        _il.Emit(OpCodes.Ldloc, arrayTemp)
+                        _il.Emit(OpCodes.Ldloc, arrayIndexTemp)
+                        EmitArrayElementLoad(arrayElementType)
+                        let arrayRhsType: System.Type? = null
+                        if (!TryEmitIntLiteralAsType(Child(expr, 1), arrayElementType, out arrayRhsType) && !EmitExpression(Child(expr, 1), out arrayRhsType)) {
+                            return false
+                        }
+                        if (!TryEmitCompoundOperation(assignOp, arrayElementType, arrayRhsType)) {
+                            return false
+                        }
+                        return EmitArrayElementStore(arrayElementType)
+                    }
+                    if (!IsSupportedIndexableCollectionType(idxRecvType)) {
                         return false
                     }
                     // Builder-bound collections never have the scalar/string elements compound
@@ -5177,22 +6466,8 @@ sealed class ColumnarIlEmitter {
                             return false
                         }
                     }
-                    if (!TypesEquivalent(idxRhsType, idxElemType)) {
+                    if (!TryEmitCompoundOperation(assignOp, idxElemType, idxRhsType)) {
                         return false
-                    }
-                    if (idxElemType == typeof(string)) {
-                        if (assignOp != "+=") {
-                            return false
-                        }
-                        _il.Emit(OpCodes.Call, typeof(string).GetMethod(nameof(string.Concat), [typeof(string), typeof(string)]))
-                    } else {
-                        if (idxElemType == typeof(int) || idxElemType == typeof(long) || idxElemType == typeof(ulong) || idxElemType == typeof(double) || idxElemType == typeof(float)) {
-                            idxCompoundIl := _il
-                            idxCompoundOpCode := assignOp == "+=" ? OpCodes.Add : assignOp == "-=" ? OpCodes.Sub : assignOp == "*=" ? OpCodes.Mul : idxElemType == typeof(ulong) ? OpCodes.Div_Un : OpCodes.Div
-                            idxCompoundIl.Emit(idxCompoundOpCode)
-                        } else {
-                            return false
-                        }
                     }
                     _il.Emit(OpCodes.Callvirt, ResolveClosedGenericMethod(idxRecvType, idxRecvDef.GetMethod("set_Item")))
                     return true
@@ -5217,25 +6492,15 @@ sealed class ColumnarIlEmitter {
                         return false
                     }
                     compoundMemberType := compoundMemberField.get_FieldType()
-                    if (compoundMemberType != typeof(string) && compoundMemberType != typeof(int) && compoundMemberType != typeof(long) && compoundMemberType != typeof(ulong) && compoundMemberType != typeof(double) && compoundMemberType != typeof(float)) {
-                        return false
-                    }
                     EmitMemberWriteLocator(compoundChain)
                     _il.Emit(OpCodes.Dup)
                     _il.Emit(OpCodes.Ldfld, compoundMemberField)
                     let compoundMemberValueType: System.Type? = null
-                    if (!TryEmitIntLiteralAsType(Child(expr, 1), compoundMemberType, out compoundMemberValueType) && (!EmitExpression(Child(expr, 1), out compoundMemberValueType) || !TypesEquivalent(compoundMemberValueType, compoundMemberType))) {
+                    if (!TryEmitIntLiteralAsType(Child(expr, 1), compoundMemberType, out compoundMemberValueType) && !EmitExpression(Child(expr, 1), out compoundMemberValueType)) {
                         return false
                     }
-                    if (compoundMemberType == typeof(string)) {
-                        if (assignOp != "+=") {
-                            return false
-                        }
-                        _il.Emit(OpCodes.Call, typeof(string).GetMethod(nameof(string.Concat), [typeof(string), typeof(string)]))
-                    } else {
-                        compoundMemberIl := _il
-                        compoundMemberOpCode := assignOp == "+=" ? OpCodes.Add : assignOp == "-=" ? OpCodes.Sub : assignOp == "*=" ? OpCodes.Mul : compoundMemberType == typeof(ulong) ? OpCodes.Div_Un : OpCodes.Div
-                        compoundMemberIl.Emit(compoundMemberOpCode)
+                    if (!TryEmitCompoundOperation(assignOp, compoundMemberType, compoundMemberValueType)) {
+                        return false
                     }
                     _il.Emit(OpCodes.Stfld, compoundMemberField)
                     return true
@@ -5271,33 +6536,12 @@ sealed class ColumnarIlEmitter {
                 }
                 // `u /= 3` — an in-range int literal adopts the target's type (N# constant conversion).
                 let compoundValueType: System.Type? = null
-                if (!TryEmitIntLiteralAsType(Child(expr, 1), compoundType, out compoundValueType) && (!EmitExpression(Child(expr, 1), out compoundValueType) || !TypesEquivalent(compoundValueType, compoundType))) {
+                if (!TryEmitIntLiteralAsType(Child(expr, 1), compoundType, out compoundValueType) && !EmitExpression(Child(expr, 1), out compoundValueType)) {
                     return false
                 }
 
-                if (compoundType == typeof(string)) {
-                    if (assignOp != "+=") {
-                        return false
-                    }
-                    _il.Emit(OpCodes.Call, typeof(string).GetMethod(nameof(string.Concat), [typeof(string), typeof(string)]))
-                } else {
-                    if (compoundType == typeof(decimal)) {
-                        compoundDecimalIl := _il
-                        compoundDecimalOpCode := OpCodes.Call
-                        compoundDecimalType := typeof(decimal)
-                        compoundDecimalMethodName := assignOp == "+=" ? "op_Addition" : assignOp == "-=" ? "op_Subtraction" : assignOp == "*=" ? "op_Multiply" : "op_Division"
-                        compoundDecimalParameterTypes := [typeof(decimal), typeof(decimal)]
-                        compoundDecimalMethod := compoundDecimalType.GetMethod(compoundDecimalMethodName, compoundDecimalParameterTypes)
-                        compoundDecimalIl.Emit(compoundDecimalOpCode, compoundDecimalMethod)
-                    } else {
-                        if (compoundType == typeof(int) || compoundType == typeof(long) || compoundType == typeof(ulong) || compoundType == typeof(double) || compoundType == typeof(float)) {
-                            compoundScalarIl := _il
-                            compoundScalarOpCode := assignOp == "+=" ? OpCodes.Add : assignOp == "-=" ? OpCodes.Sub : assignOp == "*=" ? OpCodes.Mul : compoundType == typeof(ulong) ? OpCodes.Div_Un : OpCodes.Div
-                            compoundScalarIl.Emit(compoundScalarOpCode)
-                        } else {
-                            return false
-                        }
-                    }
+                if (!TryEmitCompoundOperation(assignOp, compoundType, compoundValueType)) {
+                    return false
                 }
 
                 if (compoundLocal != null) {
@@ -5362,7 +6606,14 @@ sealed class ColumnarIlEmitter {
                     EmitStoreByRefElement(spanElementType)
                     return true
                 }
-                if (!arrayType.get_IsSZArray()) {
+                indexerWrote := false
+                if (TryEmitRuntimeIndexerWrite(target, Child(expr, 1), arrayType, out indexerWrote)) {
+                    return true
+                }
+                if (indexerWrote) {
+                    return false
+                }
+                if (!ColumnarTypeEquivalenceFacts.IsSafeSzArrayType(arrayType)) {
                     return false
                 }
                 // Stelem order is (array, index, value): emit the array ref, the int index, the value, store.
@@ -5413,11 +6664,44 @@ sealed class ColumnarIlEmitter {
                             if (!TryEmitAssignableValue(Child(expr, 1), staticPropWrite.PropertyType, out columnarDiscard16)) {
                                 return false
                             }
-                            _il.Emit(OpCodes.Call, staticPropWrite.Setter)
+                            _il.Emit(OpCodes.Call, ColumnarSourceSelfInstantiation.Bind(staticPropWrite.Setter))
                             return true
                         }
                         return false
                     }
+                }
+                // STATIC member write through a CONSTRUCTED GENERIC TYPE — `PerTypeState<int>.Count = 0`.
+                // The storage belongs to the instantiation, so the handle is the declaration REBOUND
+                // onto it; the value is checked against the SUBSTITUTED member type.
+                if (ColumnarGenericTypeReceiverFacts.IsReceiver(_nodes, fieldReceiver)) {
+                    let constructedWriteType: System.Type? = null
+                    let constructedWriteDef: NSharpLang.Compiler.Columnar.ColumnarStructDef? = null
+                    let constructedWriteArgs: System.Type[]? = null
+                    if (!TryResolveConstructedSourceGenericReceiver(fieldReceiver, out constructedWriteType) || !TryGetClosedReceiverDef(constructedWriteType, out constructedWriteDef, out constructedWriteArgs)) {
+                        return false
+                    }
+                    let constructedWriteField: System.Reflection.FieldInfo? = null
+                    let constructedWriteFieldType: System.Type? = null
+                    if (ColumnarSourceGenericStaticMemberFacts.TryFindStaticField(constructedWriteType, constructedWriteDef, memberName, out constructedWriteField, out constructedWriteFieldType)) {
+                        let columnarDiscard56: System.Type = null
+                        if (!TryEmitAssignableValue(Child(expr, 1), constructedWriteFieldType, out columnarDiscard56)) {
+                            return false
+                        }
+                        _il.Emit(OpCodes.Stsfld, constructedWriteField)
+                        return true
+                    }
+                    let constructedWriteGetter: System.Reflection.MethodInfo? = null
+                    let constructedWriteSetter: System.Reflection.MethodInfo? = null
+                    let constructedWritePropertyType: System.Type? = null
+                    if (ColumnarSourceGenericStaticMemberFacts.TryFindStaticProperty(constructedWriteType, constructedWriteDef, memberName, out constructedWriteGetter, out constructedWriteSetter, out constructedWritePropertyType) && constructedWriteSetter != null) {
+                        let columnarDiscard57: System.Type = null
+                        if (!TryEmitAssignableValue(Child(expr, 1), constructedWritePropertyType, out columnarDiscard57)) {
+                            return false
+                        }
+                        _il.Emit(OpCodes.Call, constructedWriteSetter)
+                        return true
+                    }
+                    return false
                 }
                 if (TryEmitSupportedBclPropertyAssignment(fieldReceiver, memberName, Child(expr, 1))) {
                     return true
@@ -5447,7 +6731,7 @@ sealed class ColumnarIlEmitter {
                             if (TryEmitIntLiteralAsType(Child(expr, 1), writeField.get_FieldType(), out writeValueType)) {
                             } else {
                                 // constant adoption (`s.B = 5` on a small-int field).
-                                if (TryEmitNullLiteralAsType(Child(expr, 1), writeField.get_FieldType(), out writeValueType)) {
+                                if (TryEmitZeroLiteralAsType(Child(expr, 1), writeField.get_FieldType(), out writeValueType)) {
                                 } else {
                                     // `c.name = null` on a reference-typed field.
                                     if (!EmitExpression(Child(expr, 1), out writeValueType)) {
@@ -5455,7 +6739,7 @@ sealed class ColumnarIlEmitter {
                                     }
                                 }
                             }
-                            if (!TypesEquivalent(writeValueType, writeField.get_FieldType()) && !TryEmitImplicitWidening(writeValueType, writeField.get_FieldType()) && !ColumnarReferenceCoercionPlanner.TryEmitInterfaceUpcast(writeValueType, writeField.get_FieldType(), _structRegistry, _il) && !ColumnarReferenceConversionFacts.TryEmitReferenceConversion(writeValueType, writeField.get_FieldType()) && !ColumnarReferenceCoercionPlanner.TryEmitObjectConversion(writeValueType, writeField.get_FieldType(), _structRegistry, _il) && !TryEmitAnonymousUnionConversion(writeValueType, writeField.get_FieldType()) && !TryEmitUserDefinedConversion(writeValueType, writeField.get_FieldType(), false)) {
+                            if (!TypesEquivalent(writeValueType, writeField.get_FieldType()) && !TryEmitImplicitWidening(writeValueType, writeField.get_FieldType()) && !ColumnarReferenceCoercionPlanner.TryEmitInterfaceUpcast(writeValueType, writeField.get_FieldType(), _structRegistry, _il) && !ColumnarReferenceCoercionPlanner.TryEmitExternalInterfaceUpcast(writeValueType, writeField.get_FieldType(), _structRegistry, _il) && !ColumnarReferenceConversionFacts.TryEmitReferenceConversion(writeValueType, writeField.get_FieldType()) && !ColumnarReferenceCoercionPlanner.TryEmitObjectConversion(writeValueType, writeField.get_FieldType(), _structRegistry, _il) && !TryEmitAnonymousUnionConversion(writeValueType, writeField.get_FieldType()) && !TryEmitUserDefinedConversion(writeValueType, writeField.get_FieldType(), false)) {
                                 return false
                             }
                             _il.Emit(OpCodes.Stfld, writeField)
@@ -5468,7 +6752,7 @@ sealed class ColumnarIlEmitter {
                             if (!EmitExpression(Child(expr, 1), out writePropValueType) || !TypesEquivalent(writePropValueType, writeProp.PropertyType)) {
                                 return false
                             }
-                            _il.Emit(OpCodes.Callvirt, writeProp.Setter)
+                            _il.Emit(OpCodes.Callvirt, ColumnarSourceSelfInstantiation.Bind(writeProp.Setter))
                             return true
                         }
                     }
@@ -5501,7 +6785,7 @@ sealed class ColumnarIlEmitter {
                     if (!TryEmitAssignableValue(Child(expr, 1), explicitThisPropertyTarget.PropertyType, out columnarDiscard18)) {
                         return false
                     }
-                    _il.Emit(OpCodes.Callvirt, explicitThisPropertyTarget.Setter)
+                    _il.Emit(OpCodes.Callvirt, ColumnarSourceSelfInstantiation.Bind(explicitThisPropertyTarget.Setter))
                     return true
                 }
                 return false
@@ -5564,7 +6848,7 @@ sealed class ColumnarIlEmitter {
                             if (TryEmitArrayLiteralAsType(Child(expr, 1), assignTarget.get_LocalType(), out valueType)) {
                             } else {
                                 // target-typed array literal re-store.
-                                if (TryEmitNullLiteralAsType(Child(expr, 1), assignTarget.get_LocalType(), out valueType)) {
+                                if (TryEmitZeroLiteralAsType(Child(expr, 1), assignTarget.get_LocalType(), out valueType)) {
                                 } else {
                                     // `s = null` on a reference-typed local.
                                     if (ColumnarTypeOfPlanner.IsSupportedNullable(assignTarget.get_LocalType())) {
@@ -5582,7 +6866,7 @@ sealed class ColumnarIlEmitter {
                         }
                     }
                 }
-                if (!TypesEquivalent(valueType, assignTarget.get_LocalType()) && !TryEmitImplicitWidening(valueType, assignTarget.get_LocalType()) && !ColumnarReferenceCoercionPlanner.TryEmitInterfaceUpcast(valueType, assignTarget.get_LocalType(), _structRegistry, _il) && !ColumnarReferenceConversionFacts.TryEmitReferenceConversion(valueType, assignTarget.get_LocalType()) && !ColumnarReferenceCoercionPlanner.TryEmitObjectConversion(valueType, assignTarget.get_LocalType(), _structRegistry, _il) && !TryEmitAnonymousUnionConversion(valueType, assignTarget.get_LocalType()) && !TryEmitUserDefinedConversion(valueType, assignTarget.get_LocalType(), false)) {
+                if (!TypesEquivalent(valueType, assignTarget.get_LocalType()) && !TryEmitImplicitWidening(valueType, assignTarget.get_LocalType()) && !ColumnarReferenceCoercionPlanner.TryEmitInterfaceUpcast(valueType, assignTarget.get_LocalType(), _structRegistry, _il) && !ColumnarReferenceCoercionPlanner.TryEmitExternalInterfaceUpcast(valueType, assignTarget.get_LocalType(), _structRegistry, _il) && !ColumnarReferenceConversionFacts.TryEmitReferenceConversion(valueType, assignTarget.get_LocalType()) && !ColumnarReferenceCoercionPlanner.TryEmitObjectConversion(valueType, assignTarget.get_LocalType(), _structRegistry, _il) && !TryEmitAnonymousUnionConversion(valueType, assignTarget.get_LocalType()) && !TryEmitUserDefinedConversion(valueType, assignTarget.get_LocalType(), false)) {
                     return false
                 }
                 _il.Emit(OpCodes.Stloc, assignTarget)
@@ -5616,7 +6900,7 @@ sealed class ColumnarIlEmitter {
                             if (TryEmitIntLiteralAsType(Child(expr, 1), paramElementType, out byRefParamValueType)) {
                             } else {
                                 // constant conversion onto the byref parameter's element type.
-                                if (TryEmitNullLiteralAsType(Child(expr, 1), paramElementType, out byRefParamValueType)) {
+                                if (TryEmitZeroLiteralAsType(Child(expr, 1), paramElementType, out byRefParamValueType)) {
                                 } else {
                                     // `out value = null` on a reference-typed byref parameter.
                                     if (ColumnarTypeOfPlanner.IsSupportedNullable(paramElementType)) {
@@ -5632,7 +6916,7 @@ sealed class ColumnarIlEmitter {
                             }
                         }
                     }
-                    if (!TypesEquivalent(byRefParamValueType, paramElementType) && !TryEmitImplicitWidening(byRefParamValueType, paramElementType) && !ColumnarReferenceCoercionPlanner.TryEmitInterfaceUpcast(byRefParamValueType, paramElementType, _structRegistry, _il) && !ColumnarReferenceConversionFacts.TryEmitReferenceConversion(byRefParamValueType, paramElementType) && !ColumnarReferenceCoercionPlanner.TryEmitObjectConversion(byRefParamValueType, paramElementType, _structRegistry, _il) && !TryEmitAnonymousUnionConversion(byRefParamValueType, paramElementType) && !TryEmitUserDefinedConversion(byRefParamValueType, paramElementType, false)) {
+                    if (!TypesEquivalent(byRefParamValueType, paramElementType) && !TryEmitImplicitWidening(byRefParamValueType, paramElementType) && !ColumnarReferenceCoercionPlanner.TryEmitInterfaceUpcast(byRefParamValueType, paramElementType, _structRegistry, _il) && !ColumnarReferenceCoercionPlanner.TryEmitExternalInterfaceUpcast(byRefParamValueType, paramElementType, _structRegistry, _il) && !ColumnarReferenceConversionFacts.TryEmitReferenceConversion(byRefParamValueType, paramElementType) && !ColumnarReferenceCoercionPlanner.TryEmitObjectConversion(byRefParamValueType, paramElementType, _structRegistry, _il) && !TryEmitAnonymousUnionConversion(byRefParamValueType, paramElementType) && !TryEmitUserDefinedConversion(byRefParamValueType, paramElementType, false)) {
                         return false
                     }
                     EmitStoreByRefElement(paramElementType)
@@ -5653,7 +6937,7 @@ sealed class ColumnarIlEmitter {
                         if (TryEmitIntLiteralAsType(Child(expr, 1), _paramTypes[targetName], out paramValueType)) {
                         } else {
                             // constant conversion onto the param's declared type.
-                            if (TryEmitNullLiteralAsType(Child(expr, 1), _paramTypes[targetName], out paramValueType)) {
+                            if (TryEmitZeroLiteralAsType(Child(expr, 1), _paramTypes[targetName], out paramValueType)) {
                             } else {
                                 // `s = null` on a reference-typed param.
                                 if (ColumnarTypeOfPlanner.IsSupportedNullable(_paramTypes[targetName])) {
@@ -5670,7 +6954,7 @@ sealed class ColumnarIlEmitter {
                         }
                     }
                 }
-                if (!TypesEquivalent(paramValueType, _paramTypes[targetName]) && !TryEmitImplicitWidening(paramValueType, _paramTypes[targetName]) && !ColumnarReferenceCoercionPlanner.TryEmitInterfaceUpcast(paramValueType, _paramTypes[targetName], _structRegistry, _il) && !ColumnarReferenceConversionFacts.TryEmitReferenceConversion(paramValueType, _paramTypes[targetName]) && !ColumnarReferenceCoercionPlanner.TryEmitObjectConversion(paramValueType, _paramTypes[targetName], _structRegistry, _il) && !TryEmitAnonymousUnionConversion(paramValueType, _paramTypes[targetName]) && !TryEmitUserDefinedConversion(paramValueType, _paramTypes[targetName], false)) {
+                if (!TypesEquivalent(paramValueType, _paramTypes[targetName]) && !TryEmitImplicitWidening(paramValueType, _paramTypes[targetName]) && !ColumnarReferenceCoercionPlanner.TryEmitInterfaceUpcast(paramValueType, _paramTypes[targetName], _structRegistry, _il) && !ColumnarReferenceCoercionPlanner.TryEmitExternalInterfaceUpcast(paramValueType, _paramTypes[targetName], _structRegistry, _il) && !ColumnarReferenceConversionFacts.TryEmitReferenceConversion(paramValueType, _paramTypes[targetName]) && !ColumnarReferenceCoercionPlanner.TryEmitObjectConversion(paramValueType, _paramTypes[targetName], _structRegistry, _il) && !TryEmitAnonymousUnionConversion(paramValueType, _paramTypes[targetName]) && !TryEmitUserDefinedConversion(paramValueType, _paramTypes[targetName], false)) {
                     return false
                 }
                 ColumnarArgumentInstructionEmitter.EmitStore(_il, paramOrdinal)
@@ -5703,16 +6987,16 @@ sealed class ColumnarIlEmitter {
                 if (!TryEmitAssignableValue(Child(expr, 1), thisPropertyTarget.PropertyType, out columnarDiscard21)) {
                     return false
                 }
-                _il.Emit(OpCodes.Callvirt, thisPropertyTarget.Setter)
+                _il.Emit(OpCodes.Callvirt, ColumnarSourceSelfInstantiation.Bind(thisPropertyTarget.Setter))
                 return true
             }
-            // Bare STATIC-field write inside an INSTANCE member body (`count = expr` where count is a static
-            // field on the chain). The N# pipeline's pinned ASYMMETRY: bare static-field access resolves in
-            // INSTANCE contexts only — a STATIC method body must qualify (`TypeName.field`), so this is gated
-            // on `_currentStruct` (null in static bodies → declines exactly where the pipeline errors). No
-            // receiver: `<value>; stsfld`. (Statics need no address, so value-type enclosing types are fine.)
+            // Bare STATIC-field write inside ANY member body of the declaring type (`count = expr` where count
+            // is a static field on the chain) — an instance method, a static method, an accessor or a static
+            // constructor. It is anchored on `_enclosingType` for the same reason the bare static READ is: the
+            // storage belongs to the type, so every body the type owns can name it. No receiver:
+            // `<value>; stsfld`. (Statics need no address, so value-type enclosing types are fine.)
             let bareStaticTarget: System.Reflection.Emit.FieldBuilder? = null
-            if (_currentStruct != null && ColumnarSourceMemberChainResolver.TryFindStaticFieldOnChain(_currentStruct, targetName, out bareStaticTarget)) {
+            if (_enclosingType != null && ColumnarSourceMemberChainResolver.TryFindStaticFieldOnChain(_enclosingType, targetName, out bareStaticTarget)) {
                 let columnarDiscard22: System.Type = null
                 if (!TryEmitAssignableValue(Child(expr, 1), bareStaticTarget.get_FieldType(), out columnarDiscard22)) {
                     return false
@@ -5993,7 +7277,7 @@ sealed class ColumnarIlEmitter {
                 }
                 return true
             }
-            if (!collectionType.get_IsSZArray()) {
+            if (!ColumnarTypeEquivalenceFacts.IsSafeSzArrayType(collectionType)) {
                 return false
             }
             elementType := collectionType.GetElementType()
@@ -7868,7 +9152,176 @@ sealed class ColumnarIlEmitter {
     // function) on any unsupported form or a type mismatch the spike does not model. The reported type drives
     // correct opcode selection and prevents cross-type mixing (e.g. a bool leaking into int arithmetic) that
     // would diverge from N#'s type rules.
-    private func EmitExpression(idx: int, out columnarResolvedType: Type): bool => EmitExpressionCore(idx, out columnarResolvedType)
+    private func EmitExpression(idx: int, out columnarResolvedType: Type): bool {
+        // A NULL-CONDITIONAL CHAIN IS EMITTED FROM ITS ROOT, NOT FROM ITS GUARD. `a?.B.C` is ONE
+        // expression that is null when `a` is: the guard tests, and everything to its right is skipped.
+        // The node that owns that decision is the OUTERMOST access over the guard — the node the chain
+        // finally produces a value for — so the wrapper is entered there and the guard, reached later as
+        // part of the receiver, only has to branch to the escape label the wrapper left it.
+        if (idx != _nullConditionalRoot && IsNullConditionalChainRoot(idx)) {
+            return EmitNullConditionalChain(idx, out columnarResolvedType)
+        }
+        return EmitExpressionCore(idx, out columnarResolvedType)
+    }
+
+    // THE CHAIN ROOT, DECIDED STRUCTURALLY. A node is a root when its RECEIVER SPINE reaches a null
+    // guard and the node is not itself the receiver of another access — that second half is what makes
+    // `a?.B.C`'s root the `.C` and not the `a?.B`, which is the difference between C#'s short circuit and
+    // a null-reference exception on the second access. Parentheses are deliberately NOT walked: `(a?.B).C`
+    // ends the chain at the parenthesis in C# too, and not walking them makes the inner access its own
+    // root, which is exactly that reading.
+    private func IsNullConditionalChainRoot(node: int): bool {
+        if (!NodeSpineReachesNullGuard(node)) {
+            return false
+        }
+        receivers := NullConditionalReceiverNodes()
+        return node < 0 || node >= receivers.Length || !receivers[node]
+    }
+
+    private func NodeSpineReachesNullGuard(node: int): bool {
+        steps := 0
+        while (node >= 0 && steps <= 200) {
+            kind := _nodes.Kind(node)
+            if (kind == ColumnarExpressionNodeKind.NullGuardExpression()) {
+                return true
+            }
+            if ((kind != ColumnarExpressionNodeKind.MemberAccessExpression() && kind != ColumnarExpressionNodeKind.CallExpression() && kind != ColumnarExpressionNodeKind.IndexAccessExpression()) || _nodes.ChildCount(node) < 1) {
+                return false
+            }
+            node = Child(node, 0)
+            steps = steps + 1
+        }
+        return false
+    }
+
+    // Every node that stands as another access's RECEIVER, gathered once per emitter from the node
+    // table. It is the only fact the root test needs that a downward walk cannot answer.
+    private func NullConditionalReceiverNodes(): bool[] {
+        cached := _nullConditionalReceivers
+        if (cached != null) {
+            return cached
+        }
+        nodeCount := _nodes.Kinds.Length
+        receivers := new bool[](nodeCount)
+        for n := 0; n < nodeCount; n++ {
+            kind := _nodes.Kind(n)
+            if ((kind == ColumnarExpressionNodeKind.MemberAccessExpression() || kind == ColumnarExpressionNodeKind.CallExpression() || kind == ColumnarExpressionNodeKind.IndexAccessExpression()) && _nodes.ChildCount(n) >= 1) {
+                receiverNode := Child(n, 0)
+                if (receiverNode >= 0 && receiverNode < nodeCount) {
+                    receivers[receiverNode] = true
+                }
+            }
+        }
+        _nullConditionalReceivers = receivers
+        return receivers
+    }
+
+    // The chain's value, and the null it produces instead. The inner expression is emitted exactly as it
+    // would be without the `?`, with an escape label reserved for the guard; the two branches then have to
+    // agree on a type. C#'s rule is the one implemented: a REFERENCE result keeps its type and the escape
+    // yields the null reference; a VALUE result is LIFTED to `Nullable<T>` and the escape yields an empty
+    // one, which is why `s?.Length` is `int?` and not `int`; a `void` result — a conditional call written
+    // as a statement — has no value for either branch to produce.
+    private func EmitNullConditionalChain(root: int, out columnarResolvedType: Type): bool {
+        columnarResolvedType = null
+        previousRoot := _nullConditionalRoot
+        escape := _il.DefineLabel()
+        _nullConditionalRoot = root
+        _nullConditionalEscapes.Push(escape)
+        let innerType: System.Type? = null
+        let emitted: bool = false
+        try {
+            emitted = EmitExpression(root, out innerType)
+        } finally {
+            _nullConditionalRoot = previousRoot
+            _nullConditionalEscapes.Pop()
+        }
+        if (!emitted || innerType == null) {
+            return false
+        }
+        finished := _il.DefineLabel()
+        if (ColumnarCodePlanExecutor.IsVoidType(innerType)) {
+            _il.Emit(OpCodes.Br, finished)
+            _il.MarkLabel(escape)
+            _il.MarkLabel(finished)
+            columnarResolvedType = innerType
+            return true
+        }
+        if (innerType.get_IsGenericParameter() || innerType.get_IsByRef() || innerType.get_IsPointer()) {
+            // A result whose type is an open type parameter cannot be lifted: `Nullable<T>` demands a
+            // struct, and this position knows neither.
+            return false
+        }
+        if (innerType.get_IsValueType() && !ColumnarTypeOfPlanner.IsSupportedNullable(innerType)) {
+            liftedType := typeof(Nullable<int>).GetGenericTypeDefinition().MakeGenericType([innerType])
+            liftedCtor := liftedType.GetConstructor([innerType])
+            if (liftedCtor == null) {
+                return false
+            }
+            _il.Emit(OpCodes.Newobj, liftedCtor)
+            _il.Emit(OpCodes.Br, finished)
+            _il.MarkLabel(escape)
+            if (!EmitDefaultValueOfType(liftedType)) {
+                return false
+            }
+            _il.MarkLabel(finished)
+            columnarResolvedType = liftedType
+            return true
+        }
+        _il.Emit(OpCodes.Br, finished)
+        _il.MarkLabel(escape)
+        if (!EmitDefaultValueOfType(innerType)) {
+            return false
+        }
+        _il.MarkLabel(finished)
+        columnarResolvedType = innerType
+        return true
+    }
+
+    // THE GUARD ITSELF: evaluate the receiver once, and either leave it on the stack for the access
+    // above or abandon the chain. A REFERENCE receiver tests itself (`dup`/`brtrue`); a `Nullable<T>`
+    // receiver tests `HasValue` and hands the access its `Value`, which is the whole point of writing
+    // `?.` on one; an unconstrained TYPE PARAMETER boxes first, and the access is then made through the
+    // boxed reference — the same lowering C# uses, and the reason `T?.ToString()` reaches
+    // `object.ToString` for a value instantiation and the override for a reference one. A plain
+    // non-nullable value receiver has no null to test for, so `?` on one is refused rather than answered.
+    private func TryEmitNullGuard(idx: int, out columnarResolvedType: Type): bool {
+        columnarResolvedType = null
+        if (_nullConditionalEscapes.Count == 0 || _nodes.ChildCount(idx) != 1) {
+            return false
+        }
+        escape := _nullConditionalEscapes.Peek()
+        let receiverType: System.Type? = null
+        if (!EmitExpression(Child(idx, 0), out receiverType) || receiverType == null) {
+            return false
+        }
+        if (ColumnarTypeOfPlanner.IsSupportedNullable(receiverType)) {
+            nullableLocal := _il.DeclareLocal(receiverType)
+            _il.Emit(OpCodes.Stloc, nullableLocal)
+            _il.Emit(OpCodes.Ldloca, nullableLocal)
+            _il.Emit(OpCodes.Call, receiverType.GetMethod("get_HasValue"))
+            _il.Emit(OpCodes.Brfalse, escape)
+            _il.Emit(OpCodes.Ldloca, nullableLocal)
+            _il.Emit(OpCodes.Call, receiverType.GetMethod("get_Value"))
+            columnarResolvedType = receiverType.GetGenericArguments()[0]
+            return true
+        }
+        if (receiverType.get_IsGenericParameter()) {
+            _il.Emit(OpCodes.Box, receiverType)
+            columnarResolvedType = typeof(object)
+        } else if (!receiverType.get_IsValueType()) {
+            columnarResolvedType = receiverType
+        } else {
+            return false
+        }
+        present := _il.DefineLabel()
+        _il.Emit(OpCodes.Dup)
+        _il.Emit(OpCodes.Brtrue, present)
+        _il.Emit(OpCodes.Pop)
+        _il.Emit(OpCodes.Br, escape)
+        _il.MarkLabel(present)
+        return true
+    }
 
     private func EmitExpressionWithOverflowChecking(idx: int, enabled: bool, out columnarResolvedType: Type): bool {
         previous := _overflowCheckingEnabled
@@ -7970,13 +9423,17 @@ sealed class ColumnarIlEmitter {
                 }
             }
 
-            // Bare STATIC-member read inside an INSTANCE member body. The N# pipeline's pinned ASYMMETRY: bare
-            // static-member access resolves in INSTANCE contexts only (a static body must qualify with the type
-            // name) — gated on `_currentStruct`, which is null in static bodies, so those decline exactly
-            // where the pipeline errors. No receiver: `ldsfld` for a field, `call get_Name` for a property.
+            // Bare STATIC-member read inside ANY member body of the declaring type. A static member belongs to
+            // the TYPE, not to an instance, so it is in scope wherever the type's own code is — an instance
+            // method, a static method, a static property accessor and a static constructor alike. The anchor is
+            // therefore `_enclosingType` (set for static bodies too, and the real type behind a closure display)
+            // rather than the instance-only `_currentStruct`; bare STATIC-method calls already resolve through
+            // exactly that anchor. No receiver: `ldsfld` for a field, `call get_Name` for a property — except a
+            // `const` field, which has no storage at all and whose value is written at each use, so the owner
+            // that declared it comes back with the field.
             let bareStaticFieldOwner: NSharpLang.Compiler.Columnar.ColumnarStructDef? = null
             let bareStaticField: System.Reflection.Emit.FieldBuilder? = null
-            if (_currentStruct != null && ColumnarSourceMemberChainResolver.TryFindStaticFieldOnChain(_currentStruct, name, out bareStaticFieldOwner, out bareStaticField)) {
+            if (_enclosingType != null && ColumnarSourceMemberChainResolver.TryFindStaticFieldOnChain(_enclosingType, name, out bareStaticFieldOwner, out bareStaticField)) {
                 literalValue := 0
                 if bareStaticFieldOwner != null && bareStaticFieldOwner.StaticIntConstants.TryGetValue(name, out literalValue) {
                     if !ColumnarFieldMetadataEmitter.TryEmitIntLiteralLoad(_il, bareStaticField.get_FieldType(), literalValue) {
@@ -7989,8 +9446,8 @@ sealed class ColumnarIlEmitter {
                 return true
             }
             let bareStaticProp: NSharpLang.Compiler.Columnar.ColumnarPropertyDef? = null
-            if (_currentStruct != null && ColumnarSourceMemberChainResolver.TryFindStaticPropertyOnChain(_currentStruct, name, out bareStaticProp)) {
-                _il.Emit(OpCodes.Call, bareStaticProp.Getter)
+            if (_enclosingType != null && ColumnarSourceMemberChainResolver.TryFindStaticPropertyOnChain(_enclosingType, name, out bareStaticProp)) {
+                _il.Emit(OpCodes.Call, ColumnarSourceSelfInstantiation.Bind(bareStaticProp.Getter))
                 columnarResolvedType = bareStaticProp.PropertyType
                 return true
             }
@@ -8064,6 +9521,9 @@ sealed class ColumnarIlEmitter {
             if (sourceUnarySelection.IsSelected && sourceUnarySelection.Method != null) {
                 _il.Emit(OpCodes.Call, sourceUnarySelection.Method)
                 columnarResolvedType = sourceUnarySelection.ReturnType
+                return true
+            }
+            if (TryEmitRuntimeUserDefinedUnary(ColumnarNodeTextFacts.Text(_nodes, _source, idx), operandType, out columnarResolvedType)) {
                 return true
             }
             columnarSwitchValue3 := ColumnarNodeTextFacts.Text(_nodes, _source, idx)
@@ -8171,8 +9631,26 @@ sealed class ColumnarIlEmitter {
                     columnarResolvedType = typeof(bool)
                     return true
                 }
-                if (nullCmpType.get_IsValueType()) {
-                    return false
+                if (nullCmpType.get_IsGenericParameter()) {
+                    // A GENERIC PARAMETER IS BOXED EXACTLY ONCE, and once is load-bearing in both
+                    // directions. An UNCONSTRAINED type parameter may be closed over a value type OR
+                    // a reference type, and the CLR has one instruction that answers for both:
+                    // `box !!T` yields the reference itself for a reference type and a fresh non-null
+                    // box for a value type, so `T == null` is false for every value instantiation and
+                    // a real null test for every reference one — exactly C#'s reading. Comparing the
+                    // raw stack value would compare an unboxed `int` against a null reference, and
+                    // `T` and `null` are not the same verification type either (ilverify reads
+                    // `ldnull; ceq` against a `T` as StackUnexpected).
+                    //
+                    // A SECOND `box` IS NOT A NO-OP. The first one leaves an `object` on the stack,
+                    // which is not the `!T` the next `box !T` expects — ilverify reports
+                    // "found ref 'T', expected value 'T'", and for a value-type instantiation the
+                    // second box would box a reference that is already a box.
+                    _il.Emit(OpCodes.Box, nullCmpType)
+                } else {
+                    if (nullCmpType.get_IsValueType()) {
+                        return false
+                    }
                 }
                 // plain value types never compare to null (the pipeline rejects).
                 _il.Emit(OpCodes.Ldnull)
@@ -8217,6 +9695,29 @@ sealed class ColumnarIlEmitter {
                     columnarResolvedType = coalesceElement
                     return true
                 }
+                if (coalesceLeft.get_IsGenericParameter()) {
+                    // The same reading for `??`: the NULLNESS question is asked of the boxed value,
+                    // while the RESULT stays `T`. The left operand is held in a temporary so the
+                    // box is only a test — a value instantiation always takes the left branch, and a
+                    // reference instantiation takes it exactly when the reference is non-null.
+                    typeParameterLocal := _il.DeclareLocal(coalesceLeft)
+                    _il.Emit(OpCodes.Stloc, typeParameterLocal)
+                    typeParameterLeftLabel := _il.DefineLabel()
+                    typeParameterEndLabel := _il.DefineLabel()
+                    _il.Emit(OpCodes.Ldloc, typeParameterLocal)
+                    _il.Emit(OpCodes.Box, coalesceLeft)
+                    _il.Emit(OpCodes.Brtrue, typeParameterLeftLabel)
+                    let typeParameterRightType: System.Type? = null
+                    if (!EmitExpression(Child(idx, 1), out typeParameterRightType) || !TypesEquivalent(typeParameterRightType, coalesceLeft)) {
+                        return false
+                    }
+                    _il.Emit(OpCodes.Br, typeParameterEndLabel)
+                    _il.MarkLabel(typeParameterLeftLabel)
+                    _il.Emit(OpCodes.Ldloc, typeParameterLocal)
+                    _il.MarkLabel(typeParameterEndLabel)
+                    columnarResolvedType = coalesceLeft
+                    return true
+                }
                 if (coalesceLeft.get_IsValueType()) {
                     return false
                 }
@@ -8240,6 +9741,9 @@ sealed class ColumnarIlEmitter {
             if (TryEmitMixedNumericBinary(idx, op, out columnarResolvedType)) {
                 return true
             }
+            if (TryEmitRuntimeUserDefinedBinary(idx, op, out columnarResolvedType)) {
+                return true
+            }
 
             let leftType: System.Type? = null
             if (!EmitExpression(Child(idx, 0), out leftType)) {
@@ -8261,6 +9765,14 @@ sealed class ColumnarIlEmitter {
             if (sourceBinarySelection.IsSelected && sourceBinarySelection.Method != null) {
                 _il.Emit(OpCodes.Call, sourceBinarySelection.Method)
                 columnarResolvedType = sourceBinarySelection.ReturnType
+                return true
+            }
+            // THE SAME USER-DEFINED OPERATOR LOOKUP, from AFTER the operands. The preflight arm above
+            // serves every operand pair whose type can be read without emitting; an operand it cannot
+            // preflight (a unary over a call, `~Vector.Equals(a, b) & a`) arrives here with both values
+            // already on the stack, so only an operator whose parameters match them EXACTLY can be
+            // called -- a conversion would have to reach a value that is no longer reachable.
+            if (TryEmitEmittedOperandRuntimeBinary(op, leftType, rightType, out columnarResolvedType)) {
                 return true
             }
 
@@ -8425,6 +9937,22 @@ sealed class ColumnarIlEmitter {
                     columnarResolvedType = target.ReturnType
                     return true
                 }
+                let ownGenericMethod: NSharpLang.Compiler.Columnar.ColumnarInstanceMethodDef? = null
+                if (_currentStruct != null && TrySelectGenericInstanceMethodOnChain(_currentStruct, name, _nodes.ChildCount(idx) - 1, -1, out ownGenericMethod)) {
+                    ownGenericFacts := ownGenericMethod.Generics
+                    if (ownGenericFacts != null && TryEmitImplicitThisGenericCall(idx, ownGenericMethod, new Type[ownGenericFacts.TypeParams.Length], out columnarResolvedType)) {
+                        return true
+                    }
+                    return Decline("emit.call.generic-inference", "generic call '" + name + "' could not infer its type arguments", idx)
+                }
+                let ownGenericStatic: NSharpLang.Compiler.Columnar.ColumnarStaticMethodDef? = null
+                if (_enclosingType != null && TryFindGenericStaticMethodOnChain(_enclosingType, name, _nodes.ChildCount(idx) - 1, -1, out ownGenericStatic)) {
+                    ownGenericStaticFacts := ownGenericStatic.Generics
+                    if (ownGenericStaticFacts != null && TryEmitSourceStaticGenericCall(idx, _enclosingType, ownGenericStatic, new Type[ownGenericStaticFacts.TypeParams.Length], out columnarResolvedType)) {
+                        return true
+                    }
+                    return Decline("emit.call.generic-inference", "generic call '" + name + "' could not infer its type arguments", idx)
+                }
                 let ownMethod: NSharpLang.Compiler.Columnar.ColumnarInstanceMethodDef? = null
                 if (_currentStruct != null && TrySelectInstanceMethodOnChain(_currentStruct, name, idx, out ownMethod)) {
                     if (!legacyWholeSubtreePlanning && !ColumnarSourceDirectCallResolver.IsExcludedInstanceDefinition(ownMethod)) {
@@ -8451,7 +9979,7 @@ sealed class ColumnarIlEmitter {
                             return Decline("emit.call.static-argument", "static call argument " + a.ToString() + " for '" + name + "' could not be emitted", Child(idx, a))
                         }
                     }
-                    _il.Emit(OpCodes.Call, ownStatic.Builder)
+                    _il.Emit(OpCodes.Call, ColumnarSourceSelfInstantiation.Bind(ownStatic.Builder))
                     columnarResolvedType = ownStatic.ReturnType
                     return true
                 }
@@ -8504,6 +10032,16 @@ sealed class ColumnarIlEmitter {
                     return true
                 }
                 gName := ColumnarNodeTextFacts.Text(_nodes, _source, callee)
+                // A generic method declared by a SOURCE type resolves from the same dotted name before
+                // the sibling rule below, because that rule is about BARE names and a source-method
+                // callee may be dotted (`Plain.Pair<int, string>`, `box.Map<string>`).
+                if (TryEmitExplicitGenericSourceCall(idx, callee, gName, out columnarResolvedType)) {
+                    return true
+                }
+                // The same reading of the callee, for a target declared by a REFERENCED ASSEMBLY.
+                if (TryEmitExplicitGenericExternalCall(idx, callee, gName, out columnarResolvedType)) {
+                    return true
+                }
                 // The callee resolves exactly like a bare identifier: locals/params shadow-decline; only a
                 // GENERIC top-level sibling binds (explicit type args on a non-generic are pipeline-rejected).
                 if (_locals.ContainsKey(gName) || _paramOrdinals.ContainsKey(gName)) {
@@ -8565,6 +10103,26 @@ sealed class ColumnarIlEmitter {
                 columnarResolvedType = dottedUserEnum.EnumType
                 return true
             }
+            // THE SAME STATIC READ, SPELLED WITH ITS NAMESPACE. `MyApp.Models.Person.Default` names one
+            // declaration and `Person.Default` names the same one, so the dotted receiver walks the same
+            // static field/property chain as the bare receiver below. Only the ROOT can be shadowed by a
+            // value binding — `models.Person.Default` is member lookup on a local named `models`.
+            let dottedStaticOwner: NSharpLang.Compiler.Columnar.ColumnarStructDef? = null
+            if (enumReceiverName != null && enumReceiverRoot != null && enumReceiverName.Length > enumReceiverRoot.Length && !_locals.ContainsKey(enumReceiverRoot) && !_liftedLocals.ContainsKey(enumReceiverRoot) && !_paramOrdinals.ContainsKey(enumReceiverRoot) && !_siblings.ContainsKey(enumReceiverRoot) && _typeResolutionStructs.TryGetValue(enumReceiverName, out dottedStaticOwner)) {
+                let dottedStaticFieldRead: System.Reflection.Emit.FieldBuilder? = null
+                if (ColumnarSourceMemberChainResolver.TryFindStaticFieldOnChain(dottedStaticOwner, ColumnarNodeTextFacts.Text(_nodes, _source, idx), out dottedStaticFieldRead)) {
+                    _il.Emit(OpCodes.Ldsfld, dottedStaticFieldRead)
+                    columnarResolvedType = dottedStaticFieldRead.get_FieldType()
+                    return true
+                }
+                let dottedStaticPropRead: NSharpLang.Compiler.Columnar.ColumnarPropertyDef? = null
+                if (ColumnarSourceMemberChainResolver.TryFindStaticPropertyOnChain(dottedStaticOwner, ColumnarNodeTextFacts.Text(_nodes, _source, idx), out dottedStaticPropRead)) {
+                    _il.Emit(OpCodes.Call, ColumnarSourceSelfInstantiation.Bind(dottedStaticPropRead.Getter))
+                    columnarResolvedType = dottedStaticPropRead.PropertyType
+                    return true
+                }
+                return false
+            }
             if (_nodes.Kind(memberAccessReceiver) == 6) {
                 receiverIdent := ColumnarNodeTextFacts.Text(_nodes, _source, memberAccessReceiver)
                 // A USER-DEFINED enum constant: the receiver names a registered enum TYPE (not shadowed by a
@@ -8613,7 +10171,7 @@ sealed class ColumnarIlEmitter {
                     }
                     let staticPropRead: NSharpLang.Compiler.Columnar.ColumnarPropertyDef? = null
                     if (ColumnarSourceMemberChainResolver.TryFindStaticPropertyOnChain(staticOwner, ColumnarNodeTextFacts.Text(_nodes, _source, idx), out staticPropRead)) {
-                        _il.Emit(OpCodes.Call, staticPropRead.Getter)
+                        _il.Emit(OpCodes.Call, ColumnarSourceSelfInstantiation.Bind(staticPropRead.Getter))
                         columnarResolvedType = staticPropRead.PropertyType
                         return true
                     }
@@ -8649,7 +10207,7 @@ sealed class ColumnarIlEmitter {
                             EmitMemberWriteLocator(directReadChain)
                             directReadPropertyEmitter := _il
                             directReadPropertyOpcode := directReadOwnerDef.IsReference ? OpCodes.Callvirt : OpCodes.Call
-                            directReadPropertyEmitter.Emit(directReadPropertyOpcode, directReadProperty.Getter)
+                            directReadPropertyEmitter.Emit(directReadPropertyOpcode, ColumnarSourceSelfInstantiation.Bind(directReadProperty.Getter))
                             columnarResolvedType = directReadProperty.PropertyType
                             return true
                         }
@@ -8807,6 +10365,37 @@ sealed class ColumnarIlEmitter {
                     columnarResolvedType = structReceiverType.GetGenericArguments()[member == "Key" ? 0 : 1]
                     return true
                 }
+                // ORDINARY CLR MEMBER RESOLUTION for a receiver that is a VALUE rather than a storage
+                // location — a call result, an element, anything the instance-member planner could not
+                // claim. Reaching a member through one of those was a per-receiver residual table, so
+                // `Make().IsOk` on the runtime `Result` read while `Make().Index` on the runtime
+                // `Union` declined; the resolver the planner itself uses answers both the same way,
+                // and a VALUE receiver is spilled so the getter has the address it takes.
+                runtimeMember := ColumnarRuntimeInstanceMemberSelection.Empty()
+                if (ColumnarRuntimeInstanceMemberResolver.TrySelect(structReceiverType, member, out runtimeMember)) {
+                    if (!runtimeMember.ReceiverIsReference) {
+                        runtimeMemberTemp := _il.DeclareLocal(structReceiverType)
+                        _il.Emit(OpCodes.Stloc, runtimeMemberTemp)
+                        _il.Emit(OpCodes.Ldloca, runtimeMemberTemp)
+                    }
+                    if (runtimeMember.IsField) {
+                        if (runtimeMember.Field == null) {
+                            return false
+                        }
+                        _il.Emit(OpCodes.Ldfld, runtimeMember.Field)
+                    } else {
+                        if (runtimeMember.Getter == null) {
+                            return false
+                        }
+                        runtimeMemberOpcode := match runtimeMember.ReceiverIsReference {
+                            true => OpCodes.Callvirt,
+                            _ => OpCodes.Call
+                        }
+                        _il.Emit(runtimeMemberOpcode, runtimeMember.Getter)
+                    }
+                    columnarResolvedType = runtimeMember.ResultType
+                    return true
+                }
                 fieldStruct := ColumnarSourceDefinitionResolver.FindByBuilderIdentity(_structRegistry.get_Values(), structReceiverType)
                 if (fieldStruct == null) {
                     // A CLOSED user-generic receiver (`Box<int>`): resolve on the OPEN definition (own
@@ -8868,13 +10457,13 @@ sealed class ColumnarIlEmitter {
                 if (TryFindPropertyOnChain(fieldStruct, member, out propAccessor)) {
                     if (fieldStruct.IsReference) {
                         // Reference receiver: the object ref is already on the stack.
-                        _il.Emit(OpCodes.Callvirt, propAccessor.Getter)
+                        _il.Emit(OpCodes.Callvirt, ColumnarSourceSelfInstantiation.Bind(propAccessor.Getter))
                     } else {
                         // Value receiver: instance accessors need the receiver address.
                         propertyTemp := _il.DeclareLocal(structReceiverType)
                         _il.Emit(OpCodes.Stloc, propertyTemp)
                         _il.Emit(OpCodes.Ldloca, propertyTemp)
-                        _il.Emit(OpCodes.Call, propAccessor.Getter)
+                        _il.Emit(OpCodes.Call, ColumnarSourceSelfInstantiation.Bind(propAccessor.Getter))
                     }
                     columnarResolvedType = propAccessor.PropertyType
                     return true
@@ -8886,7 +10475,7 @@ sealed class ColumnarIlEmitter {
                 return false
             }
             if (member == "Length") {
-                if (receiverType.get_IsSZArray()) {
+                if (ColumnarTypeEquivalenceFacts.IsSafeSzArrayType(receiverType)) {
                     _il.Emit(OpCodes.Ldlen)
                     // pushes the array length as a native int...
                     _il.Emit(OpCodes.Conv_I4)
@@ -9041,7 +10630,10 @@ sealed class ColumnarIlEmitter {
                 columnarResolvedType = spanElementType
                 return true
             }
-            if (!indexedType.get_IsSZArray()) {
+            if (TryEmitRuntimeIndexerRead(idx, indexedType, out columnarResolvedType)) {
+                return true
+            }
+            if (!ColumnarTypeEquivalenceFacts.IsSafeSzArrayType(indexedType)) {
                 return false
             }
             let arrayIndexType: System.Type? = null
@@ -9099,7 +10691,7 @@ sealed class ColumnarIlEmitter {
                         return false
                     }
                     let charArrType: System.Type? = null
-                    if (!EmitExpression(Child(idx, 1), out charArrType) || !charArrType.get_IsSZArray() || charArrType.GetElementType() != typeof(char)) {
+                    if (!EmitExpression(Child(idx, 1), out charArrType) || !ColumnarTypeEquivalenceFacts.IsSafeSzArrayType(charArrType) || charArrType.GetElementType() != typeof(char)) {
                         return false
                     }
                     if (!EmitArg(idx, 2, typeof(int)) || !EmitArg(idx, 3, typeof(int))) {
@@ -9306,7 +10898,7 @@ sealed class ColumnarIlEmitter {
                         if (TryEmitIntLiteralAsType(ctorArgNode, chosenParamTypes[a], out ctorArgType)) {
                         } else {
                             // Unsuffixed integer literal adopted to the declared constructor parameter type.
-                            if (TryEmitNullLiteralAsType(ctorArgNode, chosenParamTypes[a], out ctorArgType)) {
+                            if (TryEmitZeroLiteralAsType(ctorArgNode, chosenParamTypes[a], out ctorArgType)) {
                             } else {
                                 // Null adopted to the declared reference/nullable constructor parameter type.
                                 if (!EmitExpression(ctorArgNode, out ctorArgType)) {
@@ -9316,7 +10908,7 @@ sealed class ColumnarIlEmitter {
                         }
                         // exact match, or the INTERFACE upcast (an implementer into an
                         // interface-typed ctor param — boxes value implementers, IF-1).
-                        if (!TypesEquivalent(ctorArgType, chosenParamTypes[a]) && !TryEmitImplicitWidening(ctorArgType, chosenParamTypes[a]) && !ColumnarReferenceCoercionPlanner.TryEmitInterfaceUpcast(ctorArgType, chosenParamTypes[a], _structRegistry, _il) && !TryEmitSpanConversion(ctorArgType, chosenParamTypes[a]) && !ColumnarReferenceConversionFacts.TryEmitReferenceConversion(ctorArgType, chosenParamTypes[a]) && !ColumnarReferenceCoercionPlanner.TryEmitObjectConversion(ctorArgType, chosenParamTypes[a], _structRegistry, _il) && !TryEmitAnonymousUnionConversion(ctorArgType, chosenParamTypes[a])) {
+                        if (!TypesEquivalent(ctorArgType, chosenParamTypes[a]) && !TryEmitImplicitWidening(ctorArgType, chosenParamTypes[a]) && !ColumnarReferenceCoercionPlanner.TryEmitInterfaceUpcast(ctorArgType, chosenParamTypes[a], _structRegistry, _il) && !ColumnarReferenceCoercionPlanner.TryEmitExternalInterfaceUpcast(ctorArgType, chosenParamTypes[a], _structRegistry, _il) && !TryEmitSpanConversion(ctorArgType, chosenParamTypes[a]) && !ColumnarReferenceConversionFacts.TryEmitReferenceConversion(ctorArgType, chosenParamTypes[a]) && !ColumnarReferenceCoercionPlanner.TryEmitObjectConversion(ctorArgType, chosenParamTypes[a], _structRegistry, _il) && !TryEmitAnonymousUnionConversion(ctorArgType, chosenParamTypes[a])) {
                             return false
                         }
                     }
@@ -9461,6 +11053,17 @@ sealed class ColumnarIlEmitter {
                 for a := 0; a < closedCtorArgCount; a++ {
                     expectedArgType := ColumnarRuntimeInstanceMemberResolver.SubstituteClosedTypeArguments(chosenOpenParamTypes[a], closedTypeArguments)
                     let closedArgType: System.Type? = null
+                    // The two keyword literals and an unsuffixed integer literal take the SUBSTITUTED
+                    // parameter type, exactly as they do for a non-generic user constructor above:
+                    // `new Box<int>(default)` is `default(int)` because that is what the parameter is on
+                    // this instantiation, and `new Tagged<T>(v, 1)` writes the `1` as the `byte` the
+                    // parameter declares.
+                    if (TryEmitIntLiteralAsType(Child(idx, 1 + a), expectedArgType, out closedArgType)) {
+                        continue
+                    }
+                    if (TryEmitZeroLiteralAsType(Child(idx, 1 + a), expectedArgType, out closedArgType)) {
+                        continue
+                    }
                     if (!EmitExpression(Child(idx, 1 + a), out closedArgType) || !TypesEquivalent(closedArgType, expectedArgType)) {
                         return false
                     }
@@ -9496,14 +11099,16 @@ sealed class ColumnarIlEmitter {
             }
             return TryEmitArrayLiteralAsType(idx, literalElementType.MakeArrayType(), out columnarResolvedType)
         } else if columnarSwitchValue2 == 16 {
-            // Cast [type, operand] — explicit numeric conversion among int/long/char. child[0] is a
-            // TYPE subtree (Simple); child[1] is the operand. Other casts (to/from string, bool, etc.)
-            // decline (the N# backend path stays authoritative).
+            // Cast [type, operand]. child[0] is a TYPE subtree and child[1] is the operand. The type
+            // subtree is read through the ordinary canonical builder rather than as a bare name, so a
+            // written cast to a CONSTRUCTED type — `(Union<int, string>)5`, reaching the runtime
+            // union's implicit arm — resolves the same way the annotation `u: Union<int, string>`
+            // already did. A cast whose target this body cannot resolve still declines.
             castTypeNode := Child(idx, 0)
-            if (_nodes.Kind(castTypeNode) != 0) {
+            let castTargetName: System.String? = null
+            if (!TryBuildTypeNodeCanonical(castTypeNode, out castTargetName)) {
                 return false
             }
-            castTargetName := ColumnarNodeTextFacts.Text(_nodes, _source, castTypeNode)
             let targetType: System.Type? = null
             if (!ColumnarCanonicalTypeResolver.TryResolveBuiltin(castTargetName, out targetType) && !TryResolveBodyType(castTargetName, out targetType)) {
                 return false
@@ -9547,6 +11152,18 @@ sealed class ColumnarIlEmitter {
                             return true
                         }
                     }
+                }
+                // A TYPE PARAMETER TARGET IS `unbox.any`, NEVER `castclass`. `(T0)value` has to be
+                // correct for BOTH instantiations of an unconstrained parameter, and only `unbox.any`
+                // is: it unwraps a boxed value type and behaves exactly as `castclass` for a reference
+                // one — which is why C# emits it here. `castclass !T0` over a value instantiation is not
+                // a wrong answer but INVALID IL, and it reached the runtime as "Common Language Runtime
+                // detected an invalid program" because a generic parameter reports `IsValueType` false
+                // and fell into the reference arm below.
+                if (sourceType == typeof(object) && targetType.get_IsGenericParameter()) {
+                    _il.Emit(OpCodes.Unbox_Any, targetType)
+                    columnarResolvedType = targetType
+                    return true
                 }
                 if (sourceType == typeof(object) && !targetType.get_IsValueType()) {
                     _il.Emit(OpCodes.Castclass, targetType)
@@ -9790,14 +11407,14 @@ sealed class ColumnarIlEmitter {
                         _il.Emit(OpCodes.Dup)
                         propertyType := property.get_PropertyType()
                         let propertyValueType: System.Type = null
-                        if (TryEmitNullLiteralAsType(valueNode, propertyType, out propertyValueType)) {
+                        if (TryEmitZeroLiteralAsType(valueNode, propertyType, out propertyValueType)) {
                         } else {
                             // Null adopted to the declared reference property type.
                             if (!EmitExpression(valueNode, out propertyValueType)) {
                                 return false
                             }
                         }
-                        if (!TypesEquivalent(propertyValueType, propertyType) && !TryEmitImplicitWidening(propertyValueType, propertyType) && !ColumnarReferenceCoercionPlanner.TryEmitInterfaceUpcast(propertyValueType, propertyType, _structRegistry, _il) && !ColumnarReferenceConversionFacts.TryEmitReferenceConversion(propertyValueType, propertyType) && !ColumnarReferenceCoercionPlanner.TryEmitObjectConversion(propertyValueType, propertyType, _structRegistry, _il) && !TryEmitAnonymousUnionConversion(propertyValueType, propertyType)) {
+                        if (!TypesEquivalent(propertyValueType, propertyType) && !TryEmitImplicitWidening(propertyValueType, propertyType) && !ColumnarReferenceCoercionPlanner.TryEmitInterfaceUpcast(propertyValueType, propertyType, _structRegistry, _il) && !ColumnarReferenceCoercionPlanner.TryEmitExternalInterfaceUpcast(propertyValueType, propertyType, _structRegistry, _il) && !ColumnarReferenceConversionFacts.TryEmitReferenceConversion(propertyValueType, propertyType) && !ColumnarReferenceCoercionPlanner.TryEmitObjectConversion(propertyValueType, propertyType, _structRegistry, _il) && !TryEmitAnonymousUnionConversion(propertyValueType, propertyType)) {
                             return false
                         }
                         bclInitializerSetterEmitter := _il
@@ -9853,14 +11470,14 @@ sealed class ColumnarIlEmitter {
                             propertyType := constructedClosedArgs.Length == 0 ? userInitProperty.PropertyType : ColumnarRuntimeInstanceMemberResolver.SubstituteClosedTypeArguments(userInitProperty.PropertyType, constructedClosedArgs)
                             _il.Emit(OpCodes.Dup)
                             let propertyValueType: System.Type = null
-                            if (TryEmitNullLiteralAsType(valueNode, propertyType, out propertyValueType)) {
+                            if (TryEmitZeroLiteralAsType(valueNode, propertyType, out propertyValueType)) {
                             } else {
                                 // Null adopted to the declared reference/nullable property type.
                                 if (!EmitExpression(valueNode, out propertyValueType)) {
                                     return false
                                 }
                             }
-                            if (!TypesEquivalent(propertyValueType, propertyType) && !TryEmitImplicitWidening(propertyValueType, propertyType) && !ColumnarReferenceCoercionPlanner.TryEmitInterfaceUpcast(propertyValueType, propertyType, _structRegistry, _il) && !ColumnarReferenceConversionFacts.TryEmitReferenceConversion(propertyValueType, propertyType) && !ColumnarReferenceCoercionPlanner.TryEmitObjectConversion(propertyValueType, propertyType, _structRegistry, _il) && !TryEmitAnonymousUnionConversion(propertyValueType, propertyType)) {
+                            if (!TypesEquivalent(propertyValueType, propertyType) && !TryEmitImplicitWidening(propertyValueType, propertyType) && !ColumnarReferenceCoercionPlanner.TryEmitInterfaceUpcast(propertyValueType, propertyType, _structRegistry, _il) && !ColumnarReferenceCoercionPlanner.TryEmitExternalInterfaceUpcast(propertyValueType, propertyType, _structRegistry, _il) && !ColumnarReferenceConversionFacts.TryEmitReferenceConversion(propertyValueType, propertyType) && !ColumnarReferenceCoercionPlanner.TryEmitObjectConversion(propertyValueType, propertyType, _structRegistry, _il) && !TryEmitAnonymousUnionConversion(propertyValueType, propertyType)) {
                                 return false
                             }
                             let userSetter: MethodInfo = null
@@ -9878,14 +11495,14 @@ sealed class ColumnarIlEmitter {
                             userFieldType := constructedClosedArgs.Length == 0 ? userInitField.get_FieldType() : ColumnarRuntimeInstanceMemberResolver.SubstituteClosedTypeArguments(userInitField.get_FieldType(), constructedClosedArgs)
                             _il.Emit(OpCodes.Dup)
                             let userFieldValueType: System.Type = null
-                            if (TryEmitNullLiteralAsType(valueNode, userFieldType, out userFieldValueType)) {
+                            if (TryEmitZeroLiteralAsType(valueNode, userFieldType, out userFieldValueType)) {
                             } else {
                                 // Null adopted to the declared reference/nullable field type.
                                 if (!EmitExpression(valueNode, out userFieldValueType)) {
                                     return false
                                 }
                             }
-                            if (!TypesEquivalent(userFieldValueType, userFieldType) && !TryEmitImplicitWidening(userFieldValueType, userFieldType) && !ColumnarReferenceCoercionPlanner.TryEmitInterfaceUpcast(userFieldValueType, userFieldType, _structRegistry, _il) && !ColumnarReferenceConversionFacts.TryEmitReferenceConversion(userFieldValueType, userFieldType) && !ColumnarReferenceCoercionPlanner.TryEmitObjectConversion(userFieldValueType, userFieldType, _structRegistry, _il) && !TryEmitAnonymousUnionConversion(userFieldValueType, userFieldType)) {
+                            if (!TypesEquivalent(userFieldValueType, userFieldType) && !TryEmitImplicitWidening(userFieldValueType, userFieldType) && !ColumnarReferenceCoercionPlanner.TryEmitInterfaceUpcast(userFieldValueType, userFieldType, _structRegistry, _il) && !ColumnarReferenceCoercionPlanner.TryEmitExternalInterfaceUpcast(userFieldValueType, userFieldType, _structRegistry, _il) && !ColumnarReferenceConversionFacts.TryEmitReferenceConversion(userFieldValueType, userFieldType) && !ColumnarReferenceCoercionPlanner.TryEmitObjectConversion(userFieldValueType, userFieldType, _structRegistry, _il) && !TryEmitAnonymousUnionConversion(userFieldValueType, userFieldType)) {
                                 return false
                             }
                             closedInitializerFieldEmitter := _il
@@ -9907,14 +11524,14 @@ sealed class ColumnarIlEmitter {
                     if ((property != null && property.get_SetMethod() != null)) {
                         propertyType := property.get_PropertyType()
                         let propertyValueType: System.Type = null
-                        if (TryEmitNullLiteralAsType(valueNode, propertyType, out propertyValueType)) {
+                        if (TryEmitZeroLiteralAsType(valueNode, propertyType, out propertyValueType)) {
                         } else {
                             // Null adopted to the declared reference/nullable property type.
                             if (!EmitExpression(valueNode, out propertyValueType)) {
                                 return false
                             }
                         }
-                        if (!TypesEquivalent(propertyValueType, propertyType) && !TryEmitImplicitWidening(propertyValueType, propertyType) && !ColumnarReferenceCoercionPlanner.TryEmitInterfaceUpcast(propertyValueType, propertyType, _structRegistry, _il) && !ColumnarReferenceConversionFacts.TryEmitReferenceConversion(propertyValueType, propertyType) && !ColumnarReferenceCoercionPlanner.TryEmitObjectConversion(propertyValueType, propertyType, _structRegistry, _il) && !TryEmitAnonymousUnionConversion(propertyValueType, propertyType)) {
+                        if (!TypesEquivalent(propertyValueType, propertyType) && !TryEmitImplicitWidening(propertyValueType, propertyType) && !ColumnarReferenceCoercionPlanner.TryEmitInterfaceUpcast(propertyValueType, propertyType, _structRegistry, _il) && !ColumnarReferenceCoercionPlanner.TryEmitExternalInterfaceUpcast(propertyValueType, propertyType, _structRegistry, _il) && !ColumnarReferenceConversionFacts.TryEmitReferenceConversion(propertyValueType, propertyType) && !ColumnarReferenceCoercionPlanner.TryEmitObjectConversion(propertyValueType, propertyType, _structRegistry, _il) && !TryEmitAnonymousUnionConversion(propertyValueType, propertyType)) {
                             return false
                         }
                         bclMemberInitializerSetterEmitter := _il
@@ -9930,14 +11547,14 @@ sealed class ColumnarIlEmitter {
                     }
                     fieldType := field.get_FieldType()
                     let fieldValueType: System.Type = null
-                    if (TryEmitNullLiteralAsType(valueNode, fieldType, out fieldValueType)) {
+                    if (TryEmitZeroLiteralAsType(valueNode, fieldType, out fieldValueType)) {
                     } else {
                         // Null adopted to the declared reference/nullable field type.
                         if (!EmitExpression(valueNode, out fieldValueType)) {
                             return false
                         }
                     }
-                    if (!TypesEquivalent(fieldValueType, fieldType) && !TryEmitImplicitWidening(fieldValueType, fieldType) && !ColumnarReferenceCoercionPlanner.TryEmitInterfaceUpcast(fieldValueType, fieldType, _structRegistry, _il) && !ColumnarReferenceConversionFacts.TryEmitReferenceConversion(fieldValueType, fieldType) && !ColumnarReferenceCoercionPlanner.TryEmitObjectConversion(fieldValueType, fieldType, _structRegistry, _il) && !TryEmitAnonymousUnionConversion(fieldValueType, fieldType)) {
+                    if (!TypesEquivalent(fieldValueType, fieldType) && !TryEmitImplicitWidening(fieldValueType, fieldType) && !ColumnarReferenceCoercionPlanner.TryEmitInterfaceUpcast(fieldValueType, fieldType, _structRegistry, _il) && !ColumnarReferenceCoercionPlanner.TryEmitExternalInterfaceUpcast(fieldValueType, fieldType, _structRegistry, _il) && !ColumnarReferenceConversionFacts.TryEmitReferenceConversion(fieldValueType, fieldType) && !ColumnarReferenceCoercionPlanner.TryEmitObjectConversion(fieldValueType, fieldType, _structRegistry, _il) && !TryEmitAnonymousUnionConversion(fieldValueType, fieldType)) {
                         return false
                     }
                     _il.Emit(OpCodes.Stfld, field)
@@ -10018,7 +11635,7 @@ sealed class ColumnarIlEmitter {
                         expectedInitType := ColumnarRuntimeInstanceMemberResolver.SubstituteClosedTypeArguments(openInitField.get_FieldType(), closedInitArgs)
                         _il.Emit(OpCodes.Dup)
                         let closedInitValueType: System.Type? = null
-                        if (!EmitExpression(valueNode, out closedInitValueType) || (!TypesEquivalent(closedInitValueType, expectedInitType) && !ColumnarReferenceCoercionPlanner.TryEmitInterfaceUpcast(closedInitValueType, expectedInitType, _structRegistry, _il) && !ColumnarReferenceConversionFacts.TryEmitReferenceConversion(closedInitValueType, expectedInitType) && !ColumnarReferenceCoercionPlanner.TryEmitObjectConversion(closedInitValueType, expectedInitType, _structRegistry, _il) && !TryEmitAnonymousUnionConversion(closedInitValueType, expectedInitType))) {
+                        if (!EmitExpression(valueNode, out closedInitValueType) || (!TypesEquivalent(closedInitValueType, expectedInitType) && !ColumnarReferenceCoercionPlanner.TryEmitInterfaceUpcast(closedInitValueType, expectedInitType, _structRegistry, _il) && !ColumnarReferenceCoercionPlanner.TryEmitExternalInterfaceUpcast(closedInitValueType, expectedInitType, _structRegistry, _il) && !ColumnarReferenceConversionFacts.TryEmitReferenceConversion(closedInitValueType, expectedInitType) && !ColumnarReferenceCoercionPlanner.TryEmitObjectConversion(closedInitValueType, expectedInitType, _structRegistry, _il) && !TryEmitAnonymousUnionConversion(closedInitValueType, expectedInitType))) {
                             return false
                         }
                         _il.Emit(OpCodes.Stfld, TypeBuilder.GetField(closedInitType, openInitField))
@@ -10045,7 +11662,7 @@ sealed class ColumnarIlEmitter {
                     expectedInitType := ColumnarRuntimeInstanceMemberResolver.SubstituteClosedTypeArguments(openInitField.get_FieldType(), closedInitArgs)
                     _il.Emit(OpCodes.Ldloca, closedStructValue)
                     let closedInitValueType: System.Type? = null
-                    if (!EmitExpression(valueNode, out closedInitValueType) || (!TypesEquivalent(closedInitValueType, expectedInitType) && !ColumnarReferenceCoercionPlanner.TryEmitInterfaceUpcast(closedInitValueType, expectedInitType, _structRegistry, _il) && !ColumnarReferenceConversionFacts.TryEmitReferenceConversion(closedInitValueType, expectedInitType) && !ColumnarReferenceCoercionPlanner.TryEmitObjectConversion(closedInitValueType, expectedInitType, _structRegistry, _il) && !TryEmitAnonymousUnionConversion(closedInitValueType, expectedInitType))) {
+                    if (!EmitExpression(valueNode, out closedInitValueType) || (!TypesEquivalent(closedInitValueType, expectedInitType) && !ColumnarReferenceCoercionPlanner.TryEmitInterfaceUpcast(closedInitValueType, expectedInitType, _structRegistry, _il) && !ColumnarReferenceCoercionPlanner.TryEmitExternalInterfaceUpcast(closedInitValueType, expectedInitType, _structRegistry, _il) && !ColumnarReferenceConversionFacts.TryEmitReferenceConversion(closedInitValueType, expectedInitType) && !ColumnarReferenceCoercionPlanner.TryEmitObjectConversion(closedInitValueType, expectedInitType, _structRegistry, _il) && !TryEmitAnonymousUnionConversion(closedInitValueType, expectedInitType))) {
                         return false
                     }
                     _il.Emit(OpCodes.Stfld, TypeBuilder.GetField(closedInitType, openInitField))
@@ -10114,17 +11731,17 @@ sealed class ColumnarIlEmitter {
                         }
                         _il.Emit(OpCodes.Dup)
                         let initPropertyValueType: System.Type = null
-                        if (TryEmitNullLiteralAsType(valueNode, initProperty.PropertyType, out initPropertyValueType)) {
+                        if (TryEmitZeroLiteralAsType(valueNode, initProperty.PropertyType, out initPropertyValueType)) {
                         } else {
                             // Null adopted to the declared reference/nullable property type.
                             if (!EmitExpression(valueNode, out initPropertyValueType)) {
                                 return false
                             }
                         }
-                        if (!TypesEquivalent(initPropertyValueType, initProperty.PropertyType) && !TryEmitImplicitWidening(initPropertyValueType, initProperty.PropertyType) && !ColumnarReferenceCoercionPlanner.TryEmitInterfaceUpcast(initPropertyValueType, initProperty.PropertyType, _structRegistry, _il) && !ColumnarReferenceConversionFacts.TryEmitReferenceConversion(initPropertyValueType, initProperty.PropertyType) && !ColumnarReferenceCoercionPlanner.TryEmitObjectConversion(initPropertyValueType, initProperty.PropertyType, _structRegistry, _il) && !TryEmitAnonymousUnionConversion(initPropertyValueType, initProperty.PropertyType)) {
+                        if (!TypesEquivalent(initPropertyValueType, initProperty.PropertyType) && !TryEmitImplicitWidening(initPropertyValueType, initProperty.PropertyType) && !ColumnarReferenceCoercionPlanner.TryEmitInterfaceUpcast(initPropertyValueType, initProperty.PropertyType, _structRegistry, _il) && !ColumnarReferenceCoercionPlanner.TryEmitExternalInterfaceUpcast(initPropertyValueType, initProperty.PropertyType, _structRegistry, _il) && !ColumnarReferenceConversionFacts.TryEmitReferenceConversion(initPropertyValueType, initProperty.PropertyType) && !ColumnarReferenceCoercionPlanner.TryEmitObjectConversion(initPropertyValueType, initProperty.PropertyType, _structRegistry, _il) && !TryEmitAnonymousUnionConversion(initPropertyValueType, initProperty.PropertyType)) {
                             return false
                         }
-                        _il.Emit(OpCodes.Callvirt, initProperty.Setter)
+                        _il.Emit(OpCodes.Callvirt, ColumnarSourceSelfInstantiation.Bind(initProperty.Setter))
                         continue
                     }
                     let initField: System.Reflection.Emit.FieldBuilder? = null
@@ -10135,7 +11752,7 @@ sealed class ColumnarIlEmitter {
                     // TypesEquivalent, not !=: a builder-bound collection field's declared type and the
                     // init value's type come from independent resolutions (referentially distinct TBIs).
                     let initValueType: System.Type? = null
-                    if (!EmitExpression(valueNode, out initValueType) || (!TypesEquivalent(initValueType, initField.get_FieldType()) && !TryEmitImplicitWidening(initValueType, initField.get_FieldType()) && !ColumnarReferenceCoercionPlanner.TryEmitInterfaceUpcast(initValueType, initField.get_FieldType(), _structRegistry, _il) && !ColumnarReferenceConversionFacts.TryEmitReferenceConversion(initValueType, initField.get_FieldType()) && !ColumnarReferenceCoercionPlanner.TryEmitObjectConversion(initValueType, initField.get_FieldType(), _structRegistry, _il) && !TryEmitAnonymousUnionConversion(initValueType, initField.get_FieldType()))) {
+                    if (!EmitExpression(valueNode, out initValueType) || (!TypesEquivalent(initValueType, initField.get_FieldType()) && !TryEmitImplicitWidening(initValueType, initField.get_FieldType()) && !ColumnarReferenceCoercionPlanner.TryEmitInterfaceUpcast(initValueType, initField.get_FieldType(), _structRegistry, _il) && !ColumnarReferenceCoercionPlanner.TryEmitExternalInterfaceUpcast(initValueType, initField.get_FieldType(), _structRegistry, _il) && !ColumnarReferenceConversionFacts.TryEmitReferenceConversion(initValueType, initField.get_FieldType()) && !ColumnarReferenceCoercionPlanner.TryEmitObjectConversion(initValueType, initField.get_FieldType(), _structRegistry, _il) && !TryEmitAnonymousUnionConversion(initValueType, initField.get_FieldType()))) {
                         return false
                     }
                     _il.Emit(OpCodes.Stfld, initField)
@@ -10244,6 +11861,8 @@ sealed class ColumnarIlEmitter {
                 return false
             }
             return true
+        } else if columnarSwitchValue2 == ColumnarExpressionNodeKind.NullGuardExpression() {
+            return TryEmitNullGuard(idx, out columnarResolvedType)
         } else if columnarSwitchValue2 == 46 || columnarSwitchValue2 == 47 {
             // bool; AsExpression [value, typeRoot] — `value as Type`: `isinst <T>` keeping the
             // target type (null on mismatch). The typeRoot resolves a UNION CASE (closed over a
@@ -10261,6 +11880,7 @@ sealed class ColumnarIlEmitter {
                 return false
             }
             isAsTypeRoot := Child(idx, 1)
+            isTypeTest := _nodes.Kind(idx) == 46
             targetTestType: Type? = null
             if (_nodes.Kind(isAsTypeRoot) == 0) {
                 isAsName := ColumnarNodeTextFacts.Text(_nodes, _source, isAsTypeRoot)
@@ -10275,23 +11895,18 @@ sealed class ColumnarIlEmitter {
                 } else {
                     // not a case of the scrutinee's union — the pipeline rejects.
                     let plainTarget: System.Type? = null
-                    if (TryResolveBodyType(isAsName, out plainTarget) && !plainTarget.get_IsValueType()) {
+                    if (TryResolveBodyType(isAsName, out plainTarget) && IsSupportedTypeTestTarget(plainTarget, isTypeTest)) {
                         targetTestType = plainTarget
                     }
                 }
             } else {
-                // Generic and wrapped type references use the same canonical resolver as every
-                // other body type. The simple-name branch above predates generic safe casts and
-                // declined these roots before the existing isinst lowering could run.
-                targetCanonical: string? = null
-                if (!TryBuildTypeNodeCanonical(isAsTypeRoot, out targetCanonical)) {
-                    return false
-                }
-                // Safe-cast targets stay under the scoped body resolver. Its closed generic family
-                // admits the collection interfaces needed here; an open type parameter must decline
-                // rather than falling through to a resolver with no lexical parameter scope.
-                if (!TryResolveBodyType(targetCanonical, out targetTestType)) {
-                    return false
+                // A WRITTEN-OUT TYPE that is not a bare name — `obj is Result<TOk, TErr>`, `o is int[]` —
+                // is the SAME question asked of a bigger type tree, so it is canonicalized and resolved
+                // through the body resolver the `new` arm already uses. Only the spelling differed.
+                let constructedCanonical: string? = null
+                let constructedTarget: System.Type? = null
+                if (TryBuildTypeNodeCanonical(isAsTypeRoot, out constructedCanonical) && TryResolveBodyType(constructedCanonical, out constructedTarget) && IsSupportedTypeTestTarget(constructedTarget, isTypeTest)) {
+                    targetTestType = constructedTarget
                 }
             }
             if (targetTestType == null || targetTestType.get_IsValueType()) {
@@ -10308,8 +11923,11 @@ sealed class ColumnarIlEmitter {
             if (ColumnarReferenceCoercionPlanner.RequiresBoxBeforeReferenceTest(testedType, _structRegistry)) {
                 _il.Emit(OpCodes.Box, testedType)
             }
+            if (isTypeTest && _nodes.ValueStart(idx) >= 0) {
+                return TryEmitTypeTestBinding(idx, targetTestType, out columnarResolvedType)
+            }
             _il.Emit(OpCodes.Isinst, targetTestType)
-            if (_nodes.Kind(idx) == 46) {
+            if (isTypeTest) {
                 _il.Emit(OpCodes.Ldnull)
                 _il.Emit(OpCodes.Cgt_Un)
                 columnarResolvedType = typeof(bool)
@@ -10705,6 +12323,19 @@ sealed class ColumnarIlEmitter {
         } else if columnarSwitchValue2 == 59 {
             // AnonymousObjectInitializer [name0, value0, ...] — `new { Name: value, ... }`.
             return TryEmitAnonymousObjectInitializer(idx, out columnarResolvedType)
+        } else if columnarSwitchValue2 == ColumnarExpressionNodeKind.GenericTypeReceiverExpression() {
+            // A CONSTRUCTED GENERIC TYPE RECEIVER that no planner claimed. Reaching here means the
+            // static member behind it could not be resolved on the closed type — an instance member
+            // named through the type, a member the constructed type does not declare, or a closed
+            // shape no member owner resolves against (`EqualityComparer<T>.Default`, whose type
+            // ARGUMENT is the enclosing declaration's own parameter). It gets its own site so the
+            // trace names the shape rather than reporting an unhandled node kind, and it is never a
+            // VALUE: a type name is not a value, so there is nothing to load.
+            return Decline(
+                "emit.expression.generic-type-receiver",
+                "a constructed generic type receiver is not a value, and no static member behind it could be resolved on the closed type",
+                idx
+            )
         } else {
             return Decline(
                 "emit.expression.unhandled-kind",
@@ -10928,7 +12559,7 @@ sealed class ColumnarIlEmitter {
             return false
         }
 
-        if (ownerType.get_IsSZArray() && member == "Length") {
+        if (ColumnarTypeEquivalenceFacts.IsSafeSzArrayType(ownerType) && member == "Length") {
             _il.Emit(OpCodes.Ldloc, ownerLocal)
             _il.Emit(OpCodes.Ldlen)
             _il.Emit(OpCodes.Conv_I4)
@@ -10985,7 +12616,7 @@ sealed class ColumnarIlEmitter {
     }
 
     private func EmitArrayListPattern(patternNode: int, matchValueType: Type, matchLocal: LocalBuilder, successLabel: Label, failLabel: Label): bool {
-        if (_nodes.Kind(patternNode) != 65 || !matchValueType.get_IsSZArray()) {
+        if (_nodes.Kind(patternNode) != 65 || !ColumnarTypeEquivalenceFacts.IsSafeSzArrayType(matchValueType)) {
             return false
         }
         elementType := matchValueType.GetElementType()
@@ -11655,7 +13286,7 @@ sealed class ColumnarIlEmitter {
     private func IsSupportedMatchValueType(t: Type): bool {
         let columnarDiscard69: NSharpLang.Compiler.Columnar.ColumnarUnionDef = null
         let columnarDiscard70: System.Type[] = null
-        return t == typeof(int) || t == typeof(long) || t == typeof(ulong) || t == typeof(char) || t == typeof(bool) || t == typeof(double) || t == typeof(float) || t == typeof(string) || (t.get_IsSZArray() && ColumnarTypeOfPlanner.IsSupportedElementType(t.GetElementType())) || ColumnarTypeOfPlanner.IsEnumType(t) || t is TypeBuilder || ColumnarTypeOfPlanner.IsClosedSourceGeneric(t) || ColumnarTypeOfPlanner.IsSupportedAnonymousUnionType(t) || TryGetUnionDefForMatchValue(t, out columnarDiscard69, out columnarDiscard70)
+        return t == typeof(int) || t == typeof(long) || t == typeof(ulong) || t == typeof(char) || t == typeof(bool) || t == typeof(double) || t == typeof(float) || t == typeof(string) || (ColumnarTypeEquivalenceFacts.IsSafeSzArrayType(t) && ColumnarTypeOfPlanner.IsSupportedElementType(t.GetElementType())) || ColumnarTypeOfPlanner.IsEnumType(t) || t is TypeBuilder || ColumnarTypeOfPlanner.IsClosedSourceGeneric(t) || ColumnarTypeOfPlanner.IsSupportedAnonymousUnionType(t) || TryGetUnionDefForMatchValue(t, out columnarDiscard69, out columnarDiscard70)
     }
 
     // True when `type` is the struct of a value-struct (payload-free tag) union. Used to decline `is`/`as` whose
@@ -11937,6 +13568,34 @@ sealed class ColumnarIlEmitter {
             }
         }
 
+        // A CONSTRUCTED GENERIC TYPE receiver in static position — `Box<int>.Of(4)`. The receiver is a
+        // type, not a value, so nothing is loaded: the instantiation is resolved and the generic
+        // static is closed on it.
+        if (_nodes.Kind(receiver) == 70) {
+            let constructedReceiverCanonical: string? = null
+            let constructedOwnerType: System.Type? = null
+            let constructedOwnerDef: NSharpLang.Compiler.Columnar.ColumnarStructDef? = null
+            let constructedOwnerArguments: System.Type[]? = null
+            if (TryResolveGenericTypeReceiverCanonical(receiver, out constructedReceiverCanonical) && TryResolveBodyType(constructedReceiverCanonical, out constructedOwnerType) && TryGetClosedReceiverDef(constructedOwnerType, out constructedOwnerDef, out constructedOwnerArguments)) {
+                let constructedStatic: NSharpLang.Compiler.Columnar.ColumnarStaticMethodDef? = null
+                if (TryFindGenericStaticMethodOnChain(constructedOwnerDef, memberName, argCount, -1, out constructedStatic)) {
+                    constructedStaticFacts := constructedStatic.Generics
+                    if (constructedStaticFacts != null) {
+                        return TryEmitSourceStaticGenericCallOn(callIdx, constructedStatic, new Type[constructedStaticFacts.TypeParams.Length], constructedOwnerType, constructedOwnerArguments, out resolvedClrType)
+                    }
+                }
+            }
+
+            // The same receiver, for a STATIC member declared by a type from a REFERENCED ASSEMBLY
+            // (`Comparer<int>.Create(...)`). The instantiation is resolved first, so the member is
+            // chosen on the CLOSED type and its signature is already substituted — which is what lets a
+            // lambda argument take its shape from `Comparison<int>` rather than from an open `T`.
+            let externalConstructedOwner: System.Type? = null
+            if (TryResolveGenericTypeReceiverCanonical(receiver, out constructedReceiverCanonical) && TryResolveBodyType(constructedReceiverCanonical, out externalConstructedOwner) && TryEmitOrdinaryRuntimeStaticCall(callIdx, externalConstructedOwner, memberName, argCount, out resolvedClrType)) {
+                return true
+            }
+        }
+
         addressableReceiverType: System.Type? = null
         if (memberName == nameof(JsonElement.ArrayEnumerator.MoveNext) && argCount == 0 && TryGetAddressableTargetType(receiver, out addressableReceiverType) && (addressableReceiverType == typeof(JsonElement.ArrayEnumerator) || addressableReceiverType == typeof(JsonElement.ObjectEnumerator))) {
             if (!EmitAddressOfByRefTarget(receiver, addressableReceiverType)) {
@@ -12185,7 +13844,7 @@ sealed class ColumnarIlEmitter {
                         if (_currentStruct.IsReference) {
                             propertyCallOpcode = OpCodes.Callvirt
                         }
-                        _il.Emit(propertyCallOpcode, thisProperty.Getter)
+                        _il.Emit(propertyCallOpcode, ColumnarSourceSelfInstantiation.Bind(thisProperty.Getter))
                         resolvedClrType = thisProperty.PropertyType
                     } else {
                         return false
@@ -12287,10 +13946,37 @@ sealed class ColumnarIlEmitter {
         return false
     }
 
+    // The CLOSED SOURCE type a kind-70 receiver names, or a decline. The canonical spelling comes
+    // from the receiver owner and the resolution from the ordinary body type resolver; the only thing
+    // added here is the demand that the head be a SOURCE generic, because an EXTERNAL one answers the
+    // runtime reflection surface instead and belongs to the external static-member planner.
+    private func TryResolveConstructedSourceGenericReceiver(receiver: int, out closedType: Type): bool {
+        closedType = null
+        let canonical: string? = null
+        if (!ColumnarGenericTypeReceiverFacts.TryBuildCanonical(_nodes, _source, receiver, out canonical)) {
+            return false
+        }
+        let resolved: System.Type? = null
+        if (!TryResolveBodyType(canonical, out resolved) || !ColumnarTypeOfPlanner.IsClosedSourceGeneric(resolved)) {
+            return false
+        }
+        closedType = resolved
+        return true
+    }
+
     private func TryEmitStaticCall(callIdx: int, typeName: string, member: string, argCount: int, legacyWholeSubtreePlanning: bool, out resolvedClrType: Type): bool {
         resolvedClrType = null
         userType: NSharpLang.Compiler.Columnar.ColumnarStructDef? = null
         if (_typeResolutionStructs.TryGetValue(typeName, out userType)) {
+            // A generic static with NO written type arguments infers them from the call's own
+            // arguments, so it is tried before the non-generic selectors (which refuse it).
+            let inferredStatic: NSharpLang.Compiler.Columnar.ColumnarStaticMethodDef? = null
+            if (TryFindGenericStaticMethodOnChain(userType, member, argCount, -1, out inferredStatic)) {
+                inferredStaticGenerics := inferredStatic.Generics
+                if (inferredStaticGenerics != null) {
+                    return TryEmitSourceStaticGenericCall(callIdx, userType, inferredStatic, new Type[inferredStaticGenerics.TypeParams.Length], out resolvedClrType)
+                }
+            }
             useExpandedParams := false
             userStatic: NSharpLang.Compiler.Columnar.ColumnarStaticMethodDef? = null
             if (TryFindStaticMethodOnChain(userType, member, argCount, out userStatic)) {
@@ -12315,7 +14001,7 @@ sealed class ColumnarIlEmitter {
                     return Decline("emit.call.static-user-argument", "static call argument " + a.ToString() + " for '" + typeName + "." + member + "' could not be emitted", Child(callIdx, a))
                 }
             }
-            _il.Emit(OpCodes.Call, userStatic.Builder)
+            _il.Emit(OpCodes.Call, ColumnarSourceSelfInstantiation.Bind(userStatic.Builder))
             resolvedClrType = userStatic.ReturnType
             return true
         }
@@ -12991,7 +14677,7 @@ sealed class ColumnarIlEmitter {
             // -> void. The array's element type drives the generic instantiation; the value must match the
             // element type; ranged fills additionally require int startIndex/count.
             arrayType: System.Type? = null
-            if (!EmitExpression(Child(callIdx, 1), out arrayType) || !arrayType.get_IsSZArray()) {
+            if (!EmitExpression(Child(callIdx, 1), out arrayType) || !ColumnarTypeEquivalenceFacts.IsSafeSzArrayType(arrayType)) {
                 return false
             }
             elementType := arrayType.GetElementType()
@@ -13020,7 +14706,7 @@ sealed class ColumnarIlEmitter {
                 return false
             }
             arrayType: System.Type? = null
-            if (!TryGetAddressableTargetType(Child(refArg, 0), out arrayType) || !arrayType.get_IsSZArray()) {
+            if (!TryGetAddressableTargetType(Child(refArg, 0), out arrayType) || !ColumnarTypeEquivalenceFacts.IsSafeSzArrayType(arrayType)) {
                 return false
             }
             elementType := arrayType.GetElementType()
@@ -13044,7 +14730,7 @@ sealed class ColumnarIlEmitter {
             // Keep this to one supported SZ array; key/value parallel arrays and comparison-delegate
             // overloads stay declined.
             arrayType: System.Type? = null
-            if (!EmitExpression(Child(callIdx, 1), out arrayType) || !arrayType.get_IsSZArray()) {
+            if (!EmitExpression(Child(callIdx, 1), out arrayType) || !ColumnarTypeEquivalenceFacts.IsSafeSzArrayType(arrayType)) {
                 return false
             }
             elementType := arrayType.GetElementType()
@@ -13072,7 +14758,7 @@ sealed class ColumnarIlEmitter {
             // Array.Reverse<T>(T[] array) and Array.Reverse<T>(T[] array, int index, int length) -> void. Keep
             // this to one supported SZ array; non-generic Array and unsupported element shapes stay declined.
             arrayType: System.Type? = null
-            if (!EmitExpression(Child(callIdx, 1), out arrayType) || !arrayType.get_IsSZArray()) {
+            if (!EmitExpression(Child(callIdx, 1), out arrayType) || !ColumnarTypeEquivalenceFacts.IsSafeSzArrayType(arrayType)) {
                 return false
             }
             elementType := arrayType.GetElementType()
@@ -13094,7 +14780,7 @@ sealed class ColumnarIlEmitter {
             // Array.Clear(Array) and Array.Clear(Array, int, int) -> void. The emitted argument remains the
             // concrete T[] reference; the BCL parameter is System.Array, so no copy or element loop is introduced.
             arrayType: System.Type? = null
-            if (!EmitExpression(Child(callIdx, 1), out arrayType) || !arrayType.get_IsSZArray()) {
+            if (!EmitExpression(Child(callIdx, 1), out arrayType) || !ColumnarTypeEquivalenceFacts.IsSafeSzArrayType(arrayType)) {
                 return false
             }
             elementType := arrayType.GetElementType()
@@ -13122,7 +14808,7 @@ sealed class ColumnarIlEmitter {
             // Array.Copy(Array, Array, int) and Array.Copy(Array, int, Array, int, int) -> void. Keep this slice
             // to exact same-element SZ-array copies; wider Array covariance and long-index overloads stay declined.
             sourceArrayType: System.Type? = null
-            if (!EmitExpression(Child(callIdx, 1), out sourceArrayType) || !sourceArrayType.get_IsSZArray()) {
+            if (!EmitExpression(Child(callIdx, 1), out sourceArrayType) || !ColumnarTypeEquivalenceFacts.IsSafeSzArrayType(sourceArrayType)) {
                 return false
             }
 
@@ -13155,7 +14841,7 @@ sealed class ColumnarIlEmitter {
     }
 
     private static func AreSameSupportedArrayType(sourceArrayType: Type, destinationArrayType: Type): bool {
-        if (!sourceArrayType.get_IsSZArray() || !destinationArrayType.get_IsSZArray()) {
+        if (!ColumnarTypeEquivalenceFacts.IsSafeSzArrayType(sourceArrayType) || !ColumnarTypeEquivalenceFacts.IsSafeSzArrayType(destinationArrayType)) {
             return false
         }
         sourceElementType := sourceArrayType.GetElementType()
@@ -13214,7 +14900,7 @@ sealed class ColumnarIlEmitter {
             m := methods[methodIndex]
             if (m.get_Name() == "Sort" && m.get_IsGenericMethodDefinition() && m.GetGenericArguments().Length == 1) {
                 parameters := m.GetParameters()
-                if (parameters.Length == parameterCount && parameters[0].get_ParameterType().get_IsSZArray() && parameters[0].get_ParameterType().GetElementType().get_IsGenericParameter()) {
+                if (parameters.Length == parameterCount && ColumnarTypeEquivalenceFacts.IsSafeSzArrayType(parameters[0].get_ParameterType()) && parameters[0].get_ParameterType().GetElementType().get_IsGenericParameter()) {
                     rangeParametersMatch := parameterCount < 3 || (parameters[1].get_ParameterType() == typeof(int) && parameters[2].get_ParameterType() == typeof(int))
                     if (rangeParametersMatch) {
                         comparerMatches := true
@@ -13240,7 +14926,7 @@ sealed class ColumnarIlEmitter {
                 continue
             }
             parameters := m.GetParameters()
-            if (parameters.Length != parameterCount || !parameters[0].get_ParameterType().get_IsSZArray() || !parameters[0].get_ParameterType().GetElementType().get_IsGenericParameter()) {
+            if (parameters.Length != parameterCount || !ColumnarTypeEquivalenceFacts.IsSafeSzArrayType(parameters[0].get_ParameterType()) || !parameters[0].get_ParameterType().GetElementType().get_IsGenericParameter()) {
                 continue
             }
             if (parameterCount == 1 || (parameters[1].get_ParameterType() == typeof(int) && parameters[2].get_ParameterType() == typeof(int))) {
@@ -13291,7 +14977,113 @@ sealed class ColumnarIlEmitter {
             if (_nodes.Kind(callee) == 6 && _nodes.ValueStart(callee) >= 0 && _siblingReturnTupleNames != null && !_locals.ContainsKey(ColumnarNodeTextFacts.Text(_nodes, _source, callee)) && !_paramOrdinals.ContainsKey(ColumnarNodeTextFacts.Text(_nodes, _source, callee)) && _siblingReturnTupleNames.TryGetValue(ColumnarNodeTextFacts.Text(_nodes, _source, callee), out returnNames)) {
                 return returnNames
             }
+            if (_nodes.Kind(callee) == 8 && _nodes.ChildCount(callee) >= 1) {
+                declaredNames := TupleNamesOfDeclaredMethodCall(node, callee)
+                if (declaredNames != null) {
+                    return declaredNames
+                }
+                return TupleNamesOfExternalMethodCall(node, callee)
+            }
             return null
+        }
+        return null
+    }
+
+    // The element names of a NAMED tuple returned by a method DECLARED ON A TYPE -- `Holder.Pair(a, b).Min`
+    // and `holder.Pair(a, b).Min` alike. A free function's names arrive through _siblingReturnTupleNames;
+    // a type's method carries them on its own definition, and the name+arity resolution the call emission
+    // already uses picks which definition answers. Without this, a named tuple returned by a static or
+    // instance method lost its names at the emit boundary and every element access on the result declined,
+    // even though the analyser had resolved it -- the two spellings of "a function that returns a named
+    // tuple" must behave the same.
+    private func TupleNamesOfDeclaredMethodCall(callNode: int, callee: int): string[]? {
+        member := ColumnarNodeTextFacts.Text(_nodes, _source, callee)
+        if (member == "") {
+            return null
+        }
+        argCount := _nodes.ChildCount(callNode) - 1
+        receiver := UnwrapParenthesizedNode(Child(callee, 0))
+
+        // A STATIC call: the receiver spells a source type rather than a value.
+        if (_nodes.Kind(receiver) == 6 && _nodes.ValueStart(receiver) >= 0) {
+            receiverText := ColumnarNodeTextFacts.Text(_nodes, _source, receiver)
+            if (!_locals.ContainsKey(receiverText) && !_paramOrdinals.ContainsKey(receiverText) && _typeResolutionStructs != null) {
+                staticOwner: NSharpLang.Compiler.Columnar.ColumnarStructDef? = null
+                staticMethod: NSharpLang.Compiler.Columnar.ColumnarStaticMethodDef? = null
+                if (_typeResolutionStructs.TryGetValue(receiverText, out staticOwner) && TryFindStaticMethodOnChain(staticOwner, member, argCount, out staticMethod)) {
+                    return staticMethod.ReturnTupleElementNames
+                }
+            }
+        }
+
+        // An INSTANCE call on a value whose type is one of this compilation's own types.
+        receiverType: System.Type? = null
+        if (!TryGetPreflightExpressionType(receiver, out receiverType) || receiverType == null || !(receiverType is TypeBuilder)) {
+            return null
+        }
+        instanceOwner := ColumnarSourceDefinitionResolver.FindByBuilderIdentity(_structRegistry.get_Values(), receiverType)
+        if (instanceOwner == null) {
+            return null
+        }
+        instanceMethod: NSharpLang.Compiler.Columnar.ColumnarInstanceMethodDef? = null
+        if (!ColumnarSourceMemberChainResolver.TryFindMethodOnChain(instanceOwner, member, argCount, out instanceMethod) || instanceMethod == null) {
+            return null
+        }
+        return instanceMethod.ReturnTupleElementNames
+    }
+
+    // The element names of a named tuple returned by a method from a REFERENCED assembly. A named
+    // tuple has no CLR identity, so a C# `(int Min, int Max)` return is `ValueTuple<int, int>` plus a
+    // `TupleElementNamesAttribute` on the return position -- and without reading that attribute
+    // `SimdReductions.MinMaxInt32(...).Min` had no names at the emit boundary even after the analyser
+    // resolved it, exactly as a source method's named return had none before its own definitions
+    // carried them.
+    //
+    // THE MEMBER IS SELECTED BY ORDINARY SCOPED CLR RESOLUTION -- the same overload resolver every
+    // other runtime call goes through, over the same preflighted argument types -- so there is no
+    // per-API table and no second resolution rule. Whichever member would answer the call is the
+    // member whose metadata is read; an unresolvable call simply has no names, which is the answer it
+    // had before.
+    private func TupleNamesOfExternalMethodCall(callNode: int, callee: int): string[]? {
+        member := ColumnarNodeTextFacts.Text(_nodes, _source, callee)
+        if (member == "") {
+            return null
+        }
+        argumentCount := _nodes.ChildCount(callNode) - 1
+        argumentTypes := new Type[argumentCount]
+        for i := 0; i < argumentCount; i++ {
+            let argumentType: System.Type? = null
+            if (!TryGetPreflightExpressionType(Child(callNode, i + 1), out argumentType) || argumentType == null) {
+                return null
+            }
+            argumentTypes[i] = argumentType
+        }
+        receiver := UnwrapParenthesizedNode(Child(callee, 0))
+
+        // A STATIC call into a referenced assembly: the receiver spells the owning type rather than a
+        // value, and no source declaration answers it (those are handled by the declared-method arm).
+        if (_nodes.Kind(receiver) == 6 && _nodes.ValueStart(receiver) >= 0) {
+            receiverText := ColumnarNodeTextFacts.Text(_nodes, _source, receiver)
+            if (!_locals.ContainsKey(receiverText) && !_paramOrdinals.ContainsKey(receiverText) && !_liftedLocals.ContainsKey(receiverText)) {
+                let staticOwnerType: System.Type? = null
+                if (TryResolveBodyType(receiverText, out staticOwnerType) && staticOwnerType != null && !(staticOwnerType is TypeBuilder)) {
+                    staticSelection := ColumnarOrdinaryRuntimeDirectCallResolver.Resolve(staticOwnerType, member, argumentTypes, true)
+                    if (staticSelection.IsSelected && staticSelection.Method != null) {
+                        return ColumnarTupleElementNameEmitter.TopLevelReturnNames(staticSelection.Method)
+                    }
+                    return null
+                }
+            }
+        }
+
+        // An INSTANCE call on a value whose type comes from a referenced assembly.
+        let receiverType: System.Type? = null
+        if (!TryGetPreflightExpressionType(receiver, out receiverType) || receiverType == null || receiverType is TypeBuilder) {
+            return null
+        }
+        instanceSelection := ColumnarOrdinaryRuntimeDirectCallResolver.Resolve(receiverType, member, argumentTypes, false)
+        if (instanceSelection.IsSelected && instanceSelection.Method != null) {
+            return ColumnarTupleElementNameEmitter.TopLevelReturnNames(instanceSelection.Method)
         }
         return null
     }
@@ -13383,6 +15175,239 @@ sealed class ColumnarIlEmitter {
             return true
         }
         return false
+    }
+
+    // A USER-DEFINED OPERATOR DECLARED BY AN EXTERNAL TYPE (`Vector<int> + Vector<int>`,
+    // `~mask & values`, `DateTime - DateTime`, `decimal * decimal`). The operand types are read by
+    // PREFLIGHT before anything is emitted, exactly as the mixed-numeric arm does, because the selected
+    // `op_*` decides what each operand must be converted to and a value already on the stack cannot be
+    // reached again. Both operands being IL primitives is the predefined surface's business and is
+    // refused here, so the ordinary `add`/`ceq` lowering below is untouched.
+    // The write twin: `receiver[index] = value` through a public `set_Item`. Only a REFERENCE receiver
+    // is served. A struct value on the stack can only be addressed through a temp, and a write into that
+    // temp would be lost -- an addressable struct indexer target is a separate shape, and declining is
+    // the honest answer for it rather than emitting a store nothing observes.
+    private func TryEmitRuntimeIndexerWrite(targetIdx: int, valueNode: int, receiverType: Type, out wrote: bool): bool {
+        wrote = false
+        if (receiverType.get_IsValueType() || ColumnarTypeEquivalenceFacts.IsSafeSzArrayType(receiverType) || receiverType.get_IsArray() || receiverType.get_IsByRef() || receiverType.get_IsPointer() || receiverType.get_IsGenericParameter()) {
+            return false
+        }
+        indexType: System.Type? = null
+        valueType: System.Type? = null
+        if (!TryGetPreflightExpressionType(Child(targetIdx, 1), out indexType) || !TryGetPreflightExpressionType(valueNode, out valueType)) {
+            return false
+        }
+
+        argumentTypes := new System.Type[](2)
+        argumentTypes[0] = indexType
+        argumentTypes[1] = valueType
+        selection := ColumnarOrdinaryRuntimeDirectCallResolver.Resolve(receiverType, "set_Item", argumentTypes, false)
+        if (!selection.IsSelected || selection.Method == null) {
+            return false
+        }
+
+        wrote = true
+        if (!EmitArg(targetIdx, 1, selection.ParameterTypes[0])) {
+            return false
+        }
+        let assignedValueType: System.Type = null
+        if (!TryEmitAssignableValue(valueNode, selection.ParameterTypes[1], out assignedValueType)) {
+            return false
+        }
+        _il.Emit(OpCodes.Callvirt, selection.Method)
+        return true
+    }
+
+    // AN INDEXER DECLARED BY AN EXTERNAL TYPE (`v[i]` on `Vector<int>`), resolved as the ordinary
+    // instance call `get_Item` it is. The arms above keep their own exact lowerings for the shapes they
+    // already own -- string, the closed BCL collections, the span families, arrays -- so this serves only
+    // a receiver none of them claims, and it names no type of its own.
+    //
+    // The receiver value is already on the stack, so a VALUE-TYPE receiver is parked in a temp and
+    // re-loaded by ADDRESS: an instance member of a struct needs a managed pointer, and the index
+    // expression is evaluated after that store, preserving left-to-right order. Bounds behaviour is the
+    // BCL's own -- `Vector<T>`'s indexer raises IndexOutOfRangeException, and nothing here intercepts it.
+    private func TryEmitRuntimeIndexerRead(idx: int, receiverType: Type, out resolvedClrType: Type): bool {
+        resolvedClrType = null
+        if (ColumnarTypeEquivalenceFacts.IsSafeSzArrayType(receiverType) || receiverType.get_IsArray() || receiverType.get_IsByRef() || receiverType.get_IsPointer() || receiverType.get_IsGenericParameter()) {
+            return false
+        }
+        indexType: System.Type? = null
+        if (!TryGetPreflightExpressionType(Child(idx, 1), out indexType)) {
+            return false
+        }
+
+        argumentTypes := new System.Type[](1)
+        argumentTypes[0] = indexType
+        selection := ColumnarOrdinaryRuntimeDirectCallResolver.Resolve(receiverType, "get_Item", argumentTypes, false)
+        if (!selection.IsSelected || selection.Method == null) {
+            return false
+        }
+
+        receiverTemp := _il.DeclareLocal(receiverType)
+        _il.Emit(OpCodes.Stloc, receiverTemp)
+        if (selection.ReceiverIsReference) {
+            _il.Emit(OpCodes.Ldloc, receiverTemp)
+        } else {
+            _il.Emit(OpCodes.Ldloca, receiverTemp)
+        }
+        if (!EmitArg(idx, 1, selection.ParameterTypes[0])) {
+            return false
+        }
+        if (selection.UsesCallVirtual) {
+            _il.Emit(OpCodes.Callvirt, selection.Method)
+        } else {
+            _il.Emit(OpCodes.Call, selection.Method)
+        }
+        resolvedClrType = selection.ReturnType
+        return true
+    }
+
+    private func TryEmitRuntimeUserDefinedBinary(idx: int, op: string, out resolvedClrType: Type): bool {
+        resolvedClrType = null
+        if (_nodes.ChildCount(idx) != 2) {
+            return false
+        }
+        leftNode := Child(idx, 0)
+        rightNode := Child(idx, 1)
+        leftType: System.Type? = null
+        rightType: System.Type? = null
+        if (!TryGetPreflightExpressionType(leftNode, out leftType) || !TryGetPreflightExpressionType(rightNode, out rightType)) {
+            return false
+        }
+        if (ColumnarRuntimeOperatorResolver.IsIlPrimitiveOperandType(leftType) && ColumnarRuntimeOperatorResolver.IsIlPrimitiveOperandType(rightType)) {
+            return false
+        }
+
+        selection := ColumnarRuntimeOperatorResolver.ResolveBinary(op, leftType, rightType)
+        if (!selection.IsSelected || selection.Method == null) {
+            return false
+        }
+        parameterTypes := selection.ParameterTypes
+        emittedLeft: System.Type? = null
+        if (!EmitExpression(leftNode, out emittedLeft) || (!TypesEquivalent(emittedLeft, parameterTypes[0]) && !TryEmitImplicitWidening(emittedLeft, parameterTypes[0]))) {
+            return false
+        }
+        emittedRight: System.Type? = null
+        if (!EmitExpression(rightNode, out emittedRight) || (!TypesEquivalent(emittedRight, parameterTypes[1]) && !TryEmitImplicitWidening(emittedRight, parameterTypes[1]))) {
+            return false
+        }
+
+        _il.Emit(OpCodes.Call, selection.Method)
+        resolvedClrType = selection.ReturnType
+        return true
+    }
+
+    // ONE COMPOUND-ASSIGNMENT OPERATION, for every target shape. `target op= value` lowers to
+    // load / operate / store, and only the load and the store differ between a local, a field, an array
+    // element and an indexer -- the OPERATION in the middle is the same question every time, asked with
+    // both values already on the stack.
+    //
+    // The predefined answers come first (string concatenation, then the exact scalar surface), and a
+    // pair neither serves falls to the user-defined operator its own types declare. `decimal += decimal`
+    // reaches that lookup rather than a spelled-out `op_Addition`, and so does
+    // `Vector<int> += Vector<int>`. The result must be exactly the target's type: a compound assignment
+    // stores back into the target, and N# has no implicit narrowing to hide there.
+    private func TryEmitCompoundOperation(assignOp: string, targetType: Type, valueType: Type): bool {
+        op := CompoundBinaryOperatorText(assignOp)
+        if (op == "") {
+            return false
+        }
+
+        if (targetType == typeof(string)) {
+            if (op != "+" || !TypesEquivalent(valueType, targetType)) {
+                return false
+            }
+            _il.Emit(OpCodes.Call, typeof(string).GetMethod(nameof(string.Concat), [typeof(string), typeof(string)]))
+            return true
+        }
+
+        // The IL-primitive arm. `uint` belongs here for exactly the reason `ulong` does: it is an ordinary
+        // stack-primitive whose add/sub/mul opcodes are shared with the signed forms and whose DIVISION is
+        // unsigned (`div.un`). Leaving it out declined every `sum += array[i]` over a `uint` accumulator
+        // while the spelled-out `sum = sum + array[i]` emitted fine through the general binary path -- the
+        // two spellings must agree, so the unsigned predicate is written once and read by both operands.
+        if (TypesEquivalent(valueType, targetType) && (targetType == typeof(int) || targetType == typeof(long) || targetType == typeof(uint) || targetType == typeof(ulong) || targetType == typeof(double) || targetType == typeof(float))) {
+            scalarIl := _il
+            scalarUnsigned := targetType == typeof(uint) || targetType == typeof(ulong)
+            scalarOpCode := op == "+" ? OpCodes.Add : op == "-" ? OpCodes.Sub : op == "*" ? OpCodes.Mul : scalarUnsigned ? OpCodes.Div_Un : OpCodes.Div
+            scalarIl.Emit(scalarOpCode)
+            return true
+        }
+
+        selection := ColumnarRuntimeOperatorResolver.ResolveBinary(op, targetType, valueType)
+        if (!selection.IsSelected || selection.Method == null) {
+            return false
+        }
+        if (!TypesEquivalent(targetType, selection.ParameterTypes[0]) || !TypesEquivalent(valueType, selection.ParameterTypes[1])) {
+            return false
+        }
+        if (!TypesEquivalent(selection.ReturnType, targetType)) {
+            return false
+        }
+
+        _il.Emit(OpCodes.Call, selection.Method)
+        return true
+    }
+
+    private static func CompoundBinaryOperatorText(assignOp: string): string {
+        if (assignOp == "+=") {
+            return "+"
+        }
+        if (assignOp == "-=") {
+            return "-"
+        }
+        if (assignOp == "*=") {
+            return "*"
+        }
+        if (assignOp == "/=") {
+            return "/"
+        }
+        return ""
+    }
+
+    // The post-operand half of the user-defined binary operator lookup: both values are already on the
+    // stack, so the selected operator's parameters must match the emitted operand types exactly.
+    private func TryEmitEmittedOperandRuntimeBinary(op: string, leftType: Type, rightType: Type, out resolvedClrType: Type): bool {
+        resolvedClrType = null
+        if (ColumnarRuntimeOperatorResolver.IsIlPrimitiveOperandType(leftType) && ColumnarRuntimeOperatorResolver.IsIlPrimitiveOperandType(rightType)) {
+            return false
+        }
+
+        selection := ColumnarRuntimeOperatorResolver.ResolveBinary(op, leftType, rightType)
+        if (!selection.IsSelected || selection.Method == null) {
+            return false
+        }
+        parameterTypes := selection.ParameterTypes
+        if (!TypesEquivalent(leftType, parameterTypes[0]) || !TypesEquivalent(rightType, parameterTypes[1])) {
+            return false
+        }
+
+        _il.Emit(OpCodes.Call, selection.Method)
+        resolvedClrType = selection.ReturnType
+        return true
+    }
+
+    // The unary twin. The operand is already on the stack here -- there is only one, so a widening
+    // conversion can still be applied to it after the fact.
+    private func TryEmitRuntimeUserDefinedUnary(op: string, operandType: Type, out resolvedClrType: Type): bool {
+        resolvedClrType = null
+        if (ColumnarRuntimeOperatorResolver.IsIlPrimitiveOperandType(operandType)) {
+            return false
+        }
+
+        selection := ColumnarRuntimeOperatorResolver.ResolveUnary(op, operandType)
+        if (!selection.IsSelected || selection.Method == null) {
+            return false
+        }
+        parameterType := selection.ParameterTypes[0]
+        if (!TypesEquivalent(operandType, parameterType) && !TryEmitImplicitWidening(operandType, parameterType)) {
+            return false
+        }
+
+        _il.Emit(OpCodes.Call, selection.Method)
+        resolvedClrType = selection.ReturnType
+        return true
     }
 
     private func TryEmitMixedNumericBinary(idx: int, op: string, out resolvedClrType: Type): bool {
@@ -13603,14 +15628,14 @@ sealed class ColumnarIlEmitter {
 
         propertyType := property.get_PropertyType()
         valueType: Type = null
-        if (TryEmitNullLiteralAsType(valueNode, propertyType, out valueType)) {
+        if (TryEmitZeroLiteralAsType(valueNode, propertyType, out valueType)) {
         } else {
             // Null adopted to the declared reference property type.
             if (!EmitExpression(valueNode, out valueType)) {
                 return false
             }
         }
-        if (!TypesEquivalent(valueType, propertyType) && !TryEmitImplicitWidening(valueType, propertyType) && !ColumnarReferenceCoercionPlanner.TryEmitInterfaceUpcast(valueType, propertyType, _structRegistry, _il) && !ColumnarReferenceConversionFacts.TryEmitReferenceConversion(valueType, propertyType) && !ColumnarReferenceCoercionPlanner.TryEmitObjectConversion(valueType, propertyType, _structRegistry, _il) && !TryEmitAnonymousUnionConversion(valueType, propertyType)) {
+        if (!TypesEquivalent(valueType, propertyType) && !TryEmitImplicitWidening(valueType, propertyType) && !ColumnarReferenceCoercionPlanner.TryEmitInterfaceUpcast(valueType, propertyType, _structRegistry, _il) && !ColumnarReferenceCoercionPlanner.TryEmitExternalInterfaceUpcast(valueType, propertyType, _structRegistry, _il) && !ColumnarReferenceConversionFacts.TryEmitReferenceConversion(valueType, propertyType) && !ColumnarReferenceCoercionPlanner.TryEmitObjectConversion(valueType, propertyType, _structRegistry, _il) && !TryEmitAnonymousUnionConversion(valueType, propertyType)) {
             return false
         }
 
@@ -13649,7 +15674,7 @@ sealed class ColumnarIlEmitter {
     private func TryEmitValueAsNullable(node: int, target: Type, out resolvedClrType: Type): bool {
         resolvedClrType = null
         element := target.GetGenericArguments()[0]
-        if (_nodes.Kind(node) == 5) {
+        if (_nodes.Kind(node) == 5 || _nodes.Kind(node) == ColumnarExpressionNodeKind.DefaultExpression()) {
             defaultLocal := _il.DeclareLocal(target)
             _il.Emit(OpCodes.Ldloca, defaultLocal)
             _il.Emit(OpCodes.Initobj, target)
@@ -13681,16 +15706,57 @@ sealed class ColumnarIlEmitter {
         return true
     }
 
-    // A bare NULL literal (kind 5) adopts any REFERENCE-typed target (`return null` on a string
-    // function, `s = null`, a null argument) — N#'s null-assignability for the modelled set. Value-typed
-    // targets decline (Nullable<T> is the N2 rung).
-    private func TryEmitNullLiteralAsType(node: int, target: Type, out resolvedClrType: Type): bool {
+    // THE TWO KEYWORD LITERALS THAT SPELL A TARGET TYPE'S ZERO VALUE, in the one place that knows the
+    // target. A bare NULL literal (kind 5) adopts any REFERENCE-typed target (`return null` on a string
+    // function, `s = null`, a null argument) — N#'s null-assignability for the modelled set; a value-typed
+    // target declines, because `null` is not a value of one. `default` (kind 74) adopts EVERY target,
+    // including a value type and an unconstrained type PARAMETER, because that is what the keyword means.
+    private func TryEmitZeroLiteralAsType(node: int, target: Type, out resolvedClrType: Type): bool {
         resolvedClrType = null
-        if (_nodes.Kind(node) != 5 || target.get_IsValueType()) {
+        nodeKind := _nodes.Kind(node)
+        if (nodeKind == ColumnarExpressionNodeKind.DefaultExpression()) {
+            if (!EmitDefaultValueOfType(target)) {
+                return false
+            }
+            resolvedClrType = target
+            return true
+        }
+        if (nodeKind != 5 || target.get_IsValueType()) {
             return false
         }
         _il.Emit(OpCodes.Ldnull)
         resolvedClrType = target
+        return true
+    }
+
+    // `default` OF A TARGET TYPE, as one value on the stack. A REFERENCE target's zero value is the null
+    // reference and loads as one. Every other target — a struct, an enum, a `Nullable<T>`, and a type
+    // PARAMETER whose instantiation is not known here — is zeroed in place: `initobj` over a fresh local's
+    // address writes the type's all-zero representation whatever that turns out to be, which is the only
+    // spelling that stays correct for an unconstrained `T` closed over both kinds. It is also what the CLR
+    // gives a `default(T)` in C#, instruction for instruction.
+    // The predicate half of `EmitDefaultValueOfType`, asked before anything is on the stack. Every type a
+    // value can be written as has a zero value; only the two positions that are not value positions at
+    // all — a by-ref target and `void` — have none.
+    private func CanEmitDefaultValueOfType(target: Type): bool {
+        if (target == null || target.get_IsByRef()) {
+            return false
+        }
+        return !ColumnarCodePlanExecutor.IsVoidType(target)
+    }
+
+    private func EmitDefaultValueOfType(target: Type): bool {
+        if (!CanEmitDefaultValueOfType(target)) {
+            return false
+        }
+        if (!target.get_IsValueType() && !target.get_IsGenericParameter()) {
+            _il.Emit(OpCodes.Ldnull)
+            return true
+        }
+        zeroLocal := _il.DeclareLocal(target)
+        _il.Emit(OpCodes.Ldloca, zeroLocal)
+        _il.Emit(OpCodes.Initobj, target)
+        _il.Emit(OpCodes.Ldloc, zeroLocal)
         return true
     }
 
@@ -13720,7 +15786,7 @@ sealed class ColumnarIlEmitter {
 
     private func CanUseArrayLiteralAsType(node: int, target: Type): bool {
         node = UnwrapParenthesizedNode(node)
-        if (_nodes.Kind(node) != 58 || !target.get_IsSZArray()) {
+        if (_nodes.Kind(node) != 58 || !ColumnarTypeEquivalenceFacts.IsSafeSzArrayType(target)) {
             return false
         }
         elementType := target.GetElementType()
@@ -13807,6 +15873,9 @@ sealed class ColumnarIlEmitter {
 
     private func CanEmitAssignableValueAsType(valueNode: int, targetType: Type): bool {
         valueNode = UnwrapParenthesizedNode(valueNode)
+        if (_nodes.Kind(valueNode) == ColumnarExpressionNodeKind.DefaultExpression()) {
+            return CanEmitDefaultValueOfType(targetType)
+        }
         if (_nodes.Kind(valueNode) == 5) {
             return !targetType.get_IsValueType() || ColumnarTypeOfPlanner.IsSupportedNullable(targetType)
         }
@@ -13980,8 +16049,10 @@ sealed class ColumnarIlEmitter {
         }
         text := ColumnarNodeTextFacts.Text(_nodes, _source, node)
         // §10.2.4 — the literal ZERO adopts any enum type. The analyzer admits it at the same positions;
-        // an enum's storage is its underlying integer, so zero is an `ldc.i4.0`.
-        if (target.get_IsEnum()) {
+        // an enum's storage is its underlying integer, so zero is an `ldc.i4.0`. The enum question is
+        // asked through the GUARDED owner: a raw `get_IsEnum` routes through `IsSubclassOf`, which a
+        // `TypeBuilderInstantiation` target (`Wrap<int>` mid-emit) answers with NotSupportedException.
+        if (ColumnarTypeOfPlanner.IsEnumType(target)) {
             if (!ConstantConversionFacts.IsLiteralZero(text, negative)) {
                 return false
             }
@@ -14173,6 +16244,57 @@ sealed class ColumnarIlEmitter {
     // kind 7 single-child wrapper = transparent
     // named/parenthesized type element). Other type-node kinds decline until their consumers own the
     // corresponding emit path.
+    // WHAT A TYPE TEST MAY BE ASKED ABOUT. `isinst` takes any class, interface, value type or type
+    // PARAMETER token and answers "is the reference a boxed one of these": a value-type target is as
+    // ordinary a question as a reference one, and C# answers both. `as` is the narrower operator — it
+    // hands back the TYPE, and there is no null to hand back for a non-nullable value type, so C#
+    // forbids it there and so does this. A `Nullable<T>` target is excluded from BOTH: C# reads
+    // `o is int?` as `o is int` because a boxed `Nullable<int>` is a boxed `int`, and an `isinst` against
+    // the nullable itself would answer false for every value — a wrong answer is worse than a decline.
+    private func IsSupportedTypeTestTarget(target: Type, isTypeTest: bool): bool {
+        if (target == null || target.get_IsByRef() || target.get_IsPointer() || ColumnarCodePlanExecutor.IsVoidType(target)) {
+            return false
+        }
+        if (ColumnarTypeOfPlanner.IsSupportedNullable(target)) {
+            return false
+        }
+        if (isTypeTest) {
+            return true
+        }
+        return !target.get_IsValueType() && !target.get_IsGenericParameter()
+    }
+
+    // `value is Type name` — the test AND the binding, in the one lowering C# uses for both kinds of
+    // target. The `isinst` result is kept on the stack, tested once, and on the matching branch converted
+    // with `unbox.any`, which unwraps a boxed value type and behaves as `castclass` for a reference one —
+    // the single spelling that stays correct for an unconstrained type parameter closed over either kind.
+    // The variable is a real local from here on, so the rest of the enclosing block reads it like any
+    // other; a name that would SHADOW a visible binding declines rather than silently rebinding, which is
+    // the rule the `catch` binding already follows.
+    private func TryEmitTypeTestBinding(idx: int, targetTestType: Type, out columnarResolvedType: Type): bool {
+        columnarResolvedType = typeof(bool)
+        bindingName := ColumnarNodeTextFacts.Text(_nodes, _source, idx)
+        if (bindingName.Length == 0 || bindingName == "_" || ColumnarClosureBindingPlanner.IsVisibleBindingName(bindingName, _locals, _paramOrdinals, _liftedLocals, _boxedCaptures, _enclosingBindingNames)) {
+            return false
+        }
+        bindingLocal := _il.DeclareLocal(targetTestType)
+        matched := _il.DefineLabel()
+        finished := _il.DefineLabel()
+        _il.Emit(OpCodes.Isinst, targetTestType)
+        _il.Emit(OpCodes.Dup)
+        _il.Emit(OpCodes.Brtrue, matched)
+        _il.Emit(OpCodes.Pop)
+        _il.Emit(OpCodes.Ldc_I4_0)
+        _il.Emit(OpCodes.Br, finished)
+        _il.MarkLabel(matched)
+        _il.Emit(OpCodes.Unbox_Any, targetTestType)
+        _il.Emit(OpCodes.Stloc, bindingLocal)
+        _il.Emit(OpCodes.Ldc_I4_1)
+        _il.MarkLabel(finished)
+        _locals[bindingName] = bindingLocal
+        return true
+    }
+
     private func TryBuildTypeNodeCanonical(typeNode: int, out canonical: string): bool {
         typeNodeKind := _nodes.Kind(typeNode)
         if (typeNodeKind == 0) {
@@ -14650,6 +16772,9 @@ sealed class ColumnarIlEmitter {
 
     private func CanEmitConstructorArgumentAs(argNode: int, expectedType: Type): bool {
         argNode = UnwrapParenthesizedNode(argNode)
+        if (_nodes.Kind(argNode) == ColumnarExpressionNodeKind.DefaultExpression()) {
+            return CanEmitDefaultValueOfType(expectedType)
+        }
         if (_nodes.Kind(argNode) == 5) {
             return !expectedType.get_IsValueType()
         }
@@ -14666,7 +16791,7 @@ sealed class ColumnarIlEmitter {
             return true
         }
         let actualType: System.Type? = null
-        return TryGetPreflightExpressionType(argNode, out actualType) && (TypesEquivalent(actualType, expectedType) || CanUseImplicitNumericWidening(actualType, expectedType) || ColumnarReferenceCoercionPlanner.CanUseInterfaceUpcast(actualType, expectedType, _structRegistry) || CanUseSpanConversion(actualType, expectedType) || ColumnarReferenceConversionFacts.TryEmitReferenceConversion(actualType, expectedType) || ColumnarReferenceCoercionPlanner.CanUseObjectConversion(actualType, expectedType) || CanUseAnonymousUnionConversion(actualType, expectedType))
+        return TryGetPreflightExpressionType(argNode, out actualType) && (TypesEquivalent(actualType, expectedType) || CanUseImplicitNumericWidening(actualType, expectedType) || ColumnarReferenceCoercionPlanner.CanUseInterfaceUpcast(actualType, expectedType, _structRegistry) || ColumnarReferenceCoercionPlanner.CanUseExternalInterfaceUpcast(actualType, expectedType, _structRegistry) || CanUseSpanConversion(actualType, expectedType) || ColumnarReferenceConversionFacts.TryEmitReferenceConversion(actualType, expectedType) || ColumnarReferenceCoercionPlanner.CanUseObjectConversion(actualType, expectedType) || CanUseAnonymousUnionConversion(actualType, expectedType))
     }
 
     private func TryGetCollectionCapacityConstructorArgument(argNode: int, out valueNode: int): bool {
@@ -14687,7 +16812,7 @@ sealed class ColumnarIlEmitter {
 
     private func EmitConstructorArgumentValueAs(argNode: int, expected: Type): bool {
         let argType: System.Type? = null
-        return (TryEmitTargetTypedNewAsType(argNode, expected, out argType) || TryEmitCollectionLiteralAsType(argNode, expected, out argType) || TryEmitArrayLiteralAsType(argNode, expected, out argType) || TryEmitNullLiteralAsType(argNode, expected, out argType) || TryEmitIntLiteralAsType(argNode, expected, out argType) || EmitExpression(argNode, out argType)) && (TypesEquivalent(argType, expected) || TryEmitImplicitWidening(argType, expected) || TryEmitSpanConversion(argType, expected) || ColumnarReferenceCoercionPlanner.TryEmitInterfaceUpcast(argType, expected, _structRegistry, _il) || ColumnarReferenceCoercionPlanner.TryEmitExternalInterfaceUpcast(argType, expected, _structRegistry, _il) || ColumnarReferenceConversionFacts.TryEmitReferenceConversion(argType, expected) || ColumnarReferenceCoercionPlanner.TryEmitObjectConversion(argType, expected, _structRegistry, _il) || TryEmitAnonymousUnionConversion(argType, expected) || TryEmitUserDefinedConversion(argType, expected, false))
+        return (TryEmitTargetTypedNewAsType(argNode, expected, out argType) || TryEmitCollectionLiteralAsType(argNode, expected, out argType) || TryEmitArrayLiteralAsType(argNode, expected, out argType) || TryEmitZeroLiteralAsType(argNode, expected, out argType) || TryEmitIntLiteralAsType(argNode, expected, out argType) || EmitExpression(argNode, out argType)) && (TypesEquivalent(argType, expected) || TryEmitImplicitWidening(argType, expected) || TryEmitSpanConversion(argType, expected) || ColumnarReferenceCoercionPlanner.TryEmitInterfaceUpcast(argType, expected, _structRegistry, _il) || ColumnarReferenceCoercionPlanner.TryEmitExternalInterfaceUpcast(argType, expected, _structRegistry, _il) || ColumnarReferenceConversionFacts.TryEmitReferenceConversion(argType, expected) || ColumnarReferenceCoercionPlanner.TryEmitObjectConversion(argType, expected, _structRegistry, _il) || TryEmitAnonymousUnionConversion(argType, expected) || TryEmitUserDefinedConversion(argType, expected, false))
     }
 
     private func TryGetPreflightExpressionType(node: int, out columnarResolvedType: Type): bool {
@@ -15360,6 +17485,30 @@ sealed class ColumnarIlEmitter {
             return true
         }
 
+        let dottedReceiverName: string? = null
+        let dottedReceiverRoot: string? = null
+        if (TryGetDottedMemberAccessName(receiver, out dottedReceiverName, out dottedReceiverRoot) && dottedReceiverName.Length > dottedReceiverRoot.Length && !_locals.ContainsKey(dottedReceiverRoot) && !_liftedLocals.ContainsKey(dottedReceiverRoot) && !_paramOrdinals.ContainsKey(dottedReceiverRoot) && !_siblings.ContainsKey(dottedReceiverRoot)) {
+            // The namespace-qualified spelling of the static read the identifier arm below answers.
+            let dottedPreflightEnum: NSharpLang.Compiler.Columnar.ColumnarEnumDef? = null
+            if (_typeResolutionEnums.TryGetValue(dottedReceiverName, out dottedPreflightEnum) && ((dottedPreflightEnum.StringConstants != null && dottedPreflightEnum.StringConstants.ContainsKey(ColumnarNodeTextFacts.Text(_nodes, _source, node))) || dottedPreflightEnum.Constants.ContainsKey(ColumnarNodeTextFacts.Text(_nodes, _source, node)))) {
+                columnarResolvedType = dottedPreflightEnum.EnumType
+                return true
+            }
+            let dottedPreflightOwner: NSharpLang.Compiler.Columnar.ColumnarStructDef? = null
+            if (_typeResolutionStructs.TryGetValue(dottedReceiverName, out dottedPreflightOwner)) {
+                let dottedPreflightField: System.Reflection.Emit.FieldBuilder? = null
+                if (ColumnarSourceMemberChainResolver.TryFindStaticFieldOnChain(dottedPreflightOwner, ColumnarNodeTextFacts.Text(_nodes, _source, node), out dottedPreflightField)) {
+                    columnarResolvedType = dottedPreflightField.get_FieldType()
+                    return true
+                }
+                let dottedPreflightProperty: NSharpLang.Compiler.Columnar.ColumnarPropertyDef? = null
+                if (ColumnarSourceMemberChainResolver.TryFindStaticPropertyOnChain(dottedPreflightOwner, ColumnarNodeTextFacts.Text(_nodes, _source, node), out dottedPreflightProperty)) {
+                    columnarResolvedType = dottedPreflightProperty.PropertyType
+                    return true
+                }
+            }
+        }
+
         if (_nodes.Kind(receiver) == 6) {
             receiverIdent := ColumnarNodeTextFacts.Text(_nodes, _source, receiver)
             isUnshadowedTypeName := !_locals.ContainsKey(receiverIdent) && !_liftedLocals.ContainsKey(receiverIdent) && !_paramOrdinals.ContainsKey(receiverIdent) && !_siblings.ContainsKey(receiverIdent)
@@ -15832,6 +17981,36 @@ sealed class ColumnarIlEmitter {
         )) {
             return true
         }
+
+        // A DELEGATE'S OWN `Invoke`, WITH THE RECEIVER ALREADY ON THE STACK. `TryResolveDelegateInvocation`
+        // is the same owner the bare `t(v)` invocation uses: it answers a baked delegate directly and
+        // rebinds a BUILDER-BOUND instantiation's `Invoke` through its open definition, which is the only
+        // way to name a member of one — `Action<THandler>` inside a generic class is such an
+        // instantiation, and reflection member queries throw on it. Without this arm `current.Invoke(h)`
+        // reaches the door only when the N# direct-call planner claims it, so the same call written
+        // through a null guard (`current?.Invoke(h)`), which that planner declines by construction,
+        // would decline as "not modeled".
+        let delegateInvoke: System.Reflection.MethodInfo = null
+        let delegateInvokeParameterTypes: System.Type[] = null
+        let delegateInvokeReturnType: System.Type = null
+        if (IsInvocableDelegateType(receiverType) && TryResolveDelegateInvocation(receiverType, out delegateInvoke, out delegateInvokeParameterTypes, out delegateInvokeReturnType) && delegateInvoke.get_Name() == member && argCount == delegateInvokeParameterTypes.Length) {
+            for delegateArg := 1; delegateArg <= argCount; delegateArg++ {
+                if (!EmitDeclaredCallArgument(Child(callIdx, delegateArg), delegateInvokeParameterTypes[delegateArg - 1], true)) {
+                    return false
+                }
+            }
+            _il.Emit(OpCodes.Callvirt, delegateInvoke)
+            columnarResolvedType = delegateInvokeReturnType
+            return true
+        }
+
+        // ORDINARY CLR MEMBER RESOLUTION over the receiver's own type, ahead of the per-API residuals
+        // below. The direct-call planner owns every external instance call whose arguments it can
+        // type; what reaches here is the rest, and a lambda argument is why there is a rest.
+        if (TryEmitOrdinaryRuntimeInstanceCall(callIdx, receiverType, member, argCount, out columnarResolvedType)) {
+            return true
+        }
+
         if (!legacyWholeSubtreePlanning) {
             return false
         }
@@ -16448,6 +18627,21 @@ sealed class ColumnarIlEmitter {
                 if (builderType != receiverType) {
                     continue
                 }
+                let genericStructMethod: NSharpLang.Compiler.Columnar.ColumnarInstanceMethodDef? = null
+                if (TrySelectGenericInstanceMethodOnChain(d, member, argCount, -1, out genericStructMethod)) {
+                    genericStructFacts := genericStructMethod.Generics
+                    if (genericStructFacts == null) {
+                        return false
+                    }
+                    genericReceiverTemp := _il.DeclareLocal(receiverType)
+                    _il.Emit(OpCodes.Stloc, genericReceiverTemp)
+                    _il.Emit(d.IsReference ? OpCodes.Ldloc : OpCodes.Ldloca, genericReceiverTemp)
+                    genericStructOpcode := match d.IsReference {
+                        true => OpCodes.Callvirt,
+                        _ => OpCodes.Call
+                    }
+                    return TryEmitGenericSourceMethodCall(callIdx, genericStructFacts, genericStructMethod.Builder, genericStructMethod.ParamTypes, genericStructMethod.ReturnType, new Type[genericStructFacts.TypeParams.Length], null, null, genericStructOpcode, out columnarResolvedType)
+                }
                 let structMethod: NSharpLang.Compiler.Columnar.ColumnarInstanceMethodDef? = null
                 if (TrySelectInstanceMethodOnChain(d, member, callIdx, out structMethod)) {
                     if (!legacyWholeSubtreePlanning && !ColumnarSourceDirectCallResolver.IsExcludedInstanceDefinition(structMethod)) {
@@ -16476,6 +18670,21 @@ sealed class ColumnarIlEmitter {
         let closedDef: NSharpLang.Compiler.Columnar.ColumnarStructDef? = null
         let closedArgs: System.Type[]? = null
         if (TryGetClosedReceiverDef(receiverType, out closedDef, out closedArgs)) {
+            let closedGenericMethod: NSharpLang.Compiler.Columnar.ColumnarInstanceMethodDef? = null
+            if (TrySelectGenericInstanceMethodOnChain(closedDef, member, argCount, -1, out closedGenericMethod)) {
+                closedGenericFacts := closedGenericMethod.Generics
+                if (closedGenericFacts == null) {
+                    return false
+                }
+                closedGenericTemp := _il.DeclareLocal(receiverType)
+                _il.Emit(OpCodes.Stloc, closedGenericTemp)
+                _il.Emit(closedDef.IsReference ? OpCodes.Ldloc : OpCodes.Ldloca, closedGenericTemp)
+                closedGenericOpcode := match closedDef.IsReference {
+                    true => OpCodes.Callvirt,
+                    _ => OpCodes.Call
+                }
+                return TryEmitGenericSourceMethodCall(callIdx, closedGenericFacts, closedGenericMethod.Builder, closedGenericMethod.ParamTypes, closedGenericMethod.ReturnType, new Type[closedGenericFacts.TypeParams.Length], receiverType, closedArgs, closedGenericOpcode, out columnarResolvedType)
+            }
             let closedMethod: NSharpLang.Compiler.Columnar.ColumnarInstanceMethodDef? = null
             if (!TrySelectInstanceMethodOnChain(closedDef, member, callIdx, out closedMethod)) {
                 return false
@@ -17063,7 +19272,10 @@ sealed class ColumnarIlEmitter {
         arityMatches := 0
         soleArityMatch: ColumnarInstanceMethodDef? = null
         for candidate in overloads {
-            if (candidate.ParamTypes.Length != argCount) {
+            // A GENERIC method never binds here: it has no callable handle until a call site closes
+            // it, so selecting one on this path would emit a `call` to an open definition. The
+            // generic selectors below own it.
+            if (candidate.Generics != null || candidate.ParamTypes.Length != argCount) {
                 continue
             }
             hadArityMatch = true
@@ -17081,7 +19293,7 @@ sealed class ColumnarIlEmitter {
 
         selected := false
         for candidate in overloads {
-            if (candidate.ParamTypes.Length != argCount || !CanDeclaredCallArgumentsMatch(callIdx, candidate.ParamTypes, true)) {
+            if (candidate.Generics != null || candidate.ParamTypes.Length != argCount || !CanDeclaredCallArgumentsMatch(callIdx, candidate.ParamTypes, true)) {
                 continue
             }
             if (selected) {
@@ -17124,6 +19336,9 @@ sealed class ColumnarIlEmitter {
         if (allowLambdaLiteral && CanEmitLocalFunctionMethodGroupAsDelegate(argNode, expectedParamType)) {
             return true
         }
+        if (_nodes.Kind(argNode) == ColumnarExpressionNodeKind.DefaultExpression()) {
+            return CanEmitDefaultValueOfType(expectedParamType)
+        }
         if (_nodes.Kind(argNode) == 5) {
             return !expectedParamType.get_IsValueType() || ColumnarTypeOfPlanner.IsSupportedNullable(expectedParamType)
         }
@@ -17156,7 +19371,7 @@ sealed class ColumnarIlEmitter {
     // Interface-typed arguments accept implementers through the same upcast/box path as sibling calls.
     private func EmitArg(callIdx: int, argPosition: int, expected: Type): bool {
         let argType: System.Type? = null
-        return (TryEmitTargetTypedNewAsType(Child(callIdx, argPosition), expected, out argType) || TryEmitCollectionLiteralAsType(Child(callIdx, argPosition), expected, out argType) || TryEmitArrayLiteralAsType(Child(callIdx, argPosition), expected, out argType) || TryEmitNullLiteralAsType(Child(callIdx, argPosition), expected, out argType) || TryEmitIntLiteralAsType(Child(callIdx, argPosition), expected, out argType) || EmitExpression(Child(callIdx, argPosition), out argType)) && (TypesEquivalent(argType, expected) || TryEmitSpanConversion(argType, expected) || ColumnarReferenceCoercionPlanner.TryEmitInterfaceUpcast(argType, expected, _structRegistry, _il) || ColumnarReferenceCoercionPlanner.TryEmitExternalInterfaceUpcast(argType, expected, _structRegistry, _il) || ColumnarReferenceConversionFacts.TryEmitReferenceConversion(argType, expected) || ColumnarReferenceCoercionPlanner.TryEmitObjectConversion(argType, expected, _structRegistry, _il) || TryEmitAnonymousUnionConversion(argType, expected) || TryEmitUserDefinedConversion(argType, expected, false))
+        return (TryEmitTargetTypedNewAsType(Child(callIdx, argPosition), expected, out argType) || TryEmitCollectionLiteralAsType(Child(callIdx, argPosition), expected, out argType) || TryEmitArrayLiteralAsType(Child(callIdx, argPosition), expected, out argType) || TryEmitZeroLiteralAsType(Child(callIdx, argPosition), expected, out argType) || TryEmitIntLiteralAsType(Child(callIdx, argPosition), expected, out argType) || EmitExpression(Child(callIdx, argPosition), out argType)) && (TypesEquivalent(argType, expected) || TryEmitSpanConversion(argType, expected) || ColumnarReferenceCoercionPlanner.TryEmitInterfaceUpcast(argType, expected, _structRegistry, _il) || ColumnarReferenceCoercionPlanner.TryEmitExternalInterfaceUpcast(argType, expected, _structRegistry, _il) || ColumnarReferenceConversionFacts.TryEmitReferenceConversion(argType, expected) || ColumnarReferenceCoercionPlanner.TryEmitObjectConversion(argType, expected, _structRegistry, _il) || TryEmitAnonymousUnionConversion(argType, expected) || TryEmitUserDefinedConversion(argType, expected, false))
     }
 
     private func EmitDeclaredCallArgument(argNode: int, expectedParamType: Type, allowLambdaLiteral: bool): bool {
@@ -17188,7 +19403,7 @@ sealed class ColumnarIlEmitter {
             return true
         }
         let ignoredNullType: System.Type? = null
-        if (TryEmitNullLiteralAsType(argNode, expectedParamType, out ignoredNullType)) {
+        if (TryEmitZeroLiteralAsType(argNode, expectedParamType, out ignoredNullType)) {
             return true
         }
         if (ColumnarTypeOfPlanner.IsSupportedNullable(expectedParamType)) {
@@ -17254,7 +19469,7 @@ sealed class ColumnarIlEmitter {
     }
 
     private static func CanUseSpanConversion(sourceType: Type, targetType: Type): bool {
-        if (sourceType.get_IsSZArray() && ColumnarTypeOfPlanner.IsSupportedSpanLikeType(targetType)) {
+        if (ColumnarTypeEquivalenceFacts.IsSafeSzArrayType(sourceType) && ColumnarTypeOfPlanner.IsSupportedSpanLikeType(targetType)) {
             return TypesEquivalent(sourceType.GetElementType(), targetType.GetGenericArguments()[0])
         }
         if (ColumnarTypeOfPlanner.IsSupportedSpanType(sourceType) && ColumnarTypeOfPlanner.IsSupportedReadOnlySpanType(targetType)) {
@@ -17267,7 +19482,7 @@ sealed class ColumnarIlEmitter {
         if (!CanUseSpanConversion(sourceType, targetType)) {
             return false
         }
-        if (sourceType.get_IsSZArray()) {
+        if (ColumnarTypeEquivalenceFacts.IsSafeSzArrayType(sourceType)) {
             elementArrayType := targetType.GetGenericArguments()[0].MakeArrayType()
             ctor := targetType.GetConstructor([elementArrayType])
             if (ctor == null) {
@@ -17347,6 +19562,11 @@ sealed class ColumnarIlEmitter {
                 targetType = paramType.get_IsByRef() ? paramType.GetElementType() : paramType
                 return true
             }
+            let bareField: System.Reflection.Emit.FieldBuilder? = null
+            if (TryFindBareByRefField(name, out bareField)) {
+                targetType = bareField.get_FieldType()
+                return true
+            }
             return false
         }
 
@@ -17356,6 +19576,32 @@ sealed class ColumnarIlEmitter {
             return true
         }
 
+        return false
+    }
+
+    // A BARE NAME THAT IS A FIELD OF THE TYPE BEING COMPILED — `count` and `this.count` alike, since
+    // the parser flattens the explicit receiver onto the same leaf. This is the storage a `ref`/`out`
+    // argument may name that neither the local table nor the parameter table knows about, and until
+    // it was answered here `Fill(ref count)` and `Interlocked.Exchange(ref remove, null)` had nowhere
+    // to take an address from.
+    //
+    // It carries the SAME gate the bare field WRITE carries and for the same reason: a value-type
+    // receiver reaches an instance body through a temp copy, so an address into its field would be an
+    // address into the copy. A reference type shares its storage, and a constructor body has the real
+    // thing.
+    //
+    // A STATIC field is deliberately not answered here. Its address is `ldsflda`, and this compiler's
+    // own source cannot yet spell `OpCodes.Ldsflda`: the pinned stage-0 SDK that builds Compiler.Core
+    // does not model that member (`ColumnarExternalBindingPlans.tests.nl` pins the absence), so the
+    // instruction cannot be written until the SDK is repacked. `ref <static field>` therefore keeps
+    // its existing decline rather than being emitted wrongly.
+    private func TryFindBareByRefField(name: string, out field: System.Reflection.Emit.FieldBuilder): bool {
+        field = null
+        let instanceField: System.Reflection.Emit.FieldBuilder? = null
+        if (_currentStruct != null && (_currentStruct.IsReference || _isConstructorBody) && ColumnarSourceMemberChainResolver.TryFindFieldOnChain(_currentStruct, name, out instanceField) && !instanceField.get_IsStatic()) {
+            field = instanceField
+            return true
+        }
         return false
     }
 
@@ -17389,6 +19635,15 @@ sealed class ColumnarIlEmitter {
                     return false
                 }
                 ColumnarArgumentInstructionEmitter.EmitLoadAddress(_il, ordinal)
+                return true
+            }
+            let bareField: System.Reflection.Emit.FieldBuilder? = null
+            if (TryFindBareByRefField(name, out bareField)) {
+                if (!TypesEquivalent(bareField.get_FieldType(), expectedElementType)) {
+                    return false
+                }
+                _il.Emit(OpCodes.Ldarg_0)
+                _il.Emit(OpCodes.Ldflda, bareField)
                 return true
             }
             return false
@@ -17545,7 +19800,7 @@ sealed class ColumnarIlEmitter {
                         if (TryEmitArrayLiteralAsType(valueNode, targetType, out valueType)) {
                         } else {
                             // target-typed array literal.
-                            if (TryEmitNullLiteralAsType(valueNode, targetType, out valueType)) {
+                            if (TryEmitZeroLiteralAsType(valueNode, targetType, out valueType)) {
                             } else {
                                 // `null` adopted to a reference or nullable storage type.
                                 if (ColumnarTypeOfPlanner.IsSupportedNullable(targetType)) {
@@ -17564,7 +19819,7 @@ sealed class ColumnarIlEmitter {
             }
         }
 
-        assignable := TypesEquivalent(valueType, targetType) || TryEmitImplicitWidening(valueType, targetType) || ColumnarReferenceCoercionPlanner.TryEmitInterfaceUpcast(valueType, targetType, _structRegistry, _il) || ColumnarReferenceConversionFacts.TryEmitReferenceConversion(valueType, targetType) || ColumnarReferenceCoercionPlanner.TryEmitObjectConversion(valueType, targetType, _structRegistry, _il) || TryEmitAnonymousUnionConversion(valueType, targetType) || TryEmitUserDefinedConversion(valueType, targetType, false)
+        assignable := TypesEquivalent(valueType, targetType) || TryEmitImplicitWidening(valueType, targetType) || ColumnarReferenceCoercionPlanner.TryEmitInterfaceUpcast(valueType, targetType, _structRegistry, _il) || ColumnarReferenceCoercionPlanner.TryEmitExternalInterfaceUpcast(valueType, targetType, _structRegistry, _il) || ColumnarReferenceConversionFacts.TryEmitReferenceConversion(valueType, targetType) || ColumnarReferenceCoercionPlanner.TryEmitObjectConversion(valueType, targetType, _structRegistry, _il) || TryEmitAnonymousUnionConversion(valueType, targetType) || TryEmitUserDefinedConversion(valueType, targetType, false)
         return assignable
     }
 
@@ -18297,8 +20552,13 @@ sealed class ColumnarIlEmitter {
                     let thisProperty: NSharpLang.Compiler.Columnar.ColumnarPropertyDef? = null
                     if (_currentStruct != null && TryFindPropertyOnChain(_currentStruct, rootName, out thisProperty)) {
                         rootThis = true
-                        rootGetter = thisProperty.Getter
-                        rootType = _currentStruct.Builder
+                        // THE GETTER IS NAMED THROUGH THE CURRENT INSTANTIATION, like every other
+                        // self-call. A raw accessor builder names the OPEN definition, which the CLR
+                        // refuses to execute ("the method itself or the containing type is not fully
+                        // instantiated") — a run-time failure from a hole as ordinary as `$"{Index}"`
+                        // inside a generic type. `Bind` is the identity on a non-generic owner.
+                        rootGetter = ColumnarSourceSelfInstantiation.Bind(thisProperty.Getter)
+                        rootType = ColumnarSourceSelfInstantiation.Of(_currentStruct.Builder)
                         valueType = thisProperty.PropertyType
                     } else {
                         return false
@@ -18312,7 +20572,7 @@ sealed class ColumnarIlEmitter {
             if (rootThis || rootGetter != null || hops.Count != 0) {
                 return false
             }
-            if (!rootType.get_IsSZArray()) {
+            if (!ColumnarTypeEquivalenceFacts.IsSafeSzArrayType(rootType)) {
                 return false
             }
             let constantIndex: int = 0
@@ -18757,6 +21017,15 @@ sealed class ColumnarIlEmitter {
         kind := _nodes.Kind(node)
         if kind == ColumnarExpressionNodeKind.NameOfExpression() || kind == ColumnarExpressionNodeKind.TypeOfExpression() {
             return false
+        }
+        // `base.Member` AND `base.Method()` ARE CURRENT-INSTANCE ACCESS, exactly as `this.Member` is.
+        // `base` is the same reference `this` is — it only changes which declaration the name binds
+        // to and how the call dispatches — so reading through it before the base constructor has run
+        // reads storage that does not exist yet. It reaches this walk as a node kind of its own
+        // (`BaseMemberExpression`, a leaf carrying the member name), so the identifier arm below
+        // cannot see it and neither can the child walk: a `base.M()` call node's callee IS this node.
+        if kind == ColumnarExpressionNodeKind.BaseMemberExpression() {
+            return true
         }
         if kind == ColumnarExpressionNodeKind.IdentifierExpression() {
             name := ColumnarNodeTextFacts.Text(_nodes, _source, node)

@@ -415,6 +415,25 @@ only fire under conservative guards: a plain (unchecked) `+` update, an exact el
 match, distinct accumulator/array/index names (no aliasing), and a side-effect-free loop
 bound (an `int` local/parameter, a literal, or `array.Length`, which lowers to a pure `ldlen`).
 
+### Writing `Vector<T>` yourself
+
+The rewrites above call into `NSharpLang.Runtime.SimdReductions`, a small helper library kept in
+plain readable CLR code rather than hand-emitted IL so the SIMD logic stays auditable. Nothing
+about it is privileged: `tests/native/simd-reductions` contains a complete N# translation of that
+library — `SumInt32` / `SumInt64` / `SumUInt32` / `SumUInt64`, the count-in-range kernel, `Min`,
+`Max`, the fused single-pass `MinMax` and the seeded shifted-compare transition count — written in
+ordinary N# and compiled through ordinary CLR resolution. Read it as the reference for hand-written
+`System.Numerics.Vector<T>` code: constructed generic statics (`Vector<int>.Count`,
+`Vector<int>.Zero`), the element-array constructor `new Vector<int>(array, i)` and the broadcast
+`new Vector<int>(value)`, the `+ - & ~` operators and their compound forms, lane indexing `v[lane]`,
+and the generic reducers `Vector.Sum` / `Vector.Min` / `Vector.Max` / `Vector.Equals` /
+`Vector.GreaterThanOrEqual` / `Vector.LessThanOrEqual`. Its tests run the translation and the C#
+original side by side on the same inputs and assert value identity against a scalar oracle for every
+`(start, end)`, so the translation doubles as the executable specification of those guards — the
+empty/negative-range early-out, the in-bounds guard that keeps an out-of-range call throwing
+`IndexOutOfRangeException` (never the `Vector` constructor's `ArgumentOutOfRangeException`), and the
+unchecked wraparound the lane reduction depends on.
+
 ### Measured against Rust and C (2026-09-01)
 
 Every number below was taken in one session on an idle Apple M4 (load average 2.6 on

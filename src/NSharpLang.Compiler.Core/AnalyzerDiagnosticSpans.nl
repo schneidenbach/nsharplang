@@ -397,6 +397,18 @@ class AnalyzerDiagnosticSpans {
             return new DiagnosticSpan(nullLiteral.Line, nullLiteral.Column, 4)
         }
 
+        genericTypeExpression := expression as GenericTypeExpression
+        if genericTypeExpression != null {
+            // A constructed generic receiver underlines the WHOLE written type — `Vector<int>`, not
+            // just `Vector` — because the type arguments are half of what the reader has to correct.
+            genericSpan := genericTypeExpression.Type.Span
+            if genericSpan.Length > 0 {
+                return new DiagnosticSpan(genericSpan.StartLine, genericSpan.StartColumn, genericSpan.Length)
+            }
+
+            return new DiagnosticSpan(genericTypeExpression.Line, genericTypeExpression.Column, Math.Max(1, genericTypeExpression.Type.Name.Length))
+        }
+
         memberAccess := expression as MemberAccessExpression
         if memberAccess != null {
             memberColumn := GetMemberNameColumn(memberAccess)

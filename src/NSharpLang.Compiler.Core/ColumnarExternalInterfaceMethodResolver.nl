@@ -3,6 +3,7 @@ namespace NSharpLang.Compiler.Columnar
 import System
 import System.Collections.Generic
 import System.Reflection
+import System.Reflection.Emit
 
 // External-interface matching keeps the declaration host's exact policy: interface list order,
 // reflection GetMethods order, exact name, TypesEquivalent return, arity, then parameters from left
@@ -628,6 +629,10 @@ class ColumnarExternalInterfaceMethodResolver {
         table: ColumnarStructuralTypeReferenceTable
     ) {
         for externalInterface in externalInterfaces {
+            if ColumnarGenericTypeReceiverFacts.IsBuilderBoundConstruction(externalInterface) {
+                AddBuilderBoundMatchingTargets(declaration, externalInterface, memberName, returnType, parameterTypes)
+                continue
+            }
             for externalMethod in externalInterface.GetMethods() {
                 matchedSignature := new ColumnarExternalInterfaceMethodMatch(
                     externalMethod,
@@ -646,9 +651,70 @@ class ColumnarExternalInterfaceMethodResolver {
         }
     }
 
+    // A BUILDER-BOUND CONSTRUCTED INTERFACE — `IEquatable<Outcome<TOk, TErr>>` on
+    // `Outcome<TOk, TErr>`, `IComparable<Node<T>>` on `Node<T>`. Its instantiation answers no
+    // reflection member query, so the members come from the runtime DEFINITION, the effective
+    // signature is the definition's own signature substituted with the instantiation's arguments,
+    // and the MethodImpl slot is that declaration rebound with `TypeBuilder.GetMethod`. The
+    // structural descriptor is not built for these: it validates a reflected lookup context, and a
+    // `TypeBuilderInstantiation` has none to report.
+    static func AddBuilderBoundMatchingTargets(
+        declaration: ColumnarMethodOverrideDeclaration,
+        externalInterface: Type,
+        memberName: string,
+        returnType: Type,
+        parameterTypes: Type[]
+    ) {
+        definition := externalInterface.GetGenericTypeDefinition()
+        closedArguments := externalInterface.GetGenericArguments()
+        for openMethod in definition.GetMethods() {
+            if !BuilderBoundSignatureMatches(openMethod, closedArguments, memberName, returnType, parameterTypes) {
+                continue
+            }
+            rebound := TypeBuilder.GetMethod(externalInterface, openMethod)
+            if rebound == null {
+                throw new InvalidOperationException("TypeBuilder.GetMethod returned no exact builder-bound interface method.")
+            }
+            reboundObject: object? = rebound
+            declaration.AddExternalTarget((MethodInfo)reboundObject)
+        }
+    }
+
+    static func BuilderBoundSignatureMatches(
+        openMethod: MethodInfo,
+        closedArguments: Type[],
+        memberName: string,
+        returnType: Type,
+        parameterTypes: Type[]
+    ): bool {
+        if openMethod.get_Name() != memberName {
+            return false
+        }
+        effectiveReturn := ColumnarRuntimeInstanceMemberResolver.SubstituteClosedTypeArguments(openMethod.get_ReturnType(), closedArguments)
+        if !ColumnarTypeEquivalenceFacts.TypesEquivalent(effectiveReturn, returnType) {
+            return false
+        }
+        openParameters := openMethod.GetParameters()
+        if openParameters.Length != parameterTypes.Length {
+            return false
+        }
+        index := 0
+        while index < openParameters.Length {
+            effectiveParameter := ColumnarRuntimeInstanceMemberResolver.SubstituteClosedTypeArguments(openParameters[index].get_ParameterType(), closedArguments)
+            if !ColumnarTypeEquivalenceFacts.TypesEquivalent(effectiveParameter, parameterTypes[index]) {
+                return false
+            }
+            index += 1
+        }
+        return true
+    }
+
     static func InterfacesSatisfied(implementer: ColumnarStructDef, externalInterfaces: List<Type>): bool {
         for externalInterface in externalInterfaces {
-            for externalMethod in externalInterface.GetMethods() {
+            builderBound := ColumnarGenericTypeReceiverFacts.IsBuilderBoundConstruction(externalInterface)
+            lookupType := builderBound ? externalInterface.GetGenericTypeDefinition() : externalInterface
+            closedArguments := builderBound ? externalInterface.GetGenericArguments() : new Type[](0)
+            for externalMethod in lookupType.GetMethods() {
                 implementation: ColumnarInstanceMethodDef = null
                 externalName := externalMethod.get_Name()
                 if !implementer.Methods.TryGetValue(externalName, out implementation) {
@@ -656,6 +722,18 @@ class ColumnarExternalInterfaceMethodResolver {
                 }
                 implementationObject: object? = implementation
                 actualImplementation := (ColumnarInstanceMethodDef)implementationObject
+                if builderBound {
+                    if !BuilderBoundSignatureMatches(
+                        externalMethod,
+                        closedArguments,
+                        externalName,
+                        actualImplementation.ReturnType,
+                        actualImplementation.ParamTypes
+                    ) {
+                        return false
+                    }
+                    continue
+                }
                 matchedSignature := new ColumnarExternalInterfaceMethodMatch(
                     externalMethod,
                     externalMethod.get_Name(),

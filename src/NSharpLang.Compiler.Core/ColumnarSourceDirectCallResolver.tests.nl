@@ -107,10 +107,13 @@ func SourceCallDefinition(name: string, isReference: bool): ColumnarStructDef {
     return new ColumnarStructDef(builder, new string[](0), new Dictionary<string, FieldBuilder>(StringComparer.Ordinal), isReference, false, false, name)
 }
 
+// A one-type-parameter source definition. Its DECLARED name carries the arity, because that is what
+// `ExactStructTypeName` composes for a real `class Name<T>` and therefore what the binding scope
+// resolves a reference to it against.
 func SourceCallGenericDefinition(name: string): ColumnarStructDef {
     builder := TypeOfCreateBuilder(name, "ColumnarSourceDirectCallTests." + name, 1)
 
-    return new ColumnarStructDef(builder, new string[](0), new Dictionary<string, FieldBuilder>(StringComparer.Ordinal), true, false, false, name)
+    return new ColumnarStructDef(builder, new string[](0), new Dictionary<string, FieldBuilder>(StringComparer.Ordinal), true, false, false, TypeArityNames.Key(name, 1))
 }
 
 func SourceCallDefinitions(definition: ColumnarStructDef): ColumnarStructDef[] {
@@ -1132,6 +1135,19 @@ test "source direct-call resolver closes source generic signatures and exact han
     assert openSelection.Method != null
     assert openSelection.ParameterTypes[0] == typeParameter
     assert openSelection.ReturnType == typeParameter
+
+    // THE RECEIVER IS NAMED THE SAME WAY THE METHOD IS. `this` inside a generic definition is a value
+    // of the CURRENT INSTANTIATION, and the plan records both the receiver's semantic type and the
+    // method's declaring type: while the receiver said "the open definition" and the handle said "the
+    // instantiation", the plan executor THREW ("value-type receiver for 'X' requires an exact managed
+    // address" / "reference receiver for 'X' does not match its declaring type") instead of declining —
+    // a crash for source as ordinary as a generic struct whose property getter calls its own method.
+    assert !Object.ReferenceEquals(openSelection.ReceiverType, genericOwnerType)
+    assert openSelection.ReceiverType.get_IsGenericType()
+    assert !openSelection.ReceiverType.get_IsGenericTypeDefinition()
+    assert openSelection.ReceiverType.GetGenericTypeDefinition() == genericOwnerType
+    assert openSelection.ReceiverType.GetGenericArguments()[0] == typeParameter
+    assert openSelection.DeclaringType.GetGenericTypeDefinition() == genericOwnerType
 
     closedArguments := new Type[](1)
     closedArguments[0] = typeof(int)

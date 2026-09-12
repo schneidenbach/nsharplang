@@ -479,8 +479,9 @@ test "source interface descriptors retain distinct generic source owners" {
     secondKey := SourceInterfaceMethodRequiredKey(secondBinding.Descriptor.ParameterType(0))
     assert firstKey.Kind == ColumnarStructuralTypeReferenceKind.TypeGenericParameter
     assert secondKey.Kind == ColumnarStructuralTypeReferenceKind.TypeGenericParameter
-    assert firstKey.GenericOwnerDeclaringTypeName == "SourceMemberGenericFirst"
-    assert secondKey.GenericOwnerDeclaringTypeName == "SourceMemberGenericSecond"
+    // The owner is named by its declared IDENTITY, arity included.
+    assert firstKey.GenericOwnerDeclaringTypeName == "SourceMemberGenericFirst`1"
+    assert secondKey.GenericOwnerDeclaringTypeName == "SourceMemberGenericSecond`1"
     assert !ColumnarStructuralTypeKeyFacts.KeysEqual(firstKey, secondKey)
 }
 

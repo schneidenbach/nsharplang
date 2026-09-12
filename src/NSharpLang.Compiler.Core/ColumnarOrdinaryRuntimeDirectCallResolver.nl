@@ -117,8 +117,8 @@ class ColumnarRuntimeOptionalCallSelection {
 
 // Reflection-backed overload selection for ordinary public runtime methods. This owns only
 // fixed-arity, non-generic, non-varargs, non-params invocations. By-reference parameters remain
-// ordinary fixed-arity members when the caller supplies the matching ref/out address; return
-// by-reference and unsupported element signatures stay outside this owner. Candidate ranking
+// ordinary fixed-arity members when the caller supplies the matching ref/out address; a by-reference
+// RETURN and an unsupported element signature stay outside this owner. Candidate ranking
 // deliberately reuses source-call argument scores so source and runtime calls cannot disagree
 // about identity, numeric, reference, and boxing preference tiers.
 class ColumnarOrdinaryRuntimeDirectCallResolver {
@@ -139,17 +139,6 @@ class ColumnarOrdinaryRuntimeDirectCallResolver {
             out inheritedReadOnlyDictionaryCall
         ) {
             return inheritedReadOnlyDictionaryCall
-        }
-
-        inheritedDictionaryEntryCall := Empty(ColumnarOrdinaryRuntimeDirectCallStatus.NotFound, lookupType, expectedStatic)
-        if TryResolveInheritedDictionaryEntryEnumeratorCall(
-            lookupType,
-            memberName,
-            argumentTypes,
-            expectedStatic,
-            out inheritedDictionaryEntryCall
-        ) {
-            return inheritedDictionaryEntryCall
         }
 
         genericDefinition := typeof(object)
@@ -174,7 +163,7 @@ class ColumnarOrdinaryRuntimeDirectCallResolver {
         }
 
         try {
-            candidates := lookupType.GetMethods()
+            candidates := CandidateMethods(lookupType)
             if candidates == null {
                 throw new InvalidOperationException("Runtime method enumeration returned null.")
             }
@@ -184,6 +173,111 @@ class ColumnarOrdinaryRuntimeDirectCallResolver {
             return Empty(ColumnarOrdinaryRuntimeDirectCallStatus.Excluded, lookupType, expectedStatic)
         } catch ex: InvalidOperationException {
             return Empty(ColumnarOrdinaryRuntimeDirectCallStatus.Excluded, lookupType, expectedStatic)
+        }
+    }
+
+    // EVERY METHOD A RECEIVER CAN ANSWER. For a class that is `GetMethods()`, which already walks the
+    // base chain. For an INTERFACE it is not: reflection does not include inherited interface members,
+    // so `IList<T>.get_Count` — declared on `ICollection<T>` — was invisible and the call declined as
+    // unmodeled. The two named shapes above are what that gap cost before it was general; this is the
+    // rule they were standing in for.
+    //
+    // `GetInterfaces()` answers with CLOSED constructed bases, so a rebind is not needed and the
+    // declaring type each candidate carries is the real CLR owner the call must be emitted against.
+    // Duplicates are harmless: candidate selection compares signatures, and a base interface reached
+    // twice offers the same `MethodInfo`.
+    static func CandidateMethods(lookupType: Type): MethodInfo[] {
+        declared := lookupType.GetMethods()
+        if declared == null || !lookupType.get_IsInterface() {
+            return declared
+        }
+
+        baseInterfaces := lookupType.GetInterfaces()
+        if baseInterfaces == null || baseInterfaces.Length == 0 {
+            return declared
+        }
+
+        combined := new List<MethodInfo>()
+        index := 0
+        while index < declared.Length {
+            combined.Add(declared[index])
+            index = index + 1
+        }
+
+        baseIndex := 0
+        while baseIndex < baseInterfaces.Length {
+            inherited := baseInterfaces[baseIndex].GetMethods()
+            baseIndex = baseIndex + 1
+            if inherited == null {
+                continue
+            }
+
+            inheritedIndex := 0
+            while inheritedIndex < inherited.Length {
+                AddOrKeepMostDerived(combined, inherited[inheritedIndex])
+                inheritedIndex = inheritedIndex + 1
+            }
+        }
+
+        return combined.ToArray()
+    }
+
+    // THE MOST DERIVED DECLARATION OF A SIGNATURE WINS, which is what makes the sweep above safe.
+    // `IEnumerator<T>` re-declares `get_Current` that `IEnumerator` also declares, and
+    // `IEnumerable<T>` re-declares `GetEnumerator`; collecting both would leave two arity-0
+    // candidates and turn an exact call into an ambiguity. C# hides the base declaration behind the
+    // derived one, and so does this: same name and same parameter types means one candidate, and the
+    // one kept is the one whose declaring interface the other is assignable FROM.
+    static func AddOrKeepMostDerived(candidates: List<MethodInfo>, inherited: MethodInfo) {
+        inheritedParameters := inherited.GetParameters()
+        index := 0
+        while index < candidates.Count {
+            existing := candidates[index]
+            if SameCallSignature(existing, existing.GetParameters(), inherited, inheritedParameters) {
+                if HidesDeclaration(inherited, existing) {
+                    candidates[index] = inherited
+                }
+
+                return
+            }
+
+            index = index + 1
+        }
+
+        candidates.Add(inherited)
+    }
+
+    static func SameCallSignature(left: MethodInfo, leftParameters: ParameterInfo[], right: MethodInfo, rightParameters: ParameterInfo[]): bool {
+        if left.get_Name() != right.get_Name() || left.get_IsStatic() != right.get_IsStatic() || leftParameters.Length != rightParameters.Length {
+            return false
+        }
+
+        index := 0
+        while index < leftParameters.Length {
+            if !ColumnarRuntimeInstanceMemberResolver.ExactTypeShapeMatches(leftParameters[index].get_ParameterType(), rightParameters[index].get_ParameterType()) {
+                return false
+            }
+
+            index = index + 1
+        }
+
+        return true
+    }
+
+    // Whether `candidate`'s declaring interface is strictly more derived than `existing`'s.
+    static func HidesDeclaration(candidate: MethodInfo, existing: MethodInfo): bool {
+        candidateOwner := candidate.get_DeclaringType()
+        existingOwner := existing.get_DeclaringType()
+        if candidateOwner == null || existingOwner == null || ColumnarRuntimeInstanceMemberResolver.ExactTypeShapeMatches(candidateOwner, existingOwner) {
+            return false
+        }
+
+        try {
+            return existingOwner.IsAssignableFrom(candidateOwner)
+        } catch ex: NotSupportedException {
+            return false
+        } catch ex: NotImplementedException {
+            return false
         }
     }
 
@@ -253,51 +347,6 @@ class ColumnarOrdinaryRuntimeDirectCallResolver {
         return valueType is TypeBuilder && !ColumnarTypeOfPlanner.IsEnumBuilder(valueType) && !valueType.get_IsGenericTypeDefinition() && !valueType.get_IsValueType()
     }
 
-    // Type.GetMethods on IEnumerator<T> does not enumerate the nongeneric IEnumerator methods it
-    // inherits. The Analyzer's original explicit-enumerator loop needs the one exact inherited
-    // member it calls: MoveNext on IEnumerator<KeyValuePair<string, string>>. Keep Reset and every
-    // other generic-enumerator shape outside this prerequisite.
-    static func TryResolveInheritedDictionaryEntryEnumeratorCall(
-        lookupType: Type,
-        memberName: string,
-        argumentTypes: Type[],
-        expectedStatic: bool,
-        out selection: ColumnarOrdinaryRuntimeDirectCallSelection
-    ): bool {
-        selection = Empty(ColumnarOrdinaryRuntimeDirectCallStatus.NotFound, lookupType, expectedStatic)
-        if expectedStatic || memberName != "MoveNext" || argumentTypes.Length != 0 || !IsExactStringDictionaryEntryEnumerator(lookupType) {
-            return false
-        }
-
-        movementType := Type.GetType("System.Collections.IEnumerator")
-        if movementType == null {
-            throw new InvalidOperationException("System.Collections.IEnumerator was not found in the compiler runtime.")
-        }
-        noParameters := new Type[](0)
-        method := movementType.GetMethod("MoveNext", noParameters)
-        if method == null {
-            throw new InvalidOperationException("System.Collections.IEnumerator.MoveNext() was not found in the compiler runtime.")
-        }
-
-        selection = Selected(lookupType, method, noParameters, false)
-        return true
-    }
-
-    static func IsExactStringDictionaryEntryEnumerator(lookupType: Type): bool {
-        if lookupType == null || !lookupType.get_IsGenericType() || lookupType.get_IsGenericTypeDefinition() {
-            return false
-        }
-        enumeratorDefinition := Type.GetType("System.Collections.Generic.IEnumerator`1")
-        if enumeratorDefinition == null || lookupType.GetGenericTypeDefinition() != enumeratorDefinition {
-            return false
-        }
-        enumeratorArguments := lookupType.GetGenericArguments()
-        if enumeratorArguments.Length != 1 || !ColumnarCanonicalTypeResolver.IsExactStringDictionaryEntryElement(enumeratorArguments[0]) {
-            return false
-        }
-        return true
-    }
-
     // A deterministic candidate seam keeps classification tests independent of reflection's
     // enumeration order. Production always enters through Resolve and supplies GetMethods().
     static func ResolveFromCandidates(lookupType: Type, memberName: string, argumentTypes: Type[], expectedStatic: bool, candidates: MethodInfo[]): ColumnarOrdinaryRuntimeDirectCallSelection {
@@ -359,7 +408,7 @@ class ColumnarOrdinaryRuntimeDirectCallResolver {
                 } else {
                     parameterTypes := ResolveParameterTypes(candidate, candidateLookupType, parameters, closedArguments)
                     returnType := ResolveReturnType(candidate, candidateLookupType, closedArguments)
-                    if HasUnsupportedResolvedSignature(parameters, parameterTypes, returnType) {
+                    if HasUnsupportedResolvedSignature(parameters, parameterTypes, returnType, closedArguments) {
                         if ExcludedShapeCanOwnArity(candidate, parameters, argumentTypes.Length) {
                             hadExcludedShape = true
                         }
@@ -406,6 +455,65 @@ class ColumnarOrdinaryRuntimeDirectCallResolver {
         }
 
         return Empty(ColumnarOrdinaryRuntimeDirectCallStatus.NotFound, lookupType, expectedStatic)
+    }
+
+    // THE UNIQUE DECLARATION OF THIS NAME AT THIS ARITY, for a call site whose arguments cannot all be
+    // typed before emission.
+    //
+    // A LAMBDA ARGUMENT HAS NO TYPE UNTIL IT IS BOUND against the parameter it is passed to, so
+    // `u.Switch(a => ..., b => ...)` cannot be scored the way an ordinary call is — and scoring is the
+    // only thing this tier gives up. Candidate admission, the excluded shapes and the dispatch rule
+    // are the resolver's own, so a method reachable here is a method reachable there.
+    //
+    // MORE THAN ONE CANDIDATE IS REFUSED RATHER THAN GUESSED, because the argument types are exactly
+    // what would have chosen between them: a site that leaves an ambiguity has to say more.
+    static func ResolveUniqueAtArity(lookupType: Type, memberName: string, argumentCount: int, expectedStatic: bool): ColumnarOrdinaryRuntimeDirectCallSelection {
+        if lookupType == null || memberName == null || argumentCount < 0 {
+            throw new InvalidOperationException("Ordinary runtime direct-call inputs cannot be null.")
+        }
+
+        // A builder-bound owner's members are reachable only through its open definition, where the
+        // TYPE's arguments would have to be closed alongside the call. That pairing keeps the exact
+        // resolver's answer.
+        genericDefinition := typeof(object)
+        closedArguments := new Type[](0)
+        if TryGetBuilderBoundRuntimeDefinition(lookupType, out genericDefinition, out closedArguments) || lookupType.get_IsGenericTypeDefinition() || lookupType.get_IsGenericParameter() {
+            return Empty(ColumnarOrdinaryRuntimeDirectCallStatus.NotFound, lookupType, expectedStatic)
+        }
+
+        candidates := CandidatesOrEmpty(lookupType)
+        selected: MethodInfo? = null
+        selectedParameters := new Type[](0)
+        selectedCount := 0
+        index := 0
+        while index < candidates.Length {
+            candidate := candidates[index]
+            index = index + 1
+            if candidate == null || !IsPublicCandidateForLookup(candidate, lookupType, memberName, expectedStatic) {
+                continue
+            }
+
+            parameters := candidate.GetParameters()
+            if parameters == null || parameters.Length != argumentCount || IsIntrinsicExcludedShape(candidate, parameters) {
+                continue
+            }
+
+            parameterTypes := ResolveParameterTypes(candidate, lookupType, parameters, closedArguments)
+            returnType := ResolveReturnType(candidate, lookupType, closedArguments)
+            if HasUnsupportedResolvedSignature(parameters, parameterTypes, returnType, closedArguments) || !CanDispatch(candidate, lookupType, expectedStatic) {
+                continue
+            }
+
+            selectedCount = selectedCount + 1
+            selected = candidate
+            selectedParameters = parameterTypes
+        }
+
+        if selectedCount != 1 || selected == null {
+            return Empty(ColumnarOrdinaryRuntimeDirectCallStatus.NotFound, lookupType, expectedStatic)
+        }
+
+        return Selected(lookupType, selected, selectedParameters, expectedStatic)
     }
 
     static func ValidateBuilderBoundCandidates(candidates: MethodInfo[]) {
@@ -530,14 +638,24 @@ class ColumnarOrdinaryRuntimeDirectCallResolver {
         return false
     }
 
-    static func HasUnsupportedResolvedSignature(parameters: ParameterInfo[], parameterTypes: Type[], returnType: Type): bool {
-        if parameters.Length != parameterTypes.Length || IsUnsupportedReturnType(returnType) {
+    // A RESOLVED SIGNATURE IS ONE THE EMITTER CAN SPELL, and after substitution the surviving generic
+    // parameters are not all the same thing. `closedArguments` are the type arguments the RECEIVER was
+    // closed over, and `ResolveParameterTypes` has already put them where the definition's own
+    // parameters stood — so a generic parameter still standing in the resolved signature is either one
+    // of THOSE (`Action<T>.Invoke(T)` inside `Holder<T>`, where `T` is the enclosing type's own
+    // parameter and is a perfectly emittable type in its body) or one the substitution could not
+    // reach, which is genuinely open and stays refused.
+    //
+    // A PARAMETER is asked the by-ref-aware question and a RETURN is not, because `ref`/`out` is a
+    // parameter spelling only.
+    static func HasUnsupportedResolvedSignature(parameters: ParameterInfo[], parameterTypes: Type[], returnType: Type, closedArguments: Type[]): bool {
+        if parameters.Length != parameterTypes.Length || IsUnsupportedResolvedSignatureType(returnType, closedArguments) {
             return true
         }
 
         index := 0
         while index < parameterTypes.Length {
-            if IsUnsupportedParameterType(parameterTypes[index]) {
+            if IsUnsupportedParameterType(parameterTypes[index], closedArguments) {
                 return true
             }
 
@@ -547,24 +665,49 @@ class ColumnarOrdinaryRuntimeDirectCallResolver {
         return false
     }
 
-    static func IsUnsupportedReturnType(signatureType: Type): bool {
-        return signatureType.get_IsByRef() || signatureType.get_IsGenericTypeDefinition() || signatureType.get_IsGenericParameter()
+    static func IsUnsupportedSignatureType(signatureType: Type): bool {
+        return IsUnsupportedResolvedSignatureType(signatureType, new Type[](0))
     }
 
-    static func IsUnsupportedParameterType(signatureType: Type): bool {
-        if signatureType.get_IsByRef() {
-            elementType := signatureType.GetElementType()
-            return elementType == null || elementType.get_IsByRef() || elementType.get_IsPointer() || elementType.get_IsGenericTypeDefinition() || elementType.get_IsGenericParameter()
+    // A PARAMETER may be `ref`/`out`; a RETURN type may not. The two questions were one predicate, and
+    // that made every by-ref overload invisible to ordinary resolution — `Interlocked.Exchange`,
+    // `int.TryParse`, every `TryGet`. What a by-ref parameter still may not be is a by-ref of something
+    // unsupported, so the element is asked the ordinary question.
+    static func IsUnsupportedParameterType(parameterType: Type, closedArguments: Type[]): bool {
+        if !parameterType.get_IsByRef() {
+            return IsUnsupportedResolvedSignatureType(parameterType, closedArguments)
         }
 
-        return signatureType.get_IsGenericTypeDefinition() || signatureType.get_IsGenericParameter()
+        elementType := parameterType.GetElementType()
+        return elementType == null || elementType.get_IsByRef() || elementType.get_IsPointer() || IsUnsupportedResolvedSignatureType(elementType, closedArguments)
     }
 
-    // Constructor planning has a stricter signature contract than ordinary calls: it does not
-    // emit ref/out constructor parameters. Keep that existing predicate for its owner while the
-    // ordinary method resolver uses IsUnsupportedParameterType above.
-    static func IsUnsupportedSignatureType(signatureType: Type): bool {
-        return signatureType.get_IsByRef() || signatureType.get_IsGenericTypeDefinition() || signatureType.get_IsGenericParameter()
+    // A generic parameter left in a RESOLVED signature normally means the substitution did not
+    // happen, which is why it is refused. On a BUILDER-BOUND instantiation it can also be the
+    // correct closed answer: inside `Outcome<TOk, TErr>`, `EqualityComparer<TOk>.Equals` genuinely
+    // takes two `TOk`, and `TOk` is one of the instantiation's own arguments. The distinction is
+    // identity, not shape — a parameter the instantiation actually substituted IN is closed here;
+    // any other one is still open. Identity is asked as REFERENCE equality, because `==` on `Type`
+    // is not guaranteed to be reference identity for the builder-bound instantiations this walks.
+    static func IsUnsupportedResolvedSignatureType(signatureType: Type, closedArguments: Type[]): bool {
+        if signatureType.get_IsByRef() || signatureType.get_IsGenericTypeDefinition() {
+            return true
+        }
+
+        if !signatureType.get_IsGenericParameter() {
+            return false
+        }
+
+        index := 0
+        while index < closedArguments.Length {
+            if Object.ReferenceEquals(closedArguments[index], signatureType) {
+                return false
+            }
+
+            index += 1
+        }
+
+        return true
     }
 
     static func ExcludedShapeCanOwnArity(method: MethodInfo, parameters: ParameterInfo[], argumentCount: int): bool {
@@ -703,7 +846,7 @@ class ColumnarOrdinaryRuntimeDirectCallResolver {
                 if parameters != null && !IsIntrinsicExcludedShape(candidate, parameters) && parameters.Length > argumentCount {
                     parameterTypes := ResolveParameterTypes(candidate, lookupType, parameters, closedArguments)
                     returnType := ResolveReturnType(candidate, lookupType, closedArguments)
-                    if !HasUnsupportedResolvedSignature(parameters, parameterTypes, returnType) && OptionalTailFillable(parameters, parameterTypes, argumentCount) && CanDispatch(candidate, lookupType, expectedStatic) {
+                    if !HasUnsupportedResolvedSignature(parameters, parameterTypes, returnType, closedArguments) && OptionalTailFillable(parameters, parameterTypes, argumentCount) && CanDispatch(candidate, lookupType, expectedStatic) {
                         leading := LeadingParameterTypes(parameterTypes, argumentCount)
                         score := ColumnarSourceDirectCallResolver.ArgumentsScoreWithFacts(leading, argumentTypes, argumentFacts)
                         if score >= 0 {

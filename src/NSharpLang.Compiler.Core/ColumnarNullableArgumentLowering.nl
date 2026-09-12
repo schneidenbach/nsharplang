@@ -138,21 +138,27 @@ class ColumnarNullableArgumentLowering {
         return TryGetNumericConversion(actualType, targetType, out conversionSource, out conversionMethod)
     }
 
+    // `Nullable<T>.ctor(T)` ON THE CLOSED TYPE. Asking the closed type directly answers nothing when
+    // `T` is an argument this compilation is still emitting, so the construction planner's ordinary
+    // closed-generic constructor selection is what resolves it — in whichever reflection universe the
+    // argument lives.
     static func TryGetNullableConstructor(targetType: Type, out constructorInfo: ConstructorInfo): bool {
         constructorInfo = null
-        nullableDefinition := targetType.GetGenericTypeDefinition()
-        nullableArguments := nullableDefinition.GetGenericArguments()
+        nullableArguments := targetType.GetGenericArguments()
         if nullableArguments.Length != 1 {
             return false
         }
 
-        openConstructor := nullableDefinition.GetConstructor([nullableArguments[0]])
-        if openConstructor == null {
+        argumentTypes := new Type[](1)
+        argumentTypes[0] = nullableArguments[0]
+        selected: ConstructorInfo? = null
+        selectedParameters := new Type[](0)
+        if !ColumnarConstructionPlanner.TrySelectClosedRuntimeConstructor(targetType, argumentTypes, ColumnarDirectCallArgumentFacts.Empty(1), out selected, out selectedParameters) || selected == null {
             return false
         }
 
-        constructorInfo = ColumnarConstructionPlanner.ResolveClosedRuntimeConstructor(targetType, openConstructor)
-        return constructorInfo != null
+        constructorInfo = selected
+        return true
     }
 
     static func TryGetNumericConversion(actualType: Type, targetType: Type, out conversionSource: Type, out conversionMethod: MethodInfo?): bool {
@@ -239,8 +245,8 @@ class ColumnarNullableArgumentLowering {
             return true
         }
 
-        if left.get_IsSZArray() || right.get_IsSZArray() {
-            if !left.get_IsSZArray() || !right.get_IsSZArray() {
+        if ColumnarTypeEquivalenceFacts.IsSafeSzArrayType(left) || ColumnarTypeEquivalenceFacts.IsSafeSzArrayType(right) {
+            if !ColumnarTypeEquivalenceFacts.IsSafeSzArrayType(left) || !ColumnarTypeEquivalenceFacts.IsSafeSzArrayType(right) {
                 return false
             }
 

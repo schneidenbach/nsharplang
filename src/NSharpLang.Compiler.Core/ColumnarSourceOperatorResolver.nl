@@ -49,12 +49,23 @@ class ColumnarSourceOperatorSelection {
     }
 }
 
+// The owner's DECLARATION plus the exact type the operand named it through. For a non-generic owner
+// those are the same handle; for `Tagged<int>` the declaration is the open Tagged definition and the exact
+// type is the constructed instantiation, which is what the parameter substitution and the
+// `TypeBuilder.GetMethod` rebinding both need.
 class ColumnarSourceOperatorCandidate {
     Owner: ColumnarStructDef
+    OwnerType: Type
+    Closed: bool
     Definition: ColumnarStaticMethodDef
 
-    constructor(owner: ColumnarStructDef, definition: ColumnarStaticMethodDef) {
+    constructor(owner: ColumnarStructDef, ownerType: Type, closed: bool, definition: ColumnarStaticMethodDef) {
+        if ownerType == null {
+            throw new InvalidOperationException("Source operator candidate owner type cannot be null.")
+        }
         Owner = owner
+        OwnerType = ownerType
+        Closed = closed
         Definition = definition
     }
 }
@@ -63,7 +74,8 @@ class ColumnarSourceOperatorResolver {
     static func ResolveUnary(symbol: string, operandType: Type, sourceDefinitions: IEnumerable<ColumnarStructDef>): ColumnarSourceOperatorSelection {
         ValidateInputs(symbol, operandType, operandType, sourceDefinitions)
         owner: ColumnarStructDef? = null
-        if !TryFindExactOwner(operandType, sourceDefinitions, out owner) || owner == null {
+        ownerClosed := false
+        if !TryFindExactOwner(operandType, sourceDefinitions, out owner, out ownerClosed) || owner == null {
             return Unselected(ColumnarSourceOperatorStatus.NotSourceType)
         }
 
@@ -74,7 +86,7 @@ class ColumnarSourceOperatorResolver {
         operandTypes := new Type[](1)
         operandTypes[0] = operandType
         candidates := new List<ColumnarSourceOperatorCandidate>()
-        AppendExactCandidates(owner, methodName, operandTypes, candidates)
+        AppendExactCandidates(owner, operandType, ownerClosed, methodName, operandTypes, candidates)
         return Select(candidates, operandTypes)
     }
 
@@ -82,8 +94,10 @@ class ColumnarSourceOperatorResolver {
         ValidateInputs(symbol, leftType, rightType, sourceDefinitions)
         leftOwner: ColumnarStructDef? = null
         rightOwner: ColumnarStructDef? = null
-        hasLeftOwner := TryFindExactOwner(leftType, sourceDefinitions, out leftOwner)
-        hasRightOwner := TryFindExactOwner(rightType, sourceDefinitions, out rightOwner)
+        leftClosed := false
+        rightClosed := false
+        hasLeftOwner := TryFindExactOwner(leftType, sourceDefinitions, out leftOwner, out leftClosed)
+        hasRightOwner := TryFindExactOwner(rightType, sourceDefinitions, out rightOwner, out rightClosed)
         if !hasLeftOwner && !hasRightOwner {
             return Unselected(ColumnarSourceOperatorStatus.NotSourceType)
         }
@@ -97,10 +111,15 @@ class ColumnarSourceOperatorResolver {
         operandTypes[1] = rightType
         candidates := new List<ColumnarSourceOperatorCandidate>()
         if leftOwner != null {
-            AppendExactCandidates(leftOwner, methodName, operandTypes, candidates)
+            AppendExactCandidates(leftOwner, leftType, leftClosed, methodName, operandTypes, candidates)
         }
+        // One DECLARATION is one candidate set. Two operands that closed the same open type over
+        // different arguments (`Tagged<int>` and `Tagged<string>`) still share that declaration, and
+        // asking it twice would make its single operator look ambiguous; the substituted parameter
+        // check below is what rejects the cross-instantiation pair, exactly as it rejects any other
+        // operand type the declared operator does not take.
         if rightOwner != null && !ColumnarConstructionPlanner.SameObject(rightOwner, leftOwner) {
-            AppendExactCandidates(rightOwner, methodName, operandTypes, candidates)
+            AppendExactCandidates(rightOwner, rightType, rightClosed, methodName, operandTypes, candidates)
         }
         return Select(candidates, operandTypes)
     }
@@ -112,18 +131,23 @@ class ColumnarSourceOperatorResolver {
 
         candidate := candidates[0]
         definition := candidate.Definition
-        parameterTypes := new Type[](operandTypes.Length)
-        index := 0
-        while index < operandTypes.Length {
-            parameterTypes[index] = definition.ParamTypes[index]
-            index += 1
-        }
+        parameterTypes := SubstitutedParameterTypes(definition, candidate.OwnerType, candidate.Closed, operandTypes.Length)
         method: MethodInfo = definition.Builder
         declaringType: Type = candidate.Owner.Builder
-        return new ColumnarSourceOperatorSelection(ColumnarSourceOperatorStatus.Selected, candidate.Owner, definition, method, declaringType, parameterTypes, definition.ReturnType)
+        returnType := definition.ReturnType
+        if candidate.Closed {
+            rebound := TypeBuilder.GetMethod(candidate.OwnerType, definition.Builder)
+            if rebound == null {
+                throw new InvalidOperationException("TypeBuilder.GetMethod returned no exact closed source operator.")
+            }
+            method = rebound
+            declaringType = candidate.OwnerType
+            returnType = ColumnarSourceDirectCallResolver.SubstituteTypeArguments(definition.ReturnType, candidate.OwnerType.GetGenericArguments())
+        }
+        return new ColumnarSourceOperatorSelection(ColumnarSourceOperatorStatus.Selected, candidate.Owner, definition, method, declaringType, parameterTypes, returnType)
     }
 
-    static func AppendExactCandidates(owner: ColumnarStructDef, methodName: string, operandTypes: Type[], candidates: List<ColumnarSourceOperatorCandidate>) {
+    static func AppendExactCandidates(owner: ColumnarStructDef, ownerType: Type, closed: bool, methodName: string, operandTypes: Type[], candidates: List<ColumnarSourceOperatorCandidate>) {
         overloads := new List<ColumnarStaticMethodDef>()
         if !owner.StaticMethods.TryGetValue(methodName, out overloads) {
             return
@@ -134,7 +158,7 @@ class ColumnarSourceOperatorResolver {
 
         for candidate in overloads {
             ValidateOperatorFact(owner, methodName, candidate)
-            if !IsExactCallableOperator(candidate, operandTypes) {
+            if !IsExactCallableOperator(candidate, ownerType, closed, operandTypes) {
                 continue
             }
 
@@ -148,12 +172,26 @@ class ColumnarSourceOperatorResolver {
                 index += 1
             }
             if !duplicate {
-                candidates.Add(new ColumnarSourceOperatorCandidate(owner, candidate))
+                candidates.Add(new ColumnarSourceOperatorCandidate(owner, ownerType, closed, candidate))
             }
         }
     }
 
-    static func IsExactCallableOperator(definition: ColumnarStaticMethodDef, operandTypes: Type[]): bool {
+    // A declared operator parameter reached through a CONSTRUCTED owner is the declared type with the
+    // owner's type arguments substituted in: `operator ==(left: Tagged<T>, right: Tagged<T>)` on
+    // `Tagged<int>` takes two `Tagged<int>`. An open owner substitutes nothing.
+    static func SubstitutedParameterTypes(definition: ColumnarStaticMethodDef, ownerType: Type, closed: bool, count: int): Type[] {
+        parameterTypes := new Type[](count)
+        arguments := closed ? ownerType.GetGenericArguments() : new Type[](0)
+        index := 0
+        while index < count {
+            parameterTypes[index] = closed ? ColumnarSourceDirectCallResolver.SubstituteTypeArguments(definition.ParamTypes[index], arguments) : definition.ParamTypes[index]
+            index += 1
+        }
+        return parameterTypes
+    }
+
+    static func IsExactCallableOperator(definition: ColumnarStaticMethodDef, ownerType: Type, closed: bool, operandTypes: Type[]): bool {
         method: MethodInfo = definition.Builder
         if !method.get_IsPublic() {
             return false
@@ -186,15 +224,16 @@ class ColumnarSourceOperatorResolver {
             return false
         }
 
+        parameterTypes := SubstitutedParameterTypes(definition, ownerType, closed, operandTypes.Length)
         index := 0
         while index < operandTypes.Length {
             if definition.ParamModifierKinds[index] != 0 {
                 return false
             }
-            if definition.ParamTypes[index].get_IsByRef() {
+            if parameterTypes[index].get_IsByRef() {
                 return false
             }
-            if !ColumnarSourceDirectCallResolver.ExactTypeShapeMatches(definition.ParamTypes[index], operandTypes[index]) {
+            if !ColumnarSourceDirectCallResolver.ExactTypeShapeMatches(parameterTypes[index], operandTypes[index]) {
                 return false
             }
             index += 1
@@ -230,16 +269,28 @@ class ColumnarSourceOperatorResolver {
         }
     }
 
-    static func TryFindExactOwner(operandType: Type, sourceDefinitions: IEnumerable<ColumnarStructDef>, out owner: ColumnarStructDef?): bool {
+    // An operand is an operator owner when it is a source type: the OPEN `TypeBuilder` itself, or a
+    // CONSTRUCTED instantiation of one, whose declaration is the open definition it closes over.
+    static func TryFindExactOwner(operandType: Type, sourceDefinitions: IEnumerable<ColumnarStructDef>, out owner: ColumnarStructDef?, out closed: bool): bool {
         owner = null
-        if !(operandType is TypeBuilder) {
+        closed = false
+        if operandType == null {
             return false
         }
+
+        declarationType := operandType
+        isClosed := ColumnarTypeOfPlanner.IsClosedSourceGeneric(operandType)
+        if isClosed {
+            declarationType = operandType.GetGenericTypeDefinition()
+        } else if !(operandType is TypeBuilder) {
+            return false
+        }
+
         for candidate in sourceDefinitions {
             if candidate == null || candidate.Builder == null {
                 throw new InvalidOperationException("Source operator type definitions cannot be null.")
             }
-            if !ColumnarConstructionPlanner.SameObject(candidate.Builder, operandType) {
+            if !ColumnarConstructionPlanner.SameObject(candidate.Builder, declarationType) {
                 continue
             }
             if owner != null && !ColumnarConstructionPlanner.SameObject(owner, candidate) {
@@ -247,6 +298,7 @@ class ColumnarSourceOperatorResolver {
             }
             owner = candidate
         }
+        closed = owner != null && isClosed
         return owner != null
     }
 

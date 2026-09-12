@@ -56,6 +56,13 @@ class ColumnarStructuralGenericOwnerIdentity {
         return new ColumnarStructuralGenericOwnerIdentity(ColumnarStructuralGenericOwnerKind.SourceMethod, sourceFileId, "", methodOrdinal)
     }
 
+    // A generic method declared BY A TYPE. It is still a method owner — its parameters are MVARs —
+    // but the declaring type's exact name joins the identity so two types' method ordinals cannot
+    // collide, and neither can collide with a free function's (which names no declaring type).
+    static func SourceTypeMethod(sourceFileId: int, declaringTypeName: string, methodOrdinal: int): ColumnarStructuralGenericOwnerIdentity {
+        return new ColumnarStructuralGenericOwnerIdentity(ColumnarStructuralGenericOwnerKind.SourceMethod, sourceFileId, declaringTypeName, methodOrdinal)
+    }
+
     static func SourceUnionCase(sourceFileId: int, unionName: string, caseOrdinal: int): ColumnarStructuralGenericOwnerIdentity {
         return new ColumnarStructuralGenericOwnerIdentity(ColumnarStructuralGenericOwnerKind.SourceUnionCase, sourceFileId, unionName, caseOrdinal)
     }

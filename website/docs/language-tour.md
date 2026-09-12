@@ -27,6 +27,37 @@ let pi: double = 3.14159
 let maxRetries := 3
 ```
 
+### `default`
+
+`default` is the zero value of whatever type the position it is written in expects — `0` for a
+number, `false` for a `bool`, the null reference for a class, string or array, an all-zero struct,
+and, inside a generic body, whichever of those the type argument turns out to be. It carries no type
+of its own, so it is written bare and the target supplies the type:
+
+```n#
+count: int = default              // 0
+name: string? = default           // null
+when: DateTime = default          // 0001-01-01
+
+func Zero<T>(): T {
+    return default                // 0 for Zero<int>(), null for Zero<string?>()
+}
+
+func TryFirst(values: int[], out first: int): bool {
+    if values.Length > 0 {
+        first = values[0]
+        return true
+    }
+
+    first = default               // the out parameter still gets a value
+    return false
+}
+```
+
+The same reading holds in an argument (`new Box<T>(default)`), in a `return`, and on either side of
+an assignment. A `default` with no target — nothing to be the zero value *of* — is an error, not an
+inference.
+
 ## Functions
 
 Functions use the `func` keyword. Parameters are `name: type`, return type comes after the parameter list.
@@ -103,6 +134,158 @@ func main() {
 }
 ```
 
+### Inheritance: `abstract`, `virtual` and `override`
+
+A class may derive from one other class, listed after a colon. Members are **not** virtual by default,
+exactly as in C#: a base class opts a member into being replaceable with `virtual` (it supplies a body)
+or `abstract` (it supplies none), and a subclass replaces it with `override`.
+
+```n#
+abstract class Shape {
+    readonly name: string
+
+    constructor(name: string) {
+        this.name = name
+    }
+
+    Name: string => name
+
+    abstract func Area(): int          // no body — every concrete subclass must supply one
+
+    virtual func Describe(): string {  // a body a subclass MAY replace
+        return "a shape"
+    }
+}
+
+class Square: Shape {
+    readonly side: int
+
+    constructor(side: int) : base("square") {
+        this.side = side
+    }
+
+    override func Area(): int {
+        return side * side
+    }
+
+    sealed override func Describe(): string {   // no further subclass may replace this
+        return "a square"
+    }
+}
+```
+
+A class with any `abstract` member must itself be `abstract`, and an abstract class cannot be
+constructed — `new Shape("x")` is an error. An abstract class may sit anywhere in the chain, overriding
+some inherited members and leaving others for its own subclasses:
+
+```n#
+abstract class Rounded: Shape {
+    constructor() : base("rounded") {
+    }
+
+    override func Describe(): string {
+        return "something round"
+    }
+    // `Area` stays abstract — `Rounded` is abstract, so it need not supply one.
+}
+```
+
+Source order does not matter: a subclass may be written above its base in the same file, or in a
+different file of the same project.
+
+Generic classes take part in all of this. A generic class may derive from a non-generic base, a generic
+class may close a generic base over a concrete type, and a generic class may pass its own type parameter
+through to a generic base:
+
+```n#
+abstract class Box<T> {
+    abstract func Render(): string
+}
+
+class StringBox: Box<string> {          // closes the base over a concrete type
+    override func Render(): string {
+        return "a string"
+    }
+}
+
+class PairBox<T>: Box<T> {              // passes its own type parameter through
+    override func Render(): string {
+        return "a pair"
+    }
+}
+```
+
+#### `base.` — the implementation you replaced
+
+An `override` that wants to *extend* the base's behaviour rather than discard it reaches it with
+`base.`. The lookup starts at the base class, so the override does not answer itself, and the call is
+dispatched **non-virtually** — which is the only thing that makes `base.Render()` inside `Render`
+terminate:
+
+```n#
+class Middle: Layer {
+    override func Render(): string {
+        return "middle(" + base.Render() + ")"       // "middle(root)"
+    }
+}
+
+class Leaf: Middle {
+    override func Render(): string {
+        return "leaf(" + base.Render() + ")"         // "leaf(middle(root))"
+    }
+}
+```
+
+`base.` is not limited to overrides — any instance member may use it — and it reads properties as well
+as calling methods:
+
+```n#
+class Dog: Animal {
+    func BaseName(): string {
+        return base.Name                             // the base's property, not the subclass's
+    }
+}
+```
+
+The base may be a class declared in the same project, one from the BCL or a NuGet package, or
+`System.Object` itself when no base is written (`base.ToString()` answers the runtime type's name). A
+constructor chains to a base constructor with `: base(...)` in its header, which is the same idea in the
+one place a member call cannot express it.
+
+What `base.` may **not** do is appear in the arguments of that header. `base` is the same reference
+`this` is — it only changes which declaration a name binds to and how a call dispatches — so reading
+through it before the base constructor has run would read storage that does not exist yet:
+
+```n#
+class Derived: Base {
+    constructor(): base(base.Value) {}                // rejected: no instance exists yet
+}
+```
+
+`this.Value`, a bare field name, and an instance call in a chain argument are rejected for the same
+reason. Compute the value from the constructor's own parameters, or from a `static` helper.
+
+**Diagnostics.** The compiler holds you to C#'s rules:
+
+| You wrote | You get |
+| --- | --- |
+| a concrete class that does not implement an inherited abstract member | [NL324](./errors/NL324.md) |
+| `new` on an abstract class | [NL803](./errors/NL803.md) |
+| `override` with no base member of that name, or a base member that is not `virtual`/`abstract`/`override` | [NL311](./errors/NL311.md) |
+| `base.Member` where the base class has no such member | [NL303](./errors/NL303.md) |
+| `this` or `base` in a `static` member or a top-level function | [NL327](./errors/NL327.md) |
+
+Overriding a member of an **external** base class — one from the BCL or a NuGet package — works the same
+way and needs no extra ceremony:
+
+```n#
+class LengthComparer: StringComparer {
+    override func Compare(x: string, y: string): int {
+        return x.Length - y.Length
+    }
+}
+```
+
 ### Primary Constructors
 
 For simple types, put constructor parameters directly on the type declaration.
@@ -158,6 +341,80 @@ struct Rectangle {
     }
 }
 ```
+
+### Readonly Structs
+
+Mark a struct `readonly` when none of its instance state changes after construction. The compiler
+holds you to the promise — every instance field must be declared `readonly` — and in exchange it
+puts `IsReadOnlyAttribute` on the emitted type, which is what lets callers pass the value around
+without defensive copies.
+
+```n#
+readonly struct Point {
+    readonly X: double
+    readonly Y: double
+
+    constructor(x: double, y: double) {
+        X = x
+        Y = y
+    }
+
+    func Distance(): double => Math.Sqrt(X * X + Y * Y)
+}
+```
+
+The modifier works on generic structs, on `ref struct` and on `record struct`, and modifier order
+is free — `public readonly struct` and `readonly public struct` mean the same thing:
+
+```n#
+readonly struct Box<T> {
+    readonly Value: T
+
+    constructor(value: T) {
+        Value = value
+    }
+}
+
+readonly ref struct Window {
+    readonly Start: int
+    readonly Length: int
+
+    constructor(start: int, length: int) {
+        Start = start
+        Length = length
+    }
+}
+
+readonly record struct Pair {
+    readonly Left: int
+    readonly Right: int
+
+    constructor(left: int, right: int) {
+        Left = left
+        Right = right
+    }
+}
+```
+
+`static` and `const` fields are unaffected — they are not instance state — and a primary
+constructor's captured parameters become readonly fields automatically:
+
+```n#
+readonly struct Counted(total: int, seen: int) {
+    static Instances: int = 0        // fine: not instance state
+
+    func Remaining(): int => total - seen
+}
+```
+
+Two things are **not** readonly structs and are never treated as one:
+
+- A plain `struct` that happens to have `readonly` fields. It stays a mutable struct.
+- A `class`, `record`, `interface` or `enum`. Those cannot carry the word at all
+  ([NL311](./errors/NL311.md)); mark their fields `readonly` individually instead.
+
+A mutable instance field inside a `readonly struct` is [NL326](./errors/NL326.md); assigning to a
+readonly field outside a constructor is [NL309](./errors/NL309.md).
 
 ## Unions
 
@@ -484,6 +741,425 @@ func main() {
 }
 ```
 
+### Members typed by a generic over your own type parameter
+
+A member's type may be any generic — a collection, a dictionary, a delegate, an interface — closed
+over the declaring type's own type parameter. Nullable annotations compose with all of them.
+
+```n#
+import System
+import System.Collections.Generic
+
+class Registry<T> {
+    items: List<T> = []
+    byName: Dictionary<string, T> = [:]
+    onAdded: Action<T>?               // may be absent
+    readonly accept: Func<T, bool>
+
+    constructor(accept: Func<T, bool>) {
+        this.accept = accept
+    }
+
+    func Add(name: string, item: T): bool {
+        allowed := accept
+        if !allowed(item) {
+            return false
+        }
+
+        items.Add(item)
+        byName[name] = item
+
+        listener := onAdded
+        if listener != null {
+            listener(item)
+        }
+        return true
+    }
+}
+```
+
+`Action<T>?` and `Action<T>` are the *same* CLR type: in N#, as in C#, a nullable annotation on a
+reference type is a fact the compiler tracks about the value, not a different type in metadata.
+`Registry<int>` emits `onAdded` as `Action<int>` and `Registry<string>` emits it as `Action<string>`.
+
+A method-level type parameter works the same way:
+
+```n#
+func FirstMatch<T>(items: List<T>, accept: Func<T, bool>, fallback: T): T {
+    for item in items {
+        chooser := accept
+        if chooser(item) {
+            return item
+        }
+    }
+    return fallback
+}
+```
+
+### Calling a delegate
+
+`d(args)` and `d.Invoke(args)` are the same call — `Invoke` is an ordinary instance method of the
+delegate's own type — and either spelling works wherever the delegate is held: a local, a parameter,
+a captured variable, or a **field**:
+
+```n#
+class Pipeline<T> {
+    readonly accept: Func<T, bool>
+    onEach: Action<T>?
+
+    constructor(accept: Func<T, bool>) {
+        this.accept = accept
+    }
+
+    func Run(item: T): bool {
+        if !accept(item) {              // straight off the field
+            return false
+        }
+
+        this.accept.Invoke(item)        // the same call, written out
+        onEach?.Invoke(item)            // and only if there is a listener
+        return true
+    }
+}
+```
+
+A **method beats a delegate field of the same name**: if the type declares both a `Handle` method and
+a `Handle` delegate field, `Handle(1)` is the method. Reach the field through `.Invoke` when you mean
+the delegate.
+
+### Calling something only when it is there
+
+`receiver?.Member(args)` evaluates the receiver **once**, and skips the call entirely when it is
+null — the member is not reached at all, not reached and ignored. It is the shape a hand-written
+guard produces, without the local:
+
+```n#
+current := onEach
+current?.Invoke(item)                   // exactly: if current != null { current.Invoke(item) }
+```
+
+The result follows C#'s rule. A `void` member leaves nothing behind; a reference-typed one answers
+`null` when skipped; and a non-nullable value-typed one is **lifted to `T?`**, because "skipped" has
+to be representable:
+
+```n#
+count: int? = counter?.Read()           // int? — null when `counter` is null
+label: string? = counter?.Describe()    // string? for the same reason
+```
+
+The `?.` skips **the whole rest of the chain**, not just the next link: `a?.M().B` is null when `a`
+is, and the `.B` is never reached. Parentheses end the chain, exactly as in C#, so `(a?.B).C` reads
+`.C` on whatever `a?.B` produced. A receiver may be a reference, a `Nullable<T>` (the access runs on
+its `Value`), or an unconstrained type parameter; a plain non-nullable value type has no null to test
+for and is refused. See [Types](types.md#null-conditional-operator) for the full rules.
+
+**What is not supported yet.** `?[` null-conditional **indexing** is not compiled. Write the guard by
+hand for that one.
+
+### Passing storage with `ref` and `out`
+
+A `ref` or `out` argument passes the **caller's storage** rather than a value, so a write inside the
+callee lands where the caller can see it. The storage may be a local, a parameter, or a **field** —
+including one reached through `this.`:
+
+```n#
+import System.Threading
+
+class Counter {
+    count: int
+    text: string?
+
+    static func Fill(ref target: int, value: int) {
+        target = value
+    }
+
+    func Reset(value: int) {
+        Fill(ref count, value)               // a field's address
+    }
+
+    func Parse(input: string): bool {
+        return int.TryParse(input, out count)
+    }
+
+    func Claim(): string? {
+        return Interlocked.Exchange(ref text, null)
+    }
+}
+```
+
+The spelling is part of the call: `f(x)` and `f(ref x)` are different calls even when `x` has the
+same type, and only the second binds a `ref` parameter. The element type is **exact** — a by-ref
+argument aliases your storage, so `ref int` does not feed a `ref long` the way an ordinary `int` feeds
+a `long` parameter.
+
+A generic method infers its type argument from the by-ref position like any other:
+`Interlocked.Exchange(ref remove, null)` binds `T` to the field's own type, and the `null` — which
+carries no type of its own — converts to it.
+
+**Not yet supported:** a `ref` argument that names a `static` field, or a composed target such as an
+array element or a nested member chain. Copy to a local, pass `ref` to that, and write it back.
+
+### Static members of a constructed generic type
+
+Write the closed type and then the member: `Vector<int>.Count`, `EqualityComparer<string>.Default`.
+The type arguments are part of the receiver, so each constructed type answers with its own
+substituted member types — `Vector<int>.Zero` is a `Vector<int>` and `Vector<byte>.Zero` is a
+`Vector<byte>`.
+
+```n#
+import System.Collections.Generic
+import System.Numerics
+
+func Lanes(): int {
+    return Vector<int>.Count
+}
+
+func SameString(left: string, right: string): bool {
+    return EqualityComparer<string>.Default.Equals(left, right)
+}
+
+func Sorted(): int {
+    return Comparer<string>.Default.Compare("a", "b")
+}
+```
+
+Nested, array, nullable and namespace-qualified spellings all work —
+`EqualityComparer<Dictionary<string, List<int>>>.Default`, `Comparer<int[]>.Default`,
+`System.Numerics.Vector<int>.Count` — and a receiver written with the wrong number of type
+arguments is reported at the receiver rather than silently accepted:
+
+```n#
+func Wrong(): int {
+    return Vector<int, int>.Count
+    // NL207: Generic type 'Vector' takes 1 type argument(s), but 2 were provided
+}
+```
+
+**The `<` is only a type-argument list when a `.` follows the matching `>`.** Everything else is
+still a comparison, including the shapes that look most like one:
+
+```n#
+func Between(value: int, lower: int, upper: int): bool {
+    return lower < value && value > upper   // two comparisons, not a receiver
+}
+
+func Shorter(value: int, values: int[]): bool {
+    return value < values.Length            // a comparison against a member access
+}
+```
+
+The same spelling reaches your own generic types; the next section is about declaring their static
+members.
+
+### Static members of your own generic types
+
+A generic type carries static fields, properties, methods, operators and conversion operators, and
+the declaration is written once with the type's own parameters in scope. The CLR gives **every
+constructed type its own static storage**: `PerTypeState<int>` and `PerTypeState<string>` are two
+different counters behind one declaration.
+
+```n#
+class PerTypeState<T> {
+    static Count: int
+
+    static Current: int => Count
+
+    static func Increment(): int {
+        Count = Count + 1
+        return Count
+    }
+}
+
+func main() {
+    print PerTypeState<int>.Increment()      // 1
+    print PerTypeState<int>.Increment()      // 2
+    print PerTypeState<string>.Increment()   // 1 — its own slot
+    print PerTypeState<int>.Count            // 2
+}
+```
+
+A static method may name the type's parameters in its signature and call the type's own
+constructor — including a private one, which is how a factory-only type is written:
+
+```n#
+struct Box<T> {
+    Value: T
+
+    private constructor(value: T) {
+        Value = value
+    }
+
+    static func Create(value: T): Box<T> {
+        return new Box<T>(value)
+    }
+
+    static func unwrap(source: Box<T>): T {
+        return source.Value
+    }
+
+    func Copy(): Box<T> {
+        return Create(unwrap(this))
+    }
+}
+
+func main() {
+    print Box<int>.Create(42).Value      // 42
+    print Box<string>.Create("hi").Value // hi
+}
+```
+
+Inside the type, a static member is named without a qualifier from any body the type owns — a static
+one, as `Count = Count + 1` above, or an instance one, as `Create(unwrap(...))` here. Both resolve
+against the **current instantiation**, so `Box<int>.Copy` calls `Box<int>.Create`.
+
+Operators and conversion operators are static members too, so they follow the same rule. A
+conversion operator declared on a generic type is the one that can only be written on the type being
+converted **to** — the other end is whatever the instantiation supplies, and `int` declares nothing
+about `Wrap`:
+
+```n#
+struct Wrap<T> {
+    Value: T
+
+    constructor(value: T) {
+        Value = value
+    }
+
+    implicit operator Wrap<T>(value: T) => new Wrap<T>(value)
+
+    explicit operator T(wrapped: Wrap<T>) => wrapped.Value
+}
+
+struct Tagged<T> {
+    Tag: int
+
+    constructor(tag: int) {
+        Tag = tag
+    }
+
+    static func operator ==(left: Tagged<T>, right: Tagged<T>): bool => left.Tag == right.Tag
+    static func operator !=(left: Tagged<T>, right: Tagged<T>): bool => left.Tag != right.Tag
+}
+
+func main() {
+    wrapped: Wrap<int> = 5           // implicit — no cast
+    print wrapped.Value              // 5
+    print (int)wrapped               // 5 — explicit, cast required
+    print new Tagged<int>(1) == new Tagged<int>(1)   // true
+}
+```
+
+A member the constructed type does not have is reported under the name you wrote:
+`Box<int>.Missing(42)` is `NL303` naming `Box<int>`, and a wrong argument type names the
+**substituted** parameter type — `Box<int>.Create("text")` says the parameter is `int`, not `T`.
+
+### Generic methods on your own types
+
+A `class`, `struct` or `record` may declare a generic method, whether or not the type itself is
+generic. The method's type parameters are **its own** — separate from the declaring type's,
+constrained separately, and emitted as real CLR method type parameters, so the method is a generic
+method to C# and every other .NET language too.
+
+```n#
+struct Box<T> {
+    Value: T
+
+    constructor(value: T) {
+        Value = value
+    }
+
+    // `U` has nothing to do with the box's `T`.
+    static func Of<U>(value: U): Box<U> {
+        return new Box<U>(value)
+    }
+
+    // A signature may name BOTH scopes.
+    func Map<TResult>(f: Func<T, TResult>): Box<TResult> {
+        return new Box<TResult>(f(Value))
+    }
+
+    func Is<TOther>(): bool {
+        return Value is TOther
+    }
+}
+
+class Plain {
+    func Echo<T>(value: T): T => value
+
+    static func Wrap<T>(value: T): Box<T> => new Box<T>(value)
+}
+
+func main() {
+    box := new Box<int>(3)
+    plain := new Plain()
+
+    print box.Map<string>(v => v.ToString()).Value   // "3" — type argument written
+    print box.Is<int>()                              // true
+    print plain.Echo(7)                              // 7 — inferred
+    print Plain.Wrap(5).Value                        // 5 — inferred, static
+    print Box<int>.Of(4).Value                       // 4 — on a constructed owner
+}
+```
+
+A static generic method on a GENERIC owner is reached through an instantiation, so write the owner
+out — `Box<int>.Of(4)` — everywhere except inside the declaring type's own code, where the
+instantiation is the type's own.
+
+Constraints are written as they are on a type, and are checked at the call site:
+
+```n#
+class Registry {
+    static func Register<T>(value: T): bool where T : class => value != null
+}
+```
+
+Two rules about the type-argument list itself. It is **all or nothing** — `Pick<int>(1, "a")`
+against `Pick<TFirst, TSecond>` is `NL207`, and so is writing a list on a method with no type
+parameters — and a method's type parameter may **not reuse a name its declaring type binds**
+(`struct Box<T> { func Shadow<T>() }` is `NL316`, because inside the member only the inner `T` would
+mean anything).
+
+Two shapes are not compiled yet: a generic method declared by an **`interface`**, and inferring a
+type parameter that appears **only in a delegate's result** from the lambda's body — write
+`Match<string>(...)` rather than `Match(...)` for that one.
+
+### A name and a type-parameter count together are one type
+
+A type's identity on the CLR is its name **and** how many type parameters it declares, so a
+non-generic type and a generic one of the same name are two different types and may be declared side
+by side. This is the pattern a library reaches for when a generic type needs one non-generic root
+that callers can hold uniformly:
+
+```n#
+class Subscription {
+}
+
+class Subscription<T>: Subscription {
+    Value: T
+
+    constructor(value: T) {
+        Value = value
+    }
+}
+
+func Make(): Subscription {
+    return new Subscription<int>(7)   // the generic one, held as its non-generic base
+}
+```
+
+A reference selects the declaration whose type-parameter count it writes: `Subscription` is the
+non-generic type and `Subscription<int>` the generic one. Writing a count that no declaration has is
+an error (`NL207`) that names the counts that do exist.
+
+Two declarations collide only when they share a name **and** a type-parameter count — `class Foo {}`
+twice, `class Foo<T>` twice, or a `class Foo<T>` beside a `struct Foo<U>` — and that is `NL306`.
+
+In metadata a generic type is named the way every other .NET language spells it, with a backtick and
+its arity: `Subscription` stays `Subscription`, `Subscription<T>` is emitted as ``Subscription`1``
+and `Cell<TKey, TValue>` as ``Cell`2``. N# always shows you the written form — `Subscription<T>` — in
+diagnostics, hovers and completions; the backtick name is what a C# consumer of your assembly sees,
+and what `GetType().Name` returns at runtime.
+
 ## Properties: Required and Init-Only
 
 Mark a property `required` to force callers to set it in the object initializer, and `init`
@@ -571,6 +1247,15 @@ func main() {
     print $"{f.Value}°F  {k.Value}K"   // 212°F  373.15K
 }
 ```
+
+A conversion operator is found on **either end** of the conversion — the type converted from or the
+type converted to — which is what lets a wrapper declare its own inbound conversion. See
+[static members of your own generic types](#static-members-of-your-own-generic-types) for the
+generic form, `implicit operator Wrap<T>(value: T)`.
+
+The same rules reach the conversions a **.NET type** declares, so `name: XName = "entry"` and
+`offset: DateTimeOffset = instant` work without ceremony — see
+[conversion operators of .NET types](types.md#conversion-operators).
 
 ## Type Aliases
 
@@ -1020,6 +1705,68 @@ class UserService {
     // ...
 }
 ```
+
+### Qualified names
+
+A namespace-qualified name works anywhere a bare name does — as a type, as the receiver of a
+static call, as the thing you construct. Nothing has to be imported for it:
+
+```n#
+package MyApp
+
+func Report(parts: List<string>): string {
+    largest := System.Math.Max(1, 2)                        // a qualified static call
+    limit := System.Int32.MaxValue                          // a qualified static read
+    builder := new System.Text.StringBuilder()              // a qualified construction
+    day := System.DayOfWeek.Monday                          // a qualified enum member
+    joined := System.String.Join(",", parts)                // any namespace depth
+    return joined
+}
+```
+
+The same spelling reaches your own project's namespaces:
+
+```n#
+package MyApp
+
+func Create(): MyApp.Models.Person {
+    return MyApp.Models.Person.Default
+}
+```
+
+An **alias** qualifies exactly the same way — `import System.IO as Io` makes `Io.Path.Combine(a, b)`
+mean `System.IO.Path.Combine(a, b)`:
+
+```n#
+import System.IO as Io
+import System.Text as Txt
+
+package MyApp
+
+func Combine(left: string, right: string): string {
+    builder := new Txt.StringBuilder()
+    builder.Append(Io.Path.Combine(left, right))
+    return builder.ToString()
+}
+```
+
+### Which declaration a bare name means
+
+A bare name is resolved in this order, and the first channel that answers wins:
+
+1. **Your file's own namespace.** A type declared alongside you is what the name means, whatever
+   your imports bring in. Files that share a namespace see each other's types with no import.
+2. **Your imports, in the order you wrote them** — a source namespace and a .NET namespace count
+   equally here. If two imports supply the same name, that is [NL209](errors/NL209.md): neither is
+   closer, so the compiler asks you to say which one you mean.
+3. **Project-wide auto-discovery.** An exported type anywhere in your project is usable by its bare
+   name without an import, as long as exactly one declaration has that name. This is a convenience,
+   so it ranks *below* anything you imported explicitly — a `class Version` of your own in a
+   namespace you never imported does not take the name `Version` away from `import System`.
+4. **The referenced assemblies**, by simple name.
+
+When two declarations tie, or when auto-discovery picks up a name you did not mean, write the
+qualified name. It is never ambiguous.
 
 ## Visibility
 

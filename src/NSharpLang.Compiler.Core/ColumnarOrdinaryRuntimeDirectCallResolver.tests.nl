@@ -188,18 +188,19 @@ test "ordinary runtime direct calls select fixed byref and exclude generic param
     assert paramsCall.IsExcluded
     assert paramsCall.Method == null
 
-    byRefType := typeof(int).MakeByRefType()
-    byRefCall := RequiredOrdinaryRuntimeSelection(typeof(int), "TryParse", OrdinaryRuntimeArgumentTypes2(typeof(string), byRefType), true)
-    assert byRefCall.Method != null
-    assert byRefCall.ParameterTypes.Length == 2
-    assert byRefCall.ParameterTypes[0] == typeof(string)
-    assert byRefCall.ParameterTypes[1] == byRefType
-    assert byRefCall.ReturnType == typeof(bool)
-    assert byRefCall.Kind == ColumnarExternalCallKind.Call
-    assert byRefCall.IsStatic
-    assert !byRefCall.UsesCallVirtual
+    // A BY-REF PARAMETER IS NO LONGER AN UNREPRESENTABLE SHAPE. `int.TryParse(string, out int)` binds
+    // when the argument is WRITTEN `out` (the contract below), so an argument that is not written
+    // `out` is an overload that does not bind — REJECTED — rather than a shape with no owner.
+    byRefCall := ColumnarOrdinaryRuntimeDirectCallResolver.Resolve(typeof(int), "TryParse", OrdinaryRuntimeArgumentTypes2(typeof(string), typeof(int)), true)
+    assert byRefCall.Status == ColumnarOrdinaryRuntimeDirectCallStatus.Rejected
+    assert byRefCall.IsOwnedRejected
+    assert byRefCall.Method == null
 
-    incompatibleByRef := ColumnarOrdinaryRuntimeDirectCallResolver.Resolve(typeof(int), "TryParse", OrdinaryRuntimeArgumentTypes2(typeof(string), typeof(long).MakeByRefType()), true)
+    // …and an `out`-written argument whose storage is the WRONG type is a rejection too: `long` storage
+    // cannot alias an `int` parameter.
+    incompatibleFacts := ColumnarDirectCallArgumentFacts.Empty(2)
+    incompatibleFacts.IsByRefArgument[1] = true
+    incompatibleByRef := ColumnarOrdinaryRuntimeDirectCallResolver.ResolveWithFacts(typeof(int), "TryParse", OrdinaryRuntimeArgumentTypes2(typeof(string), typeof(long)), incompatibleFacts, true)
     assert incompatibleByRef.Status == ColumnarOrdinaryRuntimeDirectCallStatus.Rejected
     assert incompatibleByRef.IsOwnedRejected
     assert incompatibleByRef.Method == null
@@ -210,12 +211,33 @@ test "ordinary runtime direct calls select fixed byref and exclude generic param
     assert optionalExpansion.Method == null
 }
 
+// The other half of the rule above: WRITTEN `out`, the same overload binds, and its parameter list
+// carries the by-ref spelling the call site has to honour.
+test "ordinary runtime direct calls select a by-reference overload when the argument is written by-ref" {
+    facts := ColumnarDirectCallArgumentFacts.Empty(2)
+    facts.IsByRefArgument[1] = true
+
+    selection := ColumnarOrdinaryRuntimeDirectCallResolver.ResolveWithFacts(typeof(int), "TryParse", OrdinaryRuntimeArgumentTypes2(typeof(string), typeof(int)), facts, true)
+    assert selection.IsSelected
+    assert selection.Method != null
+    assert selection.ParameterTypes.Length == 2
+    assert selection.ParameterTypes[0] == typeof(string)
+    assert selection.ParameterTypes[1] == typeof(int).MakeByRefType()
+    assert selection.ReturnType == typeof(bool)
+    assert selection.IsStatic
+}
+
+// A SIX-ARGUMENT STATIC CALL WITH A TRAILING `out`, on a real kernel this compiler's own facade calls.
+// Arity, ordinary parameter identity and the by-ref spelling of the final parameter all have to
+// survive together, which is what the facade's completion-prefix call depends on.
 test "ordinary runtime direct calls select external six-argument out calls" {
     kernel := RequiredOrdinaryRuntimeType("NSharpLang.Compiler.CodeIntelligence.CodeIntelligenceSourceTextKernels, NSharpLang.Compiler.Core")
-    prefixOutType := typeof(string).MakeByRefType()
-    arguments := OrdinaryRuntimeArgumentTypes6(typeof(object), typeof(string), typeof(string), typeof(int), typeof(int), prefixOutType)
-    selection := RequiredOrdinaryRuntimeSelection(kernel, "TryExtractCompletionPrefix", arguments, true)
+    facts := ColumnarDirectCallArgumentFacts.Empty(6)
+    facts.IsByRefArgument[5] = true
+    arguments := OrdinaryRuntimeArgumentTypes6(typeof(object), typeof(string), typeof(string), typeof(int), typeof(int), typeof(string))
+    selection := ColumnarOrdinaryRuntimeDirectCallResolver.ResolveWithFacts(kernel, "TryExtractCompletionPrefix", arguments, facts, true)
 
+    assert selection.IsSelected
     assert selection.Method != null
     assert selection.LookupType == kernel
     assert selection.DeclaringType == kernel
@@ -225,7 +247,7 @@ test "ordinary runtime direct calls select external six-argument out calls" {
     assert selection.ParameterTypes[2] == typeof(string)
     assert selection.ParameterTypes[3] == typeof(int)
     assert selection.ParameterTypes[4] == typeof(int)
-    assert selection.ParameterTypes[5] == prefixOutType
+    assert selection.ParameterTypes[5] == typeof(string).MakeByRefType()
     assert selection.ReturnType == typeof(bool)
     assert selection.Kind == ColumnarExternalCallKind.Call
     assert selection.IsStatic
@@ -365,4 +387,73 @@ test "ordinary runtime builder-bound selection is independent of open candidate 
     assert reverse.ReturnType == typeof(int)
     assert forward.UsesCallVirtual
     assert reverse.UsesCallVirtual
+}
+
+// ─── THE UNIQUENESS TIER: A SITE WHOSE ARGUMENTS CANNOT BE TYPED YET ──────────────────────────────
+//
+// A LAMBDA ARGUMENT HAS NO TYPE UNTIL IT IS BOUND to the parameter it is passed to, so a call like
+// `u.Switch(a => …, b => …)` cannot be scored. Scoring is the ONLY thing this tier gives up:
+// candidate admission, the excluded shapes and the dispatch rule are the resolver's own.
+
+test "the uniqueness tier selects the one declaration of a name at an arity" {
+    forEach := ColumnarOrdinaryRuntimeDirectCallResolver.ResolveUniqueAtArity(typeof(System.Collections.Generic.List<int>), "ForEach", 1, false)
+
+    assert forEach.IsSelected
+    assert forEach.ParameterTypes.Length == 1
+    assert forEach.ParameterTypes[0] == typeof(Action<int>)
+    assert forEach.UsesCallVirtual
+    assert !forEach.IsStatic
+}
+
+// THE SIGNATURE IS THE RECEIVER'S, not the definition's: `List<int>.Find` takes `Predicate<int>` and
+// answers `int`.
+test "the selected signature is substituted by the receiver's own type arguments" {
+    find := ColumnarOrdinaryRuntimeDirectCallResolver.ResolveUniqueAtArity(typeof(System.Collections.Generic.List<int>), "Find", 1, false)
+
+    assert find.IsSelected
+    assert find.ParameterTypes[0] == typeof(Predicate<int>)
+    assert find.ReturnType == typeof(int)
+}
+
+// A STATIC member of a CONSTRUCTED owner is chosen on the closed type, which is what makes
+// `Comparison<int>` — rather than an open `Comparison<T>` — the parameter a lambda takes its shape
+// from.
+test "a static member of a constructed generic owner is selected on the CLOSED type" {
+    create := ColumnarOrdinaryRuntimeDirectCallResolver.ResolveUniqueAtArity(typeof(System.Collections.Generic.Comparer<int>), "Create", 1, true)
+
+    assert create.IsSelected
+    assert create.ParameterTypes[0] == typeof(Comparison<int>)
+    assert create.ReturnType == typeof(System.Collections.Generic.Comparer<int>)
+    assert create.IsStatic
+    assert !create.UsesCallVirtual
+}
+
+// MORE THAN ONE CANDIDATE IS REFUSED RATHER THAN GUESSED, because the argument types are exactly what
+// would have chosen between them.
+test "a name with several declarations at the arity is refused" {
+    assert !ColumnarOrdinaryRuntimeDirectCallResolver.ResolveUniqueAtArity(typeof(System.Text.StringBuilder), "Append", 1, false).IsSelected
+    assert !ColumnarOrdinaryRuntimeDirectCallResolver.ResolveUniqueAtArity(typeof(Console), "WriteLine", 1, true).IsSelected
+}
+
+// The tier's exclusions are the resolver's own: a GENERIC declaration belongs to the generic tiers,
+// a wrong arity is not a candidate, and staticness must match.
+test "the uniqueness tier keeps the resolver's own exclusions" {
+    // Generic: `ConvertAll<TOutput>` is the explicit/inference tiers' shape, not this one.
+    assert !ColumnarOrdinaryRuntimeDirectCallResolver.ResolveUniqueAtArity(typeof(System.Collections.Generic.List<int>), "ConvertAll", 1, false).IsSelected
+
+    // Arity: `ForEach` takes one argument and nothing else.
+    assert !ColumnarOrdinaryRuntimeDirectCallResolver.ResolveUniqueAtArity(typeof(System.Collections.Generic.List<int>), "ForEach", 2, false).IsSelected
+
+    // Staticness: `ForEach` is an instance method.
+    assert !ColumnarOrdinaryRuntimeDirectCallResolver.ResolveUniqueAtArity(typeof(System.Collections.Generic.List<int>), "ForEach", 1, true).IsSelected
+
+    // A name nothing declares.
+    assert !ColumnarOrdinaryRuntimeDirectCallResolver.ResolveUniqueAtArity(typeof(System.Collections.Generic.List<int>), "NoSuchMember", 0, false).IsSelected
+}
+
+// An OPEN owner has no reachable member table, so it keeps the exact resolver's answer.
+test "an open generic owner selects nothing" {
+    listDefinition := typeof(System.Collections.Generic.List<int>).GetGenericTypeDefinition()
+
+    assert !ColumnarOrdinaryRuntimeDirectCallResolver.ResolveUniqueAtArity(listDefinition, "ForEach", 1, false).IsSelected
 }

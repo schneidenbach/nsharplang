@@ -42,6 +42,13 @@ class ColumnarDirectCallArgumentFacts {
     IsNegativeIntegerLiteral: bool[]
     IntegerLiteralValues: long[]
     IsNullLiteral: bool[]
+
+    // WHETHER THE ARGUMENT WAS WRITTEN `ref x` / `out x`. It is a SYNTAX fact like the others here,
+    // and it has to be one: `f(x)` and `f(ref x)` are different calls even when `x` has the same type,
+    // and only the second may bind a `ref` parameter. The recorded `argumentTypes` entry stays the
+    // ELEMENT type (the storage's own type), because that is what the parameter's element type is
+    // compared against.
+    IsByRefArgument: bool[]
     SourceTypeDefinitions: IEnumerable<ColumnarStructDef>
 
     constructor(isUnsuffixedIntegerLiteral: bool[], isNegativeIntegerLiteral: bool[], integerLiteralValues: long[]) {
@@ -53,6 +60,7 @@ class ColumnarDirectCallArgumentFacts {
         IsNegativeIntegerLiteral = isNegativeIntegerLiteral
         IntegerLiteralValues = integerLiteralValues
         IsNullLiteral = new bool[](isUnsuffixedIntegerLiteral.Length)
+        IsByRefArgument = new bool[](isUnsuffixedIntegerLiteral.Length)
         SourceTypeDefinitions = new List<ColumnarStructDef>()
     }
 
@@ -546,11 +554,22 @@ class ColumnarSourceDirectCallResolver {
     }
 
     static func SelectedInstance(root: ColumnarStructDef, owner: ColumnarStructDef, receiverType: Type, closed: bool, definition: ColumnarInstanceMethodDef, parameterTypes: Type[]): ColumnarSourceDirectCallSelection {
-        method: MethodInfo = definition.Builder
-        declaringType: Type = owner.Builder
+        // As in `SelectedStatic`: a generic definition's own code names its own methods through the
+        // current instantiation, never through a bare method-definition token.
+        declaringType: Type = ColumnarSourceSelfInstantiation.Of(owner.Builder)
+        method: MethodInfo = ColumnarSourceSelfInstantiation.BindOn(declaringType, definition.Builder)
+        // THE RECEIVER IS NAMED THE SAME WAY THE METHOD IS. `this` inside a GENERIC definition is a
+        // value of the CURRENT INSTANTIATION, not of the open definition, and the plan records both the
+        // receiver's semantic type and the method's declaring type: naming the receiver by the open
+        // builder while the handle names the instantiation made them disagree, and the plan executor
+        // threw ("value-type receiver for 'X' requires an exact managed address" / "reference receiver
+        // for 'X' does not match its declaring type") rather than declining — a crash out of the
+        // compiler for source as ordinary as a generic struct whose property getter calls one of its own
+        // methods. `Of` is the identity on every non-generic owner, so nothing else moves.
+        receiverType = ColumnarSourceSelfInstantiation.Of(receiverType)
         returnType := definition.ReturnType
         if closed {
-            rebound := TypeBuilder.GetMethod(receiverType, method)
+            rebound := TypeBuilder.GetMethod(receiverType, definition.Builder)
             if rebound == null {
                 throw new InvalidOperationException("TypeBuilder.GetMethod returned no exact closed source instance method.")
             }
@@ -564,11 +583,14 @@ class ColumnarSourceDirectCallResolver {
     }
 
     static func SelectedStatic(root: ColumnarStructDef, owner: ColumnarStructDef, ownerType: Type, closed: bool, definition: ColumnarStaticMethodDef, parameterTypes: Type[]): ColumnarSourceDirectCallSelection {
-        method: MethodInfo = definition.Builder
-        declaringType: Type = owner.Builder
+        // A member of a generic definition reached WITHOUT an instantiation is the type's own code
+        // naming itself: the handle must still go through the CURRENT INSTANTIATION, because a raw
+        // method-definition token names the open type and the CLR refuses to execute one.
+        declaringType: Type = ColumnarSourceSelfInstantiation.Of(owner.Builder)
+        method: MethodInfo = ColumnarSourceSelfInstantiation.BindOn(declaringType, definition.Builder)
         returnType := definition.ReturnType
         if closed {
-            rebound := TypeBuilder.GetMethod(ownerType, method)
+            rebound := TypeBuilder.GetMethod(ownerType, definition.Builder)
             if rebound == null {
                 throw new InvalidOperationException("TypeBuilder.GetMethod returned no exact closed source static method.")
             }
@@ -926,6 +948,27 @@ class ColumnarSourceDirectCallResolver {
         score := 0
         index := 0
         while index < expected.Length {
+
+            // A `ref`/`out` PARAMETER AND A `ref`/`out` ARGUMENT MUST AGREE, AND EXACTLY. The argument
+            // aliases the caller's storage, so there is no conversion to make: the parameter's element
+            // type has to BE the storage's type, and the two spellings must match in both directions —
+            // `f(x)` may not bind a `ref` parameter and `f(ref x)` may not bind an ordinary one. A
+            // match is scored as the exact identity it is.
+            if expected[index].get_IsByRef() || argumentFacts.IsByRefArgument[index] {
+                if !expected[index].get_IsByRef() || !argumentFacts.IsByRefArgument[index] {
+                    return -1
+                }
+
+                byRefElement := expected[index].GetElementType()
+                if byRefElement == null || !ExactTypeShapeMatches(byRefElement, actual[index]) {
+                    return -1
+                }
+
+                score += 8
+                index += 1
+                continue
+            }
+
             argumentScore := argumentFacts.IsNullLiteral[index] ? (ColumnarNullableArgumentLowering.CanAdoptNull(expected[index]) ? 4 : -1) : ArgumentFlowScore(expected[index], actual[index], argumentFacts.SourceTypeDefinitions)
 
             if argumentScore < 0 && argumentFacts.IsUnsuffixedIntegerLiteral[index] && CanAdoptIntegerLiteralArgument(expected[index], argumentFacts.IntegerLiteralValues[index], argumentFacts.IsNegativeIntegerLiteral[index]) {
@@ -962,7 +1005,7 @@ class ColumnarSourceDirectCallResolver {
     }
 
     static func ValidateArgumentFacts(argumentTypes: Type[], argumentFacts: ColumnarDirectCallArgumentFacts) {
-        if argumentTypes == null || argumentFacts == null || argumentFacts.IsUnsuffixedIntegerLiteral == null || argumentFacts.IsNegativeIntegerLiteral == null || argumentFacts.IntegerLiteralValues == null || argumentFacts.IsNullLiteral == null || argumentFacts.SourceTypeDefinitions == null || argumentFacts.IsUnsuffixedIntegerLiteral.Length != argumentTypes.Length || argumentFacts.IsNegativeIntegerLiteral.Length != argumentTypes.Length || argumentFacts.IntegerLiteralValues.Length != argumentTypes.Length || argumentFacts.IsNullLiteral.Length != argumentTypes.Length {
+        if argumentTypes == null || argumentFacts == null || argumentFacts.IsUnsuffixedIntegerLiteral == null || argumentFacts.IsNegativeIntegerLiteral == null || argumentFacts.IntegerLiteralValues == null || argumentFacts.IsNullLiteral == null || argumentFacts.IsByRefArgument == null || argumentFacts.SourceTypeDefinitions == null || argumentFacts.IsUnsuffixedIntegerLiteral.Length != argumentTypes.Length || argumentFacts.IsNegativeIntegerLiteral.Length != argumentTypes.Length || argumentFacts.IntegerLiteralValues.Length != argumentTypes.Length || argumentFacts.IsNullLiteral.Length != argumentTypes.Length || argumentFacts.IsByRefArgument.Length != argumentTypes.Length {
             throw new InvalidOperationException("Direct-call argument syntax facts must match the argument types.")
         }
 
@@ -982,6 +1025,10 @@ class ColumnarSourceDirectCallResolver {
 
             if argumentFacts.IsNullLiteral[index] && (argumentFacts.IsUnsuffixedIntegerLiteral[index] || argumentFacts.IsNegativeIntegerLiteral[index]) {
                 throw new InvalidOperationException("A direct-call argument cannot be both null and an integer literal.")
+            }
+
+            if argumentFacts.IsByRefArgument[index] && (argumentFacts.IsNullLiteral[index] || argumentFacts.IsUnsuffixedIntegerLiteral[index] || argumentFacts.IsNegativeIntegerLiteral[index]) {
+                throw new InvalidOperationException("A by-reference direct-call argument names storage, so it cannot also be a literal.")
             }
 
             index += 1
@@ -1082,6 +1129,55 @@ class ColumnarSourceDirectCallResolver {
 
         flow = ColumnarDirectCallArgumentFlow.None
         return false
+    }
+
+    // C#'s BETTER FUNCTION MEMBER tie-break (§12.6.4.3), reduced to the part that decides between two
+    // parameter lists the flow score already ranked EQUAL. A tie is not an ambiguity when one list's
+    // parameter type is a strictly better conversion target: `IDictionary<K,V>` converts to
+    // `IEnumerable<KeyValuePair<K,V>>` and not back, so a dictionary argument that fits BOTH
+    // `Dictionary<K,V>(IDictionary<K,V>)` and `Dictionary<K,V>(IEnumerable<KeyValuePair<K,V>>)` picks the
+    // dictionary parameter, exactly as C# does. Without this, every external overload set whose
+    // parameters sit on one conversion chain would decline as ambiguous.
+    //
+    // The rule is the conservative half of the C# rule: better in at least one position and worse in
+    // none. Two lists that each win a position stay ambiguous, which is also what C# reports.
+    static func IsBetterParameterList(candidate: Type[], other: Type[], sourceTypeDefinitions: IEnumerable<ColumnarStructDef>): bool {
+        if candidate == null || other == null || candidate.Length != other.Length {
+            return false
+        }
+
+        anyBetter := false
+        index := 0
+        while index < candidate.Length {
+            comparison := CompareConversionTargets(candidate[index], other[index], sourceTypeDefinitions)
+            if comparison < 0 {
+                return false
+            }
+            if comparison > 0 {
+                anyBetter = true
+            }
+            index += 1
+        }
+
+        return anyBetter
+    }
+
+    // 1 when `candidateType` is the better conversion target, -1 when `otherType` is, 0 when neither is
+    // more specific than the other (identical shapes, or a pair with conversions in both directions).
+    static func CompareConversionTargets(candidateType: Type, otherType: Type, sourceTypeDefinitions: IEnumerable<ColumnarStructDef>): int {
+        if candidateType == null || otherType == null || ExactTypeShapeMatches(candidateType, otherType) {
+            return 0
+        }
+
+        candidateToOther := ArgumentFlowScore(otherType, candidateType, sourceTypeDefinitions) >= 0
+        otherToCandidate := ArgumentFlowScore(candidateType, otherType, sourceTypeDefinitions) >= 0
+        if candidateToOther && !otherToCandidate {
+            return 1
+        }
+        if otherToCandidate && !candidateToOther {
+            return -1
+        }
+        return 0
     }
 
     static func ArgumentFlowScore(expectedType: Type, actualType: Type): int {
@@ -1218,7 +1314,7 @@ class ColumnarSourceDirectCallResolver {
             return arguments[position]
         }
 
-        if signatureType.get_IsSZArray() {
+        if ColumnarTypeEquivalenceFacts.IsSafeSzArrayType(signatureType) {
             element := signatureType.GetElementType()
             if element == null {
                 throw new InvalidOperationException("Source direct-call array signature has no element type.")
@@ -1312,7 +1408,7 @@ class ColumnarSourceDirectCallResolver {
                     throw new InvalidOperationException("Source direct-call parameter modifier fact is invalid.")
                 }
 
-                if modifier == 3 && (index != parameterTypes.Length - 1 || !parameterTypes[index].get_IsSZArray()) {
+                if modifier == 3 && (index != parameterTypes.Length - 1 || !ColumnarTypeEquivalenceFacts.IsSafeSzArrayType(parameterTypes[index])) {
                     throw new InvalidOperationException("A params source-call fact must describe the final array parameter.")
                 }
 

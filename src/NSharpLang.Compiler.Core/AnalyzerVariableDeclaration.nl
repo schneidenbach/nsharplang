@@ -802,6 +802,11 @@ class AnalyzerVariableDeclaration {
         currentFilePath := diagnosticsValue.CurrentFilePath
         declaredText := TypeText(declaredType)
         inferredText := TypeText(inferredType)
+        conversion := assignabilityValue.ClassifyUserDefinedConversion(declaredType, inferredType)
+        if diagnosticsValue.ReportAmbiguousUserDefinedConversion(conversion, inferredText, declaredText, span.Line, span.Column, span.Length) {
+            return
+        }
+
         message := "Variable '" + declaration.Name + "' is typed as '" + declaredText + "', but the value is '" + inferredText + "'"
         if sourceSnippet != null && currentFilePath != null {
             diagnosticsValue.ReportBuilt(ErrorMessageBuilder.TypeMismatch(currentFilePath, span.Line, span.Column, sourceSnippet, span.Length, inferredText, declaredText, message))

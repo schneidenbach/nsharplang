@@ -808,6 +808,16 @@ class LinterWalk {
             return
         }
 
+        genericTypeExpression := expression as GenericTypeExpression
+        if genericTypeExpression != null {
+            // NL010: a constructed generic receiver is a TypeReference in expression position, so the
+            // structural walk never reaches its name or its arguments — `EqualityComparer<int>.Default`
+            // is the only mention of `System.Collections.Generic` a file may have, and without this the
+            // import it needs is reported unused and `nlc fix` deletes it.
+            state.TrackTypeReference(genericTypeExpression.Type)
+            return
+        }
+
         typeOfExpression := expression as TypeOfExpression
         if typeOfExpression != null {
             // NL010: `typeof`'s operand is a TypeReference, not an expression child, so the structural

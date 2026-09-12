@@ -35,7 +35,7 @@ class ColumnarClosedGenericMemberResolver {
             return memberType
         }
 
-        if memberType.get_IsSZArray() {
+        if ColumnarTypeEquivalenceFacts.IsSafeSzArrayType(memberType) {
             rawElementType := memberType.GetElementType()
             elementObject: object? = rawElementType
             elementType := (Type)elementObject

@@ -409,7 +409,10 @@ class AnalyzerTypeDeclarations {
         state.SavedTypeMembers = ambientValue.EnterTypeMembers(TypeMembers(state))
         state.SavedTypeName = ambientValue.EnterTypeName(name)
         AnalyzerDeclarationConventions.CheckVisibilityConvention(diagnosticsValue, name, TypeModifiers(state), state.Declaration.Line, state.Declaration.Column)
-        state.DeclaredType = scopesValue.LookupType(name)
+        // ITS OWN IDENTITY, NOT ITS OWN NAME. `class Subscription<T>: Subscription` declares one type
+        // and derives from another, and looking the declared type up by the bare name would hand the
+        // walk the NON-generic sibling — which then reads as a class inheriting from itself.
+        state.DeclaredType = scopesValue.LookupTypeWithArity(name, DeclarationFacts.GetDeclarationArity(state.Declaration))
         request := new TypeDeclarationRequest(2, BuiltInTypes.Unknown)
         request.CarriedScopeKind = TypeScopeKind(state)
         request.Line = state.Declaration.Line
@@ -425,7 +428,7 @@ class AnalyzerTypeDeclarations {
     // `this` is declared last, which an INTERFACE never does — it has no instance to name.
     func AdvanceTypeHeader(state: TypeDeclarationState): TypeDeclarationRequest? {
         DeclareTypeParameters(state)
-        ValidateNoStaticMembersOnGenericType(state)
+        ValidateReadonlyStructInstanceFields(state)
         ResolveDeclaredBases(state)
         ValidateNoInheritanceCycle(state)
         ValidateSingleBaseClass(state)
@@ -1034,17 +1037,20 @@ class AnalyzerTypeDeclarations {
         return request
     }
 
-    // A GENERIC TYPE MAY NOT CARRY A STATIC MEMBER, and the rule is about the DECLARATION rather than
-    // about anything resolved, which is why it runs before the bases are. Three member shapes can
-    // break it — a field, a property and a method — and each is named by its own noun in the report.
-    // A non-generic type is not asked at all.
-    func ValidateNoStaticMembersOnGenericType(state: TypeDeclarationState) {
-        if state.Form == 3 {
-            return
-        }
-
-        typeParameters := TypeParameters(state)
-        if typeParameters == null || typeParameters.Count == 0 {
+    // `readonly struct S` PROMISES THAT NO INSTANCE STATE CHANGES AFTER CONSTRUCTION, and the promise is
+    // only worth anything if it is CHECKED. `IsReadOnlyAttribute` goes on the emitted type, and every
+    // consumer that reads it — C#, F#, the CLR's own `in`-parameter rules — stops making the defensive
+    // copies that would otherwise absorb a mutation. An instance field left writable inside such a type
+    // therefore does not merely break a promise; it makes writes through an `in` parameter visible to the
+    // caller. C# answers `CS8340` here, and so does N#.
+    //
+    // STATIC, CONST AND `init` FIELDS ARE NOT INSTANCE STATE THIS RULE OWNS: a static or const field
+    // belongs to the type rather than to any value of it, and `init` storage is written once during
+    // construction — C# accepts an init-only auto-property inside a readonly struct for exactly that
+    // reason. A PLAIN struct with readonly fields is untouched: it stays a MUTABLE struct, and saying
+    // otherwise would flag the shape half the corpus is already written in.
+    func ValidateReadonlyStructInstanceFields(state: TypeDeclarationState) {
+        if !IsReadonlyStructDeclaration(state) {
             return
         }
 
@@ -1055,42 +1061,93 @@ class AnalyzerTypeDeclarations {
 
         for member in members {
             field := member as FieldDeclaration
-            if field != null && HasStaticModifier(field.Modifiers) {
-                ReportUnsupportedGenericStaticMember(state, typeParameters, "field", field.Name, field.Line, field.Column)
+            if field == null {
                 continue
             }
 
-            property := member as PropertyDeclaration
-            if property != null && HasStaticModifier(property.Modifiers) {
-                ReportUnsupportedGenericStaticMember(state, typeParameters, "property", property.Name, property.Line, property.Column)
+            if IsReadonlyStructInstanceStateExempt(field) {
                 continue
             }
 
-            function := member as FunctionDeclaration
-            if function != null && HasStaticModifier(function.Modifiers) {
-                ReportUnsupportedGenericStaticMember(state, typeParameters, "method", function.Name, function.Line, function.Column)
-            }
+            ReportMutableFieldInReadonlyStruct(state, field)
         }
     }
 
-    func ReportUnsupportedGenericStaticMember(state: TypeDeclarationState, typeParameters: List<TypeParameter>, memberKind: string, memberName: string, line: int, column: int) {
-        typeDisplay := TypeName(state) + "<" + TypeParameterList(typeParameters) + ">"
-        diagnosticsValue.Report(ErrorCode.FeatureNotImplemented, "Static " + memberKind + " '" + memberName + "' is not supported on generic type '" + typeDisplay + "' yet", line, column, "Move the static member to a non-generic helper type, or make it an instance member.", Math.Max(1, memberName.Length))
-    }
-
-    static func TypeParameterList(typeParameters: List<TypeParameter>): string {
-        rendered := ""
-        index := 0
-        while index < typeParameters.Count {
-            if index > 0 {
-                rendered = rendered + ", "
-            }
-
-            rendered = rendered + typeParameters[index].Name
-            index = index + 1
+    // The three struct spellings that carry the word: `readonly struct S`, `readonly ref struct S` (both
+    // `StructDeclaration`) and `readonly record struct S` (a `RecordDeclaration` whose `IsStruct` is set).
+    // A `readonly` that reached a class or a reference record was already reported by the parser and never
+    // sets the bit, so this cannot fire on one.
+    static func IsReadonlyStructDeclaration(state: TypeDeclarationState): bool {
+        structDeclaration := state.Declaration as StructDeclaration
+        if structDeclaration != null {
+            return HasReadonlyModifier(structDeclaration.Modifiers)
         }
 
-        return rendered
+        recordDeclaration := state.Declaration as RecordDeclaration
+        if recordDeclaration != null && recordDeclaration.IsStruct {
+            return HasReadonlyModifier(recordDeclaration.Modifiers)
+        }
+
+        return false
+    }
+
+    static func HasReadonlyModifier(modifiers: Modifiers): bool {
+        return (Convert.ToInt32(modifiers) & Convert.ToInt32(Modifiers.Readonly)) != 0
+    }
+
+    // `readonly X: int` sets BOTH `Modifiers.Readonly` and `PropertyModifier.Readonly` (the field parser
+    // writes both words), so both are read; `static`, `const` and `init` are the three shapes that are not
+    // the mutable instance state this rule is about.
+    static func IsReadonlyStructInstanceStateExempt(field: FieldDeclaration): bool {
+        modifierBits := Convert.ToInt32(field.Modifiers)
+        if (modifierBits & Convert.ToInt32(Modifiers.Readonly)) != 0 {
+            return true
+        }
+
+        if (modifierBits & Convert.ToInt32(Modifiers.Static)) != 0 {
+            return true
+        }
+
+        if (modifierBits & Convert.ToInt32(Modifiers.Const)) != 0 {
+            return true
+        }
+
+        if (modifierBits & Convert.ToInt32(Modifiers.Init)) != 0 {
+            return true
+        }
+
+        propertyBits := Convert.ToInt32(field.PropertyModifier)
+        if (propertyBits & Convert.ToInt32(PropertyModifier.Readonly)) != 0 {
+            return true
+        }
+
+        return (propertyBits & Convert.ToInt32(PropertyModifier.Init)) != 0
+    }
+
+    // THE SQUIGGLE GOES ON THE FIELD NAME, not on the `readonly struct` header: the field is the one
+    // thing the developer has to change, and either way out — add the word or drop it from the type — is
+    // named, because both are real designs and the compiler cannot know which one was meant.
+    func ReportMutableFieldInReadonlyStruct(state: TypeDeclarationState, field: FieldDeclaration) {
+        span := spansValue.GetFieldNameDiagnosticSpan(field)
+        typeDisplay := TypeName(state)
+        header := ReadonlyStructDeclarationKeyword(state) + " " + typeDisplay
+        diagnosticsValue.Report(ErrorCode.MutableFieldInReadonlyStruct, "'" + field.Name + "' is a mutable instance field, but '" + typeDisplay + "' is a readonly struct", span.Line, span.Column, "Declare the field 'readonly " + field.Name + ": <type>' so it can only be assigned in a constructor, or drop 'readonly' from 'readonly " + header + "' if the value is meant to change after construction.", span.Length)
+    }
+
+    // The declaration keyword the header actually spells, so the suggestion quotes the developer's own
+    // line back rather than a normalized one.
+    static func ReadonlyStructDeclarationKeyword(state: TypeDeclarationState): string {
+        structDeclaration := state.Declaration as StructDeclaration
+        if structDeclaration != null && structDeclaration.IsRefStruct {
+            return "ref struct"
+        }
+
+        recordDeclaration := state.Declaration as RecordDeclaration
+        if recordDeclaration != null {
+            return "record struct"
+        }
+
+        return "struct"
     }
 
     // AN `override` MUST HAVE A SLOT TO TAKE, AND THE SLOT MUST BE OPEN.
@@ -2702,11 +2759,6 @@ class AnalyzerTypeDeclarations {
     // contract so the two cannot drift silently.
     static func IsNumericValueType(candidate: TypeInfo): bool {
         return BuiltInTypes.Is(candidate, BuiltInTypes.Int) || BuiltInTypes.Is(candidate, BuiltInTypes.Long) || BuiltInTypes.Is(candidate, BuiltInTypes.Float) || BuiltInTypes.Is(candidate, BuiltInTypes.Double) || BuiltInTypes.Is(candidate, BuiltInTypes.Decimal) || BuiltInTypes.Is(candidate, BuiltInTypes.Byte) || BuiltInTypes.Is(candidate, BuiltInTypes.SByte) || BuiltInTypes.Is(candidate, BuiltInTypes.Short) || BuiltInTypes.Is(candidate, BuiltInTypes.UShort) || BuiltInTypes.Is(candidate, BuiltInTypes.UInt) || BuiltInTypes.Is(candidate, BuiltInTypes.ULong) || BuiltInTypes.Is(candidate, BuiltInTypes.Char)
-    }
-
-    static func HasStaticModifier(modifiers: Modifiers): bool {
-        modifierValue := Convert.ToInt32(modifiers)
-        return (modifierValue & Convert.ToInt32(Modifiers.Static)) != 0 || (modifierValue & Convert.ToInt32(Modifiers.Const)) != 0
     }
 
     // A TYPE'S DISPLAY TEXT, THROUGH `object`. A `ToString()` on the TYPED receiver declines columnar

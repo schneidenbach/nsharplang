@@ -149,10 +149,14 @@ test "source static owner scope resolves source aliases before import aliases" {
     importAliasNames[1] = "caller.nl"
     importAliasScope := SourceOwnerScope(importAliasSources, importAliasNames, SourceOwnerEmptyStructs(), 1)
 
-    SourceOwnerAssertBlocked(importAliasScope, "", "Lib", "Lib.Owner", new string[](0))
+    // A NAMESPACE ALIAS IS A QUALIFICATION, not a binding: `import Demo as Lib` makes `Lib.Owner`
+    // name the same declaration `Demo.Owner` names, which is what the Analyzer binds it to. This
+    // used to be terminal — the alias table holds file aliases and namespace aliases alike, and the
+    // owner tier refused both — so an alias-qualified static call could not be emitted at all.
+    SourceOwnerAssertResolved(importAliasScope, "", "Lib", "Lib.Owner", "Demo.Owner")
 }
 
-test "source static owner scope fences qualified source names and unrelated short ambiguity" {
+test "source static owner scope resolves qualified source names and fences unrelated short ambiguity" {
     sources := new string[](3)
     fileNames := new string[](3)
     sources[0] = "namespace Left\nclass Owner {}\n"
@@ -163,8 +167,13 @@ test "source static owner scope fences qualified source names and unrelated shor
     fileNames[2] = "caller.nl"
     scope := SourceOwnerScope(sources, fileNames, SourceOwnerEmptyStructs(), 2)
 
-    SourceOwnerAssertBlocked(scope, "", "Left", "Left.Owner", new string[](0))
+    // THE QUALIFIED SPELLING NAMES ONE DECLARATION and is not affected by the ambiguity of the bare
+    // one: `Left.Owner` says which `Owner` it means. It used to be terminal, which is what made
+    // `MyApp.Models.Person.Create()` impossible to emit.
+    SourceOwnerAssertResolved(scope, "", "Left", "Left.Owner", "Left.Owner")
 
+    // The BARE spelling is still not a source owner: two namespaces declare it and neither is this
+    // file's own, so nothing here chooses between them.
     SourceOwnerAssertNotSource(scope, "Owner", "Owner")
 }
 
@@ -314,4 +323,25 @@ test "direct-call planner does not reinterpret value and callable roots as sourc
 
     assert callableOwnership == ColumnarDirectCallOwnership.NotOwned
     assert callableLegacy
+}
+
+// A DOTTED SPELLING ROOTED AT A DECLARED OR IMPORTED BINDING IS MEMBER LOOKUP, NOT A BLOCKED OWNER.
+//
+// `Catalog.Codes.TryGetValue(...)` asks this tier whether `Catalog.Codes` names a source TYPE. It
+// does not — `Catalog` is a declaration in this file and `Codes` is its static field — so the answer
+// is "not a source owner", and `blocked` must say so. Reporting it BLOCKED means "a source type owns
+// this spelling and no later tier may reinterpret it", which made the direct-call planner claim the
+// call and reject it terminally instead of leaving the static-field read plus instance call to the
+// owner that emits them.
+test "source static owner scope leaves a member spelling rooted at a declared binding to the value tier" {
+    sources := new string[](1)
+    fileNames := new string[](1)
+    sources[0] = "class Catalog {\n    static Codes: string = \"\"\n}\n"
+    fileNames[0] = "catalog.nl"
+    scope := SourceOwnerScope(sources, fileNames, SourceOwnerEmptyStructs(), 0)
+
+    SourceOwnerAssertNotSource(scope, "Catalog", "Catalog.Codes")
+
+    // The BARE spelling is still the source type it always was.
+    SourceOwnerAssertResolved(scope, "", "Catalog", "Catalog", "Catalog")
 }

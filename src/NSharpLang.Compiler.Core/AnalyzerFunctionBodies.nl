@@ -420,6 +420,7 @@ class AnalyzerFunctionBodies {
             index := 0
             while index < typeParameters.Count {
                 typeParameter := typeParameters[index]
+                ReportShadowedTypeParameter(typeParameter.Name, state)
                 scopesValue.DeclareTypeParameter(typeParameter.Name)
                 index = index + 1
             }
@@ -434,6 +435,28 @@ class AnalyzerFunctionBodies {
         request.Line = state.Line
         request.Column = state.Column
         return request
+    }
+
+    // NL316 FOR A TYPE PARAMETER. A declaration's own type parameter may not reuse a name an
+    // ENCLOSING declaration already binds — a method of `Box<T>` writing `func Shadow<T>()`, or a
+    // local function inside a generic method reusing its `T`. Inside the inner declaration both
+    // spellings are legal and only the inner one means anything, so `T` silently stops naming the
+    // box's element; C# calls the same shape CS0693. N# forbids shadowing for exactly this reason
+    // everywhere else, and this is the same report. The caret is the DECLARATION's own position: a
+    // type parameter carries no position of its own.
+    func ReportShadowedTypeParameter(name: string, state: FunctionBodyState) {
+        if !scopesValue.HasEnclosingTypeParameter(name) {
+            return
+        }
+
+        diagnosticsValue.Report(
+            ErrorCode.ShadowedDeclaration,
+            "Type parameter '" + name + "' shadows an enclosing type parameter of the same name — N# forbids shadowing because it hides the outer binding and invites confusing bugs",
+            state.Line,
+            state.Column,
+            "Rename this type parameter (the enclosing '" + name + "' is still in scope), or remove it and reuse the enclosing one",
+            name.Length
+        )
     }
 
     // PHASE 3 — ONE PARAMETER'S DECLARATION, AND IT IS SHARED BY BOTH FORMS. A parameter with a
@@ -697,6 +720,7 @@ class AnalyzerFunctionBodies {
             index := 0
             while index < typeParameters.Count {
                 typeParameter := typeParameters[index]
+                ReportShadowedTypeParameter(typeParameter.Name, state)
                 scopesValue.DeclareTypeParameter(typeParameter.Name)
                 index = index + 1
             }
@@ -870,20 +894,27 @@ class AnalyzerFunctionBodies {
             return null
         }
 
-        ReportExpressionBodyTypeMismatch(declaration, expressionBody, returnType, expressionType)
+        // The classification is read from the STATE's oracle — the only one this owner can reach —
+        // and handed down rather than looked up again inside the report.
+        conversion := state.Assignability.ClassifyUserDefinedConversion(returnType, expressionType)
+        ReportExpressionBodyTypeMismatch(declaration, expressionBody, returnType, expressionType, conversion)
         return null
     }
 
     // THE EXPRESSION-BODY MISMATCH, IN BOTH ITS SHAPES. The rich builder points at the EXPRESSION and
     // names the function; the detail-only fallback points at the DECLARATION, because without source
     // text there is no span worth narrowing to.
-    func ReportExpressionBodyTypeMismatch(declaration: FunctionDeclaration, expressionBody: Expression, returnType: TypeInfo, expressionType: TypeInfo) {
+    func ReportExpressionBodyTypeMismatch(declaration: FunctionDeclaration, expressionBody: Expression, returnType: TypeInfo, expressionType: TypeInfo, conversion: ExternalConversionSelection) {
         span := spansValue.GetExpressionDiagnosticSpan(expressionBody)
         returnTypeName := TypeText(returnType)
         expressionTypeName := TypeText(expressionType)
         sourceSnippet := diagnosticsValue.SourceSnippet(span.Line)
         currentFilePath := diagnosticsValue.CurrentFilePath
         if sourceSnippet != null && currentFilePath != null {
+            if diagnosticsValue.ReportAmbiguousUserDefinedConversion(conversion, expressionTypeName, returnTypeName, span.Line, span.Column, span.Length) {
+                return
+            }
+
             diagnosticsValue.ReportBuilt(ErrorMessageBuilder.ReturnTypeMismatch(currentFilePath, span.Line, span.Column, sourceSnippet, span.Length, declaration.Name, expressionTypeName, returnTypeName))
             return
         }

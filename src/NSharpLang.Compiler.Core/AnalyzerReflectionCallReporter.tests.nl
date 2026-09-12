@@ -678,3 +678,108 @@ test "every report this owner makes reaches the SAME list in list order" {
 
     assert RCodes(errors) == "NL411,NL402,NL402"
 }
+
+// ------------------------------------------------------------------ NL207 on the WRITTEN type-argument list
+
+func RTypeArguments(names: string[]): List<TypeReference> {
+    written := new List<TypeReference>()
+    index := 0
+    while index < names.Length {
+        written.Add(new SimpleTypeReference(names[index], 1, 1))
+        index = index + 1
+    }
+
+    return written
+}
+
+func RGenericCall(name: string, arguments: List<Argument>, typeArgumentNames: string[]): CallExpression {
+    return new CallExpression(RIdentifier(name, 1, 1), arguments, RTypeArguments(typeArgumentNames), 1, 1)
+}
+
+// A written list whose COUNT matches no declaration of the name is an arity error, and the report
+// says so in the words the SOURCE path uses for the same mistake. Reciting the ARGUMENT types
+// instead — which is what NL402 does — points away from the thing that is wrong.
+test "a written type-argument count no candidate declares is NL207, not NL402" {
+    errors := ReporterErrors()
+    owner := ReporterOwner(errors, ReporterScopes())
+
+    // `Enumerable.Empty<TResult>()` takes exactly one type argument.
+    candidates := RMethods(typeof(System.Linq.Enumerable), "Empty")
+    call := RGenericCall("Empty", RArgs0(), ["int", "string"])
+
+    owner.ReportUnboundCall(call, candidates, new List<TypeInfo>())
+
+    assert errors.Count == 1
+    assert errors[0].Code == ErrorCode.InvalidTypeArgument
+    assert errors[0].Message == "Generic method 'Empty' takes 1 type argument(s), but 2 were provided"
+    assert (errors[0].Suggestion ?? "") == "Write one type argument per type parameter, or omit the list entirely and let it be inferred."
+}
+
+// The same report for a name that is not generic at all: the list itself is the mistake.
+test "a written type-argument list on a NON-generic reflected name is NL207" {
+    errors := ReporterErrors()
+    owner := ReporterOwner(errors, ReporterScopes())
+
+    candidates := ROneMethod()
+    call := RGenericCall("GetHashCode", RArgs0(), ["int"])
+
+    owner.ReportUnboundCall(call, candidates, new List<TypeInfo>())
+
+    assert errors.Count == 1
+    assert errors[0].Code == ErrorCode.InvalidTypeArgument
+    assert errors[0].Message == "'GetHashCode' is not generic, but 1 type argument(s) were provided"
+}
+
+// SILENT WHENEVER THE LIST IS NOT THE WHOLE STORY. A candidate of the written arity exists, so
+// something else failed and the ordinary overload report — which lists every signature — is the
+// useful one.
+test "a written count some candidate DOES declare falls through to the ordinary overload report" {
+    errors := ReporterErrors()
+    owner := ReporterOwner(errors, ReporterScopes())
+
+    candidates := RMethods(typeof(System.Linq.Enumerable), "Empty")
+    call := RGenericCall("Empty", RArgs1(RIdentifier("x", 1, 1)), ["int"])
+
+    owner.ReportUnboundCall(call, candidates, new List<TypeInfo>())
+
+    assert errors.Count == 1
+    assert errors[0].Code == ErrorCode.NoMatchingOverload
+}
+
+// And silent when the name declares SEVERAL arities and none is the written one: naming one of them
+// would mislead, so the ordinary report lists them all.
+test "a name declaring several arities, none of them the written one, falls through to NL402" {
+    errors := ReporterErrors()
+    owner := ReporterOwner(errors, ReporterScopes())
+
+    // `Enumerable.Select` declares arity-2 generic overloads and `Enumerable.Cast` arity-1; a
+    // candidate list holding both offers two different arities.
+    candidates := RMethods(typeof(System.Linq.Enumerable), "Select")
+    castCandidates := RMethods(typeof(System.Linq.Enumerable), "Cast")
+    index := 0
+    while index < castCandidates.Count {
+        candidates.Add(castCandidates[index])
+        index = index + 1
+    }
+
+    call := RGenericCall("Select", RArgs0(), ["int", "string", "bool"])
+
+    owner.ReportUnboundCall(call, candidates, new List<TypeInfo>())
+
+    assert errors.Count == 1
+    assert errors[0].Code == ErrorCode.NoMatchingOverload
+}
+
+// A call with NO written list is untouched by this arm.
+test "an unbound call with no written type arguments still reports NL402" {
+    errors := ReporterErrors()
+    owner := ReporterOwner(errors, ReporterScopes())
+
+    candidates := RMethods(typeof(System.Linq.Enumerable), "Empty")
+    call := RCall("Empty", RArgs0())
+
+    owner.ReportUnboundCall(call, candidates, new List<TypeInfo>())
+
+    assert errors.Count == 1
+    assert errors[0].Code == ErrorCode.NoMatchingOverload
+}

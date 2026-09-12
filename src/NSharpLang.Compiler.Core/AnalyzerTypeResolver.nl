@@ -256,7 +256,7 @@ class AnalyzerTypeResolver {
         reportUnresolvedTypesValue = false
         resolvedName: TypeInfo = BuiltInTypes.Unknown
         try {
-            resolvedName = ResolveSimpleType(generic.Name, generic.Line, generic.Column)
+            resolvedName = ResolveTypeNameWithArity(generic.Name, generic.TypeArguments.Count, generic.Line, generic.Column)
         } finally {
             reportUnresolvedTypesValue = previousReport
         }
@@ -313,11 +313,20 @@ class AnalyzerTypeResolver {
         // resolver runs in both analysis passes).
         if previousReport && genericHeadArity >= 0 && genericHeadArity != generic.TypeArguments.Count {
             if MarkUnresolvedTypeReported(generic.Name, generic.Line, generic.Column) {
+                // The head that answered is the only one there is — a same-name declaration at the
+                // WRITTEN arity would have been found first — so the report names the arities that
+                // DO exist rather than only the one that does not.
+                declaredArities := scopesValue.TypeAritiesInScope(generic.Name)
                 message := "Generic type '" + generic.Name + "' takes " + genericHeadArity.ToString() + " type argument(s), but " + generic.TypeArguments.Count.ToString() + " were provided"
-                suggestion := "Match the declaration's type parameter count for '" + generic.Name + "'"
+                suggestion := "Write '" + TypeArityNames.WrittenForm(generic.Name, genericHeadArity) + "'"
                 if genericHeadArity == 0 {
                     message = "'" + generic.Name + "' is not generic, but " + generic.TypeArguments.Count.ToString() + " type argument(s) were provided"
                     suggestion = "Remove the type arguments: '" + generic.Name + "'"
+                }
+
+                if declaredArities.Count > 1 {
+                    message = "No type named '" + generic.Name + "' takes " + generic.TypeArguments.Count.ToString() + " type argument(s); '" + generic.Name + "' is declared with " + TypeArityNames.DescribeArities(declaredArities) + " type parameter(s)"
+                    suggestion = "Write " + TypeArityNames.DescribeWrittenForms(generic.Name, declaredArities) + ", or declare a '" + generic.Name + "' with " + generic.TypeArguments.Count.ToString() + " type parameter(s)."
                 }
 
                 diagnosticsValue.Report(ErrorCode.InvalidTypeArgument, message, generic.Line, generic.Column, suggestion, generic.Name.Length)
@@ -488,23 +497,67 @@ class AnalyzerTypeResolver {
         return new AnonymousUnionTypeInfo(uniqueArms)
     }
 
-    // The eight-channel name walk. `line <= 0` means "no source position": the walk still resolves,
-    // but records no binding and reports nothing.
+    // The eight-channel name walk over a name written WITHOUT type arguments: it asks for the
+    // arity-0 identity, and falls back to a same-name generic declaration when no non-generic one
+    // exists. `line <= 0` means "no source position": the walk still resolves, but records no binding
+    // and reports nothing.
     func ResolveSimpleType(name: string, line: int, column: int): TypeInfo {
-        if name == "var" && line > 0 {
+        return ResolveSimpleTypeCore(name, name, line, column)
+    }
+
+    // THE ARITY-AWARE ENTRY POINT — what a `Name<A, B>` head, a constructed-generic receiver or any
+    // other caller that knows how many type arguments were written should ask.
+    //
+    // A CLR type's identity is its name AND its arity, spelled `Name``N in metadata, and source
+    // declarations are keyed the same way. So the EXACT identity is probed first, with no fallback and
+    // no reporting; only if nothing has that arity does the walk fall back to the plain name, which is
+    // what lets the caller report "takes 1 type argument, but 2 were provided" against the type it
+    // did find rather than claiming the name does not exist.
+    func ResolveTypeNameWithArity(name: string, arity: int, line: int, column: int): TypeInfo {
+        key := TypeArityNames.Key(name, arity)
+        if key == name {
+            return ResolveSimpleType(name, line, column)
+        }
+
+        previousReport := reportUnresolvedTypesValue
+        reportUnresolvedTypesValue = false
+        exact: TypeInfo = BuiltInTypes.Unknown
+        try {
+            exact = ResolveSimpleTypeCore(key, name, line, column)
+        } finally {
+            reportUnresolvedTypesValue = previousReport
+        }
+
+        if exact as ExternalTypeInfo == null && !BuiltInTypes.IsUnknown(exact) {
+            return exact
+        }
+
+        return ResolveSimpleType(name, line, column)
+    }
+
+    // `lookupName` is the IDENTITY every channel is asked for; `writtenName` is what the developer
+    // typed, and is what every diagnostic, span length and semantic-model record uses. They differ
+    // only on the arity-qualified probe above.
+    func ResolveSimpleTypeCore(lookupName: string, writtenName: string, line: int, column: int): TypeInfo {
+        if writtenName == "var" && line > 0 {
             diagnosticsValue.Report(ErrorCode.InvalidSyntax, "'var' is not a type; use ':=' for type inference", line, column, null, 0)
             return BuiltInTypes.Unknown
         }
 
-        builtInType := AnalyzerTypeReferenceFacts.BuiltInSimpleType(name)
+        builtInType := AnalyzerTypeReferenceFacts.BuiltInSimpleType(lookupName)
         if builtInType != null {
             return builtInType
         }
 
-        localType := scopesValue.LookupType(name)
+        localType: TypeInfo? = null
+        if lookupName == writtenName {
+            localType = scopesValue.LookupType(writtenName)
+        } else {
+            localType = scopesValue.LookupTypeExact(lookupName)
+        }
         if localType != null {
             if line > 0 {
-                scopesValue.RecordTypeBinding(bindingsValue, currentFilePathValue, name, line, column)
+                scopesValue.RecordTypeBindingWithArity(bindingsValue, currentFilePathValue, writtenName, TypeArityNames.ArityOf(lookupName), line, column)
             }
             return localType
         }
@@ -512,59 +565,79 @@ class AnalyzerTypeResolver {
         fileAliasType: TypeInfo = BuiltInTypes.Unknown
         fileAliasDeclaration: SymbolDeclaration? = null
         fileAliasClaimed := false
-        if declarationContextValue.TryResolveFileImportAliasType(name, currentFilePathValue, importedSymbolsByAliasValue, importedDeclarationsByAliasValue, out fileAliasType, out fileAliasDeclaration, out fileAliasClaimed) {
+        if declarationContextValue.TryResolveFileImportAliasType(lookupName, currentFilePathValue, importedSymbolsByAliasValue, importedDeclarationsByAliasValue, out fileAliasType, out fileAliasDeclaration, out fileAliasClaimed) {
             if line > 0 && fileAliasDeclaration != null {
-                bindingsValue.RecordBinding(currentFilePathValue, line, column, name.Length, fileAliasDeclaration)
+                bindingsValue.RecordBinding(currentFilePathValue, line, column, writtenName.Length, fileAliasDeclaration)
             }
-            semanticModelValue.RecordType(name, fileAliasType)
+            semanticModelValue.RecordType(lookupName, fileAliasType)
             return fileAliasType
         }
         if fileAliasClaimed {
             if reportUnresolvedTypesValue && line > 0 {
-                if MarkUnresolvedTypeReported(name, line, column) {
-                    diagnosticsValue.Report(ErrorCode.TypeNotFound, "Type '" + name + "' not found in the imported file alias", line, column, "Use a public type exported by that file, or correct the alias-qualified type name.", name.Length)
+                if MarkUnresolvedTypeReported(writtenName, line, column) {
+                    diagnosticsValue.Report(ErrorCode.TypeNotFound, "Type '" + writtenName + "' not found in the imported file alias", line, column, "Use a public type exported by that file, or correct the alias-qualified type name.", writtenName.Length)
                 }
             }
             return BuiltInTypes.Unknown
         }
 
         nestedType: TypeInfo = BuiltInTypes.Unknown
-        if TryResolveDottedNestedType(name, out nestedType) {
+        if TryResolveDottedNestedType(lookupName, out nestedType) {
             return nestedType
+        }
+
+        namespaceQualifiedType: TypeInfo = BuiltInTypes.Unknown
+        if TryResolveNamespaceQualifiedType(lookupName, writtenName, line, column, out namespaceQualifiedType) {
+            return namespaceQualifiedType
+        }
+
+        // NL209, at a TYPE position. The channels above all answer from ONE place, so a name that
+        // reached here is about to be resolved from an import — and an import is where two
+        // declarations can supply one spelling. The report is not gated on the unresolved-type
+        // opt-in: an ambiguity is an error about a name that DOES resolve, twice, so the leniency
+        // that exists for names which resolve through another channel does not apply to it.
+        if line > 0 {
+            ambiguousFirst := ""
+            ambiguousSecond := ""
+            if projectDiscoveryValue.TryFindAmbiguousImportedType(lookupName, AnalyzerProjectSourceProvider.UnitNamespace(compilationUnitValue), out ambiguousFirst, out ambiguousSecond) {
+                if MarkUnresolvedTypeReported(writtenName, line, column) {
+                    diagnosticsValue.ReportAmbiguousTypeReference(writtenName, ambiguousFirst, ambiguousSecond, line, column)
+                }
+            }
         }
 
         projectType: TypeInfo = BuiltInTypes.Unknown
         projectDeclaration: SymbolDeclaration? = null
         inaccessibleProjectFile: string? = null
-        if projectDiscoveryValue.ResolveVisibleProjectType(name, AnalyzerProjectSourceProvider.UnitNamespace(compilationUnitValue), line > 0, out projectType, out projectDeclaration, out inaccessibleProjectFile) {
+        if projectDiscoveryValue.ResolveVisibleProjectType(lookupName, AnalyzerProjectSourceProvider.UnitNamespace(compilationUnitValue), line > 0, out projectType, out projectDeclaration, out inaccessibleProjectFile) {
             if line > 0 {
                 // `ResolveVisibleProjectType` materialises the declaration BEFORE it answers true
                 // (`TryMaterializeProjectTypeSelection` assigns one on its only success path), so the
                 // narrowing below never falls through; it is here because the `out` parameter's
                 // declared type is nullable, not because the declaration can be absent.
                 if projectDeclaration != null {
-                    bindingsValue.RecordBinding(currentFilePathValue, line, column, name.Length, projectDeclaration)
+                    bindingsValue.RecordBinding(currentFilePathValue, line, column, writtenName.Length, projectDeclaration)
                 }
             }
 
-            semanticModelValue.RecordType(name, projectType)
+            semanticModelValue.RecordType(lookupName, projectType)
             return projectType
         }
 
         if inaccessibleProjectFile != null {
-            diagnosticsValue.ReportInaccessibleMember(name, inaccessibleProjectFile, line, column)
-            MarkUnresolvedTypeReported(name, line, column)
+            diagnosticsValue.ReportInaccessibleMember(writtenName, inaccessibleProjectFile, line, column)
+            MarkUnresolvedTypeReported(writtenName, line, column)
         }
 
         aliasedFullName := ""
-        if usingAliasesValue.TryGetValue(name, out aliasedFullName) {
+        if usingAliasesValue.TryGetValue(lookupName, out aliasedFullName) {
             aliasedType := externalTypeProbeValue.ResolveExternalType(aliasedFullName)
             if aliasedType != null {
                 return aliasedType
             }
         }
 
-        externalType := externalTypeProbeValue.ResolveExternalType(name)
+        externalType := externalTypeProbeValue.ResolveExternalType(lookupName)
         if externalType != null {
             return externalType
         }
@@ -574,13 +647,49 @@ class AnalyzerTypeResolver {
         // IL emission. At declared-type positions (ResolveDeclaredType) report undotted names
         // as NL201; dotted names stay lenient for now because namespace-qualified externals
         // and `new Union.Case` references legitimately resolve through other channels.
-        if reportUnresolvedTypesValue && line > 0 && !name.Contains(".") {
-            if MarkUnresolvedTypeReported(name, line, column) {
-                diagnosticsValue.Report(ErrorCode.TypeNotFound, "Type '" + name + "' not found", line, column, AnalyzerDiagnostics.UnresolvedTypeSuggestion(name, scopesValue.AllTypeNamesInScope()), name.Length)
+        if reportUnresolvedTypesValue && line > 0 && !writtenName.Contains(".") {
+            if MarkUnresolvedTypeReported(writtenName, line, column) {
+                diagnosticsValue.Report(ErrorCode.TypeNotFound, "Type '" + writtenName + "' not found", line, column, AnalyzerDiagnostics.UnresolvedTypeSuggestion(writtenName, scopesValue.AllTypeNamesInScope()), writtenName.Length)
             }
         }
 
-        return new ExternalTypeInfo(name)
+        return new ExternalTypeInfo(writtenName)
+    }
+
+    // `Example.Handle` AND `Handle` ARE ONE IDENTITY.
+    //
+    // A namespace-qualified reference used to fall out of the bottom of this walk as an
+    // `ExternalTypeInfo` placeholder, which is a SECOND type instance beside the one the bare
+    // spelling resolves to. Nothing was assignable across the two, so `func Make(): Example.Handle`
+    // refused every value `Handle` accepted — for a non-generic type as much as for a generic one.
+    //
+    // The reference is split at its LAST dot. The leaf keeps any arity suffix, because that suffix
+    // IS part of the identity; the prefix is read as a namespace and handed to the project-type
+    // channel, which is the same owner the bare name reaches one step later and applies the same
+    // export rule. Nothing is invented here: this returns project discovery's own answer, so the two
+    // spellings produce the very same `TypeInfo`.
+    func TryResolveNamespaceQualifiedType(lookupName: string, writtenName: string, line: int, column: int, out typeInfo: TypeInfo): bool {
+        typeInfo = BuiltInTypes.Unknown
+        separator := lookupName.LastIndexOf('.')
+        if separator <= 0 || separator >= lookupName.Length - 1 {
+            return false
+        }
+
+        namespaceName := lookupName.Substring(0, separator)
+        leafName := lookupName.Substring(separator + 1)
+        projectType: TypeInfo = BuiltInTypes.Unknown
+        projectDeclaration: SymbolDeclaration? = null
+        if !projectDiscoveryValue.ResolveNamespaceQualifiedProjectType(namespaceName, leafName, AnalyzerProjectSourceProvider.UnitNamespace(compilationUnitValue), out projectType, out projectDeclaration) {
+            return false
+        }
+
+        if line > 0 && projectDeclaration != null {
+            bindingsValue.RecordBinding(currentFilePathValue, line, column, writtenName.Length, projectDeclaration)
+        }
+
+        semanticModelValue.RecordType(lookupName, projectType)
+        typeInfo = projectType
+        return true
     }
 
     // `Outer.Inner.Leaf`: the root must be a type IN SCOPE (a project or CLR type is a different

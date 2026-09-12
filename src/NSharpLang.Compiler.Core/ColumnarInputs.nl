@@ -75,6 +75,14 @@ class ColumnarFunctionInput {
     IsAsync: bool
     ReturnTupleElementNames: string[]?
     ParamTupleElementNames: string[][]?
+    // The return and parameter types as WRITTEN, keeping every tuple element label at every level:
+    // `(Min:int,Max:int)`, `(A:int,D:(B:int,C:int))`, `List<(Min:int,Max:int)>`. The structural
+    // canonicals above discard those labels because a tuple's element names are metadata rather than
+    // identity, and `ReturnTupleElementNames` carries only the TOP-LEVEL ones. Emitting
+    // `TupleElementNamesAttribute` the way C# does needs the nested and generic-argument names too,
+    // and this is the only column that still has them.
+    ReturnLabeledCanonical: string
+    ParamLabeledCanonicals: string[]
     TypeParamNames: string[]
     TypeParamSpecialConstraints: int[]
     TypeParamTypeConstraints: string[][]
@@ -104,7 +112,40 @@ class ColumnarFunctionInput {
         return (flags & NativeImportModifierFlag()) != 0
     }
 
-    constructor(name: string, returnCanonical: string, paramNames: string[], paramCanonicals: string[], bodyNodes: ColumnarNodeTable, bodyRoot: int, isStatic: bool = false, typeParamNames: string[]? = null, typeParamSpecialConstraints: int[]? = null, typeParamTypeConstraints: string[][]? = null, returnTupleElementNames: string[]? = null, paramTupleElementNames: string[][]? = null, paramModifierKinds: int[]? = null, paramDefaultKinds: int[]? = null, paramDefaultTexts: string[]? = null, isAsync: bool = false, modifierFlags: int = 0, sourceFileId: int = 0, isBodylessNativeImport: bool = false, nativeImportLibraryName: string = "", nativeImportEntryPoint: string = "") {
+    // The three INHERITANCE words a member may carry, read out of the same source modifier column
+    // the override request is. `abstract` and `virtual` each open a new virtual slot — the first
+    // without a body, the second with one — and `sealed` closes the slot an `override` reused.
+    static func AbstractModifierFlag(): int {
+        return Convert.ToInt32(Modifiers.Abstract)
+    }
+
+    static func HasAbstractModifier(flags: int): bool {
+        return (flags & AbstractModifierFlag()) != 0
+    }
+
+    static func VirtualModifierFlag(): int {
+        return Convert.ToInt32(Modifiers.Virtual)
+    }
+
+    static func HasVirtualModifier(flags: int): bool {
+        return (flags & VirtualModifierFlag()) != 0
+    }
+
+    static func SealedModifierFlag(): int {
+        return Convert.ToInt32(Modifiers.Sealed)
+    }
+
+    static func HasSealedModifier(flags: int): bool {
+        return (flags & SealedModifierFlag()) != 0
+    }
+
+    // A member with `abstract` and no `static` HAS NO BODY. The parser wrote no body nodes for it;
+    // every consumer that would otherwise walk one asks here first.
+    static func IsBodylessAbstractMember(flags: int, isStatic: bool): bool {
+        return HasAbstractModifier(flags) && !isStatic
+    }
+
+    constructor(name: string, returnCanonical: string, paramNames: string[], paramCanonicals: string[], bodyNodes: ColumnarNodeTable, bodyRoot: int, isStatic: bool = false, typeParamNames: string[]? = null, typeParamSpecialConstraints: int[]? = null, typeParamTypeConstraints: string[][]? = null, returnTupleElementNames: string[]? = null, paramTupleElementNames: string[][]? = null, paramModifierKinds: int[]? = null, paramDefaultKinds: int[]? = null, paramDefaultTexts: string[]? = null, isAsync: bool = false, modifierFlags: int = 0, sourceFileId: int = 0, isBodylessNativeImport: bool = false, nativeImportLibraryName: string = "", nativeImportEntryPoint: string = "", returnLabeledCanonical: string? = null, paramLabeledCanonicals: string[]? = null) {
         Name = name
         ReturnCanonical = returnCanonical
         IsAsync = isAsync
@@ -123,6 +164,8 @@ class ColumnarFunctionInput {
         IsStatic = isStatic
         ReturnTupleElementNames = returnTupleElementNames
         ParamTupleElementNames = paramTupleElementNames
+        ReturnLabeledCanonical = returnLabeledCanonical ?? returnCanonical
+        ParamLabeledCanonicals = paramLabeledCanonicals ?? paramCanonicals
         TypeParamNames = typeParamNames ?? new string[](0)
         TypeParamSpecialConstraints = typeParamSpecialConstraints ?? new int[](TypeParamNames.Length)
         if typeParamTypeConstraints == null {
@@ -210,7 +253,16 @@ class ColumnarStructInput {
     Properties: IReadOnlyList<ColumnarPropertyInput>
     IsReference: bool
     IsSealed: bool
+    // `abstract class C` — the declaration says this type has no direct instances. The analyzer
+    // already refuses `new C()` (NL803) and an unimplemented inherited member (NL324); this is the
+    // metadata bit that makes the CLR agree.
+    IsAbstract: bool
     IsRefStruct: bool
+    // `readonly struct S` / `readonly ref struct S` / `readonly record struct S`: the declaration promises
+    // that no instance state changes after construction, which the assembly owner turns into an
+    // `IsReadOnlyAttribute` on the emitted type. The analyzer has already proved every instance field
+    // carries `readonly`, so this bit adds metadata and never changes layout or field attributes.
+    IsReadonlyStruct: bool
     BaseNames: string[]
     FieldStaticFlags: bool[]
     FieldReadonlyFlags: bool[]
@@ -239,7 +291,9 @@ class ColumnarStructInput {
         Properties = properties
         IsReference = isReference
         IsSealed = (visibilityModifierFlags & 128) != 0
+        IsAbstract = isReference && (visibilityModifierFlags & 64) != 0
         IsRefStruct = isRefStruct
+        IsReadonlyStruct = !isReference && (visibilityModifierFlags & 512) != 0
         BaseNames = baseNames ?? new string[](0)
         FieldStaticFlags = fieldStaticFlags ?? new bool[](fieldNames.Length)
         FieldReadonlyFlags = fieldReadonlyFlags ?? new bool[](fieldNames.Length)
@@ -445,6 +499,14 @@ class ColumnarProgramInput {
 
     func ExactStructTypeName(input: ColumnarStructInput): string {
         return bindingScope.ExactStructTypeName(input)
+    }
+
+    func ExactInterfaceTypeName(input: ColumnarInterfaceInput): string {
+        return bindingScope.ExactInterfaceTypeName(input)
+    }
+
+    func ExactUnionTypeName(input: ColumnarUnionInput): string {
+        return bindingScope.ExactUnionTypeName(input)
     }
 
     func ExactRelativeTypeNameForFile(name: string, sourceFileId: int): string {

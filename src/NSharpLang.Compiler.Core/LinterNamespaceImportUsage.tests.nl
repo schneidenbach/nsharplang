@@ -156,6 +156,15 @@ test "the lookup is ORDINAL: a namespace or name that differs in case does not m
     assert LinterNamespaceImportUsage.IsUsed("System.Linq", LniuNone(), LniuOne("select")) == false
 }
 
+test "System.HashCode marks its own import used" {
+    // `HashCode.Combine(...)` is the idiomatic GetHashCode body and was missing from the System row,
+    // so every struct that wrote one was told `import System` was unused.
+    identifiers := LniuOne("HashCode")
+
+    assert LinterNamespaceImportUsage.IsUsed("System", identifiers, LniuNone())
+    assert LinterNamespaceImportUsage.IsUsed("System.Collections.Generic", identifiers, LniuNone()) == false
+}
+
 test "an identifier belonging to one namespace does not mark a different one used" {
     identifiers := LniuOne("StringBuilder")
 
@@ -191,7 +200,7 @@ test "the type half names exactly ten namespaces and nothing else" {
     }
 
     assert namespaces.Length == 10
-    assert total == 112
+    assert total == 131
 
     // Namespaces that look like table rows but are not.
     assert LinterNamespaceImportUsage.KnownTypeNames("System.Collections").Length == 0
@@ -201,12 +210,12 @@ test "the type half names exactly ten namespaces and nothing else" {
 }
 
 test "each namespace's type row holds exactly the count it was moved with" {
-    assert LinterNamespaceImportUsage.KnownTypeNames("System").Length == 43
-    assert LinterNamespaceImportUsage.KnownTypeNames("System.Collections.Generic").Length == 22
+    assert LinterNamespaceImportUsage.KnownTypeNames("System").Length == 44
+    assert LinterNamespaceImportUsage.KnownTypeNames("System.Collections.Generic").Length == 24
     assert LinterNamespaceImportUsage.KnownTypeNames("System.IO").Length == 14
     assert LinterNamespaceImportUsage.KnownTypeNames("System.Text.Json").Length == 7
     assert LinterNamespaceImportUsage.KnownTypeNames("System.Linq").Length == 7
-    assert LinterNamespaceImportUsage.KnownTypeNames("System.Threading").Length == 6
+    assert LinterNamespaceImportUsage.KnownTypeNames("System.Threading").Length == 22
     assert LinterNamespaceImportUsage.KnownTypeNames("System.Net.Http").Length == 5
     assert LinterNamespaceImportUsage.KnownTypeNames("System.Text.RegularExpressions").Length == 3
     assert LinterNamespaceImportUsage.KnownTypeNames("System.Threading.Tasks").Length == 3
@@ -303,6 +312,15 @@ test "the collection interfaces travel with their concrete types" {
     assert LniuHas(generic, "IAsyncEnumerable")
     assert LniuHas(generic, "IEqualityComparer")
     assert LniuHas(generic, "KeyValuePair")
+
+    // AND THE CONCRETE COMPARERS TRAVEL WITH THEIR INTERFACES. `EqualityComparer<T>.Default` and
+    // `Comparer<T>.Default` are the ordinary way a file reaches this namespace without ever naming
+    // a collection, and the table carried only the two INTERFACES — so a file whose single mention
+    // of `System.Collections.Generic` was `EqualityComparer<string>.Default` had its import
+    // reported unused and `nlc fix` deleted the import it needs.
+    assert LniuHas(generic, "Comparer")
+    assert LniuHas(generic, "EqualityComparer")
+    assert LinterNamespaceImportUsage.IsUsed("System.Collections.Generic", LniuOne("EqualityComparer"), LniuNone())
 
     // `IEnumerable` is deliberately the GENERIC one: the non-generic sits in
     // `System.Collections`, which the table does not carry at all.

@@ -429,7 +429,7 @@ class ColumnarInstanceMemberPlanner {
     }
 
     static func CanOwnReceiver(receiverType: Type, bindings: ColumnarFragmentBindings): bool {
-        if receiverType.get_IsSZArray() {
+        if ColumnarTypeEquivalenceFacts.IsSafeSzArrayType(receiverType) {
             return true
         }
 
@@ -443,7 +443,7 @@ class ColumnarInstanceMemberPlanner {
 
     static func TrySelect(receiverType: Type, memberName: string, bindings: ColumnarFragmentBindings, out selection: ColumnarInstanceMemberSelection): bool {
         selection = EmptySelection()
-        if receiverType.get_IsSZArray() {
+        if ColumnarTypeEquivalenceFacts.IsSafeSzArrayType(receiverType) {
             if memberName != "Length" {
                 return false
             }
@@ -898,7 +898,7 @@ class ColumnarInstanceMemberPlanner {
             return arguments[position]
         }
 
-        if signatureType.get_IsSZArray() {
+        if ColumnarTypeEquivalenceFacts.IsSafeSzArrayType(signatureType) {
             element := signatureType.GetElementType()
             if element == null {
                 throw new InvalidOperationException("Source member array signature has no element type.")

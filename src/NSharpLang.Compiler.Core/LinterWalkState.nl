@@ -62,14 +62,19 @@ class LinterImportRecord {
     Length: int
     IsFile: bool
     FilePath: string?
+    // The name an aliased namespace import binds (`import System.Text as Txt` -> `Txt`), or null.
+    // Writing the alias IS using the import, and it is the only spelling that can use it, so the
+    // known-type table cannot answer for one.
+    Alias: string?
 
-    constructor(namespaceName: string, line: int, column: int, length: int, isFile: bool, filePath: string?) {
+    constructor(namespaceName: string, line: int, column: int, length: int, isFile: bool, filePath: string?, alias: string? = null) {
         Namespace = namespaceName
         Line = line
         Column = column
         Length = length
         IsFile = isFile
         FilePath = filePath
+        Alias = alias
     }
 }
 
@@ -233,7 +238,7 @@ class LinterWalkState {
         for importDirective in unit.Imports {
             importedNamespaces.Add(importDirective.Namespace)
             span := LinterImportMetadata.ResolveNamespaceImportSpan(importDirective.Column, importDirective.Namespace, SourceLine(importDirective.Line))
-            allImports.Add(new LinterImportRecord(importDirective.Namespace, importDirective.Line, span.Column, span.Length, false, null))
+            allImports.Add(new LinterImportRecord(importDirective.Namespace, importDirective.Line, span.Column, span.Length, false, null, importDirective.Alias))
         }
 
         for statement in unit.FileImports {
@@ -262,7 +267,12 @@ class LinterWalkState {
                 used = LinterFileImportUsage.IsUsed(imported.Namespace, imported.FilePath, filePath, allCodeIdentifiers)
                 label = "import \"" + (imported.FilePath ?? imported.Namespace) + "\""
             } else {
-                used = LinterNamespaceImportUsage.IsUsed(imported.Namespace, allCodeIdentifiers, allMemberAccessNames)
+                aliasName := imported.Alias
+                if aliasName != null && aliasName.Length > 0 {
+                    used = LinterNamespaceImportUsage.IsAliasUsed(aliasName, allCodeIdentifiers, allMemberAccessNames)
+                } else {
+                    used = LinterNamespaceImportUsage.IsUsed(imported.Namespace, allCodeIdentifiers, allMemberAccessNames)
+                }
             }
 
             if !used {

@@ -329,10 +329,12 @@ test "a generic head the plain walk does NOT read as generic keeps a null defini
     }
 }
 
-test "tuple, function and by-ref references are handed to the plain walk UNCHANGED even under a live binding" {
+test "tuple, function, union and by-ref references bind their leaves under a live binding" {
     scopes := SubstitutionScopes()
     context := SubstitutionContext()
     model := new SemanticModel()
+    // The PLAIN walk still runs on each composed form for its EFFECTS — the recorded reference
+    // below, and the shape reports (an over-wide or repeated anonymous union) that live only there.
     owner := new AnalyzerTypeSubstitution(scopes, context, SubstitutionResolver(scopes, context, model))
     expected := BuiltInTypes.String
     substitution := SubstitutionOf("T", expected)
@@ -340,11 +342,11 @@ test "tuple, function and by-ref references are handed to the plain walk UNCHANG
     elements := new List<TupleTypeElement>()
     elements.Add(new TupleTypeElement(new SimpleTypeReference("T", 11, 3), "a"))
     tupleAnswer := owner.ResolveTypeWithSubstitution(new TupleTypeReference(elements), substitution)
-    tuple := tupleAnswer as TupleTypeInfo
-    assert tuple != null
-    if tuple != null {
-        // The plain walk resolved `T` as a NAME — the binding never reached it.
-        assert !SubstitutionSame(tuple.Elements[0].Type, expected)
+    tupleUnderBinding := tupleAnswer as TupleTypeInfo
+    assert tupleUnderBinding != null
+    if tupleUnderBinding != null {
+        assert tupleUnderBinding.Elements[0].Name == "a"
+        assert SubstitutionSame(tupleUnderBinding.Elements[0].Type, expected)
     }
 
     byRefAnswer := owner.ResolveTypeWithSubstitution(
@@ -354,8 +356,41 @@ test "tuple, function and by-ref references are handed to the plain walk UNCHANG
     byRef := byRefAnswer as ByRefTypeInfo
     assert byRef != null
     if byRef != null {
-        assert !SubstitutionSame(byRef.InnerType, expected)
+        assert SubstitutionSame(byRef.InnerType, expected)
     }
+
+    functionParameters := new List<TypeReference>()
+    functionParameters.Add(new SimpleTypeReference("int", 13, 3))
+    functionAnswer := owner.ResolveTypeWithSubstitution(
+        new FunctionTypeReference(functionParameters, new SimpleTypeReference("T", 13, 9)),
+        substitution
+    )
+    functionUnderBinding := functionAnswer as FunctionTypeInfo
+    assert functionUnderBinding != null
+    if functionUnderBinding != null {
+        assert functionUnderBinding.ParameterTypes != null
+        if functionUnderBinding.ParameterTypes != null {
+            assert functionUnderBinding.ParameterTypes.Count == 1
+            assert SubstitutionText(functionUnderBinding.ParameterTypes[0]) == "int"
+        }
+
+        assert SubstitutionSame(functionUnderBinding.ReturnType, expected)
+    }
+
+    arms := new List<TypeReference>()
+    arms.Add(new SimpleTypeReference("T", 14, 3))
+    arms.Add(new SimpleTypeReference("int", 14, 7))
+    unionAnswer := owner.ResolveTypeWithSubstitution(new UnionTypeReference(arms), substitution)
+    unionUnderBinding := unionAnswer as AnonymousUnionTypeInfo
+    assert unionUnderBinding != null
+    if unionUnderBinding != null {
+        assert unionUnderBinding.Arms.Count == 2
+        assert SubstitutionSame(unionUnderBinding.Arms[0], expected)
+        assert SubstitutionText(unionUnderBinding.Arms[1]) == "int"
+    }
+
+    recorded: TypeInfo = BuiltInTypes.Unknown
+    assert model.TypeReferenceTypes.TryGetValue((Line: 14, Column: 7), out recorded)
 }
 
 test "an owner the declaration context does NOT know falls back to the substitution walk" {

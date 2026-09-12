@@ -14,6 +14,7 @@
 `src/NSharpLang.Compiler.Core/AnalyzerScopeStack.nl`,
 `src/NSharpLang.Compiler.Core/AnalyzerProjectDiscovery.nl`,
 `src/NSharpLang.Compiler.Core/AnalyzerTypeResolver.nl`,
+`src/NSharpLang.Compiler.Core/TypeArityNames.nl`,
 `src/NSharpLang.Compiler.Core/AnalyzerTypeSubstitution.nl`,
 `src/NSharpLang.Compiler.Core/AnalyzerStructuralAssignability.nl`,
 `src/NSharpLang.Compiler.Core/AnalyzerDiagnosticSink.nl`,
@@ -266,6 +267,40 @@ THE DISPATCH ORDER IS THE SPECIFICATION. Moving one arm past another changes the
 - FUNCTION-TYPE structural comparison comes before the identity fallback, because every
   `FunctionTypeInfo` renders identically.
 - The USER-DEFINED conversion is LAST, so a conversion operator can never shadow a built-in relation.
+  It is searched on BOTH ENDS — the type converted FROM and the type converted TO — because a
+  wrapper's `implicit operator Wrap<T>(value: T)` can only be declared on the target: the `T` end may
+  be `int`, which declares nothing about `Wrap`. Each end's operator signature is read through that
+  end's OWN substitution, so reached as `Wrap<int>` the operator is asked as `int -> Wrap<int>`.
+- The three REFLECTED arms (both ends reflected; reflected target with a built-in source; built-in
+  target with a reflected source) take an ACCEPTANCE and nothing else. They used to RETURN the CLR's
+  `IsAssignableFrom` verdict, which sent every reflected pair to a type error before the user-defined
+  arm below could be asked — `IsAssignableFrom` knows nothing about `implicit operator XName(string)`
+  or `implicit operator DateTimeOffset(DateTime)`. A refusal now falls through, exactly as the
+  constructed-generic bridge beside them already did.
+
+USER-DEFINED CONVERSIONS AN EXTERNAL TYPE DECLARES ARE A SEPARATE ARM WITH A SHARED OWNER.
+`DeclaresImplicitConversion` reads `DeclaredMembers`, which only a SOURCE declaration has, so a
+referenced assembly's `op_Implicit` / `op_Explicit` was invisible to it. `ClassifyExternalConversion`
+converts both ends through the EXACT CLR conversion (never the surrogate one) and asks
+`ExternalUserDefinedConversions` — the SAME owner `ColumnarIlEmitter.TryEmitUserDefinedConversion`
+asks for the handle to call, so the analyzer cannot accept a conversion the emitter then declines.
+
+That owner implements ECMA-334 §10.5.3 (implicit) and §10.5.4 (explicit) rather than an exact
+signature match: candidates are the operators declared by the source type, by the target type and by
+their base classes (read `DeclaredOnly` per level — conversion operators are not inherited members);
+applicability is decided by STANDARD conversions only, which is also why the search never recurses;
+and the most specific source and target types must be spanned by exactly ONE operator. A tie is
+`Ambiguous` and selects nothing, so `Union<float, decimal> u = 5` stays a type error rather than an
+arbitrary arm. `AnalyzerAssignability.ClassifyUserDefinedConversion` is the classification a
+reporting site can consult to say WHY; assignability itself still answers only true or false.
+
+A cheap memo (`externalConversionOwners`) answers "does either end declare ANY conversion operator"
+before a candidate list is built, because assignability asks this of every pair it cannot otherwise
+relate and almost none of them name such a type.
+
+NOT YET: a LIFTED user-defined conversion (`S? -> T?` synthesised from `S -> T`), and a conversion
+declared by an external generic that is not yet closed over real types — inside
+`func Wrap<T>(): Union<T, string>` the instantiation is builder-bound and contributes no candidates.
 
 THE RE-ENTRANCY GUARD IS CORRECTNESS, NOT AN OPTIMISATION. A user-defined implicit conversion can
 name types whose own conversions name it back; without the active-pair guard `HasImplicitConversion`
@@ -489,10 +524,11 @@ keeping the caller's FIRST candidate so the suggestion is stable rather than has
 #### The eight channels
 
 `ResolveSimpleType(name, line, column)` tries, IN ORDER: the built-in name table; the scope stack; the
-current file's import aliases; a dotted nested type; project-wide discovery; a namespace alias
-resolved as a type; the referenced-assembly probe; and finally an unresolved `ExternalTypeInfo`
-placeholder. The order is behaviour — a local declaration shadows a project type, and a project type
-outranks a CLR type of the same name — and so is the fact that the last channel is a PLACEHOLDER
+current file's import aliases; a dotted nested type; the AMBIGUITY GATE (below); project-wide
+discovery; a namespace alias resolved as a type; the referenced-assembly probe; and finally an
+unresolved `ExternalTypeInfo` placeholder. The order is behaviour — a local declaration shadows a
+project type, and a project type outranks a CLR type of the same name — and so is the fact that the
+last channel is a PLACEHOLDER
 rather than an error type: analysis carries on with a named stand-in.
 
 The using-alias channel is measured DEAD in every population (corpus, unit suite and fixtures) and is
@@ -505,6 +541,58 @@ no binding, reports nothing, and — for a generic reference — skips the whole
 resolved `GenericTypeInfo` carries no definition. One asymmetry follows from the ordering and is
 deliberate: `var` at a real position is refused with `NL103`, while `var` at line 0 falls through
 every channel to the placeholder, because the `var` check is the only thing that recognises it.
+
+#### The ambiguity gate and the import-precedence rule (NL209)
+
+Every channel above the gate answers from ONE place — a scope, the enclosing type, the built-in
+table — so a name that reaches it is about to be resolved from an IMPORT, and an import is the only
+place two declarations can supply one spelling. `AnalyzerProjectTypeDiscovery.TryFindAmbiguousImportedType`
+answers whether they do, and the two report-capable owners (`AnalyzerTypeResolver` at a type
+position, `AnalyzerIdentifierResolution` at an expression position) render it through
+`AnalyzerDiagnosticSink.ReportAmbiguousTypeReference`. They share the unresolved-reference dedupe
+set, so one position is told once.
+
+TWO EXCLUSIONS, both C#'s. The file's OWN namespace wins outright — a closer declaration is not a
+tie — and the project-wide unique-exported FALLBACK is never a candidate, because it is the channel
+that runs when no import supplies the name.
+
+ONE MEASURED LIMIT. The metadata half of the tie check is asked only once the SOURCE half has
+matched: an assembly sweep is imports × assemblies of `Assembly.GetType`, a miss is deliberately not
+cached, and running it for every name that reaches the gate would put that cost on `Console`, `List`
+and every other ordinary CLR spelling. So two IMPORTED CLR namespaces that declare the same spelling
+still resolve first-import-wins. That limit is written down on `website/docs/errors/NL209.md`.
+
+**AN EXPLICIT IMPORT OUTRANKS PROJECT-WIDE AUTO-DISCOVERY, and that ordering is a correctness fix.**
+`ResolveVisibleProjectType`'s third outcome — the unique-exported fallback — matches by unqualified
+name across every exported source declaration in the compilation, whatever namespace it lives in and
+whether or not the file imported it. It used to run BEFORE the referenced-assembly probe, so a source
+`class SimdReductions` in a namespace a file never imported silently replaced the
+`NSharpLang.Runtime.SimdReductions` that file's own `import` brought in, with no diagnostic: a whole
+parity harness became a self-comparison. The fallback is now skipped when
+`AnalyzerExternalTypeProbe.ResolveImportedExternalType` — the IMPORT-QUALIFIED half of the ordered
+probe, with no exported-name scan behind it — answers for the name.
+
+**THE EMITTER APPLIES THE SAME PRECEDENCE, and it has to.** `ColumnarBindingScopeFacts` reaches the
+same fork through `TryFindUniqueExportedSourceName`, and it consults
+`ColumnarExternalTypeCatalog.TryGetImported` — the catalog's own imports-only probe — at both sites.
+A program that passed analysis and then declined at emit is what disagreement here looks like.
+
+#### Qualified names in expression position
+
+`AnalyzerMemberAccess.TryResolveQualifiedTypeName` is the whole of it, and it is asked TWICE per
+member access: once about the RECEIVER (`System.Console` under `System.Console.WriteLine`) and once
+about the NODE ITSELF, which is the channel that makes a dotted type name a type-valued expression
+exactly as `AnalyzerIdentifierResolution` makes a bare one. Without the second, the reflected bind's
+SECOND analysis of a callee's receiver (`AnalyzerCallAnalysis` phase 30, which deliberately repeats
+the walk) analysed `System` as a value and reported NL301 — which is why a qualified CALL failed
+while a qualified static READ in the same file resolved.
+
+It resolves, in order: a namespace ALIAS expanded to its target (`import System.IO as Io` makes
+`Io.Path` mean `System.IO.Path`); a PROJECT type in the named namespace, split at the last dot,
+subject to the ordinary export rule; then a CLR type through `ExternalQualifiedTypeResolver`. Its six
+vetoes — a local, a local type, a file-import alias, a project type of the ROOT name, an
+enclosing-type member and a project function — all still fire first, and they are ordered cheap-first
+because this owner is now asked twice per node.
 
 #### The ten report sites
 
@@ -635,6 +723,20 @@ go-to-definition span has to point at.
 
 ### The scope stack
 
+`TypeArityNames.nl` is the N# owner of TYPE IDENTITY BY (NAME, GENERIC ARITY). A type's identity is
+the pair, spelled as one string the way CLR metadata spells it — the bare name at arity 0 and
+`` Name`N `` above it — and every analyzer declaration table is keyed by it: the scope's `Types` map
+(with `Scope.TypeArities` beside it answering "which arities of this name are in scope?"), the
+semantic model's `TypesByIdentity`, the declaration context's per-file canonical-type cache and its
+declaration matching, and the scope declaration locations. `Subscription` and `Subscription<T>`
+therefore coexist, a reference resolves the arity it writes (falling back to the best same-name
+candidate when nothing has that arity, which is what lets NL207 name the type it found), and NL306
+fires only for a repeated (name, arity). The DISPLAY name — the key with its suffix stripped — is
+what every diagnostic, hover, completion label and go-to-definition span carries; `SemanticModel.Types`
+is keyed by it, with a non-generic type winning the slot over a same-name generic one. The columnar
+side uses the same spelling for its exact declaration names, which is also the CLR metadata name the
+emitter writes.
+
 `AnalyzerScopeStack` (`AnalyzerScopeStack.nl`) owns the analyzer's open scopes and every question the
 semantic phase answers by walking them. `Scope` was already N#; what moved is the STACK — the
 container plus its walk semantics — so the shell holds one `AnalyzerScopeStack _scopes` field and no
@@ -720,6 +822,63 @@ See `src/NSharpLang.Compiler.Core/TypeInfoModels.nl` (with `TypeInfoFactories.nl
 - **UnknownTypeInfo**: Type not yet resolved
 
 ### User-Defined Types
+
+A generic type's STATIC members are ordinary members. There is no declaration-time refusal of a
+static field, property, method, operator or conversion operator on a type with type parameters —
+`AnalyzerTypeDeclarations.ValidateNoStaticMembersOnGenericType` and its NL323 reporter are deleted —
+and a static member is nameable without a qualifier from every body the type owns, static or
+instance, resolving against the current instantiation. What remains unsupported is a generic METHOD
+declared by a user type (`static func Of<U>(...)`), which the columnar struct kernel refuses at
+parse.
+
+Members, constructors and operators of a CONSTRUCTED EXTERNAL generic type are ordinary scoped CLR
+resolution too — there is no modeled-call table, allowlist or lane-count special case behind
+`Vector<int>.Count`, `new Vector<uint>(array, i)`, `a0 += ...`, `v[lane]` or `Vector.Sum(...)`.
+`tests/native/external-generic-construction` isolates each element and `tests/native/simd-reductions`
+is the whole-library proof: a complete N# translation of `src/NSharpLang.Runtime/SimdReductions.cs`
+executed side by side with the C# original on the same inputs. Two emitter holes that surfaced there
+are fixed: `uint` was missing from `TryEmitCompoundOperation`'s IL-primitive arm (so `sum += a[i]`
+declined on a `uint` accumulator while `sum = sum + a[i]` emitted), and named tuple element names
+were carried only for FREE functions, so element access on a tuple returned by a static or instance
+method declined at emit even though the analyzer had resolved it —
+`ColumnarStaticMethodDef`/`ColumnarInstanceMethodDef` now carry `ReturnTupleElementNames`.
+
+NAMED TUPLE ELEMENT NAMES CROSS THE ASSEMBLY BOUNDARY IN BOTH DIRECTIONS. A named tuple has no CLR
+identity — `(int Min, int Max)` IS `ValueTuple<int, int>` — so the names live in a
+`System.Runtime.CompilerServices.TupleElementNamesAttribute(string[])` on the signature POSITION, and
+N# writes and reads it the way every other .NET language does:
+
+- `ColumnarTupleElementNames` flattens a written type into that array in C#'s order — a pre-order
+  walk with each tuple's own names first, so `(A:int,D:(B:int,C:int))` is `A/D/B/C` and
+  `List<(Min:int,Max:int)>` is `Min/Max`; an unnamed nested tuple still occupies its elements' slots,
+  and a tuple longer than seven elements carries the extra slots its `ValueTuple` REST nesting adds.
+  Every expected row in its tests, including the raw blob bytes, was measured against `csc` output.
+- The parser kernels produce a LABELLED canonical (`TypeReferenceLabeledCanonicalTextCore`) beside
+  the structural one, because the structural canonical drops element labels at every level and
+  `ReturnTupleElementNames` carries only the TOP-LEVEL ones. `ColumnarFunctionInput` carries it as
+  `ReturnLabeledCanonical` / `ParamLabeledCanonicals`.
+- `ColumnarTupleElementNameEmitter` attaches the attribute to the return position, parameters and
+  constructor parameters; the blob comes from `ColumnarAttributeBlobs.StringArray` (hand-rolled,
+  AOT-safe) rather than `CustomAttributeBuilder`.
+- `AnalyzerTupleElementNames` reads the attribute off an external member's `CustomAttributeData` and
+  rebuilds the converted type as a `TupleTypeInfo` carrying the names, spending the flattened array
+  in the same order the emitter writes it. All four member-facing conversions in
+  `NullabilityMetadataReflection` (return, parameter, field, property) route through it; a position
+  with no attribute is left exactly as it was.
+- Names stay out of identity (`TypeInfoIdentityFacts` compares tuples by element TYPE), which is the
+  C# rule. N# has no lint mirroring C#'s name-mismatch warning.
+- The emitter learns an external method's names from its metadata, selecting the member through the
+  ordinary scoped CLR overload resolver over preflighted argument types — no per-API table.
+- A named tuple DISPLAYS as `(Min: int, Max: int)` in hover and `nlc query type`; before this it
+  answered the class name `NSharpLang.Compiler.TupleTypeInfo`.
+
+`tests/native/tuple-names` is the executable evidence for both directions.
+
+Still unsupported, and reported as such: an individually named element (`(A: int, int)` — the parse
+kernel is all-or-nothing at each level), and a FIELD or PROPERTY declared with a tuple type at all
+(`Pair: (Min: int, Max: int)` inside a class or struct declines at `parse.struct`, even unnamed), so
+those attribute positions are unreachable rather than unimplemented.
+
 - **ClassTypeInfo**: N#-owned class declaration metadata
 - **StructTypeInfo**: N#-owned struct declaration metadata
 - **RecordTypeInfo**: N#-owned record declaration metadata (reference or struct)
@@ -923,6 +1082,109 @@ For external methods with multiple overloads:
   as ambiguous rather than selected by declaration or reflection order.
 - N# overload groups use the same principle: argument types and conversion specificity decide the
   unique best candidate; incompatible candidates and equal-best ties are diagnostics.
+- Exact type identity is decided on the `TypeInfo` values, not only by reference or by CLR type. A
+  CONSTRUCTED SOURCE GENERIC converts to no CLR type at all, so without that rule
+  `Equals(Outcome<TOk, TErr>)` and `Equals(object?)` score the same and tie.
+- A generic method's own type parameter INFERS FROM AN ARGUMENT THE CLR HAS NO TYPE FOR — a type
+  parameter of the enclosing declaration, as in `HashCode.Combine(state, ok)` written inside
+  `struct Outcome<TOk, TErr>`. The binding is recorded on the N# side only, and the reflected method
+  is then left OPEN rather than closed over a surrogate whose declared constraints would be checked
+  against a type the program never wrote; the finalised signature and return type read from the N#
+  bindings. Emission of that call is a separate, still-open question (it needs a MethodSpec over an
+  emitted type's generic parameter).
+
+### Generic methods declared by user types
+
+A `class`, `struct` or `record` may declare a generic method. The analyzer treats its type
+parameters as the method's own, layered over whatever the declaring type binds:
+
+- `AnalyzerFunctionTypeFactory.CreateFromDeclaredMember` shadows each member type parameter over the
+  receiver's substitution, so a signature may name the owner's parameters, the method's, or both
+  (`func Map<TResult>(f: Func<T, TResult>): Box<TResult>`).
+- CLOSING that signature over a call's type arguments is `ApplyGenericBindings`, and it rebuilds
+  EVERY composite shell — generic, array, nullable, oblivious, by-ref, tuple, function and anonymous
+  union — over substituted leaves. A tuple or function shell left unsubstituted is how
+  `Plain.Pair<int, string>(1, "a")` used to answer `(T1, T2)`.
+- The BOUNDS walk descends into a tuple parameter, and reads a `Func`/`Action` parameter positionally
+  against a lambda's inferred `FunctionTypeInfo` (the reading
+  `CreateFunctionTypeInfoFromGenericDelegate` gives those two names), so a method type parameter
+  mentioned inside a delegate can be inferred from an argument.
+- `AnalyzerTypeSubstitution.ResolveTypeWithSubstitution` rebuilds the same shells rather than
+  dropping them to the plain walk — but it runs the plain walk FIRST on tuple, function and union
+  references, because that walk records each reference in the semantic model and is the only place an
+  anonymous union's shape rules are reported.
+- A WRITTEN type-argument list is validated for LENGTH before anything else about the call
+  (`ValidateWrittenTypeArgumentCount`): a partial list, an over-long one, and a list on a non-generic
+  name are all NL207, and the report returns so the parameters it did not name are not reported
+  again.
+- A declaration's own type parameter may not shadow one an enclosing declaration binds — NL316,
+  decided by `AnalyzerScopeStack.HasEnclosingTypeParameter`, which is backed by a per-scope set of
+  type-parameter names because a type parameter is otherwise indistinguishable from a built-in
+  spelling once it is in the scope's type table.
+
+NOT YET: a generic method declared by an `interface` (refused at parse into columnar input), and
+inferring a type parameter that appears only in a delegate's RESULT from the lambda's body — the same
+limit a generic FREE function with a `Func<TValue, TResult>` parameter has.
+
+### Generic methods declared by EXTERNAL types
+
+The analyzer side of a reflected generic call has always accepted a written type-argument list:
+`AnalyzerReflectionArgumentBinder` requires the candidate to be a generic method DEFINITION whose own
+arity equals the written count, converts each written argument with `TryConvertWrittenTypeArgument`
+(an N#-only type contributes `object` as its CLR binding surrogate), and seeds the candidate's
+bindings with it before the arguments are bound. A count that matches nothing simply drops the
+candidate.
+
+What that left was a REPORT, not a binding: a dropped candidate reached
+`AnalyzerReflectionCallReporter.ReportUnboundCall`, which recited the ARGUMENT types (NL402) for a
+mistake that is about the TYPE-argument list. `TryReportWrittenTypeArgumentArity` now answers first
+and reports NL207 in the exact words `ValidateWrittenTypeArgumentCount` uses for a source
+declaration. It is deliberately silent whenever the list is not the whole story — a candidate of the
+written arity exists, or the name declares several arities and none is the written one — so those
+still get the ordinary overload report, which lists every signature.
+
+The EMIT side is where the gap actually was, and it is `ColumnarExplicitRuntimeGenericMethodResolver`
+(in `ColumnarRuntimeGenericMethodResolver.nl`), the explicit twin of the inference tier beside it:
+
+- Candidate admission is SHARED — `IsInferableCandidateShape` is the half of the inference tier's
+  rule that does not depend on the arguments — so the two tiers cannot disagree about which
+  declarations are reachable. The explicit tier adds only the arity rule.
+- `MakeGenericMethod` is what enforces the declared constraints; a candidate it refuses is dropped,
+  which is how a constraint violation becomes a "no such call" answer rather than an exception at
+  emit.
+- The closed signature is SUBSTITUTED rather than read back, for the reason the inference tier states:
+  a `MethodBuilderInstantiation` reports the DEFINITION's own parameters.
+- A trailing optional whose metadata default is the null reference is filled (the ordinary resolver's
+  `CanFillOptional`), so `JsonSerializer.Deserialize<T>(json)` binds without `options`.
+- Two entry points: `ResolveWithFacts` scores the candidates with the shared argument-flow scorer when
+  the site's arguments all type ahead of emission; `Resolve` requires a UNIQUE candidate at the arity,
+  which is the only honest answer for a site carrying a lambda or an `out`.
+
+`ColumnarIlEmitter.TryEmitExplicitGenericExternalCall` is the call site. It reads the parser's kind-38
+callee exactly as `TryEmitExplicitGenericSourceCall` does — the node keeps only the dotted NAME, so a
+lexical value binding in front of the member is an INSTANCE receiver and anything else that resolves
+to a type is a STATIC owner — and emits each argument against the SUBSTITUTED parameter type, which
+is what gives a lambda argument its contextual shape and sends an `out` argument through the by-ref
+path.
+
+Two neighbours moved with it, because the same "the planner cannot type these arguments" problem
+produced them:
+
+- `ColumnarOrdinaryRuntimeDirectCallResolver.ResolveUniqueAtArity` is the non-generic counterpart
+  (`u.Switch(a => ..., b => ...)`, `items.ForEach(...)`, `Comparer<int>.Create(...)`). The emitter's
+  arm runs ahead of its per-receiver residual table and preflights every argument with
+  `CanDeclaredCallArgumentMatch` before emitting the first one, so a selection it cannot complete
+  leaves the stack untouched.
+- `TryGetSupportedDelegateSignature` read a delegate's signature from its NAME — an Action/Func table
+  — so `Predicate<T>`, `Comparison<T>` and every user-written delegate had no lambda form. Any other
+  delegate now reads its signature from its own `Invoke`.
+
+NOT YET: a written type-argument list directly on a call's RESULT (`Make().As<int>()`). The parser's
+kind-38 node keeps only the callee's TEXT, so the receiver subtree is gone by the time the emitter
+sees it and `Make().Is` is not a name anything can resolve; bind the receiver first. An ORDINARY
+member off a call result does read — `ColumnarIlEmitter`'s member-access arm asks
+`ColumnarRuntimeInstanceMemberResolver` and spills a value receiver for its address, where it used to
+consult a per-receiver residual table (`Make().IsOk` read and `Make().Index` did not).
 
 ## Type Checking
 
@@ -932,7 +1194,7 @@ For external methods with multiple overloads:
 - Inheritance (class → base class)
 - Interface implementation (class → interface)
 - Duck interface structural typing (see [Duck interfaces](../../website/docs/types.md#duck-interfaces))
-- User-defined implicit conversions
+- User-defined implicit conversions, declared by a SOURCE type or by an EXTERNAL one
 - Nullable conversions (`T → T?`)
 - CLR-backed assignability and the explicitly modeled generic collection variance/conversions
 - Exact array-to-span and `Span<T>`-to-`ReadOnlySpan<T>` conversions with preserved element identity
@@ -985,6 +1247,115 @@ For Go-style error tuples (`result, err := MightFail()`):
 - A bare call statement (`Compute()`) whose result is thrown away reports `NL315` (`DiscardedMustUseResult`), underlining the callee name.
 - Sanctioned uses: assign/return/pass the value, or discard explicitly via `_ = Compute()`. `_ = expr` is an explicit discard target (handled in `AnalyzeAssignment`); it binds nothing and only analyzes the right-hand side.
 - Scope is intentionally conservative: only `[MustUse]`-annotated N# declarations and external (reflection) methods carrying a `MustUse`/`MustUseAttribute` attribute. Plain non-void results are NOT forced to be used.
+
+## Class Inheritance: abstract, virtual, override
+
+Source-declared classes take part in inheritance on C#'s terms, and the analyzer already owned every
+negative case before the emitter could express the positive ones. No new codes were needed:
+
+| Shape | Diagnostic | Owner |
+| --- | --- | --- |
+| a concrete class does not implement an inherited abstract member | `NL324` | `AnalyzerTypeDeclarations.nl` |
+| `new` on an abstract class | `NL803` | `AnalyzerConstruction.nl` |
+| `override` with no base member of that name | `NL311` | `AnalyzerTypeDeclarations.nl` |
+| `override` of a base member that is not `virtual`/`abstract`/`override` | `NL311` | `AnalyzerTypeDeclarations.nl` |
+
+The EMISSION side has three owners worth knowing about:
+
+- `ColumnarSourceBaseMethodMatch` (`ColumnarOverrideTargetResolver.nl`) is the override lookup for a
+  base being emitted in the SAME assembly. `ColumnarBaseMethodMatch` reads a base chain through
+  Reflection, which an unbaked `TypeBuilder` cannot answer; this one walks the source base's own
+  declaration table instead. It deliberately produces NO `DefineMethodOverride` target — a class
+  override of a class member is bound by the CLR from name and signature, and C# writes no MethodImpl
+  row for it either. Its type-identity rule is REFERENCE EQUALITY for anything builder-bound, because
+  a builder has no stable assembly-qualified name and two unrelated `T`s would compare equal by name.
+- `ColumnarInheritanceDepthOrder` orders the method-declaration pass by inheritance depth, so a base
+  has always declared its members before a subclass asks. Ties keep source order.
+- `ColumnarStructMethodFlagIsAbstract` / `ColumnarFunctionInput.IsBodylessAbstractMember` are the one
+  decision that an abstract instance member has NO BODY. The parser records it from its signature
+  alone (the same `signatureOnly` path a `LibraryImport` stub uses) and the emitter schedules no body
+  job for it.
+
+Do not add an override allowlist or a name-based base lookup. The two match owners are the whole
+surface: one for baked bases, one for source ones.
+
+## Columnar Type Admissibility Over Type Parameters
+
+`ColumnarTypeOfPlanner.IsSupportedType` is the compiler's type-admissibility head. When a type is
+builder-bound it consults a list of named structural families (collection, task, result, union,
+enumerator, key-value pair, value tuple) — each of which exists to state an ADDITIONAL rule about its
+arguments, such as "a dictionary key must be hashable".
+
+`IsSupportedExternalGenericOverTypeParameters` is the general rule beside them: a constructed
+external generic whose only builder-bound content is a type PARAMETER is storable. `Action<T>`,
+`Func<T, TResult>` and `IComparer<T>` reach the surface through it, and they impose no extra rule on
+their arguments, which is exactly why they are not a named family. It refuses a by-ref-like
+instantiation (never a field) and a source `TypeBuilder` argument (a type that does not exist yet).
+
+Two resolution facts go with it, both in `ColumnarCanonicalTypeResolver.nl`:
+
+- The type-parameter walk reads a NULLABLE ANNOTATION the same way the ordinary walk does: `List<T>?`
+  is `List<T>`, `T?` stays `T` (which of `Nullable<T>` and `T` it means is per-instantiation and
+  cannot be written down), and a value type lifts.
+- `TrySelectDelegateCanonical` takes the type-parameter map. It used to resolve its arguments through
+  the ordinary walk even when reached from the generic-aware entry point, which is the only reason
+  the delegate families could not name a type parameter.
+
+On the emit side, `ColumnarIlEmitter.ResolveDelegateInvokeMethod` rebinds `Invoke` from the open
+definition onto a builder-bound instantiation — reflection member queries THROW on a
+`TypeBuilderInstantiation` — and reads the signature from the instantiation's generic arguments,
+because the rebound handle cannot be asked for its parameters either.
+
+## External Instance Members on Exceptions
+
+`ColumnarRuntimeInstanceMemberResolver.TrySelect` is a table of `(receiver type, member)` pairs.
+Exceptions are NOT one of its rows any more: any type assignable to `Exception` goes through the
+ordinary `TrySelectAdmittedProperty` lookup on the RECEIVER's own type, so `ex.ParamName`,
+`ex.StackTrace`, `ex.Source` and a derived or NuGet exception type's own properties resolve exactly
+as `ex.Message` does. The admitted-value-type fence still decides what may be read.
+
+Before this, `Message` was the single modelled member — not because it was different, but because it
+was the one that had been needed. Do not add exception members back by name.
+
+## `[MethodImpl]` — the pseudo-custom attribute
+
+`System.Runtime.CompilerServices.MethodImplAttribute` is never a custom-attribute row. The CLR keeps
+what it says in the method definition row's implementation-flags column, so N# routes it there and
+only there, exactly as the C# compiler does. Two owners split the work:
+
+- `MethodImplAttributeFacts.nl` (analyzer side) answers the rules. It recognises the attribute by the
+  resolved type's FULL NAME, never by spelling, so a user type that happens to be called
+  `MethodImplAttribute` stays an ordinary attribute. It reads `MethodImplOptions` off the attribute's
+  own one-argument enum constructor and `MethodCodeType` off its own named-argument field, rather
+  than looking either up by name, so the project's reference set decides what the enums are.
+- `ColumnarMethodImplAttributes.nl` (emit side) turns the attribute into
+  `MethodBuilder.SetImplementationFlags` / `ConstructorBuilder.SetImplementationFlags`, and
+  `ColumnarSourceAttributes.Bind` REFUSES it so no blob is ever written. That refusal is the C#
+  parity: `GetCustomAttributesData()` on an N#-emitted member answers the same nothing.
+
+`ColumnarSourceAttributeInput` therefore carries three things rather than one: the decoded
+`Arguments` (string literals only), `ArgumentTexts` (every argument exactly as written, whatever its
+shape) and `IsStringArgumentList` (whether a blob could be written at all). Before this, an attribute
+whose arguments were not all string literals was dropped by the reader without a word.
+
+Three diagnostics state what the attribute cannot do:
+
+| Code | Rule |
+|---|---|
+| `NL930` | `[MethodImpl]` on a declaration with no implementation-flags column — a type, a field, an enum, an interface, a union. |
+| `NL931` | A value with a bit no `MethodImplOptions` member defines (the C# `ERR_InvalidAttributeArgument` rule). |
+| `NL932` | A combination the type loader refuses: `Synchronized` on a value type's member, `InternalCall` or `Unmanaged` on a member with a body. |
+
+`NL932`'s value-type half is asked from the STRUCT's own declaration over its members, because the
+enclosing type's kind is not in hand when a member is validated on its own; the other two rules are
+the member's own and are asked there. Nothing is measured twice.
+
+N# has no attribute position inside accessor braces, so a property's or indexer's attributes are its
+ACCESSORS' attributes — `ColumnarProgramInputBuilder` copies the property's `SourceAttributes` onto
+both the getter's and the setter's `ColumnarFunctionInput`. That is N#'s spelling of C#'s per-accessor
+`[MethodImpl]`. There is also no way to name a constant of enum type at type scope: `const` is a
+local-variable keyword, not a field modifier, so the `private const MethodImplOptions HotPathImpl`
+shape C# uses in `src/NSharpLang.Runtime/Result.cs` is written out at each member instead.
 
 ## Convention-Based Visibility
 
@@ -1210,6 +1581,285 @@ Analyzer coverage is split deliberately across:
   are pinned there in N#, on BOTH the one-argument `Analyze(unit)` and the four-argument
   `Analyze(unit, path, projectRoot, source)` entry points, with the parse census, the unit shape,
   every row's `Code|Message|Suggestion|Severity`, its `ContextualHint` and its `SourceSnippet`.
+
+**READONLY STRUCTS** (`AnalyzerTypeDeclarations.ValidateReadonlyStructInstanceFields`, phase 1). A
+`readonly struct` / `readonly ref struct` / `readonly record struct` must have every INSTANCE field
+declared `readonly`; a mutable one is **NL326** on the field name (C# `CS8340`). `static`, `const` and
+`init` fields are exempt — they are not the instance state the promise covers. A PLAIN struct with
+readonly fields is NOT a readonly struct and is never flagged. Writes to the readonly fields are the
+existing NL309 rule's business, unchanged. The emitted metadata half lives in
+`ColumnarDeclarationPlan.FieldIsReadonlyAt` (every instance field of a readonly struct is `initonly`,
+including a primary constructor's synthesized capture fields) and `ColumnarIlEmitter` (the
+`IsReadOnlyAttribute` on the type); `tests/native/readonly-structs` proves both by reflection. That project is NOT registered in
+`scripts/ilverify.sh` — adding the line trips the OWN004/OWN005 non-N# growth ratchet — but its
+assembly verifies clean under `scripts/ilverify.sh --built-dirs-file`. KNOWN LIMIT: a `with`
+expression over a `readonly record struct` declines at `emit.with.plan` (the with planner needs
+settable named members and every instance field is now initonly) — the same decline a plain
+`record struct` with readonly fields already had; it needs a synthesized copy constructor, not a
+readonly-struct change.
+
+**EXTERNAL GENERICS CONSTRUCTED OVER A SOURCE TYPE PARAMETER** (`EqualityComparer<TOk>` inside
+`Outcome<TOk, TErr>`, `IEquatable<Outcome<TOk, TErr>>` in its base list, `Dictionary<string, T>` as a
+field). Four owners decide these, and none of them consults the head's NAME:
+
+- `ColumnarGenericTypeReceiverFacts.TryResolveReceiverType` splits the EXTERNAL answer from the
+  SOURCE one by the RESOLVED TYPE'S OWN IDENTITY (`ColumnarTypeOfPlanner.IsClosedSourceGeneric`), not
+  by the scoped resolver's `claimed` flag. `claimed` is set by any source-answered part of a
+  spelling, and a type-parameter ARGUMENT is one of those parts, so reading it as "the head is a
+  source type" routed every `EqualityComparer<TOk>` to the source member owners, which own no such
+  declaration (the old `emit.expression.generic-type-receiver` decline). `IsBuilderBoundConstruction`
+  is the predicate for "external head, builder-bound arguments"; its members are read off the runtime
+  DEFINITION and rebound with `TypeBuilder.GetField`/`GetMethod`, and their types are substituted with
+  the instantiation's arguments because a rebound wrapper reports the OPEN member type.
+- `ColumnarCanonicalTypeResolver.TrySelectExternalGenericConstruction` is the general arm behind the
+  modeled family rows in `TrySelectTypeParameterModeledFamily`. The rows state narrower ELEMENT
+  policies for the families whose lowerings care (spans, collection elements, dictionary keys); when
+  a row declines, or names a head no row covers, the definition is resolved through ordinary scoped
+  type resolution at the written arity and closed with `MakeGenericType`. The same function's array
+  and nullable suffix arms re-enter the TYPE-PARAMETER resolver rather than the ordinary one, which
+  is what `Func<T, bool>?` needs.
+- `ColumnarTypeOfPlanner.IsSupportedExternalConstruction` admits such a construction as a storable
+  type. Its boundary is that the spelling MENTIONS a visible type parameter: a builder-bound
+  construction over COMPLETE arguments (`Func<SourceClass>`, `IEnumerator<Box<int>>`,
+  `Dictionary<string, SourceRow[]>.KeyCollection.Enumerator`) keeps the family boundary it already
+  had, because those shapes have real lowerings that decide their own admissibility. By-ref-like
+  heads are excluded (asked of the DEFINITION — the instantiation refuses the read), and so is any
+  head from an assembly this process is emitting, so a source namesake cannot borrow a BCL generic's
+  admission.
+- `ColumnarExternalInterfaceMethodResolver.AddBuilderBoundMatchingTargets` /
+  `InterfacesSatisfied` implement the interface half. A `TypeBuilderInstantiation` answers no
+  `GetMethods()`, so the members come from the runtime definition, the effective signature is the
+  definition's signature substituted with the instantiation's arguments, and the MethodImpl slot is
+  that declaration rebound with `TypeBuilder.GetMethod`. The structural `ColumnarExternalMethodDescriptor`
+  is deliberately NOT built for these: it validates a reflected lookup context that a
+  `TypeBuilderInstantiation` has none of.
+
+Three shared substitution fences had the same latent bug and now share one rule: a signature type
+that resolved to one of the INSTANTIATION'S OWN arguments is CLOSED, not open
+(`ColumnarOrdinaryRuntimeDirectCallResolver.IsUnsupportedResolvedSignatureType`, consumed by the
+ordinary call resolver and by `ColumnarConstructionPlanner.HasUnsupportedConstructorSignature`); and
+a generic type DEFINITION standing in for its own instantiation must be substituted, not skipped
+(`ColumnarRuntimeInstanceMemberResolver.SubstituteClosedTypeArguments` and
+`ColumnarCodePlanExecutor.ResolveMemberSignatureType`) — `EqualityComparer<T>.Default` is typed
+`EqualityComparer<T>`, which the CLR spells as the definition itself. `tests/native/constructed-generic-interop`
+executes all of it, including BCL dispatch THROUGH the constructed interface with an equality that is
+deliberately not field-wise.
+
+
+## External Generics Over Complete Source Types
+
+`ColumnarTypeOfPlanner.IsSupportedExternalConstruction` no longer requires the spelling to mention a
+visible type parameter. Its question is STORABILITY and only that: an external head the catalog
+verifies by exact identity, over arguments this compilation can already store, is an ordinary
+reference or value whether those arguments are finished or not. `IEquatable<Plain>`, `Comparer<Item>`,
+`Func<Plain, bool>` and `IEquatable<Outcome<int, string>>` reach the surface through it. Three shapes
+stay out: a by-ref-like head (asked of the DEFINITION, because a builder-bound instantiation refuses
+the read), `Nullable<T>` (routed to `IsSupportedNullable` by `IsSupportedType` before this arm, so
+lifting keeps one owner), and a head declared by the assembly being emitted.
+
+The narrower family predicates beside it are NOT a second opinion about storage. Each states a rule
+its own LOWERING needs — a collection element it will box or copy, a dictionary key it will hash, an
+enumerator protocol it will drive — and each lowering asks its own predicate directly. A shape
+admitted by the general arm that no lowering models is stored, loaded and passed; the operation that
+is not modelled still declines at the site that would have to emit it. That split is what the six
+rewritten estate boundaries now state (`ColumnarCatalogTypeAdmission`, `ColumnarEnumeratorProtocol`
+twice, `ColumnarDictionaryKeyEnumeratorPrerequisite`, `ColumnarTypeOfPlanner`,
+`ColumnarReferenceConversionFacts`): the family predicate's answer is unchanged in every one of them;
+only `IsSupportedType` moved.
+
+Three resolution facts go with it, all in `ColumnarCanonicalTypeResolver.nl`:
+
+- `TrySelectExternalGenericConstruction` serves BOTH walks. `typeParams` is null on the ordinary
+  walk, and the arguments resolve through whichever walk the caller is on.
+- A MODELED ROW THAT OWNS THE HEAD IS TERMINAL. Each row sets `claimedHead` where it matches its
+  head, and a claimed head never falls through to the general arm — otherwise `Dictionary<Plain,
+  string>` would bypass the key-hashability rule that is the entire reason the Dictionary row exists.
+- THE TWO WALKS STATE THE SAME ELEMENT POLICIES. The type-parameter walk's `IEnumerable<` row used to
+  admit only two exact shapes, and it had no row at all for `IReadOnlyList`/`IReadOnlyCollection`/
+  `IReadOnlySet`/`IReadOnlyDictionary` — so a BODY LOCAL typed `IEnumerable<int>` resolved to nothing
+  while the identical signature spelling resolved. A body's resolver is not a narrower language.
+
+`ColumnarReferenceConversionFacts` gained the matching conversion halves:
+
+- `TryClassifyExactSourceInterfaceUpcast` accepts a CLOSED INSTANTIATION of a source generic as the
+  source, substituting the instantiation's arguments through the declaration's own
+  `ExternalInterfaces`. The walk stops at that declaration: an inherited edge is written in the
+  BASE's parameters and mapping this instantiation's arguments onto them needs a recorded base map
+  this fact does not carry, so it declines rather than guessing by position.
+- `IsExternalConstructionUpcast` answers one external generic converting to another while an argument
+  is still a builder (`EqualityComparer<Plain>` into `IEqualityComparer<Plain>`), by substituting the
+  instantiation's arguments through the DEFINITION's base chain and interface list. `IsAssignableFrom`
+  cannot be asked about these instantiations at all.
+- `ColumnarReferenceCoercionPlanner.TryEmitExternalInterfaceUpcast` is now the emission half of that
+  single fact rather than a second walk, and it is wired into every conversion chain in
+  `ColumnarIlEmitter` — return, typed local, assignment, field, property, object initializer,
+  constructor argument, by-ref argument — where before only the ARGUMENT chains had it. A value that
+  could be passed into an interface but not stored in one was the gap.
+
+KNOWN LIMITS, all separately owned: a COLLECTION whose element is an array of a source type
+(`List<Plain[]>`) keeps `IsAdmissibleCollectionElement`'s narrower rule; implementing `IEnumerable<T>`
+on a source class emits a type the CLR refuses to load, because the inherited non-generic
+`IEnumerable.GetEnumerator()` differs only by return type and N# has no explicit interface
+implementation (the same is true of `class Bag: IEnumerable<int>`, so it is not a generic-argument
+gap); and `Task.FromResult(sourceValue)` is an unmodelled generic static call.
+
+`tests/native/complete-source-generic-args` executes the whole surface, including
+`EqualityComparer<Outcome<int, string>>.Default.Equals` dispatching through the source `IEquatable`
+implementation and `List<Item>.Sort()` ordering by the source `IComparable<Item>`.
+
+**`this` AND `base` AS EXPRESSIONS** (`AnalyzerCurrentInstanceReferences`, reached from `Analyzer`'s
+expression dispatch). Both words name the object the current member was called on. When there is one,
+`this` answers the enclosing type scope and `base` answers `AnalyzerDeclarationContext.ResolveBaseType`
+of it; when there is none, the reference is **NL327** at the word, in one of two sentences — a `static`
+member, or a top-level function that is not a member of any type. Before this owner the analyzer
+answered `unknown` and said nothing, and the mistake surfaced only as an emission decline with no
+source position on it.
+
+WHETHER THERE IS A RECEIVER IS A FACT ABOUT THE ENCLOSING MEMBER, NOT ABOUT THE EXPRESSION, and it is
+recorded on the ambient context (`AnalyzerAmbientContext.CurrentMemberIsStatic`) at the member boundary
+rather than derived from `CurrentFunction`. Two shapes are why: a LAMBDA has no declaration of its own
+(`EnterNestedBody` passes `null`) and so INHERITS its enclosing member's answer, and a PROPERTY or
+INDEXER accessor has no `FunctionDeclaration` at all — `Analyzer.AnalyzeDeclaration` opens the pair
+around `DriveAccessorBody` so an expression body answers it too. `false` is the default and the safe
+one: it means "assume there is a receiver", so a walk that has not passed a member boundary reports
+nothing rather than reporting wrongly.
+
+A member the base does not declare stays **NL303** naming the BASE's type; `base` itself was fine. The
+emission half is `ColumnarExpressionNodeKind.BaseMemberExpression()` (kind 71) out of
+`ParsePostfixExpressionNode`, `ColumnarDirectCallPlanner.TryAppendBaseCall` (non-virtual `call`, source
+base through `ColumnarSourceDirectCallResolver` and runtime base through the ordinary runtime resolver,
+an abstract base member refused) and `ColumnarBoundIdentifierPlanner`'s `BaseField`/`BaseProperty`
+selections. `tests/native/class-inheritance` proves the dispatch is non-virtual with a three-level
+chain whose answer names every level exactly once.
+
+A CONSTRUCTOR INITIALIZER'S ARGUMENTS MAY NOT READ THROUGH `base` any more than through `this`, and
+the guard is `ColumnarIlEmitter.ConstructorChainArgumentNodeUsesCurrentInstance`: kind 71 is a LEAF
+carrying the member name, so neither the identifier arm nor the child walk can see it and it needs an
+arm of its own. Without it `constructor(): base(base.Value) {}` emitted a field read before the base
+constructor had run (C# reports the CS0027 family). The decline is `emit.ctor.chain-instance`, the
+same one `this.Value`, a bare field name and an instance call in a chain argument reach; there is no
+analyzer diagnostic for any of them, so the four stay at parity.
+
+KNOWN LIMITS, both PRE-EXISTING and both reproducible
+without `base`: a subclass that declares a property whose name a base already declares declines at
+`parse.struct`, and reading a property inherited from a CLOSED GENERIC ancestor two levels up
+(`Box<string>.Value` from a grandchild) fails plan validation with "reference receiver ... does not
+match its declaring type" for `this.Value` and `Value` alike.
+
+**CALLING A DELEGATE, AND CALLING IT ONLY IF IT IS THERE.** Three gaps closed together, all in the
+columnar call path:
+
+1. `.Invoke` ON A DELEGATE OVER A TYPE PARAMETER declined at `emit.call.instance-member-unmodeled`.
+   `ColumnarOrdinaryRuntimeDirectCallResolver` already rebinds a member from the open definition for a
+   builder-bound instantiation (`TryGetBuilderBoundRuntimeDefinition` +
+   `SelectedBuilderBound` -> `TypeBuilder.GetMethod`) — and then refused the SUBSTITUTED signature,
+   because `IsUnsupportedSignatureType` rejected every generic parameter, including the ones
+   `ResolveParameterTypes` had just substituted in. It now takes the receiver's `closedArguments` and
+   accepts a generic parameter that is one of THEM; anything the substitution could not reach is still
+   genuinely open and still refused. (The three other callers pass an empty set, so their behaviour is
+   unchanged.)
+   A DELEGATE'S `Invoke` IS ALSO ANSWERED BY `ColumnarIlEmitter.TryEmitInstanceCall` itself, right
+   after the planned-external door and before the legacy tiers, through the same
+   `TryResolveDelegateInvocation`. The N# direct-call planner owns the dotted `current.Invoke(h)`, but
+   it declines by construction anything whose receiver is a null guard, so without that arm the SAME
+   call written `current?.Invoke(h)` reached the legacy instance tier and declined as
+   `emit.call.instance-member-unmodeled`.
+2. A BARE CALL ON A DELEGATE FIELD (`pick(item)`) declined at `emit.call.bare-unresolved`: the
+   bare-call arm only reached locals, parameters and lifted captures.
+   `ColumnarDirectCallPlanner.TryAppendDelegateInvoke` now resolves `Invoke` through the ORDINARY
+   runtime resolver with the CALLEE NODE ITSELF as the receiver, so `AppendExplicitReceiver` plans the
+   identifier exactly as it would anywhere else and any storage works — `this.` in front of it too.
+   `IsDelegateValueType` asks the CLR hierarchy (`typeof(Delegate).IsAssignableFrom`, through the open
+   definition for a builder-bound instantiation), never a list of delegate names. METHOD-BEATS-VALUE is
+   unchanged and pinned: a method of the name on any tier keeps the name.
+3. `?.` WAS A PARSE GAP, for the read form and the call form alike. It is now the `.` access with a
+   GUARDED RECEIVER: `ColumnarExpressionNodeKind.NullGuardExpression()` is kind 75 and wraps the
+   receiver, so the access above it stays an ordinary kind-8 `MemberAccess` and `a?.M(x)` stays an
+   ordinary kind-9 `Call` over that — every consumer that already reads an access keeps reading it, and
+   a delegate's `Invoke` reaches the SAME owners the dotted `current.Invoke(h)` reaches (owner 1 above).
+   `ColumnarIlEmitter` emits the chain from its ROOT (`IsNullConditionalChainRoot`), not from the guard,
+   because `a?.B.C` is one expression that is null when `a` is; parentheses are deliberately not walked,
+   so `(a?.B).C` ends the chain, C#'s reading. `TryEmitNullGuard` is the test: a reference receiver tests
+   itself, a `Nullable<T>` receiver tests `HasValue` and hands the access its `Value`, and an
+   unconstrained TYPE PARAMETER boxes first. The result follows C#: void leaves nothing, a reference
+   result is `ldnull`, and a non-nullable value result is lifted to `Nullable<T>`. KNOWN LIMITS: `?[`
+   null-conditional indexing, and a plain non-nullable value receiver (which has no null to test for).
+
+**AN ENCLOSING NAMESPACE IS THE FILE'S OWN SCOPE.** `ColumnarBindingScopeFacts` resolves a bare type
+name through the file's declarations, its imports, then its own namespace — and now, before the
+project-wide unique-exported fallback, through each ENCLOSING namespace
+(`TryFindEnclosingNamespaceSourceName`, asked by both the explicit-type walk and the
+declaration-name walk). A file in `A.B` sits inside `A`, so an exported declaration there is in scope
+without an import, exactly as C# reads it. This is NOT the auto-discovery fallback beside it: that
+one finds a declaration in an UNRELATED namespace and deliberately loses to an imported external type
+(the shadowing hazard `tests/native/qualified-names` pins), while an enclosing namespace is
+lexically nearer than any import. Without the step the SAME spelling resolved two ways inside one
+file — a signature saw the enclosing declaration and a body local saw the imported external type of
+that name (`emit.typed-local.type-mismatch` naming both), which is what
+`tests/native/runtime-acceptance` reproduced.
+
+**A `ref`/`out` ARGUMENT IS A CALL FACT, AND IT MAY NAME A FIELD.** The semantic call planner typed NO
+by-ref argument at all, so no by-ref call ever reached overload resolution:
+`Interlocked.Exchange` declined at `emit.call.static-member-unmodeled` for every receiver type
+(`Interlocked.Increment` only worked because it is a MODELED entry in `ColumnarIlEmitter`),
+`int.TryParse(text, out field)` at the same place, and `Fill(ref count)` on a field at
+`emit.expression-statement.call`. Seven owners together:
+
+- `ColumnarDirectCallArgumentFacts.IsByRefArgument` — a SYNTAX fact beside the literal ones, because
+  `f(x)` and `f(ref x)` are different calls at the same argument type. The recorded `argumentTypes`
+  entry stays the ELEMENT type, which is what a parameter's element type is compared against.
+- `ColumnarDirectCallPlanner.TryGetArgumentTypes` / `ByRefArgumentTarget` — the kind-54 modifier node
+  (`ref`/`out` only; `in` has its own resolution rules and is NOT admitted through this door).
+- `ColumnarSourceDirectCallResolver.ArgumentsScoreWithFacts` — the two spellings must agree in BOTH
+  directions and the element type is EXACT (an alias to a converted temporary would alias something
+  the caller cannot see).
+- `ColumnarBoundIdentifierPlanner.TryAppendAddressOf` — `ldloca` / `ldarga` (or `ldarg` for a
+  parameter that is itself by-ref) / `ldarg.0; ldflda`. It is NOT
+  `TryAppendReceiver(preserveValueStorage: true)`: that owner addresses only VALUE types, and a
+  `ref Action<T>` needs an address exactly as a `ref int` does.
+- `ColumnarOrdinaryRuntimeDirectCallResolver.IsUnsupportedParameterType` — a PARAMETER may be by-ref;
+  a RETURN may not. The two questions were one predicate, which made every by-ref overload invisible.
+- `ColumnarRuntimeGenericMethodResolver` — `Unify` already walked through a by-ref shell; what was
+  missing is that a `null` LITERAL contributes NOTHING to inference (ECMA-334 §12.6.3), the closed
+  signature's return comes from the same substitution the parameters do (a wrapper closed over a
+  builder-bound argument can report the raw `T`), and a shape closed over the declaration's own type
+  parameters is bindable (`CloseOrNull` is the arbiter).
+- `ColumnarCodePlanExecutor` — `ValidateCallArgument` requires an exact managed address for a by-ref
+  parameter and refuses one everywhere else; `ValidateParameterType` admits a by-ref slot;
+  `ResolveMemberSignatureType` substitutes THROUGH `T&` instead of hitting the compound refusal.
+
+A STATIC field is deliberately NOT addressable: its address is `ldsflda`, and the pinned stage-0 SDK
+that builds Compiler.Core does not model `OpCodes.Ldsflda` (`ColumnarExternalBindingPlans.tests.nl`
+pins the absence), so the instruction cannot be written until the SDK is repacked. A composed target
+(an array element, a nested member chain) is refused rather than approximated.
+
+**`x == null` ON A GENERIC PARAMETER WAS UNVERIFIABLE IL.** `ldnull; ceq` against a `T` is
+`StackUnexpected` to ilverify ("found Nullobjref, expected value 'T'"), which the tests never saw
+because the JIT accepts it. The value is now BOXED first, exactly as C# boxes an unconstrained
+`T == null`; `box` on a type that turns out to be a reference type at runtime is a no-op per
+ECMA-335, so the constrained case costs nothing. Found by running `scripts/ilverify.sh
+--built-dirs-file` over `tests/native/type-arity`, which the gate's own project list does not cover.
+
+**THE RUNTIME ACCEPTANCE TRANSLATIONS** (`tests/native/runtime-acceptance`) are the reference for what
+a complete generic type looks like in N#: `Result<TOk, TErr>` and `Union<T0, T1>` from
+`src/NSharpLang.Runtime` written member for member as readonly generic structs with private
+constructors, static factories, `out`-shaped `Try` reads, generic methods (`Match<TResult>`,
+`Is<T>`, `TryGet<T>`, `As<T>`), conversion operators, `==`/`!=`, `IEquatable<Self>` base lists and
+`EqualityComparer<T>.Default` equality. The project asserts behaviour AND parity: the same inputs are
+run against the C# types from the referenced runtime assembly, reached by IMPORTING
+`NSharpLang.Runtime` from a sibling namespace that declares no `Result`/`Union` of its own (a source
+declaration is always the nearer name, and a fully qualified external type reaches fewer positions
+than an imported one — see `website/docs/types.md`'s "Current limits"). Five compiler defects were
+found by writing it and are fixed there: an implicit-`this` instance call inside a GENERIC type named
+the receiver by the open definition while the handle named the instantiation (the plan executor threw
+rather than declined); a generic type's own generic STATIC call was emitted against the open
+definition ("the method itself or the containing type is not fully instantiated" at run time); a
+property read inside a string INTERPOLATION had the same open-definition getter; `(T)value` over an
+`object` emitted `castclass !T`, which is invalid IL for a value instantiation rather than a wrong
+answer; and a generic method with an `out`/`ref` parameter over its own type parameter was
+uncallable. `Type.IsSZArray` is now reached only through `ColumnarTypeEquivalenceFacts.IsSafeSzArrayType`
+compiler-wide, because Reflection.Emit's generic-parameter builder throws `NotImplementedException`
+from it and every raw call was a latent crash inside a generic body.
 
 Keep ownership-policy tests beside the N# owner. C# tests should exercise only the remaining
 diagnostic/integration shell, not recreate semantic lookup or identity policy in test helpers.

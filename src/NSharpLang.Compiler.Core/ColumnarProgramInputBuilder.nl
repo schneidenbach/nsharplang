@@ -571,6 +571,7 @@ sealed class ColumnarProgramInputBuilder {
                 funcAsyncFlags[fi] == 1,
                 false,
                 modifierFlags,
+                false,
                 false
             ) {
                 return DeclineAtToken(ColumnarParseDeclines.FunctionDeclaration, cs, cv, funcIndices[fi], "")
@@ -763,7 +764,8 @@ sealed class ColumnarProgramInputBuilder {
                     ColumnarStructMethodFlagIsAsync(methodModifierFlags),
                     false,
                     methodModifierFlags,
-                    ColumnarFunctionInput.HasNativeImportModifier(methodModifierFlags)
+                    ColumnarFunctionInput.HasNativeImportModifier(methodModifierFlags),
+                    ColumnarStructMethodFlagIsAbstract(methodModifierFlags) && !ColumnarStructMethodFlagIsStatic(methodModifierFlags)
                 ) {
                     return DeclineAtToken(
                         ColumnarParseDeclines.StructMethod,
@@ -963,9 +965,13 @@ sealed class ColumnarProgramInputBuilder {
         return true
     }
 
-    private static func TryParseColumnarFunctionAt(ck: int[], cs: int[], cv: int[], n: int, funcIndex: int, source: string, out input: ColumnarFunctionInput, isStatic: bool = false, isAsync: bool = false, isLocalFunction: bool = false, modifierFlags: int = 0, isBodylessNativeImport: bool = false): bool {
+    private static func TryParseColumnarFunctionAt(ck: int[], cs: int[], cv: int[], n: int, funcIndex: int, source: string, out input: ColumnarFunctionInput, isStatic: bool = false, isAsync: bool = false, isLocalFunction: bool = false, modifierFlags: int = 0, isBodylessNativeImport: bool = false, isBodylessAbstract: bool = false): bool {
         input = null
         cap := n + 1
+        // The two bodyless member shapes read the SAME way: parse the signature, and never look for
+        // a body. They differ only in what the emitter does afterwards — a P/Invoke stub or an
+        // abstract slot — so the parse decision is one word.
+        signatureOnly := isBodylessNativeImport || isBodylessAbstract
 
         functionNameTexts := new string[](1)
         returnTypeTexts := new string[](1)
@@ -978,6 +984,8 @@ sealed class ColumnarProgramInputBuilder {
         paramTupleNameCounts := new int[](cap)
         paramTupleNameTexts := new string[](cap)
         returnTupleNameTexts := new string[](cap)
+        returnLabeledTypeTexts := new string[](1)
+        paramLabeledTypeTexts := new string[](cap)
         typeParamTexts := new string[](cap)
         typeParamSpecials := new int[](cap)
         typeParamConstraintCounts := new int[](cap)
@@ -995,7 +1003,7 @@ sealed class ColumnarProgramInputBuilder {
         result := new int[](9)
 
         paramCount := 0
-        if isBodylessNativeImport {
+        if signatureOnly {
             paramCount = ParseColumnarProductFunctionSignatureInfoInto(
                 source,
                 ck,
@@ -1013,6 +1021,8 @@ sealed class ColumnarProgramInputBuilder {
                 paramTupleNameCounts,
                 paramTupleNameTexts,
                 returnTupleNameTexts,
+                returnLabeledTypeTexts,
+                paramLabeledTypeTexts,
                 typeParamTexts,
                 typeParamSpecials,
                 typeParamConstraintCounts,
@@ -1038,6 +1048,8 @@ sealed class ColumnarProgramInputBuilder {
                 paramTupleNameCounts,
                 paramTupleNameTexts,
                 returnTupleNameTexts,
+                returnLabeledTypeTexts,
+                paramLabeledTypeTexts,
                 typeParamTexts,
                 typeParamSpecials,
                 typeParamConstraintCounts,
@@ -1063,6 +1075,7 @@ sealed class ColumnarProgramInputBuilder {
         returnCanonical := returnTypeTexts[0]
         paramNames := new string[](paramCount)
         paramCanonicals := new string[](paramCount)
+        paramLabeledCanonicals := new string[](paramCount)
         parsedParamModifierKinds := new int[](paramCount)
         parsedParamDefaultKinds := new int[](paramCount)
         parsedParamDefaultTexts := new string[](paramCount)
@@ -1074,6 +1087,7 @@ sealed class ColumnarProgramInputBuilder {
             paramType := paramTypeTexts[p]
             paramNames[p] = paramName
             paramCanonicals[p] = paramType
+            paramLabeledCanonicals[p] = paramLabeledTypeTexts[p] ?? paramType
             parsedParamModifierKinds[p] = paramModifierKinds[p]
             parsedParamDefaultKinds[p] = paramDefaultKinds[p]
             parsedParamDefaultTexts[p] = paramDefaultKinds[p] >= 0 ? paramDefaultTexts[p] : ""
@@ -1116,7 +1130,7 @@ sealed class ColumnarProgramInputBuilder {
         }
 
         bodyBrace := result[1]
-        if !isBodylessNativeImport && (bodyBrace < 0 || bodyBrace >= n || !ColumnarTokenKindFacts.IsSupportedBodyStartKind(ck[bodyBrace])) {
+        if !signatureOnly && (bodyBrace < 0 || bodyBrace >= n || !ColumnarTokenKindFacts.IsSupportedBodyStartKind(ck[bodyBrace])) {
             return DeclineAtToken(ColumnarParseDeclines.FunctionBody, cs, cv, funcIndex, functionName)
         }
 
@@ -1176,12 +1190,12 @@ sealed class ColumnarProgramInputBuilder {
 
         rootBlock := result[6]
         bodyNodeCount := result[7]
-        if !isBodylessNativeImport && (bodyNodeCount <= 0 || rootBlock < 0 || rootBlock >= bodyNodeCount) {
+        if !signatureOnly && (bodyNodeCount <= 0 || rootBlock < 0 || rootBlock >= bodyNodeCount) {
             return DeclineAtToken(ColumnarParseDeclines.FunctionBodyNodes, cs, cv, funcIndex, functionName)
         }
 
         bodyNodes: ColumnarNodeTable = null
-        if isBodylessNativeImport {
+        if signatureOnly {
             bodyNodes = new ColumnarNodeTable(
                 System.Array.Empty<int>(),
                 System.Array.Empty<int>(),
@@ -1218,6 +1232,11 @@ sealed class ColumnarProgramInputBuilder {
             bodyNodeCount = 0
         }
 
+        if isBodylessAbstract {
+            rootBlock = -1
+            bodyNodeCount = 0
+        }
+
         parsedInput := new ColumnarFunctionInput(
             functionName,
             returnCanonical,
@@ -1239,7 +1258,9 @@ sealed class ColumnarProgramInputBuilder {
             0,
             isBodylessNativeImport,
             nativeImportLibraryName,
-            nativeImportEntryPoint
+            nativeImportEntryPoint,
+            returnLabeledTypeTexts[0] ?? returnCanonical,
+            paramLabeledCanonicals
         )
         parsedInput.SourceAttributes = ColumnarSourceAttributes.Read(source, ck, cs, cv, funcIndex)
         parsedInput.ParameterSourceAttributes = ColumnarSourceAttributes.ReadParameters(source, ck, cs, cv, funcIndex, paramNames.Length)
@@ -1270,6 +1291,7 @@ sealed class ColumnarProgramInputBuilder {
                 false,
                 true,
                 0,
+                false,
                 false
             ) {
                 return DeclineAtToken(
@@ -1294,6 +1316,7 @@ sealed class ColumnarProgramInputBuilder {
         cap := (n + 1) * 4
         paramNameTexts := new string[](cap)
         paramTypeTexts := new string[](cap)
+        paramLabeledTypeTexts := new string[](cap)
         caKinds := new int[](cap)
         caStarts := new int[](cap)
         caLengths := new int[](cap)
@@ -1316,6 +1339,7 @@ sealed class ColumnarProgramInputBuilder {
             ctorIndex,
             paramNameTexts,
             paramTypeTexts,
+            paramLabeledTypeTexts,
             caKinds,
             caStarts,
             caLengths,
@@ -1336,6 +1360,7 @@ sealed class ColumnarProgramInputBuilder {
 
         paramNames := new string[](paramCount)
         paramCanonicals := new string[](paramCount)
+        paramLabeledCanonicals := new string[](paramCount)
         parsedParamDefaultKinds := new int[](paramCount)
         parsedParamDefaultTexts := new string[](paramCount)
         p := 0
@@ -1344,6 +1369,7 @@ sealed class ColumnarProgramInputBuilder {
             paramNames[p] = paramName
             paramCanonical := paramTypeTexts[p]
             paramCanonicals[p] = paramCanonical
+            paramLabeledCanonicals[p] = paramLabeledTypeTexts[p] ?? paramCanonical
             parsedParamDefaultKinds[p] = caKinds[p]
             parsedParamDefaultTexts[p] = caKinds[p] >= 0 ? caTexts[p] : ""
             p = p + 1
@@ -1424,7 +1450,9 @@ sealed class ColumnarProgramInputBuilder {
             0,
             false,
             "",
-            ""
+            "",
+            "void",
+            paramLabeledCanonicals
         )
         isSynthesizedInitializer := ctorIndex >= 0 && ctorIndex < n && ColumnarTokenKindFacts.IsSynthesizedPrimaryConstructorKind(ck[ctorIndex])
         parsedInput := new ColumnarConstructorInput(
@@ -1437,6 +1465,7 @@ sealed class ColumnarProgramInputBuilder {
             isSynthesizedInitializer,
             0
         )
+        body.SourceAttributes = ColumnarSourceAttributes.Read(source, ck, cs, cv, ctorIndex)
         parsedInput.ChainArgNodes = chainArgNodes
         parsedInput.ChainArgRoots = chainArgRoots
         input = parsedInput
@@ -1572,6 +1601,16 @@ sealed class ColumnarProgramInputBuilder {
             return DeclineAtToken(ColumnarParseDeclines.PropertyAccessorKind, cs, cv, propIndex, propName)
         }
 
+        // N# WRITES ATTRIBUTES ON THE PROPERTY, NEVER ON AN ACCESSOR — there is no `[...]` position
+        // inside the accessor braces to write one in — so a property's attributes are the attributes
+        // of EVERY accessor it declares. `[MethodImpl(...)]` on a property therefore marks its getter
+        // and its setter alike, which is the only reading that can express what C#'s per-accessor
+        // `[MethodImpl]` expresses.
+        propertyAttributes := ColumnarSourceAttributes.Read(source, ck, cs, cv, propIndex)
+        getter.SourceAttributes = propertyAttributes
+        if setter != null {
+            setter.SourceAttributes = propertyAttributes
+        }
         input = new ColumnarPropertyInput(propName, propType, getter, setter, isStatic, 0, hasMsBuildRequiredAttribute, hasMsBuildOutputAttribute)
         return true
     }
@@ -1715,6 +1754,7 @@ sealed class ColumnarProgramInputBuilder {
                         false,
                         false,
                         0,
+                        false,
                         false
                     ) {
                         return DeclineAtToken(

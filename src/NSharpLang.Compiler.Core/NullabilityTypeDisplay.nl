@@ -54,6 +54,14 @@ class NullabilityTypeDisplay {
             return unionType.Declaration.Name
         }
 
+        // A tuple is written the way the source writes it -- `(Min: int, Max: int)`, and `(int, int)`
+        // when nothing is named. Without this arm the display fell through to `ToString()` on the
+        // TypeInfo itself, which answered the CLASS name `NSharpLang.Compiler.TupleTypeInfo`.
+        tupleType := typeInfo as TupleTypeInfo
+        if tupleType != null {
+            return FormatTupleType(tupleType)
+        }
+
         generic := typeInfo as GenericTypeInfo
         if generic != null {
             return generic.Name + "<" + FormatTypeList(generic.TypeArguments, ", ") + ">"
@@ -145,6 +153,26 @@ class NullabilityTypeDisplay {
         }
 
         return "(" + FormatTypeList(function.ParameterTypes, ", ") + ") -> " + FormatTypeInfo(function.ReturnType)
+    }
+
+    static func FormatTupleType(tupleType: TupleTypeInfo): string {
+        result := "("
+        index := 0
+        while index < tupleType.Elements.Count {
+            if index > 0 {
+                result = result + ", "
+            }
+
+            element := tupleType.Elements[index]
+            if element.Name != null {
+                result = result + element.Name + ": "
+            }
+
+            result = result + FormatTypeInfo(element.Type)
+            index = index + 1
+        }
+
+        return result + ")"
     }
 
     static func FormatTypeList(types: List<TypeInfo>, separator: string): string {

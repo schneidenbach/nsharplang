@@ -535,16 +535,39 @@ test "compile-time bench: the skipped source directories are exactly the twelve 
 // tests/native/diagnostic-honesty; 75 since the Analyzer SDK prerequisite added
 // tests/native/sdk-project-reference-boundary; 76 since diagnostics moved into
 // tests/native/language-server-diagnostics; 77 since reference resolution moved into
-// tests/native/reference-resolution.
-test "compile-time bench: the corpus is the 77 project.yml projects under examples, tests and templates" {
+// tests/native/reference-resolution; 78-81 as the 2026-09-10 capability arc added
+// tests/native/readonly-structs, generic-type-receivers, type-arity and external-generic-construction;
+// 82 since static members on generic types added tests/native/generic-static-members; 83 since the
+// SimdReductions translation added tests/native/simd-reductions; 85 since class inheritance added
+// tests/native/class-inheritance and tests/native/generic-member-types; 86 since .NET generic interop
+// over a declaration's own type parameters added tests/native/constructed-generic-interop; 87 since
+// generic methods on user types added tests/native/user-generic-methods; 88 since named tuple
+// element metadata added tests/native/tuple-names; 89 since external generics over complete source
+// types added tests/native/complete-source-generic-args; 90 since qualified names added
+// tests/native/qualified-names; 91 since the faithful N# translations of `Result<TOk, TErr>` and
+// `Union<T0, T1>` added tests/native/runtime-acceptance; 93 since generic methods declared by an
+// EXTERNAL type added tests/native/external-generic-methods.
+test "compile-time bench: the corpus is the 93 project.yml projects under examples, tests and templates" {
     projects := BenchCollectCorpusProjects(BenchRepositoryRoot())
-    assert projects.Count == 77
+    assert projects.Count == 93
     assert BenchListContains(projects, "examples/01-hello-world")
+    assert BenchListContains(projects, "tests/native/qualified-names")
+    assert BenchListContains(projects, "tests/native/methodimpl-attributes")
     assert BenchListContains(projects, "templates/nsharp-console")
+    assert BenchListContains(projects, "tests/native/complete-source-generic-args")
+    assert BenchListContains(projects, "tests/native/constructed-generic-interop")
+    assert BenchListContains(projects, "tests/native/external-generic-construction")
+    assert BenchListContains(projects, "tests/native/external-generic-methods")
+    assert BenchListContains(projects, "tests/native/generic-static-members")
+    assert BenchListContains(projects, "tests/native/user-generic-methods")
     assert BenchListContains(projects, "tests/native/language-server-diagnostics")
     assert BenchListContains(projects, "tests/native/ownership-audit")
     assert BenchListContains(projects, "tests/native/reference-resolution")
     assert BenchListContains(projects, "tests/native/sdk-project-reference-boundary")
+    assert BenchListContains(projects, "tests/native/simd-reductions")
+    assert BenchListContains(projects, "tests/native/tuple-names")
+    assert BenchListContains(projects, "tests/native/runtime-acceptance")
+    assert BenchListContains(projects, "tests/native/type-arity")
 }
 
 test "compile-time bench: the large-project case is NOT in the corpus, and neither is this harness's own project" {

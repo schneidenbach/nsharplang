@@ -1174,7 +1174,7 @@ class ColumnarCodePlanExecutor {
             declaredParameters := plan.MethodParameterTypes[methodIndex]
             declaredIndex := 0
             while declaredIndex < declaredParameters.Length {
-                ValidateMethodParameterType(declaredParameters[declaredIndex], "method argument", schemaName)
+                ValidateParameterType(declaredParameters[declaredIndex], schemaName)
                 declaredIndex += 1
             }
             ValidateDeclaredMethodSignatureIfAvailable(plan, methodIndex, method, schemaName)
@@ -1190,7 +1190,7 @@ class ColumnarCodePlanExecutor {
         i := 0
         while i < parameters.Length {
             parameterType := ResolveMemberSignatureType(parameters[i].get_ParameterType(), declaringArguments, genericArguments, schemaName)
-            ValidateMethodParameterType(parameterType, "method argument", schemaName)
+            ValidateParameterType(parameterType, schemaName)
             i += 1
         }
     }
@@ -1321,6 +1321,26 @@ class ColumnarCodePlanExecutor {
         ValidateStorableType(field.get_FieldType(), "field result", schemaName)
     }
 
+    // A PARAMETER may be `ref`/`out` — it names the caller's storage rather than a value — and what it
+    // may be a reference TO is exactly what any other slot may hold. Every other role stays storable.
+    static func ValidateParameterType(parameterType: Type, schemaName: string) {
+        if parameterType == null {
+            throw new InvalidOperationException(schemaName + " method argument types cannot be null.")
+        }
+
+        if !parameterType.get_IsByRef() {
+            ValidateStorableType(parameterType, "method argument", schemaName)
+            return
+        }
+
+        elementType := parameterType.GetElementType()
+        if elementType == null || elementType.get_IsByRef() {
+            throw new InvalidOperationException(schemaName + " by-reference method arguments must reference a storable type.")
+        }
+
+        ValidateStorableType(elementType, "method argument", schemaName)
+    }
+
     static func ValidateStorableType(valueType: Type, role: string, schemaName: string) {
         if valueType.FullName == "System.Void" {
             throw new InvalidOperationException(schemaName + " " + role + " types cannot be void.")
@@ -1328,29 +1348,15 @@ class ColumnarCodePlanExecutor {
         if valueType.get_IsByRef() {
             throw new InvalidOperationException(schemaName + " " + role + " types cannot be null, void, or by-reference.")
         }
-        if valueType.get_IsGenericTypeDefinition() {
+        // A BAKED generic type definition — `typeof(ValueTuple<,>)` — names no value and no storage, so
+        // a plan carrying one is a plan that lost its type arguments. A `TypeBuilder` one is the
+        // opposite: inside the body of `G<T>` the CURRENT INSTANTIATION *is* the open builder, which
+        // is how Reflection.Emit spells `this`, `G<T>` return types and calls to the type's own
+        // members from its own code (the token it writes is a def, which the CLR reads as the
+        // enclosing instantiation). Refusing that shape refused every bare call inside a generic
+        // type's own body.
+        if valueType.get_IsGenericTypeDefinition() && !(valueType is TypeBuilder) {
             throw new InvalidOperationException(schemaName + " " + role + " types cannot be generic type definitions.")
-        }
-    }
-
-    // Ordinary runtime calls may carry a fixed-arity managed address. The address is supplied by
-    // an `ldloca`/`ldarga` row and is checked against the element type at the call site; it is not a
-    // storable value in the plan's other type-bearing slots. Keep returns, constructors, locals,
-    // fields, and general argument slots on ValidateStorableType so source/sibling/constructor
-    // schemas retain their existing by-reference rejection boundary.
-    static func ValidateMethodParameterType(valueType: Type, role: string, schemaName: string) {
-        if valueType == null {
-            throw new InvalidOperationException(schemaName + " " + role + " types cannot be null.")
-        }
-
-        if !valueType.get_IsByRef() {
-            ValidateStorableType(valueType, role, schemaName)
-            return
-        }
-
-        elementType := valueType.GetElementType()
-        if elementType == null || elementType.FullName == "System.Void" || elementType.get_IsByRef() || elementType.get_IsPointer() || elementType.get_IsFunctionPointer() || elementType.get_IsGenericParameter() || elementType.get_IsGenericTypeDefinition() {
-            throw new InvalidOperationException(schemaName + " " + role + " types cannot use an unsupported by-reference element.")
         }
     }
 
@@ -2027,11 +2033,7 @@ class ColumnarCodePlanExecutor {
             while parameterIndex >= 0 {
                 value := state.Pop()
                 parameterType := parameters[parameterIndex]
-                isOut := IsOutParameter(method, parameterIndex)
-                if !IsMethodCallArgumentCompatible(parameterType, value, isOut) {
-                    throw new InvalidOperationException(schemaName + " call argument " + parameterIndex.ToString() + " for '" + method.get_Name() + "' does not match its exact parameter type (expected '" + parameterType.ToString() + "', found '" + value.ValueType.ToString() + "', stack kind " + value.ValueKind.ToString() + ").")
-                }
-                MarkOutPlanLocalAssigned(value, state, isOut)
+                ValidateCallArgument(parameterType, value, parameterIndex, method.get_Name(), IsOutParameter(method, parameterIndex), state, schemaName)
                 parameterIndex -= 1
             }
 
@@ -2053,11 +2055,7 @@ class ColumnarCodePlanExecutor {
         while parameterIndex >= 0 {
             value := state.Pop()
             parameterType := ResolveMemberSignatureType(parameters[parameterIndex].get_ParameterType(), declaringArguments, genericArguments, schemaName)
-            isOut := parameters[parameterIndex].get_IsOut()
-            if !IsMethodCallArgumentCompatible(parameterType, value, isOut) {
-                throw new InvalidOperationException(schemaName + " call argument " + parameterIndex.ToString() + " for '" + method.get_Name() + "' does not match its exact parameter type (expected '" + parameterType.ToString() + "', found '" + value.ValueType.ToString() + "', stack kind " + value.ValueKind.ToString() + ").")
-            }
-            MarkOutPlanLocalAssigned(value, state, isOut)
+            ValidateCallArgument(parameterType, value, parameterIndex, method.get_Name(), parameters[parameterIndex].get_IsOut(), state, schemaName)
             parameterIndex -= 1
         }
 
@@ -2068,6 +2066,40 @@ class ColumnarCodePlanExecutor {
         }
         returnType := ResolveMemberSignatureType(signatureMethod.get_ReturnType(), declaringArguments, genericArguments, schemaName)
         ApplyMethodReturn(plan, operationIndex, returnType, isStatic, method.get_Name(), parameters.Length, method.get_IsSpecialName(), receiver, state, schemaName)
+    }
+
+    // ONE ARGUMENT AGAINST ONE PARAMETER, and the by-ref case is the reason this is its own owner.
+    //
+    // An ordinary parameter takes a VALUE and an address is a category error there; a `ref`/`out`
+    // parameter is the exact mirror — it takes a MANAGED ADDRESS of the parameter's element type and
+    // nothing else. Both arms are exact: neither admits a conversion, because a by-ref argument
+    // aliases the caller's storage and a conversion would alias a temporary instead.
+    // A `ref`/`out` ARGUMENT IS AN ADDRESS, and `out` is the one spelling that may pass the address of
+    // storage NOTHING HAS WRITTEN YET — that is what `out` means, and the callee's assignment is what
+    // makes the local definitely assigned afterwards, which is recorded here. A `ref` argument has no
+    // such licence and still requires storage the plan has already established.
+    static func ValidateCallArgument(parameterType: Type, value: ColumnarCodePlanStackNode, parameterIndex: int, methodName: string, isOut: bool, state: ColumnarCodePlanStackState, schemaName: string) {
+        if parameterType.get_IsByRef() {
+            elementType := parameterType.GetElementType()
+            if elementType == null {
+                throw new InvalidOperationException(schemaName + " by-reference parameter " + parameterIndex.ToString() + " for '" + methodName + "' has no element type.")
+            }
+
+            unassignedOut := isOut && value.ValueKind == ColumnarCodePlanStackValueKind.UnassignedPlanLocalAddress()
+            if !value.IsAddress || (value.ValueKind != ColumnarCodePlanStackValueKind.Exact() && !unassignedOut) || !ExactTypeShapeMatches(elementType, value.ValueType) {
+                throw new InvalidOperationException(schemaName + " call argument " + parameterIndex.ToString() + " for '" + methodName + "' requires an exact managed address of '" + elementType.ToString() + "' (found '" + value.ValueType.ToString() + "', address " + value.IsAddress.ToString() + ", stack kind " + value.ValueKind.ToString() + ").")
+            }
+
+            if unassignedOut && value.PlanLocalAddressIndex >= 0 {
+                state.MarkPlanLocalAssigned(value.PlanLocalAddressIndex)
+            }
+
+            return
+        }
+
+        if value.IsAddress || !IsStackCompatible(parameterType, value.ValueType, value.ValueKind, value.LiteralKnown, value.LiteralValue) {
+            throw new InvalidOperationException(schemaName + " call argument " + parameterIndex.ToString() + " for '" + methodName + "' does not match its exact parameter type (expected '" + parameterType.ToString() + "', found '" + value.ValueType.ToString() + "', stack kind " + value.ValueKind.ToString() + ").")
+        }
     }
 
     static func ApplyMethodReturn(plan: ColumnarCodePlan, operationIndex: int, returnType: Type, isStatic: bool, methodName: string, parameterCount: int, isSpecialName: bool, receiver: ColumnarCodePlanStackNode?, state: ColumnarCodePlanStackState, schemaName: string) {
@@ -2111,6 +2143,31 @@ class ColumnarCodePlanExecutor {
     // Reflection.Emit constructed member wrappers can expose the generic definition's raw
     // declaring-type and method-type parameters. Rebuild the exact selected signature from
     // both argument sets so stack validation never depends on wrapper reflection identity.
+    // An open definition standing in for its own instantiation is substitutable exactly when every
+    // one of its arguments is a generic parameter this member's argument sets cover. `TypeBuilder`
+    // definitions never are: inside `G<T>`'s own body the open builder IS the current instantiation,
+    // which is how Reflection.Emit spells it, so substituting there would rewrite a correct token.
+    static func IsSubstitutableOpenDefinition(signatureType: Type, declaringArguments: Type[], methodArguments: Type[]): bool {
+        if signatureType is TypeBuilder {
+            return false
+        }
+        arguments := signatureType.GetGenericArguments()
+        i := 0
+        while i < arguments.Length {
+            argument := arguments[i]
+            if !argument.get_IsGenericParameter() {
+                return false
+            }
+            available := argument.get_DeclaringMethod() != null ? methodArguments : declaringArguments
+            position := argument.get_GenericParameterPosition()
+            if position < 0 || position >= available.Length {
+                return false
+            }
+            i += 1
+        }
+        return arguments.Length > 0
+    }
+
     static func ResolveMemberSignatureType(signatureType: Type, declaringArguments: Type[], methodArguments: Type[], schemaName: string): Type {
         if signatureType.get_IsGenericParameter() {
             position := signatureType.get_GenericParameterPosition()
@@ -2125,15 +2182,20 @@ class ColumnarCodePlanExecutor {
             }
             return declaringArguments[position]
         }
-        if signatureType.get_IsSZArray() {
+        if ColumnarTypeEquivalenceFacts.IsSafeSzArrayType(signatureType) {
             elementType := signatureType.GetElementType()
             if elementType == null {
                 throw new InvalidOperationException(schemaName + " method array signature has no element type.")
             }
             return ResolveMemberSignatureType(elementType, declaringArguments, methodArguments, schemaName).MakeArrayType()
         }
-        if signatureType.get_IsGenericType() && !signatureType.get_IsGenericTypeDefinition() {
-            definition := signatureType.GetGenericTypeDefinition()
+        // A GENERIC TYPE DEFINITION in an open signature is substituted like any other generic
+        // shape: `EqualityComparer<T>.Default` is typed `EqualityComparer<T>`, which the CLR spells
+        // as the definition itself, and the selected signature for a closed instantiation is
+        // `EqualityComparer<int>`. Skipping definitions compared a closed declaration against an
+        // open handle and reported a mismatch.
+        if signatureType.get_IsGenericType() && (!signatureType.get_IsGenericTypeDefinition() || IsSubstitutableOpenDefinition(signatureType, declaringArguments, methodArguments)) {
+            definition := signatureType.get_IsGenericTypeDefinition() ? signatureType : signatureType.GetGenericTypeDefinition()
             signatureArguments := signatureType.GetGenericArguments()
             resolvedArguments := new Type[](signatureArguments.Length)
             i := 0
@@ -2142,6 +2204,19 @@ class ColumnarCodePlanExecutor {
                 i += 1
             }
             return definition.MakeGenericType(resolvedArguments)
+        }
+        if signatureType.get_IsByRef() {
+
+            // `ref T` / `out T`. Substituting THROUGH the reference is the whole point — a generic
+            // method closed over `T` has `T&` in its raw signature, and the closed shape is a reference
+            // to the substituted element. Without this arm the raw `T&` reached the compound refusal
+            // below and every closed by-ref signature was rejected.
+            byRefElement := signatureType.GetElementType()
+            if byRefElement == null {
+                throw new InvalidOperationException(schemaName + " by-reference method signature has no element type.")
+            }
+
+            return ResolveMemberSignatureType(byRefElement, declaringArguments, methodArguments, schemaName).MakeByRefType()
         }
         if signatureType.get_HasElementType() {
             compoundElement := signatureType.GetElementType()
@@ -2313,7 +2388,7 @@ class ColumnarCodePlanExecutor {
     }
 
     static func RequireSzArray(arrayType: Type, isAddress: bool, schemaName: string): Type {
-        if isAddress || arrayType == null || !arrayType.get_IsSZArray() {
+        if isAddress || arrayType == null || !ColumnarTypeEquivalenceFacts.IsSafeSzArrayType(arrayType) {
             throw new InvalidOperationException(schemaName + " array operations require a single-dimensional zero-based array value.")
         }
         elementType := arrayType.GetElementType()
@@ -2468,31 +2543,6 @@ class ColumnarCodePlanExecutor {
         } catch ex: NotImplementedException {
             return false
         }
-    }
-
-    static func MarkOutPlanLocalAssigned(value: ColumnarCodePlanStackNode, state: ColumnarCodePlanStackState, isOut: bool) {
-        if !isOut || value.ValueKind != ColumnarCodePlanStackValueKind.UnassignedPlanLocalAddress() {
-            return
-        }
-
-        if value.PlanLocalAddressIndex >= 0 {
-            state.MarkPlanLocalAssigned(value.PlanLocalAddressIndex)
-        }
-    }
-
-    static func IsMethodCallArgumentCompatible(parameterType: Type, value: ColumnarCodePlanStackNode, isOut: bool): bool {
-        if parameterType.get_IsByRef() {
-            elementType := parameterType.GetElementType()
-            if elementType == null || !value.IsAddress || !ExactTypeShapeMatches(elementType, value.ValueType) {
-                return false
-            }
-            if value.ValueKind == ColumnarCodePlanStackValueKind.Exact() {
-                return true
-            }
-            return isOut && value.ValueKind == ColumnarCodePlanStackValueKind.UnassignedPlanLocalAddress()
-        }
-
-        return !value.IsAddress && IsStackCompatible(parameterType, value.ValueType, value.ValueKind, value.LiteralKnown, value.LiteralValue)
     }
 
     static func IsExactPrimitiveAddOperand(value: ColumnarCodePlanStackNode, expectedType: Type): bool {

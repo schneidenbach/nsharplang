@@ -331,14 +331,28 @@ test "generic sibling new constraint uses real source default-constructor state 
     noConstructorDefinitions[0] = noConstructor
     noConstructorRegistry := SiblingConstraintRegistry(noConstructorDefinitions)
     assert noConstructor.DefaultCtor == null
-    // The registry miss on DefaultCtor deliberately falls through to TypeBuilder.GetConstructor; an
-    // unbaked builder's original NotSupportedException remains meaningful rather than a silent decline.
-    assert throws NotSupportedException {
-        ColumnarGenericConstraintPlanner.HasPublicParameterlessConstructorForConstraint(
-            noConstructor.Builder,
-            noConstructorRegistry
-        )
-    }
+    // A SOURCE argument is answered from its own declaration table and never by reflection. This one
+    // declares neither a synthesized default constructor nor a parameterless one of its own, so the
+    // `new()` constraint is UNSATISFIED — it does not reach `TypeBuilder.GetConstructor`, which
+    // answers an unbaked builder by throwing "The invoked member is not supported before the type is
+    // created" and crashed the emission of any program whose `new()` argument was a source type that
+    // declared its own constructor.
+    assert !ColumnarGenericConstraintPlanner.HasPublicParameterlessConstructorForConstraint(
+        noConstructor.Builder,
+        noConstructorRegistry
+    )
+
+    // A source argument that declares its OWN parameterless constructor satisfies the constraint,
+    // which is the shape the reflection fall-through could never answer.
+    declaredCtor := SourceCallDefinition("SiblingConstraintDeclaredParameterlessCtor", true)
+    declaredCtor.DefineUserConstructor(new Type[](0), new int[](0), new string[](0))
+    declaredCtorDefinitions := new ColumnarStructDef[](1)
+    declaredCtorDefinitions[0] = declaredCtor
+    assert declaredCtor.DefaultCtor == null
+    assert ColumnarGenericConstraintPlanner.HasPublicParameterlessConstructorForConstraint(
+        declaredCtor.Builder,
+        SiblingConstraintRegistry(declaredCtorDefinitions)
+    )
 }
 
 test "generic sibling base constraints retain runtime, sibling-parameter, and unbaked-bound boundaries" {

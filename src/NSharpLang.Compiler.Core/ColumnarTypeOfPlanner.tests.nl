@@ -1060,7 +1060,7 @@ test "typeof rejects structurally equivalent source array union arms" {
     ColumnarRangePlannerAssertEmptyRollback(plan)
 }
 
-test "typeof delegate target keeps direct emit broader than receiver preflight" {
+test "typeof delegate target emits and preflights the same delegate over a source collection" {
     sourceBuilder := TypeOfCreateSourceBuilder("TypeOfDelegateElement", false)
     bindings := ColumnarRangePlannerEmptyBindings()
     definitions := new ColumnarStructDef[](1)
@@ -1112,9 +1112,16 @@ test "typeof delegate target keeps direct emit broader than receiver preflight" 
     assert resultType == typeof(Type)
     il.Emit(OpCodes.Ret)
 
+    // DIRECT EMIT AND THE RECEIVER PREFLIGHT NOW AGREE, and the asymmetry they used to have was the
+    // gap, not the contract: the preflight's question is `IsSupportedType` of the delegate, and a
+    // `Func<List<SourceElement>, int>` is an ordinary delegate reference the general
+    // external-construction arm admits. A `typeof` whose argument emitted but could not be
+    // preflighted was a value the planner could produce and not describe.
     preflight := new ColumnarCodePlan()
+    preflight.PrepareV3()
+    preflightOuter := preflight.BeginFragment(-1, 7101, tree.Root)
     preflightType := typeof(object)
-    assert !ColumnarTypeOfPlanner.TryGetType(
+    assert ColumnarTypeOfPlanner.TryAppendTypeOf(
         tree.Nodes,
         tree.Source,
         tree.Root,
@@ -1123,7 +1130,9 @@ test "typeof delegate target keeps direct emit broader than receiver preflight" 
         out preflightType
     )
     assert preflightType == typeof(Type)
-    ColumnarRangePlannerAssertEmptyRollback(preflight)
+    preflight.CompleteFragment(preflightOuter, preflightType)
+    preflight.CompleteV3(preflightType)
+    ColumnarCodePlanExecutor.Validate(preflight)
 }
 
 test "typeof append composes recursively and rolls back atomically on decline" {
@@ -1251,4 +1260,38 @@ test "typeof roots remain terminal while every rejected shape leaves an empty pl
         unsupportedTuplePlan
     ) == ColumnarFragmentPlanStatus.NotOwned
     ColumnarRangePlannerAssertEmptyRollback(unsupportedTuplePlan)
+}
+
+test "an external generic over a type parameter is a storable type, and a source type is still not" {
+    parameter := typeof(List<int>).GetGenericTypeDefinition().GetGenericArguments()[0]
+    oneArgument := new Type[](1)
+    oneArgument[0] = parameter
+    actionDefinition := typeof(Action<int>).GetGenericTypeDefinition()
+    openAction := actionDefinition.MakeGenericType(oneArgument)
+
+    // `Action<T>` is a complete external DEFINITION with a parameter in it. Nothing about it is
+    // unfinished: every instantiation replaces the parameter with a real type, so it stores and
+    // loads like any other reference. The general external-construction arm is the one owner of
+    // that admission.
+    assert ColumnarTypeOfPlanner.IsSupportedExternalConstruction(openAction)
+    assert ColumnarTypeOfPlanner.IsSupportedType(openAction)
+
+    parameterThenBool := new Type[](2)
+    parameterThenBool[0] = parameter
+    parameterThenBool[1] = typeof(bool)
+    stringThenParameter := new Type[](2)
+    stringThenParameter[0] = typeof(string)
+    stringThenParameter[1] = parameter
+    funcDefinition := typeof(Func<int, bool>).GetGenericTypeDefinition()
+    assert ColumnarTypeOfPlanner.IsSupportedType(funcDefinition.MakeGenericType(parameterThenBool))
+    assert ColumnarTypeOfPlanner.IsSupportedType(funcDefinition.MakeGenericType(stringThenParameter))
+
+    // A GENERIC DEFINITION is not itself such a shape — `Action<>` names no type to store.
+    assert !ColumnarTypeOfPlanner.IsSupportedExternalConstruction(actionDefinition)
+
+    // A fully baked instantiation does not need this rule; it is admitted by the ordinary catalog.
+    assert ColumnarTypeOfPlanner.IsSupportedType(typeof(Action<int>))
+
+    // A BY-REF-LIKE instantiation is refused: it may not be a field at all, whatever its arguments.
+    assert !ColumnarTypeOfPlanner.IsSupportedType(typeof(Span<int>).GetGenericTypeDefinition().MakeGenericType(oneArgument))
 }

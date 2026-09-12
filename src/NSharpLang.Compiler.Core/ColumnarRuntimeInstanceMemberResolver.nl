@@ -48,7 +48,7 @@ class ColumnarRuntimeInstanceMemberSelection {
 // below. Selection completes before a code plan emits the receiver, so every false result is atomic.
 class ColumnarRuntimeInstanceMemberResolver {
     static func CanOwnReceiver(receiverType: Type): bool {
-        if receiverType == null || IsSourceBuilderShape(receiverType) || receiverType.get_IsByRef() || receiverType.get_IsGenericTypeDefinition() || receiverType.get_IsSZArray() {
+        if receiverType == null || IsSourceBuilderShape(receiverType) || receiverType.get_IsByRef() || receiverType.get_IsGenericTypeDefinition() || ColumnarTypeEquivalenceFacts.IsSafeSzArrayType(receiverType) {
             return false
         }
 
@@ -108,11 +108,62 @@ class ColumnarRuntimeInstanceMemberResolver {
             return true
         }
 
-        // Referenced N# assemblies expose ordinary public object-model types alongside the
-        // established BCL/runtime catalog. Permit those baked reference shapes to reach the
-        // ordinary readable-member resolver; selection below still requires an exact public,
-        // instance, zero-argument property getter or field and an admitted result type.
-        return CanOwnOrdinaryExternalReceiver(receiverType)
+        return IsOrdinaryExternalReferenceReceiver(receiverType) || IsOrdinaryExternalValueReceiver(receiverType)
+    }
+
+    // AN ORDINARY EXTERNAL VALUE RECEIVER — the struct counterpart of the reference arm below, and
+    // the same generalisation for the same reason. The named value-type rows above recorded which
+    // struct had been needed first, not a rule: `Result<TOk, TErr>` and `KeyValuePair<TKey, TValue>`
+    // are listed and the runtime's `Union<T0, T1>` beside them is not, so `u.Index` declined while
+    // `r.IsOk` resolved, and no property of any other referenced struct could be read at all.
+    //
+    // WHAT STILL SEPARATES A STRUCT FROM A CLASS IS KEPT. A BY-REF-LIKE struct cannot be held in
+    // every slot a read needs, and the `Span`-shaped rows above own that decision; an ENUM's members
+    // are the enum arm's; and anything builder-bound or still open is source rather than external.
+    // Everything a read actually depends on is decided elsewhere and unchanged: the selection records
+    // `receiverIsReference` false so the receiver is addressed rather than loaded, only PUBLIC
+    // GETTERS are resolved so no mutation through `this` is reachable, and what a property may RETURN
+    // is still the admitted-value-type fence's answer.
+    static func IsOrdinaryExternalValueReceiver(receiverType: Type): bool {
+        if receiverType == null {
+            return false
+        }
+
+        // THE BUILDER SCREEN RUNS FIRST, and the order is load-bearing rather than tidy: a
+        // `TypeBuilderInstantiation` throws `NotSupportedException` out of `IsEnum`, so a question
+        // about a type still being emitted has to be refused before any such property is read.
+        if ContainsOpenGenericParameters(receiverType) || ContainsBuilderBoundType(receiverType) || IsSourceBuilderShape(receiverType) {
+            return false
+        }
+
+        if !receiverType.get_IsValueType() || receiverType.get_HasElementType() || receiverType.get_IsPointer() || receiverType.get_IsEnum() {
+            return false
+        }
+
+        return !IsByRefLike(receiverType)
+    }
+
+    // AN ORDINARY EXTERNAL REFERENCE RECEIVER — any class or interface that came from referenced
+    // metadata rather than from this compilation's builders. It is the receiver half of the same
+    // generalisation the exception arm made: there is no rule that distinguishes `MethodInfo` from
+    // `ArgumentNullException`, and the named rows above only ever recorded which receiver had been
+    // needed first. Every read through it still passes the admitted-value-type fence, so what a
+    // property RETURNS is still decided by `IsAdmittedValueType` and not by this predicate.
+    //
+    // VALUE TYPES ARE NOT GENERALISED. A struct receiver needs an address and its readable members
+    // interact with copy semantics, mutation through `this`, and the by-ref-like fence; the named
+    // value-type rows above each carry that decision. Arrays are excluded because their members are
+    // the array arm's, and anything builder-bound is excluded because it is source, not external.
+    static func IsOrdinaryExternalReferenceReceiver(receiverType: Type): bool {
+        if receiverType == null || receiverType.get_IsValueType() || receiverType.get_HasElementType() || receiverType.get_IsPointer() {
+            return false
+        }
+
+        if ContainsOpenGenericParameters(receiverType) || ContainsBuilderBoundType(receiverType) || IsSourceBuilderShape(receiverType) {
+            return false
+        }
+
+        return receiverType.get_IsClass() || receiverType.get_IsInterface()
     }
 
     // THE LINQ-TO-XML RECEIVERS THE DOC WALK HOLDS. Matched by exact metadata name, for the same
@@ -161,8 +212,17 @@ class ColumnarRuntimeInstanceMemberResolver {
             return TrySelectExpectedProperty(receiverType, receiverType, member, arguments[0], out selection)
         }
 
-        if typeof(Exception).IsAssignableFrom(receiverType) && member == "Message" {
-            return TrySelectExpectedProperty(receiverType, typeof(Exception), member, typeof(string), out selection)
+        // ANY readable instance property an exception declares, not a list of names.
+        //
+        // `Message` was modelled by name, so `ex.ParamName` on a caught `ArgumentNullException` —
+        // which is how a caller learns WHICH argument was null — declined, as did `StackTrace` and
+        // `Source` and every property a NuGet package's exception type adds. There is no rule that
+        // distinguishes `Message` from the rest; it was simply the one that had been needed. The
+        // lookup is the ordinary admitted-property one, on the RECEIVER's own type, so a derived
+        // exception's own properties resolve as readily as `Exception`'s and the admitted-value-type
+        // fence still decides what may be read.
+        if typeof(Exception).IsAssignableFrom(receiverType) {
+            return TrySelectAdmittedProperty(receiverType, receiverType, member, out selection)
         }
 
         if receiverType == typeof(Version) && (member == "Major" || member == "Minor" || member == "Build" || member == "Revision") {
@@ -355,39 +415,35 @@ class ColumnarRuntimeInstanceMemberResolver {
             return TrySelectExpectedProperty(receiverType, receiverType, member, typeof(int), out selection)
         }
 
-        return TrySelectOrdinaryReadableMember(receiverType, member, out selection)
-    }
-
-    static func CanOwnOrdinaryExternalReceiver(receiverType: Type): bool {
-        if receiverType == null || IsSourceBuilderShape(receiverType) || ContainsBuilderBoundType(receiverType) || receiverType.get_IsByRef() || receiverType.get_IsPointer() || receiverType.get_IsByRefLike() || receiverType.get_IsGenericTypeDefinition() || receiverType.get_HasElementType() || ContainsOpenGenericParameters(receiverType) {
-            return false
+        // THE GENERAL ARM, LAST, so every named row above keeps its exact expected result and only a
+        // receiver none of them claimed reaches here. `m.Name` on a `MethodInfo` and `list.Count` on
+        // an `IList<T>` are ordinary readable instance properties; refusing them while accepting
+        // `m.get_Name()` — the accessor spelling for the very same getter — was a gap in which
+        // receivers had been listed, not a rule. A PUBLIC FIELD is read through the same arm, because
+        // which storage a member happens to use is not a rule either: `Location.Line` is a field.
+        if IsOrdinaryExternalReferenceReceiver(receiverType) || IsOrdinaryExternalValueReceiver(receiverType) {
+            return TrySelectOrdinaryReadableMember(receiverType, member, out selection)
         }
 
-        if !ColumnarTypeOfPlanner.IsSupportedType(receiverType) {
-            return false
-        }
-
-        // Complete baked value types use the same exact field/getter selection as reference types.
-        // Their receiver is addressed by ColumnarInstanceMemberPlanner when it is a local or
-        // parameter and spilled only when it is a composed temporary, preserving CLR value-copy
-        // semantics without admitting pointers, byref-like values, open generics, or builders.
-        return receiverType.get_IsValueType() || IsSupportedExternalReferenceShape(receiverType)
+        return false
     }
 
+    // The general arm's own selection: an exact public, instance, zero-argument getter, or an exact
+    // public instance field. A VALUE receiver keeps its DIRECT STORAGE — the plan addresses the local
+    // or parameter the read is written on instead of spilling a copy of it — and
+    // `PreserveDirectValueStorage` is what carries that decision to the planner. A composed temporary
+    // still spills, because it has no storage of its own to address.
     static func TrySelectOrdinaryReadableMember(receiverType: Type, member: string, out selection: ColumnarRuntimeInstanceMemberSelection): bool {
         selection = EmptySelection()
-        if !CanOwnOrdinaryExternalReceiver(receiverType) {
-            return false
-        }
 
         field := receiverType.GetField(member, BindingFlags.Public | BindingFlags.Instance)
         if field != null {
             declaringType := field.get_DeclaringType()
             fieldType := field.get_FieldType()
-            if field.get_IsPublic() && !field.get_IsStatic() && !field.get_IsLiteral() && declaringType != null && ReceiverMatchesDeclaringType(receiverType, declaringType) && ColumnarTypeOfPlanner.IsSupportedType(fieldType) {
-                selectedSelection := new ColumnarRuntimeInstanceMemberSelection(true, declaringType, fieldType, field, null, !receiverType.get_IsValueType())
-                selectedSelection.PreserveDirectValueStorage = true
-                selection = selectedSelection
+            if field.get_IsPublic() && !field.get_IsStatic() && !field.get_IsLiteral() && declaringType != null && ReceiverMatchesDeclaringType(receiverType, declaringType) && IsOrdinaryReadableResultType(fieldType) {
+                selectedField := new ColumnarRuntimeInstanceMemberSelection(true, declaringType, fieldType, field, null, !receiverType.get_IsValueType())
+                selectedField.PreserveDirectValueStorage = true
+                selection = selectedField
                 return true
             }
         }
@@ -395,14 +451,22 @@ class ColumnarRuntimeInstanceMemberResolver {
         getter: MethodInfo? = null
         declaringType := typeof(object)
         resultType := typeof(object)
-        if !TryResolvePublicGetter(receiverType, member, out getter, out declaringType, out resultType) || getter == null || !ColumnarTypeOfPlanner.IsSupportedType(resultType) || !ReceiverMatchesDeclaringType(receiverType, declaringType) {
+        if !TryResolveInheritedPublicGetter(receiverType, member, out getter, out declaringType, out resultType) || getter == null || !IsOrdinaryReadableResultType(resultType) || !ReceiverMatchesDeclaringType(receiverType, declaringType) {
             return false
         }
 
-        selectedSelection := new ColumnarRuntimeInstanceMemberSelection(false, declaringType, resultType, null, getter, !receiverType.get_IsValueType())
-        selectedSelection.PreserveDirectValueStorage = true
-        selection = selectedSelection
+        selectedProperty := new ColumnarRuntimeInstanceMemberSelection(false, declaringType, resultType, null, getter, !receiverType.get_IsValueType())
+        selectedProperty.PreserveDirectValueStorage = true
+        selection = selectedProperty
         return true
+    }
+
+    // WHAT THE GENERAL ARM MAY READ. The named rows above each answer with `IsAdmittedValueType`, and
+    // a referenced assembly's own object model answers with the columnar backend's own supported-type
+    // fence; they are the same question — can this value be held, stored and used from emitted IL —
+    // asked by the two paths that grew this arm, so the arm accepts a result either one admits.
+    static func IsOrdinaryReadableResultType(valueType: Type): bool {
+        return IsSelectableResultType(valueType) && (IsAdmittedValueType(valueType) || ColumnarTypeOfPlanner.IsSupportedType(valueType))
     }
 
     static func TrySelectValueTupleField(receiverType: Type, member: string, out selection: ColumnarRuntimeInstanceMemberSelection): bool {
@@ -462,7 +526,7 @@ class ColumnarRuntimeInstanceMemberResolver {
         getter: MethodInfo? = null
         declaringType := typeof(object)
         resultType := typeof(object)
-        if !TryResolvePublicGetter(lookupType, member, out getter, out declaringType, out resultType) || getter == null || !IsAdmittedValueType(resultType) || !ReceiverMatchesDeclaringType(receiverType, declaringType) {
+        if !TryResolveInheritedPublicGetter(lookupType, member, out getter, out declaringType, out resultType) || getter == null || !IsAdmittedValueType(resultType) || !ReceiverMatchesDeclaringType(receiverType, declaringType) {
             return false
         }
 
@@ -470,6 +534,36 @@ class ColumnarRuntimeInstanceMemberResolver {
         selection = new ColumnarRuntimeInstanceMemberSelection(false, declaringType, resultType, null, getter, receiverIsReference)
 
         return true
+    }
+
+    // AN INTERFACE DOES NOT INHERIT ITS BASES' MEMBERS THROUGH `GetProperty`, which is why
+    // `IList<T>.Count` — declared on `ICollection<T>` — resolved nothing while the same read on
+    // `List<T>` resolved. A class receiver already walks its base chain in metadata, so the extra
+    // sweep runs ONLY for an interface, in `GetInterfaces()` order, and the first base that declares
+    // the name wins. `ReceiverMatchesDeclaringType` still has to accept the owner it finds.
+    static func TryResolveInheritedPublicGetter(lookupType: Type, member: string, out getter: MethodInfo?, out declaringType: Type, out resultType: Type): bool {
+        if TryResolvePublicGetter(lookupType, member, out getter, out declaringType, out resultType) {
+            return true
+        }
+
+        if !lookupType.get_IsInterface() {
+            return false
+        }
+
+        baseInterfaces := lookupType.GetInterfaces()
+        index := 0
+        while index < baseInterfaces.Length {
+            if TryResolvePublicGetter(baseInterfaces[index], member, out getter, out declaringType, out resultType) {
+                return true
+            }
+
+            index = index + 1
+        }
+
+        getter = null
+        declaringType = typeof(object)
+        resultType = typeof(object)
+        return false
     }
 
     static func TryResolvePublicGetter(lookupType: Type, member: string, out getter: MethodInfo?, out declaringType: Type, out resultType: Type): bool {
@@ -631,7 +725,7 @@ class ColumnarRuntimeInstanceMemberResolver {
             return true
         }
 
-        if valueType.get_IsSZArray() {
+        if ColumnarTypeEquivalenceFacts.IsSafeSzArrayType(valueType) {
             elementType := valueType.GetElementType()
             return elementType != null && ContainsBuilderBoundType(elementType)
         }
@@ -682,7 +776,7 @@ class ColumnarRuntimeInstanceMemberResolver {
             return SubstituteClosedTypeArguments(byRefElement, closedArguments).MakeByRefType()
         }
 
-        if signatureType.get_IsSZArray() {
+        if ColumnarTypeEquivalenceFacts.IsSafeSzArrayType(signatureType) {
             elementType := signatureType.GetElementType()
             if elementType == null {
                 return signatureType
@@ -691,8 +785,15 @@ class ColumnarRuntimeInstanceMemberResolver {
             return SubstituteClosedTypeArguments(elementType, closedArguments).MakeArrayType()
         }
 
-        if signatureType.get_IsGenericType() && !signatureType.get_IsGenericTypeDefinition() {
-            definition := signatureType.GetGenericTypeDefinition()
+        // The GENERIC TYPE DEFINITION is substituted too, not skipped. A member whose signature type
+        // is its own owner — `EqualityComparer<T>.Default` is typed `EqualityComparer<T>`, and the
+        // CLR spells that as the definition itself — is exactly the shape a self-typed static
+        // factory has, and leaving it unsubstituted hands the planner an open definition, which
+        // names no storage. Its arguments ARE the owner's type parameters, so the ordinary
+        // by-position substitution below closes it; a definition whose parameters this
+        // instantiation does not cover substitutes to itself and is rejected downstream as before.
+        if signatureType.get_IsGenericType() {
+            definition := signatureType.get_IsGenericTypeDefinition() ? signatureType : signatureType.GetGenericTypeDefinition()
             arguments := signatureType.GetGenericArguments()
             substituted := new Type[](arguments.Length)
             index := 0
@@ -713,7 +814,7 @@ class ColumnarRuntimeInstanceMemberResolver {
             return true
         }
 
-        if left.get_IsSZArray() && right.get_IsSZArray() {
+        if ColumnarTypeEquivalenceFacts.IsSafeSzArrayType(left) && ColumnarTypeEquivalenceFacts.IsSafeSzArrayType(right) {
             leftElement := left.GetElementType()
             rightElement := right.GetElementType()
             return leftElement != null && rightElement != null && ExactTypeShapeMatches(leftElement, rightElement)
@@ -1009,7 +1110,7 @@ class ColumnarRuntimeInstanceMemberResolver {
             return true
         }
 
-        if valueType.get_IsSZArray() {
+        if ColumnarTypeEquivalenceFacts.IsSafeSzArrayType(valueType) {
             elementType := valueType.GetElementType()
             return elementType != null && IsSupportedElementType(elementType)
         }
@@ -1196,7 +1297,7 @@ class ColumnarRuntimeInstanceMemberResolver {
             return true
         }
 
-        if valueType.get_IsSZArray() {
+        if ColumnarTypeEquivalenceFacts.IsSafeSzArrayType(valueType) {
             elementType := valueType.GetElementType()
             return elementType != null && IsSupportedElementType(elementType)
         }

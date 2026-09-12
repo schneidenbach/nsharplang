@@ -1147,7 +1147,7 @@ class ColumnarTypeOfPlanner {
         }
         if valueType.get_HasElementType() {
             element := valueType.GetElementType()
-            return valueType.get_IsSZArray() && element != null && IsSupportedElementType(element)
+            return ColumnarTypeEquivalenceFacts.IsSafeSzArrayType(valueType) && element != null && IsSupportedElementType(element)
         }
         // Reflection.Emit cannot resolve a closed type containing a source builder through
         // Assembly.GetType. Its existing collection/task/result/union rebinding lowerings own these
@@ -1159,18 +1159,63 @@ class ColumnarTypeOfPlanner {
             return true
         }
         if ContainsBuilderBoundType(valueType) {
-            return IsSupportedNullable(valueType) || IsSupportedCollectionType(valueType) || IsSupportedTaskType(valueType) || IsSupportedResultType(valueType) || IsSupportedAnonymousUnionType(valueType) || IsSupportedEnumeratorType(valueType) || IsSupportedListEnumeratorType(valueType) || IsSupportedDictionaryValueCollectionType(valueType) || IsSupportedDictionaryEnumeratorType(valueType) || IsSupportedDictionaryKeyEnumeratorType(valueType) || IsSupportedDictionaryValueEnumeratorType(valueType) || IsSupportedKeyValuePairType(valueType) || IsSupportedReferenceEqualityComparerType(valueType) || IsSupportedValueTuple(valueType)
-        }
-        if valueType.get_IsGenericType() && !valueType.get_IsGenericTypeDefinition() {
-            definition := valueType.GetGenericTypeDefinition()
-            if ExternalAssemblyScan.HasExactTypeIdentity(definition, RequiredNullableDefinition().get_AssemblyQualifiedName() ?? "") {
+            // `Nullable<T>` keeps ONE owner on both sides of this branch. Its lifting rules decide
+            // which elements have a modelled null-carrying representation, and a builder-bound
+            // argument must not reach the general external-construction arm and borrow an answer
+            // the lifting rules never gave.
+            if IsExactNullableConstruction(valueType) {
                 return IsSupportedNullable(valueType)
             }
+            return IsSupportedCollectionType(valueType) || IsSupportedTaskType(valueType) || IsSupportedResultType(valueType) || IsSupportedAnonymousUnionType(valueType) || IsSupportedEnumeratorType(valueType) || IsSupportedListEnumeratorType(valueType) || IsSupportedDictionaryValueCollectionType(valueType) || IsSupportedDictionaryEnumeratorType(valueType) || IsSupportedDictionaryKeyEnumeratorType(valueType) || IsSupportedDictionaryValueEnumeratorType(valueType) || IsSupportedKeyValuePairType(valueType) || IsSupportedReferenceEqualityComparerType(valueType) || IsSupportedValueTuple(valueType) || IsSupportedExternalGenericOverTypeParameters(valueType) || IsSupportedExternalConstruction(valueType)
+        }
+        if IsExactNullableConstruction(valueType) {
+            return IsSupportedNullable(valueType)
         }
         if IsByRefLike(valueType) {
             return IsSupportedSpanLikeType(valueType)
         }
         return IsSupportedCatalogType(valueType)
+    }
+
+    // AN EXTERNAL GENERIC CLOSED OVER THE DECLARING TYPE'S OWN TYPE PARAMETER.
+    //
+    // `Action<T>`, `Func<T, bool>`, `IComparer<T>` — the definition is a complete external identity
+    // and the only builder-bound thing inside it is a type PARAMETER, which every instantiation
+    // will replace with a real type. Nothing about such a shape is unfinished the way a source
+    // `TypeBuilder` argument would be, so it stores, loads and passes like any other reference.
+    //
+    // The named families above each exist to state an ADDITIONAL rule about their arguments (a
+    // dictionary key must be hashable, a collection element must be storable). This rule states no
+    // such thing because the delegate and interface families impose none; it only refuses the two
+    // shapes whose storage is not ordinary — a by-ref-like type, which may not be a field at all,
+    // and a source `TypeBuilder` argument, which would name a type that does not exist yet.
+    static func IsSupportedExternalGenericOverTypeParameters(valueType: Type): bool {
+        if valueType is TypeBuilder || IsEnumBuilder(valueType) || !valueType.get_IsGenericType() || valueType.get_IsGenericTypeDefinition() || IsByRefLike(valueType) {
+            return false
+        }
+        definition := valueType.GetGenericTypeDefinition()
+        // THE BY-REF-LIKE QUESTION IS ASKED OF THE DEFINITION, for the same reason its sibling arm
+        // asks it there: a builder-bound instantiation REFUSES the read and answers "not
+        // by-ref-like", so `Span<T>` over a declaration's own parameter would slip through the
+        // instantiation check above. `IsSupportedSpanLikeType` is the only owner of a span shape.
+        if definition == null || ContainsBuilderBoundType(definition) || IsByRefLike(definition) {
+            return false
+        }
+
+        arguments := valueType.GetGenericArguments()
+        index := 0
+        while index < arguments.Length {
+            argument := arguments[index]
+            if argument.get_IsGenericParameter() {
+                if IsByRefLike(argument) {
+                    return false
+                }
+            } else if ContainsBuilderBoundType(argument) || !IsSupportedType(argument) {
+                return false
+            }
+            index = index + 1
+        }
+        return arguments.Length > 0
     }
 
     static func IsSupportedCecilSequenceType(valueType: Type): bool {
@@ -1253,6 +1298,10 @@ class ColumnarTypeOfPlanner {
                 return false
             }
         }
+        return HasSelfConsistentCatalogIdentity(valueType)
+    }
+
+    static func HasSelfConsistentCatalogIdentity(valueType: Type): bool {
         fullName := valueType.FullName ?? ""
         identity := valueType.get_AssemblyQualifiedName() ?? ""
         if fullName.Length == 0 || identity.Length == 0 || ExternalAssemblyScan.HasExactTypeIdentity(RequiredVoidType(), identity) {
@@ -1266,11 +1315,59 @@ class ColumnarTypeOfPlanner {
         }
     }
 
+    // AN EXTERNAL GENERIC CONSTRUCTED OVER ANYTHING THIS COMPILATION CAN ALREADY STORE —
+    // `EqualityComparer<TOk>` and `IEquatable<Outcome<TOk, TErr>>` inside `Outcome<TOk, TErr>`,
+    // `Comparer<T>` and `Func<T, bool>` inside `Ranker<T>`, and equally `IEquatable<Plain>`,
+    // `Comparer<Item>`, `Func<Plain, bool>` and `IEquatable<Outcome<int, string>>` written at file
+    // scope over a COMPLETE source type. Its head is an ordinary external type the catalog verifies
+    // by exact identity, and each argument is storable in its own right. Nothing consults the head's
+    // NAME, so one more BCL generic never needs another row in a family table — which is the point:
+    // a table cannot state a rule for a type argument it does not know.
+    //
+    // WHAT THIS ANSWERS IS STORABILITY, AND ONLY THAT. A field, local, parameter, return or base-list
+    // interface of this shape is an ordinary reference or an ordinary value: the CLR gives the
+    // instantiation a real handle whether its arguments are finished or not. The narrower family
+    // predicates beside it are not a second opinion about storage — each states a rule its own
+    // LOWERING needs (a collection element it will box or copy, a dictionary key it will hash, an
+    // enumerator whose protocol it will drive), and each lowering asks its own predicate directly.
+    // A shape admitted here that no lowering models is stored, loaded and passed; the operation that
+    // is not modelled still declines at the site that would have to emit it.
+    //
+    // Three shapes remain out. A BY-REF-LIKE head, asked of the DEFINITION because a builder-bound
+    // instantiation refuses the read, keeps `IsSupportedSpanLikeType` as its only owner — its
+    // lowerings are element-specific and it may not be a field at all. `Nullable<T>` is routed to
+    // `IsSupportedNullable` by `IsSupportedType` before this arm is reached, so lifting keeps one
+    // owner. And the head must come from a real reference, never from the assembly being emitted, so
+    // a source declaration that spells a BCL generic's name cannot borrow that name's admission.
+    static func IsSupportedExternalConstruction(valueType: Type): bool {
+        if valueType is TypeBuilder || IsEnumBuilder(valueType) || valueType.get_IsGenericParameter() || valueType.get_HasElementType() {
+            return false
+        }
+        if !valueType.get_IsGenericType() || valueType.get_IsGenericTypeDefinition() {
+            return false
+        }
+        definition := valueType.GetGenericTypeDefinition()
+        // The BY-REF-LIKE question is asked of the DEFINITION. A builder-bound instantiation refuses
+        // the read outright, so asking it would silently answer "not by-ref-like" for `Span<T>`.
+        if definition is TypeBuilder || IsEnumBuilder(definition) || IsEmittedAssemblyType(definition) || IsByRefLike(definition) || IsByRefLike(valueType) || !HasSelfConsistentCatalogIdentity(definition) {
+            return false
+        }
+        arguments := valueType.GetGenericArguments()
+        i := 0
+        while i < arguments.Length {
+            if !IsSupportedType(arguments[i]) {
+                return false
+            }
+            i += 1
+        }
+        return arguments.Length > 0
+    }
+
     static func IsSupportedElementType(valueType: Type): bool {
         if valueType == typeof(bool) || valueType == typeof(int) || valueType == typeof(uint) || valueType == typeof(long) || valueType == typeof(ulong) || valueType == typeof(byte) || valueType == typeof(sbyte) || valueType == typeof(short) || valueType == typeof(ushort) || valueType == typeof(char) || valueType == typeof(string) || valueType == typeof(double) || valueType == typeof(float) || valueType == typeof(IntPtr) || valueType == typeof(UIntPtr) || valueType == typeof(object) || valueType == typeof(Type) || valueType == typeof(Version) || valueType == typeof(Assembly) || IsEnumType(valueType) || valueType is TypeBuilder || valueType.get_IsGenericParameter() || ColumnarExternalBindingPlans.IsSupportedRuntimeTypeName(valueType.FullName) || IsSupportedNullable(valueType) {
             return true
         }
-        if valueType.get_IsSZArray() {
+        if ColumnarTypeEquivalenceFacts.IsSafeSzArrayType(valueType) {
             element := valueType.GetElementType()
             return element != null && IsSupportedElementType(element)
         }
@@ -1279,6 +1376,14 @@ class ColumnarTypeOfPlanner {
 
     static func IsLiftableNullableElement(valueType: Type): bool {
         return valueType == typeof(int) || valueType == typeof(long) || valueType == typeof(ulong) || valueType == typeof(uint) || valueType == typeof(short) || valueType == typeof(ushort) || valueType == typeof(byte) || valueType == typeof(sbyte) || valueType == typeof(bool) || valueType == typeof(char) || valueType == typeof(double) || valueType == typeof(float) || valueType == typeof(decimal) || valueType == typeof(TimeSpan) || IsSupportedValueTuple(valueType) || IsEnumType(valueType)
+    }
+
+    static func IsExactNullableConstruction(valueType: Type): bool {
+        if !valueType.get_IsGenericType() || valueType.get_IsGenericTypeDefinition() {
+            return false
+        }
+        definition := valueType.GetGenericTypeDefinition()
+        return ExternalAssemblyScan.HasExactTypeIdentity(definition, RequiredNullableDefinition().get_AssemblyQualifiedName() ?? "")
     }
 
     static func IsSupportedNullable(valueType: Type): bool {
@@ -1806,7 +1911,7 @@ class ColumnarTypeOfPlanner {
         if valueType is TypeBuilder || IsEnumBuilder(valueType) || valueType.get_IsGenericParameter() {
             return true
         }
-        if valueType.get_IsSZArray() {
+        if ColumnarTypeEquivalenceFacts.IsSafeSzArrayType(valueType) {
             element := valueType.GetElementType()
             return element != null && ContainsBuilderBoundType(element)
         }
@@ -1838,7 +1943,7 @@ class ColumnarTypeOfPlanner {
         if valueType is TypeBuilder || valueType.get_IsGenericParameter() {
             return true
         }
-        if valueType.get_IsSZArray() {
+        if ColumnarTypeEquivalenceFacts.IsSafeSzArrayType(valueType) {
             element := valueType.GetElementType()
             return element != null && ContainsNonEnumBuilderBoundType(element)
         }
@@ -1882,6 +1987,23 @@ class ColumnarTypeOfPlanner {
         return false
     }
 
+    // A definition that lives in an assembly this process is EMITTING is not an external reference,
+    // even after `CreateType` has baked it and even when its name matches a BCL generic exactly. The
+    // builder check alone is not enough: a baked type reports the underlying dynamic assembly rather
+    // than the builder that produced it.
+    static func IsEmittedAssemblyType(valueType: Type): bool {
+        if IsAssemblyBuilderBacked(valueType) {
+            return true
+        }
+        try {
+            return valueType.get_Assembly().get_IsDynamic()
+        } catch ex: NotSupportedException {
+            return true
+        } catch ex: NotImplementedException {
+            return true
+        }
+    }
+
     static func IsAssemblyBuilderBacked(valueType: Type): bool {
         assemblyObject: object = valueType.get_Assembly()
         assemblyType := assemblyObject.GetType()
@@ -1892,6 +2014,19 @@ class ColumnarTypeOfPlanner {
             assemblyType = assemblyType.get_BaseType()
         }
         return false
+    }
+
+    // `IsValueType` is one of the reads an unbaked builder handle refuses. A shape that cannot answer
+    // is not a value type for the purposes of the `?` suffix, which is the same answer the ordinary
+    // resolver reaches for every reference shape.
+    static func IsValueTypeShape(valueType: Type): bool {
+        try {
+            return valueType.get_IsValueType()
+        } catch ex: NotSupportedException {
+            return false
+        } catch ex: NotImplementedException {
+            return false
+        }
     }
 
     static func IsByRefLike(valueType: Type): bool {
@@ -1908,8 +2043,8 @@ class ColumnarTypeOfPlanner {
         if left == right {
             return true
         }
-        if left.get_IsSZArray() || right.get_IsSZArray() {
-            if !left.get_IsSZArray() || !right.get_IsSZArray() {
+        if ColumnarTypeEquivalenceFacts.IsSafeSzArrayType(left) || ColumnarTypeEquivalenceFacts.IsSafeSzArrayType(right) {
+            if !ColumnarTypeEquivalenceFacts.IsSafeSzArrayType(left) || !ColumnarTypeEquivalenceFacts.IsSafeSzArrayType(right) {
                 return false
             }
             leftElement := left.GetElementType()

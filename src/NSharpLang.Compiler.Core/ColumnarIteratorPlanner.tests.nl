@@ -524,6 +524,8 @@ class ColumnarIteratorShapeProbe {
         paramTupleNameCounts := new int[](capacity)
         paramTupleNameTexts := new string[](capacity)
         returnTupleNameTexts := new string[](capacity)
+        returnLabeledTypeTexts := new string[](capacity)
+        paramLabeledTypeTexts := new string[](capacity)
         typeParamTexts := new string[](capacity)
         typeParamSpecials := new int[](capacity)
         typeParamConstraintCounts := new int[](capacity)
@@ -558,6 +560,8 @@ class ColumnarIteratorShapeProbe {
             paramTupleNameCounts,
             paramTupleNameTexts,
             returnTupleNameTexts,
+            returnLabeledTypeTexts,
+            paramLabeledTypeTexts,
             typeParamTexts,
             typeParamSpecials,
             typeParamConstraintCounts,

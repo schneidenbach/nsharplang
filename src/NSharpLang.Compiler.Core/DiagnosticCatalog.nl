@@ -120,6 +120,7 @@ class DiagnosticCatalog {
         AddCompiler(descriptors, ErrorCode.InvalidCast)
         AddCompiler(descriptors, ErrorCode.InvalidTypeArgument)
         AddCompiler(descriptors, ErrorCode.GenericConstraintViolation)
+        AddCompiler(descriptors, ErrorCode.AmbiguousTypeReference)
 
         AddCompiler(descriptors, ErrorCode.UndefinedVariable)
         AddCompiler(descriptors, ErrorCode.UndefinedMember)
@@ -145,6 +146,8 @@ class DiagnosticCatalog {
         AddCompiler(descriptors, ErrorCode.FeatureNotImplemented)
         AddCompiler(descriptors, ErrorCode.AbstractMemberNotImplemented)
         AddCompiler(descriptors, ErrorCode.InterfaceMemberNotImplemented)
+        AddCompiler(descriptors, ErrorCode.MutableFieldInReadonlyStruct)
+        AddCompiler(descriptors, ErrorCode.NoCurrentInstance)
 
         AddCompiler(descriptors, ErrorCode.WrongArgumentCount)
         AddCompiler(descriptors, ErrorCode.NoMatchingOverload)
@@ -179,6 +182,9 @@ class DiagnosticCatalog {
         AddCompiler(descriptors, ErrorCode.PossibleNullAccess)
         AddCompiler(descriptors, ErrorCode.NullabilityWarning)
         AddCompiler(descriptors, ErrorCode.ReferenceLoadFailure)
+        AddCompiler(descriptors, ErrorCode.MethodImplTargetInvalid)
+        AddCompiler(descriptors, ErrorCode.MethodImplOptionUndefined)
+        AddCompiler(descriptors, ErrorCode.MethodImplOptionRefusedByClr)
         AddCompiler(descriptors, ErrorCode.InternalCompilerError)
     }
 
@@ -198,11 +204,11 @@ class DiagnosticCatalog {
             return DiagnosticCategory.Syntax
         }
 
-        if value >= Convert.ToInt32(ErrorCode.TypeNotFound) && value <= Convert.ToInt32(ErrorCode.GenericConstraintViolation) {
+        if value >= Convert.ToInt32(ErrorCode.TypeNotFound) && value <= Convert.ToInt32(ErrorCode.AmbiguousTypeReference) {
             return DiagnosticCategory.Type
         }
 
-        if value >= Convert.ToInt32(ErrorCode.UndefinedVariable) && value <= Convert.ToInt32(ErrorCode.InterfaceMemberNotImplemented) {
+        if value >= Convert.ToInt32(ErrorCode.UndefinedVariable) && value <= Convert.ToInt32(ErrorCode.NoCurrentInstance) {
             return DiagnosticCategory.Semantic
         }
 

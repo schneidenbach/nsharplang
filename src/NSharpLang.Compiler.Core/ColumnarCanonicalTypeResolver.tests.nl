@@ -210,7 +210,7 @@ test "canonical resolver keeps named tuples and explicit ValueTuple admission di
     assert selected.Key == null
 }
 
-test "canonical resolver preserves the generic manual-family fence and exact-map precedence" {
+test "canonical resolver resolves a read-only collection on either walk and keeps exact-map precedence" {
     resolution := CanonicalResolverBaselineResolution()
     ordinary := typeof(string)
     assert ColumnarCanonicalTypeResolver.TryResolveType(
@@ -225,6 +225,9 @@ test "canonical resolver preserves the generic manual-family fence and exact-map
         typeof(int)
     )
 
+    // ONE ELEMENT POLICY PER FAMILY, WHICHEVER WALK ASKS. The type-parameter walk had no row for the
+    // read-only views at all, so a body local spelling one resolved to nothing while the identical
+    // signature spelling resolved. That was the gap: a body's resolver is not a narrower LANGUAGE.
     emptyMap := new Dictionary<string, Type>(StringComparer.Ordinal)
     generic := typeof(string)
     assert ColumnarCanonicalTypeResolver.TryResolveTypeWithTypeParams(
@@ -235,10 +238,7 @@ test "canonical resolver preserves the generic manual-family fence and exact-map
         resolution.Unions,
         out generic
     )
-    assert generic == CanonicalResolverClosedOne(
-        "System.Collections.Generic.IReadOnlyList`1",
-        typeof(int)
-    )
+    assert generic == ordinary
 
     sources := new string[](1)
     fileNames := new string[](1)
@@ -334,7 +334,7 @@ test "canonical resolver resolves Func returns before parameter failure and arit
 
 test "canonical resolver composes closed source generic identities from the selected definition" {
     builder := TypeOfCreateSourceBuilder("CanonicalResolver.SourceBox", true)
-    definition := ExactTypeDefinition(builder, "CanonicalResolver.SourceBox")
+    definition := ExactTypeDefinition(builder, "CanonicalResolver.SourceBox`1")
     structs := SemanticEmptyStructs()
     structs[definition.DeclaredTypeName] = definition
 
@@ -380,7 +380,7 @@ test "canonical resolver composes closed source generic identities from the sele
     assert key.ChildCount == 2
     definitionKey := key.Child(0)
     assert definitionKey.Kind == ColumnarStructuralTypeReferenceKind.SourceDefinition
-    assert definitionKey.SourceDeclarationName == "CanonicalResolver.SourceBox"
+    assert definitionKey.SourceDeclarationName == "CanonicalResolver.SourceBox`1"
     argumentKey := key.Child(1)
     assert argumentKey.Kind == ColumnarStructuralTypeReferenceKind.Primitive
     assert argumentKey.PrimitiveName == "int32"
@@ -665,4 +665,85 @@ test "catch type selection keeps bare catch all separate from typed exception re
     catchType = typeof(string)
     assert !ColumnarCanonicalTypeResolver.TryResolveCatchType(typedNodes, "MissingException!", 0, out catchType)
     assert catchType == null
+}
+
+// ---- an external generic closed over a TYPE PARAMETER -------------------------------------------
+//
+// The type-parameter walk resolves a member type with the declaring type's own parameters in scope.
+// Two shapes it could not read are pinned here: a nullable ANNOTATION, which it had no branch for at
+// all, and the DELEGATE families, which it handed to the walk that cannot see a type parameter.
+
+func CanonicalResolverTypeParameterMap(): Dictionary<string, Type> {
+    map := new Dictionary<string, Type>(StringComparer.Ordinal)
+    map["T"] = CanonicalResolverGenericParameter()
+    return map
+}
+
+func CanonicalResolverGenericParameter(): Type {
+    return typeof(List<int>).GetGenericTypeDefinition().GetGenericArguments()[0]
+}
+
+func CanonicalResolverWithTypeParams(canonical: string): Type {
+    resolution := CanonicalResolverBaselineResolution()
+    resolved := typeof(object)
+    if !ColumnarCanonicalTypeResolver.TryResolveTypeWithTypeParams(
+        canonical,
+        CanonicalResolverTypeParameterMap(),
+        resolution.Enums,
+        resolution.Structs,
+        resolution.Unions,
+        out resolved
+    ) {
+        return null
+    }
+    return resolved
+}
+
+test "a nullable annotation is read on the type-parameter walk, not left in the name" {
+    parameter := CanonicalResolverGenericParameter()
+
+    // The parameter itself, annotated. Which of `Nullable<T>` and `T` that means is decided per
+    // instantiation and cannot be written down, so it stays the parameter — as C# emits it.
+    assert CanonicalResolverWithTypeParams("T") == parameter, "the bare parameter must resolve"
+    assert CanonicalResolverWithTypeParams("T?") == parameter, "the annotated parameter must resolve to the same parameter"
+
+    // A CONSTRUCTED generic over it: the annotation is one character that says nothing about the
+    // CLR type, and before this branch existed it was simply part of the name.
+    plain := CanonicalResolverWithTypeParams("Action<T>")
+    assert plain != null, "Action<T> must resolve on the type-parameter walk"
+    assert CanonicalResolverWithTypeParams("Action<T>?") == plain, "the annotation must not change the type"
+
+    // A VALUE type still lifts, exactly as it does on the ordinary walk, and a reference type does
+    // not.
+    assert CanonicalResolverWithTypeParams("int?") == typeof(Nullable<int>), "int? must lift"
+    assert CanonicalResolverWithTypeParams("string?") == typeof(string), "string? must stay string"
+    assert CanonicalResolverWithTypeParams("int") == typeof(int), "int must resolve unannotated"
+}
+
+test "the delegate families resolve over a type parameter like every other constructed generic" {
+    parameter := CanonicalResolverGenericParameter()
+
+    action := CanonicalResolverWithTypeParams("Action<T>")
+    assert action != null
+    assert action.GetGenericTypeDefinition() == typeof(Action<int>).GetGenericTypeDefinition()
+    assert action.GetGenericArguments()[0] == parameter
+
+    // The annotation composes with it, and is again not part of the type.
+    assert CanonicalResolverWithTypeParams("Action<T>?") == action
+
+    predicate := CanonicalResolverWithTypeParams("Func<T,bool>")
+    assert predicate != null
+    assert predicate.GetGenericTypeDefinition() == typeof(Func<int, bool>).GetGenericTypeDefinition()
+    assert predicate.GetGenericArguments()[0] == parameter
+    assert predicate.GetGenericArguments()[1] == typeof(bool)
+
+    // A parameter in the RETURN slot as well as an argument slot.
+    projection := CanonicalResolverWithTypeParams("Func<string,T>")
+    assert projection != null
+    assert projection.GetGenericArguments()[0] == typeof(string)
+    assert projection.GetGenericArguments()[1] == parameter
+
+    // Fully external delegates keep resolving unchanged.
+    concrete := CanonicalResolverWithTypeParams("Action<int>")
+    assert concrete == typeof(Action<int>)
 }

@@ -138,7 +138,7 @@ class ColumnarTypeEquivalenceFacts {
         reflectionAnswered := false
         reflectionAnswer := false
         try {
-            reflectionAnswer = candidate.get_IsSZArray()
+            reflectionAnswer = ColumnarTypeEquivalenceFacts.IsSafeSzArrayType(candidate)
             reflectionAnswered = true
         } catch ex: NotImplementedException {
             reflectionAnswered = false

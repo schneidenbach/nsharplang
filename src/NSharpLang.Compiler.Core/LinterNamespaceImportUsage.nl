@@ -1,5 +1,6 @@
 namespace NSharpLang.Compiler
 
+import System
 import System.Collections.Generic
 
 
@@ -28,6 +29,37 @@ class LinterNamespaceImportUsage {
         }
 
         return ContainsAny(memberAccessNames, knownMembers)
+    }
+
+    // AN ALIASED IMPORT IS USED WHEN ITS ALIAS IS WRITTEN, and it is the ONLY spelling that can use
+    // it: an alias-qualified reference never writes one of the namespace's own type names, so the
+    // known-name tables above cannot answer for one and every aliased import was reported unused.
+    //
+    // THE ALIAS APPEARS IN TWO SHAPES and both count. In expression position `Txt.Encoding` records
+    // the receiver identifier `Txt`; at a type position `new Txt.StringBuilder()` records the WHOLE
+    // dotted spelling `Txt.StringBuilder`, because a type reference is collected by its written name.
+    // So a bare match answers the first and a dotted-root match answers the second.
+    static func IsAliasUsed(aliasName: string, codeIdentifiers: HashSet<string>, memberAccessNames: HashSet<string>): bool {
+        if aliasName == null || aliasName.Length == 0 {
+            return false
+        }
+
+        if codeIdentifiers.Contains(aliasName) || memberAccessNames.Contains(aliasName) {
+            return true
+        }
+
+        return HasDottedRoot(codeIdentifiers, aliasName) || HasDottedRoot(memberAccessNames, aliasName)
+    }
+
+    static func HasDottedRoot(names: HashSet<string>, rootName: string): bool {
+        prefix := rootName + "."
+        for name in names {
+            if name.StartsWith(prefix, StringComparison.Ordinal) {
+                return true
+            }
+        }
+
+        return false
     }
 
     static func ContainsAny(names: HashSet<string>, candidates: string[]): bool {
@@ -103,7 +135,7 @@ class LinterNamespaceImportUsage {
     }
 
     static func CollectionsGenericTypeNames(): string[] {
-        return ["List", "Dictionary", "HashSet", "Queue", "Stack", "LinkedList", "SortedDictionary", "SortedList", "SortedSet", "KeyValuePair", "IEnumerable", "IList", "ICollection", "IDictionary", "ISet", "IReadOnlyList", "IReadOnlyCollection", "IReadOnlyDictionary", "IAsyncEnumerable", "IEnumerator", "IComparer", "IEqualityComparer"]
+        return ["List", "Dictionary", "HashSet", "Queue", "Stack", "LinkedList", "SortedDictionary", "SortedList", "SortedSet", "KeyValuePair", "Comparer", "EqualityComparer", "IEnumerable", "IList", "ICollection", "IDictionary", "ISet", "IReadOnlyList", "IReadOnlyCollection", "IReadOnlyDictionary", "IAsyncEnumerable", "IEnumerator", "IComparer", "IEqualityComparer"]
     }
 
     static func TextTypeNames(): string[] {
@@ -130,12 +162,15 @@ class LinterNamespaceImportUsage {
         return ["Task", "ValueTask", "TaskCompletionSource"]
     }
 
+    // The synchronisation primitives belong here as much as the handles do: a file whose only use of
+    // `System.Threading` is `Interlocked.Exchange(...)` or `Monitor.Enter(...)` was told its import
+    // was dead, and removing it on that advice broke the build.
     static func ThreadingTypeNames(): string[] {
-        return ["CancellationToken", "CancellationTokenSource", "SemaphoreSlim", "Mutex", "Timer", "Thread"]
+        return ["CancellationToken", "CancellationTokenSource", "SemaphoreSlim", "Mutex", "Timer", "Thread", "Interlocked", "Monitor", "Volatile", "ThreadPool", "ThreadLocal", "ReaderWriterLockSlim", "ManualResetEvent", "ManualResetEventSlim", "AutoResetEvent", "EventWaitHandle", "WaitHandle", "SpinLock", "SpinWait", "Barrier", "CountdownEvent", "LazyInitializer"]
     }
 
     static func SystemTypeNames(): string[] {
-        return ["DateTime", "DateTimeOffset", "TimeSpan", "Guid", "Uri", "Tuple", "Lazy", "Action", "Func", "Console", "Math", "Char", "Exception", "ArgumentException", "ArgumentNullException", "ArgumentOutOfRangeException", "InvalidOperationException", "NotSupportedException", "NotImplementedException", "FormatException", "OverflowException", "Random", "Convert", "Array", "Type", "Attribute", "Environment", "Int32", "String", "IDisposable", "IComparable", "IEquatable", "EventHandler", "Nullable", "Span", "Memory", "ReadOnlySpan", "ReadOnlyMemory", "StringComparison", "StringComparer", "ValueTuple", "Version", "Index"]
+        return ["DateTime", "DateTimeOffset", "TimeSpan", "Guid", "HashCode", "Uri", "Tuple", "Lazy", "Action", "Func", "Console", "Math", "Char", "Exception", "ArgumentException", "ArgumentNullException", "ArgumentOutOfRangeException", "InvalidOperationException", "NotSupportedException", "NotImplementedException", "FormatException", "OverflowException", "Random", "Convert", "Array", "Type", "Attribute", "Environment", "Int32", "String", "IDisposable", "IComparable", "IEquatable", "EventHandler", "Nullable", "Span", "Memory", "ReadOnlySpan", "ReadOnlyMemory", "StringComparison", "StringComparer", "ValueTuple", "Version", "Index"]
     }
 
     static func LinqTypeNames(): string[] {

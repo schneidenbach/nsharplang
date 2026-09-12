@@ -332,21 +332,28 @@ class AnalyzerDeclarationPolicy {
     // A TYPE
     // ----------------------------------------------------------------------------------------------
 
+    // A TYPE IS ITS NAME AND ITS GENERIC ARITY. `Subscription` and `Subscription<T>` are two types on
+    // the CLR — a C# consumer sees `Subscription` and `Subscription``1 — and they may sit side by side
+    // in one file, so the declaration table is keyed by the pair. NL306 therefore fires for a repeated
+    // (name, arity) only: two `class Foo {}`, two `class Foo<T> {}`, or a `class Foo<T>` beside a
+    // `struct Foo<U>`, which really are one identity declared twice.
     func DeclareType(name: string, declaredType: TypeInfo, line: int, column: int) {
-        resolvedType := CanonicalTypeFor(name, declaredType)
+        arity := AnalyzerTypeReferenceFacts.GenericHeadArity(declaredType)
+        key := TypeArityNames.Key(name, arity)
+        resolvedType := CanonicalTypeFor(key, declaredType)
 
         currentScope := scopes.Peek()
         nameColumn := spans.GetDeclarationNameColumn(name, line, column)
-        if currentScope.Types.ContainsKey(name) {
-            diagnostics.Report(ErrorCode.DuplicateDeclaration, "A type named '" + name + "' already exists — each type name must be unique", line, nameColumn, null, NameLength(name))
+        if currentScope.Types.ContainsKey(key) {
+            diagnostics.Report(ErrorCode.DuplicateDeclaration, DuplicateTypeMessage(name, arity), line, nameColumn, DuplicateTypeSuggestion(currentScope, name, arity), NameLength(name))
             return
         }
 
-        currentScope.Types[name] = resolvedType
+        currentScope.DeclareType(key, resolvedType)
 
         model := semanticModel
         if model != null {
-            model.RecordType(name, resolvedType)
+            model.RecordType(key, resolvedType)
         }
 
         filePath := currentFilePath
@@ -354,11 +361,43 @@ class AnalyzerDeclarationPolicy {
             typeDeclarationFiles[name] = filePath
         }
 
-        RegisterInDeclarationContext(name, resolvedType)
+        RegisterInDeclarationContext(key, resolvedType)
 
         kind := AnalyzerBindingFacts.TypeInfoToDeclarationKind(resolvedType)
         RecordDeclaration(name, line, nameColumn, kind)
-        currentScope.RecordDeclarationLocation(name, currentFilePath, line, nameColumn, kind)
+        currentScope.RecordDeclarationLocation(key, currentFilePath, line, nameColumn, kind)
+    }
+
+    // The duplicate names the ARITY when the name is also declared at another arity, because in that
+    // file "a type named 'Pair'" is ambiguous and "a type named 'Pair' with 2 type parameters" is not.
+    static func DuplicateTypeMessage(name: string, arity: int): string {
+        if arity <= 0 {
+            return "A type named '" + name + "' already exists — each type name must be unique"
+        }
+
+        return "A type named '" + TypeArityNames.WrittenForm(name, arity) + "' already exists — a type name and its type-parameter count together must be unique"
+    }
+
+    // When a same-name type at a DIFFERENT arity is already declared, the suggestion says so: the
+    // reader's mistake is usually a copied header whose type-parameter list was not changed, and
+    // knowing which spellings are taken is what tells them what to change it to.
+    static func DuplicateTypeSuggestion(scope: Scope, name: string, arity: int): string? {
+        others := new List<int>()
+        declared := scope.AritiesFor(name)
+        index := 0
+        while index < declared.Count {
+            if declared[index] != arity {
+                others.Add(declared[index])
+            }
+
+            index = index + 1
+        }
+
+        if others.Count == 0 {
+            return null
+        }
+
+        return "'" + name + "' is also declared with " + TypeArityNames.DescribeArities(others) + " type parameter(s), which is allowed — two declarations may share a name only when their type-parameter counts differ. Rename this one, or give it a different type-parameter count."
     }
 
     // THE SAME TYPE DECLARED IN TWO FILES MUST BE ONE IDENTITY. An alias is exempt: being a second

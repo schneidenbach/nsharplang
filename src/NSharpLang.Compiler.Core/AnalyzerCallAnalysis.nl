@@ -878,8 +878,17 @@ class AnalyzerCallAnalysis {
         return request
     }
 
-    // The call's own possible-null report, anchored on the CALLEE and never null-conditional: a
-    // call has no `?.` form of its own.
+    // The call's own possible-null report, anchored on the CALLEE.
+    //
+    // AN INVOCATION HAS NO `?.` OF ITS OWN, BUT ITS CALLEE CAN CARRY ONE, and when it does the whole
+    // invocation is guarded: `current?.Invoke(handler)` calls nothing when `current` is null, which
+    // is the entire point of writing it that way. Reporting a possible-null call there accused the
+    // guard of the fault it prevents, and — because a nullable delegate field is the ordinary way to
+    // write "unsubscribe at most once" — it fired on correct code that had no other spelling.
+    //
+    // The whole receiver SPINE is asked, not just the outermost link: `handler?.Target.Invoke()`
+    // short-circuits at the `?.` even though the `.Target` between it and the call does not carry
+    // one. Each link's own dereference report is a separate question and is unaffected.
     func EmitPossibleNullCall(state: CallAnalysisState): CallAnalysisRequest? {
         call := state.Call
         state.Phase = 3
@@ -890,8 +899,51 @@ class AnalyzerCallAnalysis {
         request.Line = call.Line
         request.Column = call.Column
         request.Text = "call"
-        request.Flag = false
+        request.Flag = IsNullConditionalInvocationTarget(call.Callee)
         return request
+    }
+
+    // Whether a null-conditional access anywhere along the callee's receiver spine short-circuits
+    // this invocation. The walk follows the receiver of a member access, of an index access and of a
+    // nested call, and stops at anything else — an identifier, a literal, a parenthesised expression
+    // — because none of those can carry a `?.` that would guard the call.
+    static func IsNullConditionalInvocationTarget(callee: Expression?): bool {
+        current := callee
+        depth := 0
+        while current != null && depth < 64 {
+            member := current as MemberAccessExpression
+            if member != null {
+                if member.IsNullConditional {
+                    return true
+                }
+
+                current = member.Object
+                depth = depth + 1
+                continue
+            }
+
+            indexAccess := current as IndexAccessExpression
+            if indexAccess != null {
+                if indexAccess.IsNullConditional {
+                    return true
+                }
+
+                current = indexAccess.Object
+                depth = depth + 1
+                continue
+            }
+
+            nestedCall := current as CallExpression
+            if nestedCall != null {
+                current = nestedCall.Callee
+                depth = depth + 1
+                continue
+            }
+
+            return false
+        }
+
+        return false
     }
 
     // WHICH ARGUMENT SCHEDULE THIS CALL GETS, and it is decided by the callee alone.

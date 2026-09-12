@@ -391,6 +391,10 @@ test "source operator resolver rejects excluded declarations and non-source oper
     )
     assert genericSelection.Status == ColumnarSourceOperatorStatus.Rejected
 
+    // A CONSTRUCTED source generic IS a source operand — it closes over a source declaration, and
+    // that declaration is where its operators live. With no `op_UnaryNegation` declared it is
+    // therefore `Rejected` (a source type that declares no such operator), not `NotSourceType`
+    // (something the source world knows nothing about), which is the answer `typeof(int)` gets above.
     closedOwner := SourceCallGenericDefinition("SourceOperatorClosed")
     closedDefinition: Type = closedOwner.Builder
     closedArguments := new Type[](1)
@@ -401,7 +405,63 @@ test "source operator resolver rejects excluded declarations and non-source oper
         closedType,
         SourceOperatorDefinitions(closedOwner, null)
     )
-    assert closedSelection.Status == ColumnarSourceOperatorStatus.NotSourceType
+    assert closedSelection.Status == ColumnarSourceOperatorStatus.Rejected
+    assert closedSelection.IsSourceType
+}
+
+// THE OPERATOR IS DECLARED ONCE, ON THE OPEN DEFINITION, AND SELECTED THROUGH EACH INSTANTIATION.
+// `operator ==(left: Tagged<T>, right: Tagged<T>)` reached as `Tagged<int>` takes two `Tagged<int>`,
+// and the handle the emitter gets is the declaration REBOUND onto the constructed type — a raw
+// `MethodBuilder` would name the open definition's method, which no instantiation can execute.
+test "source operator resolver selects a constructed generic type's own operator" {
+    owner := SourceCallGenericDefinition("SourceOperatorConstructed")
+    ownerDefinition: Type = owner.Builder
+    selfArguments := ownerDefinition.GetGenericArguments()
+    selfType := ownerDefinition.MakeGenericType(selfArguments)
+    definition := SourceOperatorDefine(
+        owner,
+        "op_Equality",
+        SourceOperatorTwoTypes(selfType, selfType),
+        typeof(bool)
+    )
+
+    intArguments := new Type[](1)
+    intArguments[0] = typeof(int)
+    intType := ownerDefinition.MakeGenericType(intArguments)
+    stringArguments := new Type[](1)
+    stringArguments[0] = typeof(string)
+    stringType := ownerDefinition.MakeGenericType(stringArguments)
+
+    selection := ColumnarSourceOperatorResolver.ResolveBinary(
+        "==",
+        intType,
+        intType,
+        SourceOperatorDefinitions(owner, null)
+    )
+    assert selection.Status == ColumnarSourceOperatorStatus.Selected
+    assert ColumnarConstructionPlanner.SameObject(selection.SourceDefinition, owner)
+    assert ColumnarConstructionPlanner.SameObject(selection.OperatorDefinition, definition)
+    assert selection.ReturnType == typeof(bool)
+    assert selection.ParameterTypes.Length == 2
+    assert ColumnarSourceDirectCallResolver.ExactTypeShapeMatches(selection.ParameterTypes[0], intType)
+    assert ColumnarSourceDirectCallResolver.ExactTypeShapeMatches(selection.ParameterTypes[1], intType)
+    assert ColumnarSourceDirectCallResolver.ExactTypeShapeMatches(selection.DeclaringType, intType)
+    selectedMethod := selection.Method
+    if selectedMethod == null {
+        throw new InvalidOperationException("Selected constructed source operator has no method handle.")
+    }
+    assert !ColumnarConstructionPlanner.SameObject(selectedMethod, definition.Builder)
+
+    // TWO INSTANTIATIONS ARE NOT ONE OPERAND SET. `Tagged<int> == Tagged<string>` closes the same
+    // declaration twice, and the declared parameter types substituted through EITHER side reject the
+    // other, so nothing is selected.
+    mixed := ColumnarSourceOperatorResolver.ResolveBinary(
+        "==",
+        intType,
+        stringType,
+        SourceOperatorDefinitions(owner, null)
+    )
+    assert mixed.Status == ColumnarSourceOperatorStatus.Rejected
 }
 
 test "source operator resolver deduplicates repeated facts and rejects corrupted ownership" {

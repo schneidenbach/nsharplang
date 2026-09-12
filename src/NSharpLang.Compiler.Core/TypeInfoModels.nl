@@ -559,6 +559,34 @@ class TupleTypeInfo: TypeInfo {
     constructor(elements: List<TupleTypeElementInfo>) {
         Elements = elements
     }
+
+    // A tuple prints the way it is written -- `(Min: int, Max: int)`, or `(int, int)` with nothing
+    // named. Without this the default answered the class name, which is what a hover over a named
+    // tuple local used to show.
+    override func ToString(): string {
+        builder := new StringBuilder()
+        builder.Append('(')
+
+        index := 0
+        while index < Elements.Count {
+            if index > 0 {
+                builder.Append(", ")
+            }
+
+            element := Elements[index]
+            if element.Name != null {
+                builder.Append(element.Name)
+                builder.Append(": ")
+            }
+
+            elementObject := element.Type as object
+            builder.Append(elementObject.ToString())
+            index = index + 1
+        }
+
+        builder.Append(')')
+        return builder.ToString()
+    }
 }
 
 class AnonymousUnionTypeInfo: TypeInfo {
@@ -696,6 +724,34 @@ class FunctionTypeInfo: TypeInfo {
         SourceColumn = 0
         SourceParameterCount = -1
         SourceHasReceiverParameter = false
+    }
+
+    // The same signature with its parameter and return TYPES replaced. Everything else — the
+    // declaration facts, the parameter names and modifiers, the source references a later
+    // inference pass still reads — is carried across unchanged, so closing a signature over a
+    // type-argument binding never loses the declaration it came from.
+    func WithSignatureTypes(parameterTypes: List<TypeInfo>?, returnType: TypeInfo?): FunctionTypeInfo {
+        substituted := new FunctionTypeInfo()
+        substituted.SyntheticName = SyntheticName
+        substituted.SourceName = SourceName
+        substituted.SourceContainingType = SourceContainingType
+        substituted.SourceLine = SourceLine
+        substituted.SourceColumn = SourceColumn
+        substituted.SourceParameterCount = SourceParameterCount
+        substituted.SourceHasReceiverParameter = SourceHasReceiverParameter
+        substituted.ParameterNames = ParameterNames
+        substituted.ParameterTypes = parameterTypes
+        substituted.SourceParameterTypes = SourceParameterTypes
+        substituted.SourceReturnType = SourceReturnType
+        substituted.ParameterModifiers = ParameterModifiers
+        substituted.RequiredParameterCount = RequiredParameterCount
+        substituted.HasParamsParameter = HasParamsParameter
+        substituted.TypeParameters = TypeParameters
+        substituted.GenericConstraints = GenericConstraints
+        substituted.ResolvedGenericConstraintTypes = ResolvedGenericConstraintTypes
+        substituted.HasMustUseAttribute = HasMustUseAttribute
+        substituted.ReturnType = returnType
+        return substituted
     }
 }
 

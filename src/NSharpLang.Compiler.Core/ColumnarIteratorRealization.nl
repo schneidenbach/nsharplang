@@ -744,7 +744,7 @@ class ColumnarIteratorRealization {
                 typeResolution.Structs,
                 typeResolution.Unions,
                 out resolvedType
-            ) && (resolvedType.get_IsGenericParameter() || (resolvedType.get_IsSZArray() && ((Type)resolvedType.GetElementType()).get_IsGenericParameter()) || ColumnarTypeOfPlanner.IsSupportedType(resolvedType)) && !ContainsMethodVarReference(resolvedType, smTypeParamMap)
+            ) && (resolvedType.get_IsGenericParameter() || (ColumnarTypeEquivalenceFacts.IsSafeSzArrayType(resolvedType) && ((Type)resolvedType.GetElementType()).get_IsGenericParameter()) || ColumnarTypeOfPlanner.IsSupportedType(resolvedType)) && !ContainsMethodVarReference(resolvedType, smTypeParamMap)
         }
         return ColumnarCanonicalTypeResolver.TryResolveType(
             canonical,
@@ -761,7 +761,7 @@ class ColumnarIteratorRealization {
         if valueType.get_IsGenericParameter() {
             return !smTypeParamMap.ContainsValue(valueType)
         }
-        if valueType.get_IsSZArray() {
+        if ColumnarTypeEquivalenceFacts.IsSafeSzArrayType(valueType) {
             return ContainsMethodVarReference(valueType.GetElementType(), smTypeParamMap)
         }
         if valueType.get_IsGenericType() && !valueType.get_IsGenericTypeDefinition() {

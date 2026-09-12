@@ -129,13 +129,19 @@ class Greeter {
     }
 }
 
+// THE FIXTURE EXPRESSION IS A DECLINING SHAPE, AND WHICH ONE IS INCIDENTAL. These three rows are
+// about the REPORT — its site, its message, the file it lands in and the span it covers — so they
+// need any expression the backend refuses, and they say which one they used only because the span
+// has to be counted from it. `value.GetType().AssemblyQualifiedName` was that expression until
+// ordinary CLR member resolution began answering a member read off a call RESULT, which made it
+// compile; `value.GetType().GUID.ToString()` is the same kind of shape and declines at the same site.
 test "CompileToIlAssembly_SingleFileDeclineReportsReasonAndSpan" {
     compilation := EmitterCanonicalCompileSingle(
         "SingleDecline",
         "library",
         """
 func TypeName(value: string): string? {
-    return value.GetType().AssemblyQualifiedName
+    return value.GetType().GUID.ToString()
 }
 """
     )
@@ -151,7 +157,7 @@ func TypeName(value: string): string? {
         )
         assert EmitterCanonicalErrorInt(error, "Line") == 2
         assert EmitterCanonicalErrorInt(error, "Column") == 12
-        assert EmitterCanonicalErrorInt(error, "Length") == 37
+        assert EmitterCanonicalErrorInt(error, "Length") == 31
     } finally {
         EmitterCanonicalCleanup(compilation)
     }
@@ -163,7 +169,7 @@ test "CompileToIlAssembly_TwoFileDeclineMapsMergedOffsetToOwningFile" {
     fileNames[0] = "First.nl"
     contents[0] = "func Keep(): int {\n    return 1\n}"
     fileNames[1] = "Second.nl"
-    contents[1] = "func TypeName(value: string): string? {\n    return value.GetType().AssemblyQualifiedName\n}"
+    contents[1] = "func TypeName(value: string): string? {\n    return value.GetType().GUID.ToString()\n}"
     compilation := EmitterCanonicalCompile(
         "TwoFileDecline",
         EmitterCanonicalProjectYml("TwoFileDecline", "library"),
@@ -283,7 +289,7 @@ test "CompileToIlAssembly_DeclineLogEnvVarWritesTraceToStderr" {
         "library",
         """
 func TypeName(value: string): string? {
-    return value.GetType().AssemblyQualifiedName
+    return value.GetType().GUID.ToString()
 }
 """,
         "NSHARP_COLUMNAR_DECLINE_LOG",

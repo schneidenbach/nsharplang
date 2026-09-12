@@ -155,3 +155,169 @@ func Broken() -> int {
         Directory.Delete(tempRoot, true)
     }
 }
+
+// ── WHICH DECLARATION A BARE NAME MEANS ───────────────────────────────────────────────────────
+//
+// These three run the whole compiler over a real multi-file workspace, because the rule they pin is
+// about a PROJECT rather than a file: which of several declarations a bare name selects depends on
+// what else the project declares and on what this file imported.
+
+test "two imports that supply one name report NL209 and name both candidates" {
+    tempRoot := LsdTempRoot("nsharp-lsp-ambiguous-import-")
+    Directory.CreateDirectory(tempRoot)
+    try {
+        LsdWriteFile(tempRoot, "project.yml", "name: AmbiguousImports\ntargetFramework: net10.0")
+        LsdWriteFile(
+            tempRoot,
+            "Reporting/Widget.nl",
+            LsdDecodedSource(
+                """
+namespace AmbiguousImports.Reporting
+
+class Widget {
+    static func Render(): string {
+        return "report"
+    }
+}
+"""
+            )
+        )
+        LsdWriteFile(
+            tempRoot,
+            "Dashboard/Widget.nl",
+            LsdDecodedSource(
+                """
+namespace AmbiguousImports.Dashboard
+
+class Widget {
+    static func Render(): string {
+        return "dashboard"
+    }
+}
+"""
+            )
+        )
+        programSource := LsdDecodedSource(
+            """
+namespace AmbiguousImports.App
+
+import AmbiguousImports.Reporting
+import AmbiguousImports.Dashboard
+
+func Show(): string {
+    return Widget.Render()
+}
+"""
+        )
+        programPath := Path.Combine(tempRoot, "Program.nl")
+        File.WriteAllText(programPath, programSource)
+        diagnostics := LsdOpenCompilerDiagnostics(LsdFileUri(programPath), programSource)
+
+        diagnostic := LsdSingle(diagnostics, "AmbiguousTypeReference", "AmbiguousImports.Reporting.Widget")
+        message := LsdFieldText(diagnostic, "Message")
+        assert message.Contains("AmbiguousImports.Dashboard.Widget")
+        LsdAssertSpan(diagnostic, 7, 12, "Widget".Length)
+    } finally {
+        Directory.Delete(tempRoot, true)
+    }
+}
+
+test "the file's own namespace wins over an import, with no ambiguity report" {
+    tempRoot := LsdTempRoot("nsharp-lsp-own-namespace-wins-")
+    Directory.CreateDirectory(tempRoot)
+    try {
+        LsdWriteFile(tempRoot, "project.yml", "name: OwnNamespaceWins\ntargetFramework: net10.0")
+        LsdWriteFile(
+            tempRoot,
+            "Reporting/Widget.nl",
+            LsdDecodedSource(
+                """
+namespace OwnNamespaceWins.Reporting
+
+class Widget {
+    static func Render(): string {
+        return "report"
+    }
+}
+"""
+            )
+        )
+        LsdWriteFile(
+            tempRoot,
+            "Widget.nl",
+            LsdDecodedSource(
+                """
+namespace OwnNamespaceWins.App
+
+class Widget {
+    static func Render(): string {
+        return "app"
+    }
+}
+"""
+            )
+        )
+        programSource := LsdDecodedSource(
+            """
+namespace OwnNamespaceWins.App
+
+import OwnNamespaceWins.Reporting
+
+func Show(): string {
+    return Widget.Render()
+}
+"""
+        )
+        programPath := Path.Combine(tempRoot, "Program.nl")
+        File.WriteAllText(programPath, programSource)
+        diagnostics := LsdOpenCompilerDiagnostics(LsdFileUri(programPath), programSource)
+
+        assert !LsdContains(diagnostics, "AmbiguousTypeReference", null)
+    } finally {
+        Directory.Delete(tempRoot, true)
+    }
+}
+
+test "an imported CLR type is not shadowed by a source type in an unimported namespace" {
+    tempRoot := LsdTempRoot("nsharp-lsp-import-precedence-")
+    Directory.CreateDirectory(tempRoot)
+    try {
+        LsdWriteFile(tempRoot, "project.yml", "name: ImportPrecedence\ntargetFramework: net10.0")
+        LsdWriteFile(
+            tempRoot,
+            "Shadow/Version.nl",
+            LsdDecodedSource(
+                """
+namespace ImportPrecedence.Shadow
+
+class Version {
+    static func Origin(): string {
+        return "shadow"
+    }
+}
+"""
+            )
+        )
+        programSource := LsdDecodedSource(
+            """
+namespace ImportPrecedence.App
+
+import System
+
+func Release(): int {
+    release := new Version(4, 2)
+    return release.Major
+}
+"""
+        )
+        programPath := Path.Combine(tempRoot, "Program.nl")
+        File.WriteAllText(programPath, programSource)
+        diagnostics := LsdOpenCompilerDiagnostics(LsdFileUri(programPath), programSource)
+
+        // The source `Version` declares no `Major` and no two-argument constructor, so binding to it
+        // would report here. Silence is the proof that `import System` won the name.
+        assert !LsdContainsSeverity(diagnostics, "Error")
+    } finally {
+        Directory.Delete(tempRoot, true)
+    }
+}

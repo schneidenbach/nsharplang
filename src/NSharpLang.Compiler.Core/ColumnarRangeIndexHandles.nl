@@ -104,13 +104,13 @@ class ColumnarRangeIndexHandles {
 
         returnType := definition.get_ReturnType()
         parameters := definition.GetParameters()
-        if !returnType.get_IsSZArray() {
+        if !ColumnarTypeEquivalenceFacts.IsSafeSzArrayType(returnType) {
             throw new InvalidOperationException("GetSubArray definition must return an SZ array.")
         }
         if parameters.Length != 2 {
             throw new InvalidOperationException("GetSubArray definition must have exactly two parameters.")
         }
-        if !parameters[0].get_ParameterType().get_IsSZArray() {
+        if !ColumnarTypeEquivalenceFacts.IsSafeSzArrayType(parameters[0].get_ParameterType()) {
             throw new InvalidOperationException("GetSubArray first parameter must be an SZ array.")
         }
         if parameters[1].get_ParameterType() != typeof(Range) {
@@ -144,7 +144,7 @@ class ColumnarRangeIndexHandles {
             throw new InvalidOperationException("Constructed GetSubArray generic argument is invalid.")
         }
         returnElement := returnType.GetElementType()
-        if !returnType.get_IsSZArray() || returnElement == null || (elementType.get_IsGenericParameter() ? !returnElement.get_IsGenericParameter() : returnElement != elementType) {
+        if !ColumnarTypeEquivalenceFacts.IsSafeSzArrayType(returnType) || returnElement == null || (elementType.get_IsGenericParameter() ? !returnElement.get_IsGenericParameter() : returnElement != elementType) {
             throw new InvalidOperationException("Constructed GetSubArray return type is invalid.")
         }
         if parameters.Length != 2 {
@@ -152,7 +152,7 @@ class ColumnarRangeIndexHandles {
         }
         arrayParameterType := parameters[0].get_ParameterType()
         parameterElement := arrayParameterType.GetElementType()
-        if !arrayParameterType.get_IsSZArray() || parameterElement == null || (elementType.get_IsGenericParameter() ? !parameterElement.get_IsGenericParameter() : parameterElement != elementType) {
+        if !ColumnarTypeEquivalenceFacts.IsSafeSzArrayType(arrayParameterType) || parameterElement == null || (elementType.get_IsGenericParameter() ? !parameterElement.get_IsGenericParameter() : parameterElement != elementType) {
             throw new InvalidOperationException("Constructed GetSubArray array parameter is invalid.")
         }
         if parameters[1].get_ParameterType() != typeof(Range) {

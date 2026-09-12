@@ -559,7 +559,9 @@ test "a locally-declared generic at the wrong arity is NL207, with the count in 
     assert errors.Count == 1
     assert errors[0].Code == ErrorCode.InvalidTypeArgument
     assert errors[0].Message == "Generic type 'Box' takes 1 type argument(s), but 2 were provided"
-    assert errors[0].Suggestion == "Match the declaration's type parameter count for 'Box'"
+    // The suggestion is now the SPELLING that would work rather than a restatement of the rule: the
+    // reader is told to write `Box<T>`, which is what they have to type.
+    assert errors[0].Suggestion == "Write 'Box<T>'"
     // The report underlines the NAME, not the whole reference.
     assert errors[0].Line == 3
     assert errors[0].Column == 5

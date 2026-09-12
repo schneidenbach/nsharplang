@@ -221,7 +221,7 @@ test "semantic type resolution catalog creates a fresh structural emission for r
 
 test "semantic type resolution catalog preserves exact maps behind source aliases" {
     boxBuilder := TypeOfCreateSourceBuilder("Catalog.Box", true)
-    boxDefinition := ExactTypeDefinition(boxBuilder, "Catalog.Box")
+    boxDefinition := ExactTypeDefinition(boxBuilder, "Catalog.Box`1")
     structs := SemanticEmptyStructs()
     structs[boxDefinition.DeclaredTypeName] = boxDefinition
     structs["Box"] = boxDefinition
@@ -426,7 +426,7 @@ test "semantic resolver selects nested source types from the exact lexical owner
 
 test "semantic resolver caches exact source aliases and preserves closed generic aliases" {
     boxBuilder := TypeOfCreateSourceBuilder("Left.SemanticBox", true)
-    boxDefinition := ExactTypeDefinition(boxBuilder, "Left.SemanticBox")
+    boxDefinition := ExactTypeDefinition(boxBuilder, "Left.SemanticBox`1")
     structs := SemanticEmptyStructs()
     structs[boxDefinition.DeclaredTypeName] = boxDefinition
 
@@ -688,9 +688,11 @@ test "semantic resolver keeps syntax-owned generic shapes ahead of exact source 
     )
     actionBuilder := TypeOfCreateSourceBuilder("Action", true)
     pointBuilder := TypeOfCreateSourceBuilder("SemanticPoint", false)
-    listDefinition := ExactTypeDefinition(listBuilder, "List")
-    funcDefinition := ExactTypeDefinition(funcBuilder, "Func")
-    actionDefinition := ExactTypeDefinition(actionBuilder, "Action")
+    // The declared names carry their arity, exactly as `ExactStructTypeName` composes them for a
+    // real program: the fixture source below declares `List<T>`, `Func<T,R>` and `Action<T>`.
+    listDefinition := ExactTypeDefinition(listBuilder, "List`1")
+    funcDefinition := ExactTypeDefinition(funcBuilder, "Func`2")
+    actionDefinition := ExactTypeDefinition(actionBuilder, "Action`1")
     pointDefinition := ExactTypeDefinition(pointBuilder, "SemanticPoint")
     structs := SemanticEmptyStructs()
     structs[listDefinition.DeclaredTypeName] = listDefinition

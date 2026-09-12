@@ -18,6 +18,7 @@ This guide covers the type system in N#, including classes, structs, records, di
 - [Enums](#enums)
 - [Interfaces](#interfaces)
 - [Generics](#generics)
+- [Using .NET Generic Types](#using-net-generic-types)
 - [Nullable Types](#nullable-types)
 - [Type Aliases](#type-aliases)
 - [Newtypes (Branded Types)](#newtypes-branded-types)
@@ -775,6 +776,460 @@ Two current limits, both being worked on:
   parameter, return type, local or base list is not yet reported; the constraint is still recorded
   in metadata, and the same argument is reported when you construct it.
 
+## Using .NET Generic Types
+
+A closed generic type from the BCL or from any referenced assembly is an ordinary type in N#. You
+construct it, call its operators, index it and pass it to generic methods with no ceremony and no
+special-casing in the compiler — `System.Collections.Generic.List<int>` and
+`System.Numerics.Vector<int>` go through exactly the same paths.
+
+### Constructing
+
+Write `new`, the closed type, and the arguments. The constructor is selected by ordinary overload
+resolution over the type's public constructors:
+
+```n#
+import System.Collections.Generic
+import System.Numerics
+
+func Load(values: int[], index: int): Vector<int> {
+    block := new Vector<int>(values, index)   // the (T[], int) constructor
+    broadcast := new Vector<int>(7)           // the (T) constructor: every lane is 7
+    return block + broadcast
+}
+
+func Counts(): Dictionary<string, int> {
+    return new Dictionary<string, int>(16, StringComparer.Ordinal)
+}
+```
+
+A **value type** written with no arguments and no parameterless constructor is its zero value, the
+same reading C# gives it:
+
+```n#
+empty := new Vector<int>()   // all lanes zero
+```
+
+Arguments evaluate left to right, exactly once each, and any exception the constructor raises reaches
+you unchanged — `new Vector<int>(values, values.Length - 1)` raises the BCL's own
+`ArgumentOutOfRangeException`.
+
+### Operators
+
+If the type declares operators, you write them:
+
+```n#
+func Mask(a: Vector<int>, b: Vector<int>): Vector<int> {
+    return ~Vector.Equals(a, b) & a
+}
+
+func Elapsed(start: DateTime, finish: DateTime): TimeSpan {
+    return finish - start
+}
+```
+
+`+ - * / % & | ^ << >>`, the comparisons `== != < <= > >=`, and the unary `- + ! ~` all resolve to the
+type's own `op_*` declarations, with C#'s overload rules — including the more-specific rule that
+decides between two applicable operators. Compound assignment (`+=`, `-=`, `*=`, `/=`) uses the same
+operators, on a local, a field, an array element or a collection indexer:
+
+```n#
+func SumBlocks(values: int[], lanes: int): int {
+    accumulator := new Vector<int>(0)
+    i := 0
+    while i <= values.Length - lanes {
+        accumulator += new Vector<int>(values, i)
+        i = i + lanes
+    }
+    return Vector.Sum(accumulator)
+}
+```
+
+The built-in numeric, `bool`, `char` and `string` operators are unaffected: `1 + 2` is still a single
+IL instruction, not a method call.
+
+### Conversion operators
+
+A conversion operator is a member like any other, so the ones a referenced assembly's type declares
+are the ones you get — in an annotated local, an argument, a return, and a written cast:
+
+```n#
+import System
+import System.Xml.Linq
+import NSharpLang.Runtime
+
+func Tag(): XName {
+    name: XName = "entry"          // implicit operator XName(string)
+    return name
+}
+
+func Moment(instant: DateTime): DateTimeOffset {
+    return instant                 // implicit operator DateTimeOffset(DateTime)
+}
+
+func Arm(): Union<int, string> {
+    return 5                       // implicit operator Union<T0, T1>(T0)
+}
+
+func Rounded(value: double): decimal {
+    return (decimal)value          // explicit operator decimal(double) — the cast is required
+}
+```
+
+The operator is found on **either end** of the conversion, on the type converted from or the type
+converted to, so a wrapper's own inbound conversion works even when the other end is `int`. Selection
+follows C#'s rules: a built-in conversion always wins (`decimal d = 5` is numeric widening, not
+`decimal.op_Implicit`), a user-defined conversion is considered once and never chained with another,
+the source may widen into the operator's parameter, and when two operators are equally good the
+conversion is an **error** rather than an arbitrary pick — `Union<float, decimal> u = 5` reports a
+type mismatch, because `int` reaches `float` and `decimal` equally well and neither reaches the other.
+
+An `implicit` operator is reached without a cast and an `explicit` one only with one; a cast also
+reaches the implicit operators, so `(XName)"entry"` is the same conversion written out.
+
+A **lifted** conversion is not synthesised: `S? → T?` needs an operator that actually names the
+nullable types. And a conversion declared by a generic type is only reachable once that type is
+closed over real types — inside `func Wrap<T>(): Union<T, string>` the conversion from `T` does not
+resolve yet.
+
+### Indexers
+
+An indexer is an ordinary member, so `receiver[index]` works on any type that declares one, and its
+bounds behaviour is the type's own:
+
+```n#
+func Lane(a: Vector<int>, index: int): int {
+    return a[index]
+}
+```
+
+### Generic methods
+
+A generic method's type arguments are inferred from the arguments you pass, including from a
+constructed generic argument:
+
+```n#
+func Reduce(a: Vector<int>): int {
+    return Vector.Sum(a)              // Sum<T> binds T = int from Vector<int>
+}
+
+func Nearest(a: Vector<long>, b: Vector<long>): Vector<long> {
+    return Vector.Min(a, b)           // Min<T> binds T = long
+}
+
+func Hash(state: byte, name: string): int {
+    return HashCode.Combine(state, name)   // one type parameter per argument
+}
+```
+
+A type argument may be a type parameter of the declaration you are writing it in, so the same call
+works inside your own generic type — the CLR resolves it once per constructed type:
+
+```n#
+struct Outcome<TOk, TErr> {
+    ok: TOk
+    state: byte
+
+    constructor(value: TOk, tag: byte) {
+        ok = value
+        state = tag
+    }
+
+    override func GetHashCode(): int {
+        return HashCode.Combine(state, ok)   // T2 binds to TOk
+    }
+}
+```
+
+Inference is checked, not guessed: a type parameter two arguments would bind differently is an error
+rather than a silent choice, and the inferred arguments are validated against the method's declared
+constraints.
+
+#### Writing the type arguments
+
+When inference has nothing to go on — a method whose type parameters appear only in its RESULT, or
+only in a lambda's parameter — write the list. It works on a static method, on an instance method,
+and on a method of a constructed generic receiver:
+
+```n#
+import System.Collections.Generic
+import System.Text.Json
+import System.Threading.Tasks
+import NSharpLang.Runtime
+
+func Ages(json: string): Dictionary<string, int> {
+    // A trailing optional whose default is null is filled, so `options` need not be written.
+    return JsonSerializer.Deserialize<Dictionary<string, int>>(json)
+}
+
+func Texts(values: List<int>): List<string> {
+    // An INSTANCE generic method; the lambda is bound against Converter<int, string>.
+    return values.ConvertAll<string>(v => v.ToString())
+}
+
+func Ready(value: int): Task<int> {
+    return Task.FromResult<int>(value)   // written where inference would also have done
+}
+
+func Descending(): Comparer<int> {
+    // A static member of a CONSTRUCTED owner: the member is chosen on Comparer<int>, so the
+    // lambda takes its shape from Comparison<int>.
+    return Comparer<int>.Create((left, right) => right - left)
+}
+
+func Describe(u: Union<int, string>): string {
+    if u.Is<int>() {
+        seen := -1
+        if u.TryGet<int>(out seen) {          // an `out` parameter over the written argument
+            return u.As<int>().ToString() + "/" + seen.ToString()
+        }
+    }
+
+    return u.Match<string>(a => a.ToString(), b => b)
+}
+
+func Wrap(value: int): Result<int, string> {
+    return ResultFactory.Ok<int, string>(value)   // a generic STATIC on an external type
+}
+```
+
+The rules are the ones C# states, and they are the same rules your own generic methods follow:
+
+- The **count must match the declaration's arity**. `u.Is<int, string>()` against `Is<T>()` is
+  [NL207](./errors/NL207.md), in the same words a method of your own would report.
+- The written arguments are **validated against the declared constraints**, so a type argument a
+  constraint refuses does not bind.
+- A **trailing optional** parameter whose default is `null` is filled, which is why
+  `JsonSerializer.Deserialize<T>(json)` needs no `options`.
+- A **lambda argument** is bound against the SUBSTITUTED parameter type, so it knows its own
+  parameter and result types; that is what makes `Match<string>(a => ..., b => ...)` and
+  `Comparer<int>.Create((a, b) => a - b)` write the way they do.
+- An `out` or `ref` parameter over a type parameter closes the same way: `TryGet<int>(out seen)`
+  passes the address of an `int`.
+
+Overload resolution over the written list is the ordinary one whenever the arguments have types of
+their own. A call whose arguments cannot all be typed before they are bound — one carrying a lambda,
+or an `out` — binds only when the name leaves exactly ONE candidate at that arity; an ambiguity there
+is refused rather than guessed, because the argument types are what would have chosen between them.
+
+### Over your own type parameters
+
+Everything above holds when the type argument is a type parameter of the declaration you are writing
+in. `EqualityComparer<TOk>` inside `Outcome<TOk, TErr>` is the same external type as
+`EqualityComparer<int>` is outside it, so it needs no special spelling and no wrapper:
+
+```n#
+import System
+import System.Collections.Generic
+
+struct Outcome<TOk, TErr>: IEquatable<Outcome<TOk, TErr>> {
+    ok: TOk
+    err: TErr
+    state: int
+
+    constructor(ok: TOk, err: TErr, state: int) {
+        this.ok = ok
+        this.err = err
+        this.state = state
+    }
+
+    func Equals(other: Outcome<TOk, TErr>): bool {
+        if state != other.state {
+            return false
+        }
+        return EqualityComparer<TOk>.Default.Equals(ok, other.ok)
+    }
+
+    func GetHashCode(): int {
+        return HashCode.Combine(state, ok)
+
+### Over your own complete types
+
+The same three places accept an external generic closed over a COMPLETE type of your compilation —
+a class, struct, record, union, nested type, an array of one, or a closed instantiation of one of
+your own generics — and it does not have to be the enclosing declaration:
+
+```n#
+struct Plain: IEquatable<Plain> {
+    value: int
+    tag: string
+
+    func Equals(other: Plain): bool => value == other.value
+    func GetHashCode(): int => value
+}
+
+class Item: IComparable<Item> {
+    rank: int
+    func CompareTo(other: Item): int => other.rank - rank
+}
+
+func Report(rows: List<Plain>, seed: IEquatable<Plain>): KeyValuePair<string, Plain> {
+    matcher: Func<Plain, bool> = row => row.Value > 0
+    ordered: IComparer<Item> = Comparer<Item>.Default
+    byName: Dictionary<string, Plain> = new Dictionary<string, Plain>()
+    ...
+}
+```
+
+- **A base list.** `struct Plain: IEquatable<Plain>` and `class Item: IComparable<Item>` land the
+  CONSTRUCTED interface in the emitted metadata, and the BCL dispatches through it:
+  `EqualityComparer<Plain>.Default.Equals` calls your `Equals`, and `List<Item>.Sort()` orders by
+  your `CompareTo`. The same holds for a closed instantiation of your own generic —
+  `EqualityComparer<Outcome<int, string>>.Default` reaches `Outcome<TOk, TErr>`'s implementation.
+- **Locals, fields, parameters and returns.** `IEquatable<Plain>`, `IEquatable<Outcome<int, string>>`,
+  `Comparer<Item>`, `Func<Plain, bool>`, `KeyValuePair<string, Plain>`, `IEnumerable<Plain>` and
+  `Dictionary<string, Plain>` are ordinary member and local types. Assigning your value into a
+  constructed interface it implements is the ordinary conversion — a class needs no instruction, a
+  struct boxes.
+- **Static receivers.** `EqualityComparer<Plain>.Default`, `Comparer<Item>.Default` and
+  `Comparer<Outcome<int, string>>.Default` read the closed type's own member.
+
+### Generic methods your own types declare
+
+A `class`, `struct` or `record` may declare a generic method, whether or not the type itself is
+generic. The method's type parameters are its own: they are separate from the declaring type's, they
+may be constrained separately, and they reach CLR metadata as real method type parameters — the
+method is a generic method to C# and every other .NET language, not only inside N#.
+
+```n#
+struct Box<T> {
+    Value: T
+
+    constructor(value: T) {
+        Value = value
+    }
+
+    // The method's `U` is nothing to do with the box's `T`.
+    static func Of<U>(value: U): Box<U> {
+        return new Box<U>(value)
+    }
+
+    // A signature may name BOTH scopes.
+    func Map<TResult>(f: Func<T, TResult>): Box<TResult> {
+        return new Box<TResult>(f(Value))
+    }
+}
+
+class Plain {
+    func Echo<T>(value: T): T {
+        return value
+    }
+
+    static func Wrap<T>(value: T): Box<T> {
+        return new Box<T>(value)
+    }
+}
+```
+
+Three separate places in that declaration name an external generic over its own parameters, and each
+is ordinary:
+
+- **A static receiver.** `EqualityComparer<TOk>.Default` reads the closed type's own `Default`
+  property, and `.Equals(a, b)` on the result is an ordinary instance call — the substituted member
+  types come out of the closed type's metadata, not out of a table.
+- **A base list.** `IEquatable<Outcome<TOk, TErr>>` names the type's own constructed self. The
+  interface lands in the emitted metadata as the CONSTRUCTED interface (`GetInterfaces()` reports
+  `IEquatable<Outcome<int, string>>` for `Outcome<int, string>`), and `func Equals(other: Outcome<TOk,
+  TErr>)` satisfies it: the BCL's own `EqualityComparer<Outcome<int, string>>.Default` picks the
+  `IEquatable<T>` comparer and calls straight into it. `class Node<T>: IComparable<Node<T>>` works
+  the same way, including through `Comparer<Node<string>>.Default`.
+- **Fields, parameters and returns.** `List<T>`, `Dictionary<string, T>`, `IEnumerable<T>`,
+  `KeyValuePair<TKey, TValue>`, `Func<T, bool>?`, `Action<T>?` and `T[]` are all ordinary member
+  types on a generic class or struct, and each instantiation carries its own closed field types.
+
+Any external generic definition works here, not a fixed set of BCL heads: the head resolves through
+ordinary scoped type resolution at the arity you wrote, and the arguments are closed with the CLR's
+own construction. A wrong arity is reported as an ordinary [NL207](/docs/errors/NL207), and an
+interface member you do not implement is reported as an ordinary [NL325](/docs/errors/NL325) naming
+the constructed interface.
+
+Call one with its type arguments written or inferred, on either kind of owner:
+
+```n#
+func Use(): int {
+    box := new Box<int>(3)
+    plain := new Plain()
+
+    mapped := box.Map<string>(v => v.ToString())   // written
+    echoed := plain.Echo(7)                        // inferred
+    wrapped := Plain.Wrap(5)                       // inferred, static
+    made := Box<int>.Of(4)                         // inferred, on a constructed owner
+
+    return echoed + wrapped.Value + made.Value + mapped.Value.Length
+}
+```
+
+A generic method on a GENERIC owner is reached through the receiver's instantiation, so a static one
+needs the owner written out — `Box<int>.Of(4)` rather than `Box.Of(4)` — everywhere except inside the
+declaring type's own code, where the instantiation is the type's own.
+
+Constraints work as they do on a type: `where U : class`, `struct`, `new()`, and your own interfaces
+and classes. They are validated at the call site and recorded in metadata.
+
+```n#
+class Registry {
+    static func Register<T>(value: T): bool where T : class {
+        return value != null
+    }
+}
+```
+
+Two rules the compiler enforces about the type-argument list itself:
+
+- It is **all or nothing**. `Pick<int>(1, "a")` against `Pick<TFirst, TSecond>` is
+  [NL207](./errors/NL207.md), and so is writing a list on a method that has no type parameters.
+  Omitting the list entirely is always allowed where inference can close it.
+- A method's type parameter may **not reuse a name its declaring type already binds**.
+  `struct Box<T> { func Shadow<T>() }` is [NL316](./errors/NL316.md): inside the member both
+  spellings are legal and only the inner one means anything.
+
+### Current limits
+
+- An **array of a constructed external value-type generic** (`Vector<int>[]`) does not emit yet.
+  Arrays of your own types, of reference types and of the primitive types are unaffected. The same
+  limit applies to an array of an external generic closed over your own type parameter
+  (`List<T>[]`); `T[]` itself is unaffected.
+- A **COLLECTION whose element is an array of one of your own types** — `List<Plain[]>`,
+  `Dictionary<string, Plain[]>` — is not admitted; the collection lowerings keep a narrower element
+  rule than the general one. `Plain[]` as an ordinary generic argument (`Func<Plain[], bool>`) is
+  unaffected, and so is `Plain[]` itself.
+- **Implementing `IEnumerable<T>` on your own class** compiles, but the emitted type cannot be
+  loaded: `IEnumerable<T>` inherits the non-generic `IEnumerable.GetEnumerator()`, which differs from
+  the generic one only by return type, and N# has no explicit interface implementation to spell it.
+  This is not specific to your own type argument — `class Bag: IEnumerable<int>` has the same
+  problem. Return `IEnumerable<T>` from a method instead of implementing it.
+- A **lambda assigned to a delegate FIELD inside a constructor** is not emitted, for any delegate
+  (`Func<int, bool>` too). Build it in a local, or return it from a function.
+- A **generic method an `interface` declares** — `interface IHas { func Get<T>(): T }` — is not
+  compiled yet. A generic method on a `class`, `struct` or `record` is unaffected.
+- A method type parameter mentioned **only in a delegate's RESULT** is not inferred from the
+  lambda's body: `outcome.Match(v => v.ToString(), e => e)` needs `Match<string>(...)` written out.
+  The same limit applies to a generic FREE function with a `Func<TValue, TResult>` parameter.
+- **Null-conditional INDEXING** (`items?[0]`) is not compiled yet; `?.` on a member or a method is
+  unaffected, and an explicit null check reads the element.
+- An argument that must be **boxed into an `object` parameter of a GENERIC function**
+  (`Wrap<int>(value, fallback)` where `Wrap` takes `o: object?`) is not converted yet. The same
+  argument reaches a non-generic function's `object?` parameter without ceremony.
+- A generic method written with its type arguments **directly on a call's RESULT**
+  (`Make().As<int>()`) does not resolve; bind the receiver to a name first (`made := Make()` then
+  `made.As<int>()`). An ordinary member off a call result (`Make().Index`) is unaffected.
+- A **fully qualified** external type reaches fewer positions than an imported one. Written out
+  (`NSharpLang.Runtime.Result<int, string>`) it works in `typeof`, in a `:=` initializer, as a
+  local's declared type and as the receiver of a generic or `out`-taking member, but not as a `type`
+  alias target, a parameter type, an annotated local's initializer, or a `new` expression. Importing
+  the namespace and using the simple name reaches all of those.
+- `default` is written **bare**; the C#-style `default(T)` is not N# syntax — the parser reads it as
+  the keyword followed by a call, and the analyzer reports a call on a maybe-null value. Annotate the
+  target instead (`x: T = default`, `return default` on a typed function).
+- A `[MethodImpl(...)]` attribute is **accepted and then dropped**: the source compiles with no
+  diagnostic, and the emitted method's `GetMethodImplementationFlags()` is `0` whether the argument is
+  a single `MethodImplOptions` value or a flags combination. Treat inlining hints as unavailable
+  rather than applied.
+- A **catch clause's exception type must be a simple name**: `catch ex: System.InvalidOperationException`
+  does not parse, `import System` plus `catch ex: InvalidOperationException` does. Relatedly, a type
+  used ONLY as a catch type or only inside a delegate type in a signature does not yet count as a use
+  of its import, so `NL010` can report an import that is in fact needed.
+
 ## Nullable Types
 
 ### Nullable Reference Types
@@ -807,13 +1262,49 @@ displayAge := age ?? 0
 
 ### Null-conditional Operator
 
+`a?.B` evaluates `a` once and reads `B` only if it is not null; if it is, the **whole chain to the
+right of the `?`** is skipped and the expression is null. That is why `user?.Address.City` never
+throws even when `Address` is a plain access: once `user` is null, nothing after the `?` runs.
+
 ```n#
 user: User? = GetUser()
-name := user?.Name  // null if user is null
+name := user?.Name           // string?  — null if user is null
 
-// Chaining
+// Chaining: null anywhere on the way is null at the end
 city := user?.Address?.City
+
+// Calls too
+text := user?.ToString() ?? "anonymous"
 ```
+
+The result is **lifted**: reading a member whose type is a value type gives you the nullable of it,
+because "no value" has to be expressible.
+
+```n#
+length := user?.Name?.Length      // int?, not int
+count := (user?.Name?.Length) ?? 0
+```
+
+Parentheses end a chain, exactly as they read: in `(user?.Address).City` the `?` guards only the
+first access, and the second one runs on whatever that produced.
+
+`?.` also works on a nullable value (`when?.Year` on a `DateTime?` reads `Year` off the value when
+there is one) and on an unconstrained type parameter, where it means the same thing for both kinds of
+instantiation — never null for a value one, a real check for a reference one:
+
+```n#
+struct Box<T> {
+    Value: T
+
+    constructor(value: T) {
+        Value = value
+    }
+
+    override func ToString(): string => Value?.ToString() ?? "<none>"
+}
+```
+
+Writing `?` on a plain, non-nullable value (`5?.ToString()`) is rejected: there is no null to test for.
 
 ### Null checks instead of null-forgiving
 

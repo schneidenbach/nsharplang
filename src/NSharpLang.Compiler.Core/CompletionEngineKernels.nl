@@ -281,7 +281,7 @@ class CompletionEngineKernels {
         lastDot := LastCompletionReceiverCharBefore(beforeCursor, '.', end)
         if lastDot > 0 {
             beforeDotEnd := TrimCompletionReceiverEnd(beforeCursor, lastDot)
-            if beforeDotEnd > 0 && IsCompletionReceiverIdentifierChar(beforeCursor[beforeDotEnd - 1]) {
+            if beforeDotEnd > 0 && (IsCompletionReceiverIdentifierChar(beforeCursor[beforeDotEnd - 1]) || beforeCursor[beforeDotEnd - 1] == '>') {
                 return true
             }
         }
@@ -308,6 +308,7 @@ class CompletionEngineKernels {
 
         start := end - 1
         parenDepth := 0
+        angleDepth := 0
         consumed := false
 
         while start >= 0 {
@@ -334,6 +335,32 @@ class CompletionEngineKernels {
                 continue
             }
 
+            // A CONSTRUCTED GENERIC RECEIVER — the `Vector<int>` of `Vector<int>.`. A `>` opens the
+            // run only when it sits IMMEDIATELY before the dot, or when a run is already open: that
+            // is the one position where `>` cannot be the comparison operator, so `a>b.C` still reads
+            // back as the receiver `b` and stops at the `>` exactly as it did before.
+            if current == '>' && (start == end - 1 || angleDepth > 0) {
+                angleDepth = angleDepth + 1
+                consumed = true
+                start = start - 1
+                continue
+            }
+
+            if current == '<' {
+                if angleDepth == 0 {
+                    break
+                }
+
+                angleDepth = angleDepth - 1
+                start = start - 1
+                continue
+            }
+
+            if angleDepth > 0 {
+                start = start - 1
+                continue
+            }
+
             if IsCompletionReceiverIdentifierChar(current) || current == '.' {
                 consumed = true
                 start = start - 1
@@ -343,7 +370,7 @@ class CompletionEngineKernels {
             break
         }
 
-        if !consumed || parenDepth != 0 {
+        if !consumed || parenDepth != 0 || angleDepth != 0 {
             return ""
         }
 

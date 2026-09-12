@@ -87,8 +87,76 @@ class AnalyzerReflectionCallReporter {
             return BuiltInTypes.Unknown
         }
 
+        if TryReportWrittenTypeArgumentArity(call, candidateMethods) {
+            return BuiltInTypes.Unknown
+        }
+
         ReportNoMatchingOverload(call, candidateMethods, argTypes)
         return BuiltInTypes.Unknown
+    }
+
+    // NL207 FOR A REFLECTED CALL'S WRITTEN TYPE-ARGUMENT LIST, in the words the source path already
+    // uses for the same mistake. A list whose COUNT matches no declaration of that name is an arity
+    // error and nothing else: the reader's problem is the list they wrote, and an NL402 that recites
+    // the ARGUMENT types instead points away from it — `u.Is<int, string>()` on `Is<T>()` said "no
+    // overload of 'Is' accepts 0 arguments", which is true and useless.
+    //
+    // IT IS SILENT WHENEVER THE LIST IS NOT THE WHOLE STORY. A candidate of the written arity exists
+    // (so something else failed), or the name declares SEVERAL arities and none is the written one
+    // (so naming one of them would mislead): both fall through to the ordinary overload report, which
+    // lists every signature.
+    func TryReportWrittenTypeArgumentArity(call: CallExpression, candidateMethods: IReadOnlyList<MethodInfo>): bool {
+        writtenTypeArguments := call.TypeArguments
+        if writtenTypeArguments == null || writtenTypeArguments.Count == 0 || candidateMethods.Count == 0 {
+            return false
+        }
+
+        declaredCount := -1
+        index := 0
+        while index < candidateMethods.Count {
+            candidate := candidateMethods[index]
+            index = index + 1
+            candidateArity := 0
+            if candidate.get_IsGenericMethodDefinition() {
+                candidateArity = candidate.GetGenericArguments().Length
+            }
+            if candidateArity == writtenTypeArguments.Count {
+                return false
+            }
+            if declaredCount < 0 {
+                declaredCount = candidateArity
+            } else if declaredCount != candidateArity {
+                return false
+            }
+        }
+
+        if declaredCount < 0 {
+            return false
+        }
+
+        functionName := ResolveReflectionCallName(call, candidateMethods)
+        span := spans.GetCallDiagnosticSpan(call, functionName)
+        if declaredCount == 0 {
+            diagnostics.Report(
+                ErrorCode.InvalidTypeArgument,
+                "'" + functionName + "' is not generic, but " + writtenTypeArguments.Count.ToString() + " type argument(s) were provided",
+                span.Line,
+                span.Column,
+                "Remove the type arguments: '" + functionName + "'",
+                span.Length
+            )
+            return true
+        }
+
+        diagnostics.Report(
+            ErrorCode.InvalidTypeArgument,
+            "Generic method '" + functionName + "' takes " + declaredCount.ToString() + " type argument(s), but " + writtenTypeArguments.Count.ToString() + " were provided",
+            span.Line,
+            span.Column,
+            "Write one type argument per type parameter, or omit the list entirely and let it be inferred.",
+            span.Length
+        )
+        return true
     }
 
     // NL402 over a reflected candidate list. The signature list is rendered DISTINCT and then capped

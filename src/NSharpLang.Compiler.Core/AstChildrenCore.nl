@@ -187,7 +187,7 @@ class AstChildrenCore {
     }
 
     static func IsLeafExpression(typeName: string): bool {
-        return typeName == "IntLiteralExpression" || typeName == "FloatLiteralExpression" || typeName == "CharLiteralExpression" || typeName == "StringLiteralExpression" || typeName == "BoolLiteralExpression" || typeName == "NullLiteralExpression" || typeName == "IdentifierExpression" || typeName == "ThisExpression" || typeName == "BaseExpression" || typeName == "DefaultExpression" || typeName == "TypeOfExpression" || typeName == "SizeOfExpression"
+        return typeName == "IntLiteralExpression" || typeName == "FloatLiteralExpression" || typeName == "CharLiteralExpression" || typeName == "StringLiteralExpression" || typeName == "BoolLiteralExpression" || typeName == "NullLiteralExpression" || typeName == "IdentifierExpression" || typeName == "ThisExpression" || typeName == "BaseExpression" || typeName == "DefaultExpression" || typeName == "TypeOfExpression" || typeName == "GenericTypeExpression" || typeName == "SizeOfExpression"
     }
 
     static func AddArgumentValues(result: List<object>, arguments: IList) {

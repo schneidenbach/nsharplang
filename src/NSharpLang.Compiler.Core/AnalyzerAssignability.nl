@@ -103,6 +103,8 @@ class AnalyzerAssignability {
     typeSubstitution: AnalyzerTypeSubstitution
     clrTypeConversion: AnalyzerClrTypeConversion
     conversionGuard: AnalyzerImplicitConversionGuard
+    activeExternalDefinitions: HashSet<Type>
+    externalConversionOwners: Dictionary<Type, bool>
 
     constructor(context: AnalyzerDeclarationContext, facts: AnalyzerAssignabilityFacts, structural: AnalyzerStructuralAssignability, substitution: AnalyzerTypeSubstitution, clrConversion: AnalyzerClrTypeConversion, guard: AnalyzerImplicitConversionGuard) {
         declarationContext = context
@@ -111,6 +113,8 @@ class AnalyzerAssignability {
         typeSubstitution = substitution
         clrTypeConversion = clrConversion
         conversionGuard = guard
+        activeExternalDefinitions = new HashSet<Type>()
+        externalConversionOwners = new Dictionary<Type, bool>()
     }
 
     // 023/1e — THE TWO-ARGUMENT FORM IS THE CONSTANT-FREE ONE, AND IT STAYS THE DEFAULT.
@@ -284,9 +288,20 @@ class AnalyzerAssignability {
         sourceReflection := resolvedSource as ReflectionTypeInfo
         targetReflection := resolvedTarget as ReflectionTypeInfo
 
-        // Both sides reflected: CLR semantics decide.
+        // THE THREE REFLECTED ARMS TAKE AN ACCEPTANCE AND NOTHING ELSE. The CLR's own subtyping is
+        // the right answer for two types it knows about — but it is not the WHOLE answer, because a
+        // referenced assembly's type may also declare a user-defined conversion, and
+        // `IsAssignableFrom` knows nothing about `implicit operator XName(string)` or
+        // `implicit operator DateTimeOffset(DateTime)`. Each of these arms used to RETURN the CLR's
+        // verdict, which sent every such pair to a type error before the user-defined arm at the
+        // bottom of this sequence could be asked. A refusal now falls through, exactly as the
+        // constructed-generic bridge below already did.
+
+        // Both sides reflected: CLR semantics decide, when they say yes.
         if sourceReflection != null && targetReflection != null {
-            return AnalyzerConversionFacts.IsReflectionAssignableFrom(targetReflection.Type, sourceReflection.Type)
+            if AnalyzerConversionFacts.IsReflectionAssignableFrom(targetReflection.Type, sourceReflection.Type) {
+                return true
+            }
         }
 
         // Mixed: reflected target, built-in source — convert the source and compare in the CLR.
@@ -294,9 +309,8 @@ class AnalyzerAssignability {
             simpleSource := resolvedSource as SimpleTypeInfo
             if simpleSource != null {
                 sourceClrType := clrTypeConversion.TryConvertTypeInfoToClrType(resolvedSource)
-                if sourceClrType != null {
-                    targetClrType := targetReflection.Type
-                    return targetClrType.IsAssignableFrom(sourceClrType)
+                if sourceClrType != null && targetReflection.Type.IsAssignableFrom(sourceClrType) {
+                    return true
                 }
             }
         }
@@ -305,9 +319,8 @@ class AnalyzerAssignability {
         simpleTarget := resolvedTarget as SimpleTypeInfo
         if simpleTarget != null && sourceReflection != null {
             targetClrType := clrTypeConversion.TryConvertTypeInfoToClrType(resolvedTarget)
-            if targetClrType != null {
-                sourceClrType := sourceReflection.Type
-                return targetClrType.IsAssignableFrom(sourceClrType)
+            if targetClrType != null && targetClrType.IsAssignableFrom(sourceReflection.Type) {
+                return true
             }
         }
 
@@ -410,6 +423,7 @@ class AnalyzerAssignability {
     func IsSubtypeOf(source: TypeInfo, target: TypeInfo): bool {
         effectiveSource := source
         substitution: Dictionary<string, TypeInfo>? = null
+        externalDefinition: Type? = null
         genericSource := effectiveSource as GenericTypeInfo
         if genericSource != null {
             genericDefinition := typeSubstitution.ResolveGenericDefinition(genericSource)
@@ -418,6 +432,8 @@ class AnalyzerAssignability {
                 if reflectionDefinition == null {
                     substitution = declarationContext.CreateGenericSubstitution(genericDefinition, genericSource.TypeArguments)
                     effectiveSource = genericDefinition
+                } else {
+                    externalDefinition = reflectionDefinition.Type
                 }
             }
         }
@@ -496,7 +512,55 @@ class AnalyzerAssignability {
             }
         }
 
+        // AN EXTERNAL GENERIC CONSTRUCTED OVER A TYPE THE CLR HAS NO HANDLE FOR — `Comparer<Item>`
+        // where `Item` is a type this compilation is still emitting. Neither bridge above can ask
+        // the CLR about it: the exact conversion has no closed type to offer, and the surrogate one
+        // would erase every argument to `object`, which answers `Comparer<A>` IS an `IComparer<B>`.
+        //
+        // Its DEFINITION is a real reflected type, though, and the definition's base and interface
+        // lists are spelled in the definition's own parameters — which this instantiation supplies
+        // by position. Substituting them yields real N# types (`IComparer<Item>`), and the ordinary
+        // assignability question is asked of those. No surrogate reaches the answer.
+        if externalDefinition != null && !IsSubtypeWalkActive(externalDefinition) {
+            return ExternalDefinitionSubtypeReaches(externalDefinition, genericSource, target)
+        }
+
         return false
+    }
+
+    // The substituted base and interface lists of one constructed external generic. Re-entrancy is
+    // fenced per definition because a definition's own interface list can name the definition again
+    // (`Comparer<T>` implements `IComparer<T>`, whose walk would ask about `Comparer<T>` once more
+    // through a user-defined conversion probe).
+    func ExternalDefinitionSubtypeReaches(definition: Type, genericSource: GenericTypeInfo?, target: TypeInfo): bool {
+        if genericSource == null || definition.GetGenericArguments().Length != genericSource.TypeArguments.Count {
+            return false
+        }
+
+        typeOverride := AnalyzerReflectionTypeOverride.ForGenericArguments(definition, genericSource)
+        activeExternalDefinitions.Add(definition)
+        try {
+            baseDefinition := definition.get_BaseType()
+            if baseDefinition != null && !baseDefinition.get_IsGenericParameter() {
+                if IsAssignable(target, NullabilityMetadataReflection.ConvertReflectedType(baseDefinition, null, typeOverride)) {
+                    return true
+                }
+            }
+
+            for implemented in definition.GetInterfaces() {
+                if IsAssignable(target, NullabilityMetadataReflection.ConvertReflectedType(implemented, null, typeOverride)) {
+                    return true
+                }
+            }
+        } finally {
+            activeExternalDefinitions.Remove(definition)
+        }
+
+        return false
+    }
+
+    func IsSubtypeWalkActive(definition: Type): bool {
+        return activeExternalDefinitions.Contains(definition)
     }
 
     // A method group against a real CLR delegate's signature: the same score the overload resolver
@@ -712,9 +776,12 @@ class AnalyzerAssignability {
         return true
     }
 
-    // A user-defined implicit conversion operator declared BY the source type, whose parameter
-    // accepts the source and whose result the target accepts. Guarded against re-entry: a pair
-    // already being asked answers false rather than recursing.
+    // A user-defined implicit conversion operator whose parameter accepts the source and whose result
+    // the target accepts, declared BY EITHER END of the conversion. Both ends are asked because a
+    // conversion is written wherever it reads best: `implicit operator Fahrenheit(c: Celsius)` lives
+    // on the value being converted FROM, while a wrapper's `implicit operator Wrap<T>(value: T)` can
+    // only live on the type being converted TO — the `T` end may be `int`, which declares nothing.
+    // Guarded against re-entry: a pair already being asked answers false rather than recursing.
     func HasImplicitConversion(source: TypeInfo, target: TypeInfo): bool {
         if !conversionGuard.TryEnter(source, target) {
             return false
@@ -731,20 +798,80 @@ class AnalyzerAssignability {
     }
 
     func HasImplicitConversionCore(source: TypeInfo, target: TypeInfo): bool {
+        if DeclaresImplicitConversion(source, source, target) || DeclaresImplicitConversion(target, source, target) {
+            return true
+        }
+
+        return ClassifyExternalConversion(source, target, false).IsSelected
+    }
+
+    // The EXTERNAL half of the user-defined conversion question. A referenced assembly's type — the
+    // runtime's `Union<T0, T1>`, a `DateTime`, a vendor wrapper — declares its operators in metadata
+    // rather than in a source declaration, so the arm above, which reads `DeclaredMembers`, can never
+    // see them. The answer comes from `ExternalUserDefinedConversions`, which is the SAME owner the
+    // emitter asks for the handle to call: an analyzer that accepted a conversion the emitter then
+    // could not find would turn a type error into a backend decline.
+    //
+    // Both ends convert through the EXACT CLR conversion, never the surrogate one, so an N#-declared
+    // type never reaches the metadata question as `object`.
+    func ClassifyExternalConversion(source: TypeInfo, target: TypeInfo, allowExplicit: bool): ExternalConversionSelection {
+        sourceClrType := clrTypeConversion.TryConvertTypeInfoToClrType(source)
+        if sourceClrType == null {
+            return ExternalConversionSelection.NoConversion()
+        }
+
+        targetClrType := clrTypeConversion.TryConvertTypeInfoToClrType(target)
+        if targetClrType == null {
+            return ExternalConversionSelection.NoConversion()
+        }
+
+        if !DeclaresExternalConversionOperators(sourceClrType) && !DeclaresExternalConversionOperators(targetClrType) {
+            return ExternalConversionSelection.NoConversion()
+        }
+
+        return ExternalUserDefinedConversions.Resolve(sourceClrType, targetClrType, allowExplicit)
+    }
+
+    // The classification a DIAGNOSTIC asks for, in the caller's own argument order. Assignability
+    // itself answers false for an ambiguous conversion — a tie is not a conversion — and a reporting
+    // site consults this to say WHY rather than repeating the ordinary "these types differ".
+    func ClassifyUserDefinedConversion(target: TypeInfo, source: TypeInfo): ExternalConversionSelection {
+        return ClassifyExternalConversion(source, target, false)
+    }
+
+    // Does either end declare any conversion operator at all — memoised, because assignability asks
+    // this of every pair it cannot otherwise relate and almost none of them name such a type. The
+    // memo is per-owner and this owner is rebuilt whenever the well-known-type bag is, so it never
+    // outlives the reflection context whose types key it.
+    func DeclaresExternalConversionOperators(candidate: Type): bool {
+        declares := false
+        if externalConversionOwners.TryGetValue(candidate, out declares) {
+            return declares
+        }
+
+        declares = ExternalUserDefinedConversions.DeclaresConversionOperators(candidate)
+        externalConversionOwners[candidate] = declares
+        return declares
+    }
+
+    // One end's declarations, asked about the whole conversion. The operator's own signature is read
+    // through the OWNER's substitution, so `implicit operator Wrap<T>(value: T)` reached as
+    // `Wrap<int>` is asked as `int -> Wrap<int>`.
+    func DeclaresImplicitConversion(owner: TypeInfo, source: TypeInfo, target: TypeInfo): bool {
         substitution: Dictionary<string, TypeInfo>? = null
-        declarationOwner := typeSubstitution.GetSourceDeclarationOwner(source, out substitution)
+        declarationOwner := typeSubstitution.GetSourceDeclarationOwner(owner, out substitution)
         if declarationOwner == null {
             return false
         }
 
-        sourceMembers := DeclaredMembersOf(declarationOwner)
-        if sourceMembers == null {
+        ownerMembers := DeclaredMembersOf(declarationOwner)
+        if ownerMembers == null {
             return false
         }
 
         index := 0
-        while index < sourceMembers.Length {
-            member := sourceMembers[index]
+        while index < ownerMembers.Length {
+            member := ownerMembers[index]
             if IsImplicitConversionOperator(member) {
                 parameterTypes := member.ParameterTypes
                 parameterType := typeSubstitution.ResolveTypeForSourceOwner(parameterTypes[0], declarationOwner, substitution)

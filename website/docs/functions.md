@@ -217,6 +217,81 @@ func getDimensions(): (int, int) {
 Console.WriteLine($"{width}x{height}")
 ```
 
+#### Named Tuple Elements
+
+Name the elements to read them back by name instead of by position. The names are part of the
+declared type, so callers can use either the names or positional deconstruction:
+
+```n#
+func minMax(values: int[]): (Min: int, Max: int) {
+    low := values[0]
+    high := values[0]
+    for i := 1; i < values.Length; i++ {
+        if values[i] < low {
+            low = values[i]
+        }
+        if values[i] > high {
+            high = values[i]
+        }
+    }
+    return (low, high)
+}
+
+bounds := minMax([3, 1, 4])
+Console.WriteLine($"{bounds.Min}..{bounds.Max}")   // by name
+
+low, high := minMax([3, 1, 4])                     // or by position
+```
+
+Named tuple returns work the same way on free functions, static methods and instance methods:
+
+```n#
+class Sample {
+    static func range(values: int[]): (Min: int, Max: int) => minMax(values)
+
+    func shifted(values: int[], offset: int): (Min: int, Max: int) {
+        bounds := minMax(values)
+        return (bounds.Min + offset, bounds.Max + offset)
+    }
+}
+```
+
+A named tuple is a `System.ValueTuple` at the CLR level, so the underlying fields are still
+`Item1` / `Item2` — `bounds.Min` and `bounds.Item1` are the same field.
+
+#### Named Tuple Elements Across Assemblies
+
+The names are not erased. Because a named tuple has no CLR identity of its own, every .NET language
+records its element names in a `System.Runtime.CompilerServices.TupleElementNamesAttribute` on the
+signature POSITION — the return parameter, a parameter, a field, a property — and N# both writes and
+reads that attribute. So the names survive the assembly boundary in both directions:
+
+- A **C# consumer of an N# library** sees `(int Min, int Max)`, not a bare `ValueTuple<int, int>`.
+- **N# reading a C# library** resolves the C# side's declared names, so
+  `SimdReductions.MinMaxInt32(...).Min` works as well as `.Item1` does.
+
+The attribute is written for every position a named tuple appears in, including nested tuples and
+tuples inside a generic argument, and it is omitted entirely when nothing is named:
+
+```n#
+func pair(): (Min: int, Max: int)                 // Min, Max
+func nested(): (A: int, D: (B: int, C: int))      // A, D, B, C — the outer names come first
+func inGeneric(): List<(Min: int, Max: int)>      // Min, Max
+func positional(): (int, int)                     // no attribute at all
+```
+
+Element names are metadata, not identity — exactly as in C#. `(Min: int, Max: int)` and `(int, int)`
+are the same type, a value flows freely between them, and a name mismatch is never an error:
+
+```n#
+let bounds: (int, int) = minMax([3, 1, 4])        // fine: names are not part of the type
+let renamed: (Low: int, High: int) = minMax([3, 1, 4])
+```
+
+Two spellings are still unsupported: a tuple element may not be named individually
+(`(A: int, int)` — name all of them or none), and a field or property may not itself be declared with
+a tuple type.
+
 ## Lambda Expressions
 
 ### Basic Lambda Syntax

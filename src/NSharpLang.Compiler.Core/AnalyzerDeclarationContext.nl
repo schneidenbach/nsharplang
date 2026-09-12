@@ -945,7 +945,7 @@ class AnalyzerDeclarationContext {
         namespaceAliasedHead := separator > 0 && HasNamespaceAlias(facts, generic.Name.Substring(0, separator))
         if (!definitionClaimed || namespaceAliasedHead) && BuiltInTypes.IsUnknown(definition) {
             ignoredClaim := false
-            definition = ResolveTypeName(facts, generic.Name + "`" + arguments.Count.ToString(), activeAliases, out ignoredClaim)
+            definition = ResolveTypeName(facts, TypeArityNames.Key(generic.Name, arguments.Count), activeAliases, out ignoredClaim)
         }
         if !definitionClaimed && BuiltInTypes.IsUnknown(definition) {
             knownDefinition := typeof(object)
@@ -953,10 +953,13 @@ class AnalyzerDeclarationContext {
                 definition = new ReflectionTypeInfo(knownDefinition)
             }
         }
-        reflectionDefinition := definition as ReflectionTypeInfo
-        if reflectionDefinition != null && GenericHeadArity(definition) != arguments.Count {
+        // THE HEAD THAT ANSWERED HAS THE WRONG ARITY, SO ASK FOR THE RIGHT IDENTITY. A CLR type
+        // spells its arity in metadata (`List``1`) and, since source declarations are keyed the same
+        // way, so does `Subscription<T>` declared beside a non-generic `Subscription`: the bare name
+        // answers with the arity-0 type and the arity key is what finds the generic one.
+        if !BuiltInTypes.IsUnknown(definition) && GenericHeadArity(definition) != arguments.Count {
             arityClaimed := false
-            arityDefinition := ResolveTypeName(facts, generic.Name + "`" + arguments.Count.ToString(), activeAliases, out arityClaimed)
+            arityDefinition := ResolveTypeName(facts, TypeArityNames.Key(generic.Name, arguments.Count), activeAliases, out arityClaimed)
             if !BuiltInTypes.IsUnknown(arityDefinition) {
                 definition = arityDefinition
             }
@@ -1162,11 +1165,14 @@ class AnalyzerDeclarationContext {
         while index < facts.Declarations.Count {
             candidate := facts.Declarations[index]
             if candidate != null && IsTopLevelTypeDeclaration(candidate) {
-                candidateName := DeclarationFacts.GetDeclarationName(candidate)
+                // MATCHED BY IDENTITY, NOT BY NAME: `name` is an arity key (`Subscription` or
+                // `Subscription``1), so a generic declaration and a non-generic one of the same name
+                // are two candidates and only the asked-for one answers.
+                candidateName := DeclarationFacts.GetDeclarationArityName(candidate)
                 if candidateName != null && string.Equals(candidateName, name, StringComparison.Ordinal) {
                     claimed = true
                     declaration = candidate
-                    if requireExported && !DeclarationFacts.IsExportedDeclaration(candidate, name) {
+                    if requireExported && !DeclarationFacts.IsExportedDeclaration(candidate, TypeArityNames.Display(name)) {
                         typeInfo = BuiltInTypes.Unknown
                         return false
                     }
@@ -1313,7 +1319,10 @@ class AnalyzerDeclarationContext {
     }
 
     func ResolveDeclarationTypeCore(declaration: object, facts: AnalyzerDeclarationFileFacts, activeAliases: HashSet<string>): TypeInfo {
-        name := DeclarationFacts.GetDeclarationName(declaration)
+        // The per-file cache is keyed by the declaration's IDENTITY, so `Subscription` and
+        // `Subscription<T>` in one file resolve to two TypeInfos rather than one shared instance —
+        // which is also what stops the base-chain walk from seeing a class inherit from itself.
+        name := DeclarationFacts.GetDeclarationArityName(declaration)
         if name == null {
             return BuiltInTypes.Unknown
         }
@@ -1561,11 +1570,11 @@ class AnalyzerDeclarationContext {
         if facts == null {
             return null
         }
-        name := TypeName(typeInfo)
+        name := TypeArityNames.Key(TypeName(typeInfo), AnalyzerTypeReferenceFacts.GenericHeadArity(typeInfo))
         index := 0
         while index < facts.Declarations.Count {
             declaration := facts.Declarations[index]
-            if declaration != null && string.Equals(DeclarationFacts.GetDeclarationName(declaration), name, StringComparison.Ordinal) {
+            if declaration != null && string.Equals(DeclarationFacts.GetDeclarationArityName(declaration), name, StringComparison.Ordinal) {
                 return declaration
             }
             index = index + 1
@@ -1893,7 +1902,7 @@ class AnalyzerDeclarationContext {
                 declarationIndex := 0
                 while declarationIndex < facts.Declarations.Count {
                     declaration := facts.Declarations[declarationIndex]
-                    if declaration != null && string.Equals(DeclarationFacts.GetDeclarationName(declaration), name, StringComparison.Ordinal) && (!requireExported || DeclarationFacts.IsExportedDeclaration(declaration, name)) {
+                    if declaration != null && string.Equals(DeclarationFacts.GetDeclarationArityName(declaration), name, StringComparison.Ordinal) && (!requireExported || DeclarationFacts.IsExportedDeclaration(declaration, TypeArityNames.Display(name))) {
                         return new AnalyzerSourceTypeSelection(typeInfo, declaration, facts.FilePath, claimed)
                     }
                     declarationIndex = declarationIndex + 1

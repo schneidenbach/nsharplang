@@ -229,6 +229,11 @@ func VCall(arguments: List<Argument>): CallExpression {
     return new CallExpression(VIdentifier("f"), arguments, null, 1, 1)
 }
 
+// A call that WRITES its type arguments: `f<T1, ...>(args)`.
+func VGenericCall(arguments: List<Argument>, writtenTypeArguments: List<TypeReference>): CallExpression {
+    return new CallExpression(VIdentifier("f"), arguments, writtenTypeArguments, 1, 1)
+}
+
 func VCandidates1(first: FunctionTypeInfo): List<FunctionTypeInfo> {
     candidates := new List<FunctionTypeInfo>()
     candidates.Add(first)
@@ -364,6 +369,78 @@ test "the arity report RETURNS — a call that does not fit is not also type-che
         null
     )
     assert VCodes(errors) == "NL401"
+}
+
+// ------------------------------------------------------------------ written type arguments
+
+test "a WRITTEN type-argument list of the wrong length is NL207, naming both counts" {
+    errors := ValidatorErrors()
+    owner := ValidatorOwner(errors)
+    signature := VGenericSignature(new List<GenericConstraint>())
+
+    owner.ValidateCall(
+        signature,
+        VGenericCall(VArgs1(VIdentifier("a")), VRefs2(new SimpleTypeReference("int"), new SimpleTypeReference("string"))),
+        VTypes1(BuiltInTypes.Int),
+        null
+    )
+    assert VCodes(errors) == "NL207"
+    assert errors[0].Message.Contains("takes 1 type argument(s)")
+    assert errors[0].Message.Contains("2 were provided")
+}
+
+test "a WRITTEN type-argument list on a NON-generic signature is NL207 too" {
+    errors := ValidatorErrors()
+    owner := ValidatorOwner(errors)
+    signature := VSignature(VTypes1(BuiltInTypes.Int))
+
+    owner.ValidateCall(
+        signature,
+        VGenericCall(VArgs1(VIdentifier("a")), VRefs1(new SimpleTypeReference("int"))),
+        VTypes1(BuiltInTypes.Int),
+        null
+    )
+    assert VCodes(errors) == "NL207"
+    assert errors[0].Message.Contains("is not generic")
+}
+
+test "the type-argument report RETURNS — the parameters it did not name are not also reported" {
+    errors := ValidatorErrors()
+    owner := ValidatorOwner(errors)
+    signature := VGenericSignature(VConstraint("T", new List<TypeReference>(), SpecialConstraintKind.Struct))
+
+    // The argument is a STRING against a `struct`-constrained `T`, and its type would not match the
+    // parameter either: with the list the wrong length, only the root fires.
+    owner.ValidateCall(
+        signature,
+        VGenericCall(VArgs1(VIdentifier("a")), VRefs2(new SimpleTypeReference("string"), new SimpleTypeReference("int"))),
+        VTypes1(BuiltInTypes.String),
+        null
+    )
+    assert VCodes(errors) == "NL207"
+}
+
+test "a type-argument list of the RIGHT length reports nothing of its own" {
+    errors := ValidatorErrors()
+    owner := ValidatorOwner(errors)
+    signature := VGenericSignature(new List<GenericConstraint>())
+
+    owner.ValidateCall(
+        signature,
+        VGenericCall(VArgs1(VIdentifier("a")), VRefs1(new SimpleTypeReference("int"))),
+        VTypes1(BuiltInTypes.Int),
+        null
+    )
+    assert errors.Count == 0
+}
+
+test "an INFERRED call writes no list and is not reported" {
+    errors := ValidatorErrors()
+    owner := ValidatorOwner(errors)
+    signature := VGenericSignature(new List<GenericConstraint>())
+
+    owner.ValidateCall(signature, VCall(VArgs1(VIdentifier("a"))), VTypes1(BuiltInTypes.Int), null)
+    assert errors.Count == 0
 }
 
 // ------------------------------------------------------------------ argument types

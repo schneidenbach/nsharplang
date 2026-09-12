@@ -218,6 +218,15 @@ class AnalyzerIdentifierResolution {
             return true
         }
 
+        // 3a. THE AMBIGUITY GATE, between the channels that cannot tie and the two that can. Every
+        // channel above answers from ONE place — a scope, the enclosing type, the built-in table — so
+        // a name that reached here is about to be resolved from an import, and an import is exactly
+        // where two declarations can supply one spelling. Reporting before either channel answers is
+        // what keeps the error at the reference rather than at whichever candidate happened to win.
+        if line > 0 {
+            ReportAmbiguousImportedTypeIfNeeded(name, line, column)
+        }
+
         // 4. Project-wide type discovery. `line > 0` is the synthesised-node test: a node the parser
         // never read has no position, so the inaccessible probe — which exists only to produce a
         // diagnostic — is not worth running for it.
@@ -328,6 +337,22 @@ class AnalyzerIdentifierResolution {
             diagnosticsValue.Report(ErrorCode.UndefinedFunction, "Function '" + name + "' not found", line, column, null, name.Length)
         } else {
             diagnosticsValue.Report(ErrorCode.UndefinedVariable, "I can't find '" + name + "' — it hasn't been declared in this scope", line, column, null, 0)
+        }
+    }
+
+    // NL209's report site for a bare name in EXPRESSION position. It shares the type resolver's
+    // unresolved-reference dedupe set, which is what stops the same position being told twice — once
+    // here and once by the type resolver's own gate — and also stops an ambiguous name being
+    // reported a second time as unresolved.
+    func ReportAmbiguousImportedTypeIfNeeded(name: string, line: int, column: int) {
+        firstCandidate := ""
+        secondCandidate := ""
+        if !projectDiscoveryValue.TryFindAmbiguousImportedType(name, UnitNamespace(), out firstCandidate, out secondCandidate) {
+            return
+        }
+
+        if typeResolverValue.MarkUnresolvedTypeReported(name, line, column) {
+            diagnosticsValue.ReportAmbiguousTypeReference(name, firstCandidate, secondCandidate, line, column)
         }
     }
 

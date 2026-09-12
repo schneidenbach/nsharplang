@@ -17,6 +17,7 @@ enum ErrorCode {
     InvalidCast = 204,
     InvalidTypeArgument = 207,
     GenericConstraintViolation = 208,
+    AmbiguousTypeReference = 209,
     UndefinedVariable = 301,
     UndefinedMember = 303,
     DefiniteAssignmentError = 304,
@@ -41,6 +42,8 @@ enum ErrorCode {
     FeatureNotImplemented = 323,
     AbstractMemberNotImplemented = 324,
     InterfaceMemberNotImplemented = 325,
+    MutableFieldInReadonlyStruct = 326,
+    NoCurrentInstance = 327,
     WrongArgumentCount = 401,
     NoMatchingOverload = 402,
     InvalidParameter = 405,
@@ -69,5 +72,8 @@ enum ErrorCode {
     PossibleNullAccess = 905,
     NullabilityWarning = 907,
     ReferenceLoadFailure = 923,
-    InternalCompilerError = 924
+    InternalCompilerError = 924,
+    MethodImplTargetInvalid = 930,
+    MethodImplOptionUndefined = 931,
+    MethodImplOptionRefusedByClr = 932
 }

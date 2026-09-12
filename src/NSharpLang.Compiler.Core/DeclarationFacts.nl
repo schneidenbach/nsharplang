@@ -24,6 +24,64 @@ class DeclarationFacts {
         return null
     }
 
+    // HOW MANY TYPE PARAMETERS A DECLARATION DECLARES. Every generic-capable declaration form spells
+    // the list the same way (`TypeParameters: List<TypeParameter>?`), so one reflective read answers
+    // for all of them; a form without the member, or with none written, is arity 0.
+    static func GetDeclarationArity(declaration: object): int {
+        value := TypeInfoFactoryReflection.GetOptionalProperty(declaration, "TypeParameters")
+        list := value as IList
+        if list == null {
+            return 0
+        }
+
+        return list.Count
+    }
+
+    // WHERE A DECLARATION'S TEXT BEGINS. A declaration whose first line is an `[Attribute]` list
+    // begins THERE, not at its keyword.
+    //
+    // The formatter measures two things from a declaration's start line: which comments belong above
+    // it, and how big the gap from the previous declaration was. Measuring from the KEYWORD reads the
+    // attribute lines as part of that gap, so a member written as a comment, an attribute list and a
+    // keyword formats with a blank line pushed between the comment and the attribute — which detaches
+    // the comment from the member it documents.
+    //
+    // Every declaration form that can carry attributes spells the list the same way
+    // (`Attributes: List<AttributeNode>?`), so one reflective read answers for all of them, exactly as
+    // the arity fact above does for type parameters.
+    static func GetDeclarationStartLine(declaration: Declaration): int {
+        start := declaration.Line
+        value := TypeInfoFactoryReflection.GetOptionalProperty(declaration, "Attributes")
+        list := value as IList
+        if list == null {
+            return start
+        }
+
+        index := 0
+        while index < list.Count {
+            attribute := list[index] as AttributeNode
+            if attribute != null && attribute.Line > 0 && attribute.Line < start {
+                start = attribute.Line
+            }
+
+            index = index + 1
+        }
+
+        return start
+    }
+
+    // THE DECLARATION'S IDENTITY KEY: its written name for a non-generic type, `Name``N for a generic
+    // one. Every table that resolves a written reference to a declaration is keyed by this, so
+    // `Subscription` and `Subscription<T>` are two entries rather than one collision.
+    static func GetDeclarationArityName(declaration: object): string? {
+        name := GetDeclarationName(declaration)
+        if name == null {
+            return null
+        }
+
+        return TypeArityNames.Key(name, GetDeclarationArity(declaration))
+    }
+
     static func GetDeclarationKind(declaration: object): string {
         typeName := declaration.GetType().Name
 

@@ -40,8 +40,9 @@ class NullabilityMetadataReflection {
     }
 
     static func ConvertPropertyWithOverride(property: PropertyInfo, typeOverride: AnalyzerReflectionTypeOverride?): TypeInfo {
-        converted := ConvertReflectedType(property.get_PropertyType(), CreateNullabilityInfoForProperty(property), typeOverride)
-        return ApplyFlowAttributes(converted, property.GetCustomAttributesData())
+        attributes := property.GetCustomAttributesData()
+        converted := AnalyzerTupleElementNames.ApplyDeclared(ConvertReflectedType(property.get_PropertyType(), CreateNullabilityInfoForProperty(property), typeOverride), attributes)
+        return ApplyFlowAttributes(converted, attributes)
     }
 
     static func ConvertField(field: FieldInfo): TypeInfo {
@@ -49,8 +50,9 @@ class NullabilityMetadataReflection {
     }
 
     static func ConvertFieldWithOverride(field: FieldInfo, typeOverride: AnalyzerReflectionTypeOverride?): TypeInfo {
-        converted := ConvertReflectedType(field.get_FieldType(), CreateNullabilityInfoForField(field), typeOverride)
-        return ApplyFlowAttributes(converted, field.GetCustomAttributesData())
+        attributes := field.GetCustomAttributesData()
+        converted := AnalyzerTupleElementNames.ApplyDeclared(ConvertReflectedType(field.get_FieldType(), CreateNullabilityInfoForField(field), typeOverride), attributes)
+        return ApplyFlowAttributes(converted, attributes)
     }
 
     static func ConvertParameter(parameter: ParameterInfo): TypeInfo {
@@ -58,8 +60,9 @@ class NullabilityMetadataReflection {
     }
 
     static func ConvertParameterWithOverride(parameter: ParameterInfo, typeOverride: AnalyzerReflectionTypeOverride?): TypeInfo {
-        converted := ConvertReflectedType(parameter.get_ParameterType(), CreateNullabilityInfoForParameter(parameter), typeOverride)
-        return ApplyFlowAttributes(converted, parameter.GetCustomAttributesData())
+        attributes := parameter.GetCustomAttributesData()
+        converted := AnalyzerTupleElementNames.ApplyDeclared(ConvertReflectedType(parameter.get_ParameterType(), CreateNullabilityInfoForParameter(parameter), typeOverride), attributes)
+        return ApplyFlowAttributes(converted, attributes)
     }
 
     static func ConvertReturn(method: MethodInfo): TypeInfo {
@@ -68,8 +71,9 @@ class NullabilityMetadataReflection {
 
     static func ConvertReturnWithOverride(method: MethodInfo, typeOverride: AnalyzerReflectionTypeOverride?): TypeInfo {
         returnParameter := method.get_ReturnParameter()
-        converted := ConvertReflectedType(method.get_ReturnType(), CreateNullabilityInfoForParameter(returnParameter), typeOverride)
-        return ApplyFlowAttributes(converted, returnParameter.GetCustomAttributesData())
+        attributes := returnParameter.GetCustomAttributesData()
+        converted := AnalyzerTupleElementNames.ApplyDeclared(ConvertReflectedType(method.get_ReturnType(), CreateNullabilityInfoForParameter(returnParameter), typeOverride), attributes)
+        return ApplyFlowAttributes(converted, attributes)
     }
 
     static func FormatType(clrType: Type): string {

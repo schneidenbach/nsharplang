@@ -201,10 +201,19 @@ class ParserTokenTable {
     Kinds: int[]
     Starts: int[]
     ValueLengths: int[]
-    constructor(kinds: int[], starts: int[], valueLengths: int[]) {
+    // THE SOURCE TEXT THE OFFSETS INDEX INTO, so the kernels can answer "does this token begin a new
+    // line". A postfix chain ends at a continuation token on a new line — the production parser's rule
+    // (`Current().Line > Previous().Line` in `ParsePostfix`) — and without it `x => value` followed by
+    // the NEXT member's `[Attribute]` reads as `value[Attribute]`. The compacted token stream this
+    // table wraps has already dropped the newline tokens (kind 136), so the gap between the previous
+    // token's end and this token's start is the only remaining witness. Null in the few kernels that
+    // wrap a token run without the text; those never parse a postfix chain.
+    Source: string?
+    constructor(kinds: int[], starts: int[], valueLengths: int[], source: string? = null) {
         Kinds = kinds
         Starts = starts
         ValueLengths = valueLengths
+        Source = source
     }
 }
 
@@ -327,6 +336,13 @@ class TypeReferenceTupleNameTable {
 //                                         as child[0] of a CallExpression; committed via the IsGenericCallTypeArgs
 //                                         lookahead, the Parser.cs IsGenericMethodCall mirror. Kind 37 is
 //                                         UnionCasePattern in ParserStatements. )
+//   GenericTypeReceiver     -> kind 70  ( Name<T1, T2> before a `.` -- a CONSTRUCTED GENERIC TYPE in receiver
+//                                         position (`Vector<int>.Count`). Byte-identical shape to kind 38 -- the
+//                                         full dotted head name in the value span, children = the TYPE-kernel
+//                                         type-argument roots -- and committed via the IsGenericTypeReceiverArgs
+//                                         lookahead, which differs from kind 38's only in requiring a `.` close
+//                                         instead of a `(`. Only ever appears as child[0] of a MemberAccess;
+//                                         the planners resolve it as a TYPE, never as a value. )
 //   Lambda                  -> kind 39  ( `x => expr` / `() => expr` / `(x, y) => expr` -- the level ABOVE
 //                                         assignment (ParseLambdaOrAssignmentExpression, Parser.cs:3660). The
 //                                         `=>` token in the value span; children = [param Identifiers (kind 6,
@@ -357,8 +373,10 @@ class TypeReferenceTupleNameTable {
 //   MustExpression          -> kind 45  ( `must <operand>` (Must 20) -- the prefix null-assert, ONE child;
 //                                         unwraps a Nullable<T> to T or null-checks a reference, throwing
 //                                         InvalidOperationException when null. )
-//   IsExpression            -> kind 46  ( `value is Type` (Is 47) -- children [value, typeRoot]; the
-//                                         typeRoot is a TYPE subtree (scans walk child 0 only). )
+//   IsExpression            -> kind 46  ( `value is Type [name]` (Is 47) -- children [value, typeRoot]; the
+//                                         typeRoot is a TYPE subtree (scans walk child 0 only). The optional
+//                                         PATTERN VARIABLE is the value span: present = the declared name,
+//                                         absent = (-1, 0). `as` (kind 47) never carries one. )
 //   AsExpression            -> kind 47  ( `value as Type` (As 48) -- the null-propagating cast twin of
 //                                         kind 46; same child shape. )
 //   WithExpression          -> kind 52  ( `expr with { Field: value, ... }` (With 71) -- the kind-36
@@ -397,15 +415,31 @@ class TypeReferenceTupleNameTable {
 //                                         property pattern entries.)
 //   PropertyPattern         -> kind 68  (`Prop` / `Prop: pat` inside object or union-case property patterns;
 //                                         property name in the value span, optional ONE child [pat].)
+//   BaseMemberExpression    -> kind 71  ( `base.Member` -- the member NAME in the value span, NO children,
+//                                         the span running from `base` through the name. The shape of the
+//                                         `this.Member` arm above it, with its own kind because the two
+//                                         dispatch differently: a member reached through `base` is bound
+//                                         NON-VIRTUALLY to the base's declaration, so it must never be
+//                                         mistaken for the `this` form. `base.M(args)` is a CallExpression
+//                                         over one of these; `base.P` on its own is the node itself. )
+//   NullGuardExpression     -> kind 75  ( the receiver of a `?.` access (QuestionDot 118) -- ONE child
+//                                         [receiver], no value span, the receiver's own span. The access
+//                                         itself stays a kind-8 MemberAccess over it (and a kind-9 Call over
+//                                         that for `a?.M(x)`), so only the SHORT CIRCUIT is new. )
+//   DefaultExpression       -> kind 74  ( `default` (Default 34) -- the target-typed zero value; NO children
+//                                         and NO value span, exactly like the null literal (kind 5). The
+//                                         written-type form is spelled as an annotation in N# (`x: T = default`),
+//                                         so the keyword never carries a type child. )
 //   RangeExpression         -> kind 69  (`start..end`, `start..`, `..end`, `..`; DotDot token in the
 //                                         value span. Children are the present endpoint expressions; with
 //                                         one child, compare its span start to the DotDot span to classify
 //                                         start-only vs end-only.)
 // `alloc <expr>` is parsed transparently: systems analysis owns allocation-policy enforcement before this
 // product handoff, and the emitter only needs the concrete expression shape.
-// Deferred (refused with -1, or the chain simply STOPS at them): `?.`/`?[` null-conditional access, generic
+// Deferred (refused with -1, or the chain simply STOPS at them): `?[` null-conditional INDEXING, generic
 //   method calls (callee<T>(...)), named (`name:`) call arguments outside constructor argument lists,
-//   `is`/`as` type tests; every other unlisted primary (this/base/default/...).
+//   `is`/`as` type tests; every other unlisted primary (this/... ; `base.Member` is kind 71 and
+//   `default` is kind 74).
 //   (Tuples `(a, b)` AND named tuples `(x: 1, y: 2)` PARSE — kinds 17/43; match,
 //   new-expressions, object initializers, bare-new and block-bodied lambdas have their own kinds above.)
 //   Literal VALUE materialization (unescaping strings/chars) is the host's job; this kernel records the
@@ -509,6 +543,14 @@ class ColumnarExpressionNodeKind {
         return 55
     }
 
+    static func GenericTypeReceiverExpression(): int {
+        return 70
+    }
+
+    static func BaseMemberExpression(): int {
+        return 71
+    }
+
     // `checked(<expr>)` / `unchecked(<expr>)`. The KEYWORD lives in the value span and there is
     // exactly ONE child. Unlike every other name on this ledger it has no N# planner behind it:
     // `ColumnarIlEmitter.EmitExpressionCore`'s own `case 57` is the owner, and it lowers to nothing
@@ -527,6 +569,21 @@ class ColumnarExpressionNodeKind {
 
     static func RangeExpression(): int {
         return 69
+    }
+
+    // `?.` — the RECEIVER half of a null-conditional access, wrapped around the receiver so the access
+    // itself stays an ordinary MemberAccess (kind 8) and an ordinary Call (kind 9) over it. ONE child
+    // (the receiver), no value span, and the receiver's own source span: everything about the access —
+    // its member name, its arguments — is the node above, unchanged.
+    static func NullGuardExpression(): int {
+        return 75
+    }
+
+    // `default` — the target-typed zero value. The keyword carries no type of its own (N# spells the
+    // typed form as an annotation, `x: T = default`), so the node has NO children and NO value span,
+    // and every consumer reads the target type from the position the expression sits in.
+    static func DefaultExpression(): int {
+        return 74
     }
 }
 
@@ -1263,11 +1320,13 @@ class FunctionSignatureInfoOutputTable {
     ParamTupleNameCounts: int[]
     ParamTupleNameTexts: string[]
     ReturnTupleNameTexts: string[]
+    ReturnLabeledTypeTexts: string[]
+    ParamLabeledTypeTexts: string[]
     TypeParamTexts: string[]
     TypeParamSpecials: int[]
     TypeParamConstraintCounts: int[]
     TypeParamConstraintTypeTexts: string[]
-    constructor(functionNameTexts: string[], returnTypeTexts: string[], paramNameTexts: string[], paramTypeTexts: string[], paramModifierKinds: int[], paramDefaultKinds: int[], paramDefaultTexts: string[], paramTupleNameCounts: int[], paramTupleNameTexts: string[], returnTupleNameTexts: string[], typeParamTexts: string[], typeParamSpecials: int[], typeParamConstraintCounts: int[], typeParamConstraintTypeTexts: string[]) {
+    constructor(functionNameTexts: string[], returnTypeTexts: string[], paramNameTexts: string[], paramTypeTexts: string[], paramModifierKinds: int[], paramDefaultKinds: int[], paramDefaultTexts: string[], paramTupleNameCounts: int[], paramTupleNameTexts: string[], returnTupleNameTexts: string[], returnLabeledTypeTexts: string[], paramLabeledTypeTexts: string[], typeParamTexts: string[], typeParamSpecials: int[], typeParamConstraintCounts: int[], typeParamConstraintTypeTexts: string[]) {
         FunctionNameTexts = functionNameTexts
         ReturnTypeTexts = returnTypeTexts
         ParamNameTexts = paramNameTexts
@@ -1278,6 +1337,8 @@ class FunctionSignatureInfoOutputTable {
         ParamTupleNameCounts = paramTupleNameCounts
         ParamTupleNameTexts = paramTupleNameTexts
         ReturnTupleNameTexts = returnTupleNameTexts
+        ReturnLabeledTypeTexts = returnLabeledTypeTexts
+        ParamLabeledTypeTexts = paramLabeledTypeTexts
         TypeParamTexts = typeParamTexts
         TypeParamSpecials = typeParamSpecials
         TypeParamConstraintCounts = typeParamConstraintCounts
@@ -1349,13 +1410,15 @@ class ParserFunctionWhereTable {
 class ConstructorSignatureOutputTable {
     ParamNameTexts: string[]
     ParamTypeTexts: string[]
+    ParamLabeledTypeTexts: string[]
     ArgKinds: int[]
     ArgStarts: int[]
     ArgLengths: int[]
     ArgTexts: string[]
-    constructor(paramNameTexts: string[], paramTypeTexts: string[], argKinds: int[], argStarts: int[], argLengths: int[], argTexts: string[]) {
+    constructor(paramNameTexts: string[], paramTypeTexts: string[], paramLabeledTypeTexts: string[], argKinds: int[], argStarts: int[], argLengths: int[], argTexts: string[]) {
         ParamNameTexts = paramNameTexts
         ParamTypeTexts = paramTypeTexts
+        ParamLabeledTypeTexts = paramLabeledTypeTexts
         ArgKinds = argKinds
         ArgStarts = argStarts
         ArgLengths = argLengths
@@ -1496,11 +1559,13 @@ class ColumnarFunctionSignatureOutputTable {
     ParamTupleNameCounts: int[]
     ParamTupleNameTexts: string[]
     ReturnTupleNameTexts: string[]
+    ReturnLabeledTypeTexts: string[]
+    ParamLabeledTypeTexts: string[]
     TypeParamTexts: string[]
     TypeParamSpecials: int[]
     TypeParamConstraintCounts: int[]
     TypeParamConstraintTypeTexts: string[]
-    constructor(functionNameTexts: string[], returnTypeTexts: string[], paramNameTexts: string[], paramTypeTexts: string[], paramModifierKinds: int[], paramDefaultKinds: int[], paramDefaultTexts: string[], paramTupleNameCounts: int[], paramTupleNameTexts: string[], returnTupleNameTexts: string[], typeParamTexts: string[], typeParamSpecials: int[], typeParamConstraintCounts: int[], typeParamConstraintTypeTexts: string[]) {
+    constructor(functionNameTexts: string[], returnTypeTexts: string[], paramNameTexts: string[], paramTypeTexts: string[], paramModifierKinds: int[], paramDefaultKinds: int[], paramDefaultTexts: string[], paramTupleNameCounts: int[], paramTupleNameTexts: string[], returnTupleNameTexts: string[], returnLabeledTypeTexts: string[], paramLabeledTypeTexts: string[], typeParamTexts: string[], typeParamSpecials: int[], typeParamConstraintCounts: int[], typeParamConstraintTypeTexts: string[]) {
         FunctionNameTexts = functionNameTexts
         ReturnTypeTexts = returnTypeTexts
         ParamNameTexts = paramNameTexts
@@ -1511,6 +1576,8 @@ class ColumnarFunctionSignatureOutputTable {
         ParamTupleNameCounts = paramTupleNameCounts
         ParamTupleNameTexts = paramTupleNameTexts
         ReturnTupleNameTexts = returnTupleNameTexts
+        ReturnLabeledTypeTexts = returnLabeledTypeTexts
+        ParamLabeledTypeTexts = paramLabeledTypeTexts
         TypeParamTexts = typeParamTexts
         TypeParamSpecials = typeParamSpecials
         TypeParamConstraintCounts = typeParamConstraintCounts
@@ -1576,13 +1643,15 @@ class ColumnarConstructorTokenTable {
 class ColumnarConstructorSignatureOutputTable {
     ParamNameTexts: string[]
     ParamTypeTexts: string[]
+    ParamLabeledTypeTexts: string[]
     ArgKinds: int[]
     ArgStarts: int[]
     ArgLengths: int[]
     ArgTexts: string[]
-    constructor(paramNameTexts: string[], paramTypeTexts: string[], argKinds: int[], argStarts: int[], argLengths: int[], argTexts: string[]) {
+    constructor(paramNameTexts: string[], paramTypeTexts: string[], paramLabeledTypeTexts: string[], argKinds: int[], argStarts: int[], argLengths: int[], argTexts: string[]) {
         ParamNameTexts = paramNameTexts
         ParamTypeTexts = paramTypeTexts
+        ParamLabeledTypeTexts = paramLabeledTypeTexts
         ArgKinds = argKinds
         ArgStarts = argStarts
         ArgLengths = argLengths
@@ -3510,6 +3579,98 @@ func TypeReferenceCanonicalTextCore(source: string, nodes: TypeReferenceCanonica
     return "?"
 }
 
+// The same spelling `TypeReferenceCanonicalTextCore` produces, except that a NAMED tuple element keeps
+// its label: `(Min:int,Max:int)`, `(A:int,D:(B:int,C:int))`, `List<(Min:int,Max:int)>`. The structural
+// canonical deliberately discards those labels, because a tuple's element names are metadata rather
+// than identity -- but `TupleElementNamesAttribute` needs them at EVERY level, including inside a
+// generic argument and inside a nested tuple, which is more than the top-level
+// `TypeReferenceTupleElementNamesCore` list carries. `ColumnarTupleElementNames.Flatten` reads this
+// form; nothing resolves a type from it.
+func TypeReferenceLabeledCanonicalTextCore(source: string, nodes: TypeReferenceCanonicalTable, root: int): string {
+    if root < 0 || root >= nodes.Kinds.Length {
+        return "?"
+    }
+
+    kind := nodes.Kinds[root]
+    if kind == 0 {
+        return source.Substring(nodes.ValueStarts[root], nodes.ValueLengths[root])
+    }
+
+    if kind == 1 {
+        builder := new StringBuilder(32)
+        builder.Append(source.Substring(nodes.ValueStarts[root], nodes.ValueLengths[root]))
+        builder.Append('<')
+        run := nodes.ChildStart[root]
+        i := 0
+        while i < nodes.ChildCount[root] {
+            if i > 0 {
+                builder.Append(',')
+            }
+
+            builder.Append(TypeReferenceLabeledCanonicalTextCore(source, nodes, nodes.ChildIndices[run + i]))
+            i = i + 1
+        }
+
+        builder.Append('>')
+        return builder.ToString()
+    }
+
+    if kind == 2 {
+        return TypeReferenceLabeledCanonicalTextCore(source, nodes, nodes.ChildIndices[nodes.ChildStart[root]]) + "[]"
+    }
+
+    if kind == 3 {
+        return TypeReferenceLabeledCanonicalTextCore(source, nodes, nodes.ChildIndices[nodes.ChildStart[root]]) + "?"
+    }
+
+    if kind == 4 {
+        builder := new StringBuilder(32)
+        run := nodes.ChildStart[root]
+        i := 0
+        while i < nodes.ChildCount[root] {
+            if i > 0 {
+                builder.Append('|')
+            }
+
+            builder.Append(TypeReferenceLabeledCanonicalTextCore(source, nodes, nodes.ChildIndices[run + i]))
+            i = i + 1
+        }
+
+        return builder.ToString()
+    }
+
+    if kind == 5 {
+        return "&" + TypeReferenceLabeledCanonicalTextCore(source, nodes, nodes.ChildIndices[nodes.ChildStart[root]])
+    }
+
+    if kind == 6 {
+        builder := new StringBuilder(32)
+        builder.Append('(')
+        run := nodes.ChildStart[root]
+        i := 0
+        while i < nodes.ChildCount[root] {
+            if i > 0 {
+                builder.Append(',')
+            }
+
+            elem := nodes.ChildIndices[run + i]
+            if nodes.Kinds[elem] == 7 {
+                builder.Append(source.Substring(nodes.ValueStarts[elem], nodes.ValueLengths[elem]))
+                builder.Append(':')
+                elem = nodes.ChildIndices[nodes.ChildStart[elem]]
+            }
+
+            builder.Append(TypeReferenceLabeledCanonicalTextCore(source, nodes, elem))
+            i = i + 1
+        }
+
+        builder.Append(')')
+        return builder.ToString()
+    }
+
+    return "?"
+}
+
 func TypeReferenceTupleElementNamesCore(source: string, nodes: TypeReferenceCanonicalTable, root: int, names: TypeReferenceTupleNameTable): int {
     if root < 0 || root >= nodes.Kinds.Length || nodes.Kinds[root] != 6 || nodes.ChildCount[root] == 0 {
         return 0
@@ -3949,6 +4110,45 @@ func IsExpressionStartKind(kind: int): bool {
     return kind == 20 || kind == 31 || kind == 34 || kind == 37 || kind == 41 || kind == 42 || kind == 43 || kind == 44 || kind == 45 || kind == 46 || kind == 49 || kind == 50 || kind == 51 || kind == 69 || kind == 70 || kind == 83 || kind == 84 || kind == 88 || kind == 89 || kind == 106 || kind == 110 || kind == 113 || kind == 114 || kind == 127 || kind == 131 || kind == 143 || kind == 145
 }
 
+// The CONSTRUCTED GENERIC TYPE RECEIVER twin of IsGenericCallTypeArgs: the same bounded scan of a
+// candidate type-argument list, answering true only when the matching close is followed DIRECTLY by
+// a `.` (124) rather than by a `(` (127). That trailing dot is the whole disambiguation --
+// `Vector<int>.Count` is a receiver, while `a < b && c > d` and `x < y.Z` are comparisons and answer
+// false here. Pure lookahead; the two predicates are mutually exclusive by their close token.
+func IsGenericTypeReceiverArgs(tokens: ParserTokenTable, count: int, lessPos: int): bool {
+    i := lessPos + 1
+    depth := 1
+    while i < count {
+        k := tokens.Kinds[i]
+        if k == 0 || k == 115 || k == 124 || k == 134 || k == 131 || k == 132 {
+            i = i + 1
+        } else if k == 100 {
+            depth = depth + 1
+            i = i + 1
+        } else if k == 102 {
+            depth = depth - 1
+            i = i + 1
+            if depth == 0 {
+                return i < count && tokens.Kinds[i] == 124
+            }
+        } else if k == 112 {
+            depth = depth - 2
+            i = i + 1
+            if depth == 0 {
+                return i < count && tokens.Kinds[i] == 124
+            }
+
+            if depth < 0 {
+                return false
+            }
+        } else {
+            return false
+        }
+    }
+
+    return false
+}
+
 func IsGenericCallTypeArgs(tokens: ParserTokenTable, count: int, lessPos: int): bool {
     i := lessPos + 1
     depth := 1
@@ -4363,6 +4563,14 @@ func ParsePrimaryExpressionNode(tokens: ParserTokenTable, count: int, st: Parser
     if kind == 46 {
         st.Pos = pos + 1
         return EmitExpressionNode(st, nodes, ColumnarExpressionNodeKind.NullLiteralExpression(), -1, 0, -1, 0, tokenStart, tokenLength)
+    }
+
+    // `default` (Default 34) — the null literal's twin: a keyword primary with no operand whose TYPE
+    // comes from the position it is written in. It is recorded with no value span for the same reason
+    // `null` is, and its full source span is the keyword.
+    if kind == 34 {
+        st.Pos = pos + 1
+        return EmitExpressionNode(st, nodes, ColumnarExpressionNodeKind.DefaultExpression(), -1, 0, -1, 0, tokenStart, tokenLength)
     }
 
     if kind == 131 {
@@ -5077,6 +5285,39 @@ func ParsePrimaryExpressionNode(tokens: ParserTokenTable, count: int, st: Parser
     return -1
 }
 
+// DOES THE TOKEN AT `index` BEGIN A NEW SOURCE LINE? The answer is the text between the previous
+// token's end and this token's start: whitespace and comments, and a line break if there is one. The
+// scan is bounded by that gap, so the common same-line answer costs a character or two.
+//
+// The first token of a run begins no chain continuation and answers false, and so does a table with
+// no source text.
+func ParserTokenBeginsLine(tokens: ParserTokenTable, index: int): bool {
+    source := tokens.Source ?? ""
+    if source.Length == 0 || index <= 0 || index >= tokens.Starts.Length {
+        return false
+    }
+
+    gapEnd := tokens.Starts[index]
+    if gapEnd > source.Length {
+        gapEnd = source.Length
+    }
+
+    scan := tokens.Starts[index - 1] + tokens.ValueLengths[index - 1]
+    if scan < 0 {
+        scan = 0
+    }
+
+    while scan < gapEnd {
+        if source[scan] == '\n' {
+            return true
+        }
+
+        scan = scan + 1
+    }
+
+    return false
+}
+
 func ParsePostfixExpressionNode(tokens: ParserTokenTable, count: int, st: ParserState, argStack: ParserArgumentStack, nodes: ParserExpressionNodeTable, children: ParserChildIndexTable, depth: int): int {
     expr := -1
     if st.Pos + 2 < count && tokens.Kinds[st.Pos] == 42 && tokens.Kinds[st.Pos + 1] == 124 && tokens.Kinds[st.Pos + 2] == 0 {
@@ -5085,6 +5326,19 @@ func ParsePostfixExpressionNode(tokens: ParserTokenTable, count: int, st: Parser
         memberLength := tokens.ValueLengths[st.Pos + 2]
         memberEnd := memberStart + memberLength
         expr = EmitExpressionNode(st, nodes, ColumnarExpressionNodeKind.IdentifierExpression(), memberStart, memberLength, -1, 0, thisStart, memberEnd - thisStart)
+
+        st.Pos = st.Pos + 3
+    } else if st.Pos + 2 < count && tokens.Kinds[st.Pos] == 43 && tokens.Kinds[st.Pos + 1] == 124 && tokens.Kinds[st.Pos + 2] == 0 {
+
+        // `base.Member` (Base 43, Dot 124, Identifier 0) -- the same two-token prefix shape as the
+        // `this.` arm above, into a node kind of its own. The receiver is still argument zero, but the
+        // member it names is looked up in the BASE and dispatched non-virtually, and a kind that a
+        // planner could confuse with `this` would silently turn `base.M()` into infinite recursion.
+        baseStart := tokens.Starts[st.Pos]
+        baseMemberStart := tokens.Starts[st.Pos + 2]
+        baseMemberLength := tokens.ValueLengths[st.Pos + 2]
+        baseMemberEnd := baseMemberStart + baseMemberLength
+        expr = EmitExpressionNode(st, nodes, ColumnarExpressionNodeKind.BaseMemberExpression(), baseMemberStart, baseMemberLength, -1, 0, baseStart, baseMemberEnd - baseStart)
 
         st.Pos = st.Pos + 3
     } else {
@@ -5098,13 +5352,41 @@ func ParsePostfixExpressionNode(tokens: ParserTokenTable, count: int, st: Parser
     while matched {
         pos := st.Pos
 
-        if pos + 1 < count && tokens.Kinds[pos] == 124 && tokens.Kinds[pos + 1] == 0 {
+        if pos < count && tokens.Kinds[pos] != 124 && tokens.Kinds[pos] != 118 && ParserTokenBeginsLine(tokens, pos) {
+
+            // A NEW LINE ENDS THE CHAIN (ParsePostfix :4411 — `Current().Line > Previous().Line` with
+            // no continuing `.` / `?.`). Only Dot 124 and QuestionDot 118 carry an access chain across
+            // a line break. A `[`, `(`, `<` or `with` that OPENS a line begins the next thing in the
+            // file — most often the next member's `[Attribute]` list after an expression-bodied member
+            // — and reading it as a suffix silently rewrites the program instead of failing.
+            matched = false
+        } else if pos + 1 < count && tokens.Kinds[pos] == 124 && tokens.Kinds[pos + 1] == 0 {
             objSpanStart := nodes.SpanStarts[expr]
             memberStart := tokens.Starts[pos + 1]
             memberLength := tokens.ValueLengths[pos + 1]
             memberEnd := memberStart + memberLength
             childRunStart := st.ChildCursor
             AppendExpressionChild(st, children, expr)
+            expr = EmitExpressionNode(st, nodes, ColumnarExpressionNodeKind.MemberAccessExpression(), memberStart, memberLength, childRunStart, 1, objSpanStart, memberEnd - objSpanStart)
+
+            st.Pos = pos + 2
+        } else if pos + 1 < count && tokens.Kinds[pos] == 118 && tokens.Kinds[pos + 1] == 0 {
+
+            // `receiver?.member` (QuestionDot 118) -- the `.` branch above with the receiver wrapped in a
+            // NULL GUARD (kind 75). Everything that reads an access reads the SAME kind-8 node it always
+            // did, and a following `(` still makes the ordinary kind-9 call over it, so `a?.M(x)` needs no
+            // shape of its own. What the guard adds is a place for the SHORT CIRCUIT: it is the node that
+            // tests the receiver once and, when it is null, abandons the rest of the chain.
+            objSpanStart := nodes.SpanStarts[expr]
+            guardSpanLength := nodes.SpanLengths[expr]
+            guardChildRun := st.ChildCursor
+            AppendExpressionChild(st, children, expr)
+            guard := EmitExpressionNode(st, nodes, ColumnarExpressionNodeKind.NullGuardExpression(), -1, 0, guardChildRun, 1, objSpanStart, guardSpanLength)
+            memberStart := tokens.Starts[pos + 1]
+            memberLength := tokens.ValueLengths[pos + 1]
+            memberEnd := memberStart + memberLength
+            childRunStart := st.ChildCursor
+            AppendExpressionChild(st, children, guard)
             expr = EmitExpressionNode(st, nodes, ColumnarExpressionNodeKind.MemberAccessExpression(), memberStart, memberLength, childRunStart, 1, objSpanStart, memberEnd - objSpanStart)
 
             st.Pos = pos + 2
@@ -5126,6 +5408,62 @@ func ParsePostfixExpressionNode(tokens: ParserTokenTable, count: int, st: Parser
             AppendExpressionChild(st, children, expr)
             AppendExpressionChild(st, children, index)
             expr = EmitExpressionNode(st, nodes, ColumnarExpressionNodeKind.IndexAccessExpression(), -1, 0, childRunStart, 2, objSpanStart, rightBracketEnd - objSpanStart)
+        } else if pos < count && tokens.Kinds[pos] == 100 && (nodes.Kinds[expr] == 6 || nodes.Kinds[expr] == 8) && IsGenericTypeReceiverArgs(tokens, count, pos) {
+
+            // `Name<Args>.` / `A.B.Name<Args>.` -- a CONSTRUCTED GENERIC TYPE RECEIVER (kind 70), the
+            // `.`-closed twin of the kind-38 generic callee below and built exactly like it: value
+            // span = the full dotted head name, children = the TYPE-kernel type-argument roots, the
+            // `>>` split honoured through the shared owed-greater state. The `.` branch of this loop
+            // then reads the member off it, so `Vector<int>.Count` is a MemberAccess over a kind-70
+            // node and the planners resolve the receiver as a TYPE instead of a value.
+            receiverNameStart := nodes.ValueStarts[expr]
+            receiverNameLength := nodes.ValueLengths[expr]
+            receiverSpanStart := nodes.SpanStarts[expr]
+            if nodes.Kinds[expr] == 8 {
+                receiverNameStart = receiverSpanStart
+                receiverNameLength = nodes.SpanLengths[expr]
+            }
+
+            st.Pos = pos + 1
+            receiverArgBase := st.ArgStackTop
+            st.SplitGreaterDepth = 0
+            firstReceiverArg := ParseExpressionTypeReferenceNode(tokens, count, st, argStack, nodes, children, 0)
+            if firstReceiverArg < 0 {
+                st.ArgStackTop = receiverArgBase
+                return -1
+            }
+
+            argStack.Values[st.ArgStackTop] = firstReceiverArg
+            st.ArgStackTop = st.ArgStackTop + 1
+
+            while st.SplitGreaterDepth == 0 && st.Pos < count && tokens.Kinds[st.Pos] == 134 {
+                st.Pos = st.Pos + 1
+                nextReceiverArg := ParseExpressionTypeReferenceNode(tokens, count, st, argStack, nodes, children, 0)
+                if nextReceiverArg < 0 {
+                    st.ArgStackTop = receiverArgBase
+                    return -1
+                }
+
+                argStack.Values[st.ArgStackTop] = nextReceiverArg
+                st.ArgStackTop = st.ArgStackTop + 1
+            }
+
+            receiverCloseEnd := ConsumeGreaterForTypeNodeCore(tokens, count, st)
+            if receiverCloseEnd < 0 {
+                st.ArgStackTop = receiverArgBase
+                return -1
+            }
+
+            receiverChildCount := st.ArgStackTop - receiverArgBase
+            receiverChildRunStart := st.ChildCursor
+            r := receiverArgBase
+            while r < st.ArgStackTop {
+                AppendExpressionChild(st, children, argStack.Values[r])
+                r = r + 1
+            }
+
+            st.ArgStackTop = receiverArgBase
+            expr = EmitExpressionNode(st, nodes, ColumnarExpressionNodeKind.GenericTypeReceiverExpression(), receiverNameStart, receiverNameLength, receiverChildRunStart, receiverChildCount, receiverSpanStart, receiverCloseEnd - receiverSpanStart)
         } else if pos < count && tokens.Kinds[pos] == 100 && (nodes.Kinds[expr] == 6 || nodes.Kinds[expr] == 8) && IsGenericCallTypeArgs(tokens, count, pos) {
 
             // Explicit generic-call TYPE ARGUMENTS `callee<T1, T2>(args)` — committed when the callee is
@@ -5308,7 +5646,7 @@ func ParsePostfixExpressionNode(tokens: ParserTokenTable, count: int, st: Parser
     // (PostfixUnary kind 44, the operator token in the value span, ONE child [target]; `n++++` does
     // not re-enter, matching the production grammar). The emitter validates the target (a bare
     // local/param) and keeps the expression value as the PRE-step value.
-    if st.Pos < count {
+    if st.Pos < count && !ParserTokenBeginsLine(tokens, st.Pos) {
         postOp := tokens.Kinds[st.Pos]
         if postOp == 113 || postOp == 114 {
             postOpStart := tokens.Starts[st.Pos]
@@ -5599,10 +5937,29 @@ func ParseBinaryExpressionNode(tokens: ParserTokenTable, count: int, st: ParserS
 
         isAsSpanStart := nodes.SpanStarts[left]
         isAsSpanEnd := nodes.SpanStarts[isAsType] + nodes.SpanLengths[isAsType]
+        // THE PATTERN VARIABLE (`value is Type name`) LIVES IN THE VALUE SPAN. `as` never has one, and
+        // `is` has no other use for the slot, so the binding needs no extra child — which matters because
+        // a kind-46 child run is [value, typeRoot] and every scan walks child 0 as a value and child 1 as
+        // a TYPE. Absent, the slot stays (-1, 0), exactly as before.
+        //
+        // The name must sit on the SAME LINE as the end of the type: statements are newline-terminated,
+        // so an identifier opening the next line starts a new statement. This is the production parser's
+        // gate (ColumnarParserRecovery.ParseRelational), and WITHOUT it the columnar kernel used to stop
+        // the expression at the type and leave `name` to be read as a fresh statement — `return o is string s && s.Length > 0`
+        // silently became a `return` followed by an unreachable expression statement.
+        isAsBindingStart := -1
+        isAsBindingLength := 0
+        if isAsKind == 46 && st.Pos < count && tokens.Kinds[st.Pos] == 0 && !ParserSourceHasLineBreakBetween(st.Source, isAsSpanEnd, tokens.Starts[st.Pos]) {
+            isAsBindingStart = tokens.Starts[st.Pos]
+            isAsBindingLength = tokens.ValueLengths[st.Pos]
+            isAsSpanEnd = isAsBindingStart + isAsBindingLength
+            st.Pos = st.Pos + 1
+        }
+
         isAsChildRun := st.ChildCursor
         AppendExpressionChild(st, children, left)
         AppendExpressionChild(st, children, isAsType)
-        left = EmitExpressionNode(st, nodes, isAsKind, -1, 0, isAsChildRun, 2, isAsSpanStart, isAsSpanEnd - isAsSpanStart)
+        left = EmitExpressionNode(st, nodes, isAsKind, isAsBindingStart, isAsBindingLength, isAsChildRun, 2, isAsSpanStart, isAsSpanEnd - isAsSpanStart)
     }
 
     keepGoing := true
@@ -6739,7 +7096,7 @@ func ParseColumnarExpressionInto(source: string, tokenKinds: int[], tokenStarts:
         return -1
     }
 
-    tokens := new ParserTokenTable(tokenKinds, tokenStarts, tokenValueLengths)
+    tokens := new ParserTokenTable(tokenKinds, tokenStarts, tokenValueLengths, source)
     argStack := new ParserArgumentStack(new int[](parseCount + 1))
     nodes := new ParserExpressionNodeTable(outNodeKinds, outValueStarts, outValueLengths, outChildStart, outChildCount, outSpanStarts, outSpanLengths)
     children := new ParserChildIndexTable(outChildIndices)
@@ -7195,9 +7552,13 @@ func ColumnarEnumDeclarationIndicesCore(tokens: ParserDeclarationKindStream, cou
 }
 
 // The declaration table already carries the source type's modifier word alongside its index. Keep
-// the visibility bits consumed by nested-type planning and the explicit `sealed` bit consumed by
-// reference-type planning. Other member modifiers have their own columns and must not leak into
-// this metadata word.
+// the visibility bits consumed by nested-type planning, the explicit `sealed` bit consumed by
+// reference-type planning, and the `readonly` bit consumed by readonly-struct attribute planning.
+// Other member modifiers have their own columns and must not leak into this metadata word.
+//
+// `readonly` reaches this word through `ParserDeclarationMemberModifierFlag`, not `ModifierFlag`:
+// the latter answers the parser's own modifier table, which deliberately has no `readonly` row
+// because a member-level `readonly X: int` is carried by the field columns instead.
 func ColumnarStructDeclarationMetadataModifierFlagsAt(tokenKinds: int[], declarationIndex: int): int {
     if declarationIndex < 0 || declarationIndex >= tokenKinds.Length {
         return 0
@@ -7211,8 +7572,12 @@ func ColumnarStructDeclarationMetadataModifierFlagsAt(tokenKinds: int[], declara
 
     flags := 0
     while modifierIndex >= 0 && ParserDeclarationMemberModifierKind(tokenKinds[modifierIndex]) != 0 {
-        modifierFlag := ModifierFlag(tokenKinds[modifierIndex])
-        if modifierFlag == 1 || modifierFlag == 2 || modifierFlag == 4 || modifierFlag == 8 || modifierFlag == 128 || modifierFlag == 32768 {
+        modifierFlag := ParserDeclarationMemberModifierFlag(tokenKinds[modifierIndex])
+        // The words that reach METADATA: the four visibility words, `sealed` (128), `abstract` (64),
+        // `readonly` (512) and `partial` (32768). `abstract` is here because `abstract class C` is a
+        // TypeAttributes bit the CLR itself enforces — it refuses to load a type that declares an
+        // abstract method without it — not merely a source-level promise the analyzer checks.
+        if modifierFlag == 1 || modifierFlag == 2 || modifierFlag == 4 || modifierFlag == 8 || modifierFlag == 64 || modifierFlag == 128 || modifierFlag == 512 || modifierFlag == 32768 {
             flags = flags | modifierFlag
         }
         modifierIndex = modifierIndex - 1
@@ -7438,6 +7803,64 @@ func TopLevelColumnarProgramDeclarationIndicesCore(source: string, rawTokens: Pa
     return functionCount + nominalCount + structCount
 }
 
+// THE GENERIC ARITY WRITTEN ON A TOP-LEVEL DECLARATION, straight off the token stream.
+//
+// A CLR type is identified by its name AND its type-parameter count, so the duplicate-name check
+// below needs the count as well as the name. It is read here rather than carried on the name table
+// because the name table is built by a scan that never looks past the identifier.
+//
+// The list is the tokens between the `<` that IMMEDIATELY follows the name and its matching `>`,
+// counting top-level commas. `>>` closes two levels at once (`Box<List<int>>`), which is why the
+// right-shift token is subtracted rather than treated as one `>`.
+func TopLevelDeclarationGenericArityCore(tokens: ParserDeclarationTokenTable, count: int, declarationIndex: int, declarationKind: int): int {
+    if declarationIndex < 0 || declarationIndex >= count {
+        return 0
+    }
+
+    nameIndex := declarationIndex + 1
+    if declarationKind == 7 && nameIndex < count && tokens.Kinds[nameIndex] == 90 {
+        nameIndex = nameIndex + 1
+    }
+    if declarationKind == 13 && nameIndex < count && tokens.Kinds[nameIndex] == 9 {
+        nameIndex = nameIndex + 1
+    }
+    if nameIndex >= count || tokens.Kinds[nameIndex] != 0 {
+        return 0
+    }
+
+    i := nameIndex + 1
+    if i >= count || tokens.Kinds[i] != 100 {
+        return 0
+    }
+
+    depth := 0
+    arity := 1
+    while i < count {
+        kind := tokens.Kinds[i]
+        if kind == 100 {
+            depth = depth + 1
+        } else if kind == 102 {
+            depth = depth - 1
+            if depth <= 0 {
+                return arity
+            }
+        } else if kind == 112 {
+            depth = depth - 2
+            if depth <= 0 {
+                return arity
+            }
+        } else if kind == 134 && depth == 1 {
+            arity = arity + 1
+        } else if kind == 129 || kind == 130 {
+            return 0
+        }
+
+        i = i + 1
+    }
+
+    return 0
+}
+
 func TopLevelTypeDeclarationNamesDistinct(source: string, tokens: ParserDeclarationTokenTable, count: int, decls: TopLevelDeclarationNameTable, declCount: int): int {
     if declCount < 0 {
         return 0
@@ -7457,7 +7880,10 @@ func TopLevelTypeDeclarationNamesDistinct(source: string, tokens: ParserDeclarat
                         return 0
                     }
 
-                    if ParserDeclarationSourceSpansEqual(source, decls.NameStarts[i], decls.NameLengths[i], decls.NameStarts[j], decls.NameLengths[j]) {
+                    // SAME NAME IS NOT SAME TYPE. `Subscription` and `Subscription<T>` are two CLR
+                    // types and may be declared side by side; only a repeated (name, arity) in one
+                    // namespace is the duplicate this scan refuses.
+                    if ParserDeclarationSourceSpansEqual(source, decls.NameStarts[i], decls.NameLengths[i], decls.NameStarts[j], decls.NameLengths[j]) && TopLevelDeclarationGenericArityCore(tokens, count, decls.Indices[i], decls.Kinds[i]) == TopLevelDeclarationGenericArityCore(tokens, count, decls.Indices[j], decls.Kinds[j]) {
                         namespaceMatch := ParserDeclarationNamespacesEqual(source, tokens, count, decls.Indices[i], decls.Indices[j])
                         if namespaceMatch != 0 {
                             return 0
@@ -7644,7 +8070,7 @@ func TopLevelColumnarFunctionDeclarationIndicesCore(source: string, rawTokens: P
         gi = gi + 1
     }
 
-    if TopLevelFunctionPreamblesAreValidCore(compactTokens, compactCount, indices, funcCount) == 0 {
+    if TopLevelFunctionPreamblesAreValidCore(source, compactTokens, compactCount, indices, funcCount) == 0 {
         return -1
     }
 
@@ -7784,7 +8210,7 @@ func TopLevelFunctionPreambleAttributeOpen(tokens: ParserDeclarationTokenTable, 
     return -1
 }
 
-func TopLevelFunctionPreamblesAreValidCore(tokens: ParserDeclarationTokenTable, count: int, indices: TopLevelDeclarationIndexTable, funcCount: int): int {
+func TopLevelFunctionPreamblesAreValidCore(source: string, tokens: ParserDeclarationTokenTable, count: int, indices: TopLevelDeclarationIndexTable, funcCount: int): int {
     i := 0
     while i < funcCount {
         funcIndex := indices.Indices[i]
@@ -7797,7 +8223,7 @@ func TopLevelFunctionPreamblesAreValidCore(tokens: ParserDeclarationTokenTable, 
         if preceding >= 0 && tokens.Kinds[preceding] != 130 {
             if tokens.Kinds[preceding] == 4 {
                 if preceding - 1 < 0 || tokens.Kinds[preceding - 1] != 17 {
-                    if i == 0 || TopLevelExpressionBodiedFunctionEndsAt(tokens, count, indices.Indices[i - 1], funcIndex) == 0 {
+                    if i == 0 || TopLevelExpressionBodiedFunctionEndsAt(source, tokens, count, indices.Indices[i - 1], funcIndex) == 0 {
                         return 0
                     }
                 }
@@ -7826,7 +8252,7 @@ func TopLevelFunctionPreamblesAreValidCore(tokens: ParserDeclarationTokenTable, 
             isAliasedFileImportHeader := headerWalk >= 0 && tokens.Kinds[headerWalk] == 4 && headerWalk - 1 >= 0 && tokens.Kinds[headerWalk - 1] == 17
 
             if headerWalk == preceding || headerWalk < 0 || (tokens.Kinds[headerWalk] != 15 && tokens.Kinds[headerWalk] != 17 && tokens.Kinds[headerWalk] != 18 && !isAliasedFileImportHeader) {
-                if i == 0 || TopLevelExpressionBodiedFunctionEndsAt(tokens, count, indices.Indices[i - 1], funcIndex) == 0 {
+                if i == 0 || TopLevelExpressionBodiedFunctionEndsAt(source, tokens, count, indices.Indices[i - 1], funcIndex) == 0 {
                     return 0
                 }
             }
@@ -7838,17 +8264,17 @@ func TopLevelFunctionPreamblesAreValidCore(tokens: ParserDeclarationTokenTable, 
     return 1
 }
 
-func TopLevelExpressionBodiedFunctionEndsAt(tokens: ParserDeclarationTokenTable, count: int, funcIndex: int, nextFuncIndex: int): int {
+func TopLevelExpressionBodiedFunctionEndsAt(source: string, tokens: ParserDeclarationTokenTable, count: int, funcIndex: int, nextFuncIndex: int): int {
     if funcIndex < 0 || funcIndex >= count || nextFuncIndex <= funcIndex || nextFuncIndex > count || tokens.Kinds[funcIndex] != 7 {
         return 0
     }
 
-    signatureEnd := ParseDeclarationFunctionSignatureEndCore(tokens, count, funcIndex)
+    signatureEnd := ParseDeclarationFunctionSignatureEndCore(source, tokens, count, funcIndex)
     if signatureEnd < 0 || signatureEnd >= count || tokens.Kinds[signatureEnd] != 120 {
         return 0
     }
 
-    expressionEnd := ParseDeclarationExpressionBodyEndCore(tokens, count, signatureEnd)
+    expressionEnd := ParseDeclarationExpressionBodyEndCore(source, tokens, count, signatureEnd)
     if expressionEnd < 0 {
         return 0
     }
@@ -8498,7 +8924,7 @@ func ParseColumnarTestInfoInto(source: string, rawTokenKinds: int[], rawTokenSta
     outResult[4] = -1
     outResult[5] = 0
 
-    statementTokens := new ParserTokenTable(rawTokenKinds, rawTokenStarts, rawTokenValueLengths)
+    statementTokens := new ParserTokenTable(rawTokenKinds, rawTokenStarts, rawTokenValueLengths, source)
     argStack := new ParserArgumentStack(new int[](rawCount + 1))
     nodes := new ParserExpressionNodeTable(bodyKinds, bodyValueStarts, bodyValueLengths, bodyChildStarts, bodyChildCounts, bodySpanStarts, bodySpanLengths)
     children := new ParserChildIndexTable(bodyChildIndices)
@@ -9628,8 +10054,8 @@ func ColumnarFunctionModifierFlagsForGenerator(generatorFlag: int): int {
     return 0
 }
 
-func ParseDeclarationFunctionSignatureEndCore(tokens: ParserDeclarationTokenTable, count: int, funcIndex: int): int {
-    signatureTokens := new ParserTokenTable(tokens.Kinds, tokens.Starts, tokens.ValueLengths)
+func ParseDeclarationFunctionSignatureEndCore(source: string, tokens: ParserDeclarationTokenTable, count: int, funcIndex: int): int {
+    signatureTokens := new ParserTokenTable(tokens.Kinds, tokens.Starts, tokens.ValueLengths, source)
     typeStack := new ParserArgumentStack(new int[](count + 1))
     nodes := new ParserNodeTable(new int[](count + 1), new int[](count + 1), new int[](count + 1), new int[](count + 1), new int[](count + 1), new int[](count + 1), new int[](count + 1))
     children := new ParserChildIndexTable(new int[](count + 1))
@@ -9968,12 +10394,12 @@ func ParseDeclarationSimpleInitializerEndCore(tokens: ParserDeclarationTokenTabl
     return pos
 }
 
-func ParseDeclarationInitializerExpressionEndCore(tokens: ParserDeclarationTokenTable, count: int, pos: int): int {
+func ParseDeclarationInitializerExpressionEndCore(source: string, tokens: ParserDeclarationTokenTable, count: int, pos: int): int {
     if pos < 0 || pos >= count {
         return -1
     }
 
-    expressionTokens := new ParserTokenTable(tokens.Kinds, tokens.Starts, tokens.ValueLengths)
+    expressionTokens := new ParserTokenTable(tokens.Kinds, tokens.Starts, tokens.ValueLengths, source)
     argStack := new ParserArgumentStack(new int[](count + 1))
     nodes := new ParserExpressionNodeTable(new int[](count + 1), new int[](count + 1), new int[](count + 1), new int[](count + 1), new int[](count + 1), new int[](count + 1), new int[](count + 1))
     children := new ParserChildIndexTable(new int[](count + 1))
@@ -10467,7 +10893,7 @@ func ParseStructDeclarationCore(source: string, tokens: ParserDeclarationTokenTa
                 decl.PropIndices[propCount] = memberStart
                 decl.PropStaticFlags[propCount] = memberModifiers.Values[0] | (memberModifiers.Values[4] * 2) | (memberModifiers.Values[5] * 4)
                 propCount = propCount + 1
-                pos = ParseDeclarationExpressionBodyEndCore(tokens, count, pos)
+                pos = ParseDeclarationExpressionBodyEndCore(source, tokens, count, pos)
                 if pos < 0 {
                     return -1
                 }
@@ -10493,7 +10919,7 @@ func ParseStructDeclarationCore(source: string, tokens: ParserDeclarationTokenTa
                                 return -1
                             }
 
-                            initEnd = ParseDeclarationInitializerExpressionEndCore(tokens, count, pos)
+                            initEnd = ParseDeclarationInitializerExpressionEndCore(source, tokens, count, pos)
                             if initEnd < 0 {
                                 return -1
                             }
@@ -10509,7 +10935,7 @@ func ParseStructDeclarationCore(source: string, tokens: ParserDeclarationTokenTa
                 } else if !ParseDeclarationSimpleInitializerTokenIsLiteral(initKind) {
                     initEnd := ParseDeclarationSimpleInitializerEndCore(tokens, count, pos, initializerTypeResult)
                     if initEnd < 0 {
-                        initEnd = ParseDeclarationInitializerExpressionEndCore(tokens, count, pos)
+                        initEnd = ParseDeclarationInitializerExpressionEndCore(source, tokens, count, pos)
                         if initEnd < 0 {
                             return -1
                         }
@@ -10597,12 +11023,28 @@ func ParseStructDeclarationCore(source: string, tokens: ParserDeclarationTokenTa
                 methodFlags = methodFlags | 4096
             }
 
-            signatureEnd := ParseDeclarationFunctionSignatureEndCore(tokens, count, memberStart)
+            signatureEnd := ParseDeclarationFunctionSignatureEndCore(source, tokens, count, memberStart)
             if signatureEnd < 0 || signatureEnd >= count {
                 return -1
             }
 
             if tokens.Kinds[signatureEnd] != 129 && tokens.Kinds[signatureEnd] != 120 {
+                // `abstract func Name(): T` — a declaration with no body, which is what `abstract`
+                // MEANS. It is recorded like any other member; the emitter gives it the abstract
+                // method attributes and no IL. A `static abstract` member has no slot to be abstract
+                // in, so it falls through to the native-import gate and declines there.
+                if ColumnarStructMethodFlagIsAbstract(methodFlags) && !ColumnarStructMethodFlagIsStatic(methodFlags) {
+                    decl.MethodFuncIndices[methodCount] = memberStart
+                    decl.MethodStaticFlags[methodCount] = methodFlags
+                    if decl.MethodModifierFlags.Length > methodCount {
+                        decl.MethodModifierFlags[methodCount] = methodFlags
+                    }
+
+                    methodCount = methodCount + 1
+                    pos = signatureEnd
+                    continue
+                }
+
                 if (methodFlags & 16) == 0 || !ColumnarStructMethodHasLibraryImportAttribute(source, tokens, memberStart) {
                     return -1
                 }
@@ -10669,7 +11111,7 @@ func ParseStructDeclarationCore(source: string, tokens: ParserDeclarationTokenTa
             pos = propBodyPos
 
             if tokens.Kinds[pos] == 120 {
-                pos = ParseDeclarationExpressionBodyEndCore(tokens, count, pos)
+                pos = ParseDeclarationExpressionBodyEndCore(source, tokens, count, pos)
                 if pos < 0 {
                     return -1
                 }
@@ -10685,7 +11127,7 @@ func ParseStructDeclarationCore(source: string, tokens: ParserDeclarationTokenTa
         }
 
         if pos < count && tokens.Kinds[pos] == 120 {
-            pos = ParseDeclarationExpressionBodyEndCore(tokens, count, pos)
+            pos = ParseDeclarationExpressionBodyEndCore(source, tokens, count, pos)
             if pos < 0 {
                 return -1
             }
@@ -10727,12 +11169,12 @@ func ParseStructDeclarationCore(source: string, tokens: ParserDeclarationTokenTa
     return fieldCount
 }
 
-func ParseDeclarationExpressionBodyEndCore(tokens: ParserDeclarationTokenTable, count: int, arrowIndex: int): int {
+func ParseDeclarationExpressionBodyEndCore(source: string, tokens: ParserDeclarationTokenTable, count: int, arrowIndex: int): int {
     if arrowIndex < 0 || arrowIndex >= count || tokens.Kinds[arrowIndex] != 120 {
         return -1
     }
 
-    expressionTokens := new ParserTokenTable(tokens.Kinds, tokens.Starts, tokens.ValueLengths)
+    expressionTokens := new ParserTokenTable(tokens.Kinds, tokens.Starts, tokens.ValueLengths, source)
     argStack := new ParserArgumentStack(new int[](count + 1))
     nodes := new ParserExpressionNodeTable(new int[](count + 1), new int[](count + 1), new int[](count + 1), new int[](count + 1), new int[](count + 1), new int[](count + 1), new int[](count + 1))
     children := new ParserChildIndexTable(new int[](count + 1))
@@ -10803,7 +11245,7 @@ func ParseConstructorChainInfoCore(source: string, tokens: ParserDeclarationToke
     pos = pos + 1
 
     scratchCapacity := (count + 1) * 4
-    expressionTokens := new ParserTokenTable(tokens.Kinds, tokens.Starts, tokens.ValueLengths)
+    expressionTokens := new ParserTokenTable(tokens.Kinds, tokens.Starts, tokens.ValueLengths, source)
     expressionArgs := new ParserArgumentStack(new int[](scratchCapacity))
     expressionNodes := new ParserExpressionNodeTable(
         new int[](scratchCapacity),
@@ -11073,6 +11515,10 @@ func ParseFunctionSignatureInfoCore(source: string, tokens: ParserTokenTable, co
     returnRoot := signatureResult.Values[1]
     if returnRoot >= 0 {
         outputs.ReturnTypeTexts[0] = TypeReferenceCanonicalTextCore(source, canonicalNodes, returnRoot)
+        if outputs.ReturnLabeledTypeTexts.Length > 0 {
+            outputs.ReturnLabeledTypeTexts[0] = TypeReferenceLabeledCanonicalTextCore(source, canonicalNodes, returnRoot)
+        }
+
         returnTupleNames := new TypeReferenceTupleNameTable(outputs.ReturnTupleNameTexts)
         returnTupleNameCount = TypeReferenceTupleElementNamesCore(source, canonicalNodes, returnRoot, returnTupleNames)
         if returnTupleNameCount < 0 {
@@ -11080,6 +11526,9 @@ func ParseFunctionSignatureInfoCore(source: string, tokens: ParserTokenTable, co
         }
     } else {
         outputs.ReturnTypeTexts[0] = "void"
+        if outputs.ReturnLabeledTypeTexts.Length > 0 {
+            outputs.ReturnLabeledTypeTexts[0] = "void"
+        }
     }
 
     flatParamTupleNameCount := 0
@@ -11093,6 +11542,9 @@ func ParseFunctionSignatureInfoCore(source: string, tokens: ParserTokenTable, co
         paramRoot := parameters.TypeRoots[paramIndex]
         outputs.ParamNameTexts[paramIndex] = paramName
         outputs.ParamTypeTexts[paramIndex] = TypeReferenceCanonicalTextCore(source, canonicalNodes, paramRoot)
+        if paramIndex < outputs.ParamLabeledTypeTexts.Length {
+            outputs.ParamLabeledTypeTexts[paramIndex] = TypeReferenceLabeledCanonicalTextCore(source, canonicalNodes, paramRoot)
+        }
 
         paramTupleNames := new TypeReferenceTupleNameTable(tupleNames.Names)
         tupleNameCount := TypeReferenceTupleElementNamesCore(source, canonicalNodes, paramRoot, paramTupleNames)
@@ -12096,6 +12548,10 @@ func ParseConstructorSignatureInfoCore(source: string, tokens: ParserTokenTable,
 
         outputs.ParamNameTexts[paramIndex] = paramName
         outputs.ParamTypeTexts[paramIndex] = TypeReferenceCanonicalTextCore(source, canonicalNodes, parameters.TypeRoots[paramIndex])
+        if paramIndex < outputs.ParamLabeledTypeTexts.Length {
+            outputs.ParamLabeledTypeTexts[paramIndex] = TypeReferenceLabeledCanonicalTextCore(source, canonicalNodes, parameters.TypeRoots[paramIndex])
+        }
+
         paramIndex = paramIndex + 1
     }
 
@@ -12386,7 +12842,7 @@ func ParseInterfaceDeclarationSignatureInfoCore(source: string, tokens: ParserTo
     }
 
     modifierScratch := new int[](count + 1)
-    modifierOutputs := new FunctionSignatureInfoOutputTable(new string[](0), new string[](0), new string[](0), new string[](0), modifierScratch, new int[](count + 1), new string[](count + 1), new int[](0), new string[](0), new string[](0), new string[](0), new int[](0), new int[](0), new string[](0))
+    modifierOutputs := new FunctionSignatureInfoOutputTable(new string[](0), new string[](0), new string[](0), new string[](0), modifierScratch, new int[](count + 1), new string[](count + 1), new int[](0), new string[](0), new string[](0), new string[](0), new string[](0), new string[](0), new int[](0), new int[](0), new string[](0))
 
     flatParamCount := 0
     methodIndex := 0
@@ -12538,18 +12994,18 @@ func DirectLocalFunctionTokenIndicesCore(tokens: LocalFunctionTokenTable, nodes:
     return resultCount
 }
 
-func ParseColumnarProductFunctionInfoInto(source: string, tokenKinds: int[], tokenStarts: int[], tokenValueLengths: int[], count: int, funcIndex: int, isLocalFunction: int, outFunctionNameTexts: string[], outReturnTypeTexts: string[], outParamNameTexts: string[], outParamTypeTexts: string[], outParamModifierKinds: int[], outParamDefaultKinds: int[], outParamDefaultTexts: string[], outParamTupleNameCounts: int[], outParamTupleNameTexts: string[], outReturnTupleNameTexts: string[], outTypeParamTexts: string[], outTypeParamSpecials: int[], outTypeParamConstraintCounts: int[], outTypeParamConstraintTypeTexts: string[], outNodeKinds: int[], outValueStarts: int[], outValueLengths: int[], outChildStart: int[], outChildCount: int[], outChildIndices: int[], outSpanStarts: int[], outSpanLengths: int[], outLocalFunctionNodeIndices: int[], outLocalFunctionTokenIndices: int[], outResult: int[]): int {
+func ParseColumnarProductFunctionInfoInto(source: string, tokenKinds: int[], tokenStarts: int[], tokenValueLengths: int[], count: int, funcIndex: int, isLocalFunction: int, outFunctionNameTexts: string[], outReturnTypeTexts: string[], outParamNameTexts: string[], outParamTypeTexts: string[], outParamModifierKinds: int[], outParamDefaultKinds: int[], outParamDefaultTexts: string[], outParamTupleNameCounts: int[], outParamTupleNameTexts: string[], outReturnTupleNameTexts: string[], outReturnLabeledTypeTexts: string[], outParamLabeledTypeTexts: string[], outTypeParamTexts: string[], outTypeParamSpecials: int[], outTypeParamConstraintCounts: int[], outTypeParamConstraintTypeTexts: string[], outNodeKinds: int[], outValueStarts: int[], outValueLengths: int[], outChildStart: int[], outChildCount: int[], outChildIndices: int[], outSpanStarts: int[], outSpanLengths: int[], outLocalFunctionNodeIndices: int[], outLocalFunctionTokenIndices: int[], outResult: int[]): int {
     tokens := new ColumnarFunctionTokenTable(tokenKinds, tokenStarts, tokenValueLengths, count)
-    signatureOutputs := new ColumnarFunctionSignatureOutputTable(outFunctionNameTexts, outReturnTypeTexts, outParamNameTexts, outParamTypeTexts, outParamModifierKinds, outParamDefaultKinds, outParamDefaultTexts, outParamTupleNameCounts, outParamTupleNameTexts, outReturnTupleNameTexts, outTypeParamTexts, outTypeParamSpecials, outTypeParamConstraintCounts, outTypeParamConstraintTypeTexts)
+    signatureOutputs := new ColumnarFunctionSignatureOutputTable(outFunctionNameTexts, outReturnTypeTexts, outParamNameTexts, outParamTypeTexts, outParamModifierKinds, outParamDefaultKinds, outParamDefaultTexts, outParamTupleNameCounts, outParamTupleNameTexts, outReturnTupleNameTexts, outReturnLabeledTypeTexts, outParamLabeledTypeTexts, outTypeParamTexts, outTypeParamSpecials, outTypeParamConstraintCounts, outTypeParamConstraintTypeTexts)
     body := new ColumnarFunctionBodyTable(outNodeKinds, outValueStarts, outValueLengths, outChildStart, outChildCount, outChildIndices, outSpanStarts, outSpanLengths)
     locals := new ColumnarFunctionLocalTable(outLocalFunctionNodeIndices, outLocalFunctionTokenIndices)
     result := new ColumnarFunctionResultTable(outResult)
     return ParseColumnarFunctionInfoCore(source, tokens, funcIndex, isLocalFunction, signatureOutputs, body, locals, result)
 }
 
-func ParseColumnarProductFunctionSignatureInfoInto(source: string, tokenKinds: int[], tokenStarts: int[], tokenValueLengths: int[], count: int, funcIndex: int, outFunctionNameTexts: string[], outReturnTypeTexts: string[], outParamNameTexts: string[], outParamTypeTexts: string[], outParamModifierKinds: int[], outParamDefaultKinds: int[], outParamDefaultTexts: string[], outParamTupleNameCounts: int[], outParamTupleNameTexts: string[], outReturnTupleNameTexts: string[], outTypeParamTexts: string[], outTypeParamSpecials: int[], outTypeParamConstraintCounts: int[], outTypeParamConstraintTypeTexts: string[], outResult: int[]): int {
+func ParseColumnarProductFunctionSignatureInfoInto(source: string, tokenKinds: int[], tokenStarts: int[], tokenValueLengths: int[], count: int, funcIndex: int, outFunctionNameTexts: string[], outReturnTypeTexts: string[], outParamNameTexts: string[], outParamTypeTexts: string[], outParamModifierKinds: int[], outParamDefaultKinds: int[], outParamDefaultTexts: string[], outParamTupleNameCounts: int[], outParamTupleNameTexts: string[], outReturnTupleNameTexts: string[], outReturnLabeledTypeTexts: string[], outParamLabeledTypeTexts: string[], outTypeParamTexts: string[], outTypeParamSpecials: int[], outTypeParamConstraintCounts: int[], outTypeParamConstraintTypeTexts: string[], outResult: int[]): int {
     tokens := new ColumnarFunctionTokenTable(tokenKinds, tokenStarts, tokenValueLengths, count)
-    signatureOutputs := new ColumnarFunctionSignatureOutputTable(outFunctionNameTexts, outReturnTypeTexts, outParamNameTexts, outParamTypeTexts, outParamModifierKinds, outParamDefaultKinds, outParamDefaultTexts, outParamTupleNameCounts, outParamTupleNameTexts, outReturnTupleNameTexts, outTypeParamTexts, outTypeParamSpecials, outTypeParamConstraintCounts, outTypeParamConstraintTypeTexts)
+    signatureOutputs := new ColumnarFunctionSignatureOutputTable(outFunctionNameTexts, outReturnTypeTexts, outParamNameTexts, outParamTypeTexts, outParamModifierKinds, outParamDefaultKinds, outParamDefaultTexts, outParamTupleNameCounts, outParamTupleNameTexts, outReturnTupleNameTexts, outReturnLabeledTypeTexts, outParamLabeledTypeTexts, outTypeParamTexts, outTypeParamSpecials, outTypeParamConstraintCounts, outTypeParamConstraintTypeTexts)
     return ParseColumnarFunctionSignatureOnlyInfoCore(source, tokens, funcIndex, signatureOutputs, new ColumnarFunctionResultTable(outResult))
 }
 
@@ -12558,8 +13014,8 @@ func ParseColumnarFunctionSignatureOnlyInfoCore(source: string, tokens: Columnar
         return -1
     }
 
-    signatureTokens := new ParserTokenTable(tokens.Kinds, tokens.Starts, tokens.ValueLengths)
-    signatureOutput := new FunctionSignatureInfoOutputTable(signatureOutputs.FunctionNameTexts, signatureOutputs.ReturnTypeTexts, signatureOutputs.ParamNameTexts, signatureOutputs.ParamTypeTexts, signatureOutputs.ParamModifierKinds, signatureOutputs.ParamDefaultKinds, signatureOutputs.ParamDefaultTexts, signatureOutputs.ParamTupleNameCounts, signatureOutputs.ParamTupleNameTexts, signatureOutputs.ReturnTupleNameTexts, signatureOutputs.TypeParamTexts, signatureOutputs.TypeParamSpecials, signatureOutputs.TypeParamConstraintCounts, signatureOutputs.TypeParamConstraintTypeTexts)
+    signatureTokens := new ParserTokenTable(tokens.Kinds, tokens.Starts, tokens.ValueLengths, source)
+    signatureOutput := new FunctionSignatureInfoOutputTable(signatureOutputs.FunctionNameTexts, signatureOutputs.ReturnTypeTexts, signatureOutputs.ParamNameTexts, signatureOutputs.ParamTypeTexts, signatureOutputs.ParamModifierKinds, signatureOutputs.ParamDefaultKinds, signatureOutputs.ParamDefaultTexts, signatureOutputs.ParamTupleNameCounts, signatureOutputs.ParamTupleNameTexts, signatureOutputs.ReturnTupleNameTexts, signatureOutputs.ReturnLabeledTypeTexts, signatureOutputs.ParamLabeledTypeTexts, signatureOutputs.TypeParamTexts, signatureOutputs.TypeParamSpecials, signatureOutputs.TypeParamConstraintCounts, signatureOutputs.TypeParamConstraintTypeTexts)
     typeStack := new ParserArgumentStack(new int[](tokens.Count + 1))
     nodes := new ParserNodeTable(new int[](tokens.Count + 1), new int[](tokens.Count + 1), new int[](tokens.Count + 1), new int[](tokens.Count + 1), new int[](tokens.Count + 1), new int[](tokens.Count + 1), new int[](tokens.Count + 1))
     children := new ParserChildIndexTable(new int[](tokens.Count + 1))
@@ -12579,8 +13035,8 @@ func ParseColumnarFunctionInfoCore(source: string, tokens: ColumnarFunctionToken
         return -1
     }
 
-    signatureTokens := new ParserTokenTable(tokens.Kinds, tokens.Starts, tokens.ValueLengths)
-    signatureOutput := new FunctionSignatureInfoOutputTable(signatureOutputs.FunctionNameTexts, signatureOutputs.ReturnTypeTexts, signatureOutputs.ParamNameTexts, signatureOutputs.ParamTypeTexts, signatureOutputs.ParamModifierKinds, signatureOutputs.ParamDefaultKinds, signatureOutputs.ParamDefaultTexts, signatureOutputs.ParamTupleNameCounts, signatureOutputs.ParamTupleNameTexts, signatureOutputs.ReturnTupleNameTexts, signatureOutputs.TypeParamTexts, signatureOutputs.TypeParamSpecials, signatureOutputs.TypeParamConstraintCounts, signatureOutputs.TypeParamConstraintTypeTexts)
+    signatureTokens := new ParserTokenTable(tokens.Kinds, tokens.Starts, tokens.ValueLengths, source)
+    signatureOutput := new FunctionSignatureInfoOutputTable(signatureOutputs.FunctionNameTexts, signatureOutputs.ReturnTypeTexts, signatureOutputs.ParamNameTexts, signatureOutputs.ParamTypeTexts, signatureOutputs.ParamModifierKinds, signatureOutputs.ParamDefaultKinds, signatureOutputs.ParamDefaultTexts, signatureOutputs.ParamTupleNameCounts, signatureOutputs.ParamTupleNameTexts, signatureOutputs.ReturnTupleNameTexts, signatureOutputs.ReturnLabeledTypeTexts, signatureOutputs.ParamLabeledTypeTexts, signatureOutputs.TypeParamTexts, signatureOutputs.TypeParamSpecials, signatureOutputs.TypeParamConstraintCounts, signatureOutputs.TypeParamConstraintTypeTexts)
     typeStack := new ParserArgumentStack(new int[](tokens.Count + 1))
     nodes := new ParserNodeTable(new int[](tokens.Count + 1), new int[](tokens.Count + 1), new int[](tokens.Count + 1), new int[](tokens.Count + 1), new int[](tokens.Count + 1), new int[](tokens.Count + 1), new int[](tokens.Count + 1))
     children := new ParserChildIndexTable(new int[](tokens.Count + 1))
@@ -12611,7 +13067,7 @@ func ParseColumnarFunctionInfoCore(source: string, tokens: ColumnarFunctionToken
     if tokens.Kinds[bodyBrace] == 129 {
         bodyNodeCount = ParseColumnarFunctionBodyNodesCore(source, tokens, bodyBrace, body, bodyResult)
     } else {
-        bodyNodeCount = ParseColumnarFunctionExpressionBodyNodesCore(tokens, bodyBrace, body, bodyResult)
+        bodyNodeCount = ParseColumnarFunctionExpressionBodyNodesCore(source, tokens, bodyBrace, body, bodyResult)
     }
 
     if bodyNodeCount <= 0 {
@@ -12652,7 +13108,7 @@ func ParseColumnarFunctionInfoCore(source: string, tokens: ColumnarFunctionToken
 }
 
 func ParseColumnarFunctionBodyNodesCore(source: string, tokens: ColumnarFunctionTokenTable, bodyBrace: int, body: ColumnarFunctionBodyTable, result: ColumnarFunctionResultTable): int {
-    statementTokens := new ParserTokenTable(tokens.Kinds, tokens.Starts, tokens.ValueLengths)
+    statementTokens := new ParserTokenTable(tokens.Kinds, tokens.Starts, tokens.ValueLengths, source)
     argStack := new ParserArgumentStack(new int[](tokens.Count + 1))
     nodes := new ParserExpressionNodeTable(body.NodeKinds, body.ValueStarts, body.ValueLengths, body.ChildStart, body.ChildCount, body.SpanStarts, body.SpanLengths)
     children := new ParserChildIndexTable(body.ChildIndices)
@@ -12660,12 +13116,12 @@ func ParseColumnarFunctionBodyNodesCore(source: string, tokens: ColumnarFunction
     return ParseStatementNodesCore(source, statementTokens, tokens.Count, bodyBrace, argStack, nodes, children, statementResult)
 }
 
-func ParseColumnarFunctionExpressionBodyNodesCore(tokens: ColumnarFunctionTokenTable, arrowIndex: int, body: ColumnarFunctionBodyTable, result: ColumnarFunctionResultTable): int {
+func ParseColumnarFunctionExpressionBodyNodesCore(source: string, tokens: ColumnarFunctionTokenTable, arrowIndex: int, body: ColumnarFunctionBodyTable, result: ColumnarFunctionResultTable): int {
     if arrowIndex < 0 || arrowIndex >= tokens.Count || tokens.Kinds[arrowIndex] != 120 || result.Values.Length < 2 {
         return -1
     }
 
-    expressionTokens := new ParserTokenTable(tokens.Kinds, tokens.Starts, tokens.ValueLengths)
+    expressionTokens := new ParserTokenTable(tokens.Kinds, tokens.Starts, tokens.ValueLengths, source)
     argStack := new ParserArgumentStack(new int[](tokens.Count + 1))
     nodes := new ParserExpressionNodeTable(body.NodeKinds, body.ValueStarts, body.ValueLengths, body.ChildStart, body.ChildCount, body.SpanStarts, body.SpanLengths)
     children := new ParserChildIndexTable(body.ChildIndices)
@@ -12737,9 +13193,9 @@ func ColumnarFunctionSourceSpansEqual(source: string, leftStart: int, leftLength
     return true
 }
 
-func ParseColumnarConstructorInfoInto(source: string, tokenKinds: int[], tokenStarts: int[], tokenValueLengths: int[], count: int, ctorIndex: int, outParamNameTexts: string[], outParamTypeTexts: string[], outArgKinds: int[], outArgStarts: int[], outArgLengths: int[], outArgTexts: string[], outNodeKinds: int[], outValueStarts: int[], outValueLengths: int[], outChildStart: int[], outChildCount: int[], outChildIndices: int[], outSpanStarts: int[], outSpanLengths: int[], outResult: int[]): int {
+func ParseColumnarConstructorInfoInto(source: string, tokenKinds: int[], tokenStarts: int[], tokenValueLengths: int[], count: int, ctorIndex: int, outParamNameTexts: string[], outParamTypeTexts: string[], outParamLabeledTypeTexts: string[], outArgKinds: int[], outArgStarts: int[], outArgLengths: int[], outArgTexts: string[], outNodeKinds: int[], outValueStarts: int[], outValueLengths: int[], outChildStart: int[], outChildCount: int[], outChildIndices: int[], outSpanStarts: int[], outSpanLengths: int[], outResult: int[]): int {
     tokens := new ColumnarConstructorTokenTable(tokenKinds, tokenStarts, tokenValueLengths, count)
-    signatureOutputs := new ColumnarConstructorSignatureOutputTable(outParamNameTexts, outParamTypeTexts, outArgKinds, outArgStarts, outArgLengths, outArgTexts)
+    signatureOutputs := new ColumnarConstructorSignatureOutputTable(outParamNameTexts, outParamTypeTexts, outParamLabeledTypeTexts, outArgKinds, outArgStarts, outArgLengths, outArgTexts)
     body := new ColumnarConstructorBodyTable(outNodeKinds, outValueStarts, outValueLengths, outChildStart, outChildCount, outChildIndices, outSpanStarts, outSpanLengths)
     result := new ColumnarConstructorResultTable(outResult)
     return ParseColumnarConstructorInfoCore(source, tokens, ctorIndex, signatureOutputs, body, result)
@@ -12754,8 +13210,8 @@ func ParseColumnarConstructorInfoCore(source: string, tokens: ColumnarConstructo
         return ParseColumnarPrimaryConstructorInfoCore(source, tokens, ctorIndex, signatureOutputs, body, result)
     }
 
-    signatureTokens := new ParserTokenTable(tokens.Kinds, tokens.Starts, tokens.ValueLengths)
-    signatureOutput := new ConstructorSignatureOutputTable(signatureOutputs.ParamNameTexts, signatureOutputs.ParamTypeTexts, signatureOutputs.ArgKinds, signatureOutputs.ArgStarts, signatureOutputs.ArgLengths, signatureOutputs.ArgTexts)
+    signatureTokens := new ParserTokenTable(tokens.Kinds, tokens.Starts, tokens.ValueLengths, source)
+    signatureOutput := new ConstructorSignatureOutputTable(signatureOutputs.ParamNameTexts, signatureOutputs.ParamTypeTexts, signatureOutputs.ParamLabeledTypeTexts, signatureOutputs.ArgKinds, signatureOutputs.ArgStarts, signatureOutputs.ArgLengths, signatureOutputs.ArgTexts)
     typeStack := new ParserArgumentStack(new int[](tokens.Count + 1))
     nodes := new ParserNodeTable(new int[](tokens.Count + 1), new int[](tokens.Count + 1), new int[](tokens.Count + 1), new int[](tokens.Count + 1), new int[](tokens.Count + 1), new int[](tokens.Count + 1), new int[](tokens.Count + 1))
     children := new ParserChildIndexTable(new int[](tokens.Count + 1))
@@ -13016,6 +13472,12 @@ func ParseColumnarPrimaryConstructorInfoCore(source: string, tokens: ColumnarCon
 
         signatureOutputs.ParamNameTexts[p] = paramName
         signatureOutputs.ParamTypeTexts[p] = paramType
+        if p < signatureOutputs.ParamLabeledTypeTexts.Length {
+            // A PRIMARY constructor's parameter types are read as text spans rather than from a
+            // type-reference tree, so the labelled spelling is the spelling already read.
+            signatureOutputs.ParamLabeledTypeTexts[p] = paramType
+        }
+
         signatureOutputs.ArgKinds[p] = primaryParameters.DefaultKinds[p]
         if primaryParameters.DefaultKinds[p] >= 0 {
             if primaryParameters.DefaultKinds[p] == ParserDeclarationDefaultMemberAccessKind() {
@@ -13062,7 +13524,7 @@ func ParseColumnarPrimaryConstructorInfoCore(source: string, tokens: ColumnarCon
     typeResult := new ParserDeclarationResultTable(new int[](2))
     memberModifierValues := new int[](2)
     memberModifiers := new ParserDeclarationResultTable(memberModifierValues)
-    expressionTokens := new ParserTokenTable(tokens.Kinds, tokens.Starts, tokens.ValueLengths)
+    expressionTokens := new ParserTokenTable(tokens.Kinds, tokens.Starts, tokens.ValueLengths, source)
     expressionNodes := new ParserExpressionNodeTable(body.NodeKinds, body.ValueStarts, body.ValueLengths, body.ChildStart, body.ChildCount, body.SpanStarts, body.SpanLengths)
     expressionChildren := new ParserChildIndexTable(body.ChildIndices)
     expressionStack := new ParserArgumentStack(new int[](tokens.Count + 1))
@@ -13253,7 +13715,7 @@ func ParseColumnarPrimaryConstructorInfoCore(source: string, tokens: ColumnarCon
 }
 
 func ParseColumnarConstructorBodyNodesCore(source: string, tokens: ColumnarConstructorTokenTable, bodyBrace: int, body: ColumnarConstructorBodyTable, result: ColumnarConstructorResultTable): int {
-    statementTokens := new ParserTokenTable(tokens.Kinds, tokens.Starts, tokens.ValueLengths)
+    statementTokens := new ParserTokenTable(tokens.Kinds, tokens.Starts, tokens.ValueLengths, source)
     argStack := new ParserArgumentStack(new int[](tokens.Count + 1))
     nodes := new ParserExpressionNodeTable(body.NodeKinds, body.ValueStarts, body.ValueLengths, body.ChildStart, body.ChildCount, body.SpanStarts, body.SpanLengths)
     children := new ParserChildIndexTable(body.ChildIndices)
@@ -13323,10 +13785,6 @@ func ParseColumnarStructInfoCore(source: string, tokens: ColumnarStructTokenTabl
     i := 0
     if typeParamCount > 0 {
         while i < fieldCount {
-            if ColumnarStructFieldFlagIsStatic(outputs.FieldStaticFlags[i]) {
-                return -1
-            }
-
             if ColumnarStructNameMatchesTypeParam(source, scratch, typeParamCount, scratch.FieldNameStarts[i], scratch.FieldNameLengths[i]) {
                 return -1
             }
@@ -13336,10 +13794,6 @@ func ParseColumnarStructInfoCore(source: string, tokens: ColumnarStructTokenTabl
 
         i = 0
         while i < methodCount {
-            if ColumnarStructMethodFlagIsStatic(outputs.MethodStaticFlags[i]) {
-                return -1
-            }
-
             methodName := ColumnarStructMethodMemberNameText(source, tokens, outputs.MethodFuncIndices[i])
             if methodName == "" {
                 return -1
@@ -13354,10 +13808,6 @@ func ParseColumnarStructInfoCore(source: string, tokens: ColumnarStructTokenTabl
 
         i = 0
         while i < propCount {
-            if ColumnarStructPropertyFlagIsStatic(outputs.PropStaticFlags[i]) {
-                return -1
-            }
-
             propNameIndex := outputs.PropIndices[i]
             if propNameIndex < 0 || propNameIndex >= tokens.Count || tokens.Kinds[propNameIndex] != 0 {
                 return -1
@@ -13518,7 +13968,7 @@ func ColumnarStructPropertyFlagHasMsBuildOutput(flags: int): bool {
 func ColumnarStructMethodUnsupportedStatus(source: string, tokens: ColumnarStructTokenTable, outputs: ColumnarStructOutputTable, methodCount: int): int {
     functionTokens := new ColumnarFunctionTokenTable(tokens.Kinds, tokens.Starts, tokens.ValueLengths, tokens.Count)
     cap := (tokens.Count + 1) * 4
-    signatureOutputs := new ColumnarFunctionSignatureOutputTable(new string[](1), new string[](1), new string[](cap), new string[](cap), new int[](cap), new int[](cap), new string[](cap), new int[](cap), new string[](cap), new string[](cap), new string[](cap), new int[](cap), new int[](cap), new string[](cap))
+    signatureOutputs := new ColumnarFunctionSignatureOutputTable(new string[](1), new string[](1), new string[](cap), new string[](cap), new int[](cap), new int[](cap), new string[](cap), new int[](cap), new string[](cap), new string[](cap), new string[](1), new string[](cap), new string[](cap), new int[](cap), new int[](cap), new string[](cap))
     body := new ColumnarFunctionBodyTable(new int[](cap), new int[](cap), new int[](cap), new int[](cap), new int[](cap), new int[](cap), new int[](cap), new int[](cap))
     locals := new ColumnarFunctionLocalTable(new int[](cap), new int[](cap))
     result := new ColumnarFunctionResultTable(new int[](9))
@@ -13531,12 +13981,15 @@ func ColumnarStructMethodUnsupportedStatus(source: string, tokens: ColumnarStruc
     for i := 0; i < methodCount; i++ {
         result.Values[8] = 0
         nativeImportMethod := ColumnarFunctionInput.HasNativeImportModifier(outputs.MethodStaticFlags[i])
+        abstractMethod := ColumnarStructMethodFlagIsAbstract(outputs.MethodStaticFlags[i]) && !ColumnarStructMethodFlagIsStatic(outputs.MethodStaticFlags[i])
         paramCount := 0
         if nativeImportMethod {
             if !ColumnarStructMethodFlagIsStatic(outputs.MethodStaticFlags[i]) {
                 return -1
             }
 
+            paramCount = ParseColumnarFunctionSignatureOnlyInfoCore(source, functionTokens, outputs.MethodFuncIndices[i], signatureOutputs, result)
+        } else if abstractMethod {
             paramCount = ParseColumnarFunctionSignatureOnlyInfoCore(source, functionTokens, outputs.MethodFuncIndices[i], signatureOutputs, result)
         } else {
             paramCount = ParseColumnarFunctionInfoCore(source, functionTokens, outputs.MethodFuncIndices[i], 0, signatureOutputs, body, locals, result)
@@ -13617,10 +14070,6 @@ func ColumnarStructMethodUnsupportedStatus(source: string, tokens: ColumnarStruc
         }
 
         nextMethodParamType = nextMethodParamType + paramCount
-        if result.Values[2] > 0 {
-            return 1
-        }
-
         if !nativeImportMethod && result.Values[8] > 0 {
             return 1
         }
@@ -13632,7 +14081,7 @@ func ColumnarStructMethodUnsupportedStatus(source: string, tokens: ColumnarStruc
 func ColumnarStructConstructorUnsupportedStatus(source: string, tokens: ColumnarStructTokenTable, outputs: ColumnarStructOutputTable, ctorCount: int, isReference: int): int {
     constructorTokens := new ColumnarConstructorTokenTable(tokens.Kinds, tokens.Starts, tokens.ValueLengths, tokens.Count)
     cap := (tokens.Count + 1) * 4
-    signatureOutputs := new ColumnarConstructorSignatureOutputTable(new string[](cap), new string[](cap), new int[](cap), new int[](cap), new int[](cap), new string[](cap))
+    signatureOutputs := new ColumnarConstructorSignatureOutputTable(new string[](cap), new string[](cap), new string[](cap), new int[](cap), new int[](cap), new int[](cap), new string[](cap))
     body := new ColumnarConstructorBodyTable(new int[](cap), new int[](cap), new int[](cap), new int[](cap), new int[](cap), new int[](cap), new int[](cap), new int[](cap))
     result := new ColumnarConstructorResultTable(new int[](6))
     localResults := new LocalFunctionResultTable(new int[](cap), new int[](cap))
@@ -13936,6 +14385,20 @@ func ColumnarStructMethodFlagIsStatic(flags: int): bool {
 // beside its `static` and `LibraryImport` siblings so no caller has to know the bit.
 func ColumnarStructMethodFlagIsAsync(flags: int): bool {
     return (flags & 2048) != 0
+}
+
+// `Modifiers.Abstract` (64, DeclarationEnums.nl) in the method flag word this file writes. An
+// abstract member is the ONE ordinary managed member that has no body at all: the declaration is
+// the whole member, and the `{ … }` a body scan would demand is not merely absent, it is forbidden.
+// The word's meaning is decided here, beside the scan that writes it, for the same reason every
+// other bit's is.
+func ColumnarStructMethodFlagIsAbstract(flags: int): bool {
+    return (flags & 64) != 0
+}
+
+// `Modifiers.Virtual` (32) — the member declares a NEW virtual slot with a body.
+func ColumnarStructMethodFlagIsVirtual(flags: int): bool {
+    return (flags & 32) != 0
 }
 
 func ColumnarStructMethodMemberNamesSupported(source: string, tokens: ColumnarStructTokenTable, scratch: ColumnarStructScratchTable, outputs: ColumnarStructOutputTable, fieldCount: int, methodCount: int): int {
@@ -14534,7 +14997,7 @@ func ParseColumnarInterfaceInfoInto(source: string, tokenKinds: int[], tokenStar
 }
 
 func ParseColumnarInterfaceInfoCore(source: string, tokens: ColumnarInterfaceTokenTable, interfaceIndex: int, scratch: ColumnarInterfaceBaseScratchTable, outputs: ColumnarInterfaceOutputTable, result: ColumnarInterfaceResultTable): int {
-    signatureTokens := new ParserTokenTable(tokens.Kinds, tokens.Starts, tokens.ValueLengths)
+    signatureTokens := new ParserTokenTable(tokens.Kinds, tokens.Starts, tokens.ValueLengths, source)
     baseOutputs := new InterfaceSignatureBaseOutputTable(scratch.BaseNameStarts, scratch.BaseNameLengths, outputs.BaseNameTexts, outputs.InterfaceNameTexts, outputs.TypeParamTexts, outputs.WhereOwnerTexts, outputs.WhereItemCodes, outputs.WhereTypeTexts)
     methodOutputs := new InterfaceSignatureMethodOutputTable(outputs.MethodFuncIndices, outputs.MethodNameTexts, outputs.MethodReturnTexts, outputs.MethodParamCounts, outputs.MethodBodyFlags, outputs.MethodParamNameTexts, outputs.MethodParamTypeTexts, outputs.MethodParamModifierKinds)
     typeStack := new ParserArgumentStack(new int[](tokens.Count + 1))
@@ -14679,7 +15142,7 @@ func ColumnarInterfaceMethodParamNamesDistinct(outputs: ColumnarInterfaceOutputT
 func InterfaceDefaultMethodLocalFunctionStatus(source: string, tokens: ColumnarInterfaceTokenTable, outputs: ColumnarInterfaceOutputTable, methodCount: int): int {
     functionTokens := new ColumnarFunctionTokenTable(tokens.Kinds, tokens.Starts, tokens.ValueLengths, tokens.Count)
     cap := tokens.Count + 1
-    signatureOutputs := new ColumnarFunctionSignatureOutputTable(new string[](1), new string[](1), new string[](cap), new string[](cap), new int[](cap), new int[](cap), new string[](cap), new int[](cap), new string[](cap), new string[](cap), new string[](cap), new int[](cap), new int[](cap), new string[](cap))
+    signatureOutputs := new ColumnarFunctionSignatureOutputTable(new string[](1), new string[](1), new string[](cap), new string[](cap), new int[](cap), new int[](cap), new string[](cap), new int[](cap), new string[](cap), new string[](cap), new string[](1), new string[](cap), new string[](cap), new int[](cap), new int[](cap), new string[](cap))
     body := new ColumnarFunctionBodyTable(new int[](cap), new int[](cap), new int[](cap), new int[](cap), new int[](cap), new int[](cap), new int[](cap), new int[](cap))
     locals := new ColumnarFunctionLocalTable(new int[](cap), new int[](cap))
     result := new ColumnarFunctionResultTable(new int[](9))
@@ -14755,7 +15218,7 @@ func ParseColumnarPropertyInfoCore(source: string, tokens: ColumnarPropertyToken
     if tokens.Kinds[getBodyBrace] == 129 {
         getBodyNodeCount = ParseColumnarPropertyBodyNodesCore(source, tokens, getBodyBrace, getBody, getBodyResult)
     } else {
-        getBodyNodeCount = ParseColumnarPropertyExpressionBodyNodesCore(tokens, getBodyBrace, getBody, getBodyResult)
+        getBodyNodeCount = ParseColumnarPropertyExpressionBodyNodesCore(source, tokens, getBodyBrace, getBody, getBodyResult)
     }
 
     if getBodyNodeCount <= 0 {
@@ -14830,7 +15293,7 @@ func ColumnarPropertyDirectLocalFunctionStatus(tokens: ColumnarPropertyTokenTabl
 }
 
 func ParseColumnarPropertyBodyNodesCore(source: string, tokens: ColumnarPropertyTokenTable, bodyBrace: int, body: ColumnarPropertyBodyTable, result: ColumnarPropertyResultTable): int {
-    statementTokens := new ParserTokenTable(tokens.Kinds, tokens.Starts, tokens.ValueLengths)
+    statementTokens := new ParserTokenTable(tokens.Kinds, tokens.Starts, tokens.ValueLengths, source)
     argStack := new ParserArgumentStack(new int[](tokens.Count + 1))
     nodes := new ParserExpressionNodeTable(body.NodeKinds, body.ValueStarts, body.ValueLengths, body.ChildStart, body.ChildCount, body.SpanStarts, body.SpanLengths)
     children := new ParserChildIndexTable(body.ChildIndices)
@@ -14838,12 +15301,12 @@ func ParseColumnarPropertyBodyNodesCore(source: string, tokens: ColumnarProperty
     return ParseStatementNodesCore(source, statementTokens, tokens.Count, bodyBrace, argStack, nodes, children, statementResult)
 }
 
-func ParseColumnarPropertyExpressionBodyNodesCore(tokens: ColumnarPropertyTokenTable, arrowIndex: int, body: ColumnarPropertyBodyTable, result: ColumnarPropertyResultTable): int {
+func ParseColumnarPropertyExpressionBodyNodesCore(source: string, tokens: ColumnarPropertyTokenTable, arrowIndex: int, body: ColumnarPropertyBodyTable, result: ColumnarPropertyResultTable): int {
     if arrowIndex < 0 || arrowIndex >= tokens.Count || tokens.Kinds[arrowIndex] != 120 || result.Values.Length < 2 {
         return -1
     }
 
-    expressionTokens := new ParserTokenTable(tokens.Kinds, tokens.Starts, tokens.ValueLengths)
+    expressionTokens := new ParserTokenTable(tokens.Kinds, tokens.Starts, tokens.ValueLengths, source)
     argStack := new ParserArgumentStack(new int[](tokens.Count + 1))
     nodes := new ParserExpressionNodeTable(body.NodeKinds, body.ValueStarts, body.ValueLengths, body.ChildStart, body.ChildCount, body.SpanStarts, body.SpanLengths)
     children := new ParserChildIndexTable(body.ChildIndices)

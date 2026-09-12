@@ -211,8 +211,16 @@ test "constructor chain emission rejects ambiguous targets and pre-chain current
     explicitThis := "class ChainThisBase { constructor(value: int) {} }\nclass ChainThisDerived: ChainThisBase {\n    Value: int\n    constructor(): base(this.Value) {}\n}\n"
     assert ConstructorChainExpressionEmitOutcome(explicitThis) == "emit.ctor.chain-instance|ChainThisDerived.constructor"
 
+    // `base.Member` USED TO BE A PARSE DECLINE because `base.` did not parse at all. It parses now,
+    // and it is rejected for the SAME reason `this.Value` above is: `base` is the same reference
+    // `this` is, so reading through it before the base constructor has run reads storage that does
+    // not exist yet (C# reports the CS0027 family here). The outcome moves from `parse.struct` to
+    // the current-instance decline, which is the correct one.
     explicitBase := "class ChainExplicitBase {\n    Value: int\n    constructor(value: int) { Value = value }\n}\nclass ChainExplicitBaseDerived: ChainExplicitBase {\n    constructor(): base(base.Value) {}\n}\n"
-    assert ConstructorChainExpressionParseOutcome(explicitBase) == "parse.struct"
+    assert ConstructorChainExpressionEmitOutcome(explicitBase) == "emit.ctor.chain-instance|ChainExplicitBaseDerived.constructor"
+
+    explicitBaseCall := "class ChainExplicitBaseCall {\n    constructor(value: int) {}\n    func Read(): int { return 1 }\n}\nclass ChainExplicitBaseCallDerived: ChainExplicitBaseCall {\n    constructor(): base(base.Read()) {}\n}\n"
+    assert ConstructorChainExpressionEmitOutcome(explicitBaseCall) == "emit.ctor.chain-instance|ChainExplicitBaseCallDerived.constructor"
 
     implicitField := "class ChainFieldBase { constructor(value: int) {} }\nclass ChainFieldDerived: ChainFieldBase {\n    Value: int\n    constructor(): base(Value) {}\n}\n"
     assert ConstructorChainExpressionEmitOutcome(implicitField) == "emit.ctor.chain-instance|ChainFieldDerived.constructor"

@@ -108,6 +108,7 @@ class AnalyzerAttributeValidator {
             ValidateAttributeArguments(functionDecl.Attributes)
             ValidateParameterAttributeArguments(functionDecl.Parameters)
             ValidateNativeImportSignature(functionDecl)
+            ValidateMethodImplCarrier(functionDecl.Attributes, functionDecl.Body != null || functionDecl.ExpressionBody != null)
             return
         }
 
@@ -115,6 +116,7 @@ class AnalyzerAttributeValidator {
         if classDecl != null {
             ValidateAttributeArguments(classDecl.Attributes)
             ValidateParameterAttributeArguments(classDecl.PrimaryConstructorParameters)
+            ReportMethodImplOnNonCarrier(classDecl.Attributes, "a class")
             return
         }
 
@@ -122,6 +124,8 @@ class AnalyzerAttributeValidator {
         if structDecl != null {
             ValidateAttributeArguments(structDecl.Attributes)
             ValidateParameterAttributeArguments(structDecl.PrimaryConstructorParameters)
+            ReportMethodImplOnNonCarrier(structDecl.Attributes, "a struct")
+            ValidateValueTypeMemberMethodImpl(structDecl.Members)
             return
         }
 
@@ -129,42 +133,53 @@ class AnalyzerAttributeValidator {
         if recordDecl != null {
             ValidateAttributeArguments(recordDecl.Attributes)
             ValidateParameterAttributeArguments(recordDecl.PrimaryConstructorParameters)
+            ReportMethodImplOnNonCarrier(recordDecl.Attributes, "a record")
+            if recordDecl.IsStruct {
+                ValidateValueTypeMemberMethodImpl(recordDecl.Members)
+            }
+
             return
         }
 
         soaRecordDecl := decl as SoaRecordDeclaration
         if soaRecordDecl != null {
             ValidateAttributeArguments(soaRecordDecl.Attributes)
+            ReportMethodImplOnNonCarrier(soaRecordDecl.Attributes, "a struct-of-arrays record")
             return
         }
 
         interfaceDecl := decl as InterfaceDeclaration
         if interfaceDecl != null {
             ValidateAttributeArguments(interfaceDecl.Attributes)
+            ReportMethodImplOnNonCarrier(interfaceDecl.Attributes, "an interface")
             return
         }
 
         unionDecl := decl as UnionDeclaration
         if unionDecl != null {
             ValidateAttributeArguments(unionDecl.Attributes)
+            ReportMethodImplOnNonCarrier(unionDecl.Attributes, "a union")
             return
         }
 
         enumDecl := decl as EnumDeclaration
         if enumDecl != null {
             ValidateAttributeArguments(enumDecl.Attributes)
+            ReportMethodImplOnNonCarrier(enumDecl.Attributes, "an enum")
             return
         }
 
         fieldDecl := decl as FieldDeclaration
         if fieldDecl != null {
             ValidateAttributeArguments(fieldDecl.Attributes)
+            ReportMethodImplOnNonCarrier(fieldDecl.Attributes, "a field")
             return
         }
 
         propertyDecl := decl as PropertyDeclaration
         if propertyDecl != null {
             ValidateAttributeArguments(propertyDecl.Attributes)
+            ValidateMethodImplCarrier(propertyDecl.Attributes, true)
             return
         }
 
@@ -172,6 +187,7 @@ class AnalyzerAttributeValidator {
         if constructorDecl != null {
             ValidateAttributeArguments(constructorDecl.Attributes)
             ValidateParameterAttributeArguments(constructorDecl.Parameters)
+            ValidateMethodImplCarrier(constructorDecl.Attributes, true)
             return
         }
 
@@ -179,7 +195,192 @@ class AnalyzerAttributeValidator {
         if indexerDecl != null {
             ValidateAttributeArguments(indexerDecl.Attributes)
             ValidateParameterAttributeArguments(indexerDecl.Parameters)
+            ValidateMethodImplCarrier(indexerDecl.Attributes, true)
         }
+    }
+
+    // ------------------------------------------------------------------------------------------
+    // `[MethodImpl(...)]`, WHICH IS NOT AN ORDINARY ATTRIBUTE AND SO IS NOT MEASURED BY THE
+    // ORDINARY WALK ALONE.
+    //
+    // It is a PSEUDO-CUSTOM attribute: it never becomes a custom-attribute row, and what it says is
+    // written into the method definition row's implementation flags instead. Three things follow,
+    // and none of them is a question the constructor-and-named-member walk above can ask.
+    //
+    // WHERE IT MAY BE WRITTEN. Only a method-like declaration has an implementation-flags column. On
+    // a type, a field or an enum the attribute has nowhere to go — it is not unread metadata, it is
+    // a statement the assembly cannot record at all — so it is refused rather than dropped.
+    //
+    // WHICH VALUES IT MAY CARRY. A bit outside the `MethodImplOptions` members is not an option the
+    // runtime has; the C# compiler refuses it, and so does this.
+    //
+    // WHICH COMBINATIONS THE TYPE LOADER WILL REFUSE. `Synchronized` on a value type's member and
+    // `InternalCall` on a member with a body are both decided entirely by the source, and both are
+    // otherwise learned as a `TypeLoadException` the first time the type is touched. A refusal at
+    // load time is the worst place to learn about a spelling mistake, so it is stated here.
+    // ------------------------------------------------------------------------------------------
+
+    func ValidateMethodImplCarrier(attributes: List<AttributeNode>?, hasBody: bool) {
+        if attributes == null {
+            return
+        }
+
+        for attribute in attributes {
+            attributeType: Type = typeof(object)
+            if !TryResolveClrAttributeType(attribute.Name, out attributeType) || !MethodImplAttributeFacts.IsMethodImplAttributeType(attributeType) {
+                continue
+            }
+
+            ValidateMethodImplOptions(attribute, attributeType, false, hasBody)
+        }
+    }
+
+    func ReportMethodImplOnNonCarrier(attributes: List<AttributeNode>?, target: string) {
+        if attributes == null {
+            return
+        }
+
+        for attribute in attributes {
+            attributeType: Type = typeof(object)
+            if !TryResolveClrAttributeType(attribute.Name, out attributeType) || !MethodImplAttributeFacts.IsMethodImplAttributeType(attributeType) {
+                continue
+            }
+
+            span := AnalyzerDiagnosticSpanFacts.GetAttributeTypeDiagnosticSpan(attribute)
+            diagnostics.Report(ErrorCode.MethodImplTargetInvalid, "'[MethodImpl]' sets a method's implementation flags, and " + target + " has none", span.Line, span.Column, "Move it to the method, constructor or property whose implementation it describes.", span.Length)
+        }
+    }
+
+    // `Synchronized` IS THE ONE RULE THAT NEEDS THE ENCLOSING TYPE, so it is asked from the type's own
+    // declaration, over its members, rather than from each member — where the kind of the type around
+    // it is not in hand. The other two rules are the member's own and are asked there, so no
+    // declaration is measured twice for the same thing.
+    func ValidateValueTypeMemberMethodImpl(members: List<Declaration>) {
+        for member in members {
+            memberFunction := member as FunctionDeclaration
+            if memberFunction != null {
+                ReportValueTypeMethodImplRefusal(memberFunction.Attributes)
+                continue
+            }
+
+            memberProperty := member as PropertyDeclaration
+            if memberProperty != null {
+                ReportValueTypeMethodImplRefusal(memberProperty.Attributes)
+                continue
+            }
+
+            memberConstructor := member as ConstructorDeclaration
+            if memberConstructor != null {
+                ReportValueTypeMethodImplRefusal(memberConstructor.Attributes)
+                continue
+            }
+
+            memberIndexer := member as IndexerDeclaration
+            if memberIndexer != null {
+                ReportValueTypeMethodImplRefusal(memberIndexer.Attributes)
+            }
+        }
+    }
+
+    func ReportValueTypeMethodImplRefusal(attributes: List<AttributeNode>?) {
+        if attributes == null {
+            return
+        }
+
+        for attribute in attributes {
+            attributeType: Type = typeof(object)
+            if !TryResolveClrAttributeType(attribute.Name, out attributeType) || !MethodImplAttributeFacts.IsMethodImplAttributeType(attributeType) {
+                continue
+            }
+
+            optionsType: Type = typeof(object)
+            if !MethodImplAttributeFacts.TryGetOptionsType(attributeType, out optionsType) {
+                continue
+            }
+
+            value := 0
+            if !TryReadMethodImplOptionValue(attribute, attributeType, optionsType, out value) {
+                continue
+            }
+
+            refused := MethodImplAttributeFacts.DescribeClrRefusal(value, optionsType, true, false)
+            if refused != null {
+                ReportMethodImplRefusedByClr(attribute, refused)
+            }
+        }
+    }
+
+    func ValidateMethodImplOptions(attribute: AttributeNode, attributeType: Type, isValueTypeMember: bool, hasBody: bool) {
+        optionsType: Type = typeof(object)
+        if !MethodImplAttributeFacts.TryGetOptionsType(attributeType, out optionsType) {
+            return
+        }
+
+        value := 0
+        if !TryReadMethodImplOptionValue(attribute, attributeType, optionsType, out value) {
+            return
+        }
+
+        refused := MethodImplAttributeFacts.DescribeClrRefusal(value, optionsType, isValueTypeMember, hasBody)
+        if refused != null {
+            ReportMethodImplRefusedByClr(attribute, refused)
+        }
+    }
+
+    // THE OPTIONS THE ATTRIBUTE ASKS FOR, as one value. False means an argument could not be reduced —
+    // the ordinary walk has already said why — so nothing further is judged. An UNDEFINED bit is
+    // reported here and then dropped from the value, exactly as the C# compiler drops it, so one
+    // mistake produces one sentence rather than two.
+    func TryReadMethodImplOptionValue(attribute: AttributeNode, attributeType: Type, optionsType: Type, out value: int): bool {
+        value = 0
+        total := 0
+        complete := true
+        for argument in attribute.Arguments {
+            argumentName: string? = null
+            valueExpression: Expression = argument.Value
+            NormalizeAttributeArgument(argument, out argumentName, out valueExpression)
+            enumType := optionsType
+            isCodeType := false
+            if argumentName != null {
+                codeTypeType: Type = typeof(object)
+                if !string.Equals(argumentName, MethodImplAttributeFacts.CodeTypeMemberName(), StringComparison.Ordinal) || !MethodImplAttributeFacts.TryGetCodeTypeType(attributeType, out codeTypeType) {
+                    continue
+                }
+
+                enumType = codeTypeType
+                isCodeType = true
+            }
+
+            argumentValue := 0
+            if !MethodImplAttributeFacts.TryEvaluate(valueExpression, enumType, out argumentValue) {
+                complete = false
+                continue
+            }
+
+            undefined := MethodImplAttributeFacts.DescribeUndefinedBits(argumentValue, MethodImplAttributeFacts.DefinedMask(enumType))
+            if undefined.Length > 0 {
+                ReportMethodImplUndefinedOption(valueExpression, undefined, enumType)
+                complete = false
+                continue
+            }
+
+            if !isCodeType {
+                total = total | argumentValue
+            }
+        }
+
+        value = total
+        return complete
+    }
+
+    func ReportMethodImplUndefinedOption(expression: Expression, undefinedBits: string, enumType: Type) {
+        span := spans.GetExpressionDiagnosticSpan(expression)
+        diagnostics.Report(ErrorCode.MethodImplOptionUndefined, "'[MethodImpl]' was given " + undefinedBits + ", which is not a combination of '" + enumType.Name + "' values", span.Line, span.Column, "Name the options you mean, for example 'MethodImplOptions.AggressiveInlining | MethodImplOptions.NoOptimization'.", span.Length)
+    }
+
+    func ReportMethodImplRefusedByClr(attribute: AttributeNode, option: string) {
+        span := AnalyzerDiagnosticSpanFacts.GetAttributeTypeDiagnosticSpan(attribute)
+        diagnostics.Report(ErrorCode.MethodImplOptionRefusedByClr, "'MethodImplOptions." + option + "' cannot be carried by this member — " + MethodImplAttributeFacts.DescribeRefusalReason(option), span.Line, span.Column, MethodImplAttributeFacts.DescribeRefusalRepair(option), span.Length)
     }
 
     func ValidateParameterAttributeArguments(parameters: List<Parameter>?) {
@@ -189,6 +390,7 @@ class AnalyzerAttributeValidator {
 
         for parameter in parameters {
             ValidateAttributeArguments(parameter.Attributes)
+            ReportMethodImplOnNonCarrier(parameter.Attributes, "a parameter")
         }
     }
 
