@@ -83,12 +83,41 @@ test "generic safe casts preserve null results, covariance, and reference identi
     assert GenericSafeCastInvoke(method, numbers) == null
 }
 
-test "safe casts decline value targets and open scoped generic targets" {
+test "safe casts decline value targets" {
     nullableSource := "func AsNullable(value: object?): object? {\n    return value as int?\n}\n"
     assert GenericSafeCastDeclines(nullableSource)
+}
 
+// A SAFE CAST TO A GENERIC CLOSED OVER THE FUNCTION'S OWN TYPE PARAMETER. This used to decline: the
+// type-parameter walk had no read-only-collection row, so `IReadOnlyList<T>` resolved to nothing and
+// the cast had no target. The row exists on both walks now and admits a type-parameter argument, and
+// `isinst` over a generic instantiation is ordinary IL — the instantiation is written into the token
+// and the CLR closes it per call. The contract is therefore the runtime one: the SAME reference comes
+// back when the value implements the closed interface, and null when it does not.
+test "a safe cast to a generic closed over the function's own type parameter emits and dispatches" {
     openSource := "import System.Collections.Generic\n\nfunc AsOpen<T>(value: object?): object? {\n    return value as IReadOnlyList<T>\n}\n"
-    assert GenericSafeCastDeclines(openSource)
+    assembly := GenericSafeCastAssembly(openSource)
+    owner := assembly.GetType("Program")
+    if owner == null {
+        throw new InvalidOperationException("The open generic safe-cast fixture did not publish Program.")
+    }
+    openMethod := owner.GetMethod("AsOpen")
+    if openMethod == null {
+        throw new InvalidOperationException("The open generic safe-cast fixture did not publish AsOpen.")
+    }
+    typeArguments := new Type[](1)
+    typeArguments[0] = typeof(string)
+    closedMethod := openMethod.MakeGenericMethod(typeArguments)
+
+    strings := new List<string>()
+    strings.Add("kept")
+    assert Object.ReferenceEquals(GenericSafeCastInvoke(closedMethod, strings), strings)
+
+    numbers := new List<int>()
+    numbers.Add(7)
+    assert GenericSafeCastInvoke(closedMethod, numbers) == null
+
+    assert GenericSafeCastInvoke(closedMethod, null) == null
 }
 
 test "a source type shadows the read-only collection head" {
