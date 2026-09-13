@@ -239,6 +239,248 @@ sealed class ColumnarIlEmitter {
 
     private func Decline(siteId: string, message: string, nodeIdx: int): bool => DeclineMember(siteId, message, nodeIdx, "")
 
+    // ── THE BLOCK'S STATEMENT LOOP, ENTERED AT AN ORDINAL ─────────────────────────────────────────
+    //
+    // It is a loop with an ENTRY POINT rather than a plain `for` because a using DECLARATION
+    // (`using x := e` with no block) guards THE REST OF THE BLOCK: reaching one means everything
+    // after it belongs inside a protected region that has not been opened yet. So the loop hands the
+    // remainder to `EmitUsingDeclarationRegion`, which opens the region and calls back in at the next
+    // ordinal — and because each call nests inside the previous one's `try`, two declarations in a row
+    // dispose in REVERSE order with no list to keep and no order to arrange.
+    private func EmitBlockChildrenFrom(idx: int, from: int): bool {
+        for n := from; n < _nodes.ChildCount(idx); n++ {
+            child := _nodes.Child(idx, n)
+            if (IsUsingDeclarationNode(child)) {
+                return EmitUsingDeclarationRegion(idx, n)
+            }
+
+            if (!EmitBlockChildAt(idx, n)) {
+                return false
+            }
+        }
+
+        return true
+    }
+
+    private func EmitBlockChildAt(idx: int, n: int): bool {
+        child := _nodes.Child(idx, n)
+        if (!EmitStatement(child)) {
+            childOrdinalText := n.ToString()
+            failedChildKind := _nodes.Kind(child)
+            failedChildKindText := failedChildKind.ToString()
+            return Decline(
+                "emit.statement.block-child",
+                "block child " + childOrdinalText + " (node kind " + failedChildKindText + ") could not be emitted",
+                child
+            )
+        }
+        // A statement that unconditionally transfers control — always-returns, or a direct
+        // `break`/`continue` — must be the LAST in its block; anything after it is unreachable (an
+        // NL312 diagnostic). Decline rather than emit code after the transfer `ret`/`br`, keeping the
+        // analyzer-validated product path authoritative. (A break/continue nested inside an `if` is
+        // conditional, so only a DIRECT break/continue child counts here.)
+        // A WRITE ENDS THE NARROWING IT INVALIDATES. The statement just emitted may have
+        // assigned a name an earlier guard clause proved present, and from here on that name
+        // holds whatever the write put there.
+        DropNarrowingsAssignedIn(child)
+        transfers := AlwaysReturns(child) || _nodes.Kind(child) == 21 || _nodes.Kind(child) == 22
+        if (transfers) {
+            // A LOCAL FUNCTION DECLARATION (kind 41) EMITS NO IL AT ALL — the method was declared
+            // before the body walk and its body is emitted separately — so one written after the
+            // transfer is not code after the transfer. The analyzer's unreachable rule makes the
+            // same exception, and it is what lets a body call a local function on its first line
+            // and declare it on its last.
+            for after := n + 1; after < _nodes.ChildCount(idx); after++ {
+                if (_nodes.Kind(_nodes.Child(idx, after)) != 41) {
+                    return Decline("emit.statement.unreachable-after-transfer", "block contains a statement after an unconditional transfer", child)
+                }
+            }
+        }
+
+        return true
+    }
+
+    // A `using` NODE THAT CARRIES NO BODY — the using DECLARATION. Kind 77 is the synchronous
+    // release, kind 79 the `await using` twin.
+    private func IsUsingDeclarationNode(node: int): bool {
+        if (_nodes.Kind(node) != 77 && _nodes.Kind(node) != 79) {
+            return false
+        }
+
+        return _nodes.ChildCount(node) == 1
+    }
+
+    // THE RESOURCE, IN A LOCAL. A bound resource IS an ordinary local declaration (kind 24 or 40), so
+    // it is emitted by the machinery every other local uses and then looked up by name; an unbound one
+    // is an expression that has to be spilled, because the `finally` reads it again after the body
+    // has run and the stack is not a place a value can wait across a protected region.
+    private func TryEmitUsingResource(resourceNode: int, out resourceLocal: LocalBuilder, out resourceName: string): bool {
+        resourceLocal = null
+        resourceName = ""
+        resourceKind := _nodes.Kind(resourceNode)
+        if (resourceKind == 24 || resourceKind == 40) {
+            if (!EmitStatement(resourceNode)) {
+                return false
+            }
+
+            boundName := ""
+            if (resourceKind == 24) {
+                boundName = ColumnarNodeTextFacts.Text(_nodes, _source, resourceNode)
+            } else {
+                boundName = ColumnarNodeTextFacts.Text(_nodes, _source, _nodes.Child(resourceNode, 0))
+            }
+
+            declared: LocalBuilder? = null
+            if (!_locals.TryGetValue(boundName, out declared)) {
+                // A LIFTED or BOXED binding lives in a StrongBox or a display field rather than in a
+                // local slot, and the `finally` would then have to reach through the box to release
+                // something the closure may still be holding. Decline rather than guess at ownership.
+                return false
+            }
+
+            resourceLocal = declared
+            resourceName = boundName
+            return true
+        }
+
+        let resourceType: Type? = null
+        if (!EmitExpression(resourceNode, out resourceType)) {
+            return false
+        }
+
+        if (resourceType == null || resourceType == ColumnarTypeOfPlanner.RequiredVoidType()) {
+            return false
+        }
+
+        resourceLocal = _il.DeclareLocal(resourceType)
+        _il.Emit(OpCodes.Stloc, resourceLocal)
+        return true
+    }
+
+    private func PlanUsingDisposal(resourceType: Type, isAsyncUsing: bool): ColumnarUsingDisposalPlan? {
+        definition := ColumnarSourceDefinitionResolver.FindDirectType(_structRegistry, resourceType)
+        return ColumnarUsingResourcePlanner.Plan(resourceType, isAsyncUsing, definition)
+    }
+
+    // The three bookkeeping fields every protected region in this emitter shares: the spilled return
+    // value, the shared tail label, and the depth a `leave` counts intervening `finally` blocks by.
+    private func OpenUsingProtectedRegion() {
+        if (_protectedResult == null && _returnType != ColumnarTypeOfPlanner.RequiredVoidType()) {
+            _protectedResult = _il.DeclareLocal(_returnType)
+        }
+        if (!_protectedDoneCreated) {
+            _protectedDone = _il.DefineLabel()
+            _protectedDoneCreated = true
+        }
+
+        _protectedDepth = _protectedDepth + 1
+        _il.BeginExceptionBlock()
+    }
+
+    // A using DECLARATION's region: the resource, then EVERY REMAINING STATEMENT OF THE BLOCK inside
+    // the `try`, then the release. The binding stays in `_locals` afterwards for the enclosing block
+    // to drop with the rest of its locals, which is exactly the scope the declaration has.
+    private func EmitUsingDeclarationRegion(blockIdx: int, ordinal: int): bool {
+        usingNode := _nodes.Child(blockIdx, ordinal)
+        isAsyncUsing := _nodes.Kind(usingNode) == 79
+        resourceLocal: LocalBuilder? = null
+        resourceName := ""
+        if (!TryEmitUsingResource(_nodes.Child(usingNode, 0), out resourceLocal, out resourceName)) {
+            return Decline("emit.using.resource", "using resource could not be emitted", usingNode)
+        }
+
+        plan := PlanUsingDisposal(resourceLocal.get_LocalType(), isAsyncUsing)
+        if (plan == null) {
+            return Decline("emit.using.disposal", "using resource type names no release the lowering can spell", usingNode)
+        }
+
+        OpenUsingProtectedRegion()
+        if (!EmitBlockChildrenFrom(blockIdx, ordinal + 1)) {
+            return false
+        }
+
+        return CloseUsingProtectedRegion(plan, resourceLocal, isAsyncUsing, usingNode)
+    }
+
+    private func CloseUsingProtectedRegion(plan: ColumnarUsingDisposalPlan, resourceLocal: LocalBuilder, isAsyncUsing: bool, usingNode: int): bool {
+        _il.BeginFinallyBlock()
+        _finallyDepth = _finallyDepth + 1
+        disposed := EmitUsingDisposal(plan, resourceLocal, isAsyncUsing)
+        _finallyDepth = _finallyDepth - 1
+        if (!disposed) {
+            return Decline("emit.using.dispose-call", "using release could not be emitted", usingNode)
+        }
+
+        _il.EndExceptionBlock()
+        _protectedDepth = _protectedDepth - 1
+        return true
+    }
+
+    // THE RELEASE ITSELF, in the five shapes `ColumnarUsingResourcePlanner` classifies. Each one is
+    // the C# lowering verbatim: a struct releases through `constrained.` so the call runs on the
+    // resource rather than on a boxed copy, and every reference-typed shape is guarded by a null test,
+    // which is what makes `using x := MightReturnNull() { … }` run instead of crash.
+    private func EmitUsingDisposal(plan: ColumnarUsingDisposalPlan, resourceLocal: LocalBuilder, isAsyncUsing: bool): bool {
+        if (plan.Kind == 1) {
+            _il.Emit(OpCodes.Ldloca, resourceLocal)
+            _il.Emit(OpCodes.Constrained, plan.ResourceType)
+            _il.Emit(OpCodes.Callvirt, plan.Method)
+            return AwaitUsingReleaseIfNeeded(plan, isAsyncUsing)
+        }
+
+        if (plan.Kind == 4) {
+            _il.Emit(OpCodes.Ldloca, resourceLocal)
+            _il.Emit(OpCodes.Call, plan.Method)
+            return AwaitUsingReleaseIfNeeded(plan, isAsyncUsing)
+        }
+
+        if (plan.Kind == 2 || plan.Kind == 5) {
+            skipDispose := _il.DefineLabel()
+            _il.Emit(OpCodes.Ldloc, resourceLocal)
+            _il.Emit(OpCodes.Brfalse, skipDispose)
+            _il.Emit(OpCodes.Ldloc, resourceLocal)
+            _il.Emit(OpCodes.Callvirt, plan.Method)
+            if (!AwaitUsingReleaseIfNeeded(plan, isAsyncUsing)) {
+                return false
+            }
+
+            _il.MarkLabel(skipDispose)
+            return true
+        }
+
+        if (plan.Kind != 3) {
+            return false
+        }
+
+        disposableLocal := _il.DeclareLocal(plan.InterfaceType)
+        skipRuntimeDispose := _il.DefineLabel()
+        _il.Emit(OpCodes.Ldloc, resourceLocal)
+        _il.Emit(OpCodes.Isinst, plan.InterfaceType)
+        _il.Emit(OpCodes.Stloc, disposableLocal)
+        _il.Emit(OpCodes.Ldloc, disposableLocal)
+        _il.Emit(OpCodes.Brfalse, skipRuntimeDispose)
+        _il.Emit(OpCodes.Ldloc, disposableLocal)
+        _il.Emit(OpCodes.Callvirt, plan.Method)
+        if (!AwaitUsingReleaseIfNeeded(plan, isAsyncUsing)) {
+            return false
+        }
+
+        _il.MarkLabel(skipRuntimeDispose)
+        return true
+    }
+
+    // `DisposeAsync()` leaves a `ValueTask` on the stack, and an `await using` awaits it exactly as
+    // every other `await` in this emitter does — through the blocking await, which is the shape async
+    // bodies lower to here. A synchronous `Dispose()` returns void and leaves nothing behind.
+    private func AwaitUsingReleaseIfNeeded(plan: ColumnarUsingDisposalPlan, isAsyncUsing: bool): bool {
+        if (!isAsyncUsing) {
+            return true
+        }
+
+        let awaitedType: Type? = null
+        return TryEmitBlockingAwait(plan.Method.get_ReturnType(), out awaitedType)
+    }
+
     private func DeclineMember(siteId: string, message: string, nodeIdx: int, memberName: string): bool {
         spanStart := -1
         spanLength := 0
@@ -6361,40 +6603,8 @@ sealed class ColumnarIlEmitter {
             // exactly how the analyzer scopes it: the fact is written into the current scope and the
             // scope is popped with the block.
             outerNarrowed := new HashSet<string>(_narrowedNonNull, StringComparer.Ordinal)
-            for n := 0; n < _nodes.ChildCount(idx); n++ {
-                child := Child(idx, n)
-                if (!EmitStatement(child)) {
-                    childOrdinalText := n.ToString()
-                    failedChildKind := _nodes.Kind(child)
-                    failedChildKindText := failedChildKind.ToString()
-                    return Decline(
-                        "emit.statement.block-child",
-                        "block child " + childOrdinalText + " (node kind " + failedChildKindText + ") could not be emitted",
-                        child
-                    )
-                }
-                // A statement that unconditionally transfers control — always-returns, or a direct
-                // `break`/`continue` — must be the LAST in its block; anything after it is unreachable (an
-                // NL312 diagnostic). Decline rather than emit code after the transfer `ret`/`br`, keeping the
-                // analyzer-validated product path authoritative. (A break/continue nested inside an `if` is
-                // conditional, so only a DIRECT break/continue child counts here.)
-                // A WRITE ENDS THE NARROWING IT INVALIDATES. The statement just emitted may have
-                // assigned a name an earlier guard clause proved present, and from here on that name
-                // holds whatever the write put there.
-                DropNarrowingsAssignedIn(child)
-                transfers := AlwaysReturns(child) || _nodes.Kind(child) == 21 || _nodes.Kind(child) == 22
-                if (transfers) {
-                    // A LOCAL FUNCTION DECLARATION (kind 41) EMITS NO IL AT ALL — the method was declared
-                    // before the body walk and its body is emitted separately — so one written after the
-                    // transfer is not code after the transfer. The analyzer's unreachable rule makes the
-                    // same exception, and it is what lets a body call a local function on its first line
-                    // and declare it on its last.
-                    for after := n + 1; after < _nodes.ChildCount(idx); after++ {
-                        if (_nodes.Kind(Child(idx, after)) != 41) {
-                            return Decline("emit.statement.unreachable-after-transfer", "block contains a statement after an unconditional transfer", child)
-                        }
-                    }
-                }
+            if (!EmitBlockChildrenFrom(idx, 0)) {
+                return false
             }
 
             blockLocals := new List<string>()
@@ -6557,6 +6767,45 @@ sealed class ColumnarIlEmitter {
             _finallyDepth = _finallyDepth - 1
             _il.EndExceptionBlock()
             _protectedDepth = _protectedDepth - 1
+            return true
+        } else if columnarSwitchValue0 == 77 || columnarSwitchValue0 == 79 {
+            // UsingStatement (77) / await-using (79), BLOCK form: children [resource, body]. The
+            // resource is materialized into a local, the body runs inside a protected region, and the
+            // `finally` releases what the local holds — the C# lowering exactly, including the null
+            // check and the `constrained.` call that keeps a struct resource unboxed. An exception
+            // from the release propagates, because it is thrown from inside the `finally` and nothing
+            // here catches it.
+            //
+            // A kind-77 node with ONE child is a using DECLARATION and the block loop owns it, because
+            // its region is the rest of the enclosing block. One can still reach here — as the
+            // brace-less body of an `if` or a loop — and there the region is the statement itself, so
+            // the resource is acquired and released with nothing in between, which is what a
+            // declaration whose remaining block is empty means.
+            isAsyncUsing := columnarSwitchValue0 == 79
+            if (_nodes.ChildCount(idx) < 1 || _nodes.ChildCount(idx) > 2) {
+                return Decline("emit.using.shape", "using statement has an unsupported shape", idx)
+            }
+            usingResourceLocal: LocalBuilder? = null
+            usingResourceName := ""
+            if (!TryEmitUsingResource(Child(idx, 0), out usingResourceLocal, out usingResourceName)) {
+                return Decline("emit.using.resource", "using resource could not be emitted", idx)
+            }
+            usingPlan := PlanUsingDisposal(usingResourceLocal.get_LocalType(), isAsyncUsing)
+            if (usingPlan == null) {
+                return Decline("emit.using.disposal", "using resource type names no release the lowering can spell", idx)
+            }
+            OpenUsingProtectedRegion()
+            if (_nodes.ChildCount(idx) == 2 && !EmitStatement(Child(idx, 1))) {
+                return Decline("emit.using.body", "using body could not be emitted", Child(idx, 1))
+            }
+            if (!CloseUsingProtectedRegion(usingPlan, usingResourceLocal, isAsyncUsing, idx)) {
+                return false
+            }
+            // The binding is scoped to the statement, so it leaves with it — an unbound resource never
+            // had a name to remove.
+            if (usingResourceName != "") {
+                _locals.Remove(usingResourceName)
+            }
             return true
         } else if columnarSwitchValue0 == 48 {
             // Throw [exception] — `throw <expr>`: emit the exception REFERENCE and `throw`. The

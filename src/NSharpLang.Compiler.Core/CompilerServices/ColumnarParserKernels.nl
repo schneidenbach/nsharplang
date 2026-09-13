@@ -167,6 +167,14 @@ class ParserState {
     // never need token text may leave it empty, in which case contextual forms simply do not
     // match (safe under-accept -> decline).
     Source: string
+    // THE ONE TOKEN A `{` MAY NOT OPEN AN OBJECT INITIALIZER AT: the brace that opens a `using`
+    // statement's BODY. `using r := new Res() { … }` is the shape the ambiguity lives in — the same
+    // brace could close the resource or open the body — and the rule is the one Go and C# reach for:
+    // the first `{` at paren/bracket depth zero after the resource belongs to the STATEMENT. It is
+    // carried as a token INDEX rather than as a mode flag so nesting needs no bookkeeping: a brace
+    // anywhere inside the expression sits at a different index and is untouched by construction.
+    // -1 whenever no `using` header is being parsed.
+    UsingBodyBrace: int
     constructor(pos: int, nodeCursor: int, childCursor: int, argStackTop: int, splitGreaterDepth: int, owedGreaterByteEnd: int, sourceText: string = "") {
         Pos = pos
         NodeCursor = nodeCursor
@@ -175,6 +183,7 @@ class ParserState {
         SplitGreaterDepth = splitGreaterDepth
         OwedGreaterByteEnd = owedGreaterByteEnd
         Source = sourceText
+        UsingBodyBrace = -1
     }
 }
 
@@ -753,6 +762,15 @@ class ParserExpressionNodeTable {
 //                                             token in the value span, ONE child [body block]. Kind 63 belongs
 //                                             to the expression kernel (TargetTypedNewExpression); kind 64 belongs
 //                                             to the expression kernel (SpreadArgumentExpression). )
+//   UsingStatement               -> kind 77  ( `using <resource> { body }` / `using x := e { body }` /
+//                                             `using x: T := e { body }` / `using x := e` with NO body (the
+//                                             using DECLARATION, disposed at the end of the ENCLOSING block).
+//                                             Children [resource] or [resource, body]: the resource is a
+//                                             kind-24 or kind-40 local DECLARATION when the statement binds
+//                                             it and an ordinary expression when it does not, so the two
+//                                             forms are told apart by the child's KIND. Kind 79 is the
+//                                             `await using` twin -- same shape, released through
+//                                             `IAsyncDisposable.DisposeAsync()`. Kind 78 is unassigned. )
 //   AwaitForeachStatement        -> kind 73  ( `await foreach <var> in <coll> { body }` -- the Await 69 +
 //                                             Foreach 26 two-token dispatch (Parser.cs:2249). Same shape as
 //                                             kind 29: var name in the value span, children [coll, body];
@@ -766,7 +784,7 @@ class ParserExpressionNodeTable {
 // if/while body is ANY statement (commonly a `{ }` block, but a single statement is also valid), so the
 // bodies recurse through the statement dispatcher; `else if` chains as a nested if.
 //
-// Deferred: parenthesised `foreach (x in y)` / `await foreach (x in y)`, const/readonly declarations, using/switch,
+// Deferred: parenthesised `foreach (x in y)` / `await foreach (x in y)`, const/readonly declarations, switch,
 // and statements whose expression parts use a not-yet-supported form. Block statement-list gathers child
 // node ids on the LIFO `argStack` (recursion is LIFO) and appends the contiguous child run after `}`,
 // exactly as calls/generics do.
@@ -4981,7 +4999,7 @@ func ParsePrimaryExpressionNode(tokens: ParserTokenTable, count: int, st: Parser
         // [typeRoot, name0, value0, name1, value1, ...] where each nameN is an Identifier node (kind 6, the field
         // name in its value span) and valueN is the field's value expression. Used to construct a fields-only
         // struct (the emitter zero-inits the value then assigns each named field). A `:` after the name is required.
-        if st.Pos < count && tokens.Kinds[st.Pos] == 129 {
+        if st.Pos < count && tokens.Kinds[st.Pos] == 129 && st.Pos != st.UsingBodyBrace {
             st.Pos = st.Pos + 1
             objArgBase := st.ArgStackTop
             argStack.Values[st.ArgStackTop] = typeRoot
@@ -5106,7 +5124,7 @@ func ParsePrimaryExpressionNode(tokens: ParserTokenTable, count: int, st: Parser
         st.ArgStackTop = argBase
         newCall := EmitExpressionNode(st, nodes, 15, -1, 0, newChildRunStart, newChildCount, newStart, newRightParenEnd - newStart)
 
-        if st.Pos < count && tokens.Kinds[st.Pos] == 129 {
+        if st.Pos < count && tokens.Kinds[st.Pos] == 129 && st.Pos != st.UsingBodyBrace {
             st.Pos = st.Pos + 1
             initArgBase := st.ArgStackTop
             argStack.Values[st.ArgStackTop] = newCall
@@ -6262,6 +6280,53 @@ func ParseSystemsPolicyBlockStatementNode(tokens: ParserTokenTable, count: int, 
     return ParseBlockStatementNodeCore(tokens, count, st, argStack, nodes, children, depth + 1)
 }
 
+// WHICH `using` FORM THE TOKENS SPELL, from two of them. A bare identifier followed by `:=` (121)
+// binds with an inferred type and one followed by `:` (122) binds with an annotation; every other
+// continuation — `.`, `(`, `[`, an operator, `{` — is a resource EXPRESSION, so `using r { … }`,
+// `using a.B() { … }` and `using Open(path) { … }` all reach the unbound arm. The optional `let` is
+// consumed by the caller before this is asked.
+func IsUsingDeclarationAt(tokens: ParserTokenTable, count: int, pos: int): bool {
+    if pos + 1 >= count || tokens.Kinds[pos] != 0 {
+        return false
+    }
+
+    next := tokens.Kinds[pos + 1]
+    return next == 121 || next == 122
+}
+
+// THE INDEX OF THE `{` THAT OPENS A `using` BODY, or -1 when the statement has none. Braces nest INTO
+// the depth count, so only a brace the resource expression could actually have swallowed is ever
+// returned; a `)`, `]` or `}` that closes something this statement never opened ends the scan,
+// because the statement cannot reach past its own enclosing block.
+func UsingBodyBraceIndexAt(tokens: ParserTokenTable, count: int, pos: int): int {
+    depth := 0
+    index := pos
+    while index < count {
+        k := tokens.Kinds[index]
+        if k == 127 || k == 131 {
+            depth = depth + 1
+        } else if k == 129 {
+            if depth == 0 {
+                return index
+            }
+
+            depth = depth + 1
+        } else if k == 128 || k == 130 || k == 132 {
+            if depth == 0 {
+                return -1
+            }
+
+            depth = depth - 1
+        } else if k == 135 {
+            return -1
+        }
+
+        index = index + 1
+    }
+
+    return -1
+}
+
 func ParseStatementCoreNode(tokens: ParserTokenTable, count: int, st: ParserState, argStack: ParserArgumentStack, nodes: ParserExpressionNodeTable, children: ParserChildIndexTable, depth: int): int {
     if depth > 200 {
         return -1
@@ -6434,8 +6499,7 @@ func ParseStatementCoreNode(tokens: ParserTokenTable, count: int, st: ParserStat
     }
 
     // `lock <expr> { }` (Lock 80) -- LockStatement kind 51, children [lockee, body]. The lockee parses
-    // as a full expression; the body must be a `{ }` block. `using` (16) stays deferred — the columnar
-    // type surface has no IDisposable values to model.
+    // as a full expression; the body must be a `{ }` block.
     if kind == 80 {
         lockStart := tokens.Starts[start]
         st.Pos = start + 1
@@ -6458,6 +6522,77 @@ func ParseStatementCoreNode(tokens: ParserTokenTable, count: int, st: ParserStat
         AppendExpressionChild(st, children, lockee)
         AppendExpressionChild(st, children, lockBody)
         return EmitExpressionNode(st, nodes, 51, -1, 0, lockChildRun, 2, lockStart, lockEnd - lockStart)
+    }
+
+    // `using` (16) and `await using` (Await 69 + Using 16) -- UsingStatement kind 77, or kind 79 for
+    // the asynchronous release. Children are [resource] for a using DECLARATION and [resource, body]
+    // for the block form, where `resource` is a kind-24 (`x := e`) or kind-40 (`x: T := e`) local
+    // DECLARATION when the statement binds its resource and an ordinary EXPRESSION when it does not.
+    // Reusing the two declaration shapes rather than inventing a third is what lets the lowering
+    // declare the resource local with the machinery every other local already uses; the resource is
+    // told apart from the unbound form by its node KIND, which no expression can collide with.
+    //
+    // A block body is REQUIRED for the unbound form and optional for the bound one: an unnamed
+    // resource with no block would be released at a point the reader cannot see, which is exactly why
+    // C# has no such spelling either.
+    //
+    // The body's `{` is located BEFORE the resource parses and parked on `st.UsingBodyBrace` — see
+    // that field for why the ambiguity has to be settled by token index.
+    if kind == 16 || (kind == 69 && start + 1 < count && tokens.Kinds[start + 1] == 16) {
+        usingStart := tokens.Starts[start]
+        usingKind := 77
+        usingKeyword := start
+        if kind == 69 {
+            usingKind = 79
+            usingKeyword = start + 1
+        }
+
+        st.Pos = usingKeyword + 1
+        // `let` is the optional, redundant spelling of the same binding — `using let r := e` and
+        // `using r := e` are one form — so it is consumed and then forgotten.
+        if st.Pos < count && tokens.Kinds[st.Pos] == 19 {
+            st.Pos = st.Pos + 1
+        }
+
+        savedUsingBrace := st.UsingBodyBrace
+        st.UsingBodyBrace = UsingBodyBraceIndexAt(tokens, count, st.Pos)
+        usingResource := -1
+        if IsUsingDeclarationAt(tokens, count, st.Pos) {
+            usingResource = ParseStatementCoreNode(tokens, count, st, argStack, nodes, children, depth + 1)
+        } else {
+            usingResource = ParseAssignmentExpressionNode(tokens, count, st, argStack, nodes, children, depth + 1)
+        }
+
+        st.UsingBodyBrace = savedUsingBrace
+        if usingResource < 0 {
+            return -1
+        }
+
+        usingBound := nodes.Kinds[usingResource] == 24 || nodes.Kinds[usingResource] == 40
+        usingBody := -1
+        if st.Pos < count && tokens.Kinds[st.Pos] == 129 {
+            usingBody = ParseBlockStatementNodeCore(tokens, count, st, argStack, nodes, children, depth + 1)
+            if usingBody < 0 {
+                return -1
+            }
+        } else if !usingBound {
+            return -1
+        }
+
+        usingEnd := nodes.SpanStarts[usingResource] + nodes.SpanLengths[usingResource]
+        usingChildCount := 1
+        if usingBody >= 0 {
+            usingChildCount = 2
+            usingEnd = nodes.SpanStarts[usingBody] + nodes.SpanLengths[usingBody]
+        }
+
+        usingChildRun := st.ChildCursor
+        AppendExpressionChild(st, children, usingResource)
+        if usingBody >= 0 {
+            AppendExpressionChild(st, children, usingBody)
+        }
+
+        return EmitExpressionNode(st, nodes, usingKind, -1, 0, usingChildRun, usingChildCount, usingStart, usingEnd - usingStart)
     }
 
     // `allow(...) { }` (Allow 144) -- AllowStatement kind 60, children [body]. The systems analyzer owns the
@@ -7169,7 +7304,10 @@ func ParseSimpleStatementNode(tokens: ParserTokenTable, count: int, st: ParserSt
             }
 
             k := tokens.Kinds[scanPos]
-            if k == 93 && angleDepth == 0 && groupDepth == 0 {
+            // `=` (93) and `:=` (121) both end an annotation: the production parser accepts either
+            // after a written type (`let x: int = 5` and `let x: int := 5` are one declaration), and a
+            // type can contain neither, so both are unambiguous terminators.
+            if (k == 93 || k == 121) && angleDepth == 0 && groupDepth == 0 {
                 scanning = false
             } else {
                 if k == 100 {
