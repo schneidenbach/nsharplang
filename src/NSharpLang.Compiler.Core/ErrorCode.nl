@@ -83,5 +83,6 @@ enum ErrorCode {
     MethodImplOptionUndefined = 931,
     MethodImplOptionRefusedByClr = 932,
     AttributeTargetInvalid = 933,
-    AttributeNotRepeatable = 934
+    AttributeNotRepeatable = 934,
+    AttributePositionUnsupported = 935
 }

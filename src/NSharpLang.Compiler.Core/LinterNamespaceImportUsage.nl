@@ -24,11 +24,30 @@ class LinterNamespaceImportUsage {
             return true
         }
 
-        if ContainsAny(codeIdentifiers, knownTypes) {
+        if ContainsAnyType(codeIdentifiers, knownTypes) {
             return true
         }
 
         return ContainsAny(memberAccessNames, knownMembers)
+    }
+
+    // AN ATTRIBUTE TYPE HAS TWO LEGAL SPELLINGS and a file may write either: `[Obsolete]` and
+    // `typeof(ObsoleteAttribute)` name the same type, and the second is the only spelling that works
+    // outside attribute position. The type half therefore asks for the written name AND its
+    // `Attribute`-suffixed form, so the row that names `Obsolete` answers for both. The member half
+    // does not: a method name has one spelling.
+    static func ContainsAnyType(names: HashSet<string>, candidates: string[]): bool {
+        index := 0
+        while index < candidates.Length {
+            candidate := candidates[index]
+            if names.Contains(candidate) || names.Contains(candidate + "Attribute") {
+                return true
+            }
+
+            index = index + 1
+        }
+
+        return false
     }
 
     // AN ALIASED IMPORT IS USED WHEN ITS ALIAS IS WRITTEN, and it is the ONLY spelling that can use

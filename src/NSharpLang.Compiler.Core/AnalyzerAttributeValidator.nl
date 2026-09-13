@@ -1586,7 +1586,7 @@ class AnalyzerAttributeValidator {
             }
 
             candidateCount = candidateCount + 1
-            outcome := MeasureSourceConstructorSignature(classType, member.ParameterTypes, positionalArguments)
+            outcome := MeasureSourceConstructorSignature(classType, member.ParameterTypes, member.RequiredParameterCount, positionalArguments)
             if outcome != AnalyzerAttributeValidator.SourceMemberNotFound {
                 return outcome
             }
@@ -1601,7 +1601,7 @@ class AnalyzerAttributeValidator {
             }
 
             candidateCount = candidateCount + 1
-            outcome := MeasureSourceConstructorSignature(classType, primaryTypes, positionalArguments)
+            outcome := MeasureSourceConstructorSignature(classType, primaryTypes, primaryTypes.Length, positionalArguments)
             if outcome != AnalyzerAttributeValidator.SourceMemberNotFound {
                 return outcome
             }
@@ -1614,13 +1614,22 @@ class AnalyzerAttributeValidator {
         return AnalyzerAttributeValidator.SourceMemberNotFound
     }
 
-    func MeasureSourceConstructorSignature(owner: TypeInfo, parameterTypes: TypeReference[], positionalArguments: List<AttributeArgumentValidationInfo>): int {
-        if parameterTypes.Length != positionalArguments.Count {
+    // AN OMITTED ARGUMENT IS THE PARAMETER'S DEFAULT. `[Mark]` on `MarkAttribute(level: int = 1)`
+    // calls the one-parameter constructor and the blob carries the declared default, exactly as the
+    // same call written in code does — so the arity test is a RANGE, from the required count to the
+    // full one, and only the arguments the source wrote are measured against their parameters.
+    func MeasureSourceConstructorSignature(owner: TypeInfo, parameterTypes: TypeReference[], declaredRequiredCount: int, positionalArguments: List<AttributeArgumentValidationInfo>): int {
+        requiredCount := declaredRequiredCount
+        if requiredCount < 0 || requiredCount > parameterTypes.Length {
+            requiredCount = parameterTypes.Length
+        }
+
+        if positionalArguments.Count > parameterTypes.Length || positionalArguments.Count < requiredCount {
             return AnalyzerAttributeValidator.SourceMemberNotFound
         }
 
         index := 0
-        while index < parameterTypes.Length {
+        while index < positionalArguments.Count {
             parameterClrType: Type = typeof(object)
             if !TryGetSourceDeclaredClrType(owner, parameterTypes[index], out parameterClrType) {
                 return AnalyzerAttributeValidator.SourceMemberUndecidable
@@ -1739,13 +1748,13 @@ class AnalyzerAttributeValidator {
         constructors := attributeType.GetConstructors(instanceFlags)
         for constructor in constructors {
             parameters := constructor.GetParameters()
-            if parameters.Length != positionalArguments.Count {
+            if positionalArguments.Count > parameters.Length || positionalArguments.Count < RequiredParameterCount(parameters) {
                 continue
             }
 
             matches := true
             index := 0
-            while index < parameters.Length {
+            while index < positionalArguments.Count {
                 parameter := parameters[index]
                 argumentInfo := positionalArguments[index]
                 if !IsAttributeArgumentCompatibleValue(parameter.get_ParameterType(), argumentInfo) {
@@ -1762,6 +1771,22 @@ class AnalyzerAttributeValidator {
         }
 
         return false
+    }
+
+    // HOW MANY ARGUMENTS A METADATA SIGNATURE INSISTS ON. Optional parameters are trailing by
+    // construction, so the count is the position of the first optional one.
+    static func RequiredParameterCount(parameters: ParameterInfo[]): int {
+        count := parameters.Length
+        while count > 0 {
+            parameter := parameters[count - 1]
+            if !parameter.get_IsOptional() {
+                return count
+            }
+
+            count = count - 1
+        }
+
+        return 0
     }
 
     // WHAT ONE ARGUMENT MAY FILL. `null` is decided by the PARAMETER alone — anything that is not a
@@ -1785,11 +1810,51 @@ class AnalyzerAttributeValidator {
             return true
         }
 
+        // AN ARRAY ARGUMENT CONVERTS PER ELEMENT, NOT AS A WHOLE. The array's own type is the common
+        // type of what was written — `[1, 2]` is `int[]` — and no conversion exists from `int[]` to
+        // `byte[]`, but the blob writes each element against the ELEMENT type and each of these
+        // elements is an integer constant a `byte` holds. The rule is therefore the same
+        // constant-expression conversion applied one level down, which is exactly as deep as
+        // attribute metadata goes.
+        if parameterType.get_IsArray() && !argumentInfo.IsNull {
+            return ArrayElementsFitParameter(parameterType, argumentInfo.Value)
+        }
+
         if !argumentInfo.HasIntegerConstant || !IsIntegralClrType(knownArgumentType) {
             return false
         }
 
         return ConstantFitsNumericType(parameterType, argumentInfo.ConstantMagnitude, argumentInfo.ConstantIsNegative)
+    }
+
+    // EVERY ELEMENT OF A WRITTEN ARRAY LITERAL, AGAINST THE PARAMETER'S ELEMENT TYPE. Only an integer
+    // constant is decided here: an element the type rule already accepted never reaches this, and an
+    // element that is neither refuses the whole argument.
+    static func ArrayElementsFitParameter(parameterType: Type, value: Expression): bool {
+        elementCandidate := parameterType.GetElementType()
+        if elementCandidate == null {
+            return false
+        }
+
+        arrayLiteral := value as ArrayLiteralExpression
+        if arrayLiteral == null {
+            return false
+        }
+
+        elementType: Type = elementCandidate
+        for element in arrayLiteral.Elements {
+            magnitude := 0UL
+            isNegative := false
+            if !TryEvaluateAttributeIntegerConstant(element, out magnitude, out isNegative) {
+                return false
+            }
+
+            if !ConstantFitsNumericType(elementType, magnitude, isNegative) {
+                return false
+            }
+        }
+
+        return true
     }
 
     static func IsIntegralClrType(clrType: Type): bool {
@@ -1853,7 +1918,7 @@ class AnalyzerAttributeValidator {
     // THE VALUE OF AN INTEGER CONSTANT EXPRESSION, over exactly the shapes that can spell one: a
     // literal, and the two unary operators that keep it an integer. Anything else has no value here —
     // an enum member's value is the ENUM's, and the enum rule already accepts it by type.
-    func TryEvaluateAttributeIntegerConstant(expression: Expression, out magnitude: ulong, out isNegative: bool): bool {
+    static func TryEvaluateAttributeIntegerConstant(expression: Expression, out magnitude: ulong, out isNegative: bool): bool {
         magnitude = 0UL
         isNegative = false
         intLiteral := expression as IntLiteralExpression

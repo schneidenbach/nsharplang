@@ -243,6 +243,10 @@ class ColumnarPropertyInput {
 
 class ColumnarStructInput {
     SourceAttributes: ColumnarSourceAttributeInput[]?
+    // The attributes written on each declared field, indexed the same way every other field column
+    // is. Null at a slot the source wrote nothing at, and null as a whole for an input built before
+    // the fields were read.
+    FieldSourceAttributes: ColumnarSourceAttributeInput[]?[]?
     Name: string
     FieldNames: string[]
     FieldTypeCanonicals: string[]
@@ -321,6 +325,17 @@ class ColumnarStructInput {
         FieldPrivateFlags = fieldPrivateFlags ?? new bool[](fieldNames.Length)
         FieldThreadStaticFlags = fieldThreadStaticFlags ?? new bool[](fieldNames.Length)
         FieldConstFlags = fieldConstFlags ?? new bool[](fieldNames.Length)
+    }
+
+    // The attributes written on the field at `index`, or none. Every field column is indexed the
+    // same way, so this is a bounds-guarded read of one row rather than a search.
+    func FieldSourceAttributesAt(index: int): ColumnarSourceAttributeInput[]? {
+        rows := FieldSourceAttributes
+        if rows == null || index < 0 || index >= rows.Length {
+            return null
+        }
+
+        return rows[index]
     }
 
     // The synthesized static-initializer body's name. It is never emitted as a method — the emitter

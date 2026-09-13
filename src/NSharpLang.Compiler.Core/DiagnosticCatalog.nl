@@ -193,6 +193,7 @@ class DiagnosticCatalog {
         AddCompiler(descriptors, ErrorCode.MethodImplOptionRefusedByClr)
         AddCompiler(descriptors, ErrorCode.AttributeTargetInvalid)
         AddCompiler(descriptors, ErrorCode.AttributeNotRepeatable)
+        AddCompiler(descriptors, ErrorCode.AttributePositionUnsupported)
         AddCompiler(descriptors, ErrorCode.InternalCompilerError)
     }
 

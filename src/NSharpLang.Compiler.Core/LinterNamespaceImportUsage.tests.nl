@@ -112,6 +112,22 @@ test "one named type is enough to mark its namespace used" {
     assert LinterNamespaceImportUsage.IsUsed("System.Linq", LniuOne("Enumerable"), members)
 }
 
+// AN ATTRIBUTE'S OTHER SPELLING IS THE SAME TYPE. `typeof(ObsoleteAttribute)` is the only way to
+// name the type outside attribute position, and a file whose only use of `import System` was that
+// spelling was told the import was dead.
+test "the Attribute-suffixed spelling of an attribute type uses its namespace" {
+    members := LniuNone()
+
+    assert LinterNamespaceImportUsage.IsUsed("System", LniuOne("ObsoleteAttribute"), members)
+    assert LinterNamespaceImportUsage.IsUsed("System", LniuOne("FlagsAttribute"), members)
+    assert LinterNamespaceImportUsage.IsUsed("System", LniuOne("AttributeUsageAttribute"), members)
+    assert LinterNamespaceImportUsage.IsUsed("System", LniuOne("ThreadStaticAttribute"), members)
+
+    // The member half keeps ONE spelling: a method is not an attribute, and `x.SelectAttribute()` is
+    // not a use of `import System.Linq`.
+    assert LinterNamespaceImportUsage.IsUsed("System.Linq", LniuNone(), LniuOne("SelectAttribute")) == false
+}
+
 test "System.Linq is used by a CALL alone, with no LINQ type ever named" {
     // This is the whole reason the member half exists: `xs.Select(...)` names no type at all, and
     // without this arm every `import System.Linq` in an idiomatic file would be flagged.

@@ -2,6 +2,7 @@ namespace NSharpLang.Compiler.Columnar
 
 import System
 import System.Collections.Generic
+import System.Globalization
 import System.Reflection
 import System.Reflection.Emit
 import NSharpLang.Compiler
@@ -12,10 +13,18 @@ import NSharpLang.Compiler
 class ColumnarAttributeConstructorCandidate {
     Constructor: ConstructorInfo
     ParameterTypes: Type[]
+    // THE VALUE A PARAMETER TAKES WHEN THE ATTRIBUTE OMITS IT, or null where the parameter is
+    // required. A custom-attribute blob has no notion of an omitted argument — every fixed argument
+    // is written — so `[Mark]` on `MarkAttribute(level: int = 1)` has to write the DEFAULT, which is
+    // what the C# compiler writes for the same declaration. It is carried as argument SYNTAX so the
+    // default is encoded against the parameter's own type by the one writer that encodes everything
+    // else.
+    DefaultValues: ColumnarAttributeArgumentNode?[]
 
-    constructor(candidate: ConstructorInfo, parameterTypes: Type[]) {
+    constructor(candidate: ConstructorInfo, parameterTypes: Type[], defaultValues: ColumnarAttributeArgumentNode?[]? = null) {
         Constructor = candidate
         ParameterTypes = parameterTypes
+        DefaultValues = defaultValues ?? new ColumnarAttributeArgumentNode?[](parameterTypes.Length)
     }
 }
 
@@ -99,21 +108,27 @@ class ColumnarSourceAttributeBinder {
 
         writer := new ColumnarAttributeBlobWriter(resolution)
         selected: ColumnarSourceAttributePlan = null
-        selectedScore := 0
+        selectedOmitted := 0
+        selectedObjects := 0
         for candidate in CollectConstructors(attributeType, sourceDefinition) {
-            if candidate.ParameterTypes.Length != positional.Count {
+            fixedArguments := new List<ColumnarAttributeArgumentNode>()
+            if !TryFillOmittedArguments(positional, candidate, fixedArguments) {
                 continue
             }
 
             blob: byte[] = Array.Empty<byte>()
-            if !writer.TryWriteBlob(positional, candidate.ParameterTypes, namedArguments, out blob) {
+            if !writer.TryWriteBlob(fixedArguments, candidate.ParameterTypes, namedArguments, out blob) {
                 continue
             }
 
-            score := ObjectParameterCount(candidate.ParameterTypes)
-            if selected == null || score < selectedScore {
+            // A SIGNATURE THAT NEEDS NO DEFAULT BEATS ONE THAT DOES, which is the direction ordinary
+            // better-ness runs for an omitted argument; among equals the least `object`-typed wins.
+            omitted := candidate.ParameterTypes.Length - positional.Count
+            objects := ObjectParameterCount(candidate.ParameterTypes)
+            if selected == null || omitted < selectedOmitted || (omitted == selectedOmitted && objects < selectedObjects) {
                 selected = new ColumnarSourceAttributePlan(candidate.Constructor, blob)
-                selectedScore = score
+                selectedOmitted = omitted
+                selectedObjects = objects
             }
         }
 
@@ -122,6 +137,36 @@ class ColumnarSourceAttributeBinder {
         }
 
         plan = selected
+        return true
+    }
+
+    // THE WRITTEN ARGUMENTS FOLLOWED BY THE DEFAULT OF EVERY PARAMETER THE SOURCE LEFT OFF. A
+    // parameter past the written list with no default makes this signature inapplicable, which is the
+    // same answer the arity test gave before defaults were read.
+    static func TryFillOmittedArguments(positional: List<ColumnarAttributeArgumentNode>, candidate: ColumnarAttributeConstructorCandidate, fixedArguments: List<ColumnarAttributeArgumentNode>): bool {
+        if positional.Count > candidate.ParameterTypes.Length {
+            return false
+        }
+
+        for written in positional {
+            fixedArguments.Add(written)
+        }
+
+        index := positional.Count
+        while index < candidate.ParameterTypes.Length {
+            if index >= candidate.DefaultValues.Length {
+                return false
+            }
+
+            omittedValue := candidate.DefaultValues[index]
+            if omittedValue == null {
+                return false
+            }
+
+            fixedArguments.Add(omittedValue)
+            index = index + 1
+        }
+
         return true
     }
 
@@ -185,7 +230,7 @@ class ColumnarSourceAttributeBinder {
         candidates := new List<ColumnarAttributeConstructorCandidate>()
         if sourceDefinition != null {
             for declared in sourceDefinition.Constructors {
-                candidates.Add(new ColumnarAttributeConstructorCandidate(declared.Builder, declared.ParamTypes))
+                candidates.Add(new ColumnarAttributeConstructorCandidate(declared.Builder, declared.ParamTypes, SourceDefaultValues(declared)))
             }
 
             defaultConstructor := sourceDefinition.DefaultCtor
@@ -203,16 +248,152 @@ class ColumnarSourceAttributeBinder {
         for metadataConstructor in attributeType.GetConstructors(BindingFlags.Public | BindingFlags.Instance) {
             parameters := metadataConstructor.GetParameters()
             parameterTypes := new Type[](parameters.Length)
+            defaultValues := new ColumnarAttributeArgumentNode?[](parameters.Length)
             index := 0
             while index < parameters.Length {
                 parameterTypes[index] = parameters[index].get_ParameterType()
+                metadataDefault: ColumnarAttributeArgumentNode = null
+                if TryReadMetadataDefault(parameters[index], out metadataDefault) {
+                    defaultValues[index] = metadataDefault
+                }
+
                 index = index + 1
             }
 
-            candidates.Add(new ColumnarAttributeConstructorCandidate(metadataConstructor, parameterTypes))
+            candidates.Add(new ColumnarAttributeConstructorCandidate(metadataConstructor, parameterTypes, defaultValues))
         }
 
         return candidates
+    }
+
+    // A SOURCE CONSTRUCTOR'S DEFAULTS, FROM THE DECLARATION'S OWN COLUMNS. The kinds are the token
+    // kinds the parameter list was read with, so the shape a default reduces to is decided the same
+    // way the argument reader decides the shape of a written argument.
+    static func SourceDefaultValues(declared: ColumnarConstructorDef): ColumnarAttributeArgumentNode?[] {
+        defaults := new ColumnarAttributeArgumentNode?[](declared.ParamTypes.Length)
+        index := 0
+        while index < defaults.Length {
+            if index < declared.DefaultKinds.Length && index < declared.DefaultTexts.Length {
+                sourceDefault: ColumnarAttributeArgumentNode = null
+                if TryReadSourceDefault(declared.DefaultKinds[index], declared.DefaultTexts[index], out sourceDefault) {
+                    defaults[index] = sourceDefault
+                }
+            }
+
+            index = index + 1
+        }
+
+        return defaults
+    }
+
+    static func TryReadSourceDefault(defaultKind: int, defaultText: string?, out node: ColumnarAttributeArgumentNode): bool {
+        node = null
+        if defaultKind < 0 {
+            return false
+        }
+
+        if defaultKind == (int)TokenType.Null {
+            node = new ColumnarAttributeArgumentNode(ColumnarAttributeArgumentKind.NullLiteral, "")
+            return true
+        }
+
+        if defaultKind == (int)TokenType.True || defaultKind == (int)TokenType.False {
+            node = new ColumnarAttributeArgumentNode(ColumnarAttributeArgumentKind.BoolLiteral, defaultKind == (int)TokenType.True ? "true" : "false")
+            return true
+        }
+
+        if defaultText == null {
+            return false
+        }
+
+        text: string = defaultText
+        if defaultKind == (int)TokenType.IntLiteral {
+            node = new ColumnarAttributeArgumentNode(ColumnarAttributeArgumentKind.IntLiteral, text)
+            return true
+        }
+
+        if defaultKind == (int)TokenType.FloatLiteral {
+            node = new ColumnarAttributeArgumentNode(ColumnarAttributeArgumentKind.FloatLiteral, text)
+            return true
+        }
+
+        if defaultKind == (int)TokenType.CharLiteral {
+            node = new ColumnarAttributeArgumentNode(ColumnarAttributeArgumentKind.CharLiteral, text)
+            return true
+        }
+
+        if defaultKind == (int)TokenType.StringLiteral || defaultKind == (int)TokenType.TripleQuoteStringLiteral {
+            node = new ColumnarAttributeArgumentNode(ColumnarAttributeArgumentKind.StringLiteral, StringLiteralDecoder.Decode(text, false))
+            return true
+        }
+
+        // A DOTTED DEFAULT IS A CONSTANT MEMBER — an enum member, or a `const` the declaration names —
+        // and it is the same member path a written argument reduces to.
+        if defaultKind == ColumnarParameterDefaultEmitter.MemberAccessKind {
+            node = new ColumnarAttributeArgumentNode(ColumnarAttributeArgumentKind.MemberPath, text)
+            return true
+        }
+
+        return false
+    }
+
+    // A METADATA PARAMETER'S DEFAULT ARRIVES AS A BOXED CONSTANT. `Optional` without a stored value —
+    // `[Optional]` with no `DefaultValue` — has no constant to write and leaves the parameter
+    // required, because writing `null` for it would put a value in the blob the declaration never
+    // gave.
+    static func TryReadMetadataDefault(parameter: ParameterInfo, out node: ColumnarAttributeArgumentNode): bool {
+        node = null
+        if !parameter.get_IsOptional() || !parameter.get_HasDefaultValue() {
+            return false
+        }
+
+        return TryNodeFromConstant(parameter.get_DefaultValue(), out node)
+    }
+
+    static func TryNodeFromConstant(constantValue: object?, out node: ColumnarAttributeArgumentNode): bool {
+        node = null
+        if constantValue == null {
+            node = new ColumnarAttributeArgumentNode(ColumnarAttributeArgumentKind.NullLiteral, "")
+            return true
+        }
+
+        known: object = constantValue
+        if typeof(bool).IsInstanceOfType(known) {
+            node = new ColumnarAttributeArgumentNode(ColumnarAttributeArgumentKind.BoolLiteral, Convert.ToBoolean(known) ? "true" : "false")
+            return true
+        }
+
+        text := known as string
+        if text != null {
+            node = new ColumnarAttributeArgumentNode(ColumnarAttributeArgumentKind.StringLiteral, text)
+            return true
+        }
+
+        if typeof(float).IsInstanceOfType(known) || typeof(double).IsInstanceOfType(known) {
+            node = new ColumnarAttributeArgumentNode(ColumnarAttributeArgumentKind.FloatLiteral, Convert.ToDouble(known).ToString("R", CultureInfo.InvariantCulture))
+            return true
+        }
+
+        // EVERY OTHER CONSTANT A BLOB CAN CARRY IS AN INTEGER — `char` and an enum member included —
+        // and it is written as a decimal literal, with the sign as the negation the syntax spells.
+        bits := 0L
+        if !ColumnarAttributeBlobWriter.TryConstantToBits(known, out bits) {
+            return false
+        }
+
+        if typeof(ulong).IsInstanceOfType(known) {
+            node = new ColumnarAttributeArgumentNode(ColumnarAttributeArgumentKind.IntLiteral, Convert.ToUInt64(known).ToString("D", CultureInfo.InvariantCulture))
+            return true
+        }
+
+        if bits < 0L {
+            magnitude := new ColumnarAttributeArgumentNode(ColumnarAttributeArgumentKind.IntLiteral, (0UL - (ulong)bits).ToString("D", CultureInfo.InvariantCulture))
+            node = ColumnarAttributeArgumentNode.Unary(ColumnarAttributeArgumentKind.Negate, magnitude)
+            return true
+        }
+
+        node = new ColumnarAttributeArgumentNode(ColumnarAttributeArgumentKind.IntLiteral, bits.ToString("D", CultureInfo.InvariantCulture))
+        return true
     }
 
     // A NAMED ARGUMENT NAMES SOMETHING THE CLR CAN SET IN METADATA: a settable property or a mutable

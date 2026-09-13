@@ -212,3 +212,82 @@ test "an index access on the SAME line is still an index access" {
     assert method != null
     assert method.Invoke(instance, null).ToString() == "7"
 }
+
+// A FIELD DECLARES ITS OWN ATTRIBUTES AT ITS OWN MEMBER POSITION. The struct member scan records each
+// field's name-token index; without it there was no position to scan back from and every field
+// attribute was validated and then dropped.
+test "a field's attributes are read from its own declaration position" {
+    program := SourceAttributeProgram("import System\nclass Probe {\n    [Obsolete(\"gone\")]\n    Value: int\n    Plain: int\n    constructor() {\n        Value = 1\n        Plain = 2\n    }\n}\n")
+    fieldAttributes := program.Structs[0].FieldSourceAttributes
+    assert fieldAttributes != null
+    assert program.Structs[0].FieldSourceAttributesAt(0).Length == 1
+    assert program.Structs[0].FieldSourceAttributesAt(0)[0].Name == "Obsolete"
+    assert program.Structs[0].FieldSourceAttributesAt(1).Length == 0
+    assert program.Structs[0].FieldSourceAttributesAt(9) == null
+}
+
+test "a field's attribute reaches the emitted field row" {
+    assembly := SourceAttributeAssembly("import System\nclass Probe {\n    [Obsolete(\"field gone\")]\n    static Shared: int = 3\n    Value: int\n    constructor() {\n        Value = 1\n    }\n}\n")
+    owner := assembly.GetType("Probe")
+    assert owner != null
+    field := owner.GetField("Shared", BindingFlags.Public | BindingFlags.Static)
+    assert field != null
+    fieldAttributes := field.GetCustomAttributesData()
+    assert NullabilityProbeSequenceCount(fieldAttributes) == 1
+    assert fieldAttributes.get_Item(0).get_AttributeType() == typeof(ObsoleteAttribute)
+    plain := owner.GetField("Value")
+    assert plain != null
+    assert NullabilityProbeSequenceCount(plain.GetCustomAttributesData()) == 0
+}
+
+// AN OMITTED OPTIONAL ARGUMENT IS WRITTEN AS THE PARAMETER'S DECLARED DEFAULT. Exact arity used to be
+// required, so `[Mark]` on a one-parameter constructor bound nothing at all.
+test "an omitted optional attribute argument is written as its declared default" {
+    assembly := SourceAttributeAssembly("import System\nclass MarkAttribute: Attribute {\n    Level: int\n    constructor(level: int = 4) {\n        Level = level\n    }\n}\n[Mark]\nclass Probe { func Run(): int { return 1 } }\n")
+    owner := assembly.GetType("Probe")
+    assert owner != null
+    attributes := owner.GetCustomAttributesData()
+    assert NullabilityProbeSequenceCount(attributes) == 1
+    arguments := attributes.get_Item(0).get_ConstructorArguments()
+    assert arguments.Count == 1
+    assert arguments.get_Item(0).get_Value().ToString() == "4"
+}
+
+// A METADATA PARAMETER'S DEFAULT ARRIVES BOXED, and the binder turns it into the same argument SHAPE
+// a written argument reduces to. The probe is an N#-declared constructor from this very assembly,
+// which is a baked runtime type by the time this test runs.
+func SourceAttributeOptionalParameter(): ParameterInfo {
+    constructors := typeof(ColumnarSourceAttributeInput).GetConstructors()
+    assert constructors.Length == 1
+    parameters := constructors[0].GetParameters()
+    assert parameters.Length == 4
+    assert parameters[3].get_IsOptional()
+    return parameters[3]
+}
+
+test "a metadata parameter's default becomes the argument shape a written one has" {
+    node: ColumnarAttributeArgumentNode = null
+    assert ColumnarSourceAttributeBinder.TryReadMetadataDefault(SourceAttributeOptionalParameter(), out node)
+    assert node.Kind == ColumnarAttributeArgumentKind.BoolLiteral
+    assert node.Text == "true"
+
+    constructors := typeof(ColumnarSourceAttributeInput).GetConstructors()
+    mandatory := constructors[0].GetParameters()[0]
+    assert !ColumnarSourceAttributeBinder.TryReadMetadataDefault(mandatory, out node)
+}
+
+test "a constant with no shape a blob can carry is refused rather than guessed" {
+    node: ColumnarAttributeArgumentNode = null
+    assert ColumnarSourceAttributeBinder.TryNodeFromConstant(null, out node)
+    assert node.Kind == ColumnarAttributeArgumentKind.NullLiteral
+
+    assert ColumnarSourceAttributeBinder.TryNodeFromConstant(-5, out node)
+    assert node.Kind == ColumnarAttributeArgumentKind.Negate
+    assert node.Children[0].Text == "5"
+
+    assert ColumnarSourceAttributeBinder.TryNodeFromConstant(18446744073709551615UL, out node)
+    assert node.Kind == ColumnarAttributeArgumentKind.IntLiteral
+    assert node.Text == "18446744073709551615"
+
+    assert !ColumnarSourceAttributeBinder.TryNodeFromConstant(new object(), out node)
+}
