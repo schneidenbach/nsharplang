@@ -186,3 +186,29 @@ test "an async local function's CLR method returns the wrapped task" {
     assert found != null
     assert found.ReturnType == typeof(ValueTask<int>)
 }
+
+test "a using released inside the handler does not disturb the rethrow" {
+    log := new List<string>()
+    let caught: Exception? = null
+    try {
+        rethrowAroundUsing(log)
+    } catch e: Exception {
+        caught = e
+    }
+
+    assert caught != null
+    assert log.Count == 2
+    assert log[0] == "in handler handler"
+    assert log[1] == "released handler"
+    trace := caught.StackTrace ?? ""
+    assert trace.Contains("failInside")
+}
+
+test "an async lambda's fault guard nests around a using in its body" {
+    log := new List<string>()
+    factory := asyncLambdaWithUsing(log)
+    assert await factory() == 7
+    assert log.Count == 2
+    assert log[0] == "in lambda lambda"
+    assert log[1] == "released lambda"
+}

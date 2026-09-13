@@ -175,3 +175,45 @@ func localAsyncFaulting(): ValueTask<int> {
 
     return inner()
 }
+
+// ── WHERE THIS STREAM MEETS THE `using` STATEMENT ─────────────────────────────────────────────
+//
+// Both shapes open a protected region, so the two lowerings are written into each other: a bare
+// `throw` has to survive a `using` released on its way out of the handler, and an `async` lambda's
+// fault guard has to nest around a `using` inside its body.
+class LoggedResource {
+    Log: List<string>
+    Name: string
+
+    constructor(log: List<string>, name: string) {
+        Log = log
+        Name = name
+    }
+
+    func Dispose() {
+        Log.Add("released " + Name)
+    }
+}
+
+func rethrowAroundUsing(log: List<string>): int {
+    try {
+        return failInside(10)
+    } catch e: InvalidOperationException {
+        using resource := new LoggedResource(log, "handler") {
+            log.Add("in handler " + resource.Name)
+        }
+
+        throw
+    }
+}
+
+func asyncLambdaWithUsing(log: List<string>): Func<Task<int>> {
+    return async () => {
+        await Task.Delay(1)
+        using resource := new LoggedResource(log, "lambda") {
+            log.Add("in lambda " + resource.Name)
+        }
+
+        return 7
+    }
+}
