@@ -985,8 +985,9 @@ sealed class ColumnarIlEmitter {
                 // not a fact about its NAME: `Predicate<T>` and `Comparison<T>` carry theirs exactly
                 // where `Action` and `Func` carry theirs, and reading it from the same place is what
                 // lets `items.Find(x => ...)` and `Comparer<int>.Create((a, b) => ...)` take a lambda.
-                // The two shapes above keep their direct reading because a builder-bound `Action<T>`
-                // cannot be reflected at all, and those are the instantiations that reach it.
+                // The two shapes above keep their direct reading because it needs no reflection at
+                // all; the DEFINITION's `Invoke` below is what answers for everything else, including
+                // an instantiation closed over a type this compilation is still building.
                 readSignatureFromInvoke = true
             }
         }
@@ -1006,8 +1007,23 @@ sealed class ColumnarIlEmitter {
             }
         }
 
-        if (readSignatureFromInvoke && !TryGetRuntimeDelegateInvokeSignature(t, out returnType, out parameterTypes)) {
-            return false
+        if (readSignatureFromInvoke) {
+            // A CONSTRUCTED DELEGATE CLOSED OVER A TYPE THIS COMPILATION IS STILL BUILDING CANNOT BE
+            // REFLECTED, AND ITS DEFINITION CAN. `Predicate<PriceArgs>` for a source class has no
+            // baked `Invoke` to read — reflection throws on a builder-bound instantiation — so the
+            // read is taken from `Predicate\`1`'s own `Invoke`, which is a baked runtime method, with
+            // this instantiation's arguments substituted into the positions it spells as bare type
+            // parameters. That is the same relation the analyzer uses to give such a lambda its
+            // parameter types, so the two halves cannot disagree about what the target's shape is.
+            if (ColumnarTypeOfPlanner.ContainsBuilderBoundType(t)) {
+                if (!TryGetDelegateDefinitionInvokeSignature(def, args, out returnType, out parameterTypes)) {
+                    return false
+                }
+            } else {
+                if (!TryGetRuntimeDelegateInvokeSignature(t, out returnType, out parameterTypes)) {
+                    return false
+                }
+            }
         }
 
         openCtor := def.GetConstructor([typeof(object), typeof(IntPtr)])
@@ -1050,6 +1066,76 @@ sealed class ColumnarIlEmitter {
         }
         returnType = invokeReturnType
         parameterTypes = invokeParameterTypes
+        return true
+    }
+
+    // THE SAME SIGNATURE READ OFF THE DEFINITION, FOR AN INSTANTIATION REFLECTION CANNOT BE ASKED.
+    //
+    // A constructed delegate closed over a type this compilation is still building — `Action<Feed>`,
+    // `Predicate<PriceArgs>`, `EventHandler<PriceArgs>` — has no queryable `Invoke`: its arguments
+    // are builders, and a member query on such an instantiation throws. The DEFINITION is an ordinary
+    // baked runtime type whose `Invoke` says exactly what the shape is, and the instantiation's
+    // arguments fill the positions the definition spells as bare type parameters.
+    //
+    // A POSITION THE DEFINITION SPELLS WITH ANYTHING ELSE MUST NOT MENTION A PARAMETER. `Action<T>`'s
+    // `Invoke(T)` and `EventHandler<T>`'s `Invoke(object, T)` are both read exactly — the `object`
+    // sender is a closed position and stays one — while a definition that spells a position as
+    // `List<T>` is a substitution this positional read cannot perform, so it declines rather than
+    // reporting a shape it guessed at.
+    private static func TryGetDelegateDefinitionInvokeSignature(definition: Type, typeArguments: Type[], out returnType: Type, out parameterTypes: Type[]): bool {
+        returnType = null
+        parameterTypes = System.Array.Empty<Type>()
+        if (!IsRuntimeDelegateType(definition)) {
+            return false
+        }
+        invoke := definition.GetMethod("Invoke")
+        if (invoke == null) {
+            return false
+        }
+        let substitutedReturn: System.Type? = null
+        if (!TrySubstituteDelegateDefinitionPosition(invoke.get_ReturnType(), typeArguments, out substitutedReturn)) {
+            return false
+        }
+        if (!ColumnarCodePlanExecutor.IsVoidType(substitutedReturn) && !ColumnarTypeOfPlanner.IsSupportedType(substitutedReturn)) {
+            return false
+        }
+        invokeParameters := invoke.GetParameters()
+        substitutedParameters := new Type[invokeParameters.Length]
+        for p := 0; p < invokeParameters.Length; p++ {
+            let substitutedParameter: System.Type? = null
+            if (!TrySubstituteDelegateDefinitionPosition(invokeParameters[p].get_ParameterType(), typeArguments, out substitutedParameter)) {
+                return false
+            }
+            if (!ColumnarTypeOfPlanner.IsSupportedType(substitutedParameter)) {
+                return false
+            }
+            substitutedParameters[p] = substitutedParameter
+        }
+        returnType = substitutedReturn
+        parameterTypes = substitutedParameters
+        return true
+    }
+
+    // ONE POSITION OF A DEFINITION'S `Invoke`, IN THE INSTANTIATION'S VOCABULARY. A bare type
+    // parameter becomes the argument at its own position; a by-ref or pointer position has no lambda
+    // form at all; anything else must be a type that mentions no parameter, and is then itself.
+    private static func TrySubstituteDelegateDefinitionPosition(declared: Type, typeArguments: Type[], out substituted: Type): bool {
+        substituted = null
+        if (declared == null || declared.get_IsByRef() || declared.get_IsPointer()) {
+            return false
+        }
+        if (declared.get_IsGenericParameter()) {
+            position := declared.get_GenericParameterPosition()
+            if (position < 0 || position >= typeArguments.Length) {
+                return false
+            }
+            substituted = typeArguments[position]
+            return true
+        }
+        if (MentionsGenericParameter(declared)) {
+            return false
+        }
+        substituted = declared
         return true
     }
 
@@ -7092,7 +7178,7 @@ sealed class ColumnarIlEmitter {
                     return Decline("emit.return.lambda", "returned lambda could not be emitted", retNode)
                 }
                 retType = _returnType
-            } else if (ColumnarTypeOfPlanner.IsSupportedDelegateType(_returnType) && (TryEmitLocalFunctionMethodGroupAsDelegate(retNode, _returnType) || TryEmitSiblingMethodGroupAsDelegate(retNode, _returnType) || TryEmitEnclosingMethodGroupAsDelegate(retNode, _returnType) || TryEmitExternalStaticMethodGroupAsDelegate(retNode, _returnType))) {
+            } else if (IsSupportedContextualDelegateType(_returnType) && (TryEmitLocalFunctionMethodGroupAsDelegate(retNode, _returnType) || TryEmitSiblingMethodGroupAsDelegate(retNode, _returnType) || TryEmitEnclosingMethodGroupAsDelegate(retNode, _returnType) || TryEmitExternalStaticMethodGroupAsDelegate(retNode, _returnType) || TryEmitReceiverInstanceMethodGroupAsDelegate(retNode, _returnType))) {
                 retType = _returnType
             } else if (IsAdoptableUnionConstruction(retNode, _returnType)) {
                 if (!EmitAdoptedUnionConstruction(retNode, _returnType, out retType)) {
@@ -7262,7 +7348,7 @@ sealed class ColumnarIlEmitter {
                 if (!EmitDeclaredCallArgument(declaredInit, declaredType, true)) {
                     return Decline("emit.typed-local.delegate-initializer", "typed local delegate initializer could not be built for '" + declaredName + "'", declaredInit)
                 }
-            } else if (ColumnarTypeOfPlanner.IsSupportedDelegateType(declaredType) && (TryEmitLocalFunctionMethodGroupAsDelegate(declaredInit, declaredType) || TryEmitSiblingMethodGroupAsDelegate(declaredInit, declaredType) || TryEmitEnclosingMethodGroupAsDelegate(declaredInit, declaredType) || TryEmitExternalStaticMethodGroupAsDelegate(declaredInit, declaredType))) {
+            } else if (IsSupportedContextualDelegateType(declaredType) && (TryEmitLocalFunctionMethodGroupAsDelegate(declaredInit, declaredType) || TryEmitSiblingMethodGroupAsDelegate(declaredInit, declaredType) || TryEmitEnclosingMethodGroupAsDelegate(declaredInit, declaredType) || TryEmitExternalStaticMethodGroupAsDelegate(declaredInit, declaredType) || TryEmitReceiverInstanceMethodGroupAsDelegate(declaredInit, declaredType))) {
             } else {
                 // `let f: Func<int, int> = local` — the declared delegate type converts the method group.
 
@@ -7898,19 +7984,16 @@ sealed class ColumnarIlEmitter {
                         let writeField: System.Reflection.Emit.FieldBuilder? = null
                         if (ColumnarSourceMemberChainResolver.TryFindFieldOnChain(writeOwnerDef, memberName, out writeField)) {
                             EmitMemberWriteLocator(writeChain)
+                            // THE SAME SEAM EVERY OTHER ASSIGNMENT USES. A field write through a
+                            // receiver was spelling its own value walk — an int literal, a zero, then
+                            // the ordinary expression walk — and therefore offered the value no
+                            // TARGET. A lambda and a method group have no type of their own, so
+                            // `handlers.Map = value => value + 100` declined as an unhandled
+                            // expression kind while the identical write to a LOCAL emitted, and the
+                            // conversion tail that followed was a hand-copied duplicate of this
+                            // owner's own.
                             let writeValueType: System.Type = null
-                            if (TryEmitIntLiteralAsType(Child(expr, 1), writeField.get_FieldType(), out writeValueType)) {
-                            } else {
-                                // constant adoption (`s.B = 5` on a small-int field).
-                                if (TryEmitZeroLiteralAsType(Child(expr, 1), writeField.get_FieldType(), out writeValueType)) {
-                                } else {
-                                    // `c.name = null` on a reference-typed field.
-                                    if (!EmitExpression(Child(expr, 1), out writeValueType)) {
-                                        return false
-                                    }
-                                }
-                            }
-                            if (!TypesEquivalent(writeValueType, writeField.get_FieldType()) && !TryEmitImplicitWidening(writeValueType, writeField.get_FieldType()) && !ColumnarReferenceCoercionPlanner.TryEmitInterfaceUpcast(writeValueType, writeField.get_FieldType(), _structRegistry, _il) && !ColumnarReferenceCoercionPlanner.TryEmitExternalInterfaceUpcast(writeValueType, writeField.get_FieldType(), _structRegistry, _il) && !ColumnarReferenceConversionFacts.TryEmitReferenceConversion(writeValueType, writeField.get_FieldType()) && !ColumnarReferenceCoercionPlanner.TryEmitObjectConversion(writeValueType, writeField.get_FieldType(), _structRegistry, _il) && !TryEmitAnonymousUnionConversion(writeValueType, writeField.get_FieldType()) && !TryEmitUserDefinedConversion(writeValueType, writeField.get_FieldType(), false)) {
+                            if (!TryEmitAssignableValue(Child(expr, 1), writeField.get_FieldType(), out writeValueType)) {
                                 return false
                             }
                             _il.Emit(OpCodes.Stfld, writeField)
@@ -22209,6 +22292,38 @@ sealed class ColumnarIlEmitter {
             return true
         }
 
+        // A DELEGATE-TYPED FIELD OR PROPERTY, INVOKED THROUGH ITS OWNER. `board.Handler(args)` is a
+        // DELEGATE INVOCATION rather than a method call: member lookup finds the field, and an
+        // invocation whose callee is a delegate-typed value calls that value's `Invoke`. The BARE-NAME
+        // form — `Handler(args)` written inside the declaring type — already had its tier, and through
+        // a receiver there was none at all, so a handler read off another object passed analysis and
+        // then declined at emit as "instance call 'Handler' with 1 argument(s) could not be emitted".
+        //
+        // IT SITS BELOW THE INSTANCE-METHOD WALK AND ABOVE THE EXTENSION TIERS, which is where C#'s
+        // own lookup puts it: a METHOD of the same name wins, and an extension method is searched only
+        // when member lookup found nothing to call at all.
+        let delegateMemberHop: NSharpLang.Compiler.Columnar.ColumnarInterpolationMemberPlan? = null
+        if (TryResolveDelegateValuedMember(receiverType, member, out delegateMemberHop) && delegateMemberHop != null) {
+            let memberDelegateInvoke: System.Reflection.MethodInfo = null
+            let memberDelegateParameterTypes: System.Type[] = null
+            let memberDelegateReturnType: System.Type = null
+            if (TryResolveDelegateInvocation(delegateMemberHop.ValueType, out memberDelegateInvoke, out memberDelegateParameterTypes, out memberDelegateReturnType) && argCount == memberDelegateParameterTypes.Length) {
+                memberHopHasReceiverAddress := false
+                let loadedDelegateType: System.Type? = null
+                if (!TryEmitResolvedMemberHop(receiverType, delegateMemberHop, ref memberHopHasReceiverAddress, out loadedDelegateType)) {
+                    return false
+                }
+                for memberDelegateArgument := 1; memberDelegateArgument <= argCount; memberDelegateArgument++ {
+                    if (!EmitDeclaredCallArgument(Child(callIdx, memberDelegateArgument), memberDelegateParameterTypes[memberDelegateArgument - 1], true)) {
+                        return false
+                    }
+                }
+                _il.Emit(OpCodes.Callvirt, memberDelegateInvoke)
+                columnarResolvedType = memberDelegateReturnType
+                return true
+            }
+        }
+
         if (receiverType.get_IsGenericParameter() && TryEmitGenericParameterConstrainedInterfaceCall(callIdx, receiverType, member, argCount, out columnarResolvedType)) {
             return true
         }
@@ -23254,6 +23369,46 @@ sealed class ColumnarIlEmitter {
         )
     }
 
+    // THE MEMBER OF THIS RECEIVER THAT HOLDS A DELEGATE, or a decline. A member of one of this
+    // compilation's own types answers through the same chain walk every other member read uses; a
+    // member of a REFERENCED type answers through ordinary reflection, field before property exactly
+    // as CLR member lookup orders them. Nothing consults a member name, and a member whose type is
+    // not an invocable delegate is not an answer — it is left to the tiers below.
+    private func TryResolveDelegateValuedMember(receiverType: Type, member: string, out hop: ColumnarInterpolationMemberPlan): bool {
+        hop = null
+        let plannedHop: NSharpLang.Compiler.Columnar.ColumnarInterpolationMemberPlan? = null
+        if (TryResolveInterpolationMemberPlan(receiverType, member, out plannedHop) && plannedHop != null && IsInvocableDelegateType(plannedHop.ValueType)) {
+            hop = plannedHop
+            return true
+        }
+        // A builder-bound receiver has no queryable members at all, and the chain walk above is the
+        // only read that can answer for one.
+        if (receiverType is TypeBuilder || ColumnarTypeOfPlanner.ContainsBuilderBoundType(receiverType)) {
+            return false
+        }
+        let reflectedField: System.Reflection.FieldInfo? = null
+        let reflectedProperty: System.Reflection.PropertyInfo? = null
+        try {
+            reflectedField = receiverType.GetField(member, BindingFlags.Public | BindingFlags.Instance)
+            reflectedProperty = receiverType.GetProperty(member, BindingFlags.Public | BindingFlags.Instance)
+        } catch {
+            return false
+        }
+        if (reflectedField != null && IsInvocableDelegateType(reflectedField.get_FieldType())) {
+            hop = new ColumnarInterpolationMemberPlan(reflectedField, null, reflectedField.get_FieldType())
+            return true
+        }
+        if (reflectedProperty == null) {
+            return false
+        }
+        reflectedGetter := reflectedProperty.get_GetMethod()
+        if (reflectedGetter == null || !IsInvocableDelegateType(reflectedProperty.get_PropertyType())) {
+            return false
+        }
+        hop = new ColumnarInterpolationMemberPlan(null, reflectedGetter, reflectedProperty.get_PropertyType())
+        return true
+    }
+
     private func TryEmitExtensionSiblingCall(callIdx: int, receiverType: Type, member: string, argCount: int, out columnarResolvedType: Type): bool {
         columnarResolvedType = null
         let target: NSharpLang.Compiler.Columnar.ColumnarSiblingMethodDefinition? = null
@@ -23527,7 +23682,7 @@ sealed class ColumnarIlEmitter {
         if (allowLambdaLiteral && ColumnarLambdaNodeFacts.IsLambda(_nodes.Kind(argNode))) {
             return IsContextualLambdaTarget(argNode, expectedParamType)
         }
-        if (allowLambdaLiteral && (CanEmitLocalFunctionMethodGroupAsDelegate(argNode, expectedParamType) || CanEmitSiblingMethodGroupAsDelegate(argNode, expectedParamType) || CanEmitEnclosingMethodGroupAsDelegate(argNode, expectedParamType) || CanEmitExternalStaticMethodGroupAsDelegate(argNode, expectedParamType))) {
+        if (allowLambdaLiteral && (CanEmitLocalFunctionMethodGroupAsDelegate(argNode, expectedParamType) || CanEmitSiblingMethodGroupAsDelegate(argNode, expectedParamType) || CanEmitEnclosingMethodGroupAsDelegate(argNode, expectedParamType) || CanEmitExternalStaticMethodGroupAsDelegate(argNode, expectedParamType) || CanEmitReceiverInstanceMethodGroupAsDelegate(argNode, expectedParamType))) {
             return true
         }
         if (_nodes.Kind(argNode) == ColumnarExpressionNodeKind.DefaultExpression()) {
@@ -23581,7 +23736,7 @@ sealed class ColumnarIlEmitter {
         if (allowLambdaLiteral && ColumnarLambdaNodeFacts.IsLambda(_nodes.Kind(argNode))) {
             return TryEmitLambdaLiteral(argNode, expectedParamType)
         }
-        if (allowLambdaLiteral && (TryEmitLocalFunctionMethodGroupAsDelegate(argNode, expectedParamType) || TryEmitSiblingMethodGroupAsDelegate(argNode, expectedParamType) || TryEmitEnclosingMethodGroupAsDelegate(argNode, expectedParamType) || TryEmitExternalStaticMethodGroupAsDelegate(argNode, expectedParamType))) {
+        if (allowLambdaLiteral && (TryEmitLocalFunctionMethodGroupAsDelegate(argNode, expectedParamType) || TryEmitSiblingMethodGroupAsDelegate(argNode, expectedParamType) || TryEmitEnclosingMethodGroupAsDelegate(argNode, expectedParamType) || TryEmitExternalStaticMethodGroupAsDelegate(argNode, expectedParamType) || TryEmitReceiverInstanceMethodGroupAsDelegate(argNode, expectedParamType))) {
             return true
         }
         let ignoredTargetTypedNewType: System.Type? = null
@@ -23945,7 +24100,142 @@ sealed class ColumnarIlEmitter {
             returnType = qualifiedCandidates[0].ReturnType
             return true
         }
+        // A GROUP NAMED THROUGH AN INSTANCE RECEIVER CARRIES A SIGNATURE TOO, and inference needs it
+        // for the same reason it needs the others: `names.Select(loader.Greet)` fixes `TResult` from
+        // the group's RETURN type, and a position that contributes nothing leaves the call's own type
+        // arguments open and declines.
+        let receiverCandidates: System.Collections.Generic.List<NSharpLang.Compiler.Columnar.ColumnarEnclosingMethodGroupCandidate>? = null
+        let ignoredReceiverNode: int = -1
+        let ignoredReceiverType: System.Type? = null
+        if (TryGetReceiverInstanceMethodGroup(argNode, out ignoredReceiverNode, out ignoredReceiverType, out receiverCandidates) && receiverCandidates.Count == 1) {
+            parameterTypes = receiverCandidates[0].ParamTypes
+            returnType = receiverCandidates[0].ReturnType
+            return true
+        }
         return false
+    }
+
+    // A METHOD GROUP NAMED THROUGH AN INSTANCE RECEIVER — `greeter.Greet`, `board.Handle`.
+    //
+    // The static tier above answers when the receiver is a TYPE and leaves this case alone by design:
+    // a receiver that IS a value names a group bound to that value, which is a different delegate —
+    // the target is the receiver rather than null. Nothing answered for it, so `f: Func<string,
+    // string> = greeter.Greet` passed analysis and declined at emit, and so did the same group written
+    // as an argument or returned.
+    //
+    // THE RECEIVER MUST BE A REFERENCE. A delegate's target field holds an object, so a group bound to
+    // a struct value would have to box a COPY and silently detach the delegate from the variable the
+    // program named; that shape declines here exactly as the enclosing tier declines inside a struct
+    // body.
+    private func TryGetReceiverInstanceMethodGroup(argNode: int, out receiverNode: int, out receiverType: Type, out candidates: List<ColumnarEnclosingMethodGroupCandidate>): bool {
+        receiverNode = -1
+        receiverType = null
+        candidates = new List<ColumnarEnclosingMethodGroupCandidate>()
+        argNode = UnwrapParenthesizedNode(argNode)
+        if (_nodes.Kind(argNode) != 8 || _nodes.ChildCount(argNode) != 1) {
+            return false
+        }
+        member := ColumnarNodeTextFacts.Text(_nodes, _source, argNode)
+        if (member.Length == 0) {
+            return false
+        }
+        candidateReceiver := Child(argNode, 0)
+        let candidateReceiverType: System.Type? = null
+        if (!TryGetPreflightExpressionType(candidateReceiver, out candidateReceiverType) || candidateReceiverType == null || candidateReceiverType.get_IsGenericParameter() || !IsReferenceWriteLink(candidateReceiverType)) {
+            return false
+        }
+        AppendInstanceMethodGroupCandidates(candidateReceiverType, member, candidates)
+        if (candidates.Count == 0) {
+            return false
+        }
+        receiverNode = candidateReceiver
+        receiverType = candidateReceiverType
+        return true
+    }
+
+    // THE INSTANCE METHODS THAT TYPE HAS UNDER THAT NAME. A type this compilation is writing answers
+    // from the definition table, because its methods are builders; a referenced one answers from its
+    // own metadata. Both walk the inheritance chain, and neither list is written down here.
+    private func AppendInstanceMethodGroupCandidates(receiverType: Type, name: string, candidates: List<ColumnarEnclosingMethodGroupCandidate>) {
+        let sourceOwner: NSharpLang.Compiler.Columnar.ColumnarStructDef? = null
+        if (ColumnarSourceDefinitionResolver.TryResolveStruct(receiverType, _structRegistry.get_Values(), out sourceOwner)) {
+            instanceOwner := sourceOwner
+            while (instanceOwner != null) {
+                let instanceOverloads: System.Collections.Generic.List<NSharpLang.Compiler.Columnar.ColumnarInstanceMethodDef>? = null
+                if (instanceOwner.MethodOverloads.TryGetValue(name, out instanceOverloads) && instanceOverloads != null) {
+                    for instanceMethod in instanceOverloads {
+                        if (instanceMethod.Generics == null && !HasModifiedParameter(instanceMethod.ParamModifierKinds)) {
+                            candidates.Add(new ColumnarEnclosingMethodGroupCandidate(instanceMethod.Builder, instanceMethod.ParamTypes, instanceMethod.ReturnType))
+                        }
+                    }
+                }
+                instanceOwner = instanceOwner.BaseDef
+            }
+            return
+        }
+        let declared: System.Reflection.MethodInfo[]? = null
+        try {
+            declared = receiverType.GetMethods(BindingFlags.Public | BindingFlags.Instance)
+        } catch {
+            return
+        }
+        if (declared == null) {
+            return
+        }
+        for candidate in declared {
+            if (candidate.get_Name() != name || candidate.get_IsGenericMethodDefinition()) {
+                continue
+            }
+            parameters := ColumnarExtensionMethodResolver.ParametersOrNull(candidate)
+            if (parameters == null) {
+                continue
+            }
+            parameterTypes := ColumnarExtensionMethodResolver.ParameterTypesOrNull(parameters)
+            returnType := ColumnarExtensionMethodResolver.ReturnTypeOrNull(candidate)
+            if (parameterTypes == null || returnType == null || !IsSupportedMethodGroupSignature(parameterTypes, returnType)) {
+                continue
+            }
+            candidates.Add(new ColumnarEnclosingMethodGroupCandidate(candidate, parameterTypes, returnType))
+        }
+    }
+
+    private func CanEmitReceiverInstanceMethodGroupAsDelegate(argNode: int, expectedDelegateType: Type): bool {
+        let ignoredReceiverNode: int = -1
+        let ignoredReceiverType: System.Type? = null
+        let candidates: System.Collections.Generic.List<NSharpLang.Compiler.Columnar.ColumnarEnclosingMethodGroupCandidate>? = null
+        let delegateReturnType: System.Type? = null
+        let delegateParamTypes: System.Type[]? = null
+        let ignoredDelegateConstructor: System.Reflection.ConstructorInfo? = null
+        let selected: NSharpLang.Compiler.Columnar.ColumnarEnclosingMethodGroupCandidate? = null
+        return TryGetReceiverInstanceMethodGroup(argNode, out ignoredReceiverNode, out ignoredReceiverType, out candidates) && TryGetSupportedDelegateSignature(expectedDelegateType, true, out delegateReturnType, out delegateParamTypes, out ignoredDelegateConstructor) && TrySelectMethodGroupOverload(candidates, delegateReturnType, delegateParamTypes, out selected)
+    }
+
+    private func TryEmitReceiverInstanceMethodGroupAsDelegate(argNode: int, expectedDelegateType: Type): bool {
+        let receiverNode: int = -1
+        let receiverType: System.Type? = null
+        let candidates: System.Collections.Generic.List<NSharpLang.Compiler.Columnar.ColumnarEnclosingMethodGroupCandidate>? = null
+        let delegateReturnType: System.Type? = null
+        let delegateParamTypes: System.Type[]? = null
+        let delegateCtor: System.Reflection.ConstructorInfo? = null
+        let selected: NSharpLang.Compiler.Columnar.ColumnarEnclosingMethodGroupCandidate? = null
+        if (!TryGetReceiverInstanceMethodGroup(argNode, out receiverNode, out receiverType, out candidates) || !TryGetSupportedDelegateSignature(expectedDelegateType, true, out delegateReturnType, out delegateParamTypes, out delegateCtor) || !TrySelectMethodGroupOverload(candidates, delegateReturnType, delegateParamTypes, out selected)) {
+            return false
+        }
+        let emittedReceiverType: System.Type? = null
+        if (!EmitExpression(receiverNode, out emittedReceiverType)) {
+            return false
+        }
+        selectedMethod := selected.Method
+        // A VIRTUAL TARGET BINDS THE RUNTIME METHOD THE RECEIVER ACTUALLY HAS — `dup; ldvirtftn` is
+        // what C# emits for the same reason it emits `callvirt`.
+        if (selectedMethod.get_IsVirtual()) {
+            _il.Emit(OpCodes.Dup)
+            _il.Emit(OpCodes.Ldvirtftn, selectedMethod)
+        } else {
+            _il.Emit(OpCodes.Ldftn, selectedMethod)
+        }
+        _il.Emit(OpCodes.Newobj, delegateCtor)
+        return true
     }
 
     private func CanEmitSiblingMethodGroupAsDelegate(argNode: int, expectedDelegateType: Type): bool {
@@ -24002,7 +24292,9 @@ sealed class ColumnarIlEmitter {
         parameterTypes = Type.EmptyTypes
         returnType = null
         let candidates: System.Collections.Generic.List<NSharpLang.Compiler.Columnar.ColumnarEnclosingMethodGroupCandidate>? = null
-        if (!TryGetEnclosingMethodGroupCandidates(argNode, out candidates) && !TryGetExternalStaticMethodGroupCandidates(argNode, out candidates)) {
+        let ignoredReceiverNode: int = -1
+        let ignoredReceiverType: System.Type? = null
+        if (!TryGetEnclosingMethodGroupCandidates(argNode, out candidates) && !TryGetExternalStaticMethodGroupCandidates(argNode, out candidates) && !TryGetReceiverInstanceMethodGroup(argNode, out ignoredReceiverNode, out ignoredReceiverType, out candidates)) {
             return false
         }
         let selected: NSharpLang.Compiler.Columnar.ColumnarEnclosingMethodGroupCandidate? = null
@@ -26205,7 +26497,7 @@ sealed class ColumnarIlEmitter {
             if (!IsContextualLambdaTarget(handlerNode, handlerType) || !TryEmitLambdaLiteral(handlerNode, handlerType)) {
                 return Decline("emit.on.handler-lambda", "the handler lambda could not be bound to '" + handlerType.FullName + "'", handlerNode)
             }
-        } else if (!(IsSupportedContextualDelegateType(handlerType) && (TryEmitLocalFunctionMethodGroupAsDelegate(handlerNode, handlerType) || TryEmitSiblingMethodGroupAsDelegate(handlerNode, handlerType) || TryEmitEnclosingMethodGroupAsDelegate(handlerNode, handlerType) || TryEmitExternalStaticMethodGroupAsDelegate(handlerNode, handlerType)))) {
+        } else if (!(IsSupportedContextualDelegateType(handlerType) && (TryEmitLocalFunctionMethodGroupAsDelegate(handlerNode, handlerType) || TryEmitSiblingMethodGroupAsDelegate(handlerNode, handlerType) || TryEmitEnclosingMethodGroupAsDelegate(handlerNode, handlerType) || TryEmitExternalStaticMethodGroupAsDelegate(handlerNode, handlerType) || TryEmitReceiverInstanceMethodGroupAsDelegate(handlerNode, handlerType)))) {
             let handlerValueType: System.Type? = null
             if (!EmitExpression(handlerNode, out handlerValueType)) {
                 return Decline("emit.on.handler", "the event handler expression could not be emitted", handlerNode)

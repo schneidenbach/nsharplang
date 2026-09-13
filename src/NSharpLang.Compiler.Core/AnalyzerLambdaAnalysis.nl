@@ -759,9 +759,42 @@ class AnalyzerLambdaAnalysis {
             if clrType != null && IsDelegateOrExpressionTreeTarget(clrType) {
                 return AnalyzerFunctionTypeFactory.CreateFromRuntimeDelegate(clrType)
             }
+
+            return UnreflectableGenericDelegateSignature(generic)
         }
 
         return null
+    }
+
+    // A DELEGATE CLOSED OVER A TYPE THIS COMPILATION IS STILL WRITING IS STILL THAT DELEGATE.
+    //
+    // `Action<PriceArgs>` where `PriceArgs` is a source class has no CLR instantiation to reflect —
+    // the class does not exist yet — so the reflected read above answers null, and reading the
+    // signature off nothing left EVERY parameter of a handler lambda uninferable: `handler:
+    // Action<PriceArgs> = a => …` reported `NL203` about `a` for a home that names its type exactly.
+    // `Func` was the one shape that escaped, and only because the PARSER spells `Func<…>` as N#'s own
+    // function type rather than as a generic name — which made the gap read as an `Action` problem
+    // when it was every generic delegate's: `Predicate<T>`, `Comparison<T>`, `Converter<T, R>`,
+    // `EventHandler<T>` and a referenced assembly's own all failed the same way.
+    //
+    // A generic delegate states its shape in the DEFINITION's `Invoke`, which exists whether or not
+    // the instantiation can be constructed, and this instantiation's arguments substitute into the
+    // positions that definition spells as bare type parameters — the same read
+    // `AnalyzerAssignability` already used to MEASURE such a lambda once it had one. The gate is that
+    // the definition is a delegate at all; a generic type that merely happens to declare an `Invoke`
+    // is not a lambda's home, and answering a signature for one would give its parameters types the
+    // conversion then has to refuse.
+    func UnreflectableGenericDelegateSignature(delegateType: GenericTypeInfo): FunctionTypeInfo? {
+        definition := delegateType.GenericDefinition as ReflectionTypeInfo
+        if definition == null {
+            return null
+        }
+
+        if !assignabilityFacts.IsDelegateType(definition.Type) {
+            return null
+        }
+
+        return AnalyzerFunctionTypeFactory.CreateFromDelegateDefinition(definition.Type, delegateType.TypeArguments)
     }
 
     func IsDelegateOrExpressionTreeTarget(candidate: Type): bool {
