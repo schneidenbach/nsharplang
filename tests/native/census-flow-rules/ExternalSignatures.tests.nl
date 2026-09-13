@@ -11,8 +11,15 @@ func CensusVersions(): Version[] {
     return versions
 }
 
+// The CONSTRUCTOR half of §6: `ColumnarDeclineReason` declares
+// `(siteId, message, spanStart, spanLength, memberName, sourceFileId: int = 0, hasSourceFileId: bool = false)`
+// and this omits both defaults.
 func CensusReason(): ColumnarDeclineReason {
-    return new ColumnarDeclineReason("emit.call", "a call could not be emitted", 0, 1, "f", 0, false)
+    return new ColumnarDeclineReason("emit.call", "a call could not be emitted", 0, 1, "f")
+}
+
+func CensusReasonWithFileId(): ColumnarDeclineReason {
+    return new ColumnarDeclineReason("emit.call", "a call could not be emitted", 0, 1, "f", 7, true)
 }
 
 test "an int? crosses an assembly boundary in both directions" {
@@ -41,6 +48,18 @@ test "a string array matches an N#-emitted string array parameter" {
     assert SummarizeRemoveArguments(args, fromParameter) == 0
     assert fromParameter[0] == 0
     assert fromParameter[1] == 1
+}
+
+test "a constructor's omitted defaulted arguments are filled from its own metadata" {
+    // The two omitted defaults are the callee's (0, false) and not something invented at the call
+    // site, which is only observable by reading them back.
+    bare := CensusReason()
+    assert bare.SourceFileId == 0
+    assert !bare.HasSourceFileId
+
+    supplied := CensusReasonWithFileId()
+    assert supplied.SourceFileId == 7
+    assert supplied.HasSourceFileId
 }
 
 test "an omitted defaulted argument is filled from the callee's metadata" {

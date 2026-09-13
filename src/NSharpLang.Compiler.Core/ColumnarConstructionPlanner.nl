@@ -1294,7 +1294,7 @@ class ColumnarConstructionPlanner {
             legacyWholeSubtreePlanning = false
             return false
         }
-        if !ColumnarDirectCallPlanner.AppendArguments(nodes, source, node, bindings, handles, plan, fragment, depth + 1, true, argumentTypes, parameters, argumentFacts) {
+        if !ColumnarDirectCallPlanner.AppendArguments(nodes, source, node, bindings, handles, plan, fragment, depth + 1, true, argumentTypes, PrefixTypes(parameters, argumentCount), argumentFacts) || !TryAppendConstructorOptionalDefaults(plan, constructor, parameters, argumentCount) {
             return false
         }
 
@@ -1449,7 +1449,7 @@ class ColumnarConstructionPlanner {
             legacyWholeSubtreePlanning = false
             return false
         }
-        if !ColumnarDirectCallPlanner.AppendArguments(nodes, source, node, bindings, handles, plan, fragment, depth + 1, true, argumentTypes, parameterTypes, argumentFacts) {
+        if !ColumnarDirectCallPlanner.AppendArguments(nodes, source, node, bindings, handles, plan, fragment, depth + 1, true, argumentTypes, PrefixTypes(parameterTypes, argumentCount), argumentFacts) || !TryAppendConstructorOptionalDefaults(plan, constructor, parameterTypes, argumentCount) {
             return false
         }
 
@@ -1787,6 +1787,10 @@ class ColumnarConstructionPlanner {
         applicable := new List<ConstructorInfo>()
         applicableParameters := new List<Type[]>()
         CollectApplicableRuntimeConstructors(RuntimeConstructorsOrEmpty(targetType), new Type[](0), argumentTypes, applicable, applicableParameters)
+        if applicable.Count == 0 {
+            CollectOptionalFillRuntimeConstructors(RuntimeConstructorsOrEmpty(targetType), new Type[](0), argumentTypes, applicable, applicableParameters)
+        }
+
         selectedIndex := BestSourceConstructorIndex(applicableParameters, argumentTypes, argumentFacts)
         if selectedIndex < 0 {
             return false
@@ -1832,6 +1836,72 @@ class ColumnarConstructionPlanner {
 
             index = index + 1
         }
+    }
+
+    // A TRAILING-OPTIONAL CONSTRUCTOR, AND IT IS TRIED ONLY WHEN NOTHING BOUND AT THE WRITTEN ARITY.
+    //
+    // C# fills a constructor's defaults at the call site exactly as it fills a method's, and it
+    // prefers the shorter overload when both could bind. This rung keeps that ordering the blunt way:
+    // the exact-arity list is collected first and a longer candidate is looked at only when that list
+    // came back empty, so no construction that already selected can change its answer — this tier can
+    // only turn a decline into an emission.
+    static func CollectOptionalFillRuntimeConstructors(candidates: ConstructorInfo[], closedArguments: Type[], argumentTypes: Type[], applicable: List<ConstructorInfo>, applicableParameters: List<Type[]>) {
+        index := 0
+        while index < candidates.Length {
+            candidate := candidates[index]
+            if candidate != null && candidate.get_IsPublic() && !candidate.get_IsStatic() && !IsExpandedConstructorShape(candidate) {
+                parameters := candidate.GetParameters()
+                if parameters != null && parameters.Length > argumentTypes.Length {
+                    openTypes := ConstructorParameterTypesOrNull(parameters)
+                    if openTypes != null {
+                        types := closedArguments.Length > 0 ? SubstituteTypeArguments(openTypes, closedArguments) : openTypes
+                        if !HasUnsupportedConstructorSignature(types, closedArguments) && ConstructorOptionalTailFillable(parameters, types, argumentTypes.Length) {
+                            applicable.Add(candidate)
+                            applicableParameters.Add(types)
+                        }
+                    }
+                }
+            }
+
+            index = index + 1
+        }
+    }
+
+    static func ConstructorOptionalTailFillable(parameters: ParameterInfo[], parameterTypes: Type[], startIndex: int): bool {
+        if parameters.Length != parameterTypes.Length {
+            return false
+        }
+
+        index := startIndex
+        while index < parameterTypes.Length {
+            if !ColumnarExtensionMethodResolver.CanFillOptional(parameters[index], parameterTypes[index]) {
+                return false
+            }
+
+            index = index + 1
+        }
+
+        return true
+    }
+
+    // Write every default past the written arguments, through the one owner that knows which defaults
+    // are constants. An exact-arity selection fills nothing and this is a no-op for it.
+    static func TryAppendConstructorOptionalDefaults(plan: ColumnarCodePlan, constructor: ConstructorInfo, parameterTypes: Type[], explicitCount: int): bool {
+        parameters := constructor.GetParameters()
+        if parameters == null || parameters.Length != parameterTypes.Length {
+            return false
+        }
+
+        index := explicitCount
+        while index < parameterTypes.Length {
+            if !ColumnarExtensionMethodResolver.TryAppendOptionalDefault(plan, parameters[index], parameterTypes[index]) {
+                return false
+            }
+
+            index = index + 1
+        }
+
+        return true
     }
 
     // A parameter that resolved to one of the INSTANTIATION'S OWN arguments is closed, not open:
