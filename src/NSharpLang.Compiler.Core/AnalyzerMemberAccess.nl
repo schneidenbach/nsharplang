@@ -419,7 +419,7 @@ class AnalyzerMemberAccess {
 
         includeStaticMembers := IsStaticMemberAccessTarget(member.Object)
         invocationPosition := IsCallCalleePosition(member)
-        memberType := memberResolutionValue.ResolveMember(scopesValue.ConstrainedReceiverType(receiverType), member.MemberName, includeStaticMembers, ambientValue.CurrentTypeName, invocationPosition)
+        memberType := memberResolutionValue.ResolveMember(scopesValue.ConstrainedReceiverType(receiverType), member.MemberName, includeStaticMembers, ambientValue.CurrentTypeName, invocationPosition, InheritsProtectedThrough(receiverType, member.Object))
         if invocationPosition && BuiltInTypes.IsUnknown(memberType) && ReportMemberNotCallableIfNeeded(receiverType, member, includeStaticMembers) {
             state.ResultType = BuiltInTypes.Unknown
             return
@@ -878,6 +878,26 @@ class AnalyzerMemberAccess {
         }
 
         diagnosticsValue.ReportInaccessibleDeclaredMember(member.MemberName, DeclaredTypeDisplayName(declaringOwner), level, AccessingTypeDisplayName(), member.Line, spansValue.GetMemberNameColumn(member), member.MemberName.Length)
+    }
+
+    // WHETHER THIS ACCESS MAY SEE THE `protected` SURFACE OF THE RECEIVER'S BASES.
+    //
+    // The same receiver rule the declared relation enforces for SOURCE members (C# §7.5.4), asked of
+    // a receiver whose bases are EXTERNAL: the access must be written inside a type that is, or
+    // derives from, the receiver's type — and `base.`, whose receiver is by construction the base,
+    // is its own case, as is a bare name, which has no written receiver because the receiver is
+    // `this`.
+    func InheritsProtectedThrough(receiverType: TypeInfo, receiver: Expression?): bool {
+        accessingType := TryGetAccessingType()
+        if accessingType == null {
+            return false
+        }
+
+        if receiver as BaseExpression != null || receiver as ThisExpression != null {
+            return true
+        }
+
+        return IsSameOrDerivedFrom(receiverType, accessingType)
     }
 
     // The type the walk is written inside, resolved from the ambient name against the file being

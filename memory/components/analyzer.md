@@ -1044,6 +1044,27 @@ Contracts: `MemberAccessibility.tests.nl` (the relation as a table, source and r
 every access the rule ADMITS so a false refusal fails) and `tests/native/census-accessibility`
 (runtime reads through `this`/bare/`base`/sibling receivers and the emitted metadata word).
 
+**A SOURCE TYPE REACHES ITS EXTERNAL BASE'S `protected` METHODS** (2026-09-13, stream ACCESS,
+PARTIAL). `Collection<T>` is designed to be extended through `SetItem`/`ClearItems`/`InsertItem`, all
+`protected virtual`, and a `class Bag: Collection<string>` could not NAME any of them: the analyzer's
+metadata arm asked `BindingFlags.Public` only (NL303/NL412) and the emitter's candidate enumeration
+did the same. `AnalyzerMemberResolution.ResolveMember` now carries `inheritedProtectedAccess` — the
+receiver half of the rule, answered by the caller (`AnalyzerMemberAccess.InheritsProtectedThrough`
+for a written receiver, unconditionally true for a bare name, `base.`/`this.` as their own cases) —
+and `IsReachableReflectedLevel` decides what that admits: the family surface and nothing else,
+because the base is in a REFERENCED assembly and `assembly`-level members are never reachable.
+`ColumnarOrdinaryRuntimeDirectCallResolver.ResolveInheritedWithFacts` is the emitter's twin, used by
+the three inherited-base call sites only.
+
+WHAT STILL DECLINES (NL103), for whoever picks this up:
+* a protected method named with NO receiver (`SetItem(0, v)`): `ColumnarDirectCallPlanner`'s bare-call
+  branch does not claim it, while the identical `this.SetItem(0, v)` does — the difference is the
+  `explicitThis || !bindings.IsValueBinding(name)` guard ahead of the inherited-base branch;
+* a protected FIELD or PROPERTY read (`this.Items`, `this.CoreNewLine`): the `this.`-receiver READ
+  path for inherited external members is `TrySelectAdmittedProperty`, which handles properties only
+  and requires `IsAdmittedValueType` — `IList<string>` and `char[]` fail that test for PUBLIC members
+  too, so this is a result-type gap sitting behind the accessibility one, not an accessibility gap.
+
 **A FREE FUNCTION'S VISIBILITY WORD NOW REACHES METADATA** (2026-09-13, stream ACCESS). The word was
 parsed into `ColumnarFunctionInput.VisibilityModifierFlags` and read by free-function identity, but
 `ColumnarDeclarationPlan.BuildMethods` passed only `ModifierFlags` — which carries

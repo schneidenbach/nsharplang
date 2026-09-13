@@ -650,7 +650,14 @@ class ColumnarInstanceMemberPlanner {
         }
 
         if !found && !foundStatic && externalBase != null {
-            return TrySelectInheritedExternalMember(externalBase, memberName, classification, out selection)
+            // A `protected` member of the external base is INHERITED SURFACE of this receiver, and the
+            // body being emitted may read it when it is written inside the receiver's own type or one
+            // derived from it. The analyzer has already applied the receiver half of the rule
+            // (NL303 for a read from outside the family), so this is the emitting side of the same
+            // relation rather than a second copy of it.
+            enclosing := bindings.EnclosingTypeDefinition
+            allowInheritedProtected := enclosing != null && ColumnarSourceDirectCallResolver.IsSameOrDerivedSourceType(enclosing, root)
+            return TrySelectInheritedExternalMember(externalBase, memberName, classification, allowInheritedProtected, out selection)
         }
 
         if foundStatic || !found {
@@ -727,10 +734,10 @@ class ColumnarInstanceMemberPlanner {
     // derived builder type — the selection's declaring type is the external base, which is what the
     // getter is emitted against, and a `callvirt` to a base's getter with a derived receiver is
     // exactly the instruction a read written on the base would emit.
-    static func TrySelectInheritedExternalMember(externalBase: Type, memberName: string, classification: ColumnarInstanceMemberSelection, out selection: ColumnarInstanceMemberSelection): bool {
+    static func TrySelectInheritedExternalMember(externalBase: Type, memberName: string, classification: ColumnarInstanceMemberSelection, allowInheritedProtected: bool, out selection: ColumnarInstanceMemberSelection): bool {
         selection = EmptySelection()
         runtime := ColumnarRuntimeInstanceMemberSelection.Empty()
-        if !ColumnarRuntimeInstanceMemberResolver.TrySelect(externalBase, memberName, out runtime) {
+        if !ColumnarRuntimeInstanceMemberResolver.TrySelect(externalBase, memberName, allowInheritedProtected, out runtime) {
             return false
         }
 

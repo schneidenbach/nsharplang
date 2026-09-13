@@ -460,7 +460,8 @@ class ColumnarDirectCallPlanner {
             runtimeBase = typeof(object)
         }
 
-        runtimeSelection := ColumnarOrdinaryRuntimeDirectCallResolver.ResolveWithFacts(runtimeBase, memberName, argumentTypes, argumentFacts, false)
+        // `base.M()` inside a derived type reaches everything the base declares protected.
+        runtimeSelection := ColumnarOrdinaryRuntimeDirectCallResolver.ResolveInheritedWithFacts(runtimeBase, memberName, argumentTypes, argumentFacts, false)
 
         runtimeMethod := runtimeSelection.Method
         if !runtimeSelection.IsSelected || runtimeMethod == null || runtimeMethod.get_IsAbstract() {
@@ -608,7 +609,7 @@ class ColumnarDirectCallPlanner {
         if currentDefinition != null && (explicitThis || !bindings.IsValueBinding(memberName)) && !ColumnarSourceDirectCallResolver.HasInstanceDeclaration(currentDefinition, memberName) {
             externalBase := ResolveExternalRuntimeBase(currentDefinition)
             if externalBase != null {
-                inherited := ColumnarOrdinaryRuntimeDirectCallResolver.ResolveWithFacts(externalBase, memberName, argumentTypes, argumentFacts, false)
+                inherited := ColumnarOrdinaryRuntimeDirectCallResolver.ResolveInheritedWithFacts(externalBase, memberName, argumentTypes, argumentFacts, false)
 
                 if inherited.IsSelected {
                     ownership = ColumnarDirectCallOwnership.OwnedRejected
@@ -1228,7 +1229,7 @@ class ColumnarDirectCallPlanner {
                 if sourceDefinition != null {
                     externalBase := ResolveExternalRuntimeBase(sourceDefinition)
                     if externalBase != null {
-                        inherited := ColumnarOrdinaryRuntimeDirectCallResolver.ResolveWithFacts(externalBase, memberName, argumentTypes, argumentFacts, false)
+                        inherited := ColumnarOrdinaryRuntimeDirectCallResolver.ResolveInheritedWithFacts(externalBase, memberName, argumentTypes, argumentFacts, false)
 
                         if inherited.IsSelected {
                             ownership = ColumnarDirectCallOwnership.OwnedRejected
