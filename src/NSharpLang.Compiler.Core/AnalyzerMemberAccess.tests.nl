@@ -375,6 +375,9 @@ test "`Value` on a nullable is the inner type AND is warned about" {
     assert trace.Answer == "simple:int"
     assert MemberCodes(harness.Errors) == "907"
     assert harness.Errors[0].Message.Contains("can throw")
+    // NL907 is ADVICE about a `.Value` that can throw, not a refusal to compile: the program it
+    // describes is correct, and the risk is a runtime one the author may well have accepted.
+    assert harness.Errors[0].Severity == ErrorSeverity.Warning
 }
 
 test "`Value` on a NARROWED nullable origin is the inner type and is SILENT" {
@@ -394,15 +397,25 @@ test "`Value` on a NARROWED nullable origin is the inner type and is SILENT" {
     assert harness.Errors.Count == 0
 }
 
-test "the narrowed-origin silence needs an ENCLOSING nullable — the innermost scope is not searched" {
+test "the narrowed-origin silence ALSO finds a nullable in the INNERMOST scope" {
     harness := MemberArmOf()
 
-    // Only one scope, and it holds the nullable. `FindEnclosingNullableSymbol` starts one scope OUT,
-    // so there is no origin to find, the nullable fork does not answer, and the access falls through
-    // to ordinary resolution — which misses and REPORTS. That is the boundary the whole asymmetry
-    // rests on. (The report was invisible while the harness counted the retired report step instead of
-    // rendering it; observing the sink is what makes it visible, and production always rendered it.)
+    // One scope, holding the nullable declaration, and an answer of `int`. That is the GUARD-CLAUSE
+    // shape — `if count == null { return }` installs its facts into the scope that also declares the
+    // local, so there is no inner scope to skip — and it is the shape the converted CLI is written in.
+    // The origin walk used to start one scope OUT, found nothing here, and reported NL303 for a
+    // `.Value` the program had already proved safe.
     MemberDeclare(harness, "count", new NullableTypeInfo(BuiltInTypes.Int))
+    trace := MemberDriveWith(harness, MemberAccessOf("count", "Value", false), BuiltInTypes.Int)
+
+    assert trace.Answer == "simple:int"
+    assert harness.Errors.Count == 0
+}
+
+test "a name that is NOT a nullable origin still falls through and reports" {
+    harness := MemberArmOf()
+    MemberDeclare(harness, "count", BuiltInTypes.Int)
+
     trace := MemberDriveWith(harness, MemberAccessOf("count", "Value", false), BuiltInTypes.Int)
 
     assert trace.Answer == "unknown"

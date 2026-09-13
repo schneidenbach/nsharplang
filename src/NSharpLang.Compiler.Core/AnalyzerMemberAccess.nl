@@ -372,6 +372,12 @@ class AnalyzerMemberAccess {
             return
         }
 
+        nullableOwnMemberType: TypeInfo = BuiltInTypes.Unknown
+        if TryResolveNullableValueTypeOwnMember(member, objectType, out nullableOwnMemberType) {
+            state.ResultType = nullableOwnMemberType
+            return
+        }
+
         nullFlowValue.ReportPossibleNullAccess(member.Object, objectType, member.Line, member.Column, "dereference", member.IsNullConditional)
         receiverType := declarationContextValue.ResolveDeclaredAlias(NonNullableType(objectType))
         byRefReceiver := receiverType as ByRefTypeInfo
@@ -473,7 +479,7 @@ class AnalyzerMemberAccess {
 
         if member.MemberName == "Value" {
             if !isNarrowedNullableOrigin {
-                diagnosticsValue.Report(ErrorCode.NullabilityWarning, "This '.Value' access can throw when the nullable value is absent", member.Line, spansValue.GetMemberNameColumn(member), "Prefer 'must value' for an explicit unwrap, or use 'match value { null => ..., inner => ... }' to handle both cases.", Math.Max(1, member.MemberName.Length))
+                diagnosticsValue.Warn(ErrorCode.NullabilityWarning, "This '.Value' access can throw when the nullable value is absent", member.Line, spansValue.GetMemberNameColumn(member), "Prefer 'must value' for an explicit unwrap, or use 'match value { null => ..., inner => ... }' to handle both cases.", Math.Max(1, member.MemberName.Length))
             }
 
             memberType = nullableType.InnerType
@@ -481,6 +487,67 @@ class AnalyzerMemberAccess {
         }
 
         return false
+    }
+
+    // `Nullable<T>`'s OWN SURFACE, WHICH T DOES NOT HAVE — `GetValueOrDefault()` and its one-argument
+    // overload are the members a developer reaches for and the ones the receiver-unwrapping walk above
+    // could never find, because it looks on `int` and they are declared on `Nullable<int>`.
+    //
+    // IT IS ASKED LAST OF THE TWO NULLABLE ARMS AND ONLY WHEN T CANNOT ANSWER, which is what keeps it
+    // from being a name list. A name `int` declares — `ToString`, `CompareTo`, `Equals` — still binds
+    // on `int` with `int`'s overloads; only a name `int` does NOT declare falls through to here, and
+    // metadata decides whether `Nullable<int>` has it. There is no allowlist and no special case: the
+    // receiver's two candidate types are tried in the order the language reads them.
+    //
+    // AND IT IS ASKED BEFORE NL905, because none of these members dereferences anything. `Nullable<T>`
+    // is a struct; `v.GetValueOrDefault()` on an absent value returns `default` and `v.HasValue`
+    // returns false. C# warns about neither, and neither does this.
+    func TryResolveNullableValueTypeOwnMember(member: MemberAccessExpression, objectType: TypeInfo, out memberType: TypeInfo): bool {
+        memberType = BuiltInTypes.Unknown
+        if IsStaticMemberAccessTarget(member.Object) {
+            return false
+        }
+
+        nullableType := declarationContextValue.ResolveDeclaredAlias(objectType) as NullableTypeInfo
+        if nullableType == null {
+            identifier := member.Object as IdentifierExpression
+            if identifier == null || !IsPrimitiveLikeType(objectType) {
+                return false
+            }
+
+            origin := scopesValue.FindEnclosingNullableSymbol(identifier.Name)
+            if origin == null || !TypeInfoIdentityFacts.AreEqual(origin.InnerType, objectType) {
+                return false
+            }
+
+            nullableType = origin
+        }
+
+        // `T?` over a REFERENCE type is the same CLR type as `T` and has no surface of its own. The
+        // question is asked of the INNER type's CLR handle rather than of the constructed one, because
+        // `Nullable.GetUnderlyingType` compares against the RUNTIME `Nullable<>` and answers null for
+        // every type the metadata load context produced.
+        clrInnerType := clrTypeConversionValue.TryConvertTypeInfoToClrType(nullableType.InnerType)
+        if clrInnerType == null || !clrInnerType.get_IsValueType() {
+            return false
+        }
+
+        clrNullableType := clrTypeConversionValue.TryConvertTypeInfoToClrType(nullableType)
+        if clrNullableType == null {
+            return false
+        }
+
+        if !BuiltInTypes.IsUnknown(memberResolutionValue.ResolveMember(nullableType.InnerType, member.MemberName, false, ambientValue.CurrentTypeName)) {
+            return false
+        }
+
+        resolved := memberResolutionValue.ResolveMember(new ReflectionTypeInfo(clrNullableType), member.MemberName, false, ambientValue.CurrentTypeName)
+        if BuiltInTypes.IsUnknown(resolved) {
+            return false
+        }
+
+        memberType = resolved
+        return true
     }
 
     static func IsPrimitiveLikeType(candidate: TypeInfo): bool {

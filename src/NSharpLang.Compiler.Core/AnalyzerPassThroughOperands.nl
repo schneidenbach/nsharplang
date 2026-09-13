@@ -488,7 +488,13 @@ class AnalyzerPassThroughOperands {
             return
         }
 
-        diagnosticsValue.Report(ErrorCode.NullabilityWarning, "This 'must' unwrap is redundant — the expression is already known to be '" + TypeText(state.OperandType) + "'", mustNode.Line, mustNode.Column, "Remove the 'must' keyword, or keep the original nullable value until the point where you need to unwrap it.", 4)
+        // A WARNING, NOT AN ERROR, AND THAT IS THE WHOLE POINT OF IT. A redundant `must` produces
+        // correct code — the value really is non-null — so nothing about the program is wrong; what is
+        // wrong is that a keyword is doing no work. FLOW STATE IS NOT SOMETHING THE AUTHOR CAN SEE
+        // FROM THE DECLARATION, and it is not something a mechanical translation can know at all: a
+        // converted `must` and a human tightening a guard above an existing one both land here, and
+        // neither is a reason to refuse to build. `nlc fix` removes the keyword.
+        diagnosticsValue.Warn(ErrorCode.NullabilityWarning, "This 'must' unwrap is redundant — the expression is already known to be '" + TypeText(state.OperandType) + "'", mustNode.Line, mustNode.Column, "Remove the 'must' keyword, or keep the original nullable value until the point where you need to unwrap it.", 4)
         state.ResultType = state.OperandType
     }
 

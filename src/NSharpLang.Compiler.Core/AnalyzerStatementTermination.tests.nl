@@ -13,10 +13,11 @@ import NSharpLang.Compiler.Ast
 // judgement is easy to get wrong.
 //
 // (1) THE UNMODELLED ANSWER IS "NO", AND SILENTLY SO. Every statement shape the walk does not name
-// answers false, including a `while true` that provably never falls through and a `foreach` over a
-// non-empty collection. That is the SAFE direction for the rules that read it, and it is pinned here
-// so a later "improvement" that starts reasoning about loops is a red test rather than a quiet change
-// in which functions compile.
+// answers false, including a `foreach` over a non-empty collection. That is the SAFE direction for the
+// rules that read it, and it is pinned here so a later "improvement" that starts reasoning about loops
+// is a red test rather than a quiet change in which functions compile. The ONE loop shape that is
+// modelled is the ENDLESS one — a `while` on the constant `true`, or a `for` with no condition, that
+// no reachable `break` targets — which is C# §13.2's rule and is pinned in both directions below.
 //
 // (2) A BLOCK ANSWERS ON ITS FIRST LEAVING STATEMENT, NOT ITS LAST STATEMENT. `return x` followed by
 // dead code still leaves — which is the same fact the unreachable-code rule reports about, and the
@@ -297,17 +298,16 @@ test "A FALLING BODY OR ONE FALLING HANDLER REFUTES THE WHOLE try" {
 // THE UNMODELLED SHAPES
 // ---------------------------------------------------------------------------------------------
 
-test "EVERY SHAPE THE WALK DOES NOT NAME ANSWERS NO, INCLUDING A LOOP THAT PROVABLY LEAVES" {
-    // `while true { return }` leaves on every path a program can take, and this walk says it does
-    // not. The cost is a missing-return complaint a developer resolves by writing the return; the
-    // opposite error would be unverifiable IL.
+test "EVERY SHAPE THE WALK DOES NOT NAME ANSWERS NO, AND THE ENDLESS LOOP IS THE ONE IT DOES" {
+    // A `foreach` may run zero times, so it never completes a value function; `while true` with no
+    // break is the exception the walk DOES model, because its end point is unreachable (C# §13.2).
     infinite: Statement = new WhileStatement(new BoolLiteralExpression(true, 1, 7), TerminationReturningBlock(), 1, 1)
     iterating: Statement = new ForeachStatement("item", new IdentifierExpression("items", 1, 14), TerminationReturningBlock(), 1, 1)
     breaking: Statement = new BreakStatement(1, 1)
     yielding: Statement = new YieldStatement(new IntLiteralExpression("1", 1, 7), 1, 1)
     empty: Statement = new EmptyStatement(1, 1)
 
-    assert !AnalyzerStatementTermination.AlwaysReturns(infinite)
+    assert AnalyzerStatementTermination.AlwaysReturns(infinite)
     assert !AnalyzerStatementTermination.AlwaysReturns(iterating)
     assert !AnalyzerStatementTermination.AlwaysReturns(breaking)
     assert !AnalyzerStatementTermination.AlwaysReturns(yielding)
@@ -390,4 +390,74 @@ test "A finally COUNTS NEITHER JUMP, BECAUSE NEITHER MAY LEAVE ONE" {
     // nothing — while a guarded block full of them settles the statement as any other exit would.
     assert !AnalyzerStatementTermination.AlwaysLeaves(TerminationTry(TerminationEmptyBlock(), new List<CatchClause>(), TerminationBlockOf(TerminationBreak())))
     assert AnalyzerStatementTermination.AlwaysLeaves(TerminationTry(TerminationBlockOf(TerminationContinue()), new List<CatchClause>(), TerminationEmptyBlock()))
+}
+
+// ── the endless loop ──────────────────────────────────────────────────────
+
+func TerminationWhile(condition: Expression, body: BlockStatement): Statement {
+    looped: Statement = new WhileStatement(condition, body, 1, 1)
+    return looped
+}
+
+func TerminationFor(condition: Expression?, body: BlockStatement): Statement {
+    counted: Statement = new ForStatement(null, condition, null, body, 1, 1)
+    return counted
+}
+
+func TerminationForIn(body: BlockStatement): Statement {
+    each: Statement = new ForeachStatement("item", new IdentifierExpression("items", 1, 9), body, 1, 1)
+    wrapped: Statement = new ForStatement(null, null, null, each, 1, 1)
+    return wrapped
+}
+
+test "A `while true` WITH NO BREAK LEAVES ON EVERY PATH" {
+    endless := TerminationWhile(new BoolLiteralExpression(true, 1, 7), TerminationBlockOf(TerminationBareReturn()))
+
+    assert AnalyzerStatementTermination.AlwaysReturns(endless)
+    assert AnalyzerStatementTermination.AlwaysLeaves(endless)
+}
+
+test "A `while true` WHOSE BODY ONLY THROWS LEAVES TOO, AND ONE THAT DOES NEITHER STILL LEAVES" {
+    // The END POINT is what the rule is about: nothing can fall out of the loop, whatever the body
+    // does inside it.
+    assert AnalyzerStatementTermination.AlwaysReturns(TerminationWhile(new BoolLiteralExpression(true, 1, 7), TerminationBlockOf(TerminationThrow())))
+    assert AnalyzerStatementTermination.AlwaysReturns(TerminationWhile(new BoolLiteralExpression(true, 1, 7), TerminationEmptyBlock()))
+}
+
+test "A REACHABLE `break` RESTORES THE END POINT" {
+    assert !AnalyzerStatementTermination.AlwaysReturns(TerminationWhile(new BoolLiteralExpression(true, 1, 7), TerminationBlockOf(TerminationBreak())))
+    assert !AnalyzerStatementTermination.AlwaysReturns(TerminationWhile(new BoolLiteralExpression(true, 1, 7), TerminationBlockOf(TerminationIf(TerminationBlockOf(TerminationBreak()), null))))
+}
+
+test "A `break` BOUND TO A NESTED LOOP OR A SWITCH DOES NOT RESTORE IT" {
+    nested := TerminationBlockOf(TerminationWhile(new BoolLiteralExpression(true, 1, 7), TerminationBlockOf(TerminationBreak())))
+
+    assert AnalyzerStatementTermination.AlwaysReturns(TerminationWhile(new BoolLiteralExpression(true, 1, 7), nested))
+
+    switched := new List<SwitchCase>()
+    switched.Add(TerminationCase(null, TerminationOneOf(TerminationBreak())))
+    assert AnalyzerStatementTermination.AlwaysReturns(TerminationWhile(new BoolLiteralExpression(true, 1, 7), TerminationBlockOf(TerminationSwitch(switched))))
+}
+
+test "A NON-CONSTANT CONDITION IS NOT ENDLESS, AND NEITHER IS `while false`" {
+    assert !AnalyzerStatementTermination.AlwaysReturns(TerminationWhile(new IdentifierExpression("running", 1, 7), TerminationBlockOf(TerminationBareReturn())))
+    assert !AnalyzerStatementTermination.AlwaysReturns(TerminationWhile(new BoolLiteralExpression(false, 1, 7), TerminationBlockOf(TerminationBareReturn())))
+}
+
+test "THE CONSTANT IS READ THROUGH PARENTHESES AND A DOUBLE `!`" {
+    parenthesised := new ParenthesizedExpression(new BoolLiteralExpression(true, 1, 8), 1, 7)
+    negatedFalse := new UnaryExpression(UnaryOperator.Not, new BoolLiteralExpression(false, 1, 8), 1, 7)
+
+    assert AnalyzerStatementTermination.AlwaysReturns(TerminationWhile(parenthesised, TerminationBlockOf(TerminationBareReturn())))
+    assert AnalyzerStatementTermination.AlwaysReturns(TerminationWhile(negatedFalse, TerminationBlockOf(TerminationBareReturn())))
+}
+
+test "A `for` WITH NO CONDITION IS ENDLESS, AND A `for <name> in <collection>` IS NOT" {
+    assert AnalyzerStatementTermination.AlwaysReturns(TerminationFor(null, TerminationBlockOf(TerminationBareReturn())))
+    assert AnalyzerStatementTermination.AlwaysReturns(TerminationFor(new BoolLiteralExpression(true, 1, 7), TerminationBlockOf(TerminationBareReturn())))
+    assert !AnalyzerStatementTermination.AlwaysReturns(TerminationFor(new IdentifierExpression("more", 1, 7), TerminationBlockOf(TerminationBareReturn())))
+
+    // The parser wraps a for-in in a `ForStatement` with all three clauses null, so a missing
+    // condition alone must not be read as endless: a collection can be empty.
+    assert !AnalyzerStatementTermination.AlwaysReturns(TerminationForIn(TerminationBlockOf(TerminationBareReturn())))
 }

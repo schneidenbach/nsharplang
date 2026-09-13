@@ -277,6 +277,192 @@ test "the connectives NEST, and the order is left then right" {
     assert split.Then[2].Path == "c"
 }
 
+// ── the null-conditional chain ────────────────────────────────────────────
+
+test "`x?.M == null` proves NOTHING when true and the WHOLE CHAIN when false" {
+    harness := FlowNarrowingDefault()
+    chain := new MemberAccessExpression(FnName("doc"), "Text", true, 3, 5)
+
+    split := harness.Owner.ExtractFlowNarrowings(FnBinary(chain, BinaryOperator.Equal, FnNull()))
+
+    assert split.Then.Count == 0
+    assert split.Else.Count == 2
+    assert split.Else[0].Path == "doc"
+    assert split.Else[0].NullState == NullState.NotNull
+    assert split.Else[1].Path == "doc.Text"
+    assert split.Else[1].NullState == NullState.NotNull
+}
+test "`x?.M != null` is the mirror" {
+    harness := FlowNarrowingDefault()
+    chain := new MemberAccessExpression(FnName("doc"), "Text", true, 3, 5)
+
+    split := harness.Owner.ExtractFlowNarrowings(FnBinary(chain, BinaryOperator.NotEqual, FnNull()))
+
+    assert split.Then.Count == 2
+    assert split.Then[0].Path == "doc"
+    assert split.Then[1].Path == "doc.Text"
+    assert split.Else.Count == 0
+}
+test "EVERY conditional hop in the chain is proved, in receiver order" {
+    harness := FlowNarrowingDefault()
+    inner := new MemberAccessExpression(FnName("outer"), "Inner", true, 3, 5)
+    chain := new MemberAccessExpression(inner, "Text", true, 3, 11)
+
+    split := harness.Owner.ExtractFlowNarrowings(FnBinary(chain, BinaryOperator.Equal, FnNull()))
+
+    assert split.Else.Count == 3
+    assert split.Else[0].Path == "outer"
+    assert split.Else[1].Path == "outer.Inner"
+    assert split.Else[2].Path == "outer.Inner.Text"
+}
+test "a chain whose LAST hop alone is conditional still proves its receiver" {
+    harness := FlowNarrowingDefault()
+    inner := new MemberAccessExpression(FnName("outer"), "Inner", false, 3, 5)
+    chain := new MemberAccessExpression(inner, "Text", true, 3, 11)
+
+    split := harness.Owner.ExtractFlowNarrowings(FnBinary(chain, BinaryOperator.NotEqual, FnNull()))
+
+    assert split.Then.Count == 2
+    assert split.Then[0].Path == "outer.Inner"
+    assert split.Then[1].Path == "outer.Inner.Text"
+}
+test "a conditional chain over an UNSTABLE receiver narrows nothing" {
+    harness := FlowNarrowingDefault()
+    call := new CallExpression(FnName("Get"), new List<Argument>(), null, 3, 5)
+    chain := new MemberAccessExpression(call, "Text", true, 3, 11)
+
+    split := harness.Owner.ExtractFlowNarrowings(FnBinary(chain, BinaryOperator.Equal, FnNull()))
+
+    assert split.Then.Count == 0
+    assert split.Else.Count == 0
+}
+
+// ── parentheses and negation ──────────────────────────────────────────────
+
+test "a PARENTHESISED condition proves exactly what its inner condition proves" {
+    harness := FlowNarrowingDefault()
+    condition := new ParenthesizedExpression(FnNotEqualNull("x"), 3, 4)
+
+    split := harness.Owner.ExtractFlowNarrowings(condition)
+
+    assert split.Then.Count == 1
+    assert split.Then[0].Path == "x"
+    assert split.Then[0].NullState == NullState.NotNull
+    assert split.Else.Count == 1
+    assert split.Else[0].NullState == NullState.Null
+}
+test "an `&&` reaches a PARENTHESISED operand" {
+    harness := FlowNarrowingDefault()
+    inner := new ParenthesizedExpression(
+        FnBinary(FnNotEqualNull("b"), BinaryOperator.And, FnNotEqualNull("c")),
+        3,
+        4
+    )
+    condition := FnBinary(FnNotEqualNull("a"), BinaryOperator.And, inner)
+
+    split := harness.Owner.ExtractFlowNarrowings(condition)
+
+    assert split.Then.Count == 3
+    assert split.Then[0].Path == "a"
+    assert split.Then[1].Path == "b"
+    assert split.Then[2].Path == "c"
+}
+test "`!c` SWAPS the two lists" {
+    harness := FlowNarrowingDefault()
+    condition := new UnaryExpression(
+        UnaryOperator.Not,
+        new ParenthesizedExpression(FnNotEqualNull("x"), 3, 4),
+        3,
+        3
+    )
+
+    split := harness.Owner.ExtractFlowNarrowings(condition)
+
+    assert split.Then.Count == 1
+    assert split.Then[0].NullState == NullState.Null
+    assert split.Else.Count == 1
+    assert split.Else[0].Path == "x"
+    assert split.Else[0].NullState == NullState.NotNull
+}
+test "`!(a && b)` proves NOTHING when TRUE and BOTH operands when false" {
+    harness := FlowNarrowingDefault()
+    inner := FnBinary(FnNotEqualNull("a"), BinaryOperator.And, FnNotEqualNull("b"))
+    condition := new UnaryExpression(UnaryOperator.Not, inner, 3, 3)
+
+    split := harness.Owner.ExtractFlowNarrowings(condition)
+
+    assert split.Then.Count == 0
+    assert split.Else.Count == 2
+    assert split.Else[0].Path == "a"
+    assert split.Else[0].NullState == NullState.NotNull
+    assert split.Else[1].Path == "b"
+}
+test "a unary that is NOT `!` narrows nothing" {
+    harness := FlowNarrowingDefault()
+    condition := new UnaryExpression(UnaryOperator.Negate, FnNotEqualNull("x"), 3, 3)
+
+    split := harness.Owner.ExtractFlowNarrowings(condition)
+
+    assert split.Then.Count == 0
+    assert split.Else.Count == 0
+}
+
+// ── the one thing a CONSTANT operand changes ──────────────────────────────
+
+test "`true && b` lets the else branch narrow by `!b`" {
+    harness := FlowNarrowingDefault()
+    condition := FnBinary(
+        new BoolLiteralExpression(true, 3, 5),
+        BinaryOperator.And,
+        FnNotEqualNull("b")
+    )
+
+    split := harness.Owner.ExtractFlowNarrowings(condition)
+
+    assert split.Then.Count == 1
+    assert split.Then[0].Path == "b"
+    assert split.Else.Count == 1
+    assert split.Else[0].Path == "b"
+    assert split.Else[0].NullState == NullState.Null
+}
+test "`b && true` is the mirror" {
+    harness := FlowNarrowingDefault()
+    condition := FnBinary(
+        FnNotEqualNull("b"),
+        BinaryOperator.And,
+        new BoolLiteralExpression(true, 3, 5)
+    )
+
+    split := harness.Owner.ExtractFlowNarrowings(condition)
+
+    assert split.Else.Count == 1
+    assert split.Else[0].Path == "b"
+    assert split.Else[0].NullState == NullState.Null
+}
+test "`false || b` lets the then branch narrow by `b`" {
+    harness := FlowNarrowingDefault()
+    condition := FnBinary(
+        new BoolLiteralExpression(false, 3, 5),
+        BinaryOperator.Or,
+        FnNotEqualNull("b")
+    )
+
+    split := harness.Owner.ExtractFlowNarrowings(condition)
+
+    assert split.Then.Count == 1
+    assert split.Then[0].Path == "b"
+    assert split.Then[0].NullState == NullState.NotNull
+    assert split.Else.Count == 1
+}
+test "a NON-constant operand leaves `&&` proving nothing when false" {
+    harness := FlowNarrowingDefault()
+    condition := FnBinary(FnNotEqualNull("a"), BinaryOperator.And, FnEqualNull("b"))
+
+    split := harness.Owner.ExtractFlowNarrowings(condition)
+
+    assert split.Else.Count == 0
+}
+
 // ── the type test ─────────────────────────────────────────────────────────
 
 test "`x is T v` DECLARES the binding name at T and not-null" {

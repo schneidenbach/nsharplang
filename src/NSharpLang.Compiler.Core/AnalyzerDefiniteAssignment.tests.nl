@@ -897,7 +897,7 @@ func DaThisAssign(memberName: string): ExpressionStatement {
 
 test "an unassigned non-nullable field reports NL304 on the CONSTRUCTOR" {
     harness := DefiniteAssignmentDefault()
-    classDecl := DaClass(DaOneMember(DaField("Count", "int", null, Modifiers.Public)))
+    classDecl := DaClass(DaOneMember(DaField("Count", "string", null, Modifiers.Public)))
 
     harness.Owner.CheckConstructorFields(DaConstructor(DaEmptyBlock(), 12, 5), classDecl)
 
@@ -913,7 +913,7 @@ test "an unassigned non-nullable field reports NL304 on the CONSTRUCTOR" {
 }
 test "a field assigned through `this` counts as assigned" {
     harness := DefiniteAssignmentDefault()
-    classDecl := DaClass(DaOneMember(DaField("Count", "int", null, Modifiers.Public)))
+    classDecl := DaClass(DaOneMember(DaField("Count", "string", null, Modifiers.Public)))
 
     harness.Owner.CheckConstructorFields(DaConstructor(DaOneBlock(DaThisAssign("Count")), 12, 5), classDecl)
 
@@ -921,7 +921,7 @@ test "a field assigned through `this` counts as assigned" {
 }
 test "a field assigned through a BARE name counts as assigned" {
     harness := DefiniteAssignmentDefault()
-    classDecl := DaClass(DaOneMember(DaField("Count", "int", null, Modifiers.Public)))
+    classDecl := DaClass(DaOneMember(DaField("Count", "string", null, Modifiers.Public)))
 
     harness.Owner.CheckConstructorFields(
         DaConstructor(DaOneBlock(DaAssign("Count", DaInt(1))), 12, 5),
@@ -932,7 +932,7 @@ test "a field assigned through a BARE name counts as assigned" {
 }
 test "a STATIC field is not part of any instance constructor's contract" {
     harness := DefiniteAssignmentDefault()
-    classDecl := DaClass(DaOneMember(DaField("Shared", "int", null, Modifiers.Static)))
+    classDecl := DaClass(DaOneMember(DaField("Shared", "string", null, Modifiers.Static)))
 
     harness.Owner.CheckConstructorFields(DaConstructor(DaEmptyBlock(), 12, 5), classDecl)
 
@@ -940,7 +940,7 @@ test "a STATIC field is not part of any instance constructor's contract" {
 }
 test "a field WITH an initializer is skipped" {
     harness := DefiniteAssignmentDefault()
-    classDecl := DaClass(DaOneMember(DaField("Count", "int", DaInt(0), Modifiers.Public)))
+    classDecl := DaClass(DaOneMember(DaField("Count", "string", DaInt(0), Modifiers.Public)))
 
     harness.Owner.CheckConstructorFields(DaConstructor(DaEmptyBlock(), 12, 5), classDecl)
 
@@ -983,7 +983,7 @@ test "a non-field member is not a field and is ignored" {
 }
 test "an assignment in a NESTED BLOCK counts" {
     harness := DefiniteAssignmentDefault()
-    classDecl := DaClass(DaOneMember(DaField("Count", "int", null, Modifiers.Public)))
+    classDecl := DaClass(DaOneMember(DaField("Count", "string", null, Modifiers.Public)))
     body := DaOneBlock(DaOneBlock(DaThisAssign("Count")))
 
     harness.Owner.CheckConstructorFields(DaConstructor(body, 12, 5), classDecl)
@@ -992,7 +992,7 @@ test "an assignment in a NESTED BLOCK counts" {
 }
 test "an assignment on BOTH branches of an if counts" {
     harness := DefiniteAssignmentDefault()
-    classDecl := DaClass(DaOneMember(DaField("Count", "int", null, Modifiers.Public)))
+    classDecl := DaClass(DaOneMember(DaField("Count", "string", null, Modifiers.Public)))
     branchIf := DaIf(DaTrue(), DaThisAssign("Count"), DaThisAssign("Count"))
 
     harness.Owner.CheckConstructorFields(DaConstructor(DaOneBlock(branchIf), 12, 5), classDecl)
@@ -1001,7 +1001,7 @@ test "an assignment on BOTH branches of an if counts" {
 }
 test "an assignment on ONE branch of a two-branch if does NOT count" {
     harness := DefiniteAssignmentDefault()
-    classDecl := DaClass(DaOneMember(DaField("Count", "int", null, Modifiers.Public)))
+    classDecl := DaClass(DaOneMember(DaField("Count", "string", null, Modifiers.Public)))
     branchIf := DaIf(DaTrue(), DaThisAssign("Count"), DaThisAssign("Other"))
 
     harness.Owner.CheckConstructorFields(DaConstructor(DaOneBlock(branchIf), 12, 5), classDecl)
@@ -1010,7 +1010,7 @@ test "an assignment on ONE branch of a two-branch if does NOT count" {
 }
 test "a SINGLE-branch if is not entered at all, even for an unconditional assignment inside it" {
     harness := DefiniteAssignmentDefault()
-    classDecl := DaClass(DaOneMember(DaField("Count", "int", null, Modifiers.Public)))
+    classDecl := DaClass(DaOneMember(DaField("Count", "string", null, Modifiers.Public)))
     branchIf := DaIf(DaTrue(), DaThisAssign("Count"), null)
 
     harness.Owner.CheckConstructorFields(DaConstructor(DaOneBlock(branchIf), 12, 5), classDecl)
@@ -1019,7 +1019,7 @@ test "a SINGLE-branch if is not entered at all, even for an unconditional assign
 }
 test "an assignment inside a while, a for, a foreach, a try, a using or a lock counts for NOTHING" {
     harness := DefiniteAssignmentDefault()
-    classDecl := DaClass(DaOneMember(DaField("Count", "int", null, Modifiers.Public)))
+    classDecl := DaClass(DaOneMember(DaField("Count", "string", null, Modifiers.Public)))
     statements := DaStatements()
     statements.Add(new WhileStatement(DaTrue(), DaOneBlock(DaThisAssign("Count")), 1, 1))
     statements.Add(new ForStatement(null, null, null, DaOneBlock(DaThisAssign("Count")), 1, 1))
@@ -1034,7 +1034,7 @@ test "an assignment inside a while, a for, a foreach, a try, a using or a lock c
 }
 test "an assignment whose target is neither `this.X` nor a bare name counts for nothing" {
     harness := DefiniteAssignmentDefault()
-    classDecl := DaClass(DaOneMember(DaField("Count", "int", null, Modifiers.Public)))
+    classDecl := DaClass(DaOneMember(DaField("Count", "string", null, Modifiers.Public)))
     target := new MemberAccessExpression(DaName("other", 1, 1), "Count", false, 1, 1)
     assignment := new AssignmentExpression(target, AssignmentOperator.Assign, DaInt(1), 1, 1)
     body := DaOneBlock(new ExpressionStatement(assignment, 1, 1))
@@ -1046,8 +1046,8 @@ test "an assignment whose target is neither `this.X` nor a bare name counts for 
 test "every unassigned field gets its OWN report" {
     harness := DefiniteAssignmentDefault()
     members := new List<Declaration>()
-    members.Add(DaField("Alpha", "int", null, Modifiers.Public))
-    members.Add(DaField("Beta", "int", null, Modifiers.Public))
+    members.Add(DaField("Alpha", "string", null, Modifiers.Public))
+    members.Add(DaField("Beta", "string", null, Modifiers.Public))
     classDecl := DaClass(members)
 
     harness.Owner.CheckConstructorFields(DaConstructor(DaEmptyBlock(), 12, 5), classDecl)
@@ -1055,6 +1055,58 @@ test "every unassigned field gets its OWN report" {
     assert harness.Errors.Count == 2
     assert harness.Errors[0].Message == "Field 'Alpha' is non-nullable but isn't assigned in this constructor — either assign it here or give it a default value in its declaration"
     assert harness.Errors[1].Message == "Field 'Beta' is non-nullable but isn't assigned in this constructor — either assign it here or give it a default value in its declaration"
+}
+
+// ── WHICH FIELDS OWE A CONSTRUCTOR ANYTHING ───────────────────────────────
+//
+// ONLY NON-NULLABLE REFERENCE-TYPED ONES, which is C#'s rule (CS8618). Every value type has a
+// `default` that is a valid value of it, and the CLR has already written that value into the object
+// before the constructor body runs — so a `bool`, an `int`, an enum, a struct, an `int?` and an
+// unconstrained `T` field are all definitely assigned at construction. Only a reference field's
+// `default` is `null`, which its declared type says it may not be.
+//
+// The census probe was a daemon with `private running: bool` and `private count: int`, both of them
+// reported and neither of them wrong.
+
+test "a PRIMITIVE value-typed field owes the constructor nothing" {
+    harness := DefiniteAssignmentDefault()
+    members := new List<Declaration>()
+    members.Add(DaField("Running", "bool", null, Modifiers.Public))
+    members.Add(DaField("Count", "int", null, Modifiers.Public))
+    members.Add(DaField("Ratio", "double", null, Modifiers.Public))
+    members.Add(DaField("Letter", "char", null, Modifiers.Public))
+
+    harness.Owner.CheckConstructorFields(DaConstructor(DaEmptyBlock(), 12, 5), DaClass(members))
+
+    assert harness.Errors.Count == 0
+}
+test "a BARE TYPE PARAMETER field owes the constructor nothing" {
+    harness := DefiniteAssignmentDefault()
+    classDecl := DaClass(DaOneMember(DaField("Item", "T", null, Modifiers.Public)))
+
+    harness.Owner.CheckConstructorFields(DaConstructor(DaEmptyBlock(), 12, 5), classDecl)
+
+    assert harness.Errors.Count == 0
+}
+test "a field of an UNRESOLVED type owes the constructor nothing" {
+    // The rule reports only on types it is SURE are reference types, so a name the harness cannot
+    // resolve accuses nobody.
+    harness := DefiniteAssignmentDefault()
+    classDecl := DaClass(DaOneMember(DaField("Thing", "Widgetry", null, Modifiers.Public)))
+
+    harness.Owner.CheckConstructorFields(DaConstructor(DaEmptyBlock(), 12, 5), classDecl)
+
+    assert harness.Errors.Count == 0
+}
+test "an ARRAY and a CONSTRUCTED GENERIC field both owe an assignment" {
+    harness := DefiniteAssignmentDefault()
+    members := new List<Declaration>()
+    members.Add(new FieldDeclaration("Values", new ArrayTypeReference(new SimpleTypeReference("int", 0, 0)), null, Modifiers.Public, PropertyModifier.None, new List<AttributeNode>(), 1, 1))
+
+    harness.Owner.CheckConstructorFields(DaConstructor(DaEmptyBlock(), 12, 5), DaClass(members))
+
+    assert harness.Errors.Count == 1
+    assert harness.Errors[0].Message == "Field 'Values' is non-nullable but isn't assigned in this constructor — either assign it here or give it a default value in its declaration"
 }
 
 // ── the `out` exit rule (NL304) ───────────────────────────────────────────

@@ -481,12 +481,64 @@ class AnalyzerCallAnalysis {
             return null
         }
 
+        restoredReceiver := TryRestoreNarrowedNullableReceiver(state, receiverTypeInfo)
+        if restoredReceiver != null {
+            receiverTypeInfo = restoredReceiver
+            state.ReflectionReceiverTypeInfo = restoredReceiver
+        }
+
         clrType := clrTypeConversion.TryConvertTypeInfoToClrType(receiverTypeInfo)
         if clrType == null {
             clrType = clrTypeConversion.TryConvertTypeInfoToClrTypeForBinding(receiverTypeInfo)
         }
 
         state.ReflectionReceiverClrType = clrType
+        return null
+    }
+
+    // THE RECEIVER THE BIND NEEDS IS THE TYPE THE MEMBER WAS FOUND ON, and for a NARROWED nullable
+    // VALUE type those are two different CLR types. Inside `if v == null { return }` the receiver of
+    // `v.GetValueOrDefault()` reads as `int` — that is what the flow proved — while the member it
+    // resolved to is declared on `Nullable<int>`, and an `int` receiver binds against `Nullable<T>`'s
+    // signature no better than any unrelated type would. The receiver's DECLARED type is handed to
+    // the binder instead.
+    //
+    // IT ONLY FIRES WHEN A CANDIDATE IS ACTUALLY DECLARED ON THE NULLABLE, which is what keeps it from
+    // being a rule about nullables at all: every member `int` itself declares still binds against
+    // `int`, with `int`'s own overloads, and an extension method's declaring type is its static class
+    // and matches neither reading.
+    func TryRestoreNarrowedNullableReceiver(state: CallAnalysisState, receiverTypeInfo: TypeInfo): TypeInfo? {
+        memberAccess := state.Call.Callee as MemberAccessExpression
+        if memberAccess == null {
+            return null
+        }
+
+        identifier := memberAccess.Object as IdentifierExpression
+        if identifier == null || !AnalyzerConversionFacts.IsDefinitelyNonNullableValueType(receiverTypeInfo) {
+            return null
+        }
+
+        origin := scopes.FindEnclosingNullableSymbol(identifier.Name)
+        if origin == null || !TypeInfoIdentityFacts.AreEqual(origin.InnerType, receiverTypeInfo) {
+            return null
+        }
+
+        originClrType := clrTypeConversion.TryConvertTypeInfoToClrType(origin)
+        if originClrType == null {
+            return null
+        }
+
+        methods := state.CandidateMethods
+        index := 0
+        while index < methods.Count {
+            declaringType := methods[index].get_DeclaringType()
+            if declaringType != null && TypeInfoIdentityFacts.HaveSameReflectionTypeIdentity(declaringType, originClrType) {
+                return origin
+            }
+
+            index = index + 1
+        }
+
         return null
     }
 

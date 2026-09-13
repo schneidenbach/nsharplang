@@ -44,10 +44,17 @@ import NSharpLang.Compiler.Ast
 // text. This is the one thing in the judgement that is not structural.
 //
 // THE UNMODELLED ANSWER IS "NO", AND THAT IS THE SAFE DIRECTION. Every statement shape this walk does
-// not name — a loop, a `using`, a bare expression, a local function — answers FALSE. A `while true`
-// whose body never breaks does leave every path, and this walk says it does not; the cost is a
-// missing-return complaint a developer resolves by writing the return, which is a false POSITIVE on a
-// rule whose false NEGATIVE would be unverifiable IL.
+// not name — a `foreach`, a `using`, a bare expression, a local function — answers FALSE.
+//
+// AN ENDLESS LOOP IS THE ONE LOOP SHAPE THAT ANSWERS YES, and it is C#'s rule rather than a
+// concession (§13.2 "End points and reachability"): the end point of a `while` whose condition is the
+// constant `true` — and of a `for` with no condition at all, which is the same statement spelled
+// differently — is unreachable unless a reachable `break` TARGETS that loop. So
+// `while true { … return … }` needs no return after it, and neither does a body that only throws.
+// A `break` written inside a NESTED loop targets that loop and does not restore this one's end point;
+// a `break` inside a `switch` leaves the switch; and a `break` inside a `finally` is not legal IL at
+// all. All three fall out of the same jump-ownership rules the two entry points already carry, which
+// is why the search is one walk rather than a second analysis.
 //
 // `try` IS THE ONE SHAPE WHERE THAT CONSERVATISM WOULD BE WRONG RATHER THAN MERELY COSTLY, because
 // C#'s `using` lowers to it. It follows C#'s end-point rule exactly: the guarded block and every
@@ -138,6 +145,27 @@ class AnalyzerStatementTermination {
             return Walk(lockStatement.Body, breakLeaves, continueLeaves)
         }
 
+        whileStatement := statement as WhileStatement
+        if whileStatement != null {
+            return EndlessLoopLeaves(whileStatement.Condition, whileStatement.Body)
+        }
+
+        // A `for` is endless when it has NO condition. A `for` whose condition is written is measured
+        // by the same constant test, so `for i := 0; true; i++ {}` is endless too.
+        //
+        // A `for <name> in <collection>` IS NOT ONE OF THOSE. The parser wraps a for-in in a
+        // `ForStatement` with all three clauses null and the `ForeachStatement` as its BODY, so a
+        // missing condition alone does not mean endless — the body's shape is what tells the two
+        // apart, and a `foreach` over an empty collection runs its body zero times.
+        forStatement := statement as ForStatement
+        if forStatement != null {
+            if (forStatement.Body as ForeachStatement) != null {
+                return false
+            }
+
+            return EndlessLoopLeaves(forStatement.Condition, forStatement.Body)
+        }
+
         switchStatement := statement as SwitchStatement
         if switchStatement != null {
             return SwitchLeaves(switchStatement, continueLeaves)
@@ -146,6 +174,142 @@ class AnalyzerStatementTermination {
         tryStatement := statement as TryStatement
         if tryStatement != null {
             return TryLeaves(tryStatement, breakLeaves, continueLeaves)
+        }
+
+        return false
+    }
+
+    // AN ENDLESS LOOP LEAVES WHEN NOTHING CAN BREAK OUT OF IT. The condition must be ABSENT or the
+    // constant `true` — nothing here evaluates an expression, because a loop wrongly called endless
+    // would accept a body that really can fall out of it — and the body must contain no `break` bound
+    // to this loop.
+    static func EndlessLoopLeaves(condition: Expression?, body: Statement): bool {
+        if condition != null && !IsConstantTrueCondition(condition) {
+            return false
+        }
+
+        return !ContainsBreakTargetingThisLoop(body)
+    }
+
+    // THE CONSTANT `true`, THROUGH THE SPELLINGS THAT ARE TRANSPARENTLY IT. A parenthesis and a
+    // double `!` change nothing about the value; an operator would have to be evaluated and is not.
+    static func IsConstantTrueCondition(condition: Expression): bool {
+        boolLiteral := condition as BoolLiteralExpression
+        if boolLiteral != null {
+            return boolLiteral.Value
+        }
+
+        parenthesized := condition as ParenthesizedExpression
+        if parenthesized != null {
+            return IsConstantTrueCondition(parenthesized.Inner)
+        }
+
+        negation := condition as UnaryExpression
+        if negation != null && negation.Operator == UnaryOperator.Not {
+            return IsConstantFalseCondition(negation.Operand)
+        }
+
+        return false
+    }
+
+    static func IsConstantFalseCondition(condition: Expression): bool {
+        boolLiteral := condition as BoolLiteralExpression
+        if boolLiteral != null {
+            return !boolLiteral.Value
+        }
+
+        parenthesized := condition as ParenthesizedExpression
+        if parenthesized != null {
+            return IsConstantFalseCondition(parenthesized.Inner)
+        }
+
+        negation := condition as UnaryExpression
+        if negation != null && negation.Operator == UnaryOperator.Not {
+            return IsConstantTrueCondition(negation.Operand)
+        }
+
+        return false
+    }
+
+    // A `break` THAT TARGETS THE LOOP THIS BODY BELONGS TO. The walk descends through everything a
+    // `break` can be written inside WITHOUT changing what it binds to, and stops at the three things
+    // that DO change it: a nested loop (the `break` is that loop's), a `switch` (the `break` leaves
+    // the switch), and a `finally` (a jump out of one is not legal IL and is reported elsewhere).
+    // Expressions are not walked at all, so a lambda body — a method of its own — is out of reach by
+    // construction.
+    static func ContainsBreakTargetingThisLoop(statement: Statement): bool {
+        breakStatement := statement as BreakStatement
+        if breakStatement != null {
+            return true
+        }
+
+        block := statement as BlockStatement
+        if block != null {
+            index := 0
+            while index < block.Statements.Count {
+                if ContainsBreakTargetingThisLoop(block.Statements[index]) {
+                    return true
+                }
+
+                index = index + 1
+            }
+
+            return false
+        }
+
+        ifStatement := statement as IfStatement
+        if ifStatement != null {
+            if ContainsBreakTargetingThisLoop(ifStatement.ThenStatement) {
+                return true
+            }
+
+            elseStatement := ifStatement.ElseStatement
+            return elseStatement != null && ContainsBreakTargetingThisLoop(elseStatement)
+        }
+
+        lockStatement := statement as LockStatement
+        if lockStatement != null {
+            return ContainsBreakTargetingThisLoop(lockStatement.Body)
+        }
+
+        usingStatement := statement as UsingStatement
+        if usingStatement != null {
+            usingBody := usingStatement.Body
+            return usingBody != null && ContainsBreakTargetingThisLoop(usingBody)
+        }
+
+        allocBlock := statement as AllocBlockStatement
+        if allocBlock != null {
+            return ContainsBreakTargetingThisLoop(allocBlock.Body)
+        }
+
+        allowBlock := statement as AllowStatement
+        if allowBlock != null {
+            return ContainsBreakTargetingThisLoop(allowBlock.Body)
+        }
+
+        unsafeBlock := statement as UnsafeBlockStatement
+        if unsafeBlock != null {
+            return ContainsBreakTargetingThisLoop(unsafeBlock.Body)
+        }
+
+        tryStatement := statement as TryStatement
+        if tryStatement != null {
+            if ContainsBreakTargetingThisLoop(tryStatement.TryBlock) {
+                return true
+            }
+
+            catchClauses := tryStatement.CatchClauses
+            index := 0
+            while index < catchClauses.Count {
+                if ContainsBreakTargetingThisLoop(catchClauses[index].Block) {
+                    return true
+                }
+
+                index = index + 1
+            }
+
+            return false
         }
 
         return false

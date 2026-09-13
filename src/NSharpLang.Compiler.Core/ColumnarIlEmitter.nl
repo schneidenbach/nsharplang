@@ -5231,10 +5231,10 @@ sealed class ColumnarIlEmitter {
                 if (job.Ctor.ChainInitKind != 0) {
                     // A `: this(...)` (kind 1) or `: base(...)` (kind 2) CHAINING constructor delegates field assignment
                     // to the chained ctor, so the NL304 all-fields-assigned check does NOT apply (empirically pinned for
-                    // BOTH kinds against the N# pipeline) — but `return` is still forbidden (NL103). Emit the chained
+                    // BOTH kinds against the N# pipeline) — but a VALUE-bearing `return` is still forbidden. Emit the chained
                     // call (resolved from the ordinary argument expressions among the same type's / the base type's
                     // ctors) in place of the base object ctor, then the body.
-                    if (ColumnarMethodBodyPlanner.ContainsReturnStatement(job.Ctor.Body.BodyNodes, job.Ctor.Body.BodyRoot)) {
+                    if (ColumnarMethodBodyPlanner.ContainsValueReturnStatement(job.Ctor.Body.BodyNodes, job.Ctor.Body.BodyRoot)) {
                         return false
                     }
                     if (!emitter.EmitChainedConstructorCall(job.Ctor, job.Builder, job.Struct)) {
@@ -5254,7 +5254,8 @@ sealed class ColumnarIlEmitter {
                     }
                 } else {
                     if (job.Struct.IsReference) {
-                        // A non-chaining ctor must (1) contain no `return` (NL103) and (2) assign every OWN field (NL304 —
+                        // A non-chaining ctor must (1) contain no VALUE-bearing `return` and (2) assign every OWN non-nullable
+                        // REFERENCE-typed field (NL304 —
                         // inherited fields are the base ctor's responsibility). Synthesized initializer constructors
                         // produced from class/record declarations may leave fields at their CLR defaults; explicit
                         // constructors keep the all-fields-assigned check. Validate BEFORE emitting — declining here discards
@@ -5262,7 +5263,7 @@ sealed class ColumnarIlEmitter {
                         // ctor when the type has one (decline when the base offers only parameterized ctors — ECMA-335
                         // requires chaining to the DIRECT base, and the N# pipeline rejects the implicit chain), else to the
                         // `object` ctor.
-                        if (job.Ctor.IsSynthesizedInitializer ? ColumnarMethodBodyPlanner.ContainsReturnStatement(job.Ctor.Body.BodyNodes, job.Ctor.Body.BodyRoot) : !ColumnarConstructorDeclarationPlanner.IsValidReferenceCtorBody(
+                        if (job.Ctor.IsSynthesizedInitializer ? ColumnarMethodBodyPlanner.ContainsValueReturnStatement(job.Ctor.Body.BodyNodes, job.Ctor.Body.BodyRoot) : !ColumnarConstructorDeclarationPlanner.IsValidReferenceCtorBody(
                             job.Ctor.Body.BodyNodes,
                             ctorSource,
                             job.Struct,
@@ -5287,8 +5288,8 @@ sealed class ColumnarIlEmitter {
                     } else {
                         // VALUE-TYPE ctor: no base chain (value types don't chain), and NO all-fields-assigned
                         // validation — the legacy emitter ACCEPTS partial assignment in struct ctors (probed: unassigned
-                        // fields keep the zero-initialized value). Only `return` is forbidden (NL103).
-                        if (ColumnarMethodBodyPlanner.ContainsReturnStatement(job.Ctor.Body.BodyNodes, job.Ctor.Body.BodyRoot)) {
+                        // fields keep the zero-initialized value). Only a VALUE-bearing `return` is forbidden.
+                        if (ColumnarMethodBodyPlanner.ContainsValueReturnStatement(job.Ctor.Body.BodyNodes, job.Ctor.Body.BodyRoot)) {
                             return false
                         }
                     }
@@ -7042,10 +7043,16 @@ sealed class ColumnarIlEmitter {
             checkLabel := _il.DefineLabel()
             endLabel := _il.DefineLabel()
             _il.MarkLabel(checkLabel)
-            if (!EmitCondition(Child(idx, 0))) {
-                return false
+            // A CONSTANT-`true` CONDITION IS NOT TESTED. `while true` has no exit but a `break`, so the
+            // `brfalse end` would be dead — and emitting it makes `end:` reachable, which in a value
+            // function whose only exits are `return`s would leave the method falling off its own end
+            // (invalid IL). Roslyn lowers `while (true)` to the bare back-edge for the same reason.
+            if (!ColumnarMethodBodyPlanner.IsConstantTrueConditionNode(_nodes, _source, Child(idx, 0))) {
+                if (!EmitCondition(Child(idx, 0))) {
+                    return false
+                }
+                _il.Emit(OpCodes.Brfalse, endLabel)
             }
-            _il.Emit(OpCodes.Brfalse, endLabel)
             // Scope the body's `:=` locals so they leave scope at the loop end. A Block body self-scopes;
             // this also covers a BRACELESS single-statement body (e.g. a bare `:=`), which is not a Block.
             outerLocals := new HashSet<string>(_locals.Keys, StringComparer.Ordinal)
@@ -7184,10 +7191,14 @@ sealed class ColumnarIlEmitter {
             contLabel := _il.DefineLabel()
             endLabel := _il.DefineLabel()
             _il.MarkLabel(checkLabel)
-            if (!EmitCondition(cond)) {
-                return false
+            // A CONSTANT-`true` CONDITION IS NOT TESTED — the `while` arm's rule, for the same reason:
+            // the test would be dead and `end:` would become reachable in a loop nothing can fall out of.
+            if (!ColumnarMethodBodyPlanner.IsConstantTrueConditionNode(_nodes, _source, cond)) {
+                if (!EmitCondition(cond)) {
+                    return false
+                }
+                _il.Emit(OpCodes.Brfalse, endLabel)
             }
-            _il.Emit(OpCodes.Brfalse, endLabel)
 
             _loopLabels.Push((endLabel, contLabel, _protectedDepth, _finallyDepth))
             forBodyEmitted := EmitStatement(body)
@@ -9038,7 +9049,7 @@ sealed class ColumnarIlEmitter {
     /// (ColumnarMethodBodyPlanner.AlwaysReturns) — the columnar mirror of the diagnostics pass's
     /// AnalyzerStatementTermination.AlwaysReturns, which asks the same question of AST statements.
     /// </summary>
-    private func AlwaysReturns(idx: int): bool => ColumnarMethodBodyPlanner.AlwaysReturns(_nodes, idx)
+    private func AlwaysReturns(idx: int): bool => ColumnarMethodBodyPlanner.AlwaysReturns(_nodes, _source, idx)
 
     private func FindDefByType(columnarResolvedType: Type): ColumnarStructDef? => ColumnarSourceDefinitionResolver.FindDirectType(_structRegistry, columnarResolvedType)
 
@@ -12022,9 +12033,11 @@ sealed class ColumnarIlEmitter {
                 columnarResolvedType = mustType
                 return true
             }
-            // a plain VALUE type: the pipeline REJECTS redundant `must` (NL907 — the analyzer
-            // gates it before the emitter's no-op would run) — decline so the N# backend path reports it.
-            return false
+            // A PLAIN VALUE TYPE: THE UNWRAP IS AN IDENTITY, and the value is already on the stack.
+            // NL907 has told the author the keyword does no work — as a WARNING, because the program
+            // is correct — so the emitter has to produce that correct program rather than decline.
+            columnarResolvedType = mustType
+            return true
         } else if columnarSwitchValue2 == 13 {
             // Ternary [cond, then, else] — a branch/merge with ONE result; both arms must be the SAME
             // type (TypesEquivalent — the match-arm unification rule).

@@ -386,13 +386,22 @@ class AnalyzerAmbientContext {
     }
 
     // A CONSTRUCTOR BODY. This is a plain pair rather than a save/restore, exactly as the C# was: a
-    // constructor is never nested inside another, so there is nothing to restore to but `false`.
+    // constructor is never nested inside another, so there is nothing to restore to but `false` and
+    // `null`.
+    //
+    // A CONSTRUCTOR RUNS LIKE A `void` FUNCTION, which is why the return type is set here. The field
+    // initializers and the base call have already happened by the time the body runs, so a bare
+    // `return` simply ends it — C# accepts exactly that, and a converted project spells it in every
+    // early-out constructor. Without the type the `return` walk found no enclosing function at all
+    // and said so (NL103), which is a sentence about a program nobody wrote.
     func EnterConstructor() {
         inConstructorValue = true
+        currentReturnTypeValue = BuiltInTypes.Void
     }
 
     func ExitConstructor() {
         inConstructorValue = false
+        currentReturnTypeValue = null
     }
 
     // THE BARE-EVENT SUPPRESSION. Save/restore, because the two arms that open it can nest — an `on`
@@ -897,6 +906,15 @@ class AnalyzerAmbientContext {
     }
 
     func ReportReturnedValue(state: ReturnStatementState, value: Expression) {
+        // A CONSTRUCTOR RETURNS NOTHING AT ALL, so the `void` wording — which names a FUNCTION and its
+        // declared return type — would be about the wrong thing. It is its own sentence, and it is
+        // asked first because a constructor has no function name to put in any of the others.
+        if inConstructorValue {
+            span := spansValue.GetExpressionDiagnosticSpan(value)
+            diagnosticsValue.Report(ErrorCode.TypeMismatch, "A constructor returns nothing, but this 'return' gives back a value", span.Line, span.Column, "Use a bare `return` to end the constructor early, or assign the value to a field instead.", span.Length)
+            return
+        }
+
         if CurrentFunctionDeclaresGenerator {
             span := spansValue.GetExpressionDiagnosticSpan(value)
             diagnosticsValue.Report(ErrorCode.InvalidSyntax, "Generator functions cannot return a value", span.Line, span.Column, "Use `yield value` to produce sequence values, or a bare `return`/`yield break` to stop iteration.", span.Length)

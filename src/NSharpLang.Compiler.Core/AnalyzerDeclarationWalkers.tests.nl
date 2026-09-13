@@ -663,7 +663,7 @@ test "an INITIALIZER is analysed BEFORE the body" {
 test "the definite-assignment check needs BOTH a declaring class and no initializer" {
     harness := DeclWalkHarnessOf()
     fields := new List<Declaration>()
-    fields.Add(new FieldDeclaration("Value", new SimpleTypeReference("int", 5, 12), null, Modifiers.None, PropertyModifier.None, new List<AttributeNode>(), 5, 5))
+    fields.Add(new FieldDeclaration("Value", new SimpleTypeReference("string", 5, 12), null, Modifiers.None, PropertyModifier.None, new List<AttributeNode>(), 5, 5))
     classDeclaration := new ClassDeclaration("Thing", null, null, new List<TypeReference>(), fields, null, Modifiers.None, new List<AttributeNode>(), 4, 1)
     harness.Ambient.EnterClassDeclaration(classDeclaration)
 
@@ -676,7 +676,7 @@ test "the definite-assignment check needs BOTH a declaring class and no initiali
 test "a CHAINING constructor hands the definite-assignment duty over and is silent" {
     harness := DeclWalkHarnessOf()
     fields := new List<Declaration>()
-    fields.Add(new FieldDeclaration("Value", new SimpleTypeReference("int", 5, 12), null, Modifiers.None, PropertyModifier.None, new List<AttributeNode>(), 5, 5))
+    fields.Add(new FieldDeclaration("Value", new SimpleTypeReference("string", 5, 12), null, Modifiers.None, PropertyModifier.None, new List<AttributeNode>(), 5, 5))
     classDeclaration := new ClassDeclaration("Thing", null, null, new List<TypeReference>(), fields, null, Modifiers.None, new List<AttributeNode>(), 4, 1)
     harness.Ambient.EnterClassDeclaration(classDeclaration)
     initializer := new CallExpression(new IdentifierExpression("this", 7, 9), new List<Argument>(), null, 7, 9)

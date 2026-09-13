@@ -32,13 +32,29 @@ class FlowNarrowingSplit {
 // extraction cannot install anything itself: `if x == null { return }` narrows the code AFTER the
 // statement, not the code inside it.
 //
-// THE FOUR CONDITION SHAPES, and the negation rules are what make them non-obvious. `x != null`
+// THE CONDITION SHAPES, and the negation rules are what make them non-obvious. `x != null`
 // proves not-null when true and null when false; `x == null` is the mirror. `a && b` proves both
 // sides in the TRUE branch and NOTHING in the false branch, because the negation of a conjunction
 // is a disjunction and a disjunction proves nothing about either side. `a || b` is the mirror: it
 // proves both negations in the FALSE branch and nothing in the true one. `x is T` proves T in the
 // true branch, and — only when the tested value is an ANONYMOUS UNION — proves the union MINUS the
 // matched arm in the false branch. `x.HasValue` proves the nullable's inner type.
+//
+// A PARENTHESIS AND A `!` ARE TRANSPARENT, AND THAT IS WHY THEY ARE THE FIRST TWO ARMS. `(c)`
+// proves what `c` proves, and `!c` proves what `c` proves with the two lists SWAPPED — one rule
+// stated once, rather than a special case per shape. Without them a converter's parenthesised
+// operand (`a && (b != null)`) and its `if !(x != null) { return }` guard both proved nothing, and
+// the surviving flow was told a dereference might be null that the program had already checked.
+//
+// THE ONE THING A CONSTANT OPERAND CHANGES. `!(a && b)` is `!a || !b` and proves nothing — unless
+// one operand is the literal `true`, which collapses the disjunction onto the other side. `a || b`
+// is the mirror with the literal `false`. Nothing else is evaluated: a condition whose value this
+// writer cannot read off the syntax proves nothing in either direction.
+//
+// A `?.` CHAIN NARROWS ITS WHOLE PATH. `x?.M == null` is true when `x` is null OR `x.M` is null, so
+// the true side proves nothing and the FALSE side proves both — the same disjunction rule `||` has,
+// applied to the receivers the chain tested on the way to the member. Without it, the guard clause
+// `if doc?.Text == null { return }` left `doc` maybe-null for the rest of the function.
 //
 // THE ARM SUBTRACTION IS ASSIGNABILITY, NOT IDENTITY. An arm is removed when the matched type is
 // assignable to it, so testing a base type removes every derived arm. Removing every arm leaves
@@ -100,10 +116,29 @@ class AnalyzerFlowNarrowing {
 
     // Extracts flow-sensitive type narrowings from a condition expression.
     // Returns separate narrowing lists for then-branch and else-branch.
-    // Handles: null checks (!=null, ==null), is-type patterns, and && chains.
+    // Handles: null checks (!=null, ==null), is-type patterns, && / || chains,
+    // parenthesised conditions and `!`.
     func ExtractFlowNarrowings(condition: Expression): FlowNarrowingSplit {
         thenNarrowings := new List<FlowNarrowing>()
         elseNarrowings := new List<FlowNarrowing>()
+
+        // A PARENTHESIS IS NOT A CONDITION SHAPE. `(x != null)` proves exactly what `x != null`
+        // proves, and `a && (b != null)` only reaches the inner test through here — without this arm
+        // the writer answered NOTHING for every parenthesised operand, which is the shape a converter
+        // emits whenever the source had one.
+        parenthesized := condition as ParenthesizedExpression
+        if parenthesized != null {
+            return ExtractFlowNarrowings(parenthesized.Inner)
+        }
+
+        // `!c` PROVES WHAT `c` PROVES, WITH THE TWO BRANCHES SWAPPED. That is the whole negation
+        // rule, and stating it once here is what keeps `!(a && b)`, `!(x == null)` and `!x.HasValue`
+        // consistent with the operands they are built from — each of them used to be either wrong or
+        // a special case of its own.
+        negation := condition as UnaryExpression
+        if negation != null && negation.Operator == UnaryOperator.Not {
+            return NegateSplit(ExtractFlowNarrowings(negation.Operand))
+        }
 
         binary := condition as BinaryExpression
         isExpr := condition as IsExpression
@@ -117,23 +152,32 @@ class AnalyzerFlowNarrowing {
                 TryExtractNullNarrowing(binary.Left, binary.Right, thenNarrowings, elseNarrowings, false)
                 TryExtractNullNarrowing(binary.Right, binary.Left, thenNarrowings, elseNarrowings, false)
             } else if binary.Operator == BinaryOperator.And {
-                // a && b → both sides hold in then-branch; else = !a || !b (can't narrow)
+                // a && b → both sides hold in then-branch. The false branch is `!a || !b`, and a
+                // disjunction proves nothing about either operand — UNLESS the other operand is a
+                // constant `true`, which collapses the disjunction to the surviving side.
                 leftSplit := ExtractFlowNarrowings(binary.Left)
                 rightSplit := ExtractFlowNarrowings(binary.Right)
                 thenNarrowings.AddRange(leftSplit.Then)
                 thenNarrowings.AddRange(rightSplit.Then)
+                if IsConstantTrue(binary.Left) {
+                    elseNarrowings.AddRange(rightSplit.Else)
+                } else if IsConstantTrue(binary.Right) {
+                    elseNarrowings.AddRange(leftSplit.Else)
+                }
             } else if binary.Operator == BinaryOperator.Or {
-                // else-branch gets nothing for compound && (negation is disjunction)
-
-                // a || b → both sides must be false in else-branch; then = a || b (can't narrow)
+                // a || b → both sides must be false in else-branch. The true branch is the mirror:
+                // nothing, unless the other operand is a constant `false`.
                 leftSplit := ExtractFlowNarrowings(binary.Left)
                 rightSplit := ExtractFlowNarrowings(binary.Right)
                 elseNarrowings.AddRange(leftSplit.Else)
                 elseNarrowings.AddRange(rightSplit.Else)
+                if IsConstantFalse(binary.Left) {
+                    thenNarrowings.AddRange(rightSplit.Then)
+                } else if IsConstantFalse(binary.Right) {
+                    thenNarrowings.AddRange(leftSplit.Then)
+                }
             }
         } else if isExpr != null {
-            // then-branch gets nothing for compound || (only one side needs to be true)
-
             // x is Type varName → narrow/declare in then-branch
             narrowedType := typeResolverValue.ResolveType(isExpr.Type)
             variableName := isExpr.VariableName
@@ -168,19 +212,57 @@ class AnalyzerFlowNarrowing {
             if hasValueAccess != null {
                 if TryExtractHasValueNarrowing(hasValueAccess, thenNarrowings) {
                 }
-            } else {
-                negation := condition as UnaryExpression
-                if negation != null && negation.Operator == UnaryOperator.Not {
-                    negatedHasValue := negation.Operand as MemberAccessExpression
-                    if negatedHasValue != null {
-                        if TryExtractHasValueNarrowing(negatedHasValue, elseNarrowings) {
-                        }
-                    }
-                }
             }
         }
 
         return new FlowNarrowingSplit(thenNarrowings, elseNarrowings)
+    }
+
+    // THE SAME TWO LISTS, THE OTHER WAY ROUND. What a condition proves when it is false is exactly
+    // what its negation proves when it is true, so `!` needs no rules of its own.
+    static func NegateSplit(split: FlowNarrowingSplit): FlowNarrowingSplit {
+        return new FlowNarrowingSplit(split.Else, split.Then)
+    }
+
+    // A CONDITION THAT IS ALREADY DECIDED. Only the literal and the shapes that are transparently
+    // the literal — a parenthesis and a `!` — count; nothing here evaluates an operator, because a
+    // wrong answer would install a narrowing the program never proved.
+    static func IsConstantTrue(condition: Expression): bool {
+        boolLiteral := condition as BoolLiteralExpression
+        if boolLiteral != null {
+            return boolLiteral.Value
+        }
+
+        parenthesized := condition as ParenthesizedExpression
+        if parenthesized != null {
+            return IsConstantTrue(parenthesized.Inner)
+        }
+
+        negation := condition as UnaryExpression
+        if negation != null && negation.Operator == UnaryOperator.Not {
+            return IsConstantFalse(negation.Operand)
+        }
+
+        return false
+    }
+
+    static func IsConstantFalse(condition: Expression): bool {
+        boolLiteral := condition as BoolLiteralExpression
+        if boolLiteral != null {
+            return !boolLiteral.Value
+        }
+
+        parenthesized := condition as ParenthesizedExpression
+        if parenthesized != null {
+            return IsConstantFalse(parenthesized.Inner)
+        }
+
+        negation := condition as UnaryExpression
+        if negation != null && negation.Operator == UnaryOperator.Not {
+            return IsConstantTrue(negation.Operand)
+        }
+
+        return false
     }
 
     func TryRemoveAnonymousUnionArm(sourceUnion: AnonymousUnionTypeInfo, matchedType: TypeInfo): TypeInfo? {
@@ -215,8 +297,27 @@ class AnalyzerFlowNarrowing {
             return
         }
 
-        path := AnalyzerDiagnosticSpanFacts.TryGetStableNullPath(expr)
+        // A `?.` CHAIN TESTED ITS OWN RECEIVERS, AND THE COMPARISON REPORTS WHAT THOSE TESTS FOUND.
+        // `x?.M == null` is TRUE when `x` is null OR `x.M` is null — a disjunction, so the true side
+        // proves nothing — and FALSE only when BOTH are non-null. That is the whole rule, and it is
+        // the same shape as `||`'s: the side the disjunction does not cover gets everything.
+        testedPrefixes := new List<string>()
+        path := AnalyzerDiagnosticSpanFacts.TryGetNullConditionalChainPath(expr, testedPrefixes)
         if path == null {
+            return
+        }
+
+        if testedPrefixes.Count > 0 {
+            proved := elseNarrowings
+            if notEqual {
+                proved = thenNarrowings
+            }
+
+            for prefix in testedPrefixes {
+                proved.Add(new FlowNarrowing(prefix, null, NullState.NotNull))
+            }
+
+            proved.Add(new FlowNarrowing(path, null, NullState.NotNull))
             return
         }
 

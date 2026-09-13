@@ -75,9 +75,11 @@ import System.Reflection
 //       COMPILER-INTERNAL CLR type name on BOTH sides. The deleted method matched the eleven
 //       characters `is typed as` and asked about one row; nothing could see either fact.
 //
-//   (d) A CODE NAMED `NullabilityWarning` IS REPORTED AT `Error` SEVERITY, TWICE. `NL907` fires for
-//       a redundant `must` and for an unguarded `.Value`, and both rows are `Error`. The name is the
-//       only thing that says warning.
+//   (d) A CODE NAMED `NullabilityWarning` USED TO BE REPORTED AT `Error` SEVERITY, TWICE. `NL907`
+//       fires for a redundant `must` and for an unguarded `.Value`, and both rows were `Error` — the
+//       name was the only thing that said warning. Census FLOW2 made them real `Warning`s: both
+//       describe programs that are CORRECT, and the redundant-`must` half depends on flow state that
+//       no declaration shows and no mechanical translation can know.
 //
 //   (e) THE SPANS, WHICH NOT ONE OF THE 109 METHODS STATED. Two `Assert.Equal(…​.Length)` calls read
 //       a length and NO method read a line or a column. All 24 diagnostic rows here carry all three,
@@ -2352,14 +2354,15 @@ test "020 s28 analyzer clean source: `must` unwraps an `int?` to `int` and the a
     assert AcRow(analysis, 0) == "<no-such-error>"
 }
 
-test "020 s28 analyzer clean source: a `must` after a `HasValue` guard is `NL907` at 4:28 spanning the FOUR columns of the `must` KEYWORD, and its message names the already-known type (was AnalyzerTests.MustExpression_RedundantAfterHasValueGuard_Errors)" {
+test "020 s28 analyzer clean source: a `must` after a `HasValue` guard is `NL907` at 4:28 spanning the FOUR columns of the `must` KEYWORD, at WARNING severity, and its message names the already-known type (was AnalyzerTests.MustExpression_RedundantAfterHasValueGuard_Errors)" {
     source := "\n            func Main(input: int?): int {\n                if input.HasValue {\n                    return must input\n                }\n                return 0\n            }\n        "
     assert AcParseCensus(source) == ""
     analysis := AcAnalyze(source)
     assert AcCensus(analysis) == "NL907:NullabilityWarning@4:28+4;"
-    assert AcHasErrors(analysis) == "True"
+    // `HasErrors` asks about SEVERITY, not about the row count, so a lone NL907 leaves it False.
+    assert AcHasErrors(analysis) == "False"
     assert AcErrorCount(analysis) == 1
-    assert AcRow(analysis, 0) == "NullabilityWarning|This 'must' unwrap is redundant — the expression is already known to be 'int'|Remove the 'must' keyword, or keep the original nullable value until the point where you need to unwrap it.|Error"
+    assert AcRow(analysis, 0) == "NullabilityWarning|This 'must' unwrap is redundant — the expression is already known to be 'int'|Remove the 'must' keyword, or keep the original nullable value until the point where you need to unwrap it.|Warning"
     assert AcHint(analysis, 0) == "<null>"
     assert AcRow(analysis, 1) == "<no-such-error>"
     assert AcCodeCount(analysis, "NullabilityWarning") == 1
@@ -2376,14 +2379,14 @@ test "020 s28 analyzer clean source: a `HasValue` guard makes `.Value` safe and 
     assert AcCodeCount(analysis, "NullabilityWarning") == 0
 }
 
-test "020 s28 analyzer clean source: an unguarded `.Value` is `NL907` at 3:30 spanning the FIVE columns of the member name `Value`, the dot OUTSIDE the underline, and it is reported at `Error` severity even though the code is NAMED `NullabilityWarning` (was AnalyzerTests.NullableValueAccess_UnguardedIsAnError)" {
+test "020 s28 analyzer clean source: an unguarded `.Value` is `NL907` at 3:30 spanning the FIVE columns of the member name `Value`, the dot OUTSIDE the underline, and it is reported at `Warning` severity, which is what the code is NAMED (was AnalyzerTests.NullableValueAccess_UnguardedIsAnError)" {
     source := "\n            func Main(input: int?): int {\n                return input.Value\n            }\n        "
     assert AcParseCensus(source) == ""
     analysis := AcAnalyze(source)
     assert AcCensus(analysis) == "NL907:NullabilityWarning@3:30+5;"
-    assert AcHasErrors(analysis) == "True"
+    assert AcHasErrors(analysis) == "False"
     assert AcErrorCount(analysis) == 1
-    assert AcRow(analysis, 0) == "NullabilityWarning|This '.Value' access can throw when the nullable value is absent|Prefer 'must value' for an explicit unwrap, or use 'match value { null => ..., inner => ... }' to handle both cases.|Error"
+    assert AcRow(analysis, 0) == "NullabilityWarning|This '.Value' access can throw when the nullable value is absent|Prefer 'must value' for an explicit unwrap, or use 'match value { null => ..., inner => ... }' to handle both cases.|Warning"
     assert AcHint(analysis, 0) == "<null>"
     assert AcRow(analysis, 1) == "<no-such-error>"
     assert AcCodeCount(analysis, "NullabilityWarning") == 1

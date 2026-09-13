@@ -359,13 +359,13 @@ test "an assignment invalidates the path and its member paths in EVERY open scop
     assert stack.HasNullState("other")
 }
 
-test "the nullable ORIGIN of an identifier is looked up in the ENCLOSING scopes only" {
+test "the nullable ORIGIN of an identifier steps over every narrowed binding, innermost first" {
     model := new SemanticModel()
     stack := ScopeStackOf(model, [ScopeKind.Global, ScopeKind.Function, ScopeKind.Block])
 
     declared := new NullableTypeInfo(BuiltInTypes.Int)
     stack.GlobalScope().Symbols["count"] = declared
-    // The innermost scope holds the NARROWED type, which is exactly what must be skipped.
+    // The innermost scope holds the NARROWED type, which is exactly what must be stepped over.
     stack.Peek().Symbols["count"] = BuiltInTypes.Int
 
     origin := stack.FindEnclosingNullableSymbol("count")
@@ -382,11 +382,21 @@ test "the nullable ORIGIN of an identifier is looked up in the ENCLOSING scopes 
     stack.Push(model, new Scope(ScopeKind.Block), 3, 1)
     assert Object.ReferenceEquals(stack.FindEnclosingNullableSymbol("count"), declared)
 
-    // With nothing but the innermost scope there is no enclosing scope to answer from.
+    // THE INNERMOST SCOPE IS SEARCHED TOO. A GUARD CLAUSE — `if count == null { return }` — installs
+    // its facts into the scope that also declares the local, so there is no inner scope to skip and
+    // the declaration this walk is looking for is the one right here. The walk used to start one
+    // scope out and answered null for the whole converted-CLI spelling.
     single := new AnalyzerScopeStack()
     single.Push(model, new Scope(ScopeKind.Function), 1, 1)
     single.Peek().Symbols["count"] = declared
-    assert single.FindEnclosingNullableSymbol("count") == null
+    assert Object.ReferenceEquals(single.FindEnclosingNullableSymbol("count"), declared)
+
+    // A name bound to something non-nullable everywhere still has no origin, and neither does a name
+    // no scope binds at all.
+    narrowedOnly := new AnalyzerScopeStack()
+    narrowedOnly.Push(model, new Scope(ScopeKind.Function), 1, 1)
+    narrowedOnly.Peek().Symbols["count"] = BuiltInTypes.Int
+    assert narrowedOnly.FindEnclosingNullableSymbol("count") == null
     assert new AnalyzerScopeStack().FindEnclosingNullableSymbol("count") == null
 }
 

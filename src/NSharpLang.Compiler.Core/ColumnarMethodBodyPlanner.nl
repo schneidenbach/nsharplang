@@ -39,8 +39,13 @@ class ColumnarMethodBodyPlanner {
 
     // Whether this statement always exits via a return — the same columnar subset as the diagnostics
     // pass (Return; a Block ANY of whose statements returns; an If with an else where both branches
-    // return; a Lock whose body returns; a Try under the analyzer's exact rule).
-    static func AlwaysReturns(nodes: ColumnarNodeTable, node: int): bool {
+    // return; a Lock whose body returns; a Try under the analyzer's exact rule; an ENDLESS loop whose
+    // body cannot break out of it).
+    //
+    // THE SOURCE TEXT IS A PARAMETER because one arm needs it: a `while` is endless only when its
+    // condition is the constant `true`, and a node table carries a literal's value as a SPAN into the
+    // source rather than as a value. Every other arm reads shapes alone.
+    static func AlwaysReturns(nodes: ColumnarNodeTable, source: string, node: int): bool {
         if nodes == null {
             throw new InvalidOperationException("Columnar termination analysis requires a node table.")
         }
@@ -59,13 +64,13 @@ class ColumnarMethodBodyPlanner {
             return nodes.ChildCount(node) == 0
         }
         if kind == 49 {
-            return TryStatementAlwaysReturns(nodes, node)
+            return TryStatementAlwaysReturns(nodes, source, node)
         }
         // 25 Block.
         if kind == 25 {
             n := 0
             while n < nodes.ChildCount(node) {
-                if AlwaysReturns(nodes, nodes.Child(node, n)) {
+                if AlwaysReturns(nodes, source, nodes.Child(node, n)) {
                     return true
                 }
                 n = n + 1
@@ -77,13 +82,119 @@ class ColumnarMethodBodyPlanner {
             if nodes.ChildCount(node) != 3 {
                 return false
             }
-            return AlwaysReturns(nodes, nodes.Child(node, 1)) && AlwaysReturns(nodes, nodes.Child(node, 2))
+            return AlwaysReturns(nodes, source, nodes.Child(node, 1)) && AlwaysReturns(nodes, source, nodes.Child(node, 2))
         }
         // 51 Lock [lockee, body] — exits iff the body exits (probe-pinned: `lock s { return 1 }` with
         // no trailing return satisfies the analyzer).
         if kind == 51 {
-            return AlwaysReturns(nodes, nodes.Child(node, 1))
+            return AlwaysReturns(nodes, source, nodes.Child(node, 1))
         }
+        // 26 While [cond, body] and 28 For [init, cond, incr, body] — the END POINT of an endless loop
+        // is unreachable (C# §13.2), so a body that only leaves through a `return` or a `throw` needs
+        // no trailing return. The analyzer's `AnalyzerStatementTermination.EndlessLoopLeaves` is the
+        // same rule over AST statements and the two are kept verbatim-identical.
+        if kind == 26 {
+            return EndlessLoopAlwaysReturns(nodes, source, nodes.Child(node, 0), nodes.Child(node, 1))
+        }
+        if kind == 28 {
+            return EndlessLoopAlwaysReturns(nodes, source, nodes.Child(node, 1), nodes.Child(node, 3))
+        }
+        return false
+    }
+
+    // AN ENDLESS LOOP LEAVES WHEN NOTHING CAN BREAK OUT OF IT. The condition must be the constant
+    // `true` — nothing is evaluated, so a loop this cannot read is simply not endless — and the body
+    // must contain no `break` bound to this loop.
+    static func EndlessLoopAlwaysReturns(nodes: ColumnarNodeTable, source: string, condition: int, body: int): bool {
+        if !IsConstantTrueConditionNode(nodes, source, condition) {
+            return false
+        }
+
+        return !ContainsBreakTargetingThisLoop(nodes, body)
+    }
+
+    // 4 BoolLiteral, read through the value span; 7 Parenthesized and a `!` (11 Unary, value `!`) are
+    // transparent, exactly as the analyzer's mirror reads them.
+    static func IsConstantTrueConditionNode(nodes: ColumnarNodeTable, source: string, node: int): bool {
+        if source == null || node < 0 || node >= nodes.Kinds.Length {
+            return false
+        }
+
+        kind := nodes.Kind(node)
+        if kind == 4 {
+            return ColumnarNodeTextFacts.Text(nodes, source, node) == "true"
+        }
+        if kind == 7 && nodes.ChildCount(node) == 1 {
+            return IsConstantTrueConditionNode(nodes, source, nodes.Child(node, 0))
+        }
+        if kind == 11 && nodes.ChildCount(node) == 1 && ColumnarNodeTextFacts.Text(nodes, source, node) == "!" {
+            return IsConstantFalseConditionNode(nodes, source, nodes.Child(node, 0))
+        }
+        return false
+    }
+
+    static func IsConstantFalseConditionNode(nodes: ColumnarNodeTable, source: string, node: int): bool {
+        if source == null || node < 0 || node >= nodes.Kinds.Length {
+            return false
+        }
+
+        kind := nodes.Kind(node)
+        if kind == 4 {
+            return ColumnarNodeTextFacts.Text(nodes, source, node) == "false"
+        }
+        if kind == 7 && nodes.ChildCount(node) == 1 {
+            return IsConstantFalseConditionNode(nodes, source, nodes.Child(node, 0))
+        }
+        if kind == 11 && nodes.ChildCount(node) == 1 && ColumnarNodeTextFacts.Text(nodes, source, node) == "!" {
+            return IsConstantTrueConditionNode(nodes, source, nodes.Child(node, 0))
+        }
+        return false
+    }
+
+    // A `break` (21) THAT TARGETS THE LOOP THIS BODY BELONGS TO. The walk descends through the shapes
+    // a `break` can sit inside without changing what it binds to — a block (25), an `if` (27), a lock
+    // (51) and a `try`'s guarded block and handlers (49/50) — and stops at a NESTED loop (26/28/29/73),
+    // whose `break` is that loop's, and at a `finally`, out of which a jump is not legal IL.
+    static func ContainsBreakTargetingThisLoop(nodes: ColumnarNodeTable, node: int): bool {
+        if node < 0 || node >= nodes.Kinds.Length {
+            return false
+        }
+
+        kind := nodes.Kind(node)
+        if kind == 21 {
+            return true
+        }
+
+        if kind == 25 || kind == 27 {
+            n := 0
+            while n < nodes.ChildCount(node) {
+                if ContainsBreakTargetingThisLoop(nodes, nodes.Child(node, n)) {
+                    return true
+                }
+                n = n + 1
+            }
+            return false
+        }
+
+        if kind == 51 {
+            return ContainsBreakTargetingThisLoop(nodes, nodes.Child(node, 1))
+        }
+
+        if kind == 49 {
+            if ContainsBreakTargetingThisLoop(nodes, nodes.Child(node, 0)) {
+                return true
+            }
+            n := 1
+            while n < nodes.ChildCount(node) {
+                clause := nodes.Child(node, n)
+                if nodes.Kind(clause) == 50 && ContainsBreakTargetingThisLoop(nodes, nodes.Child(clause, nodes.ChildCount(clause) - 1)) {
+                    return true
+                }
+                n = n + 1
+            }
+            return false
+        }
+
         return false
     }
 
@@ -91,18 +202,18 @@ class ColumnarMethodBodyPlanner {
     // itself when the finally block exits, and otherwise the TRY block and EVERY catch clause's block
     // must exit. A zero-catch `try { return } finally { ... }` therefore DOES satisfy always-returns,
     // which is what C#'s end-point rule says and what every `using` that returns lowers to.
-    static func TryStatementAlwaysReturns(nodes: ColumnarNodeTable, node: int): bool {
+    static func TryStatementAlwaysReturns(nodes: ColumnarNodeTable, source: string, node: int): bool {
         n := 1
         while n < nodes.ChildCount(node) {
             clause := nodes.Child(node, n)
             // 50 CatchClause; anything else at this position is the finally block.
-            if nodes.Kind(clause) != 50 && AlwaysReturns(nodes, clause) {
+            if nodes.Kind(clause) != 50 && AlwaysReturns(nodes, source, clause) {
                 return true
             }
             n = n + 1
         }
 
-        if !AlwaysReturns(nodes, nodes.Child(node, 0)) {
+        if !AlwaysReturns(nodes, source, nodes.Child(node, 0)) {
             return false
         }
 
@@ -110,7 +221,7 @@ class ColumnarMethodBodyPlanner {
         while n < nodes.ChildCount(node) {
             clause := nodes.Child(node, n)
             if nodes.Kind(clause) == 50 {
-                if !AlwaysReturns(nodes, nodes.Child(clause, nodes.ChildCount(clause) - 1)) {
+                if !AlwaysReturns(nodes, source, nodes.Child(clause, nodes.ChildCount(clause) - 1)) {
                     return false
                 }
             }
@@ -138,6 +249,31 @@ class ColumnarMethodBodyPlanner {
         n := 0
         while n < nodes.ChildCount(node) {
             if ContainsReturnStatement(nodes, nodes.Child(node, n)) {
+                return true
+            }
+            n = n + 1
+        }
+        return false
+    }
+
+    // A `return` THAT GIVES BACK A VALUE, anywhere in the subtree. A constructor accepts a BARE
+    // `return` — it runs like a `void` body and the field initializers and base call have already
+    // happened — so what the constructor paths forbid is a VALUE-bearing one, which is a kind-20 node
+    // with a child.
+    static func ContainsValueReturnStatement(nodes: ColumnarNodeTable, node: int): bool {
+        if nodes == null {
+            throw new InvalidOperationException("Columnar return-statement search requires a node table.")
+        }
+        if node < 0 || node >= nodes.Kinds.Length {
+            throw new InvalidOperationException("Columnar return-statement search received an invalid node index.")
+        }
+
+        if nodes.Kind(node) == 20 && nodes.ChildCount(node) != 0 {
+            return true
+        }
+        n := 0
+        while n < nodes.ChildCount(node) {
+            if ContainsValueReturnStatement(nodes, nodes.Child(node, n)) {
                 return true
             }
             n = n + 1

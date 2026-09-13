@@ -191,7 +191,10 @@ class DiagnosticCatalog {
     static func AddCompiler(descriptors: List<DiagnosticDescriptor>, code: ErrorCode) {
         category := GetCompilerCategory(code)
         severity := DiagnosticSeverity.Error
-        if code == ErrorCode.ReferenceLoadFailure {
+        // NL907 is advice about a keyword that does no work — a redundant `must`, a `.Value` that can
+        // throw. Both describe programs that are CORRECT, and flow state is not visible from a
+        // declaration, so neither may refuse a build.
+        if code == ErrorCode.ReferenceLoadFailure || code == ErrorCode.NullabilityWarning {
             severity = DiagnosticSeverity.Warning
         }
 
