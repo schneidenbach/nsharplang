@@ -146,6 +146,8 @@ class CallAnalysisState {
     ReflectionCandidates: List<ReflectionPreBoundCandidate>?
     ReflectionCandidateIndex: int
     ReflectionErrorsBefore: int
+    ReflectionArgumentErrorsBefore: int
+    ReflectionArgumentIsUntargeted: bool
     FinalizeState: ReflectionCallFinalizeState?
 
     // The call expression's type. `unknown` is the walk's own final answer for a callee it does not
@@ -191,6 +193,8 @@ class CallAnalysisState {
         ReflectionCandidates = null
         ReflectionCandidateIndex = 0
         ReflectionErrorsBefore = 0
+        ReflectionArgumentErrorsBefore = 0
+        ReflectionArgumentIsUntargeted = false
         FinalizeState = null
         Result = BuiltInTypes.Unknown
         NotNullIfNotNullArgumentIndex = -1
@@ -380,6 +384,7 @@ class AnalyzerCallAnalysis {
                 arguments[state.ReflectionArgumentIndex] = answer
             }
 
+            WithdrawUntargetedCollectionReports(state)
             state.ReflectionArgumentIndex = state.ReflectionArgumentIndex + 1
             return
         }
@@ -619,6 +624,8 @@ class AnalyzerCallAnalysis {
             }
 
             state.Pending = 32
+            state.ReflectionArgumentIsUntargeted = argument.Value as ArrayLiteralExpression != null
+            state.ReflectionArgumentErrorsBefore = diagnostics.ErrorCount
             request := new CallAnalysisRequest(4)
             request.Node = argument.Value
             request.Flag = true
@@ -1152,6 +1159,15 @@ class AnalyzerCallAnalysis {
             return null
         }
 
+        // AN ARRAY LITERAL'S VERDICT HERE IS PROVISIONAL, SO ITS COMPLAINTS ARE TOO. A collection
+        // expression has no type of its own until a parameter names its element type, and no
+        // parameter has been chosen yet: `m.Invoke(null, [1, "two"])` is a perfectly ordinary
+        // `object[]`, and inferring it from its FIRST element reported "all elements in an array must
+        // be the same type" about a call that is correct. The provisional TYPE is kept — scoring
+        // reads it to rank candidates — and the reports are withdrawn, because the bound candidate
+        // analyses the same literal again with its own element type and says whatever is true then.
+        state.ReflectionArgumentIsUntargeted = state.IsMethodGroup && argument.Value as ArrayLiteralExpression != null
+        state.ReflectionArgumentErrorsBefore = diagnostics.ErrorCount
         return EmitArgument(state, argument, null, state.IsMethodGroup)
     }
 
@@ -1179,6 +1195,10 @@ class AnalyzerCallAnalysis {
         // A null-conditional target ENDS this argument: the C# returned `unknown` without analysing
         // it, and the follow-up report stays silent because this one already fired.
         if writeTargets.ReportNullConditionalWriteTargetIfNeeded(argument.Value, "used as the " + modifier + " argument") {
+            // This argument ends here, so the withdrawal bracket a group pass may have opened around
+            // it is CLOSED rather than applied: the report just made is about the spelling and is not
+            // the provisional verdict the bracket exists to withdraw.
+            state.ReflectionArgumentIsUntargeted = false
             state.ArgTypes.Add(BuiltInTypes.Unknown)
             state.ArgumentIndex = state.ArgumentIndex + 1
             return null
@@ -1207,6 +1227,7 @@ class AnalyzerCallAnalysis {
     // only then asks whether the target could have been written through — the order the two C#
     // members ran in, and it matters: the report reads the table the bracket collected.
     func CompleteArgument(state: CallAnalysisState, answer: TypeInfo?) {
+        WithdrawUntargetedCollectionReports(state)
         argument := state.RefOutArgument
         if argument == null {
             ordinary: TypeInfo = BuiltInTypes.Unknown
@@ -1245,6 +1266,20 @@ class AnalyzerCallAnalysis {
         state.RefOutExpressionTypes = null
         state.ArgTypes.Add(resolved)
         state.ArgumentIndex = state.ArgumentIndex + 1
+    }
+
+    // THE WITHDRAWAL ITSELF, shared by the two passes that analyse an argument with nothing in the
+    // target-typing slot. It runs on EVERY completion and does nothing unless the flag was set, so
+    // neither pass can leave a bracket open for the argument after it.
+    func WithdrawUntargetedCollectionReports(state: CallAnalysisState) {
+        if !state.ReflectionArgumentIsUntargeted {
+            return
+        }
+
+        state.ReflectionArgumentIsUntargeted = false
+        if diagnostics.ErrorCount > state.ReflectionArgumentErrorsBefore {
+            diagnostics.RollbackErrorsTo(state.ReflectionArgumentErrorsBefore)
+        }
     }
 
     // The un-analysed method-group lambda. Its argument type is `unknown` — nothing was analysed —

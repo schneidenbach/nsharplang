@@ -480,12 +480,17 @@ test "TWO PAIRS HAVE NO COMMON TYPE AT ALL AND THE REPORT UNDERLINES THE OPERATO
     assert harness.Errors.Count == 1
     assert harness.Errors[0].Message == "The '+' operator doesn't work with 'decimal' and 'double'"
 
+    // THE UNSIGNED PAIR HAS ITS OWN REPORT, because it is the one an ordinary program meets and the
+    // generic sentence sends the reader looking for a typo in an expression that has none. The
+    // constant rule has already been tried and declined by the time it runs, so what is in front of
+    // the reader is a variable and what they need is the cast.
     unsignedWithSigned := harness.Operators.Begin(OperatorSimpleBinary(BinaryOperator.Add))
     OperatorRun(harness, unsignedWithSigned, OperatorAnswers(BuiltInTypes.ULong, BuiltInTypes.Long))
 
     assert OperatorTypeText(harness.Operators.Result(unsignedWithSigned)) == "unknown"
     assert harness.Errors.Count == 2
-    assert harness.Errors[1].Message == "The '+' operator doesn't work with 'ulong' and 'long'"
+    assert harness.Errors[1].Message == "The '+' operator doesn't work with 'ulong' and 'long' — no single integral type holds every value of both, so there is no common type to compute in. A constant whose value fits converts on its own; a variable needs a cast"
+    assert harness.Errors[1].Suggestion == "Cast the 'long' side to 'ulong', or make both sides signed."
 }
 
 test "+ WITH A STRING ON EITHER SIDE IS CONCATENATION, AND ONLY +" {
@@ -1129,4 +1134,163 @@ test "A BINARY WHOSE OPERATOR HAS NO RULE ANSWERS unknown WITHOUT REPORTING" {
     // the arithmetic group is the five it claims to be.
     assert OperatorTypeText(harness.Operators.Result(state)) == "int"
     assert harness.Errors.Count == 0
+}
+
+// ── the shift count, and the constant that adopts its neighbour ─────────
+
+// A driver that records the TARGET-TYPING SLOT as each step is handed out, which is the one fact the
+// ordinary recorder cannot show: the shift's count is walked under a slot this owner replaced, and
+// the walk puts the caller's slot back the instant the answer arrives.
+func OperatorExpectedTypesDuring(harness: OperatorHarness, state: OperatorExpressionState, answers: List<TypeInfo?>): List<string> {
+    seen := new List<string>()
+    step := harness.Operators.NextStep(state)
+    while step != null {
+        index := seen.Count
+        seen.Add(OperatorTypeText(harness.Ambient.CurrentExpectedType))
+        answer: TypeInfo? = null
+        if index < answers.Count {
+            answer = answers[index]
+        }
+
+        harness.Operators.Supply(state, answer)
+        step = harness.Operators.NextStep(state)
+    }
+
+    return seen
+}
+
+test "NEITHER SHIFT OPERAND IS WALKED UNDER THE EXPRESSION'S OWN TARGET" {
+    harness := OperatorDefault()
+    saved := harness.Ambient.EnterExpectedType(BuiltInTypes.ULong)
+
+    state := harness.Operators.Begin(OperatorSimpleBinary(BinaryOperator.LeftShift))
+    seen := OperatorExpectedTypesDuring(harness, state, OperatorAnswers(BuiltInTypes.ULong, BuiltInTypes.Int))
+
+    // The VALUE operand is walked under NO target — a shift fixes both of its operand types, so
+    // nothing about what the expression is written into reaches either side — and the COUNT is
+    // walked as an `int`, which is what stops a suffixless literal in the count from being typed as
+    // the enclosing `ulong`.
+    assert seen.Count == 2
+    assert seen[0] == "<null>"
+    assert seen[1] == "int"
+
+    // The bracket closes on the answer, so the caller's slot is intact the moment the walk ends.
+    assert OperatorTypeText(harness.Ambient.CurrentExpectedType) == "ulong"
+    assert OperatorTypeText(harness.Operators.Result(state)) == "ulong"
+    assert harness.Errors.Count == 0
+
+    harness.Ambient.ExitExpectedType(saved)
+}
+
+test "ONLY A SHIFT REPLACES THE SLOT — EVERY OTHER BINARY WALKS BOTH OPERANDS UNDER THE CALLER'S" {
+    harness := OperatorDefault()
+    saved := harness.Ambient.EnterExpectedType(BuiltInTypes.ULong)
+
+    bitwise := harness.Operators.Begin(OperatorSimpleBinary(BinaryOperator.BitwiseAnd))
+    bitwiseSeen := OperatorExpectedTypesDuring(harness, bitwise, OperatorAnswers(BuiltInTypes.ULong, BuiltInTypes.ULong))
+
+    assert bitwiseSeen[0] == "ulong"
+    assert bitwiseSeen[1] == "ulong"
+
+    shiftRight := harness.Operators.Begin(OperatorSimpleBinary(BinaryOperator.RightShift))
+    shiftRightSeen := OperatorExpectedTypesDuring(harness, shiftRight, OperatorAnswers(BuiltInTypes.ULong, BuiltInTypes.Int))
+
+    assert shiftRightSeen[0] == "<null>"
+    assert shiftRightSeen[1] == "int"
+    assert harness.Errors.Count == 0
+
+    harness.Ambient.ExitExpectedType(saved)
+}
+
+// §10.2.11 — the implicit constant expression conversion, which is why `mask & 0xFF` type-checks and
+// `mask & flags` does not. The operand EXPRESSION decides, so these walks are built over a real
+// literal rather than over two identifiers.
+func OperatorConstantBinary(op: BinaryOperator, literalText: string, literalOnLeft: bool): Expression {
+    literal: Expression = new IntLiteralExpression(literalText, 2, 9)
+    if literalOnLeft {
+        return OperatorBinary(literal, op, OperatorIdentifier("b", 2, 14))
+    }
+
+    return OperatorBinary(OperatorIdentifier("a", 2, 5), op, literal)
+}
+
+func OperatorNegatedConstantBinary(op: BinaryOperator, literalText: string): Expression {
+    literal: Expression = new IntLiteralExpression(literalText, 2, 10)
+    negated: Expression = new UnaryExpression(UnaryOperator.Negate, literal, 2, 9)
+    return OperatorBinary(OperatorIdentifier("a", 2, 5), op, negated)
+}
+
+test "AN IN-RANGE int CONSTANT CONVERTS TO THE OTHER OPERAND'S TYPE, ON EITHER SIDE" {
+    harness := OperatorDefault()
+
+    masked := harness.Operators.Begin(OperatorConstantBinary(BinaryOperator.BitwiseAnd, "0xFF", false))
+    OperatorRun(harness, masked, OperatorAnswers(BuiltInTypes.ULong, BuiltInTypes.Int))
+
+    assert OperatorTypeText(harness.Operators.Result(masked)) == "ulong"
+
+    // The constant may be written FIRST: §10.2.11 is a property of the operand, not of its position.
+    onLeft := harness.Operators.Begin(OperatorConstantBinary(BinaryOperator.BitwiseAnd, "255", true))
+    OperatorRun(harness, onLeft, OperatorAnswers(BuiltInTypes.Int, BuiltInTypes.ULong))
+
+    assert OperatorTypeText(harness.Operators.Result(onLeft)) == "ulong"
+
+    // Arithmetic, comparison and equality inherit the same rule.
+    added := harness.Operators.Begin(OperatorConstantBinary(BinaryOperator.Add, "1", false))
+    OperatorRun(harness, added, OperatorAnswers(BuiltInTypes.ULong, BuiltInTypes.Int))
+
+    assert OperatorTypeText(harness.Operators.Result(added)) == "ulong"
+
+    compared := harness.Operators.Begin(OperatorConstantBinary(BinaryOperator.Greater, "5", false))
+    OperatorRun(harness, compared, OperatorAnswers(BuiltInTypes.ULong, BuiltInTypes.Int))
+
+    assert OperatorTypeText(harness.Operators.Result(compared)) == "bool"
+
+    equated := harness.Operators.Begin(OperatorConstantBinary(BinaryOperator.NotEqual, "0", false))
+    OperatorRun(harness, equated, OperatorAnswers(BuiltInTypes.ULong, BuiltInTypes.Int))
+
+    assert OperatorTypeText(harness.Operators.Result(equated)) == "bool"
+    assert harness.Errors.Count == 0
+}
+
+test "A CONSTANT OUT OF RANGE, A SUFFIXED ONE AND A NEGATIVE ONE ARE EACH REFUSED BY THEIR OWN RULE" {
+    harness := OperatorDefault()
+
+    // `18446744073709551616` does not fit `ulong`, so there is nothing to convert.
+    tooLarge := harness.Operators.Begin(OperatorConstantBinary(BinaryOperator.BitwiseAnd, "18446744073709551616", false))
+    OperatorRun(harness, tooLarge, OperatorAnswers(BuiltInTypes.ULong, BuiltInTypes.Int))
+
+    assert OperatorTypeText(harness.Operators.Result(tooLarge)) == "unknown"
+
+    // A SUFFIXED literal carries its own type and adopts nothing: `1L` against a `ulong` is still a
+    // pair with no common type, exactly as C# refuses it.
+    suffixed := OperatorDefault()
+    suffixedState := suffixed.Operators.Begin(OperatorConstantBinary(BinaryOperator.BitwiseAnd, "1L", false))
+    OperatorRun(suffixed, suffixedState, OperatorAnswers(BuiltInTypes.ULong, BuiltInTypes.Long))
+
+    assert OperatorTypeText(suffixed.Operators.Result(suffixedState)) == "unknown"
+
+    // A NEGATIVE constant converts to a signed target and to no unsigned one.
+    negative := OperatorDefault()
+    negativeState := negative.Operators.Begin(OperatorNegatedConstantBinary(BinaryOperator.Add, "1"))
+    OperatorRun(negative, negativeState, OperatorAnswers(BuiltInTypes.ULong, BuiltInTypes.Int))
+
+    assert OperatorTypeText(negative.Operators.Result(negativeState)) == "unknown"
+
+    signed := OperatorDefault()
+    signedState := signed.Operators.Begin(OperatorNegatedConstantBinary(BinaryOperator.Add, "1"))
+    OperatorRun(signed, signedState, OperatorAnswers(BuiltInTypes.Long, BuiltInTypes.Int))
+
+    assert OperatorTypeText(signed.Operators.Result(signedState)) == "long"
+}
+
+test "A NON-CONSTANT SIGNED OPERAND AGAINST ulong IS REFUSED, AND THE MESSAGE NAMES THE RULE AND THE CAST" {
+    harness := OperatorDefault()
+    state := harness.Operators.Begin(OperatorSimpleBinary(BinaryOperator.BitwiseAnd))
+
+    OperatorRun(harness, state, OperatorAnswers(BuiltInTypes.ULong, BuiltInTypes.Int))
+
+    assert OperatorTypeText(harness.Operators.Result(state)) == "unknown"
+    assert harness.Errors.Count == 1
+    assert harness.Errors[0].Message == "The '&' operator doesn't work with 'ulong' and 'int' — no single integral type holds every value of both, so there is no common type to compute in. A constant whose value fits converts on its own; a variable needs a cast"
+    assert harness.Errors[0].Suggestion == "Cast the 'int' side to 'ulong', or make both sides signed."
 }

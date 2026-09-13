@@ -1288,6 +1288,41 @@ For external methods with multiple overloads:
   bindings. Emission of that call is a separate, still-open question (it needs a MethodSpec over an
   emitted type's generic parameter).
 
+### Argument conversions in overload resolution (census 2026-09-13, CONV2/3 and CONV2/4)
+
+Applicability is not decided by the STANDARD conversions alone, and a collection expression written
+as an argument has no type of its own until a parameter names one. Both live in
+`AnalyzerReflectionArgumentBinder.TryScoreReflectionSuppliedArgument`, asked in this order after the
+standard match has declined:
+
+- `TryScoreCollectionExpressionArgument` — an array literal is applicable to an SZ-array parameter
+  when the literal's PROVISIONAL element type (what the pre-pass inferred with nothing in the
+  target-typing slot) is assignable to the parameter's, and the score is that element's: 8 for an
+  identical element type, 4 for one that converts. This is what ranks `f(int[])` above `f(object[])`
+  for `[1, 2]` and what makes `method.Invoke(null, [args])` bind at all. It is an APPLICABILITY
+  answer only: the chosen candidate's finalising walk analyses the same literal again with the
+  parameter's real element type in the slot, and that is the conversion.
+- `HasUserDefinedArgumentConversion` — an operator declared by the argument's type or the
+  parameter's, selected by `ExternalUserDefinedConversions`, the same owner the emitter asks for the
+  handle to call. `result.Attribute("outcome")` reaches `XName::op_Implicit(string)` this way. It is
+  refused for a BY-REF parameter and for one that still mentions a type parameter (a user-defined
+  conversion takes no part in method type inference), and an AMBIGUOUS conversion makes the candidate
+  inapplicable rather than picking one. `UserDefinedConversionScore()` is 1 — below the whole
+  standard ladder — so an overload reachable without one always wins.
+
+The pre-pass's reports about an untargeted array literal are WITHDRAWN
+(`AnalyzerCallAnalysis.WithdrawUntargetedCollectionReports`, on both the group-argument pass and the
+reflection pre-pass): `m.Invoke(null, [1, "two"])` is an ordinary `object?[]` and the "all elements in
+an array must be the same type" report was about a type the literal never had. The provisional type
+is kept, because scoring reads it.
+
+`AnalyzerArrayLiteral.TryGetExpectedElementType` looks through a NULLABLE shell once, so `object?[]?`
+— `MethodInfo.Invoke`'s own second parameter — names `object?` as its element type.
+
+NOT YET: a collection expression whose elements have no common type, written against a SOURCE
+overload set of the same arity, type-checks and then declines at emission — `ColumnarIlEmitter`'s
+static-call arm selects a same-arity candidate before it looks at the argument.
+
 ### Generic methods declared by user types
 
 A `class`, `struct` or `record` may declare a generic method. The analyzer treats its type
@@ -1489,6 +1524,31 @@ member off a call result does read — `ColumnarIlEmitter`'s member-access arm a
 consult a per-receiver residual table (`Make().IsOk` read and `Make().Index` did not).
 
 ## Type Checking
+
+### Binary operator typing (census 2026-09-13, CONV2/1 and CONV2/2)
+
+`AnalyzerOperatorExpressions` decides what an operator is WORTH, and two of its rules are about what
+the operands are walked under rather than about the operands themselves:
+
+- NEITHER OPERAND OF A SHIFT TAKES THE SURROUNDING TARGET. C# fixes both operand types of every shift
+  operator (§12.11), so the target-typing slot is replaced for both steps and restored in `Supply` —
+  `null` for the value operand, `int` for the count. Leaving the slot in place typed the `63` in
+  `okWords[i >> 6] | (1UL << (i & 63))` as a `ulong` and reported NL202 about a mask idiom that is
+  correct in every language with shifts. The result is the UNARY promotion of the left operand alone.
+- AN INTEGER CONSTANT ADOPTS THE OTHER OPERAND'S TYPE (ECMA-334 §10.2.11). `ConstantPromotedType` is
+  asked only after `WiderType` has declined, so it can never change an answer the promotion table
+  already had, and it reads the operand EXPRESSION (`ConstantOperandFacts.FromExpression` plus
+  `NumericLiteralFacts`' magnitude tables) because being constant is a property of what was written.
+  Arithmetic, bitwise, relational and equality all inherit it, on either side. A suffixed literal
+  adopts nothing and a negative one adopts only a signed target.
+- The pair that is still refused — `ulong` against a signed integral with a NON-constant operand —
+  has its own report (`TryReportNoUnsignedCommonType`) naming the rule and the cast, rather than the
+  generic "these two don't work".
+
+The backend mirror is `ColumnarPrimitiveBinaryPlanner`: `TryAppendAdoptedIntegerLiteral` consults
+`ConstantConversionFacts` (which is why a hexadecimal constant adopts where the old decimal-digit
+scan refused it), `TryReplanWithAdoptedLeftLiteral` replans the pair when the constant is written
+FIRST, and `TryAppendShift` covers `uint` as well as int/long/ulong.
 
 ### Assignment Compatibility
 `IsAssignable(target, source)` checks if source can be assigned to target:

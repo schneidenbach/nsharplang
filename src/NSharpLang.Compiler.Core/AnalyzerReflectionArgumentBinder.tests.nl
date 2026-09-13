@@ -2346,3 +2346,69 @@ test "an unbound method type parameter infers from an argument with no CLR form"
         out score
     )
 }
+
+// ── what an ARGUMENT may be converted by, and what a collection expression is worth ─────
+
+// `DateTimeOffset` declares `implicit operator DateTimeOffset(DateTime)` and nothing the other way,
+// which is the asymmetry these contracts need: one direction is a user-defined conversion and the
+// reverse is not a conversion at all.
+test "a user-defined implicit conversion makes a candidate applicable, and only in the direction it is declared" {
+    binder := BinderDefault()
+
+    assert binder.HasUserDefinedArgumentConversion(typeof(DateTimeOffset), typeof(DateTime))
+    assert !binder.HasUserDefinedArgumentConversion(typeof(DateTime), typeof(DateTimeOffset))
+
+    // Two types that declare nothing between them answer false without reading any metadata.
+    assert !binder.HasUserDefinedArgumentConversion(typeof(string), typeof(int))
+
+    // A BY-REF parameter takes no user-defined conversion: the argument is a storage location and
+    // the call writes back through it.
+    assert !binder.HasUserDefinedArgumentConversion(typeof(DateTimeOffset).MakeByRefType(), typeof(DateTime))
+
+    // Neither does an OPEN one — a user-defined conversion takes no part in method type inference.
+    listDefinition := typeof(List<int>).GetGenericTypeDefinition()
+    assert !binder.HasUserDefinedArgumentConversion(listDefinition.GetGenericArguments()[0], typeof(DateTime))
+}
+
+test "a user-defined conversion ranks below every conversion the language defines" {
+    // The reflection ladder is 8 identical, 6 implicit numeric, 4 assignable, 2 otherwise. A
+    // conversion a type declares about itself sits under all of them, so an overload reachable
+    // without one always wins.
+    assert AnalyzerReflectionArgumentBinder.UserDefinedConversionScore() == 1
+}
+
+func BinderArrayLiteral(): Expression {
+    elements := new List<Expression>()
+    elements.Add(BinderIdentifier("first"))
+    literal: Expression = new ArrayLiteralExpression(elements, false, 2, 9)
+    return literal
+}
+
+test "an array literal is applicable to an array parameter element by element, and scored by that element" {
+    binder := BinderDefault()
+    literal := BinderArrayLiteral()
+    score := 0
+
+    // The census shape: a literal whose provisional type is `string[][]` against `object[]`. The
+    // ELEMENT relation is what decides — `string[]` fits `object` — and the score is the element's.
+    stringArrayElements: TypeInfo = new ArrayTypeInfo(new ArrayTypeInfo(BuiltInTypes.String))
+    assert binder.TryScoreCollectionExpressionArgument(literal, typeof(object[]), stringArrayElements, out score)
+    assert score == 4
+
+    // An identical element type keeps the top of the ladder, which is what ranks `f(int[])` above
+    // `f(object[])` for `[1, 2]`.
+    intArray: TypeInfo = new ArrayTypeInfo(BuiltInTypes.Int)
+    assert binder.TryScoreCollectionExpressionArgument(literal, typeof(int[]), intArray, out score)
+    assert score == 8
+
+    // An element that reaches the parameter's element type in neither direction is not applicable.
+    assert !binder.TryScoreCollectionExpressionArgument(literal, typeof(int[]), stringArrayElements, out score)
+
+    // The question is asked only of a LITERAL. The same types written as an ordinary expression go
+    // through the standard relation, where array covariance decides and boxing does not.
+    assert !binder.TryScoreCollectionExpressionArgument(BinderIdentifier("values"), typeof(object[]), intArray, out score)
+
+    // A parameter that is not a single-dimensional array answers nothing, and neither does an open one.
+    assert !binder.TryScoreCollectionExpressionArgument(literal, typeof(object), intArray, out score)
+    assert !binder.TryScoreCollectionExpressionArgument(literal, typeof(object[]).MakeByRefType(), intArray, out score)
+}

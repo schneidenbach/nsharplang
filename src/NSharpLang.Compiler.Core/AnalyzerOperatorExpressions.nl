@@ -4,6 +4,7 @@ import System
 import System.Collections.Generic
 import System.Reflection
 import NSharpLang.Compiler.Ast
+import NSharpLang.Compiler.Columnar
 
 
 // THE THREE STEPS AN OPERATOR EXPRESSION TAKES, AND ALL THREE ARE WALKS.
@@ -61,6 +62,11 @@ class OperatorExpressionRequest {
 // open — which is a separate flag rather than a null test, because the saved value is legitimately
 // null whenever this is the outermost write target.
 //
+// `SavedShiftOperandExpectedType` and `ShiftOperandOpen` are the SECOND bracket, and it is the same
+// shape for the same reason: NEITHER operand of a shift takes the surrounding target — the count is
+// an `int` and the value is its own promoted type — so the target-typing slot is replaced for each
+// of those two steps and put back the instant its answer arrives.
+//
 // `ResultType` is decided AFTER the steps in every form. Not one operator in either family can say
 // what it is worth before its operands have been walked, and the SoA refusals that can overrule the
 // answer all run later still.
@@ -81,6 +87,8 @@ class OperatorExpressionState {
     ExpressionTypes: Dictionary<object, TypeInfo>?
     SavedExpressionTypes: Dictionary<object, TypeInfo>?
     CaptureOpen: bool
+    SavedShiftOperandExpectedType: TypeInfo?
+    ShiftOperandOpen: bool
 
     constructor(form: int, node: Expression?) {
         formValue = form
@@ -91,6 +99,8 @@ class OperatorExpressionState {
         ExpressionTypes = null
         SavedExpressionTypes = null
         CaptureOpen = false
+        SavedShiftOperandExpectedType = null
+        ShiftOperandOpen = false
         LeftType = BuiltInTypes.Unknown
         RightType = BuiltInTypes.Unknown
         OperandType = BuiltInTypes.Unknown
@@ -213,6 +223,13 @@ class AnalyzerOperatorExpressions {
             state.CaptureOpen = false
         }
 
+        // THE SHIFT-OPERAND BRACKET CLOSES ON THE SAME INSTANT AND FOR THE SAME REASON.
+        if state.ShiftOperandOpen {
+            ambientValue.ExitExpectedType(state.SavedShiftOperandExpectedType)
+            state.SavedShiftOperandExpectedType = null
+            state.ShiftOperandOpen = false
+        }
+
         pending := state.Pending
         state.Pending = 0
 
@@ -297,6 +314,19 @@ class AnalyzerOperatorExpressions {
             }
 
             state.Phase = 5
+
+            // A SHIFT'S VALUE OPERAND DOES NOT TAKE THE SURROUNDING TARGET EITHER. C# has four shift
+            // operators and each one fixes both of its operand types, so nothing about what the
+            // expression is being written into reaches either side. Leaving the slot in place typed
+            // `1` in `value: ulong = 1 << 40` as a `ulong` while the backend planned the same shift
+            // in 32 bits, and the disagreement surfaced as an NL103 about the initializer rather than
+            // as a sentence about the shift. Cleared, the shift is an `int` on both sides and the
+            // mismatch is an ordinary assignment error the reader can act on — write `1UL << 40`.
+            if IsShift(binaryNode.Operator) {
+                state.SavedShiftOperandExpectedType = ambientValue.EnterExpectedType(null)
+                state.ShiftOperandOpen = true
+            }
+
             return new OperatorExpressionRequest(1, left, null, left.Line, left.Column)
         }
 
@@ -402,6 +432,16 @@ class AnalyzerOperatorExpressions {
         return null
     }
 
+    // THE LEFT SIDE HAS ANSWERED AND THE RIGHT ONE IS WALKED — PLAINLY FOR EVERY OPERATOR BUT TWO.
+    //
+    // A SHIFT'S COUNT IS AN `int` AND NOTHING ELSE, whatever the expression around it is being
+    // written into. C# has exactly four shift operators and every one of them takes `int` on the
+    // right (§12.11); the LEFT operand alone decides the result. N# target-types a suffixless
+    // integer literal from the ambient slot, and that slot is still holding the ENCLOSING target
+    // when the count is reached — so `okWords[i >> 6] | (1UL << (i & 63))` typed `63` as `ulong`,
+    // made `i & 63` an `int` against a `ulong`, and reported NL202 about a mask idiom that is
+    // correct in every language with shifts. The slot is replaced with `int` for the count's walk
+    // and restored the instant its answer arrives.
     func AdvancePlainLeft(state: OperatorExpressionState): OperatorExpressionRequest? {
         binaryNode := state.Node as BinaryExpression
         if binaryNode == null {
@@ -413,6 +453,11 @@ class AnalyzerOperatorExpressions {
         right := binaryNode.Right
         state.Pending = 1
         state.Phase = 6
+        if IsShift(binaryNode.Operator) {
+            state.SavedShiftOperandExpectedType = ambientValue.EnterExpectedType(BuiltInTypes.Int)
+            state.ShiftOperandOpen = true
+        }
+
         return new OperatorExpressionRequest(1, right, null, right.Line, right.Column)
     }
 
@@ -434,6 +479,10 @@ class AnalyzerOperatorExpressions {
 
         state.ResultType = PlainOperatorResult(state.LeftType, state.RightType, binaryNode)
         return null
+    }
+
+    static func IsShift(op: BinaryOperator): bool {
+        return op == BinaryOperator.LeftShift || op == BinaryOperator.RightShift
     }
 
     func PlainOperatorResult(left: TypeInfo, right: TypeInfo, binaryNode: BinaryExpression): TypeInfo {
@@ -587,6 +636,15 @@ class AnalyzerOperatorExpressions {
 
         widened := WiderType(left, right)
         if widened == null {
+            constantWidened := ConstantPromotedType(left, right, expression)
+            if constantWidened != null {
+                return constantWidened
+            }
+
+            if TryReportNoUnsignedCommonType(expression, left, right) {
+                return BuiltInTypes.Unknown
+            }
+
             ReportNoCommonType(expression, left, right)
             return BuiltInTypes.Unknown
         }
@@ -615,6 +673,15 @@ class AnalyzerOperatorExpressions {
             widened := WiderType(left, right)
             if widened != null {
                 return widened
+            }
+
+            constantWidened := ConstantPromotedType(left, right, expression)
+            if constantWidened != null {
+                return constantWidened
+            }
+
+            if TryReportNoUnsignedCommonType(expression, left, right) {
+                return BuiltInTypes.Unknown
             }
 
             ReportBinaryOperandMismatch(expression, left, right, "both sides need compatible integral values")
@@ -682,6 +749,14 @@ class AnalyzerOperatorExpressions {
         }
 
         if WiderType(left, right) == null {
+            if ConstantPromotedType(left, right, expression) != null {
+                return BuiltInTypes.Bool
+            }
+
+            if TryReportNoUnsignedCommonType(expression, left, right) {
+                return BuiltInTypes.Unknown
+            }
+
             ReportNoCommonType(expression, left, right)
             return BuiltInTypes.Unknown
         }
@@ -708,6 +783,14 @@ class AnalyzerOperatorExpressions {
 
         if CanCompareWithEqualityOperator(left, right) {
             return BuiltInTypes.Bool
+        }
+
+        if ConstantPromotedType(left, right, expression) != null {
+            return BuiltInTypes.Bool
+        }
+
+        if TryReportNoUnsignedCommonType(expression, left, right) {
+            return BuiltInTypes.Unknown
         }
 
         span := spansValue.GetBinaryOperandDiagnosticSpan(expression, true, true)
@@ -1514,6 +1597,139 @@ class AnalyzerOperatorExpressions {
         }
 
         return BuiltInTypes.Int
+    }
+
+    // ECMA-334 §10.2.11 — THE IMPLICIT CONSTANT EXPRESSION CONVERSION, WHICH IS WHY `mask & 0xFF`
+    // TYPE-CHECKS AND `mask & flags` DOES NOT.
+    //
+    // Binary numeric promotion has NO answer for `ulong` against a signed integral type, because no
+    // one type holds every value of both. That is the right answer for two VARIABLES and the wrong
+    // one for a CONSTANT: `0xFF` is not "an int", it is the value 255, and every integral type from
+    // `byte` up holds it exactly. C# says so in one sentence — a constant expression of type `int`
+    // converts implicitly to `sbyte`, `byte`, `short`, `ushort`, `uint` or `ulong` when its value is
+    // in that type's range, and a constant of type `long` converts to `ulong` when it is
+    // non-negative — and every operator that promotes inherits it: `&`, `|`, `^`, the arithmetic
+    // four, the comparisons and the compound assignments built over them.
+    //
+    // IT IS ASKED ONLY AFTER THE ORDINARY PROMOTION HAS FAILED, so it can never change an answer the
+    // promotion table already had. And it is asked of the OPERAND EXPRESSION rather than of its
+    // type, because being constant is a property of what was written and of nothing else — which is
+    // exactly the line C# draws at CS0034, and the line N# keeps: a non-constant operand still
+    // fails, now with a sentence that names the rule and the cast.
+    static func ConstantPromotedType(left: TypeInfo, right: TypeInfo, expression: BinaryExpression): TypeInfo? {
+        rightConverted := ConstantConvertedOperandType(left, right, expression.Right)
+        if rightConverted != null {
+            return WiderType(left, rightConverted)
+        }
+
+        leftConverted := ConstantConvertedOperandType(right, left, expression.Left)
+        if leftConverted != null {
+            return WiderType(leftConverted, right)
+        }
+
+        return null
+    }
+
+    // WHETHER `source`, AS WRITTEN, IS A CONSTANT THE TARGET TYPE HOLDS — and the answer is the
+    // TARGET type, because that is what the operand becomes.
+    //
+    // A SUFFIXED literal adopts nothing: `1L` is a `long` in `mask & 1L` and that pair still has no
+    // common type, exactly as C# refuses it. Only the source types the rule names take part, so a
+    // `uint` operand against a `ulong` one never reaches here — it has a common type already.
+    static func ConstantConvertedOperandType(target: TypeInfo, source: TypeInfo, sourceExpression: Expression?): TypeInfo? {
+        if !IsIntegralType(target) || !IsIntegralType(source) {
+            return null
+        }
+
+        sourceName := NumericName(source)
+        if sourceName != "int" && sourceName != "long" {
+            return null
+        }
+
+        targetName := NumericName(target)
+        if targetName == null || targetName == sourceName {
+            return null
+        }
+
+        facts := ConstantOperandFacts.FromExpression(sourceExpression)
+        if !facts.HasIntegerLiteral {
+            return null
+        }
+
+        suffix := NumericLiteralFacts.GetIntegerSuffix(facts.LiteralText)
+        if suffix.HasUnsigned || suffix.HasLong {
+            return null
+        }
+
+        magnitude: ulong = 0
+        if !NumericLiteralFacts.TryParseUnsignedIntegerMagnitude(facts.LiteralText, out magnitude) {
+            return null
+        }
+
+        if facts.IsNegative {
+            maxMagnitude: ulong = 0
+            if !NumericLiteralFacts.TryGetNegativeIntegerLiteralMaxMagnitude(targetName, out maxMagnitude) {
+                return null
+            }
+
+            if magnitude > maxMagnitude {
+                return null
+            }
+
+            return target
+        }
+
+        maxValue: ulong = 0
+        if !NumericLiteralFacts.TryGetUnsignedIntegerLiteralMaxValue(targetName, out maxValue) {
+            return null
+        }
+
+        if magnitude > maxValue {
+            return null
+        }
+
+        return target
+    }
+
+    // THE ONLY INTEGRAL PAIR WITH NO COMMON TYPE, AND THE READER IS TOLD WHY RATHER THAN THAT IT IS
+    // SO. `ulong` against `sbyte`, `short`, `int` or `long` is the one combination binary numeric
+    // promotion refuses, and the generic "these two don't work" sentence sends the reader looking
+    // for a typo in an expression that has none. By the time this runs the constant rule above has
+    // already been tried and declined, so what is in front of the reader is a VARIABLE — and what
+    // they need is the name of the rule and the cast that settles it.
+    func TryReportNoUnsignedCommonType(expression: BinaryExpression, left: TypeInfo, right: TypeInfo): bool {
+        signedSide := SignedSideAgainstULong(left, right)
+        if signedSide == null {
+            return false
+        }
+
+        span := AnalyzerDiagnosticSpanFacts.GetBinaryOperatorDiagnosticSpan(expression)
+        opText := OperatorFacts.GetBinaryText(expression.Operator)
+        diagnosticsValue.Report(ErrorCode.TypeMismatch, "The '" + opText + "' operator doesn't work with '" + TypeText(left) + "' and '" + TypeText(right) + "' — no single integral type holds every value of both, so there is no common type to compute in. A constant whose value fits converts on its own; a variable needs a cast", span.Line, span.Column, "Cast the '" + signedSide + "' side to 'ulong', or make both sides signed.", span.Length)
+        return true
+    }
+
+    // WHICH SIDE IS THE SIGNED ONE, or null when this is not the `ulong`-against-signed pair at all.
+    static func SignedSideAgainstULong(left: TypeInfo, right: TypeInfo): string? {
+        leftName := NumericName(left)
+        rightName := NumericName(right)
+        if leftName == null || rightName == null {
+            return null
+        }
+
+        if leftName == "ulong" && IsSignedIntegralName(rightName) {
+            return rightName
+        }
+
+        if rightName == "ulong" && IsSignedIntegralName(leftName) {
+            return leftName
+        }
+
+        return null
+    }
+
+    static func IsSignedIntegralName(name: string): bool {
+        return name == "sbyte" || name == "short" || name == "int" || name == "long"
     }
 
     // UNARY NUMERIC PROMOTION, which the SHIFT operator uses for its left operand and `~` for its

@@ -165,7 +165,7 @@ class ColumnarPrimitiveBinaryPlanner {
             // must never take the left's type, so their count keeps the ordinary operand path.
             adopted := false
             if !IsShiftOperator(nodes, source, candidate) {
-                adopted = TryAppendAdoptedRightLiteral(nodes, source, nodes.Child(candidate, 1), leftType, plan, parentFragment, depth + 1, out rightType)
+                adopted = TryAppendAdoptedIntegerLiteral(nodes, source, nodes.Child(candidate, 1), leftType, plan, parentFragment, depth + 1, out rightType)
             }
             if !adopted && !ColumnarRangeIndexPlanner.TryAppendConstructionValue(nodes, source, nodes.Child(candidate, 1), bindings, handles, plan, parentFragment, depth + 1, out rightType, out rightOwnership) {
                 if rightOwnership == ColumnarDirectCallOwnership.OwnedRejected {
@@ -175,8 +175,30 @@ class ColumnarPrimitiveBinaryPlanner {
                 return false
             }
 
-            // Shifts keep each operand's own type: the value is int/long/ulong, the count is int,
-            // and the result is the value's type. They never reduce to the unified opType path.
+            // THE CONSTANT CONVERSION IS SYMMETRIC, AND THE SECOND PASS IS WHAT MAKES IT SO.
+            //
+            // `mask & 0xFF` adopts on the way down, because the left operand's type is already known
+            // when the literal is reached. `0xFF & mask` cannot: a plan is written left to right, so
+            // the literal's type is committed before the operand that would decide it exists. The
+            // analyzer accepts both — §10.2.11 does not care which side the constant is written on —
+            // so the planner replans rather than declining a program the front end admitted. The
+            // retry is ATOMIC: the checkpoint rolls the whole pair away and both operands are
+            // appended again, with the literal adopting the type the first pass discovered.
+            if !adopted && !IsShiftOperator(nodes, source, candidate) && leftType == typeof(int) && rightType != typeof(int) {
+                retriedLeftType := typeof(int)
+                retriedRightType := typeof(int)
+                replanFailed := false
+                if TryReplanWithAdoptedLeftLiteral(nodes, source, candidate, rightType, bindings, handles, plan, parentFragment, depth, checkpoint, out retriedLeftType, out retriedRightType, out replanFailed) {
+                    leftType = retriedLeftType
+                    rightType = retriedRightType
+                } else if replanFailed {
+                    plan.Rollback(checkpoint)
+                    return false
+                }
+            }
+
+            // Shifts keep each operand's own type: the value is int/uint/long/ulong, the count is
+            // int, and the result is the value's type. They never reduce to the unified opType path.
             if HasExactOperatorText(nodes, source, candidate, "<<") || HasExactOperatorText(nodes, source, candidate, ">>") {
                 if TryAppendShift(nodes, source, candidate, leftType, rightType, plan, out resultType) {
                     return true
@@ -274,21 +296,23 @@ class ColumnarPrimitiveBinaryPlanner {
         }
     }
 
-    // shl/shr/shr.un: an Int32/Int64/UInt64 left operand shifted by an Int32 count. shr is the
-    // signed (arithmetic) right shift for int/long; a UInt64 left uses the unsigned shr.un so a
-    // high-bit value zero-fills rather than sign-extends.
+    // shl/shr/shr.un: an Int32/UInt32/Int64/UInt64 left operand shifted by an Int32 count. shr is the
+    // signed (arithmetic) right shift for int/long; an UNSIGNED left uses shr.un so a high-bit value
+    // zero-fills rather than sign-extends. `uint` is one of the four because C# has an operator for
+    // it (`uint << int`) and because it shares Int32's stack slot, so its shift is the same
+    // instruction with the unsigned right form — a left shift emits the same `shl` either way.
     static func TryAppendShift(nodes: ColumnarNodeTable, source: string, candidate: int, leftType: Type, rightType: Type, plan: ColumnarCodePlan, out resultType: Type): bool {
         resultType = typeof(int)
         if rightType != typeof(int) {
             return false
         }
-        if leftType != typeof(int) && leftType != typeof(long) && leftType != typeof(ulong) {
+        if leftType != typeof(int) && leftType != typeof(uint) && leftType != typeof(long) && leftType != typeof(ulong) {
             return false
         }
 
         if HasExactOperatorText(nodes, source, candidate, "<<") {
             plan.AppendInstructionWithoutOperand(ColumnarCodePlanContract.Shl())
-        } else if leftType == typeof(ulong) {
+        } else if leftType == typeof(ulong) || leftType == typeof(uint) {
             plan.AppendInstructionWithoutOperand(ColumnarCodePlanContract.ShrUn())
         } else {
             plan.AppendInstructionWithoutOperand(ColumnarCodePlanContract.Shr())
@@ -297,24 +321,53 @@ class ColumnarPrimitiveBinaryPlanner {
         return true
     }
 
-    // The RIGHT operand of an admitted binary whose LEFT operand is an exact uint/long/ulong may be
-    // an unsuffixed decimal int literal that ADOPTS the left's type — N#'s constant conversion, and
-    // exactly the legacy case-12 arm's TryEmitIntLiteralAsType adoption: `u / 2` runs uint/uint,
-    // `l != 0` runs long/long. Only these three left types adopt (the legacy arm gates on them), and
-    // only the RIGHT operand adopts (a literal LEFT cannot — its value is already committed, so the
-    // planner declines that mix through the ordinary mixed-pair path). The in-range magnitude cap is
-    // Int32.MaxValue for every target, matching the pipeline's overflow on unsuffixed literals beyond
-    // Int32 range whatever the target. A negative literal (unary minus wrapping the bare literal)
-    // adopts long only; uint and ulong reject it. The value emits pre-negated with no neg opcode via
-    // ldc.i4/ldc.i8, and the adopted operand seals its own fragment with the target type, exactly
-    // like the ordinary operand path, so the unified op type is the left type. Every decline is
+    // ONE OPERAND OF AN ADMITTED BINARY MAY BE AN INTEGER CONSTANT THAT ADOPTS THE OTHER'S TYPE —
+    // ECMA-334 §10.2.11, the same rule the analyzer applies to the same pair. `u / 2` runs
+    // uint/uint, `l != 0` runs long/long and `mask & 0xFF` runs ulong/ulong. Only uint, long and
+    // ulong are adopted into, because only those three have no common type with `int` to fall back
+    // on; everything narrower already promotes.
+    //
+    // WHAT COUNTS AS THE CONSTANT IS `ConstantConversionFacts`' ANSWER AND NOT A SECOND ONE. That
+    // owner exists so the emitter, the planner and this adoption agree on which literals convert and
+    // to what, INCLUDING its three deliberate caps below the spec's own ranges; asking it here also
+    // ended a fourth divergence this arc found — the decimal-digit scan that used to gate the
+    // adoption refused every hexadecimal constant, so `mask & 0xFF` declined at emit while
+    // `mask & 255` planned.
+    //
+    // A negative literal arrives as unary minus over the bare literal and emits PRE-NEGATED with no
+    // `neg` opcode. The adopted operand seals its own fragment with the target type, exactly as the
+    // ordinary operand path does, so the unified operation type is the adopted one. Every decline is
     // mutation-free: no plan row is written before the adoption is fully admitted.
-    static func TryAppendAdoptedRightLiteral(nodes: ColumnarNodeTable, source: string, node: int, leftType: Type, plan: ColumnarCodePlan, parentFragment: int, depth: int, out resultType: Type): bool {
-        resultType = leftType
+    static func TryAppendAdoptedIntegerLiteral(nodes: ColumnarNodeTable, source: string, node: int, targetType: Type, plan: ColumnarCodePlan, parentFragment: int, depth: int, out resultType: Type): bool {
+        resultType = targetType
+        value := 0L
+        if !TryGetAdoptedIntegerLiteral(nodes, source, node, targetType, depth, out value) {
+            return false
+        }
+
+        fragment := plan.BeginFragment(parentFragment, nodes.Kind(node), node)
+        if targetType == typeof(uint) {
+            valueIndex := plan.AddInt32((int)value)
+            plan.AppendInt32Instruction(ColumnarCodePlanContract.LdcI4(), valueIndex)
+        } else {
+            valueIndex := plan.AddInt64(value)
+            plan.AppendInt64Instruction(ColumnarCodePlanContract.LdcI8(), valueIndex)
+        }
+
+        plan.CompleteFragment(fragment, targetType)
+        resultType = targetType
+        return true
+    }
+
+    // WHETHER THIS OPERAND IS SUCH A CONSTANT, AND WHAT VALUE IT TAKES — a pure question, asked
+    // before any plan row is written. The replanning arm needs it separately from the append,
+    // because it must know the answer BEFORE it rolls a written pair away.
+    static func TryGetAdoptedIntegerLiteral(nodes: ColumnarNodeTable, source: string, node: int, targetType: Type, depth: int, out value: long): bool {
+        value = 0L
         if depth > 200 || node < 0 || node >= nodes.Kinds.Length {
             return false
         }
-        if leftType != typeof(uint) && leftType != typeof(long) && leftType != typeof(ulong) {
+        if targetType != typeof(uint) && targetType != typeof(long) && targetType != typeof(ulong) {
             return false
         }
 
@@ -328,34 +381,39 @@ class ColumnarPrimitiveBinaryPlanner {
             return false
         }
 
-        // Only an unsuffixed decimal literal within Int32's positive magnitude adopts, exactly like
-        // the legacy ulong.TryParse plus range gate; a suffixed literal keeps its own fixed type.
-        magnitude := 0
-        if !ColumnarScalarLiteralPlanner.TryGetTargetTypedIntegerMagnitude(nodes.Text(source, literalNode), out magnitude) {
+        return ConstantConversionFacts.TryGetInRangeIntegralConstant(targetType, nodes.Text(source, literalNode), negative, out value)
+    }
+
+    // THE SECOND PASS, AND IT COMMITS TO NOTHING UNTIL THE ANSWER IS KNOWN. The probe runs over the
+    // written literal alone, so a pair that cannot adopt is never rolled away; a pair that can is
+    // replanned whole, and a replan that fails a step leaves the checkpoint restored and says so, so
+    // the caller declines rather than continuing over a plan it half-wrote.
+    static func TryReplanWithAdoptedLeftLiteral(nodes: ColumnarNodeTable, source: string, candidate: int, rightType: Type, bindings: ColumnarFragmentBindings, handles: ColumnarRangeIndexHandles, plan: ColumnarCodePlan, parentFragment: int, depth: int, checkpoint: ColumnarCodePlanCheckpoint, out leftType: Type, out replannedRightType: Type, out replanFailed: bool): bool {
+        leftType = typeof(int)
+        replannedRightType = rightType
+        replanFailed = false
+
+        probeValue := 0L
+        if !TryGetAdoptedIntegerLiteral(nodes, source, nodes.Child(candidate, 0), rightType, depth + 1, out probeValue) {
             return false
         }
 
-        // A negative magnitude adopts long only (the unsigned targets reject it). The cap already
-        // proved the magnitude at or below Int32.MaxValue, matching the legacy negation range gate.
-        if negative && leftType != typeof(long) {
+        plan.Rollback(checkpoint)
+        adoptedLeftType := typeof(int)
+        if !TryAppendAdoptedIntegerLiteral(nodes, source, nodes.Child(candidate, 0), rightType, plan, parentFragment, depth + 1, out adoptedLeftType) {
+            replanFailed = true
             return false
         }
 
-        fragment := plan.BeginFragment(parentFragment, nodes.Kind(node), node)
-        if negative {
-            negatedValue := 0L - (long)magnitude
-            valueIndex := plan.AddInt64(negatedValue)
-            plan.AppendInt64Instruction(ColumnarCodePlanContract.LdcI8(), valueIndex)
-        } else if leftType == typeof(uint) {
-            valueIndex := plan.AddInt32(magnitude)
-            plan.AppendInt32Instruction(ColumnarCodePlanContract.LdcI4(), valueIndex)
-        } else {
-            valueIndex := plan.AddInt64((long)magnitude)
-            plan.AppendInt64Instruction(ColumnarCodePlanContract.LdcI8(), valueIndex)
+        retriedRightType := typeof(int)
+        retriedOwnership := ColumnarDirectCallOwnership.NotOwned
+        if !ColumnarRangeIndexPlanner.TryAppendConstructionValue(nodes, source, nodes.Child(candidate, 1), bindings, handles, plan, parentFragment, depth + 1, out retriedRightType, out retriedOwnership) {
+            replanFailed = true
+            return false
         }
 
-        plan.CompleteFragment(fragment, leftType)
-        resultType = leftType
+        leftType = adoptedLeftType
+        replannedRightType = retriedRightType
         return true
     }
 

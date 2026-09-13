@@ -30,7 +30,8 @@ enum ColumnarDirectCallArgumentFlow {
     Null,
     Nullable,
     Constructed,
-    UserImplicit
+    UserImplicit,
+    ExternalImplicit
 }
 
 // Syntax-sensitive facts that cannot be reconstructed from a CLR Type alone. In particular,
@@ -1127,6 +1128,17 @@ class ColumnarSourceDirectCallResolver {
             return true
         }
 
+        // AN OPERATOR DECLARED BY A REFERENCED ASSEMBLY IS THE SAME CONVERSION, READ FROM METADATA.
+        // `element.Attribute("outcome")` passes a `string` where `XName` is expected and reaches
+        // `XName::op_Implicit(String)`; the resolver beside this one can only see operators this
+        // COMPILATION declares, so an external one had no owner and the call declined. This asks the
+        // SAME owner the analyzer asks, which is what keeps a program the front end accepted from
+        // dying here.
+        if HasExternalImplicitConversion(actualType, expectedType) {
+            flow = ColumnarDirectCallArgumentFlow.ExternalImplicit
+            return true
+        }
+
         flow = ColumnarDirectCallArgumentFlow.None
         return false
     }
@@ -1220,7 +1232,35 @@ class ColumnarSourceDirectCallResolver {
             return 4
         }
 
+        // A user-defined operator an EXTERNAL type declares ranks exactly where a source-declared one
+        // does: below identity and implicit numeric widening, beside reference and boxing
+        // compatibility — and, like the source one, only after every built-in relation has declined.
+        if HasExternalImplicitConversion(actualType, expectedType) {
+            return 4
+        }
+
         return -1
+    }
+
+    // THE EXTERNAL CONVERSION QUESTION IS ONLY ASKED OF TYPES WHOSE METADATA CAN BE READ.
+    //
+    // Selecting a user-defined operator means enumerating both ends' members and asking standard
+    // conversions between them, and an UNBAKED `TypeBuilder` answers neither: reading its interface
+    // list throws `NotSupportedException`, which arrives at a `nlc test` run as the bare sentence
+    // "Specified method is not supported." with no source position at all. A type this compilation
+    // is still emitting declares its operators in the SOURCE registry beside this one, which the
+    // arm above already asked, so nothing is lost by refusing the metadata question here — the same
+    // rule the built-in reference flow states one branch up.
+    static func HasExternalImplicitConversion(actualType: Type, expectedType: Type): bool {
+        if ColumnarReferenceConversionFacts.IsDynamicDeclarationType(actualType) {
+            return false
+        }
+
+        if ColumnarReferenceConversionFacts.IsDynamicDeclarationType(expectedType) {
+            return false
+        }
+
+        return ExternalUserDefinedConversions.ResolveImplicit(actualType, expectedType).IsSelected
     }
 
     // Built-in reference and boxing conversions are authoritative over a same-ranked
