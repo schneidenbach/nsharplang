@@ -82,6 +82,27 @@ class NullabilityGenericSubstitution {
         return declared
     }
 
+    // AN EVENT'S HANDLER DELEGATE TYPE AS ITS DEFINITION SPELLS IT. An event has no overloads and no
+    // index parameters, so the name alone identifies it — the simplest member of this family.
+    static func OpenEventHandlerType(eventMember: EventInfo, declared: Type): Type {
+        definition := DeclaringDefinition(eventMember.get_DeclaringType())
+        if definition == null {
+            return declared
+        }
+
+        candidate := definition.GetEvent(eventMember.get_Name(), MemberFlags())
+        if candidate == null {
+            return declared
+        }
+
+        candidateType := candidate.get_EventHandlerType()
+        if candidateType == null {
+            return declared
+        }
+
+        return candidateType
+    }
+
     static func OpenFieldType(field: FieldInfo): Type {
         declared := field.get_FieldType()
         definition := DeclaringDefinition(field.get_DeclaringType())

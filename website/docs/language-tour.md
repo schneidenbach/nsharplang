@@ -1510,6 +1510,25 @@ func main() {
 The handler must begin **on the event's own line**; a handler on the next line is reported as a
 missing one rather than silently swallowing the next statement.
 
+An event that declares a **maybe-null** position reads that annotation from the event's own
+metadata, so a handler written to the same shape fits. `AssemblyLoadContext.Resolving` is
+`Func<AssemblyLoadContext, AssemblyName, Assembly?>`, and a function returning `Assembly?` is a
+handler for it — as is one that never returns null, because the result position is covariant:
+
+```n#
+import System.Reflection
+import System.Runtime.Loader
+
+func resolve(_context: AssemblyLoadContext, _name: AssemblyName): Assembly? {
+    return null
+}
+
+func main() {
+    sub := on AssemblyLoadContext.Default.Resolving resolve
+    off sub
+}
+```
+
 ### Detaching
 
 `off <handle>` detaches exactly the handler that handle attached — including an inline lambda,

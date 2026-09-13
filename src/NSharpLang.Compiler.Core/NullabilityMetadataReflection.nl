@@ -68,6 +68,39 @@ class NullabilityMetadataReflection {
         return ApplyFlowAttributes(converted, attributes)
     }
 
+    // AN EVENT'S HANDLER DELEGATE TYPE, WITH THE ANNOTATIONS THE DECLARATION WROTE.
+    //
+    // WHY AN EVENT NEEDS ITS OWN READER AT ALL. `EventInfo.EventHandlerType` answers a bare CLR type,
+    // and reference-type nullability is not IN a CLR type — it is metadata on the MEMBER. So
+    // `AssemblyLoadContext.Resolving`, declared `event Func<AssemblyLoadContext, AssemblyName,
+    // Assembly?>?`, reflects as `Func`3[AssemblyLoadContext, AssemblyName, Assembly]` and a handler
+    // returning `Assembly?` did not match the event it obviously implements. The annotation is right
+    // there on the event (measured: `NullabilityInfoContext.Create(EventInfo)` answers
+    // `Nullable`/`NotNull`/`NotNull`/`Nullable` for that one), and every other member family already
+    // reads it, so the event reads it too.
+    //
+    // THE EVENT'S OWN MAYBE-NULL SHELL IS DROPPED, and that is a statement about what the type MEANS
+    // rather than a convenience. `event Func<…>? Resolving` says the event's backing field may hold no
+    // handler yet; it says nothing about the handler a subscriber attaches, which is never the null.
+    // The lambda door makes the same reading for the same reason (`FunctionSignature` looks through a
+    // `NullableTypeInfo` target), so answering the delegate directly keeps one rule in one place.
+    static func ConvertEventHandlerType(eventMember: EventInfo): TypeInfo? {
+        handlerType := eventMember.get_EventHandlerType()
+        if handlerType == null {
+            return null
+        }
+
+        attributes := eventMember.GetCustomAttributesData()
+        openType := NullabilityGenericSubstitution.OpenEventHandlerType(eventMember, handlerType)
+        converted := ConvertMemberType(handlerType, CreateNullabilityInfoForEvent(eventMember), null, openType, attributes, eventMember)
+        nullableShell := converted as NullableTypeInfo
+        if nullableShell != null {
+            return nullableShell.InnerType
+        }
+
+        return converted
+    }
+
     static func ConvertReturn(method: MethodInfo): TypeInfo {
         return ConvertReturnWithOverride(method, null)
     }
@@ -263,6 +296,11 @@ class NullabilityMetadataReflection {
     static func CreateNullabilityInfoForField(field: FieldInfo): NullabilityInfo? {
         context := CreateNullabilityContext()
         return context.Create(field)
+    }
+
+    static func CreateNullabilityInfoForEvent(eventMember: EventInfo): NullabilityInfo? {
+        context := CreateNullabilityContext()
+        return context.Create(eventMember)
     }
 
     static func CreateNullabilityInfoForParameter(parameter: ParameterInfo): NullabilityInfo? {

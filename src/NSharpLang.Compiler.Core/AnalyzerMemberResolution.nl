@@ -676,7 +676,9 @@ class AnalyzerMemberResolution {
 
         eventMember := reflectedType.GetEvent(memberName, memberFlags)
         if eventMember != null {
-            memberType = new ReflectionEventInfo(eventMember.get_Name(), eventMember.GetAddMethod(true), eventMember.GetRemoveMethod(true), eventMember.get_EventHandlerType(), eventMember.get_DeclaringType(), "event " + eventMember.get_Name())
+            resolvedEvent := new ReflectionEventInfo(eventMember.get_Name(), eventMember.GetAddMethod(true), eventMember.GetRemoveMethod(true), eventMember.get_EventHandlerType(), eventMember.get_DeclaringType(), "event " + eventMember.get_Name())
+            resolvedEvent.AnnotatedHandlerType = NullabilityMetadataReflection.ConvertEventHandlerType(eventMember)
+            memberType = resolvedEvent
             return true
         }
 

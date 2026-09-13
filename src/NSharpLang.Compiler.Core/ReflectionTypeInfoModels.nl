@@ -64,6 +64,12 @@ class ReflectionEventInfo: TypeInfo {
     RemoveMethod: MethodInfo?
     HandlerDelegateType: Type?
     DeclaringType: Type?
+    // THE HANDLER DELEGATE AS THE DECLARATION SPELLED IT, annotations included — which the bare CLR
+    // `HandlerDelegateType` beside it cannot carry, because reference nullability lives on the MEMBER
+    // rather than in the type. It is filled by whoever reads the `EventInfo`
+    // (`NullabilityMetadataReflection.ConvertEventHandlerType`) and stays null for the name-only form,
+    // whose caller has no `EventInfo` to read.
+    AnnotatedHandlerType: TypeInfo?
     displayValue: string
 
     constructor(name: string, addMethod: MethodInfo?, removeMethod: MethodInfo?, handlerDelegateType: Type?, declaringType: Type?, displayText: string) {
@@ -72,6 +78,7 @@ class ReflectionEventInfo: TypeInfo {
         RemoveMethod = removeMethod
         HandlerDelegateType = handlerDelegateType
         DeclaringType = declaringType
+        AnnotatedHandlerType = null
         displayValue = displayText
     }
 
@@ -81,6 +88,7 @@ class ReflectionEventInfo: TypeInfo {
         RemoveMethod = null
         HandlerDelegateType = null
         DeclaringType = null
+        AnnotatedHandlerType = null
         displayValue = "event"
     }
 

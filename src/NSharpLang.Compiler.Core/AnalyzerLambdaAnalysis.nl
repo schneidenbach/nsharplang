@@ -878,6 +878,19 @@ class AnalyzerLambdaAnalysis {
             diagnostics.Report(ErrorCode.InvalidEventSubscription, "subscribing to '" + eventInfo.Name + "' isn't supported — it's an instance event on a value type (struct)", span.Line, span.Column, "Events on struct receivers can't be bound safely. Subscribe through a reference-type instance instead.", span.Length)
         }
 
+        // THE EXPECTED HANDLER TYPE IS THE ANNOTATED SPELLING WHEN THE READER COULD SUPPLY ONE.
+        // `AssemblyLoadContext.Resolving` is declared `Func<AssemblyLoadContext, AssemblyName,
+        // Assembly?>`, and the bare CLR type cannot say the `?`: reference nullability is metadata on
+        // the EVENT. Measuring a handler that returns `Assembly?` against the unannotated spelling
+        // reported NL318 over a method group that is exactly the delegate the BCL declares. The
+        // annotated type is the same type with the same identity, so everything downstream — the
+        // lambda's parameter inference, the method-group conversion, the mismatch sentence — reads one
+        // more true fact and nothing else changes.
+        annotatedHandlerType := eventInfo.AnnotatedHandlerType
+        if annotatedHandlerType != null {
+            return EmitHandler(state, annotatedHandlerType, true)
+        }
+
         return EmitHandler(state, new ReflectionTypeInfo(handlerDelegateType), true)
     }
 

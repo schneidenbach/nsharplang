@@ -91,3 +91,19 @@ test "a STATIC event on an external type subscribes and detaches through the typ
 test "a static event reached through a PROPERTY CHAIN on a static type subscribes and detaches" {
     assert SubscribeAndDetachStaticChainEvent()
 }
+
+test "a FREE FUNCTION returning a maybe-null reference is a handler for the event that declares one" {
+    assert CountResolveThroughFreeFunction() == 1
+}
+
+test "a handler that never returns null reaches the same maybe-null delegate" {
+    assert CountResolveThroughNonNullFreeFunction() == 1
+}
+
+test "an inline lambda against the same event infers its parameters and its result" {
+    assert CountResolveThroughLambda() == 1
+}
+
+test "the delegate handed to `add_` is the event's own handler type" {
+    assert ResolvingHandlerTypeName() == "Func`3"
+}
