@@ -40,6 +40,7 @@ class PatternAnalysisHarness {
     SoaEscape: AnalyzerSoaEscape
     Ambient: AnalyzerAmbientContext
     Scopes: AnalyzerScopeStack
+    Narrowing: AnalyzerFlowNarrowing
 
     constructor(
         analysis: AnalyzerPatternAnalysis,
@@ -47,7 +48,8 @@ class PatternAnalysisHarness {
         context: AnalyzerDeclarationContext,
         soaEscape: AnalyzerSoaEscape,
         ambient: AnalyzerAmbientContext,
-        scopes: AnalyzerScopeStack
+        scopes: AnalyzerScopeStack,
+        narrowing: AnalyzerFlowNarrowing
     ) {
         Analysis = analysis
         Errors = errors
@@ -55,6 +57,7 @@ class PatternAnalysisHarness {
         SoaEscape = soaEscape
         Ambient = ambient
         Scopes = scopes
+        Narrowing = narrowing
     }
 }
 
@@ -117,13 +120,15 @@ func PatternAnalysisDefault(): PatternAnalysisHarness {
             reachability,
             propertyBinding,
             escape,
-            ambient
+            ambient,
+            scopes
         ),
         errors,
         context,
         escape,
         ambient,
-        scopes
+        scopes,
+        new AnalyzerFlowNarrowing(scopes, resolver, assignability, new AnalyzerNullabilityPostconditions(scopes, context))
     )
 }
 
@@ -495,7 +500,7 @@ func PatternSwitchTranscript(
     switchNode: SwitchStatement,
     answer: TypeInfo?
 ): string {
-    state := harness.Analysis.BeginSwitch(switchNode)
+    state := harness.Analysis.BeginSwitch(switchNode, harness.Narrowing)
     rendered := ""
     step := harness.Analysis.NextStep(state)
     while step != null {
@@ -536,6 +541,131 @@ func PatternStatementList1(text: string): List<Statement> {
 
 func PatternCaseOf(pattern: Pattern?, statements: List<Statement>, line: int, column: int): SwitchCase {
     return new SwitchCase(pattern, statements, line, column)
+}
+
+// The `switch` driver that performs the SCOPE operations for real and simulates each arm's
+// assignment to `x` — the two operations `UpdateNullStateAfterAssignment` performs, in its order.
+// `armWrites` names the state each arm leaves `x` in, and `NullState.Unknown` means the arm assigns
+// nothing. That is the whole of what the arm-join reads: an arm's exit state is its scope's own fact
+// table, and this driver is what puts one there.
+func PatternRunSwitchAssigning(harness: PatternAnalysisHarness, switchNode: SwitchStatement, armWrites: NullState[]): string {
+    state := harness.Analysis.BeginSwitch(switchNode, harness.Narrowing)
+    armIndex := 0
+    step := harness.Analysis.NextStep(state)
+    while step != null {
+        kind := step.Kind
+        if kind == 6 {
+            harness.Scopes.Push(new SemanticModel(), new Scope(ScopeKind.Block), step.Line, step.Column)
+        }
+
+        if kind == 7 {
+            if armIndex < armWrites.Length && armWrites[armIndex] != NullState.Unknown {
+                harness.Scopes.InvalidateNullFactsForAssignment("x")
+                harness.Scopes.SetNullStateInCurrentScope("x", armWrites[armIndex])
+            }
+
+            armIndex = armIndex + 1
+        }
+
+        if kind == 8 {
+            harness.Scopes.NoteLine(99)
+            harness.Scopes.Pop(new SemanticModel())
+        }
+
+        harness.Analysis.Supply(state, BuiltInTypes.Int)
+        step = harness.Analysis.NextStep(state)
+    }
+
+    return NullStateFacts.GetDiagnosticText(harness.Scopes.NullStateOrUnknown("x"))
+}
+
+func PatternSwitchArm(pattern: Pattern?, statements: List<Statement>): SwitchCase {
+    return new SwitchCase(pattern, statements, 5, 9)
+}
+
+func PatternArmStatements(): List<Statement> {
+    return new List<Statement>()
+}
+
+func PatternArmLeaving(): List<Statement> {
+    statements := new List<Statement>()
+    leaving: Statement = new ReturnStatement(null, 5, 9)
+    statements.Add(leaving)
+    return statements
+}
+
+func PatternArmBreaking(): List<Statement> {
+    statements := new List<Statement>()
+    breaking: Statement = new BreakStatement(5, 9)
+    statements.Add(breaking)
+    return statements
+}
+
+func PatternTwoArmSwitch(first: SwitchCase, second: SwitchCase): SwitchStatement {
+    cases := new List<SwitchCase>()
+    cases.Add(first)
+    cases.Add(second)
+    return PatternSwitchOf(cases)
+}
+
+test "A switch WHOSE ARMS ALL ASSIGN THE SAME ANSWER JOINS TO IT" {
+    harness := PatternAnalysisDefault()
+    switchNode := PatternTwoArmSwitch(PatternSwitchArm(PatternIdent("zero", 5, 10), PatternArmStatements()), PatternSwitchArm(null, PatternArmStatements()))
+
+    writes := new NullState[](2)
+    writes[0] = NullState.NotNull
+    writes[1] = NullState.NotNull
+
+    // A `default` arm is what makes the arms the WHOLE of the statement's live paths.
+    assert PatternRunSwitchAssigning(harness, switchNode, writes) == "not-null"
+}
+
+test "ONE ARM THAT ASSIGNED A MAYBE-NULL VALUE KEEPS THE JOIN MAYBE-NULL" {
+    harness := PatternAnalysisDefault()
+    switchNode := PatternTwoArmSwitch(PatternSwitchArm(PatternIdent("zero", 5, 10), PatternArmStatements()), PatternSwitchArm(null, PatternArmStatements()))
+
+    writes := new NullState[](2)
+    writes[0] = NullState.MaybeNull
+    writes[1] = NullState.NotNull
+
+    assert PatternRunSwitchAssigning(harness, switchNode, writes) == "maybe-null"
+}
+
+test "A switch WITH NO default ARM IS REACHED FROM ONE MORE PLACE THAN IT HAS ARMS" {
+    harness := PatternAnalysisDefault()
+    switchNode := PatternTwoArmSwitch(PatternSwitchArm(PatternIdent("zero", 5, 10), PatternArmStatements()), PatternSwitchArm(PatternIdent("one", 5, 10), PatternArmStatements()))
+
+    writes := new NullState[](2)
+    writes[0] = NullState.NotNull
+    writes[1] = NullState.NotNull
+
+    // The path on which no pattern matched ran neither assignment, so the statement proves nothing.
+    assert PatternRunSwitchAssigning(harness, switchNode, writes) == "unknown"
+}
+
+test "AN ARM THAT ALWAYS LEAVES CONTRIBUTES NOTHING, EXACTLY AS A GUARD CLAUSE'S BRANCH DOES" {
+    harness := PatternAnalysisDefault()
+    switchNode := PatternTwoArmSwitch(PatternSwitchArm(PatternIdent("zero", 5, 10), PatternArmLeaving()), PatternSwitchArm(null, PatternArmStatements()))
+
+    writes := new NullState[](2)
+    writes[0] = NullState.Unknown
+    writes[1] = NullState.NotNull
+
+    assert PatternRunSwitchAssigning(harness, switchNode, writes) == "not-null"
+}
+
+test "A break IN AN ARM TAKES THE JOIN AWAY" {
+    harness := PatternAnalysisDefault()
+    switchNode := PatternTwoArmSwitch(PatternSwitchArm(PatternIdent("zero", 5, 10), PatternArmBreaking()), PatternSwitchArm(null, PatternArmStatements()))
+
+    writes := new NullState[](2)
+    writes[0] = NullState.NotNull
+    writes[1] = NullState.NotNull
+
+    // Control reaches the code below from the MIDDLE of the arm, holding whatever was true there
+    // rather than what the arm ended with, so the walk declines rather than answering for a state it
+    // did not observe.
+    assert PatternRunSwitchAssigning(harness, switchNode, writes) == "unknown"
 }
 
 func PatternSwitchCases0(): List<SwitchCase> {
@@ -1288,7 +1418,7 @@ test "a fresh state starts at the dispatch and carries no arm's working set" {
 
 test "a fresh switch state opens in its own form and its own phase band" {
     harness := PatternAnalysisDefault()
-    state := harness.Analysis.BeginSwitch(PatternSwitchOf(PatternSwitchCases0()))
+    state := harness.Analysis.BeginSwitch(PatternSwitchOf(PatternSwitchCases0()), harness.Narrowing)
 
     assert state.Form == 1
     assert state.Phase == 70
@@ -1399,7 +1529,7 @@ test "the switch moves ONLY the break target's finally depth, and restores it on
     beforeContinue := harness.Ambient.ContinueTargetFinallyDepth
     beforeInLoop := harness.Ambient.InLoop
 
-    state := harness.Analysis.BeginSwitch(switchNode)
+    state := harness.Analysis.BeginSwitch(switchNode, harness.Narrowing)
     step := harness.Analysis.NextStep(state)
     harness.Analysis.Supply(state, BuiltInTypes.Int)
 
@@ -1424,7 +1554,7 @@ test "an exhausted switch walk keeps answering null rather than replaying its ca
     harness := PatternAnalysisDefault()
     cases := PatternSwitchCases0()
     cases.Add(PatternCaseOf(null, PatternStatementList0(), 6, 5))
-    state := harness.Analysis.BeginSwitch(PatternSwitchOf(cases))
+    state := harness.Analysis.BeginSwitch(PatternSwitchOf(cases), harness.Narrowing)
 
     step := harness.Analysis.NextStep(state)
     while step != null {

@@ -556,7 +556,8 @@ class Analyzer: IDisposable {
             PatternReachability,
             PropertyPatternBinding,
             SoaEscape,
-            Ambient
+            Ambient,
+            Scopes
         )
     }
 
@@ -1157,7 +1158,7 @@ class Analyzer: IDisposable {
 
         switchStatement := statement as SwitchStatement
         if switchStatement != null {
-            DrivePatternAnalysis(PatternAnalysis.BeginSwitch(switchStatement))
+            DrivePatternAnalysis(PatternAnalysis.BeginSwitch(switchStatement, FlowNarrowing))
             return
         }
 
@@ -1523,6 +1524,10 @@ class Analyzer: IDisposable {
             }
             if kind == 7 {
                 DriveExpressionStatement(ExpressionStatements.BeginForIterator(step.Node))
+            }
+            if kind == 8 {
+                Scopes.NoteLine(step.Line)
+                DriveStatementSequence(StatementSequence.BeginList(step.Statements))
             }
             LoopSequence.SupplyLoop(state, answer)
             step = LoopSequence.NextLoopStep(state)

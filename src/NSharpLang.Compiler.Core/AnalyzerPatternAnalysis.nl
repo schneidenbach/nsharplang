@@ -98,6 +98,16 @@ class PatternAnalysisState {
     SwitchValueType: TypeInfo
     SavedBreakDepth: int
 
+    // THE ARMS' EXIT STATES, KEPT AFTER THEIR SCOPES CLOSED. A `switch` is an `if` with more than two
+    // branches: what the code below it knows is the JOIN of every arm that can fall out of the bottom.
+    // An arm that ALWAYS LEAVES contributes nothing — its path is gone — and a `break` anywhere in an
+    // arm takes the join away altogether, because control then reaches the code below holding whatever
+    // was true at the `break` rather than what the arm ended with. `Narrowing` is the writer that
+    // installs the answer, handed in at `BeginSwitch` because `Analyzer.cs` rebuilds it.
+    ArmExits: List<Scope>
+    ArmsJoinable: bool
+    Narrowing: AnalyzerFlowNarrowing?
+
     // The union-case arm's working set, settled once at dispatch: the owner a case property is
     // resolved against, the substitution the scrutinee's arguments induce, the case's rendered name,
     // the case's own property list and the pattern's.
@@ -115,11 +125,14 @@ class PatternAnalysisState {
     // forwards its two requests as its own, so `Analyzer.cs` never sees the composition.
     PropertyState: PropertyPatternBindingState?
 
-    constructor(form: int, patternNode: Pattern?, switchNode: SwitchStatement?, valueType: TypeInfo) {
+    constructor(form: int, patternNode: Pattern?, switchNode: SwitchStatement?, valueType: TypeInfo, narrowing: AnalyzerFlowNarrowing? = null) {
         formValue = form
         patternNodeValue = patternNode
         switchNodeValue = switchNode
         valueTypeValue = valueType
+        ArmExits = new List<Scope>()
+        ArmsJoinable = true
+        Narrowing = narrowing
 
         Phase = 0
         if form == 1 {
@@ -198,7 +211,13 @@ class AnalyzerPatternAnalysis {
     soaEscapeValue: AnalyzerSoaEscape
     ambientValue: AnalyzerAmbientContext
 
-    constructor(diagnostics: AnalyzerDiagnosticSink, spans: AnalyzerDiagnosticSpans, typeResolver: AnalyzerTypeResolver, typeSubstitution: AnalyzerTypeSubstitution, matchExhaustiveness: AnalyzerMatchExhaustiveness, patternShapes: AnalyzerPatternShapes, patternReachability: AnalyzerPatternReachability, propertyPatternBinding: AnalyzerPropertyPatternBinding, soaEscape: AnalyzerSoaEscape, ambient: AnalyzerAmbientContext) {
+    // The scope stack, held rather than handed in for the reason every other holder of it has: it is
+    // constructed once by `Analyzer.cs` and is never rebuilt with the metadata load context. The
+    // switch form reads it at exactly one point — an arm's own scope, at the moment that arm ends.
+    scopesValue: AnalyzerScopeStack
+
+    constructor(diagnostics: AnalyzerDiagnosticSink, spans: AnalyzerDiagnosticSpans, typeResolver: AnalyzerTypeResolver, typeSubstitution: AnalyzerTypeSubstitution, matchExhaustiveness: AnalyzerMatchExhaustiveness, patternShapes: AnalyzerPatternShapes, patternReachability: AnalyzerPatternReachability, propertyPatternBinding: AnalyzerPropertyPatternBinding, soaEscape: AnalyzerSoaEscape, ambient: AnalyzerAmbientContext, scopes: AnalyzerScopeStack) {
+        scopesValue = scopes
         diagnosticsValue = diagnostics
         spansValue = spans
         typeResolverValue = typeResolver
@@ -218,8 +237,8 @@ class AnalyzerPatternAnalysis {
     // A `switch` STATEMENT. The scrutinee type is not known yet — the walk's own first step answers
     // it — so the state opens with `unknown` and the switch form settles `SwitchValueType` at
     // phase 71.
-    func BeginSwitch(switchNode: SwitchStatement): PatternAnalysisState {
-        return new PatternAnalysisState(1, null, switchNode, BuiltInTypes.Unknown)
+    func BeginSwitch(switchNode: SwitchStatement, narrowing: AnalyzerFlowNarrowing): PatternAnalysisState {
+        return new PatternAnalysisState(1, null, switchNode, BuiltInTypes.Unknown, narrowing)
     }
 
     // THE NEXT STEP THE DRIVER MUST PERFORM, or null when this pattern node is finished. Every phase
@@ -745,6 +764,7 @@ class AnalyzerPatternAnalysis {
             if state.Index >= switchNode.Cases.Count {
                 state.Phase = 99
                 ambientValue.ExitSwitch(state.SavedBreakDepth)
+                InstallSwitchJoin(state, switchNode)
                 return null
             }
 
@@ -768,6 +788,7 @@ class AnalyzerPatternAnalysis {
         }
 
         if phase == 75 {
+            RecordArmExit(state, switchNode.Cases[state.Index])
             state.Index = state.Index + 1
             state.Phase = 72
             return ScopeCloseRequest()
@@ -781,6 +802,56 @@ class AnalyzerPatternAnalysis {
         request := new PatternAnalysisRequest(1, BuiltInTypes.Unknown)
         request.Node = node
         return request
+    }
+
+    // AN ARM'S EXIT STATE, READ BEFORE ITS SCOPE CLOSES. An arm that ALWAYS LEAVES is not a path the
+    // code below the `switch` is reached from, so it contributes nothing — the same rule a guard
+    // clause's branch gets. A `break` is the one thing that takes the whole join away: it carries
+    // control to the code below from the MIDDLE of an arm, holding whatever was true there rather
+    // than what the arm ended with, and the walk declines rather than answering for a state it did
+    // not observe.
+    func RecordArmExit(state: PatternAnalysisState, switchCase: SwitchCase) {
+        if !state.ArmsJoinable {
+            return
+        }
+
+        if AnalyzerConditionalJoin.ContainsListBreak(switchCase.Statements) {
+            state.ArmsJoinable = false
+            return
+        }
+
+        if AnalyzerStatementTermination.AnyStatementLeaves(switchCase.Statements, false, false) {
+            return
+        }
+
+        state.ArmExits.Add(scopesValue.Peek())
+    }
+
+    // WHAT THE CODE BELOW A `switch` KNOWS — the MEET of every arm that can fall out of the bottom of
+    // it, which is the `if` join with more than two branches. A `switch` with no `default` arm has one
+    // more live path than it has arms: the one on which no pattern matched at all, and it holds
+    // whatever the enclosing flow still holds, so it is met in as the surviving state.
+    func InstallSwitchJoin(state: PatternAnalysisState, switchNode: SwitchStatement) {
+        narrowing := state.Narrowing
+        if narrowing == null || !state.ArmsJoinable || state.ArmExits.Count == 0 {
+            return
+        }
+
+        joined := AnalyzerConditionalJoin.ExitFacts(scopesValue, state.ArmExits[0])
+        index := 1
+        while index < state.ArmExits.Count {
+            joined = AnalyzerConditionalJoin.MeetFacts(joined, AnalyzerConditionalJoin.ExitFacts(scopesValue, state.ArmExits[index]))
+            index = index + 1
+        }
+
+        if !AnalyzerStatementTermination.HasDefaultCase(switchNode.Cases) {
+            joined = AnalyzerConditionalJoin.MeetFacts(joined, AnalyzerConditionalJoin.SurvivingFacts(scopesValue, joined))
+        }
+
+        narrowings := AnalyzerConditionalJoin.InstallableFacts(scopesValue, joined)
+        if narrowings.Count > 0 {
+            narrowing.ApplyNarrowingsToScope(narrowings)
+        }
     }
 
     func ScopeOpenRequest(line: int, column: int): PatternAnalysisRequest {
