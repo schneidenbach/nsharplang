@@ -14479,7 +14479,7 @@ sealed class ColumnarIlEmitter {
         if (_nodes.Kind(receiver) == 6) {
             // a bare identifier receiver that is NOT a value (local/param/sibling) is a type name.
             receiverName := ColumnarNodeTextFacts.Text(_nodes, _source, receiver)
-            if (!_locals.ContainsKey(receiverName) && !_liftedLocals.ContainsKey(receiverName) && !_paramOrdinals.ContainsKey(receiverName) && !_siblings.ContainsKey(receiverName) && !IsCurrentInstanceMemberName(receiverName)) {
+            if (!_locals.ContainsKey(receiverName) && !_liftedLocals.ContainsKey(receiverName) && !_paramOrdinals.ContainsKey(receiverName) && !_siblings.ContainsKey(receiverName) && !IsCurrentInstanceMemberName(receiverName) && !IsCurrentStaticMemberName(receiverName)) {
                 // CALL-STYLE newtype construction through a file-import ALIAS (`Ids.UserId(42)`):
                 // the member names a synthesized newtype and the receiver is the alias qualifier.
                 aliasQualifiedTypeName := receiverName + "." + memberName
@@ -14601,6 +14601,31 @@ sealed class ColumnarIlEmitter {
             return Decline("emit.call.instance-member", "instance call '" + memberName + "' with " + argCount.ToString() + " argument(s) on '" + (receiverType.Name ?? "?") + "' could not be emitted", callIdx)
         }
         return true
+    }
+
+    // A BARE IDENTIFIER IN RECEIVER POSITION IS A VALUE WHENEVER THE ENCLOSING TYPE DECLARES IT.
+    //
+    // The receiver arm above asks one question — value or type name — and the instance answer was
+    // the only one it had. A STATIC field or property of the same type is just as much a value:
+    // `Entries.Add(name)` inside the type that declares `static Entries: List<string>` is the
+    // static-member read the value path already emits (`ldsfld` / `call get_Entries`), followed by
+    // an ordinary instance call on what it produced. Without this the receiver was read as a TYPE
+    // named `Entries`, the static-call arm found no such type, and the whole statement declined —
+    // while `local := Entries` then `local.Add(name)`, and the bare `Entries.Count` read, both emitted.
+    //
+    // The anchor is `_enclosingType`, exactly as the bare static READ uses: a static member is in
+    // scope in every body the type owns, static and instance alike. Members shadow outer type names
+    // here, which is the rule C# applies to the same spelling.
+    private func IsCurrentStaticMemberName(name: string): bool {
+        if (_enclosingType == null) {
+            return false
+        }
+        let currentStaticField: System.Reflection.Emit.FieldBuilder? = null
+        if (ColumnarSourceMemberChainResolver.TryFindStaticFieldOnChain(_enclosingType, name, out currentStaticField)) {
+            return true
+        }
+        let currentStaticProperty: NSharpLang.Compiler.Columnar.ColumnarPropertyDef? = null
+        return ColumnarSourceMemberChainResolver.TryFindStaticPropertyOnChain(_enclosingType, name, out currentStaticProperty)
     }
 
     private func IsCurrentInstanceMemberName(name: string): bool {

@@ -448,10 +448,13 @@ test "MultiFileCompiler validation failure retains live errors and precedes outp
 
 // THE FIXTURE MUST BE A SHAPE THE COLUMNAR BACKEND DECLINES, because this contract is about what
 // the pipeline does with a decline rather than about the shape itself. It used to be a `foreach` over
-// a `string`, which the backend now emits as an index loop, and then assigning to a struct's own
-// field from its own method, which emits since the call site loads an addressable receiver by
-// address; a bare STATIC FIELD as a call receiver is the shape that declines today. When that one
-// lands, replace it with another declining shape rather than deleting this contract.
+// a `string`, which the backend now emits as an index loop, then assigning to a struct's own field
+// from its own method, which emits since the call site loads an addressable receiver by address, and
+// then a bare STATIC FIELD as a call receiver, which emits since a static member of the enclosing
+// type is a value binding; an `await foreach` INSIDE a generator body is the shape that declines
+// today, because releasing the inner enumerator on the exception and abandon paths needs an `await`
+// in a handler position that the async rewriter does not lower yet. When that one lands, replace it
+// with another declining shape rather than deleting this contract.
 test "MultiFileCompiler ordinary CLI pipeline requires columnar emission for a declining fixture" {
     compilation := MultiFileOwnerCompileWithPipelineFlags(
         "Program",
@@ -459,16 +462,14 @@ test "MultiFileCompiler ordinary CLI pipeline requires columnar emission for a d
         """
 import System.Collections.Generic
 
-class Registry {
-    static readonly Entries: List<string> = new List<string>()
-
-    static func Record(name: string) {
-        Entries.Add(name)
+async func* Relay(source: IAsyncEnumerable<string>): IAsyncEnumerable<string> {
+    await foreach name in source {
+        yield name
     }
 }
 
 func main() {
-    Registry.Record("alpha")
+    print "counted"
 }
 """,
         false,
