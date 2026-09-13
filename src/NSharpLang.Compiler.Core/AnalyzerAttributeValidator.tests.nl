@@ -269,6 +269,47 @@ func AttrRegisterFile(harness: AttributeHarness) {
     harness.Context.AddCompilationUnit(AttributePath(), unit)
 }
 
+// A FILE THAT ACTUALLY DECLARES THE ATTRIBUTE CLASS. `[AttributeUsage(...)]` on a source attribute is
+// read from the DECLARATION — there is no metadata for a type the compiler is still building — so the
+// harness has to register a real `ClassDeclaration` rather than only a resolved `TypeInfo`.
+func AttrRegisterFileDeclaring(harness: AttributeHarness, name: string, attributes: List<AttributeNode>) {
+    declarations := new List<Declaration>()
+    declarations.Add(new ClassDeclaration(name, null, AttrSimple("Attribute"), new List<TypeReference>(), new List<Declaration>(), null, Modifiers.None, attributes, 1, 1))
+    unit := new CompilationUnit(null, new List<ImportDirective>(), new List<Statement>(), null, declarations, 1, 1)
+    harness.Context.AddCompilationUnit(AttributePath(), unit)
+}
+
+// `[AttributeUsage(<targets>, AllowMultiple = <allowMultiple>)]`, as an attribute node the usage
+// reader meets exactly as it would meet one the parser produced.
+func AttrUsageNode(targetsMember: string, allowMultiple: bool): AttributeNode {
+    arguments := AttrArgs()
+    AttrArg(arguments, AttrDotted("AttributeTargets", targetsMember), null)
+    AttrArg(arguments, AttrBool(allowMultiple), "AllowMultiple")
+    return AttrNode("AttributeUsage", arguments)
+}
+
+func AttrUsageAttributes(targetsMember: string, allowMultiple: bool): List<AttributeNode> {
+    return AttrNodes(AttrUsageNode(targetsMember, allowMultiple))
+}
+
+// A harness whose `MarkerAttribute` is DECLARED with the given usage, so the placement and repetition
+// rules read the source declaration rather than metadata.
+func AttrUsageHarness(targetsMember: string, allowMultiple: bool): AttributeHarness {
+    harness := AttributeHarnessNew()
+    AttrRegisterFileDeclaring(harness, "MarkerAttribute", AttrUsageAttributes(targetsMember, allowMultiple))
+    harness.Context.RegisterCanonicalType(AttributePath(), "Attribute", new ReflectionTypeInfo(AttrAttributeBase()))
+    declared := AttrClassWithMembers("MarkerAttribute", AttrSimple("Attribute"), AttrNoMembers())
+    harness.Context.RegisterCanonicalType(AttributePath(), "MarkerAttribute", declared)
+    AttrDeclare(harness, "MarkerAttribute", declared)
+    return harness
+}
+
+func AttrTwoMarkers(): List<AttributeNode> {
+    nodes := AttrNodes(AttrNode("Marker", AttrArgs()))
+    nodes.Add(AttrNode("Marker", AttrArgs()))
+    return nodes
+}
+
 func AttrObsolete(): Type {
     return AttrRuntimeType("System.ObsoleteAttribute")
 }
@@ -1739,4 +1780,91 @@ test "an ORDINARY attribute in any of those positions is not touched by the Meth
     harness.Validator.ValidateDeclarationAttributeArguments(declared)
 
     assert !AttrHasCode(harness.Errors, ErrorCode.MethodImplTargetInvalid)
+}
+
+// ─── where an attribute may be written, and how often ─────────────────────────────────────────
+
+test "an EXTERNAL attribute on a declaration its usage excludes is refused" {
+    harness := AttributeHarnessNew()
+
+    harness.Validator.ValidateAttributeArgumentsOn(AttrNodes(AttrNode("Obsolete", AttrArgs())), AnalyzerAttributeUsageFacts.ParameterTarget)
+
+    assert harness.Errors.Count == 1
+    assert harness.Errors[0].Code == ErrorCode.AttributeTargetInvalid
+    assert harness.Errors[0].Message.StartsWith("Attribute 'System.ObsoleteAttribute' cannot be applied to a parameter — it is declared for ")
+}
+
+test "an EXTERNAL attribute on a declaration its usage allows is accepted" {
+    harness := AttributeHarnessNew()
+
+    harness.Validator.ValidateAttributeArgumentsOn(AttrNodes(AttrNode("Obsolete", AttrArgs())), AnalyzerAttributeUsageFacts.MethodTarget)
+
+    assert harness.Errors.Count == 0
+}
+
+// NO TARGET KNOWN IS NOT A TARGET. The door that takes an attribute list without saying what carries
+// it asks every other rule and not this one.
+test "an attribute list with no declaration behind it is not measured for placement" {
+    harness := AttributeHarnessNew()
+
+    harness.Validator.ValidateAttributeArguments(AttrNodes(AttrNode("Obsolete", AttrArgs())))
+
+    assert harness.Errors.Count == 0
+}
+
+test "an EXTERNAL attribute written twice is refused once, on the SECOND one" {
+    harness := AttributeHarnessNew()
+    nodes := AttrNodes(AttrNode("Obsolete", AttrArgs()))
+    nodes.Add(AttrNode("Obsolete", AttrArgs()))
+
+    harness.Validator.ValidateAttributeArgumentsOn(nodes, AnalyzerAttributeUsageFacts.MethodTarget)
+
+    assert harness.Errors.Count == 1
+    assert harness.Errors[0].Code == ErrorCode.AttributeNotRepeatable
+    assert harness.Errors[0].Message == "Attribute 'System.ObsoleteAttribute' is already applied to this declaration and does not allow multiples"
+}
+
+test "a SOURCE attribute's own AttributeUsage decides where it may be written" {
+    harness := AttrUsageHarness("Class", false)
+
+    harness.Validator.ValidateAttributeArgumentsOn(AttrNodes(AttrNode("Marker", AttrArgs())), AnalyzerAttributeUsageFacts.MethodTarget)
+
+    assert harness.Errors.Count == 1
+    assert harness.Errors[0].Code == ErrorCode.AttributeTargetInvalid
+    assert harness.Errors[0].Message == "Attribute 'MarkerAttribute' cannot be applied to a function — it is declared for classes"
+}
+
+test "a SOURCE attribute written where its AttributeUsage allows is accepted" {
+    harness := AttrUsageHarness("Class", false)
+
+    harness.Validator.ValidateAttributeArgumentsOn(AttrNodes(AttrNode("Marker", AttrArgs())), AnalyzerAttributeUsageFacts.ClassTarget)
+
+    assert harness.Errors.Count == 0
+}
+
+test "a SOURCE attribute without AllowMultiple is refused the second time" {
+    harness := AttrUsageHarness("Method", false)
+
+    harness.Validator.ValidateAttributeArgumentsOn(AttrTwoMarkers(), AnalyzerAttributeUsageFacts.MethodTarget)
+
+    assert harness.Errors.Count == 1
+    assert harness.Errors[0].Code == ErrorCode.AttributeNotRepeatable
+}
+
+test "a SOURCE attribute with AllowMultiple admits the second one" {
+    harness := AttrUsageHarness("Method", true)
+
+    harness.Validator.ValidateAttributeArgumentsOn(AttrTwoMarkers(), AnalyzerAttributeUsageFacts.MethodTarget)
+
+    assert harness.Errors.Count == 0
+}
+
+// A PROPERTY OFFERS BOTH BITS because N# has no attribute position inside accessor braces, so an
+// attribute declared for methods is writable on a property and reaches its accessors.
+test "a property accepts an attribute declared for methods" {
+    harness := AttrUsageHarness("Method", false)
+
+    harness.Validator.ValidateAttributeArgumentsOn(AttrNodes(AttrNode("Marker", AttrArgs())), AnalyzerAttributeUsageFacts.PropertyDeclarationTargets())
+
+    assert harness.Errors.Count == 0
 }

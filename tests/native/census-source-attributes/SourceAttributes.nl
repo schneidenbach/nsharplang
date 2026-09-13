@@ -126,8 +126,26 @@ class ExternallyBasedAttribute: DiscardableAttribute {
     }
 }
 
+// `[AttributeUsage]` ON THE DECLARATION IS HONORED, and it is read from the source: the type does not
+// exist as metadata while the program that declares it is being compiled. `AllowMultiple = true` is
+// what makes the two applications below legal, and it survives into the emitted attribute type so a
+// consumer of this assembly reads the same answer.
+[AttributeUsage(AttributeTargets.Method, AllowMultiple = true)]
+class TagAttribute: Attribute {
+    Name: string
+
+    constructor(name: string) {
+        Name = name
+    }
+}
+
 [Mark("on the class", 7)]
 class Target {
+    [Tag("first")]
+    [Tag("second")]
+    func Tagged() {
+    }
+
     [Mark]
     func Bare() {
     }

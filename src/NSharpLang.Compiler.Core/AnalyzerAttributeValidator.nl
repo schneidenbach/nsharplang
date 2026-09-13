@@ -134,7 +134,7 @@ class AnalyzerAttributeValidator {
 
         functionDecl := decl as FunctionDeclaration
         if functionDecl != null {
-            ValidateAttributeArguments(functionDecl.Attributes)
+            ValidateAttributeArgumentsOn(functionDecl.Attributes, AnalyzerAttributeUsageFacts.MethodTarget)
             ValidateParameterAttributeArguments(functionDecl.Parameters)
             ValidateNativeImportSignature(functionDecl)
             ValidateMethodImplCarrier(functionDecl.Attributes, functionDecl.Body != null || functionDecl.ExpressionBody != null)
@@ -143,7 +143,7 @@ class AnalyzerAttributeValidator {
 
         classDecl := decl as ClassDeclaration
         if classDecl != null {
-            ValidateAttributeArguments(classDecl.Attributes)
+            ValidateAttributeArgumentsOn(classDecl.Attributes, AnalyzerAttributeUsageFacts.ClassTarget)
             ValidateParameterAttributeArguments(classDecl.PrimaryConstructorParameters)
             ReportMethodImplOnNonCarrier(classDecl.Attributes, "a class")
             return
@@ -151,7 +151,7 @@ class AnalyzerAttributeValidator {
 
         structDecl := decl as StructDeclaration
         if structDecl != null {
-            ValidateAttributeArguments(structDecl.Attributes)
+            ValidateAttributeArgumentsOn(structDecl.Attributes, AnalyzerAttributeUsageFacts.StructTarget)
             ValidateParameterAttributeArguments(structDecl.PrimaryConstructorParameters)
             ReportMethodImplOnNonCarrier(structDecl.Attributes, "a struct")
             ValidateValueTypeMemberMethodImpl(structDecl.Members)
@@ -160,7 +160,12 @@ class AnalyzerAttributeValidator {
 
         recordDecl := decl as RecordDeclaration
         if recordDecl != null {
-            ValidateAttributeArguments(recordDecl.Attributes)
+            recordTarget := AnalyzerAttributeUsageFacts.ClassTarget
+            if recordDecl.IsStruct {
+                recordTarget = AnalyzerAttributeUsageFacts.StructTarget
+            }
+
+            ValidateAttributeArgumentsOn(recordDecl.Attributes, recordTarget)
             ValidateParameterAttributeArguments(recordDecl.PrimaryConstructorParameters)
             ReportMethodImplOnNonCarrier(recordDecl.Attributes, "a record")
             if recordDecl.IsStruct {
@@ -172,49 +177,49 @@ class AnalyzerAttributeValidator {
 
         soaRecordDecl := decl as SoaRecordDeclaration
         if soaRecordDecl != null {
-            ValidateAttributeArguments(soaRecordDecl.Attributes)
+            ValidateAttributeArgumentsOn(soaRecordDecl.Attributes, AnalyzerAttributeUsageFacts.StructTarget)
             ReportMethodImplOnNonCarrier(soaRecordDecl.Attributes, "a struct-of-arrays record")
             return
         }
 
         interfaceDecl := decl as InterfaceDeclaration
         if interfaceDecl != null {
-            ValidateAttributeArguments(interfaceDecl.Attributes)
+            ValidateAttributeArgumentsOn(interfaceDecl.Attributes, AnalyzerAttributeUsageFacts.InterfaceTarget)
             ReportMethodImplOnNonCarrier(interfaceDecl.Attributes, "an interface")
             return
         }
 
         unionDecl := decl as UnionDeclaration
         if unionDecl != null {
-            ValidateAttributeArguments(unionDecl.Attributes)
+            ValidateAttributeArgumentsOn(unionDecl.Attributes, AnalyzerAttributeUsageFacts.ClassTarget)
             ReportMethodImplOnNonCarrier(unionDecl.Attributes, "a union")
             return
         }
 
         enumDecl := decl as EnumDeclaration
         if enumDecl != null {
-            ValidateAttributeArguments(enumDecl.Attributes)
+            ValidateAttributeArgumentsOn(enumDecl.Attributes, AnalyzerAttributeUsageFacts.EnumTarget)
             ReportMethodImplOnNonCarrier(enumDecl.Attributes, "an enum")
             return
         }
 
         fieldDecl := decl as FieldDeclaration
         if fieldDecl != null {
-            ValidateAttributeArguments(fieldDecl.Attributes)
+            ValidateAttributeArgumentsOn(fieldDecl.Attributes, AnalyzerAttributeUsageFacts.FieldTarget)
             ReportMethodImplOnNonCarrier(fieldDecl.Attributes, "a field")
             return
         }
 
         propertyDecl := decl as PropertyDeclaration
         if propertyDecl != null {
-            ValidateAttributeArguments(propertyDecl.Attributes)
+            ValidateAttributeArgumentsOn(propertyDecl.Attributes, AnalyzerAttributeUsageFacts.PropertyDeclarationTargets())
             ValidateMethodImplCarrier(propertyDecl.Attributes, true)
             return
         }
 
         constructorDecl := decl as ConstructorDeclaration
         if constructorDecl != null {
-            ValidateAttributeArguments(constructorDecl.Attributes)
+            ValidateAttributeArgumentsOn(constructorDecl.Attributes, AnalyzerAttributeUsageFacts.ConstructorTarget)
             ValidateParameterAttributeArguments(constructorDecl.Parameters)
             ValidateMethodImplCarrier(constructorDecl.Attributes, true)
             return
@@ -222,7 +227,7 @@ class AnalyzerAttributeValidator {
 
         indexerDecl := decl as IndexerDeclaration
         if indexerDecl != null {
-            ValidateAttributeArguments(indexerDecl.Attributes)
+            ValidateAttributeArgumentsOn(indexerDecl.Attributes, AnalyzerAttributeUsageFacts.PropertyDeclarationTargets())
             ValidateParameterAttributeArguments(indexerDecl.Parameters)
             ValidateMethodImplCarrier(indexerDecl.Attributes, true)
         }
@@ -418,7 +423,7 @@ class AnalyzerAttributeValidator {
         }
 
         for parameter in parameters {
-            ValidateAttributeArguments(parameter.Attributes)
+            ValidateAttributeArgumentsOn(parameter.Attributes, AnalyzerAttributeUsageFacts.ParameterTarget)
             ReportMethodImplOnNonCarrier(parameter.Attributes, "a parameter")
         }
     }
@@ -484,11 +489,22 @@ class AnalyzerAttributeValidator {
     // THE CONSTRUCTOR AND NAMED-MEMBER QUESTIONS ARE ASKED ONLY WHEN EVERY ARGUMENT WAS CONSTANT.
     // One non-constant argument already produced the sentence the developer must act on; adding "no
     // constructor accepts these types" on top of it would name types that were never computed.
+    // THE PUBLIC DOOR THAT SAYS NOTHING ABOUT PLACEMENT. A caller with an attribute list and no
+    // declaration behind it asks this one; the `[AttributeUsage]` PLACEMENT rule is then not asked at
+    // all, while every other rule still is.
     func ValidateAttributeArguments(attributes: List<AttributeNode>?) {
+        ValidateAttributeArgumentsOn(attributes, AnalyzerAttributeUsageFacts.UnknownTarget)
+    }
+
+    func ValidateAttributeArgumentsOn(attributes: List<AttributeNode>?, target: int) {
         if attributes == null {
             return
         }
 
+        // HOW MANY TIMES EACH ATTRIBUTE TYPE HAS BEEN WRITTEN ON THIS ONE DECLARATION, keyed by the
+        // type's display name because that is the identity both the metadata and the source arms can
+        // produce. The count is reset per declaration, which is the scope `AllowMultiple` governs.
+        appliedCounts := new Dictionary<string, int>(StringComparer.Ordinal)
         for attribute in attributes {
             if IsSystemsPolicyAttribute(attribute) {
                 continue
@@ -531,6 +547,16 @@ class AnalyzerAttributeValidator {
                     ValidateClrAttributeArguments(attribute, attributeType, argumentInfos)
                 }
 
+                // `[MethodImpl]`'s PLACEMENT IS OWNED BY ITS OWN RULE, which says the same thing
+                // better: NL930 names the missing implementation-flags column rather than quoting an
+                // `AttributeUsage` list. Asking both would report one mistake twice. Its REPETITION
+                // rule is still asked here — nothing else asks it.
+                placementTarget := target
+                if MethodImplAttributeFacts.IsMethodImplAttributeType(attributeType) {
+                    placementTarget = AnalyzerAttributeUsageFacts.UnknownTarget
+                }
+
+                EnforceAttributeUsage(attribute, GetAttributeDisplayName(attributeType), AnalyzerAttributeUsageFacts.ReadUsage(attributeType), placementTarget, appliedCounts)
                 continue
             }
 
@@ -546,6 +572,8 @@ class AnalyzerAttributeValidator {
                     if allConstantsValid {
                         ValidateSourceAttributeArguments(attribute, sourceType, argumentInfos)
                     }
+
+                    EnforceAttributeUsage(attribute, GetSourceAttributeDisplayName(sourceType), ReadSourceAttributeUsage(sourceType), target, appliedCounts)
                 } else {
                     // The type's OWN display form, read through an `object`-typed local because
                     // `ToString` is declared by the base of the `TypeInfo` hierarchy rather than by
@@ -1219,6 +1247,174 @@ class AnalyzerAttributeValidator {
         }
 
         diagnostics.Report(ErrorCode.TypeNotFound, "Attribute type '" + attribute.Name + "' not found", span.Line, span.Column, "Check the spelling, add the missing 'import', or define an attribute class named '" + suggestedAttributeName + "'.", span.Length)
+    }
+
+    // ------------------------------------------------------------------------------------------
+    // WHERE AN ATTRIBUTE MAY BE WRITTEN, AND HOW OFTEN.
+    //
+    // `[AttributeUsage]` is the only attribute whose subject is another attribute, and the two things
+    // it decides are decided HERE rather than at the CLR's expense: an attribute written on a
+    // declaration its usage excludes would otherwise become a metadata row that loads fine and means
+    // nothing, and a repeated attribute on a type that does not allow it is a `TypeLoadException` the
+    // first time anyone reads it.
+    //
+    // THE TARGET IS THE DECLARATION'S, NOT THE ATTRIBUTE'S. A property in N# has no per-accessor
+    // attribute position — the attribute is written once and reaches both accessors — so a property
+    // offers BOTH `Property` and `Method`, and an attribute declared for either is accepted there.
+    // That is a language fact about where attributes can be written, not a relaxation of the rule.
+    // ------------------------------------------------------------------------------------------
+
+    func EnforceAttributeUsage(attribute: AttributeNode, displayName: string, usage: AnalyzerAttributeUsage, target: int, appliedCounts: Dictionary<string, int>) {
+        if target != AnalyzerAttributeUsageFacts.UnknownTarget && (usage.Targets & target) == 0 {
+            ReportAttributeTargetInvalid(attribute, displayName, usage, target)
+        }
+
+        applied := 0
+        appliedCounts.TryGetValue(displayName, out applied)
+        appliedCounts[displayName] = applied + 1
+        if applied > 0 && !usage.AllowMultiple {
+            ReportAttributeNotRepeatable(attribute, displayName)
+        }
+    }
+
+    func ReportAttributeTargetInvalid(attribute: AttributeNode, displayName: string, usage: AnalyzerAttributeUsage, target: int) {
+        span := AnalyzerDiagnosticSpanFacts.GetAttributeTypeDiagnosticSpan(attribute)
+        diagnostics.Report(ErrorCode.AttributeTargetInvalid, "Attribute '" + displayName + "' cannot be applied to " + AnalyzerAttributeUsageFacts.DescribeTarget(target) + " — it is declared for " + AnalyzerAttributeUsageFacts.DescribeTargets(usage.Targets), span.Line, span.Column, "Move it to one of those declarations, or widen the attribute's own '[AttributeUsage(...)]'.", span.Length)
+    }
+
+    func ReportAttributeNotRepeatable(attribute: AttributeNode, displayName: string) {
+        span := AnalyzerDiagnosticSpanFacts.GetAttributeTypeDiagnosticSpan(attribute)
+        diagnostics.Report(ErrorCode.AttributeNotRepeatable, "Attribute '" + displayName + "' is already applied to this declaration and does not allow multiples", span.Line, span.Column, "Delete the duplicate, or declare the attribute with '[AttributeUsage(..., AllowMultiple = true)]'.", span.Length)
+    }
+
+    // THE USAGE A SOURCE-DECLARED ATTRIBUTE ANNOUNCES, read from its own DECLARATION — the type does
+    // not exist as metadata while the program that declares it is being compiled. `[AttributeUsage]`
+    // is itself inherited, so a declaration that carries none asks its base, and the walk crosses into
+    // metadata at the first base that came from a referenced assembly.
+    func ReadSourceAttributeUsage(sourceType: TypeInfo): AnalyzerAttributeUsage {
+        current: TypeInfo = sourceType
+        depth := 0
+        while depth < 64 {
+            resolved := declarationContext.ResolveDeclaredAlias(current)
+            reflection := resolved as ReflectionTypeInfo
+            if reflection != null {
+                return AnalyzerAttributeUsageFacts.ReadUsage(reflection.Type)
+            }
+
+            classType := resolved as ClassTypeInfo
+            if classType == null {
+                return AnalyzerAttributeUsageFacts.DefaultUsage()
+            }
+
+            declaredAttributes := new List<AttributeNode>()
+            usage := AnalyzerAttributeUsageFacts.DefaultUsage()
+            if declarationContext.TryGetDeclaredClassAttributes(classType, classType.Name, out declaredAttributes) && TryReadDeclaredAttributeUsage(declaredAttributes, out usage) {
+                return usage
+            }
+
+            shape := new AnalyzerSourceMemberShape()
+            if !declarationContext.TryGetSourceMemberShape(classType, null, out shape) {
+                return AnalyzerAttributeUsageFacts.DefaultUsage()
+            }
+
+            declaredBase := shape.BaseType
+            if declaredBase == null {
+                return AnalyzerAttributeUsageFacts.DefaultUsage()
+            }
+
+            current = declaredBase
+            depth = depth + 1
+        }
+
+        return AnalyzerAttributeUsageFacts.DefaultUsage()
+    }
+
+    // ONE `[AttributeUsage(...)]` AS WRITTEN. The positional argument is an `AttributeTargets`
+    // expression — a member access or a `|` combination of them — and it is evaluated against the
+    // runtime enum through the same evaluator `[MethodImpl]`'s options use. An argument this compiler
+    // cannot reduce leaves the DEFAULT in place rather than inventing a narrower one, because a wrong
+    // narrowing would refuse correct programs.
+    func TryReadDeclaredAttributeUsage(declaredAttributes: List<AttributeNode>, out usage: AnalyzerAttributeUsage): bool {
+        usage = AnalyzerAttributeUsageFacts.DefaultUsage()
+        targetsType: Type = typeof(object)
+        attributeIndex := 0
+        while attributeIndex < declaredAttributes.Count {
+            declaredAttribute := declaredAttributes[attributeIndex]
+            attributeIndex = attributeIndex + 1
+            if !AnalyzerAttributeUsageFacts.IsAttributeUsageName(declaredAttribute.Name) {
+                continue
+            }
+
+            if !TryResolveAttributeTargetsType(out targetsType) {
+                return false
+            }
+
+            targets := AnalyzerAttributeUsageFacts.AllTargets
+            allowMultiple := false
+            inherited := true
+            declaredArguments := declaredAttribute.Arguments
+            argumentIndex := 0
+            while argumentIndex < declaredArguments.Count {
+                declaredArgument := declaredArguments[argumentIndex]
+                argumentIndex = argumentIndex + 1
+                argumentName: string? = null
+                valueExpression: Expression = declaredArgument.Value
+                NormalizeAttributeArgument(declaredArgument, out argumentName, out valueExpression)
+                if argumentName == null {
+                    evaluatedTargets := 0
+                    if MethodImplAttributeFacts.TryEvaluate(valueExpression, targetsType, out evaluatedTargets) {
+                        targets = evaluatedTargets
+                    }
+
+                    continue
+                }
+
+                booleanValue := false
+                if !TryReadBooleanAttributeArgument(valueExpression, out booleanValue) {
+                    continue
+                }
+
+                if argumentName == AnalyzerAttributeUsageFacts.AllowMultipleMemberName() {
+                    allowMultiple = booleanValue
+                }
+
+                if argumentName == AnalyzerAttributeUsageFacts.InheritedMemberName() {
+                    inherited = booleanValue
+                }
+            }
+
+            usage = new AnalyzerAttributeUsage(targets, allowMultiple, inherited)
+            return true
+        }
+
+        return false
+    }
+
+    func TryResolveAttributeTargetsType(out targetsType: Type): bool {
+        targetsType = typeof(object)
+        resolved := externalTypeProbe.ResolveExternalType("System.AttributeTargets")
+        if resolved == null {
+            return false
+        }
+
+        reflection := resolved as ReflectionTypeInfo
+        if reflection == null {
+            return false
+        }
+
+        targetsType = reflection.Type
+        return true
+    }
+
+    static func TryReadBooleanAttributeArgument(expression: Expression, out value: bool): bool {
+        value = false
+        boolLiteral := expression as BoolLiteralExpression
+        if boolLiteral == null {
+            return false
+        }
+
+        value = boolLiteral.Value
+        return true
     }
 
     func ReportAttributeTypeMustDeriveFromAttribute(attribute: AttributeNode, typeName: string) {

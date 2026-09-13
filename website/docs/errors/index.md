@@ -174,6 +174,8 @@ These are not style rules; style is `nlc format`'s job and produces no diagnosti
 | [`NL930`](./NL930.md) | `[MethodImpl]` on a declaration that has no implementation flags to set. |
 | [`NL931`](./NL931.md) | A `[MethodImpl]` value with a bit no `MethodImplOptions` member defines. |
 | [`NL932`](./NL932.md) | A `MethodImplOptions` combination the CLR's type loader will refuse for this member. |
+| [`NL933`](./NL933.md) | An attribute applied to a declaration its `[AttributeUsage]` excludes. |
+| [`NL934`](./NL934.md) | An attribute applied twice where its `[AttributeUsage]` allows only one. |
 
 ## Systems policy — `NSYSxxx`
 

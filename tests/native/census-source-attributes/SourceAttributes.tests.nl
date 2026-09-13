@@ -139,6 +139,24 @@ test "inherit true finds an attribute written on the overridden method" {
     assert inherited.Tag == "inherited"
 }
 
+// ALLOWMULTIPLE IS NOT ONLY AN ANALYZER RULE. Two rows have to reach the assembly, and the emitted
+// attribute type has to carry the `[AttributeUsage]` that makes them legal.
+test "an attribute declaring AllowMultiple is emitted twice" {
+    found := RequiredMethod("Tagged").GetCustomAttributes(typeof(TagAttribute), false)
+    assert found.Length == 2
+    first := found[0] as TagAttribute
+    second := found[1] as TagAttribute
+    assert first.Name != second.Name
+    assert first.Name == "first" || first.Name == "second"
+    assert second.Name == "first" || second.Name == "second"
+}
+
+test "the emitted attribute type carries its own AttributeUsage" {
+    usage := typeof(TagAttribute).GetCustomAttribute(typeof(AttributeUsageAttribute), false) as AttributeUsageAttribute
+    assert usage.AllowMultiple
+    assert usage.ValidOn == AttributeTargets.Method
+}
+
 test "the emitted custom attribute rows name the constructors the source chose" {
     data := RequiredMethod("NamedField").GetCustomAttributesData()
     marks := 0
