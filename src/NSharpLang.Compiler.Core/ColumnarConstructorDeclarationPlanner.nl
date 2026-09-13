@@ -327,43 +327,12 @@ class ColumnarConstructorDeclarationPlanner {
         return false
     }
 
+    // The emitted source type is in another assembly, so `public`, `protected` and
+    // `protected internal` permit a derived constructor call and the other three levels do not.
+    // `ColumnarExternalBaseConstructors` owns that relation, and the walk through the generic
+    // definition that a base closed over a source type needs.
     static func ResolveAccessibleExternalParameterlessConstructor(baseType: Type): ConstructorInfo? {
-        flags := BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance
-        constructors := baseType.GetConstructors(flags)
-        constructorIndex := 0
-        while constructorIndex < constructors.Length {
-            candidate := constructors[constructorIndex]
-            // The emitted source type is in another assembly. Public (6), Family (4), and
-            // FamORAssem (5) therefore permit a derived constructor call; Assembly (3),
-            // FamANDAssem (2), and Private (1) do not.
-            accessAttributes := (int)candidate.get_Attributes() & 7
-            if candidate.GetParameters().Length == 0 && (accessAttributes == 6 || accessAttributes == 4 || accessAttributes == 5) {
-                return candidate
-            }
-            constructorIndex += 1
-        }
-        return null
-    }
-
-    // EVERY CONSTRUCTOR OF AN EXTERNAL BASE THIS ASSEMBLY MAY CALL. The emitted type lives in another
-    // assembly, so the same three access levels a parameterless base constructor is accepted at are
-    // the ones a parameterised one is accepted at.
-    static func ResolveAccessibleExternalConstructors(baseType: Type): List<ConstructorInfo> {
-        accessible := new List<ConstructorInfo>()
-        flags := BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance
-        constructors := baseType.GetConstructors(flags)
-        constructorIndex := 0
-        while constructorIndex < constructors.Length {
-            candidate := constructors[constructorIndex]
-            accessAttributes := (int)candidate.get_Attributes() & 7
-            if accessAttributes == 6 || accessAttributes == 4 || accessAttributes == 5 {
-                accessible.Add(candidate)
-            }
-
-            constructorIndex += 1
-        }
-
-        return accessible
+        return ColumnarExternalBaseConstructors.ResolveParameterless(baseType)
     }
 
     static func ResolveImplicitBaseConstructor(definition: ColumnarStructDef, objectConstructor: ConstructorInfo): ConstructorInfo? {

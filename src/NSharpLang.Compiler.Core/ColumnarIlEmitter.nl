@@ -26632,17 +26632,17 @@ sealed class ColumnarIlEmitter {
         }
 
         argCount := ctor.ChainArgNodes.Length
-        candidates := new List<ConstructorInfo>()
-        for candidate in ColumnarConstructorDeclarationPlanner.ResolveAccessibleExternalConstructors(baseType) {
-            parameters := candidate.GetParameters()
-            if parameters.Length < argCount {
+        candidates := new List<ColumnarExternalBaseConstructor>()
+        for candidate in ColumnarExternalBaseConstructors.Resolve(baseType) {
+            parameterTypes := candidate.ParameterTypes
+            if parameterTypes.Length < argCount {
                 continue
             }
 
             usable := true
             defaultIndex := argCount
-            while defaultIndex < parameters.Length {
-                if !ColumnarParameterDefaultEmitter.CanUseMetadataDefaultAs(parameters[defaultIndex], parameters[defaultIndex].get_ParameterType()) {
+            while defaultIndex < parameterTypes.Length {
+                if !ColumnarParameterDefaultEmitter.CanUseMetadataDefaultAs(candidate.Parameters[defaultIndex], parameterTypes[defaultIndex]) {
                     usable = false
                     break
                 }
@@ -26659,9 +26659,9 @@ sealed class ColumnarIlEmitter {
             return false
         }
 
-        exactCandidates := new List<ConstructorInfo>()
+        exactCandidates := new List<ColumnarExternalBaseConstructor>()
         for candidate in candidates {
-            if candidate.GetParameters().Length == argCount {
+            if candidate.ParameterTypes.Length == argCount {
                 exactCandidates.Add(candidate)
             }
         }
@@ -26670,16 +26670,16 @@ sealed class ColumnarIlEmitter {
             candidates = exactCandidates
         }
 
-        selected: ConstructorInfo = null
+        selected: ColumnarExternalBaseConstructor? = null
         if candidates.Count == 1 {
             selected = candidates[0]
         } else {
             for candidate in candidates {
-                candidateParameters := candidate.GetParameters()
+                candidateParameterTypes := candidate.ParameterTypes
                 matches := true
                 argumentIndex := 0
                 while argumentIndex < argCount {
-                    if !CanEmitConstructorChainArgumentAs(ctor, argumentIndex, candidateParameters[argumentIndex].get_ParameterType()) {
+                    if (!CanEmitConstructorChainArgumentAs(ctor, argumentIndex, candidateParameterTypes[argumentIndex])) {
                         matches = false
                         break
                     }
@@ -26688,7 +26688,7 @@ sealed class ColumnarIlEmitter {
                 }
 
                 if matches {
-                    if selected != null {
+                    if (selected != null) {
                         return false
                     }
 
@@ -26697,21 +26697,13 @@ sealed class ColumnarIlEmitter {
             }
         }
 
-        if selected == null {
+        if (selected == null) {
             return false
         }
 
-        selectedParameters := selected.GetParameters()
-        parameterTypes := new Type[](selectedParameters.Length)
-        parameterIndex := 0
-        while parameterIndex < selectedParameters.Length {
-            parameterTypes[parameterIndex] = selectedParameters[parameterIndex].get_ParameterType()
-            parameterIndex = parameterIndex + 1
-        }
-
-        chosenCtor = selected
-        chosenParamTypes = parameterTypes
-        chosenMetadataParameters = selectedParameters
+        chosenCtor = selected.Handle
+        chosenParamTypes = selected.ParameterTypes
+        chosenMetadataParameters = selected.Parameters
         return true
     }
 

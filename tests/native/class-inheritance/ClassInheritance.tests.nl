@@ -385,3 +385,32 @@ test "a static member of an external base is read through the derived type" {
     // declares it, and naming a derived type does not give it a second copy.
     assert Object.ReferenceEquals(shared, Random.Shared)
 }
+
+// THE GENERIC EXTERNAL BASE CLOSED OVER A SOURCE TYPE. The build succeeding is the first half of the
+// proof — this shape used to crash `nlc check` outright — and these are the second: the type really
+// IS that instantiation, its inherited members really run, and the explicit base chain really passed
+// its argument to the base constructor it selected.
+test "a base closed over a source type is the parent the source wrote" {
+    assert typeof(Catalogue).BaseType == typeof(Collection<Catalogued>)
+    assert typeof(SeededCatalogue).BaseType == typeof(Collection<Catalogued>)
+}
+
+test "an inherited member of a base closed over a source type runs" {
+    catalogue := new Catalogue()
+    assert catalogue.Size() == 0
+
+    catalogue.Add(new Catalogued("first"))
+    catalogue.Add(new Catalogued("second"))
+    assert catalogue.Size() == 2
+    assert catalogue.Count == 2
+    assert catalogue[1].Title == "second"
+}
+
+test "an explicit base chain into a base closed over a source type passes its argument" {
+    seed := new List<Catalogued>()
+    seed.Add(new Catalogued("seeded"))
+
+    catalogue := new SeededCatalogue(seed)
+    assert catalogue.Count == 1
+    assert catalogue[0].Title == "seeded"
+}

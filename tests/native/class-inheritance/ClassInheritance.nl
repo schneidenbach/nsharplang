@@ -386,3 +386,38 @@ class TaggedError: System.Exception {
 // slice owns.
 class SharedRandom: System.Random {
 }
+
+// A GENERIC EXTERNAL BASE CLOSED OVER A TYPE THIS COMPILATION IS WRITING.
+//
+// `Collection<Item>` where `Item` is a source class is not a type the CLR has a handle for while the
+// builders are open: Reflection.Emit models it as a `TypeBuilderInstantiation`, and every member
+// query on one throws `NotSupportedException`. The base-constructor walk asked it directly, so
+// `nlc check` on this shape did not decline — it CRASHED, reporting
+// "TypeBuilder generic instantiation does not support resolving members" with no file, no line and
+// no diagnostic code. The constructors are read off the generic DEFINITION and rebound onto the
+// instantiation with `TypeBuilder.GetConstructor` instead, which is the one legal way to name a
+// member of such a type.
+class Catalogued {
+    Title: string
+
+    constructor(title: string) {
+        Title = title
+    }
+}
+
+class Catalogue: System.Collections.ObjectModel.Collection<Catalogued> {
+
+    // Reading even a PUBLIC inherited member — `Count` is `Collection<T>`'s own — is what the crash
+    // took out, because declaring the type at all had to resolve its base constructor first.
+    func Size(): int {
+        return this.Count
+    }
+}
+
+// The same shape with an EXPLICIT `: base(...)` chain, which selects among the base's constructors
+// rather than taking the parameterless one implicitly. `Collection<T>` declares `Collection()` and
+// `Collection(IList<T>)`, and the second is typed in the instantiation's own argument.
+class SeededCatalogue: System.Collections.ObjectModel.Collection<Catalogued> {
+    constructor(seed: System.Collections.Generic.IList<Catalogued>): base(seed) {
+    }
+}
