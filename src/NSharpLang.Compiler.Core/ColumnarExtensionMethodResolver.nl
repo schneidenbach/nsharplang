@@ -845,6 +845,18 @@ class ColumnarExtensionMethodResolver {
             return true
         }
 
+        // A TYPE CLOSED OVER A TYPE THIS COMPILATION IS WRITING answers `IsAssignableFrom` with a
+        // throw, because its interface list is not reflectable: `List<Query>` and `Query[]` both do,
+        // for a source class `Query`. The closed shapes such a receiver HAS are the same question
+        // method type inference asks of it, so the same owner answers both — there is one notion of
+        // "what interface does this receiver have" and not two.
+        if expectedType.get_IsGenericType() && !expectedType.get_IsGenericTypeDefinition() {
+            implementation := ColumnarContextualExtensionInference.FindClosedImplementation(actualType, expectedType.GetGenericTypeDefinition())
+            if implementation != null && ColumnarTypeEquivalenceFacts.TypesEquivalent(implementation, expectedType) {
+                return true
+            }
+        }
+
         try {
             return expectedType.IsAssignableFrom(actualType)
         } catch {

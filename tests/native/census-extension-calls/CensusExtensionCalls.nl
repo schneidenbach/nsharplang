@@ -1,0 +1,84 @@
+namespace NSharpLang.CensusExtensionCalls.Tests
+
+import System
+import System.Collections.Generic
+
+
+// THE EXTENSION-CALL SHAPES THE 2026-09-12 CONVERTER CENSUS FOUND, AS RUNNING CODE.
+//
+// Every converted project is LINQ-dense, and an extension call is one relation applied twice: the
+// receiver's static type is converted to the `this` parameter's type by the ordinary assignability
+// relation, and method type inference fixes the type parameters from whatever the receiver and the
+// arguments fixed. The census found the relation stopping short of the RECEIVERS the programs
+// actually wrote — most of all a sequence whose ELEMENT is a type this very compilation is writing,
+// where `List<Query>` is a builder-bound instantiation whose interface list reflection refuses to
+// report at all.
+//
+// Everything here EXECUTES. The declared type of a LINQ result proves nothing on its own; the
+// runtime value and the runtime type it answers with are what prove the right method was selected
+// and the right IL was written for it.
+class Query {
+    Name: string
+    Weight: int
+
+    constructor(name: string, weight: int) {
+        Name = name
+        Weight = weight
+    }
+
+    func Describe(prefix: string): string {
+        return prefix + Name
+    }
+}
+
+struct Point {
+    X: int
+    Y: int
+
+    constructor(x: int, y: int) {
+        X = x
+        Y = y
+    }
+}
+
+func Queries(): List<Query> {
+    values := new List<Query>()
+    values.Add(new Query("alpha", 3))
+    values.Add(new Query("be", 1))
+    values.Add(new Query("gamma", 2))
+    return values
+}
+
+func Words(): List<string> {
+    values := new List<string>()
+    values.Add("alpha")
+    values.Add("be")
+    values.Add("gamma")
+    return values
+}
+
+func Points(): List<Point> {
+    values := new List<Point>()
+    values.Add(new Point(1, 2))
+    values.Add(new Point(3, 4))
+    return values
+}
+
+func WordArray(): string[] {
+    return ["alpha", "be", "gamma"]
+}
+
+func QueryArray(): Query[] {
+    return [new Query("alpha", 3), new Query("be", 1)]
+}
+
+func WeightsByName(): Dictionary<string, int> {
+    map := new Dictionary<string, int>()
+    map["alpha"] = 3
+    map["be"] = 1
+    return map
+}
+
+func RuntimeTypeOf(value: object): Type {
+    return value.GetType()
+}

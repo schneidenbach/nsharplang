@@ -262,3 +262,52 @@ test "a slot with nothing open in it carries no inference and refuses nothing" {
     assert ColumnarContextualExtensionInference.TryUnifySlot(typeof(int), typeof(string), typeParameters, inferred)
     assert inferred[0] == null
 }
+
+// ── what closed shapes a receiver HAS, which is one question with one owner ────────────────────
+test "an array is the sequence interfaces the CLR says a vector implements, closed over its element" {
+    assert ColumnarContextualExtensionInference.FindClosedImplementation(typeof(string[]), typeof(IEnumerable<int>).GetGenericTypeDefinition()) == typeof(IEnumerable<string>)
+    assert ColumnarContextualExtensionInference.FindClosedArrayImplementation(typeof(string[]), typeof(IEnumerable<int>).GetGenericTypeDefinition()) == typeof(IEnumerable<string>)
+    assert ColumnarContextualExtensionInference.FindClosedArrayImplementation(typeof(string[]), typeof(IReadOnlyList<int>).GetGenericTypeDefinition()) == typeof(IReadOnlyList<string>)
+    assert ColumnarContextualExtensionInference.FindClosedArrayImplementation(typeof(string[]), typeof(IList<int>).GetGenericTypeDefinition()) == typeof(IList<string>)
+}
+
+test "an interface a vector does NOT implement is not manufactured for it" {
+    assert ColumnarContextualExtensionInference.FindClosedArrayImplementation(typeof(string[]), typeof(IDictionary<int, int>).GetGenericTypeDefinition()) == null
+    assert ColumnarContextualExtensionInference.FindClosedArrayImplementation(typeof(string), typeof(IEnumerable<int>).GetGenericTypeDefinition()) == null
+    assert !ColumnarContextualExtensionInference.SzArrayImplementsDefinition(typeof(IDictionary<int, int>).GetGenericTypeDefinition())
+    assert ColumnarContextualExtensionInference.SzArrayImplementsDefinition(typeof(IEnumerable<int>).GetGenericTypeDefinition())
+}
+
+test "a constructed type answers through its DEFINITION with its own arguments substituted" {
+    // The fallback the builder-bound receivers need, exercised on a runtime instantiation where the
+    // direct reading is also available: the two must agree, which is why one is the other's fallback.
+    assert ColumnarContextualExtensionInference.FindClosedImplementationThroughDefinition(typeof(List<string>), typeof(IEnumerable<int>).GetGenericTypeDefinition()) == typeof(IEnumerable<string>)
+    assert ColumnarContextualExtensionInference.FindClosedImplementationThroughDefinition(typeof(Dictionary<string, int>), typeof(IEnumerable<int>).GetGenericTypeDefinition()) == typeof(IEnumerable<KeyValuePair<string, int>>)
+    assert ColumnarContextualExtensionInference.FindClosedImplementationThroughDefinition(typeof(string), typeof(IEnumerable<int>).GetGenericTypeDefinition()) == null
+}
+
+test "the closed signature is SUBSTITUTED from the declaration, not read back off the handle" {
+    // A `MethodBuilderInstantiation` reports its DEFINITION's parameters, so reading them back would
+    // answer `IEnumerable<TSource>` for every receiver. Substitution is the same answer for a runtime
+    // instantiation, which is what makes one path correct for both.
+    candidate := ContextualCandidateFor(ContextualMethod(typeof(Enumerable), "First", 1))
+    let binding: ColumnarContextualExtensionBinding? = null
+    assert ColumnarContextualExtensionInference.TryBegin(candidate, typeof(List<string>), 0, out binding)
+
+    let closed: ColumnarExtensionMethodCandidate? = null
+    assert ColumnarContextualExtensionInference.TryClose(binding, out closed)
+    assert closed.ParameterTypes.Length == 1
+    assert closed.ParameterTypes[0] == typeof(IEnumerable<string>)
+    assert closed.ReturnType == typeof(string)
+}
+
+test "an array receiver reaches the sequence extension the same way a list does" {
+    candidate := ContextualCandidateFor(ContextualMethod(typeof(Enumerable), "First", 1))
+    let binding: ColumnarContextualExtensionBinding? = null
+    assert ColumnarContextualExtensionInference.TryBegin(candidate, typeof(string[]), 0, out binding)
+
+    let closed: ColumnarExtensionMethodCandidate? = null
+    assert ColumnarContextualExtensionInference.TryClose(binding, out closed)
+    assert closed.ReturnType == typeof(string)
+    assert ColumnarExtensionMethodResolver.ReferenceAssignableFrom(closed.ParameterTypes[0], typeof(string[]))
+}
