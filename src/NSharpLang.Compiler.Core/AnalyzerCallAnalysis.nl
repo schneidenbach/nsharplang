@@ -693,10 +693,377 @@ class AnalyzerCallAnalysis {
         }
 
         SortReflectionCandidates(candidates)
+        PromoteBestReflectionCandidate(state, candidates)
         state.ReflectionCandidates = candidates
         state.ReflectionCandidateIndex = 0
         state.Phase = 35
         return null
+    }
+
+    // WHICH CANDIDATE THE LANGUAGE PREFERS, DECIDED WITHOUT REFERENCE TO THE ORDER THEY ARRIVED IN.
+    //
+    // The sort above orders the RETRY sequence and it is a total order over three keys, so it always
+    // produces some first element — which for a genuine tie was whichever candidate the metadata
+    // happened to yield first. `Assert.Single(x.EnumerateArray())` is what that costs: the
+    // non-generic `Single(IEnumerable): object?` and the generic `Single<T>(IEnumerable<T>): T` score
+    // the same 4, tie on `params` and on defaults, and the call's type silently became `object?`.
+    //
+    // "Better function member" is a PARTIAL order and is answered here instead, against the whole
+    // candidate list, by `AnalyzerOverloadSpecificity.FindMaximalIndexes`: the candidates NOTHING
+    // beats. That set is the same however the list was ordered, which is the property a reflected
+    // candidate list needs — it comes out of a MetadataLoadContext in no guaranteed order. Exactly
+    // one maximal candidate is MOVED TO THE FRONT and bound; two or more is NL414, because a tie the
+    // language cannot break is the reader's to break and never the compiler's to guess.
+    //
+    // A SURROGATE GROUP IS EXEMPT FROM THE REPORT. Its candidates are read off an instantiation
+    // closed over `object` because the real type argument has no CLR handle yet, so two of them
+    // looking alike is the surrogate failing to represent the call rather than the program being
+    // ambiguous — the same reason `FailReflectionBind` answers `unknown` for one.
+    func PromoteBestReflectionCandidate(state: CallAnalysisState, candidates: List<ReflectionPreBoundCandidate>) {
+        count := candidates.Count
+        if count < 2 {
+            return
+        }
+
+        argumentClrTypes := BuildReflectionArgumentClrTypes(state)
+        argumentTypeInfos := BuildReflectionArgumentTypeInfos(state)
+        parameterTypesByCandidate := new List<Type?[]>()
+        candidateIndex := 0
+        while candidateIndex < count {
+            parameterTypesByCandidate.Add(BuildReflectionParameterTypesByArgument(candidates[candidateIndex], state, argumentClrTypes.Length))
+            candidateIndex = candidateIndex + 1
+        }
+
+        comparisons := new int[count * count]
+        row := 0
+        while row < count {
+            column := 0
+            while column < count {
+                if row != column {
+                    comparisons[row * count + column] = CompareReflectionCandidates(candidates[row], candidates[column], parameterTypesByCandidate[row], parameterTypesByCandidate[column], argumentClrTypes, argumentTypeInfos)
+                }
+
+                column = column + 1
+            }
+
+            row = row + 1
+        }
+
+        maximal := AnalyzerOverloadSpecificity.FindMaximalIndexes(comparisons, count)
+        if maximal.Count == 0 {
+            return
+        }
+
+        if maximal.Count > 1 {
+            group := state.ReflectionMethodGroup
+            if (group == null || !group.IsSurrogateBinding) && ReflectionComparisonIsFullyInformed(parameterTypesByCandidate[maximal[0]], parameterTypesByCandidate[maximal[1]], argumentClrTypes, argumentTypeInfos) {
+                reflectionCallReporter.ReportAmbiguousCall(state.Call, state.CandidateMethods, candidates[maximal[0]].SignatureMethod, candidates[maximal[1]].SignatureMethod)
+            }
+        }
+
+        best := candidates[maximal[0]]
+        candidates.RemoveAt(maximal[0])
+        candidates.Insert(0, best)
+    }
+
+    // EVERY POSITION'S ARGUMENT TYPE, THE EXTENSION RECEIVER INCLUDED AT SLOT 0.
+    //
+    // THE RECEIVER IS AN ARGUMENT. `values.AsQueryable()` writes NO arguments at all and chooses
+    // between `AsQueryable(IEnumerable): IQueryable` and `AsQueryable<T>(IEnumerable<T>): IQueryable<T>`
+    // entirely on the receiver — so a comparison that looked only at the written list saw two
+    // candidates with nothing to tell them apart, fell through to "non-generic beats generic" and
+    // typed the result as the non-generic `IQueryable`, after which `query.Where(x => x > 1)` had no
+    // element type to give the lambda. Slot 0 is the receiver's own type, or null for a call that has
+    // none.
+    //
+    // A lambda was deliberately left unanalysed by phase 32 and a method group has no type of its own,
+    // so both land here as null and the specificity walk simply asks nothing about those positions —
+    // which is exactly why a group with two ARITIES makes both `Enumerable.Select` overloads tie and
+    // reports NL414 rather than picking one.
+    func BuildReflectionArgumentClrTypes(state: CallAnalysisState): Type?[] {
+        analyzed := state.AnalyzedNonLambdaArguments
+        analyzedCount := 0
+        if analyzed != null {
+            analyzedCount = analyzed.Length
+        }
+
+        clrTypes := new Type?[](analyzedCount + 1)
+        clrTypes[0] = state.ReflectionReceiverClrType
+        index := 0
+        while index < analyzedCount && analyzed != null {
+            argumentType := analyzed[index]
+            if argumentType != null {
+                clrTypes[index + 1] = clrTypeConversion.TryConvertTypeInfoToClrType(argumentType)
+            }
+
+            index = index + 1
+        }
+
+        return clrTypes
+    }
+
+    // WHETHER THE TIE IS THE PROGRAM'S OR THE COMPILER'S.
+    //
+    // NL414 accuses the reader of writing a call the LANGUAGE cannot resolve, and that accusation is
+    // only honest when the comparison had something to compare. A position whose argument has no type
+    // at all — an anonymous object, which types as `unknown` and is therefore assignable to every
+    // parameter, or a lambda phase 32 deliberately left unanalysed — tells the rule nothing, so two
+    // candidates that differ THERE are tied for want of information rather than by the language's own
+    // rules. `BadRequest(new { errors: errors })` is exactly that: `BadRequest(object?)` and
+    // `BadRequest(ModelStateDictionary)` both survive applicability because nothing can reject either,
+    // and reporting an ambiguity would be blaming the user for a gap in the analyzer.
+    //
+    // A position both candidates spell the SAME way is not a difference and does not disqualify the
+    // report; neither is a method group, which HAS a type — that is the `Enumerable.Select` case NL414
+    // exists for.
+    func ReflectionComparisonIsFullyInformed(leftParameterTypes: Type?[], rightParameterTypes: Type?[], argumentClrTypes: Type?[], argumentTypeInfos: TypeInfo?[]): bool {
+        index := 0
+        while index < argumentClrTypes.Length {
+            currentIndex := index
+            index = index + 1
+
+            leftParameterType := leftParameterTypes[currentIndex]
+            rightParameterType := rightParameterTypes[currentIndex]
+            if leftParameterType == null && rightParameterType == null {
+                continue
+            }
+
+            if leftParameterType != null && rightParameterType != null && TypeInfoIdentityFacts.HaveSameReflectionTypeIdentity(leftParameterType, rightParameterType) {
+                continue
+            }
+
+            if argumentClrTypes[currentIndex] != null {
+                continue
+            }
+
+            argumentTypeInfo: TypeInfo? = null
+            if currentIndex < argumentTypeInfos.Length {
+                argumentTypeInfo = argumentTypeInfos[currentIndex]
+            }
+
+            if argumentTypeInfo == null {
+                return false
+            }
+
+            if BuiltInTypes.IsUnknown(argumentTypeInfo) {
+                return false
+            }
+        }
+
+        return true
+    }
+
+    // THE SAME POSITIONS, AS N# TYPES. An argument the CLR has no type for — an anonymous object, a
+    // constructed source generic, a method group — still has a `TypeInfo`, and the assignability
+    // relation over those is the only oracle that can say whether a parameter accepts it at all.
+    // `BadRequest(new { errors: errors })` is the case: `BadRequest(object?)` and
+    // `BadRequest(ModelStateDictionary)` both survived applicability because the anonymous argument had
+    // no CLR form to reject either with, and the two then tied on every key.
+    func BuildReflectionArgumentTypeInfos(state: CallAnalysisState): TypeInfo?[] {
+        analyzed := state.AnalyzedNonLambdaArguments
+        analyzedCount := 0
+        if analyzed != null {
+            analyzedCount = analyzed.Length
+        }
+
+        typeInfos := new TypeInfo?[](analyzedCount + 1)
+        typeInfos[0] = state.ReflectionReceiverTypeInfo
+        index := 0
+        while index < analyzedCount && analyzed != null {
+            typeInfos[index + 1] = analyzed[index]
+            index = index + 1
+        }
+
+        return typeInfos
+    }
+
+    // ONE CANDIDATE'S PARAMETER TYPE PER POSITION, with this candidate's own inference substituted in —
+    // the comparison is between the types the call would actually convert to, not between the open
+    // signatures. Slot 0 is the RECEIVER parameter of a receiver-style extension, and null for every
+    // other candidate shape. A position filled from a DEFAULT has no written argument and is absent; an
+    // EXPANDED params tail contributes its ELEMENT type once per element, which is the type each of
+    // those arguments is really converted to.
+    func BuildReflectionParameterTypesByArgument(candidate: ReflectionPreBoundCandidate, state: CallAnalysisState, positionCount: int): Type?[] {
+        parameterTypes := new Type?[](positionCount)
+        if AnalyzerOverloadFacts.IsExtensionMethodCallOnReceiver(candidate.SignatureMethod, state.Call, state.ReflectionReceiverClrType) {
+            receiverParameters := candidate.SignatureMethod.GetParameters()
+            if receiverParameters.Length > 0 && positionCount > 0 {
+                parameterTypes[0] = AnalyzerReflectionTypeConversion.ApplyReflectionBindings(receiverParameters[0].get_ParameterType(), candidate.Bindings)
+            }
+        }
+
+        boundArguments := candidate.BoundArguments
+        index := 0
+        while index < boundArguments.Count {
+            boundArgument := boundArguments[index]
+            index = index + 1
+
+            supplied := boundArgument as SuppliedReflectionBoundArgument
+            if supplied != null {
+                if supplied.ArgumentIndex >= 0 && supplied.ArgumentIndex + 1 < positionCount {
+                    parameterTypes[supplied.ArgumentIndex + 1] = AnalyzerReflectionTypeConversion.ApplyReflectionBindings(supplied.OpenParameterType, candidate.Bindings)
+                }
+
+                continue
+            }
+
+            expanded := boundArgument as ParamsReflectionBoundArgument
+            if expanded != null {
+                elements := expanded.Arguments
+                elementIndex := 0
+                while elementIndex < elements.Count {
+                    element := elements[elementIndex]
+                    elementIndex = elementIndex + 1
+                    if element.ArgumentIndex >= 0 && element.ArgumentIndex + 1 < positionCount {
+                        parameterTypes[element.ArgumentIndex + 1] = AnalyzerReflectionTypeConversion.ApplyReflectionBindings(element.OpenParameterType, candidate.Bindings)
+                    }
+                }
+            }
+        }
+
+        return parameterTypes
+    }
+
+    // THE REFLECTED WORLD'S "BETTER FUNCTION MEMBER", answered by supplying this world's conversion
+    // oracle to `AnalyzerOverloadSpecificity`.
+    //
+    // THE SCORE STILL DECIDES FIRST. It is the applicability ladder, and it carries facts the type
+    // comparison below cannot see at all — the extension-method penalty that keeps an instance method
+    // ahead of an extension, and the lambda rules that prefer a delegate which KEEPS a result over
+    // one that throws it away. Specificity separates candidates the ladder rated the same, which is
+    // exactly the case it was introduced for.
+    //
+    // A position is SKIPPED rather than guessed at when either candidate left it unfilled, when a
+    // type parameter stayed open (there is no type to compare), or when the argument has no CLR form.
+    func CompareReflectionCandidates(left: ReflectionPreBoundCandidate, right: ReflectionPreBoundCandidate, leftParameterTypes: Type?[], rightParameterTypes: Type?[], argumentClrTypes: Type?[], argumentTypeInfos: TypeInfo?[]): int {
+        if left.Score != right.Score {
+            if left.Score > right.Score {
+                return AnalyzerOverloadSpecificity.LeftIsBetter
+            }
+
+            return AnalyzerOverloadSpecificity.RightIsBetter
+        }
+
+        verdicts := new List<int>()
+        parameterTypesIdentical := true
+        index := 0
+        while index < argumentClrTypes.Length {
+            currentIndex := index
+            index = index + 1
+
+            leftParameterType := leftParameterTypes[currentIndex]
+            rightParameterType := rightParameterTypes[currentIndex]
+
+            // A POSITION NEITHER CANDIDATE FILLS IS NOT A DIFFERENCE. Slot 0 is null for every
+            // non-extension call, and a defaulted tail is absent from both; treating that as "the
+            // parameter lists differ" would silently switch off the non-generic tie-break for every
+            // ordinary static call.
+            if leftParameterType == null && rightParameterType == null {
+                continue
+            }
+
+            if leftParameterType == null || rightParameterType == null || leftParameterType.get_ContainsGenericParameters() || rightParameterType.get_ContainsGenericParameters() {
+                parameterTypesIdentical = false
+                continue
+            }
+
+            if !TypeInfoIdentityFacts.HaveSameReflectionTypeIdentity(leftParameterType, rightParameterType) {
+                parameterTypesIdentical = false
+            }
+
+            argumentClrType := argumentClrTypes[currentIndex]
+            if argumentClrType == null {
+                // NO CLR FORM, BUT STILL A TYPE. The N# relation answers whether each parameter accepts
+                // this argument at all, and a parameter that accepts it is a better conversion target
+                // than one that does not — which is applicability stated as a betterness verdict,
+                // because applicability could not reject either candidate without a CLR type to ask
+                // about. A position where both accept (or neither does) says nothing, which is how a
+                // method group with two arities stays tied.
+                argumentTypeInfo: TypeInfo? = null
+                if currentIndex < argumentTypeInfos.Length {
+                    argumentTypeInfo = argumentTypeInfos[currentIndex]
+                }
+
+                if argumentTypeInfo == null {
+                    continue
+                }
+
+                leftAccepts := assignability.IsAssignable(AnalyzerReflectionTypeConversion.ConvertReflectionType(leftParameterType), argumentTypeInfo)
+                rightAccepts := assignability.IsAssignable(AnalyzerReflectionTypeConversion.ConvertReflectionType(rightParameterType), argumentTypeInfo)
+                if leftAccepts != rightAccepts {
+                    if leftAccepts {
+                        verdicts.Add(AnalyzerOverloadSpecificity.LeftIsBetter)
+                    } else {
+                        verdicts.Add(AnalyzerOverloadSpecificity.RightIsBetter)
+                    }
+                }
+
+                continue
+            }
+
+            verdicts.Add(AnalyzerOverloadSpecificity.CompareConversionTargets(
+                TypeInfoIdentityFacts.HaveSameReflectionTypeIdentity(leftParameterType, argumentClrType),
+                TypeInfoIdentityFacts.HaveSameReflectionTypeIdentity(rightParameterType, argumentClrType),
+                HasImplicitReflectionConversion(leftParameterType, rightParameterType),
+                HasImplicitReflectionConversion(rightParameterType, leftParameterType)
+            ))
+        }
+
+        conversionVerdict := AnalyzerOverloadSpecificity.FoldArgumentVerdicts(verdicts)
+        if conversionVerdict != AnalyzerOverloadSpecificity.NeitherIsBetter {
+            return conversionVerdict
+        }
+
+        if parameterTypesIdentical {
+            hidingVerdict := CompareReflectionDeclaringDepth(left, right)
+            if hidingVerdict != AnalyzerOverloadSpecificity.NeitherIsBetter {
+                return hidingVerdict
+            }
+        }
+
+        return AnalyzerOverloadSpecificity.CompareTieBreaks(parameterTypesIdentical, left.SignatureMethod.get_IsGenericMethodDefinition(), right.SignatureMethod.get_IsGenericMethodDefinition(), left.UsesParams, right.UsesParams, left.DefaultsUsed, right.DefaultsUsed)
+    }
+
+    // A MEMBER DECLARED ON A MORE DERIVED TYPE HIDES THE ONE IT SHADOWS (§12.6.4.4), and the two are
+    // otherwise indistinguishable: the same name, the same parameter types, the same score. Asked
+    // only when the parameter types ARE identical, because that is the only shape where hiding is
+    // what separates the pair — every other difference is a conversion question already answered.
+    // The RUNTIME method's declaring type is the one that matters: it is the type the call dispatches
+    // on, not the definition its open signature was read from.
+    func CompareReflectionDeclaringDepth(left: ReflectionPreBoundCandidate, right: ReflectionPreBoundCandidate): int {
+        leftDeclaringType := left.RuntimeMethod.get_DeclaringType()
+        rightDeclaringType := right.RuntimeMethod.get_DeclaringType()
+        if leftDeclaringType == null || rightDeclaringType == null {
+            return AnalyzerOverloadSpecificity.NeitherIsBetter
+        }
+
+        if TypeInfoIdentityFacts.HaveSameReflectionTypeIdentity(leftDeclaringType, rightDeclaringType) {
+            return AnalyzerOverloadSpecificity.NeitherIsBetter
+        }
+
+        leftDerivesFromRight := AnalyzerConversionFacts.IsReflectionAssignableFrom(rightDeclaringType, leftDeclaringType)
+        rightDerivesFromLeft := AnalyzerConversionFacts.IsReflectionAssignableFrom(leftDeclaringType, rightDeclaringType)
+        if leftDerivesFromRight == rightDerivesFromLeft {
+            return AnalyzerOverloadSpecificity.NeitherIsBetter
+        }
+
+        if leftDerivesFromRight {
+            return AnalyzerOverloadSpecificity.LeftIsBetter
+        }
+
+        return AnalyzerOverloadSpecificity.RightIsBetter
+    }
+
+    // WHETHER ONE PARAMETER TYPE CONVERTS IMPLICITLY TO ANOTHER — the relation "more specific" is
+    // read from. Reference and interface conversions (which is how `IEnumerable<Task<int>>` reaches
+    // `IEnumerable<Task>`) plus the numeric widening table, which is how `int` beats `long` as the
+    // target for a `short` argument.
+    static func HasImplicitReflectionConversion(sourceType: Type, targetType: Type): bool {
+        if AnalyzerConversionFacts.IsReflectionAssignableFrom(targetType, sourceType) {
+            return true
+        }
+
+        return AnalyzerConversionFacts.IsImplicitNumericReflectionConversion(sourceType, targetType)
     }
 
     // THE CANDIDATE ORDER, AND IT IS SORTED BY HAND BECAUSE ITS STABILITY IS USER-VISIBLE.

@@ -165,6 +165,7 @@ class DiagnosticCatalog {
         AddCompiler(descriptors, ErrorCode.MethodGroupUsedAsValue)
         AddCompiler(descriptors, ErrorCode.UndefinedFunction)
         AddCompiler(descriptors, ErrorCode.MemberNotCallable)
+        AddCompiler(descriptors, ErrorCode.AmbiguousCall)
 
         AddCompiler(descriptors, ErrorCode.NonExhaustiveMatch)
         AddCompiler(descriptors, ErrorCode.UnreachablePattern)
@@ -226,7 +227,7 @@ class DiagnosticCatalog {
             return DiagnosticCategory.Semantic
         }
 
-        if value >= Convert.ToInt32(ErrorCode.WrongArgumentCount) && value <= Convert.ToInt32(ErrorCode.MemberNotCallable) {
+        if value >= Convert.ToInt32(ErrorCode.WrongArgumentCount) && value <= Convert.ToInt32(ErrorCode.AmbiguousCall) {
             return DiagnosticCategory.Function
         }
 

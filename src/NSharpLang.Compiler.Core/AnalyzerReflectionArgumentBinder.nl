@@ -381,13 +381,19 @@ class AnalyzerReflectionArgumentBinder {
 
             score = 2 + expectedParameterTypes.Count
 
-            // A LAMBDA WHOSE BODY IS AN EXPRESSION HAS A VALUE TO GIVE, and a delegate that would
-            // throw it away is the worse target. `Task.Run(() => 42)` fits both `Run(Action)` and
-            // `Run<TResult>(Func<TResult>)` by arity alone, and choosing by declaration order gave it
-            // a plain `Task`; C# prefers the conversion that keeps the result, so the position that
-            // returns something scores one higher.
-            if lambda.ExpressionBody != null {
+            // A LAMBDA THAT HAS A VALUE TO GIVE PREFERS A DELEGATE THAT KEEPS IT, AND ONE THAT HAS
+            // NONE PREFERS A DELEGATE THAT EXPECTS NONE. `Task.Run(() => 42)` fits both `Run(Action)`
+            // and `Run<TResult>(Func<TResult>)` by arity alone, and C# prefers the conversion that
+            // keeps the result; `Task.Run(() => { work() })` fits both the same way and C# prefers
+            // `Action`. Both directions have to be scored, because a rule that only rewarded one of
+            // them left the other pair tied on every key — which is now an ambiguity report rather
+            // than a silent pick by declaration order.
+            if AnalyzerOverloadFacts.LambdaBodyProducesValue(lambda) {
                 if !BuiltInTypes.Is(expectedSignature.ReturnType, BuiltInTypes.Void) {
+                    score = score + 1
+                }
+            } else {
+                if BuiltInTypes.Is(expectedSignature.ReturnType, BuiltInTypes.Void) {
                     score = score + 1
                 }
             }
@@ -545,6 +551,15 @@ class AnalyzerReflectionArgumentBinder {
     // a reflected delegate value is not a method group — and a method group picks its BEST
     // overload, with a tie being a non-binding rather than an arbitrary choice. The +4 is the
     // method-group conversion itself, so a resolved group outranks a plain assignable argument.
+    //
+    // THE POSITION'S CONTRIBUTION IS PER-POSITION QUALITY, NOT A SUM OVER THE DELEGATE'S SIGNATURE.
+    // The inner walk adds one ladder value per delegate parameter plus one for the return, which is
+    // the right key for choosing WITHIN the group — every survivor there matched the SAME expected
+    // signature, so they all have the same number of positions. Handing that sum to the enclosing
+    // candidate's score is not: `Enumerable.Select` declares a one-parameter and a two-parameter
+    // selector, a method group with both arities closes both overloads, and the longer signature won
+    // purely for having one more position to add up. C# calls that pair CS0121, so the two must TIE
+    // here and let `AnalyzerOverloadSpecificity` say so.
     func TryBindMethodGroupToReflectionDelegate(parameterType: Type, argumentType: TypeInfo, bindings: Dictionary<Type, Type>, out selectedMethodGroup: FunctionTypeInfo?, out score: int): bool {
         selectedMethodGroup = null
         score = 0
@@ -567,7 +582,7 @@ class AnalyzerReflectionArgumentBinder {
             }
 
             selectedMethodGroup = functionType
-            score = 4 + candidateScore
+            score = AnalyzerOverloadFacts.MethodGroupConversionScore()
             return true
         }
 
@@ -600,7 +615,7 @@ class AnalyzerReflectionArgumentBinder {
             }
 
             selectedMethodGroup = bestFunctionType
-            score = bestScore
+            score = AnalyzerOverloadFacts.MethodGroupConversionScore()
             return true
         }
 
@@ -618,7 +633,7 @@ class AnalyzerReflectionArgumentBinder {
             }
 
             selectedMethodGroup = reflectedSignature
-            score = 4 + reflectedScore
+            score = AnalyzerOverloadFacts.MethodGroupConversionScore()
             return true
         }
 

@@ -106,22 +106,27 @@ class AnalyzerSyntheticCallWalk {
 
     // THE BEST-MATCHING OVERLOAD among N#-declared candidates, or null when none applies.
     //
-    // The score decides first. A TIE is broken by four rules in a fixed order, and the order is the
-    // whole content of the rule: fewer type parameters bound by inference beats more (an overload
-    // that matched a WRITTEN type is more specific than one that matched by binding `T`), a
-    // non-params overload beats a params one, more parameters beats fewer (an overload that used
-    // defaults is less specific than one that did not), and anything still tied is AMBIGUOUS and
-    // says so. A later candidate never displaces an equally specific earlier one, so declaration
-    // order is not a tiebreak.
+    // THE APPLICABLE CANDIDATES ARE COLLECTED FIRST AND COMPARED AFTERWARDS, because "better function
+    // member" (ECMA-334 §12.6.4.3) is a PARTIAL order and a running best is a total one: a fold that
+    // keeps one winner has to decide every pair the language leaves incomparable, and whatever it
+    // decides depends on the order the candidates were declared in. The comparison is
+    // `AnalyzerOverloadSpecificity`'s, the same owner the reflected world folds into, and the winner
+    // is read off it by `FindMaximalIndexes` — the candidates NOTHING beats.
+    //
+    // The chain, in order: the SCORE decides first, then C#'s better-conversion rule over each
+    // argument's expected type, then fewer type parameters bound by inference (an overload that
+    // matched a WRITTEN type is more specific than one that matched by binding `T`), then a
+    // non-params overload over a params one, then more parameters over fewer (an overload that used
+    // defaults is less specific than one that did not). Two candidates still maximal after all of
+    // that are AMBIGUOUS and are reported as NL414 rather than resolved by declaration order.
     func BindNSharpCall(candidates: IReadOnlyList<FunctionTypeInfo>, call: CallExpression, argTypes: IReadOnlyList<TypeInfo>, receiverType: TypeInfo?): FunctionTypeInfo? {
-        bestIndex := -1
-        bestScore := -1
-        ambiguous := false
+        applicable := new List<FunctionTypeInfo>()
+        scores := new List<int>()
+        comparisonsByCandidate := new List<SyntheticArgumentComparison?[]>()
 
         index := 0
         while index < candidates.Count {
             candidate := candidates[index]
-            currentIndex := index
             index = index + 1
 
             score := GetCallMatchScore(candidate, call, argTypes, receiverType)
@@ -129,70 +134,184 @@ class AnalyzerSyntheticCallWalk {
                 continue
             }
 
-            if score > bestScore {
-                bestScore = score
-                bestIndex = currentIndex
-                ambiguous = false
-                continue
-            }
-
-            if score != bestScore || bestIndex < 0 {
-                continue
-            }
-
-            best := candidates[bestIndex]
-            currentParameterTypes := candidate.ParameterTypes
-            currentParameterCount := 0
-            if currentParameterTypes != null {
-                currentParameterCount = currentParameterTypes.Count
-            }
-
-            bestParameterTypes := best.ParameterTypes
-            bestParameterCount := 0
-            if bestParameterTypes != null {
-                bestParameterCount = bestParameterTypes.Count
-            }
-
-            currentStartIndex := AnalyzerOverloadFacts.GetSyntheticParameterStartIndex(candidate, call)
-            bestStartIndex := AnalyzerOverloadFacts.GetSyntheticParameterStartIndex(best, call)
-            currentArgumentCount := Math.Max(0, currentParameterCount - currentStartIndex)
-            bestArgumentCount := Math.Max(0, bestParameterCount - bestStartIndex)
-            currentHasParams := AnalyzerOverloadFacts.GetSyntheticParamsParameterIndex(candidate, currentParameterCount) >= 0
-            bestHasParams := AnalyzerOverloadFacts.GetSyntheticParamsParameterIndex(best, bestParameterCount) >= 0
-            currentGenericParameterCost := AnalyzerSyntheticCallFacts.GetGenericParameterCost(candidate, call, argTypes)
-            bestGenericParameterCost := AnalyzerSyntheticCallFacts.GetGenericParameterCost(best, call, argTypes)
-
-            if currentGenericParameterCost < bestGenericParameterCost {
-                bestIndex = currentIndex
-                ambiguous = false
-            } else if currentGenericParameterCost > bestGenericParameterCost {
-            } else if bestHasParams && !currentHasParams {
-                // Best overload has fewer direct generic-parameter matches.
-                bestIndex = currentIndex
-                ambiguous = false
-            } else if !bestHasParams && currentHasParams {
-            } else if currentArgumentCount > bestArgumentCount {
-                // Best non-params overload remains more specific.
-                bestIndex = currentIndex
-                ambiguous = false
-            } else if currentArgumentCount < bestArgumentCount {
-            } else {
-                // Best overload uses fewer defaults.
-                ambiguous = true
-            }
+            applicable.Add(candidate)
+            scores.Add(score)
+            comparisonsByCandidate.Add(GetCallArgumentComparisons(candidate, call, argTypes, receiverType))
         }
 
-        if bestIndex < 0 {
+        if applicable.Count == 0 {
             return null
         }
 
-        bestFunction := candidates[bestIndex]
-        if ambiguous {
-            functionName := AnalyzerSyntheticCallFacts.ResolveSyntheticFunctionName(bestFunction, call)
-            diagnostics.Report(ErrorCode.InvalidSyntax, "Ambiguous call to '" + functionName + "': multiple overloads match with equal specificity", call.Line, call.Column, null, 0)
+        if applicable.Count == 1 {
+            return applicable[0]
+        }
+
+        count := applicable.Count
+        comparisons := new int[count * count]
+        row := 0
+        while row < count {
+            column := 0
+            while column < count {
+                if row != column {
+                    comparisons[row * count + column] = CompareNSharpCandidates(applicable[row], applicable[column], scores[row], scores[column], comparisonsByCandidate[row], comparisonsByCandidate[column], call, argTypes)
+                }
+
+                column = column + 1
+            }
+
+            row = row + 1
+        }
+
+        maximal := AnalyzerOverloadSpecificity.FindMaximalIndexes(comparisons, count)
+        if maximal.Count == 0 {
+            return applicable[0]
+        }
+
+        bestFunction := applicable[maximal[0]]
+        if maximal.Count > 1 {
+            reporter.ReportAmbiguousCall(bestFunction, applicable[maximal[1]], call)
         }
 
         return bestFunction
+    }
+
+    // THE SOURCE WORLD'S "BETTER FUNCTION MEMBER", answered by supplying this world's conversion
+    // oracle — `AnalyzerAssignability` over `TypeInfo` — to `AnalyzerOverloadSpecificity`.
+    //
+    // The score decides first for the same reason it does in the reflected world: it is the
+    // applicability ladder, and specificity separates the candidates it rated the same.
+    func CompareNSharpCandidates(left: FunctionTypeInfo, right: FunctionTypeInfo, leftScore: int, rightScore: int, leftComparisons: SyntheticArgumentComparison?[], rightComparisons: SyntheticArgumentComparison?[], call: CallExpression, argTypes: IReadOnlyList<TypeInfo>): int {
+        if leftScore != rightScore {
+            if leftScore > rightScore {
+                return AnalyzerOverloadSpecificity.LeftIsBetter
+            }
+
+            return AnalyzerOverloadSpecificity.RightIsBetter
+        }
+
+        verdicts := new List<int>()
+        index := 0
+        while index < leftComparisons.Length && index < rightComparisons.Length {
+            currentIndex := index
+            index = index + 1
+
+            leftComparison := leftComparisons[currentIndex]
+            rightComparison := rightComparisons[currentIndex]
+            if leftComparison == null || rightComparison == null {
+                continue
+            }
+
+            leftExpected := leftComparison.ExpectedType
+            rightExpected := rightComparison.ExpectedType
+            leftArgument := leftComparison.ArgumentType
+            rightArgument := rightComparison.ArgumentType
+            if leftExpected == null || rightExpected == null || leftArgument == null || rightArgument == null {
+                continue
+            }
+
+            // THE TWO CANDIDATES MUST BE ASKED ABOUT THE SAME ARGUMENT. A `params` tail can make one
+            // candidate compare a spread's ELEMENT where the other compares the whole array, and a
+            // verdict folded from two different questions is not a verdict at all.
+            if !TypeInfoIdentityFacts.AreEqual(leftArgument, rightArgument) {
+                continue
+            }
+
+            if BuiltInTypes.IsUnknown(leftArgument) || BuiltInTypes.IsUnknown(leftExpected) || BuiltInTypes.IsUnknown(rightExpected) {
+                continue
+            }
+
+            verdicts.Add(AnalyzerOverloadSpecificity.CompareConversionTargets(
+                TypeInfoIdentityFacts.AreEqual(leftExpected, leftArgument),
+                TypeInfoIdentityFacts.AreEqual(rightExpected, leftArgument),
+                assignability.IsAssignable(rightExpected, leftExpected),
+                assignability.IsAssignable(leftExpected, rightExpected)
+            ))
+        }
+
+        conversionVerdict := AnalyzerOverloadSpecificity.FoldArgumentVerdicts(verdicts)
+        if conversionVerdict != AnalyzerOverloadSpecificity.NeitherIsBetter {
+            return conversionVerdict
+        }
+
+        leftGenericParameterCost := AnalyzerSyntheticCallFacts.GetGenericParameterCost(left, call, argTypes)
+        rightGenericParameterCost := AnalyzerSyntheticCallFacts.GetGenericParameterCost(right, call, argTypes)
+        if leftGenericParameterCost != rightGenericParameterCost {
+            if leftGenericParameterCost < rightGenericParameterCost {
+                return AnalyzerOverloadSpecificity.LeftIsBetter
+            }
+
+            return AnalyzerOverloadSpecificity.RightIsBetter
+        }
+
+        leftParameterCount := GetSyntheticSuppliedParameterCount(left, call)
+        rightParameterCount := GetSyntheticSuppliedParameterCount(right, call)
+
+        // `CompareTieBreaks` reads the params and default keys; the "more declared parameters wins"
+        // rule is expressed as the DEFAULT count each candidate would have to fill, which is what the
+        // reflected world counts too.
+        return AnalyzerOverloadSpecificity.CompareTieBreaks(false, false, false, HasSyntheticParamsTail(left), HasSyntheticParamsTail(right), Math.Max(0, leftParameterCount - argTypes.Count), Math.Max(0, rightParameterCount - argTypes.Count))
+    }
+
+    // How many parameters the CALLER supplies for this candidate — the receiver offset comes off.
+    static func GetSyntheticSuppliedParameterCount(functionType: FunctionTypeInfo, call: CallExpression): int {
+        parameterTypes := functionType.ParameterTypes
+        parameterCount := 0
+        if parameterTypes != null {
+            parameterCount = parameterTypes.Count
+        }
+
+        return Math.Max(0, parameterCount - AnalyzerOverloadFacts.GetSyntheticParameterStartIndex(functionType, call))
+    }
+
+    static func HasSyntheticParamsTail(functionType: FunctionTypeInfo): bool {
+        parameterTypes := functionType.ParameterTypes
+        parameterCount := 0
+        if parameterTypes != null {
+            parameterCount = parameterTypes.Count
+        }
+
+        return AnalyzerOverloadFacts.GetSyntheticParamsParameterIndex(functionType, parameterCount) >= 0
+    }
+
+    // ONE CANDIDATE'S ARGUMENT COMPARISON PER WRITTEN ARGUMENT, with this candidate's own inference
+    // substituted in. It asks the same `GetArgumentComparisonTypes` the scorer asks, so the types the
+    // specificity rule compares are exactly the types the score was computed from. A position the
+    // placement could not fill, or one the comparison declares carries no information, is left null
+    // and the rule asks nothing about it.
+    func GetCallArgumentComparisons(functionType: FunctionTypeInfo, call: CallExpression, argTypes: IReadOnlyList<TypeInfo>, receiverType: TypeInfo?): SyntheticArgumentComparison?[] {
+        comparisons := new SyntheticArgumentComparison?[](call.Arguments.Count)
+        parameterIndexByArgument: int[] = new int[0]
+        if !TryGetScoringPlacement(functionType, call, argTypes, out parameterIndexByArgument) {
+            return comparisons
+        }
+
+        parameterTypes := functionType.ParameterTypes
+        if parameterTypes == null {
+            return comparisons
+        }
+
+        expectedCount := parameterTypes.Count
+        parameterStartIndex := AnalyzerOverloadFacts.GetSyntheticParameterStartIndex(functionType, call)
+        paramsParameterIndex := AnalyzerOverloadFacts.GetSyntheticParamsParameterIndex(functionType, expectedCount)
+        genericBindings := InferGenericBindings(functionType, call, argTypes, receiverType)
+
+        argumentIndex := 0
+        while argumentIndex < call.Arguments.Count {
+            currentArgument := argumentIndex
+            argumentIndex = argumentIndex + 1
+            parameterIndex := parameterIndexByArgument[currentArgument]
+            if parameterIndex < 0 || parameterIndex >= expectedCount {
+                continue
+            }
+
+            comparison := binder.GetArgumentComparisonTypes(functionType, call, argTypes, currentArgument, parameterIndex, paramsParameterIndex, parameterStartIndex, genericBindings)
+            if comparison.Matched {
+                comparisons[currentArgument] = comparison
+            }
+        }
+
+        return comparisons
     }
 
     // HOW WELL ONE CANDIDATE MATCHES, or -1 when it does not apply at all. Zero is a real score —

@@ -574,10 +574,14 @@ test "source direct-call resolver admits safe builder-bound BCL interface upcast
     assert selected.ParameterTypes[0] == readOnlyListType
     assert selected.ReturnType == selectedMethod.ReturnType
 
-    ambiguous := ColumnarSourceDirectCallResolver.ResolveExplicitStatic(ownerType, "AmbiguousUpcast", actualList, definitions)
+    // `AmbiguousUpcast(IReadOnlyList<T>)` and `AmbiguousUpcast(IEnumerable<T>)` both accept a
+    // `List<T>` and both score 4, so this set used to be REJECTED as a tie.
+    // `AnalyzerOverloadSpecificity` breaks it the way the analyzer does: `IReadOnlyList<T>` converts
+    // to `IEnumerable<T>` and not back, so it is the more specific target.
+    upcast := ColumnarSourceDirectCallResolver.ResolveExplicitStatic(ownerType, "AmbiguousUpcast", actualList, definitions)
 
-    assert ambiguous.Status == ColumnarSourceDirectCallStatus.Rejected
-    assert ambiguous.Method == null
+    assert upcast.Status == ColumnarSourceDirectCallStatus.Selected
+    assert upcast.ParameterTypes[0] == readOnlyListType
 
     stringArguments := new Type[](1)
     stringArguments[0] = typeof(string)

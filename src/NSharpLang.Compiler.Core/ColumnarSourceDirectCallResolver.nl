@@ -425,6 +425,8 @@ class ColumnarSourceDirectCallResolver {
         bestScore := -1
         selected: ColumnarInstanceMethodDef? = null
         selectedParameters := new Type[](0)
+        tiedInstanceCandidates := new List<ColumnarInstanceMethodDef>()
+        tiedParameters := new List<Type[]>()
         index := 0
         while index < overloads.Count {
             candidate := overloads[index]
@@ -444,13 +446,31 @@ class ColumnarSourceDirectCallResolver {
                         compatibleCount = 1
                         selected = candidate
                         selectedParameters = parameters
+                        tiedInstanceCandidates.Clear()
+                        tiedInstanceCandidates.Add(candidate)
+                        tiedParameters.Clear()
+                        tiedParameters.Add(parameters)
                     } else if score >= 0 && score == bestScore {
                         compatibleCount += 1
+                        tiedInstanceCandidates.Add(candidate)
+                        tiedParameters.Add(parameters)
                     }
                 }
             }
 
             index += 1
+        }
+
+        // THE SCORE LADDER RATES TWO CANDIDATES THE SAME WHENEVER NEITHER IS THE ARGUMENT'S OWN TYPE,
+        // and the language has one more rule for exactly that case: the more SPECIFIC parameter wins
+        // (ECMA-334 §12.6.4.3, `AnalyzerOverloadSpecificity`). `Accept(object)` and `Accept(Shape)` both
+        // score 4 for a `Square`, and declining the call there would refuse a program the analyzer
+        // accepts. Asked only on a tie, so nothing the ladder already separated is revisited.
+        mostSpecific := SelectMostSpecificParameters(tiedParameters, argumentTypes, argumentFacts)
+        if compatibleCount > 1 && mostSpecific >= 0 {
+            compatibleCount = 1
+            selected = tiedInstanceCandidates[mostSpecific]
+            selectedParameters = tiedParameters[mostSpecific]
         }
 
         // Params expansion and varargs can own this invocation even though their raw CLR
@@ -508,6 +528,8 @@ class ColumnarSourceDirectCallResolver {
         bestScore := -1
         selected: ColumnarStaticMethodDef? = null
         selectedParameters := new Type[](0)
+        tiedStaticCandidates := new List<ColumnarStaticMethodDef>()
+        tiedParameters := new List<Type[]>()
         index := 0
         while index < overloads.Count {
             candidate := overloads[index]
@@ -527,13 +549,27 @@ class ColumnarSourceDirectCallResolver {
                         compatibleCount = 1
                         selected = candidate
                         selectedParameters = parameters
+                        tiedStaticCandidates.Clear()
+                        tiedStaticCandidates.Add(candidate)
+                        tiedParameters.Clear()
+                        tiedParameters.Add(parameters)
                     } else if score >= 0 && score == bestScore {
                         compatibleCount += 1
+                        tiedStaticCandidates.Add(candidate)
+                        tiedParameters.Add(parameters)
                     }
                 }
             }
 
             index += 1
+        }
+
+        // The same specificity tie-break the instance selector applies, for the same reason.
+        mostSpecific := SelectMostSpecificParameters(tiedParameters, argumentTypes, argumentFacts)
+        if compatibleCount > 1 && mostSpecific >= 0 {
+            compatibleCount = 1
+            selected = tiedStaticCandidates[mostSpecific]
+            selectedParameters = tiedParameters[mostSpecific]
         }
 
         // Params expansion and varargs can own this invocation even though their raw CLR
@@ -943,6 +979,63 @@ class ColumnarSourceDirectCallResolver {
         }
 
         return false
+    }
+
+    // WHICH OF SEVERAL EQUALLY-SCORED PARAMETER LISTS IS THE MOST SPECIFIC, or -1 when the language
+    // cannot say. The rule and the fold are `AnalyzerOverloadSpecificity`'s — the same owner the
+    // analyzer's two worlds use — and only the conversion oracle is this world's: identity is
+    // `ExactTypeShapeMatches` and "an implicit conversion exists" is `ArgumentFlowScore` answering at
+    // all, so the emitter agrees with the analyzer about which overload a call means.
+    //
+    // -1 covers BOTH "several are maximal" and "none is" (a cycle in the verdicts). Either way the
+    // caller keeps its tie and declines, which is the answer it had before this rule existed.
+    static func SelectMostSpecificParameters(tiedParameters: List<Type[]>, actual: Type[], argumentFacts: ColumnarDirectCallArgumentFacts): int {
+        count := tiedParameters.Count
+        if count < 2 {
+            return -1
+        }
+
+        comparisons := new int[count * count]
+        row := 0
+        while row < count {
+            column := 0
+            while column < count {
+                if row != column {
+                    comparisons[row * count + column] = CompareParameterSpecificity(tiedParameters[row], tiedParameters[column], actual, argumentFacts)
+                }
+
+                column += 1
+            }
+
+            row += 1
+        }
+
+        maximal := AnalyzerOverloadSpecificity.FindMaximalIndexes(comparisons, count)
+        if maximal.Count != 1 {
+            return -1
+        }
+
+        return maximal[0]
+    }
+
+    static func CompareParameterSpecificity(left: Type[], right: Type[], actual: Type[], argumentFacts: ColumnarDirectCallArgumentFacts): int {
+        verdicts := new List<int>()
+        index := 0
+        while index < left.Length && index < right.Length && index < actual.Length {
+            leftType := left[index]
+            rightType := right[index]
+            actualType := actual[index]
+            index += 1
+
+            verdicts.Add(AnalyzerOverloadSpecificity.CompareConversionTargets(
+                ExactTypeShapeMatches(leftType, actualType),
+                ExactTypeShapeMatches(rightType, actualType),
+                ArgumentFlowScore(rightType, leftType, argumentFacts.SourceTypeDefinitions) >= 0,
+                ArgumentFlowScore(leftType, rightType, argumentFacts.SourceTypeDefinitions) >= 0
+            ))
+        }
+
+        return AnalyzerOverloadSpecificity.FoldArgumentVerdicts(verdicts)
     }
 
     static func ArgumentsScore(expected: Type[], actual: Type[]): int {

@@ -964,6 +964,33 @@ func CallWalkCandidateMethod(tag: int): MethodInfo {
     return typeof(string).GetMethod("IsNullOrEmpty")
 }
 
+// One argument position's worth of parameter types, as the specificity comparison reads them. A
+// position NO candidate filled — a lambda, a method group — is left as the array's own null.
+class CallWalkParameterTypes {
+    static func Of1(first: Type): Type?[] {
+        types := new Type?[](1)
+        types[0] = first
+        return types
+    }
+
+    static func Of2(first: Type, second: Type): Type?[] {
+        types := new Type?[](2)
+        types[0] = first
+        types[1] = second
+        return types
+    }
+
+    static func Unfilled(count: int): Type?[] {
+        return new Type?[](count)
+    }
+
+    // The N# side of the same positions. All null here: every position these contracts compare either
+    // carries a CLR type — which is the oracle the comparison prefers — or is deliberately unknown.
+    static func NoTypeInfos(count: int): TypeInfo?[] {
+        return new TypeInfo?[](count)
+    }
+}
+
 func CallWalkCandidate(score: int, usesParams: bool, defaultsUsed: int): ReflectionPreBoundCandidate {
     return CallWalkTaggedCandidate(score, usesParams, defaultsUsed, 0)
 }
@@ -1101,6 +1128,101 @@ test "the precedes predicate is STRICT, so an identical pair precedes neither wa
 
     assert !AnalyzerCallAnalysis.PrecedesReflectionCandidate(left, right)
     assert !AnalyzerCallAnalysis.PrecedesReflectionCandidate(right, left)
+}
+
+// ── which candidate the LANGUAGE prefers, once the ladder has rated them the same ─────────────
+
+test "THE SCORE STILL DECIDES FIRST: specificity separates candidates the ladder rated the same" {
+    harness := CallWalkHarnessOf(CallWalkErrors())
+    empty := CallWalkParameterTypes.Unfilled(0)
+    emptyInfos := CallWalkParameterTypes.NoTypeInfos(0)
+
+    // The ladder carries facts the type comparison cannot see — the extension penalty, the lambda
+    // rules — so a higher score wins outright and nothing else is asked.
+    assert harness.Owner.CompareReflectionCandidates(CallWalkCandidate(8, false, 0), CallWalkCandidate(4, false, 0), empty, empty, empty, emptyInfos) == AnalyzerOverloadSpecificity.LeftIsBetter
+    assert harness.Owner.CompareReflectionCandidates(CallWalkCandidate(4, false, 0), CallWalkCandidate(8, false, 0), empty, empty, empty, emptyInfos) == AnalyzerOverloadSpecificity.RightIsBetter
+}
+
+test "A MORE SPECIFIC PARAMETER BEATS A MORE GENERAL ONE AT AN EQUAL SCORE" {
+    harness := CallWalkHarnessOf(CallWalkErrors())
+    left := CallWalkCandidate(4, false, 0)
+    right := CallWalkCandidate(4, false, 0)
+
+    // `IEnumerable<int>` over `object` for a `List<int>`: neither is the argument's own type, and the
+    // left one converts to the right while the right does not convert back. This is the
+    // `Task.WhenAll(List<Task<int>>)` shape, whose non-generic overload used to win by arriving first.
+    specific := harness.Owner.CompareReflectionCandidates(
+        left,
+        right,
+        CallWalkParameterTypes.Of1(typeof(IEnumerable<int>)),
+        CallWalkParameterTypes.Of1(typeof(object)),
+        CallWalkParameterTypes.Of1(typeof(List<int>)),
+        CallWalkParameterTypes.NoTypeInfos(1)
+    )
+    assert specific == AnalyzerOverloadSpecificity.LeftIsBetter
+
+    // Identity beats specificity: the argument's own type wins the position outright.
+    identity := harness.Owner.CompareReflectionCandidates(
+        left,
+        right,
+        CallWalkParameterTypes.Of1(typeof(List<int>)),
+        CallWalkParameterTypes.Of1(typeof(IEnumerable<int>)),
+        CallWalkParameterTypes.Of1(typeof(List<int>)),
+        CallWalkParameterTypes.NoTypeInfos(1)
+    )
+    assert identity == AnalyzerOverloadSpecificity.LeftIsBetter
+}
+
+test "A CANDIDATE THAT WINS ONE POSITION AND LOSES ANOTHER IS NOT BETTER — that tie is NL414" {
+    harness := CallWalkHarnessOf(CallWalkErrors())
+
+    // `Pick(object, string)` against `Pick(string, object)` for `("a", "b")`.
+    split := harness.Owner.CompareReflectionCandidates(
+        CallWalkCandidate(12, false, 0),
+        CallWalkCandidate(12, false, 0),
+        CallWalkParameterTypes.Of2(typeof(object), typeof(string)),
+        CallWalkParameterTypes.Of2(typeof(string), typeof(object)),
+        CallWalkParameterTypes.Of2(typeof(string), typeof(string)),
+        CallWalkParameterTypes.NoTypeInfos(2)
+    )
+    assert split == AnalyzerOverloadSpecificity.NeitherIsBetter
+}
+
+test "A POSITION WITH NO ARGUMENT TYPE IS SKIPPED, not guessed at" {
+    harness := CallWalkHarnessOf(CallWalkErrors())
+
+    // A lambda is left unanalysed on purpose and a method group has no type of its own, so both arrive
+    // as a null argument type. The parameter types still differ, so nothing is claimed about the pair —
+    // which is exactly how a method group with two ARITIES ties both `Enumerable.Select` overloads.
+    unknownArgument := harness.Owner.CompareReflectionCandidates(
+        CallWalkCandidate(6, false, 0),
+        CallWalkCandidate(6, false, 0),
+        CallWalkParameterTypes.Of1(typeof(Func<string, string>)),
+        CallWalkParameterTypes.Of1(typeof(Func<string, int, string>)),
+        CallWalkParameterTypes.Unfilled(1),
+        CallWalkParameterTypes.NoTypeInfos(1)
+    )
+    assert unknownArgument == AnalyzerOverloadSpecificity.NeitherIsBetter
+
+    // And a position one candidate never filled says nothing either.
+    unfilled := harness.Owner.CompareReflectionCandidates(
+        CallWalkCandidate(6, false, 0),
+        CallWalkCandidate(6, false, 0),
+        CallWalkParameterTypes.Of1(typeof(string)),
+        CallWalkParameterTypes.Unfilled(1),
+        CallWalkParameterTypes.Of1(typeof(string)),
+        CallWalkParameterTypes.NoTypeInfos(1)
+    )
+    assert unfilled == AnalyzerOverloadSpecificity.NeitherIsBetter
+}
+
+test "THE PARAMS AND DEFAULT KEYS STILL BREAK A TIE THE CONVERSIONS COULD NOT" {
+    harness := CallWalkHarnessOf(CallWalkErrors())
+    empty := CallWalkParameterTypes.Unfilled(0)
+    emptyInfos := CallWalkParameterTypes.NoTypeInfos(0)
+
+    assert harness.Owner.CompareReflectionCandidates(CallWalkCandidate(4, false, 0), CallWalkCandidate(4, true, 0), empty, empty, empty, emptyInfos) == AnalyzerOverloadSpecificity.LeftIsBetter
+    assert harness.Owner.CompareReflectionCandidates(CallWalkCandidate(4, false, 2), CallWalkCandidate(4, false, 0), empty, empty, empty, emptyInfos) == AnalyzerOverloadSpecificity.RightIsBetter
 }
 
 // ── the diagnostic rollback, which is what makes the order matter ─────────────

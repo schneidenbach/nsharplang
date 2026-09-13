@@ -199,6 +199,41 @@ class AnalyzerReflectionCallReporter {
         diagnostics.Report(ErrorCode.NoMatchingOverload, "No overload of '" + functionName + "' accepts " + call.Arguments.Count.ToString() + " argument(s) with these types", span.Line, span.Column, "Check the argument count and types against the available overloads.", span.Length)
     }
 
+    // NL414 — TWO REFLECTED CANDIDATES MATCHED AND NEITHER IS BETTER.
+    //
+    // The ordering owner has already run `AnalyzerOverloadSpecificity`'s whole chain and found more
+    // than one candidate that nothing beats, so there is no answer left to compute here: this names
+    // the two the reader has to choose between and says how. The two signatures are rendered by the
+    // same formatter NL402 uses, so a reader who has seen one report can read the other.
+    //
+    // IT IS SAID ONCE PER WRITTEN CALL. A method group can be pre-bound several times for a single
+    // occurrence — the callee walk, an argument walk under a different expected type, and generic
+    // inference each reach it — and the reader must see one report, so the anchor-and-name log the
+    // NL411 arm already keeps is reused with its own key space.
+    func ReportAmbiguousCall(call: CallExpression, candidateMethods: IReadOnlyList<MethodInfo>, left: MethodInfo, right: MethodInfo) {
+        if candidateMethods.Count == 0 {
+            return
+        }
+
+        functionName := ResolveReflectionCallName(call, candidateMethods)
+        span := spans.GetCallDiagnosticSpan(call, functionName)
+        if !reportLog.TryBeginReport(span.Line, span.Column, "NL414 " + functionName) {
+            return
+        }
+
+        leftSignature := AnalyzerOverloadFacts.FormatReflectionMethodSignature(left, call)
+        rightSignature := AnalyzerOverloadFacts.FormatReflectionMethodSignature(right, call)
+
+        filePath := ""
+        snippet := ""
+        if TryGetRichContext(span.Line, out filePath, out snippet) {
+            diagnostics.ReportBuilt(ErrorMessageBuilder.AmbiguousCall(filePath, span.Line, span.Column, snippet, span.Length, functionName, leftSignature, rightSignature))
+            return
+        }
+
+        diagnostics.Report(ErrorCode.AmbiguousCall, AnalyzerOverloadSpecificity.AmbiguousCallSummary(functionName), span.Line, span.Column, AnalyzerOverloadSpecificity.AmbiguousCallHint(leftSignature, rightSignature), span.Length)
+    }
+
     // The method-group arm. There is no rich form here on purpose: the reader's problem is a SHAPE
     // mismatch between a named method and a delegate parameter, and a snippet with a type list would
     // point at the argument types, which are not what failed.

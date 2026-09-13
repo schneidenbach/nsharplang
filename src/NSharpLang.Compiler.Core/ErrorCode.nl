@@ -60,6 +60,7 @@ enum ErrorCode {
     MethodGroupUsedAsValue = 411,
     UndefinedFunction = 412,
     MemberNotCallable = 413,
+    AmbiguousCall = 414,
     NonExhaustiveMatch = 501,
     UnreachablePattern = 502,
     InvalidPattern = 503,

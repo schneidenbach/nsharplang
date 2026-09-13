@@ -702,13 +702,22 @@ class AnalyzerSyntheticCallBinder {
     // A params parameter whose type is not an array at all describes nothing, so the position is
     // skipped rather than failed — a malformed signature must not eliminate a candidate that the
     // arity tables already admitted.
+    //
+    // THE `ref`/`out` SHELL IS PART OF THE EXPECTED TYPE HERE, exactly as it is in the validator. The
+    // two must agree: an argument written `out x` carries a `ByRefTypeInfo` and a bare `Facts`
+    // parameter type does not accept one, so a scorer that dropped the shell rejected the only
+    // candidate that fits — `Compile(root, out ignored, includeTests)` reported NL402 as soon as
+    // `Compile` had ANY sibling overload, while the same call to a lone declaration bound. By-ref
+    // matching is an EQUALITY (`AnalyzerAssignability` compares the inner types by identity, with the
+    // `out` nullability relaxation), so restoring the shell also makes the position match exactly
+    // rather than widen.
     func GetArgumentComparisonTypes(functionType: FunctionTypeInfo, call: CallExpression, argTypes: IReadOnlyList<TypeInfo>, argumentIndex: int, parameterIndex: int, paramsParameterIndex: int, parameterStartIndex: int, genericBindings: Dictionary<string, TypeInfo>?): SyntheticArgumentComparison {
         parameterTypes := functionType.ParameterTypes
         if parameterTypes == null || parameterIndex < 0 || parameterIndex >= parameterTypes.Count {
             return new SyntheticArgumentComparison(false, null, null)
         }
 
-        boundParameterType := AnalyzerSyntheticCallFacts.ApplyGenericBindings(parameterTypes[parameterIndex], genericBindings)
+        boundParameterType := AnalyzerOverloadFacts.ApplySyntheticParameterModifier(functionType, parameterIndex, AnalyzerSyntheticCallFacts.ApplyGenericBindings(parameterTypes[parameterIndex], genericBindings))
         expectedType: TypeInfo? = declarationContext.ResolveDeclaredAlias(boundParameterType)
         argumentType: TypeInfo? = declarationContext.ResolveDeclaredAlias(argTypes[argumentIndex])
         if paramsParameterIndex < 0 || parameterIndex != paramsParameterIndex {
@@ -1102,5 +1111,27 @@ class AnalyzerSyntheticCallReporter {
         span := spansValue.GetExpressionDiagnosticSpan(argument.Value)
         signature := AnalyzerOverloadFacts.FormatSyntheticFunctionSignature(functionType, functionName, parameterStartIndex)
         diagnosticsValue.Report(ErrorCode.NoMatchingOverload, message, span.Line, span.Column, "Use " + signature + ", or remove the argument name.", span.Length)
+    }
+
+    // NL414 — TWO SOURCE-DECLARED OVERLOADS MATCHED AND NEITHER IS BETTER.
+    //
+    // The same sentence the reflected world says about the same mistake, because the rule that found
+    // the tie is the same rule: `AnalyzerOverloadSpecificity` ranked both candidates maximal. What
+    // differs is only the renderer — a source candidate's signature is written the way the user wrote
+    // the declaration, so the fix hint echoes their own spelling back at them.
+    func ReportAmbiguousCall(left: FunctionTypeInfo, right: FunctionTypeInfo, call: CallExpression) {
+        functionName := AnalyzerSyntheticCallFacts.ResolveSyntheticFunctionName(left, call)
+        span := spansValue.GetCallDiagnosticSpan(call, functionName)
+        leftSignature := AnalyzerOverloadFacts.FormatSyntheticFunctionSignature(left, functionName, AnalyzerOverloadFacts.GetSyntheticParameterStartIndex(left, call))
+        rightSignature := AnalyzerOverloadFacts.FormatSyntheticFunctionSignature(right, functionName, AnalyzerOverloadFacts.GetSyntheticParameterStartIndex(right, call))
+
+        filePath := diagnosticsValue.CurrentFilePath
+        snippet := diagnosticsValue.SourceSnippet(span.Line)
+        if filePath != null && snippet != null {
+            diagnosticsValue.ReportBuilt(ErrorMessageBuilder.AmbiguousCall(filePath, span.Line, span.Column, snippet, span.Length, functionName, leftSignature, rightSignature))
+            return
+        }
+
+        diagnosticsValue.Report(ErrorCode.AmbiguousCall, AnalyzerOverloadSpecificity.AmbiguousCallSummary(functionName), span.Line, span.Column, AnalyzerOverloadSpecificity.AmbiguousCallHint(leftSignature, rightSignature), span.Length)
     }
 }
