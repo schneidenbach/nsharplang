@@ -4822,6 +4822,31 @@ class ColumnarParserRecovery {
             return new ForStatement(null, null, null, new ForeachStatement(loopVariable, collection, body, line, column), line, column)
         }
 
+        // `for <name>: <Type> in <collection>` — the ANNOTATED loop variable. The decision is a pure
+        // bounded lookahead (the same scan the cast disambiguation uses) rather than a commit on
+        // `Identifier :`, so a C-style header whose initializer happens to be annotated still reaches
+        // the C-style arm and gets its own diagnostics. The scan state is transient and the cursor is
+        // untouched, exactly as `IsCastExpression` leaves it. Spelled inline because this class is at
+        // the columnar front end's per-class member ceiling (§2.1).
+        if Check(TokenType.Identifier) && LookAhead(1).Type == TokenType.Colon {
+            ScanPosition = Position + 2
+            ScanSplit = 0
+            if ScanTypeReference() && ScanCurrentType() == TokenType.In {
+                annotatedVariable := Advance().Value
+                // loop variable
+                Advance()
+                // consume ':'
+                annotatedType := ParseMaterializedTypeReference()
+                annotatedInToken := ConsumeToken(TokenType.In, "Expected 'in'", "in")
+                annotatedCollection := ParseRequiredExpressionAfter(annotatedInToken, "a collection expression", "This for-in statement", null)
+                annotatedBody := ParseStatement(SpanFromToken(forToken))
+                if annotatedType == null || annotatedCollection == null || annotatedBody == null {
+                    return null
+                }
+                return new ForStatement(null, null, null, new ForeachStatement(annotatedVariable, annotatedCollection, annotatedBody, line, column, annotatedType), line, column)
+            }
+        }
+
         if Check(TokenType.Identifier) && LookAhead(1).Type == TokenType.Identifier {
             variableToken := Current()
             Advance()
@@ -4933,6 +4958,17 @@ class ColumnarParserRecovery {
         }
         variableToken := Current()
         variableName := ConsumeIdentifier("Expected variable name")
+        // The OPTIONAL `: Type` annotation on the loop variable, the same form the `for … in` arm
+        // reads. It is taken unconditionally here: after a `foreach` variable name a `:` can begin
+        // nothing else.
+        variableType: TypeReference? = null
+        variableTypeDeclined := false
+        if Check(TokenType.Colon) {
+            Advance()
+            // consume ':'
+            variableType = ParseMaterializedTypeReference()
+            variableTypeDeclined = variableType == null
+        }
         inToken := ConsumeForeachInKeyword(foreachToken, variableToken)
         collection := ParseRequiredExpressionAfter(inToken, "a collection expression", "This foreach statement", null)
         if hasParens {
@@ -4941,10 +4977,10 @@ class ColumnarParserRecovery {
         body := ParseStatement(SpanFromToken(foreachToken))
         // An `<error>` loop-variable name is a RECOVERY ARTIFACT Parser.cs threads through verbatim
         // (:2784 constructs with whatever ConsumeIdentifier returned), so it is reproduced, not declined.
-        if collection == null || body == null {
+        if variableTypeDeclined || collection == null || body == null {
             return null
         }
-        return new ForeachStatement(variableName, collection, body, line, column)
+        return new ForeachStatement(variableName, collection, body, line, column, variableType)
     }
 
     func ConsumeForeachInKeyword(foreachToken: Token, variableToken: Token): Token {

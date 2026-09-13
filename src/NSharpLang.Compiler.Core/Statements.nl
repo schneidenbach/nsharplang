@@ -126,14 +126,19 @@ class ForStatement: Statement {
     }
 }
 
-// Foreach loop
+// Foreach loop. `VariableType` is the OPTIONAL annotation on the loop variable — `for m: Match in
+// matches` — and it is null for the inferred spelling `for m in matches`. When it is written the
+// element is converted to that type once per iteration by an explicit conversion, which is the C#
+// `foreach (T x in e)` rule.
 class ForeachStatement: Statement {
     VariableName: string
+    VariableType: TypeReference?
     Collection: Expression
     Body: Statement
 
-    constructor(VariableName: string, Collection: Expression, Body: Statement, Line: int, Column: int): base(Line, Column) {
+    constructor(VariableName: string, Collection: Expression, Body: Statement, Line: int, Column: int, VariableType: TypeReference? = null): base(Line, Column) {
         this.VariableName = VariableName
+        this.VariableType = VariableType
         this.Collection = Collection
         this.Body = Body
     }

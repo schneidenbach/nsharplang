@@ -544,6 +544,21 @@ class ErrorMessageBuilder {
         }
     }
 
+    // NL330 — the annotated loop variable no conversion can reach. The sentence names BOTH types,
+    // because the mistake is always about a pair and the author can see only one of them in the
+    // source: the annotation is written, the element type is inferred from the collection.
+    static func ForeachElementConversion(fileName: string, line: int, column: int, sourceSnippet: string, length: int, variableName: string, elementText: string, declaredText: string): CompilerError {
+        return new CompilerError(ErrorCode.ForeachElementConversion, "A '" + elementText + "' cannot be read as a '" + declaredText + "'", line, column, ErrorSeverity.Error) {
+            FileName: fileName,
+            SourceSnippet: sourceSnippet,
+            Length: length,
+            HumanExplanation: "This loop hands `" + variableName + "` one `" + elementText + "` at a time, and `" + declaredText + "` is not a type any `" + elementText + "` can be converted to:",
+            ContextualHint: "An annotated loop variable converts each element the way a cast does — a downcast, an unboxing, or a numeric conversion. There is no conversion between `" + elementText + "` and `" + declaredText + "` in either direction, so no element could ever take that type.",
+            Suggestion: "Annotate `" + variableName + "` with `" + elementText + "` or a type it converts to, drop the annotation and let the element type be inferred, or iterate a collection whose elements are `" + declaredText + "`.",
+            DocsUrl: DiagnosticDocs.UrlFor("NL330")
+        }
+    }
+
     static func Pluralize(count: int, singular: string, plural: string): string {
         if count == 1 {
             return singular

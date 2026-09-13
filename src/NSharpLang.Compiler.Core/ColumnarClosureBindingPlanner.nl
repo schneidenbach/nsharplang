@@ -44,6 +44,12 @@ class ColumnarClosureBindingPlanner {
             if nodes.ValueStart(node) >= 0 {
                 names.Add(nodes.Text(source, node))
             }
+        } else if kind == 76 {
+            // A TYPED loop variable keeps its NAME in child 0 — the value slot is the annotation's
+            // source span — so the binding is read from there rather than from the node itself.
+            if nodes.ChildCount(node) > 0 && nodes.Kind(nodes.Child(node, 0)) == 6 && nodes.ValueStart(nodes.Child(node, 0)) >= 0 {
+                names.Add(nodes.Text(source, nodes.Child(node, 0)))
+            }
         } else if kind == 30 {
             ordinal := 0
             while ordinal < nodes.ChildCount(node) - 1 {
@@ -255,6 +261,10 @@ class ColumnarClosureBindingPlanner {
             if names.Contains(nodes.Text(source, node)) {
                 return true
             }
+        } else if kind == 76 {
+            if nodes.ChildCount(node) > 0 && nodes.Kind(nodes.Child(node, 0)) == 6 && names.Contains(nodes.Text(source, nodes.Child(node, 0))) {
+                return true
+            }
         } else if kind == 30 {
             nameOrdinal := 0
             while nameOrdinal < nodes.ChildCount(node) - 1 {
@@ -377,6 +387,10 @@ class ColumnarClosureBindingPlanner {
             }
         } else if kind == 29 {
             if names.Contains(nodes.Text(source, node)) {
+                return true
+            }
+        } else if kind == 76 {
+            if nodes.ChildCount(node) > 0 && nodes.Kind(nodes.Child(node, 0)) == 6 && names.Contains(nodes.Text(source, nodes.Child(node, 0))) {
                 return true
             }
         } else if kind == 30 {

@@ -151,6 +151,7 @@ class DiagnosticCatalog {
         AddCompiler(descriptors, ErrorCode.NoCurrentInstance)
         AddCompiler(descriptors, ErrorCode.FieldInitializerUsesInstance)
         AddCompiler(descriptors, ErrorCode.StructFieldInitializer)
+        AddCompiler(descriptors, ErrorCode.ForeachElementConversion)
 
         AddCompiler(descriptors, ErrorCode.WrongArgumentCount)
         AddCompiler(descriptors, ErrorCode.NoMatchingOverload)
@@ -217,7 +218,7 @@ class DiagnosticCatalog {
             return DiagnosticCategory.Type
         }
 
-        if value >= Convert.ToInt32(ErrorCode.UndefinedVariable) && value <= Convert.ToInt32(ErrorCode.StructFieldInitializer) {
+        if value >= Convert.ToInt32(ErrorCode.UndefinedVariable) && value <= Convert.ToInt32(ErrorCode.ForeachElementConversion) {
             return DiagnosticCategory.Semantic
         }
 

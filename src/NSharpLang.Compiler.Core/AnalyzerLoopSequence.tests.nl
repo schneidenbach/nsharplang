@@ -902,6 +902,12 @@ func LoopForeachOver(collection: Expression, body: Statement): ForeachStatement 
     return new ForeachStatement("item", collection, body, 6, 5)
 }
 
+// `for item: T in <collection>` — the loop above with a WRITTEN annotation on its variable.
+func LoopTypedForeachOver(collection: Expression, body: Statement, typeName: string): ForeachStatement {
+    annotation: TypeReference = new SimpleTypeReference(typeName, 6, 15)
+    return new ForeachStatement("item", collection, body, 6, 5, annotation)
+}
+
 func LoopAwaitForeachOver(collection: Expression, body: Statement): AwaitForEachStatement {
     return new AwaitForEachStatement("item", collection, body, 6, 5)
 }
@@ -913,7 +919,7 @@ func LoopArrayOf(element: TypeInfo): TypeInfo {
 
 test "A foreach ASKS FOR SIX STEPS IN ONE FIXED ORDER" {
     harness := LoopDefault()
-    state := harness.Sequence.BeginForeach(LoopForeachOver(LoopCollection(), LoopForeachBody()))
+    state := harness.Sequence.BeginForeach(LoopForeachOver(LoopCollection(), LoopForeachBody()), harness.Assignability)
 
     steps := LoopRun(harness, state, LoopArrayOf(BuiltInTypes.Int))
 
@@ -935,7 +941,7 @@ test "AN await foreach ASKS FOR THE SAME SIX STEPS — THE ARMS DIFFER ONLY IN A
 test "THE COLLECTION IS ASKED FOR BEFORE THE SCOPE OPENS, AND THE SCOPE OPENS AT THE STATEMENT" {
     harness := LoopDefault()
     collection := LoopCollection()
-    state := harness.Sequence.BeginForeach(LoopForeachOver(collection, LoopForeachBody()))
+    state := harness.Sequence.BeginForeach(LoopForeachOver(collection, LoopForeachBody()), harness.Assignability)
 
     steps := LoopRun(harness, state, LoopArrayOf(BuiltInTypes.Int))
 
@@ -950,7 +956,7 @@ test "THE COLLECTION IS ASKED FOR BEFORE THE SCOPE OPENS, AND THE SCOPE OPENS AT
 
 test "THE LOOP VARIABLE IS DECLARED THEN RECORDED, BOTH WITH THE ELEMENT TYPE" {
     harness := LoopDefault()
-    state := harness.Sequence.BeginForeach(LoopForeachOver(LoopCollection(), LoopForeachBody()))
+    state := harness.Sequence.BeginForeach(LoopForeachOver(LoopCollection(), LoopForeachBody()), harness.Assignability)
 
     steps := LoopRun(harness, state, LoopArrayOf(BuiltInTypes.String))
 
@@ -968,7 +974,7 @@ test "THE LOOP VARIABLE IS DECLARED THEN RECORDED, BOTH WITH THE ELEMENT TYPE" {
 test "THE BODY STEP CARRIES THE STATEMENT ITSELF, NOT A LIST AND NOT AN EXPRESSION" {
     harness := LoopDefault()
     body := LoopForeachBody()
-    state := harness.Sequence.BeginForeach(LoopForeachOver(LoopCollection(), body))
+    state := harness.Sequence.BeginForeach(LoopForeachOver(LoopCollection(), body), harness.Assignability)
 
     steps := LoopRun(harness, state, LoopArrayOf(BuiltInTypes.Int))
 
@@ -978,7 +984,7 @@ test "THE BODY STEP CARRIES THE STATEMENT ITSELF, NOT A LIST AND NOT AN EXPRESSI
 
 test "THE LOOP IS OPEN FOR THE BODY STEP ALONE, AND CLOSED BEFORE THE SCOPE" {
     harness := LoopDefault()
-    state := harness.Sequence.BeginForeach(LoopForeachOver(LoopCollection(), LoopForeachBody()))
+    state := harness.Sequence.BeginForeach(LoopForeachOver(LoopCollection(), LoopForeachBody()), harness.Assignability)
 
     steps := LoopRun(harness, state, LoopArrayOf(BuiltInTypes.Int))
 
@@ -993,9 +999,66 @@ test "THE LOOP IS OPEN FOR THE BODY STEP ALONE, AND CLOSED BEFORE THE SCOPE" {
     assert !harness.Ambient.InLoop
 }
 
+// ── THE ANNOTATED LOOP VARIABLE (NL330) ───────────────────────────────────────────────────
+//
+// The annotation is applied at the SAME phase the element type is resolved, so everything after it —
+// the scope declaration, the semantic-model record and the body — sees the WRITTEN type. That is the
+// whole of what the form does, and the three contracts below pin it from both sides.
+
+test "AN ANNOTATED LOOP VARIABLE IS DECLARED AND RECORDED AT THE WRITTEN TYPE, NOT THE ELEMENT TYPE" {
+    harness := LoopDefault()
+    state := harness.Sequence.BeginForeach(LoopTypedForeachOver(LoopCollection(), LoopForeachBody(), "long"), harness.Assignability)
+
+    steps := LoopRun(harness, state, LoopArrayOf(BuiltInTypes.Int))
+
+    assert steps[2].CarriedType == "long"
+    assert steps[3].CarriedType == "long"
+    assert harness.Errors.Count == 0
+}
+
+// A DOWNCAST IS THE POINT OF THE FORM. `object` is not assignable to `string`, and that is exactly
+// why the rule asks for an EXPLICIT conversion rather than for assignability.
+test "AN ANNOTATION THAT DOWNCASTS THE ELEMENT IS ACCEPTED IN SILENCE" {
+    harness := LoopDefault()
+    state := harness.Sequence.BeginForeach(LoopTypedForeachOver(LoopCollection(), LoopForeachBody(), "string"), harness.Assignability)
+
+    steps := LoopRun(harness, state, LoopArrayOf(BuiltInTypes.Object))
+
+    assert steps[2].CarriedType == "string"
+    assert harness.Errors.Count == 0
+}
+
+// NEITHER DIRECTION CONVERTS, SO THE LOOP REPORTS — ONCE, AT THE ANNOTATION, NAMING BOTH TYPES —
+// AND THE VARIABLE IS STILL THE WRITTEN TYPE, so the body checks against what the author wrote.
+test "AN ANNOTATION NO CONVERSION REACHES REPORTS NL330 ONCE AND KEEPS THE WRITTEN TYPE" {
+    harness := LoopDefault()
+    state := harness.Sequence.BeginForeach(LoopTypedForeachOver(LoopCollection(), LoopForeachBody(), "string"), harness.Assignability)
+
+    steps := LoopRun(harness, state, LoopArrayOf(BuiltInTypes.Int))
+
+    assert harness.Errors.Count == 1
+    assert harness.Errors[0].Code == ErrorCode.ForeachElementConversion
+    assert harness.Errors[0].Message == "A 'int' cannot be read as a 'string'"
+    assert harness.Errors[0].Line == 6
+    assert harness.Errors[0].Column == 15
+    assert steps[2].CarriedType == "string"
+}
+
+// A COLLECTION THAT IS NOT A SEQUENCE HAS ALREADY BEEN TOLD SO. Its element type is `unknown`, and
+// measuring an annotation against it would add a second sentence about one mistake.
+test "AN ANNOTATION OVER A COLLECTION THAT IS NOT A SEQUENCE ADDS NO SECOND REPORT" {
+    harness := LoopDefault()
+    state := harness.Sequence.BeginForeach(LoopTypedForeachOver(LoopCollection(), LoopForeachBody(), "string"), harness.Assignability)
+
+    LoopRun(harness, state, BuiltInTypes.Int)
+
+    assert harness.Errors.Count == 1
+    assert harness.Errors[0].Code == ErrorCode.TypeMismatch
+}
+
 test "A NON-SEQUENCE COLLECTION REPORTS ONCE AND STILL DECLARES THE VARIABLE AS unknown" {
     harness := LoopDefault()
-    state := harness.Sequence.BeginForeach(LoopForeachOver(LoopCollection(), LoopForeachBody()))
+    state := harness.Sequence.BeginForeach(LoopForeachOver(LoopCollection(), LoopForeachBody()), harness.Assignability)
 
     steps := LoopRun(harness, state, BuiltInTypes.Int)
 
@@ -1021,7 +1084,7 @@ test "AN await foreach OVER A SYNCHRONOUS SEQUENCE REPORTS THE ASYNC WORDING FRO
 test "A ROW-VIEW COLLECTION ESCAPES, COLLAPSES TO unknown, AND SPEAKS WITH THE ARM'S ACTION WORD" {
     // The SYNCHRONOUS arm.
     syncHarness := LoopDefault()
-    syncState := syncHarness.Sequence.BeginForeach(LoopForeachOver(LoopCollection(), LoopForeachBody()))
+    syncState := syncHarness.Sequence.BeginForeach(LoopForeachOver(LoopCollection(), LoopForeachBody()), syncHarness.Assignability)
     syncSteps := LoopRun(syncHarness, syncState, LoopSoaRowType())
     assert syncSteps[2].CarriedType == "unknown"
     // ONE diagnostic, not two: the collapse is what silences the element-type mismatch.
@@ -1042,7 +1105,7 @@ test "A DIRECT COLUMN COLLECTION ESCAPES ON SYNTAX, COLLAPSES, AND KEEPS THE ARM
     // array that WOULD have iterated cleanly, and the escape is still what speaks.
     syncHarness := LoopDefault()
     LoopDeclareSoaTable(syncHarness)
-    syncState := syncHarness.Sequence.BeginForeach(LoopForeachOver(LoopSoaColumnRead(), LoopForeachBody()))
+    syncState := syncHarness.Sequence.BeginForeach(LoopForeachOver(LoopSoaColumnRead(), LoopForeachBody()), syncHarness.Assignability)
     syncSteps := LoopRun(syncHarness, syncState, LoopArrayOf(BuiltInTypes.Int))
     assert syncSteps[2].CarriedType == "unknown"
     assert syncHarness.Errors.Count == 1
@@ -1059,7 +1122,7 @@ test "A DIRECT COLUMN COLLECTION ESCAPES ON SYNTAX, COLLAPSES, AND KEEPS THE ARM
 
 test "AN UNANSWERED COLLECTION WALK LEAVES THE TYPE unknown AND STAYS SILENT" {
     harness := LoopDefault()
-    state := harness.Sequence.BeginForeach(LoopForeachOver(LoopCollection(), LoopForeachBody()))
+    state := harness.Sequence.BeginForeach(LoopForeachOver(LoopCollection(), LoopForeachBody()), harness.Assignability)
 
     steps := LoopRun(harness, state, null)
 
@@ -1071,7 +1134,7 @@ test "AN UNANSWERED COLLECTION WALK LEAVES THE TYPE unknown AND STAYS SILENT" {
 
 test "THE WALK'S STATE CARRIES THE OPERANDS, NOT THE NODE — THE TWO ARMS SHARE ONE STATE TYPE" {
     harness := LoopDefault()
-    syncState := harness.Sequence.BeginForeach(LoopForeachOver(LoopCollection(), LoopForeachBody()))
+    syncState := harness.Sequence.BeginForeach(LoopForeachOver(LoopCollection(), LoopForeachBody()), harness.Assignability)
     asyncState := harness.Sequence.BeginAwaitForeach(LoopAwaitForeachOver(LoopCollection(), LoopForeachBody()))
 
     assert !syncState.IsAsync
@@ -1305,7 +1368,7 @@ test "A DIRECT COLUMN READ IN A for CONDITION ESCAPES WITH THE for's ACTION WORD
 
 test "ONE STATE AND ONE DRIVER SERVE ALL FIVE STATEMENTS, AND Form IS THE ONLY THING THAT SEPARATES THEM" {
     harness := LoopDefault()
-    iteration := harness.Sequence.BeginForeach(LoopForeachOver(LoopCollection(), LoopForeachBody()))
+    iteration := harness.Sequence.BeginForeach(LoopForeachOver(LoopCollection(), LoopForeachBody()), harness.Assignability)
     asyncIteration := harness.Sequence.BeginAwaitForeach(LoopAwaitForeachOver(LoopCollection(), LoopForeachBody()))
     whileLoop := harness.Sequence.BeginWhile(LoopWhileOver(LoopPlainCondition(), LoopForeachBody()), harness.Narrowing)
     forLoop := harness.Sequence.BeginFor(LoopForOver(LoopInitializer(), LoopPlainCondition(), LoopIterator(), LoopForeachBody()), harness.Narrowing)
