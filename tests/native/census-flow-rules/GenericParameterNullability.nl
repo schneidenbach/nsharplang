@@ -127,6 +127,30 @@ func FoundMomentYear(moments: List<DateTime>): int {
     return moments.Find(moment => moment.Year > 2000).Year
 }
 
+// `CollectionExtensions.GetValueOrDefault` and `Dictionary<K, V>.TryGetValue`'s `out` write the same
+// `?` two other ways — a `NullableAttribute(2)` on the return, and a `[MaybeNullWhen(false)]`
+// postcondition — and both erase for a value element, INCLUDING a struct this compilation declares.
+//
+// (`tallies.Find(t => t.Count > 1)` over a `List<Tally>` would say the same thing and declines at
+// `emit.call.instance-member`: an external generic closed over a SOURCE type, called with a lambda.
+// That is an emit gap of its own and nothing to do with the erasure, which the ANALYSIS contract in
+// `tests/native/analyzer-clean-source` covers for the source-struct element.)
+struct Tally {
+    Count: int
+}
+func LookupYear(times: Dictionary<string, DateTime>, key: string): int {
+    return times.GetValueOrDefault(key).Year
+}
+
+func LookupTallyCount(tallies: Dictionary<string, Tally>, key: string): int {
+    found := new Tally { Count: 0 }
+    if tallies.TryGetValue(key, out found) {
+        return found.Count
+    }
+
+    return -1
+}
+
 // A REFERENCE argument keeps the annotation, which is what makes this the same rule rather than
 // "value types are never maybe-null".
 func FirstWordOrEmpty(words: List<string>): string {

@@ -88,6 +88,17 @@ test "the erased answer for an EMPTY sequence is the element's own default" {
     assert FoundMomentYear(empty) == 1
 }
 
+test "the erasure reaches a struct this compilation declares, and the other two spellings of `?`" {
+    times := NullabilityTimes()
+    assert LookupYear(times, "early") == 2005
+    assert LookupYear(times, "missing") == 1
+
+    lookup := new Dictionary<string, Tally>()
+    lookup["one"] = new Tally { Count: 7 }
+    assert LookupTallyCount(lookup, "one") == 7
+    assert LookupTallyCount(lookup, "other") == -1
+}
+
 test "a REFERENCE element keeps the annotation, so the same call still needs its guard" {
     words := NullabilityWords()
     assert FirstWordOrEmpty(words) == "alpha"

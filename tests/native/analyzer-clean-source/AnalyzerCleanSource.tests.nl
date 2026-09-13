@@ -22645,6 +22645,19 @@ test "the constraint is what separates the two readings of the same spelling" {
     assert AcCodeCount(analysis, "TypeMismatch") == 1
 }
 
+test "a `T?` return over a struct this compilation declares erases like any other value element" {
+    // `List<T>.Find` annotates its return `T?`; with `T` a source struct the answer is that struct,
+    // so the `.Count` read needs no guard. (This shape declines at EMIT — an external generic closed
+    // over a source type, called with a lambda — so the contract is the analysis.)
+    source := "import System.Collections.Generic\n\nstruct Tally {\n    Count: int\n}\n\nfunc FoundCount(tallies: List<Tally>): int {\n    return tallies.Find(tally => tally.Count > 1).Count\n}\n"
+    assert AcParseCensus(source) == ""
+    assert AcParseSuccess(source) == "True"
+    analysis := AcAnalyze(source)
+    assert AcCensus(analysis) == ""
+    assert AcHasErrors(analysis) == "False"
+    assert AcErrorCount(analysis) == 0
+}
+
 test "`Nullable<T>`'s own surface answers for a struct and an enum this compilation declares" {
     source := "struct Money {\n    Amount: int\n}\n\nenum Grade {\n    Low = 1,\n    High = 2\n}\n\nfunc AmountOrZero(m: Money?): int {\n    return m.GetValueOrDefault().Amount\n}\n\nfunc AmountOrFallback(m: Money?, fallback: Money): int {\n    return m.GetValueOrDefault(fallback).Amount\n}\n\nfunc GradeOrDefault(g: Grade?): Grade {\n    return g.GetValueOrDefault()\n}\n\nfunc Presence(m: Money?): bool {\n    return m.HasValue\n}\n"
     assert AcParseCensus(source) == ""
