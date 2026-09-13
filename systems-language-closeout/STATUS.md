@@ -37,13 +37,13 @@ Facade and MSBuild task lanes are running from `06186dc6d`; CLI/LSP/Playground/R
 Visual Studio is deferred; compiler completion and rename evidence below remain accepted.
 Shared compiler prerequisites, seeds and integration gates remain root-owned.
 
-**Census waves 6 and 7 integrating, 2026-09-13** (systems-language `GATED_SHA_PLACEHOLDER` → pending push): ITER2, EMIT3 (its
+**Census waves 6 and 7 integrating, 2026-09-13** (systems-language `a755caeea` → pending push): ITER2, EMIT3 (its
 holder-name fix), INHERIT, LAMBDA3, TUPLE3, TESTREFS and FLOW5 merged in landing order onto `census/merge` (rows in
 tasks/TOOLCHAIN-NATIVE.md "Census wave 3"; corpus pin 107, 79 native projects). Converter gained the `using`-declaration
 throw lowering and writes a type name in full when two imports supply the same simple name (TUPLE3's finding: N# binds
 it by import order and says nothing — NL209 for external types is an open item). Converted census at `e6f200491`: runtime 0,
 cli 23 (12 warnings), tests 53 (20 warnings), languageserver 44 (13 warnings). TOOL2 still running. Fresh gates at
-`GATED_SHA_PLACEHOLDER`: GATE_LINE_PLACEHOLDER.
+`e6f200491`: `VSCODE_TESTS=skip` 12m22s and VS Code-enabled 13m05s (smoke 16/16, extension 36 passing), both ALL TESTS PASSED; pushed as systems-language `e6f200491`+docs → this commit.
 
 **Census wave 5 integrating, 2026-09-13** (systems-language `ee1b12a65` → pending push): LAMBDA2, LOCALFN2, VIS,
 FLOW4, EMIT2 and ATTR2 merged in landing order onto `census/merge` (`ad8e92c8a`: estate 8,741/8,741, catalog 94 codes,
