@@ -1357,7 +1357,28 @@ class ColumnarTypeOfPlanner {
     // table. `SymbolKind?` is what a C#-compiled member spells for an optional enum, and it is the
     // shape a converted call site passes.
     static func IsLiftableNullableElement(valueType: Type): bool {
-        return valueType == typeof(int) || valueType == typeof(long) || valueType == typeof(ulong) || valueType == typeof(uint) || valueType == typeof(short) || valueType == typeof(ushort) || valueType == typeof(byte) || valueType == typeof(sbyte) || valueType == typeof(bool) || valueType == typeof(char) || valueType == typeof(double) || valueType == typeof(float) || valueType == typeof(decimal) || valueType == typeof(TimeSpan) || IsSupportedValueTuple(valueType) || IsEnumType(valueType)
+        return IsSourceStructNullableElement(valueType) || valueType == typeof(int) || valueType == typeof(long) || valueType == typeof(ulong) || valueType == typeof(uint) || valueType == typeof(short) || valueType == typeof(ushort) || valueType == typeof(byte) || valueType == typeof(sbyte) || valueType == typeof(bool) || valueType == typeof(char) || valueType == typeof(double) || valueType == typeof(float) || valueType == typeof(decimal) || valueType == typeof(TimeSpan) || IsSupportedValueTuple(valueType) || IsEnumType(valueType)
+    }
+
+    // A `Nullable<T>` NEEDS A NON-NULLABLE VALUE `T`, AND A STRUCT THIS COMPILATION DECLARES IS ONE.
+    //
+    // The liftable set above is a list of complete external identities plus the two source families
+    // that were added when they were needed — an enum of this compilation, and a tuple. A plain
+    // source STRUCT is the third, and its absence is why `e: Extent? = null` declined at
+    // `emit.typed-local.unsupported-type` while the same annotation over an `int`, an enum or a tuple
+    // emitted. Nothing about the lowering is different for it: `Nullable<Extent>` is a
+    // `TypeBuilderInstantiation` exactly as `Nullable<SourceEnum>` already is, and every `HasValue`,
+    // `GetValueOrDefault` and constructor handle it needs is rebound through the one closed-generic
+    // member owner the enum case already goes through.
+    //
+    // A by-ref-like struct may not be a field of anything, so it may not be a `Nullable<T>`'s either;
+    // an ENUM builder is answered by `IsEnumType` above and is not re-answered here.
+    static func IsSourceStructNullableElement(valueType: Type): bool {
+        if valueType == null || !(valueType is TypeBuilder) || IsEnumBuilder(valueType) || valueType.get_IsGenericTypeDefinition() {
+            return false
+        }
+
+        return valueType.get_IsValueType() && !IsByRefLike(valueType)
     }
 
     static func IsExactNullableConstruction(valueType: Type): bool {
