@@ -2478,3 +2478,55 @@ test "census 2026-09-12: a value member written before a parenthesis is NL413" {
     assert SmHasErrors(analysis) == "True"
     assert SmCodeCount(analysis, "MemberNotCallable") == 1
 }
+
+// ── THE ANNOTATED LOOP VARIABLE IN THE SEMANTIC MODEL ─────────────────────────────────────────
+//
+// Everything the IDE shows about `for value: long in values` comes out of these tables: hover reads
+// the variable's type, go-to-definition and find-references read its row, and the ANNOTATION itself
+// is a type reference at its own position — a `TypeReference` is not an `Expression`, so nothing
+// would record it unless the loop's own walk did.
+
+test "ENUM2 analyzer semantic model: an annotated loop variable is the WRITTEN type, and the annotation is a type reference at its own column" {
+    source := "\nfunc test(values: int[]) {\n    for value: long in values {\n        print(value)\n    }\n}"
+    assert source.Length == 88
+    assert SmParseCensus(source) == ""
+    analysis := SmAnalyze(source)
+    model := SmModel(analysis)
+    assert SmCensus(analysis) == ""
+    assert SmHasErrors(analysis) == "False"
+    // The element type is `int`; the loop variable is the `long` that was WRITTEN.
+    assert SmTable(model, "Variables") == "value=long;values=int[];"
+    assert SmLookupIdentifier(model, "value") == "long"
+    // Both reads of the variable inside the body are `long` too, which is what makes the body check
+    // against the written type.
+    assert SmExpressionTypes(model) == "3:24=int[];4:14=long;4:15=long;"
+    // The annotation is recorded at ITS column (3:16), beside the parameter's own annotation.
+    assert SmTypeReferenceTypes(model) == "2:19=int[];3:16=long;"
+}
+
+test "ENUM2 analyzer semantic model: an UNANNOTATED loop variable is the element type and records no type reference of its own" {
+    source := "\nfunc test(values: int[]) {\n    for value in values {\n        print(value)\n    }\n}"
+    assert source.Length == 82
+    assert SmParseCensus(source) == ""
+    analysis := SmAnalyze(source)
+    model := SmModel(analysis)
+    assert SmCensus(analysis) == ""
+    assert SmTable(model, "Variables") == "value=int;values=int[];"
+    assert SmExpressionTypes(model) == "3:18=int[];4:14=int;4:15=int;"
+    // Only the PARAMETER's annotation is a type reference; the loop head wrote none.
+    assert SmTypeReferenceTypes(model) == "2:19=int[];"
+}
+
+// A REFUSED ANNOTATION STILL TYPES THE VARIABLE. One NL330 at the annotation, and `value` is the
+// `string` the author wrote — so the body checks against what they meant instead of cascading.
+test "ENUM2 analyzer semantic model: a refused annotation reports NL330 once and still declares the written type" {
+    source := "\nfunc test(values: int[]) {\n    for value: string in values {\n        print(value)\n    }\n}"
+    assert source.Length == 90
+    assert SmParseCensus(source) == ""
+    analysis := SmAnalyze(source)
+    model := SmModel(analysis)
+    assert SmCensus(analysis) == "NL330:ForeachElementConversion@3:16+6;"
+    assert SmHasErrors(analysis) == "True"
+    assert SmTable(model, "Variables") == "value=string;values=int[];"
+    assert SmTypeReferenceTypes(model) == "2:19=int[];3:16=string;"
+}
