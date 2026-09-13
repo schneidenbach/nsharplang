@@ -796,6 +796,21 @@ class Widen {
 }
 ```
 
+A method group may also name a **static method of any type**, including one from a referenced
+assembly. The receiver there is a type rather than a value, so the delegate has no target to bind:
+
+```n#
+import System.IO
+
+// `Directory.Exists` and `File.Exists` are method groups exactly as your own functions are.
+existing := roots.Where(Directory.Exists).ToArray()
+isEmpty: Func<string, bool> = String.IsNullOrEmpty
+```
+
+A group whose name is overloaded still picks the single applicable overload — `Int32.Parse` as a
+`Func<string, int>` is `Parse(string)` — and a generic method (`Array.Empty<T>`) or one with a
+`ref`/`out` parameter (`Int32.TryParse`) is not a method group a delegate position can take.
+
 ### When two arguments disagree only about `?`
 
 A type parameter met by both `X` and `X?` is fixed to `X?`. The two are not a contradiction: `X`

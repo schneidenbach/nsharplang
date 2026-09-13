@@ -348,6 +348,14 @@ class AnalyzerReflectionArgumentBinder {
         openParameterType := supplied.OpenParameterType
         argumentValue := supplied.Argument.Value
 
+        // A `ref`/`out` ARGUMENT MAKES AN EXACT INFERENCE, never a widening one (ECMA-334 §12.6.3.2):
+        // the position is written THROUGH as well as read, so a bound that merely converts to the
+        // declared one is not a bound at all. `map.TryGetValue(key, out found)` is the case that
+        // shows it — the receiver fixes `TValue` to `Entry`, `found` is declared `Entry?` because the
+        // call is what fills it, and lifting `TValue` to `Entry?` there would make
+        // `[MaybeNullWhen(false)] out TValue` prove nothing on the true branch.
+        allowsLift := !expectsByRef
+
         if argumentValue is DefaultExpression {
             score = 8
             return true
@@ -410,7 +418,7 @@ class AnalyzerReflectionArgumentBinder {
         }
 
         if argumentClrType != null {
-            if !AnalyzerOverloadFacts.TryMatchReflectionParameter(openParameterType, argumentClrType, bindings) {
+            if !AnalyzerOverloadFacts.TryMatchReflectionParameter(openParameterType, argumentClrType, bindings, allowsLift) {
                 // A COLLECTION EXPRESSION IS APPLICABLE ELEMENT BY ELEMENT, AND IT IS SCORED BEFORE A
                 // CANDIDATE IS CHOSEN RATHER THAN AFTER. `[args]` has no type of its own until a
                 // parameter names its element type; the pre-pass had to give it one anyway, and
@@ -420,7 +428,7 @@ class AnalyzerReflectionArgumentBinder {
                 // applies for real with the parameter's element type in the slot.
                 collectionScore := 0
                 if TryScoreCollectionExpressionArgument(argumentValue, openParameterType, argumentType, out collectionScore) {
-                    PopulateTypeInfoBindingsFromType(openParameterType, argumentType, typeInfoBindings, true)
+                    PopulateTypeInfoBindingsFromType(openParameterType, argumentType, typeInfoBindings, allowsLift)
                     score = collectionScore
                     return true
                 }
@@ -436,7 +444,7 @@ class AnalyzerReflectionArgumentBinder {
                 // only by identity, reference or boxing. It is asked LAST, because a conversion a
                 // type declares about itself is worse than every one the language defines.
                 if HasUserDefinedArgumentConversion(openParameterType, argumentClrType) {
-                    PopulateTypeInfoBindingsFromType(openParameterType, argumentType, typeInfoBindings, true)
+                    PopulateTypeInfoBindingsFromType(openParameterType, argumentType, typeInfoBindings, allowsLift)
                     score = UserDefinedConversionScore()
                     return true
                 }
@@ -455,7 +463,7 @@ class AnalyzerReflectionArgumentBinder {
                 }
             }
 
-            PopulateTypeInfoBindingsFromType(openParameterType, argumentType, typeInfoBindings, true)
+            PopulateTypeInfoBindingsFromType(openParameterType, argumentType, typeInfoBindings, allowsLift)
 
             score = AnalyzerOverloadFacts.GetReflectionMatchScore(AnalyzerReflectionTypeConversion.ApplyReflectionBindings(openParameterType, bindings), argumentClrType)
             return true
@@ -523,7 +531,7 @@ class AnalyzerReflectionArgumentBinder {
 
         if argumentClrType != null {
             trialBindings := CopyBindings(bindings)
-            return AnalyzerOverloadFacts.TryMatchReflectionParameter(paramsParameterType, argumentClrType, trialBindings)
+            return AnalyzerOverloadFacts.TryMatchReflectionParameter(paramsParameterType, argumentClrType, trialBindings, true)
         }
 
         expectedType := AnalyzerReflectionTypeConversion.ConvertReflectionType(AnalyzerReflectionTypeConversion.ApplyReflectionBindings(paramsParameterType, bindings))
@@ -828,7 +836,7 @@ class AnalyzerReflectionArgumentBinder {
             if receiverClrType == null {
                 return null
             }
-            if !AnalyzerOverloadFacts.TryMatchReflectionParameter(parameters[0].get_ParameterType(), receiverClrType, bindings) {
+            if !AnalyzerOverloadFacts.TryMatchReflectionParameter(parameters[0].get_ParameterType(), receiverClrType, bindings, true) {
                 return null
             }
 
@@ -966,7 +974,7 @@ class AnalyzerReflectionArgumentBinder {
             receiverSignatureType = declaringType.GetGenericTypeDefinition()
         }
 
-        if !AnalyzerOverloadFacts.TryMatchReflectionParameter(receiverSignatureType, receiverClrType, bindings) {
+        if !AnalyzerOverloadFacts.TryMatchReflectionParameter(receiverSignatureType, receiverClrType, bindings, true) {
             return false
         }
 
@@ -1171,7 +1179,7 @@ class AnalyzerReflectionArgumentBinder {
         }
 
         trialBindings := CopyBindings(bindings)
-        if !AnalyzerOverloadFacts.TryMatchReflectionParameter(effectiveOpenType, sourceClrType, trialBindings) {
+        if !AnalyzerOverloadFacts.TryMatchReflectionParameter(effectiveOpenType, sourceClrType, trialBindings, allowsLift) {
             return
         }
 
@@ -1621,7 +1629,7 @@ class AnalyzerReflectionArgumentBinder {
         // and the structural match carries the same information when the two definitions agree.
         lambdaDelegateType := clrTypeConversion.TryConstructDelegateType(lambdaType)
         if lambdaDelegateType != null {
-            AnalyzerOverloadFacts.TryMatchReflectionParameter(openDelegateType, lambdaDelegateType, state.WorkingBindings)
+            AnalyzerOverloadFacts.TryMatchReflectionParameter(openDelegateType, lambdaDelegateType, state.WorkingBindings, false)
         }
     }
 

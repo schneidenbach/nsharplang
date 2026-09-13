@@ -90,7 +90,7 @@ class AnalyzerOverloadFacts {
     // open parameter that is NEITHER array nor generic (a generic pointer or function-pointer shell)
     // matches unconditionally rather than failing, so an exotic signature cannot silently drop a
     // candidate.
-    static func TryMatchReflectionParameter(parameterType: Type, argumentType: Type, bindings: Dictionary<Type, Type>): bool {
+    static func TryMatchReflectionParameter(parameterType: Type, argumentType: Type, bindings: Dictionary<Type, Type>, allowsLift: bool): bool {
         effectiveParameterType := parameterType
         if effectiveParameterType.get_IsByRef() {
             byRefElement := effectiveParameterType.GetElementType()
@@ -111,7 +111,11 @@ class AnalyzerOverloadFacts {
                 // argument converts to it; this is the one pair where the conversion runs the other
                 // way, so keeping the first bound would refuse a call C# accepts. See
                 // `AnalyzerConversionFacts.IsNullableLiftOf`.
-                if AnalyzerConversionFacts.IsNullableLiftOf(argumentType, existingBinding) {
+                //
+                // `allowsLift` IS THE BOUND'S DIRECTION. A `ref`/`out` position makes an EXACT
+                // inference (ECMA-334 §12.6.3.2) because it is written through as well as read, so a
+                // bound that merely converts to the declared one is not a bound at all there.
+                if allowsLift && AnalyzerConversionFacts.IsNullableLiftOf(argumentType, existingBinding) {
                     bindings[effectiveParameterType] = argumentType
                     return true
                 }
@@ -146,7 +150,7 @@ class AnalyzerOverloadFacts {
                 return false
             }
 
-            return TryMatchReflectionParameter(parameterElement, argumentElement, bindings)
+            return TryMatchReflectionParameter(parameterElement, argumentElement, bindings, allowsLift)
         }
 
         if !effectiveParameterType.get_IsGenericType() {
@@ -177,7 +181,7 @@ class AnalyzerOverloadFacts {
 
         index := 0
         while index < parameterArguments.Length {
-            if !TryMatchReflectionParameter(parameterArguments[index], comparisonArguments[index], bindings) {
+            if !TryMatchReflectionParameter(parameterArguments[index], comparisonArguments[index], bindings, allowsLift) {
                 return false
             }
 

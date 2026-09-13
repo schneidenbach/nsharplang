@@ -1600,6 +1600,21 @@ delegate's RETURN position, repeating while anything moves.
   `Enumerable.Select` overloads close, so the emitter declines where C# reports CS0121 — the analyzer
   silently picks one, so the two disagree and the user sees NL103 rather than an ambiguity
   diagnostic.
+- OPEN, HIGH (census wave 7, LAMBDA3 item 5 — diagnosed, not fixed): OVERLOAD RESOLUTION HAS NO
+  SPECIFICITY TIE-BREAK, so a NON-GENERIC `IEnumerable` overload wins over the generic
+  `IEnumerable<T>` one and the call silently answers `object?`. `Assert.Single(x.EnumerateArray())`
+  binds `Single(IEnumerable): object?` instead of `Single<T>(IEnumerable<T>): T`, which is why 24 of
+  the 29 remaining NL905 "`this value` is maybe-null" sites in the converted test corpus are there —
+  not the xunit metapackage cascade (TESTREFS) and not a generic-return annotation. Both candidates
+  score 4 on the reflection ladder (`GetReflectionMatchScore` answers "assignable" for each), and
+  `AnalyzerCallAnalysis.PrecedesReflectionCandidate` then breaks the tie on `UsesParams` and
+  `DefaultsUsed` only, so declaration order decides. C# §12.6.4.3 decides it by BETTER CONVERSION:
+  `IEnumerable<JsonElement>` converts to `IEnumerable` and not back, so the generic candidate is
+  better. `Assert.Single<int>(values)` and the two-argument predicate form (generic only) both bind
+  correctly today, which is how the diagnosis was confirmed. The fix belongs in
+  `PrecedesReflectionCandidate` as a per-argument pairwise comparison of the two candidates' CLOSED
+  parameter types, and it changes the answer of every reflected call, so it wants its own stream and
+  its own estate sweep.
 - A TYPE CLOSED OVER A TYPE THE COMPILATION IS WRITING cannot be asked about itself, and three
   separate readings had to learn that. `List<Query>` for a source class `Query` is a
   `TypeBuilderInstantiation` whose `GetInterfaces` throws; `Query[]` is an array over a `TypeBuilder`
