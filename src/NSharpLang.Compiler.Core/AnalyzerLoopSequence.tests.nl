@@ -117,6 +117,7 @@ func LoopHarnessWith(sourceText: string?): LoopHarness {
     model := new SemanticModel()
     scopes := new AnalyzerScopeStack()
     scopes.Push(model, new Scope(ScopeKind.Global), 1, 1)
+    LoopBindSequenceDefinitions(scopes)
     discovery := new AnalyzerProjectTypeDiscovery(provider, context, new List<string>(), new Dictionary<string, string>(StringComparer.Ordinal))
     probe := new AnalyzerExternalTypeProbe(new List<Assembly>(), new List<string>())
     resolver := new AnalyzerTypeResolver(scopes, context, discovery, probe, diagnostics, new Dictionary<string, string>(StringComparer.Ordinal), new Dictionary<string, Dictionary<string, TypeInfo>>(StringComparer.Ordinal), new Dictionary<string, Dictionary<string, SymbolDeclaration>>(StringComparer.Ordinal), model, new BindingMap())
@@ -131,7 +132,7 @@ func LoopHarnessWith(sourceText: string?): LoopHarness {
     ambient := new AnalyzerAmbientContext(diagnostics, spans, escape)
     conditions := new AnalyzerBooleanConditions(diagnostics, spans, escape)
     narrowing := new AnalyzerFlowNarrowing(scopes, resolver, assignability)
-    sequence := new AnalyzerLoopSequence(diagnostics, spans, scopes, context, resolver, ambient, escape, conditions)
+    sequence := new AnalyzerLoopSequence(diagnostics, spans, scopes, context, resolver, ambient, escape, conditions, new AnalyzerTypeSubstitution(scopes, context, resolver))
     return new LoopHarness(sequence, ambient, scopes, errors, assignability, model, narrowing)
 }
 
@@ -168,8 +169,25 @@ func LoopTypeArgs(argument: TypeInfo): List<TypeInfo> {
     return arguments
 }
 
+// The CLR generic definitions a real file's `import System.Collections.Generic` binds into scope.
+// The element-type walk reads the DEFINITION behind an instantiation rather than its spelling, so a
+// harness that binds no definitions answers nothing for every generic — which is the contract two
+// rows below pin, and the reason these four are bound here.
+func LoopBindSequenceDefinitions(scopes: AnalyzerScopeStack) {
+    globalScope := scopes.Peek()
+    globalScope.DeclareType(TypeArityNames.Key("List", 1), LoopReflected(typeof(List<int>).GetGenericTypeDefinition()))
+    globalScope.DeclareType(TypeArityNames.Key("Queue", 1), LoopReflected(typeof(Queue<int>).GetGenericTypeDefinition()))
+    globalScope.DeclareType(TypeArityNames.Key("IEnumerable", 1), LoopReflected(typeof(IEnumerable<int>).GetGenericTypeDefinition()))
+    globalScope.DeclareType(TypeArityNames.Key("IAsyncEnumerable", 1), LoopReflected(LoopAsyncSequenceDefinition()))
+}
+
 func LoopGeneric(name: string, argument: TypeInfo): TypeInfo {
     generic: TypeInfo = new GenericTypeInfo(name, LoopTypeArgs(argument))
+    return generic
+}
+
+func LoopGenericOver(definition: Type, argument: TypeInfo): TypeInfo {
+    generic: TypeInfo = new GenericTypeInfo(definition.Name, LoopTypeArgs(argument), LoopReflected(definition))
     return generic
 }
 
@@ -289,12 +307,41 @@ test "A SIMPLE TYPE THAT IS NOT string ANSWERS NOTHING IN EITHER MODE" {
     assert LoopElement(harness, intType, true) == "<null>"
 }
 
-test "A DECLARED GENERIC ANSWERS THROUGH THE NAME-BASED SEQUENCE FACTS" {
+// A GENERIC INSTANTIATION ANSWERS THROUGH ITS DEFINITION, AND THE ARGUMENTS ARE SUBSTITUTED BY
+// POSITION. Nothing here is matched by spelling: `Queue<bool>` answers `bool` because
+// `Queue<T>.Enumerator.Current` IS `T`, and a `Dictionary<K, V>` answers its PAIR for the same
+// reason, over arguments the CLR need not have a handle for.
+test "A DECLARED GENERIC ANSWERS THROUGH ITS DEFINITION, SUBSTITUTED BY POSITION" {
     harness := LoopDefault()
 
     assert LoopElement(harness, LoopGeneric("List", BuiltInTypes.Int), false) == "int"
     assert LoopElement(harness, LoopGeneric("IEnumerable", BuiltInTypes.String), false) == "string"
     assert LoopElement(harness, LoopGeneric("Queue", BuiltInTypes.Bool), false) == "bool"
+
+    assert LoopElement(harness, LoopGenericOver(typeof(Stack<int>).GetGenericTypeDefinition(), BuiltInTypes.Int), false) == "int"
+    assert LoopElement(harness, LoopGenericOver(typeof(HashSet<int>).GetGenericTypeDefinition(), BuiltInTypes.String), false) == "string"
+    assert LoopElement(harness, LoopGenericOver(typeof(Span<int>).GetGenericTypeDefinition(), BuiltInTypes.Char), false) == "char"
+    assert LoopElement(harness, LoopGenericOver(typeof(IReadOnlyList<int>).GetGenericTypeDefinition(), BuiltInTypes.Int), false) == "int"
+}
+
+test "A DICTIONARY INSTANTIATION ANSWERS ITS PAIR OVER THE ARGUMENTS IT SUPPLIED" {
+    harness := LoopDefault()
+    arguments := new List<TypeInfo>()
+    arguments.Add(BuiltInTypes.String)
+    arguments.Add(BuiltInTypes.Int)
+    dictionary: TypeInfo = new GenericTypeInfo("Dictionary", arguments, LoopReflected(typeof(Dictionary<string, int>).GetGenericTypeDefinition()))
+
+    assert LoopElement(harness, dictionary, false) == "KeyValuePair<string, int>"
+}
+
+// AN INSTANTIATION WHOSE DEFINITION NOTHING BINDS ANSWERS NOTHING. The old owner answered eighteen
+// bare spellings, which is what let a user type called `List` be walked as the BCL's; a name with no
+// declaration behind it is now exactly what it looks like.
+test "A GENERIC WITH NO DEFINITION AND NO DECLARATION IN SCOPE ANSWERS NOTHING" {
+    harness := LoopDefault()
+
+    assert LoopElement(harness, LoopGeneric("LinkedList", BuiltInTypes.Int), false) == "<null>"
+    assert LoopElement(harness, LoopGeneric("Bag", BuiltInTypes.Int), false) == "<null>"
 }
 
 test "THE ASYNC QUESTION IS ANSWERED BY IAsyncEnumerable AND BY NOTHING ELSE" {
@@ -479,7 +526,16 @@ test "A METADATA ARRAY AND SPAN STILL ANSWER — THOSE ARMS ARE STRUCTURAL AND N
     }
 }
 
-test "A METADATA SEQUENCE ANSWERS NOTHING — ALL THREE REMAINING ARMS COMPARE RUNTIME IDENTITIES" {
+// THE SAME QUESTION, ASKED OF METADATA RATHER THAN OF THE RUNTIME, GIVES THE SAME ANSWER.
+//
+// The analyser reads referenced assemblies through a MetadataLoadContext, where the projected
+// `IEnumerable<>` is a different OBJECT from `typeof(IEnumerable<>)` and the projected `Boolean` is
+// not `typeof(bool)`. Every arm of this walk used to compare RUNTIME IDENTITIES, so every one of
+// them answered NO for a type that arrived that way — which is why a `foreach` over a
+// `JsonElement.ArrayEnumerator`, over a `Dictionary<K,V>.KeyCollection` or over any user type whose
+// assembly was merely referenced was rejected as "not enumerable". The arms compare FULL NAMES now,
+// and these rows are the proof that the two worlds agree.
+test "A METADATA SEQUENCE ANSWERS EXACTLY WHAT ITS RUNTIME TWIN DOES" {
     harness := LoopDefault()
     scan := ExternalAssemblyScan.OpenWithReferences(null)
     try {
@@ -489,28 +545,25 @@ test "A METADATA SEQUENCE ANSWERS NOTHING — ALL THREE REMAINING ARMS COMPARE R
         metadataInt := core.GetType("System.Int32")
         assert metadataInt != null
 
-        // The interface probe: the metadata `IEnumerable<>` is a different OBJECT from the runtime
-        // one, so `GetGenericTypeDefinition() == typeof(IEnumerable<>)` is false even though this IS
-        // the sequence interface. Its runtime twin answers `int`.
+        // The interface arm.
         metadataSequence := core.GetType("System.Collections.Generic.IEnumerable`1")
         assert metadataSequence != null
         assert metadataSequence != typeof(IEnumerable<int>).GetGenericTypeDefinition()
-        assert LoopElement(harness, LoopReflected(LoopClose(metadataSequence, metadataInt)), false) == "<null>"
+        assert LoopElement(harness, LoopReflected(LoopClose(metadataSequence, metadataInt)), false) == "int"
         assert LoopElement(harness, LoopReflected(typeof(IEnumerable<int>)), false) == "int"
 
-        // The duck-typed pattern and the non-generic fallback: the metadata `IEnumerable` declares a
-        // parameterless `GetEnumerator`, but its enumerator's `MoveNext` returns the metadata
-        // `Boolean` rather than `typeof(bool)`, and `typeof(IEnumerable).IsAssignableFrom` cannot see
-        // across the load context either. This is the slice-12B failure mode exactly.
+        // The pattern arm and the non-generic remainder: the metadata `IEnumerable` declares a
+        // parameterless `GetEnumerator` whose enumerator's `MoveNext` returns the METADATA `Boolean`,
+        // and that is the same `bool` by name.
         metadataEnumerable := core.GetType("System.Collections.IEnumerable")
         assert metadataEnumerable != null
-        assert LoopElement(harness, LoopReflected(metadataEnumerable), false) == "<null>"
+        assert LoopElement(harness, LoopReflected(metadataEnumerable), false) == "object"
         assert LoopElement(harness, LoopReflected(LoopArrayListType()), false) == "object"
 
-        // And the metadata `string` — a runtime `string` answers `char` through the interface probe.
+        // And the metadata `string` answers `char`, as its runtime twin does.
         metadataString := core.GetType("System.String")
         assert metadataString != null
-        assert LoopElement(harness, LoopReflected(metadataString), false) == "<null>"
+        assert LoopElement(harness, LoopReflected(metadataString), false) == "char"
         assert LoopElement(harness, LoopReflected(typeof(string)), false) == "char"
     } finally {
         scan.Dispose()
@@ -575,7 +628,7 @@ test "A foreach OVER A NON-SEQUENCE ANSWERS unknown AND REPORTS AT THE COLLECTIO
     assert LoopTypeText(resolved) == "unknown"
     assert harness.Errors.Count == 1
     assert LoopErrorText(harness, 0) == "foreach collection must be enumerable, but this collection is 'int'|4:14+6"
-    assert harness.Errors[0].Suggestion == "Use an array, Span<T>, or IEnumerable<T> value as the foreach collection."
+    assert harness.Errors[0].Suggestion == "A foreach collection needs an accessible parameterless GetEnumerator() whose result has a readable Current and a bool MoveNext(), or it must be an array, a string, an IEnumerable<T> or an IEnumerable."
 }
 
 test "AN await foreach OVER A SYNCHRONOUS SEQUENCE REPORTS THE ASYNC WORDING" {
@@ -587,7 +640,7 @@ test "AN await foreach OVER A SYNCHRONOUS SEQUENCE REPORTS THE ASYNC WORDING" {
     assert LoopTypeText(resolved) == "unknown"
     assert harness.Errors.Count == 1
     assert LoopErrorText(harness, 0) == "await foreach collection must be async enumerable, but this collection is 'int[]'|4:14+6"
-    assert harness.Errors[0].Suggestion == "Use an IAsyncEnumerable<T> value as the await foreach collection."
+    assert harness.Errors[0].Suggestion == "An await foreach collection must be an IAsyncEnumerable<T>; a synchronous sequence is iterated with plain foreach."
 }
 
 test "AN await foreach OVER AN ASYNC SEQUENCE ANSWERS THE ELEMENT TYPE" {

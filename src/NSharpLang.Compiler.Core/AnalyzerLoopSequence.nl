@@ -17,6 +17,26 @@ import NSharpLang.Compiler.Ast
 // record must not also be measured against the sequence element type. The walk stays a suspendable
 // walk rather than one call because the answer to step 1 is the operand of both reports and of the
 // rule that follows them.
+// A DECLARED MEMBER TOGETHER WITH THE DECLARATION THAT WROTE IT. A `Current` inherited from a base
+// class is spelled against THAT base's type parameters, not against the receiver's, so the owner and
+// the substitution its arguments induced have to travel with the member — reading the member's type
+// against the wrong owner is how an inherited `T Current` silently becomes the derived type's `T`.
+class DeclaredSequenceMember {
+    Member: DeclaredMemberInfo
+    Owner: TypeInfo
+    Substitution: Dictionary<string, TypeInfo>?
+
+    constructor(member: DeclaredMemberInfo, owner: TypeInfo, substitution: Dictionary<string, TypeInfo>?) {
+        if member == null || owner == null {
+            throw new InvalidOperationException("A declared sequence member cannot be recorded without its declaration.")
+        }
+
+        Member = member
+        Owner = owner
+        Substitution = substitution
+    }
+}
+
 class YieldStatementRequest {
     Kind: int
     Node: Expression?
@@ -299,8 +319,9 @@ class AnalyzerLoopSequence {
     ambientValue: AnalyzerAmbientContext
     soaEscapeValue: AnalyzerSoaEscape
     conditionsValue: AnalyzerBooleanConditions
+    typeSubstitutionValue: AnalyzerTypeSubstitution
 
-    constructor(diagnostics: AnalyzerDiagnosticSink, spans: AnalyzerDiagnosticSpans, scopes: AnalyzerScopeStack, declarationContext: AnalyzerDeclarationContext, typeResolver: AnalyzerTypeResolver, ambient: AnalyzerAmbientContext, soaEscape: AnalyzerSoaEscape, conditions: AnalyzerBooleanConditions) {
+    constructor(diagnostics: AnalyzerDiagnosticSink, spans: AnalyzerDiagnosticSpans, scopes: AnalyzerScopeStack, declarationContext: AnalyzerDeclarationContext, typeResolver: AnalyzerTypeResolver, ambient: AnalyzerAmbientContext, soaEscape: AnalyzerSoaEscape, conditions: AnalyzerBooleanConditions, typeSubstitution: AnalyzerTypeSubstitution) {
         diagnosticsValue = diagnostics
         spansValue = spans
         scopesValue = scopes
@@ -309,6 +330,7 @@ class AnalyzerLoopSequence {
         ambientValue = ambient
         soaEscapeValue = soaEscape
         conditionsValue = conditions
+        typeSubstitutionValue = typeSubstitution
     }
 
     // THE `foreach` COLLECTION'S ELEMENT TYPE, plus the report when there is not one. The declared
@@ -316,13 +338,13 @@ class AnalyzerLoopSequence {
     // for a collection whose type is already unknown or still external — a second complaint about a
     // value nothing could type is noise.
     func ResolveForeachElementType(collection: Expression, collectionType: TypeInfo): TypeInfo {
-        return ResolveLoopElementType(collection, collectionType, false, "foreach", "enumerable", "Use an array, Span<T>, or IEnumerable<T> value as the foreach collection.")
+        return ResolveLoopElementType(collection, collectionType, false, "foreach", "enumerable", "A foreach collection needs an accessible parameterless GetEnumerator() whose result has a readable Current and a bool MoveNext(), or it must be an array, a string, an IEnumerable<T> or an IEnumerable.")
     }
 
     // THE `await foreach` COLLECTION'S ELEMENT TYPE. Same shape, different question: only an async
     // sequence answers, so an array or a `List<T>` reaches the report here.
     func ResolveAwaitForeachElementType(collection: Expression, collectionType: TypeInfo): TypeInfo {
-        return ResolveLoopElementType(collection, collectionType, true, "await foreach", "async enumerable", "Use an IAsyncEnumerable<T> value as the await foreach collection.")
+        return ResolveLoopElementType(collection, collectionType, true, "await foreach", "async enumerable", "An await foreach collection must be an IAsyncEnumerable<T>; a synchronous sequence is iterated with plain foreach.")
     }
 
     func ResolveLoopElementType(collection: Expression, collectionType: TypeInfo, requireAsync: bool, loopKind: string, expectedKind: string, suggestion: string): TypeInfo {
@@ -353,9 +375,22 @@ class AnalyzerLoopSequence {
 
     // WHAT ITERATING THIS TYPE PRODUCES, or null when it produces nothing. `requireAsync` selects
     // between the two questions; it is not a preference but a filter, and the synchronous arms are
-    // gated on it individually rather than up front because a reflected type reaches the SAME probe
-    // list either way.
+    // gated on it individually rather than up front because a declared or reflected type reaches the
+    // SAME pattern walk either way.
+    //
+    // THE DEPTH GUARD IS NOT DEFENSIVENESS. A declaration may name itself — `class Loop: ILoop` where
+    // `ILoop` inherits `ILoop` — and the interface walk below recurses through this entry point, so
+    // an unbounded walk would spin. The limit is the nesting any real sequence declaration reaches
+    // several times over.
     func GetLoopSequenceElementType(collectionType: TypeInfo, requireAsync: bool): TypeInfo? {
+        return GetLoopSequenceElementTypeAt(collectionType, requireAsync, 0)
+    }
+
+    func GetLoopSequenceElementTypeAt(collectionType: TypeInfo, requireAsync: bool, depth: int): TypeInfo? {
+        if depth > 16 {
+            return null
+        }
+
         resolved := NormalizeShapeType(collectionType)
 
         arrayType := resolved as ArrayTypeInfo
@@ -378,7 +413,7 @@ class AnalyzerLoopSequence {
 
         genericType := resolved as GenericTypeInfo
         if genericType != null {
-            return LoopSequenceTypeFacts.GetGenericLoopSequenceElementType(genericType, requireAsync)
+            return GetGenericLoopSequenceElementType(genericType, requireAsync, depth)
         }
 
         reflectionType := resolved as ReflectionTypeInfo
@@ -386,24 +421,251 @@ class AnalyzerLoopSequence {
             return GetReflectionLoopSequenceElementType(reflectionType.Type, requireAsync)
         }
 
-        classType := resolved as ClassTypeInfo
-        if classType != null {
-            return GetSourceLoopSequenceElementType(classType.Interfaces, requireAsync)
+        if LoopSequenceTypeFacts.IsDeclaredShape(resolved) {
+            return GetDeclaredLoopSequenceElementType(resolved, null, requireAsync, depth)
         }
 
-        structType := resolved as StructTypeInfo
-        if structType != null {
-            return GetSourceLoopSequenceElementType(structType.Interfaces, requireAsync)
+        return null
+    }
+
+    // A GENERIC INSTANTIATION ANSWERS THROUGH ITS DEFINITION, AND THE ANSWER IS SUBSTITUTED BY
+    // POSITION. `Dictionary<string, Widget>` reads `KeyValuePair<TKey, TValue>` off the OPEN
+    // `Dictionary<,>` and rewrites `TKey`/`TValue` with the arguments the instantiation supplied —
+    // which is how a `Widget` the CLR has no handle for survives into the element type. An
+    // instantiation over an N#-DECLARED definition takes the declared walk under the same
+    // substitution, spelled by parameter NAME because that is what a source declaration binds.
+    func GetGenericLoopSequenceElementType(genericType: GenericTypeInfo, requireAsync: bool, depth: int): TypeInfo? {
+        definition := typeSubstitutionValue.ResolveGenericDefinition(genericType)
+        if definition == null {
+            return null
         }
 
-        recordType := resolved as RecordTypeInfo
-        if recordType != null {
-            return GetSourceLoopSequenceElementType(recordType.Interfaces, requireAsync)
+        reflectionDefinition := definition as ReflectionTypeInfo
+        if reflectionDefinition != null {
+            openElement := LoopSequenceTypeFacts.SequenceElementType(reflectionDefinition.Type, requireAsync)
+            if openElement == null {
+                return null
+            }
+
+            return AnalyzerReflectionTypeOverride.ForGenericArguments(reflectionDefinition.Type, genericType).Answer(openElement)
         }
 
-        interfaceType := resolved as InterfaceTypeInfo
-        if interfaceType != null {
-            return GetSourceLoopSequenceElementType(interfaceType.BaseInterfaces, requireAsync)
+        if !LoopSequenceTypeFacts.IsDeclaredShape(definition) {
+            return null
+        }
+
+        substitution := declarationContextValue.CreateGenericSubstitution(definition, genericType.TypeArguments)
+        return GetDeclaredLoopSequenceElementType(definition, substitution, requireAsync, depth)
+    }
+
+    // A DECLARED CLASS, STRUCT, RECORD OR INTERFACE, asked the same two questions in the same order
+    // as a reflected one: the enumerator pattern first, then the sequence interfaces it names. The
+    // pattern arm is what lets a user type iterate WITHOUT implementing `IEnumerable<T>`, which is
+    // the C# rule and the reason `for row in table` works for a type that only wants a struct
+    // enumerator. `await foreach` skips the pattern: N# resolves an async sequence through
+    // `IAsyncEnumerable<T>` alone.
+    func GetDeclaredLoopSequenceElementType(declaration: TypeInfo, substitution: Dictionary<string, TypeInfo>?, requireAsync: bool, depth: int): TypeInfo? {
+        if !requireAsync {
+            patternElement := GetDeclaredPatternElementType(declaration, substitution, depth)
+            if patternElement != null {
+                return patternElement
+            }
+        }
+
+        interfaceElement := GetDeclaredInterfaceElementType(declaration, substitution, requireAsync, depth)
+        if interfaceElement != null {
+            return interfaceElement
+        }
+
+        baseReference := LoopSequenceTypeFacts.DeclaredBaseClassOf(declaration)
+        if baseReference == null {
+            return null
+        }
+
+        baseType := typeSubstitutionValue.ResolveTypeForSourceOwner(baseReference, declaration, substitution)
+        return GetLoopSequenceElementTypeAt(baseType, requireAsync, depth + 1)
+    }
+
+    // THE FIRST DECLARED INTERFACE THAT ANSWERS, in declaration order. The recursion is through the
+    // top-level question, so an interface that inherits a sequence interface answers too.
+    func GetDeclaredInterfaceElementType(declaration: TypeInfo, substitution: Dictionary<string, TypeInfo>?, requireAsync: bool, depth: int): TypeInfo? {
+        interfaceReferences := LoopSequenceTypeFacts.DeclaredInterfacesOf(declaration)
+        index := 0
+        while index < interfaceReferences.Length {
+            interfaceType := typeSubstitutionValue.ResolveTypeForSourceOwner(interfaceReferences[index], declaration, substitution)
+            elementType := GetLoopSequenceElementTypeAt(interfaceType, requireAsync, depth + 1)
+            if elementType != null {
+                return elementType
+            }
+
+            index = index + 1
+        }
+
+        return null
+    }
+
+    // THE PATTERN ON A DECLARED TYPE: a parameterless `GetEnumerator` whose returned type carries a
+    // readable `Current` and a parameterless `bool MoveNext()`. The enumerator it names may itself be
+    // declared or reflected — a source collection returning `IEnumerator<T>` is as ordinary as one
+    // returning its own struct — so the enumerator's members are asked through the same fan-out the
+    // collection was.
+    func GetDeclaredPatternElementType(declaration: TypeInfo, substitution: Dictionary<string, TypeInfo>?, depth: int): TypeInfo? {
+        getEnumerator := FindDeclaredParameterlessFunction(declaration, substitution, "GetEnumerator", depth)
+        if getEnumerator == null {
+            return null
+        }
+
+        returnReference := getEnumerator.Member.ReturnType
+        if returnReference == null {
+            return null
+        }
+
+        enumeratorType := typeSubstitutionValue.ResolveTypeForSourceOwner(returnReference, getEnumerator.Owner, getEnumerator.Substitution)
+        return GetEnumeratorCurrentType(enumeratorType, depth)
+    }
+
+    // WHAT AN ENUMERATOR'S `Current` IS, once `MoveNext` has proved it is one. A reflected enumerator
+    // answers through the shared pattern facts; a declared one answers from its own members.
+    func GetEnumeratorCurrentType(enumeratorType: TypeInfo, depth: int): TypeInfo? {
+        if depth > 16 {
+            return null
+        }
+
+        resolved := NormalizeShapeType(enumeratorType)
+
+        generic := resolved as GenericTypeInfo
+        if generic != null {
+            definition := typeSubstitutionValue.ResolveGenericDefinition(generic)
+            if definition == null {
+                return null
+            }
+
+            reflectionDefinition := definition as ReflectionTypeInfo
+            if reflectionDefinition != null {
+                openCurrent := ReflectedEnumeratorCurrentType(reflectionDefinition.Type)
+                if openCurrent == null {
+                    return null
+                }
+
+                return AnalyzerReflectionTypeOverride.ForGenericArguments(reflectionDefinition.Type, generic).Answer(openCurrent)
+            }
+
+            if !LoopSequenceTypeFacts.IsDeclaredShape(definition) {
+                return null
+            }
+
+            return GetDeclaredEnumeratorCurrentType(definition, declarationContextValue.CreateGenericSubstitution(definition, generic.TypeArguments), depth)
+        }
+
+        reflectionType := resolved as ReflectionTypeInfo
+        if reflectionType != null {
+            openCurrent := ReflectedEnumeratorCurrentType(reflectionType.Type)
+            if openCurrent == null {
+                return null
+            }
+
+            return AnalyzerReflectionTypeConversion.ConvertReflectionType(openCurrent)
+        }
+
+        if LoopSequenceTypeFacts.IsDeclaredShape(resolved) {
+            return GetDeclaredEnumeratorCurrentType(resolved, null, depth)
+        }
+
+        return null
+    }
+
+    func ReflectedEnumeratorCurrentType(clrType: Type): Type? {
+        moveNext := ForeachPatternFacts.FindParameterlessInstanceMethod(clrType, "MoveNext")
+        if moveNext == null || !ForeachPatternFacts.IsBoolean(moveNext.get_ReturnType()) {
+            return null
+        }
+
+        currentGetter := ForeachPatternFacts.FindCurrentGetter(clrType)
+        if currentGetter == null {
+            return null
+        }
+
+        currentType := currentGetter.get_ReturnType()
+        if currentType.get_IsByRef() {
+            return currentType.GetElementType()
+        }
+
+        return currentType
+    }
+
+    func GetDeclaredEnumeratorCurrentType(declaration: TypeInfo, substitution: Dictionary<string, TypeInfo>?, depth: int): TypeInfo? {
+        moveNext := FindDeclaredParameterlessFunction(declaration, substitution, "MoveNext", depth)
+        if moveNext == null || moveNext.Member.ReturnType == null {
+            return null
+        }
+
+        moveNextType := typeSubstitutionValue.ResolveTypeForSourceOwner(moveNext.Member.ReturnType, moveNext.Owner, moveNext.Substitution)
+        if !BuiltInTypes.Is(moveNextType, BuiltInTypes.Bool) {
+            return null
+        }
+
+        current := FindDeclaredReadableMember(declaration, substitution, "Current", depth)
+        if current == null || current.Member.Type == null {
+            return null
+        }
+
+        return typeSubstitutionValue.ResolveTypeForSourceOwner(current.Member.Type, current.Owner, current.Substitution)
+    }
+
+    // A DECLARED MEMBER FOUND WITH THE DECLARATION THAT OWNS IT. A member inherited from a base class
+    // is spelled against THAT base's type parameters, so the owner and its substitution travel with
+    // the member rather than being re-derived at the use site.
+    func FindDeclaredParameterlessFunction(declaration: TypeInfo, substitution: Dictionary<string, TypeInfo>?, name: string, depth: int): DeclaredSequenceMember? {
+        owner := declaration
+        ownerSubstitution := substitution
+        remaining := 16 - depth
+        while remaining > 0 {
+            member := LoopSequenceTypeFacts.FindDeclaredParameterlessFunction(LoopSequenceTypeFacts.DeclaredMembersOf(owner), name)
+            if member != null {
+                return new DeclaredSequenceMember(member, owner, ownerSubstitution)
+            }
+
+            baseReference := LoopSequenceTypeFacts.DeclaredBaseClassOf(owner)
+            if baseReference == null {
+                return null
+            }
+
+            baseType := NormalizeShapeType(typeSubstitutionValue.ResolveTypeForSourceOwner(baseReference, owner, ownerSubstitution))
+            nextOwner := typeSubstitutionValue.GetSourceDeclarationOwner(baseType, out ownerSubstitution)
+            if !LoopSequenceTypeFacts.IsDeclaredShape(nextOwner) {
+                return null
+            }
+
+            owner = nextOwner
+            remaining = remaining - 1
+        }
+
+        return null
+    }
+
+    func FindDeclaredReadableMember(declaration: TypeInfo, substitution: Dictionary<string, TypeInfo>?, name: string, depth: int): DeclaredSequenceMember? {
+        owner := declaration
+        ownerSubstitution := substitution
+        remaining := 16 - depth
+        while remaining > 0 {
+            member := LoopSequenceTypeFacts.FindDeclaredReadableProperty(LoopSequenceTypeFacts.DeclaredMembersOf(owner), name)
+            if member != null {
+                return new DeclaredSequenceMember(member, owner, ownerSubstitution)
+            }
+
+            baseReference := LoopSequenceTypeFacts.DeclaredBaseClassOf(owner)
+            if baseReference == null {
+                return null
+            }
+
+            baseType := NormalizeShapeType(typeSubstitutionValue.ResolveTypeForSourceOwner(baseReference, owner, ownerSubstitution))
+            nextOwner := typeSubstitutionValue.GetSourceDeclarationOwner(baseType, out ownerSubstitution)
+            if !LoopSequenceTypeFacts.IsDeclaredShape(nextOwner) {
+                return null
+            }
+
+            owner = nextOwner
+            remaining = remaining - 1
         }
 
         return null
@@ -477,26 +739,11 @@ class AnalyzerLoopSequence {
         return candidate
     }
 
-    // THE FIRST DECLARED INTERFACE THAT ANSWERS, in declaration order. The recursion is through the
-    // top-level question, so an interface that inherits a sequence interface answers too.
-    func GetSourceLoopSequenceElementType(interfaceReferences: TypeReference[], requireAsync: bool): TypeInfo? {
-        index := 0
-        while index < interfaceReferences.Length {
-            interfaceType := typeResolverValue.ResolveType(interfaceReferences[index])
-            elementType := GetLoopSequenceElementType(interfaceType, requireAsync)
-            if elementType != null {
-                return elementType
-            }
-
-            index = index + 1
-        }
-
-        return null
-    }
-
-    // THE REFLECTED PROBE LIST, IN ORDER. A nullable reflected type is unwrapped first, exactly as
-    // the CLR-facing arms elsewhere do. An array whose element type reflection cannot name falls
-    // THROUGH to the remaining probes rather than failing outright.
+    // THE REFLECTED WALK. A nullable reflected type is unwrapped first, exactly as the CLR-facing
+    // arms elsewhere do; an ARRAY and a `string` are answered here rather than in the shared facts
+    // because their lowering is an INDEX loop and only this walk knows the loop it is typing. An
+    // array whose element type reflection cannot name falls THROUGH to the pattern walk rather than
+    // failing outright.
     func GetReflectionLoopSequenceElementType(clrType: Type, requireAsync: bool): TypeInfo? {
         runtimeType := StripNullableRuntimeType(clrType)
 
@@ -507,123 +754,16 @@ class AnalyzerLoopSequence {
             }
         }
 
-        if !requireAsync {
-            spanElement := GetReflectionGenericElementType(runtimeType, "System.Span`1")
-            if spanElement != null {
-                return spanElement
-            }
-
-            readOnlySpanElement := GetReflectionGenericElementType(runtimeType, "System.ReadOnlySpan`1")
-            if readOnlySpanElement != null {
-                return readOnlySpanElement
-            }
+        if !requireAsync && ForeachPatternFacts.IsString(runtimeType) {
+            return BuiltInTypes.Char
         }
 
-        expectedInterface := SynchronousSequenceDefinition()
-        if requireAsync {
-            expectedInterface = AsynchronousSequenceDefinition()
-        }
-
-        interfaceElement := GetReflectionInterfaceElementType(runtimeType, expectedInterface)
-        if interfaceElement != null {
-            return interfaceElement
-        }
-
-        if !requireAsync {
-            patternElement := GetReflectionEnumeratorPatternElementType(runtimeType)
-            if patternElement != null {
-                return patternElement
-            }
-
-            if NonGenericSequenceType().IsAssignableFrom(runtimeType) {
-                return BuiltInTypes.Object
-            }
-        }
-
-        return null
-    }
-
-    // A reflected type whose OPEN definition is named exactly, with exactly one argument. The name
-    // comparison is on the definition's full name rather than on an identity, because `Span<T>` and
-    // `ReadOnlySpan<T>` are matched by shape wherever they were loaded from.
-    func GetReflectionGenericElementType(clrType: Type, genericDefinitionFullName: string): TypeInfo? {
-        if !clrType.get_IsGenericType() {
+        elementType := LoopSequenceTypeFacts.SequenceElementType(runtimeType, requireAsync)
+        if elementType == null {
             return null
         }
 
-        definition := clrType.GetGenericTypeDefinition()
-        if definition.get_FullName() != genericDefinitionFullName {
-            return null
-        }
-
-        arguments := clrType.get_GenericTypeArguments()
-        if arguments.Length != 1 {
-            return null
-        }
-
-        return AnalyzerReflectionTypeConversion.ConvertReflectionType(arguments[0])
-    }
-
-    // The sequence interface itself, or the first one among the type's interfaces. Identity, not
-    // name — see the type's banner for why that is deliberate under the MetadataLoadContext.
-    func GetReflectionInterfaceElementType(clrType: Type, expectedInterfaceDefinition: Type): TypeInfo? {
-        sequenceInterface := FindReflectionSequenceInterface(clrType, expectedInterfaceDefinition)
-        if sequenceInterface == null {
-            return null
-        }
-
-        arguments := sequenceInterface.get_GenericTypeArguments()
-        if arguments.Length != 1 {
-            return null
-        }
-
-        return AnalyzerReflectionTypeConversion.ConvertReflectionType(arguments[0])
-    }
-
-    func FindReflectionSequenceInterface(clrType: Type, expectedInterfaceDefinition: Type): Type? {
-        if clrType.get_IsGenericType() && clrType.GetGenericTypeDefinition() == expectedInterfaceDefinition {
-            return clrType
-        }
-
-        interfaces := clrType.GetInterfaces()
-        index := 0
-        while index < interfaces.Length {
-            candidate := interfaces[index]
-            if candidate.get_IsGenericType() && candidate.GetGenericTypeDefinition() == expectedInterfaceDefinition {
-                return candidate
-            }
-
-            index = index + 1
-        }
-
-        return null
-    }
-
-    // THE DUCK-TYPED ENUMERATOR PATTERN: a parameterless `GetEnumerator` whose return type carries a
-    // parameterless `MoveNext` returning `bool` and a readable `Current`. Visibility is deliberately
-    // wide — a non-public member satisfies the pattern here, as it did in `Analyzer.cs` — and BOTH
-    // enumerator members are looked up before either is judged, so an ambiguous `Current` throws
-    // where it always threw.
-    func GetReflectionEnumeratorPatternElementType(clrType: Type): TypeInfo? {
-        flags := BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance
-        noParameters := new Type[](0)
-        getEnumeratorMethod := clrType.GetMethod("GetEnumerator", flags, null, noParameters, null)
-        if getEnumeratorMethod == null {
-            return null
-        }
-
-        enumeratorType := getEnumeratorMethod.get_ReturnType()
-        moveNextMethod := enumeratorType.GetMethod("MoveNext", flags, null, noParameters, null)
-        currentProperty := enumeratorType.GetProperty("Current", flags)
-        if moveNextMethod == null || moveNextMethod.get_ReturnType() != typeof(bool) {
-            return null
-        }
-
-        if currentProperty == null || currentProperty.get_GetMethod() == null {
-            return null
-        }
-
-        return AnalyzerReflectionTypeConversion.ConvertReflectionType(currentProperty.get_PropertyType())
+        return AnalyzerReflectionTypeConversion.ConvertReflectionType(elementType)
     }
 
     func StripNullableRuntimeType(clrType: Type): Type {
@@ -633,36 +773,6 @@ class AnalyzerLoopSequence {
         }
 
         return clrType
-    }
-
-    // THE THREE RUNTIME IDENTITIES THE PROBES COMPARE AGAINST, and their spellings are forced rather
-    // than chosen. `typeof(IEnumerable<int>).GetGenericTypeDefinition()` is the estate's way to name
-    // an open definition and it emits; the pinned toolset DECLINES `typeof` on the non-generic
-    // `System.Collections.IEnumerable` and on `IAsyncEnumerable<T>` in every spelling tried — bare,
-    // fully qualified, and through a local — so those two are named through `Type.GetType`, which is
-    // the same door `LoopSequenceTypeFacts` already opens for `KeyValuePair`2`. All three resolve to
-    // `System.Private.CoreLib`, so the identity the probes compare is the one `typeof` would have
-    // given; that was verified by running the lookups rather than by reasoning about them.
-    static func SynchronousSequenceDefinition(): Type {
-        return typeof(System.Collections.Generic.IEnumerable<int>).GetGenericTypeDefinition()
-    }
-
-    static func AsynchronousSequenceDefinition(): Type {
-        definition := Type.GetType("System.Collections.Generic.IAsyncEnumerable`1")
-        if definition == null {
-            throw new InvalidOperationException("AnalyzerLoopSequence requires System.Collections.Generic.IAsyncEnumerable`1 in the compiler's own core library, and Type.GetType returned null for it.")
-        }
-
-        return definition
-    }
-
-    static func NonGenericSequenceType(): Type {
-        sequence := Type.GetType("System.Collections.IEnumerable")
-        if sequence == null {
-            throw new InvalidOperationException("AnalyzerLoopSequence requires System.Collections.IEnumerable in the compiler's own core library, and Type.GetType returned null for it.")
-        }
-
-        return sequence
     }
 
     // WHAT A GENERATOR'S `yield` MUST PRODUCE: the element type of the function's own declared return

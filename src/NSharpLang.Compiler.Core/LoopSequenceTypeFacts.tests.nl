@@ -1,304 +1,187 @@
 namespace NSharpLang.Compiler
 
+import System
 import System.Collections.Generic
 
 
 // THE CANONICAL CONTRACTS FOR `LoopSequenceTypeFacts`, IN N#.
 //
-// These absorb `tests/LoopSequenceTypeFactsTests.cs`, the last canonical C# assertion layer over
-// `LoopSequenceTypeFacts.nl`, into the file that already carried this subject's one native
-// contract. The subject answers what a `for x in xs` loop BINDS: given the sequence's resolved
-// generic type, what is `x`?
+// The subject answers what a `for x in xs` loop BINDS: given the sequence's type, what is `x`?
 //
-// WHY THIS ESTATE AND NOT A `tests/native` PROJECT. The entry point takes a constructed
-// `GenericTypeInfo`, which declines at `emit.local.initializer` from a `tests/native` project
-// because the model lives in a dependency assembly. Here it is the same assembly's own.
+// THE NAME TABLE THESE CONTRACTS USED TO PIN IS GONE, AND ITS ABSENCE IS THE POINT. The old owner
+// answered eighteen unqualified spellings — `List`, `HashSet`, `Queue`, `Span`, five dictionary
+// names and the rest — which meant a `Stack<int>` iterated and a `JsonElement.ArrayEnumerator`, a
+// `Dictionary<K, V>.KeyCollection`, a `StringBuilder.ChunkEnumerator` and every user type carrying
+// the enumerator pattern did not. The rule is now the C# one, it is structural, and these rows
+// assert it on types the table never named — which is the only way to see that no table is left.
 //
-// WHY THE ANSWER IS READ THROUGH HELPERS. The kernel answers `TypeInfo?`, and `.ToString()` on a
-// user N# class needs an `object` receiver — `(value as object).ToString()` — so the text of an
-// answer is read through `LoopFactsElementText` rather than spelled at every assertion.
+// THE FOUR THINGS IT IS EASY TO GET WRONG:
 //
-// THE COVERAGE ADDS THE THREE NAME TABLES, WHICH THE C# ONLY EVER REACHED THROUGH A CONSTRUCTED
-// TYPE. The deleted file drove 25 rows through the single public door; the three predicates behind
-// it — 5 dictionary names, 2 span names, 15 collection names — are asserted directly here, because
-// a table with a missing row is exactly what a sampled door cannot see.
+// (1) THE PATTERN OUTRANKS THE INTERFACE. `List<T>` implements `IEnumerable<T>` AND carries a struct
+// `GetEnumerator`; C# binds the struct one, and so does this. The element type agrees either way,
+// which is exactly why the ORDER has to be pinned by a type where it would not.
 //
-// THE FIVE THINGS IT IS EASY TO GET WRONG:
+// (2) A DICTIONARY DOES NOT ENUMERATE ITS VALUES. `Dictionary<K, V>` answers `KeyValuePair<K, V>`,
+// and it answers it because that is what its enumerator's `Current` IS — not because five
+// dictionary-shaped names were listed somewhere.
 //
-// (1) A DICTIONARY DOES NOT ENUMERATE ITS VALUES. Five dictionary-shaped names with TWO arguments
-// answer a SYNTHESISED `KeyValuePair<K, V>`, not `V` — and that synthesised type carries a real
-// runtime generic definition, seeded through `Type.GetType`, so downstream member lookup works.
+// (3) SYNC AND ASYNC ARE SEPARATE DOORS, NOT A FILTER. `requireAsync: true` answers ONLY
+// `IAsyncEnumerable<T>`, and `requireAsync: false` never answers for it.
 //
-// (2) SYNC AND ASYNC ARE SEPARATE DOORS, NOT A FILTER. `requireAsync: true` answers ONLY
-// `IAsyncEnumerable<T>` — no dictionary, no span, no collection — and `requireAsync: false` never
-// answers for `IAsyncEnumerable`.
-//
-// (3) ARITY IS PART OF THE ANSWER, AND IT DIFFERS BY FAMILY. Dictionaries need exactly two;
-// everything else needs exactly one. `IEnumerable<>` with none and `IAsyncEnumerable<K, V>` are
-// both refused.
-//
-// (4) THE NAME IS NORMALISED NAMESPACE-FIRST, THEN CLR ARITY SUFFIX, so
-// `System.Collections.Generic.IEnumerable`1` and `IEnumerable` are one name.
-//
-// (5) A SOURCE GENERIC CANNOT IMPERSONATE A RUNTIME ONE BY NAME. When `GenericDefinition` is set
-// to anything that is not a `ReflectionTypeInfo`, the answer is `null` regardless of the name —
-// which is what stops a user type called `List` from being walked as the BCL's.
-func LoopFactsNoInfos(): List<TypeInfo> {
-    return new List<TypeInfo>()
-}
-
-func LoopFactsInfos1(first: TypeInfo): List<TypeInfo> {
-    items := new List<TypeInfo>()
-    items.Add(first)
-    return items
-}
-
-func LoopFactsInfos2(first: TypeInfo, second: TypeInfo): List<TypeInfo> {
-    items := new List<TypeInfo>()
-    items.Add(first)
-    items.Add(second)
-    return items
-}
-
-// The C# wrote `…?.ToString()`; an N# user class needs an `object` receiver for that.
-func LoopFactsElementText(value: TypeInfo?): string {
-    if value != null {
-        valueObject := value as object
-        return valueObject.ToString()
+// (4) AN OPEN DEFINITION ANSWERS IN ITS OWN PARAMETERS. `List<>` answers the parameter `T` rather
+// than a closed type, because the caller rewrites that by POSITION with the arguments the
+// instantiation supplied — which is how `Dictionary<string, Widget>` produces a pair over a source
+// `Widget` the CLR has no handle for.
+func LoopFactsTypeName(value: Type?): string {
+    if value == null {
+        return "<null>"
     }
 
-    return "<null>"
+    return value.Name
 }
 
-// The C# wrote `Assert.IsType<GenericTypeInfo>(…)`, which asserts the RUNTIME type and returns the
-// cast value; this answers the same question as a name.
-func LoopFactsRuntimeKind(value: TypeInfo?): string {
-    if value != null {
-        if value as GenericTypeInfo != null {
-            return "GenericTypeInfo"
-        }
+func LoopFactsSequenceElementName(collection: Type, requireAsync: bool): string {
+    return LoopFactsTypeName(LoopSequenceTypeFacts.SequenceElementType(collection, requireAsync))
+}
 
-        valueObject := value as object
-        return valueObject.GetType().Name
+// A nested type cannot be spelled in a `typeof`, so it is reached through its owner. A nested type
+// of a CLOSED generic owner comes back OPEN, and it is closed again over the owner's own arguments —
+// `Dictionary<string, int>.KeyCollection` is what a `for key in map.Keys` iterates.
+func LoopFactsNested(owner: Type, name: string): Type {
+    nested := owner.GetNestedType(name)
+    if nested == null {
+        throw new InvalidOperationException("The loop sequence contracts require a nested type named " + name + " on " + owner.Name + ".")
     }
 
-    return "<null>"
-}
-
-func LoopFactsGenericName(value: TypeInfo?): string {
-    generic := value as GenericTypeInfo
-    if generic != null {
-        return generic.Name
+    if nested.get_IsGenericTypeDefinition() {
+        return nested.MakeGenericType(owner.GetGenericArguments())
     }
 
-    return "<not generic>"
+    return nested
 }
 
-func LoopFactsGenericArgumentText(value: TypeInfo?, index: int): string {
-    generic := value as GenericTypeInfo
-    if generic != null {
-        if index >= 0 && index < generic.TypeArguments.Count {
-            return LoopFactsElementText(generic.TypeArguments[index])
-        }
+func LoopFactsNonGenericSequenceType(): Type {
+    sequence := Type.GetType("System.Collections.IEnumerable")
+    if sequence == null {
+        throw new InvalidOperationException("The loop sequence contracts require System.Collections.IEnumerable.")
     }
 
-    return "<none>"
-}
-
-// A synchronous sequence of `int`, by name — the shape all eighteen accepted sync names share.
-func LoopFactsSyncElementText(name: string): string {
-    return LoopFactsElementText(LoopSequenceTypeFacts.GetGenericLoopSequenceElementType(
-        new GenericTypeInfo(name, LoopFactsInfos1(BuiltInTypes.Int)),
-        false
-    ))
-}
-
-test "source generics cannot impersonate runtime loop sequence shapes by name" {
-    arguments := new List<TypeInfo>()
-    arguments.Add(BuiltInTypes.Int)
-    sourceList := new GenericTypeInfo(
-        "List",
-        arguments,
-        new SimpleTypeInfo("source List")
-    )
-
-    assert LoopSequenceTypeFacts.GetGenericLoopSequenceElementType(
-        sourceList,
-        false
-    ) == null
+    return sequence
 }
 
 // ---- the synchronous door -------------------------------------------------------------------------
 
-// Successor to LoopSequenceTypeFacts_ReturnsElementTypeForSyncSequences — all eighteen of its rows,
-// expanded out of the `[Theory]`, in order.
-test "loop sequence type facts answer the element type for every sync sequence" {
-    assert LoopFactsElementText(LoopSequenceTypeFacts.GetGenericLoopSequenceElementType(new GenericTypeInfo("IEnumerable", LoopFactsInfos1(BuiltInTypes.Int)), false)) == "int"
-    assert LoopFactsElementText(LoopSequenceTypeFacts.GetGenericLoopSequenceElementType(new GenericTypeInfo("System.Collections.Generic.IEnumerable`1", LoopFactsInfos1(BuiltInTypes.Int)), false)) == "int"
-    assert LoopFactsElementText(LoopSequenceTypeFacts.GetGenericLoopSequenceElementType(new GenericTypeInfo("List", LoopFactsInfos1(BuiltInTypes.Int)), false)) == "int"
-    assert LoopFactsElementText(LoopSequenceTypeFacts.GetGenericLoopSequenceElementType(new GenericTypeInfo("HashSet", LoopFactsInfos1(BuiltInTypes.Int)), false)) == "int"
-    assert LoopFactsElementText(LoopSequenceTypeFacts.GetGenericLoopSequenceElementType(new GenericTypeInfo("IList", LoopFactsInfos1(BuiltInTypes.Int)), false)) == "int"
-    assert LoopFactsElementText(LoopSequenceTypeFacts.GetGenericLoopSequenceElementType(new GenericTypeInfo("ICollection", LoopFactsInfos1(BuiltInTypes.Int)), false)) == "int"
-    assert LoopFactsElementText(LoopSequenceTypeFacts.GetGenericLoopSequenceElementType(new GenericTypeInfo("IQueryable", LoopFactsInfos1(BuiltInTypes.Int)), false)) == "int"
-    assert LoopFactsElementText(LoopSequenceTypeFacts.GetGenericLoopSequenceElementType(new GenericTypeInfo("ISet", LoopFactsInfos1(BuiltInTypes.Int)), false)) == "int"
-    assert LoopFactsElementText(LoopSequenceTypeFacts.GetGenericLoopSequenceElementType(new GenericTypeInfo("Queue", LoopFactsInfos1(BuiltInTypes.Int)), false)) == "int"
-    assert LoopFactsElementText(LoopSequenceTypeFacts.GetGenericLoopSequenceElementType(new GenericTypeInfo("Stack", LoopFactsInfos1(BuiltInTypes.Int)), false)) == "int"
-    assert LoopFactsElementText(LoopSequenceTypeFacts.GetGenericLoopSequenceElementType(new GenericTypeInfo("LinkedList", LoopFactsInfos1(BuiltInTypes.Int)), false)) == "int"
-    assert LoopFactsElementText(LoopSequenceTypeFacts.GetGenericLoopSequenceElementType(new GenericTypeInfo("Collection", LoopFactsInfos1(BuiltInTypes.Int)), false)) == "int"
-    assert LoopFactsElementText(LoopSequenceTypeFacts.GetGenericLoopSequenceElementType(new GenericTypeInfo("ObservableCollection", LoopFactsInfos1(BuiltInTypes.Int)), false)) == "int"
-    assert LoopFactsElementText(LoopSequenceTypeFacts.GetGenericLoopSequenceElementType(new GenericTypeInfo("SortedSet", LoopFactsInfos1(BuiltInTypes.Int)), false)) == "int"
-    assert LoopFactsElementText(LoopSequenceTypeFacts.GetGenericLoopSequenceElementType(new GenericTypeInfo("IReadOnlyList", LoopFactsInfos1(BuiltInTypes.Int)), false)) == "int"
-    assert LoopFactsElementText(LoopSequenceTypeFacts.GetGenericLoopSequenceElementType(new GenericTypeInfo("IReadOnlyCollection", LoopFactsInfos1(BuiltInTypes.Int)), false)) == "int"
-    assert LoopFactsElementText(LoopSequenceTypeFacts.GetGenericLoopSequenceElementType(new GenericTypeInfo("Span", LoopFactsInfos1(BuiltInTypes.Int)), false)) == "int"
-    assert LoopFactsElementText(LoopSequenceTypeFacts.GetGenericLoopSequenceElementType(new GenericTypeInfo("System.ReadOnlySpan`1", LoopFactsInfos1(BuiltInTypes.Int)), false)) == "int"
+test "loop sequence facts answer the element type through the enumerator pattern" {
+    assert LoopFactsSequenceElementName(typeof(List<int>), false) == "Int32"
+    assert LoopFactsSequenceElementName(typeof(HashSet<int>), false) == "Int32"
+    assert LoopFactsSequenceElementName(typeof(Stack<int>), false) == "Int32"
+    assert LoopFactsSequenceElementName(typeof(Queue<int>), false) == "Int32"
+    assert LoopFactsSequenceElementName(typeof(LinkedList<int>), false) == "Int32"
+    assert LoopFactsSequenceElementName(typeof(SortedSet<string>), false) == "String"
 }
 
-// Successor to LoopSequenceTypeFacts_ReturnsElementTypeForAsyncSequences — both of its rows.
-test "loop sequence type facts answer the element type for every async sequence" {
-    assert LoopFactsElementText(LoopSequenceTypeFacts.GetGenericLoopSequenceElementType(new GenericTypeInfo("IAsyncEnumerable", LoopFactsInfos1(BuiltInTypes.String)), true)) == "string"
-    assert LoopFactsElementText(LoopSequenceTypeFacts.GetGenericLoopSequenceElementType(new GenericTypeInfo("System.Collections.Generic.IAsyncEnumerable`1", LoopFactsInfos1(BuiltInTypes.String)), true)) == "string"
+test "loop sequence facts answer the element type through the sequence interface" {
+    assert LoopFactsSequenceElementName(typeof(IEnumerable<int>), false) == "Int32"
+    assert LoopFactsSequenceElementName(typeof(IList<string>), false) == "String"
+    assert LoopFactsSequenceElementName(typeof(IReadOnlyList<int>), false) == "Int32"
+    assert LoopFactsSequenceElementName(typeof(IReadOnlyCollection<int>), false) == "Int32"
+    assert LoopFactsSequenceElementName(typeof(ISet<int>), false) == "Int32"
 }
 
-// ---- the dictionary door --------------------------------------------------------------------------
-
-// Successor to LoopSequenceTypeFacts_DictionariesEnumerateKeyValuePairs — all five of its rows,
-// with each row's three assertions kept: the runtime type, the name, and both type arguments.
-test "loop sequence type facts enumerate dictionaries as key value pairs" {
-    dictionary := LoopSequenceTypeFacts.GetGenericLoopSequenceElementType(new GenericTypeInfo("Dictionary", LoopFactsInfos2(BuiltInTypes.String, BuiltInTypes.Int)), false)
-    assert LoopFactsRuntimeKind(dictionary) == "GenericTypeInfo"
-    assert LoopFactsGenericName(dictionary) == "KeyValuePair"
-    assert LoopFactsGenericArgumentText(dictionary, 0) == "string"
-    assert LoopFactsGenericArgumentText(dictionary, 1) == "int"
-
-    interfaceDictionary := LoopSequenceTypeFacts.GetGenericLoopSequenceElementType(new GenericTypeInfo("IDictionary", LoopFactsInfos2(BuiltInTypes.String, BuiltInTypes.Int)), false)
-    assert LoopFactsRuntimeKind(interfaceDictionary) == "GenericTypeInfo"
-    assert LoopFactsGenericName(interfaceDictionary) == "KeyValuePair"
-    assert LoopFactsGenericArgumentText(interfaceDictionary, 0) == "string"
-    assert LoopFactsGenericArgumentText(interfaceDictionary, 1) == "int"
-
-    readOnlyDictionary := LoopSequenceTypeFacts.GetGenericLoopSequenceElementType(new GenericTypeInfo("IReadOnlyDictionary", LoopFactsInfos2(BuiltInTypes.String, BuiltInTypes.Int)), false)
-    assert LoopFactsRuntimeKind(readOnlyDictionary) == "GenericTypeInfo"
-    assert LoopFactsGenericName(readOnlyDictionary) == "KeyValuePair"
-    assert LoopFactsGenericArgumentText(readOnlyDictionary, 0) == "string"
-    assert LoopFactsGenericArgumentText(readOnlyDictionary, 1) == "int"
-
-    sortedDictionary := LoopSequenceTypeFacts.GetGenericLoopSequenceElementType(new GenericTypeInfo("SortedDictionary", LoopFactsInfos2(BuiltInTypes.String, BuiltInTypes.Int)), false)
-    assert LoopFactsRuntimeKind(sortedDictionary) == "GenericTypeInfo"
-    assert LoopFactsGenericName(sortedDictionary) == "KeyValuePair"
-    assert LoopFactsGenericArgumentText(sortedDictionary, 0) == "string"
-    assert LoopFactsGenericArgumentText(sortedDictionary, 1) == "int"
-
-    sortedList := LoopSequenceTypeFacts.GetGenericLoopSequenceElementType(new GenericTypeInfo("SortedList", LoopFactsInfos2(BuiltInTypes.String, BuiltInTypes.Int)), false)
-    assert LoopFactsRuntimeKind(sortedList) == "GenericTypeInfo"
-    assert LoopFactsGenericName(sortedList) == "KeyValuePair"
-    assert LoopFactsGenericArgumentText(sortedList, 0) == "string"
-    assert LoopFactsGenericArgumentText(sortedList, 1) == "int"
+// The shapes the deleted name table could not reach. Each is an ordinary BCL type carrying the
+// ordinary pattern, and each was rejected as "not enumerable" until the table went away.
+test "loop sequence facts answer shapes no name table listed" {
+    assert LoopFactsSequenceElementName(LoopFactsNested(typeof(System.Text.Json.JsonElement), "ArrayEnumerator"), false) == "JsonElement"
+    assert LoopFactsSequenceElementName(LoopFactsNested(typeof(System.Text.Json.JsonElement), "ObjectEnumerator"), false) == "JsonProperty"
+    assert LoopFactsSequenceElementName(typeof(System.Collections.BitArray), false) == "Object"
+    assert LoopFactsSequenceElementName(LoopFactsNested(typeof(System.Text.StringBuilder), "ChunkEnumerator"), false) == "ReadOnlyMemory`1"
 }
 
-// NOT IN THE DELETED FILE. The synthesised pair carries a REFLECTION generic definition, which is
-// what lets the loop variable's `.Key` and `.Value` resolve downstream — a synthesised type with a
-// null definition would be walkable and useless.
-test "loop sequence type facts seed the synthesised pair with a runtime definition" {
-    pairInfo := LoopSequenceTypeFacts.GetGenericLoopSequenceElementType(new GenericTypeInfo("Dictionary", LoopFactsInfos2(BuiltInTypes.String, BuiltInTypes.Int)), false) as GenericTypeInfo
-    assert pairInfo != null
-    assert pairInfo.GenericDefinition != null
-    assert pairInfo.GenericDefinition as ReflectionTypeInfo != null
-    assert pairInfo.TypeArguments.Count == 2
+// A `Span<T>` enumerator's `Current` is a `ref T`, and the loop variable is a COPY of the element:
+// the by-ref spelling is the enumerator's way of avoiding a second copy, not part of the type.
+test "loop sequence facts strip the by-ref spelling off a span element" {
+    assert LoopFactsSequenceElementName(typeof(Span<int>), false) == "Int32"
+    assert LoopFactsSequenceElementName(typeof(ReadOnlySpan<char>), false) == "Char"
 }
 
-// NOT IN THE DELETED FILE. A dictionary is a dictionary only with exactly two arguments, and never
-// in the async door.
-test "loop sequence type facts refuse dictionaries at the wrong arity or door" {
-    assert LoopSequenceTypeFacts.GetGenericLoopSequenceElementType(new GenericTypeInfo("Dictionary", LoopFactsInfos1(BuiltInTypes.String)), false) == null
-    assert LoopSequenceTypeFacts.GetGenericLoopSequenceElementType(new GenericTypeInfo("Dictionary", LoopFactsNoInfos()), false) == null
-    assert LoopSequenceTypeFacts.GetGenericLoopSequenceElementType(new GenericTypeInfo("Dictionary", LoopFactsInfos2(BuiltInTypes.String, BuiltInTypes.Int)), true) == null
-    assert LoopSequenceTypeFacts.GetGenericLoopSequenceElementType(new GenericTypeInfo("SortedList", LoopFactsInfos2(BuiltInTypes.String, BuiltInTypes.Int)), true) == null
+test "loop sequence facts answer a dictionary with its pair, not its value" {
+    assert LoopFactsSequenceElementName(typeof(Dictionary<string, int>), false) == "KeyValuePair`2"
+    assert LoopFactsSequenceElementName(typeof(SortedDictionary<string, int>), false) == "KeyValuePair`2"
+    assert LoopFactsSequenceElementName(typeof(IReadOnlyDictionary<string, int>), false) == "KeyValuePair`2"
+
+    pair := LoopSequenceTypeFacts.SequenceElementType(typeof(Dictionary<string, int>), false)
+    assert pair != null
+    pairArguments := pair.GetGenericArguments()
+    assert pairArguments.Length == 2
+    assert pairArguments[0].Name == "String"
+    assert pairArguments[1].Name == "Int32"
 }
 
-// ---- the refusals ----------------------------------------------------------------------------------
-
-// Successor to LoopSequenceTypeFacts_RejectsWrongModeAndArity — all five of its assertions.
-test "loop sequence type facts refuse the wrong mode and the wrong arity" {
-    assert LoopSequenceTypeFacts.GetGenericLoopSequenceElementType(new GenericTypeInfo("IAsyncEnumerable", LoopFactsInfos1(BuiltInTypes.Int)), false) == null
-    assert LoopSequenceTypeFacts.GetGenericLoopSequenceElementType(new GenericTypeInfo("IEnumerable", LoopFactsInfos1(BuiltInTypes.Int)), true) == null
-    assert LoopSequenceTypeFacts.GetGenericLoopSequenceElementType(new GenericTypeInfo("IEnumerable", LoopFactsNoInfos()), false) == null
-    assert LoopSequenceTypeFacts.GetGenericLoopSequenceElementType(new GenericTypeInfo("IAsyncEnumerable", LoopFactsInfos2(BuiltInTypes.Int, BuiltInTypes.String)), true) == null
-    assert LoopSequenceTypeFacts.GetGenericLoopSequenceElementType(new GenericTypeInfo("Task", LoopFactsInfos1(BuiltInTypes.Int)), false) == null
-
-    // Not in the deleted file: the async door refuses spans and collections too, and an unrelated
-    // generic is refused in either door.
-    assert LoopSequenceTypeFacts.GetGenericLoopSequenceElementType(new GenericTypeInfo("Span", LoopFactsInfos1(BuiltInTypes.Int)), true) == null
-    assert LoopSequenceTypeFacts.GetGenericLoopSequenceElementType(new GenericTypeInfo("List", LoopFactsInfos1(BuiltInTypes.Int)), true) == null
-    assert LoopSequenceTypeFacts.GetGenericLoopSequenceElementType(new GenericTypeInfo("Task", LoopFactsInfos1(BuiltInTypes.Int)), true) == null
-    assert LoopSequenceTypeFacts.GetGenericLoopSequenceElementType(new GenericTypeInfo("IEnumerator", LoopFactsInfos1(BuiltInTypes.Int)), false) == null
-    assert LoopSequenceTypeFacts.GetGenericLoopSequenceElementType(new GenericTypeInfo("List", LoopFactsInfos2(BuiltInTypes.Int, BuiltInTypes.String)), false) == null
+// The key and value COLLECTIONS of a dictionary are their own sequences, and neither was reachable
+// by name.
+test "loop sequence facts answer a dictionary key and value collection" {
+    assert LoopFactsSequenceElementName(LoopFactsNested(typeof(Dictionary<string, int>), "KeyCollection"), false) == "String"
+    assert LoopFactsSequenceElementName(LoopFactsNested(typeof(Dictionary<string, int>), "ValueCollection"), false) == "Int32"
 }
 
-// ---- the three name tables ---------------------------------------------------------------------------
-
-// NOT IN THE DELETED FILE. All five dictionary names, exhaustively, plus the near misses.
-test "loop sequence type facts name exactly five dictionary shapes" {
-    assert LoopSequenceTypeFacts.IsDictionaryTypeName("Dictionary")
-    assert LoopSequenceTypeFacts.IsDictionaryTypeName("IDictionary")
-    assert LoopSequenceTypeFacts.IsDictionaryTypeName("IReadOnlyDictionary")
-    assert LoopSequenceTypeFacts.IsDictionaryTypeName("SortedDictionary")
-    assert LoopSequenceTypeFacts.IsDictionaryTypeName("SortedList")
-
-    assert !LoopSequenceTypeFacts.IsDictionaryTypeName("ConcurrentDictionary")
-    assert !LoopSequenceTypeFacts.IsDictionaryTypeName("ImmutableDictionary")
-    assert !LoopSequenceTypeFacts.IsDictionaryTypeName("List")
-    assert !LoopSequenceTypeFacts.IsDictionaryTypeName("dictionary")
-    assert !LoopSequenceTypeFacts.IsDictionaryTypeName("")
+// The non-generic remainder: a type that names only `IEnumerable` iterates as `object`.
+test "loop sequence facts answer the non-generic sequence as object" {
+    assert LoopFactsSequenceElementName(LoopFactsNonGenericSequenceType(), false) == "Object"
 }
 
-// NOT IN THE DELETED FILE. Both span names, exhaustively — the family that must NOT be widened,
-// because a span is not a collection and cannot be boxed into one.
-test "loop sequence type facts name exactly two span shapes" {
-    assert LoopSequenceTypeFacts.IsSpanTypeName("Span")
-    assert LoopSequenceTypeFacts.IsSpanTypeName("ReadOnlySpan")
+// ---- what does NOT iterate ------------------------------------------------------------------------
 
-    assert !LoopSequenceTypeFacts.IsSpanTypeName("Memory")
-    assert !LoopSequenceTypeFacts.IsSpanTypeName("ReadOnlyMemory")
-    assert !LoopSequenceTypeFacts.IsSpanTypeName("span")
-    assert !LoopSequenceTypeFacts.IsSpanTypeName("")
+test "loop sequence facts refuse what is not a sequence" {
+    assert LoopSequenceTypeFacts.SequenceElementType(typeof(int), false) == null
+    assert LoopSequenceTypeFacts.SequenceElementType(typeof(IEnumerator<int>), false) == null
+    assert LoopSequenceTypeFacts.SequenceElementType(typeof(System.Threading.Tasks.Task<int>), false) == null
 }
 
-// NOT IN THE DELETED FILE. All fifteen collection names, exhaustively.
-test "loop sequence type facts name exactly fifteen collection shapes" {
-    assert LoopSequenceTypeFacts.IsCollectionTypeName("List")
-    assert LoopSequenceTypeFacts.IsCollectionTypeName("HashSet")
-    assert LoopSequenceTypeFacts.IsCollectionTypeName("IList")
-    assert LoopSequenceTypeFacts.IsCollectionTypeName("ICollection")
-    assert LoopSequenceTypeFacts.IsCollectionTypeName("IEnumerable")
-    assert LoopSequenceTypeFacts.IsCollectionTypeName("IQueryable")
-    assert LoopSequenceTypeFacts.IsCollectionTypeName("ISet")
-    assert LoopSequenceTypeFacts.IsCollectionTypeName("Queue")
-    assert LoopSequenceTypeFacts.IsCollectionTypeName("Stack")
-    assert LoopSequenceTypeFacts.IsCollectionTypeName("LinkedList")
-    assert LoopSequenceTypeFacts.IsCollectionTypeName("Collection")
-    assert LoopSequenceTypeFacts.IsCollectionTypeName("ObservableCollection")
-    assert LoopSequenceTypeFacts.IsCollectionTypeName("SortedSet")
-    assert LoopSequenceTypeFacts.IsCollectionTypeName("IReadOnlyList")
-    assert LoopSequenceTypeFacts.IsCollectionTypeName("IReadOnlyCollection")
-
-    assert !LoopSequenceTypeFacts.IsCollectionTypeName("IEnumerator")
-    assert !LoopSequenceTypeFacts.IsCollectionTypeName("IAsyncEnumerable")
-    assert !LoopSequenceTypeFacts.IsCollectionTypeName("Span")
-    assert !LoopSequenceTypeFacts.IsCollectionTypeName("Dictionary")
-    assert !LoopSequenceTypeFacts.IsCollectionTypeName("ImmutableArray")
-    assert !LoopSequenceTypeFacts.IsCollectionTypeName("")
+// AN ARRAY AND A `string` ARE NOT DECIDED HERE, and the reason is not that this owner refuses them:
+// `System.Array` carries a non-generic `GetEnumerator` and `string` carries a `CharEnumerator`, so
+// both DO answer the pattern. They answer the WRONG THING for a loop — `object` rather than the
+// array's element type, and a heap-allocated enumerator rather than an index — which is why the
+// walks that type a `foreach` answer them in their own arms BEFORE asking this one.
+test "an array and a string answer the pattern, which is why their callers answer them first" {
+    assert LoopFactsSequenceElementName(typeof(int[]), false) == "Object"
+    assert LoopFactsSequenceElementName(typeof(string), false) == "Char"
 }
 
-// NOT IN THE DELETED FILE. The two normalisations, in the kernel's order.
-test "loop sequence type facts normalise the namespace and the arity suffix" {
-    assert LoopSequenceTypeFacts.UnqualifiedTypeName("System.Collections.Generic.IEnumerable") == "IEnumerable"
-    assert LoopSequenceTypeFacts.UnqualifiedTypeName("IEnumerable") == "IEnumerable"
-    assert LoopSequenceTypeFacts.UnqualifiedTypeName("Trailing.") == "Trailing."
-    assert LoopSequenceTypeFacts.StripGenericArity("IEnumerable`1") == "IEnumerable"
-    assert LoopSequenceTypeFacts.StripGenericArity("IEnumerable") == "IEnumerable"
-    assert LoopSequenceTypeFacts.StripGenericArity(LoopSequenceTypeFacts.UnqualifiedTypeName("System.ReadOnlySpan`1")) == "ReadOnlySpan"
+// ---- the asynchronous door ------------------------------------------------------------------------
 
-    // The composed effect at the door: the qualified spelling and the bare one answer alike.
-    assert LoopFactsSyncElementText("System.Collections.Generic.IReadOnlyCollection`1") == "int"
-    assert LoopFactsSyncElementText("IReadOnlyCollection") == "int"
+test "loop sequence facts keep the async door separate from the sync one" {
+    assert LoopFactsSequenceElementName(typeof(IAsyncEnumerable<string>), true) == "String"
+    assert LoopSequenceTypeFacts.SequenceElementType(typeof(IAsyncEnumerable<string>), false) == null
+    assert LoopSequenceTypeFacts.SequenceElementType(typeof(List<int>), true) == null
+    assert LoopSequenceTypeFacts.SequenceElementType(typeof(Span<int>), true) == null
+    assert LoopSequenceTypeFacts.SequenceElementType(typeof(Dictionary<string, int>), true) == null
+}
+
+// ---- the open definition --------------------------------------------------------------------------
+
+test "loop sequence facts answer an open definition in its own parameters" {
+    listElement := LoopSequenceTypeFacts.SequenceElementType(typeof(List<int>).GetGenericTypeDefinition(), false)
+    assert listElement != null
+    assert listElement.get_IsGenericParameter()
+    assert listElement.get_GenericParameterPosition() == 0
+
+    dictionaryElement := LoopSequenceTypeFacts.SequenceElementType(typeof(Dictionary<string, int>).GetGenericTypeDefinition(), false)
+    assert dictionaryElement != null
+    assert dictionaryElement.Name == "KeyValuePair`2"
+    dictionaryArguments := dictionaryElement.GetGenericArguments()
+    assert dictionaryArguments.Length == 2
+    assert dictionaryArguments[0].get_IsGenericParameter()
+    assert dictionaryArguments[0].get_GenericParameterPosition() == 0
+    assert dictionaryArguments[1].get_IsGenericParameter()
+    assert dictionaryArguments[1].get_GenericParameterPosition() == 1
+
+    spanElement := LoopSequenceTypeFacts.SequenceElementType(typeof(Span<int>).GetGenericTypeDefinition(), false)
+    assert spanElement != null
+    assert spanElement.get_IsGenericParameter()
+    assert spanElement.get_GenericParameterPosition() == 0
+}
+
+test "loop sequence facts answer a single type argument only for a one-argument construction" {
+    assert LoopFactsTypeName(LoopSequenceTypeFacts.SingleTypeArgument(typeof(IEnumerable<int>))) == "Int32"
+    assert LoopSequenceTypeFacts.SingleTypeArgument(typeof(Dictionary<string, int>)) == null
 }
