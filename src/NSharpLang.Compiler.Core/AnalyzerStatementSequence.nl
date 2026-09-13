@@ -10,7 +10,8 @@ import NSharpLang.Compiler.Ast
 // outside an owner. Three facts, and all three used to be written by hand in `Analyzer.cs`:
 //
 //   1. THE UNREACHABLE-CODE RULE. Statements in a list are walked in order, and the statement after
-//      one that ALWAYS LEAVES is reported. The rule has three parts that are each a decision and not
+//      one that ALWAYS LEAVES is reported — unless it is a LOCAL FUNCTION DECLARATION, which is not
+//      code that runs in this list at all and is therefore never dead. The rule has three parts that are each a decision and not
 //      bookkeeping: only the FIRST unreachable statement is reported, the walk STOPS there rather
 //      than continuing to report its siblings, and everything below it is never analysed at all — so
 //      a name error inside dead code is silent. The judgement it asks is
@@ -268,12 +269,18 @@ class AnalyzerStatementSequence {
         }
 
         current := statements[state.Index]
-        if state.Terminated {
+        if state.Terminated && current as LocalFunctionStatement == null {
             ReportUnreachable(current)
             state.Phase = 3
             return null
         }
 
+        // A LOCAL FUNCTION DECLARATION IS NOT CODE THAT RUNS HERE, so it is not dead code below a
+        // `return`. Its name was bound before the list's first statement and its body is reached
+        // through calls written ABOVE it; writing the declaration at the bottom of the body — after
+        // the `return` that calls it — is the ordinary shape, not a mistake. C# makes the same
+        // exception. The statement is still handed out, because the body still has to be analysed,
+        // and `Terminated` stays set, so an ordinary statement after it is still reported.
         state.Phase = 2
         return SingleStatement(current)
     }

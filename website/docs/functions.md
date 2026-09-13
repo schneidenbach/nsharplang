@@ -608,6 +608,82 @@ func createProcessor() {
 }
 ```
 
+### Scope: a local function is visible in its whole block
+
+A local function's name is in scope for the **entire block that declares it** — above its own
+declaration, below it, and inside its sibling local functions. You do not have to order local
+functions by who calls whom, and two of them may call each other:
+
+```n#
+func isEven(n: int): bool {
+    func even(x: int): bool {
+        if x == 0 {
+            return true
+        }
+        return odd(x - 1)      // `odd` is declared below — still in scope
+    }
+
+    func odd(x: int): bool {
+        if x == 0 {
+            return false
+        }
+        return even(x - 1)
+    }
+
+    return even(n)
+}
+```
+
+Because the declaration is not code that runs in the enclosing block, it may also sit **after** the
+`return` that calls it — a common way to keep the interesting line at the top:
+
+```n#
+func classify(n: int): string {
+    return describe(n)
+
+    func describe(x: int): string {
+        return x > 0 ? "positive" : "not positive"
+    }
+}
+```
+
+A local function declared inside a **nested** block belongs to that block, and is not visible
+outside it:
+
+```n#
+func classify(n: int): int {
+    if n > 0 {
+        func inner(x: int): int {
+            return x
+        }
+        return inner(n)
+    }
+
+    return inner(n)            // ERROR NL412: Function 'inner' not found
+}
+```
+
+Calling a local function reads every variable its body reads, so those variables must already have
+values **at the call** — even when the call is written above the declaration:
+
+```n#
+func total(): int {
+    let seed: int
+    v := scaled()              // ERROR NL304: 'seed' is read by local function 'scaled'
+    seed = 5
+
+    func scaled(): int {
+        return seed * 2
+    }
+
+    return v
+}
+```
+
+Move the assignment above the call — or give `seed` a value where it is declared — and the call is
+fine. The rule follows calls between local functions too: if `outer` calls `inner` and `inner` reads
+`seed`, calling `outer` is what gets reported.
+
 ## Function Overloading
 
 ### Basic Overloading

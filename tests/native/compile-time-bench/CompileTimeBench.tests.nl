@@ -548,13 +548,15 @@ test "compile-time bench: the skipped source directories are exactly the twelve 
 // `Union<T0, T1>` added tests/native/runtime-acceptance; 93 since generic methods declared by an
 // EXTERNAL type added tests/native/external-generic-methods; 94 since the converter census's flow
 // and signature rules added tests/native/census-flow-rules; 95 since array covariance and
-// target-typed array literals added tests/native/census-conversions.
-test "compile-time bench: the corpus is the 95 project.yml projects under examples, tests and templates" {
+// target-typed array literals added tests/native/census-conversions; 96 since block-scoped local
+// functions added tests/native/census-local-functions.
+test "compile-time bench: the corpus is the 96 project.yml projects under examples, tests and templates" {
     projects := BenchCollectCorpusProjects(BenchRepositoryRoot())
-    assert projects.Count == 95
+    assert projects.Count == 96
     assert BenchListContains(projects, "examples/01-hello-world")
     assert BenchListContains(projects, "tests/native/qualified-names")
     assert BenchListContains(projects, "tests/native/census-conversions")
+    assert BenchListContains(projects, "tests/native/census-local-functions")
     assert BenchListContains(projects, "tests/native/methodimpl-attributes")
     assert BenchListContains(projects, "templates/nsharp-console")
     assert BenchListContains(projects, "tests/native/complete-source-generic-args")

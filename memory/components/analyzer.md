@@ -2051,3 +2051,50 @@ from it and every raw call was a latent crash inside a generic body.
 
 Keep ownership-policy tests beside the N# owner. C# tests should exercise only the remaining
 diagnostic/integration shell, not recreate semantic lookup or identity policy in test helpers.
+
+### Local functions are bound by the BLOCK, not by the walk
+
+`AnalyzerLocalFunctionScope.nl` is the N# owner for "which local functions does this statement list
+declare". `AnalyzerStatementSequence` asks it (request kind 4) BEFORE the list's first statement is
+walked — and, for a block form, AFTER the block's own scope opened — so every local function of a
+block is bound throughout that block: above its own declaration, below it, and inside its siblings.
+That is C#'s rule (`LocalScopeBinder`) and it is the only way MUTUAL recursion is spellable; the old
+rule declared the name where the statement was walked, so `visitStatement` calling `visitBlock`
+reported NL412 whenever `visitBlock` was written second.
+
+- Only DIRECT children of the list are hoisted. A local function declared in a nested block belongs
+  to that block, is bound into that block's scope and dies with it, so it is still NL412 outside.
+- `Scope.RecordHoistedLocalFunction` / `HasHoistedLocalFunction` is the per-scope memory that stops
+  `AnalyzerFunctionBodies.AdvanceDeclareFunction` from declaring the same name a second time and
+  reporting the declaration as a duplicate of itself. The check is asked rather than assumed, so a
+  `LocalFunctionStatement` reached by a path that walked no statement list still gets its name.
+- The position the hoist declares at is the STATEMENT's, which is what
+  `AnalyzerFunctionBodies.BeginLocalFunction` already used — go-to-definition does not move.
+- A LOCAL FUNCTION DECLARATION IS NOT CODE THAT RUNS in the enclosing list, so it is never dead
+  code: the analyzer's unreachable rule (NL312), the linter's (NL006) and the columnar emitter's
+  `emit.statement.unreachable-after-transfer` guard all skip a `LocalFunctionStatement` written after
+  a `return`. The statement is still walked — its body has rules of its own — and the terminated flag
+  stays set, so an ordinary statement after it is still reported.
+- The emitter's half: the parent body and every local body now start with the FULL declared
+  local-function name set (`visibleLocalFuncNames`), where visibility used to be textual. The locals
+  are `<parent>g__N` private statics declared before the parent body emits, so mutual recursion is
+  just two forward-referenced `MethodBuilder`s that bake at Save.
+
+`AnalyzerLocalFunctionCaptures.nl` owns the other half: CALLING a local function reads every variable
+its body reads, and definite assignment is asked about them AT THE CALL (C#'s CS0165 position), because
+the same body is legal after the variable is assigned and illegal before it. There is no second
+expression recursion — `AnalyzerDefiniteAssignment` re-runs its own walk with
+`DefiniteAssignmentState.Collected` set, which turns its report into a RECORD, and the call site
+judges the records against the CALLER's candidate and assigned sets. `Active` is the cycle guard, so
+a mutually recursive pair contributes each other's reads exactly once; a call reached while already
+collecting reports nothing and merges its reads outwards. The sub-walk is driven from
+`AnalyzerDefiniteAssignment`'s own call arm rather than from the capture owner, because that class is
+at the columnar front end's per-class member ceiling and a bare `this` declines it.
+
+NOT YET: a local function cannot CAPTURE anything — the columnar emitter models locals as static
+methods with no display class, so a read or write of an enclosing local declines at
+`emit.return.expression` / `emit.statement.block-child`. The definite-assignment rule above is
+therefore analyzer-visible (`nlc check`) before that decline is reached, and is the rule that will
+still be right when closures land. A local function also does not SHADOW a same-named top-level
+function at the call site (both calls resolve to the top-level one) — a separate pre-existing gap in
+the call planner, unchanged by the block-scoping rule.

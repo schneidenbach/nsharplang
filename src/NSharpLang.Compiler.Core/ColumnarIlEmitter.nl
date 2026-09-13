@@ -5822,8 +5822,17 @@ sealed class ColumnarIlEmitter {
                 // analyzer-validated product path authoritative. (A break/continue nested inside an `if` is
                 // conditional, so only a DIRECT break/continue child counts here.)
                 transfers := AlwaysReturns(child) || _nodes.Kind(child) == 21 || _nodes.Kind(child) == 22
-                if (transfers && n != _nodes.ChildCount(idx) - 1) {
-                    return Decline("emit.statement.unreachable-after-transfer", "block contains a statement after an unconditional transfer", child)
+                if (transfers) {
+                    // A LOCAL FUNCTION DECLARATION (kind 41) EMITS NO IL AT ALL — the method was declared
+                    // before the body walk and its body is emitted separately — so one written after the
+                    // transfer is not code after the transfer. The analyzer's unreachable rule makes the
+                    // same exception, and it is what lets a body call a local function on its first line
+                    // and declare it on its last.
+                    for after := n + 1; after < _nodes.ChildCount(idx); after++ {
+                        if (_nodes.Kind(Child(idx, after)) != 41) {
+                            return Decline("emit.statement.unreachable-after-transfer", "block contains a statement after an unconditional transfer", child)
+                        }
+                    }
                 }
             }
 
