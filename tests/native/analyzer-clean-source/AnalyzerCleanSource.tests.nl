@@ -8142,8 +8142,12 @@ test "020 s31 analyzer error codes: five relational comparisons over incompatibl
     assert AcCodeAnchor(rich, "TypeMismatch") == "NL202@3:16+1"
 }
 
+// The nullable row used to be `int? != int?`, which is now the LIFTED equality (census 2026-09-13,
+// §FLOW5): `Nullable<T>` gets a lifted `==` and `!=` for each predefined one on `T`. What is still
+// refused is the pair the UNLIFTED rule refuses — an `int?` against a `string` — so the row keeps its
+// place and says what the boundary now is.
 test "020 s31 analyzer error codes: four equality comparisons report FOUR `NL202` rows in one fixture, each naming both sides, all anchored on the `==` operator itself (was AnalyzerTests.EqualityOperator_InvalidOperands_ReportTypeMismatch)" {
-    source := "\nstruct Plain {\n    Value: int\n}\n\nfunc BadObjectInt(value: object): bool {\n    return value == 1\n}\n\nfunc BadPlain(left: Plain, right: Plain): bool {\n    return left == right\n}\n\nfunc BadNullable(left: int?, right: int?): bool {\n    return left != right\n}\n\nfunc BadMixedDecimal(left: decimal, right: int): bool {\n    return left == right\n}\n"
+    source := "\nstruct Plain {\n    Value: int\n}\n\nfunc BadObjectInt(value: object): bool {\n    return value == 1\n}\n\nfunc BadPlain(left: Plain, right: Plain): bool {\n    return left == right\n}\n\nfunc BadNullable(left: int?, right: string): bool {\n    return left != right\n}\n\nfunc BadMixedDecimal(left: decimal, right: int): bool {\n    return left == right\n}\n"
     assert AcParseCensus(source) == ""
     assert AcParseSuccess(source) == "True"
     analysis := AcAnalyze(source)
@@ -8156,7 +8160,7 @@ test "020 s31 analyzer error codes: four equality comparisons report FOUR `NL202
     assert AcRow(analysis, 1) == "TypeMismatch|The '==' operator doesn't work with 'Plain' and 'Plain' — equality needs compatible primitive values, reference values, null, record structs, or an equality operator overload|Use matching comparable operands, compare to null, convert explicitly, or define an equality operator for this type.|Error"
     assert AcHint(analysis, 1) == "<null>"
     assert AcSuggestions(analysis, 1) == "<null>"
-    assert AcRow(analysis, 2) == "TypeMismatch|The '!=' operator doesn't work with 'int?' and 'int?' — equality needs compatible primitive values, reference values, null, record structs, or an equality operator overload|Use matching comparable operands, compare to null, convert explicitly, or define an equality operator for this type.|Error"
+    assert AcRow(analysis, 2) == "TypeMismatch|The '!=' operator doesn't work with 'int?' and 'string' — equality needs compatible primitive values, reference values, null, record structs, or an equality operator overload|Use matching comparable operands, compare to null, convert explicitly, or define an equality operator for this type.|Error"
     assert AcHint(analysis, 2) == "<null>"
     assert AcSuggestions(analysis, 2) == "<null>"
     assert AcRow(analysis, 3) == "TypeMismatch|The '==' operator doesn't work with 'decimal' and 'int' — equality needs compatible primitive values, reference values, null, record structs, or an equality operator overload|Use matching comparable operands, compare to null, convert explicitly, or define an equality operator for this type.|Error"
@@ -8177,7 +8181,7 @@ test "020 s31 analyzer error codes: four equality comparisons report FOUR `NL202
     assert AcRow(rich, 1) == "TypeMismatch|The '==' operator doesn't work with 'Plain' and 'Plain' — equality needs compatible primitive values, reference values, null, record structs, or an equality operator overload|Use matching comparable operands, compare to null, convert explicitly, or define an equality operator for this type.|Error"
     assert AcHint(rich, 1) == "<null>"
     assert AcSuggestions(rich, 1) == "<null>"
-    assert AcRow(rich, 2) == "TypeMismatch|The '!=' operator doesn't work with 'int?' and 'int?' — equality needs compatible primitive values, reference values, null, record structs, or an equality operator overload|Use matching comparable operands, compare to null, convert explicitly, or define an equality operator for this type.|Error"
+    assert AcRow(rich, 2) == "TypeMismatch|The '!=' operator doesn't work with 'int?' and 'string' — equality needs compatible primitive values, reference values, null, record structs, or an equality operator overload|Use matching comparable operands, compare to null, convert explicitly, or define an equality operator for this type.|Error"
     assert AcHint(rich, 2) == "<null>"
     assert AcSuggestions(rich, 2) == "<null>"
     assert AcRow(rich, 3) == "TypeMismatch|The '==' operator doesn't work with 'decimal' and 'int' — equality needs compatible primitive values, reference values, null, record structs, or an equality operator overload|Use matching comparable operands, compare to null, convert explicitly, or define an equality operator for this type.|Error"
