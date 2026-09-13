@@ -6713,7 +6713,7 @@ sealed class ColumnarIlEmitter {
             // ZERO children is a BARE `throw` — the RETHROW. `rethrow` re-raises the exception the
             // handler on the frame is running for and, unlike `throw <caught>`, leaves its stack
             // trace alone. The CLR accepts it only inside a catch handler's own funclet, which is
-            // exactly what the two counters below answer; the analyzer reports NL333 for every
+            // exactly what the two counters below answer; the analyzer reports NL336 for every
             // program that would reach the refusal, so this is a contract guard.
             if (_nodes.ChildCount(idx) == 0) {
                 if (_catchHandlerDepth == 0 || _finallyDepth > _rethrowTargetFinallyDepth) {

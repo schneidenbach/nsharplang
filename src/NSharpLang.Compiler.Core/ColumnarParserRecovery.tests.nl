@@ -3890,7 +3890,7 @@ test "016 stmt: break and continue inside a loop parse clean (the loop-context c
 // ---- throw ----
 
 // A BARE `throw` NOW PARSES. It used to be the missing-exception NL102 report; it is the RETHROW,
-// and whether it is legal where it stands is a semantic question (NL333, owned by the ambient
+// and whether it is legal where it stands is a semantic question (NL336, owned by the ambient
 // context) exactly as `break` outside a loop is. The parser's job is to build the node.
 test "016 stmt: a bare throw parses clean — the rethrow's placement rule is semantic, not syntactic" {
     errors := RunPreamble("func f() {\n    throw\n}\n")

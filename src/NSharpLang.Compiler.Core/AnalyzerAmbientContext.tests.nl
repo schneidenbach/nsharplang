@@ -1434,14 +1434,14 @@ test "NEITHER TYPE-CONTEXT SLOT IS RESET BY BeginAnalysis, WHICH IS THE SHELL'S 
     harness.Context.ExitClassDeclaration(null)
 }
 
-// ── THE BARE `throw` (NL333) ────────────────────────────────────────────────────────────────────
+// ── THE BARE `throw` (NL336) ────────────────────────────────────────────────────────────────────
 //
 // A bare `throw` re-raises the exception the enclosing `catch` handler is running for. IL `rethrow`
 // is valid only inside a handler's own funclet of the SAME method, and those are exactly the three
 // refusals below: no handler at all, a `finally` nested inside the handler, and a nested body whose
 // code compiles to a method of its own.
 
-test "A BARE throw OUTSIDE EVERY HANDLER IS NL333, AND NAMES THE MISSING HANDLER" {
+test "A BARE throw OUTSIDE EVERY HANDLER IS NL336, AND NAMES THE MISSING HANDLER" {
     harness := AmbientDefault()
 
     assert harness.Context.CatchHandlerDepth == 0
@@ -1473,7 +1473,7 @@ test "A BARE throw INSIDE A HANDLER REPORTS NOTHING, AND THE HANDLER NESTS" {
     assert harness.Context.RethrowTargetFinallyDepth == 0
 }
 
-test "A BARE throw IN A finally NESTED INSIDE ITS HANDLER IS NL333 WITH THE OTHER WORDING" {
+test "A BARE throw IN A finally NESTED INSIDE ITS HANDLER IS NL336 WITH THE OTHER WORDING" {
     harness := AmbientDefault()
 
     saved := harness.Context.EnterCatchHandler()

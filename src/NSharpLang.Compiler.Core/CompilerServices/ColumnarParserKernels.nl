@@ -6924,7 +6924,7 @@ func ParseSimpleStatementNode(tokens: ParserTokenTable, count: int, st: ParserSt
     // `throw <expr>` (Throw 37) -- ThrowStatement kind 48, ONE child [the exception expression].
     // ZERO children = a bare `throw`, the RETHROW: it re-raises the exception the enclosing `catch`
     // handler is running for, preserving its original stack trace (IL `rethrow`). The analyzer owns
-    // the placement rule (NL333); the emitter refuses a bare throw it cannot place in a handler.
+    // the placement rule (NL336); the emitter refuses a bare throw it cannot place in a handler.
     // Throw ALWAYS EXITS in either shape: the emitter's AlwaysReturns mirror treats kind 48 like Return.
     if kind == 37 {
         throwStart := tokens.Starts[start]

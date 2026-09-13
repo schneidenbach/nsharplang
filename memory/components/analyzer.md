@@ -3243,7 +3243,7 @@ same object from the handler's own frame and loses the original site).
   `EnterCatchHandler` / `ExitCatchHandler` keep `CatchHandlerDepth` and `RethrowTargetFinallyDepth`
   (the `finally` depth the innermost handler opened at), pushed by
   `AnalyzerResourceStatements.AdvanceTry` phases 4/5 around a clause's body.
-  `ReportRethrowIfNeeded` raises **NL333** with two different sentences: no handler at all, and a
+  `ReportRethrowIfNeeded` raises **NL336** with two different sentences: no handler at all, and a
   `finally` nested inside the handler it would re-throw from. `EnterNestedBody` ZEROES both — a lambda
   or a local function compiles to a method of its own, and `rethrow` is valid only in a handler of the
   method it stands in.

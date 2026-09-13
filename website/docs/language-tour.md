@@ -654,7 +654,7 @@ you want to add context.
 
 A bare `throw` needs a handler to re-throw from. Outside a `catch`, inside a `finally` nested in the
 handler, or inside a lambda or local function written in the handler (each compiles to a method of
-its own), it is [`NL333`](./errors/NL333.md).
+its own), it is [`NL336`](./errors/NL336.md).
 
 ### Tuple Error Capture
 

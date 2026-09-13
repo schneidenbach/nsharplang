@@ -774,7 +774,7 @@ class AnalyzerAmbientContext {
     }
 
     // A BARE `throw` — the rethrow. Legal only in a `catch` handler of this same body, and only
-    // outside any `finally` nested inside that handler. Both refusals are NL333, and the message
+    // outside any `finally` nested inside that handler. Both refusals are NL336, and the message
     // names the one that applies: "there is no handler here" and "you are inside a `finally`" are
     // different mistakes with different fixes.
     func ReportRethrowIfNeeded(line: int, column: int) {

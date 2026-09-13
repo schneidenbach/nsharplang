@@ -5127,7 +5127,7 @@ class ColumnarParserRecovery {
     // `throw <expr>` builds `new ThrowStatement(expr, line, column)`. A BARE `throw` — the keyword
     // alone at a statement boundary — builds `new ThrowStatement(null, ...)`: the rethrow. Its
     // placement rule (a `catch` handler of this same body, outside any nested `finally`) is a
-    // SEMANTIC rule owned by the analyzer (NL333), not a parse decision, exactly as `break` outside a
+    // SEMANTIC rule owned by the analyzer (NL336), not a parse decision, exactly as `break` outside a
     // loop parses and is then reported.
     func ParseThrowStatement(): Statement? {
         throwToken := Current()

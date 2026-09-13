@@ -171,9 +171,9 @@ test "EVERY code is distinct, and the catalog is exactly its two builders" {
     // `ref`, `out` or `in` parameter), NL332 (a `yield` inside a protected region that cannot resume),
     // NL933 (an attribute outside its AttributeUsage targets), NL934 (an attribute repeated without
     // AllowMultiple), NL935 (an attribute at a position N# has none — a target prefix, or an enum
-    // member), NL333 (a bare `throw` with no `catch` handler to re-throw from), NL334 (an `async`
-    // lambda whose target delegate returns no task to wrap its value in) and NL335 (its mirror — a
-    // lambda whose target DOES return a task and whose body is missing the keyword).
+    // member), NL334 (an `async` lambda whose target delegate returns no task to wrap its value in),
+    // NL335 (its mirror — a lambda whose target DOES return a task and whose body is missing the
+    // keyword) and NL336 (a bare `throw` with no `catch` handler to re-throw from).
     assert codes.Count == 98
 
     duplicates := 0

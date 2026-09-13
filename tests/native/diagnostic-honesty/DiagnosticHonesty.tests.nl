@@ -517,9 +517,9 @@ test "a bare `throw` re-throws, and a handler that re-throws is not an empty cat
     assert DhDiagnosticCount(bare) == 0, bare
 }
 
-test "a bare `throw` OUTSIDE a handler is NL333, and it names the missing handler rather than a missing operand" {
+test "a bare `throw` OUTSIDE a handler is NL336, and it names the missing handler rather than a missing operand" {
     outside := DhProbe.Check("nl333-outside", "func Fail(): int {\n    throw\n}\n")
-    assert DhCodeCount(outside, "NL333") == 1, outside
+    assert DhCodeCount(outside, "NL336") == 1, outside
     assert DhCodeCount(outside, "NL102") == 0, outside
     assert outside.IndexOf("there's no exception here to re-throw", StringComparison.Ordinal) >= 0, outside
 }
