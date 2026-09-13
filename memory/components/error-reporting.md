@@ -30,12 +30,24 @@ Rich errors automatically get Elm-style formatting. Simple errors get Rust-style
 
 | Method | Used By | Colors | "Hint:" prefix |
 |--------|---------|--------|---------------|
-| `Format()` → `FormatElmStyle()` | Direct use | ANSI | Yes |
-| `Format()` → `FormatRustStyle()` | Direct use (no HumanExplanation) | ANSI | No (uses "help:") |
+| `Format()` → `FormatElmStyle()` | `nlc build`, `nlc run`, `nlc test` (stderr) | ANSI | Yes |
+| `Format()` → `FormatRustStyle()` | Same commands, for an error with no HumanExplanation | ANSI | No (uses "help:") |
 | `FormatForTooling()` | LSP, MSBuild task | No | No (raw text) |
 | `FormatForMsBuild()` | MSBuild single-line | No | No (inline) |
 | `OutputFormatter.DiagnosticsToText()` | CLI `--text` | No | Yes |
 | `OutputFormatter.DiagnosticsToJson()` | CLI JSON (default) | No | Raw field |
+
+**`FormatElmStyle` and `OutputFormatter.DiagnosticsToText` render the same body.** Both open with the
+diagnostic's `Message` — the INSTANCE of the failure, which names the assembly, the member or the
+columnar decline site — and follow it with `HumanExplanation`, the sentence that is the same for
+every instance of that code. `FormatElmStyle` used to print only the explanation, so `nlc build`
+reported a columnar decline as `-- ERROR --- Probe.nl` plus one generic sentence while
+`nlc check --text` on the same source named `Declined at parse.interface: … (Probe.nl:3:1)`. It also
+dropped the singular `Suggestion` and printed `Read more:` only when the error carried an explicit
+`DocsUrl`; both now match the `--text` rendering, with the docs URL resolved from the catalog exactly
+as `CodeIntelligenceDiagnostics.FromCompilerError` resolves it. The two surfaces still differ in
+their HEADER — `-- ERROR ---  file` against `── [NL103] ERROR ─── file:line:col ──` — and in the
+`Read more:` / `See:` label; nothing else.
 
 **Important:** `ContextualHint` values must NOT include "Hint: " prefix — formatters add it when needed.
 

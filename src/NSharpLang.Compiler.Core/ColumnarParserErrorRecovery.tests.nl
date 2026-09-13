@@ -475,13 +475,17 @@ test "020 slice 16: a CRLF source leaves the bare CR in the snippet" {
 // the gutter width, the caret column, the 'Hint:' label, the 'Did you mean one of these?' block or
 // the 'Read more:' footer — all of which a developer reads on every failed build. The whole
 // rendering is stated. The caret sits under the receiver at the span's column.
+// THE BODY NOW LEADS WITH `Message`. The Elm renderer used to print only `HumanExplanation`, which
+// says what KIND of mistake this is and never which one — `nlc build` printed a columnar decline
+// with no site at all. `Message` is the instance ("Expected member name. Got '}'"), and it is the
+// body's first paragraph, in the order `check --text` already puts it.
 // NOTE: the renderer is chosen by `HumanExplanation` alone (CompilerError.tests.nl states that
 // rule); this diagnostic has one, so it is Elm-style. The one corpus diagnostic that does NOT
 // have one is `enum Status: decimal`, below.
 test "020 slice 16: the parsed error renders WHOLE through the Elm-style terminal formatter" {
     error := PeParse("func test() { x. }").Errors[0]
     assert PeEsc(error.FileName) == "test.nl"
-    assert PeEsc(error.Format(false)) == "-- ERROR --------------------------------------------------  test.nl\\n\\nI see a dot (.) operator but no member name after it.\\n\\n1|     func test() { x. }\\n                    ^\\n\\nHint: After dot (.), I need to see a property or method name.\\n\\nDid you mean one of these?\\n\\n    Check if you forgot to finish this line\\n    Common members: Length, Count, ToString(), GetHashCode()\\n    If this is end of statement, remove the trailing '.'\\n\\nRead more: https://schneidenbach.github.io/nsharplang/docs/errors/NL102\\n", PeEsc(error.Format(false))
+    assert PeEsc(error.Format(false)) == "-- ERROR --------------------------------------------------  test.nl\\n\\nExpected member name. Got '}'\\n\\nI see a dot (.) operator but no member name after it.\\n\\n1|     func test() { x. }\\n                    ^\\n\\nHint: After dot (.), I need to see a property or method name.\\n\\nDid you mean one of these?\\n\\n    Check if you forgot to finish this line\\n    Common members: Length, Count, ToString(), GetHashCode()\\n    If this is end of statement, remove the trailing '.'\\n\\nRead more: https://schneidenbach.github.io/nsharplang/docs/errors/NL102\\n", PeEsc(error.Format(false))
     assert PeEsc(error.FormatForTooling(true, false)) == "NL102: Expected member name. Got '}'\\n\\nI see a dot (.) operator but no member name after it.\\n\\nfunc test() { x. }\\n              ^\\n\\nAfter dot (.), I need to see a property or method name.\\n\\ndid you mean:\\n- Check if you forgot to finish this line\\n- Common members: Length, Count, ToString(), GetHashCode()\\n- If this is end of statement, remove the trailing '.'\\n\\n\\ndocs: https://schneidenbach.github.io/nsharplang/docs/errors/NL102", PeEsc(error.FormatForTooling(true, false))
 }
 
