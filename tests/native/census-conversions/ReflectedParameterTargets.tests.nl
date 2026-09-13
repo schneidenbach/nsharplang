@@ -95,3 +95,12 @@ test "a deserialized reference type comes back as the type that was asked for" {
     // `null` is a JSON value, and the open return is nullable precisely so it can be answered.
     assert ReadJson<string>("null", options) == null
 }
+
+test "an overload that takes the constant's own type still wins on identity" {
+    // 6 is the implicit-numeric rung, strictly below the identity an `int` parameter has, so widening
+    // the constant into a narrower or wider overload is never preferred to the one it already fits.
+    assert MaxedTypeName() == "Int32"
+    assert AbsoluteTypeName() == "Int32"
+    assert ClampedTypeName() == "Int32"
+    assert ConvertedTypeName() == "Int32"
+}

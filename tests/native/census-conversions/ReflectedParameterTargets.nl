@@ -104,3 +104,27 @@ func ReadJsonDefaults<T>(json: string): T? {
 func ReadFirst<T>(json: string, options: JsonSerializerOptions): T? {
     return ReadJson<T>(json, options)
 }
+
+// THE CONSTANT MUST NOT HIJACK THE OVERLOAD. `Math.Max`, `Math.Abs`, `Math.Clamp` and
+// `Convert.ToInt32` each declare a `byte`, a `short`, a `long` and an `int` form, and C# picks the
+// `int` one for an `int` constant because identity is the best conversion of all. The boxed result's
+// runtime type is what the choice actually was.
+func MaxedTypeName(): string {
+    maxed: object = Math.Max(0, 1)
+    return maxed.GetType().Name
+}
+
+func AbsoluteTypeName(): string {
+    absolute: object = Math.Abs(0)
+    return absolute.GetType().Name
+}
+
+func ClampedTypeName(): string {
+    clamped: object = Math.Clamp(5, 0, 10)
+    return clamped.GetType().Name
+}
+
+func ConvertedTypeName(): string {
+    converted: object = Convert.ToInt32(0)
+    return converted.GetType().Name
+}
