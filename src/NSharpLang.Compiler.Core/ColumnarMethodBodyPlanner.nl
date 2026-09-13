@@ -125,11 +125,11 @@ class ColumnarMethodBodyPlanner {
         if kind == 51 {
             return Leaves(nodes, source, nodes.Child(node, 1), breakLeaves, continueLeaves, terminatingCalls)
         }
-        // 77 Using / 78 await using — the BLOCK form [resource, body] exits iff its body does; the
+        // 77 Using / 81 await using — the BLOCK form [resource, body] exits iff its body does; the
         // release in the `finally` runs on the way out and changes nothing about whether control
         // leaves. The DECLARATION form has one child and no body: it guards its SIBLINGS, which the
         // block arm above already walks, so it terminates nothing on its own.
-        if kind == 77 || kind == 78 {
+        if kind == 77 || kind == 81 {
             if nodes.ChildCount(node) != 2 {
                 return false
             }

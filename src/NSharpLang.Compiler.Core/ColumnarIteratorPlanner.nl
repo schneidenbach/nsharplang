@@ -659,7 +659,7 @@ class ColumnarIteratorPlanner {
             // Block: stop at the first non-falling child (everything after it is dead code).
             return WalkBlockChildrenFrom(nodes, source, node, 0, state)
         }
-        if kind == 77 || kind == 78 {
+        if kind == 77 || kind == 81 {
             return WalkUsingStatement(nodes, source, node, state)
         }
         if kind == 40 {
@@ -943,7 +943,7 @@ class ColumnarIteratorPlanner {
             }
 
             child := nodes.Child(node, n)
-            if (nodes.Kind(child) == 77 || nodes.Kind(child) == 78) && nodes.ChildCount(child) == 1 {
+            if (nodes.Kind(child) == 77 || nodes.Kind(child) == 81) && nodes.ChildCount(child) == 1 {
                 return WalkUsingDeclarationRegion(nodes, source, node, n, state)
             }
 
@@ -1019,7 +1019,7 @@ class ColumnarIteratorPlanner {
             return false
         }
 
-        if nodes.Kind(node) == 78 {
+        if nodes.Kind(node) == 81 {
             // `await using` needs an `await` INSIDE A HANDLER, where a suspension has no resume label
             // to come back to — the same wall `await foreach` meets in a generator body.
             state.Decline("emit.iterator.async-await-unsupported", "`await using` inside a generator body is not yet lowered: releasing the resource needs an `await` inside a handler")
@@ -2704,7 +2704,7 @@ class ColumnarIteratorBodyPlanner {
         if kind == 25 {
             return EmitBlockChildrenFrom(emit, node, 0)
         }
-        if kind == 77 || kind == 78 {
+        if kind == 77 || kind == 81 {
             return EmitUsingStatement(emit, node)
         }
         if kind == 40 {
@@ -2880,7 +2880,7 @@ class ColumnarIteratorBodyPlanner {
         n := from
         while n < nodes.ChildCount(node) {
             child := nodes.Child(node, n)
-            if (nodes.Kind(child) == 77 || nodes.Kind(child) == 78) && nodes.ChildCount(child) == 1 {
+            if (nodes.Kind(child) == 77 || nodes.Kind(child) == 81) && nodes.ChildCount(child) == 1 {
                 return EmitUsingDeclarationRegion(emit, node, n)
             }
 

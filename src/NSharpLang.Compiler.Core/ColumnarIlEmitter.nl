@@ -301,9 +301,9 @@ sealed class ColumnarIlEmitter {
     }
 
     // A `using` NODE THAT CARRIES NO BODY — the using DECLARATION. Kind 77 is the synchronous
-    // release, kind 78 the `await using` twin.
+    // release, kind 81 the `await using` twin.
     private func IsUsingDeclarationNode(node: int): bool {
-        if (_nodes.Kind(node) != 77 && _nodes.Kind(node) != 78) {
+        if (_nodes.Kind(node) != 77 && _nodes.Kind(node) != 81) {
             return false
         }
 
@@ -382,7 +382,7 @@ sealed class ColumnarIlEmitter {
     // to drop with the rest of its locals, which is exactly the scope the declaration has.
     private func EmitUsingDeclarationRegion(blockIdx: int, ordinal: int): bool {
         usingNode := _nodes.Child(blockIdx, ordinal)
-        isAsyncUsing := _nodes.Kind(usingNode) == 78
+        isAsyncUsing := _nodes.Kind(usingNode) == 81
         resourceLocal: LocalBuilder? = null
         resourceName := ""
         if (!TryEmitUsingResource(_nodes.Child(usingNode, 0), out resourceLocal, out resourceName)) {
@@ -6768,7 +6768,7 @@ sealed class ColumnarIlEmitter {
             _il.EndExceptionBlock()
             _protectedDepth = _protectedDepth - 1
             return true
-        } else if columnarSwitchValue0 == 77 || columnarSwitchValue0 == 78 {
+        } else if columnarSwitchValue0 == 77 || columnarSwitchValue0 == 81 {
             // UsingStatement (77) / await-using (79), BLOCK form: children [resource, body]. The
             // resource is materialized into a local, the body runs inside a protected region, and the
             // `finally` releases what the local holds — the C# lowering exactly, including the null
@@ -6781,7 +6781,7 @@ sealed class ColumnarIlEmitter {
             // brace-less body of an `if` or a loop — and there the region is the statement itself, so
             // the resource is acquired and released with nothing in between, which is what a
             // declaration whose remaining block is empty means.
-            isAsyncUsing := columnarSwitchValue0 == 78
+            isAsyncUsing := columnarSwitchValue0 == 81
             if (_nodes.ChildCount(idx) < 1 || _nodes.ChildCount(idx) > 2) {
                 return Decline("emit.using.shape", "using statement has an unsupported shape", idx)
             }

@@ -913,7 +913,7 @@ class ColumnarFunctionBodyAwaitForeachProbe {
     }
 }
 
-// THE `using` STATEMENT AS THE KERNEL LANDS IT. Kind 77 is the synchronous statement and kind 78 the
+// THE `using` STATEMENT AS THE KERNEL LANDS IT. Kind 77 is the synchronous statement and kind 81 the
 // `await using` twin; children are [resource] for a using DECLARATION and [resource, body] for the
 // block form, and the RESOURCE's own node kind says whether the statement bound it (24 / 40) or only
 // named it (any expression kind).
@@ -1026,7 +1026,7 @@ class ColumnarFunctionBodyUsingProbe {
             bodyNodeCount := result[7]
             n := 0
             while n < bodyNodeCount {
-                if nodeKinds[n] == 77 || nodeKinds[n] == 78 {
+                if nodeKinds[n] == 77 || nodeKinds[n] == 81 {
                     if UsingNodeCount == 0 {
                         UsingKind = nodeKinds[n]
                         ChildCount = childCount[n]
@@ -1599,7 +1599,7 @@ test "function body parser keeps a bare await statement an expression statement"
     assert probe.AwaitForeachNodeCount == 0
 }
 
-// ---- the `using` statement (kinds 77 / 78) ----
+// ---- the `using` statement (kinds 77 / 81) ----
 
 test "function body parser lands `using r := e { }` as kind 77 over a kind-24 declaration and a block" {
     probe := new ColumnarFunctionBodyUsingProbe(
@@ -1673,14 +1673,14 @@ test "a using DECLARATION lands with ONE child and no body" {
     assert probe.BodyKind == -1
 }
 
-test "`await using` lands as kind 78, the same shape released asynchronously" {
+test "`await using` lands as kind 81, the same shape released asynchronously" {
     probe := new ColumnarFunctionBodyUsingProbe(
         "async func Read() { await using reader := Open() { print reader } }"
     )
 
     assert probe.Status >= 0
     assert probe.UsingNodeCount == 1
-    assert probe.UsingKind == 78
+    assert probe.UsingKind == 81
     assert probe.ChildCount == 2
     assert probe.ResourceKind == 24
 }

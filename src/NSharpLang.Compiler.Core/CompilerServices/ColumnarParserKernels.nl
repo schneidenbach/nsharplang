@@ -778,7 +778,7 @@ class ParserExpressionNodeTable {
 //                                             Children [resource] or [resource, body]: the resource is a
 //                                             kind-24 or kind-40 local DECLARATION when the statement binds
 //                                             it and an ordinary expression when it does not, so the two
-//                                             forms are told apart by the child's KIND. Kind 78 is the
+//                                             forms are told apart by the child's KIND. Kind 81 is the
 //                                             `await using` twin -- same shape, released through
 //                                             `IAsyncDisposable.DisposeAsync()`. )
 //   OffStatement                 -> kind 80  ( `off <handle>` -- the UNSUBSCRIBE, ONE child [the handle
@@ -6666,7 +6666,7 @@ func ParseStatementCoreNode(tokens: ParserTokenTable, count: int, st: ParserStat
         return EmitExpressionNode(st, nodes, 51, -1, 0, lockChildRun, 2, lockStart, lockEnd - lockStart)
     }
 
-    // `using` (16) and `await using` (Await 69 + Using 16) -- UsingStatement kind 77, or kind 78 for
+    // `using` (16) and `await using` (Await 69 + Using 16) -- UsingStatement kind 77, or kind 81 for
     // the asynchronous release. Children are [resource] for a using DECLARATION and [resource, body]
     // for the block form, where `resource` is a kind-24 (`x := e`) or kind-40 (`x: T := e`) local
     // DECLARATION when the statement binds its resource and an ordinary EXPRESSION when it does not.
@@ -6685,7 +6685,7 @@ func ParseStatementCoreNode(tokens: ParserTokenTable, count: int, st: ParserStat
         usingKind := 77
         usingKeyword := start
         if kind == 69 {
-            usingKind = 78
+            usingKind = 81
             usingKeyword = start + 1
         }
 
