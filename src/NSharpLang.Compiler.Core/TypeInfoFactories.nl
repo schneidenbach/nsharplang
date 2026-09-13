@@ -201,7 +201,7 @@ class NominalTypeInfoFactory {
         kind := GetDeclaredMemberKind(typeName)
         typeParameters := GetTypeParameterArray(member)
         genericConstraints := GetGenericConstraintArray(member)
-        return new DeclaredMemberInfo(name, containingType, kind, GetDeclaredMemberKindName(kind), GetDeclaredMemberTypeReference(member, kind), HasOptionalModifier(member, 16) || HasOptionalModifier(member, 1024), HasOptionalModifier(member, 512) || HasOptionalModifier(member, 1024), HasOptionalPropertyValue(member, "SetBody"), IsExportedMember(member, name), GetOptionalListCount(member, "Parameters"), GetParameterNameArray(member), GetParameterTypeArray(member), GetParameterModifierArray(member), GetRequiredParameterCount(member), HasParamsParameter(member), HasReceiverParameter(member), GetOptionalTypeReference(member, "ReturnType"), typeParameters.Length, typeParameters, genericConstraints, GetOptionalListCount(member, "Attributes"), HasMustUseAttribute(member), HasOptionalModifier(member, 2048), HasOptionalModifier(member, 4096), GetOptionalBool(member, "IsOperatorOverload"), GetOptionalString(member, "OperatorSymbol"), GetOptionalBool(member, "IsConversionOperator"), GetOptionalBool(member, "IsImplicitConversion"), TypeInfoFactoryReflection.GetRequiredInt(member, "Line"), TypeInfoFactoryReflection.GetRequiredInt(member, "Column"), GetModifierBits(member), HasMemberBody(member), HasDoesNotReturnAttribute(member), GetParameterReachabilityFactArray(member))
+        return new DeclaredMemberInfo(name, containingType, kind, GetDeclaredMemberKindName(kind), GetDeclaredMemberTypeReference(member, kind), HasOptionalModifier(member, 16) || HasOptionalModifier(member, 1024), HasOptionalModifier(member, 512) || HasOptionalModifier(member, 1024), HasOptionalPropertyValue(member, "SetBody"), IsExportedMember(member, name), GetOptionalListCount(member, "Parameters"), GetParameterNameArray(member), GetParameterTypeArray(member), GetParameterModifierArray(member), GetRequiredParameterCount(member), HasParamsParameter(member), HasReceiverParameter(member), GetOptionalTypeReference(member, "ReturnType"), typeParameters.Length, typeParameters, genericConstraints, GetOptionalListCount(member, "Attributes"), HasMustUseAttribute(member), HasOptionalModifier(member, 2048), HasOptionalModifier(member, 4096), GetOptionalBool(member, "IsOperatorOverload"), GetOptionalString(member, "OperatorSymbol"), GetOptionalBool(member, "IsConversionOperator"), GetOptionalBool(member, "IsImplicitConversion"), TypeInfoFactoryReflection.GetRequiredInt(member, "Line"), TypeInfoFactoryReflection.GetRequiredInt(member, "Column"), GetModifierBits(member), HasMemberBody(member), HasDoesNotReturnAttribute(member), GetParameterReachabilityFactArray(member), GetParameterNullabilityFactArray(member))
     }
 
     static func GetGenericConstraintArray(owner: object): GenericConstraint[] {
@@ -539,6 +539,83 @@ class NominalTypeInfoFactory {
         }
 
         return result
+    }
+
+    // `[NotNull]`, `[NotNullWhen(b)]`, `[MaybeNull]` and `[MaybeNullWhen(b)]` ON EACH PARAMETER, in
+    // declaration order. The same walk as the reachability array above, asking the other vocabulary.
+    static func GetParameterNullabilityFactArray(owner: object): int[] {
+        value := TypeInfoFactoryReflection.GetOptionalProperty(owner, "Parameters")
+        if value == null {
+            return new int[](0)
+        }
+
+        source := value as IList
+        if source == null {
+            throw new InvalidOperationException("Expected '" + owner.GetType().Name + ".Parameters' to be a list.")
+        }
+
+        result := new int[](source.Count)
+        index := 0
+        while index < source.Count {
+            item := source[index]
+            if item == null {
+                throw new InvalidOperationException("Expected '" + owner.GetType().Name + ".Parameters' entries to be parameters.")
+            }
+
+            result[index] = ReadNullabilityFlowFacts(item)
+            index = index + 1
+        }
+
+        return result
+    }
+
+    // ONE PARAMETER'S NULLABILITY ATTRIBUTES, read the way `NullabilityFlowFacts` reads a
+    // `FunctionDeclaration`'s — by name, and by the single boolean literal the conditional forms
+    // carry. An argument this reader cannot see as a literal contributes nothing, for the reason it
+    // contributes nothing everywhere else: a condition it cannot read is not one it may invent.
+    static func ReadNullabilityFlowFacts(owner: object): int {
+        value := TypeInfoFactoryReflection.GetOptionalProperty(owner, "Attributes")
+        if value == null {
+            return NullabilityFlowFacts.None()
+        }
+
+        source := value as IList
+        if source == null {
+            throw new InvalidOperationException("Expected '" + owner.GetType().Name + ".Attributes' to be a list.")
+        }
+
+        facts := NullabilityFlowFacts.None()
+        index := 0
+        while index < source.Count {
+            item := source[index]
+            index = index + 1
+            if item == null {
+                throw new InvalidOperationException("Expected '" + owner.GetType().Name + ".Attributes' entries to be attributes.")
+            }
+
+            name := TypeInfoFactoryReflection.GetRequiredString(item, "Name")
+            if NullabilityFlowFacts.IsNotNullName(name) {
+                facts = facts | NullabilityFlowFacts.NotNull()
+                continue
+            }
+
+            if NullabilityFlowFacts.IsMaybeNullName(name) {
+                facts = facts | NullabilityFlowFacts.MaybeNull()
+                continue
+            }
+
+            isNotNullWhen := NullabilityFlowFacts.IsNotNullWhenName(name)
+            if !isNotNullWhen && !NullabilityFlowFacts.IsMaybeNullWhenName(name) {
+                continue
+            }
+
+            literal: bool = false
+            if TryReadAttributeBooleanArgument(item, out literal) {
+                facts = facts | NullabilityFlowFacts.WhenBit(isNotNullWhen, literal)
+            }
+        }
+
+        return facts
     }
 
     // One attribute list, read by NAME and by its single boolean literal. The list arrives as an
