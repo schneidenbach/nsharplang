@@ -130,6 +130,12 @@ class AnalyzerDiagnosticSpanFacts {
     // local name, `this`, and dotted member reads over those. A call, an index, a null-conditional
     // hop or a parser error placeholder all break stability, and the answer is then null — the
     // diagnostic falls back to describing the expression instead of quoting it.
+    //
+    // `must` IS TRANSPARENT HERE, exactly as a parenthesis is. `must x` reads the SAME storage `x`
+    // reads and denotes the same value; what the keyword adds is a throw when that value is null,
+    // which is a fact ABOUT the path rather than a different path. Without this arm
+    // `Assert.NotNull((must doc).Error)` named nothing at all, so the postcondition the call
+    // established was filed against no path and the very next read of `doc.Error` was accused.
     static func TryGetStableNullPath(expression: Expression): string? {
         identifier := expression as IdentifierExpression
         if identifier != null {
@@ -148,6 +154,11 @@ class AnalyzerDiagnosticSpanFacts {
         parenthesized := expression as ParenthesizedExpression
         if parenthesized != null {
             return TryGetStableNullPath(parenthesized.Inner)
+        }
+
+        unwrap := expression as MustExpression
+        if unwrap != null {
+            return TryGetStableNullPath(unwrap.Expression)
         }
 
         memberAccess := expression as MemberAccessExpression
@@ -172,7 +183,8 @@ class AnalyzerDiagnosticSpanFacts {
     //
     // THE STABILITY RULE IS UNCHANGED. A call, an index or a parser error placeholder anywhere in
     // the chain still answers null: re-reading it could run something or denote something else, and
-    // a fact about it would not survive to the next statement.
+    // a fact about it would not survive to the next statement. `must` is transparent for the same
+    // reason it is transparent above: it denotes the storage its operand denotes.
     static func TryGetNullConditionalChainPath(expression: Expression, testedPrefixes: List<string>): string? {
         identifier := expression as IdentifierExpression
         if identifier != null {
@@ -191,6 +203,11 @@ class AnalyzerDiagnosticSpanFacts {
         parenthesized := expression as ParenthesizedExpression
         if parenthesized != null {
             return TryGetNullConditionalChainPath(parenthesized.Inner, testedPrefixes)
+        }
+
+        unwrap := expression as MustExpression
+        if unwrap != null {
+            return TryGetNullConditionalChainPath(unwrap.Expression, testedPrefixes)
         }
 
         memberAccess := expression as MemberAccessExpression

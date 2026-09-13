@@ -8,7 +8,7 @@ import NSharpLang.Compiler.Ast
 // WHAT THE ANALYZER BELIEVES ABOUT NULL AT A POINT IN THE PROGRAM — the null-state authority, the
 // flow type it induces, and the NL905 report.
 //
-// FIVE QUESTIONS AND ONE DIAGNOSTIC, and they compose in exactly one direction. What is this
+// SIX QUESTIONS AND ONE DIAGNOSTIC, and they compose in exactly one direction. What is this
 // expression's null state? — the syntax answers it outright for a literal, a `new`, an array, a
 // lambda and an interpolation, a null-conditional access answers MAYBE-NULL whatever its receiver
 // says, and everything else falls back to the recorded fact for its stable path and then to the
@@ -17,7 +17,9 @@ import NSharpLang.Compiler.Ast
 // state unsafe to dereference? — null and maybe-null are, oblivious is not. What TYPE does the flow
 // state induce? — a not-null nullable reads as its inner type, and nothing else changes. And what
 // does an assignment do to the fact? — it invalidates everything derived from the path and records
-// the value's own state, defaulting to the TARGET's type when the value's state is unknown.
+// the value's own state, defaulting to the TARGET's type when the value's state is unknown. And what
+// does an UNWRAP leave behind? — `must e` and `e ?? throw` both prove `e` was not null on the path
+// that survived them, recorded against `e`'s stable path exactly as a guard clause's fact is.
 //
 // THE SUPPRESSION FLAG IS PART OF THIS OWNER, NOT OF ITS CALLER. Two places analyse an expression
 // while deliberately NOT collapsing a not-null nullable to its inner type — the semantic-model
@@ -149,6 +151,67 @@ class AnalyzerNullFlow {
     // saying it does not know, and NL905 must never be a guess.
     static func IsUnsafeNullState(state: NullState): bool {
         return state == NullState.Null || state == NullState.MaybeNull
+    }
+
+    // AN UNWRAP THAT WOULD HAVE THROWN IS A PROOF THAT IT DID NOT.
+    //
+    // `must x.P` evaluates `x.P`, throws when it is null, and answers the unwrapped value. Code that
+    // runs AFTER it therefore runs in a world where `x.P` was not null — the same shape a guard
+    // clause has, stated by an expression instead of by an `if`. `x.P ?? throw …` says the identical
+    // thing: the fallback arm leaves the method, so the only surviving path is the one where the
+    // left operand had a value. Neither had been a flow fact, so `(must doc.Error).Code` followed by
+    // `doc.Error.Message` reported NL905 on a dereference the program had already made safe.
+    //
+    // THE FACT IS ABOUT THE PATH, NOT ABOUT A LOCAL. A stable path is exactly what `TryGetStableNullPath`
+    // answers — a name, `this`, and dotted member reads over those — so `must doc.Error` narrows the
+    // member path and `must doc` narrows the receiver, with no separate rule for either.
+    //
+    // AN UNSTABLE OPERAND PROVES NOTHING. `must Load()!` and `must rows[i]` unwrap a value that a
+    // second read could produce differently, and a fact filed against them would not survive to the
+    // next statement — so none is filed, and the surviving flow keeps the declared answer.
+    func RecordAssertedNonNullPath(expr: Expression) {
+        operand := AssertedNonNullOperand(expr)
+        if operand == null {
+            return
+        }
+
+        path := AnalyzerDiagnosticSpanFacts.TryGetStableNullPath(operand)
+        if path == null {
+            return
+        }
+
+        scopesValue.SetNullStateInCurrentScope(path, NullState.NotNull)
+    }
+
+    // THE OPERAND AN EXPRESSION ASSERTS IS NOT NULL, or null when it asserts nothing. Two shapes
+    // qualify and they are recognised SYNTACTICALLY: `must e`, and `e ?? throw …` — the second only
+    // when the fallback really is a `throw`, because `e ?? other` proves nothing about `e` at all.
+    // A parenthesised `throw` counts, for the same reason a parenthesised condition narrows.
+    static func AssertedNonNullOperand(expr: Expression): Expression? {
+        unwrap := expr as MustExpression
+        if unwrap != null {
+            return unwrap.Expression
+        }
+
+        coalesce := expr as BinaryExpression
+        if coalesce == null || coalesce.Operator != BinaryOperator.NullCoalesce {
+            return null
+        }
+
+        if !IsThrowFallback(coalesce.Right) {
+            return null
+        }
+
+        return coalesce.Left
+    }
+
+    static func IsThrowFallback(fallback: Expression): bool {
+        parenthesized := fallback as ParenthesizedExpression
+        if parenthesized != null {
+            return IsThrowFallback(parenthesized.Inner)
+        }
+
+        return fallback as ThrowExpression != null
     }
 
     // THE NL905 REPORT, for a dereference, an index or a call through a receiver the flow says may
