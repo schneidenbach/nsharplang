@@ -2493,6 +2493,17 @@ sealed class ColumnarIlEmitter {
         if (TryGetNamedValueBindingType(receiverText, out receiverType) && receiverType != null) {
             instanceSelection := SelectExplicitGenericExternalCall(callIdx, receiverType, memberName, typeArguments, argCount, false)
             if (!instanceSelection.IsSelected) {
+                // The member may be one the receiver INHERITS from a base this compilation did not
+                // write — `n.ConvertAll<int>(...)` on `class Names: List<string>`. The receiver is a
+                // `TypeBuilder` and declares nothing reflection can see, so the selection is retried
+                // on the external base; only the LOOKUP moves, the receiver load below is unchanged.
+                inheritedLookupType := ColumnarInheritedExternalBase.ResolveForReceiver(receiverType, _structRegistry.get_Values())
+                if (inheritedLookupType == null) {
+                    return false
+                }
+                instanceSelection = SelectExplicitGenericExternalCall(callIdx, inheritedLookupType, memberName, typeArguments, argCount, false)
+            }
+            if (!instanceSelection.IsSelected) {
                 return false
             }
             // A VALUE receiver's instance method takes a managed pointer, so the binding is loaded by
@@ -20147,6 +20158,17 @@ sealed class ColumnarIlEmitter {
         // below. The direct-call planner owns every external instance call whose arguments it can
         // type; what reaches here is the rest, and a lambda argument is why there is a rest.
         if (TryEmitOrdinaryRuntimeInstanceCall(callIdx, receiverType, member, argCount, out columnarResolvedType)) {
+            return true
+        }
+
+        // THE SAME RESOLUTION, ASKED OF THE BASE THIS COMPILATION DID NOT WRITE. A source receiver is
+        // a `TypeBuilder` and answers no member query at all, so `n.Exists(s => ...)` on
+        // `class Names: List<string>` reached this tier with nothing to bind — the planner had
+        // already yielded it because of the lambda. The receiver's value is on the stack and IS a
+        // `List<string>`, so the member is chosen on the base by the same scoped resolution and
+        // dispatched with `callvirt` exactly as a base-typed receiver would dispatch it.
+        inheritedReceiverType := ColumnarInheritedExternalBase.ResolveForReceiver(receiverType, _structRegistry.get_Values())
+        if (inheritedReceiverType != null && TryEmitOrdinaryRuntimeInstanceCall(callIdx, inheritedReceiverType, member, argCount, out columnarResolvedType)) {
             return true
         }
 

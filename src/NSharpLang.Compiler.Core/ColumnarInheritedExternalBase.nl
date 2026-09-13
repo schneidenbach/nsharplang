@@ -32,15 +32,17 @@ class ColumnarInheritedExternalBase {
     // The external base of one definition, given the exact receiver type the caller holds. A
     // receiver that is the bare definition carries no arguments and substitutes nothing.
     static func Resolve(definition: ColumnarStructDef?, exactReceiverType: Type?): Type? {
+        return ResolveWithArguments(definition, ArgumentsOf(exactReceiverType))
+    }
+
+    // The same walk driven by the receiver's type ARGUMENTS rather than by a constructed receiver
+    // type, for the callers that hold the arguments alone. A source type's builder cannot always be
+    // closed into a `Type` on demand, so the arguments are the portable form of the question.
+    static func ResolveWithArguments(definition: ColumnarStructDef?, arguments: Type[]): Type? {
         current := definition
-        currentExactType := exactReceiverType
+        currentArguments := arguments
         guard := 0
         while current != null {
-            arguments: Type[] = Type.EmptyTypes
-            if currentExactType != null && currentExactType.get_IsGenericType() && !currentExactType.get_IsGenericTypeDefinition() {
-                arguments = currentExactType.GetGenericArguments()
-            }
-
             baseTemplate := current.ExactBaseType
             baseDefinition := current.BaseDef
             if baseDefinition == null {
@@ -48,14 +50,14 @@ class ColumnarInheritedExternalBase {
                     return null
                 }
 
-                return Substitute(baseTemplate, arguments)
+                return Substitute(baseTemplate, currentArguments)
             }
 
             if baseTemplate == null {
                 return null
             }
 
-            currentExactType = Substitute(baseTemplate, arguments)
+            currentArguments = ArgumentsOf(Substitute(baseTemplate, currentArguments))
             current = baseDefinition
             guard = guard + 1
             if guard > 200 {
@@ -64,6 +66,14 @@ class ColumnarInheritedExternalBase {
         }
 
         return null
+    }
+
+    static func ArgumentsOf(candidate: Type?): Type[] {
+        if candidate == null || !candidate.get_IsGenericType() || candidate.get_IsGenericTypeDefinition() {
+            return Type.EmptyTypes
+        }
+
+        return candidate.GetGenericArguments()
     }
 
     // The same answer starting from a RECEIVER TYPE rather than from a definition: the registry is
