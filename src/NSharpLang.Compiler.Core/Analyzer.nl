@@ -1993,6 +1993,10 @@ class Analyzer: IDisposable {
                 } finally {
                     Ambient.ExitNestedBody(bodyFrame)
                 }
+
+                // The boundary is what collected the block's `return` types, so its answer is read
+                // AFTER it has closed — which is also the only point at which it is complete.
+                answer = Ambient.LastInferredNestedBodyReturnType()
             }
             if kind == 6 {
                 PopScope()

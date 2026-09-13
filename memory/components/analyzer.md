@@ -1964,6 +1964,34 @@ delegate's RETURN position, repeating while anything moves.
   backend closes. NO OTHER widening is admitted here: a later bound that merely converts to the
   earlier one is still absorbed, and a reference-widening pair (`Derived`/`Base`) still declines, so
   the two maps cannot drift apart.
+- A BLOCK-BODIED LAMBDA'S RETURN TYPE IS THE BEST COMMON TYPE OF ITS `return` EXPRESSIONS WHEN THE
+  TARGET'S RETURN POSITION IS NOT DECIDED (census wave 9, LAMBDA4 item 1). C# §12.6.3.13's inferred
+  return type. A block body used to take the SIGNATURE's return type whatever the block did, so
+  `names.Select(name => { …; return new Range(…) })` had its returns CHECKED against an unbound
+  `TResult` (NL202 "should return TResult but returns Range") and contributed nothing to the
+  inference that would have bound it — a second NL202 then reported the call as `List<TResult>`. Four
+  owners state the one rule: `AnalyzerLambdaAnalysis.DecidedReturnTarget` answers `unknown` for a
+  bare unbound reflected type parameter, `AnalyzerSyntheticCallBinder.NarrowOpenDelegateReturnPosition`
+  does the same for a SOURCE generic's open return position (the parameter half survives, which is
+  what types the lambda's parameters), `AnalyzerAmbientContext.EnterNestedBody` collects instead of
+  checking when the boundary's return type is `unknown` and joins with
+  `JoinInferredReturnType`, and `AnalyzerLambdaAnalysis.CompleteBlockBody` takes the join. The join is
+  the match expression's: assignable either way wins outright, otherwise
+  `AnalyzerMatchExpression.FindCommonBaseType`, otherwise `unknown` and STICKY. The emit side is
+  `ColumnarIlEmitter.TryPreflightBlockBodyReturnType`, which reads the same returns; it joins only
+  through the SOURCE base chain, so a body whose arms meet at a shared interface analyses and then
+  declines.
+- A GENERIC DELEGATE CLOSED OVER A SOURCE TYPE READS ITS SHAPE FROM THE DEFINITION'S `Invoke`
+  (census wave 9, LAMBDA4 item 2). `Action<PriceArgs>` for a source class has no CLR instantiation to
+  reflect while `PriceArgs` is a builder, so `AnalyzerLambdaAnalysis.FunctionSignature` read the
+  signature off nothing and reported NL203 about every parameter of a handler lambda.
+  `UnreflectableGenericDelegateSignature` reads the definition's `Invoke` and substitutes this
+  instantiation's arguments into the positions it spells as bare type parameters. `Func` escaped only
+  because the PARSER spells `Func<…>` as a `FunctionTypeReference`, which made the gap read as an
+  `Action` problem when `Predicate<T>`, `Comparison<T>`, `Converter<T, R>`, `EventHandler<T>` and a
+  referenced assembly's own all failed the same way. The emitter's half is
+  `ColumnarIlEmitter.TryGetDelegateDefinitionInvokeSignature`, reached from
+  `TryGetSupportedDelegateSignature` whenever the instantiation is builder-bound.
 - `unknown` contributes NO binding (`PopulateReflectionBindingsFromTypeInfo` returns immediately).
   It is the analyzer's answer for an expression it could not type, and recording it closed the method
   over a type the program never wrote.

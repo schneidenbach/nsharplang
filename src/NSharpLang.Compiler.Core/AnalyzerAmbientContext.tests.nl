@@ -1539,3 +1539,98 @@ test "BeginAnalysis CLEARS THE HANDLER DEPTH WITH THE REST OF THE CONTROL-FLOW F
     assert harness.Context.RethrowTargetFinallyDepth == 0
     assert harness.Context.FinallyDepth == 0
 }
+
+// ---------------------------------------------------------------------------------------------
+// A NESTED BODY THAT WORKS OUT ITS OWN RETURN TYPE
+// ---------------------------------------------------------------------------------------------
+//
+// A lambda written where the target's return position is a type parameter the enclosing call has not
+// bound has nothing to measure its returns against. Entering the boundary with `unknown` says so, and
+// then the returns are COLLECTED and joined instead of checked — which is what gives the lambda the
+// return type that binds the position. A LOCAL FUNCTION (a nested body WITH a declaration) never
+// infers: its return type is written, or it is `void`.
+
+func AmbientInferredText(context: AnalyzerAmbientContext): string {
+    inferred := context.LastInferredNestedBodyReturnType()
+    if inferred == null {
+        return "<null>"
+    }
+
+    boxed := inferred as object
+    rendered := boxed.ToString()
+    if rendered == null {
+        return "<null>"
+    }
+
+    return rendered
+}
+
+test "AN UNKNOWN-TARGET LAMBDA BODY TAKES ITS RETURN TYPE FROM ITS OWN return, AND CHECKS NOTHING" {
+    harness := AmbientDefault()
+    nested := harness.Context.EnterNestedBody(null, BuiltInTypes.Unknown)
+
+    AmbientRunReturn(harness, AmbientReturn(AmbientValue()), BuiltInTypes.Int)
+    assert harness.Errors.Count == 0
+
+    harness.Context.ExitNestedBody(nested)
+    assert AmbientInferredText(harness.Context) == "int"
+}
+
+test "TWO RETURNS OF ONE TYPE ANSWER THAT TYPE, AND TWO THAT SHARE NOTHING ANSWER unknown" {
+    harness := AmbientDefault()
+    agreeing := harness.Context.EnterNestedBody(null, BuiltInTypes.Unknown)
+    AmbientRunReturn(harness, AmbientReturn(AmbientValue()), BuiltInTypes.Int)
+    AmbientRunReturn(harness, AmbientReturn(AmbientValue()), BuiltInTypes.Int)
+    harness.Context.ExitNestedBody(agreeing)
+    assert AmbientInferredText(harness.Context) == "int"
+
+    // Nothing contains both, so the body has NO inferred return type — and the answer is sticky, so a
+    // third return that agrees with the first does not undo the disagreement.
+    disagreeing := harness.Context.EnterNestedBody(null, BuiltInTypes.Unknown)
+    AmbientRunReturn(harness, AmbientReturn(AmbientValue()), BuiltInTypes.Int)
+    AmbientRunReturn(harness, AmbientReturn(AmbientValue()), BuiltInTypes.String)
+    AmbientRunReturn(harness, AmbientReturn(AmbientValue()), BuiltInTypes.Int)
+    harness.Context.ExitNestedBody(disagreeing)
+    assert AmbientInferredText(harness.Context) == "unknown"
+    assert harness.Errors.Count == 0
+}
+
+test "A BARE return INSIDE AN INFERRING BODY OWES NOTHING AND CONTRIBUTES NOTHING" {
+    harness := AmbientDefault()
+    nested := harness.Context.EnterNestedBody(null, BuiltInTypes.Unknown)
+
+    AmbientRunReturn(harness, AmbientReturn(null), null)
+    assert harness.Errors.Count == 0
+
+    harness.Context.ExitNestedBody(nested)
+    assert AmbientInferredText(harness.Context) == "<null>"
+}
+
+test "A NESTED BODY WITH A WRITTEN RETURN TYPE INFERS NOTHING AND STILL MEASURES ITS RETURNS" {
+    harness := AmbientDefault()
+    nested := harness.Context.EnterNestedBody(null, BuiltInTypes.Int)
+
+    AmbientRunReturn(harness, AmbientReturn(AmbientValue()), BuiltInTypes.String)
+    assert harness.Errors.Count == 1
+    assert harness.Errors[0].Code == ErrorCode.TypeMismatch
+
+    harness.Context.ExitNestedBody(nested)
+    assert AmbientInferredText(harness.Context) == "<null>"
+}
+
+test "AN INNER INFERRING BODY LEAVES THE OUTER ONE'S OWN INFERENCE WHERE IT WAS" {
+    harness := AmbientDefault()
+    outer := harness.Context.EnterNestedBody(null, BuiltInTypes.Unknown)
+    AmbientRunReturn(harness, AmbientReturn(AmbientValue()), BuiltInTypes.Int)
+
+    inner := harness.Context.EnterNestedBody(null, BuiltInTypes.Unknown)
+    AmbientRunReturn(harness, AmbientReturn(AmbientValue()), BuiltInTypes.String)
+    harness.Context.ExitNestedBody(inner)
+    assert AmbientInferredText(harness.Context) == "string"
+
+    // The outer body still has the `int` it had before the inner one opened, and the inner body's
+    // `string` never reached it.
+    harness.Context.ExitNestedBody(outer)
+    assert AmbientInferredText(harness.Context) == "int"
+    assert harness.Errors.Count == 0
+}

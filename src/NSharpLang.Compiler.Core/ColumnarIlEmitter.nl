@@ -21376,7 +21376,108 @@ sealed class ColumnarIlEmitter {
             _typeResolutionStructs,
             _typeResolutionUnions
         )
+        // A BLOCK BODY HAS NO EXPRESSION TO PREFLIGHT, AND ITS `return` STATEMENTS ARE WHAT IT GIVES.
+        // Without this arm `names.Select(name => { … return new Range(…) })` left `TResult` with
+        // nothing to bind it and declined at emit after the analyzer had accepted the same program.
+        if (_nodes.Kind(signature.BodyNode) == 25) {
+            return subEmitter.TryPreflightBlockBodyReturnType(signature.BodyNode, out returnType)
+        }
+
         return subEmitter.TryGetPreflightExpressionType(signature.BodyNode, out returnType) && returnType != ColumnarTypeOfPlanner.RequiredVoidType() && ColumnarTypeOfPlanner.IsSupportedType(returnType)
+    }
+
+    // THE TYPE A BLOCK-BODIED LAMBDA GIVES, read off the `return` statements the block itself
+    // executes. This is the block spelling of the preflight above and answers the same question: what
+    // does this lambda put in the delegate's return position, so the call's type argument can be
+    // bound from it.
+    //
+    // EVERY RETURN MUST AGREE, because emission builds ONE delegate signature and has no join to fall
+    // back on: a block whose returns are two different types declines here rather than picking the
+    // first. The analyzer, which does have a join, is what reports such a body when the disagreement
+    // is real.
+    private func TryPreflightBlockBodyReturnType(blockNode: int, out returnType: Type): bool {
+        returnType = null
+        collected := new List<Type>()
+        if (!CollectBlockReturnTypes(blockNode, collected) || collected.Count == 0) {
+            return false
+        }
+        agreed := collected[0]
+        for collectedIndex := 1; collectedIndex < collected.Count; collectedIndex++ {
+            // TWO ARMS THAT ARE NOT THE SAME TYPE JOIN AT THE ONE THAT CONTAINS THE OTHER, which for
+            // this compilation's own types is a walk of the declared base chain — reflection cannot
+            // answer it while both are still builders. Anything wider than that (a shared interface,
+            // a shared base neither arm names) is the analyzer's join and is not reproduced here:
+            // emission builds ONE delegate signature and declines rather than guessing at it.
+            candidate := collected[collectedIndex]
+            if (!TypesEquivalent(agreed, candidate) && !IsSourceBaseOf(agreed, candidate)) {
+                if (!IsSourceBaseOf(candidate, agreed)) {
+                    return false
+                }
+                agreed = candidate
+            }
+        }
+        if (agreed == ColumnarTypeOfPlanner.RequiredVoidType() || !ColumnarTypeOfPlanner.IsSupportedType(agreed)) {
+            return false
+        }
+        returnType = agreed
+        return true
+    }
+
+    // WHETHER ONE OF THIS COMPILATION'S OWN TYPES DECLARES THE OTHER'S BASE, read off the definition
+    // table's own base chain. Reflection cannot be asked while both are builders.
+    private func IsSourceBaseOf(candidateBase: Type, derived: Type): bool {
+        baseDef := ColumnarSourceDefinitionResolver.FindByBuilderIdentity(_structRegistry.get_Values(), candidateBase)
+        derivedDef := ColumnarSourceDefinitionResolver.FindByBuilderIdentity(_structRegistry.get_Values(), derived)
+        if (baseDef == null || derivedDef == null) {
+            return false
+        }
+        current := derivedDef.BaseDef
+        while (current != null) {
+            if (Object.ReferenceEquals(current, baseDef)) {
+                return true
+            }
+            current = current.BaseDef
+        }
+        return false
+    }
+
+    // EVERY `return` THIS BODY EXECUTES, and none that belong to something nested inside it. A nested
+    // LAMBDA and a LOCAL FUNCTION (kind 41) each own their returns, so the walk stops at both; every
+    // other node is descended through, which reaches a `return` written inside an `if`, a loop or a
+    // `try` without this owner having to know the shape of each.
+    private func CollectBlockReturnTypes(node: int, collected: List<Type>): bool {
+        kind := _nodes.Kind(node)
+        if (ColumnarLambdaNodeFacts.IsLambda(kind) || kind == 41) {
+            return true
+        }
+        if (kind == 20) {
+            if (_nodes.ChildCount(node) != 1) {
+                return false
+            }
+            // `return null` CONSTRAINS NOTHING. A null literal has no type of its own, so it takes
+            // whichever type the other returns agree on rather than disagreeing with all of them.
+            valueNode := UnwrapParenthesizedNode(Child(node, 0))
+            if (_nodes.Kind(valueNode) == ColumnarExpressionNodeKind.NullLiteralExpression()) {
+                return true
+            }
+            // A RETURN THIS PREFLIGHT CANNOT TYPE CONTRIBUTES NOTHING RATHER THAN ENDING THE READ. The
+            // preflight runs with the lambda's PARAMETERS in scope and none of the block's own locals,
+            // so `return index` inside a loop has no type here while `return new Span(…)` beside it
+            // does — and one arm that can be read is enough to say what the delegate returns. A body
+            // whose arms really disagree is the analyzer's report, and a body no arm can type declines
+            // below for having collected nothing.
+            let valueType: System.Type? = null
+            if (TryGetPreflightExpressionType(Child(node, 0), out valueType) && valueType != null) {
+                collected.Add(valueType)
+            }
+            return true
+        }
+        for childIndex := 0; childIndex < _nodes.ChildCount(node); childIndex++ {
+            if (!CollectBlockReturnTypes(Child(node, childIndex), collected)) {
+                return false
+            }
+        }
+        return true
     }
 
     // N# owns the single-parameter contextual-delegate return-type SELECTION: the contextual lambda body's
