@@ -321,12 +321,18 @@ diagnostic-catalog counts reconciled at each merge (every stream bumps both; the
 | FLOW4 | `[DoesNotReturn]`/`[DoesNotReturnIf]` as one reachability fact both the analyzer and the planner ask; a narrowed `T?` (and a lifted tuple) is read as its `T` at emit; loop bodies that never fall through emit | `census-flow-rules` |
 | EMIT2 | a struct assigns its own field from its own method (addressable receivers); enum instance members resolve against `System.Enum`; a conditional over an interpolated string and a `string` is a `string`; `T[]` → `T?[]` admitted; the "declining shape" sentinel moved to a bare static field as a call receiver (three N# fixtures and the three C# fixtures in `tests/CompilationBackendTests.cs`) | `census-emit-shapes` |
 | ATTR2 | attributes on FIELDS (a `FieldDeclTokens` column on the struct scan), optional attribute-constructor parameters filled from declared defaults, per-element constant conversion in attribute arrays, chaining to an EXTERNAL base constructor with arguments, NL935 for attribute positions N# has none of | `census-source-attributes`, `class-inheritance` |
+| ITER2 | a generator suspends inside a `try` whose handler is a `finally`; writes through a member, an indexer and an annotated loop variable inside the machine; `await` of anything; a lambda built from the machine the generator is already running on | `census-emit-shapes`, `census-local-functions` |
+| EMIT3 | free functions keyed by NAMESPACE (two same-named functions in different namespaces no longer share one body); the holder type is `Program` unless the namespace declares one, then `<Program>`; free-function visibility follows the analyzer's rule | `census-free-function-identity` |
+| INHERIT | a source type deriving from an external base sees every inherited member: reads and calls with and without a receiver, static members through the derived type, completion offers what a receiver inherits; the surrogate's base chain is written down | `class-inheritance` |
+| LAMBDA3 | a method group a REFERENCED assembly declares converts to a delegate; a lambda's result is read through its CLR shape; an output is inferred from an overloaded group; a type parameter met by `X` and `X?` fixes to the lifted bound; a `ref`/`out` argument is an EXACT inference | `census-lambda-inference` |
+| TUPLE3 | a tuple's element names survive a local, a source member and an inferred return | `tuple-names` |
+| TESTREFS | one owner for the test-framework reference set (`TestFrameworkReferenceSet`: restore row, compile assemblies with the package that ships each, runtime assemblies, the emit host's probe list) — a metapackage such as `xunit` is never loaded by name; a project with `*.tests.nl` plans the rows without declaring the dependency; attributes on `test` blocks, a `[Fact]`-derived attribute decides the run (`Skip`); a source attribute declared in another file binds; writes to inherited external members | `census-testrefs`, `cli-command-contracts`, `language-server-diagnostics` |
+| FLOW5 | `.Value`/`HasValue` answer only for nullable VALUE types; `x?.M(...)` binds its callee (overloads, arity, postconditions); lifted `==`/`!=` over `T?` in analysis and IL; `x?.TryGetValue(k, out v) == true` narrows `v`; postconditions bind through an oblivious or nullable-annotated receiver; a `null` ternary arm emits | `census-flow-rules`, `analyzer-clean-source` |
 
-Still running at this record: TOOL2 (import/shadowing fidelity), ITER2 (protected regions and closures inside
-iterators), EMIT3 (free functions keyed by namespace — VIS found that two same-named functions in different
-namespaces silently share the first one's body), INHERIT (a source class deriving from an external base cannot see
-the base's members — found by ATTR2). Open items from every report are collected in
-`/Users/spencer/repos/nsharp-worktrees/census-briefs/FOLLOWUPS.md`.
+Still running at this record: TOOL2 (import/shadowing fidelity). Open items from every report are collected in
+`/Users/spencer/repos/nsharp-worktrees/census-briefs/FOLLOWUPS.md` (among them: overload specificity for
+`Assert.Single`, NL209 for a simple name two imports supply, protected external members, the `using` statement,
+async lambdas, `await foreach` inside a generator).
 
 Converter (`nsharp-cs2nl`) mappings added in the same wave: iterators as `func*`, hoisted local functions, class
 primary constructors, negated `HasValue`, discard assignments, lambda-parameter renames, typed-foreach casts,
