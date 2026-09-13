@@ -1074,7 +1074,11 @@ class ColumnarIteratorEmitContext {
         // visible through the captured receiver. A machine whose program facts are not supplied — a
         // contract that exercises the member bodies rather than a program — still gets a scope, with an
         // empty declaration registry, so the ONE expression owner is reachable from every context.
-        bodyScope := ColumnarIteratorBodyScope.Create(stateMachineType, bodyFacts ?? ColumnarIteratorBodyFacts.Empty(StructuralTypeReferences), typeParameters)
+        scopeTable := StructuralTypeReferences
+        if scopeTable == null {
+            scopeTable = new ColumnarStructuralTypeReferenceTable()
+        }
+        bodyScope := ColumnarIteratorBodyScope.Create(stateMachineType, bodyFacts ?? ColumnarIteratorBodyFacts.Empty(scopeTable), typeParameters)
         index := 0
         while index < FieldNames.Length && index < Fields.Length {
             if Fields[index] != null {
@@ -1102,6 +1106,20 @@ class ColumnarIteratorEmitContext {
         }
     }
 
+    // Whether a value of `valueType` can live in a field of `fieldType` without a conversion the store
+    // itself would have to emit. Identity always; a reference widening when both handles are baked (a
+    // builder-bound handle cannot answer `IsAssignableFrom` at all under persisted emit, so identity is
+    // the only answer it gets).
+    static func IsStorableInField(fieldType: Type, valueType: Type): bool {
+        if fieldType == valueType {
+            return true
+        }
+        if fieldType == null || valueType == null || fieldType is TypeBuilder || valueType is TypeBuilder || fieldType.get_IsGenericParameter() || valueType.get_IsGenericParameter() || fieldType.get_IsValueType() || valueType.get_IsValueType() {
+            return false
+        }
+        return fieldType.IsAssignableFrom(valueType)
+    }
+
     func RequiredScope(): ColumnarIteratorBodyScope {
         scope := Scope
         if scope == null {
@@ -1123,7 +1141,12 @@ class ColumnarIteratorEmitContext {
             if FieldNames[index] == name {
                 existing := Fields[index]
                 if existing != null {
-                    if existing.get_FieldType() != fieldType {
+                    // A slot that already exists — an explicitly typed declaration, a re-declaration in a
+                    // disjoint scope, or a field the host supplied — keeps ITS type, and the value must
+                    // be storable in it. `v := 1` then `v := true` in disjoint branches cannot share a
+                    // CLR field and declines here; a declared `x: object = ...` holding a narrower value
+                    // does, exactly as an assignment to that declaration would.
+                    if !IsStorableInField(existing.get_FieldType(), fieldType) {
                         return false
                     }
                     field = existing
@@ -1300,6 +1323,12 @@ class ColumnarIteratorBodyPlanner {
         AppendMoveNextDispatch(emit, yieldCount)
 
         EmitStatement(emit, context.BodyRoot)
+        if context.Declined {
+            // A declined body leaves the plan half-built on purpose: the caller reports the decline and
+            // never executes it, and completing a plan whose labels and regions were abandoned mid-walk
+            // would report the ABANDONMENT rather than the shape that could not be lowered.
+            return plan
+        }
 
         plan.AppendMarkLabel(endLabel)
         EmitInt(emit, 0)
@@ -1337,6 +1366,12 @@ class ColumnarIteratorBodyPlanner {
         AppendMoveNextDispatch(emit, yieldCount)
 
         EmitStatement(emit, context.BodyRoot)
+        if context.Declined {
+            // A declined body leaves the plan half-built on purpose: the caller reports the decline and
+            // never executes it, and completing a plan whose labels and regions were abandoned mid-walk
+            // would report the ABANDONMENT rather than the shape that could not be lowered.
+            return plan
+        }
 
         plan.AppendMarkLabel(endLabel)
         EmitInt(emit, 0)
@@ -1383,6 +1418,12 @@ class ColumnarIteratorBodyPlanner {
         AppendMoveNextDispatch(emit, resumeCount)
 
         EmitStatement(emit, context.BodyRoot)
+        if context.Declined {
+            // A declined body leaves the plan half-built on purpose: the caller reports the decline and
+            // never executes it, and completing a plan whose labels and regions were abandoned mid-walk
+            // would report the ABANDONMENT rather than the shape that could not be lowered.
+            return plan
+        }
 
         plan.AppendMarkLabel(endLabel)
         StoreState(emit, ColumnarIteratorPlanner.DoneState())
@@ -1799,6 +1840,19 @@ class ColumnarIteratorBodyPlanner {
         if emit.Context.Declined {
             return false
         }
+        // A POSTFIX STEP IS A WRITE, and a write to a hoisted binding is the state machine's own
+        // rewrite rather than an expression the value owner can plan: `i++` reads a field, steps it and
+        // stores it back. Its VALUE is the pre-step field value, which is what `yield i++` produces.
+        if emit.Context.Nodes.Kind(node) == 44 {
+            name := emit.Context.Nodes.Text(emit.Context.Source, emit.Context.Nodes.Child(node, 0))
+            if !emit.Context.HasHoistedField(name) {
+                emit.Context.Decline("emit.iterator.unsupported-shape", "a postfix step of '" + name + "' is not a hoisted binding in an iterator body")
+                return false
+            }
+            resultType = emit.Context.FieldForName(name).get_FieldType()
+            EmitPostfixStep(emit, node, true)
+            return !emit.Context.Declined
+        }
         checkpoint := emit.Plan.CreateCheckpoint()
         if emit.Context.RequiredScope().TryAppendValue(emit.Context.Nodes, emit.Context.Source, node, emit.Plan, out resultType) {
             return true
@@ -1815,6 +1869,22 @@ class ColumnarIteratorBodyPlanner {
     static func AppendStoredValue(emit: ColumnarMoveNextEmit, node: int, storageType: Type): bool {
         if emit.Context.Declined {
             return false
+        }
+        // The iterator-owned value forms take the ordinary value path plus the storage conversion; only
+        // target-typed forms need the position's type handed down.
+        if emit.Context.Nodes.Kind(node) == 44 {
+            steppedType := typeof(int)
+            if !AppendValue(emit, node, out steppedType) {
+                return false
+            }
+            if steppedType == storageType {
+                return true
+            }
+            if !emit.Context.RequiredScope().TryAppendStorageConversion(emit.Plan, steppedType, storageType) {
+                emit.Context.Decline("emit.iterator.unsupported-shape", "an iterator body value of type '" + steppedType.Name + "' cannot be stored as '" + storageType.Name + "'")
+                return false
+            }
+            return true
         }
         checkpoint := emit.Plan.CreateCheckpoint()
         if emit.Context.RequiredScope().TryAppendTargetTypedValue(emit.Context.Nodes, emit.Context.Source, node, emit.Plan, storageType) {

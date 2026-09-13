@@ -2896,7 +2896,11 @@ test "construction planner owns and executes an approved runtime object initiali
     assert optionValue != null && optionValue.ToString() == "True"
 }
 
-test "constructed runtime object initializers preserve parity without widening the bare catalog" {
+// THE THREE-TYPE "APPROVED RUNTIME INITIALIZER" LIST IS GONE. A reflected type participates in an
+// object initializer exactly when ordinary member resolution can satisfy what the initializer writes:
+// a parameterless constructor to build it, and a settable property or a writable field per named
+// member. `StringBuilder` was never on the list and is indistinguishable from the three that were.
+test "runtime object initializers resolve by ordinary member resolution in both spellings" {
     constructed := ConstructionObjectInitializerFromNewTree(
         "StringBuilder",
         "Capacity",
@@ -2940,16 +2944,26 @@ test "constructed runtime object initializers preserve parity without widening t
         )
     )
     ConstructionStampScope(bareNearMiss, "import System.Text\n")
-    ownership := ColumnarDirectCallOwnership.NotOwned
-    legacy := false
-    _bareNearMissPlan := ConstructionRejected(
+    barePlan := ConstructionPlan(
         bareNearMiss,
-        ColumnarRangePlannerEmptyBindings(),
-        out ownership,
-        out legacy
+        ColumnarRangePlannerEmptyBindings()
     )
-    assert ownership == ColumnarDirectCallOwnership.OwnedRejected
-    assert !legacy
+    assert barePlan.ResultType == typeof(System.Text.StringBuilder)
+    assert barePlan.ConstructorCount == 1
+    assert barePlan.MethodCount == 1
+    assert barePlan.Methods[0].get_Name() == "set_Capacity"
+    bareResult := NullableArgumentRunPlan(
+        barePlan,
+        typeof(System.Text.StringBuilder)
+    )
+    bareBuilder := bareResult as System.Text.StringBuilder
+    if bareBuilder == null {
+        throw new InvalidOperationException(
+            "The bare runtime object-initializer plan returned the wrong type."
+        )
+    }
+    bareCapacity := capacityProperty.GetValue(bareBuilder)
+    assert bareCapacity != null && bareCapacity.ToString() == "16"
 }
 
 test "construction planner owns source union case object initializers" {

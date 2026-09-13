@@ -382,7 +382,11 @@ func AsyncProbeFieldRuntimeType(shape: ColumnarIteratorShape, index: int): Type 
         return typeof(bool)
     }
     canonical := shape.FieldCanonicals[index]
-    if canonical == "int" {
+    // A HOISTED LOCAL WHOSE TYPE REALIZATION RESOLVES. This probe materialises its machine from
+    // classification facts ALONE — it has no expression owner to ask — and every inferred local in
+    // this file's async sources is an `int` loop counter, so that is the type it declares. The
+    // production host does not guess: it defines the field from the initializer's planned CLR type.
+    if canonical == "int" || ColumnarIteratorPlanner.IsUnresolvedCanonical(canonical) {
         return typeof(int)
     }
     if canonical == "bool" {
@@ -872,7 +876,7 @@ test "iterator planner captures type-parameter values in the repeat shape" {
     assert probe.Shape.FieldNames[4] == "i"
 }
 
-test "iterator planner declines binaries over type-parameter operands" {
+test "iterator planner admits a binary over type-parameter operands and leaves the operator to its owner" {
     probe := new ColumnarIteratorShapeProbe(
         "func* Sum(value: T, count: int): IEnumerable<T> { yield value + value }",
         "IEnumerable<T>",
@@ -882,8 +886,8 @@ test "iterator planner declines binaries over type-parameter operands" {
         false
     )
 
-    assert !probe.Shape.Supported
-    assert probe.Shape.DeclineSite == "emit.iterator.unsupported-shape"
+    assert probe.Shape.Supported
+    assert probe.Shape.YieldReturnCount == 1
 }
 
 test "iterator planner hoists an enumerable for..in as an enumerator field" {
@@ -902,10 +906,12 @@ test "iterator planner hoists an enumerable for..in as an enumerator field" {
     assert probe.Shape.FieldCanonicals[2] == "IEnumerable<int>"
     assert probe.Shape.FieldNames[3] == "<>__enum0"
     assert probe.Shape.FieldRoles[3] == ColumnarIteratorPlanner.HoistedEnumeratorFieldRole()
-    assert probe.Shape.FieldCanonicals[3] == "IEnumerator<int>"
+    // The enumerator's element — and the loop variable's type — come from the SOURCE's planned CLR
+    // type at realization, not from a spelling here.
+    assert ColumnarIteratorPlanner.IsUnresolvedCanonical(probe.Shape.FieldCanonicals[3])
     assert probe.Shape.FieldNames[4] == "x"
     assert probe.Shape.FieldRoles[4] == ColumnarIteratorPlanner.HoistedLocalFieldRole()
-    assert probe.Shape.FieldCanonicals[4] == "int"
+    assert ColumnarIteratorPlanner.IsUnresolvedCanonical(probe.Shape.FieldCanonicals[4])
 }
 
 test "iterator planner hoists a list for..in through the same enumerator lowering" {
@@ -921,10 +927,13 @@ test "iterator planner hoists a list for..in through the same enumerator lowerin
     assert probe.Shape.Supported
     assert probe.Shape.FieldCanonicals[2] == "List<int>"
     assert probe.Shape.FieldRoles[3] == ColumnarIteratorPlanner.HoistedEnumeratorFieldRole()
-    assert probe.Shape.FieldCanonicals[3] == "IEnumerator<int>"
+    assert ColumnarIteratorPlanner.IsUnresolvedCanonical(probe.Shape.FieldCanonicals[3])
 }
 
-test "iterator planner declines for..in over a non-sequence source" {
+// `for..in` OVER ANYTHING IS A CLASSIFICATION-TIME SHAPE, AND A SEQUENCE QUESTION AT REALIZATION.
+// Whether a source is enumerable is a question about its CLR type, which only realization can ask;
+// classification numbers the enumerator slot and the loop variable either way.
+test "iterator planner hoists a for..in over a non-sequence source and defers the sequence question" {
     probe := new ColumnarIteratorShapeProbe(
         "func* Loop(n: int): IEnumerable<int> { for x in n { yield x } }",
         "IEnumerable<int>",
@@ -934,11 +943,12 @@ test "iterator planner declines for..in over a non-sequence source" {
         false
     )
 
-    assert !probe.Shape.Supported
-    assert probe.Shape.DeclineSite == "emit.iterator.for-in-unsupported"
+    assert probe.Shape.Supported
+    assert probe.Shape.FieldNames[3] == "<>__enum0"
+    assert probe.Shape.FieldRoles[3] == ColumnarIteratorPlanner.HoistedEnumeratorFieldRole()
 }
 
-test "iterator planner declines for..in over an unlowered array element" {
+test "iterator planner hoists a for..in over a nested array through the enumerator slot" {
     probe := new ColumnarIteratorShapeProbe(
         "func* Loop(xs: int[][]): IEnumerable<int> { for x in xs { yield 1 } }",
         "IEnumerable<int>",
@@ -948,8 +958,9 @@ test "iterator planner declines for..in over an unlowered array element" {
         false
     )
 
-    assert !probe.Shape.Supported
-    assert probe.Shape.DeclineSite == "emit.iterator.for-in-unsupported"
+    assert probe.Shape.Supported
+    assert probe.Shape.FieldNames[3] == "<>__enum0"
+    assert probe.Shape.FieldRoles[3] == ColumnarIteratorPlanner.HoistedEnumeratorFieldRole()
 }
 
 test "iterator planner declines an instance receiver" {
@@ -966,7 +977,12 @@ test "iterator planner declines an instance receiver" {
     assert probe.Shape.DeclineSite == "emit.iterator.instance-unsupported"
 }
 
-test "iterator planner declines a nested or recursive call in the body" {
+// CLASSIFICATION NO LONGER JUDGES A VALUE. A call, a `new`, an array literal and a thrown expression
+// are ordinary expressions: the ONE expression owner plans them at realization, against live CLR
+// handles this pass does not have, and declines there with the failing node's own kind. What
+// classification still owns is the state machine's own business — suspension points, hoisted names,
+// and the statements whose control flow it has to number.
+test "iterator planner admits a call in a value position and leaves its resolution to the expression owner" {
     probe := new ColumnarIteratorShapeProbe(
         "func* Nested(): IEnumerable<int> { yield Other() }",
         "IEnumerable<int>",
@@ -976,11 +992,11 @@ test "iterator planner declines a nested or recursive call in the body" {
         false
     )
 
-    assert !probe.Shape.Supported
-    assert probe.Shape.DeclineSite == "emit.iterator.nested-unsupported"
+    assert probe.Shape.Supported
+    assert probe.Shape.YieldReturnCount == 1
 }
 
-test "iterator planner declines an otherwise-unlowered throw shape" {
+test "iterator planner admits a thrown expression of any shape" {
     probe := new ColumnarIteratorShapeProbe(
         "func* Throwing(): IEnumerable<int> { throw MakeError() }",
         "IEnumerable<int>",
@@ -990,8 +1006,89 @@ test "iterator planner declines an otherwise-unlowered throw shape" {
         false
     )
 
+    assert probe.Shape.Supported
+    assert probe.Shape.YieldReturnCount == 0
+}
+
+// A `:=` local's TYPE is the initializer's type, and that answer needs live handles. Classification
+// records the field's name, role and position and marks the canonical unresolved; realization defines
+// the CLR field from the planned initializer.
+test "iterator planner hoists an inferred local with an unresolved canonical" {
+    probe := new ColumnarIteratorShapeProbe(
+        "func* Built(): IEnumerable<int> { values := new List<int>()\n yield values.Count }",
+        "IEnumerable<int>",
+        IteratorNoStrings(),
+        IteratorNoStrings(),
+        IteratorNoStrings(),
+        false
+    )
+
+    assert probe.Shape.Supported
+    assert probe.Shape.FieldCount == 3
+    assert probe.Shape.FieldNames[2] == "values"
+    assert probe.Shape.FieldRoles[2] == ColumnarIteratorPlanner.HoistedLocalFieldRole()
+    assert ColumnarIteratorPlanner.IsUnresolvedCanonical(probe.Shape.FieldCanonicals[2])
+}
+
+// THE NEGATIVE RULES THE STATE MACHINE ITSELF OWNS.
+test "iterator planner declines a return statement in an iterator body" {
+    probe := new ColumnarIteratorShapeProbe(
+        "func* Returning(): IEnumerable<int> { return 1 }",
+        "IEnumerable<int>",
+        IteratorNoStrings(),
+        IteratorNoStrings(),
+        IteratorNoStrings(),
+        false
+    )
+
     assert !probe.Shape.Supported
     assert probe.Shape.DeclineSite == "emit.iterator.unsupported-shape"
+    assert probe.Shape.DeclineMessage == "a `return` statement cannot appear in an iterator body; use `yield` to produce a value and `yield break` to stop"
+}
+
+test "iterator planner declines a lambda inside an iterator body" {
+    probe := new ColumnarIteratorShapeProbe(
+        "func* WithLambda(n: int): IEnumerable<int> { pick := x => x + n\n yield pick(1) }",
+        "IEnumerable<int>",
+        IteratorOne("n"),
+        IteratorOne("int"),
+        IteratorNoStrings(),
+        false
+    )
+
+    assert !probe.Shape.Supported
+    assert probe.Shape.DeclineSite == "emit.iterator.lambda-unsupported"
+    assert probe.Shape.DeclineMessage == "a lambda inside an iterator body is not yet lowered"
+}
+
+test "iterator planner declines a try statement around a yield" {
+    probe := new ColumnarIteratorShapeProbe(
+        "func* Guarded(): IEnumerable<int> { try { yield 1 } catch ex: Exception { yield 2 } }",
+        "IEnumerable<int>",
+        IteratorNoStrings(),
+        IteratorNoStrings(),
+        IteratorNoStrings(),
+        false
+    )
+
+    assert !probe.Shape.Supported
+    assert probe.Shape.DeclineSite == "emit.iterator.unsupported-shape"
+    assert probe.Shape.DeclineMessage == "an iterator body statement (node kind 49) is not yet lowered"
+}
+
+test "iterator planner declines a lock statement in an iterator body" {
+    probe := new ColumnarIteratorShapeProbe(
+        "func* Locked(gate: string): IEnumerable<int> { lock gate { yield 1 } }",
+        "IEnumerable<int>",
+        IteratorOne("gate"),
+        IteratorOne("string"),
+        IteratorNoStrings(),
+        false
+    )
+
+    assert !probe.Shape.Supported
+    assert probe.Shape.DeclineSite == "emit.iterator.unsupported-shape"
+    assert probe.Shape.DeclineMessage == "an iterator body statement (node kind 51) is not yet lowered"
 }
 
 test "iterator planner MoveNext and get_Current plans run a counting iterator sequence" {
@@ -1608,7 +1705,10 @@ test "iterator planner reuses the hoisted slot for same-typed disjoint redeclara
     assert !Convert.ToBoolean(moveNext.Invoke(target, downArgs))
 }
 
-test "iterator planner declines a differently-typed local redeclaration" {
+// A re-declaration of one name shares ONE hoisted slot, so the two declarations must agree on the
+// type. Classification cannot see the types (both are inferred), so it numbers the shared slot and
+// realization refuses the disagreement when it defines the field.
+test "iterator planner shares one hoisted slot between disjoint redeclarations" {
     probe := new ColumnarIteratorShapeProbe(
         "func* Mixed(n: int): IEnumerable<int> { if n > 0 { v := 1\n yield v } else { v := true\n yield 2 } }",
         "IEnumerable<int>",
@@ -1618,8 +1718,9 @@ test "iterator planner declines a differently-typed local redeclaration" {
         false
     )
 
-    assert !probe.Shape.Supported
-    assert probe.Shape.DeclineSite == "emit.iterator.unsupported-shape"
+    assert probe.Shape.Supported
+    assert probe.Shape.FieldCount == 4
+    assert probe.Shape.FieldNames[3] == "v"
 }
 
 // A run-probe machine for the enumerator-hoisting lowering. The enumerator slot is object-typed on
@@ -2510,7 +2611,7 @@ test "iterator planner classifies a classic for loop with a hoisted counter" {
     assert probe.Shape.FieldCount == 4
     assert probe.Shape.FieldNames[3] == "i"
     assert probe.Shape.FieldRoles[3] == ColumnarIteratorPlanner.HoistedLocalFieldRole()
-    assert probe.Shape.FieldCanonicals[3] == "int"
+    assert ColumnarIteratorPlanner.IsUnresolvedCanonical(probe.Shape.FieldCanonicals[3])
 }
 
 test "async iterator planner classifies a classic for body with awaits" {
@@ -2591,8 +2692,11 @@ test "iterator planner declines a postfix step over a non-int binding" {
     assert probe.Shape.DeclineSite == "emit.iterator.unsupported-shape"
 }
 
-test "iterator planner classifies an argument-free string instance call" {
-    probe := new ColumnarIteratorShapeProbe(
+// THE STRING-METHOD ALLOWLIST IS GONE. Classification no longer judges a call at all: a receiver of
+// any type, a method of any name and any argument list are admitted here and resolved by the one
+// expression owner at realization, which is the same resolution a plain function's call gets.
+test "iterator planner admits instance calls of any name, arity and receiver type" {
+    upper := new ColumnarIteratorShapeProbe(
         "func* Up(xs: string[]): IEnumerable<string> { for x in xs { r := x.ToUpper()\n yield r } }",
         "IEnumerable<string>",
         IteratorOne("xs"),
@@ -2602,15 +2706,13 @@ test "iterator planner classifies an argument-free string instance call" {
         false
     )
 
-    assert probe.Shape.Supported
-    assert probe.Shape.ElementCanonical == "string"
-    assert probe.Shape.FieldCount == 6
-    assert probe.Shape.FieldNames[5] == "r"
-    assert probe.Shape.FieldCanonicals[5] == "string"
-}
+    assert upper.Shape.Supported
+    assert upper.Shape.ElementCanonical == "string"
+    assert upper.Shape.FieldCount == 6
+    assert upper.Shape.FieldNames[5] == "r"
+    assert ColumnarIteratorPlanner.IsUnresolvedCanonical(upper.Shape.FieldCanonicals[5])
 
-test "iterator planner declines a string call with arguments" {
-    probe := new ColumnarIteratorShapeProbe(
+    padded := new ColumnarIteratorShapeProbe(
         "func* Pad(xs: string[]): IEnumerable<string> { for x in xs { r := x.PadLeft(3)\n yield r } }",
         "IEnumerable<string>",
         IteratorOne("xs"),
@@ -2620,12 +2722,10 @@ test "iterator planner declines a string call with arguments" {
         false
     )
 
-    assert !probe.Shape.Supported
-    assert probe.Shape.DeclineSite == "emit.iterator.nested-unsupported"
-}
+    assert padded.Shape.Supported
+    assert padded.Shape.FieldNames[5] == "r"
 
-test "iterator planner declines an unlowerable string method name" {
-    probe := new ColumnarIteratorShapeProbe(
+    normalized := new ColumnarIteratorShapeProbe(
         "func* Cl(xs: string[]): IEnumerable<string> { for x in xs { r := x.Normalize()\n yield r } }",
         "IEnumerable<string>",
         IteratorOne("xs"),
@@ -2635,13 +2735,10 @@ test "iterator planner declines an unlowerable string method name" {
         false
     )
 
-    assert !probe.Shape.Supported
-    assert probe.Shape.DeclineSite == "emit.iterator.nested-unsupported"
-}
+    assert normalized.Shape.Supported
 
-test "iterator planner declines an instance call on a non-string receiver" {
-    probe := new ColumnarIteratorShapeProbe(
-        "func* Num(n: int): IEnumerable<int> { r := n.ToUpper()\n yield 1 }",
+    numeric := new ColumnarIteratorShapeProbe(
+        "func* Num(n: int): IEnumerable<int> { r := n.ToString()\n yield 1 }",
         "IEnumerable<int>",
         IteratorOne("n"),
         IteratorOne("int"),
@@ -2650,8 +2747,8 @@ test "iterator planner declines an instance call on a non-string receiver" {
         false
     )
 
-    assert !probe.Shape.Supported
-    assert probe.Shape.DeclineSite == "emit.iterator.nested-unsupported"
+    assert numeric.Shape.Supported
+    assert numeric.Shape.FieldNames[3] == "r"
 }
 
 test "iterator planner classic for plans run the counting sequence" {
