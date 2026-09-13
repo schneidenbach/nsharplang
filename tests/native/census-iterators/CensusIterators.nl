@@ -3,6 +3,7 @@ namespace NSharpLang.CensusIterators.Tests
 import System
 import System.Collections.Generic
 import System.Text
+import System.Threading.Tasks
 
 
 // AN ITERATOR BODY IS AN ORDINARY FUNCTION BODY.
@@ -116,8 +117,8 @@ func* RepeatedPairs<T>(value: T, times: int): IEnumerable<T> {
 // A dictionary built inside the machine, read through its indexer, and enumerated by key.
 func* LookupValues(keys: string[]): IEnumerable<int> {
     table := new Dictionary<string, int>()
-    table["a"] = 1
-    table["b"] = 2
+    table.Add("a", 1)
+    table.Add("b", 2)
     for key in keys {
         if table.ContainsKey(key) {
             yield table[key]
@@ -153,11 +154,12 @@ func Scale(value: int): int {
 }
 
 // An `async func*` over the same ordinary-expression surface: a `new`, an instance call and an
-// indexer inside the asynchronous machine.
+// indexer inside the asynchronous machine, with a real suspension point between elements.
 async func* AsyncDoubled(count: int): IAsyncEnumerable<int> {
     values := new List<int>()
     for i := 0; i < count; i += 1 {
         values.Add(i * 2)
+        await Task.Delay(0)
         yield values[i]
     }
 }
@@ -166,6 +168,7 @@ async func* AsyncDoubled(count: int): IAsyncEnumerable<int> {
 async func* AsyncBoxed(count: int): IAsyncEnumerable<object> {
     i := 0
     while i < count {
+        await Task.Delay(0)
         yield i
         i = i + 1
     }

@@ -500,6 +500,10 @@ sequence itself is disposed.
 - a lambda (its capture of the state machine's own `this` is not lowered yet).
 - `await` outside an `async func*`, and `await` in a value position inside one.
 - `try`/`catch`/`finally`, `using` and `lock` are not yet lowered inside a generator body.
+- an assignment whose TARGET is an indexer or a member (`table[key] = v`, `obj.Field = v`); the
+  assignment target must be a local or a parameter. Call the member instead (`table.Add(key, v)`).
+- an assignment to an enclosing-type member from an instance generator (those members are read-only
+  inside the body).
 
 ### Async generators
 

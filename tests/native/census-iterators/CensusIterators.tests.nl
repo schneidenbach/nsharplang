@@ -205,7 +205,8 @@ test "the synchronous machine implements the full enumerable surface it claims" 
     sequence := DoubledThrough(2)
     assert sequence is IEnumerable<int>
 
-    machineType := sequence.GetType()
+    machineValue: object = sequence
+    machineType := machineValue.GetType()
     assert machineType.Name.StartsWith("<DoubledThrough>d__")
 
     enumerator := sequence.GetEnumerator()
