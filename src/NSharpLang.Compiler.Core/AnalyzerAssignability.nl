@@ -314,6 +314,11 @@ class AnalyzerAssignability {
                 }
             }
         } else {
+            sourceGroup := resolvedSource as NSharpMethodGroupInfo
+            if sourceGroup != null {
+                return IsMethodGroupAssignableToDelegate(sourceGroup, resolvedTarget)
+            }
+
             if AnalyzerCallableReferenceFacts.IsMethodGroupReferenceType(resolvedSource) {
                 return false
             }
@@ -325,12 +330,15 @@ class AnalyzerAssignability {
         // `Comparison<T>`, `ThreadStart` and a user-declared `delegate` all carry their signature in
         // exactly the same place. The signature is read out of `Invoke` (which is also where the
         // lambda's own parameter types came from, in `AnalyzerLambdaAnalysis.FunctionSignature`) and
-        // compared by the ordinary function-type relation. `IsDelegateType` is the METADATA test, so
-        // a delegate loaded into the analyzer's MetadataLoadContext answers here too; the two
-        // abstract roots are excluded, because `Delegate` itself is not a conversion target.
+        // compared by the ordinary function-type relation. WHETHER THE TARGET IS A DELEGATE AT ALL is
+        // the callable-reference family's own question, asked here in the same total form the
+        // must-be-invocable rule asks it: a runtime delegate answers by CLR base identity and one
+        // loaded into a `MetadataLoadContext` answers by its base chain's NAMES, so the relation does
+        // not depend on which side of that boundary the reference set happens to be on. Both spellings
+        // exclude the two abstract roots, because `Delegate` itself is not a conversion target.
         if sourceFunction != null && !sourceIsDeclaredFunction {
             delegateTarget := resolvedTarget as ReflectionTypeInfo
-            if delegateTarget != null && assignabilityFacts.IsDelegateType(delegateTarget.Type) {
+            if delegateTarget != null && AnalyzerCallableReferenceFacts.IsInvocableMemberType(delegateTarget) {
                 delegateSignature := AnalyzerFunctionTypeFactory.CreateFromRuntimeDelegate(delegateTarget.Type)
                 return IsFunctionTypeAssignable(sourceFunction, delegateSignature)
             }
@@ -743,6 +751,26 @@ class AnalyzerAssignability {
             return true
         }
 
+        // A POSITION THAT ADMITS NULL ADMITS WHATEVER ITS INNER TYPE ADMITS. Read in the two
+        // directions this scorer is called in, that is the whole nullability rule for a delegate
+        // signature: a method whose PARAMETER is `string?` accepts everything a `string` parameter
+        // accepts, and a delegate whose RETURN is `string?` accepts a method returning `string`. The
+        // converse stays refused, because the parameter direction is reversed by the caller.
+        //
+        // Without this, `names.Select(formatTypeRef)` on a `List<string>` reported NL402 "No overload
+        // of 'Select' matches method group 'formatTypeRef'" for a `formatTypeRef(typeRef:
+        // TypeReference?)` — a conversion the same method group makes without complaint when the
+        // delegate type is written out, because the reference-conversion gate below refuses a
+        // nullable shell before the relation is ever asked.
+        nullableTarget := resolvedTarget as NullableTypeInfo
+        if nullableTarget != null {
+            innerScore := 0
+            if TryGetDelegateSignatureConversionScore(nullableTarget.InnerType, resolvedSource, out innerScore) {
+                score = 4
+                return true
+            }
+        }
+
         if !assignabilityFacts.MayUseDelegateReferenceConversion(resolvedTarget) || !assignabilityFacts.MayUseDelegateReferenceConversion(resolvedSource) {
             return false
         }
@@ -889,13 +917,90 @@ class AnalyzerAssignability {
         return true
     }
 
+    // A METHOD GROUP — several declarations sharing one name — against a delegate type. C#'s rule is
+    // that the group converts when EXACTLY ONE of its methods is applicable to that delegate's
+    // signature: `func Widen(value: int)` and `func Widen(value: string)` both named `Widen` give a
+    // `Func<int, string>` one candidate and a `Func<string, string>` the other. Two applicable
+    // candidates is an ambiguity to report rather than a choice to make here, and none is simply not
+    // a conversion.
+    //
+    // A LONE declaration never reaches this: it is a `FunctionTypeInfo` and the arm above scores it
+    // directly. The two REFLECTION group shapes do not reach it either — their candidates are
+    // `MethodInfo`s, which the call binder selects among with the argument facts it holds.
+    func IsMethodGroupAssignableToDelegate(group: NSharpMethodGroupInfo, target: TypeInfo): bool {
+        if !assignabilityFacts.CanBindCallableReferenceToExpectedType(target) {
+            return false
+        }
+
+        delegateSignature := DelegateSignatureOfExpectedType(target)
+        if delegateSignature == null {
+            return false
+        }
+
+        candidates := NSharpMethodGroupInfoFactory.GetFunctions(group)
+        applicable := 0
+        index := 0
+        while index < candidates.Count {
+            if IsFunctionTypeAssignableToRuntimeDelegateMethodGroup(candidates[index], delegateSignature) {
+                applicable = applicable + 1
+            }
+
+            index = index + 1
+        }
+
+        return applicable == 1
+    }
+
+    // The signature a delegate-shaped expected type declares, whichever way it is spelled. The
+    // maybe-null and oblivious shells are transparent, for the same reason they are transparent to
+    // the callable-reference gate: a `Func<int, int>?` field still names that delegate.
+    func DelegateSignatureOfExpectedType(expectedType: TypeInfo): FunctionTypeInfo? {
+        resolved := declarationContext.ResolveDeclaredAlias(expectedType)
+
+        nullableExpected := resolved as NullableTypeInfo
+        if nullableExpected != null {
+            return DelegateSignatureOfExpectedType(nullableExpected.InnerType)
+        }
+
+        obliviousExpected := resolved as ObliviousTypeInfo
+        if obliviousExpected != null {
+            return DelegateSignatureOfExpectedType(obliviousExpected.InnerType)
+        }
+
+        functionExpected := resolved as FunctionTypeInfo
+        if functionExpected != null {
+            return functionExpected
+        }
+
+        reflectionExpected := resolved as ReflectionTypeInfo
+        if reflectionExpected != null {
+            if !AnalyzerCallableReferenceFacts.IsInvocableMemberType(reflectionExpected) {
+                return null
+            }
+
+            return AnalyzerFunctionTypeFactory.CreateFromRuntimeDelegate(reflectionExpected.Type)
+        }
+
+        genericExpected := resolved as GenericTypeInfo
+        if genericExpected != null {
+            namedSignature := AnalyzerCallableReferenceFacts.CreateFunctionTypeInfoFromGenericDelegate(genericExpected)
+            if namedSignature != null {
+                return namedSignature
+            }
+
+            return GenericDelegateInvokeSignature(genericExpected)
+        }
+
+        return null
+    }
+
     // The `Invoke` a constructed generic delegate declares, in the instantiation's own vocabulary.
     // The CLOSED type answers when the reference set can spell it; otherwise the DEFINITION does,
     // with this instantiation's arguments substituted into the positions it spells as bare type
     // parameters — which is how a delegate closed over a type this compilation is writing answers.
     func GenericDelegateInvokeSignature(delegateType: GenericTypeInfo): FunctionTypeInfo? {
         closedClrType := clrTypeConversion.TryConvertTypeInfoToClrType(delegateType)
-        if closedClrType != null && assignabilityFacts.IsDelegateType(closedClrType) {
+        if closedClrType != null && (AnalyzerCallableReferenceFacts.IsMetadataDelegateType(closedClrType) || AnalyzerCallableReferenceFacts.IsRuntimeDelegateType(closedClrType)) {
             return AnalyzerFunctionTypeFactory.CreateFromRuntimeDelegate(closedClrType)
         }
 

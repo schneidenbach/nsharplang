@@ -310,13 +310,20 @@ test "Cecil writable properties retain exact metadata handles and reset failed s
     SmcAssertWritable(typeof(AssemblyNameReference), "Culture", "System.String")
     SmcAssertWritable(typeof(AssemblyNameReference), "PublicKeyToken", "System.Byte[]")
 
+    // `ReadSymbols` was refused only because the admission table listed four Cecil members by name.
+    // Admission is ordinary CLR resolution now, so a sibling settable property of the same type
+    // answers exactly as the four listed ones do.
+    SmcAssertWritable(typeof(ReaderParameters), "ReadSymbols", "System.Boolean")
+
+    // A name the type does not declare still resets the out slot, and so does a receiver this
+    // compilation is WRITING: a builder's members are the source path's, never reflection's.
     sentinel := typeof(ReaderParameters).GetProperty("ReadingMode")
-    adjacent := SmcWritableProperty(typeof(ReaderParameters), "ReadSymbols", sentinel)
-    assert !Convert.ToBoolean(adjacent[0])
-    assert adjacent[1] == null
-    foreign := SmcWritableProperty(SmcBake(TypeOfCreateBuilder("Mono.Cecil.ReaderParameters", "NSharpTests.ForeignWritable", 0)), "InMemory", sentinel)
-    assert !Convert.ToBoolean(foreign[0])
-    assert foreign[1] == null
+    missing := SmcWritableProperty(typeof(ReaderParameters), "NotAProperty", sentinel)
+    assert !Convert.ToBoolean(missing[0])
+    assert missing[1] == null
+    builderBound := SmcWritableProperty(TypeOfCreateBuilder("Mono.Cecil.ReaderParameters", "NSharpTests.ForeignWritable", 0), "InMemory", sentinel)
+    assert !Convert.ToBoolean(builderBound[0])
+    assert builderBound[1] == null
 }
 
 test "Cecil property assignments execute their real setters and preserve assigned identities" {

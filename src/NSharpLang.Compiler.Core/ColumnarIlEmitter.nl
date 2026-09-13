@@ -18355,7 +18355,14 @@ sealed class ColumnarIlEmitter {
         }
         let groupParameterTypes: System.Type[]? = null
         let groupReturnType: System.Type? = null
-        return TryGetMethodGroupSignature(node, out groupParameterTypes, out groupReturnType)
+        if (TryGetMethodGroupSignature(node, out groupParameterTypes, out groupReturnType)) {
+            return true
+        }
+        // A NAME WITH SEVERAL OVERLOADS CARRIES NO SINGLE SIGNATURE, so it contributes nothing to
+        // inference — but it is still a method group, and the delegate the position wants is exactly
+        // what selects among its candidates.
+        let overloadedCandidates: System.Collections.Generic.List<NSharpLang.Compiler.Columnar.ColumnarEnclosingMethodGroupCandidate>? = null
+        return TryGetEnclosingMethodGroupCandidates(node, out overloadedCandidates)
     }
 
     // Does this call carry an argument whose type only a delegate context can supply? Ordinary

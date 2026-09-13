@@ -459,6 +459,21 @@ class AnalyzerConstruction {
                 return null
             }
 
+            // AN EXTERNAL GENERIC CLOSED OVER A TYPE THIS COMPILATION IS WRITING. `Lazy<Query>` for a
+            // source class `Query` converts to no CLR type at all while `Query` is still a builder, so
+            // the reflected arm above answered nothing and `new Lazy<Query>(MakeQuery)` reported NL411
+            // "must be called or passed to a delegate" — while `new Lazy<int>(MakeInt)` worked.
+            //
+            // `Lazy<T>` ITSELF is a complete reflected shape, and this instantiation supplies `T`. The
+            // definition's constructors are read and their parameter positions rewritten in this
+            // instantiation's vocabulary, which is the same substitution the assignability walk uses
+            // for an external definition's base chain. Nothing consults a name, so a referenced
+            // assembly's own generic answers exactly as `Lazy` does.
+            externalDefinition := definition as ReflectionTypeInfo
+            if externalDefinition != null {
+                return ExternalGenericDelegateConstructorParameterType(externalDefinition.Type, generic, argumentCount, index)
+            }
+
             opened = definition
         }
 
@@ -484,6 +499,48 @@ class AnalyzerConstruction {
             }
 
             declaredIndex = declaredIndex + 1
+        }
+
+        return agreed
+    }
+
+    // The delegate position an EXTERNAL generic's constructors agree on, read through the definition
+    // and substituted into this instantiation. The agreement rule is the reflected arm's, exactly:
+    // one delegate position that every arity-compatible constructor spells the same way, or nothing.
+    func ExternalGenericDelegateConstructorParameterType(definitionType: Type, generic: GenericTypeInfo, argumentCount: int, index: int): TypeInfo? {
+        definition := definitionType
+        if !definition.get_IsGenericTypeDefinition() {
+            if !definition.get_IsGenericType() {
+                return null
+            }
+
+            definition = definition.GetGenericTypeDefinition()
+        }
+
+        if definition.GetGenericArguments().Length != generic.TypeArguments.Count {
+            return null
+        }
+
+        typeOverride := AnalyzerReflectionTypeOverride.ForGenericArguments(definition, generic)
+        constructors := AnalyzerReflectionMemberProbe.ConstructorsOrEmpty(definition)
+        agreed: TypeInfo? = null
+        found := false
+        constructorIndex := 0
+        while constructorIndex < constructors.Length {
+            parameterTypes := AnalyzerReflectionMemberProbe.ParameterTypesOrNull(constructors[constructorIndex])
+            if parameterTypes != null && parameterTypes.Length == argumentCount && index < parameterTypes.Length {
+                candidate := NullabilityMetadataReflection.ConvertReflectedType(parameterTypes[index], null, typeOverride)
+                if AnalyzerCallableReferenceFacts.IsInvocableMemberType(candidate) {
+                    if !found {
+                        agreed = candidate
+                        found = true
+                    } else if agreed == null || !TypeInfoIdentityFacts.AreEqual(agreed, candidate) {
+                        return null
+                    }
+                }
+            }
+
+            constructorIndex = constructorIndex + 1
         }
 
         return agreed
