@@ -96,6 +96,15 @@ class ColumnarContextualExtensionInference {
             return false
         }
 
+        // A VALUE RECEIVER ARRIVES AT THIS TIER ALREADY PUSHED, and whether it was pushed as a value
+        // or as a managed pointer was decided by the member-access walk above, which asked the
+        // question about an INSTANCE call. A value-type receiver slot is therefore resolved where the
+        // receiver's own push is still in this owner's hands — the explicit-type-argument path — and
+        // not here.
+        if candidate.ReceiverParameterType.get_IsValueType() {
+            return false
+        }
+
         typeParameters := new Type[](0)
         if method.get_IsGenericMethodDefinition() {
             declared := method.GetGenericArguments()
@@ -318,8 +327,16 @@ class ColumnarContextualExtensionInference {
 
     // THE CLOSED CANDIDATE, or a decline. The definition is closed over the inference and the
     // runtime is asked to build the handle: a violated constraint throws there and is a non-binding,
-    // never an emitted call the CLR would refuse to verify. A builder-bound type argument stays with
-    // later owners, exactly as it does in the non-contextual resolver.
+    // never an emitted call the CLR would refuse to verify.
+    //
+    // A TYPE ARGUMENT THE COMPILATION IS ITSELF WRITING closes here as readily as a runtime one.
+    // `items.First()` over a `List<Query>` fixes `TSource` to the `TypeBuilder` for the source class
+    // `Query`, and `MakeGenericMethod` answers that with a `MethodBuilderInstantiation` — the same
+    // shape `ColumnarRuntimeGenericMethodResolver` already emits for `JsonSerializer.Deserialize<Request>`.
+    // The one thing that shape CANNOT do is report its own signature: its `GetParameters` reports the
+    // DEFINITION's `TSource`, so the closed signature is SUBSTITUTED from the declaration rather than
+    // read back off the handle. For a runtime instantiation the two are the same answer, which is why
+    // this is one path and not two.
     static func TryClose(binding: ColumnarContextualExtensionBinding, out closed: ColumnarExtensionMethodCandidate?): bool {
         closed = null
         if binding == null {
@@ -338,7 +355,7 @@ class ColumnarContextualExtensionInference {
 
         index := 0
         while index < binding.Inferred.Length {
-            if ColumnarRuntimeInstanceMemberResolver.ContainsBuilderBoundType(binding.Inferred[index]) {
+            if ColumnarRuntimeGenericMethodResolver.IsUnbindableInferredType(binding.Inferred[index]) {
                 return false
             }
 
@@ -356,17 +373,19 @@ class ColumnarContextualExtensionInference {
             return false
         }
 
-        closedParameters := ColumnarExtensionMethodResolver.ParametersOrNull(closedMethod)
-        if closedParameters == null || closedParameters.Length != candidate.ParameterTypes.Length {
-            return false
+        closedParameterTypes := new Type[](candidate.ParameterTypes.Length)
+        parameterIndex := 0
+        while parameterIndex < candidate.ParameterTypes.Length {
+            substituted := Substitute(candidate.ParameterTypes[parameterIndex], binding.TypeParameters, binding.Inferred)
+            if substituted == null {
+                return false
+            }
+
+            closedParameterTypes[parameterIndex] = substituted
+            parameterIndex = parameterIndex + 1
         }
 
-        closedParameterTypes := ColumnarExtensionMethodResolver.ParameterTypesOrNull(closedParameters)
-        if closedParameterTypes == null {
-            return false
-        }
-
-        closedReturnType := ColumnarExtensionMethodResolver.ReturnTypeOrNull(closedMethod)
+        closedReturnType := Substitute(candidate.ReturnType, binding.TypeParameters, binding.Inferred)
         if closedReturnType == null || closedReturnType.get_ContainsGenericParameters() {
             return false
         }
@@ -524,7 +543,7 @@ class ColumnarContextualExtensionInference {
             index := 0
             while index < interfaces.Length {
                 implemented := interfaces[index]
-                if implemented.get_IsGenericType() && implemented.GetGenericTypeDefinition() == openDefinition {
+                if InterfaceMatchesDefinition(implemented, openDefinition) {
                     return implemented
                 }
 
@@ -547,7 +566,145 @@ class ColumnarContextualExtensionInference {
             depth = depth + 1
         }
 
+        arrayImplementation := FindClosedArrayImplementation(candidate, openDefinition)
+        if arrayImplementation != null {
+            return arrayImplementation
+        }
+
+        return FindClosedImplementationThroughDefinition(candidate, openDefinition)
+    }
+
+    // AN ARRAY IS A SEQUENCE OF ITS ELEMENT, AND THE CLR SAYS SO. A vector `E[]` implements the
+    // one-parameter generic interfaces `object[]` implements — `IList<T>` and `IReadOnlyList<T>` and
+    // everything those inherit — closed over `E`. `string[].GetInterfaces()` reports exactly that
+    // list and the loop above already reads it; an array whose ELEMENT is a type this compilation is
+    // writing (`Query[]`) cannot be asked, so the list is read off the CLR's own `object[]` instead
+    // of written down here. Nothing names an interface, so a framework that adds one to the vector
+    // contract needs no change.
+    static func FindClosedArrayImplementation(candidate: Type, openDefinition: Type): Type? {
+        if !ColumnarTypeEquivalenceFacts.IsSafeSzArrayType(candidate) || !openDefinition.get_IsGenericType() {
+            return null
+        }
+
+        elementType := candidate.GetElementType()
+        if elementType == null || openDefinition.GetGenericArguments().Length != 1 {
+            return null
+        }
+
+        if !SzArrayImplementsDefinition(openDefinition) {
+            return null
+        }
+
+        try {
+            return openDefinition.MakeGenericType([elementType])
+        } catch {
+            return null
+        }
+    }
+
+    // The generic interface definitions every vector implements, read off the CLR's own `object[]`.
+    static func SzArrayImplementsDefinition(openDefinition: Type): bool {
+        vectorInterfaces := new Type[](0)
+        try {
+            vectorInterfaces = typeof(object[]).GetInterfaces()
+        } catch {
+            return false
+        }
+
+        index := 0
+        while index < vectorInterfaces.Length {
+            implemented := vectorInterfaces[index]
+            if implemented.get_IsGenericType() && implemented.GetGenericTypeDefinition() == openDefinition {
+                return true
+            }
+
+            index = index + 1
+        }
+
+        return false
+    }
+
+    // A CONSTRUCTED TYPE CLOSED OVER A TYPE THIS COMPILATION IS WRITING CANNOT BE ASKED DIRECTLY.
+    // `List<Query>` for a source class `Query` is a `TypeBuilderInstantiation`: its `GetInterfaces`
+    // throws and its base chain is not reflectable, so the loops above answer nothing and
+    // `items.First()` declined for every element type the program itself declared.
+    //
+    // The DEFINITION answers instead. `List<T>`'s interface list and base chain are complete
+    // reflected shapes spelled in `T`, and this instantiation supplies `T`: substituting gives the
+    // real closed shapes the receiver has. Nothing here consults a name, so `List`, `Dictionary`, a
+    // referenced assembly's own collection and a source generic all answer the same way — and for a
+    // runtime instantiation the substituted answer is the same one `GetInterfaces` already gave,
+    // which is why this is a fallback and not a second policy.
+    static func FindClosedImplementationThroughDefinition(candidate: Type, openDefinition: Type): Type? {
+        if !candidate.get_IsGenericType() || candidate.get_IsGenericTypeDefinition() {
+            return null
+        }
+
+        definition := candidate.GetGenericTypeDefinition()
+        if definition == null || definition == candidate {
+            return null
+        }
+
+        arguments := candidate.GetGenericArguments()
+        if arguments == null || definition.GetGenericArguments().Length != arguments.Length {
+            return null
+        }
+
+        definitionInterfaces := new Type[](0)
+        try {
+            definitionInterfaces = definition.GetInterfaces()
+        } catch {
+            definitionInterfaces = new Type[](0)
+        }
+
+        if definitionInterfaces != null {
+            index := 0
+            while index < definitionInterfaces.Length {
+                implemented := definitionInterfaces[index]
+                if InterfaceMatchesDefinition(implemented, openDefinition) {
+                    return ColumnarRuntimeInstanceMemberResolver.SubstituteClosedTypeArguments(implemented, arguments)
+                }
+
+                index = index + 1
+            }
+        }
+
+        current: Type? = BaseTypeOrNull(definition)
+        depth := 0
+        while current != null && depth < 64 {
+            if current.get_IsGenericType() && current.GetGenericTypeDefinition() == openDefinition {
+                return ColumnarRuntimeInstanceMemberResolver.SubstituteClosedTypeArguments(current, arguments)
+            }
+
+            if !openDefinition.get_IsGenericType() && current == openDefinition {
+                return current
+            }
+
+            current = BaseTypeOrNull(current)
+            depth = depth + 1
+        }
+
         return null
+    }
+
+    // A declared interface against the definition a receiver slot names. A generic declaration is
+    // matched by its DEFINITION; a non-generic one (`IEnumerable`, which is what `Cast<T>` and
+    // `OfType<T>` declare) is matched by identity.
+    static func InterfaceMatchesDefinition(implemented: Type, openDefinition: Type): bool {
+        if openDefinition.get_IsGenericType() {
+            return implemented.get_IsGenericType() && implemented.GetGenericTypeDefinition() == openDefinition
+        }
+
+        return implemented == openDefinition
+    }
+
+    // A base type a builder-bound instantiation may refuse to report at all.
+    static func BaseTypeOrNull(candidate: Type): Type? {
+        try {
+            return candidate.get_BaseType()
+        } catch {
+            return null
+        }
     }
 
     // Structural unification of ONE declared slot against one actual type. A slot with nothing open

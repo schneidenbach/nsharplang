@@ -540,6 +540,15 @@ class AnalyzerLambdaAnalysis {
             return null
         }
 
+        // A MAYBE-NULL TARGET NAMES THE SAME DELEGATE. `Func<int, int>?` is the declared type of a
+        // field that may hold no handler, and a lambda written there is still that delegate's shape —
+        // a lambda literal is never the null. Without this, a delegate FIELD (which is written `?`
+        // whenever it has no initializer) could not take a lambda in an object initializer at all.
+        nullableExpected := expectedType as NullableTypeInfo
+        if nullableExpected != null {
+            return FunctionSignature(nullableExpected.InnerType)
+        }
+
         resolved := declarationContext.ResolveDeclaredAlias(expectedType)
         functionType := resolved as FunctionTypeInfo
         if functionType != null {

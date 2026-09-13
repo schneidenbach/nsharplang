@@ -290,3 +290,62 @@ func ConcatParamsSignature(): Type[] {
     signature[0] = typeof(string[])
     return signature
 }
+
+// ── a site that WROTE its type arguments ──────────────────────────────────────────────────────
+test "explicit type arguments skip inference and close the candidate of that written arity" {
+    index := BuildLinqExtensionIndex()
+    facts := ColumnarDirectCallArgumentFacts.Empty(0)
+
+    // `Cast<TResult>` declares a NON-GENERIC `IEnumerable` receiver and a type argument nothing in the
+    // call could infer, which is exactly why the site writes it.
+    cast := ColumnarExtensionMethodResolver.ResolveExplicit(index, typeof(List<object>), "Cast", ExtensionOneType(typeof(string)), new Type[](0), facts)
+    assert cast.IsSelected, "IEnumerable.Cast<string>() must close Enumerable.Cast<string>."
+    assert cast.Method.get_IsGenericMethod()
+    assert !cast.Method.get_IsGenericMethodDefinition()
+    assert cast.ParameterTypes.Length == 1
+    assert cast.ReturnType == typeof(IEnumerable<string>)
+
+    ofType := ColumnarExtensionMethodResolver.ResolveExplicitUnique(index, typeof(string[]), "OfType", ExtensionOneType(typeof(string)), 0)
+    assert ofType.IsSelected, "An array receiver reaches the same non-generic IEnumerable slot."
+    assert ofType.ReturnType == typeof(IEnumerable<string>)
+}
+
+test "a written type-argument count that the declaration does not have EXCLUDES the candidate" {
+    index := BuildLinqExtensionIndex()
+    facts := ColumnarDirectCallArgumentFacts.Empty(0)
+
+    // `Enumerable.Cast<TResult>` declares ONE type parameter. Writing two is not an error here: the
+    // candidate is excluded and the site is left with none, which is C#'s own rule (§12.6.4.1).
+    wrongArity := ColumnarExtensionMethodResolver.ResolveExplicit(index, typeof(List<object>), "Cast", ExtensionTwoTypes(typeof(string), typeof(int)), new Type[](0), facts)
+    assert !wrongArity.IsSelected, "A written type-argument count the declaration does not have must not bind."
+
+    // `Enumerable.ToList<TSource>` declares ONE, so writing one BINDS and writing two does not.
+    matchingArity := ColumnarExtensionMethodResolver.ResolveExplicit(index, typeof(IEnumerable<int>), "ToList", ExtensionOneType(typeof(int)), new Type[](0), facts)
+    assert matchingArity.IsSelected, "A written type-argument count the declaration DOES have must bind."
+    assert matchingArity.ReturnType == typeof(List<int>)
+
+    tooMany := ColumnarExtensionMethodResolver.ResolveExplicit(index, typeof(IEnumerable<int>), "ToList", ExtensionTwoTypes(typeof(int), typeof(int)), new Type[](0), facts)
+    assert !tooMany.IsSelected, "A written type-argument count the declaration does not have must not bind."
+
+    missing := ColumnarExtensionMethodResolver.ResolveExplicitUnique(index, typeof(string[]), "TotallyMissingExtensionXyz", ExtensionOneType(typeof(string)), 0)
+    assert !missing.IsSelected, "An unknown extension name declines however its type arguments were written."
+}
+
+test "a receiver the closed candidate cannot accept declines rather than binding" {
+    index := BuildLinqExtensionIndex()
+    facts := ColumnarDirectCallArgumentFacts.Empty(0)
+
+    // `Select<TSource, TResult>` closes over the written pair, and the closed receiver slot is then
+    // `IEnumerable<int>` — a `string[]` is not one.
+    wrongReceiver := ColumnarExtensionMethodResolver.ResolveExplicit(index, typeof(string[]), "Select", ExtensionTwoTypes(typeof(int), typeof(int)), new Type[](0), facts)
+    assert !wrongReceiver.IsSelected, "A closed receiver slot the receiver does not satisfy must not bind."
+}
+
+test "a value-type receiver slot is indexed, because an extension's receiver is its first argument" {
+    // `IsSupportedReceiverParameter` admits a struct slot: `JsonSerializer.Deserialize<TValue>` is
+    // declared on `JsonElement`. A by-ref, pointer or BARE type-parameter slot stays excluded.
+    assert ColumnarExtensionMethodResolver.IsSupportedReceiverParameter(typeof(int))
+    assert ColumnarExtensionMethodResolver.IsSupportedReceiverParameter(typeof(string))
+    assert !ColumnarExtensionMethodResolver.IsSupportedReceiverParameter(typeof(int).MakeByRefType())
+    assert !ColumnarExtensionMethodResolver.IsSupportedReceiverParameter(typeof(List<int>).GetGenericTypeDefinition().GetGenericArguments()[0])
+}

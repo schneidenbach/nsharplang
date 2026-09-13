@@ -553,10 +553,12 @@ test "compile-time bench: the skipped source directories are exactly the twelve 
 // tuple naming added tests/native/census-parse-shapes; 98 since lambda parameter inference and
 // extension-result widening added tests/native/census-lambda-inference; 99 since field initializers
 // became ordinary expressions added tests/native/census-field-initializers; 100 since attributes a
-// program declares for itself added tests/native/census-source-attributes.
-test "compile-time bench: the corpus is the 100 project.yml projects under examples, tests and templates" {
+// program declares for itself added tests/native/census-source-attributes; 101 since one extension-call
+// path from receiver to IL added tests/native/census-extension-calls.
+test "compile-time bench: the corpus is the 101 project.yml projects under examples, tests and templates" {
     projects := BenchCollectCorpusProjects(BenchRepositoryRoot())
-    assert projects.Count == 100
+    assert projects.Count == 101
+    assert BenchListContains(projects, "tests/native/census-extension-calls")
     assert BenchListContains(projects, "tests/native/census-lambda-inference")
     assert BenchListContains(projects, "tests/native/census-field-initializers")
     assert BenchListContains(projects, "tests/native/census-source-attributes")

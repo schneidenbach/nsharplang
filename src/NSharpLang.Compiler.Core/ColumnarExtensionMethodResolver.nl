@@ -317,8 +317,13 @@ class ColumnarExtensionMethodResolver {
         return false
     }
 
+    // WHAT CAN BE A RECEIVER SLOT IN THE INDEX. A by-ref or pointer slot has no call shape here and a
+    // BARE type parameter (`static void Use<T>(this T value)`) would make every extension of that name
+    // a candidate for every receiver, which is a resolution change this owner does not make. A VALUE
+    // type is an ordinary receiver slot: `JsonSerializer.Deserialize<TValue>(this JsonElement, ...)`
+    // is declared on a struct, and the call site loads the struct's VALUE rather than its address.
     static func IsSupportedReceiverParameter(receiverParameterType: Type): bool {
-        return receiverParameterType != null && !receiverParameterType.get_IsValueType() && !receiverParameterType.get_IsByRef() && !receiverParameterType.get_IsPointer() && !receiverParameterType.get_IsGenericParameter()
+        return receiverParameterType != null && !receiverParameterType.get_IsByRef() && !receiverParameterType.get_IsPointer() && !receiverParameterType.get_IsGenericParameter()
     }
 
     static func ParameterTypesOrNull(parameters: ParameterInfo[]): Type[]? {
@@ -432,6 +437,114 @@ class ColumnarExtensionMethodResolver {
         }
 
         return new ColumnarExtensionMethodSelection(true, selected.Method, selected.DeclaringType, selected.ParameterTypes, selected.ReturnType, explicitCount)
+    }
+
+    // THE SAME SELECTION FOR A SITE THAT WROTE ITS TYPE ARGUMENTS. C#'s rule (ECMA-334 §12.6.4.1) is
+    // that explicit type arguments SKIP inference entirely: a candidate whose own arity differs from
+    // the written count is not a candidate at all — excluded, not an error — and what remains closes
+    // over exactly what was written. `element.Deserialize<Request>(options)` therefore reaches
+    // `JsonSerializer.Deserialize<TValue>(this JsonElement, JsonSerializerOptions?)` the same way
+    // `items.First()` reaches `Enumerable.First<TSource>`, and neither names a member.
+    //
+    // The closed signature is SUBSTITUTED from the declaration, for the reason `TryClose` states: a
+    // type argument the compilation is itself writing produces a handle that reports the definition's
+    // own parameters.
+    static func CollectExplicit(index: ColumnarExtensionMethodIndex, receiverType: Type, memberName: string, typeArguments: Type[], argumentCount: int, selected: List<ColumnarExtensionMethodCandidate>): bool {
+        if index == null || receiverType == null || memberName == null || typeArguments == null || typeArguments.Length == 0 || argumentCount < 0 || selected == null {
+            return false
+        }
+
+        if receiverType.get_IsByRef() || receiverType.get_IsPointer() || receiverType.get_IsGenericParameter() {
+            return false
+        }
+
+        position := 0
+        while position < typeArguments.Length {
+            if typeArguments[position] == null || ColumnarRuntimeGenericMethodResolver.IsUnbindableInferredType(typeArguments[position]) {
+                return false
+            }
+
+            position = position + 1
+        }
+
+        candidates := new List<ColumnarExtensionMethodCandidate>()
+        if !index.TryGet(memberName, out candidates) {
+            return false
+        }
+
+        candidateIndex := 0
+        while candidateIndex < candidates.Count {
+            indexed := candidates[candidateIndex]
+            if indexed != null && indexed.Method.get_IsGenericMethodDefinition() && indexed.Method.GetGenericArguments().Length == typeArguments.Length && indexed.ParameterTypes.Length - 1 >= argumentCount {
+                closedMethod := ColumnarRuntimeGenericMethodResolver.CloseOrNull(indexed.Method, typeArguments)
+                closedParameterTypes := ColumnarRuntimeGenericMethodResolver.ClosedParameterTypesOrNull(indexed.Method, typeArguments)
+                closedReturnType := ColumnarRuntimeGenericMethodResolver.SubstituteMethodTypeArguments(indexed.ReturnType, typeArguments)
+                if closedMethod != null && closedParameterTypes != null && closedReturnType != null && ReferenceAssignableFrom(closedParameterTypes[0], receiverType) && TrailingDefaultsFillable(indexed.Method, closedParameterTypes, 1 + argumentCount) {
+                    selected.Add(new ColumnarExtensionMethodCandidate(closedMethod, indexed.DeclaringType, closedParameterTypes, closedReturnType))
+                }
+            }
+
+            candidateIndex = candidateIndex + 1
+        }
+
+        return selected.Count > 0
+    }
+
+    // The unique candidate for a site whose arguments cannot all be typed before emission — a lambda
+    // written at an explicitly-closed extension call. More than one surviving candidate is a decline,
+    // because the argument types are exactly what would have chosen between them.
+    static func ResolveExplicitUnique(index: ColumnarExtensionMethodIndex, receiverType: Type, memberName: string, typeArguments: Type[], argumentCount: int): ColumnarExtensionMethodSelection {
+        candidates := new List<ColumnarExtensionMethodCandidate>()
+        if !CollectExplicit(index, receiverType, memberName, typeArguments, argumentCount, candidates) || candidates.Count != 1 {
+            return ColumnarExtensionMethodSelection.None()
+        }
+
+        chosen := candidates[0]
+        return new ColumnarExtensionMethodSelection(true, chosen.Method, chosen.DeclaringType, chosen.ParameterTypes, chosen.ReturnType, argumentCount)
+    }
+
+    // The same candidate set, ranked by the argument-flow scorer every other call selection uses.
+    static func ResolveExplicit(index: ColumnarExtensionMethodIndex, receiverType: Type, memberName: string, typeArguments: Type[], argumentTypes: Type[], argumentFacts: ColumnarDirectCallArgumentFacts): ColumnarExtensionMethodSelection {
+        if argumentTypes == null || argumentFacts == null {
+            return ColumnarExtensionMethodSelection.None()
+        }
+
+        candidates := new List<ColumnarExtensionMethodCandidate>()
+        if !CollectExplicit(index, receiverType, memberName, typeArguments, argumentTypes.Length, candidates) {
+            return ColumnarExtensionMethodSelection.None()
+        }
+
+        explicitCount := argumentTypes.Length
+        bestScore := -1
+        bestParameterCount := 0
+        bestCount := 0
+        bestIndex := -1
+        candidateIndex := 0
+        while candidateIndex < candidates.Count {
+            closedParameterTypes := candidates[candidateIndex].ParameterTypes
+            leading := ExplicitParameterTypes(closedParameterTypes, explicitCount)
+            score := ColumnarSourceDirectCallResolver.ArgumentsScoreWithFacts(leading, argumentTypes, argumentFacts)
+            if score >= 0 {
+                parameterCount := closedParameterTypes.Length
+                if score > bestScore || (score == bestScore && parameterCount < bestParameterCount) {
+                    bestScore = score
+                    bestParameterCount = parameterCount
+                    bestCount = 1
+                    bestIndex = candidateIndex
+                } else if score == bestScore && parameterCount == bestParameterCount {
+                    bestCount = bestCount + 1
+                }
+            }
+
+            candidateIndex = candidateIndex + 1
+        }
+
+        if bestCount != 1 || bestIndex < 0 {
+            return ColumnarExtensionMethodSelection.None()
+        }
+
+        chosen := candidates[bestIndex]
+        return new ColumnarExtensionMethodSelection(true, chosen.Method, chosen.DeclaringType, chosen.ParameterTypes, chosen.ReturnType, explicitCount)
     }
 
     // A non-generic candidate resolves as itself. A generic method DEFINITION resolves by inferring
@@ -913,6 +1026,18 @@ class ColumnarExtensionMethodResolver {
 
         if ColumnarRuntimeInstanceMemberResolver.ExactTypeShapeMatches(expectedType, actualType) {
             return true
+        }
+
+        // A TYPE CLOSED OVER A TYPE THIS COMPILATION IS WRITING answers `IsAssignableFrom` with a
+        // throw, because its interface list is not reflectable: `List<Query>` and `Query[]` both do,
+        // for a source class `Query`. The closed shapes such a receiver HAS are the same question
+        // method type inference asks of it, so the same owner answers both — there is one notion of
+        // "what interface does this receiver have" and not two.
+        if expectedType.get_IsGenericType() && !expectedType.get_IsGenericTypeDefinition() {
+            implementation := ColumnarContextualExtensionInference.FindClosedImplementation(actualType, expectedType.GetGenericTypeDefinition())
+            if implementation != null && ColumnarTypeEquivalenceFacts.TypesEquivalent(implementation, expectedType) {
+                return true
+            }
         }
 
         try {

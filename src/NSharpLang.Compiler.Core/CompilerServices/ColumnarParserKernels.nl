@@ -351,8 +351,11 @@ class TypeReferenceTupleNameTable {
 //                                         lambda list); the body is an EXPRESSION at this level or a statement
 //                                         BLOCK (kind 25, parsed by the statement kernel -- mutual recursion in
 //                                         the other direction from statements-call-expressions). Parsed at the
-//                                         full-expression entry and in call ARGUMENTS (the production's
-//                                         ParseExpression positions modeled so far). Kind 40 is
+//                                         full-expression entry and in EVERY ARGUMENT POSITION: a call argument,
+//                                         a CONSTRUCTOR argument (`new Lazy<int>(() => 1)`), an indexer
+//                                         argument, an object-, anonymous-object- or `with`-initializer value,
+//                                         an array or tuple literal element, and an ASSIGNMENT's right-hand
+//                                         side (`map[k] = v => ...`, `this.handler = v => ...`). Kind 40 is
 //                                         TypedLocalDeclaration and 41 LocalFunctionDeclaration in
 //                                         ParserStatements. )
 //   BareNew                 -> kind 42  ( `new <type>` with neither `( args )` nor `{ inits }` -- children
@@ -4824,7 +4827,7 @@ func ParsePrimaryExpressionNode(tokens: ParserTokenTable, count: int, st: Parser
                 anonNameNode := EmitExpressionNode(st, nodes, 6, anonNameStart, anonNameLen, -1, 0, anonNameStart, anonNameLen)
                 argStack.Values[st.ArgStackTop] = anonNameNode
                 st.ArgStackTop = st.ArgStackTop + 1
-                anonValue := ParseAssignmentExpressionNode(tokens, count, st, argStack, nodes, children, depth + 1)
+                anonValue := ParseLambdaOrAssignmentExpressionNode(tokens, count, st, argStack, nodes, children, depth + 1)
                 if anonValue < 0 {
                     st.ArgStackTop = anonArgBase
                     return -1
@@ -4986,7 +4989,7 @@ func ParsePrimaryExpressionNode(tokens: ParserTokenTable, count: int, st: Parser
                 fieldNameNode := EmitExpressionNode(st, nodes, 6, fieldNameStart, fieldNameLen, -1, 0, fieldNameStart, fieldNameLen)
                 argStack.Values[st.ArgStackTop] = fieldNameNode
                 st.ArgStackTop = st.ArgStackTop + 1
-                fieldVal := ParseAssignmentExpressionNode(tokens, count, st, argStack, nodes, children, depth + 1)
+                fieldVal := ParseLambdaOrAssignmentExpressionNode(tokens, count, st, argStack, nodes, children, depth + 1)
                 if fieldVal < 0 {
                     st.ArgStackTop = objArgBase
                     return -1
@@ -5111,7 +5114,7 @@ func ParsePrimaryExpressionNode(tokens: ParserTokenTable, count: int, st: Parser
                 initNameNode := EmitExpressionNode(st, nodes, 6, initNameStart, initNameLength, -1, 0, initNameStart, initNameLength)
                 argStack.Values[st.ArgStackTop] = initNameNode
                 st.ArgStackTop = st.ArgStackTop + 1
-                initValue := ParseAssignmentExpressionNode(tokens, count, st, argStack, nodes, children, depth + 1)
+                initValue := ParseLambdaOrAssignmentExpressionNode(tokens, count, st, argStack, nodes, children, depth + 1)
                 if initValue < 0 {
                     st.ArgStackTop = initArgBase
                     return -1
@@ -5244,7 +5247,7 @@ func ParsePrimaryExpressionNode(tokens: ParserTokenTable, count: int, st: Parser
                     st.Pos = st.Pos + 2
                 }
 
-                tupleElem := ParseAssignmentExpressionNode(tokens, count, st, argStack, nodes, children, depth + 1)
+                tupleElem := ParseLambdaOrAssignmentExpressionNode(tokens, count, st, argStack, nodes, children, depth + 1)
                 if tupleElem < 0 {
                     st.ArgStackTop = tupleArgBase
                     return -1
@@ -5403,7 +5406,7 @@ func ParsePostfixExpressionNode(tokens: ParserTokenTable, count: int, st: Parser
         } else if pos < count && tokens.Kinds[pos] == 131 {
             objSpanStart := nodes.SpanStarts[expr]
             st.Pos = pos + 1
-            index := ParseAssignmentExpressionNode(tokens, count, st, argStack, nodes, children, depth + 1)
+            index := ParseLambdaOrAssignmentExpressionNode(tokens, count, st, argStack, nodes, children, depth + 1)
             if index < 0 {
                 return -1
             }
@@ -5617,7 +5620,7 @@ func ParsePostfixExpressionNode(tokens: ParserTokenTable, count: int, st: Parser
                 wNameNode := EmitExpressionNode(st, nodes, 6, wNameStart, wNameLen, -1, 0, wNameStart, wNameLen)
                 argStack.Values[st.ArgStackTop] = wNameNode
                 st.ArgStackTop = st.ArgStackTop + 1
-                wValue := ParseAssignmentExpressionNode(tokens, count, st, argStack, nodes, children, depth + 1)
+                wValue := ParseLambdaOrAssignmentExpressionNode(tokens, count, st, argStack, nodes, children, depth + 1)
                 if wValue < 0 {
                     st.ArgStackTop = wArgBase
                     return -1
@@ -5724,7 +5727,7 @@ func ParseConstructorArgumentNode(tokens: ParserTokenTable, count: int, st: Pars
         nameStart := tokens.Starts[st.Pos]
         nameLength := tokens.ValueLengths[st.Pos]
         st.Pos = st.Pos + 2
-        value := ParseAssignmentExpressionNode(tokens, count, st, argStack, nodes, children, depth + 1)
+        value := ParseLambdaOrAssignmentExpressionNode(tokens, count, st, argStack, nodes, children, depth + 1)
         if value < 0 {
             return -1
         }
@@ -5735,7 +5738,7 @@ func ParseConstructorArgumentNode(tokens: ParserTokenTable, count: int, st: Pars
         return EmitExpressionNode(st, nodes, 60, nameStart, nameLength, childRun, 1, nameStart, valueEnd - nameStart)
     }
 
-    return ParseAssignmentExpressionNode(tokens, count, st, argStack, nodes, children, depth)
+    return ParseLambdaOrAssignmentExpressionNode(tokens, count, st, argStack, nodes, children, depth)
 }
 
 func ParseUnaryExpressionNode(tokens: ParserTokenTable, count: int, st: ParserState, argStack: ParserArgumentStack, nodes: ParserExpressionNodeTable, children: ParserChildIndexTable, depth: int): int {
@@ -6055,7 +6058,7 @@ func ParseAssignmentExpressionNode(tokens: ParserTokenTable, count: int, st: Par
             opStart := tokens.Starts[st.Pos]
             opLength := tokens.ValueLengths[st.Pos]
             st.Pos = st.Pos + 1
-            value := ParseAssignmentExpressionNode(tokens, count, st, argStack, nodes, children, depth + 1)
+            value := ParseLambdaOrAssignmentExpressionNode(tokens, count, st, argStack, nodes, children, depth + 1)
             if value < 0 {
                 return -1
             }

@@ -1376,8 +1376,6 @@ Two rules the compiler enforces about the type-argument list itself:
   problem. You do not need the interface to be iterable: a `for x in bag` loop binds an accessible
   parameterless `GetEnumerator()` directly, so declaring one is enough. Return `IEnumerable<T>` from
   a method when a caller needs the interface itself.
-- A **lambda assigned to a delegate FIELD inside a constructor** is not emitted, for any delegate
-  (`Func<int, bool>` too). Build it in a local, or return it from a function.
 - A **generic method an `interface` declares** — `interface IHas { func Get<T>(): T }` — is not
   compiled yet. A generic method on a `class`, `struct` or `record` is unaffected.
 - A **generic method declared on your own type** and called with a lambda — `holder.Match(v => ...)`
@@ -1393,6 +1391,11 @@ Two rules the compiler enforces about the type-argument list itself:
 - A generic method written with its type arguments **directly on a call's RESULT**
   (`Make().As<int>()`) does not resolve; bind the receiver to a name first (`made := Make()` then
   `made.As<int>()`). An ordinary member off a call result (`Make().Index`) is unaffected.
+- A **lambda or a method group as a CONSTRUCTOR argument** now compiles (`new Lazy<int>(() => 1)`),
+  including into an external generic closed over one of your own types (`new Lazy<Query>(() => new
+  Query())`). The constructor is chosen by the arity written; two overloads at that arity that both
+  admit the written arguments are refused rather than guessed, so write one of them out (a local of
+  the declared delegate type, then `new T(thatLocal)`) if you hit that.
 - A **fully qualified** external type reaches fewer positions than an imported one. Written out
   (`NSharpLang.Runtime.Result<int, string>`) it works in `typeof`, in a `:=` initializer, as a
   local's declared type and as the receiver of a generic or `out`-taking member, but not as a `type`
@@ -1417,6 +1420,11 @@ Two rules the compiler enforces about the type-argument list itself:
   reference, an integral, floating, `char`, `bool`, `string` or enum constant, and a `Nullable<T>`
   with no value; a `decimal` or `DateTime` default, and a bare `[Optional]` with no constant at all,
   still decline.
+- **Reading a member off an external generic closed over one of your own types** declines:
+  `new Lazy<Query>(() => new Query())` compiles, and so does `new Lazy<int>(...)`, but `.Value` on
+  the first one does not — reflection cannot report the members of `Lazy<Query>` while `Query` is
+  still being written, and only the CALL path rebinds through the definition so far. Close the
+  generic over an external type (`Lazy<string>`), or return the value from a function that builds it.
 - **Reading a member off a local initialised from an external static call** declines
   (`summary := Kernels.Summarize(args)` then `summary.ShowHelp`). The same member read works off a
   parameter of that type and off a local initialised with `new`, so binding the value differently is

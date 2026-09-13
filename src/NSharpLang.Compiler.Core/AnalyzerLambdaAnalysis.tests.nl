@@ -307,6 +307,39 @@ test "a reflected type whose delegate-ness cannot be established names no signat
     assert harness.Errors[0].Code == ErrorCode.CannotInferType
 }
 
+// A MAYBE-NULL TARGET NAMES THE SAME DELEGATE. A delegate FIELD is written `?` whenever it has no
+// initializer, so without this a lambda could not be written into one at all (`new Holder { Transform:
+// value => value + 1 }` reported NL203). A lambda literal is never the null.
+test "a maybe-null target names the delegate inside it" {
+    harness := LambdaHarnessOf()
+    parameterTypes := LambdaTypes()
+    parameterTypes.Add(BuiltInTypes.Int)
+    signature := LambdaSignature(parameterTypes, BuiltInTypes.Bool)
+    nullableSignature: TypeInfo = new NullableTypeInfo(signature)
+    parameters := LambdaParams()
+    LambdaParam(parameters, "value", 3, 6)
+    state := harness.Owner.BeginLambda(LambdaExpr(parameters, LambdaBody()), nullableSignature, true, false)
+
+    steps := LambdaRun(harness, state, BuiltInTypes.Bool)
+
+    assert steps[1].CarriedType == "int"
+    assert harness.Errors.Count == 0
+}
+
+test "a maybe-null target over a type that names NO signature still names none" {
+    harness := LambdaHarnessOf()
+    nullableInt: TypeInfo = new NullableTypeInfo(BuiltInTypes.Int)
+    parameters := LambdaParams()
+    LambdaParam(parameters, "value", 3, 6)
+    state := harness.Owner.BeginLambda(LambdaExpr(parameters, LambdaBody()), nullableInt, true, false)
+
+    steps := LambdaRun(harness, state, BuiltInTypes.Int)
+
+    assert steps[1].CarriedType == "unknown"
+    assert harness.Errors.Count == 1
+    assert harness.Errors[0].Code == ErrorCode.CannotInferType
+}
+
 test "a type that is neither a function nor a delegate names no signature at all" {
     harness := LambdaHarnessOf()
     parameters := LambdaParams()
