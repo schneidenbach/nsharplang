@@ -363,8 +363,16 @@ class AnalyzerProjectTypeDiscovery {
         // `NSharpLang.Runtime.SimdReductions` the file's own `import` brought in, with no
         // diagnostic, and a parity harness became a self-comparison. Answering false here hands the
         // name to the caller's external channel, which resolves it through the imports in order.
+        //
+        // THE PROBE IS ASKED AT THE LOOKUP NAME, ARITY AND ALL. It used to be asked at the DISPLAY
+        // name, which is the identity with its arity suffix removed — and metadata has no such name,
+        // so `List`1` was probed as `List`, found nothing, and the guard did not fire: a source
+        // `class List<T>` in a namespace a file never imported took the name back from the
+        // `System.Collections.Generic.List` that file's own `import` brought in, and `items.Add(1)`
+        // reported NL303. The guard was written for exactly that shape; only the generic half of it
+        // was unreachable.
         importProbe := externalTypeProbe
-        if importProbe != null && importProbe.ResolveImportedExternalType(TypeArityNames.Display(name)) != null {
+        if importProbe != null && importProbe.ResolveImportedExternalType(name) != null {
             typeInfo = BuiltInTypes.Unknown
             declaration = null
             return false

@@ -867,6 +867,13 @@ spells the name (census 2026-09-13, §AMBIG, finding 4). It now reads them throu
 declared-member family already uses. Any new site that resolves a `TypeReference` it did not read out
 of the file being analysed must use that door.
 
+**THE GENERIC HALF OF THAT GUARD WAS UNREACHABLE** (census 2026-09-13, §AMBIG). The
+imported-CLR-type probe below was asked for `TypeArityNames.Display(name)` — the identity with its
+arity suffix stripped — and no assembly declares a type called `List`, so a source `class List<T>` in
+a namespace a file never imported took the name back from the `System.Collections.Generic.List` that
+file's own `import` brought in, and `items.Add(1)` reported NL303. The probe is asked at the LOOKUP
+name now. `tests/native/census-imports/ShadowingGeneric.tests.nl` executes it.
+
 **AN EXPLICIT IMPORT OUTRANKS PROJECT-WIDE AUTO-DISCOVERY, and that ordering is a correctness fix.**
 `ResolveVisibleProjectType`'s third outcome — the unique-exported fallback — matches by unqualified
 name across every exported source declaration in the compilation, whatever namespace it lives in and
