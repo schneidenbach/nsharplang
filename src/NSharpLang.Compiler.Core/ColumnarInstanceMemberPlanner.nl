@@ -570,6 +570,7 @@ class ColumnarInstanceMemberPlanner {
         foundProperty: ColumnarPropertyDef? = null
         foundDeclaring := typeof(object)
         foundExactDeclaring := typeof(object)
+        externalBase: Type? = null
         while current != null {
             localField := current.Fields.ContainsKey(memberName)
             localProperty := current.Properties.ContainsKey(memberName)
@@ -595,6 +596,11 @@ class ColumnarInstanceMemberPlanner {
 
             baseDefinition := current.BaseDef
             if baseDefinition == null {
+                // THE SOURCE CHAIN ENDS, THE TYPE'S CHAIN DOES NOT. `class Names: List<string>` has
+                // no further source definition, but the receiver still IS a `List<string>` and
+                // `n.Count` is a read the CLR can answer. The external base comes from the one
+                // inherited-base walk, re-expressed through the arguments this link carries.
+                externalBase = ColumnarInheritedExternalBase.Resolve(current, currentExactType)
                 current = null
                 continue
             }
@@ -618,6 +624,10 @@ class ColumnarInstanceMemberPlanner {
                 throw new InvalidOperationException("A closed source receiver cannot map to an open generic base.")
             }
             current = baseDefinition
+        }
+
+        if !found && !foundStatic && externalBase != null {
+            return TrySelectInheritedExternalMember(externalBase, memberName, classification, out selection)
         }
 
         if foundStatic || !found {
@@ -686,6 +696,22 @@ class ColumnarInstanceMemberPlanner {
         }
 
         selection = new ColumnarInstanceMemberSelection(ColumnarInstanceMemberKind.Property, classification.ReceiverIsReference, classification.PreserveDirectValueStorage, declaringPropertyType, propertyType, null, selectedGetter)
+
+        return true
+    }
+
+    // A MEMBER THIS COMPILATION DID NOT WRITE, READ THROUGH A RECEIVER IT DID. The receiver stays the
+    // derived builder type — the selection's declaring type is the external base, which is what the
+    // getter is emitted against, and a `callvirt` to a base's getter with a derived receiver is
+    // exactly the instruction a read written on the base would emit.
+    static func TrySelectInheritedExternalMember(externalBase: Type, memberName: string, classification: ColumnarInstanceMemberSelection, out selection: ColumnarInstanceMemberSelection): bool {
+        selection = EmptySelection()
+        runtime := ColumnarRuntimeInstanceMemberSelection.Empty()
+        if !ColumnarRuntimeInstanceMemberResolver.TrySelect(externalBase, memberName, out runtime) {
+            return false
+        }
+
+        selection = new ColumnarInstanceMemberSelection(runtime.IsField ? ColumnarInstanceMemberKind.Field : ColumnarInstanceMemberKind.Property, classification.ReceiverIsReference, classification.PreserveDirectValueStorage, runtime.DeclaringType, runtime.ResultType, runtime.Field, runtime.Getter)
 
         return true
     }

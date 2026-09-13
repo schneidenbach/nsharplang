@@ -16509,6 +16509,20 @@ sealed class ColumnarIlEmitter {
     // is served. A struct value on the stack can only be addressed through a temp, and a write into that
     // temp would be lost -- an addressable struct indexer target is a separate shape, and declining is
     // the honest answer for it rather than emitting a store nothing observes.
+    // WHICH TYPE'S INDEXER A RECEIVER'S `[...]` NAMES. It is the receiver's own type for everything
+    // this compilation did not write, and the external base for a source type that inherits one:
+    // `class Names: List<string>` declares no `get_Item`, but a `Names` IS a `List<string>` and
+    // `names[0]` is the same call `List<string>`'s own receiver would make. The VALUE on the stack
+    // stays the derived type — a `callvirt` to a base's indexer with a derived receiver is exactly
+    // the instruction the base-typed read emits — so only the lookup moves.
+    private func IndexerLookupType(receiverType: Type): Type {
+        inherited := ColumnarInheritedExternalBase.ResolveForReceiver(receiverType, _structRegistry.get_Values())
+        if (inherited == null) {
+            return receiverType
+        }
+        return inherited
+    }
+
     private func TryEmitRuntimeIndexerWrite(targetIdx: int, valueNode: int, receiverType: Type, out wrote: bool): bool {
         wrote = false
         if (receiverType.get_IsValueType() || ColumnarTypeEquivalenceFacts.IsSafeSzArrayType(receiverType) || receiverType.get_IsArray() || receiverType.get_IsByRef() || receiverType.get_IsPointer() || receiverType.get_IsGenericParameter()) {
@@ -16523,7 +16537,7 @@ sealed class ColumnarIlEmitter {
         argumentTypes := new System.Type[](2)
         argumentTypes[0] = indexType
         argumentTypes[1] = valueType
-        selection := ColumnarOrdinaryRuntimeDirectCallResolver.Resolve(receiverType, "set_Item", argumentTypes, false)
+        selection := ColumnarOrdinaryRuntimeDirectCallResolver.Resolve(IndexerLookupType(receiverType), "set_Item", argumentTypes, false)
         if (!selection.IsSelected || selection.Method == null) {
             return false
         }
@@ -16561,7 +16575,8 @@ sealed class ColumnarIlEmitter {
 
         argumentTypes := new System.Type[](1)
         argumentTypes[0] = indexType
-        selection := ColumnarOrdinaryRuntimeDirectCallResolver.Resolve(receiverType, "get_Item", argumentTypes, false)
+        lookupType := IndexerLookupType(receiverType)
+        selection := ColumnarOrdinaryRuntimeDirectCallResolver.Resolve(lookupType, "get_Item", argumentTypes, false)
         if (!selection.IsSelected || selection.Method == null) {
             return false
         }
