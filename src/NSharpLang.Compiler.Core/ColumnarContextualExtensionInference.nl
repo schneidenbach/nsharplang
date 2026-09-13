@@ -38,17 +38,29 @@ class ColumnarContextualExtensionBinding {
     Inferred: Type[]
     ArgumentCount: int
 
-    constructor(candidate: ColumnarExtensionMethodCandidate, typeParameters: Type[], inferred: Type[], argumentCount: int) {
+    // WHERE THE WRITTEN ARGUMENTS START IN THE DECLARED PARAMETER LIST. An EXTENSION spends its
+    // first parameter on the receiver, so its explicit arguments begin at one; an ordinary static or
+    // instance method spends none, so they begin at zero. That single number is the whole difference
+    // between the three call shapes, which is why there is one inference owner and not three.
+    ParameterOffset: int
+
+    // A LAMBDA GIVEN TO A `void` DELEGATE WHOSE BODY HAD A VALUE TO GIVE. `Task.Run(() => 42)`
+    // matches both `Run(Action)` and `Run<TResult>(Func<TResult>)`; C# prefers the one that does not
+    // throw the body's value away, and this count is how that preference is expressed.
+    DiscardedLambdaResults: int
+
+    constructor(candidate: ColumnarExtensionMethodCandidate, typeParameters: Type[], inferred: Type[], argumentCount: int, parameterOffset: int) {
         Candidate = candidate
         TypeParameters = typeParameters
         Inferred = inferred
         ArgumentCount = argumentCount
+        ParameterOffset = parameterOffset
+        DiscardedLambdaResults = 0
     }
 
-    // The DECLARED type of explicit argument `index`, still open. Position zero is the receiver, so
-    // an explicit argument is always one slot further along.
+    // The DECLARED type of explicit argument `index`, still open.
     func OpenArgumentType(index: int): Type {
-        return Candidate.ParameterTypes[index + 1]
+        return Candidate.ParameterTypes[index + ParameterOffset]
     }
 }
 
@@ -99,7 +111,52 @@ class ColumnarContextualExtensionInference {
             return false
         }
 
-        binding = new ColumnarContextualExtensionBinding(candidate, typeParameters, inferred, argumentCount)
+        binding = new ColumnarContextualExtensionBinding(candidate, typeParameters, inferred, argumentCount, 1)
+        return true
+    }
+
+    // PHASE ONE, OPENED FOR A CALL THAT SPENDS NO PARAMETER ON ITS RECEIVER — an ordinary static
+    // method, or an instance method whose receiver is the object itself. The only difference from
+    // the extension form is the offset; everything after this point is identical, which is the
+    // point.
+    static func TryBeginDirect(method: MethodInfo?, argumentCount: int, out binding: ColumnarContextualExtensionBinding?): bool {
+        binding = null
+        if method == null || argumentCount < 1 {
+            return false
+        }
+
+        parameters := method.GetParameters()
+        if parameters == null || parameters.Length != argumentCount {
+            return false
+        }
+
+        parameterTypes := ColumnarExtensionMethodResolver.ParameterTypesOrNull(parameters)
+        if parameterTypes == null {
+            return false
+        }
+
+        typeParameters := new Type[](0)
+        if method.get_IsGenericMethodDefinition() {
+            declared := method.GetGenericArguments()
+            if declared == null || declared.Length == 0 {
+                return false
+            }
+
+            typeParameters = declared
+        }
+
+        declaringType := method.get_DeclaringType()
+        if declaringType == null {
+            return false
+        }
+
+        returnType := method.get_ReturnType()
+        if returnType == null {
+            return false
+        }
+
+        candidate := new ColumnarExtensionMethodCandidate(method, declaringType, parameterTypes, returnType)
+        binding = new ColumnarContextualExtensionBinding(candidate, typeParameters, new Type[](typeParameters.Length), argumentCount, 0)
         return true
     }
 

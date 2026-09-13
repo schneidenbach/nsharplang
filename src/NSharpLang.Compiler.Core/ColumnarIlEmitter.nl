@@ -14881,6 +14881,17 @@ sealed class ColumnarIlEmitter {
             resolvedClrType = ColumnarTypeOfPlanner.RequiredVoidType()
             return true
         }
+        // ORDINARY STATIC RESOLUTION FOR A CALL WHOSE ARGUMENT TYPES ONLY A DELEGATE CONTEXT CAN
+        // SUPPLY. `Array.ConvertAll(values, v => v.Length)` and `Array.FindIndex(values, IsLong)`
+        // reach here because the tiers above type their arguments first and a lambda has no type
+        // until its delegate is known. The owner is resolved by the same name resolver every other
+        // external owner lookup uses; nothing about the member is written down.
+        let contextualOwnerType: System.Type? = null
+        let contextualOwnerClaimed: bool = false
+        if (_typeResolutionStructs.Resolver.TryResolve(typeName, out contextualOwnerType, out contextualOwnerClaimed) && contextualOwnerType != null && TryEmitContextualStaticCall(callIdx, contextualOwnerType, member, argCount, out resolvedClrType)) {
+            return true
+        }
+
         return Decline(
             "emit.call.static-member-unmodeled",
             "static call '" + typeName + "." + member + "' with " + argCount.ToString() + " argument(s) is not modeled",
@@ -17302,6 +17313,10 @@ sealed class ColumnarIlEmitter {
         if (TryGetPreflightExtensionStaticMethodCallType(receiverType, member, callIdx, out columnarResolvedType)) {
             return true
         }
+        if (TryGetPreflightContextualInstanceCallType(receiverType, member, callIdx, out columnarResolvedType)) {
+            return true
+        }
+
         if (TryGetPreflightContextualExtensionCallType(receiverType, member, callIdx, out columnarResolvedType)) {
             return true
         }
@@ -17921,58 +17936,61 @@ sealed class ColumnarIlEmitter {
         return false
     }
 
-    // EVERY EXTENSION CALL WHOSE ARGUMENTS INCLUDE A LAMBDA, RESOLVED BY ORDINARY METHOD TYPE
-    // INFERENCE — the general owner the per-member Enumerable residual used to stand in for.
+    // EVERY CALL WHOSE ARGUMENTS INCLUDE A LAMBDA OR A METHOD GROUP, RESOLVED BY ORDINARY METHOD
+    // TYPE INFERENCE — the general owner the per-member residual tables used to stand in for.
     //
-    // The candidates are the referenced-assembly extension index's own bucket for this name; the
-    // positions are each candidate's own signature; the delegate shapes are read off the delegate
-    // types' `Invoke`. Nothing here names `Select`, `Where` or any other member, and an extension
-    // that ships in a referenced assembly next week resolves on the day it is referenced.
+    // The candidates come from the receiver's or owner's own metadata (or, for an extension, from
+    // the referenced-assembly extension index that already exists); the positions come from each
+    // candidate's own signature; the delegate shapes are read off the delegate types' own `Invoke`.
+    // Nothing here names `Select`, `Where`, `FindIndex` or any other member, and a method that ships
+    // in a referenced assembly next week resolves on the day it is referenced.
     //
-    // AMBIGUITY IS A DECLINE. Two candidates that both close and both accept the arguments is not a
-    // choice this owner may make, exactly as in the non-contextual resolver.
-    private func TryResolveContextualExtensionCandidate(callIdx: int, receiverType: Type, member: string, argCount: int, out closedCandidate: NSharpLang.Compiler.Columnar.ColumnarExtensionMethodCandidate): bool {
+    // THE THREE CALL SHAPES DIFFER ONLY IN WHERE THE WRITTEN ARGUMENTS START. An extension spends
+    // its first parameter on the receiver; a static or instance method spends none. That is the
+    // binding's `ParameterOffset`, and everything downstream of it is one walk.
+    //
+    // AMBIGUITY IS A DECLINE, with exactly two tie-breaks, both C#'s own: a candidate that would
+    // throw a lambda's result away loses to one that uses it (`Task.Run(Action)` against
+    // `Task.Run<TResult>(Func<TResult>)`), and between two candidates that close to the SAME
+    // signature the less generic one wins (`Max<TSource>` against `Max<TSource, TResult>`).
+    private func TrySelectContextualCandidate(callIdx: int, argCount: int, candidateBindings: List<NSharpLang.Compiler.Columnar.ColumnarContextualExtensionBinding>, receiverType: Type, checkReceiver: bool, out closedCandidate: NSharpLang.Compiler.Columnar.ColumnarExtensionMethodCandidate): bool {
         closedCandidate = null
-        scope := _nodes.BindingScope
-        if (scope == null || receiverType == null || receiverType.get_IsByRef() || receiverType.get_IsPointer() || receiverType.get_IsGenericParameter()) {
-            return false
-        }
-        candidates := scope.ExtensionCandidates(member)
-        if (candidates.Count == 0) {
-            return false
-        }
         selectedCount := 0
         selectedTypeParameters := 0
-        for candidate in candidates {
-            let binding: NSharpLang.Compiler.Columnar.ColumnarContextualExtensionBinding? = null
-            if (!ColumnarContextualExtensionInference.TryBegin(candidate, receiverType, argCount, out binding)) {
-                continue
-            }
-            if (!TryRunContextualExtensionInference(callIdx, binding, argCount)) {
+        selectedDiscards := 0
+        for binding in candidateBindings {
+            if (!TryRunContextualInference(callIdx, binding, argCount)) {
                 continue
             }
             let candidateClosed: NSharpLang.Compiler.Columnar.ColumnarExtensionMethodCandidate? = null
             if (!ColumnarContextualExtensionInference.TryClose(binding, out candidateClosed)) {
                 continue
             }
-            if (!ContextualExtensionCandidateAccepts(callIdx, receiverType, candidateClosed, argCount)) {
+            if (!ContextualCandidateAccepts(callIdx, receiverType, checkReceiver, candidateClosed, binding.ParameterOffset, argCount)) {
                 continue
             }
             candidateTypeParameters := binding.TypeParameters.Length
+            candidateDiscards := binding.DiscardedLambdaResults
             if (selectedCount == 0) {
                 closedCandidate = candidateClosed
                 selectedTypeParameters = candidateTypeParameters
+                selectedDiscards = candidateDiscards
                 selectedCount = 1
                 continue
             }
 
-            // TWO CANDIDATES THAT CLOSED TO THE SAME SIGNATURE ARE NOT AMBIGUOUS: the LESS GENERIC
-            // one wins, which is C#'s own tie-break and the same one the non-contextual resolver
-            // applies. `Enumerable.Max` declares both `Max<TSource>(seq, Func<TSource, int>)` and
-            // `Max<TSource, TResult>(seq, Func<TSource, TResult>)`, and against an `int`-returning
-            // selector both close to `Func<string, int>`; the two-parameter form is the general one
-            // and the one-parameter form is the specific one written for exactly this case.
-            if (ContextualExtensionSignaturesMatch(closedCandidate, candidateClosed)) {
+            if (candidateDiscards < selectedDiscards) {
+                closedCandidate = candidateClosed
+                selectedTypeParameters = candidateTypeParameters
+                selectedDiscards = candidateDiscards
+                selectedCount = 1
+                continue
+            }
+            if (candidateDiscards > selectedDiscards) {
+                continue
+            }
+
+            if (ContextualSignaturesMatch(closedCandidate, candidateClosed)) {
                 if (candidateTypeParameters < selectedTypeParameters) {
                     closedCandidate = candidateClosed
                     selectedTypeParameters = candidateTypeParameters
@@ -17992,37 +18010,22 @@ sealed class ColumnarIlEmitter {
         return true
     }
 
-    // Whether two closed candidates would be called with exactly the same argument types. Only then
-    // is "less generic wins" a tie-break rather than a preference between different calls.
-    private static func ContextualExtensionSignaturesMatch(first: NSharpLang.Compiler.Columnar.ColumnarExtensionMethodCandidate, second: NSharpLang.Compiler.Columnar.ColumnarExtensionMethodCandidate): bool {
-        if (first == null || second == null || first.ParameterTypes.Length != second.ParameterTypes.Length) {
-            return false
-        }
-        for p := 0; p < first.ParameterTypes.Length; p++ {
-            if (!TypesEquivalent(first.ParameterTypes[p], second.ParameterTypes[p])) {
-                return false
-            }
-        }
-        return true
-    }
-
     // THE TWO PHASES, RUN OVER THIS CALL'S ARGUMENT NODES. Phase one folds in every argument that
-    // already has a type of its own, including a method group's whole signature. Phase two folds in
-    // each lambda whose delegate inputs are now fixed, and repeats while anything moved — a lambda
-    // can fix a type parameter the next lambda's inputs depend on.
-    private func TryRunContextualExtensionInference(callIdx: int, binding: NSharpLang.Compiler.Columnar.ColumnarContextualExtensionBinding, argCount: int): bool {
+    // already has a type of its own, including a method group's whole signature. Phase two analyses
+    // each lambda whose delegate inputs are now fixed and folds its body type into the delegate's
+    // return position, repeating while anything moved — a lambda can fix a type parameter the next
+    // lambda's inputs depend on.
+    private func TryRunContextualInference(callIdx: int, binding: NSharpLang.Compiler.Columnar.ColumnarContextualExtensionBinding, argCount: int): bool {
         resolved := new bool[argCount]
         for a := 0; a < argCount; a++ {
             argNode := UnwrapParenthesizedNode(Child(callIdx, 1 + a))
             if (_nodes.Kind(argNode) == 39) {
                 continue
             }
-            let localTargetMethod: System.Reflection.Emit.MethodBuilder? = null
-            let localTargetParamTypes: System.Type[]? = null
-            let localTargetReturnType: System.Type? = null
-            let localTarget: (Method: System.Reflection.Emit.MethodBuilder, ParamTypes: System.Type[], ReturnType: System.Type) = (localTargetMethod, localTargetParamTypes, localTargetReturnType)
-            if (ColumnarContextualExtensionInference.IsDelegatePosition(binding, a) && TryGetVisibleLocalFunctionMethodGroup(argNode, out localTarget)) {
-                if (!ColumnarContextualExtensionInference.TryUnifyMethodGroup(binding, a, localTarget.ParamTypes, localTarget.ReturnType)) {
+            let groupParameterTypes: System.Type[]? = null
+            let groupReturnType: System.Type? = null
+            if (ColumnarContextualExtensionInference.IsDelegatePosition(binding, a) && TryGetMethodGroupSignature(argNode, out groupParameterTypes, out groupReturnType)) {
+                if (!ColumnarContextualExtensionInference.TryUnifyMethodGroup(binding, a, groupParameterTypes, groupReturnType)) {
                     return false
                 }
                 resolved[a] = true
@@ -18052,14 +18055,20 @@ sealed class ColumnarIlEmitter {
                 }
                 let closedReturn: System.Type? = null
                 closedReturnKnown := ColumnarContextualExtensionInference.TryGetClosedDelegateReturn(binding, a, out closedReturn)
+                let lambdaReturn: System.Type? = null
+                lambdaReturnKnown := TryPreflightContextualLambdaReturnType(argNode, inputTypes, out lambdaReturn)
                 if (closedReturnKnown && closedReturn == ColumnarTypeOfPlanner.RequiredVoidType()) {
-                    // A `void` delegate has no return position to fix and imposes none on the body.
+                    // A `void` delegate has no return position to fix and imposes none on the body —
+                    // but a body that HAD a value is being thrown away, and that is what loses the
+                    // tie-break against a candidate that keeps it.
+                    if (lambdaReturnKnown && lambdaReturn != ColumnarTypeOfPlanner.RequiredVoidType()) {
+                        binding.DiscardedLambdaResults = binding.DiscardedLambdaResults + 1
+                    }
                     resolved[a] = true
                     progress = true
                     continue
                 }
-                let lambdaReturn: System.Type? = null
-                if (!TryPreflightContextualLambdaReturnType(argNode, inputTypes, out lambdaReturn)) {
+                if (!lambdaReturnKnown) {
                     return false
                 }
                 if (closedReturnKnown) {
@@ -18088,25 +18097,114 @@ sealed class ColumnarIlEmitter {
         return true
     }
 
-    // Whether the CLOSED candidate accepts this call: the receiver is assignable to the declared
-    // receiver parameter without a conversion (it is already on the stack), every argument matches
-    // its now-closed parameter type, and the result is a type this backend can name.
-    private func ContextualExtensionCandidateAccepts(callIdx: int, receiverType: Type, candidate: NSharpLang.Compiler.Columnar.ColumnarExtensionMethodCandidate, argCount: int): bool {
+    // Whether the CLOSED candidate accepts this call: for an extension the receiver is assignable to
+    // the declared receiver parameter without a conversion (it is already on the stack), every
+    // argument matches its now-closed parameter type, and the result is a type this backend can name.
+    private func ContextualCandidateAccepts(callIdx: int, receiverType: Type, checkReceiver: bool, candidate: NSharpLang.Compiler.Columnar.ColumnarExtensionMethodCandidate, parameterOffset: int, argCount: int): bool {
         if (candidate == null || candidate.Method == null) {
             return false
         }
-        if (!ColumnarExtensionMethodResolver.ReferenceAssignableFrom(candidate.ParameterTypes[0], receiverType)) {
+        if (checkReceiver && !ColumnarExtensionMethodResolver.ReferenceAssignableFrom(candidate.ParameterTypes[0], receiverType)) {
             return false
         }
-        if (!ColumnarTypeOfPlanner.IsSupportedType(candidate.ReturnType)) {
+        if (candidate.ReturnType != ColumnarTypeOfPlanner.RequiredVoidType() && !ColumnarTypeOfPlanner.IsSupportedType(candidate.ReturnType)) {
             return false
         }
         for a := 0; a < argCount; a++ {
-            if (!CanDeclaredCallArgumentMatch(Child(callIdx, 1 + a), candidate.ParameterTypes[a + 1], true)) {
+            if (!CanDeclaredCallArgumentMatch(Child(callIdx, 1 + a), candidate.ParameterTypes[a + parameterOffset], true)) {
                 return false
             }
         }
         return true
+    }
+
+    // Whether two closed candidates would be called with exactly the same argument types. Only then
+    // is "less generic wins" a tie-break rather than a preference between different calls.
+    private static func ContextualSignaturesMatch(first: NSharpLang.Compiler.Columnar.ColumnarExtensionMethodCandidate, second: NSharpLang.Compiler.Columnar.ColumnarExtensionMethodCandidate): bool {
+        if (first == null || second == null || first.ParameterTypes.Length != second.ParameterTypes.Length) {
+            return false
+        }
+        for p := 0; p < first.ParameterTypes.Length; p++ {
+            if (!TypesEquivalent(first.ParameterTypes[p], second.ParameterTypes[p])) {
+                return false
+            }
+        }
+        return true
+    }
+
+    // Does this call carry an argument whose type only a delegate context can supply? Ordinary
+    // resolution owns everything else, so the contextual walk never runs when it has nothing to add.
+    private func HasContextualDelegateArgument(callIdx: int, argCount: int): bool {
+        for a := 0; a < argCount; a++ {
+            argNode := UnwrapParenthesizedNode(Child(callIdx, 1 + a))
+            if (_nodes.Kind(argNode) == 39) {
+                return true
+            }
+            let groupParameterTypes: System.Type[]? = null
+            let groupReturnType: System.Type? = null
+            if (TryGetMethodGroupSignature(argNode, out groupParameterTypes, out groupReturnType)) {
+                return true
+            }
+        }
+        return false
+    }
+
+    private func TryResolveContextualExtensionCandidate(callIdx: int, receiverType: Type, member: string, argCount: int, out closedCandidate: NSharpLang.Compiler.Columnar.ColumnarExtensionMethodCandidate): bool {
+        closedCandidate = null
+        scope := _nodes.BindingScope
+        if (scope == null || argCount < 1 || receiverType == null || receiverType.get_IsByRef() || receiverType.get_IsPointer() || receiverType.get_IsGenericParameter() || !HasContextualDelegateArgument(callIdx, argCount)) {
+            return false
+        }
+        candidates := scope.ExtensionCandidates(member)
+        if (candidates.Count == 0) {
+            return false
+        }
+        bindings := new List<NSharpLang.Compiler.Columnar.ColumnarContextualExtensionBinding>()
+        for candidate in candidates {
+            let binding: NSharpLang.Compiler.Columnar.ColumnarContextualExtensionBinding? = null
+            if (ColumnarContextualExtensionInference.TryBegin(candidate, receiverType, argCount, out binding)) {
+                bindings.Add(binding)
+            }
+        }
+        return TrySelectContextualCandidate(callIdx, argCount, bindings, receiverType, true, out closedCandidate)
+    }
+
+    // The candidates an ordinary (non-extension) call has: every public method of that name on the
+    // owner, at this arity. Instance and static are the same question asked with different binding
+    // flags, which is why one member answers both.
+    private func ContextualDirectBindings(ownerType: Type, member: string, argCount: int, wantStatic: bool): List<NSharpLang.Compiler.Columnar.ColumnarContextualExtensionBinding> {
+        bindings := new List<NSharpLang.Compiler.Columnar.ColumnarContextualExtensionBinding>()
+        let candidates: System.Reflection.MethodInfo[]? = null
+        try {
+            candidates = wantStatic ? ownerType.GetMethods(BindingFlags.Public | BindingFlags.Static) : ownerType.GetMethods(BindingFlags.Public | BindingFlags.Instance)
+        } catch {
+            return bindings
+        }
+        if (candidates == null) {
+            return bindings
+        }
+        for candidate in candidates {
+            if (candidate.get_Name() != member) {
+                continue
+            }
+            let binding: NSharpLang.Compiler.Columnar.ColumnarContextualExtensionBinding? = null
+            if (ColumnarContextualExtensionInference.TryBeginDirect(candidate, argCount, out binding)) {
+                bindings.Add(binding)
+            }
+        }
+        return bindings
+    }
+
+    private func TryResolveContextualDirectCandidate(callIdx: int, ownerType: Type, member: string, argCount: int, wantStatic: bool, out closedCandidate: NSharpLang.Compiler.Columnar.ColumnarExtensionMethodCandidate): bool {
+        closedCandidate = null
+        if (ownerType == null || argCount < 1 || ownerType.get_IsByRef() || ownerType.get_IsPointer() || ownerType.get_IsGenericParameter() || ColumnarTypeOfPlanner.ContainsBuilderBoundType(ownerType) || !HasContextualDelegateArgument(callIdx, argCount)) {
+            return false
+        }
+        bindings := ContextualDirectBindings(ownerType, member, argCount, wantStatic)
+        if (bindings.Count == 0) {
+            return false
+        }
+        return TrySelectContextualCandidate(callIdx, argCount, bindings, ownerType, false, out closedCandidate)
     }
 
     private func TryGetPreflightContextualExtensionCallType(receiverType: Type, member: string, callIdx: int, out columnarResolvedType: Type): bool {
@@ -18114,6 +18212,17 @@ sealed class ColumnarIlEmitter {
         argCount := _nodes.ChildCount(callIdx) - 1
         let candidate: NSharpLang.Compiler.Columnar.ColumnarExtensionMethodCandidate? = null
         if (!TryResolveContextualExtensionCandidate(callIdx, receiverType, member, argCount, out candidate)) {
+            return false
+        }
+        columnarResolvedType = candidate.ReturnType
+        return true
+    }
+
+    private func TryGetPreflightContextualInstanceCallType(receiverType: Type, member: string, callIdx: int, out columnarResolvedType: Type): bool {
+        columnarResolvedType = null
+        argCount := _nodes.ChildCount(callIdx) - 1
+        let candidate: NSharpLang.Compiler.Columnar.ColumnarExtensionMethodCandidate? = null
+        if (!TryResolveContextualDirectCandidate(callIdx, receiverType, member, argCount, false, out candidate)) {
             return false
         }
         columnarResolvedType = candidate.ReturnType
@@ -18130,6 +18239,40 @@ sealed class ColumnarIlEmitter {
         }
         for a := 0; a < argCount; a++ {
             if (!EmitDeclaredCallArgument(Child(callIdx, 1 + a), candidate.ParameterTypes[a + 1], true)) {
+                return false
+            }
+        }
+        _il.Emit(OpCodes.Call, candidate.Method)
+        columnarResolvedType = candidate.ReturnType
+        return true
+    }
+
+    // The receiver is already on the stack as the instance, so the arguments follow it and the call
+    // is virtual — the same shape every other ordinary instance call emits.
+    private func TryEmitContextualInstanceCall(callIdx: int, receiverType: Type, member: string, argCount: int, out columnarResolvedType: Type): bool {
+        columnarResolvedType = null
+        let candidate: NSharpLang.Compiler.Columnar.ColumnarExtensionMethodCandidate? = null
+        if (!TryResolveContextualDirectCandidate(callIdx, receiverType, member, argCount, false, out candidate)) {
+            return false
+        }
+        for a := 0; a < argCount; a++ {
+            if (!EmitDeclaredCallArgument(Child(callIdx, 1 + a), candidate.ParameterTypes[a], true)) {
+                return false
+            }
+        }
+        _il.Emit(OpCodes.Callvirt, candidate.Method)
+        columnarResolvedType = candidate.ReturnType
+        return true
+    }
+
+    private func TryEmitContextualStaticCall(callIdx: int, ownerType: Type, member: string, argCount: int, out columnarResolvedType: Type): bool {
+        columnarResolvedType = null
+        let candidate: NSharpLang.Compiler.Columnar.ColumnarExtensionMethodCandidate? = null
+        if (!TryResolveContextualDirectCandidate(callIdx, ownerType, member, argCount, true, out candidate)) {
+            return false
+        }
+        for a := 0; a < argCount; a++ {
+            if (!EmitDeclaredCallArgument(Child(callIdx, 1 + a), candidate.ParameterTypes[a], true)) {
                 return false
             }
         }
@@ -18289,6 +18432,13 @@ sealed class ColumnarIlEmitter {
         }
 
         if (TryEmitAspNetMapEndpointCall(callIdx, receiverType, member, argCount, out columnarResolvedType)) {
+            return true
+        }
+
+        // An INSTANCE member of the receiver's own type wins against an extension of the same name,
+        // so the contextual instance walk runs first — exactly the precedence ordinary resolution
+        // already keeps one tier above.
+        if (TryEmitContextualInstanceCall(callIdx, receiverType, member, argCount, out columnarResolvedType)) {
             return true
         }
 
@@ -19606,7 +19756,7 @@ sealed class ColumnarIlEmitter {
         if (allowLambdaLiteral && _nodes.Kind(argNode) == 39) {
             return IsSupportedContextualDelegateType(expectedParamType)
         }
-        if (allowLambdaLiteral && CanEmitLocalFunctionMethodGroupAsDelegate(argNode, expectedParamType)) {
+        if (allowLambdaLiteral && (CanEmitLocalFunctionMethodGroupAsDelegate(argNode, expectedParamType) || CanEmitSiblingMethodGroupAsDelegate(argNode, expectedParamType))) {
             return true
         }
         if (_nodes.Kind(argNode) == ColumnarExpressionNodeKind.DefaultExpression()) {
@@ -19660,7 +19810,7 @@ sealed class ColumnarIlEmitter {
         if (allowLambdaLiteral && _nodes.Kind(argNode) == 39) {
             return TryEmitLambdaLiteral(argNode, expectedParamType)
         }
-        if (allowLambdaLiteral && TryEmitLocalFunctionMethodGroupAsDelegate(argNode, expectedParamType)) {
+        if (allowLambdaLiteral && (TryEmitLocalFunctionMethodGroupAsDelegate(argNode, expectedParamType) || TryEmitSiblingMethodGroupAsDelegate(argNode, expectedParamType))) {
             return true
         }
         let ignoredTargetTypedNewType: System.Type? = null
@@ -19699,6 +19849,89 @@ sealed class ColumnarIlEmitter {
         }
         name := ColumnarNodeTextFacts.Text(_nodes, _source, argNode)
         return _visibleLocalFuncs.Contains(name) && _localFuncs.TryGetValue(name, out localTarget)
+    }
+
+    // A NAMESPACE-LEVEL OR SIBLING `func` NAMED AS A VALUE. `_localFuncs` holds the ones lifted out of
+    // a body; `_siblings` holds the file's own top-level declarations, and both are method groups a
+    // delegate position may name. Only a NON-GENERIC sibling with ordinary parameters qualifies: a
+    // generic one has no fixed handle to take the address of, and a `ref`/`out`/`params` parameter is
+    // not part of a delegate's own signature shape.
+    private func TryGetSiblingMethodGroup(argNode: int, out siblingTarget: ColumnarSiblingMethodDefinition): bool {
+        siblingTarget = null
+        argNode = UnwrapParenthesizedNode(argNode)
+        if (_nodes.Kind(argNode) != 6 || _siblings == null) {
+            return false
+        }
+        name := ColumnarNodeTextFacts.Text(_nodes, _source, argNode)
+        let candidate: NSharpLang.Compiler.Columnar.ColumnarSiblingMethodDefinition? = null
+        if (!_siblings.TryGetValue(name, out candidate) || candidate == null || candidate.TypeParams.Length > 0) {
+            return false
+        }
+        for modifierKind in candidate.ParamModifierKinds {
+            if (modifierKind != 0) {
+                return false
+            }
+        }
+        siblingTarget = candidate
+        return true
+    }
+
+    // THE SIGNATURE A METHOD GROUP WRITTEN AS AN ARGUMENT CARRIES, whichever table holds it. This is
+    // what lets inference fold a method group into a delegate's positions exactly as it folds a
+    // lambda's body — one path, no special case for how the signature was written.
+    private func TryGetMethodGroupSignature(argNode: int, out parameterTypes: Type[], out returnType: Type): bool {
+        parameterTypes = Type.EmptyTypes
+        returnType = null
+        let localTargetMethod: System.Reflection.Emit.MethodBuilder? = null
+        let localTargetParamTypes: System.Type[]? = null
+        let localTargetReturnType: System.Type? = null
+        let localTarget: (Method: System.Reflection.Emit.MethodBuilder, ParamTypes: System.Type[], ReturnType: System.Type) = (localTargetMethod, localTargetParamTypes, localTargetReturnType)
+        if (TryGetVisibleLocalFunctionMethodGroup(argNode, out localTarget)) {
+            parameterTypes = localTarget.ParamTypes
+            returnType = localTarget.ReturnType
+            return true
+        }
+        let siblingTarget: NSharpLang.Compiler.Columnar.ColumnarSiblingMethodDefinition? = null
+        if (TryGetSiblingMethodGroup(argNode, out siblingTarget)) {
+            parameterTypes = siblingTarget.ParamTypes
+            returnType = siblingTarget.ReturnType
+            return true
+        }
+        return false
+    }
+
+    private func CanEmitSiblingMethodGroupAsDelegate(argNode: int, expectedDelegateType: Type): bool {
+        let siblingTarget: NSharpLang.Compiler.Columnar.ColumnarSiblingMethodDefinition? = null
+        let delegateReturnType: System.Type? = null
+        let delegateParamTypes: System.Type[]? = null
+        let ignoredDelegateConstructor: System.Reflection.ConstructorInfo? = null
+        return TryGetSiblingMethodGroup(argNode, out siblingTarget) && TryGetSupportedDelegateSignature(expectedDelegateType, true, out delegateReturnType, out delegateParamTypes, out ignoredDelegateConstructor) && SignatureMatchesDelegate(siblingTarget.ParamTypes, siblingTarget.ReturnType, delegateReturnType, delegateParamTypes)
+    }
+
+    private func TryEmitSiblingMethodGroupAsDelegate(argNode: int, expectedDelegateType: Type): bool {
+        let siblingTarget: NSharpLang.Compiler.Columnar.ColumnarSiblingMethodDefinition? = null
+        let delegateReturnType: System.Type? = null
+        let delegateParamTypes: System.Type[]? = null
+        let delegateCtor: System.Reflection.ConstructorInfo? = null
+        if (!TryGetSiblingMethodGroup(argNode, out siblingTarget) || !TryGetSupportedDelegateSignature(expectedDelegateType, true, out delegateReturnType, out delegateParamTypes, out delegateCtor) || !SignatureMatchesDelegate(siblingTarget.ParamTypes, siblingTarget.ReturnType, delegateReturnType, delegateParamTypes)) {
+            return false
+        }
+        _il.Emit(OpCodes.Ldnull)
+        _il.Emit(OpCodes.Ldftn, siblingTarget.Method)
+        _il.Emit(OpCodes.Newobj, delegateCtor)
+        return true
+    }
+
+    private static func SignatureMatchesDelegate(parameterTypes: Type[], returnType: Type, delegateReturnType: Type, delegateParamTypes: Type[]): bool {
+        if (!TypesEquivalent(returnType, delegateReturnType) || parameterTypes.Length != delegateParamTypes.Length) {
+            return false
+        }
+        for p := 0; p < delegateParamTypes.Length; p++ {
+            if (!TypesEquivalent(parameterTypes[p], delegateParamTypes[p])) {
+                return false
+            }
+        }
+        return true
     }
 
     private func CanEmitLocalFunctionMethodGroupAsDelegate(argNode: int, expectedDelegateType: Type): bool {

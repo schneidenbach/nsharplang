@@ -668,13 +668,25 @@ class AnalyzerReflectionArgumentBinder {
             return unknown
         }
 
+        // The same rule the delegate factory states: a position the DEFINITION spells with a naked
+        // type parameter takes its nullability from the type ARGUMENT rather than from the closed
+        // `Invoke`'s metadata, so `Predicate<string>` hands a lambda a `string` parameter exactly as
+        // `Func<string, bool>` does and the two shapes cannot disagree.
+        openInvokeParameters := AnalyzerFunctionTypeFactory.OpenDelegateInvokeParameters(resolvedType, invokeMethod)
+        openInvokeReturnType := AnalyzerFunctionTypeFactory.OpenDelegateInvokeReturnType(resolvedType)
+
         invokeParameters := invokeMethod.GetParameters()
         parameterTypeList := new List<TypeInfo>()
         parameterModifierList := new List<Ast.ParameterModifier>()
         invokeIndex := 0
         while invokeIndex < invokeParameters.Length {
             invokeParameter := invokeParameters[invokeIndex]
-            parameterTypeList.Add(AnalyzerReflectionTypeConversion.ConvertParameterWithOverrides(invokeParameter, typeInfoOverrides, clrBindings))
+            if openInvokeParameters != null && openInvokeParameters[invokeIndex].get_ParameterType().get_IsGenericParameter() {
+                parameterTypeList.Add(AnalyzerReflectionTypeConversion.ConvertReflectionTypeWithOverrides(invokeParameter.get_ParameterType(), typeInfoOverrides, clrBindings))
+            } else {
+                parameterTypeList.Add(AnalyzerReflectionTypeConversion.ConvertParameterWithOverrides(invokeParameter, typeInfoOverrides, clrBindings))
+            }
+
             parameterModifierList.Add(AnalyzerFunctionTypeFactory.GetReflectionParameterModifier(invokeParameter))
             invokeIndex = invokeIndex + 1
         }
@@ -682,7 +694,12 @@ class AnalyzerReflectionArgumentBinder {
         signature := new FunctionTypeInfo()
         signature.ParameterTypes = parameterTypeList
         signature.ParameterModifiers = parameterModifierList
-        signature.ReturnType = AnalyzerReflectionTypeConversion.ConvertReturnWithOverrides(invokeMethod, typeInfoOverrides, clrBindings)
+        if openInvokeReturnType != null && openInvokeReturnType.get_IsGenericParameter() {
+            signature.ReturnType = AnalyzerReflectionTypeConversion.ConvertReflectionTypeWithOverrides(invokeMethod.get_ReturnType(), typeInfoOverrides, clrBindings)
+        } else {
+            signature.ReturnType = AnalyzerReflectionTypeConversion.ConvertReturnWithOverrides(invokeMethod, typeInfoOverrides, clrBindings)
+        }
+
         return signature
     }
 
