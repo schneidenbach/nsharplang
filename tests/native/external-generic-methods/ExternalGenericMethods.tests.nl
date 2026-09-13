@@ -80,21 +80,24 @@ test "a written type argument names a SOURCE type the same compilation is emitti
 // A trailing optional parameter with a null metadata default is filled, so the site need not write
 // `options` to reach `Deserialize<TValue>(string, JsonSerializerOptions?)`.
 test "a written type argument reaches a method whose trailing optional is filled from its default" {
-    ages := JsonSerializer.Deserialize<Dictionary<string, int>>(AgesJson())
+    // `Deserialize<TValue>` returns `TValue?`: the written argument is non-nullable, but the method
+    // ANNOTATES the position, so the result is maybe-null whatever the argument is and has to be
+    // unwrapped before it is read.
+    parsed := JsonSerializer.Deserialize<Dictionary<string, int>>(AgesJson())
 
-    assert ages != null
+    assert parsed != null
+    ages := must parsed
     assert ages.Count == 2
     assert ages["Ada"] == 36
     assert ages["Grace"] == 45
 }
 
 test "the round trip through the written-argument serializer returns the same text" {
-    ages := JsonSerializer.Deserialize<Dictionary<string, int>>(AgesJson())
+    ages := must JsonSerializer.Deserialize<Dictionary<string, int>>(AgesJson())
     written := JsonSerializer.Serialize<Dictionary<string, int>>(ages)
-    again := JsonSerializer.Deserialize<Dictionary<string, int>>(written)
+    again := must JsonSerializer.Deserialize<Dictionary<string, int>>(written)
 
     assert written == AgesJson()
-    assert again != null
     assert again["Ada"] == ages["Ada"]
     assert again["Grace"] == ages["Grace"]
 }
