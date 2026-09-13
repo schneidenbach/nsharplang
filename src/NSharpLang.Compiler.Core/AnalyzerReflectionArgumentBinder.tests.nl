@@ -1523,12 +1523,12 @@ test "an oblivious or nullable-reference shell is transparent to the structural 
         BinderTypeArguments2(BuiltInTypes.String, BuiltInTypes.Int)
     )
     plainBindings := new Dictionary<Type, TypeInfo>()
-    binder.PopulateTypeInfoBindingsFromType(openDictionary, plainReceiver, plainBindings)
+    binder.PopulateTypeInfoBindingsFromType(openDictionary, plainReceiver, plainBindings, true)
     assert BinderTypeName(plainBindings[openParameter]) == "int"
 
     obliviousReceiver: TypeInfo = new ObliviousTypeInfo(plainReceiver)
     obliviousBindings := new Dictionary<Type, TypeInfo>()
-    binder.PopulateTypeInfoBindingsFromType(openDictionary, obliviousReceiver, obliviousBindings)
+    binder.PopulateTypeInfoBindingsFromType(openDictionary, obliviousReceiver, obliviousBindings, true)
     assert BinderTypeName(obliviousBindings[openParameter]) == "int"
 
     // The nullable shell is stripped only when the annotation is a REFERENCE one, which the generic
@@ -1540,7 +1540,7 @@ test "an oblivious or nullable-reference shell is transparent to the structural 
     )
     nullableReceiver: TypeInfo = new NullableTypeInfo(definedReceiver)
     nullableBindings := new Dictionary<Type, TypeInfo>()
-    binder.PopulateTypeInfoBindingsFromType(openDictionary, nullableReceiver, nullableBindings)
+    binder.PopulateTypeInfoBindingsFromType(openDictionary, nullableReceiver, nullableBindings, true)
     assert BinderTypeName(nullableBindings[openParameter]) == "int"
 
     // A VALUE nullable is left ALONE. `int?` IS `Nullable<int>` — a construction, not an annotation —
@@ -1550,7 +1550,8 @@ test "an oblivious or nullable-reference shell is transparent to the structural 
     binder.PopulateTypeInfoBindingsFromType(
         openDictionary,
         new NullableTypeInfo(BuiltInTypes.Int),
-        valueNullableBindings
+        valueNullableBindings,
+        true
     )
     assert valueNullableBindings.Count == 0
 
@@ -1560,7 +1561,8 @@ test "an oblivious or nullable-reference shell is transparent to the structural 
     binder.PopulateTypeInfoBindingsFromType(
         openDictionary,
         new NullableTypeInfo(new ObliviousTypeInfo(definedReceiver)),
-        nullableElementBindings
+        nullableElementBindings,
+        true
     )
     assert BinderTypeName(nullableElementBindings[openParameter]) == "int"
 }
