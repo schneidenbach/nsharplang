@@ -172,7 +172,7 @@ test "the N# columnar IL emitter owns its complete public and private metadata s
     assert parameters[6].get_HasDefaultValue()
     assert parameters[6].get_RawDefaultValue() == null
 
-    iterator := ColumnarIlEmitterPrivateMethod("TryEmitIteratorStateMachine", 16)
+    iterator := ColumnarIlEmitterPrivateMethod("TryEmitIteratorStateMachine", 17)
     assert iterator.get_IsPrivate()
     assert iterator.get_IsStatic()
     initializer := ColumnarIlEmitterPrivateMethod("EmitSelectedInitializerStatements", 2)

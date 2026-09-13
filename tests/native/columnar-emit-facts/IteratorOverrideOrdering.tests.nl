@@ -457,8 +457,8 @@ func IteratorOrderingRun(mutation: string): IteratorOrderingOutcome {
 
     module := IteratorOrderingNewModule(mutation)
     factoryIl := IteratorOrderingFactoryIl(module, mutation)
-    emitter := ColumnarIlEmitterPrivateMethod("TryEmitIteratorStateMachine", 16)
-    values := new object?[](16)
+    emitter := ColumnarIlEmitterPrivateMethod("TryEmitIteratorStateMachine", 17)
+    values := new object?[](17)
     IteratorOrderingPut(values, 0, module)
     IteratorOrderingPut(values, 1, parsed.Function)
     IteratorOrderingPut(values, 2, 0)
@@ -476,6 +476,9 @@ func IteratorOrderingRun(mutation: string): IteratorOrderingOutcome {
     IteratorOrderingPut(values, 13, null)
     IteratorOrderingPut(values, 14, null)
     IteratorOrderingPut(values, 15, null)
+    // The body facts a program's own declarations would route; this control emits a literal `yield`
+    // body that names none of them.
+    IteratorOrderingPut(values, 16, null)
     IteratorOrderingResetTrace()
     outcome := "false"
     try {

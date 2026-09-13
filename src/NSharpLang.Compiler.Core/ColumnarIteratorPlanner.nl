@@ -1114,7 +1114,10 @@ class ColumnarIteratorEmitContext {
         if fieldType == valueType {
             return true
         }
-        if fieldType == null || valueType == null || fieldType is TypeBuilder || valueType is TypeBuilder || fieldType.get_IsGenericParameter() || valueType.get_IsGenericParameter() || fieldType.get_IsValueType() || valueType.get_IsValueType() {
+        // A BUILDER-BOUND handle cannot answer an assignability question at all under persisted emit —
+        // `TypeBuilder` and a generic instantiation over one both throw from `IsAssignableFrom` — so
+        // identity is the only answer such a pair gets.
+        if fieldType == null || valueType == null || ColumnarConstructionPlanner.ContainsBuilderBoundType(fieldType) || ColumnarConstructionPlanner.ContainsBuilderBoundType(valueType) || fieldType.get_IsValueType() || valueType.get_IsValueType() {
             return false
         }
         return fieldType.IsAssignableFrom(valueType)
@@ -2290,18 +2293,49 @@ class ColumnarIteratorBodyPlanner {
             elementType = sourceType.GetGenericArguments()[0]
             return true
         }
-        if sourceType is TypeBuilder || sourceType.get_IsGenericParameter() {
+        if sourceType.get_IsGenericParameter() {
             return false
         }
+        // A CLOSED GENERIC ASKS ITS DEFINITION, NOT ITSELF. `List<TreeNode>` over an emitted type is a
+        // generic instantiation whose `GetInterfaces()` throws under persisted emit, but its DEFINITION
+        // (`List<>`) is a baked runtime type whose interface list is readable; the element is then the
+        // instantiation's own argument at the position the definition's `IEnumerable<T>` names.
+        if sourceType.get_IsGenericType() && !sourceType.get_IsGenericTypeDefinition() {
+            definition := sourceType.GetGenericTypeDefinition()
+            arguments := sourceType.GetGenericArguments()
+            if definition != null && !(definition is TypeBuilder) {
+                return TryGetEnumerableInterfaceElement(definition.GetInterfaces(), arguments, out elementType)
+            }
+            return false
+        }
+        if sourceType is TypeBuilder {
+            return false
+        }
+        return TryGetEnumerableInterfaceElement(sourceType.GetInterfaces(), new Type[](0), out elementType)
+    }
+
+    // The single `IEnumerable<T>` an interface list names, with a definition's type PARAMETER mapped
+    // back through the instantiation's arguments when one is supplied. Two different `IEnumerable<T>`
+    // implementations have no single answer and are refused rather than guessed.
+    static func TryGetEnumerableInterfaceElement(interfaces: Type[], arguments: Type[], out elementType: Type): bool {
+        elementType = null
         found: Type? = null
-        for candidate in sourceType.GetInterfaces() {
-            if IsConstructedEnumerable(candidate) {
-                argument := candidate.GetGenericArguments()[0]
-                if found != null && found != argument {
+        for candidate in interfaces {
+            if !IsConstructedEnumerable(candidate) {
+                continue
+            }
+            argument := candidate.GetGenericArguments()[0]
+            if argument.get_IsGenericParameter() {
+                position := argument.get_GenericParameterPosition()
+                if position < 0 || position >= arguments.Length {
                     return false
                 }
-                found = argument
+                argument = arguments[position]
             }
+            if found != null && found != argument {
+                return false
+            }
+            found = argument
         }
         if found == null {
             return false
