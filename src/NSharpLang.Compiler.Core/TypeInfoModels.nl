@@ -811,6 +811,55 @@ class FunctionTypeInfo: TypeInfo {
         substituted.ReturnType = returnType
         return substituted
     }
+
+    // THE SIGNATURE A DELEGATE DIAGNOSTIC HAS TO PRINT, rather than the CLR name of the class that
+    // carries it. Every other shape in this file answers its own WRITTEN form, and the one that did
+    // not made `NL202` state a contradiction — "should return FunctionTypeInfo but returns
+    // FunctionTypeInfo" — about the two delegates whose difference is exactly what the reader needs.
+    //
+    // The written form is N#'s own function-type syntax, `(int) -> string`: the same shape
+    // `TypeReferences` prints for the annotation a user writes, and the same one the argument
+    // mismatch path already spelled by hand through `NullabilityTypeDisplay`.
+    //
+    // A SIGNATURE WITH NO POSITIONS HAS NO SHAPE TO PRINT. A function type carried for its
+    // DECLARATION facts alone — a method group before an overload is chosen, a source function
+    // recorded by name — answers the name it was written with instead, and only a signature that has
+    // neither positions nor a name falls back to the word `function`.
+    override func ToString(): string {
+        parameterTypes := ParameterTypes
+        returnType := ReturnType
+        if parameterTypes == null || returnType == null {
+            syntheticName := SyntheticName
+            if syntheticName != null {
+                return syntheticName
+            }
+
+            sourceName := SourceName
+            if sourceName != null {
+                return sourceName
+            }
+
+            return "function"
+        }
+
+        builder := new StringBuilder()
+        builder.Append("(")
+        index := 0
+        while index < parameterTypes.Count {
+            if index > 0 {
+                builder.Append(", ")
+            }
+
+            parameterObject := parameterTypes[index] as object
+            builder.Append(parameterObject.ToString())
+            index = index + 1
+        }
+
+        builder.Append(") -> ")
+        returnObject := returnType as object
+        builder.Append(returnObject.ToString())
+        return builder.ToString()
+    }
 }
 
 class NSharpMethodGroupInfo: TypeInfo {

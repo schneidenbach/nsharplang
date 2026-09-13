@@ -68,12 +68,15 @@ import System.Reflection
 //       Measured: all 75 `AssertNoErrors` claims hold, so this tranche has no false-clean fixture —
 //       unlike the parser campaign's, whose sources were C#-shaped.
 //
-//   (c) THE `NL202` MESSAGE ON A REJECTED LAMBDA SAYS A VALUE IS NOT ASSIGNABLE TO ITS OWN TYPE.
-//       `Lambda_Delegate_WrongParamCount_Error` reports TWO rows, and the second reads `Variable 'f'
-//       is typed as 'NSharpLang.Compiler.FunctionTypeInfo', but the value is
-//       'NSharpLang.Compiler.FunctionTypeInfo'` — a user-facing sentence that leaks a
-//       COMPILER-INTERNAL CLR type name on BOTH sides. The deleted method matched the eleven
-//       characters `is typed as` and asked about one row; nothing could see either fact.
+//   (c) THE `NL202` MESSAGE ON A REJECTED LAMBDA USED TO SAY A VALUE IS NOT ASSIGNABLE TO ITS OWN
+//       TYPE. `Lambda_Delegate_WrongParamCount_Error` reports TWO rows, and the second used to read
+//       `Variable 'f' is typed as 'NSharpLang.Compiler.FunctionTypeInfo', but the value is
+//       'NSharpLang.Compiler.FunctionTypeInfo'` — a user-facing sentence that leaked a
+//       COMPILER-INTERNAL CLR type name on BOTH sides, because a function type had no `ToString` of
+//       its own. The deleted method matched the eleven characters `is typed as` and asked about one
+//       row; nothing could see either fact. Census LAMBDA4 gave `FunctionTypeInfo` the written form
+//       every other shape already had, so the row now names the two signatures that differ:
+//       `(int) -> string` against `(int, unknown) -> string`.
 //
 //   (d) A CODE NAMED `NullabilityWarning` USED TO BE REPORTED AT `Error` SEVERITY, TWICE. `NL907`
 //       fires for a redundant `must` and for an unguarded `.Value`, and both rows were `Error` — the
@@ -2640,7 +2643,7 @@ test "020 s28 analyzer clean source: a one-parameter lambda assigned to `Func<in
     assert AcRow(analysis, 0) == "<no-such-error>"
 }
 
-test "020 s28 analyzer clean source: a TWO-parameter lambda in a one-parameter delegate home reports TWO diagnostics — `NL203` on the surplus parameter `y` at 3:48, then an `NL202` on `f` that says the value is not assignable to ITSELF, both sides spelled `NSharpLang.Compiler.FunctionTypeInfo` (was AnalyzerTests.Lambda_Delegate_WrongParamCount_Error)" {
+test "020 s28 analyzer clean source: a TWO-parameter lambda in a one-parameter delegate home reports TWO diagnostics — `NL203` on the surplus parameter `y` at 3:48, then an `NL202` on `f` that spells BOTH signatures — `(int) -> string` against `(int, unknown) -> string` (was AnalyzerTests.Lambda_Delegate_WrongParamCount_Error)" {
     source := "\n            func Main() {\n                let f: Func<int, string> = (x, y) => \"hello\"\n            }\n        "
     assert AcParseCensus(source) == ""
     analysis := AcAnalyze(source)
@@ -2649,7 +2652,7 @@ test "020 s28 analyzer clean source: a TWO-parameter lambda in a one-parameter d
     assert AcErrorCount(analysis) == 2
     assert AcRow(analysis, 0) == "CannotInferType|I can't figure out the type of lambda parameter 'y' — nothing here names the lambda's delegate type|Give the lambda a typed home (e.g., 'let f: Func<int, int> = y => ...') or pass it directly where a delegate type is expected.|Error"
     assert AcHint(analysis, 0) == "<null>"
-    assert AcRow(analysis, 1) == "TypeMismatch|Variable 'f' is typed as 'NSharpLang.Compiler.FunctionTypeInfo', but the value is 'NSharpLang.Compiler.FunctionTypeInfo'|Ensure types are compatible or add explicit cast|Error"
+    assert AcRow(analysis, 1) == "TypeMismatch|Variable 'f' is typed as '(int) -> string', but the value is '(int, unknown) -> string'|Ensure types are compatible or add explicit cast|Error"
     assert AcHint(analysis, 1) == "<null>"
     assert AcRow(analysis, 2) == "<no-such-error>"
 }
