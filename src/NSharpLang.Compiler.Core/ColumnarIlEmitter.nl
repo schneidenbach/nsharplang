@@ -10343,7 +10343,7 @@ sealed class ColumnarIlEmitter {
                 // MemberAccess callee -> a BCL instance/static method call.
                 return TryEmitBclMethodCall(idx, callee, legacyWholeSubtreePlanning, out columnarResolvedType)
             }
-            return false
+            return Decline("emit.call.callee-kind", "call callee (node kind " + _nodes.Kind(callee).ToString() + ") is not a name, a generic name or a member access", callee)
         } else if columnarSwitchValue2 == 8 {
             // MemberAccess [receiver] — an ENUM CONSTANT (e.g. StringComparison.Ordinal), or `.Length` on
             // an array/string/StringBuilder (-> int). The member name is the value span.
@@ -13782,13 +13782,17 @@ sealed class ColumnarIlEmitter {
             }
         }
 
+        // THE TWO HALVES OF AN INSTANCE CALL ARE REPORTED APART. A call that declines here is either a
+        // receiver this body cannot put on the stack or a member this emitter cannot dispatch, and the
+        // reader's next move is different for each; one shared "call could not be emitted" made every
+        // such decline look the same from the outside.
         receiverType: System.Type? = null
         if (!EmitExpression(receiver, out receiverType)) {
             // instance: receiver value goes on the stack first.
-            return false
+            return Decline("emit.call.receiver", "call receiver could not be emitted for '" + memberName + "'", receiver)
         }
         if (!TryEmitInstanceCall(callIdx, receiverType, memberName, argCount, legacyWholeSubtreePlanning, out resolvedClrType)) {
-            return false
+            return Decline("emit.call.instance-member", "instance call '" + memberName + "' with " + argCount.ToString() + " argument(s) on '" + (receiverType.Name ?? "?") + "' could not be emitted", callIdx)
         }
         return true
     }

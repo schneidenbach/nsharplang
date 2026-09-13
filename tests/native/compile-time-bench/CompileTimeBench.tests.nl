@@ -555,11 +555,12 @@ test "compile-time bench: the skipped source directories are exactly the twelve 
 // became ordinary expressions added tests/native/census-field-initializers; 100 since attributes a
 // program declares for itself added tests/native/census-source-attributes; 101 since one extension-call
 // path from receiver to IL added tests/native/census-extension-calls; 102 since block-scoped local
-// functions added tests/native/census-local-functions; 103 since ordinary expressions inside iterator
+// functions added tests/native/census-local-functions; 104 since tests/native/census-emit-shapes;
+// 103 since ordinary expressions inside iterator
 // bodies added tests/native/census-iterators.
-test "compile-time bench: the corpus is the 103 project.yml projects under examples, tests and templates" {
+test "compile-time bench: the corpus is the 104 project.yml projects under examples, tests and templates" {
     projects := BenchCollectCorpusProjects(BenchRepositoryRoot())
-    assert projects.Count == 103
+    assert projects.Count == 104
     assert BenchListContains(projects, "tests/native/census-local-functions")
     assert BenchListContains(projects, "tests/native/census-extension-calls")
     assert BenchListContains(projects, "tests/native/census-lambda-inference")

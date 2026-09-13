@@ -448,26 +448,27 @@ test "MultiFileCompiler validation failure retains live errors and precedes outp
 
 // THE FIXTURE MUST BE A SHAPE THE COLUMNAR BACKEND DECLINES, because this contract is about what
 // the pipeline does with a decline rather than about the shape itself. It used to be a `foreach` over
-// a `string`, which the backend now emits as an index loop; assigning to a struct's own field from
-// its own method is the shape that declines today. When that one lands, replace it with another
-// declining shape rather than deleting this contract.
+// a `string`, which the backend now emits as an index loop, and then assigning to a struct's own
+// field from its own method, which emits since the call site loads an addressable receiver by
+// address; a bare STATIC FIELD as a call receiver is the shape that declines today. When that one
+// lands, replace it with another declining shape rather than deleting this contract.
 test "MultiFileCompiler ordinary CLI pipeline requires columnar emission for a declining fixture" {
     compilation := MultiFileOwnerCompileWithPipelineFlags(
         "Program",
         EmitterCanonicalProjectYml("Program", "exe"),
         """
-struct Counter {
-    value: int
+import System.Collections.Generic
 
-    func Bump(): bool {
-        value = value + 1
-        return value < 3
+class Registry {
+    static readonly Entries: List<string> = new List<string>()
+
+    static func Record(name: string) {
+        Entries.Add(name)
     }
 }
 
 func main() {
-    counter := new Counter()
-    print counter.Bump()
+    Registry.Record("alpha")
 }
 """,
         false,
