@@ -8,7 +8,6 @@ import System.Text
 // EXECUTED PROOFS THAT AN ITERATOR BODY IS AN ORDINARY BODY. Every generator beside this file is
 // lowered by the N# iterator planner and enumerated here for real: the assertions are over the
 // VALUES the machine produced, the ORDER it produced them in, and the exceptions it let escape.
-
 test "a body that builds a collection, calls into it and indexes it yields the built values" {
     positional := 0
     count := 0

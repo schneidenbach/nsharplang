@@ -18,6 +18,7 @@ import System.Threading.Tasks
 // consume Type receive the companion selected here, rather than a Type selected elsewhere and
 // decorated after the fact.
 class ColumnarCanonicalTypeResolver {
+
     // Every non-generic public exception the RUNTIME's own assembly declares, indexed by simple name.
     // Names two different namespaces share are dropped rather than resolved to one of them.
     static readonly RuntimeExceptionsBySimpleName: Dictionary<string, Type> = BuildRuntimeExceptionIndex()
