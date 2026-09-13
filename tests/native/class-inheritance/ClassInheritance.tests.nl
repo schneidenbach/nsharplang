@@ -1,6 +1,7 @@
 namespace NSharpLang.ClassInheritance.Tests
 
 import System
+import System.Collections.Generic
 import System.Reflection
 
 
@@ -190,4 +191,41 @@ test "base. reaches System.Object when no base is written" {
     // implementation ran as well as that it ran at all.
     assert rooted.BaseText() == "NSharpLang.ClassInheritance.Tests.RootedOnObject"
     assert rooted.BaseHash() == rooted.BaseHash()
+}
+
+// AN EXTERNAL BASE'S CONSTRUCTOR, CALLED WITH ARGUMENTS. Each of these declined the whole assembly
+// before the base chain could reach a constructor that is not a `ConstructorBuilder`. The proof is
+// that the base's own state is what the base constructor was given.
+test "a class chains to an external base constructor with one argument" {
+    sized := new SizedList(9) as List<string>
+    assert sized.Capacity == 9
+    assert sized.Count == 0
+}
+
+test "an external base constructor taking a sequence receives it" {
+    source: string[] = ["a", "b"]
+    seeded := new SeededList(source) as List<string>
+    assert seeded.Count == 2
+    assert seeded[0] == "a"
+    assert seeded[1] == "b"
+}
+
+test "two external base constructors are told apart by their arguments" {
+    inner := new LayerError("inner") as Exception
+    assert inner.Message == "inner"
+    assert inner.InnerException == null
+
+    outer := new LayerError("outer", inner) as Exception
+    assert outer.Message == "outer"
+    assert (must outer.InnerException).Message == "inner"
+}
+
+test "an external base with several same-arity overloads selects by argument type" {
+    compared := new ComparedMap(StringComparer.OrdinalIgnoreCase) as Dictionary<string, int>
+    compared["Alpha"] = 1
+    assert compared.ContainsKey("alpha")
+
+    sizedAndCompared := new ComparedMap(8, StringComparer.Ordinal) as Dictionary<string, int>
+    sizedAndCompared["Alpha"] = 1
+    assert !sizedAndCompared.ContainsKey("alpha")
 }

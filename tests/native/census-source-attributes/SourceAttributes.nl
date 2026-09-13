@@ -203,6 +203,83 @@ class Target {
     }
 }
 
+// OPTIONAL CONSTRUCTOR PARAMETERS. A custom-attribute blob has no notion of an omitted argument, so
+// `[Defaulted]` writes the DECLARED DEFAULT of every parameter it leaves off — which is what the C#
+// compiler writes for the same declaration, and what every reader of this assembly reads back.
+class DefaultedAttribute: Attribute {
+    Level: int
+    Note: string
+    Flag: bool
+    Ranking: Level
+
+    constructor(level: int = 7, note: string = "unsaid", flag: bool = true, ranking: Level = Level.High) {
+        Level = level
+        Note = note
+        Flag = flag
+        Ranking = ranking
+    }
+}
+
+// AN ARRAY ARGUMENT CONVERTS PER ELEMENT. `[1, 2]` is an `int[]` and there is no conversion from
+// `int[]` to `byte[]`, but each element is an integer constant a `byte` holds and the blob writes
+// each element against the ELEMENT type.
+class BytesAttribute: Attribute {
+    Values: byte[]
+    Widths: long[]
+
+    constructor(values: byte[]) {
+        Values = values
+        Widths = []
+    }
+
+    constructor(values: byte[], widths: long[]) {
+        Values = values
+        Widths = widths
+    }
+}
+
+// AN ATTRIBUTE WHOSE EXTERNAL BASE TAKES AN ARGUMENT. The base lives in a referenced assembly, so the
+// constructor this chains to is a reflected `ConstructorInfo` rather than one this compilation is
+// building — and it is selected and called the same way a source base's is.
+class RelaxedAttribute: CompilationRelaxationsAttribute {
+    constructor(level: int): base(level) {
+    }
+}
+
+class DefaultCarrier {
+    [Defaulted]
+    func AllOmitted() {
+    }
+
+    [Defaulted(3)]
+    func FirstWritten() {
+    }
+
+    [Defaulted(3, "said")]
+    func TwoWritten() {
+    }
+
+    [Defaulted(3, "said", false, Level.Low)]
+    func AllWritten() {
+    }
+
+    [Defaulted(Note = "named only")]
+    func NamedOnly() {
+    }
+
+    [Bytes([1, 2, 250])]
+    func NarrowedElements() {
+    }
+
+    [Bytes([1], [2, 3])]
+    func TwoArrays() {
+    }
+
+    [Relaxed(8)]
+    func Relaxed() {
+    }
+}
+
 // A FIELD'S ATTRIBUTES, on every field shape a declaration can carry one on: an instance field, a
 // static field, a `const` field whose value is metadata rather than code, a field whose attribute
 // comes from a referenced assembly, and a field of a VALUE type. A field declares its attributes at

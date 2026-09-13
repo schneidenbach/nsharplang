@@ -432,9 +432,25 @@ func Create([FromBody] [Required] user: CreateUserRequest): IActionResult {
 
 Attribute names resolve in the declaring file's scope, with or without the `Attribute` suffix —
 `[Mark]` and `[MarkAttribute]` name the same type. Attributes are emitted on classes, structs,
-records, interfaces, functions, methods, constructors, properties, and parameters. A property's
-attributes go on the **property** itself, which is where `PropertyInfo.GetCustomAttributes` — and so
-every model-binding, serialization and validation framework — looks for them.
+records, interfaces, functions, methods, constructors, properties, **fields**, and parameters. A
+property's attributes go on the **property** itself, which is where `PropertyInfo.GetCustomAttributes`
+— and so every model-binding, serialization and validation framework — looks for them.
+
+A field carries its own attributes, whatever shape the field has — instance, `static`, `const`, and a
+field of a `struct` alike:
+
+```n#
+class Order {
+    [Required]
+    Customer: string
+
+    [Obsolete("use Total")]
+    static Legacy: int = 0
+
+    [Mark("limit")]
+    const Max: int = 100
+}
+```
 
 Parameter attributes are emitted as real CLR parameter metadata, so ASP.NET model-binding attributes
 such as `[FromBody]` and `[FromRoute]`, plus xUnit-style parameter attributes from referenced
@@ -461,7 +477,28 @@ attribute, declared by it or inherited. Named arguments come after the positiona
 
 An integer constant fills any numeric parameter whose range contains it, so a `byte` parameter takes
 `[Mark(5)]` and refuses `[Mark(300)]`. A `long` or `ulong` constant that does not fit in an `int`
-carries its suffix (`3L`, `18446744073709551615UL`), and a `float` argument carries `f`.
+carries its suffix (`3L`, `18446744073709551615UL`), and a `float` argument carries `f`. An **array**
+argument converts the same way, one element at a time: `[Bytes([1, 2])]` fills a `byte[]` parameter
+because each element is a constant a `byte` holds, and `[Bytes([1, 300])]` is refused.
+
+An argument the constructor gives a **default** may be left off, and the default is what the metadata
+carries — a custom-attribute blob has no notion of an omitted argument, so N# writes the declared
+value exactly as the C# compiler does:
+
+```n#
+class MarkAttribute: Attribute {
+    Level: int
+    constructor(level: int = 1) {
+        Level = level
+    }
+}
+
+[Mark]            // the emitted row carries Level = 1
+[Mark(3)]         // the emitted row carries Level = 3
+```
+
+This holds for an attribute from a referenced assembly too: its parameter defaults are read from its
+own metadata.
 
 Anything that is not a constant — a call, a variable, a `new` expression — is refused by
 [`NL310`](./errors/NL310.md) rather than silently dropped.
@@ -495,7 +532,8 @@ class Client {
 
 The constructor is chosen by ordinary overload resolution over the constructors the class declares;
 named arguments bind to its own or its base's settable members. An attribute may derive from another
-attribute, in this program or in a referenced assembly.
+attribute, in this program or in a referenced assembly, and its constructor may chain to the base's
+with arguments (`constructor(text: string): base(text) {}`) in either world.
 
 `[AttributeUsage(...)]` on the declaration is honored, and it is inherited by derived attributes:
 
@@ -508,8 +546,7 @@ Because N# has no attribute position inside accessor braces, a **property** offe
 and it reaches the property's accessors.
 
 N# has no `[assembly: ...]` or `[return: ...]` attribute position, and no attribute position on an
-enum member. Generic attributes (`class Mark<T>: Attribute`) are not supported. An attribute written
-on a **field** is checked but not yet emitted.
+enum member. Generic attributes (`class Mark<T>: Attribute`) are not supported.
 
 ### `[MethodImpl]` — the attribute that is not stored as an attribute
 

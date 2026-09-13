@@ -2,6 +2,7 @@ namespace NSharpLang.CensusSourceAttributes
 
 import System
 import System.Reflection
+import System.Runtime.CompilerServices
 
 // EVERY ASSERTION HERE READS THE EMITTED ASSEMBLY. The attribute types and the declarations they are
 // written on live in `SourceAttributes.nl`, in this same project, so a passing test means the
@@ -129,6 +130,102 @@ test "an external attribute with a non-string argument is emitted" {
 test "an external attribute with only a named argument is emitted" {
     found := RequiredMethod("ExternalNamedOnly").GetCustomAttribute(typeof(ObsoleteAttribute), false) as ObsoleteAttribute
     assert found.DiagnosticId == "NL9999"
+}
+
+func DefaultedOn(name: string): DefaultedAttribute {
+    declared: MethodInfo? = typeof(DefaultCarrier).GetMethod(name)
+    method := must declared
+    return method.GetCustomAttribute(typeof(DefaultedAttribute), false) as DefaultedAttribute
+}
+
+// AN OMITTED OPTIONAL ARGUMENT IS WRITTEN AS THE DECLARED DEFAULT. Exact arity used to be required,
+// so every one of these reported NL402 "No constructor of attribute 'DefaultedAttribute' accepts N
+// positional argument(s)".
+test "an attribute that writes no arguments takes every declared default" {
+    found := DefaultedOn("AllOmitted")
+    assert found.Level == 7
+    assert found.Note == "unsaid"
+    assert found.Flag
+    assert found.Ranking == Level.High
+}
+
+test "the written arguments win and only the rest default" {
+    first := DefaultedOn("FirstWritten")
+    assert first.Level == 3
+    assert first.Note == "unsaid"
+    assert first.Flag
+    assert first.Ranking == Level.High
+
+    two := DefaultedOn("TwoWritten")
+    assert two.Level == 3
+    assert two.Note == "said"
+    assert two.Flag
+    assert two.Ranking == Level.High
+
+    all := DefaultedOn("AllWritten")
+    assert all.Level == 3
+    assert all.Note == "said"
+    assert !all.Flag
+    assert all.Ranking == Level.Low
+}
+
+test "a named argument beside defaulted positional ones binds the member it names" {
+    found := DefaultedOn("NamedOnly")
+    assert found.Level == 7
+    assert found.Note == "named only"
+}
+
+// THE FILLED-IN DEFAULTS ARE REAL FIXED ARGUMENTS IN THE ROW, not an absence a reader has to
+// reconstruct — which is what a C#-compiled assembly's row carries for the same declaration.
+test "the emitted row carries one fixed argument per parameter" {
+    declared: MethodInfo? = typeof(DefaultCarrier).GetMethod("FirstWritten")
+    method := must declared
+    data := method.GetCustomAttributesData()
+    rows := 0
+    for index := 0; index < data.Count; index++ {
+        row := data[index]
+        if row.AttributeType != typeof(DefaultedAttribute) {
+            continue
+        }
+        rows = rows + 1
+        assert row.ConstructorArguments.Count == 4
+        assert row.NamedArguments.Count == 0
+    }
+    assert rows == 1
+}
+
+// AN ARRAY ARGUMENT CONVERTS ELEMENT BY ELEMENT. `[1, 2, 250]` is an `int[]` as written; each element
+// is an integer constant a `byte` holds, and the blob writes each at the ELEMENT width.
+test "an int array literal fills a byte array parameter element by element" {
+    declared: MethodInfo? = typeof(DefaultCarrier).GetMethod("NarrowedElements")
+    method := must declared
+    found := method.GetCustomAttribute(typeof(BytesAttribute), false) as BytesAttribute
+    assert found.Values.Length == 3
+    assert found.Values[0] == 1
+    assert found.Values[1] == 2
+    assert found.Values[2] == 250
+    assert found.Widths.Length == 0
+}
+
+test "two array arguments each convert against their own element type" {
+    declared: MethodInfo? = typeof(DefaultCarrier).GetMethod("TwoArrays")
+    method := must declared
+    found := method.GetCustomAttribute(typeof(BytesAttribute), false) as BytesAttribute
+    assert found.Values.Length == 1
+    assert found.Values[0] == 1
+    assert found.Widths.Length == 2
+    assert found.Widths[0] == 2L
+    assert found.Widths[1] == 3L
+}
+
+// AN EXTERNAL BASE CONSTRUCTOR WITH ARGUMENTS. This declined at
+// `emit.ctor.base-chain-without-base`: the chain could only be resolved among the base's SOURCE
+// constructor rows, and an external base has none.
+test "an attribute chaining to an external base constructor passes its argument up" {
+    declared: MethodInfo? = typeof(DefaultCarrier).GetMethod("Relaxed")
+    method := must declared
+    found := method.GetCustomAttribute(typeof(RelaxedAttribute), false) as CompilationRelaxationsAttribute
+    assert found.CompilationRelaxations == 8
 }
 
 // A FIELD'S ATTRIBUTES REACH THE FIELD ROW. Every one of these was validated by the analyzer and

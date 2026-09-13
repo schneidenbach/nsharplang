@@ -250,7 +250,15 @@ class Dog: Animal {
 The base may be a class declared in the same project, one from the BCL or a NuGet package, or
 `System.Object` itself when no base is written (`base.ToString()` answers the runtime type's name). A
 constructor chains to a base constructor with `: base(...)` in its header, which is the same idea in the
-one place a member call cannot express it.
+one place a member call cannot express it. The base's constructors are read wherever they live — the
+same compilation or a referenced assembly — and the one the arguments name is chosen the same way in
+both worlds:
+
+```n#
+class SizedList: List<string> {
+    constructor(capacity: int): base(capacity) {}    // an external base, with an argument
+}
+```
 
 What `base.` may **not** do is appear in the arguments of that header. `base` is the same reference
 `this` is — it only changes which declaration a name binds to and how a call dispatches — so reading

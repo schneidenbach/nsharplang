@@ -219,6 +219,19 @@ func AttrSourceConstructor(owner: string, parameterTypes: TypeReference[]): Decl
 
 // A DECLARED FIELD. `isReadonly` is the one column the named-argument rule reads besides the name,
 // the kind and whether it is exported.
+// A DECLARED CONSTRUCTOR WITH OPTIONAL TRAILING PARAMETERS. `requiredCount` is the column the arity
+// question reads: an attribute may write anything from that many arguments up to the full list.
+func AttrSourceConstructorWithRequired(owner: string, parameterTypes: TypeReference[], requiredCount: int): DeclaredMemberInfo {
+    names := new string[](parameterTypes.Length)
+    index := 0
+    while index < parameterTypes.Length {
+        names[index] = "p" + index.ToString()
+        index = index + 1
+    }
+
+    return new DeclaredMemberInfo("constructor", owner, DeclaredMemberKind.Constructor, "constructor", null, false, false, false, true, parameterTypes.Length, names, parameterTypes, AttrNoModifiers(), requiredCount, false, false, null, 0, AttrNoTypeParameters(), AttrNoConstraints(), 0, false, false, false, false, "", false, false, 1, 1)
+}
+
 func AttrSourceField(owner: string, name: string, fieldType: TypeReference, isReadonly: bool, isExported: bool): DeclaredMemberInfo {
     return new DeclaredMemberInfo(name, owner, DeclaredMemberKind.Field, "field", fieldType, false, isReadonly, false, isExported, 0, AttrNoParameterNames(), AttrNoTypeReferences(), AttrNoModifiers(), 0, false, false, null, 0, AttrNoTypeParameters(), AttrNoConstraints(), 0, false, false, false, false, "", false, false, 1, 1)
 }
@@ -1867,4 +1880,123 @@ test "a property accepts an attribute declared for methods" {
     harness.Validator.ValidateAttributeArgumentsOn(AttrNodes(AttrNode("Marker", AttrArgs())), AnalyzerAttributeUsageFacts.PropertyDeclarationTargets())
 
     assert harness.Errors.Count == 0
+}
+
+// AN OMITTED OPTIONAL ARGUMENT IS THE PARAMETER'S DEFAULT. The arity question is a RANGE — from the
+// required count to the full list — and only the arguments the source wrote are measured against
+// their parameters.
+test "a SOURCE constructor with optional parameters accepts every legal arity" {
+    parameterTypes := new TypeReference[](2)
+    parameterTypes[0] = AttrSimple("string")
+    parameterTypes[1] = AttrSimple("int")
+    members := new DeclaredMemberInfo[](1)
+    members[0] = AttrSourceConstructorWithRequired("MarkerAttribute", parameterTypes, 1)
+
+    written := AttrArgs()
+    AttrArg(written, AttrString("tag"), null)
+    harness := AttrSourceHarness(members)
+    harness.Validator.ValidateAttributeArguments(AttrNodes(AttrNode("Marker", written)))
+    assert harness.Errors.Count == 0
+
+    both := AttrArgs()
+    AttrArg(both, AttrString("tag"), null)
+    AttrArg(both, AttrInt("3"), null)
+    fullHarness := AttrSourceHarness(members)
+    fullHarness.Validator.ValidateAttributeArguments(AttrNodes(AttrNode("Marker", both)))
+    assert fullHarness.Errors.Count == 0
+}
+
+test "a SOURCE constructor with optional parameters still insists on the required ones" {
+    parameterTypes := new TypeReference[](2)
+    parameterTypes[0] = AttrSimple("string")
+    parameterTypes[1] = AttrSimple("int")
+    members := new DeclaredMemberInfo[](1)
+    members[0] = AttrSourceConstructorWithRequired("MarkerAttribute", parameterTypes, 1)
+
+    harness := AttrSourceHarness(members)
+    harness.Validator.ValidateAttributeArguments(AttrNodes(AttrNode("Marker", AttrArgs())))
+
+    assert harness.Errors.Count == 1
+    assert harness.Errors[0].Code == ErrorCode.NoMatchingOverload
+}
+
+test "a SOURCE constructor with optional parameters refuses more arguments than it declares" {
+    parameterTypes := new TypeReference[](1)
+    parameterTypes[0] = AttrSimple("string")
+    members := new DeclaredMemberInfo[](1)
+    members[0] = AttrSourceConstructorWithRequired("MarkerAttribute", parameterTypes, 0)
+
+    arguments := AttrArgs()
+    AttrArg(arguments, AttrString("tag"), null)
+    AttrArg(arguments, AttrString("extra"), null)
+    harness := AttrSourceHarness(members)
+    harness.Validator.ValidateAttributeArguments(AttrNodes(AttrNode("Marker", arguments)))
+
+    assert harness.Errors.Count == 1
+    assert harness.Errors[0].Code == ErrorCode.NoMatchingOverload
+}
+
+// THE METADATA HALF OF THE SAME QUESTION, asked of a real signature: optional parameters are trailing
+// by construction, so the required count is the position of the first optional one.
+test "a metadata signature's required count stops at its first optional parameter" {
+    constructors := typeof(ColumnarSourceAttributeInput).GetConstructors()
+    parameters := constructors[0].GetParameters()
+    assert parameters.Length == 4
+    assert AnalyzerAttributeValidator.RequiredParameterCount(parameters) == 2
+    assert AnalyzerAttributeValidator.RequiredParameterCount(new ParameterInfo[](0)) == 0
+}
+
+// AN ARRAY ARGUMENT CONVERTS PER ELEMENT. `[1, 2]` is an `int[]` and there is no conversion from
+// `int[]` to `byte[]`; each element is an integer constant a `byte` holds, and the blob writes each
+// element against the ELEMENT type.
+test "an int array literal fills a narrower array parameter element by element" {
+    parameterTypes := new TypeReference[](1)
+    parameterTypes[0] = AttrArrayRefOf("byte")
+    members := new DeclaredMemberInfo[](1)
+    members[0] = AttrSourceConstructor("MarkerAttribute", parameterTypes)
+
+    elements := new List<Expression>()
+    elements.Add(AttrInt("1"))
+    elements.Add(AttrInt("250"))
+    arguments := AttrArgs()
+    AttrArg(arguments, AttrArray(elements), null)
+    harness := AttrSourceHarness(members)
+    harness.Validator.ValidateAttributeArguments(AttrNodes(AttrNode("Marker", arguments)))
+
+    assert harness.Errors.Count == 0
+}
+
+test "an element out of the parameter element type's range is still refused" {
+    parameterTypes := new TypeReference[](1)
+    parameterTypes[0] = AttrArrayRefOf("byte")
+    members := new DeclaredMemberInfo[](1)
+    members[0] = AttrSourceConstructor("MarkerAttribute", parameterTypes)
+
+    elements := new List<Expression>()
+    elements.Add(AttrInt("1"))
+    elements.Add(AttrInt("300"))
+    arguments := AttrArgs()
+    AttrArg(arguments, AttrArray(elements), null)
+    harness := AttrSourceHarness(members)
+    harness.Validator.ValidateAttributeArguments(AttrNodes(AttrNode("Marker", arguments)))
+
+    assert harness.Errors.Count == 1
+    assert harness.Errors[0].Code == ErrorCode.NoMatchingOverload
+}
+
+test "an element that is not an integer constant refuses the whole array argument" {
+    parameterTypes := new TypeReference[](1)
+    parameterTypes[0] = AttrArrayRefOf("byte")
+    members := new DeclaredMemberInfo[](1)
+    members[0] = AttrSourceConstructor("MarkerAttribute", parameterTypes)
+
+    elements := new List<Expression>()
+    elements.Add(AttrString("not a number"))
+    arguments := AttrArgs()
+    AttrArg(arguments, AttrArray(elements), null)
+    harness := AttrSourceHarness(members)
+    harness.Validator.ValidateAttributeArguments(AttrNodes(AttrNode("Marker", arguments)))
+
+    assert harness.Errors.Count == 1
+    assert harness.Errors[0].Code == ErrorCode.NoMatchingOverload
 }
