@@ -391,8 +391,14 @@ test "source direct-call overloads rank constructed conversions exactly like the
     assert spanOnly.ParameterTypes[0] == typeof(Span<int>)
     assert spanExact.IsSelected
     assert spanExact.ParameterTypes[0] == typeof(int[])
-    assert !spanTie.IsSelected
-    assert spanTie.Status == ColumnarSourceDirectCallStatus.Rejected
+
+    // `SpanTie(Span<int>)` and `SpanTie(object)` both accept an `int[]` and both score 4, so this set
+    // used to be REJECTED as a tie. `AnalyzerOverloadSpecificity` breaks it the way the analyzer now
+    // breaks it: `Span<int>` converts to `object` and `object` does not convert back, so the span
+    // parameter is the more specific target. The two must agree — an analyzer that binds one overload
+    // and an emitter that declines the set is an NL103 for a call that type-checked.
+    assert spanTie.IsSelected
+    assert spanTie.ParameterTypes[0] == typeof(Span<int>)
 
     readOnlyActual := ConstructedConversionOneType(typeof(Span<int>))
     readOnlyOnly := ColumnarSourceDirectCallResolver.ResolveClassifiedStatic(owner, owner.Builder, "ReadOnlyOnly", readOnlyActual)
@@ -419,8 +425,12 @@ test "source direct-call overloads rank constructed conversions exactly like the
     assert unionExact.ParameterTypes[0] == typeof(int)
     assert unionNumeric.IsSelected
     assert unionNumeric.ParameterTypes[0] == typeof(long)
-    assert !unionTie.IsSelected
-    assert unionTie.Status == ColumnarSourceDirectCallStatus.Rejected
+
+    // Same rule, same reason: a union arm's type reaches the union and reaches `object`, and the
+    // union reaches `object` while `object` does not reach the union, so the union is the more
+    // specific parameter rather than a tie.
+    assert unionTie.IsSelected
+    assert unionTie.ParameterTypes[0] == unionType
 }
 
 test "constructed direct-call conversion classification pins exact span and union shapes" {

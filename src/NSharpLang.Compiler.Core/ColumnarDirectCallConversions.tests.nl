@@ -275,14 +275,15 @@ test "source direct-call overload ranking is exact then numeric then boxing" {
     assert numericPlan.MethodParameterTypes[numericTarget][0] == typeof(long)
     assert numericPlan.OpCodeValues[1] == ColumnarCodePlanContract.ConvI8()
 
-    ambiguousTree := DirectCallQualifiedTree("DirectCallConversionRanking", "BoxingTie", DirectCallOneText("value"), DirectCallOneKind(ColumnarExpressionNodeKind.IdentifierExpression()))
+    // `BoxingTie(object)` and `BoxingTie(IComparable)` both box an `int` and both score 4, so this set
+    // used to be REJECTED as a tie. `AnalyzerOverloadSpecificity` breaks it: `IComparable` converts to
+    // `object` and `object` does not convert back, so the interface is the more specific target —
+    // which is also the overload C# picks.
+    specificTree := DirectCallQualifiedTree("DirectCallConversionRanking", "BoxingTie", DirectCallOneText("value"), DirectCallOneKind(ColumnarExpressionNodeKind.IdentifierExpression()))
 
-    ownership := ColumnarDirectCallOwnership.NotOwned
-    legacyWholeSubtreePlanning := true
-    DirectCallRejected(ambiguousTree, bindings, out ownership, out legacyWholeSubtreePlanning)
-
-    assert ownership == ColumnarDirectCallOwnership.OwnedRejected
-    assert !legacyWholeSubtreePlanning
+    specificPlan := DirectCallPlan(specificTree, bindings)
+    specificTarget := ConversionDirectCallTargetMethodIndex(specificPlan)
+    assert specificPlan.MethodParameterTypes[specificTarget][0] == typeof(IComparable)
 }
 
 test "direct-call integer constants adopt fixed targets that int variables cannot" {

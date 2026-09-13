@@ -1112,4 +1112,26 @@ class AnalyzerSyntheticCallReporter {
         signature := AnalyzerOverloadFacts.FormatSyntheticFunctionSignature(functionType, functionName, parameterStartIndex)
         diagnosticsValue.Report(ErrorCode.NoMatchingOverload, message, span.Line, span.Column, "Use " + signature + ", or remove the argument name.", span.Length)
     }
+
+    // NL414 — TWO SOURCE-DECLARED OVERLOADS MATCHED AND NEITHER IS BETTER.
+    //
+    // The same sentence the reflected world says about the same mistake, because the rule that found
+    // the tie is the same rule: `AnalyzerOverloadSpecificity` ranked both candidates maximal. What
+    // differs is only the renderer — a source candidate's signature is written the way the user wrote
+    // the declaration, so the fix hint echoes their own spelling back at them.
+    func ReportAmbiguousCall(left: FunctionTypeInfo, right: FunctionTypeInfo, call: CallExpression) {
+        functionName := AnalyzerSyntheticCallFacts.ResolveSyntheticFunctionName(left, call)
+        span := spansValue.GetCallDiagnosticSpan(call, functionName)
+        leftSignature := AnalyzerOverloadFacts.FormatSyntheticFunctionSignature(left, functionName, AnalyzerOverloadFacts.GetSyntheticParameterStartIndex(left, call))
+        rightSignature := AnalyzerOverloadFacts.FormatSyntheticFunctionSignature(right, functionName, AnalyzerOverloadFacts.GetSyntheticParameterStartIndex(right, call))
+
+        filePath := diagnosticsValue.CurrentFilePath
+        snippet := diagnosticsValue.SourceSnippet(span.Line)
+        if filePath != null && snippet != null {
+            diagnosticsValue.ReportBuilt(ErrorMessageBuilder.AmbiguousCall(filePath, span.Line, span.Column, snippet, span.Length, functionName, leftSignature, rightSignature))
+            return
+        }
+
+        diagnosticsValue.Report(ErrorCode.AmbiguousCall, AnalyzerOverloadSpecificity.AmbiguousCallSummary(functionName), span.Line, span.Column, AnalyzerOverloadSpecificity.AmbiguousCallHint(leftSignature, rightSignature), span.Length)
+    }
 }

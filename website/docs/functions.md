@@ -1615,6 +1615,46 @@ func create(name: string, age: int): User {
 }
 ```
 
+### Which overload a call means
+
+When more than one overload accepts a call, N# picks between them with the same rule C# uses
+(ECMA-334 §12.6.4.3, "better function member"), and it applies to overloads you declared and to
+overloads read out of a referenced assembly alike:
+
+> A candidate is **better** than another when, for **every** argument, its parameter is at least as
+> good a conversion target, and for **at least one** argument it is strictly better.
+
+A parameter is the better conversion target when:
+
+1. **It is the argument's own type.** `print(value: string)` beats `print(value: object)` for a
+   `string`, and a generic `T` bound to the argument's type beats a declared `object`.
+2. **It is the more specific of the two.** With neither parameter being the argument's own type, the
+   one that converts to the other — and not back — wins. `Shape` beats `object` for a `Square`;
+   `IEnumerable<Task<int>>` beats `IEnumerable<Task>` for a `List<Task<int>>`; `int` beats `long` for
+   a `short`.
+
+Only when the conversions cannot separate two candidates do the remaining rules run, in this order: a
+**non-generic** signature beats a generic one whose parameters are the same types after
+substitution, a call in **normal form** beats one that had to expand a `params` tail, and a signature
+that fills **fewer defaults** beats one that fills more.
+
+```n#
+import System.Collections.Generic
+import System.Threading.Tasks
+
+func awaitAll(work: List<Task<int>>): int[] {
+    // `WhenAll(IEnumerable<Task>): Task` and `WhenAll<TResult>(IEnumerable<Task<TResult>>): Task<TResult[]>`
+    // both accept this argument. The generic one's parameter is the more specific type, so the call
+    // is `Task<int[]>` and `.Result` is an `int[]`.
+    return Task.WhenAll(work).Result
+}
+```
+
+Declaration order is **not** a tiebreak, and neither is the order a referenced assembly's metadata
+happens to list its methods in. When two candidates are still tied after every rule above, the call
+is ambiguous and N# reports [NL414](./errors/NL414.md) rather than choosing for you — see that page
+for the three ways to say which overload you meant.
+
 ## Extension Methods
 
 Define extension methods using static classes:

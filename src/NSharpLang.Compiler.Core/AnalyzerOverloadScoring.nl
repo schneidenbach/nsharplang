@@ -78,6 +78,168 @@ class AnalyzerOverloadFacts {
         return 2
     }
 
+    // WHAT A METHOD-GROUP ARGUMENT CONTRIBUTES TO ITS CANDIDATE'S SCORE: one rung, the same for every
+    // candidate that converts that argument this way.
+    //
+    // The inner walk that picks WHICH overload of the group to use adds one ladder value per delegate
+    // parameter plus one for the return, and that sum is the right key there — every survivor matched
+    // the SAME expected signature, so they all have the same number of positions. Handing the sum on
+    // to the enclosing candidate is not, because it says two things at once: how well each position
+    // matched, and how many positions there were. `Enumerable.Select` declares a one-parameter and a
+    // two-parameter selector; a group with both arities closes both overloads, and the longer
+    // signature won purely for having one more position to add up. C# does not rank a method-group
+    // conversion at all — it ranks the DELEGATE PARAMETER TYPES, which is
+    // `AnalyzerOverloadSpecificity`'s job — so the two overloads must TIE here and be reported.
+    //
+    // 6 places the conversion above a plain reference conversion (4) and below an identity (8),
+    // which is where a conversion the language performs for you belongs.
+    static func MethodGroupConversionScore(): int {
+        return 6
+    }
+
+    // WHETHER A LAMBDA'S BODY HAS A VALUE TO GIVE, which is what decides between a delegate that keeps
+    // a result and one that throws it away.
+    //
+    // `Task.Run(() => 42)` fits both `Run(Action)` and `Run<TResult>(Func<TResult>)` by arity alone,
+    // and C# prefers the conversion that keeps the result. The SAME question has an answer for a
+    // STATEMENT-bodied lambda — `Task.Run(() => { work() })` has nothing to give and `Action` is the
+    // better target — and answering it only for expression bodies left that pair tied on every key,
+    // which is an ambiguity report for a call C# resolves without hesitating.
+    //
+    // A LOCAL FUNCTION'S RETURNS ARE ITS OWN. The walk descends into every statement the lambda's own
+    // body executes and stops at a nested function declaration; nested LAMBDAS are not reached at all,
+    // because they live in expressions and this walk reads statements.
+    static func LambdaBodyProducesValue(lambda: LambdaExpression): bool {
+        if lambda.ExpressionBody != null {
+            return true
+        }
+
+        return StatementReturnsValue(lambda.BlockBody)
+    }
+
+    static func StatementReturnsValue(statement: Statement?): bool {
+        if statement == null {
+            return false
+        }
+
+        returnStatement := statement as ReturnStatement
+        if returnStatement != null {
+            return returnStatement.Value != null
+        }
+
+        if statement as LocalFunctionStatement != null {
+            return false
+        }
+
+        block := statement as BlockStatement
+        if block != null {
+            return StatementsReturnValue(block.Statements)
+        }
+
+        allocBlock := statement as AllocBlockStatement
+        if allocBlock != null {
+            return StatementReturnsValue(allocBlock.Body)
+        }
+
+        allowStatement := statement as AllowStatement
+        if allowStatement != null {
+            return StatementReturnsValue(allowStatement.Body)
+        }
+
+        unsafeBlock := statement as UnsafeBlockStatement
+        if unsafeBlock != null {
+            return StatementReturnsValue(unsafeBlock.Body)
+        }
+
+        ifStatement := statement as IfStatement
+        if ifStatement != null {
+            if StatementReturnsValue(ifStatement.ThenStatement) {
+                return true
+            }
+
+            return StatementReturnsValue(ifStatement.ElseStatement)
+        }
+
+        forStatement := statement as ForStatement
+        if forStatement != null {
+            return StatementReturnsValue(forStatement.Body)
+        }
+
+        foreachStatement := statement as ForeachStatement
+        if foreachStatement != null {
+            return StatementReturnsValue(foreachStatement.Body)
+        }
+
+        awaitForeachStatement := statement as AwaitForEachStatement
+        if awaitForeachStatement != null {
+            return StatementReturnsValue(awaitForeachStatement.Body)
+        }
+
+        whileStatement := statement as WhileStatement
+        if whileStatement != null {
+            return StatementReturnsValue(whileStatement.Body)
+        }
+
+        tryStatement := statement as TryStatement
+        if tryStatement != null {
+            if StatementReturnsValue(tryStatement.TryBlock) {
+                return true
+            }
+
+            catchClauses := tryStatement.CatchClauses
+            catchIndex := 0
+            while catchIndex < catchClauses.Count {
+                if StatementReturnsValue(catchClauses[catchIndex].Block) {
+                    return true
+                }
+
+                catchIndex = catchIndex + 1
+            }
+
+            return StatementReturnsValue(tryStatement.FinallyBlock)
+        }
+
+        usingStatement := statement as UsingStatement
+        if usingStatement != null {
+            return StatementReturnsValue(usingStatement.Body)
+        }
+
+        lockStatement := statement as LockStatement
+        if lockStatement != null {
+            return StatementReturnsValue(lockStatement.Body)
+        }
+
+        switchStatement := statement as SwitchStatement
+        if switchStatement != null {
+            cases := switchStatement.Cases
+            caseIndex := 0
+            while caseIndex < cases.Count {
+                if StatementsReturnValue(cases[caseIndex].Statements) {
+                    return true
+                }
+
+                caseIndex = caseIndex + 1
+            }
+
+            return false
+        }
+
+        return false
+    }
+
+    static func StatementsReturnValue(statements: List<Statement>): bool {
+        index := 0
+        while index < statements.Count {
+            if StatementReturnsValue(statements[index]) {
+                return true
+            }
+
+            index = index + 1
+        }
+
+        return false
+    }
+
     // Applicability AND inference in one walk. `bindings` accumulates the type-parameter bindings the
     // match implies, so calling this over a parameter list in order is the inference algorithm: the
     // FIRST position that mentions a type parameter binds it, and every later position must agree

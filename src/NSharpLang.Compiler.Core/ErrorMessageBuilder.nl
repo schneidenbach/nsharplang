@@ -252,6 +252,20 @@ class ErrorMessageBuilder {
         }
     }
 
+    // NL414 — TWO OVERLOADS MATCH AND NEITHER IS BETTER. The sentence and the two signatures come
+    // from `AnalyzerOverloadSpecificity`, which is also the owner that decided they were tied, so the
+    // reflected and the source worlds say the same thing about the same mistake.
+    static func AmbiguousCall(fileName: string, line: int, column: int, sourceSnippet: string, length: int, functionName: string, leftSignature: string, rightSignature: string): CompilerError {
+        return new CompilerError(ErrorCode.AmbiguousCall, AnalyzerOverloadSpecificity.AmbiguousCallSummary(functionName), line, column, ErrorSeverity.Error) {
+            FileName: fileName,
+            SourceSnippet: sourceSnippet,
+            Length: length,
+            HumanExplanation: AnalyzerOverloadSpecificity.AmbiguousCallExplanation(functionName),
+            ContextualHint: AnalyzerOverloadSpecificity.AmbiguousCallHint(leftSignature, rightSignature),
+            DocsUrl: DiagnosticDocs.UrlFor("NL414")
+        }
+    }
+
     static func MethodGroupUsedAsValue(fileName: string, line: int, column: int, sourceSnippet: string, length: int, methodName: string): CompilerError {
         humanExplanation := "`" + methodName + "` names a method, not a value:"
         contextualHint := "Methods need a call site like `name()` before they produce a value.\n" + "A bare method name is only valid when the surrounding API expects a delegate."

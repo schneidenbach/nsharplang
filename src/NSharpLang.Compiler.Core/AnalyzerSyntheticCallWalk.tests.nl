@@ -516,10 +516,12 @@ test "an unbreakable tie is reported as an ambiguous call" {
         null
     )
 
-    // The FIRST candidate is kept — a later equally specific overload never displaces it.
+    // The FIRST candidate is kept — a later equally specific overload never displaces it — and the
+    // tie is NL414 rather than a free-text sentence, the same code the reflected world reports.
     assert chosen == first
     assert errors.Count == 1
-    assert errors[0].Message == "Ambiguous call to 'f': multiple overloads match with equal specificity"
+    assert errors[0].Code == ErrorCode.AmbiguousCall
+    assert errors[0].Message == "The call to 'f' is ambiguous"
 }
 
 // A candidate that matched by BINDING a type parameter is less specific than one that matched a

@@ -12211,7 +12211,11 @@ test "020 s32 analyzer diagnostics: the fixture reports 2 rows, `NL103` `NL306` 
     assert AcParseCensus(source) == ""
     assert AcParseSuccess(source) == "True"
     analysis := AcAnalyze(source)
-    assert AcCensus(analysis) == "NL306:DuplicateDeclaration@6:17+2;NL103:InvalidSyntax@12:21+1;"
+    // THE TIE IS NOW NL414, AND IT ANCHORS ON THE CALLED NAME. The source world used to report an
+    // unbreakable tie as a free-text NL103 at the call's own column; it is now the same code, the same
+    // sentence and the same two signatures the REFLECTED world reports, spanning the name the reader
+    // wrote.
+    assert AcCensus(analysis) == "NL306:DuplicateDeclaration@6:17+2;NL414:AmbiguousCall@12:19+2;"
     assert AcHasErrors(analysis) == "True"
     assert AcErrorCount(analysis) == 2
     assert AcRow(analysis, 0) == "DuplicateDeclaration|'Do' is already declared in this scope — each name must be unique within the same scope|<null>|Error"
@@ -12220,7 +12224,7 @@ test "020 s32 analyzer diagnostics: the fixture reports 2 rows, `NL103` `NL306` 
     assert AcSnippet(analysis, 0) == "<null>"
     assert AcTypes(analysis, 0) == "<null>|<null>"
     assert AcExplanation(analysis, 0) == "<null>"
-    assert AcRow(analysis, 1) == "InvalidSyntax|Ambiguous call to 'Do': multiple overloads match with equal specificity|<null>|Error"
+    assert AcRow(analysis, 1) == "AmbiguousCall|The call to 'Do' is ambiguous|Both of these match the arguments you wrote:\n  - Do(x: int, y: int): int\n  - Do(a: int, b: int): int\n\nNeither is more specific than the other, so I will not choose one for you.\nSay which you meant: cast an argument to the parameter type that overload declares, annotate a lambda's parameter types, or write the call's type arguments explicitly.|Error"
     assert AcHint(analysis, 1) == "<null>"
     assert AcSuggestions(analysis, 1) == "<null>"
     assert AcSnippet(analysis, 1) == "<null>"
@@ -12231,12 +12235,12 @@ test "020 s32 analyzer diagnostics: the fixture reports 2 rows, `NL103` `NL306` 
     assert AcCodeErrorCount(analysis, "DuplicateDeclaration") == 1
     assert AcCodeRow(analysis, "DuplicateDeclaration") == "DuplicateDeclaration|'Do' is already declared in this scope — each name must be unique within the same scope|<null>|Error"
     assert AcCodeAnchor(analysis, "DuplicateDeclaration") == "NL306@6:17+2"
-    assert AcCodeCount(analysis, "InvalidSyntax") == 1
-    assert AcCodeErrorCount(analysis, "InvalidSyntax") == 1
-    assert AcCodeRow(analysis, "InvalidSyntax") == "InvalidSyntax|Ambiguous call to 'Do': multiple overloads match with equal specificity|<null>|Error"
-    assert AcCodeAnchor(analysis, "InvalidSyntax") == "NL103@12:21+1"
+    assert AcCodeCount(analysis, "AmbiguousCall") == 1
+    assert AcCodeErrorCount(analysis, "AmbiguousCall") == 1
+    assert AcCodeRow(analysis, "AmbiguousCall") == "AmbiguousCall|The call to 'Do' is ambiguous|Both of these match the arguments you wrote:\n  - Do(x: int, y: int): int\n  - Do(a: int, b: int): int\n\nNeither is more specific than the other, so I will not choose one for you.\nSay which you meant: cast an argument to the parameter type that overload declares, annotate a lambda's parameter types, or write the call's type arguments explicitly.|Error"
+    assert AcCodeAnchor(analysis, "AmbiguousCall") == "NL414@12:19+2"
     rich := AcAnalyzeWithSource(source)
-    assert AcCensus(rich) == "NL306:DuplicateDeclaration@6:22+2;NL103:InvalidSyntax@12:21+1;"
+    assert AcCensus(rich) == "NL306:DuplicateDeclaration@6:22+2;NL414:AmbiguousCall@12:19+2;"
     assert AcHasErrors(rich) == "True"
     assert AcErrorCount(rich) == 2
     assert AcRow(rich, 0) == "DuplicateDeclaration|'Do' is already declared in this scope — each name must be unique within the same scope|<null>|Error"
@@ -12245,21 +12249,23 @@ test "020 s32 analyzer diagnostics: the fixture reports 2 rows, `NL103` `NL306` 
     assert AcSnippet(rich, 0) == "                func Do(a: int, b: int): int {"
     assert AcTypes(rich, 0) == "<null>|<null>"
     assert AcExplanation(rich, 0) == "<null>"
-    assert AcRow(rich, 1) == "InvalidSyntax|Ambiguous call to 'Do': multiple overloads match with equal specificity|<null>|Error"
-    assert AcHint(rich, 1) == "<null>"
+    // THE RICH ROUTE CARRIES THE SAME SENTENCE IN THE BUILT SHAPE: the two signatures move from the
+    // plain suggestion into the contextual hint, under an explanation line.
+    assert AcRow(rich, 1) == "AmbiguousCall|The call to 'Do' is ambiguous|<null>|Error"
+    assert AcHint(rich, 1) == "Both of these match the arguments you wrote:\n  - Do(x: int, y: int): int\n  - Do(a: int, b: int): int\n\nNeither is more specific than the other, so I will not choose one for you.\nSay which you meant: cast an argument to the parameter type that overload declares, annotate a lambda's parameter types, or write the call's type arguments explicitly."
     assert AcSuggestions(rich, 1) == "<null>"
     assert AcSnippet(rich, 1) == "                p.Do(1, 2)"
     assert AcTypes(rich, 1) == "<null>|<null>"
-    assert AcExplanation(rich, 1) == "<null>"
+    assert AcExplanation(rich, 1) == "The call to `Do` is ambiguous — two overloads match it equally well:"
     assert AcRow(rich, 2) == "<no-such-error>"
     assert AcCodeCount(rich, "DuplicateDeclaration") == 1
     assert AcCodeErrorCount(rich, "DuplicateDeclaration") == 1
     assert AcCodeRow(rich, "DuplicateDeclaration") == "DuplicateDeclaration|'Do' is already declared in this scope — each name must be unique within the same scope|<null>|Error"
     assert AcCodeAnchor(rich, "DuplicateDeclaration") == "NL306@6:22+2"
-    assert AcCodeCount(rich, "InvalidSyntax") == 1
-    assert AcCodeErrorCount(rich, "InvalidSyntax") == 1
-    assert AcCodeRow(rich, "InvalidSyntax") == "InvalidSyntax|Ambiguous call to 'Do': multiple overloads match with equal specificity|<null>|Error"
-    assert AcCodeAnchor(rich, "InvalidSyntax") == "NL103@12:21+1"
+    assert AcCodeCount(rich, "AmbiguousCall") == 1
+    assert AcCodeErrorCount(rich, "AmbiguousCall") == 1
+    assert AcCodeRow(rich, "AmbiguousCall") == "AmbiguousCall|The call to 'Do' is ambiguous|<null>|Error"
+    assert AcCodeAnchor(rich, "AmbiguousCall") == "NL414@12:19+2"
 }
 
 test "020 s32 analyzer diagnostics: the fixture reports `NL402` at 5:17+7; the two routes give two different SENTENCES, and two different suggestions, production carries a `ContextualHint` the plain route leaves null — the deleted method drove the ONE-ARGUMENT route through `AssertHasError` (was AnalyzerTests.OverloadResolution_SameArity_BoolVsInt_Error)" {
