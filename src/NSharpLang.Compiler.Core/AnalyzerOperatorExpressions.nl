@@ -1997,11 +1997,13 @@ class AnalyzerOperatorExpressions {
     // type, ask the UNLIFTED question of what is left, and wrap the answer back up.
     //
     // TWO RESULT SHAPES, BECAUSE C# HAS TWO. An ARITHMETIC, BITWISE or SHIFT answer is lifted --
-    // `int? + int` is `int?`, absent exactly when an operand was absent -- while a RELATIONAL one is
-    // a plain `bool`: `x < y` is FALSE when either side is absent, so the comparison is always
-    // decided and nothing downstream may narrow out of it. EQUALITY is not asked here at all; it has
-    // its own lifted rule (`CanCompareLiftedEquality`) because two ABSENT values are EQUAL, which is
-    // the one place the comparison families disagree.
+    // `int? + int` is `int?`, absent exactly when an operand was absent -- while a COMPARISON is a
+    // plain `bool`. The two comparison families reach that `bool` differently and both are right:
+    // `x < y` is FALSE when either side is absent, so an ordering is always decided and nothing
+    // downstream may narrow out of it, while two ABSENT values are EQUAL. EQUALITY's primitive,
+    // enum and record-struct half is `CanCompareLiftedEquality`'s and is answered after this rule
+    // declines; what this rule answers for equality is only its USER-DEFINED half, the `op_Equality`
+    // an element type declares (`decimal? == decimal`), which that rule cannot see.
     //
     // IT CAN NEVER ADMIT A PAIR THE UNLIFTED RULE REFUSES, because the unlifted question is asked by
     // a PURE reader that reports nothing and answers null for every pair its reporting twin would
