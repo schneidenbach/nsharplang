@@ -564,15 +564,17 @@ class ColumnarExtensionMethodResolver {
     // `ldc.i4.5` in the caller and nothing at all in the callee. That is the whole rule, and it is why
     // omitting a defaulted argument needs no cooperation from the method being called.
     //
-    // TWO FAMILIES FILL. The null reference for a reference-typed parameter (`setupAction = null`,
-    // `url = null` — the shape the Web API template needs), and an integral, floating, `char`, `bool`,
-    // `string` or enum constant, which is what every converted C# overload-with-defaults produces.
+    // THREE FAMILIES FILL. The null reference for a reference-typed parameter (`setupAction = null`,
+    // `url = null` — the shape the Web API template needs); an integral, floating, `char`, `bool`,
+    // `string` or enum constant, which is what every converted C# overload-with-defaults produces; and
+    // `Nullable<T>` with no value, the one default that is not a single literal instruction, because
+    // it needs a local to `initobj` into.
     //
-    // THREE SHAPES DECLINE, AND EACH FOR A REASON. `decimal` and `DateTime` keep their defaults in a
-    // `[DecimalConstant]`/`[DateTimeConstant]` attribute rather than in the Constant table; a
-    // `Nullable<T>` default needs a local to `initobj` into and no call site here has one; and a
-    // parameter that is merely `[Optional]` with no constant at all is not guessed as `default(T)`.
-    // A by-ref, pointer or type-parameter shape is not a value the site can write either.
+    // FOUR SHAPES DECLINE, AND EACH FOR A REASON. `decimal` and `DateTime` keep their defaults in a
+    // `[DecimalConstant]`/`[DateTimeConstant]` attribute rather than in the Constant table; a NON-null
+    // `Nullable<T>` default (`n: int? = 5`) would have to construct the value as well; a parameter
+    // that is merely `[Optional]` with no constant at all is not guessed as `default(T)`; and a
+    // by-ref, pointer or type-parameter shape is not a value the site can write.
     static func OptionalDefaultKindNone(): int {
         return 0
     }
