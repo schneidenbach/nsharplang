@@ -82,6 +82,12 @@ func LwkReturn(line: int, column: int): ReturnStatement {
     return new ReturnStatement(null, line, column)
 }
 
+func LwkLocalFunction(name: string, bodyStatement: Statement, line: int, column: int): LocalFunctionStatement {
+    body := LwkBlock1(bodyStatement, line, column + 20)
+    declaration := new FunctionDeclaration(name, new List<Parameter>(), null, body, null, null, null, Modifiers.None, new List<AttributeNode>(), false, null, false, false, line, column)
+    return new LocalFunctionStatement(declaration, line, column)
+}
+
 func LwkThrow(line: int, column: int): ThrowStatement {
     thrown := LwkId("failure", line, column)
     return new ThrowStatement(thrown, line, column)
@@ -431,6 +437,33 @@ test "a THROW makes the rest of a block unreachable too" {
     statements.Add(LwkVar("after", null, 5, 5))
     walk.VisitStatement(LwkBlockOf(statements, 3, 1))
     assert LwkCodes(state) == "NL006@5:5;"
+}
+
+test "A LOCAL FUNCTION DECLARED AFTER A `return` IS NOT UNREACHABLE, AND IT IS STILL WALKED" {
+    state := LwkState()
+    walk := new LinterWalk(state)
+    statements := LwkStatements()
+    statements.Add(LwkReturn(4, 5))
+    statements.Add(LwkLocalFunction("describe", LwkVar("inner", null, 7, 9), 6, 5))
+    walk.VisitStatement(LwkBlockOf(statements, 3, 1))
+
+    // The declaration is not code that runs in this block — its name is bound before the block's
+    // first statement and its body is reached through calls written ABOVE it — so no NL006. Its
+    // BODY still gets the walk's own rules, which is what the NL001 proves.
+    assert LwkCodes(state) == "NL001@7:9;"
+}
+
+test "AN ORDINARY STATEMENT AFTER THAT DECLARATION IS STILL UNREACHABLE" {
+    state := LwkState()
+    walk := new LinterWalk(state)
+    statements := LwkStatements()
+    statements.Add(LwkReturn(4, 5))
+    statements.Add(LwkLocalFunction("describe", LwkVar("inner", null, 7, 9), 6, 5))
+    statements.Add(LwkVar("after", null, 9, 5))
+    walk.VisitStatement(LwkBlockOf(statements, 3, 1))
+
+    // Walking the declaration does not clear the flag.
+    assert LwkCodes(state) == "NL001@7:9;NL006@9:5;"
 }
 
 test "an ordinary statement does NOT make the rest unreachable" {
