@@ -40,6 +40,10 @@ import NSharpLang.Compiler.Ast
 //      callee of a discarded call — or null when nothing was recorded. The call was already
 //      analysed by kind 1, so re-analysing the AST would double-record bindings and references and
 //      corrupt find-references; this reads the answer back instead.
+//   9  NARROW THE SURVIVING FLOW by `Node` having been TRUE. Only `assert` asks for it: an assert
+//      that fails throws, so the code after it is reached only when the condition held, which is the
+//      guard clause `if !cond { throw }` written the other way round. The facts go into the
+//      ENCLOSING scope, because there is no branch to put them in.
 //
 // The numbering has GAPS at 2, 3 and 7 rather than closing up, because the kind number is a protocol
 // between this walk and one driver, and a renumber would silently re-point every contract that pins
@@ -675,7 +679,7 @@ class AnalyzerExpressionStatements {
         if phase == 13 {
             message := assertStatement.Message
             if message == null {
-                state.Phase = 99
+                state.Phase = 16
                 return null
             }
 
@@ -696,13 +700,27 @@ class AnalyzerExpressionStatements {
         }
 
         if phase == 15 {
-            state.Phase = 99
+            state.Phase = 16
             message := assertStatement.Message
             if message != null {
                 soaEscapeValue.ReportUnsupportedSoaDirectColumnValueEscapeIfNeeded(message, "used as an assertion message")
             }
 
             return null
+        }
+
+        // PHASE 16 — WHAT THE ASSERT PROVED. An assert that fails throws, so every statement after it
+        // is reached only when its condition held: `assert x != null` is `if x == null { throw }` with
+        // the sense inverted, and it narrows the SURVIVING flow exactly as that guard clause does.
+        //
+        // IT IS THE LAST PHASE, AFTER THE MESSAGE, and that order is behaviour. The message is the
+        // expression evaluated when the assert FAILS — the branch where the condition did NOT hold —
+        // so narrowing before it would hand the failure path a fact only the success path has.
+        if phase == 16 {
+            state.Phase = 99
+            request := new ExpressionStatementRequest(9, BuiltInTypes.Unknown)
+            request.Node = assertStatement.Condition
+            return request
         }
 
         state.Phase = 99

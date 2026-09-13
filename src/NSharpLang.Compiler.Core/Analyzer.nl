@@ -1169,6 +1169,25 @@ class Analyzer: IDisposable {
         }
     }
 
+    // WHAT A CONDITION THAT MUST HAVE HELD PROVES ABOUT THE CODE AFTER IT. `assert cond` is the only
+    // caller: a failing assert throws, so the surviving flow is the condition's TRUE branch and the
+    // facts belong to the ENCLOSING scope, exactly as they do for the guard clause
+    // `if !cond { throw }`. The extraction is the same one every `if` uses, so `x != null`,
+    // `x is T y`, `&&` chains, parentheses, `!` and a call's own `[NotNullWhen]`/`[MaybeNullWhen]`
+    // postconditions all reach it without a second vocabulary.
+    private func NarrowSurvivingFlow(condition: Expression?) {
+        if condition == null {
+            return
+        }
+
+        split := FlowNarrowing.ExtractFlowNarrowings(condition)
+        if split.Then.Count == 0 {
+            return
+        }
+
+        FlowNarrowing.ApplyNarrowingsToScope(split.Then)
+    }
+
     // A BLOCK'S LOCAL FUNCTIONS, BOUND BEFORE ITS FIRST STATEMENT RUNS. The scope REMEMBERS that it
     // bound them, because the walk still reaches each declaration statement later and must not
     // declare the same name twice and report itself as a duplicate.
@@ -1207,6 +1226,9 @@ class Analyzer: IDisposable {
                 if SemanticModel.ExpressionTypes.TryGetValue(key, out recorded) {
                     answer = recorded
                 }
+            }
+            if kind == 9 {
+                NarrowSurvivingFlow(step.Node)
             }
             ExpressionStatements.Supply(state, answer)
             step = ExpressionStatements.NextStep(state)

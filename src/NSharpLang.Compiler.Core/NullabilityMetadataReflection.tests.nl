@@ -434,10 +434,12 @@ test "flow attributes are formatted ahead of the parameter modifier" {
         throw new InvalidOperationException("Dictionary.TryGetValue was not found.")
     }
 
-    // `out` renders its modifier, and the value is nullable on the way out. `MaybeNullWhen` is
+    // `out` renders its modifier, and the VALUE is a plain `string`: `TryGetValue` declares
+    // `out TValue value`, so the substituted type is the argument and the `[MaybeNullWhen(false)]`
+    // is a POSTCONDITION about one branch rather than part of the type. `MaybeNullWhen` is also
     // deliberately NOT one of the four recognised flow attributes, so it contributes no prefix.
     outParameter := tryGetValue.GetParameters()[1]
-    assert NullabilityMetadataReflection.FormatParameter(outParameter) == "out string? value"
+    assert NullabilityMetadataReflection.FormatParameter(outParameter) == "out string value"
     assert NullabilityMetadataReflection.FormatParameter(tryGetValue.GetParameters()[0]) == "string key"
 }
 

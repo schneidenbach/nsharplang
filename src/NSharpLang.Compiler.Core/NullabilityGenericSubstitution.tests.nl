@@ -181,13 +181,18 @@ test "NO CONTEXT ANYWHERE IS -1, AND -1 IS NOT ANNOTATED NULLABLE" {
     assert NullabilityGenericSubstitution.ContextFlag(null) == -1
 }
 
-test "`[MaybeNullWhen(...)]` ANNOTATES THE POSITION TOO" {
+test "`[MaybeNullWhen(...)]` IS A POSTCONDITION AND NOT PART OF THE TYPE" {
     tryGetValue := SubstitutionMethod(typeof(Dictionary<string, string>), "TryGetValue")
     outParameter := tryGetValue.GetParameters()[1]
 
-    // N# does not model the CONDITION, so the honest reading of an unconditional use is the nullable
-    // one — which is also what the reader answered before this rule existed.
-    assert NullabilityGenericSubstitution.IsAnnotatedNullable(outParameter.GetCustomAttributesData(), tryGetValue)
+    // `TryGetValue` declares `out TValue value`, so with a `Dictionary<string, string>` receiver the
+    // parameter's TYPE is `string` — the false branch's maybe-null is what
+    // `AnalyzerNullabilityPostconditions` files against the call. Folding the attribute into the type
+    // here makes BOTH branches maybe-null, because the branch the attribute did not name falls back
+    // to the declared state, and `if map.TryGetValue(k, out found) { found.Label }` is then NL905 in
+    // the branch the call just proved.
+    assert !NullabilityGenericSubstitution.IsAnnotatedNullable(outParameter.GetCustomAttributesData(), tryGetValue)
+    assert NullabilityRenderTypeInfo(NullabilityMetadataReflection.ConvertParameter(outParameter)) == "Simple(string)"
 }
 
 test "A BYTE FLAG IS READ FROM THE BOXED VALUE, AND ONLY 0, 1 AND 2 ARE FLAGS" {

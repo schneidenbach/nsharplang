@@ -857,18 +857,18 @@ test "the validity report and the must-use report are mutually exclusive" {
 
 // ── the assert walk ───────────────────────────────────────────────────────
 
-test "an assert with no message asks for the condition alone" {
+test "an assert with no message asks for the condition and then narrows by it" {
     harness := EsDefault()
     EsRun(harness, harness.Owner.BeginAssert(EsAssert(EsBinary(), null)))
 
-    assert EsKinds(harness.Steps) == "1"
+    assert EsKinds(harness.Steps) == "1,9"
 }
 
-test "an assert with a message asks for both expressions" {
+test "an assert with a message asks for both expressions, and narrows AFTER the message" {
     harness := EsDefault()
     EsRun(harness, harness.Owner.BeginAssert(EsAssert(EsBinary(), EsName("why"))))
 
-    assert EsKinds(harness.Steps) == "1,1"
+    assert EsKinds(harness.Steps) == "1,1,9"
 }
 
 test "an SoA row condition reports under the asserted wording" {
@@ -876,7 +876,7 @@ test "an SoA row condition reports under the asserted wording" {
     harness.Answers.Add(EsRowType())
     EsRun(harness, harness.Owner.BeginAssert(EsAssert(EsName("row"), null)))
 
-    assert EsKinds(harness.Steps) == "1"
+    assert EsKinds(harness.Steps) == "1,9"
     assert harness.Errors.Count == 1
     assert harness.Errors[0].Message == "SoA row views cannot be asserted; use the table and row index instead"
 }
@@ -887,7 +887,7 @@ test "an SoA row message reports under the message wording" {
     harness.Answers.Add(EsRowType())
     EsRun(harness, harness.Owner.BeginAssert(EsAssert(EsBinary(), EsName("row"))))
 
-    assert EsKinds(harness.Steps) == "1,1"
+    assert EsKinds(harness.Steps) == "1,1,9"
     assert harness.Errors.Count == 1
     assert harness.Errors[0].Message == "SoA row views cannot be used as an assertion message; use the table and row index instead"
 }
@@ -899,7 +899,7 @@ test "an assert does not short-circuit on a fired column escape" {
     EsDeclareSoaTable(harness)
     EsRun(harness, harness.Owner.BeginAssert(EsAssert(EsSoaColumnRead(), EsSoaColumnRead())))
 
-    assert EsKinds(harness.Steps) == "1,1"
+    assert EsKinds(harness.Steps) == "1,1,9"
     assert harness.Errors.Count == 2
     assert harness.Errors[0].Message == "SoA table member 'x' cannot be asserted directly"
     assert harness.Errors[1].Message == "SoA table member 'x' cannot be used as an assertion message directly"
@@ -910,7 +910,7 @@ test "an assert has no error-count guard" {
     harness.ErrorsOnAnalyze = 1
     EsRun(harness, harness.Owner.BeginAssert(EsAssert(EsBinary(), EsName("why"))))
 
-    assert EsKinds(harness.Steps) == "1,1"
+    assert EsKinds(harness.Steps) == "1,1,9"
 }
 
 test "an assert never reports on its own" {
@@ -927,7 +927,7 @@ test "a non-boolean assert condition is accepted" {
     EsRun(harness, harness.Owner.BeginAssert(EsAssert(EsName("text"), null)))
 
     assert harness.Errors.Count == 0
-    assert EsKinds(harness.Steps) == "1"
+    assert EsKinds(harness.Steps) == "1,9"
 }
 
 test "the assert steps carry the condition and the message nodes themselves" {
@@ -938,6 +938,34 @@ test "the assert steps carry the condition and the message nodes themselves" {
 
     assert Object.ReferenceEquals(harness.Steps[0].Node, condition)
     assert Object.ReferenceEquals(harness.Steps[1].Node, message)
+
+    // The narrowing step carries the CONDITION again, because what it installs is what the condition
+    // proved — and it is LAST, after the message. The message is the expression evaluated when the
+    // assert FAILS, so narrowing before it would hand the failure path a fact only the success path
+    // has.
+    assert harness.Steps[2].Kind == 9
+    assert Object.ReferenceEquals(harness.Steps[2].Node, condition)
+}
+
+test "AN ASSERT ALWAYS ASKS TO NARROW, EVEN WHEN THE CONDITION PROVES NOTHING" {
+    // The walk does not decide whether a condition is worth narrowing by — that is the flow
+    // writer's question, and asking it here would put a second copy of the narrowing vocabulary in
+    // a walk that has none.
+    harness := EsDefault()
+    harness.Answers.Add(BuiltInTypes.Bool)
+    condition := EsInt()
+    EsRun(harness, harness.Owner.BeginAssert(EsAssert(condition, null)))
+
+    assert EsKinds(harness.Steps) == "1,9"
+    assert Object.ReferenceEquals(harness.Steps[1].Node, condition)
+}
+
+test "THE NARROWING STEP CARRIES NO TYPE AND REPORTS NOTHING" {
+    harness := EsDefault()
+    EsRun(harness, harness.Owner.BeginAssert(EsAssert(EsBinary(), null)))
+
+    assert BuiltInTypes.IsUnknown(harness.Steps[1].CarriedType)
+    assert harness.Errors.Count == 0
 }
 
 // ── the assert-throws walk ────────────────────────────────────────────────

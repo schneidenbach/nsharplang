@@ -1693,6 +1693,29 @@ length := item.Length       // still an error: `item` is maybe-null
 A `continue` in that same position *does* narrow, because it belongs to the enclosing loop, which is
 outside the branch.
 
+### `assert` narrows everything after it
+
+An `assert` that fails throws, so the statement after it is reached only on the path where its
+condition held — which is the guard clause `if !cond { throw }` written the other way round. It
+proves exactly what an `if` proves in its then-branch, using the same vocabulary:
+
+```n#
+found := items.FirstOrDefault()
+
+assert found != null            // `found` is `Query` from here on
+name := found.Name
+
+assert left != null && right != null      // an `&&` chain proves both halves
+assert value is string text               // the pattern binds `text` and narrows it
+
+found: Entry? = default
+assert map.TryGetValue(key, out found)    // the call's own `[MaybeNullWhen(false)]` applies
+label := found.Label
+```
+
+The assert's **message**, when it has one, is not narrowed: it is the expression evaluated when the
+assert fails, which is the path where the condition did not hold.
+
 ### A generic member's nullability follows its type argument
 
 When you read a member of a constructed generic whose declared type is a bare type parameter, the
