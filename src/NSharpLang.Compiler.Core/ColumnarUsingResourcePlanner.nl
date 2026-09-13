@@ -185,6 +185,31 @@ class ColumnarUsingResourcePlanner {
         }
     }
 
+    // The emitted type's own parameterless release member, read off the definition's method table. An
+    // overload set is searched for the zero-argument entry, because a type may legitimately declare
+    // `Dispose()` beside `Dispose(bool)`.
+    static func FindDefinitionPatternMethod(definition: ColumnarStructDef, isAsync: bool): MethodInfo? {
+        wantedName := MemberNameFor(isAsync)
+        overloads: List<ColumnarInstanceMethodDef>? = null
+        if definition.MethodOverloads.TryGetValue(wantedName, out overloads) && overloads != null {
+            index := 0
+            while index < overloads.Count {
+                if overloads[index].ParamTypes.Length == 0 {
+                    return overloads[index].Builder
+                }
+
+                index = index + 1
+            }
+        }
+
+        single: ColumnarInstanceMethodDef? = null
+        if definition.Methods.TryGetValue(wantedName, out single) && single != null && single.ParamTypes.Length == 0 {
+            return single.Builder
+        }
+
+        return null
+    }
+
     static func DefinitionNamesInterface(definition: ColumnarStructDef, interfaceName: string): bool {
         index := 0
         while index < definition.ExternalInterfaces.Count {
@@ -212,15 +237,26 @@ class ColumnarUsingResourcePlanner {
 
         // AN EMITTED TYPE ANSWERS FROM ITS DEFINITION. Its builder may not be able to.
         if definition != null {
-            if !DefinitionNamesInterface(definition, interfaceName) {
+            if DefinitionNamesInterface(definition, interfaceName) {
+                if definition.IsReference {
+                    return new ColumnarUsingDisposalPlan(2, interfaceMethod, interfaceType, resourceType)
+                }
+
+                return new ColumnarUsingDisposalPlan(1, interfaceMethod, interfaceType, resourceType)
+            }
+
+            // The STRUCTURAL arm, over the definition's own member table for the same reason the
+            // interface arm reads the definition: an unbaked builder cannot be asked for its methods.
+            definitionMethod := FindDefinitionPatternMethod(definition, isAsync)
+            if definitionMethod == null {
                 return null
             }
 
             if definition.IsReference {
-                return new ColumnarUsingDisposalPlan(2, interfaceMethod, interfaceType, resourceType)
+                return new ColumnarUsingDisposalPlan(5, definitionMethod, interfaceType, resourceType)
             }
 
-            return new ColumnarUsingDisposalPlan(1, interfaceMethod, interfaceType, resourceType)
+            return new ColumnarUsingDisposalPlan(4, definitionMethod, interfaceType, resourceType)
         }
 
         if NamesInterface(resourceType, interfaceName) {
