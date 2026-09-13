@@ -774,14 +774,35 @@ Decided (2026-09-01/02, the owner choosing "whatever is best long-term for the l
    (`emit.interpolation.split`) — use locals + `Console.WriteLine`.
 6. Never pack feeds mid-slice; a mid-slice pack poisons the feed.
 
-### Growth-ratchet repin (only when C# rows move; taken LAST)
+### Growth-ratchet repin (taken LAST; two row classes since E1)
 
-`tests/native/ownership-audit/non-nsharp-growth-ratchet.v1.json` (391 lines, no BOM) + the
-`ReviewedHeadFingerprint` constant in `OwnershipAudit.nl` — TWO keys, both updated. Walks are validated
-pristine-first (text fingerprints count UTF-16 code units, not codepoints; the pathset is a sorted newline
-join). Rows may only be removed (`0/0/0,text-v1:removed`) or exact-shrunk; the epoch triple never moves.
-Audit reads 17/18 before the repin (record it) and 18/18 after. `audit --verbose` prints the values to paste.
-OWN003 = a gate log inside the byte-copy; OWN009 = leftover `TestResults/.trx`.
+`tests/native/ownership-audit/non-nsharp-growth-ratchet.v2.json` (400 lines, no BOM, `schemaVersion` 2)
++ the `ReviewedHeadFingerprint` constant in `OwnershipAudit.nl` — TWO keys, both updated on every repin.
+Walks are validated pristine-first (text fingerprints count UTF-16 code units, not codepoints; the pathset
+is a sorted newline join). `audit --verbose` prints the observed values to paste; run the project, record
+the count before the repin and after it.
+
+**CODE rows** (csharp, typescript, javascript, python, java, native, rust, go, gradle-kotlin — every
+implementation language) keep the growth ratchet: immutable epoch ceilings, exact current facts, rows only
+removed (`0/0/0/0, text-v1:removed`) or exact-shrunk, and a frozen path set. A new code file is `OWN003`
+and cannot be repinned in — admitting one takes a NEW epoch, which is root's call, not a repin.
+
+**DELIVERY rows** (product-config, yaml-config, json-config, msbuild, shell, powershell, policy-data,
+gradle-config and every binary language) are reviewed, not ratcheted: the row carries an exact-match
+fingerprint plus the line counts the report quotes, `state` is `reviewed`, and it may not spell a ceiling
+at all (`epochLines`/`epochNonBlankLines`/`epochAssertionMarkers`/`epochBytes`/`currentAssertionMarkers` on
+a delivery row are `OWN001`). Any drift is ALWAYS `OWN005` — review the change, then repin the row's
+fingerprint and counts. A NEW delivery file is admitted by adding its row in the repin; until then it is
+`OWN003`, never implicit.
+
+The epoch triple (`codeEpochFileCount`, `codeEpochPathFingerprint`, `codeEpochFactFingerprint`) is computed
+over CODE rows only, so a delivery repin never moves it; the reviewed head covers every row of both classes.
+**E1** is the epoch taken at the bootstrap seed boundary (`c9f87445`): 223 code rows (135 live, 88 removed),
+167 delivery rows, `pathset-v2:fbda7fc3d5053525` / `epochfacts-v2:05f608333cab8ef7` /
+`head-v2:1b4771b7b5425f11`. E1 recomputed the per-row code ceilings from the tree, so the banked shrink is
+locked (live C# epoch lines 38839 → 26376) and most rows now have zero headroom. A `schemaVersion` 1
+manifest is refused by one precise `OWN001`. OWN003 also = a gate log inside the byte-copy;
+OWN009 = leftover `TestResults/.trx`.
 
 ### Product-defect chips (15 filed; state at `ef3ff87c3`, 2026-09-01)
 
@@ -1227,13 +1248,13 @@ class at `parse.struct` regardless of name or body — inline the helper; fields
   Conversely a `.tests.nl` is NOT evidence about the production emit path — `NSharpExcludeTests=true`
   compiles them differently, and `typeof(Console)` builds in a contract and declines in a production `.nl`
   of the same project (019/6).
-- The ratchet manifest `tests/native/ownership-audit/non-nsharp-growth-ratchet.v1.json` is 391 lines with
-  NO BOM (first bytes `7b 0a 20`); edit it LINE BY LINE — a `json.dumps` round trip reflows 381 compact
-  rows into 6,106 lines (017/1, 2, 22; 020/14, 15; 021/6). It tracks only NON-N# files (zero `.nl` rows),
-  so an `.nl`-only slice needs no repin — prove it, since appending one blank line to
-  `ColumnarIlEmitter.cs` takes the audit to 17/18 (015-B2-1; 016 stages 1–8; 021/9b).
+- The ratchet manifest `tests/native/ownership-audit/non-nsharp-growth-ratchet.v2.json` is 400 lines with
+  NO BOM (first bytes `7b 0a 20`); edit it LINE BY LINE — a `json.dumps` round trip reflows its 390 compact
+  rows into thousands of lines (017/1, 2, 22; 020/14, 15; 021/6). It tracks only NON-N# files (zero `.nl`
+  rows), so an `.nl`-only slice needs no repin — prove it, since appending one blank line to a C# row takes
+  the audit red (015-B2-1; 016 stages 1–8; 021/9b).
 - The two-key repin (JSON header `reviewedHeadFingerprint` AND `OwnershipPolicy.ReviewedHeadFingerprint`
-  at `OwnershipAudit.nl:241`) is the LAST edit; the audit reads 17/18 before it and 18/18 after, with zero
+  in `OwnershipAudit.nl`) is the LAST edit; the audit is red before it and green after, with zero
   occurrences of the superseded head left under `tests/native/ownership-audit` (every A- and B-stage;
   018/1; 020/16, 19–31).
 - Deleting a tracked file flips its row to `state:"removed"` with zero current metrics and the literal

@@ -170,9 +170,12 @@ comparable programs; it retires when the playground runs emitted IL in the brows
 sentences and 7 ordering sites — and retires with the same Playground task.
 
 The ratchet at `tests/native/ownership-audit/non-nsharp-growth-ratchet.v2.json` enforces this
-allowlist mechanically: no listed file may grow past its epoch ceiling (`OWN004`), and a new non-N#
-file is refused outright (`OWN003` — *"new unclassified non-N# file; implement this behavior in N#
-or remove the file"*). `tasks/README.md` is the ordered vertical ownership queue and
+allowlist mechanically. Since the E1 epoch it holds two row classes: CODE rows (C#, TypeScript,
+JavaScript, Python, and the other implementation languages) may not grow past their epoch ceiling
+(`OWN004`), and a new code file is refused outright (`OWN003` — *"new unclassified non-N# file;
+implement this behavior in N# or remove the file"*); DELIVERY rows (config, MSBuild, shell and
+binary surfaces) carry no ceiling but an exact reviewed fingerprint, so any drift is reported
+(`OWN005`) and a new delivery file is admitted only by adding its row in a reviewed repin. `tasks/README.md` is the ordered vertical ownership queue and
 `systems-language-closeout/STATUS.md` is its cursor/evidence ledger.
 
 ## Build And Test Commands

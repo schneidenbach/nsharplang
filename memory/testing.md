@@ -933,8 +933,8 @@ selected native regression assemblies themselves before verification.
 
 ### 8. The Compile-Time Gate And Benchmark (`tests/native/compile-time-bench`)
 The gate has one compile-speed step, and it is N#-owned rather than a shell step because the
-ownership ratchet (`tests/native/ownership-audit`) refuses new shell and JSON files and every gate
-script is pinned at its epoch line count. `tests/native/compile-time-bench` is a native project
+ownership ratchet (`tests/native/ownership-audit`) admits a new shell or JSON file only as an
+explicitly reviewed delivery row, and pins every gate script to an exact reviewed fingerprint. `tests/native/compile-time-bench` is a native project
 with a `.tests.nl`, so Step 3a discovers and runs it like every other native estate; it appears in
 the gate log as `Testing native project: tests/native/compile-time-bench` and its one gate block is
 named `compile-time gate: …`.

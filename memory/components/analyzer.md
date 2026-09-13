@@ -1621,7 +1621,8 @@ existing NL309 rule's business, unchanged. The emitted metadata half lives in
 `ColumnarDeclarationPlan.FieldIsReadonlyAt` (every instance field of a readonly struct is `initonly`,
 including a primary constructor's synthesized capture fields) and `ColumnarIlEmitter` (the
 `IsReadOnlyAttribute` on the type); `tests/native/readonly-structs` proves both by reflection. That project is NOT registered in
-`scripts/ilverify.sh` — adding the line trips the OWN004/OWN005 non-N# growth ratchet — but its
+`scripts/ilverify.sh` — since E1 that script is a reviewed delivery row, so adding the line means
+reviewing the change and repinning the row (OWN005) rather than shedding lines — but its
 assembly verifies clean under `scripts/ilverify.sh --built-dirs-file`. KNOWN LIMIT: a `with`
 expression over a `readonly record struct` declines at `emit.with.plan` (the with planner needs
 settable named members and every instance field is now initonly) — the same decline a plain

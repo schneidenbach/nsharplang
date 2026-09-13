@@ -122,7 +122,6 @@ class OwnershipManifestEntry {
 }
 
 class OwnershipManifest {
-    SchemaVersion: int
     Phase: string
     CodeEpochFileCount: int
     CodeEpochPathFingerprint: string
@@ -131,7 +130,6 @@ class OwnershipManifest {
     Files: List<OwnershipManifestEntry>
 
     constructor() {
-        SchemaVersion = 0
         Phase = ""
         CodeEpochFileCount = 0
         CodeEpochPathFingerprint = ""
@@ -1016,11 +1014,8 @@ class OwnershipAudit {
                 if !rootFields.Add(property.Name) {
                     result.Add("OWN001", "", "duplicate root field '" + property.Name + "'")
                 } else if property.Name == "schemaVersion" {
-                    if property.Value.ValueKind == JsonValueKind.Number {
-                        manifest.SchemaVersion = property.Value.GetInt32()
-                    } else {
-                        result.Add("OWN001", "", "schemaVersion must be an integer")
-                    }
+                    // Read and gated before any field parsing; accepted here as a known field.
+                    continue
                 } else if property.Name == "phase" {
                     manifest.Phase = RequireString(property.Value, "phase", "", result)
                 } else if property.Name == "codeEpochFileCount" {
