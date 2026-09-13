@@ -130,3 +130,21 @@ test "GroupBy with a result selector, Zip, and Aggregate with a seed all emit" {
 
     assert AggregatedFrom(100, left) == 103
 }
+
+// ── a type parameter's constraint is its member surface ───────────────────────────────────────
+test "a constrained type parameter types a LAMBDA argument at the same call" {
+    words := new List<string>()
+    words.Add("alpha")
+    words.Add("be")
+    words.Add("gamma")
+
+    assert WidestOf(words) == 5
+    assert LongCountOf(words) == 2
+    assert UpperJoined(words) == "ALPHA,BE,GAMMA"
+
+    // The no-argument form the constraint already reached keeps working, and an ARRAY satisfies the
+    // same constraint as a list does.
+    assert CountOfConstrained(words) == 3
+    assert WidestOf(WordArray()) == 5
+    assert CountOfConstrained(WordArray()) == 3
+}

@@ -778,3 +778,68 @@ class AnalyzerShadowProbe {
         return stack
     }
 }
+
+// ── a type parameter's `where` clause, recorded on the scope that declared it ─────────────────
+
+func ScopeConstraintList(values: TypeInfo[]): List<TypeInfo> {
+    resolved := new List<TypeInfo>()
+    index := 0
+    while index < values.Length {
+        resolved.Add(values[index])
+        index = index + 1
+    }
+    return resolved
+}
+
+test "a constrained type parameter reads as its single constraint, and an unconstrained one does not" {
+    model := new SemanticModel()
+    stack := ScopeStackOf(model, [ScopeKind.Global, ScopeKind.Function])
+
+    sequence: TypeInfo = new GenericTypeInfo("IEnumerable", ScopeConstraintList([BuiltInTypes.String]))
+    stack.DeclareTypeParameter("T")
+    stack.DeclareTypeParameterConstraints("T", ScopeConstraintList([sequence]))
+    stack.DeclareTypeParameter("U")
+
+    // ONE constraint IS the receiver's member surface.
+    assert Object.ReferenceEquals(stack.ConstrainedReceiverType(new SimpleTypeInfo("T")), sequence)
+
+    // An UNCONSTRAINED parameter answers with itself: there is nothing to substitute.
+    unconstrained: TypeInfo = new SimpleTypeInfo("U")
+    assert Object.ReferenceEquals(stack.ConstrainedReceiverType(unconstrained), unconstrained)
+
+    // So does a name nothing declared, and so does a type that is not a bare name at all.
+    stranger: TypeInfo = new SimpleTypeInfo("NotATypeParameter")
+    assert Object.ReferenceEquals(stack.ConstrainedReceiverType(stranger), stranger)
+    assert Object.ReferenceEquals(stack.ConstrainedReceiverType(sequence), sequence)
+}
+
+test "TWO constraints answer with the parameter itself, because choosing one would silently pick" {
+    model := new SemanticModel()
+    stack := ScopeStackOf(model, [ScopeKind.Global, ScopeKind.Function])
+
+    sequence: TypeInfo = new GenericTypeInfo("IEnumerable", ScopeConstraintList([BuiltInTypes.String]))
+    comparable: TypeInfo = new SimpleTypeInfo("IComparable")
+    stack.DeclareTypeParameter("T")
+    stack.DeclareTypeParameterConstraints("T", ScopeConstraintList([sequence, comparable]))
+
+    parameter: TypeInfo = new SimpleTypeInfo("T")
+    assert Object.ReferenceEquals(stack.ConstrainedReceiverType(parameter), parameter)
+}
+
+test "a constraint leaves scope with the declaration that introduced it" {
+    model := new SemanticModel()
+    stack := ScopeStackOf(model, [ScopeKind.Global])
+
+    sequence: TypeInfo = new GenericTypeInfo("IEnumerable", ScopeConstraintList([BuiltInTypes.String]))
+    stack.Push(model, new Scope(ScopeKind.Function), 2, 1)
+    stack.DeclareTypeParameter("T")
+    stack.DeclareTypeParameterConstraints("T", ScopeConstraintList([sequence]))
+
+    recorded: List<TypeInfo>? = null
+    assert stack.TryGetTypeParameterConstraints("T", out recorded)
+    assert recorded != null
+
+    stack.Pop(model)
+    assert !stack.TryGetTypeParameterConstraints("T", out recorded)
+    assert recorded == null
+}

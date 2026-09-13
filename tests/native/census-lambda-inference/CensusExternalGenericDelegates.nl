@@ -141,3 +141,28 @@ func Zipped(left: List<int>, right: List<int>): List<int> {
 func AggregatedFrom(seed: int, values: List<int>): int {
     return values.Aggregate(seed, (running, value) => running + value)
 }
+
+// A TYPE PARAMETER CONSTRAINED TO AN INTERFACE IS THAT INTERFACE, INCLUDING FOR A LAMBDA ARGUMENT.
+// `T` has no members of its own and no reflectable interface list, so the receiver was matched
+// against nothing and the call's callee was never resolved to a signature: all three of these
+// reported NL203 "I can't figure out the type of lambda parameter 'i'" while the no-argument form
+// (`items.Count()`) resolved. The `where` clause is what types them.
+func WidestOf<T>(items: T): int where T: IEnumerable<string> {
+    return items.Max(item => item.Length)
+}
+
+func LongCountOf<T>(items: T): int where T: IEnumerable<string> {
+    return items.Count(item => item.Length > 2)
+}
+
+func UpperJoined<T>(items: T): string where T: IEnumerable<string> {
+    return string.Join(",", items.Select(item => item.ToUpperInvariant()))
+}
+
+func CountOfConstrained<T>(items: T): int where T: IEnumerable<string> {
+    return items.Count()
+}
+
+func WordArray(): string[] {
+    return ["alpha", "be", "gamma"]
+}

@@ -414,7 +414,7 @@ class AnalyzerMemberAccess {
 
         includeStaticMembers := IsStaticMemberAccessTarget(member.Object)
         invocationPosition := IsCallCalleePosition(member)
-        memberType := memberResolutionValue.ResolveMember(receiverType, member.MemberName, includeStaticMembers, ambientValue.CurrentTypeName, invocationPosition)
+        memberType := memberResolutionValue.ResolveMember(scopesValue.ConstrainedReceiverType(receiverType), member.MemberName, includeStaticMembers, ambientValue.CurrentTypeName, invocationPosition)
         if invocationPosition && BuiltInTypes.IsUnknown(memberType) && ReportMemberNotCallableIfNeeded(receiverType, member, includeStaticMembers) {
             state.ResultType = BuiltInTypes.Unknown
             return

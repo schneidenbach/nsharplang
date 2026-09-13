@@ -427,6 +427,7 @@ class AnalyzerFunctionBodies {
         }
 
         typeResolverValue.ResolveGenericConstraintTypes(declaration.Constraints)
+        RecordTypeParameterConstraints(declaration.Constraints)
 
         state.Phase = 3
         state.ParameterIndex = 0
@@ -435,6 +436,37 @@ class AnalyzerFunctionBodies {
         request.Line = state.Line
         request.Column = state.Column
         return request
+    }
+
+    // THE `where` CLAUSE, RECORDED ON THE SCOPE THAT DECLARED THE PARAMETER. A type parameter is a
+    // `SimpleTypeInfo` of its own name and carries nothing else, so without this the only thing known
+    // about `T` at a use site is its spelling — which is why `func Widest<T>(items: T) where T:
+    // IEnumerable<string>` writing `items.Max(i => i.Length)` could not type the lambda's parameter
+    // (NL203) while `items.Count()` resolved. A clause with no resolvable types records nothing.
+    func RecordTypeParameterConstraints(constraints: List<GenericConstraint>?) {
+        if constraints == null {
+            return
+        }
+
+        index := 0
+        while index < constraints.Count {
+            constraint := constraints[index]
+            references := constraint.Constraints
+            resolved := new List<TypeInfo>()
+            if references != null {
+                referenceIndex := 0
+                while referenceIndex < references.Count {
+                    resolved.Add(typeResolverValue.ResolveType(references[referenceIndex]))
+                    referenceIndex = referenceIndex + 1
+                }
+            }
+
+            if resolved.Count > 0 {
+                scopesValue.DeclareTypeParameterConstraints(constraint.TypeParameter, resolved)
+            }
+
+            index = index + 1
+        }
     }
 
     // NL316 FOR A TYPE PARAMETER. A declaration's own type parameter may not reuse a name an
@@ -728,6 +760,7 @@ class AnalyzerFunctionBodies {
 
         constraints := declaration.Constraints
         typeResolverValue.ResolveGenericConstraintTypes(constraints)
+        RecordTypeParameterConstraints(constraints)
         CheckCircularGenericConstraints(typeParameters, constraints, declaration.Name, state.Line, state.Column)
 
         state.Phase = 3

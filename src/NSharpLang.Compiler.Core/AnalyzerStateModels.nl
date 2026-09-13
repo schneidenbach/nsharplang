@@ -62,6 +62,7 @@ class Scope {
     availableErrorTupleResultsValue: HashSet<string>
     declarationLocations: Dictionary<string, SymbolDeclaration>
     typeAritiesValue: Dictionary<string, List<int>>
+    typeParameterConstraintsValue: Dictionary<string, List<TypeInfo>>
 
     Kind: ScopeKind => kindValue
     Symbols: Dictionary<string, TypeInfo> => symbolsValue
@@ -77,6 +78,11 @@ class Scope {
     // arity-mismatch diagnostic both read it; a name with one non-generic declaration has the single
     // entry 0.
     TypeArities: Dictionary<string, List<int>> => typeAritiesValue
+    // THE CONSTRAINT TYPES OF EVERY TYPE PARAMETER THIS SCOPE DECLARES. A type parameter is a
+    // `SimpleTypeInfo` of its own name and carries nothing else, so the one place its `where` clause
+    // can live is beside the declaration that introduced it — and it leaves scope with that
+    // declaration, which is why this is a scope field rather than a walk-lifetime map.
+    TypeParameterConstraints: Dictionary<string, List<TypeInfo>> => typeParameterConstraintsValue
     NullStates: Dictionary<string, NullState> => nullStatesValue
     ErrorTupleResults: Dictionary<string, ErrorTupleResultGuard> => errorTupleResultsValue
     AvailableErrorTupleResults: HashSet<string> => availableErrorTupleResultsValue
@@ -90,6 +96,7 @@ class Scope {
         availableErrorTupleResultsValue = new HashSet<string>(StringComparer.Ordinal)
         declarationLocations = new Dictionary<string, SymbolDeclaration>()
         typeAritiesValue = new Dictionary<string, List<int>>(StringComparer.Ordinal)
+        typeParameterConstraintsValue = new Dictionary<string, List<TypeInfo>>(StringComparer.Ordinal)
     }
 
     // The one write path for a type binding. `key` is an identity key; the arity index is derived

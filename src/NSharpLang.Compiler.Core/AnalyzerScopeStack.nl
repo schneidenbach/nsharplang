@@ -439,6 +439,59 @@ class AnalyzerScopeStack {
         }
     }
 
+    // THE CONSTRAINT TYPES A `where` CLAUSE GAVE A TYPE PARAMETER, recorded on the scope that
+    // declared it. They are written after the parameter itself, because a constraint may name another
+    // of the same declaration's parameters.
+    func DeclareTypeParameterConstraints(name: string, constraintTypes: List<TypeInfo>) {
+        Peek().TypeParameterConstraints[name] = constraintTypes
+    }
+
+    // The constraints of a type parameter visible here, innermost scope first. A name with no
+    // recorded constraints — an unconstrained parameter, or an ordinary type that merely shares a
+    // spelling with one — answers false.
+    func TryGetTypeParameterConstraints(name: string, out constraintTypes: List<TypeInfo>?): bool {
+        constraintTypes = null
+        index := scopes.Count - 1
+        while index >= 0 {
+            recorded: List<TypeInfo>? = null
+            if scopes[index].TypeParameterConstraints.TryGetValue(name, out recorded) && recorded != null {
+                constraintTypes = recorded
+                return true
+            }
+
+            index = index - 1
+        }
+
+        return false
+    }
+
+    // A TYPE PARAMETER'S MEMBER SURFACE IS THE ONE ITS CONSTRAINT DECLARES, and this is the one place
+    // that substitution is made. `T` itself has no members and no reflectable interface list, so
+    // `func Widest<T>(items: T): int where T: IEnumerable<string>` writing `items.Max(i => i.Length)`
+    // could not type the lambda's parameter: the callee was never resolved to a signature, and NL203
+    // was reported about a lambda whose delegate type nothing named. Its `where` clause is exactly
+    // what C# matches the member against.
+    //
+    // ONE constraint answers. Two is a member-lookup question this owner does not resolve — C# merges
+    // the surfaces of every constraint and reports an ambiguity when two declare the name — and
+    // answering with one of them would silently pick. The emitter's own constrained-receiver walk
+    // draws the line in the same place, so the two halves of such a call agree about which calls
+    // exist. Anything that is not a bare name, and any name with no recorded clause, is returned
+    // unchanged.
+    func ConstrainedReceiverType(receiverType: TypeInfo): TypeInfo {
+        simple := receiverType as SimpleTypeInfo
+        if simple == null {
+            return receiverType
+        }
+
+        constraintTypes: List<TypeInfo>? = null
+        if !TryGetTypeParameterConstraints(simple.Name, out constraintTypes) || constraintTypes == null || constraintTypes.Count != 1 {
+            return receiverType
+        }
+
+        return constraintTypes[0]
+    }
+
     // Whether a scope OUTSIDE the innermost one already declared a type parameter of this name — the
     // question a nested declaration's own type-parameter list has to ask before it shadows one.
     func HasEnclosingTypeParameter(name: string): bool {
