@@ -1225,6 +1225,18 @@ Two rules the compiler enforces about the type-argument list itself:
   does not parse, `import System` plus `catch ex: InvalidOperationException` does. Relatedly, a type
   used ONLY as a catch type or only inside a delegate type in a signature does not yet count as a use
   of its import, so `NL010` can report an import that is in fact needed.
+- A **defaulted parameter is filled only for a member of a referenced assembly**. Omitting the
+  argument works for an external instance, static, extension or CONSTRUCTOR parameter, whose default
+  the call site reads out of the callee's metadata and writes as a literal. A function, method or
+  constructor declared in the SAME project does not yet offer its defaults to a call in that
+  project — pass every argument, or split the declaration into explicit arities. The defaults that can be filled are the null
+  reference, an integral, floating, `char`, `bool`, `string` or enum constant, and a `Nullable<T>`
+  with no value; a `decimal` or `DateTime` default, and a bare `[Optional]` with no constant at all,
+  still decline.
+- **Reading a member off a local initialised from an external static call** declines
+  (`summary := Kernels.Summarize(args)` then `summary.ShowHelp`). The same member read works off a
+  parameter of that type and off a local initialised with `new`, so binding the value differently is
+  the workaround.
 
 ## Nullable Types
 
@@ -1318,6 +1330,46 @@ displayName := optionalName ?? "anonymous"
 ```
 
 `null!`, `default!`, and blind `.Value` access are not N# style. Replace suppression with explicit nullable handling.
+
+### Guard clauses narrow everything after them
+
+A branch that the flow can never come back from hands what follows it the fact the branch it did not
+take proved. `return` and `throw` do that, and so do `break` and `continue` — the branch is gone
+either way, so the code after the `if` is reached only when the condition was false:
+
+```n#
+func TotalLength(items: string?[]): int {
+    total := 0
+    for item in items {
+        if item == null {
+            continue
+        }
+
+        // `item` is `string` here — the only way to reach this line is past the guard.
+        total = total + item.Length
+    }
+
+    return total
+}
+```
+
+The jump has to leave *this* branch, not something inside it. A `break` written inside a loop or a
+`switch` that is itself inside the branch belongs to that loop or that switch, so the branch is still
+there afterwards and nothing is narrowed:
+
+```n#
+if item == null {
+    switch mode {
+        case 1 => break     // leaves the `switch`, not the `if`
+        default => break
+    }
+}
+
+length := item.Length       // still an error: `item` is maybe-null
+```
+
+A `continue` in that same position *does* narrow, because it belongs to the enclosing loop, which is
+outside the branch.
 
 ## Type Aliases
 

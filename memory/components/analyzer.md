@@ -406,6 +406,21 @@ that hover, completion and every diagnostic that prints a CLR member signature r
   A NULLABLE VALUE TYPE is never wrapped in an oblivious or nullable layer of its own — it already
   IS one. Every reference layer carries its own state, so `string[]` answers
   `Oblivious(Array(Oblivious(string)))`: the array and its element are annotated separately.
+- **"IS THIS A NULLABLE VALUE TYPE" IS ANSWERED BY METADATA NAME, NEVER BY `Nullable.GetUnderlyingType`.**
+  The BCL helper compares against `typeof(Nullable<>)` by reference, and under a MetadataLoadContext
+  the projected `System.Nullable`1` is a different object — so it answered NO for every `int?` that
+  came from a referenced assembly, and the parameter converted to a `GenericTypeInfo` named
+  "Nullable" instead of the `NullableTypeInfo` that `int?` in source produces. The two then failed to
+  match in either direction, with NL402 printing the two halves of one type as `SymbolKind?` and
+  `Nullable<SymbolKind>` in the same sentence. `ExternalUserDefinedConversions.NullableUnderlyingTypeOrNull`
+  is the one reader; `AnalyzerReflectionTypeConversion`'s plain and substitution-aware walks lift
+  through it too, so there is ONE spelling of `T?` in the analyzer.
+- **AN OBLIVIOUS SHELL IS TRANSPARENT TO IDENTITY ON EITHER SIDE.** `TypeInfoIdentityFacts.AreEqual`
+  used to unwrap one only when BOTH sides had it, and `ResolveDeclaredAlias` already strips it at the
+  top of a comparison — so it was transparent for `string` and opaque one level down, and the
+  `string![]!` an N#-emitted `string[]` parameter reads back as refused a `string[]` argument. It
+  unwraps on either side now, comparing the inner type against the other side, so `string![]` matches
+  `string[]` and still does not match `string?[]`.
 - THE TYPE OVERRIDE is consulted TWICE — once before the walk for a generic parameter, and again at
   the leaf for a type the walk did not decompose. A null answer means "decline", and falls through
   to exactly what no override at all would produce.
@@ -1294,6 +1309,31 @@ For non-nullable fields:
 - Must be assigned in constructor
 - Analyzer tracks which fields are assigned
 - Reports error if field not initialized
+
+### Statement termination — the one judgement, two questions
+
+`AnalyzerStatementTermination` is the analyzer's only control-flow-termination judgement, and it has
+two entry points over ONE walk (`Walk(statement, breakLeaves, continueLeaves)`):
+
+- `AlwaysReturns` — "does every path end in a `return` or a `throw`". The missing-return rule
+  (`NL305`) and the unreachable-code rule ask it. Both jumps are off, because a `break` out of a loop
+  is not a way out of the function.
+- `AlwaysLeaves` — "does every path leave the block that contains this statement". Only the
+  guard-clause rule (`AnalyzerLoopSequence.AdvanceIfGuardClause`) asks it, so that
+  `if x == null { break }` and `if x == null { continue }` narrow what follows exactly as
+  `return`/`throw` do. Both jumps are on.
+
+`break` and `continue` travel as separate flags because they bind to different constructs: descending
+into a `switch` stops counting `break` (it leaves the switch, not the branch) and keeps counting
+`continue` (it still leaves the enclosing loop); a `finally` block counts neither, since a jump out of
+one is not legal IL. A loop body is never descended into, so a `break` written inside a nested loop
+escapes nothing.
+
+`try` follows C#'s end-point rule (§13.2): the statement leaves when the `finally` block leaves by
+itself, or when the guarded block AND every handler leave. A zero-catch `try { return x } finally { ... }`
+therefore leaves — which is what every C# `using` that returns lowers to.
+`ColumnarMethodBodyPlanner.AlwaysReturns` is the node-table mirror of the same rule and must be kept
+verbatim-identical to it.
 
 ### Error Tuple Result Availability
 For Go-style error tuples (`result, err := MightFail()`):

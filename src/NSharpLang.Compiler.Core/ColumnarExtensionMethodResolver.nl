@@ -4,6 +4,7 @@ import System
 import System.Collections
 import System.Collections.Generic
 import System.Reflection
+import System.Reflection.Emit
 import NSharpLang.Compiler
 
 
@@ -556,19 +557,153 @@ class ColumnarExtensionMethodResolver {
         return true
     }
 
-    // A trailing parameter is fillable only when it is optional, has a reference-type shape, and its
-    // metadata default is the null reference. This is the exact form the Web API template needs
-    // (`setupAction = null`, `url = null`); a value-type default or a non-null constant declines.
-    static func CanFillOptional(parameter: ParameterInfo, resolvedType: Type): bool {
+    // WHAT A TRAILING OPTIONAL PARAMETER CONTRIBUTES AT THE CALL SITE, AND IT IS A CONSTANT.
+    //
+    // C# BAKES A DEFAULT ARGUMENT INTO THE CALLER. The value lives in the callee's Constant table and
+    // the call site writes it as a literal instruction, so `b: int = 5` omitted at a call is an
+    // `ldc.i4.5` in the caller and nothing at all in the callee. That is the whole rule, and it is why
+    // omitting a defaulted argument needs no cooperation from the method being called.
+    //
+    // THREE FAMILIES FILL. The null reference for a reference-typed parameter (`setupAction = null`,
+    // `url = null` — the shape the Web API template needs); an integral, floating, `char`, `bool`,
+    // `string` or enum constant, which is what every converted C# overload-with-defaults produces; and
+    // `Nullable<T>` with no value, the one default that is not a single literal instruction, because
+    // it needs a local to `initobj` into.
+    //
+    // FOUR SHAPES DECLINE, AND EACH FOR A REASON. `decimal` and `DateTime` keep their defaults in a
+    // `[DecimalConstant]`/`[DateTimeConstant]` attribute rather than in the Constant table; a NON-null
+    // `Nullable<T>` default (`n: int? = 5`) would have to construct the value as well; a parameter
+    // that is merely `[Optional]` with no constant at all is not guessed as `default(T)`; and a
+    // by-ref, pointer or type-parameter shape is not a value the site can write.
+    static func OptionalDefaultKindNone(): int {
+        return 0
+    }
+
+    static func OptionalDefaultKindNullReference(): int {
+        return 1
+    }
+
+    static func OptionalDefaultKindInt32(): int {
+        return 2
+    }
+
+    static func OptionalDefaultKindUInt32(): int {
+        return 3
+    }
+
+    static func OptionalDefaultKindInt64(): int {
+        return 4
+    }
+
+    static func OptionalDefaultKindUInt64(): int {
+        return 5
+    }
+
+    static func OptionalDefaultKindSingle(): int {
+        return 6
+    }
+
+    static func OptionalDefaultKindDouble(): int {
+        return 7
+    }
+
+    static func OptionalDefaultKindString(): int {
+        return 8
+    }
+
+    // `Nullable<T>` WITH NO VALUE — the `kind: SymbolKind? = null` an optional enum or number is
+    // spelled with, and the one default that is not a single literal instruction: it needs a local to
+    // `initobj` into. A NON-null nullable default (`n: int? = 5`) declines; it would have to construct
+    // the value as well, and no call site here asked for that yet.
+    static func OptionalDefaultKindNullableNoValue(): int {
+        return 9
+    }
+
+    static func OptionalDefaultKind(parameter: ParameterInfo, resolvedType: Type, out defaultValue: object?): int {
+        defaultValue = null
         if parameter == null || resolvedType == null || !parameter.get_IsOptional() {
-            return false
+            return OptionalDefaultKindNone()
         }
 
-        if resolvedType.get_IsValueType() || resolvedType.get_IsByRef() || resolvedType.get_IsPointer() || resolvedType.get_IsGenericParameter() {
-            return false
+        if resolvedType.get_IsByRef() || resolvedType.get_IsPointer() || resolvedType.get_IsGenericParameter() {
+            return OptionalDefaultKindNone()
         }
 
-        return DefaultIsNullReference(parameter)
+        value: object? = null
+        try {
+            value = parameter.get_DefaultValue()
+        } catch {
+            // A parameter whose default value cannot be read is not a fillable default.
+            return OptionalDefaultKindNone()
+        }
+
+        if !resolvedType.get_IsValueType() {
+            if value != null {
+                stringDefault := value as string
+                if stringDefault != null && resolvedType == typeof(string) {
+                    defaultValue = stringDefault
+                    return OptionalDefaultKindString()
+                }
+
+                return OptionalDefaultKindNone()
+            }
+
+            return OptionalDefaultKindNullReference()
+        }
+
+        if value == null {
+            // A value-typed parameter whose default reads back as null is a `Nullable<T>` with no
+            // value; nothing else can be spelled that way.
+            if ColumnarTypeOfPlanner.IsSupportedNullable(resolvedType) {
+                return OptionalDefaultKindNullableNoValue()
+            }
+
+            return OptionalDefaultKindNone()
+        }
+
+        // `[Optional]` with no constant at all reads back as `DBNull`/`Missing`, which is not a value
+        // this site may write.
+        if (value as DBNull) != null || (value as Missing) != null {
+            return OptionalDefaultKindNone()
+        }
+
+        constantType := resolvedType
+        if constantType.get_IsEnum() {
+            constantType = constantType.GetEnumUnderlyingType()
+        }
+
+        defaultValue = value
+        if constantType == typeof(int) || constantType == typeof(short) || constantType == typeof(ushort) || constantType == typeof(byte) || constantType == typeof(sbyte) || constantType == typeof(bool) || constantType == typeof(char) {
+            return OptionalDefaultKindInt32()
+        }
+
+        if constantType == typeof(uint) {
+            return OptionalDefaultKindUInt32()
+        }
+
+        if constantType == typeof(long) {
+            return OptionalDefaultKindInt64()
+        }
+
+        if constantType == typeof(ulong) {
+            return OptionalDefaultKindUInt64()
+        }
+
+        if constantType == typeof(float) {
+            return OptionalDefaultKindSingle()
+        }
+
+        if constantType == typeof(double) {
+            return OptionalDefaultKindDouble()
+        }
+
+        defaultValue = null
+        return OptionalDefaultKindNone()
+    }
+
+    static func CanFillOptional(parameter: ParameterInfo, resolvedType: Type): bool {
+        unusedDefault: object? = null
+        return OptionalDefaultKind(parameter, resolvedType, out unusedDefault) != OptionalDefaultKindNone()
     }
 
     static func DefaultIsNullReference(parameter: ParameterInfo): bool {
@@ -580,14 +715,124 @@ class ColumnarExtensionMethodResolver {
         }
     }
 
-    // Emit the null metadata default for a trailing optional parameter as `ldnull`. The executor
-    // validates the resulting null-reference stack value against the exact reference parameter type.
+    // Emit the metadata default for a trailing optional parameter as its literal instruction. The
+    // executor validates the resulting stack value against the exact parameter type.
     static func TryAppendOptionalDefault(plan: ColumnarCodePlan, parameter: ParameterInfo, resolvedType: Type): bool {
-        if plan == null || !CanFillOptional(parameter, resolvedType) {
+        if plan == null {
             return false
         }
 
-        plan.AppendInstructionWithoutOperand(ColumnarCodePlanContract.Ldnull())
+        defaultValue: object? = null
+        kind := OptionalDefaultKind(parameter, resolvedType, out defaultValue)
+        if kind == OptionalDefaultKindNone() {
+            return false
+        }
+
+        if kind == OptionalDefaultKindNullReference() {
+            plan.AppendInstructionWithoutOperand(ColumnarCodePlanContract.Ldnull())
+            return true
+        }
+
+        if kind == OptionalDefaultKindNullableNoValue() {
+            nullableTypeIndex := plan.AddType(resolvedType)
+            nullableLocal := plan.DeclarePlanLocal(nullableTypeIndex)
+            plan.AppendPlanLocalInstruction(ColumnarCodePlanContract.Ldloca(), nullableLocal)
+            plan.AppendTypeInstruction(ColumnarCodePlanContract.Initobj(), nullableTypeIndex)
+            plan.AppendPlanLocalInstruction(ColumnarCodePlanContract.Ldloc(), nullableLocal)
+            return true
+        }
+
+        if kind == OptionalDefaultKindString() {
+            plan.AppendStringInstruction(ColumnarCodePlanContract.Ldstr(), plan.AddString((string)defaultValue))
+            return true
+        }
+
+        if kind == OptionalDefaultKindInt32() {
+            plan.AppendInt32Instruction(ColumnarCodePlanContract.LdcI4(), plan.AddInt32(Convert.ToInt32(defaultValue)))
+            return true
+        }
+
+        if kind == OptionalDefaultKindUInt32() {
+            plan.AppendInt32Instruction(ColumnarCodePlanContract.LdcI4(), plan.AddInt32((int)Convert.ToUInt32(defaultValue)))
+            return true
+        }
+
+        if kind == OptionalDefaultKindInt64() {
+            plan.AppendInt64Instruction(ColumnarCodePlanContract.LdcI8(), plan.AddInt64(Convert.ToInt64(defaultValue)))
+            return true
+        }
+
+        if kind == OptionalDefaultKindUInt64() {
+            plan.AppendInt64Instruction(ColumnarCodePlanContract.LdcI8(), plan.AddInt64((long)Convert.ToUInt64(defaultValue)))
+            return true
+        }
+
+        if kind == OptionalDefaultKindSingle() {
+            plan.AppendSingleInstruction(ColumnarCodePlanContract.LdcR4(), plan.AddSingle(Convert.ToSingle(defaultValue)))
+            return true
+        }
+
+        plan.AppendDoubleInstruction(ColumnarCodePlanContract.LdcR8(), plan.AddDouble(Convert.ToDouble(defaultValue)))
+        return true
+    }
+
+    // The same fill, written straight into an `ILGenerator` for the call sites that do not build a
+    // plan. One rule, two writers.
+    static func TryEmitOptionalDefault(il: ILGenerator, parameter: ParameterInfo, resolvedType: Type): bool {
+        if il == null {
+            return false
+        }
+
+        defaultValue: object? = null
+        kind := OptionalDefaultKind(parameter, resolvedType, out defaultValue)
+        if kind == OptionalDefaultKindNone() {
+            return false
+        }
+
+        if kind == OptionalDefaultKindNullReference() {
+            il.Emit(OpCodes.Ldnull)
+            return true
+        }
+
+        if kind == OptionalDefaultKindNullableNoValue() {
+            nullableLocal := il.DeclareLocal(resolvedType)
+            il.Emit(OpCodes.Ldloca, nullableLocal)
+            il.Emit(OpCodes.Initobj, resolvedType)
+            il.Emit(OpCodes.Ldloc, nullableLocal)
+            return true
+        }
+
+        if kind == OptionalDefaultKindString() {
+            il.Emit(OpCodes.Ldstr, (string)defaultValue)
+            return true
+        }
+
+        if kind == OptionalDefaultKindInt32() {
+            il.Emit(OpCodes.Ldc_I4, Convert.ToInt32(defaultValue))
+            return true
+        }
+
+        if kind == OptionalDefaultKindUInt32() {
+            il.Emit(OpCodes.Ldc_I4, (int)Convert.ToUInt32(defaultValue))
+            return true
+        }
+
+        if kind == OptionalDefaultKindInt64() {
+            il.Emit(OpCodes.Ldc_I8, Convert.ToInt64(defaultValue))
+            return true
+        }
+
+        if kind == OptionalDefaultKindUInt64() {
+            il.Emit(OpCodes.Ldc_I8, (long)Convert.ToUInt64(defaultValue))
+            return true
+        }
+
+        if kind == OptionalDefaultKindSingle() {
+            il.Emit(OpCodes.Ldc_R4, Convert.ToSingle(defaultValue))
+            return true
+        }
+
+        il.Emit(OpCodes.Ldc_R8, Convert.ToDouble(defaultValue))
         return true
     }
 

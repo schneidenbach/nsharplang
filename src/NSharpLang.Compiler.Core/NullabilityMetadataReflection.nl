@@ -139,7 +139,7 @@ class NullabilityMetadataReflection {
         }
 
         if IsNullableValueType(clrType) {
-            underlying := Nullable.GetUnderlyingType(clrType)
+            underlying := ExternalUserDefinedConversions.NullableUnderlyingTypeOrNull(clrType)
             if underlying != null {
                 nullable: TypeInfo = new NullableTypeInfo(ConvertReflectedType(underlying, GetFirstGenericArgument(nullabilityInfo), typeOverride))
                 return nullable
@@ -273,8 +273,17 @@ class NullabilityMetadataReflection {
         return NullabilityMetadataCore.CanCarryReferenceNullability(typeInfo)
     }
 
+    // `Nullable.GetUnderlyingType` IS `typeof(Nullable<>)`-BASED, AND THE ANALYZER'S TYPES ARE NOT
+    // THIS PROCESS'S. Under a MetadataLoadContext the projected `System.Nullable`1` is a different
+    // object from `typeof(Nullable<>)`, so the BCL helper answered null for every `int?` that came
+    // from a referenced assembly: the parameter converted to a `GenericTypeInfo` named "Nullable"
+    // rather than to the `NullableTypeInfo` that `int?` in N# source produces, and an `int?` argument
+    // therefore did not match an `int?` parameter in either direction — with the NL402 hint printing
+    // the two halves of one type as `SymbolKind?` and `Nullable<SymbolKind>` in the same sentence.
+    // The by-metadata-name reader beside the external conversion table already had this exact
+    // insight written down; this is the same question, so it is the same answer.
     static func IsNullableValueType(clrType: Type): bool {
-        return Nullable.GetUnderlyingType(clrType) != null
+        return ExternalUserDefinedConversions.NullableUnderlyingTypeOrNull(clrType) != null
     }
 
     // `Count` is declared on `ICollection<T>`, which a generic-interface receiver's own member

@@ -32,10 +32,30 @@ class TypeInfoIdentityFacts {
             return AreEqual(leftNullable.InnerType, rightNullable.InnerType)
         }
 
+        // AN OBLIVIOUS SHELL IS TRANSPARENT ON EITHER SIDE, NOT ONLY ON BOTH. It says the metadata
+        // carried no nullability for that position — which is what an assembly compiled without the
+        // nullable context says about every reference in it — and C# treats an oblivious annotation as
+        // compatible with an annotated one and an unannotated one alike. The analyzer ALREADY strips
+        // the shell at the top of a comparison (`ResolveDeclaredAlias` does), so it was transparent
+        // for `string` and opaque one level down, and `string![]` — which is how an N#-emitted
+        // `string[]` parameter reads back — refused a `string[]` argument while the same method's
+        // `string` and `int[]` parameters both resolved.
+        //
+        // A `?` IS STILL NOT AN `!`. Unwrapping compares the shell's INNER type against the other
+        // side, so `string![]` matches `string[]` and does not match `string?[]`: obliviousness is an
+        // absence of information, and an explicit nullable annotation is information.
         leftOblivious := left as ObliviousTypeInfo
         rightOblivious := right as ObliviousTypeInfo
         if leftOblivious != null && rightOblivious != null {
             return AreEqual(leftOblivious.InnerType, rightOblivious.InnerType)
+        }
+
+        if leftOblivious != null {
+            return AreEqual(leftOblivious.InnerType, right)
+        }
+
+        if rightOblivious != null {
+            return AreEqual(left, rightOblivious.InnerType)
         }
 
         leftGeneric := left as GenericTypeInfo

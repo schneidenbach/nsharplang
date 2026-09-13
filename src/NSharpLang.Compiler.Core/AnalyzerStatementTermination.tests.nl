@@ -26,9 +26,10 @@ import NSharpLang.Compiler.Ast
 // so a function whose only return is broken text is told it is missing a return. A BARE `return` has
 // no expression to be broken and always answers true.
 //
-// (4) `try` AND `switch` ARE THE TWO ARMS THAT REASON ABOUT COMPLETENESS, AND BOTH REFUSE BY DEFAULT.
-// A `try` with no catch clauses answers false however its body ends; a `switch` with no default
-// answers false however exhaustive its patterns look.
+// (4) `try` AND `switch` ARE THE TWO ARMS THAT REASON ABOUT COMPLETENESS. A `try` follows C#'s
+// end-point rule — the guarded body and every handler leave, or the `finally` leaves by itself — so a
+// zero-catch `try { return } finally { ... }` DOES leave. A `switch` still refuses by default: with no
+// default case it answers false however exhaustive its patterns look.
 //
 // (5) THE THREE WRAPPER BLOCKS ARE TRANSPARENT AND THE `if` ARM IS NOT. `alloc`, `allow` and `unsafe`
 // answer exactly what their body answers; an `if` answers only when it has an else AND both branches
@@ -263,9 +264,21 @@ test "A try LEAVES ONLY WHEN THE GUARDED BODY AND EVERY HANDLER LEAVE" {
     assert AnalyzerStatementTermination.AlwaysReturns(TerminationTry(TerminationReturningBlock(), catches, null))
 }
 
-test "A try WITH NO CATCH CLAUSES DOES NOT LEAVE, EVEN WITH A LEAVING BODY AND A finally" {
-    // A `finally` does not stop the exception, so there is a path out that does not return.
-    assert !AnalyzerStatementTermination.AlwaysReturns(TerminationTry(TerminationReturningBlock(), new List<CatchClause>(), TerminationReturningBlock()))
+test "A try WITH NO CATCH CLAUSES LEAVES WHEN ITS GUARDED BODY DOES, finally OR NOT" {
+    // C#'s end-point rule, and the shape every `using` that returns lowers to. The exception the
+    // body might raise unwinds past the caller; it is not a path that falls off the end.
+    assert AnalyzerStatementTermination.AlwaysReturns(TerminationTry(TerminationReturningBlock(), new List<CatchClause>(), TerminationReturningBlock()))
+    assert AnalyzerStatementTermination.AlwaysReturns(TerminationTry(TerminationReturningBlock(), new List<CatchClause>(), TerminationEmptyBlock()))
+    assert !AnalyzerStatementTermination.AlwaysReturns(TerminationTry(TerminationEmptyBlock(), new List<CatchClause>(), TerminationEmptyBlock()))
+}
+
+test "A finally THAT LEAVES SETTLES THE WHOLE try BY ITSELF" {
+    // Nothing can fall out of the statement once the finally block leaves on every path, whatever
+    // the guarded body and the handlers did.
+    fallingCatch := new List<CatchClause>()
+    fallingCatch.Add(TerminationCatch(TerminationEmptyBlock()))
+
+    assert AnalyzerStatementTermination.AlwaysReturns(TerminationTry(TerminationEmptyBlock(), fallingCatch, TerminationReturningBlock()))
 }
 
 test "A FALLING BODY OR ONE FALLING HANDLER REFUTES THE WHOLE try" {
@@ -300,4 +313,81 @@ test "EVERY SHAPE THE WALK DOES NOT NAME ANSWERS NO, INCLUDING A LOOP THAT PROVA
     assert !AnalyzerStatementTermination.AlwaysReturns(yielding)
     assert !AnalyzerStatementTermination.AlwaysReturns(empty)
     assert !AnalyzerStatementTermination.AlwaysReturns(TerminationExpression())
+}
+
+// ---------------------------------------------------------------------------------------------
+// THE SECOND ENTRY POINT — `AlwaysLeaves`, WHICH THE GUARD-CLAUSE RULE ASKS
+// ---------------------------------------------------------------------------------------------
+//
+// `AlwaysLeaves` is `AlwaysReturns` with `break` and `continue` counted, because the guard-clause
+// rule cares whether the BRANCH is gone and not whether the function is over. The two must agree
+// about every shape that contains neither jump, which is what the first test below pins; the rest
+// pin where they differ and — more importantly — where a jump does NOT escape the branch.
+
+func TerminationBreak(): Statement {
+    jumped: Statement = new BreakStatement(1, 1)
+    return jumped
+}
+
+func TerminationContinue(): Statement {
+    jumped: Statement = new ContinueStatement(1, 1)
+    return jumped
+}
+
+func TerminationLoop(body: BlockStatement): Statement {
+    looped: Statement = new WhileStatement(new BoolLiteralExpression(true, 1, 7), body, 1, 1)
+    return looped
+}
+
+func TerminationBlockOf(statement: Statement): BlockStatement {
+    return new BlockStatement(TerminationOneOf(statement), 1, 1)
+}
+
+test "THE TWO ENTRY POINTS AGREE ABOUT EVERY SHAPE THAT CONTAINS NEITHER JUMP" {
+    catches := new List<CatchClause>()
+    catches.Add(TerminationCatch(TerminationReturningBlock()))
+
+    assert AnalyzerStatementTermination.AlwaysLeaves(TerminationBareReturn())
+    assert AnalyzerStatementTermination.AlwaysLeaves(TerminationThrow())
+    assert AnalyzerStatementTermination.AlwaysLeaves(TerminationTry(TerminationReturningBlock(), catches, null))
+    assert !AnalyzerStatementTermination.AlwaysLeaves(TerminationBrokenReturn())
+    assert !AnalyzerStatementTermination.AlwaysLeaves(TerminationExpression())
+    assert !AnalyzerStatementTermination.AlwaysLeaves(TerminationIf(TerminationReturningBlock(), null))
+}
+
+test "break AND continue LEAVE THE BRANCH BUT NOT THE FUNCTION" {
+    assert AnalyzerStatementTermination.AlwaysLeaves(TerminationBreak())
+    assert AnalyzerStatementTermination.AlwaysLeaves(TerminationContinue())
+    assert AnalyzerStatementTermination.AlwaysLeaves(TerminationBlockOf(TerminationBreak()))
+    assert AnalyzerStatementTermination.AlwaysLeaves(TerminationIf(TerminationBlockOf(TerminationBreak()), TerminationBlockOf(TerminationContinue())))
+
+    // The missing-return rule must not see any of that as a return.
+    assert !AnalyzerStatementTermination.AlwaysReturns(TerminationBreak())
+    assert !AnalyzerStatementTermination.AlwaysReturns(TerminationContinue())
+    assert !AnalyzerStatementTermination.AlwaysReturns(TerminationBlockOf(TerminationBreak()))
+}
+
+test "A JUMP BOUND TO A CONSTRUCT INSIDE THE BRANCH DOES NOT ESCAPE THE BRANCH" {
+    // A `break` inside a loop that is itself inside the branch leaves the LOOP. The branch is still
+    // there afterwards, so the guard-clause rule must learn nothing from it.
+    assert !AnalyzerStatementTermination.AlwaysLeaves(TerminationLoop(TerminationBlockOf(TerminationBreak())))
+
+    // A `break` inside a `switch` leaves the SWITCH, so a switch whose every case breaks falls out
+    // of its own end — while a `continue` in the same place still belongs to the enclosing loop.
+    breaking := new List<SwitchCase>()
+    breaking.Add(TerminationCase(TerminationTypePattern(), TerminationOneOf(TerminationBreak())))
+    breaking.Add(TerminationCase(null, TerminationOneOf(TerminationBreak())))
+    assert !AnalyzerStatementTermination.AlwaysLeaves(TerminationSwitch(breaking))
+
+    continuing := new List<SwitchCase>()
+    continuing.Add(TerminationCase(TerminationTypePattern(), TerminationOneOf(TerminationContinue())))
+    continuing.Add(TerminationCase(null, TerminationOneOf(TerminationContinue())))
+    assert AnalyzerStatementTermination.AlwaysLeaves(TerminationSwitch(continuing))
+}
+
+test "A finally COUNTS NEITHER JUMP, BECAUSE NEITHER MAY LEAVE ONE" {
+    // A `break` out of a finally handler is not legal IL, so a finally block full of them settles
+    // nothing — while a guarded block full of them settles the statement as any other exit would.
+    assert !AnalyzerStatementTermination.AlwaysLeaves(TerminationTry(TerminationEmptyBlock(), new List<CatchClause>(), TerminationBlockOf(TerminationBreak())))
+    assert AnalyzerStatementTermination.AlwaysLeaves(TerminationTry(TerminationBlockOf(TerminationContinue()), new List<CatchClause>(), TerminationEmptyBlock()))
 }

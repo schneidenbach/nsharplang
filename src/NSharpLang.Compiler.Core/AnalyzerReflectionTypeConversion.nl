@@ -115,9 +115,14 @@ class AnalyzerReflectionTypeConversion {
         }
 
         if clrType.get_IsGenericType() {
+            arguments := clrType.GetGenericArguments()
+            if IsReflectedNullable(clrType, arguments.Length) {
+                lifted: TypeInfo = new NullableTypeInfo(ConvertReflectionType(arguments[0]))
+                return lifted
+            }
+
             name := clrType.Name
             tick := name.IndexOf('`')
-            arguments := clrType.GetGenericArguments()
             convertedArguments := new List<TypeInfo>()
             index := 0
             while index < arguments.Length {
@@ -181,6 +186,11 @@ class AnalyzerReflectionTypeConversion {
 
         if clrType.get_IsGenericType() {
             arguments := clrType.GetGenericArguments()
+            if IsReflectedNullable(clrType, arguments.Length) {
+                lifted: TypeInfo = new NullableTypeInfo(ConvertReflectionTypeWithOverrides(arguments[0], typeInfoOverrides, clrBindings))
+                return lifted
+            }
+
             convertedArguments := new List<TypeInfo>()
             index := 0
             while index < arguments.Length {
@@ -193,6 +203,22 @@ class AnalyzerReflectionTypeConversion {
         }
 
         return ConvertReflectionType(clrType)
+    }
+
+    // `Nullable<T>` IS `T?`, AND THE ANALYZER HAS EXACTLY ONE SPELLING FOR IT. A reflected
+    // `Nullable<SymbolKind>` used to convert to a `GenericTypeInfo` named "Nullable", which is a
+    // DIFFERENT TypeInfo from the `NullableTypeInfo` that `SymbolKind?` in N# source produces — so an
+    // `int?` from a C#-compiled member did not match an `int?` parameter, in either direction, and the
+    // NL402 hint printed the two halves of one type as `SymbolKind?` and `Nullable<SymbolKind>` in the
+    // same sentence. One CLR shape, one TypeInfo: the lift happens HERE, at the conversion boundary,
+    // rather than as a special case in identity, assignability, display and overload scoring.
+    //
+    // The test is the DEFINITION's full name, not `typeof(Nullable<>)`, for the same reason the
+    // built-in table is keyed on `FullName`: under a MetadataLoadContext the projected definition is
+    // not the one this process runs on. That reader already exists beside the external conversion
+    // table, and this arm asks it rather than writing the name a second time.
+    static func IsReflectedNullable(clrType: Type, argumentCount: int): bool {
+        return argumentCount == 1 && ExternalUserDefinedConversions.NullableUnderlyingTypeOrNull(clrType) != null
     }
 
     // Rewrites a CLR type by substituting bound type parameters INTO it, answering a CLR type rather

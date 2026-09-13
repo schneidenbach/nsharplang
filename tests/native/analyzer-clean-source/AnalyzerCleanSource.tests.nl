@@ -5775,35 +5775,32 @@ test "020 s30 analyzer error codes: `ControlTransferOutOfFinally`: the whole cen
     assert AcHint(rich, 0) == "Control cannot leave a `finally` block — the runtime must always finish running it,\nwhether the `try` completed normally or an exception is in flight. This `return`\nwould exit the `finally` early to reach the function, which the CLR forbids.\n`throw` is allowed, and loops opened inside the `finally` can still `break`/`continue`."
 }
 
-test "020 s30 analyzer error codes: `ControlTransferOutOfFinally` / `MissingReturn`: the whole census is pinned (2 rows); the deleted body read the error list directly (was AnalyzerTests.ReturnInsideFinally_Value_NoCatch_ReportsNL319)" {
+test "020 s30 analyzer error codes: `ControlTransferOutOfFinally`: the whole census is pinned (1 row); a `return` in the `finally` makes the function's end point unreachable, so NO missing-return row stands beside it (was AnalyzerTests.ReturnInsideFinally_Value_NoCatch_ReportsNL319)" {
+    // C#'s end-point rule, and C#'s diagnostics with it: a `return` inside a `finally` is the one
+    // error here, and the function is NOT also told it is missing a return, because nothing can fall
+    // out of a `try` whose `finally` leaves on every path.
     source := "\nfunc F(n: int): int {\n    try {\n        return 100 / n\n    } finally {\n        return 2\n    }\n}"
     assert AcParseCensus(source) == ""
     assert AcParseSuccess(source) == "True"
     analysis := AcAnalyze(source)
-    assert AcCensus(analysis) == "NL319:ControlTransferOutOfFinally@6:9+6;NL305:MissingReturn@2:1+1;"
+    assert AcCensus(analysis) == "NL319:ControlTransferOutOfFinally@6:9+6;"
     assert AcHasErrors(analysis) == "True"
-    assert AcErrorCount(analysis) == 2
+    assert AcErrorCount(analysis) == 1
     assert AcRow(analysis, 0) == "ControlTransferOutOfFinally|Control cannot leave a 'finally' block with 'return'|Move the `return` outside the `finally` block.|Error"
     assert AcCodeErrorCount(analysis, "ControlTransferOutOfFinally") == 1
     assert AcCodeCount(analysis, "ControlTransferOutOfFinally") == 1
     assert AcCodeRow(analysis, "ControlTransferOutOfFinally") == "ControlTransferOutOfFinally|Control cannot leave a 'finally' block with 'return'|Move the `return` outside the `finally` block.|Error"
     assert AcCodeAnchor(analysis, "ControlTransferOutOfFinally") == "NL319@6:9+6"
     assert AcSuggestions(analysis, 0) == "<null>"
-    assert AcCodeErrorCount(analysis, "MissingReturn") == 1
-    assert AcCodeCount(analysis, "MissingReturn") == 1
-    assert AcCodeRow(analysis, "MissingReturn") == "MissingReturn|This function should return 'int', but not all code paths return a value — make sure every branch ends with a 'return'|Add a return statement or change return type to void|Error"
-    assert AcCodeAnchor(analysis, "MissingReturn") == "NL305@2:1+1"
-    assert AcSuggestions(analysis, 1) == "<null>"
+    assert AcCodeErrorCount(analysis, "MissingReturn") == 0
+    assert AcCodeCount(analysis, "MissingReturn") == 0
     rich := AcAnalyzeWithSource(source)
-    assert AcCensus(rich) == "NL319:ControlTransferOutOfFinally@6:9+6;NL305:MissingReturn@2:1+6;"
+    assert AcCensus(rich) == "NL319:ControlTransferOutOfFinally@6:9+6;"
     assert AcCodeRow(rich, "ControlTransferOutOfFinally") == "ControlTransferOutOfFinally|Control cannot leave a 'finally' block with 'return'|Move the `return` outside the `finally` block (e.g. set a flag in the finally and act on it afterwards)|Error"
     assert AcCodeAnchor(rich, "ControlTransferOutOfFinally") == "NL319@6:9+6"
     assert AcSuggestions(rich, 0) == "<null>"
     assert AcHint(rich, 0) == "Control cannot leave a `finally` block — the runtime must always finish running it,\nwhether the `try` completed normally or an exception is in flight. This `return`\nwould exit the `finally` early to reach the function, which the CLR forbids.\n`throw` is allowed, and loops opened inside the `finally` can still `break`/`continue`."
-    assert AcCodeRow(rich, "MissingReturn") == "MissingReturn|Not all code paths return a value of type 'int'|Add a `return` statement, or change the return type to `void`|Error"
-    assert AcCodeAnchor(rich, "MissingReturn") == "NL305@2:1+6"
-    assert AcSuggestions(rich, 1) == "<null>"
-    assert AcHint(rich, 1) == "Every code path through this function must end with a `return` statement that\nprovides a `int` value. If you don't need to return anything, change the\nreturn type to `void`."
+    assert AcCodeCount(rich, "MissingReturn") == 0
 }
 
 test "020 s30 analyzer error codes: `ControlTransferOutOfFinally`: the whole census is pinned (1 row); the deleted claim was that `ControlTransferOutOfFinally` is present at `Error` severity, and NOTHING about where or what it says (was AnalyzerTests.BreakInsideFinally_LoopOutside_ReportsNL319)" {
