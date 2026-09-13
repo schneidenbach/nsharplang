@@ -3920,9 +3920,13 @@ sealed class ColumnarIlEmitter {
                         return DeclineStatic("emit.declaration.event-handler-type", "event '" + st.Name + "." + fieldName + "' needs a delegate type; '" + st.FieldTypeCanonicals[fi] + "' is not one", st.Name, -1, 0)
                     }
                     eventVisibilityWord := ColumnarDeclarationPlanner.MethodVisibilityAttributes(fieldName, st.FieldVisibilityFlags[fi])
-                    eventDefinition := ColumnarEventMemberEmitter.Define(def, fieldName, fieldType, fieldRows.FieldIsStatic[s][fi], eventVisibilityWord)
+                    eventInheritanceKind := ColumnarEventMemberEmitter.InheritanceKindOf(st.FieldVirtualFlags[fi], st.FieldAbstractFlags[fi], st.FieldOverrideFlags[fi])
+                    eventDefinition := ColumnarEventMemberEmitter.Define(def, fieldName, fieldType, fieldRows.FieldIsStatic[s][fi], eventVisibilityWord, eventInheritanceKind, false)
                     def.MemberLabeledCanonicals[fieldName] = st.FieldTypeCanonicals[fi]
-                    if (!eventDefinition.IsStatic) {
+                    // AN ABSTRACT EVENT CONTRIBUTES NO INSTANCE FIELD, because it has no storage: the
+                    // name is a pair of slots, and the list this feeds is the list of fields a
+                    // constructor and a body may reach.
+                    if (!eventDefinition.IsStatic && eventDefinition.BackingField != null) {
                         instanceFieldNames.Add(fieldName)
                     }
                     continue
@@ -4529,6 +4533,15 @@ sealed class ColumnarIlEmitter {
                 try {
                     while fieldNamesEnumerator.MoveNext() {
                         fieldName := fieldNamesEnumerator.get_Current()
+                        // AN `override` EVENT'S OWN STORAGE IS NOT A MEMBER THAT SHADOWS ANYTHING. A
+                        // field-like event's backing field is private, `[CompilerGenerated]` and named
+                        // after the event by CONVENTION, so the base's copy is unreachable from the
+                        // derived body and no resolution can diverge — the two names collide in this
+                        // table and nowhere else. C# emits exactly this pair for an overriding
+                        // field-like event, which keeps its own handler list.
+                        if (IsOverridingEventStorage(def, chain, fieldName)) {
+                            continue
+                        }
                         if (chain.Fields.ContainsKey(fieldName)) {
                             return false
                         }
@@ -26070,6 +26083,20 @@ sealed class ColumnarIlEmitter {
             walk = walk.BaseDef
         }
         return null
+    }
+
+    // WHETHER THIS NAME IS AN `override` EVENT'S OWN STORAGE STANDING OVER THE BASE EVENT'S. Both
+    // sides must be events and the derived one must carry the word — a plain derived event of the same
+    // name really would hide the base's, which this backend does not model for data members.
+    private static func IsOverridingEventStorage(def: ColumnarStructDef, chain: ColumnarStructDef, fieldName: string): bool {
+        let derivedEvent: NSharpLang.Compiler.Columnar.ColumnarEventDef? = null
+        if (!def.Events.TryGetValue(fieldName, out derivedEvent)) {
+            return false
+        }
+        if (derivedEvent.InheritanceKind != ColumnarEventMemberEmitter.OverrideEvent()) {
+            return false
+        }
+        return chain.Events.ContainsKey(fieldName)
     }
 
     // A BARE `this` (node kind 82). `this.Member` never reaches here — the parser collapses it into a

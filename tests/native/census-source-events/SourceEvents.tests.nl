@@ -200,3 +200,47 @@ test "a C# caller could subscribe: the add accessor combines through the event, 
     widget.Raise()
     assert seen == 1
 }
+
+test "a `virtual` event's accessors are virtual slots, and the override reuses them" {
+    baseFired := must typeof(Signal).GetEvent("Fired")
+    baseAdd := must baseFired.AddMethod
+    assert baseAdd.IsVirtual
+    assert !baseAdd.IsFinal
+    assert (must baseFired.RemoveMethod).IsVirtual
+
+    overrideFired := must typeof(LoudSignal).GetEvent("Fired")
+    overrideAdd := must overrideFired.AddMethod
+    assert overrideAdd.IsVirtual
+    // The override REUSES the base's slot: `GetBaseDefinition` walks back to the declaring virtual.
+    assert overrideAdd.GetBaseDefinition().DeclaringType == typeof(Signal)
+    // …and it owns its own storage, exactly as C# emits for an overriding field-like event.
+    ownStorage := must typeof(LoudSignal).GetField("Fired", BindingFlags.NonPublic | BindingFlags.Instance)
+    assert ownStorage.DeclaringType == typeof(LoudSignal)
+}
+
+test "subscribing through the base reference reaches the OVERRIDE's storage" {
+    observed := CountThroughOverriddenEvent()
+    assert observed.Seen == 1
+    // The handler went in through the override's `add_`, so it is in LoudSignal's field and not in
+    // Signal's — which is why the base's own unvirtualized raise saw nothing.
+    assert !observed.BaseStorage
+    assert observed.OverrideStorage
+}
+
+test "an `abstract` event is a pair of abstract slots with no storage" {
+    ticked := must typeof(Pump).GetEvent("Ticked")
+    add := must ticked.AddMethod
+    assert add.IsAbstract
+    assert add.IsVirtual
+    assert (must ticked.RemoveMethod).IsAbstract
+    assert typeof(Pump).GetField("Ticked", BindingFlags.NonPublic | BindingFlags.Instance) == null
+
+    filled := must typeof(WaterPump).GetEvent("Ticked")
+    assert !(must filled.AddMethod).IsAbstract
+    storage := must typeof(WaterPump).GetField("Ticked", BindingFlags.NonPublic | BindingFlags.Instance)
+    assert storage.DeclaringType == typeof(WaterPump)
+}
+
+test "an abstract event's slot dispatches to whichever class filled it" {
+    assert CountThroughAbstractEvent() == 1
+}

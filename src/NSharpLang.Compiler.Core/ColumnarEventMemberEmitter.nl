@@ -28,13 +28,75 @@ import NSharpLang.Compiler
 // event rather than the delegate.
 class ColumnarEventMemberEmitter {
 
-    // ECMA-335 MethodAttributes: HideBySig 0x0080, SpecialName 0x0800, Static 0x0010. An accessor is
-    // a special-named method in every language that emits one; `SpecialName` is what stops a C#
-    // caller from writing `widget.add_Changed(h)` directly.
-    static func AccessorAttributeWord(visibilityWord: int, isStatic: bool): int {
+    // THE THREE INHERITANCE SHAPES AN EVENT CAN HAVE, as the one number every door below reads.
+    // 0 is a plain event, 1 `virtual`, 2 `abstract`, 3 `override`.
+    static func PlainEvent(): int {
+        return 0
+    }
+
+    static func VirtualEvent(): int {
+        return 1
+    }
+
+    static func AbstractEvent(): int {
+        return 2
+    }
+
+    static func OverrideEvent(): int {
+        return 3
+    }
+
+    // THE WORD THE DECLARATION WROTE, as the one number. `abstract` is asked first and `override`
+    // last, the same order the analyzer reports them in, so a declaration that somehow carries two is
+    // read the same way by both halves.
+    static func InheritanceKindOf(isVirtual: bool, isAbstract: bool, isOverride: bool): int {
+        if isAbstract {
+            return AbstractEvent()
+        }
+
+        if isOverride {
+            return OverrideEvent()
+        }
+
+        if isVirtual {
+            return VirtualEvent()
+        }
+
+        return PlainEvent()
+    }
+
+    // ECMA-335 MethodAttributes: HideBySig 0x0080, SpecialName 0x0800, Static 0x0010, Virtual 0x0040,
+    // NewSlot 0x0100, Abstract 0x0400, Final 0x0020. An accessor is a special-named method in every
+    // language that emits one; `SpecialName` is what stops a C# caller from writing
+    // `widget.add_Changed(h)` directly.
+    //
+    // AN EVENT'S ACCESSORS ARE METHODS, SO THEY TAKE THE SAME SLOTS METHODS DO, and the words mean
+    // exactly what they mean on a `func`: `virtual` and `abstract` each OPEN a slot (Virtual|NewSlot)
+    // and `abstract` supplies no IL; `override` REUSES the base's slot, which is NewSlot cleared.
+    // `implementsInterfaceSlot` is the fourth shape and is not a word anyone writes: a class member
+    // that fills an interface's slot is Virtual|Final|NewSlot — virtual so the interface dispatch
+    // finds it, final so nothing else may override it, exactly what C# emits for an implicit
+    // implementation.
+    static func AccessorAttributeWord(visibilityWord: int, isStatic: bool, inheritanceKind: int, implementsInterfaceSlot: bool): int {
         word := visibilityWord | 0x0080 | 0x0800
         if isStatic {
-            word = word | 0x0010
+            return word | 0x0010
+        }
+
+        if inheritanceKind == AbstractEvent() {
+            return word | 0x0040 | 0x0100 | 0x0400
+        }
+
+        if inheritanceKind == VirtualEvent() {
+            return word | 0x0040 | 0x0100
+        }
+
+        if inheritanceKind == OverrideEvent() {
+            return word | 0x0040
+        }
+
+        if implementsInterfaceSlot {
+            return word | 0x0040 | 0x0100 | 0x0020
         }
 
         return word
@@ -72,21 +134,35 @@ class ColumnarEventMemberEmitter {
     // DEFINE THE WHOLE MEMBER — field, both accessors, both bodies, and the `EventInfo` — as one
     // operation, so no caller can register half an event.
     static func Define(owner: ColumnarStructDef, eventName: string, handlerType: Type, isStatic: bool, visibilityWord: int): ColumnarEventDef {
+        return Define(owner, eventName, handlerType, isStatic, visibilityWord, PlainEvent(), false)
+    }
+
+    static func Define(owner: ColumnarStructDef, eventName: string, handlerType: Type, isStatic: bool, visibilityWord: int, inheritanceKind: int, implementsInterfaceSlot: bool): ColumnarEventDef {
         if owner == null || eventName == null || handlerType == null {
             throw new InvalidOperationException("Source event definition inputs cannot be null.")
         }
 
         builder := owner.Builder
-        backingFieldAttributes := 1
-        // FieldAttributes.Private
-        if isStatic {
-            backingFieldAttributes = backingFieldAttributes | 16
-        }
-        // FieldAttributes.Static
-        backingField := ColumnarFieldMetadataEmitter.Define(builder, eventName, handlerType, backingFieldAttributes, false, false, 0)
-        ApplyCompilerGenerated(backingField)
+        isAbstract := inheritanceKind == AbstractEvent()
 
-        accessorWord := AccessorAttributeWord(visibilityWord, isStatic)
+        // AN ABSTRACT EVENT HAS NO STORAGE. Its accessors are slots, and a field behind a slot nobody
+        // can reach would be storage the declaring type cannot raise and a derived type cannot see —
+        // C# emits none either. Every other shape, `override` included, owns its own private field:
+        // an overriding field-like event keeps its own handler list, which is why a subscriber through
+        // the base reference reaches the OVERRIDE's storage through the override's own accessors.
+        let backingField: System.Reflection.Emit.FieldBuilder? = null
+        if !isAbstract {
+            backingFieldAttributes := 1
+            // FieldAttributes.Private
+            if isStatic {
+                backingFieldAttributes = backingFieldAttributes | 16
+            }
+            // FieldAttributes.Static
+            backingField = ColumnarFieldMetadataEmitter.Define(builder, eventName, handlerType, backingFieldAttributes, false, false, 0)
+            ApplyCompilerGenerated(backingField)
+        }
+
+        accessorWord := AccessorAttributeWord(visibilityWord, isStatic, inheritanceKind, implementsInterfaceSlot)
         accessorParameters := new Type[](1)
         accessorParameters[0] = handlerType
         voidType := ColumnarTypeOfPlanner.RequiredVoidType()
@@ -97,19 +173,23 @@ class ColumnarEventMemberEmitter {
         adder.DefineParameter(1, ParameterAttributes.None, "value")
         remover.DefineParameter(1, ParameterAttributes.None, "value")
 
-        EmitAccessorBody(adder.GetILGenerator(), backingField, handlerType, isStatic, CombineMethod())
-        EmitAccessorBody(remover.GetILGenerator(), backingField, handlerType, isStatic, RemoveMethod())
+        if backingField != null {
+            EmitAccessorBody(adder.GetILGenerator(), backingField, handlerType, isStatic, CombineMethod())
+            EmitAccessorBody(remover.GetILGenerator(), backingField, handlerType, isStatic, RemoveMethod())
+        }
 
         eventBuilder := builder.DefineEvent(eventName, EventAttributes.None, handlerType)
         eventBuilder.SetAddOnMethod(adder)
         eventBuilder.SetRemoveOnMethod(remover)
 
-        definition := new ColumnarEventDef(eventName, backingField, adder, remover, handlerType, isStatic)
+        definition := new ColumnarEventDef(eventName, backingField, adder, remover, handlerType, isStatic, isAbstract, inheritanceKind)
         owner.Events[eventName] = definition
-        if isStatic {
-            owner.StaticFields[eventName] = backingField
-        } else {
-            owner.Fields[eventName] = backingField
+        if backingField != null {
+            if isStatic {
+                owner.StaticFields[eventName] = backingField
+            } else {
+                owner.Fields[eventName] = backingField
+            }
         }
 
         return definition

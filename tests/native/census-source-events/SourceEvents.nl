@@ -177,3 +177,93 @@ class LabelledWidget: Widget {
         Raise()
     }
 }
+
+// ── THE THREE INHERITANCE WORDS ───────────────────────────────────────────────────────────────
+//
+// An event's accessors are ordinary methods, so `virtual` and `abstract` open a virtual slot for each
+// and `override` reuses the base's. That is C#'s rule, and it brings C#'s consequence with it: an
+// overriding field-like event keeps its OWN handler list, so a subscriber reaching it through a base
+// reference runs the OVERRIDE's accessors and lands in the OVERRIDE's storage — which is exactly why
+// the base's own `Base?.Invoke(...)` then sees nothing. The raise belongs with the storage, so a base
+// that has to raise gives itself a `virtual func` the derived type overrides.
+class Signal {
+    virtual event Fired: EventHandler
+
+    func RaiseFromBase() {
+        Fired?.Invoke(this, EventArgs.Empty)
+    }
+
+    virtual func RaiseOwn() {
+        Fired?.Invoke(this, EventArgs.Empty)
+    }
+
+    // Inside `Signal` the name is SIGNAL's own storage, whatever the runtime type is.
+    func BaseStorageHasSubscribers(): bool {
+        return Fired != null
+    }
+}
+
+class LoudSignal: Signal {
+    override event Fired: EventHandler
+
+    override func RaiseOwn() {
+        Fired?.Invoke(this, EventArgs.Empty)
+    }
+
+    // …and inside `LoudSignal` it is LOUDSIGNAL's.
+    func OverrideStorageHasSubscribers(): bool {
+        return Fired != null
+    }
+}
+
+// AN ABSTRACT EVENT is a pair of slots with NO storage at all: the declaring type has nothing to
+// raise, and the class filling the slots owns the handler list.
+abstract class Pump {
+    abstract event Ticked: EventHandler
+
+    abstract func Tick()
+}
+
+class WaterPump: Pump {
+    override event Ticked: EventHandler
+
+    override func Tick() {
+        Ticked?.Invoke(this, EventArgs.Empty)
+    }
+}
+
+// SUBSCRIBING THROUGH THE BASE REFERENCE. The handler goes in through the base-typed receiver, which
+// dispatches to the override's `add_` — so the derived raise sees it and the BASE's own raise, which
+// reads the base's own (empty) storage, does not.
+func CountThroughOverriddenEvent(): (Seen: int, BaseStorage: bool, OverrideStorage: bool) {
+    seen := 0
+    loud := new LoudSignal()
+    asBase: Signal = loud
+    sub := on asBase.Fired (sender, args) => {
+        seen = seen + 1
+    }
+    // The virtual `RaiseOwn` lands in `LoudSignal`, which reads LoudSignal's storage — the handler is
+    // there. `RaiseFromBase` is not virtual and reads SIGNAL's storage, which is empty.
+    asBase.RaiseOwn()
+    asBase.RaiseFromBase()
+    baseStorage := loud.BaseStorageHasSubscribers()
+    overrideStorage := loud.OverrideStorageHasSubscribers()
+    off sub
+    asBase.RaiseOwn()
+    return (seen, baseStorage, overrideStorage)
+}
+
+// AN ABSTRACT SLOT, FILLED. The subscription is made through the abstract base type and the raise is
+// the derived type's; both reach the same storage because both go through the same slot.
+func CountThroughAbstractEvent(): int {
+    seen := 0
+    pump := new WaterPump()
+    asPump: Pump = pump
+    sub := on asPump.Ticked (sender, args) => {
+        seen = seen + 1
+    }
+    asPump.Tick()
+    off sub
+    asPump.Tick()
+    return seen
+}

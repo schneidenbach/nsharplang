@@ -1,9 +1,10 @@
 namespace NSharpLang.Compiler
 
 import System
+import NSharpLang.Compiler.Ast
 
 
-// THE TWO QUESTIONS A SOURCE-DECLARED EVENT ASKS OF ITS OWNER, and nothing else.
+// THE THREE QUESTIONS A SOURCE-DECLARED EVENT ASKS OF ITS OWNER, and nothing else.
 //
 // An event reads one way inside the type that declared it and another way everywhere else, so every
 // owner that resolves one has to ask the same pair: what is the declaring type CALLED, and is the code
@@ -11,6 +12,23 @@ import System
 // halves of the rule — the resolver that picks the reading and the reporter that names the type in its
 // sentence — cannot drift apart.
 class SourceEventFacts {
+
+    // WHETHER THE DECLARED EVENT OF THIS NAME CARRIES `abstract`. It is the one event shape with no
+    // backing delegate at all, which is why the "inside the declaring type the name IS the field" rule
+    // has to ask: there is no field to be.
+    static func IsAbstractDeclaredEvent(members: DeclaredMemberInfo[], name: string): bool {
+        index := 0
+        while index < members.Length {
+            member := members[index]
+            if member.Name == name && member.Kind == DeclaredMemberKind.Event {
+                return (member.DeclaredModifiers & Convert.ToInt32(Modifiers.Abstract)) != 0
+            }
+
+            index = index + 1
+        }
+
+        return false
+    }
 
     // The declaring type's name as the source wrote it, or the empty string for a shape that is not a
     // source type declaration at all (which no event can be declared on).

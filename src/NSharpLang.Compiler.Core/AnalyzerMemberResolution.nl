@@ -330,11 +330,17 @@ class AnalyzerMemberResolution {
             // silently reaching a private field.
             declaredEventHandler: TypeInfo = BuiltInTypes.Unknown
             if declarationContext.TryResolveDeclaredEventMember(sourceShape.Owner, sourceShape.DeclaredMembers, memberName, sourceGenericSubstitution, out declaredEventHandler) {
-                if SourceEventFacts.IsInsideDeclaringType(sourceShape.Owner, currentTypeName) {
+                // AN `abstract` EVENT IS THE ONE THAT HAS NO BACKING DELEGATE, so it stays an EVENT
+                // even inside the type that declared it: there is no field for `Ping?.Invoke(...)` to
+                // read. Without this the read bound to a delegate that was never emitted and the
+                // backend declined with `emit.call.receiver` — an internal sentence for a source
+                // mistake the reader can fix.
+                declaredEventIsAbstract := SourceEventFacts.IsAbstractDeclaredEvent(sourceShape.DeclaredMembers, memberName)
+                if !declaredEventIsAbstract && SourceEventFacts.IsInsideDeclaringType(sourceShape.Owner, currentTypeName) {
                     return declaredEventHandler
                 }
 
-                return new SourceEventInfo(memberName, SourceEventFacts.DeclaringTypeName(sourceShape.Owner), declaredEventHandler, SourceEventFacts.DeclaringTypeIsValueType(sourceShape.Owner))
+                return new SourceEventInfo(memberName, SourceEventFacts.DeclaringTypeName(sourceShape.Owner), declaredEventHandler, SourceEventFacts.DeclaringTypeIsValueType(sourceShape.Owner), declaredEventIsAbstract)
             }
 
             declaredValueMember: TypeInfo = BuiltInTypes.Unknown

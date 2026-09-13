@@ -11309,6 +11309,19 @@ func ParseDeclarationMemberFieldModifierWord(memberModifiers: ParserDeclarationR
     if (memberModifiers.Values[2] & 1) != 0 {
         fieldModifierFlags = fieldModifierFlags + 128
     }
+    // Bits 9, 10 and 11 — the three inheritance words. A plain FIELD can never carry them (a CLR field
+    // has no slot), and the analyzer says so with NL311; an EVENT can, because its accessors are
+    // methods and methods have slots. The bits are packed for every field row all the same, because
+    // the word is one word: the reader decides what a bit MEANS for the row it is on.
+    if (memberModifiers.Values[2] & 32) != 0 {
+        fieldModifierFlags = fieldModifierFlags + 512
+    }
+    if (memberModifiers.Values[2] & 64) != 0 {
+        fieldModifierFlags = fieldModifierFlags + 1024
+    }
+    if (memberModifiers.Values[2] & 65536) != 0 {
+        fieldModifierFlags = fieldModifierFlags + 2048
+    }
 
     return fieldModifierFlags
 }
@@ -14726,6 +14739,21 @@ func ColumnarStructFieldFlagIsConst(flags: int): bool {
 // the `add_`/`remove_` accessors and the `EventInfo` row beside the field.
 func ColumnarStructFieldFlagIsEvent(flags: int): bool {
     return (flags & 256) != 0
+}
+
+// Bits 9, 10 and 11: `virtual`, `abstract` and `override` as written on the member. Only an EVENT row
+// can act on them — an event's accessors are ordinary methods, so they take ordinary virtual slots —
+// and a plain field carrying one is refused by the analyzer before emission is asked.
+func ColumnarStructFieldFlagIsVirtual(flags: int): bool {
+    return (flags & 512) != 0
+}
+
+func ColumnarStructFieldFlagIsAbstract(flags: int): bool {
+    return (flags & 1024) != 0
+}
+
+func ColumnarStructFieldFlagIsOverride(flags: int): bool {
+    return (flags & 2048) != 0
 }
 
 // Property prefix flags share the existing integer output column: bit 0 is static, bit 1 is the
