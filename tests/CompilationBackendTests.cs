@@ -137,11 +137,11 @@ func main(): int {
         {
             var sourcePath = Path.Combine(tempDir, "Program.nl");
             File.WriteAllText(sourcePath, """
-struct Counter {
-    value: int
-    func Bump(): bool {
-        value = value + 1
-        return value < 3
+import System.Collections.Generic
+class Registry {
+    static readonly Entries: List<string> = new List<string>()
+    static func Record(name: string) {
+        Entries.Add(name)
     }
 }
 
@@ -387,11 +387,11 @@ func main() {
         {
             var sourcePath = Path.Combine(tempDir, "Program.nl");
             File.WriteAllText(sourcePath, """
-struct Counter {
-    value: int
-    func Bump(): bool {
-        value = value + 1
-        return value < 3
+import System.Collections.Generic
+class Registry {
+    static readonly Entries: List<string> = new List<string>()
+    static func Record(name: string) {
+        Entries.Add(name)
     }
 }
 
@@ -589,11 +589,11 @@ outputType: library
 targetFramework: net10.0
 """);
             File.WriteAllText(Path.Combine(sharedDir, "Shared.nl"), """
-struct Counter {
-    value: int
-    func Bump(): bool {
-        value = value + 1
-        return value < 3
+import System.Collections.Generic
+class Registry {
+    static readonly Entries: List<string> = new List<string>()
+    static func Record(name: string) {
+        Entries.Add(name)
     }
 }
 """);
