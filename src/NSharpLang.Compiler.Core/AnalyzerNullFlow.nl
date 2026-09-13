@@ -166,7 +166,7 @@ class AnalyzerNullFlow {
     // answers — a name, `this`, and dotted member reads over those — so `must doc.Error` narrows the
     // member path and `must doc` narrows the receiver, with no separate rule for either.
     //
-    // AN UNSTABLE OPERAND PROVES NOTHING. `must Load()!` and `must rows[i]` unwrap a value that a
+    // AN UNSTABLE OPERAND PROVES NOTHING. `must Load()` and `must rows[i]` unwrap a value that a
     // second read could produce differently, and a fact filed against them would not survive to the
     // next statement — so none is filed, and the surviving flow keeps the declared answer.
     func RecordAssertedNonNullPath(expr: Expression) {
