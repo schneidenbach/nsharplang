@@ -1207,6 +1207,7 @@ class AnalyzerLoopSequence {
     // because the collection expression is not inside the loop: a `break` written in it is as
     // illegal as one written outside.
     func AdvanceForeachBody(state: LoopStatementState): LoopStatementRequest? {
+        JoinLoopBackEdge(state.Body, null)
         state.Phase = 5
         state.LoopFrame = ambientValue.EnterLoop()
         request := new LoopStatementRequest(5, BuiltInTypes.Unknown)
@@ -1223,6 +1224,31 @@ class AnalyzerLoopSequence {
         }
 
         return new LoopStatementRequest(6, BuiltInTypes.Unknown)
+    }
+
+    // THE JOIN AT A LOOP'S HEAD, AND THE ONLY PLACE FOUR LOOP FORMS NEED IT.
+    //
+    // A loop's entry state is the join of the code before it and of its OWN back edge, and the back
+    // edge carries every write the body made. The analyzer walks that body once, forward, so a read
+    // written above a write would otherwise be judged against the state the FIRST turn had — which
+    // is exactly how `while more { use(doc.Error); doc.Error = maybeNull }` passed while being wrong
+    // on every turn but the first.
+    //
+    // The join is performed BEFORE the condition is analysed, so a condition that re-proves the fact
+    // — `while doc.Error != null { … }` — installs its narrowing on top of the joined state and the
+    // body reads it. That ordering is the whole reason this is a separate step rather than a line
+    // inside the body phase.
+    //
+    // A `for`'s UPDATE CLAUSE is part of the back edge and its initializer is not: the initializer
+    // runs once, ahead of the first test, and its facts survive.
+    func JoinLoopBackEdge(body: Statement?, iterator: Expression?) {
+        writtenPaths := new List<string>()
+        AnalyzerLoopCarriedNullFacts.CollectWrittenPaths(body, iterator, writtenPaths)
+        index := 0
+        while index < writtenPaths.Count {
+            scopesValue.InvalidateNullFactsForAssignment(writtenPaths[index])
+            index = index + 1
+        }
     }
 
     // ── THE `while` WALK ───────────────────────────────────────────────────────────────────────
@@ -1267,6 +1293,7 @@ class AnalyzerLoopSequence {
             return null
         }
 
+        JoinLoopBackEdge(state.Body, null)
         state.Phase = 11
         state.Pending = 1
         request := new LoopStatementRequest(1, BuiltInTypes.Unknown)
@@ -1410,8 +1437,11 @@ class AnalyzerLoopSequence {
         return request
     }
 
-    // PHASE 22 — the condition, when there is one.
+    // PHASE 22 — the condition, when there is one. The back edge is joined FIRST and it is joined
+    // here rather than at phase 20, because the initializer runs exactly ONCE, before the loop: a
+    // fact it establishes is true at the first condition test whatever the body later writes.
     func AdvanceForCondition(state: LoopStatementState): LoopStatementRequest? {
+        JoinLoopBackEdge(state.Body, state.Iterator)
         state.Phase = 23
         condition := state.Condition
         if condition == null {

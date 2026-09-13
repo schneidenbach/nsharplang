@@ -48,6 +48,7 @@ class DeclaredMemberInfo {
     hasMustUseAttributeValue: bool
     doesNotReturnValue: bool
     parameterReachabilityFactsValue: int[]
+    parameterNullabilityFactsValue: int[]
     isAsyncValue: bool
     isGeneratorValue: bool
     isOperatorOverloadValue: bool
@@ -88,6 +89,14 @@ class DeclaredMemberInfo {
     // two the attribute meant nothing on anything but a free function.
     DoesNotReturn: bool => doesNotReturnValue
     ParameterReachabilityFacts: int[] => parameterReachabilityFactsValue
+
+    // The `[NotNull]` / `[NotNullWhen(b)]` / `[MaybeNull]` / `[MaybeNullWhen(b)]` each parameter
+    // carries, as `NullabilityFlowFacts` bits, in declaration order. A member declared on a TYPE
+    // reaches its callers through this record and not through its `FunctionDeclaration`, so without
+    // it `Assert.NotNull(x)` proved nothing whenever `Assert` was a class rather than a free
+    // function — the same hole `ParameterReachabilityFacts` above was added to close for
+    // `[DoesNotReturnIf]`.
+    ParameterNullabilityFacts: int[] => parameterNullabilityFactsValue
     IsAsync: bool => isAsyncValue
     IsGenerator: bool => isGeneratorValue
     IsOperatorOverload: bool => isOperatorOverloadValue
@@ -122,9 +131,10 @@ class DeclaredMemberInfo {
     // keeps its spelling; only the production factory that reads a real declaration supplies it.
     HasBody: bool => hasBodyValue
 
-    constructor(name: string, containingType: string, kind: DeclaredMemberKind, kindName: string, typeReference: TypeReference?, isStatic: bool, isReadonly: bool, hasSetter: bool, isExported: bool, parameterCount: int, parameterNames: string[], parameterTypes: TypeReference[], parameterModifiers: ParameterModifier[], requiredParameterCount: int, hasParamsParameter: bool, hasReceiverParameter: bool, returnType: TypeReference?, typeParameterCount: int, typeParameters: TypeParameter[], genericConstraints: GenericConstraint[], attributeCount: int, hasMustUseAttribute: bool, isAsync: bool, isGenerator: bool, isOperatorOverload: bool, operatorSymbol: string, isConversionOperator: bool, isImplicitConversion: bool, line: int, column: int, declaredModifiers: int = 0, hasBody: bool = false, doesNotReturn: bool = false, parameterReachabilityFacts: int[]? = null) {
+    constructor(name: string, containingType: string, kind: DeclaredMemberKind, kindName: string, typeReference: TypeReference?, isStatic: bool, isReadonly: bool, hasSetter: bool, isExported: bool, parameterCount: int, parameterNames: string[], parameterTypes: TypeReference[], parameterModifiers: ParameterModifier[], requiredParameterCount: int, hasParamsParameter: bool, hasReceiverParameter: bool, returnType: TypeReference?, typeParameterCount: int, typeParameters: TypeParameter[], genericConstraints: GenericConstraint[], attributeCount: int, hasMustUseAttribute: bool, isAsync: bool, isGenerator: bool, isOperatorOverload: bool, operatorSymbol: string, isConversionOperator: bool, isImplicitConversion: bool, line: int, column: int, declaredModifiers: int = 0, hasBody: bool = false, doesNotReturn: bool = false, parameterReachabilityFacts: int[]? = null, parameterNullabilityFacts: int[]? = null) {
         doesNotReturnValue = doesNotReturn
         parameterReachabilityFactsValue = parameterReachabilityFacts ?? new int[](0)
+        parameterNullabilityFactsValue = parameterNullabilityFacts ?? new int[](0)
         nameValue = name
         containingTypeValue = containingType
         kindValue = kind

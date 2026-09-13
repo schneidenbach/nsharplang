@@ -33,6 +33,11 @@ import NSharpLang.Compiler.Ast
 // tailored diagnostic instead. The fourth, `AnalyzingCallCallee`, is a POSITION rather than a
 // permission — the same distinction `AnalyzerAmbientContext` records for itself.
 //
+// THE UNWRAP ASSERTION RUNS FIRST, before even the two records. `must e` and `e ?? throw` prove
+// their operand was not null on the path that survived them, and the tail is the single place every
+// expression passes through — so the fact is installed here, and the state this tail then reads for
+// the unwrap itself is the one the proof just established.
+//
 // The two RECORDS that precede the guards are not conditional and happen for every expression,
 // including one that is about to be rejected: the semantic model is an IDE surface, and a hover over
 // a misused method group should still say what it is. That is why they sit above the guards rather
@@ -71,6 +76,12 @@ class AnalyzerExpressionTail {
     // THE TAIL ITSELF. `expr` is the expression the dispatch just handled and `dispatchedType` is
     // what its owner answered. The result is what the walk returns to its caller.
     func Finish(expr: Expression, dispatchedType: TypeInfo): TypeInfo {
+        // AN UNWRAP'S PROOF IS RECORDED BEFORE ITS OWN STATE IS READ. `must doc.Error` asserts the
+        // path is not null, and the very next line asks what `must doc.Error` evaluates to — so the
+        // assertion has to be in the flow already, or the hover and the semantic model would answer
+        // MAYBE-NULL about the one expression that cannot be.
+        nullFlow.RecordAssertedNonNullPath(expr)
+
         nullState := nullFlow.GetExpressionNullState(expr, dispatchedType)
         flowType := nullFlow.ApplyNullabilityFlowType(dispatchedType, nullState)
 

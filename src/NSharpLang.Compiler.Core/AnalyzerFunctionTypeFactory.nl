@@ -457,19 +457,21 @@ class AnalyzerFunctionTypeFactory {
         signature.ResolvedGenericConstraintTypes = ResolveMemberConstraints(member.GenericConstraints, declarationOwner, effectiveSubstitution)
         signature.HasMustUseAttribute = member.HasMustUseAttribute
         signature.DoesNotReturn = member.DoesNotReturn
-        signature.ParameterReachabilityFacts = ToReachabilityFactList(member.ParameterReachabilityFacts)
+        signature.ParameterReachabilityFacts = ToDeclaredFactList(member.ParameterReachabilityFacts)
+        signature.ParameterFlowFacts = ToDeclaredFactList(member.ParameterNullabilityFacts)
         signature.ReturnType = ResolveFunctionCallReturnType(member.Name, member.IsAsync, member.IsGenerator, sourceReturnType)
         return signature
     }
 
-    // The per-parameter reachability bits as the signature holds them, or null when no parameter
-    // declares any — the same "null means nothing to say" shape `ParameterFlowFacts` uses, so the
-    // call validator's cheap null test still skips every ordinary signature.
-    static func ToReachabilityFactList(facts: int[]): List<int>? {
+    // The per-parameter bits as the signature holds them, or null when no parameter declares any —
+    // the "null means nothing to say" shape both `ParameterFlowFacts` and `ParameterReachabilityFacts`
+    // use, so the call validator's cheap null test still skips every ordinary signature. One rule for
+    // both vocabularies, because both spell "nothing to say" as zero.
+    static func ToDeclaredFactList(facts: int[]): List<int>? {
         declaresAny := false
         index := 0
         while index < facts.Length {
-            if facts[index] != ReachabilityFlowFacts.None() {
+            if facts[index] != 0 {
                 declaresAny = true
             }
 

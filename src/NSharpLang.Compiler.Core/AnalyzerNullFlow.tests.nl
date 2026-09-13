@@ -464,6 +464,71 @@ test "the report is graded on the RECEIVER's state, which may come from its type
     assert harness.Errors[0].Message == "Possible null dereference: `x` is maybe-null"
 }
 
+// ── what an UNWRAP leaves behind ──────────────────────────────────────────
+
+test "`must x` proves its operand's path for the code that survives it" {
+    harness := NullFlowDefault()
+
+    harness.Owner.RecordAssertedNonNullPath(new MustExpression(NfName("x"), 4, 7))
+
+    assert harness.Scopes.NullStateOrUnknown("x") == NullState.NotNull
+}
+test "`must x.P` proves the MEMBER PATH, and says nothing about anything else" {
+    harness := NullFlowDefault()
+    path: Expression = NfMember("doc", "Error", false)
+
+    harness.Owner.RecordAssertedNonNullPath(new MustExpression(path, 4, 7))
+
+    assert harness.Scopes.NullStateOrUnknown("doc.Error") == NullState.NotNull
+    assert !harness.Scopes.HasNullState("doc")
+    assert !harness.Scopes.HasNullState("doc.Error.Message")
+}
+test "`x ?? throw` proves the LEFT operand, through a parenthesised throw as well" {
+    harness := NullFlowDefault()
+    thrown: Expression = new ThrowExpression(NfName("failure"), 4, 7)
+    bare := new BinaryExpression(NfName("x"), BinaryOperator.NullCoalesce, thrown, 4, 7)
+    wrapped := new BinaryExpression(
+        NfMember("doc", "Error", false),
+        BinaryOperator.NullCoalesce,
+        new ParenthesizedExpression(thrown, 4, 7),
+        4,
+        7
+    )
+
+    harness.Owner.RecordAssertedNonNullPath(bare)
+    harness.Owner.RecordAssertedNonNullPath(wrapped)
+
+    assert harness.Scopes.NullStateOrUnknown("x") == NullState.NotNull
+    assert harness.Scopes.NullStateOrUnknown("doc.Error") == NullState.NotNull
+}
+test "AN ORDINARY `??` PROVES NOTHING: a fallback that produces a value is not a check" {
+    harness := NullFlowDefault()
+    fallback := new BinaryExpression(NfName("x"), BinaryOperator.NullCoalesce, NfName("other"), 4, 7)
+
+    harness.Owner.RecordAssertedNonNullPath(fallback)
+
+    assert !harness.Scopes.HasNullState("x")
+}
+test "an UNSTABLE operand proves nothing — a fact about it would not survive the statement" {
+    harness := NullFlowDefault()
+    call: Expression = new CallExpression(NfName("Load"), new List<Argument>(), null, 4, 7)
+
+    harness.Owner.RecordAssertedNonNullPath(new MustExpression(call, 4, 7))
+    harness.Owner.RecordAssertedNonNullPath(new MustExpression(NfMember("doc", "Error", true), 4, 7))
+
+    assert !harness.Scopes.HasNullState("Load")
+    assert !harness.Scopes.HasNullState("doc.Error")
+}
+test "an expression that asserts nothing at all leaves the flow untouched" {
+    harness := NullFlowDefault()
+
+    harness.Owner.RecordAssertedNonNullPath(NfName("x"))
+    harness.Owner.RecordAssertedNonNullPath(NfMember("doc", "Error", false))
+
+    assert !harness.Scopes.HasNullState("x")
+    assert !harness.Scopes.HasNullState("doc.Error")
+}
+
 // ── what an assignment does to the fact ───────────────────────────────────
 
 test "an assignment to a target with NO stable path records nothing" {
