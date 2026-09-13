@@ -90,6 +90,14 @@ class AnalyzerCallableReferenceFacts {
     // classifies are runtime ones. A type read off the project's reference set has no runtime
     // identity at all, so its base chain is walked and the roots are recognised by NAME.
     static func IsMetadataDelegateType(candidate: Type): bool {
+        // The two abstract roots are excluded for the same reason `IsRuntimeDelegateType` excludes
+        // them: neither names a callable signature, and `MulticastDelegate` would otherwise answer
+        // true off its own base.
+        candidateName := candidate.get_FullName()
+        if candidateName == "System.Delegate" || candidateName == "System.MulticastDelegate" {
+            return false
+        }
+
         current: Type? = candidate.get_BaseType()
         depth := 0
         while current != null && depth < 32 {

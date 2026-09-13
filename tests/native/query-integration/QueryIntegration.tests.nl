@@ -2273,3 +2273,81 @@ test "020 s39 query integration: Symbols SubstringFilter MatchesSubstring — qu
     assert RowsHaveExact(filtered, "Square")
     assert !RowsHaveExact(filtered, "Circle")
 }
+
+// ─── CENSUS 2026-09-12 §11: THE INFERRED LAMBDA PARAMETER, ON THE IDE'S OWN SURFACES ─────────
+// The `nlc query` toolchain reads the same semantic model the checker writes, so "the predicate's
+// parameter has a type" and "an editor can show it" are one claim measured in two places. This runs
+// through the REAL CLI pipeline, where the external types come from the compiler's
+// `MetadataLoadContext`, so it is the same route a person's `nlc query type` takes.
+test "census 2026-09-12 query integration: a LINQ predicate's parameter types and hovers to the receiver's element type" {
+    projectRoot := QueryTempRoot()
+    QueryWriteProjectYaml(projectRoot, QueryDefaultProjectYaml())
+    QueryWriteSource(
+        projectRoot,
+        "Program.nl",
+        "import System.Collections.Generic\nimport System.Linq\n\nfunc CountNonEmpty(values: List<string>): int {\n    return values.Count(value => value.Length > 0)\n}\n"
+    )
+    snapshot := QueryLoadProject(projectRoot)
+
+    programPath := Path.Combine(projectRoot, "Program.nl")
+    line := FindLineInFile(programPath, "values.Count(")
+    col := FindColumnInFile(programPath, line, "value.Length")
+
+    typeResult := QueryGetTypeAtPosition(snapshot, "Program.nl", line, col)
+    if typeResult == null {
+        throw new InvalidOperationException("The production type query answered nothing for the lambda parameter.")
+    }
+    assert QueryText(typeResult, "Name") == "value"
+    assert QueryText(typeResult, "ResolvedType") == "string"
+
+    hover := QueryGetHoverInfo(snapshot, "Program.nl", line, col)
+    if hover == null {
+        throw new InvalidOperationException("The production hover query answered nothing for the lambda parameter.")
+    }
+    assert QueryText(hover, "Signature").Contains("string", StringComparison.Ordinal)
+
+    // The call itself: `Count` resolved to the EXTENSION METHOD, so the surface answers with a
+    // signature rather than with the `int` PROPERTY of the same name.
+    callColumn := FindColumnInFile(programPath, line, "Count")
+    callResult := QueryGetTypeAtPosition(snapshot, "Program.nl", line, callColumn)
+    if callResult == null {
+        throw new InvalidOperationException("The production type query answered nothing for the call.")
+    }
+    assert QueryText(callResult, "Name") == "Count"
+    assert QueryText(callResult, "Kind") == "method"
+    assert QueryText(callResult, "ResolvedType").Contains("(", StringComparison.Ordinal)
+
+    // Nothing is reported: NL203 was the census's own baseline at exactly this site.
+    diagnostics := QueryGetDiagnostics(snapshot, "Program.nl")
+    assert diagnostics.Count == 0
+
+    QueryDeleteTemp(projectRoot)
+}
+
+// A selector whose RESULT fixes a second type parameter, read the same way: the local the call
+// initialises answers with the closed type, which is the §12 half of the census.
+test "census 2026-09-12 query integration: a two-lambda call types its result on the IDE surface" {
+    projectRoot := QueryTempRoot()
+    QueryWriteProjectYaml(projectRoot, QueryDefaultProjectYaml())
+    QueryWriteSource(
+        projectRoot,
+        "Program.nl",
+        "import System.Collections.Generic\nimport System.Linq\n\nfunc ByLength(names: List<string>): int {\n    table := names.ToDictionary(name => name, name => name.Length)\n    return table.Count\n}\n"
+    )
+    snapshot := QueryLoadProject(projectRoot)
+
+    programPath := Path.Combine(projectRoot, "Program.nl")
+    line := FindLineInFile(programPath, "table :=")
+    col := FindColumnInFile(programPath, line, "table")
+
+    typeResult := QueryGetTypeAtPosition(snapshot, "Program.nl", line, col)
+    if typeResult == null {
+        throw new InvalidOperationException("The production type query answered nothing for the dictionary local.")
+    }
+    assert QueryText(typeResult, "ResolvedType") == "Dictionary<string, int>"
+
+    diagnostics := QueryGetDiagnostics(snapshot, "Program.nl")
+    assert diagnostics.Count == 0
+
+    QueryDeleteTemp(projectRoot)
+}
