@@ -3177,6 +3177,36 @@ The three placements a suspension cannot resume from are **NL332**
 `catch` handler, or inside a `finally` handler. `ColumnarIteratorPlanner.WalkTryStatement` refuses the
 same three with the same sentences, so no shape can reach lowering without a diagnostic.
 
+### A bare `throw` is the rethrow, and its placement is an ambient question
+
+`throw` with no expression re-raises the exception the enclosing `catch` handler is running for, as IL
+`rethrow`, which is the only way to re-raise WITHOUT resetting the stack trace (`throw e` raises the
+same object from the handler's own frame and loses the original site).
+
+- **The parser builds the node either way.** `ColumnarParserRecovery.ParseThrowStatement` produces
+  `ThrowStatement(null, …)` at a statement boundary (EOF, `}`, `;`, or a token on a later line —
+  `IsBareThrowBoundary`), and the kernel's `throw` arm emits **kind 48 with ZERO children**, the same
+  shape `yield break` uses against `yield`. Whether it is legal where it stands is semantic, exactly
+  as `break` outside a loop is. (A `throw` in EXPRESSION position still requires an operand.)
+- **The rule lives on the ambient context**, beside the loop and `finally` families:
+  `EnterCatchHandler` / `ExitCatchHandler` keep `CatchHandlerDepth` and `RethrowTargetFinallyDepth`
+  (the `finally` depth the innermost handler opened at), pushed by
+  `AnalyzerResourceStatements.AdvanceTry` phases 4/5 around a clause's body.
+  `ReportRethrowIfNeeded` raises **NL333** with two different sentences: no handler at all, and a
+  `finally` nested inside the handler it would re-throw from. `EnterNestedBody` ZEROES both — a lambda
+  or a local function compiles to a method of its own, and `rethrow` is valid only in a handler of the
+  method it stands in.
+- **Emission mirrors the same two counters.** `ColumnarIlEmitter` tracks `_catchHandlerDepth` /
+  `_rethrowTargetFinallyDepth` around each handler body and emits `OpCodes.Rethrow`; the state-machine
+  path appends `ColumnarCodePlanContract.Rethrow()` (0xFE1A, `-486`) with
+  `ColumnarMoveNextEmit.CatchHandlerDepth` answering the same question. Both refusals are contract
+  guards: the analyzer has already reported every program that could reach them.
+- **A region END is a reachable entry in the method-body stack validator.** `EndExceptionBlock` writes
+  no instruction of its own and every `leave` out of the region targets the row AFTER it, so a handler
+  that ends in `throw` or `rethrow` leaves that row with nothing falling into it. It is seeded at
+  height 0 alongside the handler starts; without that, an ordinary `catch { throw }` inside a
+  generator was refused as "unreachable instructions".
+
 ### An assignment target may be a member or an indexer
 
 `ColumnarStoreTargetPlanner` is the WRITE twin of the member and index reads, as code-plan rows, and

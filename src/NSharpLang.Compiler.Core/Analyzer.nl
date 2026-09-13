@@ -1101,7 +1101,16 @@ class Analyzer: IDisposable {
 
         throwStatement := statement as ThrowStatement
         if throwStatement != null {
-            DriveExpressionStatement(ExpressionStatements.BeginThrow(throwStatement.Expression, ClrTypeConversion))
+            thrownExpression := throwStatement.Expression
+            if thrownExpression == null {
+                // A BARE `throw` — the rethrow. There is no operand to type, so the only question is
+                // placement, and `Ambient` is the one owner that knows which handler (if any) this
+                // statement is standing in.
+                Ambient.ReportRethrowIfNeeded(throwStatement.Line, throwStatement.Column)
+                return
+            }
+
+            DriveExpressionStatement(ExpressionStatements.BeginThrow(thrownExpression, ClrTypeConversion))
             return
         }
 

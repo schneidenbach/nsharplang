@@ -729,7 +729,10 @@ class ParserExpressionNodeTable {
 //                                             close — the struct kernel's method-skip discipline); the host
 //                                             re-locates the keyword by byte offset and parses the signature +
 //                                             body through the existing kernels. )
-//   ThrowStatement               -> kind 48  ( throw <expr>; 1 child = the exception expression )
+//   ThrowStatement               -> kind 48  ( throw <expr>; 1 child = the exception expression.
+//                                             ZERO children = a bare `throw` — the RETHROW of the
+//                                             exception the enclosing `catch` handler is running for,
+//                                             lowered to IL `rethrow` so the original stack survives. )
 //   TryStatement                 -> kind 49  ( try/catch.../finally?; children [tryBlock, catch1..catchN,
 //                                             finallyBlock? (a trailing kind-25 block)] )
 //   CatchClause                  -> kind 50  ( one catch; value span = the exception TYPE name token, -1 for
@@ -6894,13 +6897,16 @@ func ParseSimpleStatementNode(tokens: ParserTokenTable, count: int, st: ParserSt
     }
 
     // `throw <expr>` (Throw 37) -- ThrowStatement kind 48, ONE child [the exception expression].
-    // A bare `throw` (rethrow, catch-only) is unmodeled (-1) until the catch rung lands. Throw
-    // ALWAYS EXITS: the emitter's AlwaysReturns mirror treats kind 48 like Return.
+    // ZERO children = a bare `throw`, the RETHROW: it re-raises the exception the enclosing `catch`
+    // handler is running for, preserving its original stack trace (IL `rethrow`). The analyzer owns
+    // the placement rule (NL333); the emitter refuses a bare throw it cannot place in a handler.
+    // Throw ALWAYS EXITS in either shape: the emitter's AlwaysReturns mirror treats kind 48 like Return.
     if kind == 37 {
         throwStart := tokens.Starts[start]
         st.Pos = start + 1
         if st.Pos >= count || tokens.Kinds[st.Pos] == 130 || tokens.Kinds[st.Pos] == 135 || tokens.Kinds[st.Pos] == 136 {
-            return -1
+            throwKeywordEnd := tokens.Starts[start] + tokens.ValueLengths[start]
+            return EmitExpressionNode(st, nodes, 48, -1, 0, -1, 0, throwStart, throwKeywordEnd - throwStart)
         }
 
         throwValue := ParseAssignmentExpressionNode(tokens, count, st, argStack, nodes, children, 0)

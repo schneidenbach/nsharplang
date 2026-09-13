@@ -1045,3 +1045,20 @@ test "only the shapes this walk ALWAYS writes across lines swallow the lines aft
     assert FormatterWalk.ExpressionSpansLines(wrappedNew)
     assert !FormatterWalk.ExpressionAlwaysSpansLines(wrappedNew)
 }
+
+// ---- the bare `throw` ------------------------------------------------------------------------
+
+test "a throw with an operand writes 'throw <expr>' and a bare one writes the keyword alone" {
+    // `throw ` with nothing after it would not parse, so the two arms cannot share one spelling.
+    state := FwkState()
+    state.Push()
+    walk := FwkWalk(state)
+
+    withOperand := new StringBuilder()
+    walk.FormatStatement(new ThrowStatement(new IdentifierExpression("e", 1, 1), 1, 1), withOperand)
+    assert FwkShow(withOperand) == "    throw e|"
+
+    bare := new StringBuilder()
+    walk.FormatStatement(new ThrowStatement(null, 1, 1), bare)
+    assert FwkShow(bare) == "    throw|"
+}

@@ -210,11 +210,13 @@ class ContinueStatement: Statement {
     }
 }
 
-// Throw statement
+// Throw statement. `Expression` is null for a bare `throw` — the RETHROW, legal only inside a
+// `catch` handler, which re-raises the exception that handler is running for with its original
+// stack trace intact (IL `rethrow`).
 class ThrowStatement: Statement {
-    Expression: Expression
+    Expression: Expression?
 
-    constructor(Expression: Expression, Line: int, Column: int): base(Line, Column) {
+    constructor(Expression: Expression?, Line: int, Column: int): base(Line, Column) {
         this.Expression = Expression
     }
 }

@@ -1433,3 +1433,109 @@ test "NEITHER TYPE-CONTEXT SLOT IS RESET BY BeginAnalysis, WHICH IS THE SHELL'S 
     harness.Context.ExitTypeName(null)
     harness.Context.ExitClassDeclaration(null)
 }
+
+// ── THE BARE `throw` (NL333) ────────────────────────────────────────────────────────────────────
+//
+// A bare `throw` re-raises the exception the enclosing `catch` handler is running for. IL `rethrow`
+// is valid only inside a handler's own funclet of the SAME method, and those are exactly the three
+// refusals below: no handler at all, a `finally` nested inside the handler, and a nested body whose
+// code compiles to a method of its own.
+
+test "A BARE throw OUTSIDE EVERY HANDLER IS NL333, AND NAMES THE MISSING HANDLER" {
+    harness := AmbientDefault()
+
+    assert harness.Context.CatchHandlerDepth == 0
+    harness.Context.ReportRethrowIfNeeded(7, 5)
+
+    assert harness.Errors.Count == 1
+    assert harness.Errors[0].Code == ErrorCode.RethrowOutsideCatch
+    assert harness.Errors[0].Line == 7
+    assert harness.Errors[0].Column == 5
+    assert harness.Errors[0].Message.Contains("inside a 'catch' handler")
+}
+
+test "A BARE throw INSIDE A HANDLER REPORTS NOTHING, AND THE HANDLER NESTS" {
+    harness := AmbientDefault()
+
+    outer := harness.Context.EnterCatchHandler()
+    assert harness.Context.CatchHandlerDepth == 1
+    harness.Context.ReportRethrowIfNeeded(9, 5)
+    assert harness.Errors.Count == 0
+
+    inner := harness.Context.EnterCatchHandler()
+    assert harness.Context.CatchHandlerDepth == 2
+    harness.Context.ReportRethrowIfNeeded(11, 9)
+    assert harness.Errors.Count == 0
+
+    harness.Context.ExitCatchHandler(inner)
+    harness.Context.ExitCatchHandler(outer)
+    assert harness.Context.CatchHandlerDepth == 0
+    assert harness.Context.RethrowTargetFinallyDepth == 0
+}
+
+test "A BARE throw IN A finally NESTED INSIDE ITS HANDLER IS NL333 WITH THE OTHER WORDING" {
+    harness := AmbientDefault()
+
+    saved := harness.Context.EnterCatchHandler()
+    harness.Context.EnterFinally()
+
+    harness.Context.ReportRethrowIfNeeded(13, 13)
+
+    assert harness.Errors.Count == 1
+    assert harness.Errors[0].Code == ErrorCode.RethrowOutsideCatch
+    assert harness.Errors[0].Message.Contains("'finally'")
+
+    harness.Context.ExitFinally()
+    harness.Context.ReportRethrowIfNeeded(15, 9)
+    assert harness.Errors.Count == 1
+
+    harness.Context.ExitCatchHandler(saved)
+}
+
+test "A finally OPENED OUTSIDE THE HANDLER DOES NOT MOVE THE RETHROW TARGET" {
+    // The barrier is the depth the HANDLER was entered at, not zero: a `try/catch` written inside a
+    // `finally` still has a handler of its own, and a bare `throw` in it is legal.
+    harness := AmbientDefault()
+    harness.Context.EnterFinally()
+
+    saved := harness.Context.EnterCatchHandler()
+    assert harness.Context.RethrowTargetFinallyDepth == 1
+
+    harness.Context.ReportRethrowIfNeeded(17, 9)
+    assert harness.Errors.Count == 0
+
+    harness.Context.ExitCatchHandler(saved)
+    harness.Context.ExitFinally()
+}
+
+test "A NESTED BODY ZEROES THE HANDLER DEPTH, AND LEAVING IT PUTS THE HANDLER BACK" {
+    // A lambda or a local function inside a `catch` compiles to a method of its own, and `rethrow`
+    // is only valid in a handler of the method it stands in.
+    harness := AmbientDefault()
+    saved := harness.Context.EnterCatchHandler()
+
+    nested := harness.Context.EnterNestedBody(null, null)
+    assert harness.Context.CatchHandlerDepth == 0
+    harness.Context.ReportRethrowIfNeeded(19, 13)
+    assert harness.Errors.Count == 1
+    assert harness.Errors[0].Code == ErrorCode.RethrowOutsideCatch
+
+    harness.Context.ExitNestedBody(nested)
+    assert harness.Context.CatchHandlerDepth == 1
+    harness.Context.ReportRethrowIfNeeded(21, 9)
+    assert harness.Errors.Count == 1
+
+    harness.Context.ExitCatchHandler(saved)
+}
+
+test "BeginAnalysis CLEARS THE HANDLER DEPTH WITH THE REST OF THE CONTROL-FLOW FAMILY" {
+    harness := AmbientDefault()
+    harness.Context.EnterCatchHandler()
+    harness.Context.EnterFinally()
+
+    harness.Context.BeginAnalysis()
+
+    assert harness.Context.CatchHandlerDepth == 0
+    assert harness.Context.RethrowTargetFinallyDepth == 0
+    assert harness.Context.FinallyDepth == 0
+}

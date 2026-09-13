@@ -50,6 +50,7 @@ enum ErrorCode {
     ForeachElementConversion = 330,
     ByRefParameterCapturedByLocalFunction = 331,
     YieldInProtectedRegion = 332,
+    RethrowOutsideCatch = 333,
     WrongArgumentCount = 401,
     NoMatchingOverload = 402,
     InvalidParameter = 405,

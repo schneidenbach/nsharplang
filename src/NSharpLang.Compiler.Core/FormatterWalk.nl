@@ -1177,8 +1177,14 @@ class FormatterWalk {
         throwStatement := statement as ThrowStatement
         if throwStatement != null {
             state.Indent(builder)
+            thrownExpression := throwStatement.Expression
+            if thrownExpression == null {
+                builder.AppendLine("throw")
+                return
+            }
+
             builder.Append("throw ")
-            FormatExpression(throwStatement.Expression, builder)
+            FormatExpression(thrownExpression, builder)
             builder.AppendLine()
             return
         }

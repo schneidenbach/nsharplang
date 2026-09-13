@@ -154,6 +154,7 @@ class DiagnosticCatalog {
         AddCompiler(descriptors, ErrorCode.ForeachElementConversion)
         AddCompiler(descriptors, ErrorCode.ByRefParameterCapturedByLocalFunction)
         AddCompiler(descriptors, ErrorCode.YieldInProtectedRegion)
+        AddCompiler(descriptors, ErrorCode.RethrowOutsideCatch)
 
         AddCompiler(descriptors, ErrorCode.WrongArgumentCount)
         AddCompiler(descriptors, ErrorCode.NoMatchingOverload)

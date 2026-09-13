@@ -108,6 +108,9 @@ class ResourceStatementState {
     CatchIndex: int
     CatchType: TypeInfo
     ErrorsBefore: int
+    // The ambient rethrow target saved when this clause's handler body was entered; restored at the
+    // clause's tail. Lives on the state because the catch loop is SUSPENDED between the two phases.
+    SavedRethrowTarget: int
 
     constructor(form: int, tryNode: TryStatement?, usingNode: UsingStatement?, lockNode: LockStatement?, clrTypeConversion: AnalyzerClrTypeConversion?, assignability: AnalyzerAssignability?, currentClass: ClassDeclaration?) {
         formValue = form
@@ -132,6 +135,7 @@ class ResourceStatementState {
         CatchIndex = 0
         CatchType = BuiltInTypes.Unknown
         ErrorsBefore = 0
+        SavedRethrowTarget = 0
     }
 }
 
@@ -332,11 +336,14 @@ class AnalyzerResourceStatements {
         if phase == 4 {
             clause := CatchAt(statement, state.CatchIndex)
             ambientValue.EnterYieldForbidden("catch")
+            // Inside this body — and only inside it — a bare `throw` has an exception to re-raise.
+            state.SavedRethrowTarget = ambientValue.EnterCatchHandler()
             state.Phase = 5
             return NewStatementRequest(clause.Block)
         }
 
         if phase == 5 {
+            ambientValue.ExitCatchHandler(state.SavedRethrowTarget)
             ambientValue.ExitYieldForbidden()
             state.CatchIndex = state.CatchIndex + 1
             state.Phase = 1

@@ -117,7 +117,12 @@ class AnalyzerStatementTermination {
 
         throwStatement := statement as ThrowStatement
         if throwStatement != null {
-            return !AnalyzerParserErrorPlaceholders.ContainsInExpression(throwStatement.Expression)
+            thrownExpression := throwStatement.Expression
+            if thrownExpression == null {
+                return true
+            }
+
+            return !AnalyzerParserErrorPlaceholders.ContainsInExpression(thrownExpression)
         }
 
         breakStatement := statement as BreakStatement

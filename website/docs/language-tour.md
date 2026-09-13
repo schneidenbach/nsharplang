@@ -628,6 +628,34 @@ func main() {
 }
 ```
 
+### Re-throwing
+
+A bare `throw` inside a `catch` re-raises the exception that handler is running for, **keeping its
+original stack trace**. Use it whenever you are not changing the exception — logging it, cleaning up,
+deciding it is not yours to handle.
+
+```n#
+import System
+
+func LoadConfig(path: string): int {
+    try {
+        return int.Parse(ReadAll(path))
+    } catch ex: FormatException {
+        print $"{path} is not a number"
+        throw                          // re-raises ex with the original stack intact
+    }
+}
+```
+
+`throw ex` is a different statement. It raises the same object again *from the handler*, which resets
+the stack trace to this frame — the original failure site is lost. Reach for it only when you mean to
+raise the exception anew, and prefer wrapping (`throw new InvalidOperationException(msg, ex)`) when
+you want to add context.
+
+A bare `throw` needs a handler to re-throw from. Outside a `catch`, inside a `finally` nested in the
+handler, or inside a lambda or local function written in the handler (each compiles to a method of
+its own), it is [`NL333`](./errors/NL333.md).
+
 ### Tuple Error Capture
 
 N# has a Go-inspired pattern: assign both the result and error in one line. If the function throws, the error variable captures the exception instead of crashing.

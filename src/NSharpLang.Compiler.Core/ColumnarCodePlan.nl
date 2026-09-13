@@ -468,6 +468,13 @@ class ColumnarCodePlanContract {
     static func Throw(): short {
         return 122
     }
+    // rethrow (0xFE 0x1A) re-raises the exception the enclosing catch HANDLER is running for, with
+    // its original stack trace intact. Two-byte opcodes carry their `OpCode.Value` as a NEGATIVE
+    // short exactly as `stloc` (0xFE 0x0E, -498) does. It consumes nothing from the evaluation stack
+    // — the exception is the frame's, not a value — and ends its path like `throw`.
+    static func Rethrow(): short {
+        return -486
+    }
     static func Isinst(): short {
         return 117
     }
@@ -510,7 +517,7 @@ class ColumnarCodePlanContract {
     // Method-body opcodes (schema v4) that take no operand: ret, throw and pop. Isinst/Stsfld/Leave
     // carry Type/Field/Label operands and are recognized by their respective operand-typed appenders.
     static func IsMethodBodyNoOperandOpcode(opCodeValue: short): bool {
-        return opCodeValue == Ret() || opCodeValue == Throw() || opCodeValue == Pop()
+        return opCodeValue == Ret() || opCodeValue == Throw() || opCodeValue == Rethrow() || opCodeValue == Pop()
     }
 }
 

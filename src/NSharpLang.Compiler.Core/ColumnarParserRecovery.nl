@@ -5121,18 +5121,38 @@ class ColumnarParserRecovery {
     }
 
     // ---- throw (Parser.cs ParseThrowStatement :2975) ----
-    // Stage N+1c tranche 10: `new ThrowStatement(expr, line, column)` (:2996).
+    // `throw <expr>` builds `new ThrowStatement(expr, line, column)`. A BARE `throw` — the keyword
+    // alone at a statement boundary — builds `new ThrowStatement(null, ...)`: the rethrow. Its
+    // placement rule (a `catch` handler of this same body, outside any nested `finally`) is a
+    // SEMANTIC rule owned by the analyzer (NL333), not a parse decision, exactly as `break` outside a
+    // loop parses and is then reported.
     func ParseThrowStatement(): Statement? {
         throwToken := Current()
         line := throwToken.Line
         column := throwToken.Column
         Advance()
         // consume 'throw'
+        if IsBareThrowBoundary(throwToken) {
+            return new ThrowStatement(null, line, column)
+        }
         thrown := ParseRequiredExpressionAfter(throwToken, "an exception expression", "This throw statement", null)
         if thrown == null {
             return null
         }
         return new ThrowStatement(thrown, line, column)
+    }
+
+    // The statement boundary that ends a bare `throw`: end of file, the enclosing block's `}`, an
+    // explicit `;`, or a newline (this token stream carries no newline tokens, so a token on a LATER
+    // line is the newline). Mirrors the columnar kernel's `throw` arm, which tests the same four.
+    func IsBareThrowBoundary(throwToken: Token): bool {
+        if IsAtEnd() {
+            return true
+        }
+        if Check(TokenType.RightBrace) || Check(TokenType.Semicolon) {
+            return true
+        }
+        return Current().Line > throwToken.Line
     }
 
     // ---- preprocessor directive (Parser.cs ParsePreprocessorDirective :2875) ----

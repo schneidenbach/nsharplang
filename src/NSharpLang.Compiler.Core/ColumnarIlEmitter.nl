@@ -80,6 +80,11 @@ sealed class ColumnarIlEmitter {
     private readonly _asyncReturnsValueTask: bool
     private readonly _asyncBareReturnDeclines: bool
     private _finallyDepth: int
+    // How many `catch` HANDLER BODIES this emitter is writing inside, and the `_finallyDepth` the
+    // innermost of them opened at. IL `rethrow` is valid only in a handler's own funclet, so a bare
+    // `throw` needs both: a handler to rethrow from, and no `finally` nested inside it between.
+    private _catchHandlerDepth: int
+    private _rethrowTargetFinallyDepth: int
     private _overflowCheckingEnabled: bool
     private readonly _il: ILGenerator
     private readonly _codePlan: ColumnarCodePlan
@@ -273,6 +278,8 @@ sealed class ColumnarIlEmitter {
         _protectedDepth = 0
         _asyncReturnsValueTask = false
         _finallyDepth = 0
+        _catchHandlerDepth = 0
+        _rethrowTargetFinallyDepth = 0
         _overflowCheckingEnabled = false
         _nullConditionalRoot = -1
         _nullConditionalEscapes = new Stack<Label>()
@@ -6504,7 +6511,13 @@ sealed class ColumnarIlEmitter {
                 }
                 // unbound catch discards the exception object.
 
-                if (!EmitStatement(Child(clause, _nodes.ChildCount(clause) - 1))) {
+                savedRethrowTarget := _rethrowTargetFinallyDepth
+                _catchHandlerDepth = _catchHandlerDepth + 1
+                _rethrowTargetFinallyDepth = _finallyDepth
+                handlerOk := EmitStatement(Child(clause, _nodes.ChildCount(clause) - 1))
+                _catchHandlerDepth = _catchHandlerDepth - 1
+                _rethrowTargetFinallyDepth = savedRethrowTarget
+                if (!handlerOk) {
                     return false
                 }
                 if (catchVarName != null) {
@@ -6563,6 +6576,19 @@ sealed class ColumnarIlEmitter {
             // expression must produce a System.Exception-derived reference (the whitelisted BCL
             // exception constructions; anything else declines — the analyzer's type rule stays
             // with the N# backend path).
+            //
+            // ZERO children is a BARE `throw` — the RETHROW. `rethrow` re-raises the exception the
+            // handler on the frame is running for and, unlike `throw <caught>`, leaves its stack
+            // trace alone. The CLR accepts it only inside a catch handler's own funclet, which is
+            // exactly what the two counters below answer; the analyzer reports NL333 for every
+            // program that would reach the refusal, so this is a contract guard.
+            if (_nodes.ChildCount(idx) == 0) {
+                if (_catchHandlerDepth == 0 || _finallyDepth > _rethrowTargetFinallyDepth) {
+                    return Decline("emit.throw.rethrow-placement", "a bare 'throw' is only valid inside a catch handler", idx)
+                }
+                _il.Emit(OpCodes.Rethrow)
+                return true
+            }
             let thrownType: System.Type? = null
             if (_nodes.ChildCount(idx) != 1 || !EmitExpression(Child(idx, 0), out thrownType)) {
                 return false

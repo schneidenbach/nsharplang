@@ -119,6 +119,7 @@ These are not style rules; style is `nlc format`'s job and produces no diagnosti
 | [`NL330`](./NL330.md) | A loop variable annotated with a type its elements cannot become. |
 | [`NL331`](./NL331.md) | A local function reading the enclosing function's `ref`, `out` or `in` parameter. |
 | [`NL332`](./NL332.md) | A `yield` inside a protected region that cannot resume. |
+| [`NL333`](./NL333.md) | A bare `throw` with no `catch` handler to re-throw from. |
 
 ## Calls — `NL4xx`
 
