@@ -1304,6 +1304,30 @@ CLR definitions across runtime and metadata-load contexts, runtime delegate defi
 Int32-backed CLR enums, and the exact `Span<T>` to `ReadOnlySpan<T>` widening. Do not replace these
 checks with type-name matching.
 
+### Field initializers — NL328 and NL329
+
+`AnalyzerFieldInitializerRules` owns the two questions a field initializer answers to, and both run
+from `AnalyzerTypeDeclarations.AdvanceFieldEntry` before the initializer is walked, so the report
+lands whether the field's type is written or inferred.
+
+- **NL328 — the initializer cannot reach the instance.** An instance field initializer is emitted
+  inline at the start of every constructor that reaches the base constructor, *ahead of the base
+  constructor call* (`ColumnarIlEmitter`, and `ColumnarFieldInitPlanner` for the placement). The
+  object does not exist there, so the rule is C#'s (CS0027/CS0236): `this`, `base`, and any bare
+  instance field, method or property of the declaring type are refused. The member set comes from
+  the enclosing `ClassTypeInfo.DeclaredMembers` (`IsStatic == false`); lambda parameters written
+  anywhere in the initializer are collected first and shadow a member of the same name. Static field
+  initializers are exempt — they run in the type initializer, where there is no instance at all.
+- **NL329 — a struct takes no instance field initializer.** A value type's `default` reaches no
+  constructor, so an initializer there would run for some values and not others. The check reads the
+  enclosing scope's `StructTypeInfo` (or `RecordTypeInfo.IsStruct`). A struct's *static* field
+  initializers are unaffected.
+
+Static field initializers themselves are not an analyzer rule: the parser reads them into a
+synthesized `<StaticInitialize>$` body (`BuildColumnarStaticInitializerBodyCore`) and the emitter
+emits that body into the type initializer, so an initializer is type-checked as the assignment it
+is — the same NL202 an assignment in a static method would get.
+
 ### Definite Assignment
 For non-nullable fields:
 - Must be assigned in constructor

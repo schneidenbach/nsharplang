@@ -96,9 +96,11 @@ test "readonly fields carry the initonly attribute and mutable fields do not" {
     }
 }
 
-// --- Exact placement: the <InitializeFields>$ helper exists ONLY when a mutable store needs it ------
-// A readonly store is unverifiable in the helper, so a readonly-only type carries no helper at all; the
-// readonly stores are inlined directly in each constructor (which ILVerify confirms over this assembly).
+// --- Exact placement: NO type carries an <InitializeFields>$ helper ------------------------------
+// Field initializers run inline in every base-reaching constructor, ahead of the base constructor
+// call, which is where C# runs them. An instance helper could not be called there at all — `this` is
+// not initialized until the base constructor returns — and a readonly store inside one would not
+// verify either (ILVerify IL:InitOnly), so the helper is gone for every shape, not just readonly ones.
 
 test "a readonly-only type synthesizes NO <InitializeFields>$ helper" {
     hasHelper := false
@@ -111,7 +113,7 @@ test "a readonly-only type synthesizes NO <InitializeFields>$ helper" {
     assert !hasHelper, "a readonly-only type must inline its stores, not route them through a helper"
 }
 
-test "a mutable-only type synthesizes the <InitializeFields>$ helper" {
+test "a mutable-only type synthesizes NO <InitializeFields>$ helper either" {
     hasHelper := false
     methods := typeof(MutableOnly).GetRuntimeMethods()
     for method in methods {
@@ -119,10 +121,10 @@ test "a mutable-only type synthesizes the <InitializeFields>$ helper" {
             hasHelper = true
         }
     }
-    assert hasHelper, "a mutable-field initializer keeps the helper"
+    assert !hasHelper, "a mutable-field initializer is inlined ahead of the base call like every other"
 }
 
-test "a mixed type keeps the helper for its mutable store while inlining the readonly store" {
+test "a mixed type inlines both its readonly and its mutable store" {
     hasHelper := false
     methods := typeof(Mixed).GetRuntimeMethods()
     for method in methods {
@@ -130,7 +132,7 @@ test "a mixed type keeps the helper for its mutable store while inlining the rea
             hasHelper = true
         }
     }
-    assert hasHelper, "a mixed type keeps the helper for the mutable store"
+    assert !hasHelper, "a mixed type inlines both stores"
 }
 
 test "a class whose only initialized readonly field is set in the explicit constructor keeps no helper" {

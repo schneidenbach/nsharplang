@@ -44,6 +44,8 @@ enum ErrorCode {
     InterfaceMemberNotImplemented = 325,
     MutableFieldInReadonlyStruct = 326,
     NoCurrentInstance = 327,
+    FieldInitializerUsesInstance = 328,
+    StructFieldInitializer = 329,
     WrongArgumentCount = 401,
     NoMatchingOverload = 402,
     InvalidParameter = 405,

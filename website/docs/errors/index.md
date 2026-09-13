@@ -113,6 +113,8 @@ These are not style rules; style is `nlc format`'s job and produces no diagnosti
 | [`NL325`](./NL325.md) | A declared interface the type does not fully implement. |
 | [`NL326`](./NL326.md) | A mutable instance field in a `readonly struct`. |
 | [`NL327`](./NL327.md) | `this` or `base` where there is no current instance. |
+| [`NL328`](./NL328.md) | A field initializer that reaches the instance being built. |
+| [`NL329`](./NL329.md) | An instance field initializer on a struct. |
 
 ## Calls — `NL4xx`
 

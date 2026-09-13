@@ -31,3 +31,12 @@ test "a readonly instance field with an initializer is initonly in metadata" {
         assert !mutableField.get_IsInitOnly(), "a mutable instance field must not be emitted initonly"
     }
 }
+
+test "instance field initializers run before the base constructor call and before the derived body" {
+    derived := new OrderDerived()
+    // C# order: the derived type's field initializers, then the base constructor, then the derived body.
+    assert derived.Marker == 13
+    assert OrderTrace.Log == "derived-init;base-ctor;derived-body;"
+    // The base constructor already saw the derived initializer's effect when it ran.
+    assert derived.Trace == "derived-init;base-ctor;"
+}

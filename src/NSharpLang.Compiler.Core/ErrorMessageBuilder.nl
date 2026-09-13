@@ -513,6 +513,37 @@ class ErrorMessageBuilder {
         }
     }
 
+    static func FieldInitializerUsesInstance(fileName: string, line: int, column: int, sourceSnippet: string, length: int, reference: string, fieldName: string): CompilerError {
+        named := "`" + reference + "` names part of the object being built"
+        if reference == "this" {
+            named = "`this` names the object being built"
+        } else if reference == "base" {
+            named = "`base` names the object being built, viewed as its base class"
+        }
+
+        return new CompilerError(ErrorCode.FieldInitializerUsesInstance, "A field initializer cannot use '" + reference + "'", line, column, ErrorSeverity.Error) {
+            FileName: fileName,
+            SourceSnippet: sourceSnippet,
+            Length: length,
+            HumanExplanation: named + ", and the initializer of `" + fieldName + "` runs before that object exists:",
+            ContextualHint: "Field initializers run at the very start of every constructor, ahead of the base constructor call, so nothing on the instance has been set up yet — a value read there would be the type's default and an instance method called there would see a half-built object.",
+            Suggestion: "Assign `" + fieldName + "` in a constructor, where the object is built, or make `" + reference + "` static.",
+            DocsUrl: DiagnosticDocs.UrlFor("NL328")
+        }
+    }
+
+    static func StructFieldInitializer(fileName: string, line: int, column: int, sourceSnippet: string, length: int, typeName: string, fieldName: string): CompilerError {
+        return new CompilerError(ErrorCode.StructFieldInitializer, "A struct field cannot have an initializer", line, column, ErrorSeverity.Error) {
+            FileName: fileName,
+            SourceSnippet: sourceSnippet,
+            Length: length,
+            HumanExplanation: "`" + typeName + "` is a struct, and a struct value can be produced without running any constructor — `default(" + typeName + ")`, an array element, an uninitialized field — so the initializer of `" + fieldName + "` would run for some values of `" + typeName + "` and not for the rest:",
+            ContextualHint: "A class always runs a constructor, so its field initializers always run. A struct does not, which is why N# refuses an initializer here rather than emitting a rule that holds only sometimes.",
+            Suggestion: "Assign `" + fieldName + "` in a constructor of `" + typeName + "`, or make it `static` if the value belongs to the type rather than to each value.",
+            DocsUrl: DiagnosticDocs.UrlFor("NL329")
+        }
+    }
+
     static func Pluralize(count: int, singular: string, plural: string): string {
         if count == 1 {
             return singular

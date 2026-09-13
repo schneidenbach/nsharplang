@@ -148,6 +148,8 @@ class DiagnosticCatalog {
         AddCompiler(descriptors, ErrorCode.InterfaceMemberNotImplemented)
         AddCompiler(descriptors, ErrorCode.MutableFieldInReadonlyStruct)
         AddCompiler(descriptors, ErrorCode.NoCurrentInstance)
+        AddCompiler(descriptors, ErrorCode.FieldInitializerUsesInstance)
+        AddCompiler(descriptors, ErrorCode.StructFieldInitializer)
 
         AddCompiler(descriptors, ErrorCode.WrongArgumentCount)
         AddCompiler(descriptors, ErrorCode.NoMatchingOverload)
@@ -208,7 +210,7 @@ class DiagnosticCatalog {
             return DiagnosticCategory.Type
         }
 
-        if value >= Convert.ToInt32(ErrorCode.UndefinedVariable) && value <= Convert.ToInt32(ErrorCode.NoCurrentInstance) {
+        if value >= Convert.ToInt32(ErrorCode.UndefinedVariable) && value <= Convert.ToInt32(ErrorCode.StructFieldInitializer) {
             return DiagnosticCategory.Semantic
         }
 

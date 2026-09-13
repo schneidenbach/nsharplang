@@ -4118,7 +4118,6 @@ sealed class ColumnarIlEmitter {
         }
         objectCtor := constructorDeclaration.ObjectConstructor
         structCtorJobs := constructorDeclaration.ConstructorJobs
-        structInitializerJobs := constructorDeclaration.InitializerJobs
         structDefaultCtorJobs := constructorDeclaration.DefaultConstructorJobs
 
         // PASS 0e (record value members): synthesize Equals(object) / GetHashCode() / `<Clone>$` on each
@@ -4936,70 +4935,6 @@ sealed class ColumnarIlEmitter {
             }
         }
 
-        // Emit the `<InitializeFields>$` helper before the constructors that call it. The N# constructor parser
-        // builds these bodies as assignment statements (`field = initializer`) using the same columnar node shape
-        // as constructor bodies; the helper carries ONLY the mutable-field stores (ColumnarFieldInitPlanner's
-        // HelperOrdinals) — readonly stores are emitted inline in each constructor instead, since an initonly
-        // store is unverifiable outside a `.ctor`. N# declares and schedules the helper; recursive expression/body
-        // lowering for each scheduled ordinal remains C# compiler debt in this pass.
-        for job in structInitializerJobs {
-            mil := job.Builder.GetILGenerator()
-            ctorSource := program.GetSourceForFileId(job.Ctor.Body.SourceFileId)
-            bodyTypeResolution := typeResolutionCatalog.For(
-                job.Ctor.Body.SourceFileId,
-                job.Struct.GenericParameters,
-                job.Struct.DeclaredTypeName
-            )
-            emitter := new ColumnarIlEmitter(
-                job.Ctor.Body.BodyNodes,
-                ctorSource,
-                new Dictionary<string, int>(StringComparer.Ordinal),
-                new Dictionary<string, Type>(StringComparer.Ordinal),
-                ColumnarTypeOfPlanner.RequiredVoidType(),
-                mil,
-                siblings,
-                enumRegistry,
-                structRegistry,
-                unionRegistry,
-                unionCaseRegistry,
-                job.Struct,
-                null,
-                false,
-                true,
-                columnarResolvedType,
-                lambdaCounter,
-                displayClasses,
-                null,
-                null,
-                null,
-                null,
-                null,
-                null,
-                null,
-                null,
-                false,
-                referenceAssemblyPaths,
-                null,
-                job.Struct.GenericParameters,
-                bodyTypeResolution.Enums,
-                bodyTypeResolution.Structs,
-                bodyTypeResolution.Unions
-            )
-            ColumnarDeclineTrace.SetSourceFileId(job.Ctor.Body.SourceFileId)
-            try {
-                if (!emitter.EmitSelectedInitializerStatements(job.Ctor.Body.BodyRoot, job.Struct.InstanceInitializerPlan.HelperOrdinals)) {
-                    initializerDeclineStruct := job.Struct
-                    initializerDeclineBuilder := initializerDeclineStruct.Builder
-                    initializerDeclineBuilderName := initializerDeclineBuilder.get_Name()
-                    initializerDeclineMember := initializerDeclineBuilderName + ".<InitializeFields>$"
-                    return DeclineStatic("emit.body", "instance field initializer emission declined", initializerDeclineMember, -1, 0)
-                }
-                mil.Emit(OpCodes.Ret)
-            } finally {
-                ColumnarDeclineTrace.ClearSourceFileId()
-            }
-        }
-
         // Emit struct method bodies (before finalizing the struct types). An INSTANCE body runs with
         // `_currentStruct` set so bare field names resolve to `ldarg.0; ldfld` (`this` is arg 0). A STATIC body
         // runs with `_currentStruct` NULL — there is no instance, so every implicit-`this` path (bare fields, bare
@@ -5221,7 +5156,6 @@ sealed class ColumnarIlEmitter {
         // runs inline readonly initializers, then calls the mutable-field helper when one exists.
         for job in structDefaultCtorJobs {
             dcil := job.Builder.GetILGenerator()
-            ColumnarConstructorDeclarationPlanner.EmitCtorBaseChain(dcil, job.Struct, objectCtor)
             if (!EmitInlineInstanceInitializers(dcil, job.Struct, program, typeResolutionCatalog, siblings, enumRegistry, structRegistry, unionRegistry, unionCaseRegistry, columnarResolvedType, lambdaCounter, displayClasses, referenceAssemblyPaths)) {
                 defaultCtorDeclineStruct := job.Struct
                 defaultCtorDeclineBuilder := defaultCtorDeclineStruct.Builder
@@ -5229,7 +5163,7 @@ sealed class ColumnarIlEmitter {
                 defaultCtorDeclineMember := defaultCtorDeclineBuilderName + ".constructor"
                 return DeclineStatic("emit.body", "default constructor inline field initializer emission declined", defaultCtorDeclineMember, -1, 0)
             }
-            ColumnarConstructorDeclarationPlanner.EmitInstanceInitializerCall(dcil, job.Struct)
+            ColumnarConstructorDeclarationPlanner.EmitCtorBaseChain(dcil, job.Struct, objectCtor)
             dcil.Emit(OpCodes.Ret)
         }
 
@@ -5294,11 +5228,9 @@ sealed class ColumnarIlEmitter {
                     if (ColumnarMethodBodyPlanner.ContainsReturnStatement(job.Ctor.Body.BodyNodes, job.Ctor.Body.BodyRoot)) {
                         return false
                     }
-                    if (!emitter.EmitChainedConstructorCall(job.Ctor, job.Builder, job.Struct)) {
-                        return false
-                    }
-                    // A `: base(...)` ctor runs field initializers (readonly inline, then the mutable helper); a
-                    // `: this(...)` ctor does not — the delegated-to ctor already ran them.
+                    // A `: base(...)` ctor runs this type's field initializers BEFORE the base call, so a
+                    // base constructor that reaches a derived override sees the initialized values — the C#
+                    // order. A `: this(...)` ctor runs none: the delegated-to ctor already ran them.
                     if (job.Ctor.ChainInitKind == 2) {
                         if (!EmitInlineInstanceInitializers(cil, job.Struct, program, typeResolutionCatalog, siblings, enumRegistry, structRegistry, unionRegistry, unionCaseRegistry, columnarResolvedType, lambdaCounter, displayClasses, referenceAssemblyPaths)) {
                             chainedCtorDeclineStruct := job.Struct
@@ -5307,7 +5239,9 @@ sealed class ColumnarIlEmitter {
                             chainedCtorDeclineMember := chainedCtorDeclineBuilderName + ".constructor"
                             return DeclineStatic("emit.body", "constructor inline field initializer emission declined", chainedCtorDeclineMember, -1, 0)
                         }
-                        ColumnarConstructorDeclarationPlanner.EmitInstanceInitializerCall(cil, job.Struct)
+                    }
+                    if (!emitter.EmitChainedConstructorCall(job.Ctor, job.Builder, job.Struct)) {
+                        return false
                     }
                 } else {
                     if (job.Struct.IsReference) {
@@ -5331,8 +5265,7 @@ sealed class ColumnarIlEmitter {
                             return false
                         }
                         // base has only parameterized ctors — `: base(...)` is required.
-                        ColumnarConstructorDeclarationPlanner.EmitCtorBaseChain(cil, job.Struct, objectCtor)
-                        // Readonly initializers inline (verifiable only in a `.ctor`), then the mutable-field helper.
+                        // Field initializers run inline, ahead of the implicit base call, in C# order.
                         if (!EmitInlineInstanceInitializers(cil, job.Struct, program, typeResolutionCatalog, siblings, enumRegistry, structRegistry, unionRegistry, unionCaseRegistry, columnarResolvedType, lambdaCounter, displayClasses, referenceAssemblyPaths)) {
                             implicitCtorDeclineStruct := job.Struct
                             implicitCtorDeclineBuilder := implicitCtorDeclineStruct.Builder
@@ -5340,7 +5273,7 @@ sealed class ColumnarIlEmitter {
                             implicitCtorDeclineMember := implicitCtorDeclineBuilderName + ".constructor"
                             return DeclineStatic("emit.body", "constructor inline field initializer emission declined", implicitCtorDeclineMember, -1, 0)
                         }
-                        ColumnarConstructorDeclarationPlanner.EmitInstanceInitializerCall(cil, job.Struct)
+                        ColumnarConstructorDeclarationPlanner.EmitCtorBaseChain(cil, job.Struct, objectCtor)
                     } else {
                         // VALUE-TYPE ctor: no base chain (value types don't chain), and NO all-fields-assigned
                         // validation — the legacy emitter ACCEPTS partial assignment in struct ctors (probed: unassigned
