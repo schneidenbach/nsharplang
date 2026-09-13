@@ -576,11 +576,29 @@ class LinterWalk {
     }
 
     // A `using` owns a scope so the resource it declares is not visible after it.
+    // A `using` OWNS its resource, and owning it is a use: the statement's whole purpose is the
+    // `Dispose()` call at the end of the block, which happens whether or not the body ever mentions
+    // the name. So the binding is marked used the moment it is declared — the treatment a catch
+    // variable and an `await foreach` loop variable already get — and `using _ := Open()` is not a
+    // spelling anybody has to reach for.
+    //
+    // A using DECLARATION (`using x := e` with no block) guards the REMAINDER OF THE ENCLOSING BLOCK,
+    // so it must not open a scope of its own; a scope here would end at the statement and hide the
+    // name from every line the declaration actually covers.
     func VisitUsing(statement: UsingStatement) {
-        state.PushScope()
+        body := statement.Body
+        if body != null {
+            state.PushScope()
+        }
+
+        if statement.IsAsync {
+            state.NoteAwait()
+        }
+
         declaration := statement.Declaration
         if declaration != null {
             VisitStatement(declaration)
+            state.MarkVariableUsed(declaration.Name, false)
         }
 
         resource := statement.Expression
@@ -588,12 +606,10 @@ class LinterWalk {
             VisitExpression(resource)
         }
 
-        body := statement.Body
         if body != null {
             VisitStatement(body)
+            state.PopScope()
         }
-
-        state.PopScope()
     }
 
     // Every case owns its own scope: two cases may bind the same name without shadowing each other.

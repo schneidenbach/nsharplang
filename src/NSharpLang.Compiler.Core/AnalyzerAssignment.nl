@@ -370,6 +370,11 @@ class AnalyzerAssignment {
             return new AssignmentRequest(1, assignment.Value)
         }
 
+        if writeTargetsValue.ReportUsingResourceWriteIfNeeded(assignment.Target, "assigned with '" + OperatorFacts.GetAssignmentText(assignment.Operator) + "'") {
+            state.Phase = 6
+            return new AssignmentRequest(1, assignment.Value)
+        }
+
         CheckNullCoalesceAssignmentTarget(assignment, targetType)
 
         memberWriteTarget := assignment.Target as MemberAccessExpression

@@ -980,6 +980,10 @@ class AnalyzerOperatorExpressions {
             return null
         }
 
+        if writeTargetsValue.ReportUsingResourceWriteIfNeeded(operand, "changed with '" + UnarySymbolText(unaryNode.Operator) + "'") {
+            return null
+        }
+
         state.ResultType = UnaryOperatorResult(state.OperandType, unaryNode)
         return null
     }

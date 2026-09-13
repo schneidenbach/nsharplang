@@ -405,6 +405,13 @@ class AnalyzerResourceStatements {
         phase := state.Phase
         if phase == 10 {
             state.Phase = 11
+            // A using DECLARATION (`using x := e` with no block) has no scope of its own: its binding
+            // belongs to the ENCLOSING block, which is also the region it guards, so opening one here
+            // would hide the name from every statement the declaration is supposed to cover.
+            if statement.Body == null {
+                return null
+            }
+
             return NewScopeRequest(statement.Line, statement.Column)
         }
 
@@ -434,7 +441,19 @@ class AnalyzerResourceStatements {
         if phase == 12 {
             state.Phase = 14
             declaration := statement.Declaration
-            if declaration == null || diagnosticsValue.ErrorCount != state.ErrorsBefore {
+            if declaration == null {
+                return null
+            }
+
+            // THE RESOURCE IS READ-ONLY FOR AS LONG AS IT IS VISIBLE (NL309). The statement promises to
+            // dispose the value it bound, and it can only keep that promise while the name still holds
+            // it — so the binding is marked in the scope the declaration walk just declared it in,
+            // which is the statement's own scope for the block form and the enclosing block for a
+            // using DECLARATION. The mark is taken even when the declaration itself failed: a name
+            // that exists is a name somebody can write to.
+            scopesValue.MarkSymbolReadOnly(declaration.Name)
+
+            if diagnosticsValue.ErrorCount != state.ErrorsBefore {
                 return null
             }
 
@@ -447,8 +466,16 @@ class AnalyzerResourceStatements {
                 return null
             }
 
+            // The squiggle goes under the RESOURCE, not under the name: the name is fine, and for the
+            // `using x := e` spelling the declaration itself is anchored on the `using` keyword — a
+            // caret there would underline the one token that is certainly correct.
             span := AnalyzerDiagnosticSpanFacts.GetVariableDeclarationNameDiagnosticSpan(declaration)
-            ReportNonDisposableUsingResource(resourceType, span.Line, span.Column, span.Length)
+            initializer := declaration.Initializer
+            if initializer != null {
+                span = spansValue.GetExpressionDiagnosticSpan(initializer)
+            }
+
+            ReportNonDisposableUsingResource(resourceType, span.Line, span.Column, span.Length, state)
             return null
         }
 
@@ -472,7 +499,7 @@ class AnalyzerResourceStatements {
             }
 
             span := spansValue.GetExpressionDiagnosticSpan(resourceExpression)
-            ReportNonDisposableUsingResource(state.AnsweredType, span.Line, span.Column, span.Length)
+            ReportNonDisposableUsingResource(state.AnsweredType, span.Line, span.Column, span.Length, state)
             return null
         }
 
@@ -488,6 +515,10 @@ class AnalyzerResourceStatements {
 
         if phase == 15 {
             state.Phase = 99
+            if statement.Body == null {
+                return null
+            }
+
             return new ResourceStatementRequest(6, BuiltInTypes.Unknown)
         }
 
@@ -495,10 +526,27 @@ class AnalyzerResourceStatements {
         return null
     }
 
-    // NL103 ON A `using` RESOURCE. One wording and one suggestion for both resource forms; only the
-    // span differs, and each caller takes its own.
-    func ReportNonDisposableUsingResource(resourceType: TypeInfo, line: int, column: int, length: int) {
-        diagnosticsValue.Report(ErrorCode.InvalidSyntax, "Using resource of type '" + TypeText(resourceType) + "' must implement IDisposable or provide Dispose(): void", line, column, "Use a resource type with a parameterless void Dispose method, or remove the using statement.", length)
+    // NL333 ON A `using` RESOURCE. One wording and one suggestion for both resource forms; only the
+    // span differs, and each caller takes its own. The sentence names the TYPE and the INTERFACE,
+    // because those are the two things the author has to reconcile and only one of them is written on
+    // the line. `await using` asks about `IAsyncDisposable` and says so.
+    func ReportNonDisposableUsingResource(resourceType: TypeInfo, line: int, column: int, length: int, state: ResourceStatementState) {
+        typeText := TypeText(resourceType)
+        interfaceName := ResourceInterfaceName(state)
+        memberName := ResourceDisposeMemberName(state)
+        keyword := "using"
+        if ResourceIsAsync(state) {
+            keyword = "await using"
+        }
+
+        sourceSnippet := diagnosticsValue.SourceSnippet(line)
+        currentFilePath := diagnosticsValue.CurrentFilePath
+        if sourceSnippet == null || currentFilePath == null {
+            diagnosticsValue.Report(ErrorCode.ResourceNotDisposable, "A '" + typeText + "' is not a resource '" + keyword + "' can release", line, column, "Give '" + typeText + "' a parameterless '" + memberName + "' member, or drop the '" + keyword + "'.", length)
+            return
+        }
+
+        diagnosticsValue.ReportBuilt(ErrorMessageBuilder.ResourceNotDisposable(currentFilePath, line, column, sourceSnippet, length, typeText, interfaceName, memberName, keyword))
     }
 
     // ── THE `lock` WALK ────────────────────────────────────────────────────────────────────────
@@ -798,6 +846,38 @@ class AnalyzerResourceStatements {
     // a `Nullable<SomeDisposableStruct>` is refused. A simple name and a closed generic redirect to
     // what they declare, and a redirect that goes nowhere falls through to the structural and nominal
     // tests rather than answering no.
+    //
+    // `await using` asks the SAME question about a DIFFERENT contract: `DisposeAsync` returning a
+    // `ValueTask` against `System.IAsyncDisposable`. Which contract is being asked about is read off
+    // the statement rather than passed down the recursion, so every arm — wrappers, redirects, the
+    // structural test and the nominal test — is the one shape asked twice, never two shapes.
+    func ResourceIsAsync(state: ResourceStatementState): bool {
+        usingNode := state.UsingNode
+        if usingNode == null {
+            return false
+        }
+
+        return usingNode.IsAsync
+    }
+
+    // The interface the resource must satisfy, named for a diagnostic and compared against for the
+    // nominal test.
+    func ResourceInterfaceName(state: ResourceStatementState): string {
+        if ResourceIsAsync(state) {
+            return "IAsyncDisposable"
+        }
+
+        return "IDisposable"
+    }
+
+    func ResourceDisposeMemberName(state: ResourceStatementState): string {
+        if ResourceIsAsync(state) {
+            return "DisposeAsync"
+        }
+
+        return "Dispose"
+    }
+
     func IsDisposableResourceType(candidate: TypeInfo, state: ResourceStatementState): bool {
         resolved := declarationContextValue.ResolveDeclaredAlias(candidate)
         if BuiltInTypes.IsUnknown(resolved) {
@@ -840,39 +920,40 @@ class AnalyzerResourceStatements {
             }
         }
 
-        if HasDisposePattern(resolved) {
+        if HasDisposePattern(resolved, state) {
             return true
         }
 
         return IsNominallyDisposable(resolved, state)
     }
 
-    // THE STRUCTURAL TEST: a parameterless `Dispose` returning `void`, declared or reflected.
-    func HasDisposePattern(candidate: TypeInfo): bool {
+    // THE STRUCTURAL TEST: a parameterless `Dispose` returning `void` — or, for `await using`, a
+    // parameterless `DisposeAsync` returning a `ValueTask` — declared or reflected.
+    func HasDisposePattern(candidate: TypeInfo, state: ResourceStatementState): bool {
         resolved := declarationContextValue.ResolveDeclaredAlias(candidate)
         classType := resolved as ClassTypeInfo
         if classType != null {
-            return HasDeclaredDisposeMember(classType.DeclaredMembers)
+            return HasDeclaredDisposeMember(classType.DeclaredMembers, state)
         }
 
         structType := resolved as StructTypeInfo
         if structType != null {
-            return HasDeclaredDisposeMember(structType.DeclaredMembers)
+            return HasDeclaredDisposeMember(structType.DeclaredMembers, state)
         }
 
         recordType := resolved as RecordTypeInfo
         if recordType != null {
-            return HasDeclaredDisposeMember(recordType.DeclaredMembers)
+            return HasDeclaredDisposeMember(recordType.DeclaredMembers, state)
         }
 
         interfaceType := resolved as InterfaceTypeInfo
         if interfaceType != null {
-            return HasDeclaredDisposeMember(interfaceType.DeclaredMembers)
+            return HasDeclaredDisposeMember(interfaceType.DeclaredMembers, state)
         }
 
         reflected := resolved as ReflectionTypeInfo
         if reflected != null {
-            return HasReflectedDisposeMember(reflected.Type)
+            return HasReflectedDisposeMember(reflected.Type, ResourceIsAsync(state))
         }
 
         return false
@@ -880,7 +961,9 @@ class AnalyzerResourceStatements {
 
     // A DECLARED `Dispose`. A member with NO written return type satisfies it, which keeps a
     // half-written `Dispose` from producing a second error here.
-    func HasDeclaredDisposeMember(members: DeclaredMemberInfo[]): bool {
+    func HasDeclaredDisposeMember(members: DeclaredMemberInfo[], state: ResourceStatementState): bool {
+        wantedName := ResourceDisposeMemberName(state)
+        isAsync := ResourceIsAsync(state)
         index := 0
         while index < members.Length {
             member := members[index]
@@ -889,12 +972,19 @@ class AnalyzerResourceStatements {
                 continue
             }
 
-            if member.Name != "Dispose" || member.IsStatic || member.ParameterCount != 0 {
+            if member.Name != wantedName || member.IsStatic || member.ParameterCount != 0 {
                 continue
             }
 
             returnType := member.ReturnType
             if returnType == null {
+                return true
+            }
+
+            if isAsync {
+                // A declared `DisposeAsync` answers structurally on its NAME and arity; whether its
+                // return type is awaitable is the async-call rule's question, reported where the
+                // await is, not a second sentence about disposability here.
                 return true
             }
 
@@ -908,9 +998,18 @@ class AnalyzerResourceStatements {
 
     // A REFLECTED `Dispose`. Visibility is deliberately wide — a non-public member satisfies the
     // pattern here, as it did in `Analyzer.cs`.
-    static func HasReflectedDisposeMember(clrType: Type): bool {
+    static func HasReflectedDisposeMember(clrType: Type, isAsync: bool): bool {
         flags := BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance
         noParameters := new Type[](0)
+        if isAsync {
+            disposeAsync := clrType.GetMethod("DisposeAsync", flags, null, noParameters, null)
+            if disposeAsync == null || disposeAsync.get_IsStatic() {
+                return false
+            }
+
+            return disposeAsync.get_ReturnType() != VoidRuntimeType()
+        }
+
         dispose := clrType.GetMethod("Dispose", flags, null, noParameters, null)
         if dispose == null {
             return false
@@ -927,10 +1026,15 @@ class AnalyzerResourceStatements {
     // record or interface answers through the assignability oracle against the reflected
     // `System.IDisposable`, and everything else answers no.
     func IsNominallyDisposable(candidate: TypeInfo, state: ResourceStatementState): bool {
+        root := DisposableRoot()
+        if ResourceIsAsync(state) {
+            root = AsyncDisposableRoot()
+        }
+
         resolved := declarationContextValue.ResolveDeclaredAlias(candidate)
         reflected := resolved as ReflectionTypeInfo
         if reflected != null {
-            return AnalyzerConversionFacts.IsReflectionAssignableFrom(DisposableRoot(), reflected.Type)
+            return AnalyzerConversionFacts.IsReflectionAssignableFrom(root, reflected.Type)
         }
 
         if !IsDeclaredNominalShape(resolved) {
@@ -942,7 +1046,7 @@ class AnalyzerResourceStatements {
             return false
         }
 
-        return assignability.IsSubtypeOf(resolved, new ReflectionTypeInfo(DisposableRoot()))
+        return assignability.IsSubtypeOf(resolved, new ReflectionTypeInfo(root))
     }
 
     static func IsDeclaredNominalShape(resolved: TypeInfo): bool {
@@ -983,6 +1087,15 @@ class AnalyzerResourceStatements {
         }
 
         return disposable
+    }
+
+    static func AsyncDisposableRoot(): Type {
+        asyncDisposable := Type.GetType("System.IAsyncDisposable")
+        if asyncDisposable == null {
+            throw new InvalidOperationException("AnalyzerResourceStatements requires System.IAsyncDisposable in the compiler's own core library, and Type.GetType returned null for it.")
+        }
+
+        return asyncDisposable
     }
 
     static func VoidRuntimeType(): Type {

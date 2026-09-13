@@ -533,7 +533,7 @@ class AstEq {
             return Names("ExceptionType VariableName Block")
         }
         if typeName == "UsingStatement" {
-            return Names("Declaration Expression Body Line Column")
+            return Names("Declaration Expression Body IsAsync Line Column")
         }
         if typeName == "LockStatement" {
             return Names("LockObject Body Line Column")
@@ -1440,6 +1440,10 @@ class Golden {
 
     static func Using(declaration: VariableDeclarationStatement?, expression: Expression?, body: Statement?, line: int, column: int): Statement {
         return new UsingStatement(declaration, expression, body, line, column)
+    }
+
+    static func AwaitUsing(declaration: VariableDeclarationStatement?, expression: Expression?, body: Statement?, line: int, column: int): Statement {
+        return new UsingStatement(declaration, expression, body, line, column, true)
     }
 
     static func Lock(lockObject: Expression, body: BlockStatement, line: int, column: int): Statement {
@@ -5216,10 +5220,9 @@ test "016 N+1c tranche 10: AstEq surfaces a wrong allow REASON string" {
 // byte-exact instead of declining, so a consumer (the LSP on a file being edited) sees exactly the tree
 // Parser.cs produces today. Both goldens are transcribed from the LIVE Parser.cs AstToJson oracle.
 
-test "016 N+1c tranche 11: `using r { }` (missing ':=') materializes the synthetic <error> initializer (Parser.cs :3895/:3121)" {
+test "`using r { }` is the UNBOUND resource form — an already-bound name disposed at the end of the block" {
     actual := RunBody("using r { a() }")
-    declaration := Golden.VarDecl("r", null, Golden.Ident("<error>", 2, 26), VariableKind.Let, 2, 17)
-    expected := BodyUnit1(Golden.Using(declaration, null, Golden.Block1(CallStmt("a", 2, 27), 2, 25), 2, 17))
+    expected := BodyUnit1(Golden.Using(null, Golden.Ident("r", 2, 23), Golden.Block1(CallStmt("a", 2, 27), 2, 25), 2, 17))
     assert AstEq.Diff(expected, actual, "unit") == ""
 }
 
