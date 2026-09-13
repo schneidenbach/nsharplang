@@ -11,6 +11,7 @@ enum ErrorCode {
     MissingClosingBracket = 108,
     ReservedKeywordAsName = 109,
     InvalidPreprocessorDirective = 110,
+    ExpressionNestingTooDeep = 111,
     TypeNotFound = 201,
     TypeMismatch = 202,
     CannotInferType = 203,

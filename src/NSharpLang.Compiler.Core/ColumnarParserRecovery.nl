@@ -286,6 +286,10 @@ class ColumnarParserRecovery {
     // requested length > 0 the resolver already ignores the line.
     HoleDepth: int
 
+    // THE DEPTH OF THE EXPRESSION CURRENTLY BEING BUILT. See `MaxExpressionNestingDepth` for what it
+    // counts and why the compiler refuses to go past it.
+    ExpressionNestingDepth: int
+
     constructor(source: string, fileName: string?) {
         Source = source
         FileName = fileName
@@ -296,6 +300,7 @@ class ColumnarParserRecovery {
         HasRecoveryBoundaryColumn = false
         ScanPosition = 0
         ScanSplit = 0
+        ExpressionNestingDepth = 0
         Errors = new List<CompilerError>()
         NamespaceNode = null
         ImportNodes = new List<ImportDirective>()
@@ -6164,7 +6169,82 @@ class ColumnarParserRecovery {
     // IsLambdaExpression, which admits only a well-formed `( ident, … ) =>`, so its ConsumeIdentifier /
     // Consume(RightParen) / Consume(Arrow) sites never fire). The `on` subscription prefix (:3649) is a
     // separate family (deferred); the corpus uses no `on` expression.
+    // THE BOUND ON EXPRESSION NESTING, AND WHY THERE IS ONE.
+    //
+    // Every stage that reads an expression walks it recursively — this parser, the linter's expression
+    // walk, the formatter, the analyzer — so an expression's DEPTH is a multiplier on the CLR stack.
+    // Measured at 0bd1cf46d with a generated source: 2,000 nested parentheses killed `nlc check`,
+    // `nlc build`, `nlc lint` and `nlc format` with a bare `Stack overflow.` and exit 134 — no
+    // diagnostic, no file name, no line. 2,000 nested lambdas did the same, and an 8,000-term `||`
+    // chain (which this parser folds iteratively, so IT survived) killed the walkers downstream.
+    // A crash is not a diagnostic, and a compiler that dies on its input has no way to say why.
+    //
+    // 512 IS MEASURED, NOT CHOSEN. The deepest expression in `src/NSharpLang.Compiler.Core` — 819 files,
+    // ~412K lines — nests 8 levels. The deepest in the converted corpus at `nsharp-cs2nl/out` is 70: a
+    // 70-alternative keyword test, `word == "func" || word == "class" || …`, machine-written from C# and
+    // fully parenthesised. 512 is more than seven times the deepest expression any real N# source has
+    // been observed to contain, and it is comfortably under every measured failure point: this parser
+    // overflows between 1,800 and 2,000 levels of descent, and `LinterWalk.MaxRecursionDepth` refuses at
+    // 1,000 frames. So the bound refuses only sources that were going to crash something, and it refuses
+    // them with a sentence naming the file and the position.
+    //
+    // WHAT IT COUNTS IS THE DEPTH OF THE TREE, NOT THE DEPTH OF THE PARSER. Two things make an
+    // expression deeper: descending into a nested one (a parenthesis, a lambda body, an argument), and
+    // folding one more operand onto a left-associative chain. The first is counted on entry here; the
+    // second in `ComposeBinary`, because `a || b || c` is parsed by a LOOP and would otherwise cost this
+    // counter nothing while costing every downstream walker one frame per operator. Each
+    // `ParseExprValue` restores the counter to its own entry value on the way out, so sibling
+    // expressions — the 300 elements of an array literal, the arguments of a call — do not accumulate;
+    // only a single root-to-leaf path does.
+    //
+    // THE COUNT IS AN UPPER BOUND ON THE TREE'S DEPTH, AND DELIBERATELY SO. It is exact for pure
+    // descent (`((((1))))`) and for a chain of ONE precedence (`a || b || c`). Where a chain mixes
+    // precedences — `w == "a" || w == "b" || …`, whose `==` folds happen in the same frame as the `||`
+    // folds — it counts each operator rather than each LEVEL, so the same source is refused at roughly
+    // half the stated depth. Over-counting is the safe direction for a bound whose job is to refuse
+    // before the stack does, and the margin is still large: the deepest expression measured in any real
+    // N# source is 70 operators, which this counts as about 73.
+    static func MaxExpressionNestingDepth(): int {
+        return 512
+    }
+
+    // One sentence, at the token that went too deep. `Report` sets panic, so the unwinding parse cannot
+    // turn one over-deep expression into a thousand cascading diagnostics.
+    //
+    // NO `Suggestions` LIST: that block renders as "Did you mean one of these?", which is a question
+    // about a NAME. What this diagnostic owes the reader is what to DO, and that belongs in the hint.
+    func ReportExpressionNestingTooDeep(token: Token) {
+        limit := MaxExpressionNestingDepth().ToString()
+        Report(
+            ErrorCode.ExpressionNestingTooDeep,
+            "Expression nested more than " + limit + " levels deep",
+            token.Line,
+            token.Column,
+            "This expression nests more than " + limit + " levels deep, which is deeper than N# reads. Every stage that reads an expression — the parser, the linter, the formatter and the type checker — walks it one level at a time, so a tree this deep is a limit on the compiler, not a judgement about your program.",
+            "Give part of the expression a name with `:=` and use the name here: a long chain of `||`, `&&` or `+` split into a few named values is both shallower and easier to read. The deepest expression measured in any real N# source is 70 levels, so a tree past " + limit + " is almost always generated code.",
+            null,
+            MaxInt(1, token.Value.Length)
+        )
+    }
+
+    // The guarded door onto every expression. The body is `ParseExprValueAtDepth`; this counts.
     func ParseExprValue(): ExprResult {
+        entryDepth := ExpressionNestingDepth
+        if entryDepth + 1 > MaxExpressionNestingDepth() {
+            ReportExpressionNestingTooDeep(Current())
+            return new ExprResult(new RecoverySpan(Current().Line, Current().Column, 1), false)
+        }
+
+        // Restored on the straight line, with no `finally`: this parser reports and recovers rather than
+        // throwing, so there is no path that leaves the counter raised. (The same argument `LinterWalk`
+        // makes for its own depth counter.)
+        ExpressionNestingDepth = entryDepth + 1
+        result := ParseExprValueAtDepth()
+        ExpressionNestingDepth = entryDepth
+        return result
+    }
+
+    func ParseExprValueAtDepth(): ExprResult {
         line := Current().Line
         column := Current().Column
 
@@ -6411,6 +6491,16 @@ class ColumnarParserRecovery {
     // always builds the node (with a synthetic error right operand when missing); the owner declines on a
     // missing/deferred operand rather than reconstruct a non-byte-exact stub.
     func ComposeBinary(leftNode: Expression?, op: BinaryOperator, rightNode: Expression?, opToken: Token): Expression? {
+        // ONE MORE OPERAND ON A LEFT-ASSOCIATIVE CHAIN IS ONE MORE LEVEL OF TREE. The tiers fold with a
+        // `while` loop rather than by recursing, so this is the only place that sees a chain get deeper.
+        // See `MaxExpressionNestingDepth`. The node declines on overflow, which is the tiers' existing
+        // no-stub gate: the enclosing expression carries no node and the diagnostic is the report above.
+        ExpressionNestingDepth = ExpressionNestingDepth + 1
+        if ExpressionNestingDepth > MaxExpressionNestingDepth() {
+            ReportExpressionNestingTooDeep(opToken)
+            return null
+        }
+
         if leftNode != null && rightNode != null {
             return new BinaryExpression(leftNode, op, rightNode, opToken.Line, opToken.Column)
         }

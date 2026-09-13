@@ -35,6 +35,14 @@ exit status `1`; this boundary handles exceptions that escape those handlers.
 `nlc run` forwards the launched program's exit status, including `2`. In that case the number alone
 does not identify an internal compiler failure: NL924 on stderr supplies that distinction.
 
+**Exit status 134 was a fourth case and is now gone.** A source whose expressions nested past what
+the toolchain reads — a generated file of 2,000 parentheses, 2,000 lambdas or an 8,000-term operator
+chain — exhausted the CLR stack, and `check`, `build`, `lint` and `format` all died with a bare
+`Stack overflow.` and SIGABRT. The parser now bounds expression nesting at 512 levels and reports
+**NL111** with a file and a position; every command refuses such a file instead of crashing.
+`ColumnarParserRecovery.MaxExpressionNestingDepth` holds the number and the measurements behind it.
+`LinterWalk.MaxRecursionDepth` (1,000 frames) remains as the walkers' own backstop.
+
 ## Command Reference
 
 ### Build & Run
@@ -178,6 +186,14 @@ $ nlc check --text   # with errors
 Undefined identifier 'unknownVar'
 ```
 
+- **`check` reads `*.tests.nl`.** It loads the same file list `nlc test` compiles — sources plus test
+  files — through `CodeIntelligenceService.LoadProjectIncludingTests`, and resolves the test
+  references so a `test` block's lowering verifies under check's IL pass exactly as it does under
+  `nlc test`. Before this, a project made of test files answered `checkedFiles: 0` with `ok: true`
+  while `nlc test` on the same directory stopped at the first lint error in them. `nlc build`,
+  `nlc lint` and the LSP are unchanged and still read sources only. **No schema change:** the test
+  files are counted in the existing `checkedFiles` and their diagnostics arrive in the existing
+  `results`, so `schemaVersion` stays 1.
 - Exit code 0 = clean, 1 = errors
 - Near-zero-warnings policy: correctness/safety/hygiene diagnostics are build-blocking errors, so a clean `nlc check` (`ok: true`, exit 0) is a strong guarantee rather than "clean modulo warnings." `summary.warnings` is reported but is expected to stay at 0 for well-formed code; pure style is handled by `nlc format`, not surfaced here.
 - JSON by default, `--text` for Elm-style diagnostics

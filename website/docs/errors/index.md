@@ -70,6 +70,7 @@ These are not style rules; style is `nlc format`'s job and produces no diagnosti
 | [`NL108`](./NL108.md) | A `[` with no `]`. |
 | [`NL109`](./NL109.md) | A reserved word used as a name. |
 | [`NL110`](./NL110.md) | A preprocessor directive N# does not have. |
+| [`NL111`](./NL111.md) | An expression nested more than 512 levels deep. |
 
 ## Types — `NL2xx`
 

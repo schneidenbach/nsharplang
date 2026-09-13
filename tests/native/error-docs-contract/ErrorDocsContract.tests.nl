@@ -195,12 +195,16 @@ func EdcExemptions(): List<string> {
     return rows
 }
 
-// One narrow exemption from the SOURCE-repro requirement, never from the page requirement.
+// Two narrow exemptions from the SOURCE-repro requirement, never from the page requirement.
 // Internal compiler errors have no supported source reproducer: the named native contract
 // supplies a synthetic exception, runs the product boundary, and pins the page's exact output.
+// NL111 has no reproducer a reader can READ: the shortest source that reaches it is 513 nested
+// parentheses, about a thousand characters on one line, and pasting that into a documentation page
+// teaches nothing the prose does not. The named contract GENERATES it and pins the page's sentence.
 func EdcOutputExampleExemptions(): List<string> {
     rows := new List<string>()
     rows.Add("NL924|tests/native/cli-command-contracts/InternalErrorBoundary.tests.nl|NL924 process boundary renders synthetic invariant failure exactly as its documentation")
+    rows.Add("NL111|tests/native/cli-command-contracts/CliCommandContracts.tests.nl|a generated deep expression is refused by nlc check with NL111, not a stack overflow")
     return rows
 }
 
@@ -444,23 +448,38 @@ test "EVERY exemption names a code the catalog still publishes, a defect that ex
     assert EdcExemptions().Count == 0
 }
 
-test "the only source-repro exemption names NL924 and its existing exact-output native contract" {
+// EVERY source-repro exemption is held to the SAME four claims, so a row can never be a place to
+// park a page nobody wanted to write: the code is still in the catalog, the page exists, the named
+// native contract exists and CONTAINS the named test, and the page quotes that contract's path
+// beside a titled output block. Two codes qualify today and both are named here by hand, because
+// the COUNT is the claim — this is the number of diagnostics with no source a reader can run.
+test "EVERY source-repro exemption names a live code and a native contract that produces its output" {
     rows := EdcOutputExampleExemptions()
-    assert rows.Count == 1
+    assert rows.Count == 2, EdcJoin(rows)
     assert EdcExemptField(rows[0], 0) == "NL924"
+    assert EdcExemptField(rows[1], 0) == "NL111"
     assert !EdcHasOutputExample("NL923")
     assert !EdcHasOutputExample("NL999")
-    code := EdcExemptField(rows[0], 0)
-    contract := EdcExemptField(rows[0], 1)
-    testName := EdcExemptField(rows[0], 2)
-    assert EdcContains(EdcCatalogCodes(), code)
-    assert File.Exists(EdcPaths.PageFor(code))
-    assert File.Exists(EdcPaths.RepositoryPath(contract))
-    source := File.ReadAllText(EdcPaths.RepositoryPath(contract))
-    assert source.Contains("test \"" + testName + "\" {")
-    page := File.ReadAllText(EdcPaths.PageFor(code))
-    assert page.Contains(contract)
-    assert page.Contains("```text title=\"NL924 boundary output\"")
+
+    titles := new List<string>()
+    titles.Add("```text title=\"NL924 boundary output\"")
+    titles.Add("```text title=\"NL111 generated-source output\"")
+
+    i := 0
+    while i < rows.Count {
+        code := EdcExemptField(rows[i], 0)
+        contract := EdcExemptField(rows[i], 1)
+        testName := EdcExemptField(rows[i], 2)
+        assert EdcContains(EdcCatalogCodes(), code), code
+        assert File.Exists(EdcPaths.PageFor(code)), code
+        assert File.Exists(EdcPaths.RepositoryPath(contract)), contract
+        source := File.ReadAllText(EdcPaths.RepositoryPath(contract))
+        assert source.Contains("test \"" + testName + "\" {"), code + ":" + testName
+        page := File.ReadAllText(EdcPaths.PageFor(code))
+        assert page.Contains(contract), code
+        assert page.Contains(titles[i]), code
+        i = i + 1
+    }
 }
 
 test "EVERY page carries the front matter the site and the tab title read" {

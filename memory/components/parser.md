@@ -22,6 +22,29 @@ Converts token stream into an Abstract Syntax Tree (AST).
 
 ## Key Design Decisions
 
+### Expression nesting is bounded at 512 levels (NL111)
+
+Every stage that reads an expression walks it recursively — this parser, `LinterWalk`, the formatter,
+the analyzer — so an expression's DEPTH is a multiplier on the CLR stack. Measured at `0bd1cf46d`:
+2,000 nested parentheses and 2,000 nested lambdas killed `nlc check`, `nlc build`, `nlc lint` and
+`nlc format` with a bare `Stack overflow.` and exit 134, and an 8,000-term `||` chain — which this
+parser folds ITERATIVELY and survived — killed the walkers downstream.
+
+`ColumnarParserRecovery.MaxExpressionNestingDepth` is the bound and carries the measurements. Two
+things deepen an expression and both are counted: entering a nested one (counted in `ParseExprValue`,
+which restores the counter on the way out so siblings do not accumulate) and folding one more operand
+onto a left-associative chain (counted in `ComposeBinary`, the single door every binary tier folds
+through). The count is an UPPER BOUND on tree depth — exact for plain nesting and for a chain of one
+operator, roughly double for a chain that mixes precedences — which is the safe direction for a bound
+whose job is to refuse before the stack does.
+
+512 is measured: the deepest expression in Compiler Core's own ~412K lines is 8 levels and the deepest
+in the machine-converted corpus at `nsharp-cs2nl/out` is 70, while this parser overflows between 1,800
+and 2,000 levels of descent and `LinterWalk.MaxRecursionDepth` refuses at 1,000 frames. Over the bound,
+`Report` emits NL111 at the offending token; `Report` sets panic, so one over-deep expression cannot
+become a thousand cascading diagnostics.
+
+
 ### Lambda Parsing
 **Critical detail:** Lambdas must be parsed at assignment-expression level, NOT at primary level.
 
@@ -234,7 +257,8 @@ ONE layer, as of task 020 slice 22: the parser's assertion layer is entirely N#.
   fixture's author intended, and none of them a declaration. Its other measured finds: an unterminated
   `/* … */` swallows the WHOLE file and reports NOTHING; `func main() ` with no body parses silently
   to a NULL `Body` (as against the empty BlockStatement `func main() {}` produces); 100 nested
-  parentheses produce 100 real `ParenthesizedExpression` nodes with no collapsing and no depth cap;
+  parentheses produce 100 real `ParenthesizedExpression` nodes with no collapsing (and pass the depth
+  bound below untouched);
   and a 1000-character identifier is carried whole with correct columns past 999. **The two entry points do not
   always agree on ORDER** — see the "recording order is not position order" contract — so a census's
   order tells you which entry point produced it. Run with

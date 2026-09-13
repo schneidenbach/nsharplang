@@ -113,6 +113,7 @@ class DiagnosticCatalog {
         AddCompiler(descriptors, ErrorCode.MissingClosingBracket)
         AddCompiler(descriptors, ErrorCode.ReservedKeywordAsName)
         AddCompiler(descriptors, ErrorCode.InvalidPreprocessorDirective)
+        AddCompiler(descriptors, ErrorCode.ExpressionNestingTooDeep)
 
         AddCompiler(descriptors, ErrorCode.TypeNotFound)
         AddCompiler(descriptors, ErrorCode.TypeMismatch)
