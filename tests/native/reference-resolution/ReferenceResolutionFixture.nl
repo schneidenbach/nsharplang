@@ -191,7 +191,7 @@ func ResolverWriteAotProjectFixture(projectRoot: string, rootOutputType: string)
     )
     ResolverWrite(
         Path.Combine(sharedDir, "Shared.nl"),
-        "func CountChars(s: string): int {\n    n := 0\n    foreach c in s {\n        n = n + 1\n    }\n    return n\n}"
+        "struct Counter {\n    value: int\n\n    func Bump(): bool {\n        value = value + 1\n        return value < 3\n    }\n}"
     )
     ResolverWrite(
         Path.Combine(projectRoot, "project.yml"),
