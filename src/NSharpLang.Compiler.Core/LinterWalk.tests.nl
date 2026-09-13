@@ -570,14 +570,26 @@ test "a FINALLY block is walked" {
     assert LwkCodes(state) == "NL001@9:9;"
 }
 
-test "a USING owns a scope covering its declaration, its expression and its body" {
+test "a USING owns a scope covering its declaration, its expression and its body — and its binding counts as USED" {
     state := LwkState()
     walk := new LinterWalk(state)
     declaration := LwkVar("handle", null, 4, 11)
     resource := LwkId("StringBuilder", 4, 20)
     body: Statement = LwkEmptyBlock(4, 40)
     walk.VisitStatement(new UsingStatement(declaration, resource, body, 4, 5))
-    assert LwkCodes(state) == "NL002@4:20;NL001@4:11;"
+
+    // NO NL001 on `handle`: a `using` uses its resource by disposing it, whether or not the body ever
+    // mentions the name. Only the unresolved `StringBuilder` reads as a finding.
+    assert LwkCodes(state) == "NL002@4:20;"
+}
+
+test "a using DECLARATION opens no scope, so its binding is visible to the statements that follow it" {
+    state := LwkState()
+    walk := new LinterWalk(state)
+    declaration := LwkVar("handle", null, 4, 11)
+    walk.VisitStatement(new UsingStatement(declaration, null, null, 4, 5))
+    walk.VisitStatement(LwkRead("handle", 5, 5))
+    assert LwkCodes(state) == ""
 }
 
 test "every SWITCH case owns its own scope" {
