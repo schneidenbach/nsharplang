@@ -431,7 +431,7 @@ class CompletionReceiverFacts {
                 return
             }
 
-            AppendNewMemberItems(items, CompletionReflectionFacts.BuildReflectionMemberItems(baseClrType, CompletionReflectionFacts.GetReflectionBindingFlags(filter)))
+            AppendNewMemberItems(items, CompletionReflectionFacts.BuildReflectionMemberItems(baseClrType, CompletionReflectionFacts.GetReflectionBindingFlags(filter, canReachProtected), canReachProtected))
             return
         }
     }
