@@ -417,10 +417,12 @@ class Analyzer: IDisposable {
         TypeResolver.SetImportUsageCredit(ImportUsageCredit)
         IdentifierResolution.SetImportUsageCredit(ImportUsageCredit)
         MemberAccess.SetImportUsageCredit(ImportUsageCredit)
+        ProjectDiscovery.SetImportUsageCredit(ImportUsageCredit)
+        Diagnostics.SetImportUsageCredit(ImportUsageCredit)
     }
 
     private func CreateAttributeValidator(): AnalyzerAttributeValidator {
-        return new AnalyzerAttributeValidator(
+        created := new AnalyzerAttributeValidator(
             Diagnostics,
             Spans,
             Scopes,
@@ -432,6 +434,8 @@ class Analyzer: IDisposable {
             ClrTypeConversion,
             WellKnownTypes
         )
+        created.SetImportUsageCredit(ImportUsageCredit)
+        return created
     }
 
     private func CreateRangeExpression(): AnalyzerRangeExpression {

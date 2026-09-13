@@ -80,7 +80,7 @@ class AnalyzerImportUsageCredit {
         if metadataType != null {
             supplier := MetadataSupplier(writtenName, metadataType)
             if supplier != null {
-                ledger.CreditReference(writtenName, supplier ?? "", line, column, writtenName.Length)
+                RecordMetadataName(writtenName, supplier ?? "", line, column, writtenName.Length)
             }
 
             return
@@ -214,6 +214,69 @@ class AnalyzerImportUsageCredit {
         }
 
         return aliasedNamespace
+    }
+
+    // THE NAMESPACE IS ALWAYS CREDITED; THE NL002 FINDING IS NOT.
+    //
+    // A name the PROJECT ITSELF declares is not a missing import, whatever a referenced assembly
+    // happens to call its own types. The two disagree more often than they look: a receiver position
+    // resolves through the external probe before it consults a sibling file's declarations, so
+    // `Guard.Fail(...)` beside a source `class Guard` answers with a metadata `Guard` — and NL002
+    // would tell the author to import a namespace their program does not use. NL010 is unaffected,
+    // because keeping an import alive on a name that might have come through it is the safe
+    // direction and reporting one that did not is not.
+    func RecordMetadataName(writtenName: string, supplier: string, line: int, column: int, length: int) {
+        ledger := facts
+        if ledger == null {
+            return
+        }
+
+        if declarationContext.DeclaresTypeNamed(writtenName) {
+            ledger.CreditNamespace(supplier)
+            return
+        }
+
+        ledger.CreditReference(writtenName, supplier, line, column, length)
+    }
+
+    // AN ATTRIBUTE HAS TWO LEGAL SPELLINGS AND A FILE MAY WRITE EITHER. `[Obsolete]` and
+    // `[ObsoleteAttribute]` name one type, and the arithmetic cannot see that: the written `Obsolete`
+    // is not a suffix of `System.ObsoleteAttribute`. So the second spelling is tried when the first
+    // finds nothing, which is the same rule the attribute resolver itself applies when it looks the
+    // type up.
+    //
+    // The NL002 finding keeps the WRITTEN spelling, because that is what the developer typed and what
+    // the squiggle covers; only the lookup uses the other one. A fully qualified `[System.Obsolete]`
+    // credits nothing, as every fully qualified spelling does: there is no prefix left over for an
+    // import to have supplied.
+    func CreditAttributeType(writtenName: string, attributeType: Type, line: int, column: int, length: int) {
+        ledger := facts
+        if ledger == null || writtenName.Length == 0 {
+            return
+        }
+
+        supplier := MetadataSupplier(writtenName, attributeType)
+        if supplier == null {
+            supplier = MetadataSupplier(writtenName + "Attribute", attributeType)
+        }
+
+        if supplier == null {
+            return
+        }
+
+        RecordMetadataName(writtenName, supplier ?? "", line, column, length)
+    }
+
+    // A NAMESPACE THAT ANSWERED FOR A NAME, credited directly by the channel that swept it. The
+    // project-type sweep is the case: a source type carries its own name and not the namespace that
+    // supplied it, so the arithmetic above has nothing to work on and the sweep is the only owner
+    // that knows. It is never an NL002 finding — a source type in another namespace of the same
+    // project resolves with no import at all, so there is no import to demand.
+    func CreditNamespaceSupplier(namespaceName: string?) {
+        ledger := facts
+        if ledger != null {
+            ledger.CreditNamespace(namespaceName)
+        }
     }
 
     // An extension method, an attribute constructor or any other member whose DECLARING TYPE is what

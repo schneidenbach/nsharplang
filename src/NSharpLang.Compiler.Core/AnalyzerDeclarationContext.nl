@@ -194,6 +194,10 @@ class AnalyzerDeclarationContext {
     // it — so a credit is only this file's when the facts being read are this file's.
     importUsageCredit: AnalyzerImportUsageCredit?
     importUsageFilePath: string?
+    // Every TOP-LEVEL TYPE NAME the project declares, by arity key, built once per analysis on first
+    // ask. NL002 needs it to answer one question — does this project declare a type of this name —
+    // and answering it by walking every file's declarations per name would be quadratic.
+    declaredTypeNames: HashSet<string>?
 
     constructor() {
         projectRoot = Path.GetFullPath(".")
@@ -208,12 +212,52 @@ class AnalyzerDeclarationContext {
         missingExternalTypes = new HashSet<string>(StringComparer.Ordinal)
         importUsageCredit = null
         importUsageFilePath = null
+        declaredTypeNames = null
     }
 
     // One call per `Analyze`: which file is being analysed, and where its import-usage facts go.
     func SetImportUsageCredit(credit: AnalyzerImportUsageCredit?, filePath: string?) {
         importUsageCredit = credit
         importUsageFilePath = filePath
+    }
+
+    // WHETHER THE PROJECT ITSELF DECLARES A TYPE OF THIS NAME, at any arity and in any namespace.
+    //
+    // NL002 asks it before it reports: a spelling the project declares is not a missing import, even
+    // when a referenced assembly happens to declare the same name. That case is not hypothetical —
+    // a receiver position resolves through the external probe before it ever consults a SIBLING
+    // FILE's declarations, so `Guard.Fail(...)` beside a source `class Guard` answered with a
+    // metadata `Guard` from a referenced assembly, and NL002 would have told the author to import a
+    // namespace their program does not use.
+    func DeclaresTypeNamed(name: string): bool {
+        cached := declaredTypeNames
+        if cached == null {
+            built := new HashSet<string>(StringComparer.Ordinal)
+            fileIndex := 0
+            while fileIndex < files.Count {
+                declarations := files[fileIndex].Declarations
+                index := 0
+                while index < declarations.Count {
+                    candidate := declarations[index]
+                    if candidate != null && IsTopLevelTypeDeclaration(candidate) {
+                        declaredName := DeclarationFacts.GetDeclarationName(candidate)
+                        if declaredName != null {
+                            built.Add(declaredName ?? "")
+                        }
+                    }
+
+                    index = index + 1
+                }
+
+                fileIndex = fileIndex + 1
+            }
+
+            declaredTypeNames = built
+            return built.Contains(name)
+        }
+
+        names := cached ?? new HashSet<string>(StringComparer.Ordinal)
+        return names.Contains(name)
     }
 
     func Reset(projectRootValue: string, assemblyValues: List<Assembly>) {
@@ -227,9 +271,11 @@ class AnalyzerDeclarationContext {
         soaTypesByDeclaration.Clear()
         externalTypes.Clear()
         missingExternalTypes.Clear()
+        declaredTypeNames = null
     }
 
     func AddCompilationUnit(filePath: string, unit: object) {
+        declaredTypeNames = null
         fullPath := Path.GetFullPath(filePath)
         if filesByPath.ContainsKey(fullPath) {
             return

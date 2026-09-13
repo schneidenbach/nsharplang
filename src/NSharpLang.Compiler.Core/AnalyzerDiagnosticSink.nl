@@ -22,6 +22,8 @@ class AnalyzerDiagnosticSink {
     projectSourcesValue: AnalyzerProjectSourceProvider
     currentFilePathValue: string?
     sourceTextValue: string?
+    // NL010's ledger, for the one report that is also a USE: a name a namespace declared and refused.
+    importUsageCreditValue: AnalyzerImportUsageCredit?
 
     CurrentFilePath: string? => currentFilePathValue
 
@@ -37,6 +39,11 @@ class AnalyzerDiagnosticSink {
         projectSourcesValue = projectSources
         currentFilePathValue = null
         sourceTextValue = null
+        importUsageCreditValue = null
+    }
+
+    func SetImportUsageCredit(credit: AnalyzerImportUsageCredit?) {
+        importUsageCreditValue = credit
     }
 
     // One call per analysis, from the same reset block that sets the analyzer's current file.
@@ -183,6 +190,16 @@ class AnalyzerDiagnosticSink {
     // namespace correctly; a file that declares none reports the global namespace as `<global>`.
     func ReportInaccessibleMember(memberName: string, declarationFile: string?, line: int, column: int): bool {
         declaringNamespace := projectSourcesValue.GetNamespaceForFile(declarationFile)
+
+        // NL010: A NAME THAT WAS REFUSED IS STILL A NAME THIS FILE ASKED THAT NAMESPACE FOR. The
+        // import supplied the declaration; accessibility is a second question asked after it. Without
+        // this credit a file whose only use of `import X` was a name `X` declines to export was told
+        // its import was dead as well — two diagnostics for one mistake, and the second one wrong.
+        credit := importUsageCreditValue
+        if credit != null {
+            credit.CreditNamespaceSupplier(declaringNamespace)
+        }
+
         if declaringNamespace == null {
             declaringNamespace = "<global>"
         }

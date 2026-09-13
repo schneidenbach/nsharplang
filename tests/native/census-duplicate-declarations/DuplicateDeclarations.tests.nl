@@ -101,9 +101,12 @@ func DupWrite(directory: string, fileName: string, text: string) {
     File.WriteAllText(Path.Combine(directory, fileName), text)
 }
 
+// A probe directory that another process still holds open is not a test failure; the temporary
+// directory is the operating system's to reclaim.
 func DupDelete(directory: string) {
     try {
         Directory.Delete(directory, true)
+    // nlc:ignore NL011
     } catch {
     }
 }
@@ -307,7 +310,9 @@ test "a namespace spread over two files with distinct names emits one type each"
         }
 
         names.Sort()
-        assert DupJoin(names) == "Catalog.Gadget;Catalog.Widget", DupJoin(names)
+        // `Catalog.Program` is the synthesised entry-point holder every emitted assembly carries; the
+        // two DECLARED types are what this row is about, and each appears exactly once.
+        assert DupJoin(names) == "Catalog.Gadget;Catalog.Program;Catalog.Widget", DupJoin(names)
     } finally {
         DupDelete(directory)
     }

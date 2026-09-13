@@ -2,7 +2,10 @@ namespace NSharpLang.CensusFlowRules.Tests
 
 import System
 import System.Collections.Generic
+import NSharpLang.Cli
+import NSharpLang.Cli.Commands
 import NSharpLang.Compiler
+import NSharpLang.Compiler.CodeIntelligence
 import NSharpLang.Compiler.Columnar
 
 
