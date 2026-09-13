@@ -1256,6 +1256,70 @@ test "an argument's expected type comes from the signature, closed once before t
     assert transcript == "6(callee) 3 16 4(int) 8 16 16"
 }
 
+// ------------------------------------------------------- the receiver is walked ONCE per link
+
+// THE COMPLEXITY CONTRACT, STATED AS A COUNT RATHER THAN AS A CLOCK.
+//
+// A fluent chain's receiver is itself a call whose receiver is a call, and the call walk reads the
+// member-access receiver more than once (three times for a receiver-style generic, once for a group
+// whose winner is not). While each of those reads RE-WALKED the receiver's subtree, an N-link chain
+// was analysed once per PATH through it — exponential — and the analysis of a 27-link
+// `.WithHandler<T>()` registration did not terminate.
+//
+// A REPORT IS THE COUNT MADE OBSERVABLE. `Seed(1)` is an arity fault whose answer is still `Chain`,
+// so the chain above it resolves normally and the fault is analysed once per walk of the receiver.
+// The raw analyzer error list is what is counted here, deliberately: `nlc check` distincts its
+// results and would hide the repeat, which is how the exponential stayed invisible until a project
+// stopped finishing. One report at one link and one report at twenty-four is the same statement as
+// "the receiver's subtree is walked once", and at twenty-four links the old walk would not have
+// finished at all.
+func ChainedReceiverSource(links: int): string {
+    source := "namespace Probe\n\nclass Chain {\n    public func Next(): Chain {\n        return this\n    }\n}\n\nfunc Seed(): Chain {\n    return new Chain()\n}\n\nfunc Run(): Chain {\n    return Seed(1)"
+    index := 0
+    while index < links {
+        source = source + ".Next()"
+        index = index + 1
+    }
+
+    return source + "\n}\n"
+}
+
+func ChainedReceiverArityReports(links: int): int {
+    source := ChainedReceiverSource(links)
+    projectRoot := Path.Combine(Path.GetTempPath(), "nsharp-chain-receiver-" + Guid.NewGuid().ToString("N"))
+    filePath := Path.Combine(projectRoot, "Probe.nl")
+    parsed := ColumnarParserRecovery.ParseFileAst(source, filePath)
+    assert parsed.Errors.Count == 0
+    unit := parsed.CompilationUnit
+    assert unit != null
+    Directory.CreateDirectory(projectRoot)
+    analyzer := new Analyzer()
+    total := 0
+    try {
+        result := analyzer.Analyze(unit, filePath, projectRoot, source)
+        for error in result.Errors {
+            if error.Code == ErrorCode.WrongArgumentCount {
+                total = total + 1
+            }
+        }
+    } finally {
+        analyzer.Dispose()
+        Directory.Delete(projectRoot, true)
+    }
+
+    return total
+}
+
+test "a fault in a chained call's receiver is reported ONCE however long the chain" {
+    // Non-vacuity first: the fault is real and is found at the shortest chain there is.
+    assert ChainedReceiverArityReports(1) == 1
+
+    // The same one report twelve and twenty-four links up. A walk that re-walked the receiver would
+    // report 2^links times and would not reach the third of these.
+    assert ChainedReceiverArityReports(12) == 1
+    assert ChainedReceiverArityReports(24) == 1
+}
+
 func AssertCallArgumentSourceChecks(source: string) {
     projectRoot := Path.Combine(Path.GetTempPath(), "nsharp-call-context-" + Guid.NewGuid().ToString("N"))
     filePath := Path.Combine(projectRoot, "Probe.nl")
