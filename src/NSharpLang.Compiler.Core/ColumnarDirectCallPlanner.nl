@@ -1179,6 +1179,24 @@ class ColumnarDirectCallPlanner {
                 return true
             }
 
+            // A TRAILING-OPTIONAL STATIC METHOD, on the same footing as the instance one below: the
+            // call omitted an argument whose default the CALLER writes. It is tried even when a
+            // same-named method was owned-rejected, because "a method of this name exists but no
+            // overload binds at this arity" is EXACTLY the state an omitted defaulted argument
+            // produces.
+            optionalStatic := ColumnarOrdinaryRuntimeDirectCallResolver.ResolveOptionalFill(lookupType, memberName, argumentTypes, argumentFacts, true)
+
+            if optionalStatic.IsSelected {
+                ownership = ColumnarDirectCallOwnership.OwnedRejected
+                if !AppendOptionalFillRuntimeSelection(nodes, source, callNode, -1, bindings, handles, plan, callFragment, depth, argumentTypes, argumentFacts, optionalStatic, out resultType) {
+                    plan.Rollback(checkpoint)
+                    return false
+                }
+
+                ownership = ColumnarDirectCallOwnership.Planned
+                return true
+            }
+
             if ordinary.IsOwnedRejected {
                 ownership = ColumnarDirectCallOwnership.OwnedRejected
             } else {
@@ -1314,25 +1332,31 @@ class ColumnarDirectCallPlanner {
 
         // No instance member of this name bound at the supplied arity. Two fallbacks remain before
         // the call is yielded, both terminal in N#: (1) a trailing-optional instance method on the
-        // receiver's own type (`app.Run()` -> WebApplication.Run(string url = null)); (2) an external
-        // extension method exported by a referenced assembly (`builder.Services.AddControllers()`).
-        // An owned-rejected instance result (a same-named method exists but no overload can bind the
-        // arguments) is left alone: extension lookup only applies when the receiver has NO matching
-        // instance method, preserving instance-beats-extension precedence.
-        if !ordinaryInstance.IsOwnedRejected {
-            optionalInstance := ColumnarOrdinaryRuntimeDirectCallResolver.ResolveOptionalFill(receiverType, memberName, argumentTypes, argumentFacts, false)
+        // receiver's own type (`app.Run()` -> WebApplication.Run(string url = null),
+        // `service.GetSymbols(snapshot, file)` -> `GetSymbols(snapshot, file, kind = null)`); (2) an
+        // external extension method exported by a referenced assembly
+        // (`builder.Services.AddControllers()`).
+        //
+        // THE TWO FALLBACKS DIFFER ON OWNED-REJECTED, AND THE DIFFERENCE IS PRECEDENCE. The optional
+        // fill selects an instance member of the receiver's OWN type, so it runs whatever the
+        // exact-arity tier said — and "a method of this name exists but no overload binds at this
+        // arity" is exactly the state an omitted defaulted argument produces, which is why gating it
+        // on a NOT-owned-rejected result made every such call decline. Extension lookup keeps the
+        // gate: an extension may only be reached when the receiver has no matching instance method.
+        optionalInstance := ColumnarOrdinaryRuntimeDirectCallResolver.ResolveOptionalFill(receiverType, memberName, argumentTypes, argumentFacts, false)
 
-            if optionalInstance.IsSelected {
-                ownership = ColumnarDirectCallOwnership.OwnedRejected
-                if !AppendOptionalFillRuntimeSelection(nodes, source, callNode, receiverNode, bindings, handles, plan, callFragment, depth, argumentTypes, argumentFacts, optionalInstance, out resultType) {
-                    plan.Rollback(checkpoint)
-                    return false
-                }
-
-                ownership = ColumnarDirectCallOwnership.Planned
-                return true
+        if optionalInstance.IsSelected {
+            ownership = ColumnarDirectCallOwnership.OwnedRejected
+            if !AppendOptionalFillRuntimeSelection(nodes, source, callNode, receiverNode, bindings, handles, plan, callFragment, depth, argumentTypes, argumentFacts, optionalInstance, out resultType) {
+                plan.Rollback(checkpoint)
+                return false
             }
 
+            ownership = ColumnarDirectCallOwnership.Planned
+            return true
+        }
+
+        if !ordinaryInstance.IsOwnedRejected {
             if scope != null {
                 extension := ColumnarExtensionMethodSelection.None()
                 if scope.TryResolveExtensionMethod(receiverType, memberName, argumentTypes, argumentFacts, out extension) && extension.IsSelected {

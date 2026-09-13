@@ -1331,8 +1331,13 @@ class ColumnarTypeOfPlanner {
         return !valueType.get_IsValueType() && IsSupportedCatalogType(valueType)
     }
 
+    // AN ENUM IS LIFTABLE FOR THE SAME REASON ITS UNDERLYING SCALAR IS. `Nullable<T>` is one struct
+    // with one layout whatever T is, and the lifting lowerings — the constructor, `HasValue`, `Value`,
+    // `GetValueOrDefault` — are reflection over the CLOSED construction, not a per-element opcode
+    // table. `SymbolKind?` is what a C#-compiled member spells for an optional enum, and it is the
+    // shape a converted call site passes.
     static func IsLiftableNullableElement(valueType: Type): bool {
-        return valueType == typeof(int) || valueType == typeof(long) || valueType == typeof(ulong) || valueType == typeof(uint) || valueType == typeof(short) || valueType == typeof(ushort) || valueType == typeof(byte) || valueType == typeof(sbyte) || valueType == typeof(bool) || valueType == typeof(char) || valueType == typeof(double) || valueType == typeof(float) || valueType == typeof(decimal) || valueType == typeof(TimeSpan) || IsSupportedValueTuple(valueType)
+        return valueType == typeof(int) || valueType == typeof(long) || valueType == typeof(ulong) || valueType == typeof(uint) || valueType == typeof(short) || valueType == typeof(ushort) || valueType == typeof(byte) || valueType == typeof(sbyte) || valueType == typeof(bool) || valueType == typeof(char) || valueType == typeof(double) || valueType == typeof(float) || valueType == typeof(decimal) || valueType == typeof(TimeSpan) || IsEnumType(valueType) || IsSupportedValueTuple(valueType)
     }
 
     static func IsExactNullableConstruction(valueType: Type): bool {

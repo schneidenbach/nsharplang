@@ -2396,10 +2396,17 @@ sealed class ColumnarIlEmitter {
                 return false
             }
         }
-        // Every parameter past the supplied arguments is a trailing optional whose metadata default
-        // is the null reference — the same fill the ordinary resolver's optional tier emits.
+        // Every parameter past the supplied arguments is a trailing optional, and its metadata default
+        // is written here as a literal — the same fill the ordinary resolver's optional tier emits,
+        // through the one owner that knows which defaults are constants.
+        optionalParameters := selection.Method.GetParameters()
+        if (optionalParameters == null || optionalParameters.Length != parameterTypes.Length) {
+            return false
+        }
         for filled := selection.ExplicitArgumentCount; filled < parameterTypes.Length; filled++ {
-            _il.Emit(OpCodes.Ldnull)
+            if (!ColumnarExtensionMethodResolver.TryEmitOptionalDefault(_il, optionalParameters[filled], parameterTypes[filled])) {
+                return false
+            }
         }
         callOpcode := match selection.UsesCallVirtual {
             true => OpCodes.Callvirt,
