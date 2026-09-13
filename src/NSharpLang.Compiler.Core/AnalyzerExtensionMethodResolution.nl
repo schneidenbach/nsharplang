@@ -186,19 +186,24 @@ class AnalyzerExtensionMethodResolution {
 
     // The DECLARED types of every reference assembly, not the exported ones. An extension declared
     // on an INTERNAL static class is a candidate the exported surface would silently drop.
+    // EVERY READ HERE IS OVER A TYPE THE PROJECT MERELY REFERENCES, so every one of them goes
+    // through `AnalyzerReflectionMemberProbe`. A referenced assembly is not a promise that its whole
+    // closure is present — `System.Reactive` carries signatures over WPF types and `WindowsBase`
+    // does not exist on macOS — and materialising such a signature throws. The scan must answer
+    // "this host offers no extension of that name", not end the analysis.
     func ScanExternalExtensionMethods(targetClrType: Type, methodName: string): List<MethodInfo> {
         methods := new List<MethodInfo>()
         memberFlags := BindingFlags.Public | BindingFlags.Static
 
         assemblyIndex := 0
         while assemblyIndex < assemblies.Count {
-            assemblyTypes := assemblies[assemblyIndex].GetTypes()
+            assemblyTypes := AnalyzerReflectionMemberProbe.TypesOrEmpty(assemblies[assemblyIndex])
             typeIndex := 0
             while typeIndex < assemblyTypes.Length {
                 hostType := assemblyTypes[typeIndex]
-                hostNamespace := hostType.get_Namespace()
+                hostNamespace := AnalyzerReflectionMemberProbe.NamespaceOrNull(hostType)
                 // A static class is `sealed abstract` in metadata; nothing else may declare one.
-                if hostNamespace != null && usingNamespaces.Contains(hostNamespace) && hostType.get_IsSealed() && hostType.get_IsAbstract() {
+                if hostNamespace != null && usingNamespaces.Contains(hostNamespace) && AnalyzerReflectionMemberProbe.IsStaticHostType(hostType) {
                     CollectExtensionMethods(hostType, memberFlags, methodName, targetClrType, methods)
                 }
                 typeIndex = typeIndex + 1
@@ -210,14 +215,19 @@ class AnalyzerExtensionMethodResolution {
     }
 
     static func CollectExtensionMethods(hostType: Type, memberFlags: BindingFlags, methodName: string, targetClrType: Type, methods: List<MethodInfo>) {
-        hostMethods := hostType.GetMethods(memberFlags)
+        hostMethods := AnalyzerReflectionMemberProbe.MethodsOrEmpty(hostType, memberFlags)
         methodIndex := 0
         while methodIndex < hostMethods.Length {
             method := hostMethods[methodIndex]
             if method.get_Name() == methodName && AnalyzerOverloadFacts.HasExtensionAttribute(method) {
-                parameters := method.GetParameters()
-                if parameters.Length > 0 && AnalyzerOverloadFacts.IsExtensionParameterCompatible(parameters[0].get_ParameterType(), targetClrType) {
-                    methods.Add(method)
+                // The RECEIVER parameter's type is the read that reaches the missing assembly. A
+                // candidate whose receiver cannot be materialised is not a candidate.
+                parameters := AnalyzerReflectionMemberProbe.ParametersOrNull(method)
+                if parameters != null && parameters.Length > 0 {
+                    receiverParameterType := AnalyzerReflectionMemberProbe.ParameterTypeOrNull(parameters[0])
+                    if receiverParameterType != null && AnalyzerOverloadFacts.IsExtensionParameterCompatible(receiverParameterType, targetClrType) {
+                        methods.Add(method)
+                    }
                 }
             }
             methodIndex = methodIndex + 1

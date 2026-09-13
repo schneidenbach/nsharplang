@@ -250,7 +250,7 @@ class AnalyzerMemberResolution {
                 return reflectedMemberType
             }
 
-            reflectedMethods := clrType.GetMethods(memberFlags)
+            reflectedMethods := AnalyzerReflectionMemberProbe.MethodsOrEmpty(clrType, memberFlags)
             matchingMethods := new List<MethodInfo>()
             reflectedIndex := 0
             while reflectedIndex < reflectedMethods.Length {

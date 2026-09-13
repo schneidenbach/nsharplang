@@ -143,8 +143,9 @@ class AnalyzerFunctionTypeFactory {
             return null
         }
 
-        openParameters := openInvoke.GetParameters()
-        if openParameters == null || openParameters.Length != closedInvoke.GetParameters().Length {
+        openParameters := AnalyzerReflectionMemberProbe.ParametersOrNull(openInvoke)
+        closedParameters := AnalyzerReflectionMemberProbe.ParametersOrNull(closedInvoke)
+        if openParameters == null || closedParameters == null || openParameters.Length != closedParameters.Length {
             return null
         }
 
@@ -157,7 +158,7 @@ class AnalyzerFunctionTypeFactory {
             return null
         }
 
-        return openInvoke.get_ReturnType()
+        return AnalyzerReflectionMemberProbe.ReturnTypeOrNull(openInvoke)
     }
 
     static func OpenDelegateInvoke(delegateType: Type): MethodInfo? {
@@ -166,7 +167,7 @@ class AnalyzerFunctionTypeFactory {
         }
 
         try {
-            return delegateType.GetGenericTypeDefinition().GetMethod("Invoke")
+            return AnalyzerReflectionMemberProbe.MethodOrNull(delegateType.GetGenericTypeDefinition(), "Invoke")
         } catch {
             return null
         }
