@@ -55,6 +55,14 @@ test "an async lambda captures like an ordinary closure" {
     assert await next() == 42
 }
 
+test "a member's declared delegate type shapes an async lambda written into it" {
+    loaders := new Loaders()
+    initialized := loaders.Initialized
+    assigned := loaders.Assigned
+    assert await initialized() == 4
+    assert await assigned() == 3
+}
+
 test "each turn of a loop captures its own local" {
     factories := perIterationFactories()
     assert factories.Count == 3

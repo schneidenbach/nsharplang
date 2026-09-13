@@ -111,6 +111,17 @@ func runOnThreadPool(log: List<string>) {
     })
 }
 
+// A FIELD INITIALIZER and a CONSTRUCTOR ASSIGNMENT: a member's declared delegate type gives the
+// lambda written there its shape, exactly as a parameter position does.
+class Loaders {
+    Initialized: Func<Task<int>> = async () => await Task.FromResult(4)
+    Assigned: Func<Task<int>>
+
+    constructor() {
+        Assigned = async () => await Task.FromResult(3)
+    }
+}
+
 // AN INSTANCE MEMBER'S LAMBDA capturing `this`: the lambda reads the enclosing instance's field
 // through the display exactly as a synchronous one does.
 class Counter {
