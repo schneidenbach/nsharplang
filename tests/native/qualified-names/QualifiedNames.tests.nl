@@ -222,3 +222,29 @@ test "a partially qualified name is usable at a declared-type position" {
     season: Library.Season = Library.Season.Winter
     assert Convert.ToInt32(season) == 3
 }
+
+// ── namespace aliases in TYPE position ────────────────────────────────────────────────────────
+//
+// The expression-position contracts above pinned `Io.Path.Combine(...)` and `new Txt.StringBuilder()`.
+// A TYPE position forked separately: the analyzer's alias table is keyed by the alias alone, so
+// `Txt.StringBuilder` written as a type matched nothing and fell out of the resolution walk as an
+// unresolved-external placeholder — a SECOND type instance beside the one `StringBuilder` resolves
+// to, assignable to nothing. `builder: Txt.StringBuilder = new StringBuilder()` reported NL202
+// against itself, and so did the reverse spelling. `AliasTypes.nl` holds the four slots; these run
+// them, so they claim the emitted IL uses the one type rather than merely that the check passed.
+
+test "an alias-qualified type and the bare spelling are the same type" {
+    assert typeof(Txt.StringBuilder) == typeof(StringBuilder)
+    assert typeof(Txt.StringBuilder).FullName == "System.Text.StringBuilder"
+}
+
+test "an alias-qualified field annotation and a bare one hold each other's values" {
+    holder := new AliasTypedHolder()
+    assert holder.Write("x") == "xx"
+    assert AliasQualifiedToBare(holder.Qualified).ToString() == "x"
+    assert BareToAliasQualified(holder.Bare).ToString() == "x"
+}
+
+test "an alias-qualified local annotation accepts a bare construction" {
+    assert AliasAnnotatedLocal("local") == "local"
+}

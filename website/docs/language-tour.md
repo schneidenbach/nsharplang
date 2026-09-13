@@ -1853,6 +1853,26 @@ func Combine(left: string, right: string): string {
 }
 ```
 
+An alias **adds** a name; it does not take one away. This is the one place N# differs from C#'s
+`using Txt = System.Text;`, which binds the alias and nothing else: `import System.Text as Txt` is
+still an import of `System.Text`, so `new StringBuilder()` keeps working beside `new Txt.StringBuilder()`.
+The two spellings name the same type everywhere a type can be written — a field, a parameter, a
+return type, a local annotation — so this compiles:
+
+```n#
+import System.Text as Txt
+
+package MyApp
+
+class Report {
+    qualified: Txt.StringBuilder = new StringBuilder()
+    bare: StringBuilder = new Txt.StringBuilder()
+}
+```
+
+Because the plain import is still there, [NL010](errors/NL010.md) keeps an aliased import alive when
+*either* spelling is written, and reports it only when neither is.
+
 ### Which declaration a bare name means
 
 A bare name is resolved in this order, and the first channel that answers wins:

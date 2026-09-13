@@ -65,6 +65,48 @@ func ResolverOf(
     )
 }
 
+// A resolver that CAN see the corelib, and that carries one namespace alias. The alias table is what
+// `import System.Text as Txt` writes, and the assembly list is what makes `System.Text.StringBuilder`
+// a real answer rather than a placeholder — both are needed to ask whether the alias-qualified
+// spelling and the bare one produce the SAME `TypeInfo`.
+func ResolverWithAliasOf(
+    aliasName: string,
+    aliasNamespace: string,
+    scopes: AnalyzerScopeStack,
+    sink: AnalyzerDiagnosticSink,
+    model: SemanticModel,
+    bindings: BindingMap
+): AnalyzerTypeResolver {
+    assemblies := new List<Assembly>()
+    assemblies.Add(typeof(object).get_Assembly())
+    context := new AnalyzerDeclarationContext()
+    context.Reset(Path.GetFullPath("."), assemblies)
+    provider := new AnalyzerProjectSourceProvider()
+    discovery := new AnalyzerProjectTypeDiscovery(
+        provider,
+        context,
+        new List<string>(),
+        new Dictionary<string, string>(StringComparer.Ordinal)
+    )
+    namespaces := new List<string>()
+    namespaces.Add(aliasNamespace)
+    probe := new AnalyzerExternalTypeProbe(assemblies, namespaces)
+    aliases := new Dictionary<string, string>(StringComparer.Ordinal)
+    aliases[aliasName] = aliasNamespace
+    return new AnalyzerTypeResolver(
+        scopes,
+        context,
+        discovery,
+        probe,
+        sink,
+        aliases,
+        new Dictionary<string, Dictionary<string, TypeInfo>>(StringComparer.Ordinal),
+        new Dictionary<string, Dictionary<string, SymbolDeclaration>>(StringComparer.Ordinal),
+        model,
+        bindings
+    )
+}
+
 // A class type shaped only where these contracts read it: its type-parameter list decides the head
 // arity, and its nested types decide the dotted walk.
 func ResolverClassOf(
@@ -858,4 +900,61 @@ test "the bulk helpers resolve every reference they are given, and tolerate abse
     resolver.ResolveGenericConstraintTypes(constraints)
     assert model.TypeReferenceTypes.Count == 4
     assert ResolverTypeName(model.LookupTypeReferenceAtPosition(6, 5)) == "simple:object"
+}
+
+// ── an alias-qualified reference names the type its expansion names ───────────────────────────
+//
+// `import System.Text as Txt` writes ONE row, keyed by the alias. An alias-qualified type reference
+// is not that key, so it matched nothing, reached the bottom of the walk and came back as an
+// unresolved-external placeholder — a second instance beside the one `StringBuilder` resolves to,
+// with nothing assignable across the two in either direction. The expansion hands the REST of the
+// reference to the same external probe the bare name reaches, so the two spellings are one object.
+
+test "an alias-qualified type resolves to the very same TypeInfo the bare spelling resolves to" {
+    errors := new List<CompilerError>()
+    model := new SemanticModel()
+    resolver := ResolverWithAliasOf(
+        "Txt",
+        "System.Text",
+        ResolverScopesOf(),
+        ResolverSinkOf(errors),
+        model,
+        new BindingMap()
+    )
+
+    bare := resolver.ResolveSimpleType("StringBuilder", 0, 0) as ReflectionTypeInfo
+    qualified := resolver.ResolveSimpleType("Txt.StringBuilder", 0, 0) as ReflectionTypeInfo
+    assert bare != null, "the bare spelling did not reach the external probe"
+    assert qualified != null, "the alias-qualified spelling did not reach the external probe"
+    assert bare.Type.get_FullName() == "System.Text.StringBuilder"
+    assert qualified.Type == bare.Type
+    assert ResolverCodes(errors) == ""
+
+    // The semantic model records the WRITTEN spelling against that one type, so hover on the
+    // alias-qualified reference answers what hover on the bare one answers.
+    recorded := new TypeInfo()
+    assert model.TypesByIdentity.TryGetValue("Txt.StringBuilder", out recorded)
+    assert (recorded as ReflectionTypeInfo) != null
+    assert (recorded as ReflectionTypeInfo).Type == bare.Type
+}
+
+test "the expansion is the alias ROOT only, so an unknown leaf and an unknown root both stay unresolved" {
+    errors := new List<CompilerError>()
+    resolver := ResolverWithAliasOf(
+        "Txt",
+        "System.Text",
+        ResolverScopesOf(),
+        ResolverSinkOf(errors),
+        new SemanticModel(),
+        new BindingMap()
+    )
+
+    // A root that is not the alias is not expanded.
+    assert (resolver.ResolveSimpleType("Other.StringBuilder", 0, 0) as ReflectionTypeInfo) == null
+
+    // The alias root with a leaf the namespace does not declare resolves to nothing real.
+    assert (resolver.ResolveSimpleType("Txt.NoSuchType", 0, 0) as ReflectionTypeInfo) == null
+
+    // And the bare alias on its own is a namespace, not a type.
+    assert (resolver.ResolveSimpleType("Txt", 0, 0) as ReflectionTypeInfo) == null
 }
