@@ -881,9 +881,44 @@ class ColumnarBoundIdentifierPlanner {
             runtimeBase = typeof(object)
         }
 
+        return TryResolveInheritedExternalMember(runtimeBase, name, ColumnarBoundIdentifierKind.BaseField, ColumnarBoundIdentifierKind.BaseProperty, receiverType, out selection)
+    }
+
+    // WHAT A SOURCE TYPE INHERITS FROM AN EXTERNAL BASE IS READ BY ORDINARY RESOLUTION.
+    //
+    // `TrySelectAdmittedProperty` used to answer this question, and it answers a NARROWER one: a
+    // PUBLIC PROPERTY whose result type is on the modelled-value list. So `this.Items` on a
+    // `Collection<T>` base — `protected`, typed `IList<T>` — declined at emit, and so did
+    // `this.CoreNewLine` on a `TextWriter` base, which is `protected` AND a FIELD AND typed `char[]`.
+    // A PUBLIC member whose result type merely happened to be off that list declined with them.
+    // There was no rule there, only a list.
+    //
+    // The rule is the ordinary one, and it is the same rule `this.Member` with a written receiver
+    // already applies through `ColumnarInstanceMemberPlanner`: an inherited external member is
+    // selected the way a member of a base-TYPED receiver is, at the levels a derived type in another
+    // assembly may reach (`public`, `protected`, `protected internal` — never the assembly ones), and
+    // with whatever result type it has. Which STORAGE the member happens to use is not a rule either,
+    // so a field answers here exactly as a property does.
+    //
+    // The receiver is argument zero in both cases, which is why the caller supplies the pair of kinds
+    // rather than this walk choosing: `base.Name` and `this.Name` name the same member and differ
+    // only in dispatch.
+    static func TryResolveInheritedExternalMember(lookupType: Type, name: string, fieldKind: ColumnarBoundIdentifierKind, propertyKind: ColumnarBoundIdentifierKind, receiverType: Type, out selection: ColumnarBoundIdentifierSelection): bool {
+        selection = EmptySelection()
         runtimeSelection := ColumnarRuntimeInstanceMemberSelection.Empty()
-        if !ColumnarRuntimeInstanceMemberResolver.TrySelectAdmittedProperty(runtimeBase, runtimeBase, name, out runtimeSelection) {
+        if !ColumnarRuntimeInstanceMemberResolver.TrySelect(lookupType, name, true, out runtimeSelection) {
             return false
+        }
+
+        if runtimeSelection.IsField {
+            runtimeField := runtimeSelection.Field
+            if runtimeField == null || runtimeField.get_IsStatic() {
+                return false
+            }
+
+            selection = new ColumnarBoundIdentifierSelection(fieldKind, runtimeSelection.ResultType, 0, -1, null, runtimeField, null, null, runtimeSelection.DeclaringType, receiverType, false)
+
+            return true
         }
 
         runtimeGetter := runtimeSelection.Getter
@@ -891,7 +926,7 @@ class ColumnarBoundIdentifierPlanner {
             return false
         }
 
-        selection = new ColumnarBoundIdentifierSelection(ColumnarBoundIdentifierKind.BaseProperty, runtimeSelection.ResultType, 0, -1, null, null, null, runtimeGetter, runtimeSelection.DeclaringType, receiverType, false)
+        selection = new ColumnarBoundIdentifierSelection(propertyKind, runtimeSelection.ResultType, 0, -1, null, null, null, runtimeGetter, runtimeSelection.DeclaringType, receiverType, false)
 
         return true
     }
@@ -967,19 +1002,7 @@ class ColumnarBoundIdentifierPlanner {
             return false
         }
 
-        inheritedSelection := ColumnarRuntimeInstanceMemberSelection.Empty()
-        if !ColumnarRuntimeInstanceMemberResolver.TrySelectAdmittedProperty(inheritedBase, inheritedBase, name, out inheritedSelection) {
-            return false
-        }
-
-        inheritedGetter := inheritedSelection.Getter
-        if inheritedGetter == null || inheritedGetter.get_IsAbstract() {
-            return false
-        }
-
-        selection = new ColumnarBoundIdentifierSelection(ColumnarBoundIdentifierKind.CurrentProperty, inheritedSelection.ResultType, 0, -1, null, null, null, inheritedGetter, inheritedSelection.DeclaringType, receiverType, false)
-
-        return true
+        return TryResolveInheritedExternalMember(inheritedBase, name, ColumnarBoundIdentifierKind.CurrentField, ColumnarBoundIdentifierKind.CurrentProperty, receiverType, out selection)
     }
 
     static func ResolveStrongBoxValueField(boxType: Type, valueType: Type): FieldInfo {

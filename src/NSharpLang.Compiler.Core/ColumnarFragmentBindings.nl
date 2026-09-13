@@ -464,7 +464,7 @@ class ColumnarFragmentBindings {
         }
 
         inheritedSelection := ColumnarRuntimeInstanceMemberSelection.Empty()
-        return ColumnarRuntimeInstanceMemberResolver.TrySelectAdmittedProperty(inheritedBase, inheritedBase, name, out inheritedSelection)
+        return ColumnarRuntimeInstanceMemberResolver.TrySelect(inheritedBase, name, true, out inheritedSelection)
     }
 
     static func ContainsName(values: IEnumerable<string>, name: string): bool {

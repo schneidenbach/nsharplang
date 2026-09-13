@@ -382,15 +382,47 @@ class TaggedError: Exception {
 ```
 
 A `protected` member of an external base is in scope too, which is what makes the extension points
-of types like `Collection<T>` usable: `this.SetItem(0, item)` and `base.ClearItems()` inside a
-`class Bag: Collection<string>` both compile, and `base.` emits a non-virtual call to the base
-implementation. The rule is C#'s (§7.5.4) — the receiver has to be your type or one derived from it,
-and `base.` is always allowed inside the deriving type.
+of types like `Collection<T>` usable. Every spelling reaches it, and so does every kind of member —
+a method, a property, or a field, at any result type:
 
-Two spellings of that surface are not compiled yet: a protected member named with **no receiver at
-all** (write `this.SetItem(...)` rather than a bare `SetItem(...)`), and a protected **field or
-property** READ (`this.Items`) — the inherited-member read path admits a narrower set of result
-types than the call path does, independently of accessibility. Both report NL103.
+```n#
+class Bag: Collection<string> {
+    func Replace(index: int, item: string) {
+        this.SetItem(index, item)      // protected virtual method, through `this`
+        SetItem(index, item)           // ...the same call with no receiver written
+        base.ClearItems()              // ...and non-virtually, through `base`
+    }
+
+    func Held(): int {
+        return this.Items.Count        // protected property, typed IList<string>
+    }
+}
+
+class Writer: StringWriter {
+    func TerminatorLength(): int {
+        return CoreNewLine.Length      // protected FIELD, typed char[]
+    }
+}
+```
+
+The rule is C#'s (§7.5.4) — the receiver has to be your type or one derived from it, and `base.` is
+always allowed inside the deriving type. `internal`, `private protected` and `private` members of a
+referenced base stay out of reach: the assembly half of those levels is unsatisfiable across a
+reference, and N# models no `InternalsVisibleTo`.
+
+The base may also be a generic closed over a type **you** are declaring:
+
+```n#
+class Item {
+    Title: string = ""
+}
+
+class Catalogue: Collection<Item> {
+    func Size(): int {
+        return this.Count
+    }
+}
+```
 
 ### Abstract Classes
 

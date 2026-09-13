@@ -15234,7 +15234,7 @@ sealed class ColumnarIlEmitter {
             return false
         }
         inheritedSelection := ColumnarRuntimeInstanceMemberSelection.Empty()
-        return ColumnarRuntimeInstanceMemberResolver.TrySelectAdmittedProperty(inheritedBase, inheritedBase, name, out inheritedSelection)
+        return ColumnarRuntimeInstanceMemberResolver.TrySelect(inheritedBase, name, true, out inheritedSelection)
     }
 
     // A WRITE THROUGH `this` ONTO A MEMBER THIS COMPILATION DID NOT DECLARE.

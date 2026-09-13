@@ -1137,8 +1137,8 @@ Contracts: `MemberAccessibility.tests.nl` (the relation as a table, source and r
 every access the rule ADMITS so a false refusal fails) and `tests/native/census-accessibility`
 (runtime reads through `this`/bare/`base`/sibling receivers and the emitted metadata word).
 
-**A SOURCE TYPE REACHES ITS EXTERNAL BASE'S `protected` METHODS** (2026-09-13, stream ACCESS,
-PARTIAL). `Collection<T>` is designed to be extended through `SetItem`/`ClearItems`/`InsertItem`, all
+**A SOURCE TYPE REACHES ITS EXTERNAL BASE'S `protected` METHODS** (2026-09-13, stream ACCESS;
+COMPLETED by stream INHERIT2 the same day — see the closing note below). `Collection<T>` is designed to be extended through `SetItem`/`ClearItems`/`InsertItem`, all
 `protected virtual`, and a `class Bag: Collection<string>` could not NAME any of them: the analyzer's
 metadata arm asked `BindingFlags.Public` only (NL303/NL412) and the emitter's candidate enumeration
 did the same. `AnalyzerMemberResolution.ResolveMember` now carries `inheritedProtectedAccess` — the
@@ -1149,14 +1149,31 @@ because the base is in a REFERENCED assembly and `assembly`-level members are ne
 `ColumnarOrdinaryRuntimeDirectCallResolver.ResolveInheritedWithFacts` is the emitter's twin, used by
 the three inherited-base call sites only.
 
-WHAT STILL DECLINES (NL103), for whoever picks this up:
-* a protected method named with NO receiver (`SetItem(0, v)`): `ColumnarDirectCallPlanner`'s bare-call
-  branch does not claim it, while the identical `this.SetItem(0, v)` does — the difference is the
-  `explicitThis || !bindings.IsValueBinding(name)` guard ahead of the inherited-base branch;
-* a protected FIELD or PROPERTY read (`this.Items`, `this.CoreNewLine`): the `this.`-receiver READ
-  path for inherited external members is `TrySelectAdmittedProperty`, which handles properties only
-  and requires `IsAdmittedValueType` — `IList<string>` and `char[]` fail that test for PUBLIC members
-  too, so this is a result-type gap sitting behind the accessibility one, not an accessibility gap.
+**...AND ITS FIELDS, ITS PROPERTIES, AND EVERY SPELLING OF BOTH** (2026-09-13, stream INHERIT2).
+Two spellings still declined at NL103 after ACCESS, and neither was an accessibility gap:
+
+* a protected method named with NO RECEIVER (`SetItem(0, v)`), while the identical
+  `this.SetItem(0, v)` emitted. The inherited-base ARM behind the bare-call gate already selected
+  `protected` members; the GATE in front of it (`ColumnarDirectCallPlanner.HasInheritedExternalInstanceMethod`)
+  enumerated `GetMethods()` — public-only, and throwing outright on a builder-bound base. It asks the
+  same candidate set the arm resolves over now, through
+  `ColumnarOrdinaryRuntimeDirectCallResolver.HasInstanceMethodAtArity`. A gate narrower than its own
+  arm is a gap, not a rule.
+* a FIELD or PROPERTY READ (`this.Items`, `this.CoreNewLine`, and the bare and `base.` spellings of
+  each). `ColumnarBoundIdentifierPlanner` reached inherited members through
+  `TrySelectAdmittedProperty`, which answers a NARROWER question than the one asked: a PUBLIC
+  PROPERTY whose result type is on the modelled-value list. Three independent facts each declined the
+  read on their own — `protected`, being a field, and a result type off the list, the last of which
+  refused PUBLIC members too. `TryResolveInheritedExternalMember` routes all four read sites
+  (`this.`/bare through `TryResolveCurrentInstance`, `base.` through `TryResolveBaseMember`, and the
+  two "is this name a value of the instance" predicates in `ColumnarFragmentBindings` and
+  `ColumnarIlEmitter`) through the ordinary `ColumnarRuntimeInstanceMemberResolver.TrySelect` with
+  the inherited-protected flag set, which answers for fields and properties alike at any result type
+  the backend can hold. `CurrentField`/`BaseField` were already kinds; nothing new was needed to emit
+  the field read.
+
+Do not reintroduce a result-type list on this path, and do not let a gate ask a narrower question
+than the resolution behind it.
 
 **A FREE FUNCTION'S VISIBILITY WORD NOW REACHES METADATA** (2026-09-13, stream ACCESS). The word was
 parsed into `ColumnarFunctionInput.VisibilityModifierFlags` and read by free-function identity, but
