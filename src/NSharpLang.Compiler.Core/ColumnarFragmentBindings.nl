@@ -420,7 +420,26 @@ class ColumnarFragmentBindings {
 
         getter: MethodInfo? = null
         propertyType := typeof(object)
-        return ColumnarCurrentInstanceFacts.TryFindProperty(CurrentInstance, name, out getter, out propertyType, out declaringType)
+        if ColumnarCurrentInstanceFacts.TryFindProperty(CurrentInstance, name, out getter, out propertyType, out declaringType) {
+            return true
+        }
+
+        // A MEMBER INHERITED FROM A BASE THIS COMPILATION DID NOT WRITE IS A VALUE OF THIS INSTANCE,
+        // and saying otherwise is how `Count.ToString()` inside `class Names: List<string>` was read
+        // as a call on a TYPE named `Count`. That reading is what the static-syntax test above this
+        // answer decides, so the bare `Count` resolved as a value everywhere EXCEPT in receiver
+        // position, where it declined as an unresolvable static owner.
+        if !CurrentInstance.IsReference {
+            return false
+        }
+
+        inheritedBase := ColumnarInheritedExternalBase.Resolve(CurrentInstance.SourceDefinition, CurrentInstance.ExactType)
+        if inheritedBase == null {
+            return false
+        }
+
+        inheritedSelection := ColumnarRuntimeInstanceMemberSelection.Empty()
+        return ColumnarRuntimeInstanceMemberResolver.TrySelectAdmittedProperty(inheritedBase, inheritedBase, name, out inheritedSelection)
     }
 
     static func ContainsName(values: IEnumerable<string>, name: string): bool {

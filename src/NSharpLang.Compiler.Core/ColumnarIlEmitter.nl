@@ -14516,7 +14516,21 @@ sealed class ColumnarIlEmitter {
             return true
         }
         let currentProperty: NSharpLang.Compiler.Columnar.ColumnarPropertyDef = null
-        return TryFindPropertyOnChain(_currentStruct, name, out currentProperty)
+        if (TryFindPropertyOnChain(_currentStruct, name, out currentProperty)) {
+            return true
+        }
+        // A MEMBER INHERITED FROM A BASE THIS COMPILATION DID NOT WRITE IS A MEMBER OF THIS INSTANCE.
+        // Without this arm `Count.ToString()` inside `class Names: List<string>` read `Count` as a
+        // TYPE NAME — the one other thing a bare identifier in receiver position can be — and the
+        // whole expression declined, while `this.Count.ToString()` and the bare `Count` as a value
+        // both resolved. The same question decides whether a constructor-chain argument touches the
+        // instance before the base runs, and an inherited read touches it exactly as a declared one does.
+        inheritedBase := ColumnarInheritedExternalBase.Resolve(_currentStruct, null)
+        if (inheritedBase == null) {
+            return false
+        }
+        inheritedSelection := ColumnarRuntimeInstanceMemberSelection.Empty()
+        return ColumnarRuntimeInstanceMemberResolver.TrySelectAdmittedProperty(inheritedBase, inheritedBase, name, out inheritedSelection)
     }
 
     private func TryEmitJsonSerializerSerializeGenericCall(callIdx: int, callee: int, out resolvedClrType: Type): bool {

@@ -197,35 +197,182 @@ test "base. reaches System.Object when no base is written" {
 // before the base chain could reach a constructor that is not a `ConstructorBuilder`. The proof is
 // that the base's own state is what the base constructor was given.
 test "a class chains to an external base constructor with one argument" {
-    sized := new SizedList(9) as List<string>
+    sized := new SizedList(9)
     assert sized.Capacity == 9
     assert sized.Count == 0
 }
 
 test "an external base constructor taking a sequence receives it" {
     source: string[] = ["a", "b"]
-    seeded := new SeededList(source) as List<string>
+    seeded := new SeededList(source)
     assert seeded.Count == 2
     assert seeded[0] == "a"
     assert seeded[1] == "b"
 }
 
 test "two external base constructors are told apart by their arguments" {
-    inner := new LayerError("inner") as Exception
+    inner := new LayerError("inner")
     assert inner.Message == "inner"
     assert inner.InnerException == null
 
-    outer := new LayerError("outer", inner) as Exception
+    outer := new LayerError("outer", inner)
     assert outer.Message == "outer"
     assert (must outer.InnerException).Message == "inner"
 }
 
 test "an external base with several same-arity overloads selects by argument type" {
-    compared := new ComparedMap(StringComparer.OrdinalIgnoreCase) as Dictionary<string, int>
+    compared := new ComparedMap(StringComparer.OrdinalIgnoreCase)
     compared["Alpha"] = 1
     assert compared.ContainsKey("alpha")
 
-    sizedAndCompared := new ComparedMap(8, StringComparer.Ordinal) as Dictionary<string, int>
+    sizedAndCompared := new ComparedMap(8, StringComparer.Ordinal)
     sizedAndCompared["Alpha"] = 1
     assert !sizedAndCompared.ContainsKey("alpha")
+}
+
+// AN INHERITED EXTERNAL MEMBER, THROUGH THE DERIVED TYPE. Each of these reported NL402 or declined
+// the assembly before the base chain was walked past its last source link; the assertions are on the
+// VALUES, because a call that binds the wrong member still compiles.
+test "a property of an external base is read through the derived type" {
+    names := new Names()
+    names.Add("alpha")
+    names.Add("beta")
+
+    assert names.Count == 2
+    assert names.ExplicitCount() == 2
+    assert names.BaseCount() == 2
+    assert names.Summary() == "2 names"
+}
+
+test "a method of an external base binds its substituted parameter" {
+    names := new Names()
+    names.Add("alpha")
+    names.Add("beta")
+    names.Add("alpha")
+
+    assert names.Contains("alpha")
+    assert !names.Contains("gamma")
+    assert names.IndexOf("alpha") == 0
+    assert names.IndexOf("alpha", 1) == 2
+    assert names.Remove("beta")
+    assert names.Count == 2
+}
+
+test "an external base's indexer is read and written through the derived type" {
+    names := new Names()
+    names.Add("alpha")
+    names.Add("beta")
+
+    assert names[1] == "beta"
+    names[1] = "gamma"
+    assert names[1] == "gamma"
+}
+
+test "a method of an external base takes a lambda argument" {
+    names := new Names()
+    names.Add("alpha")
+    names.Add("be")
+
+    assert names.Exists(name => name.Length == 2)
+    assert !names.Exists(name => name.Length == 7)
+    assert names.Find(name => name.Length == 2) == "be"
+}
+
+test "a generic method of an external base takes its written type argument" {
+    names := new Names()
+    names.Add("alpha")
+    names.Add("be")
+
+    lengths := names.ConvertAll<int>(name => name.Length)
+    assert lengths.Count == 2
+    assert lengths[0] == 5
+    assert lengths[1] == 2
+}
+
+test "a base two source links up still answers through the external base" {
+    deeper := new DeeperNames()
+    deeper.Add("alpha")
+
+    assert deeper.Count == 1
+    assert deeper[0] == "alpha"
+    assert deeper.Summary() == "1 names"
+    assert deeper.IndexOf("alpha") == 0
+}
+
+test "each argument of a two-argument external base substitutes by position" {
+    counts := new Counts()
+    counts.Add("alpha", 3)
+    counts["beta"] = 4
+
+    assert counts.Count == 2
+    assert counts["alpha"] == 3
+    assert counts.ContainsKey("beta")
+    assert !counts.ContainsValue(9)
+
+    seen := 0
+    if counts.TryGetValue("beta", out seen) {
+        assert seen == 4
+    } else {
+        assert false
+    }
+}
+
+// THE INTERFACES THE EXTERNAL BASE IMPLEMENTS ARE THE DERIVED TYPE'S TOO, which is both a conversion
+// the compiler must allow and a fact the CLR must agree with at run time.
+test "an interface the external base implements is reached through the derived type" {
+    names := new Names()
+    names.Add("alpha")
+    names.Add("be")
+
+    sequence: IEnumerable<string> = names
+    total := 0
+    for name in sequence {
+        total = total + name.Length
+    }
+    assert total == 7
+
+    list: IList<string> = names
+    assert list.Count == 2
+    assert list[0] == "alpha"
+
+    assert (names is IReadOnlyList<string>)
+}
+
+test "a derived collection is accepted where its external base is expected" {
+    names := new Names()
+    names.Add("alpha")
+
+    copied := new List<string>()
+    copied.AddRange(names)
+    assert copied.Count == 1
+    assert copied[0] == "alpha"
+
+    deeper := new DeeperNames()
+    deeper.AddRange(names)
+    assert deeper.Count == 1
+}
+
+test "an unqualified inherited member is read inside the type's own override" {
+    tagged := new TaggedError("io", "disk full")
+
+    assert tagged.Message == "disk full"
+    assert tagged.ToString() == "io:disk full"
+
+    thrown: Exception = tagged
+    assert thrown.Message == "disk full"
+    assert thrown.ToString() == "io:disk full"
+}
+
+// THE METADATA SIDE: the derived type's CLR parent IS the external base, closed over the arguments
+// its `:` clause wrote, and the members above are the base's own rather than copies in new slots.
+test "the emitted parent of a derived type is the external base it wrote" {
+    namesType := typeof(Names)
+    assert namesType.BaseType == typeof(List<string>)
+    assert typeof(DeeperNames).BaseType == namesType
+    assert typeof(Counts).BaseType == typeof(Dictionary<string, int>)
+    assert typeof(TaggedError).BaseType == typeof(Exception)
+
+    assert namesType.GetMethod("Add") != null
+    assert (must namesType.GetMethod("Add")).DeclaringType == typeof(List<string>)
+    assert (must namesType.GetProperty("Count")).DeclaringType == typeof(List<string>)
 }
