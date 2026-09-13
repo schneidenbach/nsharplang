@@ -95,13 +95,28 @@ class AnalyzerFunctionTypeFactory {
             return unknown
         }
 
+        // A POSITION THE DEFINITION SPELLS WITH A NAKED TYPE PARAMETER TAKES ITS NULLABILITY FROM THE
+        // TYPE ARGUMENT, NOT FROM `Invoke`'s METADATA. `Predicate<T>` declares `bool Invoke(T obj)`
+        // and annotates `T` with nothing, so reading the CLOSED `Invoke(string)` through the
+        // nullability tables answers `string?` — and a source `func IsLong(value: string)` then does
+        // not match the delegate it obviously implements, while `Func<string, bool>` does because
+        // the shape above reads its type arguments directly. The two answers must agree: a delegate's
+        // nullability is a fact about the type ARGUMENT wherever the declaration wrote a bare `T`.
+        openInvokeParameters := OpenDelegateInvokeParameters(effectiveType, invokeMethod)
+        openInvokeReturnType := OpenDelegateInvokeReturnType(effectiveType)
+
         invokeParameters := invokeMethod.GetParameters()
         parameterTypeList := new List<TypeInfo>()
         parameterModifierList := new List<Ast.ParameterModifier>()
         invokeIndex := 0
         while invokeIndex < invokeParameters.Length {
             parameter := invokeParameters[invokeIndex]
-            parameterTypeList.Add(NullabilityMetadataReflection.ConvertParameter(parameter))
+            if openInvokeParameters != null && openInvokeParameters[invokeIndex].get_ParameterType().get_IsGenericParameter() {
+                parameterTypeList.Add(AnalyzerReflectionTypeConversion.ConvertReflectionType(parameter.get_ParameterType()))
+            } else {
+                parameterTypeList.Add(NullabilityMetadataReflection.ConvertParameter(parameter))
+            }
+
             parameterModifierList.Add(GetReflectionParameterModifier(parameter))
             invokeIndex = invokeIndex + 1
         }
@@ -109,8 +124,52 @@ class AnalyzerFunctionTypeFactory {
         signature := new FunctionTypeInfo()
         signature.ParameterTypes = parameterTypeList
         signature.ParameterModifiers = parameterModifierList
-        signature.ReturnType = NullabilityMetadataReflection.ConvertReturn(invokeMethod)
+        if openInvokeReturnType != null && openInvokeReturnType.get_IsGenericParameter() {
+            signature.ReturnType = AnalyzerReflectionTypeConversion.ConvertReflectionType(invokeMethod.get_ReturnType())
+        } else {
+            signature.ReturnType = NullabilityMetadataReflection.ConvertReturn(invokeMethod)
+        }
+
         return signature
+    }
+
+    // The DEFINITION's own `Invoke` parameters for a constructed generic delegate, positionally
+    // aligned with the closed ones — or null when there is no definition to read (a non-generic
+    // delegate) or the two disagree about arity (which nothing should produce, and which this read
+    // refuses to guess about).
+    static func OpenDelegateInvokeParameters(delegateType: Type, closedInvoke: MethodInfo): ParameterInfo[]? {
+        openInvoke := OpenDelegateInvoke(delegateType)
+        if openInvoke == null {
+            return null
+        }
+
+        openParameters := openInvoke.GetParameters()
+        if openParameters == null || openParameters.Length != closedInvoke.GetParameters().Length {
+            return null
+        }
+
+        return openParameters
+    }
+
+    static func OpenDelegateInvokeReturnType(delegateType: Type): Type? {
+        openInvoke := OpenDelegateInvoke(delegateType)
+        if openInvoke == null {
+            return null
+        }
+
+        return openInvoke.get_ReturnType()
+    }
+
+    static func OpenDelegateInvoke(delegateType: Type): MethodInfo? {
+        if !delegateType.get_IsGenericType() || delegateType.get_IsGenericTypeDefinition() {
+            return null
+        }
+
+        try {
+            return delegateType.GetGenericTypeDefinition().GetMethod("Invoke")
+        } catch {
+            return null
+        }
     }
 
     // A signature for a declaration resolved against the file being analysed. `containingType` is the

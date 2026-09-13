@@ -53,6 +53,7 @@ enum ErrorCode {
     InvalidDefaultParameterValue = 410,
     MethodGroupUsedAsValue = 411,
     UndefinedFunction = 412,
+    MemberNotCallable = 413,
     NonExhaustiveMatch = 501,
     UnreachablePattern = 502,
     InvalidPattern = 503,

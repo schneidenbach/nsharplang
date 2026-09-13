@@ -84,6 +84,77 @@ class AnalyzerCallableReferenceFacts {
         return candidate != delegateRoot && candidate != multicastRoot
     }
 
+    // A DELEGATE TYPE AS METADATA SEES IT, which is not the same question `IsRuntimeDelegateType`
+    // answers. That one compares against the RUNTIME's own roots and therefore says `false` for
+    // every type loaded into a `MetadataLoadContext` — deliberately, because the values it
+    // classifies are runtime ones. A type read off the project's reference set has no runtime
+    // identity at all, so its base chain is walked and the roots are recognised by NAME.
+    static func IsMetadataDelegateType(candidate: Type): bool {
+        // The two abstract roots are excluded for the same reason `IsRuntimeDelegateType` excludes
+        // them: neither names a callable signature, and `MulticastDelegate` would otherwise answer
+        // true off its own base.
+        candidateName := candidate.get_FullName()
+        if candidateName == "System.Delegate" || candidateName == "System.MulticastDelegate" {
+            return false
+        }
+
+        current: Type? = candidate.get_BaseType()
+        depth := 0
+        while current != null && depth < 32 {
+            fullName := current.get_FullName()
+            if fullName == "System.MulticastDelegate" || fullName == "System.Delegate" {
+                return true
+            }
+
+            current = current.get_BaseType()
+            depth = depth + 1
+        }
+
+        return false
+    }
+
+    // WHETHER A MEMBER OF THIS TYPE CAN STAND WHERE A CALL NAMES ITS TARGET — C#'s
+    // "must be invocable if member" rule, stated over N#'s type shapes.
+    //
+    // A method group always can. A VALUE can only when its type is a delegate: `Func<…>`/`Action<…>`
+    // however they are spelled, a delegate read out of metadata, and a signature the analyzer has
+    // already reduced to a `FunctionTypeInfo`. Everything else — an `int` property called `Count`,
+    // a `string` field — is NOT a candidate for `receiver.Name(args)` and must not hide the method
+    // or extension of the same name, which is exactly what `list.Count(predicate)` depends on.
+    //
+    // The wrappers are read through because they do not change what the value IS.
+    static func IsInvocableMemberType(candidate: TypeInfo): bool {
+        if IsMethodGroupReferenceType(candidate) {
+            return true
+        }
+
+        if candidate as FunctionTypeInfo != null {
+            return true
+        }
+
+        oblivious := candidate as ObliviousTypeInfo
+        if oblivious != null {
+            return IsInvocableMemberType(oblivious.InnerType)
+        }
+
+        nullable := candidate as NullableTypeInfo
+        if nullable != null {
+            return IsInvocableMemberType(nullable.InnerType)
+        }
+
+        genericType := candidate as GenericTypeInfo
+        if genericType != null {
+            return CreateFunctionTypeInfoFromGenericDelegate(genericType) != null
+        }
+
+        reflectionType := candidate as ReflectionTypeInfo
+        if reflectionType != null {
+            return IsMetadataDelegateType(reflectionType.Type) || IsRuntimeDelegateType(reflectionType.Type)
+        }
+
+        return false
+    }
+
     // WHAT TO CALL A CALLABLE REFERENCE IN A DIAGNOSTIC.
     //
     // What the user WROTE wins, because that is the text they have to change: an identifier names

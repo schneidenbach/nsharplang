@@ -1014,8 +1014,11 @@ constraints.
 #### Writing the type arguments
 
 When inference has nothing to go on — a method whose type parameters appear only in its RESULT, or
-only in a lambda's parameter — write the list. It works on a static method, on an instance method,
-and on a method of a constructed generic receiver:
+only in a lambda's PARAMETER and nowhere else — write the list. (A type parameter in a lambda's
+RESULT does not need it: the lambda's body decides it. `values.ConvertAll(v => v.ToString())` and
+`Comparer<int>.Create((a, b) => a - b)` both infer, and the lists written below are shown to
+document the spelling rather than because they are required.) It works on a static method, on an
+instance method, and on a method of a constructed generic receiver:
 
 ```n#
 import System.Collections.Generic
@@ -1029,7 +1032,8 @@ func Ages(json: string): Dictionary<string, int> {
 }
 
 func Texts(values: List<int>): List<string> {
-    // An INSTANCE generic method; the lambda is bound against Converter<int, string>.
+    // An INSTANCE generic method; the lambda is bound against Converter<int, string>. Written out
+    // here, though the lambda's own result would infer `string` on its own.
     return values.ConvertAll<string>(v => v.ToString())
 }
 
@@ -1112,9 +1116,15 @@ follow:
   passes the address of an `int`.
 
 Overload resolution over the written list is the ordinary one whenever the arguments have types of
-their own. A call whose arguments cannot all be typed before they are bound — one carrying a lambda,
-or an `out` — binds only when the name leaves exactly ONE candidate at that arity; an ambiguity there
-is refused rather than guessed, because the argument types are what would have chosen between them.
+their own. A call carrying a LAMBDA or a METHOD GROUP is resolved by method type inference instead:
+the arguments that do have types are folded in first, each lambda is then analysed under the
+parameter types that fixes, and its result closes whatever type parameter stands in the delegate's
+return position (see [lambda type inference](functions.md#type-inference-in-lambdas)). Two candidates
+that survive that are separated by the same two tie-breaks C# uses — a candidate that would throw a
+lambda's result away loses to one that keeps it (`Task.Run(() => 42)` picks `Func<TResult>` over
+`Action`), and between two candidates that close to the SAME signature the less generic one wins
+(`Max<TSource>` over `Max<TSource, TResult>`). Anything still ambiguous is refused rather than
+guessed. An `out` argument still binds only when the name leaves exactly ONE candidate at that arity.
 
 ### Over your own type parameters
 
@@ -1304,9 +1314,11 @@ Two rules the compiler enforces about the type-argument list itself:
   (`Func<int, bool>` too). Build it in a local, or return it from a function.
 - A **generic method an `interface` declares** — `interface IHas { func Get<T>(): T }` — is not
   compiled yet. A generic method on a `class`, `struct` or `record` is unaffected.
-- A method type parameter mentioned **only in a delegate's RESULT** is not inferred from the
-  lambda's body: `outcome.Match(v => v.ToString(), e => e)` needs `Match<string>(...)` written out.
-  The same limit applies to a generic FREE function with a `Func<TValue, TResult>` parameter.
+- A **generic method declared on your own type** and called with a lambda — `holder.Match(v => ...)`
+  — type-checks (its type arguments are inferred from the receiver, the other arguments and the
+  lambda's body) but does not EMIT yet. A generic FREE function with a delegate parameter is
+  unaffected, and so is every generic method on an external type; write the type argument out
+  (`Match<string>(...)`) or move the call into a free function.
 - **Null-conditional INDEXING** (`items?[0]`) is not compiled yet; `?.` on a member or a method is
   unaffected, and an explicit null check reads the element.
 - An argument that must be **boxed into an `object` parameter of a GENERIC function**

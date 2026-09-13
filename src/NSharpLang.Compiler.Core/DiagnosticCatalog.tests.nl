@@ -164,8 +164,9 @@ test "NO descriptor stores a docs URL, so the deleted stored-URL arm cannot come
 
 test "EVERY code is distinct, and the catalog is exactly its two builders" {
     codes := DctCodes()
-    // 86 = 85, plus NL111 (an expression nested past what the toolchain reads).
-    assert codes.Count == 86
+    // 87 = 85, plus NL111 (an expression nested past what the toolchain reads) and NL413 (a member
+    // that must be called or passed as a delegate).
+    assert codes.Count == 87
 
     duplicates := 0
     outer := 0
@@ -197,7 +198,7 @@ test "EVERY code is distinct, and the catalog is exactly its two builders" {
     assert linterRows == 10
     assert performanceRows == 0
     assert aotRows == 0
-    assert compilerRows == 76
+    assert compilerRows == 77
     assert compilerRows + linterRows == codes.Count
 }
 

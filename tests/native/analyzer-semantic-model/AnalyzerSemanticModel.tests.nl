@@ -2412,3 +2412,69 @@ test "020 s27 analyzer semantic model: a generic PRIMARY-CONSTRUCTOR initializer
     model := SmModel(analysis)
     assert SmTypeRuntimes(model) == "Box=ClassTypeInfo;"
 }
+
+// ── census 2026-09-12 §11: the lambda parameter the semantic model must be able to name ───────
+
+// WHAT THIS ADDS: the IDE reads the same model the checker does, so "the lambda parameter has a
+// type" and "hover shows it" are one claim. `List<T>.Count` is an int PROPERTY; before this the name
+// hid `Enumerable.Count<TSource>` in callee position, the predicate's parameter had no type at all,
+// and NL203 was reported. The parameter's type is pinned HERE, where an IDE would read it.
+test "census 2026-09-12: a predicate's parameter takes its type from the extension the call resolves to" {
+    source := "\nimport System.Collections.Generic\nimport System.Linq\n\nfunc countNonEmpty(values: List<string>): int {\n    return values.Count(value => value.Length > 0)\n}"
+    assert SmParseCensus(source) == ""
+    analysis := SmAnalyze(source)
+    assert SmModelIsNull(analysis) == "no"
+    model := SmModel(analysis)
+    assert SmCensus(analysis) == ""
+    assert SmHasErrors(analysis) == "False"
+    assert SmLookupIdentifierAtPosition(model, "value", 6, 33) == "string"
+}
+
+// WHAT THIS ADDS: the same claim for a SELECTOR, whose result also has to fix a second type
+// parameter — the parameter type and the call's own type are two different answers and both are read
+// off the same model.
+test "census 2026-09-12: a selector's parameter is typed and its result fixes the call's own type" {
+    source := "\nimport System.Collections.Generic\nimport System.Linq\n\nfunc lengths(values: List<string>): List<int> {\n    mapped := values.Select(value => value.Length).ToList()\n    return mapped\n}"
+    assert SmParseCensus(source) == ""
+    analysis := SmAnalyze(source)
+    assert SmModelIsNull(analysis) == "no"
+    model := SmModel(analysis)
+    assert SmCensus(analysis) == ""
+    assert SmHasErrors(analysis) == "False"
+    assert SmLookupIdentifierAtPosition(model, "value", 6, 37) == "string"
+    assert SmLookupIdentifierAtPosition(model, "mapped", 7, 5) == "List<int>"
+}
+
+// WHAT THIS ADDS: TWO lambdas, TWO type parameters. The census's §12 sites were all this shape: the
+// second lambda was handed the FIRST lambda's result, so the local typed as
+// `Dictionary<string, string>` and every declared interface rejected it.
+test "census 2026-09-12: two lambdas fix two type parameters, each from its own position" {
+    source := "\nimport System.Collections.Generic\nimport System.Linq\n\nfunc byLength(names: List<string>): int {\n    table := names.ToDictionary(name => name, name => name.Length)\n    return table.Count\n}"
+    assert SmParseCensus(source) == ""
+    analysis := SmAnalyze(source)
+    assert SmModelIsNull(analysis) == "no"
+    model := SmModel(analysis)
+    assert SmCensus(analysis) == ""
+    assert SmHasErrors(analysis) == "False"
+    assert SmLookupIdentifierAtPosition(model, "table", 7, 5) == "Dictionary<string, int>"
+}
+
+// WHAT THIS ADDS: the NEGATIVE contract. A lambda whose delegate type nothing names is still a hard
+// error, and the message still NAMES the parameter — the rule that was relaxed is which members may
+// stand in callee position, not whether an uninferable lambda is reported.
+test "census 2026-09-12: a lambda with no delegate target anywhere is still NL203, naming the parameter" {
+    source := "\nfunc stray() {\n    handler := value => value\n    handler(1)\n}"
+    analysis := SmAnalyze(source)
+    assert SmHasErrors(analysis) == "True"
+    assert SmCodeCount(analysis, "CannotInferType") == 1
+}
+
+// WHAT THIS ADDS: a member that resolves as a VALUE and cannot be called is NL413 and not silence.
+// Before, nothing was reported at all and the backend answered with an NL103 decline naming a
+// `return expression`, which is a sentence about the compiler rather than about the program.
+test "census 2026-09-12: a value member written before a parenthesis is NL413" {
+    source := "\nclass Box {\n    Size: int\n}\n\nfunc use(box: Box): int {\n    return box.Size()\n}"
+    analysis := SmAnalyze(source)
+    assert SmHasErrors(analysis) == "True"
+    assert SmCodeCount(analysis, "MemberNotCallable") == 1
+}

@@ -373,3 +373,54 @@ test "only Func and Action reify; every other generic name declines" {
         new GenericTypeInfo("action", CallableTypeArguments(1))
     ) == null
 }
+
+// ── must-be-invocable-if-member ───────────────────────────────────────────────────────────────
+
+test "IsInvocableMemberType: a method group and a signature are invocable, a plain value is not" {
+    assert AnalyzerCallableReferenceFacts.IsInvocableMemberType(new ReflectionMethodInfo(CallableProbeMethod(), "Identity(...)"))
+    assert AnalyzerCallableReferenceFacts.IsInvocableMemberType(CallableSourceFunction("Probe"))
+    assert !AnalyzerCallableReferenceFacts.IsInvocableMemberType(BuiltInTypes.Int)
+    assert !AnalyzerCallableReferenceFacts.IsInvocableMemberType(BuiltInTypes.String)
+}
+
+test "IsInvocableMemberType: Func and Action are invocable however they are spelled, other generics are not" {
+    functionArguments := new List<TypeInfo>()
+    functionArguments.Add(BuiltInTypes.String)
+    functionArguments.Add(BuiltInTypes.Bool)
+    assert AnalyzerCallableReferenceFacts.IsInvocableMemberType(new GenericTypeInfo("Func", functionArguments, null))
+
+    actionArguments := new List<TypeInfo>()
+    actionArguments.Add(BuiltInTypes.String)
+    assert AnalyzerCallableReferenceFacts.IsInvocableMemberType(new GenericTypeInfo("Action", actionArguments, null))
+
+    listArguments := new List<TypeInfo>()
+    listArguments.Add(BuiltInTypes.String)
+    assert !AnalyzerCallableReferenceFacts.IsInvocableMemberType(new GenericTypeInfo("List", listArguments, null))
+}
+
+test "IsInvocableMemberType: the wrappers are read through, because they do not change what the value IS" {
+    functionArguments := new List<TypeInfo>()
+    functionArguments.Add(BuiltInTypes.Bool)
+    delegateType: TypeInfo = new GenericTypeInfo("Func", functionArguments, null)
+
+    assert AnalyzerCallableReferenceFacts.IsInvocableMemberType(new NullableTypeInfo(delegateType))
+    assert AnalyzerCallableReferenceFacts.IsInvocableMemberType(new ObliviousTypeInfo(delegateType))
+    assert !AnalyzerCallableReferenceFacts.IsInvocableMemberType(new NullableTypeInfo(BuiltInTypes.Int))
+}
+
+test "IsInvocableMemberType: a reflected delegate is invocable and a reflected value type is not" {
+    assert AnalyzerCallableReferenceFacts.IsInvocableMemberType(new ReflectionTypeInfo(typeof(Action)))
+    assert AnalyzerCallableReferenceFacts.IsInvocableMemberType(new ReflectionTypeInfo(typeof(Predicate<string>)))
+    assert !AnalyzerCallableReferenceFacts.IsInvocableMemberType(new ReflectionTypeInfo(typeof(int)))
+    assert !AnalyzerCallableReferenceFacts.IsInvocableMemberType(new ReflectionTypeInfo(typeof(List<int>)))
+}
+
+// The roots themselves are not delegates: neither names a callable signature.
+test "IsMetadataDelegateType: the base chain decides, and the two abstract roots are not delegates" {
+    assert AnalyzerCallableReferenceFacts.IsMetadataDelegateType(typeof(Action))
+    assert AnalyzerCallableReferenceFacts.IsMetadataDelegateType(typeof(Func<int, int>))
+    assert AnalyzerCallableReferenceFacts.IsMetadataDelegateType(typeof(Predicate<int>))
+    assert !AnalyzerCallableReferenceFacts.IsMetadataDelegateType(typeof(Delegate))
+    assert !AnalyzerCallableReferenceFacts.IsMetadataDelegateType(typeof(MulticastDelegate))
+    assert !AnalyzerCallableReferenceFacts.IsMetadataDelegateType(typeof(string))
+}

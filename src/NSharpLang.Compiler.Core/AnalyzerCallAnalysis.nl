@@ -936,7 +936,7 @@ class AnalyzerCallAnalysis {
             return null
         }
 
-        state.CalleeFrame = ambient.EnterCallCallee()
+        state.CalleeFrame = ambient.EnterCallCallee(call.Callee)
         state.Pending = 2
         request := new CallAnalysisRequest(6)
         request.Node = call.Callee
@@ -1046,9 +1046,9 @@ class AnalyzerCallAnalysis {
         return null
     }
 
-    // The per-argument expected types, computed ONCE from the receiver-closed bindings and never
-    // rewritten inside the argument loop: an argument's expected type is a function of the
-    // signature and the call's own type arguments, not of the arguments analysed before it.
+    // The bindings the argument loop STARTS from: the call's written type arguments and the
+    // receiver, and nothing else, because nothing else has been analysed yet. Each argument then
+    // re-infers from everything before it — see `EmitSyntheticArgument`.
     func InferArgumentBindings(state: CallAnalysisState): CallAnalysisRequest? {
         functionType := state.SyntheticFunctionType
         if functionType != null {
@@ -1075,7 +1075,25 @@ class AnalyzerCallAnalysis {
             expectedIndex = placement[index]
         }
 
-        return EmitArgument(state, call.Arguments[index], syntheticCallValidator.GetExpectedArgumentType(functionType, call, index, expectedIndex, state.SyntheticExpectedBindings), false)
+        // C#'s TWO PHASES, RUN AS THE WALK GOES. The bindings are re-inferred from every argument
+        // analysed SO FAR before this one's expected type is read, so `Apply(values, v => v.Length)`
+        // fixes `T` from `values` and only then hands the lambda `Func<string, R>` to be analysed
+        // under. Inferring once up front left every argument measured against a signature nothing
+        // had bound: the lambda's parameter had no type, and the first argument was accused of not
+        // being a `List<object>`.
+        state.SyntheticExpectedBindings = syntheticCallWalk.InferGenericBindings(functionType, call, state.ArgTypes, state.ReceiverType)
+
+        expectedArgumentType := syntheticCallValidator.GetExpectedArgumentType(functionType, call, index, expectedIndex, state.SyntheticExpectedBindings)
+        if expectedArgumentType == null {
+            return EmitArgument(state, call.Arguments[index], null, false)
+        }
+
+        // A POSITION THAT IS STILL OPEN OFFERS NO TARGET, because the surrogate it would offer is a
+        // type the program never wrote. The one exception is a DELEGATE: its open position is
+        // precisely what the lambda written there is being asked to decide, and its CLOSED positions
+        // are what that lambda's parameters need.
+        narrowedExpectedType := AnalyzerSyntheticCallFacts.NarrowOpenExpectedArgumentType(expectedArgumentType, functionType.TypeParameters)
+        return EmitArgument(state, call.Arguments[index], narrowedExpectedType, false)
     }
 
     func EmitGroupArgument(state: CallAnalysisState): CallAnalysisRequest? {

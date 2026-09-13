@@ -2135,8 +2135,10 @@ test "a phase-one lambda answer binds the method's one remaining type parameter"
         assert first.Lambda != null
         assert FinalizeSignatureText(first) == "(int)->TOutput"
 
-        // The answer INFERS: with exactly one type parameter still unbound, the lambda's return
-        // type takes it.
+        // The answer INFERS by POSITION: the lambda's return type folds into the delegate's own
+        // return slot, which is where `TOutput` stands. (The walk this replaces took the lambda's
+        // return type for "the one type parameter still unbound", which answered the same thing
+        // here and the WRONG thing for every call whose lambdas fix two of them.)
         binder.SupplyReflectionAnalysis(
             state,
             FinalizeLambdaAnswer(BuiltInTypes.Int, BuiltInTypes.String)
@@ -2152,9 +2154,11 @@ test "a phase-one lambda answer binds the method's one remaining type parameter"
         third := binder.NextReflectionAnalysis(state)
         assert third != null
         assert third.Lambda != null
-        // The lambda's own answer closed `TOutput`; the nullability spelling rides along from the
-        // reflected delegate's metadata, which is why the second signature is not merely "(int)->string".
-        assert FinalizeSignatureText(third) == "(int)->string?"
+        // The lambda's own answer closed `TOutput`. The spelling is `string` and not `string?`:
+        // `Converter<TInput, TOutput>` declares `TOutput Invoke(TInput input)` and annotates neither
+        // position, so both take their nullability from the TYPE ARGUMENTS rather than from the
+        // closed `Invoke`'s metadata — the same reading `Func<int, string>` has always had.
+        assert FinalizeSignatureText(third) == "(int)->string"
         binder.SupplyReflectionAnalysis(
             state,
             FinalizeLambdaAnswer(BuiltInTypes.Int, BuiltInTypes.String)

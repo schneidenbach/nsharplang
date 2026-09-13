@@ -44,9 +44,23 @@ class AnalyzerMemberResolution {
         usingNamespaces = importedNamespaces
     }
 
+    // WHAT A MEMBER NAME RESOLVES TO, read as a VALUE. Every caller that is not the callee of a call
+    // asks this question.
+    func ResolveMember(objectType: TypeInfo, memberName: string, includeStaticMembers: bool, currentTypeName: string?): TypeInfo {
+        return ResolveMember(objectType, memberName, includeStaticMembers, currentTypeName, false)
+    }
+
     // WHAT A MEMBER NAME RESOLVES TO. `unknown` is the "no such member" answer; every arm that can
     // answer does so by returning, so the order of the arms IS the resolution order.
-    func ResolveMember(objectType: TypeInfo, memberName: string, includeStaticMembers: bool, currentTypeName: string?): TypeInfo {
+    //
+    // `invocationPosition` IS C#'s "must be invocable if member" RULE AND IT IS NOT AN OPTIMISATION.
+    // When the name is the thing a call names, a member whose value cannot be CALLED is not a
+    // candidate at all and must not hide the method or the extension that shares its name. That is
+    // the whole reason `list.Count(predicate)` is a legal program: `List<T>.Count` is an `int`
+    // property, `Enumerable.Count<TSource>` is an extension, and only the second one is invocable.
+    // Every arm that answers with a VALUE asks the question; the arms that answer with a method
+    // group, a signature or a shape are invocable by construction and do not.
+    func ResolveMember(objectType: TypeInfo, memberName: string, includeStaticMembers: bool, currentTypeName: string?, invocationPosition: bool): TypeInfo {
         current: TypeInfo = objectType
 
         oblivious := current as ObliviousTypeInfo
@@ -177,12 +191,12 @@ class AnalyzerMemberResolution {
         if !handledAsSourceGeneric {
             if !includeStaticMembers {
                 arrayExtensionMemberType: TypeInfo = BuiltInTypes.Unknown
-                if declarationContext.TryResolveKnownArrayExtensionMember(current, memberName, usingNamespaces.Contains("System"), out arrayExtensionMemberType) {
+                if declarationContext.TryResolveKnownArrayExtensionMember(current, memberName, usingNamespaces.Contains("System"), out arrayExtensionMemberType) && AnswersInPosition(arrayExtensionMemberType, invocationPosition) {
                     return arrayExtensionMemberType
                 }
 
                 structuralMemberType: TypeInfo = BuiltInTypes.Unknown
-                if declarationContext.TryResolveKnownGenericStructuralMember(current, memberName, out structuralMemberType) {
+                if declarationContext.TryResolveKnownGenericStructuralMember(current, memberName, out structuralMemberType) && AnswersInPosition(structuralMemberType, invocationPosition) {
                     return structuralMemberType
                 }
             }
@@ -205,12 +219,12 @@ class AnalyzerMemberResolution {
                         // to. Read the member off the OPEN DEFINITION instead and substitute the
                         // SPELLED arguments by position, so the answer names `Item` again.
                         surrogateMemberType: TypeInfo = BuiltInTypes.Unknown
-                        if genericCandidate != null && TryResolveConstructedGenericPropertyOrField(bindingClrType, genericCandidate, memberName, includeStaticMembers, out surrogateMemberType) {
+                        if genericCandidate != null && TryResolveConstructedGenericPropertyOrField(bindingClrType, genericCandidate, memberName, includeStaticMembers, out surrogateMemberType) && AnswersInPosition(surrogateMemberType, invocationPosition) {
                             return surrogateMemberType
                         }
 
                         bindingMemberType: TypeInfo = BuiltInTypes.Unknown
-                        if TryResolveReflectionPropertyOrField(bindingClrType, memberName, includeStaticMembers, out bindingMemberType) {
+                        if TryResolveReflectionPropertyOrField(bindingClrType, memberName, includeStaticMembers, out bindingMemberType) && AnswersInPosition(bindingMemberType, invocationPosition) {
                             return bindingMemberType
                         }
                     }
@@ -232,7 +246,7 @@ class AnalyzerMemberResolution {
             }
 
             reflectedMemberType: TypeInfo = BuiltInTypes.Unknown
-            if TryResolveReflectionPropertyOrField(clrType, memberName, includeStaticMembers, out reflectedMemberType) {
+            if TryResolveReflectionPropertyOrField(clrType, memberName, includeStaticMembers, out reflectedMemberType) && AnswersInPosition(reflectedMemberType, invocationPosition) {
                 return reflectedMemberType
             }
 
@@ -263,7 +277,7 @@ class AnalyzerMemberResolution {
         sourceShape := new AnalyzerSourceMemberShape()
         if declarationContext.TryGetSourceMemberShape(current, sourceGenericSubstitution, out sourceShape) {
             declaredValueMember: TypeInfo = BuiltInTypes.Unknown
-            if declarationContext.TryResolveDeclaredValueMember(sourceShape.Owner, sourceShape.DeclaredMembers, memberName, sourceGenericSubstitution, out declaredValueMember) {
+            if declarationContext.TryResolveDeclaredValueMember(sourceShape.Owner, sourceShape.DeclaredMembers, memberName, sourceGenericSubstitution, out declaredValueMember) && AnswersInPosition(declaredValueMember, invocationPosition) {
                 return declaredValueMember
             }
 
@@ -274,7 +288,7 @@ class AnalyzerMemberResolution {
 
             if !includeStaticMembers && sourceShape.SupportsPrimaryParameters {
                 primaryConstructorMember: TypeInfo = BuiltInTypes.Unknown
-                if declarationContext.TryResolvePrimaryParameter(sourceShape.Owner, sourceShape.PrimaryParameters, memberName, sourceGenericSubstitution, out primaryConstructorMember) {
+                if declarationContext.TryResolvePrimaryParameter(sourceShape.Owner, sourceShape.PrimaryParameters, memberName, sourceGenericSubstitution, out primaryConstructorMember) && AnswersInPosition(primaryConstructorMember, invocationPosition) {
                     return primaryConstructorMember
                 }
             }
@@ -288,7 +302,7 @@ class AnalyzerMemberResolution {
 
             declaredBaseType := sourceShape.BaseType
             if declaredBaseType != null {
-                baseMember := ResolveMember(declaredBaseType, memberName, includeStaticMembers, currentTypeName)
+                baseMember := ResolveMember(declaredBaseType, memberName, includeStaticMembers, currentTypeName, invocationPosition)
                 if !BuiltInTypes.IsUnknown(baseMember) {
                     return baseMember
                 }
@@ -305,7 +319,7 @@ class AnalyzerMemberResolution {
         tupleType := current as TupleTypeInfo
         if tupleType != null {
             tupleMember: TypeInfo = BuiltInTypes.Unknown
-            if declarationContext.TryResolveTupleMember(tupleType, memberName, out tupleMember) {
+            if declarationContext.TryResolveTupleMember(tupleType, memberName, out tupleMember) && AnswersInPosition(tupleMember, invocationPosition) {
                 return tupleMember
             }
 
@@ -365,7 +379,10 @@ class AnalyzerMemberResolution {
         newtypeCandidate := current as NewtypeInfo
         if newtypeCandidate != null {
             if memberName == "Value" {
-                return typeSubstitution.ResolveTypeForSourceOwner(newtypeCandidate.UnderlyingType, newtypeCandidate, null)
+                newtypeValueMember := typeSubstitution.ResolveTypeForSourceOwner(newtypeCandidate.UnderlyingType, newtypeCandidate, null)
+                if AnswersInPosition(newtypeValueMember, invocationPosition) {
+                    return newtypeValueMember
+                }
             }
 
             if !includeStaticMembers {
@@ -378,12 +395,22 @@ class AnalyzerMemberResolution {
 
         arrayType := current as ArrayTypeInfo
         if arrayType != null {
-            if memberName == "Length" {
+            if memberName == "Length" && AnswersInPosition(BuiltInTypes.Int, invocationPosition) {
                 return BuiltInTypes.Int
             }
         }
 
         return extensionMethodResolution.TryResolveExtensionMethod(extensionReceiverType, memberName, currentTypeName)
+    }
+
+    // Whether a resolved VALUE member is allowed to be this resolution's answer. Outside invocation
+    // position every member is; inside it only a member a call could actually name.
+    static func AnswersInPosition(memberType: TypeInfo, invocationPosition: bool): bool {
+        if !invocationPosition {
+            return true
+        }
+
+        return AnalyzerCallableReferenceFacts.IsInvocableMemberType(memberType)
     }
 
     // Public instance members always; static members only when the name was written against the

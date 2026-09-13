@@ -550,10 +550,12 @@ test "compile-time bench: the skipped source directories are exactly the twelve 
 // and signature rules added tests/native/census-flow-rules; 95 since array covariance and
 // target-typed array literals added tests/native/census-conversions; 96 since the C# `foreach`
 // pattern added tests/native/census-pattern-foreach; 97 since the type-argument scan and per-element
-// tuple naming added tests/native/census-parse-shapes.
-test "compile-time bench: the corpus is the 97 project.yml projects under examples, tests and templates" {
+// tuple naming added tests/native/census-parse-shapes; 98 since lambda parameter inference and
+// extension-result widening added tests/native/census-lambda-inference.
+test "compile-time bench: the corpus is the 98 project.yml projects under examples, tests and templates" {
     projects := BenchCollectCorpusProjects(BenchRepositoryRoot())
-    assert projects.Count == 97
+    assert projects.Count == 98
+    assert BenchListContains(projects, "tests/native/census-lambda-inference")
     assert BenchListContains(projects, "examples/01-hello-world")
     assert BenchListContains(projects, "tests/native/qualified-names")
     assert BenchListContains(projects, "tests/native/census-conversions")

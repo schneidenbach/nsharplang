@@ -402,6 +402,91 @@ class AnalyzerConstruction {
         diagnosticsValue.Report(ErrorCode.ConstructorError, message, line, column, ConstructorAritySuggestion(constructors, writtenName, argumentCount), length)
     }
 
+    // THE DELEGATE THIS CONSTRUCTOR POSITION EXPECTS, when every constructor that could take this
+    // call agrees on one — and null otherwise.
+    //
+    // A CONSTRUCTOR ARGUMENT IS AN ARGUMENT. `new Lazy<Type>(makeType)` is the same
+    // method-group-to-delegate conversion `Register(makeType)` is, and `new Lazy<Type>(() => ...)`
+    // is the same contextual lambda; both were reported as NL411 or left untyped only because this
+    // walk handed every constructor argument an EMPTY expected type. The delegate the position wants
+    // is read from the constructors themselves — external ones through CLR metadata, declared ones
+    // through their written parameter types — so nothing about any particular type is written down.
+    //
+    // THE READ IS DELIBERATELY NARROW: only a position every arity-compatible constructor spells
+    // with the SAME delegate type answers. Two constructors that disagree there is an overload
+    // question this walk does not own, and a non-delegate position is left exactly as it was, so no
+    // ordinary argument changes its meaning.
+    func DelegateConstructorParameterType(state: ConstructionState, node: NewExpression, index: int): TypeInfo? {
+        if node.ArrayLengthExpression != null || state.UnionCaseName != null || state.SoaConstruction != null {
+            return null
+        }
+
+        argumentCount := node.ConstructorArguments.Count
+        agreed: TypeInfo? = null
+        found := false
+
+        constructedClrType := clrTypeConversionValue.TryConvertTypeInfoToClrType(state.ConstructedType)
+        if constructedClrType != null {
+            reflectedConstructors := constructedClrType.GetConstructors()
+            reflectedIndex := 0
+            while reflectedIndex < reflectedConstructors.Length {
+                parameters := reflectedConstructors[reflectedIndex].GetParameters()
+                if parameters.Length == argumentCount && index < parameters.Length {
+                    candidate := AnalyzerReflectionTypeConversion.ConvertReflectionType(parameters[index].get_ParameterType())
+                    if AnalyzerCallableReferenceFacts.IsInvocableMemberType(candidate) {
+                        if !found {
+                            agreed = candidate
+                            found = true
+                        } else if agreed == null || !TypeInfoIdentityFacts.AreEqual(agreed, candidate) {
+                            return null
+                        }
+                    }
+                }
+
+                reflectedIndex = reflectedIndex + 1
+            }
+
+            return agreed
+        }
+
+        opened := state.ConstructedType
+        generic := opened as GenericTypeInfo
+        if generic != null {
+            definition := generic.GenericDefinition
+            if definition == null {
+                return null
+            }
+
+            opened = definition
+        }
+
+        classType := opened as ClassTypeInfo
+        if classType == null {
+            return null
+        }
+
+        declared := DeclaredConstructors(classType)
+        declaredIndex := 0
+        while declaredIndex < declared.Count {
+            constructor := declared[declaredIndex]
+            if constructor.ParameterCount == argumentCount && index < constructor.ParameterTypes.Length {
+                candidate := typeResolverValue.ResolveType(constructor.ParameterTypes[index])
+                if AnalyzerCallableReferenceFacts.IsInvocableMemberType(candidate) {
+                    if !found {
+                        agreed = candidate
+                        found = true
+                    } else if agreed == null || !TypeInfoIdentityFacts.AreEqual(agreed, candidate) {
+                        return null
+                    }
+                }
+            }
+
+            declaredIndex = declaredIndex + 1
+        }
+
+        return agreed
+    }
+
     static func DeclaredConstructors(classType: ClassTypeInfo): List<DeclaredMemberInfo> {
         constructors := new List<DeclaredMemberInfo>()
         members := classType.DeclaredMembers
@@ -852,6 +937,10 @@ class AnalyzerConstruction {
         expectedArgumentType: TypeInfo? = null
         if state.SoaConstruction != null && node.ConstructorArguments.Count == 1 && state.ArgIndex == 0 {
             expectedArgumentType = BuiltInTypes.Int
+        }
+
+        if expectedArgumentType == null {
+            expectedArgumentType = DelegateConstructorParameterType(state, node, state.ArgIndex)
         }
 
         state.Phase = 1

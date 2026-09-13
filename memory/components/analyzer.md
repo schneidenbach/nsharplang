@@ -1247,8 +1247,74 @@ parameters as the method's own, layered over whatever the declaring type binds:
   spelling once it is in the scope's type table.
 
 NOT YET: a generic method declared by an `interface` (refused at parse into columnar input), and
-inferring a type parameter that appears only in a delegate's RESULT from the lambda's body — the same
-limit a generic FREE function with a `Func<TValue, TResult>` parameter has.
+EMITTING a generic method declared on a SOURCE type that is called with a lambda (it type-checks; the
+emit path declines at `emit.expression.unhandled-kind`).
+
+### Method type inference for a lambda or a method group (census 2026-09-12, §11/§12)
+
+A lambda has no type until the delegate it is passed to is known, and for a generic method that
+delegate is part of what the call is inferring. Both sides now run C#'s two phases, and BOTH sides
+run them the same way — phase one folds in the receiver and every argument that already has a type,
+phase two analyses each lambda whose delegate INPUTS are now fixed and folds its result into the
+delegate's RETURN position, repeating while anything moves.
+
+- `AnalyzerReflectionArgumentBinder.FoldLambdaInference` is the check-side phase two. It runs the
+  SAME relation that folds a selected method group's signature into the bindings
+  (`TryPopulateReflectionBindingsFromMethodGroupDelegate`), so a lambda and a method group are one
+  path. It used to take the lambda's return type for "the one type parameter still unbound", which is
+  not a position at all: every call whose lambdas fix two type parameters answered with the first
+  lambda's type twice (`ToDictionary(n => n, n => n.Length)` typed as `Dictionary<string, string>`).
+- `AnalyzerCallAnalysis.EmitSyntheticArgument` is the same phasing for a call to an N#-DECLARED
+  generic function: the bindings are re-inferred from every argument analysed so far before the next
+  argument's expected type is read. A position that is still open offers NO expected type — the
+  surrogate it would otherwise offer is a type the program never wrote — except a DELEGATE, whose
+  open position is what the lambda decides. `AnalyzerSyntheticCallFacts.NarrowOpenExpectedArgumentType`
+  states that rule.
+- `ColumnarContextualExtensionInference.nl` is the EMIT-side engine, and it replaced a per-member
+  table in `ColumnarIlEmitter` that named `Where`, `Select`, `ToArray`, `ToList`, `Min`, `Max` and
+  `Contains` and nothing else. Candidates come from the referenced-assembly extension index for an
+  extension call and from the owner's own metadata for a static or instance call; the only difference
+  between the three shapes is the binding's `ParameterOffset`. The receiver slot WIDENS through
+  interfaces and the base chain (`List<string>` satisfies `IEnumerable<TSource>`) and argument slots
+  read the actual type through its implementations too (`char[]` is an `IEnumerable<char>`, which is
+  what `SelectMany` needs).
+- Two tie-breaks, both C#'s: a candidate that would throw a lambda's result away loses to one that
+  keeps it (`Task.Run(Action)` against `Task.Run<TResult>(Func<TResult>)`, scored on the check side by
+  `TryScoreReflectionSuppliedArgument`), and between two candidates that close to the SAME signature
+  the less generic one wins (`Max<TSource>` against `Max<TSource, TResult>`).
+- A CONSTRUCTED GENERIC DELEGATE takes its nullability from its TYPE ARGUMENTS wherever the
+  definition spelled a bare type parameter (`AnalyzerFunctionTypeFactory.OpenDelegateInvokeParameters`
+  / `OpenDelegateInvokeReturnType`, and the same rule in the binder's
+  `CreateDelegateSignatureFromOpenType`). Reading the closed `Invoke` through the nullability tables
+  answered `string?` for `Predicate<string>`, so a source `func IsLong(value: string)` did not match
+  the delegate it obviously implements (NL402) and a lambda written there was told its parameter was
+  maybe-null (NL905). `Func` and `Action` never had the problem because they read their type
+  arguments directly; the two readings must agree.
+- `unknown` contributes NO binding (`PopulateReflectionBindingsFromTypeInfo` returns immediately).
+  It is the analyzer's answer for an expression it could not type, and recording it closed the method
+  over a type the program never wrote.
+
+### Member lookup in CALLEE position
+
+`AnalyzerMemberResolution.ResolveMember` carries C#'s must-be-invocable-if-member rule as a fifth
+parameter. In callee position a VALUE member only answers when a value of its type can be CALLED
+(`AnalyzerCallableReferenceFacts.IsInvocableMemberType`: a method group, a `FunctionTypeInfo`, a
+`Func`/`Action` however spelled, or a metadata delegate); otherwise the arms below it — the method
+group, then the extension surface — answer instead. That is the whole reason
+`values.Count(predicate)` is a legal program: `List<T>.Count` is an `int` PROPERTY and
+`Enumerable.Count<TSource>` is an extension.
+
+The POSITION is the exact callee NODE, carried on `AmbientCallCalleeFrame.CallCalleeNode`, because
+the frame's `AnalyzingCallCallee` flag covers the whole callee SUBTREE while the rule applies to the
+outermost link alone (`a.b.Count(x)` must not lose the property `b`). A member that resolves as a
+value and cannot be called is NL413 — reported by `AnalyzerMemberAccess.ReportMemberNotCallableIfNeeded`,
+which re-resolves the same name as a VALUE and stays silent when that answers nothing, so the
+undefined-member report is still the one an unknown name gets.
+
+A CONSTRUCTOR argument is an argument: `AnalyzerConstruction.DelegateConstructorParameterType` reads
+the delegate a position wants from the constructors themselves (external ones through CLR metadata,
+declared ones through their written parameter types) and only when every arity-compatible
+constructor agrees on one. Without it `new Lazy<Type>(makeType)` reported NL411.
 
 ### Generic methods declared by EXTERNAL types
 

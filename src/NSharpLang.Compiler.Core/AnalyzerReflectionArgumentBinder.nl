@@ -370,6 +370,18 @@ class AnalyzerReflectionArgumentBinder {
             }
 
             score = 2 + expectedParameterTypes.Count
+
+            // A LAMBDA WHOSE BODY IS AN EXPRESSION HAS A VALUE TO GIVE, and a delegate that would
+            // throw it away is the worse target. `Task.Run(() => 42)` fits both `Run(Action)` and
+            // `Run<TResult>(Func<TResult>)` by arity alone, and choosing by declaration order gave it
+            // a plain `Task`; C# prefers the conversion that keeps the result, so the position that
+            // returns something scores one higher.
+            if lambda.ExpressionBody != null {
+                if !BuiltInTypes.Is(expectedSignature.ReturnType, BuiltInTypes.Void) {
+                    score = score + 1
+                }
+            }
+
             return true
         }
 
@@ -668,13 +680,25 @@ class AnalyzerReflectionArgumentBinder {
             return unknown
         }
 
+        // The same rule the delegate factory states: a position the DEFINITION spells with a naked
+        // type parameter takes its nullability from the type ARGUMENT rather than from the closed
+        // `Invoke`'s metadata, so `Predicate<string>` hands a lambda a `string` parameter exactly as
+        // `Func<string, bool>` does and the two shapes cannot disagree.
+        openInvokeParameters := AnalyzerFunctionTypeFactory.OpenDelegateInvokeParameters(resolvedType, invokeMethod)
+        openInvokeReturnType := AnalyzerFunctionTypeFactory.OpenDelegateInvokeReturnType(resolvedType)
+
         invokeParameters := invokeMethod.GetParameters()
         parameterTypeList := new List<TypeInfo>()
         parameterModifierList := new List<Ast.ParameterModifier>()
         invokeIndex := 0
         while invokeIndex < invokeParameters.Length {
             invokeParameter := invokeParameters[invokeIndex]
-            parameterTypeList.Add(AnalyzerReflectionTypeConversion.ConvertParameterWithOverrides(invokeParameter, typeInfoOverrides, clrBindings))
+            if openInvokeParameters != null && openInvokeParameters[invokeIndex].get_ParameterType().get_IsGenericParameter() {
+                parameterTypeList.Add(AnalyzerReflectionTypeConversion.ConvertReflectionTypeWithOverrides(invokeParameter.get_ParameterType(), typeInfoOverrides, clrBindings))
+            } else {
+                parameterTypeList.Add(AnalyzerReflectionTypeConversion.ConvertParameterWithOverrides(invokeParameter, typeInfoOverrides, clrBindings))
+            }
+
             parameterModifierList.Add(AnalyzerFunctionTypeFactory.GetReflectionParameterModifier(invokeParameter))
             invokeIndex = invokeIndex + 1
         }
@@ -682,7 +706,12 @@ class AnalyzerReflectionArgumentBinder {
         signature := new FunctionTypeInfo()
         signature.ParameterTypes = parameterTypeList
         signature.ParameterModifiers = parameterModifierList
-        signature.ReturnType = AnalyzerReflectionTypeConversion.ConvertReturnWithOverrides(invokeMethod, typeInfoOverrides, clrBindings)
+        if openInvokeReturnType != null && openInvokeReturnType.get_IsGenericParameter() {
+            signature.ReturnType = AnalyzerReflectionTypeConversion.ConvertReflectionTypeWithOverrides(invokeMethod.get_ReturnType(), typeInfoOverrides, clrBindings)
+        } else {
+            signature.ReturnType = AnalyzerReflectionTypeConversion.ConvertReturnWithOverrides(invokeMethod, typeInfoOverrides, clrBindings)
+        }
+
         return signature
     }
 
@@ -946,6 +975,15 @@ class AnalyzerReflectionArgumentBinder {
     // is how a selected method group's own parameter and return types flow back into the reflected
     // method's type parameters.
     func PopulateReflectionBindingsFromTypeInfo(openType: Type, sourceType: TypeInfo, bindings: Dictionary<Type, Type>, typeInfoBindings: Dictionary<Type, TypeInfo>) {
+        // `unknown` IS NOT AN INFERENCE. It is the analyzer's answer for an expression it could not
+        // type at all, and recording it would close the method over a type the program never wrote —
+        // a lambda with an unanalysable body would silently fix the very type parameter its body was
+        // supposed to decide. The position stays open, which is a non-finalisation rather than a
+        // guess.
+        if BuiltInTypes.IsUnknown(sourceType) {
+            return
+        }
+
         effectiveOpenType := openType
         if openType.get_IsByRef() {
             element := openType.GetElementType()
@@ -1320,43 +1358,42 @@ class AnalyzerReflectionArgumentBinder {
         return true
     }
 
+    // THE LAMBDA'S OWN SIGNATURE, FOLDED BACK INTO THE INFERENCE — C#'s phase-two OUTPUT TYPE
+    // INFERENCE, and nothing weaker.
+    //
+    // The lambda has just been analysed under the delegate's input types, so what came back is a
+    // COMPLETE signature, and the relation that folds a selected method group's signature into the
+    // bindings folds this one unchanged: each delegate parameter position against the lambda's, then
+    // the delegate's RETURN position against the lambda's return type. Both halves respect bindings
+    // that are already there, so an inference an earlier argument made is never overwritten, and a
+    // `void`-returning delegate contributes nothing from its return.
+    //
+    // A LAMBDA AND A METHOD GROUP ARE THE SAME ARGUMENT HERE, deliberately: both are values whose
+    // type is a signature, and the type parameters a signature can fix do not depend on how the
+    // signature was written.
+    //
+    // THE WALK THIS REPLACES GUESSED. It took the lambda's return type for "the one type parameter
+    // still unbound", which is not a POSITION at all: in `ToDictionary(n => n, n => n.Length)` the
+    // first lambda fixed `TKey` by shape and was then handed that same `string` for `TElement`
+    // because `TElement` happened to be the only one left, so every call whose lambdas fix two type
+    // parameters answered with the first lambda's type twice.
     func FoldLambdaInference(state: ReflectionCallFinalizeState, lambdaType: FunctionTypeInfo) {
         openParameterType := state.PendingOpenParameterType
+        if openParameterType == null {
+            return
+        }
+
+        openDelegateType := AnalyzerOverloadFacts.GetDelegateParameterTypeForLambdaTarget(openParameterType)
+        if TryPopulateReflectionBindingsFromMethodGroupDelegate(openDelegateType, lambdaType, state.WorkingBindings, state.WorkingTypeInfoBindings) {
+            return
+        }
+
+        // No `Invoke` to read positions off, or an arity that disagrees with the lambda's. The
+        // lambda's own constructed delegate type is then the only shape there is to match against,
+        // and the structural match carries the same information when the two definitions agree.
         lambdaDelegateType := clrTypeConversion.TryConstructDelegateType(lambdaType)
-        if lambdaDelegateType != null && openParameterType != null {
-            AnalyzerOverloadFacts.TryMatchReflectionParameter(AnalyzerOverloadFacts.GetDelegateParameterTypeForLambdaTarget(openParameterType), lambdaDelegateType, state.WorkingBindings)
-        }
-
-        lambdaReturnType := lambdaType.ReturnType
-        if lambdaReturnType == null {
-            return
-        }
-
-        lambdaReturnClrType := clrTypeConversion.TryConvertTypeInfoToClrType(lambdaReturnType)
-        if lambdaReturnClrType == null {
-            lambdaReturnClrType = clrTypeConversion.TryConvertTypeInfoToClrTypeForBinding(lambdaReturnType)
-        }
-
-        if lambdaReturnClrType == null || !state.RuntimeMethod.get_IsGenericMethodDefinition() {
-            return
-        }
-
-        remaining := new List<Type>()
-        genericArguments := state.RuntimeMethod.GetGenericArguments()
-        index := 0
-        while index < genericArguments.Length {
-            if !state.WorkingBindings.ContainsKey(genericArguments[index]) {
-                remaining.Add(genericArguments[index])
-            }
-
-            index = index + 1
-        }
-
-        // ONE remaining type parameter and one lambda return type is an inference; two of either is
-        // an ambiguity the walk refuses to resolve.
-        if remaining.Count == 1 {
-            state.WorkingBindings[remaining[0]] = lambdaReturnClrType
-            state.WorkingTypeInfoBindings[remaining[0]] = lambdaReturnType
+        if lambdaDelegateType != null {
+            AnalyzerOverloadFacts.TryMatchReflectionParameter(openDelegateType, lambdaDelegateType, state.WorkingBindings)
         }
     }
 
