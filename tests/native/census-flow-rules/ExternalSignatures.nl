@@ -1,6 +1,7 @@
 namespace NSharpLang.CensusFlowRules.Tests
 
 import System
+import System.Collections.Generic
 import NSharpLang.Compiler
 import NSharpLang.Compiler.Columnar
 
@@ -65,4 +66,29 @@ func DetailWithFileAndLine(reason: ColumnarDeclineReason): string {
 
 func DetailWithEverything(reason: ColumnarDeclineReason): string {
     return ColumnarDeclineReasonFacts.FormatDetail(reason, "a.nl", 3, 4)
+}
+
+// CENSUS §CONV/3 — `null` DID NOT REACH A REFLECTED NULLABLE GENERIC-INTERFACE PARAMETER.
+//
+// `CodeIntelligenceDiagnostics.FromCompilerError(error, projectRoot, sourceTexts)` is compiled by N#
+// and its third parameter is declared `IReadOnlyDictionary<string, string>?`. Read back through
+// reflection the annotation is gone — an N#-emitted assembly carries no nullable context, so the
+// parameter is OBLIVIOUS, `IReadOnlyDictionary<string!, string!>!` — and a `null` argument was
+// refused with NL402 "No overload of 'FromCompilerError' accepts 3 arguments with these types" (11
+// sites in the converted CLI), while the same call to a SOURCE-declared method bound.
+//
+// The `null` arm of assignability asks one question — is `null` one of this type's values — and the
+// predicate behind it answered FALSE for every closed generic instantiation and for every oblivious
+// shell. A closed instantiation now answers from its DEFINITION and the shell is transparent, which
+// is what these two calls prove across a real assembly boundary.
+//
+// A NULL DICTIONARY IS NOT AN EMPTY ONE, and that is the contract being exercised rather than just
+// the binding: the callee skips the snippet lookup entirely when the dictionary is null, so a
+// blank-but-present snippet survives, where an empty dictionary would blank it.
+func DiagnosticFromErrorWithoutSources(error: CompilerError, projectRoot: string): DiagnosticResult {
+    return CodeIntelligenceDiagnostics.FromCompilerError(error, projectRoot, null)
+}
+
+func DiagnosticFromErrorWithSources(error: CompilerError, projectRoot: string, sourceTexts: IReadOnlyDictionary<string, string>?): DiagnosticResult {
+    return CodeIntelligenceDiagnostics.FromCompilerError(error, projectRoot, sourceTexts)
 }

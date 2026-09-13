@@ -1,6 +1,8 @@
 namespace NSharpLang.CensusFlowRules.Tests
 
 import System
+import System.Collections.Generic
+import NSharpLang.Compiler
 import NSharpLang.Compiler.Columnar
 
 func CensusVersions(): Version[] {
@@ -74,4 +76,41 @@ test "an omitted defaulted argument is filled from the callee's metadata" {
     assert DetailWithFileOnly(reason) == bare
     assert DetailWithFileAndLine(reason) == bare
     assert DetailWithEverything(reason) == "Declined at emit.call: a call could not be emitted in 'f' (a.nl:3:4)."
+}
+
+// The error is built by the compiler's own message builder rather than assembled here, because the
+// shape that matters is the one `nlc check` really produces: a file name, a line, and a BLANK source
+// snippet.
+func CensusDiagnosticError(): CompilerError {
+    return ErrorMessageBuilder.TypeMismatch("Program.nl", 3, 7, "", 4, "int", "string", "a type did not match")
+}
+
+func CensusSourceTexts(): Dictionary<string, string> {
+    texts := new Dictionary<string, string>()
+    texts["Program.nl"] = "one\ntwo\nthree\n"
+    return texts
+}
+
+test "a null argument reaches a reflected nullable generic-interface parameter" {
+    error := CensusDiagnosticError()
+
+    // The call that reported NL402. Everything else in the result is the CALLEE's, so reading it
+    // back proves the argument really did arrive rather than some other overload answering.
+    without := DiagnosticFromErrorWithoutSources(error, "/tmp/project")
+    assert without.Code == "NL202"
+    assert without.Message == "a type did not match"
+    assert without.Line == 3
+    assert without.Column == 7
+    assert without.ExpectedType == "string"
+
+    // A NULL DICTIONARY IS NOT AN EMPTY ONE. The callee skips the snippet lookup entirely when the
+    // dictionary is null, so the blank snippet survives; with a real one it reads line 3. That
+    // difference is only observable if the null really arrived as the absent dictionary.
+    assert without.SourceSnippet == ""
+    supplied := DiagnosticFromErrorWithSources(error, "/tmp/project", CensusSourceTexts())
+    assert supplied.SourceSnippet == "three"
+
+    // A null-valued LOCAL reaches the same parameter the bare literal does.
+    absent: IReadOnlyDictionary<string, string>? = null
+    assert DiagnosticFromErrorWithSources(error, "/tmp/project", absent).SourceSnippet == ""
 }

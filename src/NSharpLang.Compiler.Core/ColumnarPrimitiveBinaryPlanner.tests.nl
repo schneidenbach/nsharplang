@@ -910,6 +910,10 @@ test "admitted primitive additions reject terminally after construction commitme
     assert ownership == ColumnarDirectCallOwnership.OwnedRejected
     assert !legacy
 
+    // A literal whose elements DISAGREE is target-typed rather than malformed — the position named an
+    // element type each element converts to, and this owner cannot see it — so the subtree goes to
+    // the owner that has the target rather than taking the enclosing call down. The primitive
+    // addition inside it is still planned and still rolled back.
     inferredTree := DirectCallParsedTree(
         "[left + right, \"incompatible\"]"
     )
@@ -921,8 +925,8 @@ test "admitted primitive additions reject terminally after construction commitme
         out ownership,
         out legacy
     )
-    assert ownership == ColumnarDirectCallOwnership.OwnedRejected
-    assert !legacy
+    assert ownership == ColumnarDirectCallOwnership.NotOwned
+    assert legacy
 
     objectOwner := ConstructionSourceDefinition(
         "PrimitiveBinaryTerminalObject",

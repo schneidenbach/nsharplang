@@ -972,8 +972,32 @@ class AnalyzerAssignability {
         }
 
         // The variant generic interfaces — `IEnumerable<string>` to `IEnumerable<object>` — which the
-        // CLR carries by reference conversion too.
-        return IsKnownGenericTypeAssignable(resolvedTarget, resolvedSource)
+        // CLR carries by reference conversion too. The variant ARGUMENTS are resolved by this
+        // relation rather than by `IsAssignable`, for the same reason the relation exists: CLR
+        // variance is itself defined over reference conversions, so an `implicit operator` between
+        // two argument types does not make `IEnumerable<A>` an `IEnumerable<B>`.
+        return ResolvePendingReferencePairs(assignabilityFacts.ClassifyKnownGenericAssignability(resolvedTarget, resolvedSource))
+    }
+
+    // `ResolvePendingPairs` for the reference relation: each pending pair is answered by
+    // `IsImplicitReferenceConversion` instead of by `IsAssignable`.
+    func ResolvePendingReferencePairs(decision: AnalyzerAssignabilityDecision): bool {
+        if decision.Decided {
+            return decision.Result
+        }
+
+        pendingTargets := decision.PendingTargets
+        pendingSources := decision.PendingSources
+        index := 0
+        while index < pendingTargets.Count {
+            if !IsImplicitReferenceConversion(pendingTargets[index], pendingSources[index]) {
+                return false
+            }
+
+            index = index + 1
+        }
+
+        return true
     }
 
     func IsKnownGenericTypeAssignable(target: TypeInfo, source: TypeInfo): bool {

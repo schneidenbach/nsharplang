@@ -1157,6 +1157,14 @@ test "construction planner defers contextual array shapes as whole subtrees" {
 test "construction planner rejects malformed admitted array shapes atomically" {
     ownership := ColumnarDirectCallOwnership.NotOwned
     legacy := false
+
+    // ELEMENTS THAT DISAGREE ARE NOT MALFORMED — THEY ARE TARGET-TYPED, AND THIS OWNER CANNOT SEE
+    // THE TARGET. `[1, "two"]` is exactly what `take(["a", 1])` and `yield ["a", ["b", "c"]]` write:
+    // analysis accepted them because the POSITION named an element type each element converts to.
+    // Nothing here can see that type, so the first element is the only element type this plan could
+    // choose and it would be the wrong one — the subtree goes to the owner that DOES have the
+    // target, exactly as a `null` element already did, rather than being rejected and taking the
+    // enclosing call down with it. The plan is still rolled back either way.
     mixed := ConstructionArrayLiteralTree(
         ConstructionTwoTexts("1", "\"two\""),
         ConstructionTwoKinds(
@@ -1171,9 +1179,10 @@ test "construction planner rejects malformed admitted array shapes atomically" {
         out ownership,
         out legacy
     )
-    assert ownership == ColumnarDirectCallOwnership.OwnedRejected
-    assert !legacy
+    assert ownership == ColumnarDirectCallOwnership.NotOwned
+    assert legacy
 
+    // A MALFORMED shape is still this owner's refusal, and still terminal.
     badLength := ConstructionSizedArrayTree(
         "int",
         "\"three\"",
@@ -3738,12 +3747,14 @@ test "construction TryGetType seals valid plans and rolls invalid plans back wit
     assert validPlan.Lifecycle == ColumnarCodePlanLifecycle.Sealed
     ColumnarCodePlanExecutor.Validate(validPlan)
 
-    invalid := ConstructionArrayLiteralTree(
-        ConstructionTwoTexts("1", "\"x\""),
-        ConstructionTwoKinds(
-            ColumnarExpressionNodeKind.IntLiteralExpression(),
-            ColumnarExpressionNodeKind.StringLiteralExpression()
-        )
+    // A sized array whose LENGTH is not an int is malformed, which this owner refuses terminally, and
+    // the half-built plan is rolled back without executing anything. (A literal whose ELEMENTS
+    // disagree is not this case: it is target-typed, and it goes to the legacy tier — see
+    // "construction planner rejects malformed admitted array shapes atomically".)
+    invalid := ConstructionSizedArrayTree(
+        "int",
+        "\"three\"",
+        ColumnarExpressionNodeKind.StringLiteralExpression()
     )
     ConstructionStampScope(invalid, "")
     invalidPlan := new ColumnarCodePlan()

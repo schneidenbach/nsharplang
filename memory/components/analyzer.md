@@ -50,8 +50,15 @@ classification tables — the leaf policy the assignability decision consults:
   `T` on both sides; identical source names are NOT a conversion, because the caller answers
   identity first.
 - `IsReferenceType(TypeInfo)` decides whether `null` is one of a type's values. Record structs,
-  enums, byref types and closed generic instantiations are value types; every simple name outside
-  the built-in value list is a reference type; reflection types defer to the CLR value-type flag.
+  enums and byref types are value types; every simple name outside the built-in value list is a
+  reference type; reflection types defer to the CLR value-type flag. A closed generic instantiation
+  answers from its DEFINITION — `List<T>` is a class, `Nullable<T>` is a struct — and one that
+  carries no definition keeps the conservative `false`, because that is an absence of information
+  rather than a decision. An OBLIVIOUS shell is transparent: metadata written without a nullable
+  context reads back as `string![]!` / `IReadOnlyDictionary<string!, string!>!`, and an oblivious
+  reference position admits null, exactly as in C#. (Both of those used to answer false, which is
+  why `null` was refused by an N#-emitted `IReadOnlyDictionary<string, string>?` parameter with
+  NL402, and why source `xs: List<string> = null` was refused while `s: string = null` was not.)
 - `IsReflectionAssignableFrom(Type, Type)` is the MetadataLoadContext-safe assignability walk:
   exact identity, then `Type.IsAssignableFrom`, then the source's interface list and base chain
   compared by exact metadata identity (types loaded from different assembly identities are not
@@ -231,6 +238,10 @@ at the two points where that bag changes, and reports and records nothing.
   answering with its type parameter would hand a caller a `T` as if it were the element.
 - `T[]` → `Span<T>`/`ReadOnlySpan<T>` is nominal on the target and invariant on the element, with
   aliases resolved on both halves.
+- ARRAY COVARIANCE is `TryGetArrayConversionElements` here (the SHAPE: both sides are arrays once
+  their oblivious shells are off, and here are the two element types) plus
+  `AnalyzerAssignability.IsImplicitReferenceConversion` (the RELATION). The split is the pending-pair
+  discipline in a different form: the relation re-enters the engine and this owner stays silent.
 - A bare callable reference binds only to a source function type, the two delegate generics by NAME
   (`Func`, `Action`), or a real runtime delegate; the nullable and oblivious shells are transparent.
   A concrete delegate is one that derives from the load context's `System.Delegate` WITHOUT being
@@ -266,6 +277,17 @@ THE DISPATCH ORDER IS THE SPECIFICATION. Moving one arm past another changes the
   a union with a method-group arm is not assignable to `object` either.
 - FUNCTION-TYPE structural comparison comes before the identity fallback, because every
   `FunctionTypeInfo` renders identically.
+- ARRAY COVARIANCE (ECMA-335) sits with the other array arms, after `object` and the span view. `S[]`
+  is a `T[]` when `S` converts to `T` by an IMPLICIT REFERENCE conversion —
+  `IsImplicitReferenceConversion`, which is deliberately NARROWER than `IsAssignable`: boxing,
+  numeric widening, span views, collection-expression targets and user-defined `implicit operator`s
+  may not be carried across an array, because the CLR conversion is a no-op on the array object and
+  every element would have to be rewritten. Both element types must be reference types, so `int[]` to
+  `object[]` is refused (and `TypeConversionSuggester` says why). Covariance composes, so `string[][]`
+  reaches `object[][]`. The emitter's half of the same relation is
+  `ColumnarReferenceConversionFacts.IsArrayCovariantConversion`, which exists because
+  Reflection.Emit's `IsAssignableFrom` cannot answer an array whose element is still an unbaked
+  `TypeBuilder`.
 - The USER-DEFINED conversion is LAST, so a conversion operator can never shadow a built-in relation.
   It is searched on BOTH ENDS — the type converted FROM and the type converted TO — because a
   wrapper's `implicit operator Wrap<T>(value: T)` can only be declared on the target: the `T` end may
