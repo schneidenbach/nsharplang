@@ -2837,10 +2837,41 @@ at that branch, so the awaited value is produced FIRST, parked in a plan local, 
 `this` loaded and the field written. An `await` nested inside a larger expression needs a spill this
 owner does not yet hold and declines saying so.
 
+### A lambda is a method on the state machine
+
+A generator has already hoisted every parameter and every local of its body into a field of its own
+machine, so the machine IS the closure's display: there is no second object to synthesize and no
+capture to copy. `ColumnarIteratorBodyPlanner.AppendLambda` defines a private INSTANCE method
+`<>__lambda{k}` on the machine builder, plans its body through the ONE expression door against a scope
+that differs from the body's in exactly one way (the lambda's parameters are its own arguments 1..n),
+and builds the delegate from the machine the body is already running on: `ldarg.0; ldftn <>__lambda0;
+newobj <Delegate>..ctor(object, native int)`. The signature comes from the delegate's own `Invoke`, so
+the target type decides the parameters and the result — the ordinary lambda-conversion rule. An
+instance generator's enclosing members reach through `<>__this`, the same two-hop read the body takes.
+
+`ldftn` is new in the plan schema (`ColumnarCodePlanContract.Ldftn`, 0xFE06): it reads no argument and
+pushes one value, modelled as `IntPtr` because that is exactly what a delegate constructor's second
+parameter is declared as, so the following `newobj` matches with no new stack kind.
+
+TWO SHAPES DECLINE, both precisely. A BLOCK-bodied lambda needs a statement emitter for a method that
+is not a state machine. And a lambda that captures a local declared INSIDE a loop cannot be lowered at
+all: a generator holds ONE field per local, so every iteration would share it where the language
+promises a fresh binding — `ColumnarIteratorWalkState.LocalLoopDepths` records the loop nesting each
+local was declared at, and `ColumnarIteratorPlanner.CapturedLoopLocalName` reads it (the lambda's own
+parameters shadow, so they are skipped).
+
+Closing this also fixed a delegate-canonical bug that was never iterator-specific:
+`ColumnarCanonicalTypeResolver.TrySelectDelegateCanonical` split `Func<int, int>` into `int` and
+` int` and failed on the second, so every delegate written with a space after its comma failed to
+resolve while the same type written without one succeeded. And `TryResolveIteratorCanonical` now
+accepts a complete external DELEGATE type as a hoisted field type; the general storable-type catalog
+has not been widened, because that is a question about the whole value surface.
+
 Not yet lowered inside a generator body, each with its own decline: `return <value>`
-(`emit.iterator.unsupported-shape`), a lambda (`emit.iterator.lambda-unsupported`), a `try` inside an
-`async func*` (`emit.iterator.async-unsupported`), `lock`, an `await` nested in a larger expression,
-and `await foreach`. (`using` is not a statement this language parses at all.)
+(`emit.iterator.unsupported-shape`), a block-bodied lambda and a loop-scoped capture
+(`emit.iterator.lambda-unsupported`), a `try` inside an `async func*`
+(`emit.iterator.async-unsupported`), `lock`, an `await` nested in a larger expression, and
+`await foreach`. (`using` is not a statement this language parses at all.)
 
 ## One Exception-Resolution Path
 

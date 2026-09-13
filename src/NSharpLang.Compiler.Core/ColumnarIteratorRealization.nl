@@ -776,7 +776,19 @@ class ColumnarIteratorRealization {
             typeResolution.Structs,
             typeResolution.Unions,
             out resolvedType
-        ) && ColumnarTypeOfPlanner.IsSupportedType(resolvedType)
+        ) && (ColumnarTypeOfPlanner.IsSupportedType(resolvedType) || IsOrdinaryDelegateFieldType(resolvedType))
+    }
+
+    // A COMPLETE EXTERNAL DELEGATE TYPE — `Func<int, int>`, `Predicate<string>`, a `delegate` a
+    // referenced assembly declares. It is an ordinary reference and stores in an ordinary field, which
+    // is all a hoisted local needs of it. The general storable-type catalog has not been widened to
+    // say so, and widening it is a question about the whole value surface rather than about the one
+    // field a generator hoists for a local the author wrote a delegate type on.
+    static func IsOrdinaryDelegateFieldType(candidate: Type): bool {
+        if candidate == null || candidate is TypeBuilder || candidate.get_IsGenericTypeDefinition() || candidate.get_IsByRef() || candidate.get_IsPointer() || ColumnarTypeOfPlanner.ContainsBuilderBoundType(candidate) {
+            return false
+        }
+        return typeof(Delegate).IsAssignableFrom(candidate)
     }
 
     // Only the machine's own generic parameters are legal in its field signatures. Preserve the

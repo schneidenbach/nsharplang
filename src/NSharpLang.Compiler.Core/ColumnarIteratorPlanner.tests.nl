@@ -1066,9 +1066,43 @@ test "iterator planner declines a return statement in an iterator body" {
     assert probe.Shape.DeclineMessage == "a `return` statement cannot appear in an iterator body; use `yield` to produce a value and `yield break` to stop"
 }
 
-test "iterator planner declines a lambda inside an iterator body" {
+// A LAMBDA IS A METHOD ON THE MACHINE, and the machine is already the closure's display. What that
+// cannot express is a FRESH BINDING PER ITERATION: a local declared inside a loop is one field
+// re-used by every iteration, so a closure over it would read whatever the last iteration left.
+test "iterator planner plans a lambda over the machine's own bindings" {
     probe := new ColumnarIteratorShapeProbe(
-        "func* WithLambda(n: int): IEnumerable<int> { pick := x => x + n\n yield pick(1) }",
+        "func* WithLambda(n: int): IEnumerable<int> { pick: Func<int, int> = x => x + n\n yield pick(1) }",
+        "IEnumerable<int>",
+        IteratorOne("n"),
+        IteratorOne("int"),
+        IteratorNoStrings(),
+        false
+    )
+
+    assert probe.Shape.Supported
+    assert probe.Shape.YieldReturnCount == 1
+    assert probe.Shape.FieldNames[3] == "pick"
+    assert probe.Shape.FieldCanonicals[3] == "Func<int, int>"
+}
+
+test "iterator planner declines a lambda that captures a variable declared inside a loop" {
+    probe := new ColumnarIteratorShapeProbe(
+        "func* PerIteration(values: int[]): IEnumerable<int> { for v in values { pick: Func<int, int> = x => x + v\n yield pick(1) } }",
+        "IEnumerable<int>",
+        IteratorOne("values"),
+        IteratorOne("int[]"),
+        IteratorNoStrings(),
+        false
+    )
+
+    assert !probe.Shape.Supported
+    assert probe.Shape.DeclineSite == "emit.iterator.lambda-unsupported"
+    assert probe.Shape.DeclineMessage == "a lambda inside an iterator body cannot capture 'v', which is declared inside a loop: a generator holds one field per local, so every iteration would share it"
+}
+
+test "iterator planner declines a block-bodied lambda inside an iterator body" {
+    probe := new ColumnarIteratorShapeProbe(
+        "func* WithLambda(n: int): IEnumerable<int> { pick: Func<int, int> = x => { return x + n }\n yield pick(1) }",
         "IEnumerable<int>",
         IteratorOne("n"),
         IteratorOne("int"),
@@ -1078,7 +1112,22 @@ test "iterator planner declines a lambda inside an iterator body" {
 
     assert !probe.Shape.Supported
     assert probe.Shape.DeclineSite == "emit.iterator.lambda-unsupported"
-    assert probe.Shape.DeclineMessage == "a lambda inside an iterator body is not yet lowered"
+    assert probe.Shape.DeclineMessage == "a block-bodied lambda inside an iterator body is not yet lowered; write it as a single expression"
+}
+
+// A LAMBDA'S OWN PARAMETER SHADOWS the body's bindings, so a parameter that happens to share a
+// loop-declared local's name is NOT a capture of it.
+test "a lambda parameter that shadows a loop local is not a capture" {
+    probe := new ColumnarIteratorShapeProbe(
+        "func* Shadowed(values: int[]): IEnumerable<int> { total := 0\n for v in values { pick: Func<int, int> = v => v + total\n yield pick(1) } }",
+        "IEnumerable<int>",
+        IteratorOne("values"),
+        IteratorOne("int[]"),
+        IteratorNoStrings(),
+        false
+    )
+
+    assert probe.Shape.Supported
 }
 
 // THE PROTECTED-REGION RULES. A `yield` may suspend inside a `try` whose only handler is a

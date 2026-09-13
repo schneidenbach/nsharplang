@@ -322,6 +322,8 @@ class ColumnarCodePlanExecutor {
         } else if operandKind == ColumnarCodePlanContract.MethodOperand() {
             if opCodeValue == ColumnarCodePlanContract.Call() {
                 il.Emit(OpCodes.Call, plan.Methods[operandIndex])
+            } else if opCodeValue == ColumnarCodePlanContract.Ldftn() {
+                il.Emit(OpCodes.Ldftn, plan.Methods[operandIndex])
             } else {
                 il.Emit(OpCodes.Callvirt, plan.Methods[operandIndex])
             }
@@ -912,6 +914,10 @@ class ColumnarCodePlanExecutor {
             return 0
         }
         if operandKind == ColumnarCodePlanContract.MethodOperand() {
+            // `ldftn` names a method without calling it: it reads no argument and leaves one value.
+            if opCodeValue == ColumnarCodePlanContract.Ldftn() {
+                return 1
+            }
             return MethodBodyMethodDelta(plan, operandIndex)
         }
         if operandKind == ColumnarCodePlanContract.ConstructorOperand() {
@@ -1721,6 +1727,11 @@ class ColumnarCodePlanExecutor {
         } else if ColumnarCodePlanContract.IsLocalOpcode(opCodeValue) {
             localType := LocalType(plan, operationIndex)
             ApplyLocal(plan, operationIndex, opCodeValue, localType, state, schemaName)
+        } else if opCodeValue == ColumnarCodePlanContract.Ldftn() {
+            // The function pointer a delegate is built from. `native int` is what the delegate
+            // constructor declares as its second parameter, so `IntPtr` is the exact stack type the
+            // following `newobj` has to match, not an approximation of one.
+            state.Push(typeof(IntPtr), false, ColumnarCodePlanStackValueKind.Exact(), false, 0)
         } else if opCodeValue == ColumnarCodePlanContract.Call() || opCodeValue == ColumnarCodePlanContract.Callvirt() {
             ApplyMethodCall(plan, operationIndex, operandIndex, opCodeValue, state, schemaName)
         } else if opCodeValue == ColumnarCodePlanContract.Newobj() {

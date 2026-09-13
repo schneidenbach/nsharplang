@@ -802,6 +802,25 @@ and each element is converted to it once per iteration, exactly the way a cast c
 out of `object`, an unboxing, or a numeric conversion. An element that is not what the annotation
 claimed raises `InvalidCastException` from `MoveNext`.
 
+A lambda inside a generator captures the body's own bindings — a parameter, a local declared outside
+every loop, and (in an instance generator) the enclosing type's members — and may be handed to
+anything that takes a delegate:
+
+```n#
+import System
+import System.Collections.Generic
+
+func* matchesAtLeast(items: List<string>, minimum: int): IEnumerable<int> {
+    longEnough: Predicate<string> = s => s.Length >= minimum
+    matches := items.FindAll(longEnough)
+    yield matches.Count
+}
+```
+
+The lambda needs a delegate type to convert to — a written local type as above, or a parameter whose
+type names one — and it is lowered as a method on the generator's own state machine, so the capture
+costs no extra allocation.
+
 An assignment may target an indexer or a member as well as a local: `table[key] = value`,
 `box.Field = value`, `builder.Length = 2`, `values[i] = v`. The member a name selects, the indexer an
 index list selects and the conversion the stored value takes are the same answers the identical
@@ -846,7 +865,9 @@ written anywhere in a generator body.
 - a `yield` inside a `try` that declares a `catch`, or inside a `catch` or `finally` handler
   ([NL332](./errors/NL332.md)) — a suspension has to be resumable, and only a `finally` can be
   re-entered that way.
-- a lambda (its capture of the state machine's own `this` is not lowered yet).
+- a BLOCK-bodied lambda (`x => { ... }`); write it as a single expression.
+- a lambda that captures a variable declared INSIDE a loop — a generator holds one field per local,
+  so every iteration would share it rather than getting the fresh binding the language promises.
 - `await` outside an `async func*`, and — inside one — an `await` NESTED in a larger expression;
   bind it first (`value := await ...`).
 - a `try` statement inside an `async func*` body, and `lock` inside any generator body.

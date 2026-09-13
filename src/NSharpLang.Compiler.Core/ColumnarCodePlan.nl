@@ -431,6 +431,13 @@ class ColumnarCodePlanContract {
     static func Initobj(): short {
         return -491
     }
+    // ldftn (0xFE06): the ENTRY POINT of a method as a value. It is the first half of a delegate
+    // creation — `ldftn` then `newobj <Delegate>..ctor(object, native int)` — and the only opcode in
+    // this contract whose result is a function pointer, which the stack model carries as an `IntPtr`
+    // because that is exactly what the delegate constructor's second parameter is declared as.
+    static func Ldftn(): short {
+        return -506
+    }
 
     // Long-form variable opcodes have two-byte ECMA encodings and therefore negative short Values.
     static func Ldarg(): short {
@@ -1333,7 +1340,7 @@ class ColumnarCodePlan {
 
     func AppendMethodInstruction(opCodeValue: short, methodIndex: int) {
         EnsureV2Building()
-        if (opCodeValue != ColumnarCodePlanContract.Call() && opCodeValue != ColumnarCodePlanContract.Callvirt()) || methodIndex < 0 || methodIndex >= MethodCount {
+        if (opCodeValue != ColumnarCodePlanContract.Call() && opCodeValue != ColumnarCodePlanContract.Callvirt() && opCodeValue != ColumnarCodePlanContract.Ldftn()) || methodIndex < 0 || methodIndex >= MethodCount {
             throw new InvalidOperationException("The opcode does not use this method pool entry.")
         }
         AppendV2Row(ColumnarCodePlanContract.EmitInstructionOperation(), opCodeValue, ColumnarCodePlanContract.MethodOperand(), methodIndex)

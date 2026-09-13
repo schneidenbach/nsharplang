@@ -1721,6 +1721,16 @@ class ColumnarCanonicalTypeResolver {
             return false
         }
 
+        // THE SPLIT KEEPS THE SPACE THE AUTHOR WROTE. `Func<int, int>` is the ordinary spelling, and
+        // it split into `int` and ` int` — a name no registry has — so every delegate written with a
+        // space after its comma failed to resolve while the same type written without one succeeded.
+        // Whitespace around a type canonical never carries meaning, so it is removed here.
+        trimmed := 0
+        while trimmed < parts.Count {
+            parts[trimmed] = parts[trimmed].Trim()
+            trimmed = trimmed + 1
+        }
+
         parameterCount := parts.Count
         voidType := ColumnarTypeOfPlanner.RequiredVoidType()
         returnType := voidType

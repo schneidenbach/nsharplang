@@ -142,6 +142,13 @@ class ColumnarIteratorWalkState {
     LocalNames: string[]
     LocalCanonicals: string[]
     LocalRoles: int[]
+    // The LOOP NESTING each hoisted local was declared at. Every local in a generator body lives in
+    // ONE field of the machine, so a local declared inside a loop is the SAME storage on every
+    // iteration. That is invisible until something captures it: a lambda created inside the loop
+    // would see whatever the last iteration left, where the language promises a fresh binding per
+    // iteration. The depth is what tells those two cases apart.
+    LocalLoopDepths: int[]
+    LoopDepth: int
     Declined: bool
     DeclineSite: string
     DeclineMessage: string
@@ -170,6 +177,8 @@ class ColumnarIteratorWalkState {
         LocalNames = new string[](capacity)
         LocalCanonicals = new string[](capacity)
         LocalRoles = new int[](capacity)
+        LocalLoopDepths = new int[](capacity)
+        LoopDepth = 0
         Declined = false
         DeclineSite = ""
         DeclineMessage = ""
@@ -243,6 +252,19 @@ class ColumnarIteratorWalkState {
         return LookupMemberFieldCanonical(name)
     }
 
+    // The loop nesting the hoisted local `name` was declared at, or -1 when the name is not a
+    // hoisted local at all (a parameter, an enclosing member, an unknown).
+    func LocalLoopDepthOf(name: string): int {
+        i := 0
+        while i < LocalCount {
+            if LocalNames[i] == name {
+                return LocalLoopDepths[i]
+            }
+            i = i + 1
+        }
+        return 0 - 1
+    }
+
     func NameIsTypeParameter(name: string): bool {
         i := 0
         while i < TypeParamNames.Length {
@@ -286,6 +308,7 @@ class ColumnarIteratorWalkState {
         LocalNames[LocalCount] = name
         LocalCanonicals[LocalCount] = canonical
         LocalRoles[LocalCount] = role
+        LocalLoopDepths[LocalCount] = LoopDepth
         LocalCount = LocalCount + 1
     }
 }
@@ -733,7 +756,7 @@ class ColumnarIteratorPlanner {
                 return false
             }
             WalkExpression(nodes, source, nodes.Child(node, 0), state)
-            WalkStatement(nodes, source, nodes.Child(node, 1), state)
+            WalkLoopBody(nodes, source, nodes.Child(node, 1), state)
             return !state.Declined
         }
         if kind == 27 {
@@ -781,7 +804,7 @@ class ColumnarIteratorPlanner {
                 state.Decline("emit.iterator.unsupported-shape", "a for initializer or increment that cannot complete is not lowered in an iterator body")
                 return false
             }
-            WalkStatement(nodes, source, nodes.Child(node, 3), state)
+            WalkLoopBody(nodes, source, nodes.Child(node, 3), state)
             return !state.Declined
         }
         if kind == 72 {
@@ -860,12 +883,16 @@ class ColumnarIteratorPlanner {
             if arrayElement != "" && IsLowerableArrayElementCanonical(arrayElement) {
                 state.AddLocal("<>__index" + state.ForInCount.ToString(), "int")
                 state.ForInCount = state.ForInCount + 1
+                // The LOOP VARIABLE is a fresh binding per iteration in the language and one field in
+                // the machine, so it is recorded at the loop's own depth.
+                state.LoopDepth = state.LoopDepth + 1
                 state.AddLocal(varName, declaredCanonical == "" ? arrayElement : declaredCanonical)
+                state.LoopDepth = state.LoopDepth - 1
                 if state.Declined {
                     return false
                 }
                 // The empty-array exit edge always falls through; the body drives dead-code dropping.
-                WalkStatement(nodes, source, bodyNode, state)
+                WalkLoopBody(nodes, source, bodyNode, state)
                 return !state.Declined
             }
         }
@@ -875,12 +902,14 @@ class ColumnarIteratorPlanner {
         }
         state.AddHoistedLocal("<>__enum" + state.EnumeratorCount.ToString(), UnresolvedCanonical(), HoistedEnumeratorFieldRole())
         state.EnumeratorCount = state.EnumeratorCount + 1
+        state.LoopDepth = state.LoopDepth + 1
         state.AddLocal(varName, declaredCanonical == "" ? UnresolvedCanonical() : declaredCanonical)
+        state.LoopDepth = state.LoopDepth - 1
         if state.Declined {
             return false
         }
         // The exhausted-enumerator exit edge always falls through, like the array form.
-        WalkStatement(nodes, source, bodyNode, state)
+        WalkLoopBody(nodes, source, bodyNode, state)
         return !state.Declined
     }
 
@@ -1042,9 +1071,7 @@ class ColumnarIteratorPlanner {
             return
         }
         if kind == 39 {
-            // A lambda inside an iterator body captures the state machine's own `this`, which the
-            // closure-display planner has no route to synthesize from a synthesized type.
-            state.Decline("emit.iterator.lambda-unsupported", "a lambda inside an iterator body is not yet lowered")
+            WalkLambda(nodes, source, node, state)
             return
         }
         c := 0
@@ -1082,6 +1109,87 @@ class ColumnarIteratorPlanner {
         if canonical != "int" && !IsUnresolvedCanonical(canonical) {
             state.Decline("emit.iterator.unsupported-shape", "postfix step over a non-int binding ('" + name + "': '" + canonical + "') is not yet lowered in an iterator body")
         }
+    }
+
+    // A LAMBDA INSIDE A GENERATOR BODY. The state machine already IS the closure's display: every
+    // parameter and every local of the body lives in one of its fields, and the captured receiver of
+    // an instance generator lives in `<>__this`. So a lambda becomes an instance method ON the
+    // machine, and its capture costs nothing but the `this` it is already built from.
+    //
+    // WHAT THAT CANNOT EXPRESS IS A FRESH BINDING PER ITERATION. A local declared inside a loop is
+    // one field re-used by every iteration; a closure built over it would read whatever the LAST
+    // iteration left, where the language promises each iteration its own. Capturing such a name is
+    // therefore refused rather than lowered to a value nobody wrote. A local declared outside every
+    // loop, a parameter, and an enclosing member are all shared bindings in the language too, so
+    // capturing them is exactly right.
+    static func WalkLambda(nodes: ColumnarNodeTable, source: string, node: int, state: ColumnarIteratorWalkState) {
+        childCount := nodes.ChildCount(node)
+        if childCount < 1 {
+            state.Decline("emit.iterator.lambda-unsupported", "malformed lambda in an iterator body")
+            return
+        }
+        bodyNode := nodes.Child(node, childCount - 1)
+        if nodes.Kind(bodyNode) == 25 {
+            state.Decline("emit.iterator.lambda-unsupported", "a block-bodied lambda inside an iterator body is not yet lowered; write it as a single expression")
+            return
+        }
+        captured := CapturedLoopLocalName(nodes, source, node, state)
+        if captured != "" {
+            state.Decline("emit.iterator.lambda-unsupported", "a lambda inside an iterator body cannot capture '" + captured + "', which is declared inside a loop: a generator holds one field per local, so every iteration would share it")
+            return
+        }
+        WalkExpression(nodes, source, bodyNode, state)
+    }
+
+    // The first name the lambda reads that is a hoisted local declared INSIDE a loop, or "" when it
+    // reads none. The lambda's own parameters shadow the body's bindings and are skipped.
+    static func CapturedLoopLocalName(nodes: ColumnarNodeTable, source: string, lambda: int, state: ColumnarIteratorWalkState): string {
+        childCount := nodes.ChildCount(lambda)
+        parameterNames := new string[](childCount)
+        parameterCount := 0
+        p := 0
+        while p < childCount - 1 {
+            parameterNames[parameterCount] = nodes.Text(source, nodes.Child(lambda, p))
+            parameterCount = parameterCount + 1
+            p = p + 1
+        }
+        return FirstCapturedLoopLocal(nodes, source, nodes.Child(lambda, childCount - 1), parameterNames, parameterCount, state)
+    }
+
+    static func FirstCapturedLoopLocal(nodes: ColumnarNodeTable, source: string, node: int, parameterNames: string[], parameterCount: int, state: ColumnarIteratorWalkState): string {
+        if nodes.Kind(node) == 6 {
+            name := nodes.Text(source, node)
+            shadowed := false
+            p := 0
+            while p < parameterCount {
+                if parameterNames[p] == name {
+                    shadowed = true
+                }
+                p = p + 1
+            }
+            if !shadowed && state.LocalLoopDepthOf(name) > 0 {
+                return name
+            }
+        }
+        c := 0
+        while c < nodes.ChildCount(node) {
+            found := FirstCapturedLoopLocal(nodes, source, nodes.Child(node, c), parameterNames, parameterCount, state)
+            if found != "" {
+                return found
+            }
+            c = c + 1
+        }
+        return ""
+    }
+
+    // A LOOP BODY, walked one nesting level deeper. The depth is what the lambda-capture rule reads:
+    // a local declared here is one field re-used by every iteration, so a closure created here cannot
+    // be given the fresh binding per iteration the language promises.
+    static func WalkLoopBody(nodes: ColumnarNodeTable, source: string, bodyNode: int, state: ColumnarIteratorWalkState): bool {
+        state.LoopDepth = state.LoopDepth + 1
+        fell := WalkStatement(nodes, source, bodyNode, state)
+        state.LoopDepth = state.LoopDepth - 1
+        return fell
     }
 
     // A VALUE WHOSE RESULT IS BOUND — the initializer of a declaration, the right-hand side of an
@@ -1532,6 +1640,7 @@ class ColumnarMoveNextEmit {
     IsAsync: bool
     NextResume: int
     NextAwait: int
+    NextLambda: int
 
     constructor(plan: ColumnarCodePlan, context: ColumnarIteratorEmitContext, thisArg: int, stateFieldPool: int, resumeLabels: int[], endLabel: int, regionMode: bool, resultLocal: int, regionEndLabel: int, isAsync: bool = false, faultGuarded: bool = false, regionEntryLabels: int[]? = null) {
         Plan = plan
@@ -1549,6 +1658,7 @@ class ColumnarMoveNextEmit {
         IsAsync = isAsync
         NextResume = 0
         NextAwait = 0
+        NextLambda = 0
         FaultGuarded = faultGuarded
         RegionDepth = 0
         RegionEntryLabels = regionEntryLabels ?? new int[](0)
@@ -2228,6 +2338,9 @@ class ColumnarIteratorBodyPlanner {
         if emit.Context.Declined {
             return false
         }
+        if emit.Context.Nodes.Kind(node) == 39 {
+            return AppendLambda(emit, node, storageType)
+        }
         // The iterator-owned value forms take the ordinary value path plus the storage conversion; only
         // target-typed forms need the position's type handed down.
         if emit.Context.Nodes.Kind(node) == 44 {
@@ -2315,6 +2428,129 @@ class ColumnarIteratorBodyPlanner {
         }
         resultType = getResult.get_ReturnType()
         return !ColumnarCodePlanExecutor.IsVoidType(resultType)
+    }
+
+    // A LAMBDA, AS A METHOD ON THE STATE MACHINE ITSELF.
+    //
+    // A generator has already hoisted every parameter and every local of its body into a field of its
+    // own machine, so the machine IS the closure's display class — there is no second object to
+    // synthesize, and no capture to copy. The lambda becomes a private INSTANCE method on the machine
+    // whose argument 0 is that machine, and the delegate is built from the machine the body is
+    // already running on: `ldarg.0; ldftn <>__lambdaK; newobj <Delegate>..ctor`. An instance
+    // generator's enclosing members reach the same way they reach from the body, through `<>__this`.
+    //
+    // The lambda's SIGNATURE is the delegate's own `Invoke`, so the target type decides the parameter
+    // types and the result — the same rule an ordinary lambda conversion follows. Its body is planned
+    // by the ONE expression door, against a scope that differs from the body's in exactly one way:
+    // the lambda's parameters are arguments of its own.
+    static func AppendLambda(emit: ColumnarMoveNextEmit, node: int, delegateType: Type): bool {
+        nodes := emit.Context.Nodes
+        source := emit.Context.Source
+        invoke := DelegateInvokeOrNull(delegateType)
+        if invoke == null {
+            emit.Context.Decline("emit.iterator.lambda-unsupported", "a lambda in an iterator body needs a delegate type to convert to, not '" + delegateType.Name + "'")
+            return false
+        }
+        constructor := DelegateConstructorOrNull(delegateType)
+        if constructor == null {
+            emit.Context.Decline("emit.iterator.lambda-unsupported", "'" + delegateType.Name + "' has no (object, native int) constructor to build a lambda from")
+            return false
+        }
+        builder := emit.Context.Builder
+        if builder == null {
+            emit.Context.Decline("emit.iterator.lambda-unsupported", "a lambda in an iterator body requires the state-machine builder")
+            return false
+        }
+
+        invokeParameters := invoke.GetParameters()
+        childCount := nodes.ChildCount(node)
+        if childCount - 1 != invokeParameters.Length {
+            emit.Context.Decline("emit.iterator.lambda-unsupported", "this lambda declares " + (childCount - 1).ToString() + " parameter(s) but '" + delegateType.Name + "' takes " + invokeParameters.Length.ToString())
+            return false
+        }
+        parameterTypes := new Type[](invokeParameters.Length)
+        parameterOrdinals := new Dictionary<string, int>(StringComparer.Ordinal)
+        parameterTypeMap := new Dictionary<string, Type>(StringComparer.Ordinal)
+        p := 0
+        while p < invokeParameters.Length {
+            parameterTypes[p] = invokeParameters[p].get_ParameterType()
+            parameterName := nodes.Text(source, nodes.Child(node, p))
+            parameterOrdinals[parameterName] = p + 1
+            parameterTypeMap[parameterName] = parameterTypes[p]
+            p = p + 1
+        }
+        returnType: Type = invoke.get_ReturnType()
+
+        lambdaName := "<>__lambda" + emit.NextLambda.ToString()
+        emit.NextLambda = emit.NextLambda + 1
+        lambdaMethod := builder.DefineMethod(lambdaName, MethodAttributes.Private | MethodAttributes.HideBySig, returnType, parameterTypes)
+        if !AppendLambdaBody(emit, nodes.Child(node, childCount - 1), lambdaMethod, parameterOrdinals, parameterTypeMap, returnType) {
+            return false
+        }
+
+        lambdaHandle: MethodInfo = lambdaMethod
+        instantiation := emit.Context.GenericMemberType
+        if instantiation != null {
+            lambdaHandle = TypeBuilder.GetMethod(instantiation, lambdaMethod)
+        }
+        LoadThis(emit)
+        emit.Plan.AppendMethodInstruction(ColumnarCodePlanContract.Ldftn(), emit.Plan.AddMethod(lambdaHandle))
+        emit.Plan.AppendConstructorInstruction(ColumnarCodePlanContract.Newobj(), emit.Plan.AddConstructor(constructor))
+        return true
+    }
+
+    // The lambda's own body, planned into its own method. It is an EXPRESSION body — a block-bodied
+    // lambda is refused at classification — so the whole method is the value plus a `ret`.
+    static func AppendLambdaBody(emit: ColumnarMoveNextEmit, bodyNode: int, lambdaMethod: MethodBuilder, parameterOrdinals: Dictionary<string, int>, parameterTypes: Dictionary<string, Type>, returnType: Type): bool {
+        context := emit.Context
+        scope := ColumnarIteratorBodyScope.Create(context.StateMachineType, context.RequiredScope().Facts, null, parameterOrdinals, parameterTypes)
+        index := 0
+        while index < context.FieldNames.Length && index < context.Fields.Length {
+            if context.Fields[index] != null {
+                scope.PublishField(context.FieldNames[index], context.Fields[index])
+            }
+            index = index + 1
+        }
+        if scope.HasField("<>__this") {
+            receiver := scope.FieldHandle("<>__this")
+            member := 0
+            while member < context.EnclosingFieldNames.Length && member < context.EnclosingFields.Length {
+                scope.PublishEnclosingMember(context.EnclosingFieldNames[member], receiver, context.EnclosingFields[member])
+                member = member + 1
+            }
+        }
+
+        plan := new ColumnarCodePlan()
+        plan.PrepareMethodBody()
+        plan.AddArgument(0, plan.AddType(context.StructuralTypeReferences.SelectRuntimeType(context.StateMachineType), context.StructuralTypeReferences))
+        if !scope.TryAppendTargetTypedValue(context.Nodes, context.Source, bodyNode, plan, returnType) {
+            context.Decline("emit.iterator.lambda-unsupported", "the body of a lambda in an iterator body could not be lowered as '" + returnType.Name + "'")
+            return false
+        }
+        plan.AppendInstructionWithoutOperand(ColumnarCodePlanContract.Ret())
+        plan.CompleteMethodBody(returnType)
+        ColumnarCodePlanExecutor.Execute(plan, lambdaMethod.GetILGenerator())
+        return true
+    }
+
+    // A delegate's `Invoke`, which is the signature a lambda converted to it must have.
+    static func DelegateInvokeOrNull(delegateType: Type): MethodInfo? {
+        if delegateType == null || !typeof(Delegate).IsAssignableFrom(delegateType) {
+            return null
+        }
+        return delegateType.GetMethod("Invoke")
+    }
+
+    // The `(object, native int)` constructor every delegate declares, which is the second half of a
+    // delegate creation.
+    static func DelegateConstructorOrNull(delegateType: Type): ConstructorInfo? {
+        if delegateType == null || !typeof(Delegate).IsAssignableFrom(delegateType) {
+            return null
+        }
+        parameters := new Type[](2)
+        parameters[0] = typeof(object)
+        parameters[1] = typeof(IntPtr)
+        return delegateType.GetConstructor(parameters)
     }
 
     // A condition: an ordinary value the branch rows consume as a Boolean.

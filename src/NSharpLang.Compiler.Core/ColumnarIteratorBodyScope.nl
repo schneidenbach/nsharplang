@@ -145,7 +145,16 @@ class ColumnarIteratorBodyScope {
     // instantiation for a generic machine — so the identifier owner's `GetOrAddArgument` reuses that
     // pool row instead of adding a conflicting one.
     static func Create(stateMachineType: Type, facts: ColumnarIteratorBodyFacts, typeParameters: Dictionary<string, Type>?): ColumnarIteratorBodyScope {
-        if stateMachineType == null || facts == null {
+        return Create(stateMachineType, facts, typeParameters, new Dictionary<string, int>(StringComparer.Ordinal), new Dictionary<string, Type>(StringComparer.Ordinal))
+    }
+
+    // THE SAME SCOPE, FOR A METHOD THAT ALSO HAS ARGUMENTS OF ITS OWN. A lambda in a generator body
+    // becomes an INSTANCE METHOD on the state machine — the machine already holds every name the body
+    // binds, so it already IS the closure's display — and that method's own parameters are ordinary
+    // arguments 1..n beside the machine at argument 0. Nothing else about the body changes: the same
+    // fields, the same enclosing members, the same one expression door.
+    static func Create(stateMachineType: Type, facts: ColumnarIteratorBodyFacts, typeParameters: Dictionary<string, Type>?, parameterOrdinals: Dictionary<string, int>, parameterTypes: Dictionary<string, Type>): ColumnarIteratorBodyScope {
+        if stateMachineType == null || facts == null || parameterOrdinals == null || parameterTypes == null {
             throw new InvalidOperationException("An iterator body scope requires a state-machine type and its body facts.")
         }
 
@@ -156,8 +165,8 @@ class ColumnarIteratorBodyScope {
 
         emptyNames := new string[](0)
         bindings := ColumnarFragmentBindings.FromRawFacts(
-            new Dictionary<string, int>(StringComparer.Ordinal),
-            new Dictionary<string, Type>(StringComparer.Ordinal),
+            parameterOrdinals,
+            parameterTypes,
             new Dictionary<string, LocalBuilder>(StringComparer.Ordinal),
             facts.Enums,
             new Dictionary<string, (Box: LocalBuilder, ValueType: Type)>(StringComparer.Ordinal),
