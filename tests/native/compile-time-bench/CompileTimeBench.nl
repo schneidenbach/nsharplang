@@ -18,13 +18,17 @@ import System.Text.Json
 // only meaningful if the numerator is the source the command actually read. `nlc build` reaches
 // its source list through `ProjectConfig.GetSourceFiles(projectRoot, includeTests: false)`
 // (`Program.Backends.cs` -> `CompileProjectWithIlBackend`), and `nlc check` reaches the SAME
-// function through `CodeIntelligenceService.LoadProject` ->
+// function through `CodeIntelligenceService.LoadProjectIncludingTests` ->
 // `MultiFileCompilerInputBuilder.BuildFromProject` -> `MultiFileCompilerInputBuilder.DiscoverSourceFiles`,
-// which also passes `false`. So build and check read one file set, not two, and this file
-// replicates that one rule: a recursive `*.nl` walk that skips the directory names
-// `ProjectConfig.ShouldSkipSourceDirectory` skips, minus the paths ending in `.tests.nl`. The
-// replication is not trusted on its word either — every measured row cross-checks its own file
-// count against the `checkedFiles` field of `nlc check --json`, which is
+// which passes `true`.
+//
+// SO THE TWO COMMANDS DO NOT SELECT THE SAME FILE SET, AND EACH IS REPLICATED ON ITS OWN TERMS.
+// `nlc check` answers about the program `nlc test` compiles, which is the project's sources PLUS
+// its `*.tests.nl` files; `nlc build` answers about the shipped assembly, which is the sources
+// alone. Both selections are the same recursive `*.nl` walk that skips the directory names
+// `ProjectConfig.ShouldSkipSourceDirectory` skips; only the `.tests.nl` arm differs. The
+// replication is not trusted on its word either — every measured `check` row cross-checks its own
+// file count against the `checkedFiles` field of `nlc check --json`, which is
 // `snapshot.SourceFiles.Count` straight from the compiler.
 //
 // WHAT IS NOT REPLICATED, AND WHY THAT IS SAFE HERE. `ProjectSourceFileFilter` also drops paths
@@ -606,12 +610,13 @@ func BenchFirstToken(line: string): string {
 // ─── THE THREE STATUSES A PROJECT ROW CAN HAVE ────────────────────────────────────────────────
 
 // A project whose replicated selection yields ZERO files is NOT a project that failed to compile.
-// 29 of the 68 corpus projects are of this shape: they hold only `.tests.nl` files, which
-// `nlc build` and `nlc check` both exclude, so both commands have nothing to compile and exit 1.
-// Recording that as `ok=false` would misstate the compiler — it would read as 29 broken projects
-// when the truth is that `nlc test` is the command that compiles them, in the product gate's
-// Step 3a. So they are classified instead: no command is spawned for them at all, and their row
-// carries this status, zero runs and no medians.
+// Many corpus projects are of this shape: they hold only `.tests.nl` files, which `nlc build`
+// excludes, so `build` has nothing to compile and exits 1. Recording that as `ok=false` would
+// misstate the compiler — it would read as a broken project when the truth is that `nlc test` is
+// the command that compiles it, in the product gate's Step 3a. So they are classified instead: the
+// command is not spawned for them at all, and their row carries this status, zero runs and no
+// medians. `nlc check` DOES read those files, so a test-only project is measured for `check` and
+// classified only for `build`.
 func BenchNoSourcesStatus(): string {
     return "no non-test sources"
 }
@@ -765,22 +770,29 @@ func BenchIsTestSourcePath(path: string): bool {
     return path.ToLowerInvariant().EndsWith(".tests.nl")
 }
 
-// Every `.nl` file `nlc build` and `nlc check` compile for this project, in walk order.
+// Every `.nl` file `nlc build` compiles for this project, in walk order.
 func BenchCollectProjectSourceFiles(projectRoot: string): List<string> {
+    return BenchCollectSelectedProjectSourceFiles(projectRoot, false)
+}
+
+// `includeTests` selects between the two file sets described in this file's header: `false` is
+// what `nlc build` compiles, `true` is what `nlc check` and `nlc test` compile. It is a SEPARATE
+// NAME rather than a second arity because N# free functions do not overload (NL401).
+func BenchCollectSelectedProjectSourceFiles(projectRoot: string, includeTests: bool): List<string> {
     files := new List<string>()
     if Directory.Exists(projectRoot) {
-        BenchCollectProjectSourceFilesRecursive(Path.GetFullPath(projectRoot), files)
+        BenchCollectProjectSourceFilesRecursive(Path.GetFullPath(projectRoot), files, includeTests)
     }
 
     return files
 }
 
-func BenchCollectProjectSourceFilesRecursive(directory: string, files: List<string>) {
+func BenchCollectProjectSourceFilesRecursive(directory: string, files: List<string>, includeTests: bool) {
     directoryFiles := Directory.GetFiles(directory, "*.nl", SearchOption.TopDirectoryOnly)
     BenchSortStringArray(directoryFiles)
     i := 0
     while i < directoryFiles.Length {
-        if !BenchIsTestSourcePath(directoryFiles[i]) {
+        if includeTests || !BenchIsTestSourcePath(directoryFiles[i]) {
             files.Add(directoryFiles[i])
         }
 
@@ -793,7 +805,7 @@ func BenchCollectProjectSourceFilesRecursive(directory: string, files: List<stri
     while j < subdirectories.Length {
         name := Path.GetFileName(subdirectories[j]) ?? ""
         if !BenchShouldSkipSourceDirectory(name) {
-            BenchCollectProjectSourceFilesRecursive(subdirectories[j], files)
+            BenchCollectProjectSourceFilesRecursive(subdirectories[j], files, includeTests)
         }
 
         j = j + 1
@@ -826,7 +838,11 @@ class BenchSourceMeasure {
 }
 
 func BenchMeasureProjectSources(projectRoot: string): BenchSourceMeasure {
-    files := BenchCollectProjectSourceFiles(projectRoot)
+    return BenchMeasureSelectedProjectSources(projectRoot, false)
+}
+
+func BenchMeasureSelectedProjectSources(projectRoot: string, includeTests: bool): BenchSourceMeasure {
+    files := BenchCollectSelectedProjectSourceFiles(projectRoot, includeTests)
     lines := 0L
     i := 0
     while i < files.Count {

@@ -11,6 +11,14 @@ import NSharpLang.Compiler.CodeIntelligence
 // The check command owns the complete analysis-to-output route. It deliberately shares the
 // compiler-service facade and output formatter with query/daemon callers so a command invocation
 // cannot drift from the public diagnostic schemas.
+//
+// CHECK READS `*.tests.nl`, AND THAT IS THE WHOLE POINT OF THE COMMAND. `nlc test` compiles the test
+// files with the rest of the project, so a `check` that skipped them answered about a DIFFERENT
+// program than the one that gets built: a project made entirely of test files reported
+// `checkedFiles: 0` and `ok: true` while `nlc test` failed on the first lint error in it. Both the
+// analysis snapshot and the IL verification below therefore take the `nlc test` file list. No schema
+// field moves for this: the test files are counted in the existing `checkedFiles` and their
+// diagnostics arrive in the existing `results`, so `schemaVersion` stays 1.
 class CheckCommand {
     static func Execute(args: string[]): int {
         arguments := CheckCommandKernels.GetArgumentSummary(args)
@@ -37,13 +45,13 @@ class CheckCommand {
         try {
             projectConfig := ProjectFileParser.ParseFromDirectory(projectDir)
             if projectConfig != null {
-                referenceOptions := new ReferenceResolutionOptions("Debug", false, true, false, aot)
+                referenceOptions := new ReferenceResolutionOptions("Debug", true, true, false, aot)
                 CompilationReferenceResolver.AddResolvedDllReferences(projectDir, projectConfig, referenceOptions)
             }
 
             CompilationBackendSelectionKernels.Validate(arguments.BackendOption, projectConfig)
             service := new CodeIntelligenceService()
-            snapshot := service.LoadProject(projectDir, projectConfig, null)
+            snapshot := service.LoadProjectIncludingTests(projectDir, projectConfig, null)
             diagnostics := service.GetDiagnostics(snapshot, null)
             diagnostics = OutputFormatter.DeduplicateAndSortDiagnostics(diagnostics)
             summary := OutputFormatter.SummarizeDiagnostics(diagnostics)
@@ -113,7 +121,7 @@ class CheckCommand {
             Directory.CreateDirectory(tempDir)
             assemblyName := CompilationReferenceResolver.GetProjectAssemblyName(projectDir, effectiveConfig)
             outputPath := CheckCommandKernels.GetVerificationOutputPath(tempDir, assemblyName)
-            compiler := new MultiFileCompiler(projectDir, effectiveConfig) { AotMode: aotMode }
+            compiler := new MultiFileCompiler(projectDir, effectiveConfig, null, true) { AotMode: aotMode }
             compileResult := compiler.CompileToIlAssembly(assemblyName, outputPath, false, true)
 
             if !compileResult.Success {

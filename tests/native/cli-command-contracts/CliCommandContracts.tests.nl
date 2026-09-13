@@ -4,6 +4,7 @@ import System
 import System.Collections.Generic
 import System.Diagnostics
 import System.IO
+import System.Text
 import System.Text.Json
 
 
@@ -3260,4 +3261,274 @@ test "nlc check reports NL208 for a violated INTERFACE constraint, and accepts a
 test "an UNCONSTRAINED generic type accepts every argument, so the checker is not merely refusing" {
     output := ConstraintCheckOutput("class Any<T> {\n    Value: T\n}\n\nfunc main() {\n    a := new Any<string>()\n    b := new Any<int>()\n    ok := a != null && b != null\n    print ok\n}\n")
     assert !output.Contains("NL208"), output
+}
+
+// ═══ `nlc check` READS `*.tests.nl` ════════════════════════════════════════════════════════════
+//
+// A `.tests.nl` file is N# source that happens to declare `test` blocks, and `nlc test` compiles it
+// with the rest of the project. `check` used to skip those files entirely: a project made of test
+// files answered `checkedFiles: 0` with `ok: true` while `nlc test` on the SAME directory stopped at
+// the first lint error in them. The two commands now read one file list, so `check` is an honest
+// answer about the program that gets built rather than about a subset of it.
+//
+// NOTHING IN THE ENVELOPE MOVES FOR THIS. The test files are counted in the existing `checkedFiles`
+// and their diagnostics arrive in the existing `results`, so `schemaVersion` stays 1.
+
+func CountFilesEndingWith(directory: string, suffix: string): int {
+    files := Directory.GetFiles(directory, "*.nl", SearchOption.AllDirectories)
+    seen := 0
+    index := 0
+    while index < files.Length {
+        if files[index].EndsWith(suffix, StringComparison.OrdinalIgnoreCase) {
+            seen = seen + 1
+        }
+
+        index = index + 1
+    }
+
+    return seen
+}
+
+test "nlc check counts every .nl file in a native test project, tests included" {
+    project := Path.Combine(Path.Combine(CliRepositoryRoot(), "tests"), Path.Combine("native", "census-flow-rules"))
+    allFiles := Directory.GetFiles(project, "*.nl", SearchOption.AllDirectories).Length
+    testFiles := CountFilesEndingWith(project, ".tests.nl")
+
+    // The fixture is only interesting while it HAS test files and non-test files both.
+    assert testFiles > 0
+    assert allFiles > testFiles
+
+    run := NlcIn(project, "check")
+
+    assert run.ExitCode == 0, run.Stdout + run.Stderr
+    document := JsonDocument.Parse(run.Stdout)
+    root := document.RootElement
+    assert root.GetProperty("schemaVersion").GetInt32() == 1
+    assert root.GetProperty("checkedFiles").GetInt32() == allFiles, run.Stdout
+    assert root.GetProperty("ok").GetBoolean(), run.Stdout
+    document.Dispose()
+}
+
+test "nlc check reports a lint error that lives only in a .tests.nl file" {
+    directory := NewTempDirectory("nlc-check-tests-nl")
+    try {
+        WriteProjectYml(directory, "name: CheckTestsOnly\nversion: 0.1.0\nbackend: il\noutputType: library\ntargetFramework: net10.0\n")
+        File.WriteAllText(
+            Path.Combine(directory, "Probe.tests.nl"),
+            "namespace CheckTestsOnly\n\nimport System.Text\n\ntest \"arithmetic holds\" {\n    assert 1 + 1 == 2\n}\n"
+        )
+
+        run := NlcIn(directory, "check")
+
+        assert run.ExitCode == 1, run.Stdout + run.Stderr
+        document := JsonDocument.Parse(run.Stdout)
+        root := document.RootElement
+        assert root.GetProperty("checkedFiles").GetInt32() == 1, run.Stdout
+        assert !root.GetProperty("ok").GetBoolean()
+        assert root.GetProperty("results").GetArrayLength() == 1, run.Stdout
+        result := ElementAt(root.GetProperty("results"), 0)
+        assert TextOf(result.GetProperty("code")) == "NL010"
+        assert TextOf(result.GetProperty("file")) == "Probe.tests.nl"
+        assert result.GetProperty("line").GetInt32() == 3
+        document.Dispose()
+    } finally {
+        Directory.Delete(directory, true)
+    }
+}
+
+test "nlc check and nlc test read the same file list, so a clean test file keeps both green" {
+    directory := NewTempDirectory("nlc-check-tests-agree")
+    try {
+        WriteProjectYml(directory, "name: CheckTestsAgree\nversion: 0.1.0\nbackend: il\noutputType: library\ntargetFramework: net10.0\n")
+        File.WriteAllText(Path.Combine(directory, "Math.nl"), "namespace CheckTestsAgree\n\nfunc Twice(value: int): int {\n    return value * 2\n}\n")
+        File.WriteAllText(
+            Path.Combine(directory, "Math.tests.nl"),
+            "namespace CheckTestsAgree\n\ntest \"Twice doubles\" {\n    assert Twice(3) == 6\n}\n"
+        )
+
+        checkRun := NlcIn(directory, "check")
+        assert checkRun.ExitCode == 0, checkRun.Stdout + checkRun.Stderr
+        document := JsonDocument.Parse(checkRun.Stdout)
+        assert document.RootElement.GetProperty("checkedFiles").GetInt32() == 2, checkRun.Stdout
+        document.Dispose()
+
+        testRun := NlcIn(directory, "test")
+        assert testRun.ExitCode == 0, testRun.Stdout + testRun.Stderr
+    } finally {
+        Directory.Delete(directory, true)
+    }
+}
+
+// ═══ NL111: A DEEPLY NESTED EXPRESSION IS REFUSED, NOT A CRASH ════════════════════════════════
+//
+// Measured at 0bd1cf46d: a generated source of 2,000 nested parentheses killed `nlc check`,
+// `nlc build`, `nlc lint` and `nlc format` with a bare `Stack overflow.` and exit status 134 — no
+// code, no file name, no line, and no way for a developer to know what happened. 2,000 nested
+// lambdas did the same, and an 8,000-term `||` chain killed the downstream walkers even though this
+// parser folds such a chain iteratively and survived it itself.
+//
+// These rows are the bound stated as a process fact, over all three shapes and all four commands.
+// They also PIN THE PAGE: `website/docs/errors/NL111.md` is exempt from the source-repro rule in
+// `tests/native/error-docs-contract` precisely because its reproducer has to be generated, and this
+// is where that exemption is discharged — the limit the page publishes and the sentence it quotes
+// are read back out of the shipped compiler.
+//
+// THE EXACT BOUNDARY, MEASURED: `return` plus 511 parentheses compiles and 512 does not, because the
+// expression a statement starts with is level 1. The rows below generate four times the limit, so
+// they state the RULE rather than the boundary; the boundary itself is stated by the row that
+// compiles 100 levels.
+
+func NestingLimit(): int {
+    return 512
+}
+
+func RepeatText(unit: string, times: int): string {
+    builder := new StringBuilder()
+    index := 0
+    while index < times {
+        builder.Append(unit)
+        index = index + 1
+    }
+
+    return builder.ToString()
+}
+
+// The three shapes the brief names, each generated past the limit. `levels` counts written nesting,
+// not the compiler's own count: the parser's counter is an upper bound on tree depth (see
+// `ColumnarParserRecovery.MaxExpressionNestingDepth`), so a source written this deep is always
+// refused and never merely close.
+func DeepParenSource(levels: int): string {
+    return "namespace DeepProbe\n\nfunc Deep(): int {\n    return " + RepeatText("(", levels) + "1" + RepeatText(")", levels) + "\n}\n"
+}
+
+func DeepLambdaSource(levels: int): string {
+    return "namespace DeepProbe\n\nfunc Deep(): int {\n    f := " + RepeatText("x => (", levels) + "1" + RepeatText(")", levels) + "\n    return 0\n}\n"
+}
+
+func DeepChainSource(terms: int): string {
+    builder := new StringBuilder()
+    builder.Append("namespace DeepProbe\n\nfunc Deep(): bool {\n    w := \"x\"\n    return w == \"a0\"")
+    index := 1
+    while index < terms {
+        builder.Append(" || w == \"a")
+        builder.Append(index.ToString())
+        builder.Append("\"")
+        index = index + 1
+    }
+
+    builder.Append("\n}\n")
+    return builder.ToString()
+}
+
+func WriteDeepProject(directory: string, source: string) {
+    WriteProjectYml(directory, "name: DeepProbe\nversion: 0.1.0\nbackend: il\noutputType: library\ntargetFramework: net10.0\n")
+    File.WriteAllText(Path.Combine(directory, "Deep.nl"), source)
+}
+
+// The sentence the page publishes, built from the limit the page publishes.
+func NestingMessage(): string {
+    return "Expression nested more than " + NestingLimit().ToString() + " levels deep"
+}
+
+test "a generated deep expression is refused by nlc check with NL111, not a stack overflow" {
+    directory := NewTempDirectory("nlc-deep-check")
+    try {
+        WriteDeepProject(directory, DeepParenSource(NestingLimit() * 4))
+
+        run := NlcIn(directory, "check")
+
+        // 134 is the shell's report of SIGABRT, which is how a .NET stack overflow ends a process.
+        assert run.ExitCode == 1, "exit " + run.ExitCode.ToString() + " :: " + run.Stdout + run.Stderr
+        assert !run.Stdout.Contains("Stack overflow"), run.Stdout
+        assert !run.Stderr.Contains("Stack overflow"), run.Stderr
+        document := JsonDocument.Parse(run.Stdout)
+        root := document.RootElement
+        assert root.GetProperty("checkedFiles").GetInt32() == 1
+        assert !root.GetProperty("ok").GetBoolean()
+        result := ElementAt(root.GetProperty("results"), 0)
+        assert TextOf(result.GetProperty("code")) == "NL111", run.Stdout
+        assert TextOf(result.GetProperty("message")) == NestingMessage(), run.Stdout
+        assert result.GetProperty("line").GetInt32() == 4
+        document.Dispose()
+    } finally {
+        Directory.Delete(directory, true)
+    }
+}
+
+test "nlc build, lint and format all refuse a generated deep expression by name" {
+    directory := NewTempDirectory("nlc-deep-commands")
+    try {
+        WriteDeepProject(directory, DeepParenSource(NestingLimit() * 4))
+
+        buildRun := NlcIn(directory, "build")
+        assert buildRun.ExitCode == 1, buildRun.Stdout + buildRun.Stderr
+        assert buildRun.Stderr.Contains(NestingMessage()), buildRun.Stderr
+        assert !buildRun.Stdout.Contains("Stack overflow")
+        assert !buildRun.Stderr.Contains("Stack overflow")
+
+        lintRun := NlcIn(directory, "lint --text")
+        assert lintRun.ExitCode == 1, lintRun.Stdout + lintRun.Stderr
+        assert (lintRun.Stdout + lintRun.Stderr).Contains(NestingMessage()), lintRun.Stdout + lintRun.Stderr
+        assert !(lintRun.Stdout + lintRun.Stderr).Contains("Stack overflow")
+
+        formatRun := NlcIn(directory, "format --check")
+        assert formatRun.ExitCode == 1, formatRun.Stdout + formatRun.Stderr
+        assert (formatRun.Stdout + formatRun.Stderr).Contains(NestingMessage()), formatRun.Stdout + formatRun.Stderr
+        assert !(formatRun.Stdout + formatRun.Stderr).Contains("Stack overflow")
+    } finally {
+        Directory.Delete(directory, true)
+    }
+}
+
+test "nested lambdas and a long operator chain reach the same bound as nested parentheses" {
+    lambdaDirectory := NewTempDirectory("nlc-deep-lambda")
+    try {
+        WriteDeepProject(lambdaDirectory, DeepLambdaSource(NestingLimit() * 4))
+        run := NlcIn(lambdaDirectory, "check")
+        assert run.ExitCode == 1, run.Stdout + run.Stderr
+        assert !run.Stdout.Contains("Stack overflow")
+        assert run.Stdout.Contains("NL111"), run.Stdout
+    } finally {
+        Directory.Delete(lambdaDirectory, true)
+    }
+
+    chainDirectory := NewTempDirectory("nlc-deep-chain")
+    try {
+        // The chain the parser folds ITERATIVELY: it never overflowed here, and it killed the
+        // linter, the formatter and the analyzer, all of which walk the resulting tree recursively.
+        WriteDeepProject(chainDirectory, DeepChainSource(NestingLimit() * 4))
+        run := NlcIn(chainDirectory, "check")
+        assert run.ExitCode == 1, run.Stdout + run.Stderr
+        assert !run.Stdout.Contains("Stack overflow")
+        assert run.Stdout.Contains("NL111"), run.Stdout
+    } finally {
+        Directory.Delete(chainDirectory, true)
+    }
+}
+
+// THE BOUND IS A BOUND AND NOT A BAN. The deepest expression measured in the compiler's own 412,000
+// lines is 8 levels and the deepest in a large machine-converted corpus is 70, so ordinary source is
+// nowhere near this. A hundred levels — more than any measured real source — still compiles.
+test "an expression far deeper than any real source, but under the bound, still compiles" {
+    directory := NewTempDirectory("nlc-deep-ok")
+    try {
+        WriteDeepProject(directory, DeepParenSource(100))
+
+        run := NlcIn(directory, "check")
+
+        assert run.ExitCode == 0, run.Stdout + run.Stderr
+        assert !run.Stdout.Contains("NL111"), run.Stdout
+    } finally {
+        Directory.Delete(directory, true)
+    }
+}
+
+// The page and the compiler agree on the number, which is what makes the source-repro exemption in
+// `tests/native/error-docs-contract` honest rather than a hole.
+test "the NL111 page publishes the limit and the sentence the compiler prints" {
+    page := Path.Combine(Path.Combine(Path.Combine(Path.Combine(CliRepositoryRoot(), "website"), "docs"), "errors"), "NL111.md")
+    assert File.Exists(page), page
+    text := File.ReadAllText(page)
+    assert text.Contains("**" + NestingLimit().ToString() + " levels deep**"), text
+    assert text.Contains(NestingMessage()), text
 }

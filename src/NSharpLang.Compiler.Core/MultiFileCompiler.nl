@@ -74,7 +74,14 @@ class MultiFileCompiler {
     constructor(projectRoot: string, config: ProjectConfig? = null): this(projectRoot, config, null) {
     }
 
-    constructor(projectRoot: string, config: ProjectConfig?, sourceTextOverrides: IReadOnlyDictionary<string, string>?): this(BuildProjectInputs(projectRoot, config, sourceTextOverrides), projectRoot, config) {
+    constructor(projectRoot: string, config: ProjectConfig?, sourceTextOverrides: IReadOnlyDictionary<string, string>?): this(BuildProjectInputs(projectRoot, config, sourceTextOverrides, false), projectRoot, config) {
+    }
+
+    // THE TEST-FILE ARM. `.tests.nl` files are ordinary N# source that happens to declare `test` blocks,
+    // and `nlc test` compiles them with the rest of the project; a caller that wants the SAME file list
+    // `nlc test` compiles — `nlc check`, so a project made of test files is not silently reported clean —
+    // asks for it here rather than rediscovering the files itself.
+    constructor(projectRoot: string, config: ProjectConfig?, sourceTextOverrides: IReadOnlyDictionary<string, string>?, includeTests: bool): this(BuildProjectInputs(projectRoot, config, sourceTextOverrides, includeTests), projectRoot, config) {
     }
 
     constructor(sourceFiles: IEnumerable<string>, projectRoot: string, config: ProjectConfig? = null): this(sourceFiles, projectRoot, config, null) {
@@ -110,7 +117,7 @@ class MultiFileCompiler {
         _sharedAnalyzer.LoadFromProjectConfig(_config, _projectRoot)
     }
 
-    private static func BuildProjectInputs(projectRoot: string, config: ProjectConfig?, sourceTextOverrides: IReadOnlyDictionary<string, string>?): MultiFileCompilerInputs {
+    private static func BuildProjectInputs(projectRoot: string, config: ProjectConfig?, sourceTextOverrides: IReadOnlyDictionary<string, string>?, includeTests: bool): MultiFileCompilerInputs {
         copied := CopySourceTextOverrides(sourceTextOverrides)
         paths := copied.Item1
         texts := copied.Item2
@@ -118,7 +125,8 @@ class MultiFileCompiler {
             projectRoot,
             config ?? ProjectFileParser.CreateDefault(null),
             paths,
-            texts
+            texts,
+            includeTests
         )
     }
 

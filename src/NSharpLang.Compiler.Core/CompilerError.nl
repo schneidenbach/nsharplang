@@ -210,6 +210,24 @@ record CompilerError(code: ErrorCode, message: string, line: int, column: int, s
         return FormatRustStyle(useColors)
     }
 
+    // THE ELM BODY LEADS WITH `Message`, AND IT DID NOT USED TO.
+    //
+    // `HumanExplanation` is the ELABORATION of a diagnostic, not the diagnostic: it says what kind of
+    // mistake this is, in a sentence that is the same for every instance of the code. The INSTANCE —
+    // which assembly, which member, which columnar decline site — is in `Message`, and this renderer
+    // dropped it. `nlc build` prints through here, so a columnar decline reached a developer as
+    //
+    //     -- ERROR ---  Probe.nl
+    //     This product path requires successful N# columnar emission after analysis passes.
+    //
+    // with no site, no code and nothing to act on, while `nlc check --text` on the same source named
+    // `Declined at parse.interface: ... (Probe.nl:3:1)`. Two commands, one compiler, two different
+    // accounts of the same failure. The message is now the body's first paragraph, in the order
+    // `OutputFormatterTextBuilders.FormatSingleDiagnosticText` — the renderer `check --text` uses —
+    // already puts it: the instance first, its elaboration second.
+    //
+    // A DIAGNOSTIC WHOSE MESSAGE IS ITS EXPLANATION IS NOT PRINTED TWICE. Several owners pass the same
+    // sentence to both fields; rendering it once is what keeps this from reading as a stutter.
     func FormatElmStyle(useColors: bool): string {
         builder := new StringBuilder()
         severityText := GetElmSeverityText()
@@ -227,7 +245,13 @@ record CompilerError(code: ErrorCode, message: string, line: int, column: int, s
         }
 
         builder.AppendLine()
-        builder.AppendLine(HumanExplanation ?? "")
+        explanation := HumanExplanation ?? ""
+        if HasText(Message) && NormalizeInlineText(Message) != NormalizeInlineText(explanation) {
+            builder.AppendLine(Message)
+            builder.AppendLine()
+        }
+
+        builder.AppendLine(explanation)
         builder.AppendLine()
 
         if SourceSnippet != null {
@@ -283,11 +307,26 @@ record CompilerError(code: ErrorCode, message: string, line: int, column: int, s
             }
         }
 
-        if DocsUrl != null {
+        // The SINGULAR suggestion, on the same precedence rule `FormatForTooling` and
+        // `FormatForMsBuild` already use: a `Suggestions` LIST replaces it, never joins it. This
+        // renderer used to drop it entirely, so the one sentence telling a developer what to DO about
+        // a columnar decline reached `nlc check --text` and never reached `nlc build`.
+        if !renderedSuggestions && HasText(Suggestion) {
+            builder.AppendLine("Suggestion: " + (Suggestion ?? "").Trim())
+            builder.AppendLine()
+        }
+
+        // EVERY DIAGNOSTIC HAS A PAGE, SO EVERY RENDERING NAMES IT. `tests/native/error-docs-contract`
+        // refuses a catalog code with no `website/docs/errors/<code>.md`, which is what makes the
+        // fallback honest rather than a guessed link; `nlc check --text` has resolved it this way
+        // through `CodeIntelligenceDiagnostics.FromCompilerError` all along, and this is the same
+        // resolution rather than a second one.
+        docsUrl := DocsUrl ?? DiagnosticCatalog.DocsUrlFor(DiagnosticId)
+        if HasText(docsUrl) {
             if useColors {
-                builder.AppendLine($"{cyan}Read more:{reset} {DocsUrl}")
+                builder.AppendLine($"{cyan}Read more:{reset} {docsUrl}")
             } else {
-                builder.AppendLine($"Read more: {DocsUrl}")
+                builder.AppendLine($"Read more: {docsUrl}")
             }
         }
 

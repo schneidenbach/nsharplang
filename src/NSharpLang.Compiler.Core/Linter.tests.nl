@@ -1032,6 +1032,83 @@ test "NL010 flags a FILE IMPORT when only a NESTED type of it is named" {
     Directory.Delete(directory, true)
 }
 
+// ── NL010: EVERY AST POSITION THAT CAN NAME A TYPE ────────────────────────────────────────────
+//
+// NL010's answer is only as good as the ledger of names the walk builds, and the walk did not reach
+// every position a type can be WRITTEN in. Each row below was a measured false positive: the import
+// was live, the rule said it was dead, and `nlc fix`'s "Remove unused import" — which is driven by
+// this same diagnostic — offered to delete it. Every row is paired with its NEGATIVE, so a row
+// cannot be satisfied by the rule going quiet: the same position with a DIFFERENT import still
+// reports.
+
+test "NL010 counts an ATTRIBUTE on a free function as usage" {
+    assert LntCountOf(LntLint("import System\n\n[Obsolete(\"old\")]\nfunc Legacy(): int {\n    return 1\n}"), "NL010") == 0
+}
+
+test "NL010 counts an ATTRIBUTE on a free function — and still flags the import next to it" {
+    assert LntCountOf(LntLint("import System\nimport System.Linq\n\n[Obsolete(\"old\")]\nfunc Legacy(): int {\n    return 1\n}"), "NL010") == 1
+}
+
+test "NL010 counts an ATTRIBUTE on a class as usage" {
+    assert LntCountOf(LntLint("import System\n\n[Serializable]\nclass Box {\n    Value: int\n}"), "NL010") == 0
+}
+
+test "NL010 counts an ATTRIBUTE on a member as usage" {
+    assert LntCountOf(LntLint("import System\n\nclass Box {\n    [Obsolete(\"old\")]\n    Value: int\n}"), "NL010") == 0
+}
+
+test "NL010 counts an ATTRIBUTE written with its Attribute SUFFIX as usage" {
+    assert LntCountOf(LntLint("import System\n\n[ObsoleteAttribute(\"old\")]\nfunc Legacy(): int {\n    return 1\n}"), "NL010") == 0
+}
+
+test "NL010 counts an identifier inside an ATTRIBUTE ARGUMENT as usage" {
+    assert LntCountOf(LntLint("import System\n\n[Obsolete(\"old\")]\nclass Box {\n    Value: int\n}"), "NL010") == 0
+}
+
+test "NL010 counts a Func DELEGATE TYPE in a signature as usage" {
+    assert LntCountOf(LntLint("import System\n\nfunc Apply(f: Func<int, int>): int {\n    return f(1)\n}"), "NL010") == 0
+}
+
+test "NL010 counts a Func DELEGATE TYPE — and still flags the import next to it" {
+    assert LntCountOf(LntLint("import System\nimport System.Linq\n\nfunc Apply(f: Func<int, int>): int {\n    return f(1)\n}"), "NL010") == 1
+}
+
+test "NL010 counts a Func DELEGATE TYPE on a FIELD as usage" {
+    assert LntCountOf(LntLint("import System\n\nclass Holder {\n    Predicate: Func<int, bool>\n}"), "NL010") == 0
+}
+
+test "NL010 counts a Func DELEGATE TYPE's ARGUMENT names as usage" {
+    assert LntCountOf(LntLint("import System.Text\n\nfunc Describe(f: Func<StringBuilder, int>): int {\n    return f(nil)\n}"), "NL010") == 0
+}
+
+test "NL010 counts a TYPE ARGUMENT of a new expression as usage" {
+    assert LntCountOf(LntLint("import System.Collections.Generic\nimport System.Text\n\nfunc Build(): int {\n    items := new List<StringBuilder>()\n    return items.Count\n}"), "NL010") == 0
+}
+
+test "NL010 counts a TYPE ARGUMENT of a new expression — and still flags the import next to it" {
+    assert LntCountOf(LntLint("import System.Collections.Generic\nimport System.Text\nimport System.Net.Http\n\nfunc Build(): int {\n    items := new List<StringBuilder>()\n    return items.Count\n}"), "NL010") == 1
+}
+
+test "NL010 counts a CATCH CLAUSE's exception type as usage" {
+    assert LntCountOf(LntLint("import System\n\nfunc Guarded(): int {\n    try {\n        return 1\n    } catch ex: InvalidOperationException {\n        return 0\n    }\n}"), "NL010") == 0
+}
+
+test "NL010 counts a UNION CASE payload type as usage" {
+    assert LntCountOf(LntLint("import System.Text\n\nunion Outcome {\n    Ok { Builder: StringBuilder }\n    Err { Reason: string }\n}"), "NL010") == 0
+}
+
+test "NL010 counts a UNION CASE payload type — and still flags the import next to it" {
+    assert LntCountOf(LntLint("import System.Text\nimport System.Linq\n\nunion Outcome {\n    Ok { Builder: StringBuilder }\n    Err { Reason: string }\n}"), "NL010") == 1
+}
+
+test "NL010 counts a TYPE ALIAS target as usage" {
+    assert LntCountOf(LntLint("import System.Text\n\ntype Writer = StringBuilder"), "NL010") == 0
+}
+
+test "NL010 counts a CONSTRUCTOR PARAMETER's declared type as usage" {
+    assert LntCountOf(LntLint("import System.Text\n\nclass Holder {\n    Builder: StringBuilder\n\n    constructor(builder: StringBuilder) {\n        Builder = builder\n    }\n}"), "NL010") == 0
+}
+
 // ── NL016: redundant null check on an always-non-null expression ──────────────────────────────
 
 test "NL016 errors on a `new` expression compared to null" {

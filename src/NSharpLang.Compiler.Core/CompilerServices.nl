@@ -77,7 +77,11 @@ class MultiFileCompilerInputBuilder {
     }
 
     static func BuildFromProject(projectRoot: string, config: ProjectConfig, sourceTextOverridePaths: string[], sourceTextOverrideTexts: string[]): MultiFileCompilerInputs {
-        return Build(DiscoverSourceFiles(projectRoot, config), config, sourceTextOverridePaths, sourceTextOverrideTexts)
+        return Build(DiscoverSourceFiles(projectRoot, config, false), config, sourceTextOverridePaths, sourceTextOverrideTexts)
+    }
+
+    static func BuildFromProject(projectRoot: string, config: ProjectConfig, sourceTextOverridePaths: string[], sourceTextOverrideTexts: string[], includeTests: bool): MultiFileCompilerInputs {
+        return Build(DiscoverSourceFiles(projectRoot, config, includeTests), config, sourceTextOverridePaths, sourceTextOverrideTexts)
     }
 
     static func NormalizeSourceFiles(sourceFiles: IReadOnlyList<string>, sourceTextOverridePaths: string[], sourceTextOverrideTexts: string[], normalizedOverrides: Dictionary<string, string>): List<string> {
@@ -125,13 +129,16 @@ class MultiFileCompilerInputBuilder {
         return symbols
     }
 
-    static func DiscoverSourceFiles(projectRoot: string, config: ProjectConfig): List<string> {
+    // `includeTests` decides ONE thing: whether `*.tests.nl` joins the file list. It is the same switch
+    // `ProjectConfig.GetSourceFiles` takes, threaded out to the caller so `nlc check` and `nlc test`
+    // can agree on what a project's source IS instead of answering from two different file lists.
+    static func DiscoverSourceFiles(projectRoot: string, config: ProjectConfig, includeTests: bool): List<string> {
         result := new List<string>()
         if !Directory.Exists(projectRoot) {
             return result
         }
 
-        sourceFiles := config.GetSourceFiles(projectRoot, false)
+        sourceFiles := config.GetSourceFiles(projectRoot, includeTests)
         i := 0
         while i < sourceFiles.Length {
             result.Add(Path.GetFullPath(sourceFiles[i]))

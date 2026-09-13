@@ -1288,9 +1288,9 @@ Two rules the compiler enforces about the type-argument list itself:
   a single `MethodImplOptions` value or a flags combination. Treat inlining hints as unavailable
   rather than applied.
 - A **catch clause's exception type must be a simple name**: `catch ex: System.InvalidOperationException`
-  does not parse, `import System` plus `catch ex: InvalidOperationException` does. Relatedly, a type
-  used ONLY as a catch type or only inside a delegate type in a signature does not yet count as a use
-  of its import, so `NL010` can report an import that is in fact needed.
+  does not parse, `import System` plus `catch ex: InvalidOperationException` does. (A type used only
+  as a catch type, only inside a `Func<…>` in a signature, only in an attribute or only as a type
+  argument DOES now count as a use of its import; `NL010` no longer reports those.)
 - A **defaulted parameter is filled only for a member of a referenced assembly**. Omitting the
   argument works for an external instance, static, extension or CONSTRUCTOR parameter, whose default
   the call site reads out of the callee's metadata and writes as a literal. A function, method or

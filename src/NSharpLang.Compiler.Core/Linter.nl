@@ -65,15 +65,34 @@ class LinterDeclarationWalk {
         state.CheckUnusedImports()
     }
 
+    // EVERY ATTRIBUTE ON A DECLARATION NAMES A TYPE, AND EVERY ARGUMENT IS AN EXPRESSION. Neither was
+    // read: `[Obsolete("old")]` on a function in a file whose only other mention of `System` was that
+    // attribute made NL010 report the import dead, and `nlc fix` offered to delete it. Both halves are
+    // tracked at ONE place, so a declaration kind that grows attributes cannot get half of it.
+    func TrackAttributes(attributes: List<AttributeNode>?) {
+        if attributes == null {
+            return
+        }
+
+        for attribute in attributes {
+            state.NoteAttributeName(attribute.Name)
+            for argument in attribute.Arguments {
+                walk.VisitExpression(argument.Value)
+            }
+        }
+    }
+
     func VisitDeclaration(declaration: Declaration) {
         functionDeclaration := declaration as FunctionDeclaration
         if functionDeclaration != null {
+            TrackAttributes(functionDeclaration.Attributes)
             walk.VisitFunction(functionDeclaration)
             return
         }
 
         classDeclaration := declaration as ClassDeclaration
         if classDeclaration != null {
+            TrackAttributes(classDeclaration.Attributes)
             // NL010: a base class and every implemented interface are used type names.
             state.TrackTypeReference(classDeclaration.BaseClass)
             for interfaceReference in classDeclaration.Interfaces {
@@ -86,6 +105,7 @@ class LinterDeclarationWalk {
 
         structDeclaration := declaration as StructDeclaration
         if structDeclaration != null {
+            TrackAttributes(structDeclaration.Attributes)
             for interfaceReference in structDeclaration.Interfaces {
                 state.TrackTypeReference(interfaceReference)
             }
@@ -96,6 +116,7 @@ class LinterDeclarationWalk {
 
         recordDeclaration := declaration as RecordDeclaration
         if recordDeclaration != null {
+            TrackAttributes(recordDeclaration.Attributes)
             for interfaceReference in recordDeclaration.Interfaces {
                 state.TrackTypeReference(interfaceReference)
             }
@@ -117,6 +138,7 @@ class LinterDeclarationWalk {
 
         interfaceDeclaration := declaration as InterfaceDeclaration
         if interfaceDeclaration != null {
+            TrackAttributes(interfaceDeclaration.Attributes)
             for interfaceReference in interfaceDeclaration.BaseInterfaces {
                 state.TrackTypeReference(interfaceReference)
             }
@@ -125,19 +147,35 @@ class LinterDeclarationWalk {
             return
         }
 
-        // A union and an enum are matched and walked no further. See the note above the class.
+        // A UNION'S CASES ARE WRITTEN TYPES. `union Outcome { Ok(StringBuilder) | Err(string) }` was
+        // walked no further than its name, so a file whose only mention of an import was a union case
+        // payload had that import reported dead. There is still nothing else to walk — a case has no
+        // body and no initializer — so the arm tracks the payload types and stops.
         unionDeclaration := declaration as UnionDeclaration
         if unionDeclaration != null {
+            TrackAttributes(unionDeclaration.Attributes)
+            for unionCase in unionDeclaration.Cases {
+                properties := unionCase.Properties
+                if properties != null {
+                    for caseProperty in properties {
+                        state.TrackTypeReference(caseProperty.Type)
+                    }
+                }
+            }
+
             return
         }
 
+        // An enum's members are names and constant values; only its attributes name a type.
         enumDeclaration := declaration as EnumDeclaration
         if enumDeclaration != null {
+            TrackAttributes(enumDeclaration.Attributes)
             return
         }
 
         fieldDeclaration := declaration as FieldDeclaration
         if fieldDeclaration != null {
+            TrackAttributes(fieldDeclaration.Attributes)
             state.TrackTypeReference(fieldDeclaration.Type)
             initializer := fieldDeclaration.Initializer
             if initializer != null {
@@ -151,6 +189,7 @@ class LinterDeclarationWalk {
         // be present, and each is walked on its own terms rather than as alternatives.
         propertyDeclaration := declaration as PropertyDeclaration
         if propertyDeclaration != null {
+            TrackAttributes(propertyDeclaration.Attributes)
             state.TrackTypeReference(propertyDeclaration.Type)
             expressionBody := propertyDeclaration.ExpressionBody
             if expressionBody != null {
@@ -172,7 +211,54 @@ class LinterDeclarationWalk {
 
         constructorDeclaration := declaration as ConstructorDeclaration
         if constructorDeclaration != null {
+            TrackAttributes(constructorDeclaration.Attributes)
+            for constructorParameter in constructorDeclaration.Parameters {
+                TrackAttributes(constructorParameter.Attributes)
+                state.TrackTypeReference(constructorParameter.Type)
+            }
+
+            initializer := constructorDeclaration.Initializer
+            if initializer != null {
+                walk.VisitExpression(initializer)
+            }
+
             walk.VisitStatement(constructorDeclaration.Body)
+            return
+        }
+
+        // AN INDEXER, A TYPE ALIAS AND A NEWTYPE WERE NOT MATCHED AT ALL, so every type they write —
+        // an element type, an alias target, a wrapped type — was invisible to both import rules.
+        indexerDeclaration := declaration as IndexerDeclaration
+        if indexerDeclaration != null {
+            TrackAttributes(indexerDeclaration.Attributes)
+            state.TrackTypeReference(indexerDeclaration.Type)
+            for indexerParameter in indexerDeclaration.Parameters {
+                TrackAttributes(indexerParameter.Attributes)
+                state.TrackTypeReference(indexerParameter.Type)
+            }
+
+            indexerGetBody := indexerDeclaration.GetBody
+            if indexerGetBody != null {
+                walk.VisitStatement(indexerGetBody)
+            }
+
+            indexerSetBody := indexerDeclaration.SetBody
+            if indexerSetBody != null {
+                walk.VisitStatement(indexerSetBody)
+            }
+
+            return
+        }
+
+        typeAliasDeclaration := declaration as TypeAliasDeclaration
+        if typeAliasDeclaration != null {
+            state.TrackTypeReference(typeAliasDeclaration.Type)
+            return
+        }
+
+        newtypeDeclaration := declaration as NewtypeDeclaration
+        if newtypeDeclaration != null {
+            state.TrackTypeReference(newtypeDeclaration.UnderlyingType)
             return
         }
 

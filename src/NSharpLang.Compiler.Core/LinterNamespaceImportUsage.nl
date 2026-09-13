@@ -169,8 +169,13 @@ class LinterNamespaceImportUsage {
         return ["CancellationToken", "CancellationTokenSource", "SemaphoreSlim", "Mutex", "Timer", "Thread", "Interlocked", "Monitor", "Volatile", "ThreadPool", "ThreadLocal", "ReaderWriterLockSlim", "ManualResetEvent", "ManualResetEventSlim", "AutoResetEvent", "EventWaitHandle", "WaitHandle", "SpinLock", "SpinWait", "Barrier", "CountdownEvent", "LazyInitializer"]
     }
 
+    // THE ATTRIBUTE TYPES BELONG IN THIS ROW AS MUCH AS THE EXCEPTIONS DO, and for the same reason the
+    // `System.Threading` row gives above: a file whose only use of `System` is `[Obsolete("…")]` or
+    // `[Flags]` was told its import was dead, and removing it on that advice broke the build. An
+    // attribute is asked for by BOTH spellings — `[Obsolete]` and `[ObsoleteAttribute]` name one type —
+    // and `LinterWalkState.NoteAttributeName` records both, so only one spelling is listed here.
     static func SystemTypeNames(): string[] {
-        return ["DateTime", "DateTimeOffset", "TimeSpan", "Guid", "HashCode", "Uri", "Tuple", "Lazy", "Action", "Func", "Console", "Math", "Char", "Exception", "ArgumentException", "ArgumentNullException", "ArgumentOutOfRangeException", "InvalidOperationException", "NotSupportedException", "NotImplementedException", "FormatException", "OverflowException", "Random", "Convert", "Array", "Type", "Attribute", "Environment", "Int32", "String", "IDisposable", "IComparable", "IEquatable", "EventHandler", "Nullable", "Span", "Memory", "ReadOnlySpan", "ReadOnlyMemory", "StringComparison", "StringComparer", "ValueTuple", "Version", "Index"]
+        return ["DateTime", "DateTimeOffset", "TimeSpan", "Guid", "HashCode", "Uri", "Tuple", "Lazy", "Action", "Func", "Console", "Math", "Char", "Exception", "ArgumentException", "ArgumentNullException", "ArgumentOutOfRangeException", "InvalidOperationException", "NotSupportedException", "NotImplementedException", "FormatException", "OverflowException", "Random", "Convert", "Array", "Type", "Attribute", "Environment", "Int32", "String", "IDisposable", "IComparable", "IEquatable", "EventHandler", "Nullable", "Span", "Memory", "ReadOnlySpan", "ReadOnlyMemory", "StringComparison", "StringComparer", "ValueTuple", "Version", "Index", "Obsolete", "Flags", "Serializable", "NonSerialized", "AttributeUsage", "AttributeTargets", "CLSCompliant", "ThreadStatic", "STAThread", "MTAThread", "ParamArray"]
     }
 
     static func LinqTypeNames(): string[] {

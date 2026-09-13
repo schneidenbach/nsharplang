@@ -66,9 +66,11 @@ class LinterWalk {
     // restored on the straight line, with no `finally`: a throw inside the nested walk abandons it,
     // exactly as the C# locals it replaces did.
     func VisitFunction(declaration: FunctionDeclaration) {
-        // NL010: the signature's type references are used names.
+        // NL010: the signature's type references are used names, and so is every type a parameter's
+        // own attributes name.
         state.TrackTypeReference(declaration.ReturnType)
         for parameter in declaration.Parameters {
+            NoteAttributeNames(parameter.Attributes)
             state.TrackTypeReference(parameter.Type)
         }
 
@@ -121,6 +123,19 @@ class LinterWalk {
 
     // A `ref` or `out` parameter. `params` is by VALUE — it is an array the caller built — so it is
     // not one of these, and a write to it is as dead as a write to any other by-value parameter.
+    // A parameter's attributes, recorded on the same rule the declaration walk uses. Only the NAMES are
+    // taken here: a parameter attribute's arguments are walked by the declaration walk that owns the
+    // member, so walking them again would double-count a read.
+    func NoteAttributeNames(attributes: List<AttributeNode>?) {
+        if attributes == null {
+            return
+        }
+
+        for attribute in attributes {
+            state.NoteAttributeName(attribute.Name)
+        }
+    }
+
     static func IsByReferenceParameter(parameter: Parameter): bool {
         if parameter.Modifier == ParameterModifier.Ref {
             return true
@@ -799,11 +814,12 @@ class LinterWalk {
             constructedType := newExpression.Type
             if constructedType != null {
                 state.CheckMissingImportForType(constructedType, newExpression.Line, newExpression.Column)
-                // NL010: the constructed type's base name is a used identifier.
-                newTypeName := LinterTypeReferenceName.Base(constructedType)
-                if newTypeName != null {
-                    state.NoteCodeIdentifier(newTypeName)
-                }
+                // NL010: EVERY name the constructed type mentions, not only the one it is CALLED.
+                // `new List<StringBuilder>()` recorded `List` and stopped, so a file whose only mention
+                // of `System.Text` was that type argument had the import reported dead — the same
+                // difference between `Base` and `CollectMentionedNames` that NL002 already respects a
+                // few lines up.
+                state.NoteTypeReferenceNames(constructedType)
             }
 
             VisitChildExpressions(newExpression)
@@ -913,6 +929,10 @@ class LinterWalk {
         if lambda != null {
             state.PushScope()
             for parameter in lambda.Parameters {
+                // NL010: an EXPLICITLY typed lambda parameter writes a type. The implicit form carries a
+                // position-free `SimpleTypeReference("var")` the parser synthesised, which mentions the
+                // name `var` and nothing any import supplies, so both forms go through one door.
+                state.TrackTypeReference(parameter.Type)
                 state.DeclareVariable(parameter.Name, lambda.Line, lambda.Column)
                 state.MarkVariableUsed(parameter.Name, false)
             }

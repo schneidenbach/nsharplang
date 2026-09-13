@@ -343,7 +343,9 @@ func BenchMeasureProjectCommand(
     runRows: StringBuilder
 ): BenchProjectResult {
     projectDirectory := BenchAbsoluteProjectPath(repositoryRoot, relativeProject)
-    sources := BenchMeasureProjectSources(projectDirectory)
+    // `nlc check` compiles the `*.tests.nl` files with everything else and `nlc build` does not, so
+    // the replicated selection is asked the command's own question. See `CompileTimeBench.nl`'s header.
+    sources := BenchMeasureSelectedProjectSources(projectDirectory, command == "check")
     result := new BenchProjectResult(relativeProject, command, sources.Files, sources.Lines)
 
     // Nothing to compile means nothing to measure: no command is spawned, no run row is written,
