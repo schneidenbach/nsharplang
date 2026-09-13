@@ -1,5 +1,6 @@
 namespace NSharpLang.Compiler.CodeIntelligence
 
+import System
 import System.Collections.Generic
 import System.Text
 import NSharpLang.Compiler
@@ -340,6 +341,7 @@ class CompletionReceiverFacts {
 
         declaringNamespace := CompletionVisibilityFacts.DeclaringNamespaceOfReceiverType(typeInfo, typeName, compilationUnits)
         declaredMembers := CompletionDeclarationFacts.GetTypeMemberItems(typeInfo, semanticModels, declaringNamespace, requestingNamespace)
+        AppendInheritedMemberItems(typeInfo, semanticModels, filter, compilationUnits, requestingNamespace, declaredMembers)
         if declaredMembers.Count > 0 {
             CompletionEngineKernels.AddGroupedCompletionItemsByKind(declaredMembers, completions)
             return new CompletionResult(CompletionContext.MemberAccess, receiver, typeName, completions)
@@ -361,6 +363,102 @@ class CompletionReceiverFacts {
         }
 
         return null
+    }
+
+    // WHAT THE RECEIVER INHERITS, APPENDED TO WHAT IT DECLARES.
+    //
+    // A source type's member surface is its own declarations, then its declared base's, and — when
+    // the chain ends at a type this compilation did not write — that base's whole reflected surface.
+    // The editor used to see only the first of those: `class Names: List<string>` offered its own
+    // members and NOTHING else, so a caret after `names.` produced an empty list while the same
+    // caret after a `List<string>` local produced fifty. Resolution and `nlc query type` had already
+    // walked the chain; completion had not.
+    //
+    // THE BASE IS TAKEN FROM THE SEMANTIC MODEL, NOT RE-RESOLVED. `AnalyzerTypeResolver` records
+    // every type reference it resolves at the reference's own start span, so the `:` clause's
+    // already-analyzed `TypeInfo` — with its type arguments closed — is read back by position. That
+    // is what lets the reflected half close `List<string>` rather than guess at `List<T>`.
+    //
+    // A NAME THE DERIVED TYPE ALREADY OFFERS IS NOT OFFERED TWICE. The first list wins, which is the
+    // order the language resolves in.
+    static func AppendInheritedMemberItems(typeInfo: TypeInfo, semanticModels: IEnumerable<SemanticModel>, filter: CompletionMemberFilter, compilationUnits: IEnumerable<CompilationUnit>, requestingNamespace: string, items: List<CompletionItem>) {
+        current := typeInfo
+        depth := 0
+        while depth < 64 {
+            baseReference := DeclaredBaseReference(current)
+            if baseReference == null {
+                return
+            }
+
+            baseTypeInfo := RecordedTypeReferenceType(baseReference, semanticModels)
+            if baseTypeInfo == null {
+                return
+            }
+
+            if CompletionDeclarationFacts.DeclaredMembersOfType(baseTypeInfo) != null {
+                baseNamespace := CompletionVisibilityFacts.DeclaringNamespaceOfReceiverType(baseTypeInfo, CompletionTypeTextFacts.FormatTypeText(baseTypeInfo), compilationUnits)
+                AppendNewMemberItems(items, CompletionDeclarationFacts.GetTypeMemberItems(baseTypeInfo, semanticModels, baseNamespace, requestingNamespace))
+                current = baseTypeInfo
+                depth = depth + 1
+                continue
+            }
+
+            baseClrType := CompletionReflectionFacts.ResolveCompletionReflectionType(baseTypeInfo)
+            if baseClrType == null {
+                return
+            }
+
+            AppendNewMemberItems(items, CompletionReflectionFacts.BuildReflectionMemberItems(baseClrType, CompletionReflectionFacts.GetReflectionBindingFlags(filter)))
+            return
+        }
+    }
+
+    // The `:` clause's class reference, or nothing. Only a CLASS has one; a struct, a record and an
+    // interface name no base class, and an interface's own bases are a separate surface.
+    static func DeclaredBaseReference(typeInfo: TypeInfo): TypeReference? {
+        classType := typeInfo as ClassTypeInfo
+        if classType == null {
+            return null
+        }
+
+        return classType.BaseClass
+    }
+
+    // The analyzed type behind a written reference, read back from the model that recorded it.
+    static func RecordedTypeReferenceType(typeReference: TypeReference, semanticModels: IEnumerable<SemanticModel>): TypeInfo? {
+        span := TypeReferenceFacts.GetStartSpan(typeReference)
+        if !span.IsValid {
+            return null
+        }
+
+        key := (Line: span.StartLine, Column: span.StartColumn)
+        for semanticModel in semanticModels {
+            recorded: TypeInfo? = null
+            if semanticModel.TypeReferenceTypes.TryGetValue(key, out recorded) && recorded != null && !BuiltInTypes.IsUnknown(recorded) {
+                return recorded
+            }
+        }
+
+        return null
+    }
+
+    static func AppendNewMemberItems(items: List<CompletionItem>, candidates: List<CompletionItem>) {
+        seen := new HashSet<string>(StringComparer.Ordinal)
+        existingIndex := 0
+        while existingIndex < items.Count {
+            seen.Add(items[existingIndex].Name)
+            existingIndex = existingIndex + 1
+        }
+
+        candidateIndex := 0
+        while candidateIndex < candidates.Count {
+            candidate := candidates[candidateIndex]
+            if !seen.Contains(candidate.Name) {
+                items.Add(candidate)
+            }
+
+            candidateIndex = candidateIndex + 1
+        }
     }
 
     // A member-access answer with no members. It still says MemberAccess: the caller asked about a

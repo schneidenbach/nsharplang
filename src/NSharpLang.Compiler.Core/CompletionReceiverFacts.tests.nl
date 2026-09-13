@@ -397,4 +397,143 @@ class CrfTypes {
         classType: TypeInfo = new ClassTypeInfo(name, 1, 1, false, null, interfaces, typeParameters, constructorParameters, members, nestedTypes, true)
         return classType
     }
+
+    static func ClassWithBase(name: string, members: DeclaredMemberInfo[], baseClass: TypeReference): TypeInfo {
+        interfaces := new TypeReference[](0)
+        typeParameters := new TypeParameter[](0)
+        constructorParameters := new ParameterDeclarationInfo[](0)
+        nestedTypes := new NestedTypeInfo[](0)
+        classType: TypeInfo = new ClassTypeInfo(name, 1, 1, false, baseClass, interfaces, typeParameters, constructorParameters, members, nestedTypes, true)
+        return classType
+    }
+}
+
+// INHERIT — WHAT A RECEIVER INHERITS IS OFFERED TOO.
+//
+// The editor used to see a source type's own declarations and nothing else, so a caret after a
+// `class Names: List<string>` receiver produced an EMPTY list while the same caret after a
+// `List<string>` local produced the whole collection surface. The base comes from the semantic
+// model, which records every type reference the analyzer resolved at the reference's own start
+// span — so the reflected half closes `List<string>` rather than guessing at `List<T>`.
+test "a receiver offers what its external base declares, and its own members win the name" {
+    baseReference := CrfListOfStringReference(7, 13)
+    members := new DeclaredMemberInfo[](2)
+    members[0] = CrfMember("Tag")
+    // A DECLARED MEMBER THAT SHADOWS AN INHERITED ONE IS OFFERED ONCE, as the declaration.
+    members[1] = CrfMember("Count")
+    declared: TypeInfo = CrfTypes.ClassWithBase("Names", members, baseReference)
+
+    access: Expression = CrfAccess(CrfName("names", 3, 5), "", 3, 5)
+    unit := CrfUnitWithExpression(access, 3, 5)
+
+    model := new SemanticModel()
+    model.Variables["names"] = declared
+    model.RecordTypeReference(7, 13, CrfListOfStringType())
+
+    models := new List<SemanticModel>()
+    models.Add(model)
+
+    answer := CompletionReceiverFacts.GetMemberAccessCompletions(unit, model, "names", 3, 5, models)
+    assert answer.Context == CompletionContext.MemberAccess
+    assert answer.ReceiverType == "Names"
+
+    propertyNames := CrfItemNames(answer, "properties")
+    assert propertyNames.Contains("Tag")
+    assert propertyNames.Contains("Capacity")
+    assert CrfNameOccurrences(answer, "properties", "Count") == 1
+
+    methodNames := CrfItemNames(answer, "methods")
+    assert methodNames.Contains("Add")
+    assert methodNames.Contains("Contains")
+    assert methodNames.Contains("ConvertAll")
+}
+
+// The same walk, one source link further down: `Deeper: Names: List<string>` reaches the external
+// base through a base this compilation is also writing.
+test "a base two source links up still contributes the external base's members" {
+    baseReference := CrfListOfStringReference(7, 13)
+    namesMembers := new DeclaredMemberInfo[](1)
+    namesMembers[0] = CrfMember("Tag")
+    names: TypeInfo = CrfTypes.ClassWithBase("Names", namesMembers, baseReference)
+
+    deeperMembers := new DeclaredMemberInfo[](1)
+    deeperMembers[0] = CrfMember("Label")
+    deeper: TypeInfo = CrfTypes.ClassWithBase("Deeper", deeperMembers, CrfSimpleReference("Names", 11, 15))
+
+    access: Expression = CrfAccess(CrfName("deeper", 3, 5), "", 3, 5)
+    unit := CrfUnitWithExpression(access, 3, 5)
+
+    model := new SemanticModel()
+    model.Variables["deeper"] = deeper
+    model.RecordTypeReference(11, 15, names)
+    model.RecordTypeReference(7, 13, CrfListOfStringType())
+
+    models := new List<SemanticModel>()
+    models.Add(model)
+
+    answer := CompletionReceiverFacts.GetMemberAccessCompletions(unit, model, "deeper", 3, 5, models)
+    propertyNames := CrfItemNames(answer, "properties")
+    assert propertyNames.Contains("Label")
+    assert propertyNames.Contains("Tag")
+    assert propertyNames.Contains("Count")
+    assert CrfItemNames(answer, "methods").Contains("Add")
+}
+
+// A class with no `:` clause is unchanged: its own members and nothing else.
+test "a receiver with no declared base offers only what it declares" {
+    members := new DeclaredMemberInfo[](1)
+    members[0] = CrfMember("Name")
+    declared: TypeInfo = CrfTypes.Class("Person", members)
+
+    access: Expression = CrfAccess(CrfName("person", 3, 5), "", 3, 5)
+    unit := CrfUnitWithExpression(access, 3, 5)
+
+    model := new SemanticModel()
+    model.Variables["person"] = declared
+
+    answer := CompletionReceiverFacts.GetMemberAccessCompletions(unit, model, "person", 3, 5, CrfNoModels())
+    assert CrfItemNames(answer, "properties") == "Name"
+    assert answer.Completions.Count == 1
+}
+
+func CrfListOfStringReference(line: int, column: int): TypeReference {
+    arguments := new List<TypeReference>()
+    arguments.Add(new SimpleTypeReference("string", line, column))
+    reference: TypeReference = new GenericTypeReference("List", arguments, line, column)
+    return reference
+}
+
+func CrfSimpleReference(name: string, line: int, column: int): TypeReference {
+    reference: TypeReference = new SimpleTypeReference(name, line, column)
+    return reference
+}
+
+func CrfListOfStringType(): TypeInfo {
+    arguments := new List<TypeInfo>()
+    arguments.Add(BuiltInTypes.String)
+    generic: TypeInfo = new GenericTypeInfo("List", arguments)
+    return generic
+}
+
+func CrfNameOccurrences(result: CompletionResult?, group: string, name: string): int {
+    if result == null {
+        return 0
+    }
+
+    items: List<CompletionItem>? = null
+    if !result.Completions.TryGetValue(group, out items) || items == null {
+        return 0
+    }
+
+    count := 0
+    index := 0
+    while index < items.Count {
+        if items[index].Name == name {
+            count = count + 1
+        }
+
+        index = index + 1
+    }
+
+    return count
 }
