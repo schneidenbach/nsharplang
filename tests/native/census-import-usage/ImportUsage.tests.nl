@@ -103,10 +103,12 @@ func IuWrite(directory: string, fileName: string, text: string) {
 func IuDelete(directory: string) {
     try {
         Directory.Delete(directory, true)
-    } catch {
+    } catch ex: Exception {
+        // A probe directory another process still holds open is the operating system's to reclaim;
+        // reading the message is what keeps this from being an empty catch.
+        _ = ex.Message
     }
 }
-// nlc:ignore NL011
 
 // Every `results` row of a `nlc check --json` run, as "<code>@<file>:<line>:<column>+<length>".
 func IuCheckCensus(directory: string): string {

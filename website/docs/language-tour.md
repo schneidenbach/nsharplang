@@ -2316,6 +2316,12 @@ class Report {
 Because the plain import is still there, [NL010](errors/NL010.md) keeps an aliased import alive when
 *either* spelling is written, and reports it only when neither is.
 
+An import is "used" when something in the file **bound through it** — the compiler records which
+namespace supplied each name as the name resolves, so a type, a static receiver, an attribute, a
+delegate spelling and an extension method's declaring namespace all count, and a name written in FULL
+(`System.Text.StringBuilder`) counts for nothing because it needs no import. The mirror of that same
+fact is [NL002](errors/NL002.md): a name whose supplying namespace you did not import.
+
 ### Which declaration a bare name means
 
 A bare name is resolved in this order, and the first channel that answers wins:
@@ -2406,6 +2412,31 @@ does not buy access to what a namespace did not export. Rename it to `FormatType
 In CLR metadata a `camelCase` top-level function is emitted `assembly` (internal) and a
 `PascalCase` one `public`. The namespace boundary is a *language* rule enforced by the compiler, in
 the same way C#'s `private` is a language rule inside one assembly.
+
+### One type name per namespace, however many files it is spread over
+
+A namespace spread over many files is still one namespace, so a type name may be declared **once** in
+it. Two files that each declare `class Widget` under `namespace Catalog` are two declarations of one
+identity — on the CLR a type IS its namespace, its name and its generic arity — and that is
+[NL339](errors/NL339.md), reported at the second declaration with the first one's file and line.
+
+```n#
+// FILE Widgets.nl
+namespace Catalog
+
+class Widget { }
+```
+
+```n#
+// FILE Parts.nl
+namespace Catalog
+
+class Widget { }          // ERROR NL339: already declared at Widgets.nl:3
+```
+
+A different **arity** is a different type, so `Widget` and `Widget<T>` may sit side by side — in one
+file or across two — and a different namespace is a different scope. The same name twice in ONE file
+is [NL306](errors/NL306.md).
 
 ### Explicit accessibility words
 
