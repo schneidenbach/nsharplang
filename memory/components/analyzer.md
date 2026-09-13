@@ -769,10 +769,12 @@ Three rules are behaviour rather than bookkeeping, and are why the stack has to 
   name is not the guarded result. `LookupType` / `LookupSymbol` / `CurrentTypeScope` (the innermost
   binding of `this`) are the simple cases of the same rule, and `CurrentScopeSymbol` is deliberately
   the innermost scope ALONE — "is this name already mine?" rather than "is it visible?".
-- **Two walks skip the innermost scope**, because their question is about an ENCLOSING binding.
-  `FindEnclosingNullableSymbol` answers what an identifier was DECLARED as when the current scope
-  holds its narrowed type, and it does not stop at a scope that binds the name to something
-  non-nullable. `ShadowsEnclosingValueBinding` (the NL316 decision) starts one scope out and stops
+- **One walk skips the innermost scope**, because its question is about an ENCLOSING binding.
+  `FindEnclosingNullableSymbol` answers what an identifier was DECLARED as when the flow is reading it
+  as something narrower; it does not stop at a scope that binds the name to something non-nullable,
+  and it starts at the INNERMOST scope — a guard clause (`if x == null { return }`) installs its facts
+  into the scope that also declares the local, so there is no inner scope to skip.
+  `ShadowsEnclosingValueBinding` (the NL316 decision) starts one scope out and stops
   dead at the first type-level or global scope: a member or a global of the same name is not
   shadowing. Underscore-prefixed names, `this`, `value`, function declarations and names the scope
   also binds as a type are all not value bindings, so they neither shadow nor are shadowed.
@@ -1305,10 +1307,19 @@ Int32-backed CLR enums, and the exact `Span<T>` to `ReadOnlySpan<T>` widening. D
 checks with type-name matching.
 
 ### Definite Assignment
-For non-nullable fields:
-- Must be assigned in constructor
+For non-nullable **reference-typed** fields:
+- Must be assigned in the constructor
 - Analyzer tracks which fields are assigned
-- Reports error if field not initialized
+- Reports NL304 on the `constructor` keyword if such a field is not initialized
+
+A VALUE-typed field owes the constructor nothing (C#'s CS8618 rule): every value type's `default` is
+a valid value of it and the CLR has already written it, so a `bool`, an `int`, an enum, a struct, an
+`int?` and an unconstrained `T` field are all definitely assigned at construction. The decision is
+`AnalyzerConversionFacts.IsDefinitelyReferenceType` — a POSITIVE test that follows a constructed
+generic to its definition and answers false for a bare type parameter, an unknown, and anything it
+cannot place, so a report is only ever made on a type the analyzer is sure about.
+`ColumnarConstructorDeclarationPlanner.IsValidReferenceCtorBody` is the emitter's mirror of the same
+rule and reads the field builder's CLR type.
 
 ### Statement termination — the one judgement, two questions
 
@@ -1332,8 +1343,21 @@ escapes nothing.
 `try` follows C#'s end-point rule (§13.2): the statement leaves when the `finally` block leaves by
 itself, or when the guarded block AND every handler leave. A zero-catch `try { return x } finally { ... }`
 therefore leaves — which is what every C# `using` that returns lowers to.
+
+An ENDLESS LOOP leaves for the same end-point reason: a `while` whose condition is the constant
+`true`, or a `for` with no condition, cannot be fallen out of unless a reachable `break` targets it,
+so `while true { … return … }` needs no return after it. The constant is read only through the
+literal, a parenthesis and a `!`; nothing is evaluated. The `break` search descends through blocks,
+`if`s, locks, `using`s and a `try`'s guarded block and handlers, and stops at a nested loop, a
+`switch` and a `finally`, because a `break` in any of those binds elsewhere. A `for <name> in
+<collection>` is NOT endless: the parser wraps it in a `ForStatement` with all three clauses null and
+the `ForeachStatement` as its body, so the body's shape is what tells the two apart.
+
 `ColumnarMethodBodyPlanner.AlwaysReturns` is the node-table mirror of the same rule and must be kept
-verbatim-identical to it.
+verbatim-identical to it; it takes the SOURCE TEXT as a parameter because a literal's value is a span
+into the source rather than a value. `ColumnarIlEmitter` skips the `brfalse end` for a constant-true
+condition in both the `while` and `for` arms — emitting it would make `end:` reachable in a loop
+nothing can fall out of, and a value function would then fall off its own end.
 
 ### Error Tuple Result Availability
 For Go-style error tuples (`result, err := MightFail()`):
@@ -1598,8 +1622,9 @@ Analyzer coverage is split deliberately across:
   validation. Same native route and same reason (task 020 slice 28, the `AnalyzerTests.cs`
   campaign's tranche 1a — 109 `[Fact]`s and 1,584 C# lines deleted). It states what nothing had:
   the rejected-lambda `NL202` **says a value is not assignable to its own type**, both sides spelled
-  `NSharpLang.Compiler.FunctionTypeInfo`; a code NAMED `NullabilityWarning` is reported at `Error`
-  severity; `null` assigns to a non-nullable `string` and to a non-nullable class in SILENCE while
+  `NSharpLang.Compiler.FunctionTypeInfo`; a code NAMED `NullabilityWarning` used to be reported at
+  `Error` severity and is now a real WARNING (census FLOW2: both of its shapes describe CORRECT
+  programs, and the redundant-`must` half depends on flow state a converter cannot know); `null` assigns to a non-nullable `string` and to a non-nullable class in SILENCE while
   `null` to `int` is rejected, so the annotation is enforced at the dereference and not at the
   assignment; the ten narrowing rejections are ONE message template over ten type pairs, all
   anchored on the declared name for one column; the `NL905` suggestion is TEMPLATED with the user's

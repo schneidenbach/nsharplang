@@ -524,3 +524,47 @@ test "a reflected type answers by the CLR, and a reflected GENERIC PARAMETER ans
 test "an UNKNOWN type answers FALSE, so a rule built on this cannot accuse source the analyzer failed to resolve" {
     assert !AnalyzerConversionFacts.IsDefinitelyNonNullableValueType(BuiltInTypes.Unknown)
 }
+
+// ── DEFINITELY A REFERENCE TYPE ───────────────────────────────────────────
+//
+// The POSITIVE mirror, and the reason it is not `!IsDefinitelyNonNullableValueType`: that predicate
+// names the value kinds it is sure about and answers false for everything else, including
+// `List<int>` — so negating it would call every constructed generic a reference type, `int?`
+// included. This one follows a constructed generic to its DEFINITION and answers from there.
+
+test "the shapes that are always reference types answer TRUE" {
+    assert AnalyzerConversionFacts.IsDefinitelyReferenceType(new SimpleTypeInfo("string"))
+    assert AnalyzerConversionFacts.IsDefinitelyReferenceType(new SimpleTypeInfo("object"))
+    assert AnalyzerConversionFacts.IsDefinitelyReferenceType(ConversionClassType())
+    assert AnalyzerConversionFacts.IsDefinitelyReferenceType(ConversionInterfaceType())
+    assert AnalyzerConversionFacts.IsDefinitelyReferenceType(new ArrayTypeInfo(BuiltInTypes.Int))
+    assert AnalyzerConversionFacts.IsDefinitelyReferenceType(ConversionRecordType(false))
+}
+
+test "every VALUE shape answers FALSE, and so does a nullable of one" {
+    assert !AnalyzerConversionFacts.IsDefinitelyReferenceType(BuiltInTypes.Int)
+    assert !AnalyzerConversionFacts.IsDefinitelyReferenceType(BuiltInTypes.Bool)
+    assert !AnalyzerConversionFacts.IsDefinitelyReferenceType(ConversionStructType())
+    assert !AnalyzerConversionFacts.IsDefinitelyReferenceType(ConversionEnumType())
+    assert !AnalyzerConversionFacts.IsDefinitelyReferenceType(ConversionRecordType(true))
+    assert !AnalyzerConversionFacts.IsDefinitelyReferenceType(new NullableTypeInfo(BuiltInTypes.Int))
+    assert !AnalyzerConversionFacts.IsDefinitelyReferenceType(new NullableTypeInfo(new SimpleTypeInfo("string")))
+}
+
+test "a BARE TYPE PARAMETER and an UNKNOWN answer FALSE — the predicate reports only what it is sure of" {
+    assert !AnalyzerConversionFacts.IsDefinitelyReferenceType(new SimpleTypeInfo("T"))
+    assert !AnalyzerConversionFacts.IsDefinitelyReferenceType(BuiltInTypes.Unknown)
+    assert !AnalyzerConversionFacts.IsDefinitelyReferenceType(new SimpleTypeInfo("Widgetry"))
+}
+
+test "a CONSTRUCTED GENERIC is answered by its DEFINITION" {
+    classArguments := new List<TypeInfo>()
+    classArguments.Add(BuiltInTypes.Int)
+    referenceGeneric := new GenericTypeInfo("Box", classArguments, ConversionClassType())
+    valueGeneric := new GenericTypeInfo("Pair", classArguments, ConversionStructType())
+    unknownGeneric := new GenericTypeInfo("Box", classArguments)
+
+    assert AnalyzerConversionFacts.IsDefinitelyReferenceType(referenceGeneric)
+    assert !AnalyzerConversionFacts.IsDefinitelyReferenceType(valueGeneric)
+    assert !AnalyzerConversionFacts.IsDefinitelyReferenceType(unknownGeneric)
+}

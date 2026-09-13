@@ -555,10 +555,13 @@ test "constructor declaration owner retains initialized state when a later base-
 }
 
 test "constructor declaration owner validates seeded nullable and simple-assignment constructor bodies" {
+    // The fields are REFERENCE-typed, because only a non-nullable reference field owes the
+    // constructor an assignment — a value-typed field's `default` is already a valid value of it and
+    // the CLR has written it before the body runs.
     definition := ConstructorDeclarationControlsDefinition("ConstructorDeclarationBodyValidation", 0)
-    ConstructorDeclarationControlsAddField(definition, "Seeded", typeof(int), FieldAttributes.Public)
-    ConstructorDeclarationControlsAddField(definition, "Assigned", typeof(int), FieldAttributes.Public)
-    ConstructorDeclarationControlsAddField(definition, "Optional", typeof(int), FieldAttributes.Public)
+    ConstructorDeclarationControlsAddField(definition, "Seeded", typeof(string), FieldAttributes.Public)
+    ConstructorDeclarationControlsAddField(definition, "Assigned", typeof(string), FieldAttributes.Public)
+    ConstructorDeclarationControlsAddField(definition, "Optional", typeof(string), FieldAttributes.Public)
     ConstructorDeclarationControlsSetFieldOrder(
         definition,
         ConstructorDeclarationControlsTwoTexts("Seeded", "Assigned")
@@ -607,6 +610,28 @@ test "constructor declaration owner validates seeded nullable and simple-assignm
         simple.Source,
         null,
         simple.Root
+    )
+}
+
+// A CONSTRUCTOR ACCEPTS A BARE `return` and refuses a VALUE-bearing one, and a VALUE-typed field owes
+// it nothing — so a definition with no reference fields is judged on the return rule alone. That is
+// the shape the census probe is written in: an early-out constructor over `bool` and `int` state.
+test "constructor declaration owner accepts a bare return and refuses a value-bearing one" {
+    valueTyped := ConstructorDeclarationControlsDefinition("ConstructorDeclarationValueFieldBody", 0)
+    ConstructorDeclarationControlsAddField(valueTyped, "Running", typeof(bool), FieldAttributes.Public)
+    ConstructorDeclarationControlsAddField(valueTyped, "Count", typeof(int), FieldAttributes.Public)
+
+    assert ColumnarConstructorDeclarationPlanner.IsValidReferenceCtorBody(
+        MethodBodyFactsBareReturnBody(),
+        "return",
+        valueTyped,
+        0
+    )
+    assert !ColumnarConstructorDeclarationPlanner.IsValidReferenceCtorBody(
+        MethodBodyFactsLiteralBody(0, "1"),
+        "1",
+        valueTyped,
+        0
     )
 }
 

@@ -274,6 +274,31 @@ reason. Compute the value from the constructor's own parameters, or from a `stat
 | `override` with no base member of that name, or a base member that is not `virtual`/`abstract`/`override` | [NL311](./errors/NL311.md) |
 | `base.Member` where the base class has no such member | [NL303](./errors/NL303.md) |
 | `this` or `base` in a `static` member or a top-level function | [NL327](./errors/NL327.md) |
+| `return <value>` inside a constructor | [NL202](./errors/NL202.md) |
+
+A constructor runs like a `void` function, so a bare `return` ends it early — the field initializers
+and the base call have already happened by the time the body starts:
+
+```n#
+class Daemon {
+    private running: bool
+    private readonly root: string
+
+    constructor(rootPath: string, forced: bool) {
+        root = rootPath
+        if forced {
+            running = true
+            return
+        }
+
+        // the ordinary path continues here
+    }
+}
+```
+
+A constructor returns nothing, so `return <value>` is an error. Note also that `running` above owes
+the constructor no assignment: only a non-nullable **reference**-typed field does, because every
+value type's `default` is already a valid value of it ([NL304](./errors/NL304.md)).
 
 Overriding a member of an **external** base class — one from the BCL or a NuGet package — works the same
 way and needs no extra ceremony:

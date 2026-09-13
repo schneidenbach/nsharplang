@@ -390,7 +390,9 @@ test "A NESTED BODY RESTORES ALL NINE VALUES" {
     harness.Context.ExitNestedBody(frame)
 
     assert AmbientState(harness.Context) == before
-    assert before == "int|outer|0|1|1|1|1|1"
+    // `EnterConstructor` also sets the return type to `void`, because a constructor runs like a
+    // `void` body — which is what makes a bare `return` inside one legal.
+    assert before == "void|outer|0|1|1|1|1|1"
     // The ninth value is not in `AmbientState`'s line, so it is pinned on its own: the constructor
     // flag came back from the frame rather than staying where the nested body left it.
     assert harness.Context.InConstructor == true
@@ -947,6 +949,43 @@ test "A return WITH NO FUNCTION AT ALL ASKS FOR NOTHING AND IS TOLD ONLY THAT" {
     assert harness.Errors[0].Length == 6
     assert harness.Errors[0].Line == 9
     assert harness.Errors[0].Column == 5
+}
+
+// A CONSTRUCTOR RUNS LIKE A `void` FUNCTION. The field initializers and the base call have already
+// happened when the body starts, so a bare `return` just ends it — and a VALUE-bearing one is its own
+// sentence, because "this function is declared to return 'void'" names a function a constructor does
+// not have.
+test "A BARE return INSIDE A CONSTRUCTOR IS ACCEPTED AND ASKS FOR NOTHING" {
+    harness := AmbientDefault()
+    harness.Context.EnterConstructor()
+
+    steps := AmbientRunReturn(harness, AmbientReturn(null), null)
+
+    assert steps.Count == 0
+    assert harness.Errors.Count == 0
+}
+
+test "A VALUED return INSIDE A CONSTRUCTOR IS TOLD A CONSTRUCTOR RETURNS NOTHING" {
+    harness := AmbientDefault()
+    harness.Context.EnterConstructor()
+
+    AmbientRunReturn(harness, AmbientReturn(AmbientValue()), BuiltInTypes.Int)
+
+    assert harness.Errors.Count == 1
+    assert harness.Errors[0].Code == ErrorCode.TypeMismatch
+    assert harness.Errors[0].Message == "A constructor returns nothing, but this 'return' gives back a value"
+    assert harness.Errors[0].Suggestion == "Use a bare `return` to end the constructor early, or assign the value to a field instead."
+}
+
+test "LEAVING THE CONSTRUCTOR LEAVES `return` WITH NO FUNCTION AGAIN" {
+    harness := AmbientDefault()
+    harness.Context.EnterConstructor()
+    harness.Context.ExitConstructor()
+
+    AmbientRunReturn(harness, AmbientReturn(null), null)
+
+    assert harness.Errors.Count == 1
+    assert harness.Errors[0].Code == ErrorCode.InvalidSyntax
 }
 
 test "A return WITH NO FUNCTION IS NEVER ALSO TOLD IT LEAVES A finally" {

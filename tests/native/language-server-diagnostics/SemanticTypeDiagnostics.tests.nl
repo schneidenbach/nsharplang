@@ -47,7 +47,7 @@ test "DocumentManager nullable value access squiggle covers Value token" {
         "NullabilityWarning",
         ".Value"
     )
-    assert LsdFieldText(diagnostic, "Severity") == "Error"
+    assert LsdFieldText(diagnostic, "Severity") == "Warning"
     LsdAssertSpan(diagnostic, 2, 18, "Value".Length)
     LsdAssertLspRange(diagnostic, 1, 17, 22)
 }
@@ -71,7 +71,7 @@ test "DocumentManager redundant must unwrap squiggle covers must keyword" {
         "NullabilityWarning",
         "redundant"
     )
-    assert LsdFieldText(diagnostic, "Severity") == "Error"
+    assert LsdFieldText(diagnostic, "Severity") == "Warning"
     LsdAssertSpan(diagnostic, 3, 16, "must".Length)
     LsdAssertLspRange(diagnostic, 2, 15, 19)
 }

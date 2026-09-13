@@ -348,7 +348,26 @@ test "TWO SEQUENCES SUSPEND INDEPENDENTLY, WHICH IS WHAT MAKES A NESTED BLOCK WO
     assert outerRest == "k1@0:0/e0/s3;k1@0:0/e0/s9;k3@0:0/e0"
 }
 
-test "THE JUDGEMENT IS THE SHARED ONE — A LOOP DOES NOT TERMINATE A LIST" {
+test "THE JUDGEMENT IS THE SHARED ONE — A CONDITIONAL LOOP DOES NOT TERMINATE A LIST" {
+    harness := SequenceDefault()
+    loopBody := SequenceEmpty()
+    loopBody.Add(SequenceLeaving(4))
+    body: Statement = SequenceBlock(loopBody, 3, 5)
+    condition: Expression = new IdentifierExpression("running", 3, 11)
+    loop: Statement = new WhileStatement(condition, body, 3, 1)
+    statements := SequenceEmpty()
+    statements.Add(loop)
+    statements.Add(SequencePlain(6))
+
+    transcript := SequenceReplay(harness, harness.Sequence.BeginList(statements))
+
+    // A loop whose condition can be false can be fallen out of, so the statement after it is live.
+    // This walk must not second-guess the judgement in either direction.
+    assert transcript == "k1@0:0/e0/s3;k1@0:0/e0/s6"
+    assert harness.Errors.Count == 0
+}
+
+test "THE JUDGEMENT IS THE SHARED ONE — AN ENDLESS LOOP DOES TERMINATE A LIST" {
     harness := SequenceDefault()
     loopBody := SequenceEmpty()
     loopBody.Add(SequenceLeaving(4))
@@ -359,12 +378,12 @@ test "THE JUDGEMENT IS THE SHARED ONE — A LOOP DOES NOT TERMINATE A LIST" {
     statements.Add(loop)
     statements.Add(SequencePlain(6))
 
-    transcript := SequenceReplay(harness, harness.Sequence.BeginList(statements))
+    SequenceReplay(harness, harness.Sequence.BeginList(statements))
 
-    // `AnalyzerStatementTermination` deliberately answers NO for every loop, so the statement after
-    // one is live. This walk must not second-guess it.
-    assert transcript == "k1@0:0/e0/s3;k1@0:0/e0/s6"
-    assert harness.Errors.Count == 0
+    // `while true` with no `break` cannot be fallen out of, so the statement after it is dead —
+    // the same answer C# gives (CS0162), reached through the one shared judgement.
+    assert harness.Errors.Count == 1
+    assert harness.Errors[0].Code == ErrorCode.UnreachableStatement
 }
 
 // ---- the scope stack's two new members -------------------------------------------------------

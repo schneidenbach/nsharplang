@@ -3833,3 +3833,55 @@ test "a parenthesised typeof root is claimed through both new arms" {
     assert plan.OpCodeValues[1] == ColumnarCodePlanContract.Call()
     assert plan.OpCodeValues[2] == ColumnarCodePlanContract.Ret()
 }
+
+// ── THE ENDLESS LOOP, IN THE NODE TABLE ───────────────────────────────────
+//
+// The columnar mirror of `AnalyzerStatementTermination`'s endless-loop rule, and it is the arm that
+// needs the SOURCE TEXT: a literal's value is a span into the source rather than a value, so the
+// constant-`true` test cannot be answered from shapes alone. The two owners must agree — the
+// diagnostics pass decides whether a value function is told it is missing a return, and this one
+// decides whether the emitter synthesizes a trailing `ret` for it.
+
+// `while <cond> { <leaf> }` — While(26) [cond, Block(25) [leaf]].
+func MethodBodyFactsEndlessLoop(conditionKind: int, leafKind: int): ColumnarNodeTable {
+    kinds := MethodBodyFactsInts4(26, conditionKind, 25, leafKind)
+    childCounts := MethodBodyFactsInts4(2, 0, 1, 0)
+    children := MethodBodyFactsInts3(1, 2, 3)
+    valueStarts := MethodBodyFactsInts4(0, 0, 0, 0)
+    valueLengths := MethodBodyFactsInts4(0, 4, 0, 0)
+    return MethodBodyFactsNodes(kinds, childCounts, children, valueStarts, valueLengths, 4)
+}
+
+// `for <init>; <cond>; <incr> { <leaf> }` — For(28) [init, cond, incr, Block(25) [leaf]].
+func MethodBodyFactsEndlessFor(conditionKind: int, leafKind: int): ColumnarNodeTable {
+    kinds := MethodBodyFactsInts6(28, 23, conditionKind, 23, 25, leafKind)
+    childCounts := MethodBodyFactsInts6(4, 0, 0, 0, 1, 0)
+    children := MethodBodyFactsInts5(1, 2, 3, 4, 5)
+    valueStarts := MethodBodyFactsInts6(0, 0, 0, 0, 0, 0)
+    valueLengths := MethodBodyFactsInts6(0, 0, 4, 0, 0, 0)
+    return MethodBodyFactsNodes(kinds, childCounts, children, valueStarts, valueLengths, 4)
+}
+
+test "a `while true` WHOSE BODY CANNOT BREAK ALWAYS RETURNS" {
+    assert ColumnarMethodBodyPlanner.AlwaysReturns(MethodBodyFactsEndlessLoop(4, 20), "true", 0)
+    assert ColumnarMethodBodyPlanner.AlwaysReturns(MethodBodyFactsEndlessLoop(4, 48), "true", 0)
+    assert ColumnarMethodBodyPlanner.AlwaysReturns(MethodBodyFactsEndlessFor(4, 20), "true", 0)
+}
+
+test "a `break` IN THE BODY RESTORES THE END POINT" {
+    assert !ColumnarMethodBodyPlanner.AlwaysReturns(MethodBodyFactsEndlessLoop(4, 21), "true", 0)
+    assert !ColumnarMethodBodyPlanner.AlwaysReturns(MethodBodyFactsEndlessFor(4, 21), "true", 0)
+}
+
+test "A CONDITION THAT IS NOT THE CONSTANT `true` IS NOT ENDLESS" {
+    // Same shapes, a source that spells something else — and an identifier condition, which is what
+    // an ordinary `while running` is.
+    assert !ColumnarMethodBodyPlanner.AlwaysReturns(MethodBodyFactsEndlessLoop(4, 20), "fals", 0)
+    assert !ColumnarMethodBodyPlanner.AlwaysReturns(MethodBodyFactsEndlessLoop(6, 20), "true", 0)
+}
+
+test "A VALUE-BEARING return IS WHAT A CONSTRUCTOR FORBIDS, NOT A BARE ONE" {
+    assert !ColumnarMethodBodyPlanner.ContainsValueReturnStatement(MethodBodyFactsBareReturnBody(), 0)
+    assert ColumnarMethodBodyPlanner.ContainsReturnStatement(MethodBodyFactsBareReturnBody(), 0)
+    assert ColumnarMethodBodyPlanner.ContainsValueReturnStatement(MethodBodyFactsLiteralBody(0, "1"), 0)
+}
