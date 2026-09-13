@@ -5503,8 +5503,9 @@ sealed class ColumnarIlEmitter {
             let factAttributeType: System.Type = null
             let traitAttributeType: System.Type = null
             try {
-                factAttributeType = ColumnarCompilerReferenceResolver.ResolveTestFrameworkType("Xunit.FactAttribute", referenceAssemblyPaths, ["xunit.core", "xunit.v3.core"])
-                traitAttributeType = ColumnarCompilerReferenceResolver.ResolveTestFrameworkType("Xunit.TraitAttribute", referenceAssemblyPaths, ["xunit.core", "xunit.v3.core"])
+                hostProbeNames := TestFrameworkReferenceSet.HostProbeAssemblyNames(TestFrameworkReferenceSet.XunitFrameworkName())
+                factAttributeType = ColumnarCompilerReferenceResolver.ResolveTestFrameworkType("Xunit.FactAttribute", referenceAssemblyPaths, hostProbeNames)
+                traitAttributeType = ColumnarCompilerReferenceResolver.ResolveTestFrameworkType("Xunit.TraitAttribute", referenceAssemblyPaths, hostProbeNames)
             } catch ignoredTestFrameworkResolution: InvalidOperationException {
                 return DeclineStatic("emit.tests.framework", "xunit attribute types were not resolvable in this emit host", "NSharpTests", -1, 0)
             }

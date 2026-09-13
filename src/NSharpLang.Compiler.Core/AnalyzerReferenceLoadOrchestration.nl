@@ -23,13 +23,25 @@ class ReferenceLoadRequest {
     Identity: string
     RecordedPackageName: string?
 
-    constructor(kind: string, value: string, version: string?, identity: string, recordedPackageName: string?) {
+    // THE ASSEMBLY A PACKAGE REQUEST IS ACTUALLY AFTER, when that is not the package's own name.
+    // Most packages ship `lib/<tfm>/<package id>.dll` and this stays null; a test framework does not
+    // — `xunit.core.dll` ships inside `xunit.extensibility.core` — so the probe needs both halves or
+    // it looks for a file the package never contained and records the miss under a name that is not
+    // an assembly at all.
+    AssemblyName: string?
+
+    constructor(kind: string, value: string, version: string?, identity: string, recordedPackageName: string?, assemblyName: string?) {
         Kind = kind
         Value = value
         Version = version
         Identity = identity
         RecordedPackageName = recordedPackageName
+        AssemblyName = assemblyName
     }
+
+    // The assembly this request resolves to: the explicit one when the package ships it under a
+    // different name, and the request's own value otherwise.
+    ResolvedAssemblyName: string => AssemblyName ?? Value
 }
 
 // WHAT A PROJECT'S REFERENCES MEAN, IN THE ORDER THEY MEAN IT.
@@ -47,6 +59,17 @@ class ReferenceLoadRequest {
 //       the project's pinned version decides. A `testDependencies:` entry is loaded BY NAME and left
 //       to the resolver, because a test framework's assembly is whatever the host already has —
 //       resolving it to a cache path would bind a second copy of xunit beside the one running.
+//       THE EXCEPTION IS THE FRAMEWORK'S OWN PACKAGE, and it is not a special case so much as the
+//       thing D2 always meant: `xunit` is a METAPACKAGE and there is no assembly of that name to
+//       load by, so asking the resolver for one could only ever fail and be reported as an
+//       unreadable assembly. `TestFrameworkReferenceSet` owns which assemblies the framework really
+//       ships and which package each lives in, and those rows are what gets planned.
+//   D2b. A PROJECT THAT WRITES TESTS DEPENDS ON A TEST FRAMEWORK WHETHER OR NOT IT SAYS SO. A
+//       `test "..."` block lowers to a method carrying the framework's attributes, so the analyzer
+//       cannot bind a `.tests.nl` file without them. `nlc check` and `nlc build` add the implicit
+//       package before they ever reach this walk; the language server does not, which is why the
+//       same file bound in a build and did not bind in the editor. The implicit rows are planned
+//       HERE instead, so all three products read one rule.
 //   D3. (the resolver's own four-stage probe order) is `NSharpMetadataResolver`'s and moves with it.
 //
 // So the walk is split in two. `PlanRequests` is PURE — a config and a directory in, an ordered list
@@ -115,7 +138,9 @@ class AnalyzerReferenceLoadOrchestration {
         return nuget
     }
 
-    static func PlanRequests(config: ProjectConfig, projectDirectory: string): List<ReferenceLoadRequest> {
+    // `hasTestSources` is the one fact the plan cannot read for itself: whether the project contains
+    // any `*.tests.nl` file. It is passed in rather than probed so the plan stays pure.
+    static func PlanRequests(config: ProjectConfig, projectDirectory: string, hasTestSources: bool): List<ReferenceLoadRequest> {
         requests := new List<ReferenceLoadRequest>()
 
         // D1, first half: everything that is NOT a NuGet package, in declaration order.
@@ -143,32 +168,50 @@ class AnalyzerReferenceLoadOrchestration {
                     reference.Nuget ?? "",
                     reference.Version,
                     RequestIdentity(reference),
-                    RecordedPackageName(reference)
+                    RecordedPackageName(reference),
+                    null
                 ))
             }
 
             index = index + 1
         }
 
-        // D2: a test dependency is loaded BY NAME, never resolved to a cache path.
+        // D2: a test dependency is loaded BY NAME, never resolved to a cache path — unless it names
+        // the test framework's own package, which ships no assembly of its own.
         testDependencies := config.TestDependencies
+        plannedFrameworkAssemblies := false
         index = 0
         while index < testDependencies.Count {
             dependency := testDependencies[index]
             if dependency.Type == ReferenceType.NuGet {
                 packageName := dependency.Nuget
                 if packageName != null {
-                    requests.Add(new ReferenceLoadRequest(
-                        "name",
-                        packageName,
-                        null,
-                        RequestIdentity(dependency),
-                        RecordedPackageName(dependency)
-                    ))
+                    if TestFrameworkReferenceSet.IsFrameworkPackageId(packageName, config.TestFramework) {
+                        AddFrameworkAssemblyRequests(requests, config.TestFramework, RecordedPackageName(dependency))
+                        plannedFrameworkAssemblies = true
+                    } else {
+                        requests.Add(new ReferenceLoadRequest(
+                            "name",
+                            packageName,
+                            null,
+                            RequestIdentity(dependency),
+                            RecordedPackageName(dependency),
+                            null
+                        ))
+                    }
                 }
             }
 
             index = index + 1
+        }
+
+        // D2b: the framework a `test` block needs, for a project that writes tests without declaring it.
+        if hasTestSources && !plannedFrameworkAssemblies {
+            AddFrameworkAssemblyRequests(
+                requests,
+                config.TestFramework,
+                TestFrameworkReferenceSet.FrameworkPackageId(config.TestFramework)
+            )
         }
 
         // A web project's framework assemblies are named, not referenced, so they arrive last and
@@ -177,7 +220,7 @@ class AnalyzerReferenceLoadOrchestration {
             aspNetNames := AnalyzerMetadataLoadPolicy.AspNetCoreAssemblyNames()
             nameIndex := 0
             while nameIndex < aspNetNames.Length {
-                requests.Add(new ReferenceLoadRequest("name", aspNetNames[nameIndex], null, aspNetNames[nameIndex], null))
+                requests.Add(new ReferenceLoadRequest("name", aspNetNames[nameIndex], null, aspNetNames[nameIndex], null, null))
                 nameIndex = nameIndex + 1
             }
         }
@@ -194,6 +237,7 @@ class AnalyzerReferenceLoadOrchestration {
                 AnalyzerMetadataLoadPolicy.ResolvedReferencePath(projectDirectory, reference.Dll ?? ""),
                 null,
                 RequestIdentity(reference),
+                null,
                 null
             )
         }
@@ -204,6 +248,7 @@ class AnalyzerReferenceLoadOrchestration {
                 AnalyzerMetadataLoadPolicy.ResolvedReferencePath(projectDirectory, reference.Project ?? ""),
                 null,
                 RequestIdentity(reference),
+                null,
                 null
             )
         }
@@ -211,9 +256,55 @@ class AnalyzerReferenceLoadOrchestration {
         return null
     }
 
+    // ONE REQUEST PER ASSEMBLY THE FRAMEWORK ACTUALLY SHIPS, in the reference set's own order. Each
+    // carries the package that holds it AND the file it is looking for, and its IDENTITY is the
+    // assembly name — so a failure names something that could have been an assembly, which is the
+    // whole point: a metapackage never appears in a diagnostic as an unreadable one.
+    //
+    // Only the FIRST row contributes the package name to the referenced-package set: the set answers
+    // "does this project depend on a package spelled like this import?", and the project depends on
+    // the framework package it declared, not on the three assemblies that package drags in.
+    static func AddFrameworkAssemblyRequests(
+        requests: List<ReferenceLoadRequest>,
+        testFramework: string?,
+        recordedPackageName: string?
+    ) {
+        rows := TestFrameworkReferenceSet.CompileAssemblies(testFramework)
+        index := 0
+        while index < rows.Count {
+            row := rows[index]
+            contributedName: string? = null
+            if index == 0 {
+                contributedName = recordedPackageName
+            }
+
+            requests.Add(new ReferenceLoadRequest(
+                "package",
+                row.PackageId,
+                null,
+                row.AssemblyName,
+                contributedName,
+                row.AssemblyName
+            ))
+            index = index + 1
+        }
+    }
+
     // ---------------------------------------------------------------------------------------------
     // PERFORMING THE PLAN.
     // ---------------------------------------------------------------------------------------------
+
+    // THE ONE FACT THE PLAN CANNOT READ FOR ITSELF. `nlc check` and `nlc build` reach this walk with
+    // the implicit test dependency already added to the config; the language server reaches it with a
+    // config parsed straight from `project.yml`. Asking the directory here is what makes the three
+    // products plan the same set.
+    static func HasTestSources(projectDirectory: string): bool {
+        if !Directory.Exists(projectDirectory) {
+            return false
+        }
+
+        return Directory.GetFiles(projectDirectory, "*.tests.nl", SearchOption.AllDirectories).Length > 0
+    }
 
     func Load(config: ProjectConfig, projectDirectory: string) {
         // The versions the project RESTORED are pinned before anything is loaded, so a cache fallback
@@ -222,7 +313,7 @@ class AnalyzerReferenceLoadOrchestration {
             surface.PinPackageVersion(entry.Key, entry.Value)
         }
 
-        requests := PlanRequests(config, projectDirectory)
+        requests := PlanRequests(config, projectDirectory, HasTestSources(projectDirectory))
         index := 0
         while index < requests.Count {
             Perform(requests[index], projectDirectory, config.TargetFramework)
@@ -248,7 +339,7 @@ class AnalyzerReferenceLoadOrchestration {
             } else if kind == "project" {
                 LoadProjectReference(request.Value, targetFramework)
             } else if kind == "package" {
-                LoadPackage(request.Value, request.Version, targetFramework, projectDirectory)
+                LoadPackage(request.Value, request.ResolvedAssemblyName, request.Version, targetFramework, projectDirectory)
             }
         } catch error: Exception {
             surface.RecordExceptionFailure(request.Identity, error)
@@ -257,8 +348,12 @@ class AnalyzerReferenceLoadOrchestration {
 
     // A LOCALLY BUILT COPY WINS OVER THE CACHE. A package the solution also builds is the one the
     // user is editing, and its `bin/` output is newer than anything restored.
-    func LoadPackage(packageName: string, version: string?, targetFramework: string, projectDirectory: string) {
-        binPath := AnalyzerMetadataLoadPolicy.LocallyBuiltPackageAssemblyPath(projectDirectory, targetFramework, packageName)
+    // `assemblyName` is the FILE being looked for and `packageName` is where it lives. They are the
+    // same string for every package that ships `lib/<tfm>/<package id>.dll`, and they differ for the
+    // test-framework rows — which is also why every failure below is recorded under the ASSEMBLY
+    // name: that is the thing the compiler could not read.
+    func LoadPackage(packageName: string, assemblyName: string, version: string?, targetFramework: string, projectDirectory: string) {
+        binPath := AnalyzerMetadataLoadPolicy.LocallyBuiltPackageAssemblyPath(projectDirectory, targetFramework, assemblyName)
         if File.Exists(binPath) {
             surface.LoadByPath(binPath)
             return
@@ -276,25 +371,25 @@ class AnalyzerReferenceLoadOrchestration {
         )
 
         if !Directory.Exists(nugetCache) {
-            surface.RecordFailure(packageName, AnalyzerReferenceLoadReport.PackageMissingDetail(nugetCache))
+            surface.RecordFailure(assemblyName, AnalyzerReferenceLoadReport.PackageMissingDetail(nugetCache))
             return
         }
 
         versionDir := AnalyzerMetadataLoadPolicy.PackageVersionDirectory(nugetCache, effectiveVersion, Directory.GetDirectories(nugetCache))
         if versionDir == null {
-            surface.RecordFailure(packageName, AnalyzerReferenceLoadReport.PackageVersionDeadEndDetail(effectiveVersion, nugetCache))
+            surface.RecordFailure(assemblyName, AnalyzerReferenceLoadReport.PackageVersionDeadEndDetail(effectiveVersion, nugetCache))
             return
         }
 
         if !Directory.Exists(versionDir) {
-            surface.RecordFailure(packageName, AnalyzerReferenceLoadReport.PackageVersionDeadEndDetail(effectiveVersion, nugetCache))
+            surface.RecordFailure(assemblyName, AnalyzerReferenceLoadReport.PackageVersionDeadEndDetail(effectiveVersion, nugetCache))
             return
         }
 
         targetFrameworks := AnalyzerMetadataLoadPolicy.MetadataProbeTargetFrameworks(targetFramework)
         tfmIndex := 0
         while tfmIndex < targetFrameworks.Length {
-            assetPath := AnalyzerMetadataLoadPolicy.PackageLibAssetPath(versionDir, targetFrameworks[tfmIndex], packageName)
+            assetPath := AnalyzerMetadataLoadPolicy.PackageLibAssetPath(versionDir, targetFrameworks[tfmIndex], assemblyName)
             if File.Exists(assetPath) {
                 surface.LoadByPath(assetPath)
                 return
@@ -304,8 +399,8 @@ class AnalyzerReferenceLoadOrchestration {
         }
 
         surface.RecordFailure(
-            packageName,
-            AnalyzerReferenceLoadReport.PackageLibAssetMissingDetail(packageName, AnalyzerMetadataLoadPolicy.PackageLibRoot(versionDir))
+            assemblyName,
+            AnalyzerReferenceLoadReport.PackageLibAssetMissingDetail(assemblyName, AnalyzerMetadataLoadPolicy.PackageLibRoot(versionDir))
         )
     }
 

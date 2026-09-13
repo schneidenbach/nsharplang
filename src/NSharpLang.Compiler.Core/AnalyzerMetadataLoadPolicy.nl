@@ -176,8 +176,12 @@ class AnalyzerMetadataLoadPolicy {
     // resolve — which reads as the compiler finding a type only sometimes. The fallback ladder is
     // one list now; the direct view simply puts the project's own framework in front of it, which is
     // the only thing that ever distinguished the two.
+    // NEWEST FIRST, THEN DOWN THROUGH EVERY STANDARD A .NET 10 PROJECT CAN STILL CONSUME. The
+    // `netstandard1.x` tail is not decoration: xunit's own `xunit.core.dll` publishes at
+    // `lib/netstandard1.1` to this day, so a list that stopped at `netstandard2.0` could not read the
+    // metadata for the attribute every `test` block lowers to.
     static func FallbackTargetFrameworks(): string[] {
-        names := new string[](7)
+        names := new string[](14)
         names[0] = "net10.0"
         names[1] = "net9.0"
         names[2] = "net8.0"
@@ -185,6 +189,13 @@ class AnalyzerMetadataLoadPolicy {
         names[4] = "net6.0"
         names[5] = "netstandard2.1"
         names[6] = "netstandard2.0"
+        names[7] = "netstandard1.6"
+        names[8] = "netstandard1.5"
+        names[9] = "netstandard1.4"
+        names[10] = "netstandard1.3"
+        names[11] = "netstandard1.2"
+        names[12] = "netstandard1.1"
+        names[13] = "netstandard1.0"
         return names
     }
 

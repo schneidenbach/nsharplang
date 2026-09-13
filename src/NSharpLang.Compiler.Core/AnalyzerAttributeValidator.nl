@@ -1094,31 +1094,31 @@ class AnalyzerAttributeValidator {
         return false
     }
 
-    // THE SOURCE DOOR, WITH THE NESTED-TYPE FALLBACK. The scope stack answers a simple or imported
-    // name; a dotted name that names a NESTED source type is only found through the type resolver's
-    // own dotted door, and it is asked exactly when the scope stack declined.
+    // THE SOURCE DOOR IS THE TYPE RESOLVER'S DOOR, AND IT HAS TO BE.
+    //
+    // `[Marker]` used to be looked up in the SCOPE STACK alone, with the dotted-nested door as its
+    // only fallback. The scope stack answers for this file and for what this file imported; every
+    // OTHER channel a type name resolves through — the file-import alias, the namespace-qualified
+    // spelling, and above all the project-wide discovery that makes a sibling `.nl` file's public
+    // class visible without an import — lives in `AnalyzerTypeResolver`. So an attribute class
+    // declared in one file and written in another reported "Attribute type 'Marker' not found" while
+    // `func Make(): MarkerAttribute` on the very next line resolved perfectly.
+    //
+    // Asking the resolver is not a second door: it OPENS WITH the scope stack, so nothing that used
+    // to resolve stops resolving, and the six channels behind it are the same ones every other type
+    // reference in the language goes through. The position is `0`, which is the resolver's own
+    // "resolve but report nothing and bind nothing" mode — an unrecognised name is this validator's
+    // to report, with its own wording, and reporting it twice would be worse than not at all.
+    //
+    // A NAME NOTHING DECLARED comes back as an `ExternalTypeInfo` placeholder, which is not one of
+    // the source-declared shapes, so it declines here exactly as a null lookup used to.
     func TryResolveSourceAttributeCandidate(attributeName: string, out sourceType: TypeInfo): bool {
         for candidate in GetClrAttributeNameCandidates(attributeName) {
-            candidateType: TypeInfo = BuiltInTypes.Unknown
-            found := false
-            looked := scopes.LookupType(candidate)
-            if looked != null {
-                candidateType = looked
-                found = true
-            } else {
-                nested: TypeInfo = BuiltInTypes.Unknown
-                if typeResolver.TryResolveDottedNestedType(candidate, out nested) {
-                    candidateType = nested
-                    found = true
-                }
-            }
-
-            if found {
-                aliased := declarationContext.ResolveDeclaredAlias(candidateType)
-                if IsSourceDeclaredAttributeCandidate(aliased) {
-                    sourceType = aliased
-                    return true
-                }
+            resolved := typeResolver.ResolveSimpleType(candidate, 0, 0)
+            aliased := declarationContext.ResolveDeclaredAlias(resolved)
+            if IsSourceDeclaredAttributeCandidate(aliased) {
+                sourceType = aliased
+                return true
             }
         }
 

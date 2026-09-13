@@ -334,12 +334,8 @@ class CompilationReferenceResolverKernels {
             return new ImplicitTestDependencyPlan(false, "", "")
         }
 
-        packageName := "xunit"
-        version := "2.9.2"
-        if string.Equals(testFramework ?? "", "nunit", StringComparison.OrdinalIgnoreCase) {
-            packageName = "NUnit"
-            version = "4.3.2"
-        }
+        packageName := TestFrameworkReferenceSet.FrameworkPackageId(testFramework)
+        version := TestFrameworkReferenceSet.FrameworkPackageVersion(testFramework)
 
         if ContainsPackageId(existingPackageIds, packageName) {
             return new ImplicitTestDependencyPlan(false, "", "")

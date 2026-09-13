@@ -306,28 +306,31 @@ test "the lib asset a package publishes is read from lib/<tfm>/<id>.dll under th
 
 // ── THE TARGET-FRAMEWORK LADDER, AND THE DRIFT IT ENDS ───────────────────────────────────────────
 
-test "there is ONE fallback ladder and it is seven frameworks deep, newest first" {
+test "there is ONE fallback ladder and it runs newest-first down to netstandard1.0" {
     ladder := AnalyzerMetadataLoadPolicy.FallbackTargetFrameworks()
 
-    assert ladder.Length == 7
-    assert JoinNames(ladder) == "net10.0|net9.0|net8.0|net7.0|net6.0|netstandard2.1|netstandard2.0"
+    // THE TAIL IS NOT DECORATION. `xunit.core.dll` — the assembly carrying the attribute every
+    // `test` block lowers to — publishes at `lib/netstandard1.1` and nowhere newer, so a ladder that
+    // stopped at `netstandard2.0` could not read the metadata for it.
+    assert ladder.Length == 14
+    assert JoinNames(ladder) == "net10.0|net9.0|net8.0|net7.0|net6.0|netstandard2.1|netstandard2.0|netstandard1.6|netstandard1.5|netstandard1.4|netstandard1.3|netstandard1.2|netstandard1.1|netstandard1.0"
 }
 
 test "the project's own framework is probed FIRST and never probed twice" {
     probe := AnalyzerMetadataLoadPolicy.MetadataProbeTargetFrameworks("net10.0")
 
     assert probe[0] == "net10.0"
-    assert probe.Length == 7
-    assert JoinNames(probe) == "net10.0|net9.0|net8.0|net7.0|net6.0|netstandard2.1|netstandard2.0"
+    assert probe.Length == 14
+    assert JoinNames(probe) == JoinNames(AnalyzerMetadataLoadPolicy.FallbackTargetFrameworks())
 }
 
 test "a project framework outside the ladder is prepended to it rather than replacing it" {
     probe := AnalyzerMetadataLoadPolicy.MetadataProbeTargetFrameworks("net11.0")
 
-    assert probe.Length == 8
+    assert probe.Length == 15
     assert probe[0] == "net11.0"
     assert probe[1] == "net10.0"
-    assert probe[7] == "netstandard2.0"
+    assert probe[14] == "netstandard1.0"
 }
 
 test "with no project framework the probe IS the ladder — the resolver's view of the same order" {
