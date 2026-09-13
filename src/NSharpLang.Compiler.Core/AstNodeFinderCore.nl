@@ -196,6 +196,14 @@ class AstPositionVisitor {
             return
         }
 
+        // `off <handle>` — the handle is an ORDINARY expression, so hover, definition and rename over
+        // it must reach it. Without this arm the statement is a leaf and every position inside it
+        // answers `No symbol found`.
+        if typeName == "OffStatement" {
+            SetFoundExpression(FindExpression(GetRequiredProperty(statement, "Handle")))
+            return
+        }
+
         if typeName == "IfStatement" {
             SetFoundExpression(FindExpression(GetRequiredProperty(statement, "Condition")))
             if foundExpressionValue != null {
@@ -355,6 +363,17 @@ class AstPositionVisitor {
         if typeName == "ParenthesizedExpression" {
             childMatch := FindExpression(GetRequiredProperty(expression, "Inner"))
             return ChooseBestExpression(currentMatch, childMatch)
+        }
+
+        // `on <receiver>.<Event> <handler>` — the SAME defect the three arms below were, in the one
+        // expression whose children are a whole member chain and a whole lambda. Without this arm the
+        // subscription is a LEAF: hovering the receiver, the event name or anything in the handler body
+        // answered from the `on` node, so every one of them reported the subscription HANDLE's type
+        // instead of its own. The receiver goes first because the handler is the later span, and
+        // `ChooseBestExpression` picks by position either way.
+        if typeName == "OnSubscriptionExpression" {
+            bestMatch := ChooseBestExpression(currentMatch, FindExpression(GetRequiredProperty(expression, "Target")))
+            return ChooseBestExpression(bestMatch, FindExpression(GetRequiredProperty(expression, "Handler")))
         }
 
         // THE THREE ARMS BELOW WERE THE WHOLE OF IDE DEFECTS D1 AND D2, and they are three arms

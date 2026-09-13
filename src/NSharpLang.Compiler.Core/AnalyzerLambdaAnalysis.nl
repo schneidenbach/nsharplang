@@ -141,22 +141,26 @@ class LambdaAnalysisState {
 //      The driver brackets it in a `try`/`finally` for the same reason kind 5 of the lambda walk is
 //      bracketed there: the C# it replaces guarantees the guard is closed even if the analysis
 //      throws, and it wrote the guarantee down. ANSWERS the target's type.
-//   2  analyse the HANDLER LAMBDA with `ExpectedType` as its expected type and
-//      `ReportInferenceFailure` as its inference-failure switch. The driver performs it by
-//      re-entering the lambda walk through its own mechanical driver. The answer is deliberately NOT
-//      read: the handler is analysed for its diagnostics and for the bindings it records, and an
-//      `on` expression's type is the subscription root whatever the handler turns out to be.
+//   2  analyse the HANDLER with `ExpectedType` as its expected type and `ReportInferenceFailure` as
+//      its inference-failure switch. A LAMBDA handler is performed by re-entering the lambda walk
+//      through its own mechanical driver, and its answer is deliberately NOT read: an `on`
+//      expression's type is the subscription root whatever the handler turns out to be. Any OTHER
+//      handler is a delegate VALUE — `on widget.Clicked handler`, the shape C#'s `x.E += handler`
+//      maps onto — and the driver analyses it as an ordinary expression, then hands its type and the
+//      assignability verdict back through `ReportHandlerValueMismatch`. The verdict is computed by
+//      the driver because assignability has its own owner; the SENTENCE is written here, beside the
+//      other three things `on` can say.
 class OnSubscriptionRequest {
     Kind: int
     Node: Expression?
-    Lambda: LambdaExpression?
+    Handler: Expression?
     ExpectedType: TypeInfo?
     ReportInferenceFailure: bool
 
     constructor(kind: int) {
         Kind = kind
         Node = null
-        Lambda = null
+        Handler = null
         ExpectedType = null
         ReportInferenceFailure = true
     }
@@ -680,13 +684,43 @@ class AnalyzerLambdaAnalysis {
         return declaringType != null && declaringType.get_IsValueType()
     }
 
+    // THE HANDLER WAS A DELEGATE VALUE AND IT DID NOT FIT. Reported at the HANDLER's own position with
+    // the event's delegate type named, because that is the only thing the user can act on: the value
+    // is whatever they already hold and the delegate type is what the event demands.
+    //
+    // Three things silence it, each for its own reason. No expected type means the target already
+    // failed and said so — one problem, reported once. An UNKNOWN handler type means the handler's own
+    // resolution already failed and reported. And a handler that IS assignable is simply correct.
+    func ReportHandlerValueMismatch(request: OnSubscriptionRequest, handlerType: TypeInfo, isAssignable: bool) {
+        handler := request.Handler
+        expectedType := request.ExpectedType
+        if handler == null || expectedType == null || isAssignable || BuiltInTypes.IsUnknown(handlerType) {
+            return
+        }
+
+        span := spans.GetExpressionDiagnosticSpan(handler)
+        handlerText := TypeText(handlerType)
+        expectedText := TypeText(expectedType)
+        diagnostics.Report(ErrorCode.InvalidEventSubscription, "this handler is '" + handlerText + "', but the event expects '" + expectedText + "'", span.Line, span.Column, "`on` attaches the handler through the event's own `add` accessor, so give the handler the event's delegate type - or write it inline as a lambda, whose parameters are then inferred from the event.", span.Length)
+    }
+
+    static func TypeText(typeInfo: TypeInfo): string {
+        boxed := typeInfo as object
+        rendered := boxed.ToString()
+        if rendered != null {
+            return rendered
+        }
+
+        return ""
+    }
+
     // THE LAST STEP ON EVERY PATH. The walk ends here whatever the handler answers, so the phase is
     // set to its terminal value BEFORE the request is handed out.
     func EmitHandler(state: OnSubscriptionState, expectedType: TypeInfo?, reportInferenceFailure: bool): OnSubscriptionRequest? {
         state.Phase = 99
         state.Pending = 2
         request := new OnSubscriptionRequest(2)
-        request.Lambda = state.On.Handler
+        request.Handler = state.On.Handler
         request.ExpectedType = expectedType
         request.ReportInferenceFailure = reportInferenceFailure
         return request

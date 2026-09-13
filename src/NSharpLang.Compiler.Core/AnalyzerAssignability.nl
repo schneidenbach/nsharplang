@@ -331,7 +331,14 @@ class AnalyzerAssignability {
             callableTarget := resolvedTarget as ReflectionTypeInfo
             if callableTarget != null {
                 targetClrType := callableTarget.Type
-                if AnalyzerCallableReferenceFacts.IsRuntimeDelegateType(targetClrType) {
+                // WHETHER THE TARGET IS A DELEGATE IS ASKED IN THE TOTAL FORM, the same one the LAMBDA
+                // arm below asks: a runtime delegate answers by CLR base identity and one loaded into a
+                // `MetadataLoadContext` answers by its base chain's NAMES. Asking only the runtime
+                // spelling let a method group reach a delegate the COMPILER HAPPENED TO HAVE LOADED and
+                // no other, so `local: NotifyCollectionChangedEventHandler = Handler` — and the same
+                // name in an `on` handler slot or a delegate parameter — was refused over exactly the
+                // delegates users name. One question, one answer.
+                if AnalyzerCallableReferenceFacts.IsRuntimeDelegateType(targetClrType) || AnalyzerCallableReferenceFacts.IsMetadataDelegateType(targetClrType) {
                     delegateSignature := AnalyzerFunctionTypeFactory.CreateFromRuntimeDelegate(targetClrType)
                     return IsFunctionTypeAssignableToRuntimeDelegateMethodGroup(sourceFunction, delegateSignature)
                 }

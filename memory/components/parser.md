@@ -337,7 +337,14 @@ ONE layer, as of task 020 slice 22: the parser's assertion layer is entirely N#.
   the `on` / `off` EVENT-SUBSCRIPTION corpus — the subscription as a bare expression statement, as a
   `:=` initializer and over a `this` receiver, the `off` statement, `on` / `off` used as ordinary
   identifiers, and a context control in which a local named `on` does not stop the next line parsing
-  a subscription (task 020 slice 24, migrated from `tests/EventSubscriptionTests.cs`); and
+  a subscription (task 020 slice 24, migrated from `tests/EventSubscriptionTests.cs`). The EVENTS
+  census slice widened the handler slot from `LambdaExpression` to `Expression` — a delegate VALUE in
+  handler position is the shape C#'s `x.E += handler` maps onto, and rejecting it at parse made a
+  well-typed program unspellable — so what the parser still owns there is the handler's PRESENCE, under
+  the language's own statement rule: the handler must begin on the event's own line. The same slice
+  gave the COLUMNAR kernels their own `on` (expression kind 79, children [target, handler]) and `off`
+  (statement kind 80, one child), committed on exactly the contextual shapes the recovery parser
+  commits on; before it, every function containing either declined at `parse.function`. And
   `ColumnarParserErrorHandling.tests.nl` pins whole trees over the ERROR-HANDLING corpus — 24
   fixtures of malformed and C#-shaped source, 13 of which report a diagnostic and 11 of which report
   NONE, each with its census and every diagnostic pinned WHOLE through `PeRow` (task 020 slice 25,

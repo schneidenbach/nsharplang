@@ -5973,7 +5973,7 @@ class ColumnarParserRecovery {
     // `on target.Event (sender, args) => { … }`. Reached as the highest-precedence expression prefix
     // (ParseExprValue), so it works both as a bare statement and composed with `:=`. The event target
     // is a member/index chain that deliberately STOPS before a `(` (so the handler's parameter list is
-    // not swallowed as a call); the handler must be a lambda, else the InvalidSyntax NL103 fires.
+    // not swallowed as a call); the handler is any expression of the event's delegate type.
     func IsOnSubscriptionStart(): bool {
         if Current().Type != TokenType.Identifier || Current().Value != "on" {
             return false
@@ -5982,10 +5982,18 @@ class ColumnarParserRecovery {
         return next == TokenType.Identifier || next == TokenType.This || next == TokenType.Base
     }
 
-    // Stage N+1c tranche 10: `new OnSubscriptionExpression(target, handler, line, column)` (Parser.cs
-    // :2917) — reachable now that the BLOCK-bodied lambda materializes. Tranche 11 adds the RECOVERY arm
-    // (:2930): when the handler is not a lambda, Parser.cs substitutes a SYNTHETIC empty-parameter lambda
-    // over an EMPTY BlockStatement, both anchored on the PARSED handler expression's own Line/Column.
+    // `on <target> <handler>` -> `new OnSubscriptionExpression(target, handler, line, column)`.
+    //
+    // THE HANDLER IS ANY EXPRESSION OF THE EVENT'S DELEGATE TYPE. It was once required to be a LAMBDA
+    // at parse time, which made `on widget.Clicked handler` — the shape C#'s `x.E += handler` maps
+    // onto — a syntax error over a program that is perfectly well typed. Whether the handler FITS the
+    // event is a question about types, and the analyzer answers it at the handler's own position with
+    // the delegate type named.
+    //
+    // WHAT THE PARSER STILL OWNS IS THE HANDLER'S PRESENCE, and the rule is the one the rest of the
+    // language uses: a statement ends at a newline, so the handler must BEGIN ON THE EVENT'S OWN LINE.
+    // Without it `on widget.Clicked` followed by any statement would silently swallow that statement
+    // as the handler instead of reporting the missing one.
     func ParseOnSubscription(): ExprResult {
         onLine := Current().Line
         onColumn := Current().Column
@@ -5993,35 +6001,24 @@ class ColumnarParserRecovery {
         // consume contextual 'on'
         target := ParseEventTarget()
 
-        // The handler position + whether it is a lambda (Parser.cs parses then checks
-        // `is LambdaExpression`; a lambda is exactly one of the two ParseExprValue lambda prefixes).
+        onResult := new ExprResult(new RecoverySpan(onLine, onColumn, 1), false)
+        if Current().Line != Previous().Line {
+            ReportExpectedEventHandler(Current().Line, Current().Column)
+            return onResult
+        }
+
         handlerLine := Current().Line
         handlerColumn := Current().Column
-        handlerIsLambda := IsLambdaExpression() || (Check(TokenType.Identifier) && LookAhead(1).Type == TokenType.Arrow)
         handlerNode := ParseExprValue().Node
-        // the handler (ParseLambdaOrAssignmentExpression)
-        if !handlerIsLambda {
-            // Parser.cs anchors this report on the PARSED handler expression's OWN Line/Column
-            // (:2926-2929), which is not the handler's first token for every node shape — a binary
-            // expression, for instance, anchors on its OPERATOR. Fall back to the pre-parse token
-            // position only when nothing materialized.
-            if handlerNode != null {
-                ReportExpectedEventHandlerLambda(handlerNode.Line, handlerNode.Column)
-            } else {
-                ReportExpectedEventHandlerLambda(handlerLine, handlerColumn)
-            }
+        if handlerNode == null {
+            ReportExpectedEventHandler(handlerLine, handlerColumn)
+            return onResult
         }
-        onResult := new ExprResult(new RecoverySpan(onLine, onColumn, 1), false)
-        handlerLambda := handlerNode as LambdaExpression
-        if handlerIsLambda && target != null && handlerLambda != null {
-            onResult.Node = new OnSubscriptionExpression(target, handlerLambda, onLine, onColumn)
-        } else {
-            if !handlerIsLambda && target != null && handlerNode != null {
-                recoveryBody := new BlockStatement(new List<Statement>(), handlerNode.Line, handlerNode.Column)
-                recoveryHandler := new LambdaExpression(new List<Parameter>(), null, recoveryBody, handlerNode.Line, handlerNode.Column)
-                onResult.Node = new OnSubscriptionExpression(target, recoveryHandler, onLine, onColumn)
-            }
+
+        if target != null {
+            onResult.Node = new OnSubscriptionExpression(target, handlerNode, onLine, onColumn)
         }
+
         return onResult
     }
 
@@ -6065,8 +6062,11 @@ class ColumnarParserRecovery {
         return target
     }
 
-    func ReportExpectedEventHandlerLambda(handlerLine: int, handlerColumn: int) {
-        Report(ErrorCode.InvalidSyntax, "Expected an event handler lambda after the event", handlerLine, handlerColumn, "`on` subscribes a handler to a .NET event, so it needs a lambda to run when the event fires.", "Write the handler inline, e.g. `on widget.Clicked (sender, args) => { ... }`.", null, 1)
+    func ReportExpectedEventHandler(handlerLine: int, handlerColumn: int) {
+        suggestions := new List<string>()
+        suggestions.Add("Write the handler inline: on widget.Clicked (sender, args) => { ... }")
+        suggestions.Add("Pass a delegate you already hold: on widget.Clicked handler")
+        Report(ErrorCode.InvalidSyntax, "Expected an event handler after the event", handlerLine, handlerColumn, "`on` subscribes a handler to a .NET event, so it needs something to run when the event fires - a lambda, or any expression of the event's delegate type.", "Write the handler on the same line as the event, either inline or as a delegate value.", suggestions, 1)
     }
 
     // ---- expression statement (Parser.cs ParseExpressionStatement :3498) ----

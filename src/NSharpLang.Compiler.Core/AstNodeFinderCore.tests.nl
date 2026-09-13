@@ -194,6 +194,25 @@ test "020 s23 finder: `print(count)` holds NO CallExpression — the open paren 
     assert AnfAt(source, 3, 11) == "Identifier@4:11|Name=count"
 }
 
+// AN `on` SUBSCRIPTION IS NOT A LEAF, AND AN `off` STATEMENT IS NOT ONE EITHER. Both were, which is
+// the D1/D2 defect this file's own comment describes, in the two nodes whose children are a whole
+// member chain and a whole lambda body: every cursor inside `on widget.Clicked (s, a) => { … }`
+// answered from the `on` node, so hover reported the SUBSCRIPTION HANDLE's type for the receiver, for
+// the event name and for every name in the handler body, and `off sub` answered nothing at all.
+test "events: the finder descends into an `on` subscription's receiver, event name and handler body, and into an `off` statement's handle" {
+    source := "func main() {\n    sub := on widget.Clicked (sender, args) => { print sender }\n    off sub\n}"
+    assert PsCensus(source) == ""
+
+    // The receiver, inside `widget`.
+    assert AnfAt(source, 1, 16) == "Identifier@2:15|Name=widget"
+    // The EVENT NAME: the member access carries its DOT's position, so the chain's last link answers.
+    assert AnfAt(source, 1, 24) == "MemberAccess@2:21|Member=Clicked|Object=Identifier@2:15|Name=widget"
+    // A name inside the HANDLER's block body.
+    assert AnfAt(source, 1, 57) == "Identifier@2:56|Name=sender"
+    // The `off` operand.
+    assert AnfAt(source, 2, 9) == "Identifier@3:9|Name=sub"
+}
+
 // THE LINE CONTROL. Every contract above sweeps ONE line, so each is consistent with a finder that
 // ignored the line entirely and answered by column alone. These four sweeps are over the OTHER
 // lines of two of the fixtures — the signature and the closing brace of the first, and the

@@ -24585,8 +24585,11 @@ sealed class ColumnarIlEmitter {
         walk := ownerType
         while (walk != null) {
             // A TYPE STILL BEING BUILT ANSWERS NO REFLECTION QUESTION — `TypeBuilder.GetEvent` throws
-            // rather than returning null — so a source rung is skipped rather than asked. Source-declared
-            // events are resolved by their own owner before this walk is reached.
+            // rather than returning null — so a source rung is SKIPPED rather than asked. Nothing is
+            // lost by skipping it today: N# has no syntax for declaring an event on a source type, so a
+            // rung under construction declares none. The skip is what keeps a source type in the chain
+            // (a class whose base is external, or a receiver of a source type) from crashing the
+            // compiler instead of walking past itself to the external base that does declare the event.
             if (walk as TypeBuilder == null && walk as EnumBuilder == null) {
                 candidate := walk.GetEvent(eventName, flags)
                 if (candidate != null) {
@@ -24667,14 +24670,20 @@ sealed class ColumnarIlEmitter {
             return Decline("emit.on.receiver-kind", "event '" + eventName + "' is " + (addMethod.get_IsStatic() ? "static" : "an instance member") + " and the receiver does not match", targetNode)
         }
 
-        // THE HANDLER. A lambda takes the event's delegate type as its contextual target, exactly as it
-        // does in an argument position; ANY other expression is an ordinary value that must already BE
-        // that delegate type — a `ConsoleCancelEventHandler` local, a field, a call result.
+        // THE HANDLER, IN THE THREE SHAPES THE RULE ADMITS.
+        //
+        // A LAMBDA takes the event's delegate type as its contextual target, exactly as it does in an
+        // argument position. A METHOD GROUP converts to that delegate through the same four owners a
+        // declared delegate local (`let f: Func<int, int> = name`) reaches — admitted by the delegate's
+        // own `Invoke` signature rather than by a name list, because the event names which delegate type
+        // this is and an event's handler type is almost never `Func` or `Action`. ANYTHING ELSE is an
+        // ordinary value that must already BE that delegate type: a handler local, a field, a call
+        // result.
         if (_nodes.Kind(handlerNode) == 39) {
             if (!IsSupportedContextualDelegateType(handlerType) || !TryEmitLambdaLiteral(handlerNode, handlerType)) {
                 return Decline("emit.on.handler-lambda", "the handler lambda could not be bound to '" + handlerType.FullName + "'", handlerNode)
             }
-        } else {
+        } else if (!(IsSupportedContextualDelegateType(handlerType) && (TryEmitLocalFunctionMethodGroupAsDelegate(handlerNode, handlerType) || TryEmitSiblingMethodGroupAsDelegate(handlerNode, handlerType) || TryEmitEnclosingMethodGroupAsDelegate(handlerNode, handlerType) || TryEmitExternalStaticMethodGroupAsDelegate(handlerNode, handlerType)))) {
             let handlerValueType: System.Type? = null
             if (!EmitExpression(handlerNode, out handlerValueType)) {
                 return Decline("emit.on.handler", "the event handler expression could not be emitted", handlerNode)

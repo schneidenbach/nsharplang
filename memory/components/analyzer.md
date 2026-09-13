@@ -2391,6 +2391,15 @@ Analyzer coverage is split deliberately across:
   have that runs the real analyzer over real reflection: `EventRequiresOnOff` appears in NO estate
   contract, and `InvalidEventSubscription` appears in exactly one — `AnalyzerLambdaAnalysis.tests.nl`,
   over a kernel harness with a stand-in subscription root, for the `on`-target-is-not-an-event arm.
+- `tests/native/census-events` for what `on` / `off` DO at runtime, which is the half the analyzer
+  contracts cannot see: subscribe / raise / unsubscribe counts for every receiver shape (a static
+  type, a local, a parameter, a bare field, `this.`-qualified, a property chain, an indexed element),
+  for all three handler shapes (inline lambda, delegate value, method group), for a handle captured by
+  a local function and for `on` written inside a lambda or a local-function body, plus `off`
+  idempotence and two subscriptions to one event detaching independently. Before the EVENTS census
+  slice every one of those functions declined the WHOLE enclosing declaration at `parse.function` /
+  `parse.struct` — the columnar pipeline had no `on` at all — so the file COMPILING is half of each
+  contract and the COUNT is the other half.
 - `tests/native/analyzer-binding-map` for what `AnalysisResult.Bindings` answers — `GetBindingAt`
   over interpolation holes, member accesses, and type annotations in every composite position
   (nullable, array, generic argument, delegate argument), and `FindAllReferences` with its WHOLE

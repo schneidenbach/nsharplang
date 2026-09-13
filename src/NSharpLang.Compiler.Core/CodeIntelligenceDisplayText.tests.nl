@@ -116,6 +116,17 @@ test "TypeInfoToKind names each modelled type info" {
     assert CodeIntelligenceDisplayText.TypeInfoToKind(BuiltInTypes.Unknown) == "unknown"
 }
 
+// A .NET EVENT NAMES ITS OWN KIND, and until the EVENTS census slice it did not: `ReflectionEventInfo`
+// fell through every arm to the terminal `"unknown"`, so hovering the event in `on x.Clicked …`
+// reported the kind reserved for a type nothing recognised.
+test "a .NET event reports the `event` kind rather than falling through to `unknown`" {
+    bareEvent: TypeInfo = new ReflectionEventInfo("Clicked")
+    assert CodeIntelligenceDisplayText.TypeInfoToKind(bareEvent) == "event"
+
+    describedEvent: TypeInfo = new ReflectionEventInfo("Clicked", null, null, null, typeof(object), "event Clicked")
+    assert CodeIntelligenceDisplayText.TypeInfoToKind(describedEvent) == "event"
+}
+
 test "(a) AN ENUM IS ALSO A VALUE TYPE, AND IsEnum IS ASKED FIRST" {
     // Reverse the two tests and this line reads "struct". Every enum hover in the editor depends on
     // the order, and nothing else in the estate asserts it.
