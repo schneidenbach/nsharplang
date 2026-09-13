@@ -290,3 +290,28 @@ method type parameters, a deep-nesting parser crash, `nlc build` dropping the NL
 NL010 false positives, generic methods on a call result, `IEnumerable<T>` on source classes. The
 order of work is: close gaps until the mechanical conversion of LanguageServer, Cli and Wasm checks
 clean, land those conversions 1:1, then rewrite them into idiomatic N# with the C# owner deleted.
+
+## Census wave 3 (2026-09-13)
+
+Nine streams from the refreshed census, each an Opus agent in `/Users/spencer/repos/nsharp-worktrees/census-<stream>`
+from a brief in `census-briefs/`, merged onto `census/merge` in landing order with the corpus pin and the
+diagnostic-catalog counts reconciled at each merge (every stream bumps both; the merge takes the sum):
+
+| Stream | Rule now | Evidence |
+|---|---|---|
+| CONV | array covariance (`S[]`→`T[]` for reference elements), target-typed array literals in every position, `null` to a reflected nullable generic-interface parameter (`IsReferenceType` asks the definition) | `census-conversions`, `census-flow-rules` |
+| FLOW2 | narrowing through parentheses, negation and the ternary; `Nullable<T>` members bind after narrowing (NL907 is a warning); `while true` reachability; `return` in a constructor; NL304 only for non-nullable reference fields; `x?.M == null` narrows | `census-flow-rules` (NarrowingLattice, ReachabilityAndConstructors) |
+| TOOL | `nlc check` reads `*.tests.nl`; `nlc build` prints the decline site; NL111 bounds expression nesting at 512 (no stack overflow); NL010 counts every type position | `cli-command-contracts`, `error-docs-contract` |
+| ENUM | `for..in` follows the C# foreach pattern (struct enumerators unboxed, disposal by the four C# answers, `ReadOnlySpan<T>` as an index loop); the emitter's collection name table is gone | `census-pattern-foreach` |
+| PARSE2 | a whole TYPE in an explicit type-argument list (`Task.FromResult<List<int>?>(null)`); tuple element names per element in literals and types; a tuple-annotated bare local | `census-parse-shapes` |
+| LAMBDA | one method-type-inference engine by position for extensions, statics, instance and user generic methods; method groups; NL413; the per-member Enumerable emit table deleted; reflection over referenced members is load-tolerant (`AnalyzerReflectionMemberProbe`) | `census-lambda-inference` |
+| INIT | field initializers are expressions: a real `.cctor`, instance initializers before the base call, struct initializers in declared constructors (NL328/NL329), `beforefieldinit` | `census-field-initializers` |
+| ATTR | attributes a program declares for itself: general ECMA-335 blob writer, `AttributeUsage` honored (NL933/NL934), attributes on properties and constructors | `census-source-attributes` |
+| ITER / LOCALFN / EXT | (in flight at the time of this record — see the cursor in STATUS.md) | |
+
+Converter (`nsharp-cs2nl`) mappings added in the same wave: iterators as `func*`, hoisted local functions, class
+primary constructors, negated `HasValue`, discard assignments, lambda-parameter renames, typed-foreach casts,
+`KeyValuePair`/`Deconstruct` deconstruction, primary-constructor field initializers in the constructor, nullable
+`var` locals, `is` over a constant as equality. Census at `669674b9e`: runtime 0, cli 46, tests 91,
+languageserver 123 (from 1 / 145 / 153 / did-not-finish at `755e53a14`). Wave 4 briefs (FLOW3, CONV2, TUPLE2,
+LAMBDA2, TOOL2, ENUM2) are in `census-briefs/`.
