@@ -1,7 +1,6 @@
 namespace NSharpLang.CensusImportUsage.Tests
 
 import System
-import System.Collections.Generic
 import System.Diagnostics
 import System.IO
 import System.Text.Json
@@ -190,7 +189,7 @@ test "a dead import of a namespace no table ever named is reported" {
     // `System.Runtime.CompilerServices` had no row, so it was reported USED no matter what — and so
     // was every dead import of a project's own namespace.
     census := IuCensusOf("nsharp-import-unlisted-dead", "namespace Probe\n\nimport System.Runtime.CompilerServices\n\nclass Widget {\n    Name: string => \"w\"\n}\n")
-    assert census == "NL010@Program.nl:3:8+36;", census
+    assert census == "NL010@Program.nl:3:8+31;", census
 }
 
 test "a dead import of the PROJECT'S OWN namespace is reported too" {
@@ -239,11 +238,11 @@ test "and the same file with the import deleted still builds, which is the proof
 // reports the same import once the use is taken out.
 
 test "an EXTENSION METHOD call keeps its import alive, with no type of that namespace ever named" {
-    // `import System.Linq` used only as `.Where(...)`: the file writes no LINQ type at all.
-    assert IuCensusOf("nsharp-import-extension", "namespace Probe\n\nimport System.Collections.Generic\nimport System.Linq\n\nclass Widget {\n    func Evens(values: List<int>): List<int> {\n        return Enumerable.ToList(Enumerable.Where(values, v => v % 2 == 0))\n    }\n}\n") == ""
+    // `import System.Linq` used only as `.Count()`: the file writes no LINQ type at all.
+    assert IuCensusOf("nsharp-import-extension", "namespace Probe\n\nimport System.Collections.Generic\nimport System.Linq\n\nclass Widget {\n    func Total(values: List<int>): int {\n        return values.Count()\n    }\n}\n") == ""
 
     census := IuCensusOf("nsharp-import-extension-control", "namespace Probe\n\nimport System.Collections.Generic\nimport System.Linq\n\nclass Widget {\n    func All(values: List<int>): List<int> {\n        return values\n    }\n}\n")
-    assert census == "NL010@Program.nl:4:8+11;", census
+    assert census == "NL010@Program.nl:4:8+" + "System.Linq".Length.ToString() + ";", census
 }
 
 test "a STATIC RECEIVER keeps its import alive, with no annotation anywhere in the file" {
@@ -255,7 +254,7 @@ test "an ATTRIBUTE keeps its import alive, and it is a type position no type ref
     assert IuCensusOf("nsharp-import-attribute", "namespace Probe\n\nimport System.Diagnostics.CodeAnalysis\n\nclass Widget {\n    func TryName([NotNullWhen(true)] out name: string?): bool {\n        name = \"widget\"\n        return true\n    }\n}\n") == ""
 
     census := IuCensusOf("nsharp-import-attribute-control", "namespace Probe\n\nimport System.Diagnostics.CodeAnalysis\n\nclass Widget {\n    func TryName(out name: string?): bool {\n        name = \"widget\"\n        return true\n    }\n}\n")
-    assert census == "NL010@Program.nl:3:8+35;", census
+    assert census == "NL010@Program.nl:3:8+31;", census
 }
 
 test "a DECLARED MEMBER TYPE keeps its import alive, resolved by the declaration context alone" {
@@ -285,7 +284,7 @@ test "a name a namespace DECLARED BUT DID NOT EXPORT is still a use of the impor
     try {
         IuWrite(directory, "Parts.nl", "namespace Probe.Parts\n\nfunc formatTag(value: string): string {\n    return \"<\" + value + \">\"\n}\n")
         IuWrite(directory, "Program.nl", "namespace Probe\n\nimport Probe.Parts\n\nfunc UseIt(value: string): string {\n    return formatTag(value)\n}\n")
-        assert IuCheckCensus(directory) == "NL308@Program.nl:6:12+10;"
+        assert IuCheckCensus(directory) == "NL308@Program.nl:6:12+9;"
     } finally {
         IuDelete(directory)
     }
