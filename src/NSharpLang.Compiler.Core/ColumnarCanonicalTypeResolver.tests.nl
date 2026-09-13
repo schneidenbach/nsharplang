@@ -620,9 +620,17 @@ test "canonical resolver leaf maps preserve their false null contract and YAML i
         out exceptionType
     )
     assert exceptionType == typeof(ArgumentException)
+    // Any runtime exception resolves by NAME now — there is no list to be absent from. What still
+    // answers false is a name that is not an exception type at all.
+    exceptionType = typeof(string)
+    assert ColumnarCanonicalTypeResolver.TryResolveBclExceptionType(
+        "EndOfStreamException",
+        out exceptionType
+    )
+    assert exceptionType != null
     exceptionType = typeof(string)
     assert !ColumnarCanonicalTypeResolver.TryResolveBclExceptionType(
-        "EndOfStreamException",
+        "StringComparer",
         out exceptionType
     )
     assert exceptionType == null

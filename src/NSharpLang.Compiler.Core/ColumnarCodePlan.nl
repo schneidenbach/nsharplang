@@ -1239,9 +1239,17 @@ class ColumnarCodePlan {
         if OpenFragmentCount == 0 || fragmentIndex != OpenFragmentIndices[OpenFragmentCount - 1] || fragmentIndex < 0 || fragmentIndex >= FragmentCount {
             throw new InvalidOperationException("Code-plan fragments must complete in nesting order.")
         }
+        // A VOID RESULT NAMES A STATEMENT, AND A METHOD BODY IS A SEQUENCE OF THEM. A schema-v3 plan is
+        // ONE expression, so only its root may be void (a statement-position `foo()` planned on its own).
+        // A schema-v4 body holds one ROOT fragment per statement tree, and a call statement's tree is
+        // void by construction — `ValidateMethodBodySemantics` and `ExecuteMethodBodyRows` never read a
+        // fragment result type at all, so the value the row stream leaves on the stack (none) is what
+        // governs, exactly as it does for the v3 root. A NESTED fragment is still refused on every
+        // schema: a void operand has no value to hand its parent.
         if resultType.FullName == "System.Void" {
-            if SchemaVersion != ColumnarCodePlanContract.ScalarSchemaVersion() || fragmentIndex != 0 {
-                throw new InvalidOperationException("Only a schema-v3 root code-plan fragment can declare a void result.")
+            methodBodyRoot := IsMethodBodySchema() && FragmentParentIndices[fragmentIndex] == -1
+            if !methodBodyRoot && (SchemaVersion != ColumnarCodePlanContract.ScalarSchemaVersion() || fragmentIndex != 0) {
+                throw new InvalidOperationException("Only a schema-v3 root or a method-body root code-plan fragment can declare a void result.")
             }
         }
 
@@ -1724,6 +1732,16 @@ class ColumnarCodePlan {
         if (SchemaVersion != ColumnarCodePlanContract.ScalarSchemaVersion() && SchemaVersion != ColumnarCodePlanContract.MethodBodySchemaVersion()) || Status != ColumnarFragmentPlanStatus.NotOwned || Lifecycle != ColumnarCodePlanLifecycle.Building {
             throw new InvalidOperationException("Columnar code-plan schema v3 is not open for mutation.")
         }
+    }
+
+    // A fragment that no other fragment carries a value to. In a schema-v3 plan that is fragment 0 and
+    // nothing else; a METHOD BODY has one such root per statement tree, so a statement-position call's
+    // void result is representable at any of them.
+    func IsMethodBodyRootFragment(fragmentIndex: int): bool {
+        if !IsMethodBodySchema() || fragmentIndex < 0 || fragmentIndex >= FragmentCount || FragmentParentIndices == null || fragmentIndex >= FragmentParentIndices.Length {
+            return false
+        }
+        return FragmentParentIndices[fragmentIndex] == -1
     }
 
     func IsMethodBodySchema(): bool {

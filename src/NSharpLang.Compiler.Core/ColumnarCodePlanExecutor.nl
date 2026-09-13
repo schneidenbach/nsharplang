@@ -1139,10 +1139,17 @@ class ColumnarCodePlanExecutor {
             ValidateField(plan, i, schemaName)
             i += 1
         }
+        // A VOID FRAGMENT RESULT NAMES A STATEMENT. One expression plan has exactly one such position —
+        // its root — while a METHOD BODY has one root fragment per statement tree, and a call statement's
+        // tree is void by construction. Anything NESTED still needs a value to hand its parent, on every
+        // schema.
         i = 0
         while i < plan.FragmentCount {
             if IsVoidType(plan.FragmentResultTypes[i]) {
-                if !allowVoidMethodReturns || i != 0 {
+                if !allowVoidMethodReturns && !plan.IsMethodBodyRootFragment(i) {
+                    throw new InvalidOperationException(schemaName + " only permits void on the root fragment result.")
+                }
+                if allowVoidMethodReturns && i != 0 && !plan.IsMethodBodyRootFragment(i) {
                     throw new InvalidOperationException(schemaName + " only permits void on the root fragment result.")
                 }
             } else {

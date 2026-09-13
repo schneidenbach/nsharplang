@@ -615,6 +615,98 @@ await foreach num in generateNumbers(10) {
 }
 ```
 
+## Iterators (`func*`)
+
+A generator is declared with `func*` and returns `IEnumerable<T>`. Each `yield` produces one element
+and suspends; `yield break` ends the sequence. The body does not run at all until something enumerates
+the result, and it resumes exactly where it paused.
+
+```n#
+import System.Collections.Generic
+
+func* countTo(n: int): IEnumerable<int> {
+    i := 0
+    while i < n {
+        yield i
+        i = i + 1
+    }
+}
+
+for value in countTo(3) {
+    print value   // 0, 1, 2
+}
+```
+
+### An iterator body is an ordinary function body
+
+Everything you can write in a plain function you can write inside a `func*`. Locals live on the
+generated state machine instead of the stack, and that is the only difference:
+
+```n#
+import System
+import System.Collections.Generic
+import System.IO
+
+func* trimmedLines(path: string): IEnumerable<string> {
+    for line in File.ReadAllLines(path) {       // a call as the sequence source
+        if line.Length > 0 {                    // a member read in a condition
+            yield line.Trim()                   // an instance call as the yielded value
+        }
+    }
+}
+
+func* doubled(count: int): IEnumerable<int> {
+    values := new List<int>()                   // `new`, and a hoisted local
+    for i := 0; i < count; i += 1 {
+        values.Add(i * 2)                       // a call statement
+        yield values[i]                         // an indexer
+    }
+}
+
+func* rows(): IEnumerable<object[]> {
+    yield ["symbols", 1, ["symbols", "--project"]]   // array literals, target-typed and boxed
+}
+```
+
+Calls (static, instance, extension, generic), `new`, object initializers, array and collection
+literals, indexers, member access, `checked`/`unchecked`, conditionals and every ordinary operator are
+planned by the same owner that plans them in a plain function, so overload resolution, argument
+evaluation order, conversions and exceptions behave identically. A yielded value takes the same
+conversion a `return` of that value would take — boxing, a reference upcast, or the element type a
+target-typed literal needs.
+
+`for..in` inside a generator enumerates any sequence: an array, a `List<T>`, a call result, or another
+generator. The enumerator is disposed when the loop ends, when the consumer stops early, and when the
+sequence itself is disposed.
+
+### What a generator body may not contain
+
+- `return <value>` — a generator produces values with `yield` and stops with `yield break`.
+- a lambda (its capture of the state machine's own `this` is not lowered yet).
+- `await` outside an `async func*`, and `await` in a value position inside one.
+- `try`/`catch`/`finally`, `using` and `lock` are not yet lowered inside a generator body.
+- an assignment whose TARGET is an indexer or a member (`table[key] = v`, `obj.Field = v`); the
+  assignment target must be a local or a parameter. Call the member instead (`table.Add(key, v)`).
+- an assignment to an enclosing-type member from an instance generator (those members are read-only
+  inside the body).
+
+### Async generators
+
+`async func*` returns `IAsyncEnumerable<T>` and is consumed with `await foreach`. The same
+ordinary-expression surface applies.
+
+```n#
+import System.Collections.Generic
+
+async func* doubledAsync(count: int): IAsyncEnumerable<int> {
+    values := new List<int>()
+    for i := 0; i < count; i += 1 {
+        values.Add(i * 2)
+        yield values[i]
+    }
+}
+```
+
 ## Generic Functions
 
 ### Basic Generic Functions

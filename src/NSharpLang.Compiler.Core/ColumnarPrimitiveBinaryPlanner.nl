@@ -422,18 +422,28 @@ class ColumnarPrimitiveBinaryPlanner {
     // integral op types when the enclosing checked context is active. The int-promotable set
     // promotes its result to int; every wider op type keeps its own type.
     static func TryAppendArithmetic(nodes: ColumnarNodeTable, source: string, candidate: int, opType: Type, bindings: ColumnarFragmentBindings, plan: ColumnarCodePlan, out resultType: Type): bool {
+        return TryAppendArithmeticOperator(OperatorText(nodes, source, candidate), opType, bindings, plan, out resultType)
+    }
+
+    // THE ARITHMETIC INSTRUCTION FOR ONE OPERATOR AND ONE OPERAND TYPE, with the operator given rather
+    // than read out of a node. A binary expression reads it from its own node; a COMPOUND ASSIGNMENT
+    // (`x += v`) has no such node to read — the operator lives in the assignment's own span — and
+    // without this seam that caller would have to restate the opcode choice, which is exactly the
+    // second owner this file exists to prevent. The body below is unchanged; only where the five
+    // operator questions get their text moved.
+    static func TryAppendArithmeticOperator(operatorText: string, opType: Type, bindings: ColumnarFragmentBindings, plan: ColumnarCodePlan, out resultType: Type): bool {
         resultType = typeof(int)
-        if !ColumnarNumericFacts.IsIntPromotable(opType) && opType != typeof(long) && opType != typeof(ulong) && opType != typeof(uint) && opType != typeof(double) && opType != typeof(float) {
+        if opType == null || (!ColumnarNumericFacts.IsIntPromotable(opType) && opType != typeof(long) && opType != typeof(ulong) && opType != typeof(uint) && opType != typeof(double) && opType != typeof(float)) {
             return false
         }
 
         unsigned := opType == typeof(ulong) || opType == typeof(uint)
         integral := ColumnarNumericFacts.IsIntPromotable(opType) || opType == typeof(long) || opType == typeof(ulong) || opType == typeof(uint)
-        isAdd := HasExactOperatorText(nodes, source, candidate, "+")
-        isSub := HasExactOperatorText(nodes, source, candidate, "-")
-        isMul := HasExactOperatorText(nodes, source, candidate, "*")
-        isDiv := HasExactOperatorText(nodes, source, candidate, "/")
-        isRem := HasExactOperatorText(nodes, source, candidate, "%")
+        isAdd := operatorText == "+"
+        isSub := operatorText == "-"
+        isMul := operatorText == "*"
+        isDiv := operatorText == "/"
+        isRem := operatorText == "%"
         checkedIntegral := bindings.OverflowCheckingEnabled && (isAdd || isSub || isMul) && integral
 
         opcode := ColumnarCodePlanContract.Add()
@@ -714,6 +724,16 @@ class ColumnarPrimitiveBinaryPlanner {
             throw new InvalidOperationException("Decimal operator " + name + " has an unexpected runtime signature.")
         }
         return method
+    }
+
+    // The operator span a binary node carries, or "" when the node carries none.
+    static func OperatorText(nodes: ColumnarNodeTable, source: string, node: int): string {
+        start := nodes.ValueStart(node)
+        length := nodes.ValueLengths[node]
+        if start < 0 || length <= 0 || length > source.Length || start > source.Length - length {
+            return ""
+        }
+        return source.Substring(start, length)
     }
 
     static func HasExactOperatorText(nodes: ColumnarNodeTable, source: string, node: int, expected: string): bool {

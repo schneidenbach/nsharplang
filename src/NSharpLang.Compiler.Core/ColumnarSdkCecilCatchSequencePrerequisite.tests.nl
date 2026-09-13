@@ -88,7 +88,12 @@ func ScsCountReferences(sequence: IEnumerable<AssemblyNameReference>): int {
     return count
 }
 
-test "canonical catch resolution admits exact IOException and BadImageFormatException names only" {
+// EXCEPTION RESOLUTION IS A LOOKUP, NOT A LIST. The two allowlists this pinned are gone: a catch type
+// resolves by ordinary CLR name lookup and is admitted when it derives from `System.Exception`, which
+// is what the CLR itself requires of a handler type. `EndOfStreamException` was absent from the table
+// and is a real corelib exception, so it resolves now — that widening IS the fix, and what the test
+// pins instead is the rule: a name that is not an exception type does not resolve.
+test "canonical catch resolution resolves any runtime exception name and refuses a non-exception" {
     exceptionType := typeof(string)
     assert ColumnarCanonicalTypeResolver.TryResolveBclExceptionType("IOException", out exceptionType)
     assert exceptionType == typeof(IOException)
@@ -103,7 +108,24 @@ test "canonical catch resolution admits exact IOException and BadImageFormatExce
     assert exceptionType == typeof(BadImageFormatException)
 
     exceptionType = typeof(string)
-    assert !ColumnarCanonicalTypeResolver.TryResolveBclExceptionType("EndOfStreamException", out exceptionType)
+    assert ColumnarCanonicalTypeResolver.TryResolveBclExceptionType("EndOfStreamException", out exceptionType)
+    assert exceptionType == typeof(EndOfStreamException)
+
+    // The qualified spelling of a name the tables disagreed about — this one was in the canonical
+    // resolver's list and missing from `ColumnarTypeOfPlanner`'s, so the two answered differently.
+    exceptionType = typeof(string)
+    assert ColumnarCanonicalTypeResolver.TryResolveBclExceptionType("System.ArrayTypeMismatchException", out exceptionType)
+    assert exceptionType == typeof(ArrayTypeMismatchException)
+    exceptionType = typeof(string)
+    assert ColumnarTypeOfPlanner.TryResolveExceptionType("System.ArrayTypeMismatchException", out exceptionType)
+    assert exceptionType == typeof(ArrayTypeMismatchException)
+
+    // A type that is not an exception, and a name that is nothing at all.
+    exceptionType = typeof(string)
+    assert !ColumnarCanonicalTypeResolver.TryResolveBclExceptionType("StringBuilder", out exceptionType)
+    assert exceptionType == null
+    exceptionType = typeof(string)
+    assert !ColumnarCanonicalTypeResolver.TryResolveBclExceptionType("NotAnExceptionAtAll", out exceptionType)
     assert exceptionType == null
 
     badImageName := "BadImageFormatException"

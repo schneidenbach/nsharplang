@@ -12,6 +12,7 @@ import System.Reflection.Emit
 enum ColumnarBoundIdentifierKind {
     None,
     BoxedCapture,
+    CapturedInstanceField,
     LiftedLocal,
     Local,
     PlanLocal,
@@ -96,7 +97,7 @@ class ColumnarBoundIdentifierPlanner {
             return false
         }
 
-        if bindings.BoxedCaptures.ContainsKey(name) || bindings.LiftedLocals.ContainsKey(name) || bindings.Locals.ContainsKey(name) || bindings.PlanLocals.ContainsKey(name) || bindings.IsBlocked(name) {
+        if bindings.BoxedCaptures.ContainsKey(name) || bindings.CapturedInstanceFields.ContainsKey(name) || bindings.LiftedLocals.ContainsKey(name) || bindings.Locals.ContainsKey(name) || bindings.PlanLocals.ContainsKey(name) || bindings.IsBlocked(name) {
             return true
         }
 
@@ -208,6 +209,22 @@ class ColumnarBoundIdentifierPlanner {
             valueFieldIndex := plan.AddField(RequiredField(selection.ValueField, "Boxed-capture selection has no value field."))
 
             plan.AppendFieldInstruction(ColumnarCodePlanContract.Ldfld(), valueFieldIndex)
+        } else if selection.Kind == ColumnarBoundIdentifierKind.CapturedInstanceField {
+            // THE CAPTURED-RECEIVER READ. Two `ldfld`s from argument zero — the display's own field
+            // holding the enclosing instance, then that instance's member — which is the boxed-capture
+            // shape with a member field in place of `StrongBox<T>.Value`. The receiver hop is a
+            // reference load, so the member read needs no address and no `constrained` prefix.
+            currentInstanceType := RequiredType(selection.CurrentInstanceType, "Captured-instance-field selection has no current-instance type.")
+
+            argumentIndex := GetOrAddArgument(plan, 0, currentInstanceType, false)
+
+            plan.AppendArgumentInstruction(ColumnarCodePlanContract.Ldarg(), argumentIndex)
+            receiverFieldIndex := plan.AddField(RequiredField(selection.FirstField, "Captured-instance-field selection has no receiver field."))
+
+            plan.AppendFieldInstruction(ColumnarCodePlanContract.Ldfld(), receiverFieldIndex)
+            memberFieldIndex := plan.AddField(RequiredField(selection.ValueField, "Captured-instance-field selection has no member field."))
+
+            plan.AppendFieldInstruction(ColumnarCodePlanContract.Ldfld(), memberFieldIndex)
         } else if selection.Kind == ColumnarBoundIdentifierKind.LiftedLocal {
             localIndex := plan.AddAmbientLocal(RequiredLocal(selection.Local, "Lifted selection has no box local."))
 
@@ -639,6 +656,31 @@ class ColumnarBoundIdentifierPlanner {
             RequireStorableValueType(planLocalType, "Plan-declared-local facts must identify a storable local.")
 
             selection = new ColumnarBoundIdentifierSelection(ColumnarBoundIdentifierKind.PlanLocal, planLocalType, -1, planLocalIndex, null, null, null, null, null, null, false)
+
+            return true
+        }
+
+        if bindings.CapturedInstanceFields.ContainsKey(name) {
+            if hasBoxed || hasLifted || hasLocal || hasParameter {
+                throw new InvalidOperationException("A captured-instance member cannot overlap another live value binding.")
+            }
+
+            captured := bindings.CapturedInstanceFields[name]
+            receiverField := captured.Item1
+            memberField := captured.Item2
+            if receiverField == null || memberField == null {
+                throw new InvalidOperationException("Captured-instance-field facts cannot be null.")
+            }
+
+            displayType := receiverField.get_DeclaringType()
+            if displayType == null || displayType.get_IsValueType() || receiverField.get_IsStatic() || memberField.get_IsStatic() {
+                throw new InvalidOperationException("Captured-instance-field facts do not identify an exact instance receiver and member.")
+            }
+
+            memberType := memberField.get_FieldType()
+            RequireStorableValueType(memberType, "Captured-instance-field facts must identify a readable member value.")
+
+            selection = new ColumnarBoundIdentifierSelection(ColumnarBoundIdentifierKind.CapturedInstanceField, memberType, -1, -1, null, receiverField, memberField, null, null, displayType, false)
 
             return true
         }

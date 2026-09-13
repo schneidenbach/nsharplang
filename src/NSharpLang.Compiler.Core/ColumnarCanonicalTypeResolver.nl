@@ -18,6 +18,11 @@ import System.Threading.Tasks
 // consume Type receive the companion selected here, rather than a Type selected elsewhere and
 // decorated after the fact.
 class ColumnarCanonicalTypeResolver {
+
+    // Every non-generic public exception the RUNTIME's own assembly declares, indexed by simple name.
+    // Names two different namespaces share are dropped rather than resolved to one of them.
+    static readonly RuntimeExceptionsBySimpleName: Dictionary<string, Type> = BuildRuntimeExceptionIndex()
+
     static func TryResolveType(
         canonical: string,
         enumRegistry: ColumnarSemanticRegistry<ColumnarEnumDef>,
@@ -2106,61 +2111,105 @@ class ColumnarCanonicalTypeResolver {
         return true
     }
 
+    // THE EXCEPTION A `catch` CLAUSE OR A `throw` NAMES — RESOLVED, NOT LISTED.
+    //
+    // There is no allowlist of admitted exception names, and there are no longer TWO of them. A
+    // spelling resolves by ordinary CLR name lookup: a qualified name directly, a bare simple name
+    // against the runtime's own exception hierarchy. The only admission rule is the one the CLR itself
+    // enforces on a handler type — it must derive from `System.Exception`.
+    //
+    // That is what makes `System.ArrayTypeMismatchException` and `ArrayTypeMismatchException` the SAME
+    // type instead of two rows that can disagree: the qualified spelling used to be absent from one
+    // table and present in the other, so the same program compiled or declined depending on how its
+    // catch clause was written.
+    //
+    // SOURCE DECLARATIONS ARE RESOLVED FIRST BY THE CALLER (`TrySelectRuntimeType` asks the struct
+    // registry before it reaches here), so a user type whose name collides with a BCL exception still
+    // wins. An AMBIGUOUS simple name — two exceptions in different namespaces of the same assembly —
+    // resolves to neither, because choosing one would be a guess.
     static func TryResolveBclExceptionType(canonical: string, out result: Type): bool {
         result = null
-        if canonical == "Exception" || canonical == "System.Exception" {
-            result = typeof(Exception)
-        } else if canonical == "InvalidOperationException" || canonical == "System.InvalidOperationException" {
-            result = typeof(InvalidOperationException)
-        } else if canonical == "ArgumentException" || canonical == "System.ArgumentException" {
-            result = typeof(ArgumentException)
-        } else if canonical == "ArgumentNullException" || canonical == "System.ArgumentNullException" {
-            result = typeof(ArgumentNullException)
-        } else if canonical == "ArgumentOutOfRangeException" || canonical == "System.ArgumentOutOfRangeException" {
-            result = typeof(ArgumentOutOfRangeException)
-        } else if canonical == "FormatException" || canonical == "System.FormatException" {
-            result = typeof(FormatException)
-        } else if canonical == "NotSupportedException" || canonical == "System.NotSupportedException" {
-            result = typeof(NotSupportedException)
-        } else if canonical == "NotImplementedException" || canonical == "System.NotImplementedException" {
-            result = typeof(NotImplementedException)
-        } else if canonical == "TimeoutException" || canonical == "System.TimeoutException" {
-            result = typeof(TimeoutException)
-        } else if canonical == "DivideByZeroException" || canonical == "System.DivideByZeroException" {
-            result = typeof(DivideByZeroException)
-        } else if canonical == "ArithmeticException" || canonical == "System.ArithmeticException" {
-            result = typeof(ArithmeticException)
-        } else if canonical == "OverflowException" || canonical == "System.OverflowException" {
-            result = typeof(OverflowException)
-        } else if canonical == "NullReferenceException" || canonical == "System.NullReferenceException" {
-            result = typeof(NullReferenceException)
-        } else if canonical == "IndexOutOfRangeException" || canonical == "System.IndexOutOfRangeException" {
-            result = typeof(IndexOutOfRangeException)
-        } else if canonical == "InvalidCastException" || canonical == "System.InvalidCastException" {
-            result = typeof(InvalidCastException)
-        } else if canonical == "ArrayTypeMismatchException" || canonical == "System.ArrayTypeMismatchException" {
-            // The covariant-array store's own exception. `string[]` viewed as `object[]` is one object,
-            // so the CLR checks every store through the view and throws this when the value is not an
-            // instance of the array's REAL element type; a program that cannot CATCH it cannot observe
-            // that array covariance is a view rather than a copy.
-            result = typeof(ArrayTypeMismatchException)
-        } else if canonical == "FileNotFoundException" || canonical == "System.IO.FileNotFoundException" {
-            result = typeof(FileNotFoundException)
-        } else if canonical == "IOException" || canonical == "System.IO.IOException" {
-            result = typeof(IOException)
-        } else if canonical == "BadImageFormatException" || canonical == "System.BadImageFormatException" {
-            result = typeof(BadImageFormatException)
-        } else if canonical == "YamlException" || canonical == "YamlDotNet.Core.YamlException" {
-            yamlException := typeof(object)
-            if ColumnarTypeOfPlanner.TryResolveKnownExternalType(canonical, out yamlException) {
-                result = yamlException
-                return true
-            }
-            return false
-        } else {
+        if canonical == null || canonical.Length == 0 {
             return false
         }
-        return true
+
+        exceptionBase := typeof(Exception)
+        if IsPlainTypeNameSpelling(canonical) {
+            qualified := Type.GetType(canonical)
+            if IsCatchableExceptionType(qualified, exceptionBase) {
+                result = qualified
+                return true
+            }
+            if IndexOfDot(canonical) < 0 {
+                index := RuntimeExceptionsBySimpleName
+                if index.ContainsKey(canonical) {
+                    result = index[canonical]
+                    return true
+                }
+            }
+        }
+
+        // A referenced (non-runtime) assembly's exception still comes from the external-type owner.
+        external := typeof(object)
+        if ColumnarTypeOfPlanner.TryResolveKnownExternalType(canonical, out external) && IsCatchableExceptionType(external, exceptionBase) {
+            result = external
+            return true
+        }
+        return false
+    }
+
+    static func BuildRuntimeExceptionIndex(): Dictionary<string, Type> {
+        index := new Dictionary<string, Type>(StringComparer.Ordinal)
+        ambiguous := new List<string>()
+        exceptionBase := typeof(Exception)
+        for candidate in exceptionBase.get_Assembly().GetExportedTypes() {
+            if !IsCatchableExceptionType(candidate, exceptionBase) {
+                continue
+            }
+            name := candidate.Name
+            if index.ContainsKey(name) {
+                ambiguous.Add(name)
+                continue
+            }
+            index[name] = candidate
+        }
+        for name in ambiguous {
+            index.Remove(name)
+        }
+        return index
+    }
+
+    static func IsCatchableExceptionType(candidate: Type?, exceptionBase: Type): bool {
+        if candidate == null || candidate.get_IsGenericTypeDefinition() || candidate.get_IsGenericParameter() || candidate.get_IsByRef() || candidate.get_IsPointer() {
+            return false
+        }
+        return exceptionBase.IsAssignableFrom(candidate)
+    }
+
+    // A dotted identifier and nothing else. `Type.GetType` reads an assembly-qualified type GRAMMAR —
+    // brackets, commas, `&`, `*` and `+` all mean something in it — so a canonical carrying any of them
+    // is not a plain name and must not be handed to it.
+    static func IsPlainTypeNameSpelling(canonical: string): bool {
+        i := 0
+        while i < canonical.Length {
+            c := canonical[i]
+            if !char.IsLetterOrDigit(c) && c != '_' && c != '.' {
+                return false
+            }
+            i = i + 1
+        }
+        return canonical[0] != '.' && canonical[canonical.Length - 1] != '.'
+    }
+
+    static func IndexOfDot(value: string): int {
+        i := 0
+        while i < value.Length {
+            if value[i] == '.' {
+                return i
+            }
+            i = i + 1
+        }
+        return -1
     }
 
     // A bare catch is the CLI catch-all region: the CLR handler type is System.Object. Typed catches

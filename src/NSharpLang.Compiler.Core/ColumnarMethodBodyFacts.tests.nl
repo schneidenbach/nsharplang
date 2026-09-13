@@ -2239,7 +2239,13 @@ test "the routed sibling map decides a bare call and an empty map declines it" {
 // The unary owner's result is bounded by its own syntax and `nameof`'s is always `string`; the call
 // owner is the first whose result type its syntax does not bound. Both halves are asserted: the v3
 // route still completes a void root, and the method-body route DECLINES with the plan rolled back.
-test "a void direct call declines on a method body and still completes a schema-v3 root" {
+// A VOID CALL IS A STATEMENT, AND A METHOD BODY IS A SEQUENCE OF STATEMENTS. `015-B7` refused a void
+// result on a method-body plan because `CompleteFragment` admitted it only on a schema-v3 ROOT
+// fragment — a rule that was about the EXPRESSION schemas, where one plan is one value. A v4 body has
+// one root fragment per statement tree and the executor never reads a fragment result type, so a
+// statement-position `Reset()` completes its own root and leaves nothing on the stack. What is still
+// refused everywhere is a NESTED void: an operand with no value to hand its parent.
+test "a void direct call completes a method-body root and still completes a schema-v3 root" {
     owner := SourceCallDefinition("MethodBodyFactsVoidCallOwner", true)
     _reset := SourceCallPublicStatic(owner, "Reset", new Type[](0), MethodBodyFactsVoidType())
     voidTree := DirectCallQualifiedTree("MethodBodyFactsVoidCallOwner", "Reset", DirectCallEmptyTexts(), DirectCallEmptyKinds())
@@ -2250,18 +2256,20 @@ test "a void direct call declines on a method body and still completes a schema-
     assert v3.ResultType.FullName == "System.Void"
     assert v3.SchemaVersion == ColumnarCodePlanContract.ScalarSchemaVersion()
 
-    // A method body — the same append, the same owner, and a DECLINE with nothing left behind.
+    // A method body — the same append, the same owner, and now a CLAIM whose fragment is a root.
     body := new ColumnarCodePlan()
     body.PrepareMethodBody()
     ownership := ColumnarDirectCallOwnership.NotOwned
     legacyWholeSubtreePlanning := false
     voidResult := typeof(int)
-    assert !ColumnarDirectCallPlanner.TryAppendRoot(voidTree.Nodes, voidTree.Source, voidTree.Root, DirectCallSingleDefinitionBindings(owner), body, out ownership, out legacyWholeSubtreePlanning, out voidResult)
-    assert body.OperationCount == 0
-    assert body.FragmentCount == 0
+    assert ColumnarDirectCallPlanner.TryAppendRoot(voidTree.Nodes, voidTree.Source, voidTree.Root, DirectCallSingleDefinitionBindings(owner), body, out ownership, out legacyWholeSubtreePlanning, out voidResult)
+    assert voidResult.FullName == "System.Void"
+    assert body.FragmentCount == 1
     assert body.OpenFragmentCount == 0
+    assert body.IsMethodBodyRootFragment(0)
 
-    // And through the DOOR, which is the route a user body actually takes.
+    // The DOOR still refuses this body, and for its own reason: a `return <void call>` has no value to
+    // return, so the driver's claim rule (the returned type must EQUAL the return type) rejects it.
     declaredTree := MethodBodyFactsQualifiedCallBodyNoArguments("MethodBodyFactsVoidCallOwner", "Reset", "ignored")
     declaredPlan := new ColumnarCodePlan()
     assert !MethodBodyFactsPlanCallBody(declaredTree, typeof(int), SourceCallDefinitions(owner), MethodBodyFactsNoSiblings(), declaredPlan)

@@ -107,7 +107,7 @@ class ColumnarDirectCallPlanner {
                 plan.Rollback(checkpoint)
                 return false
             }
-            if IsVoidType(resultType) && (plan.SchemaVersion != ColumnarCodePlanContract.ScalarSchemaVersion() || fragment != 0) {
+            if IsVoidType(resultType) && !plan.IsMethodBodySchema() && (plan.SchemaVersion != ColumnarCodePlanContract.ScalarSchemaVersion() || fragment != 0) {
                 plan.Rollback(checkpoint)
                 return false
             }
@@ -478,7 +478,7 @@ class ColumnarDirectCallPlanner {
 
         plan.AppendMethodInstruction(ColumnarCodePlanContract.Call(), runtimeMethodIndex)
         resultType = runtimeSelection.ReturnType
-        if callFragment != 0 && IsVoidType(resultType) {
+        if IsVoidType(resultType) && callFragment != 0 && !plan.IsMethodBodyRootFragment(callFragment) {
             plan.Rollback(checkpoint)
             return false
         }
@@ -744,7 +744,7 @@ class ColumnarDirectCallPlanner {
         plan.AppendMethodInstruction(selection.UsesCallVirtual ? ColumnarCodePlanContract.Callvirt() : ColumnarCodePlanContract.Call(), methodIndex)
 
         resultType = selection.ReturnType
-        return callFragment == 0 || !IsVoidType(resultType)
+        return !IsVoidType(resultType) || callFragment == 0 || plan.IsMethodBodyRootFragment(callFragment)
     }
 
     // Emit an explicit-receiver call to an inherited external-base instance method (`this.Ok(data)`
@@ -771,7 +771,7 @@ class ColumnarDirectCallPlanner {
         plan.AppendMethodInstruction(selection.UsesCallVirtual ? ColumnarCodePlanContract.Callvirt() : ColumnarCodePlanContract.Call(), methodIndex)
 
         resultType = selection.ReturnType
-        return callFragment == 0 || !IsVoidType(resultType)
+        return !IsVoidType(resultType) || callFragment == 0 || plan.IsMethodBodyRootFragment(callFragment)
     }
 
     // A bare call to a top-level sibling function. The direct owner plans only the ordinary,
@@ -962,7 +962,7 @@ class ColumnarDirectCallPlanner {
 
         plan.AppendMethodInstruction(ColumnarCodePlanContract.Call(), methodIndex)
         resultType = facts.ReturnType
-        return callFragment == 0 || !IsVoidType(resultType)
+        return !IsVoidType(resultType) || callFragment == 0 || plan.IsMethodBodyRootFragment(callFragment)
     }
 
     static func TryAppendMemberCall(nodes: ColumnarNodeTable, source: string, callNode: int, callee: int, bindings: ColumnarFragmentBindings, handles: ColumnarRangeIndexHandles, plan: ColumnarCodePlan, callFragment: int, depth: int, argumentTypes: Type[], argumentFacts: ColumnarDirectCallArgumentFacts, checkpoint: ColumnarCodePlanCheckpoint, out ownership: ColumnarDirectCallOwnership, out legacyWholeSubtreePlanning: bool, out resultType: Type): bool {
@@ -1423,7 +1423,7 @@ class ColumnarDirectCallPlanner {
 
         plan.AppendMethodInstruction(ColumnarCodePlanContract.Call(), methodIndex)
         resultType = selection.ReturnType
-        return callFragment == 0 || !IsVoidType(resultType)
+        return !IsVoidType(resultType) || callFragment == 0 || plan.IsMethodBodyRootFragment(callFragment)
     }
 
     // Load the extension receiver as an ordinary value in the call fragment, mirroring how each call
@@ -1477,7 +1477,7 @@ class ColumnarDirectCallPlanner {
         plan.AppendMethodInstruction(selection.UsesCallVirtual ? ColumnarCodePlanContract.Callvirt() : ColumnarCodePlanContract.Call(), methodIndex)
 
         resultType = selection.ReturnType
-        return callFragment == 0 || !IsVoidType(resultType)
+        return !IsVoidType(resultType) || callFragment == 0 || plan.IsMethodBodyRootFragment(callFragment)
     }
 
     static func ExtensionLeadingTypes(parameterTypes: Type[], count: int): Type[] {
@@ -1580,7 +1580,7 @@ class ColumnarDirectCallPlanner {
 
         plan.AppendMethodInstruction(opcode, methodIndex)
         resultType = selection.ReturnType
-        return callFragment == 0 || !IsVoidType(resultType)
+        return !IsVoidType(resultType) || callFragment == 0 || plan.IsMethodBodyRootFragment(callFragment)
     }
 
     static func AppendRuntimeSelection(nodes: ColumnarNodeTable, source: string, callNode: int, receiverNode: int, bindings: ColumnarFragmentBindings, handles: ColumnarRangeIndexHandles, plan: ColumnarCodePlan, callFragment: int, depth: int, inferredArgumentTypes: Type[], argumentFacts: ColumnarDirectCallArgumentFacts, selection: ColumnarRuntimeDirectCallSelection, out resultType: Type): bool {
@@ -1603,7 +1603,7 @@ class ColumnarDirectCallPlanner {
         plan.AppendMethodInstruction(selection.UsesCallVirtual ? ColumnarCodePlanContract.Callvirt() : ColumnarCodePlanContract.Call(), methodIndex)
 
         resultType = selection.ReturnType
-        return callFragment == 0 || !IsVoidType(resultType)
+        return !IsVoidType(resultType) || callFragment == 0 || plan.IsMethodBodyRootFragment(callFragment)
     }
 
     static func AppendImplicitReceiver(plan: ColumnarCodePlan, selection: ColumnarSourceDirectCallSelection) {

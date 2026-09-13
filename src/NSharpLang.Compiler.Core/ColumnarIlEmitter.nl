@@ -2925,7 +2925,7 @@ sealed class ColumnarIlEmitter {
 
     // Preserve the established host signature while N# owns the complete synchronous declaration and
     // body-realization sequence. Ambient decline tracing remains at this existing caller boundary.
-    private static func TryEmitIteratorStateMachine(module: ModuleBuilder, fn: ColumnarFunctionInput, funcOrdinal: int, functionSource: string, typeResolution: ColumnarSemanticTypeResolution, factoryIl: ILGenerator, synthesizedTypes: List<TypeBuilder>, methodTypeParams: Type[], precomputedShape: ColumnarIteratorShape? = null, memberLabel: string = "", enclosingType: Type? = null, enclosingFieldNames: string[]? = null, enclosingFields: FieldInfo[]? = null, enclosingFieldCanonicals: string[]? = null, enclosingMethodNames: string[]? = null, enclosingMethods: MethodInfo[]? = null): bool {
+    private static func TryEmitIteratorStateMachine(module: ModuleBuilder, fn: ColumnarFunctionInput, funcOrdinal: int, functionSource: string, typeResolution: ColumnarSemanticTypeResolution, factoryIl: ILGenerator, synthesizedTypes: List<TypeBuilder>, methodTypeParams: Type[], precomputedShape: ColumnarIteratorShape? = null, memberLabel: string = "", enclosingType: Type? = null, enclosingFieldNames: string[]? = null, enclosingFields: FieldInfo[]? = null, enclosingFieldCanonicals: string[]? = null, enclosingMethodNames: string[]? = null, enclosingMethods: MethodInfo[]? = null, bodyFacts: ColumnarIteratorBodyFacts? = null): bool {
         result := ColumnarIteratorRealization.EmitSync(
             module,
             fn,
@@ -2942,7 +2942,8 @@ sealed class ColumnarIlEmitter {
             enclosingFields,
             enclosingFieldCanonicals,
             enclosingMethodNames,
-            enclosingMethods
+            enclosingMethods,
+            bodyFacts
         )
         if (result.Succeeded) {
             return true
@@ -2951,7 +2952,7 @@ sealed class ColumnarIlEmitter {
     }
 
     // Preserve the established host signature while N# owns the complete asynchronous realization.
-    private static func TryEmitAsyncIteratorStateMachine(module: ModuleBuilder, fn: ColumnarFunctionInput, funcOrdinal: int, functionSource: string, typeResolution: ColumnarSemanticTypeResolution, factoryIl: ILGenerator, synthesizedTypes: List<TypeBuilder>): bool {
+    private static func TryEmitAsyncIteratorStateMachine(module: ModuleBuilder, fn: ColumnarFunctionInput, funcOrdinal: int, functionSource: string, typeResolution: ColumnarSemanticTypeResolution, factoryIl: ILGenerator, synthesizedTypes: List<TypeBuilder>, bodyFacts: ColumnarIteratorBodyFacts?): bool {
         result := ColumnarIteratorRealization.EmitAsync(
             module,
             fn,
@@ -2959,7 +2960,8 @@ sealed class ColumnarIlEmitter {
             functionSource,
             typeResolution,
             factoryIl,
-            synthesizedTypes
+            synthesizedTypes,
+            bodyFacts
         )
         if (result.Succeeded) {
             return true
@@ -2970,7 +2972,7 @@ sealed class ColumnarIlEmitter {
     // A type-member generator: a STATIC method rides the top-level host directly; an INSTANCE method
     // supplies the enclosing type's public member facts (exact canonicals from the struct INPUT, handles
     // from the def) so the planner hoists `<>__this` and resolves member reads / member-call sources.
-    private static func TryEmitMemberIterator(module: ModuleBuilder, structDef: ColumnarStructDef, method: ColumnarFunctionInput, builder: MethodBuilder, isStatic: bool, program: ColumnarProgramInput, typeResolution: ColumnarSemanticTypeResolution, methodSource: string, synthesizedTypes: List<TypeBuilder>, ordinalCounter: int[]): bool {
+    private static func TryEmitMemberIterator(module: ModuleBuilder, structDef: ColumnarStructDef, method: ColumnarFunctionInput, builder: MethodBuilder, isStatic: bool, program: ColumnarProgramInput, typeResolution: ColumnarSemanticTypeResolution, methodSource: string, synthesizedTypes: List<TypeBuilder>, ordinalCounter: int[], bodyFacts: ColumnarIteratorBodyFacts?): bool {
         result := ColumnarIteratorRealization.EmitMember(
             module,
             structDef,
@@ -2981,7 +2983,8 @@ sealed class ColumnarIlEmitter {
             typeResolution,
             methodSource,
             synthesizedTypes,
-            ordinalCounter
+            ordinalCounter,
+            bodyFacts
         )
         if (result.Succeeded) {
             return true
@@ -4715,6 +4718,15 @@ sealed class ColumnarIlEmitter {
             if ((fn.ModifierFlags & 4096) != 0) {
                 ColumnarDeclineTrace.SetSourceFileId(fn.SourceFileId)
                 try {
+                    generatorFacts := ColumnarIteratorBodyFacts.FromEmissionFacts(
+                        enumRegistry,
+                        structRegistry,
+                        unionRegistry,
+                        siblings,
+                        typeResolution.Structs.Resolver.ExactSourceTypes,
+                        null,
+                        typeResolution.StructuralTypeReferences
+                    )
                     if (fn.IsAsync ? !TryEmitAsyncIteratorStateMachine(
                         module,
                         fn,
@@ -4722,7 +4734,8 @@ sealed class ColumnarIlEmitter {
                         program.GetSourceForFileId(fn.SourceFileId),
                         typeResolution,
                         il,
-                        displayClasses
+                        displayClasses,
+                        generatorFacts
                     ) : !TryEmitIteratorStateMachine(
                         module,
                         fn,
@@ -4739,7 +4752,8 @@ sealed class ColumnarIlEmitter {
                         null,
                         null,
                         null,
-                        null
+                        null,
+                        generatorFacts
                     )) {
                         return false
                     }
@@ -5045,7 +5059,16 @@ sealed class ColumnarIlEmitter {
                         bodyTypeResolution2,
                         methodSource,
                         displayClasses,
-                        lambdaCounter
+                        lambdaCounter,
+                        ColumnarIteratorBodyFacts.FromEmissionFacts(
+                            enumRegistry,
+                            structRegistry,
+                            unionRegistry,
+                            siblings,
+                            bodyTypeResolution2.Structs.Resolver.ExactSourceTypes,
+                            job.Item1,
+                            bodyTypeResolution2.StructuralTypeReferences
+                        )
                     )) {
                         return false
                     }
@@ -6880,6 +6903,52 @@ sealed class ColumnarIlEmitter {
                                 return false
                             }
                             _il.Emit(OpCodes.Callvirt, ColumnarSourceSelfInstantiation.Bind(writeProp.Setter))
+                            return true
+                        }
+                    }
+                    // A REFLECTED OWNER — a type from a referenced assembly, including an N#-compiled
+                    // record in one. The write is the same write: the member resolves by ORDINARY
+                    // reflection instead of through a source definition, and a writable instance field
+                    // takes `stfld` and a settable instance property takes its setter. Nothing about the
+                    // owner's provenance changes which instruction a member assignment is.
+                    if (writeOwnerDef == null && writeChain.ReceiverType != null && writeOwnerTb == null && !writeChain.ReceiverType.get_IsValueType() && !writeChain.ReceiverType.get_IsGenericParameter()) {
+                        reflectedWriteField := writeChain.ReceiverType.GetField(memberName)
+                        if (reflectedWriteField != null && !reflectedWriteField.get_IsStatic() && !reflectedWriteField.get_IsInitOnly() && !reflectedWriteField.get_IsLiteral()) {
+                            EmitMemberWriteLocator(writeChain)
+                            let reflectedFieldValueType: System.Type = null
+                            if (TryEmitIntLiteralAsType(Child(expr, 1), reflectedWriteField.get_FieldType(), out reflectedFieldValueType)) {
+                            } else {
+                                if (TryEmitZeroLiteralAsType(Child(expr, 1), reflectedWriteField.get_FieldType(), out reflectedFieldValueType)) {
+                                } else {
+                                    if (!EmitExpression(Child(expr, 1), out reflectedFieldValueType)) {
+                                        return false
+                                    }
+                                }
+                            }
+                            if (!TypesEquivalent(reflectedFieldValueType, reflectedWriteField.get_FieldType()) && !TryEmitImplicitWidening(reflectedFieldValueType, reflectedWriteField.get_FieldType()) && !ColumnarReferenceCoercionPlanner.TryEmitExternalInterfaceUpcast(reflectedFieldValueType, reflectedWriteField.get_FieldType(), _structRegistry, _il) && !ColumnarReferenceConversionFacts.TryEmitReferenceConversion(reflectedFieldValueType, reflectedWriteField.get_FieldType()) && !ColumnarReferenceCoercionPlanner.TryEmitObjectConversion(reflectedFieldValueType, reflectedWriteField.get_FieldType(), _structRegistry, _il)) {
+                                return false
+                            }
+                            _il.Emit(OpCodes.Stfld, reflectedWriteField)
+                            return true
+                        }
+                        reflectedWriteProperty := writeChain.ReceiverType.GetProperty(memberName)
+                        if (reflectedWriteProperty != null) {
+                            reflectedSetter := reflectedWriteProperty.get_SetMethod()
+                            if (reflectedSetter == null || reflectedSetter.get_IsStatic() || reflectedSetter.GetParameters().Length != 1) {
+                                return false
+                            }
+                            EmitMemberWriteLocator(writeChain)
+                            let reflectedPropertyValueType: System.Type = null
+                            if (TryEmitIntLiteralAsType(Child(expr, 1), reflectedWriteProperty.get_PropertyType(), out reflectedPropertyValueType)) {
+                            } else {
+                                if (!EmitExpression(Child(expr, 1), out reflectedPropertyValueType)) {
+                                    return false
+                                }
+                            }
+                            if (!TypesEquivalent(reflectedPropertyValueType, reflectedWriteProperty.get_PropertyType()) && !TryEmitImplicitWidening(reflectedPropertyValueType, reflectedWriteProperty.get_PropertyType()) && !ColumnarReferenceConversionFacts.TryEmitReferenceConversion(reflectedPropertyValueType, reflectedWriteProperty.get_PropertyType()) && !ColumnarReferenceCoercionPlanner.TryEmitObjectConversion(reflectedPropertyValueType, reflectedWriteProperty.get_PropertyType(), _structRegistry, _il)) {
+                                return false
+                            }
+                            _il.Emit(reflectedSetter.get_IsVirtual() ? OpCodes.Callvirt : OpCodes.Call, reflectedSetter)
                             return true
                         }
                     }

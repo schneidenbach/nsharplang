@@ -2608,3 +2608,72 @@ that an identity annotation costs no IL bytes, and the `InvalidCastException` a 
 produces. Contracts: `ForeachElementConversionFacts.tests.nl`, the NL330 blocks in
 `AnalyzerLoopSequence.tests.nl`, the parser blocks in `ColumnarParserAst.tests.nl` and the printing
 blocks in `FormatterWalk.tests.nl`.
+
+## Iterator Bodies Are Ordinary Bodies
+
+An iterator (`func*` / `async func*`) body is planned by the SAME expression owner a plain function
+body uses. `ColumnarIteratorBodyScope` (`ColumnarIteratorBodyScope.nl`) is the whole of the state
+machine's effect on a body's meaning, and it is TWO binding rules rather than a planner:
+
+- a HOISTED name — a captured parameter, a hoisted local, a synthesized loop slot — is a FIELD of
+  `this`, which is `ColumnarBoundIdentifierPlanner`'s `CurrentField` selection (`ldarg.0; ldfld`);
+- an ENCLOSING-TYPE member read by an instance machine is the new `CapturedInstanceField` selection
+  (`ldarg.0; ldfld <>__this; ldfld <member>`) — the same two-hop read a closure display does through
+  its captured box, with a member field in place of `StrongBox<T>.Value`.
+
+With those published, every value in the body goes through
+`ColumnarRangeIndexPlanner.TryAppendConstructionValue` — the append-mode value cascade a CALL ARGUMENT
+uses — so calls, `new`, object initializers, array and collection literals, indexers, member access,
+casts, ranges, ternaries and binaries behave identically inside and outside a generator.
+`ColumnarIteratorPlanner`'s old mini-planner for iterator expressions is DELETED (its canonical-string
+type inference, binary-operator table, string-method allowlist and BCL-exception allowlist with it).
+
+Consequences worth knowing:
+
+- **A hoisted local's TYPE is resolved at realization, not at classification.** `AnalyzeShape` still
+  owns each hoisted field's NAME, ROLE and POSITION (which is what state numbering and the
+  guarded-layout decision need) but marks a `:=` local's canonical UNRESOLVED (`"?"`,
+  `ColumnarIteratorPlanner.IsUnresolvedCanonical`). `ColumnarIteratorEmitContext.TryEnsureHoistedField`
+  defines the CLR field from the initializer's planned type when the lowering reaches the declaration.
+  A slot that already exists keeps ITS type and the value must be storable in it (identity, or a
+  reference widening between two baked handles), so `v := 1` then `v := true` in disjoint branches
+  declines while a host-supplied wider slot is reused.
+- **A decline can now happen during body lowering** rather than only during classification. The
+  context carries `DeclineSite`/`DeclineMessage`; `ColumnarIteratorRealization` reports it after
+  `BuildMoveNextPlan` and before any IL is executed into the method.
+- **`yield <value>` takes the conversion a `return` takes** —
+  `ColumnarDirectCallPlanner.AppendArgumentConversion`, the call-argument conversion owner — and a
+  target-typed array literal (`yield ["a", 1]` as `object[]`) is planned by
+  `ColumnarConstructionPlanner.TryAppendTargetTypedArray`, the position-knows-the-element-type
+  counterpart of `TryAppendInferredArray`.
+- **`for..in` inside a generator enumerates any sequence.** The source is an ordinary expression; its
+  element type comes from the planned value's CLR type (an SZ array's element, or the single
+  `IEnumerable<T>` it implements). A hoisted ARRAY field still takes the index loop.
+
+Three plan-schema rules were relaxed to say what a METHOD BODY is, and each is narrow: a `System.Void`
+fragment result is legal on a schema-v4 ROOT fragment (`ColumnarCodePlan.IsMethodBodyRootFragment`)
+because a body is a sequence of statement trees and a call statement's tree is void; the same rule
+replaces `callFragment == 0` in `ColumnarDirectCallPlanner`'s void guards; and an `arr[i]` is a
+non-root claim at every position a method body can put it in, because an index access is never a
+statement. A NESTED void fragment is still refused on every schema.
+
+Not yet lowered inside a generator body, each with its own decline: `return <value>`
+(`emit.iterator.unsupported-shape`), a lambda (`emit.iterator.lambda-unsupported`), `try`/`using`/
+`lock`, `await` in a value position, and `await foreach`.
+
+## One Exception-Resolution Path
+
+`ColumnarCanonicalTypeResolver.TryResolveBclExceptionType` resolves a catch/throw type by ORDINARY CLR
+name lookup — a qualified name through `Type.GetType`, a bare simple name through an index of the
+runtime assembly's own exception types — admitting exactly what the CLR admits as a handler type
+(derives from `System.Exception`). The two hand-maintained allowlists it replaced had drifted:
+`System.ArrayTypeMismatchException` was in one and not the other, so the same program compiled or
+declined depending on how its catch clause was spelled. `ColumnarTypeOfPlanner.TryResolveExceptionType`
+now forwards. Source declarations still resolve first, so a user type that shares a BCL exception's
+name wins.
+
+Object initializers and member writes over a REFLECTED type (including an N#-compiled record in a
+referenced assembly) likewise resolve by ordinary reflection: `ColumnarConstructionPlanner`'s runtime
+member arm assigns a writable instance FIELD as well as a settable property, the three-type
+`IsApprovedRuntimeObjectInitializerType` allowlist is gone, and `ColumnarIlEmitter`'s member-write
+chain has a reflected-owner arm beside its source-definition one.
