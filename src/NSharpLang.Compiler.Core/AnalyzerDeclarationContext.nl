@@ -956,7 +956,12 @@ class AnalyzerDeclarationContext {
 
         nullable := typeReference as NullableTypeReference
         if nullable != null {
-            return new NullableTypeInfo(ResolveTypeReferenceCore(nullable.InnerType, facts, activeAliases, substitution, lexicalOwner))
+            innerType := ResolveTypeReferenceCore(nullable.InnerType, facts, activeAliases, substitution, lexicalOwner)
+            if ErasesOwnerTypeParameterAnnotation(nullable.InnerType, substitution, lexicalOwner, innerType) {
+                return innerType
+            }
+
+            return new NullableTypeInfo(innerType)
         }
 
         unionReference := typeReference as UnionTypeReference
@@ -1001,6 +1006,34 @@ class AnalyzerDeclarationContext {
             return new ByRefTypeInfo(ResolveTypeReferenceCore(byRef.InnerType, facts, activeAliases, substitution, lexicalOwner))
         }
         return BuiltInTypes.Unknown
+    }
+
+    // `T?` ON THE OWNER'S OWN TYPE PARAMETER, READ THROUGH AN INSTANTIATION. `class Box<T> { func
+    // Peek(): T? }` answers `int` for a `Box<int>` and `string?` for a `Box<string>`: on an
+    // UNCONSTRAINED parameter C#'s `?` is a reference annotation that a value argument erases, and
+    // only `where T : struct` spells a real `Nullable<T>`. This is the declaration-side twin of the
+    // rule `AnalyzerSyntheticCallFacts.ApplyGenericBindings` applies to a generic FUNCTION's own
+    // parameters, and both ask `NullabilityGenericSubstitution` the same two questions.
+    //
+    // An OPEN substitution — the owner's parameters mapped to themselves, which is what a read
+    // inside the declaration gets — binds `T` to the named type itself, which carries a reference
+    // annotation happily, so `T?` stays `T?` there.
+    func ErasesOwnerTypeParameterAnnotation(writtenInnerType: TypeReference, substitution: Dictionary<string, TypeInfo>?, lexicalOwner: TypeInfo?, boundInnerType: TypeInfo): bool {
+        if substitution == null || lexicalOwner == null {
+            return false
+        }
+
+        simple := writtenInnerType as SimpleTypeReference
+        if simple == null || !substitution.ContainsKey(simple.Name) {
+            return false
+        }
+
+        lifted := NullabilityGenericSubstitution.LiftedTypeParameterNames(AnalyzerGenericConstraintChecks.ConstraintsOf(lexicalOwner))
+        if lifted != null && lifted.Contains(simple.Name) {
+            return false
+        }
+
+        return NullabilityGenericSubstitution.ErasesNullableAnnotation(boundInnerType)
     }
 
     func ResolveGenericType(generic: GenericTypeReference, facts: AnalyzerDeclarationFileFacts, activeAliases: HashSet<string>, substitution: Dictionary<string, TypeInfo>?, lexicalOwner: TypeInfo?): TypeInfo {
