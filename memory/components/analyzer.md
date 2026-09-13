@@ -2004,3 +2004,57 @@ from it and every raw call was a latent crash inside a generic body.
 
 Keep ownership-policy tests beside the N# owner. C# tests should exercise only the remaining
 diagnostic/integration shell, not recreate semantic lookup or identity policy in test helpers.
+
+### What `for x in e` iterates
+
+`ForeachPatternFacts.nl` is the C# `foreach` pattern (Roslyn's `ForEachLoopBinder`) written ONCE,
+over `System.Type`, so the analyser (which types the loop variable) and the emitter (which lowers the
+loop) cannot disagree about which collections iterate. `LoopSequenceTypeFacts.nl` is the element-type
+half the analyser asks; `ColumnarForeachLoopPlanner.nl` is the lowering half the emitter asks.
+
+The order is the language rule: array → `string` → the enumerator pattern (an accessible
+parameterless `GetEnumerator()` whose result has a readable `Current` and a parameterless
+`bool MoveNext()`) → `IEnumerable<T>` → the non-generic `IEnumerable` (element `object`).
+
+Four things about this owner are load-bearing:
+
+- **EVERY IDENTITY TEST IS BY `FullName`, NEVER BY `typeof`.** The analyser reads referenced
+  assemblies through a MetadataLoadContext, where the projected `System.Boolean` is not `typeof(bool)`
+  and the projected `IEnumerable<>` is not `typeof(IEnumerable<>)`. The walk this replaced compared
+  RUNTIME IDENTITIES in all four of its arms, so it answered NO for every type that arrived through
+  metadata — which is why a `foreach` over a `JsonElement.ArrayEnumerator`, a
+  `Dictionary<K,V>.KeyCollection`, a `StringBuilder.ChunkEnumerator` or any user type from a
+  referenced assembly was rejected as "collection must be enumerable". The conversion table beside it
+  (`AnalyzerReflectionTypeConversion`) is keyed the same way for the same reason.
+- **THE NAME TABLE IS GONE.** `LoopSequenceTypeFacts` used to answer eighteen unqualified spellings
+  (`List`, `HashSet`, `Queue`, `Span`, five dictionary names…). A generic instantiation now answers
+  through its DEFINITION and the arguments are substituted by POSITION
+  (`AnalyzerReflectionTypeOverride.ForGenericArguments`), which is how `Dictionary<string, Widget>`
+  produces `KeyValuePair<string, Widget>` over a source `Widget` the CLR has no handle for. An
+  instantiation whose definition nothing binds answers nothing — a bare name is no longer evidence.
+- **MEMBER LOOKUP WALKS THE DECLARATION CHAIN ITSELF.** `GetMethod`/`GetProperty` throw
+  `AmbiguousMatchException` when a derived type shadows the member asked for, and an exception
+  escaping type inference is a crashed `nlc`. A `DeclaredOnly` walk from the most derived declaration
+  outward answers the same member and cannot throw. An INTERFACE has no `BaseType`, so the walk
+  continues into its base interfaces — `IReadOnlyList<T>` declares none of the three itself.
+- **DISPOSAL HAS FOUR ANSWERS, AND A BY-REF-LIKE ENUMERATOR IS NOT ONE OF THEM.** A value-type
+  enumerator implementing `IDisposable` is disposed through a `constrained.` call; a reference one is
+  null-checked; a non-sealed reference one that does not implement it is tested at run time. On this
+  runtime `Span<T>.Enumerator` DOES name `IDisposable` (a by-ref-like type may implement an interface
+  now) but no by-ref-like value can be converted to one, so only a PATTERN `void Dispose()` counts —
+  and it implements `Dispose` explicitly, so a loop over a span disposes nothing and carries no
+  protected region at all.
+
+One emitter limit shapes the lowering: **a member whose signature carries REQUIRED CUSTOM MODIFIERS
+cannot be referenced from emitted IL**, because the metadata writer drops them when it emits a
+`MemberRef` ("Method not found: `'!0 ByRef Enumerator.get_Current()'`" at run time).
+`ReadOnlySpan<T>.Enumerator.Current` is `ref readonly T`, which is exactly that shape, so
+`ColumnarForeachLoopPlanner` refuses the pattern for it and lowers an INDEX loop instead — through
+`ColumnarReadOnlySpanElementRead`, the same `Slice`/`MemoryMarshal.AsBytes`/`MemoryMarshal.Read` door
+the index EXPRESSION already went through. `Span<T>`'s `Current` is a plain `ref T` and takes the
+ordinary enumerator path.
+
+Executable coverage: `tests/native/census-pattern-foreach` (runtime values and order for every shape,
+disposal counts on the exhausted / `break` / `return` / throwing paths, and CLR metadata assertions
+that the hidden enumerator local is the STRUCT rather than the interface and that a span loop emits no
+exception-handling clause while a list loop emits one).

@@ -1193,7 +1193,9 @@ Two rules the compiler enforces about the type-argument list itself:
   loaded: `IEnumerable<T>` inherits the non-generic `IEnumerable.GetEnumerator()`, which differs from
   the generic one only by return type, and N# has no explicit interface implementation to spell it.
   This is not specific to your own type argument — `class Bag: IEnumerable<int>` has the same
-  problem. Return `IEnumerable<T>` from a method instead of implementing it.
+  problem. You do not need the interface to be iterable: a `for x in bag` loop binds an accessible
+  parameterless `GetEnumerator()` directly, so declaring one is enough. Return `IEnumerable<T>` from
+  a method when a caller needs the interface itself.
 - A **lambda assigned to a delegate FIELD inside a constructor** is not emitted, for any delegate
   (`Func<int, bool>` too). Build it in a local, or return it from a function.
 - A **generic method an `interface` declares** — `interface IHas { func Get<T>(): T }` — is not
