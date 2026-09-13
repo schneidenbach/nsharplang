@@ -276,3 +276,40 @@ class LayerDispatch {
         return layer.Wrap(text)
     }
 }
+
+// A BASE FROM A REFERENCED ASSEMBLY, CALLED WITH ARGUMENTS. `: base(...)` used to require a base that
+// THIS compilation was building — the chain was resolved among the base's source constructor rows —
+// so every class deriving from an external base with a parameterised constructor declined at
+// `emit.ctor.base-chain-without-base`. The base's constructors are now read from its metadata and
+// selected by the same rule.
+class SizedList: System.Collections.Generic.List<string> {
+    constructor(capacity: int): base(capacity) {
+    }
+}
+
+class SeededList: System.Collections.Generic.List<string> {
+    constructor(seed: System.Collections.Generic.IEnumerable<string>): base(seed) {
+    }
+}
+
+class LayerError: System.Exception {
+    Layer: string
+
+    constructor(message: string): base(message) {
+        Layer = ""
+    }
+
+    constructor(message: string, inner: System.Exception): base(message, inner) {
+        Layer = ""
+    }
+}
+
+// THE CHAIN IS CHOSEN BY THE ARGUMENTS, NOT BY ARITY ALONE. `Dictionary<string, int>` declares four
+// one-argument constructors, and only the argument's type says which of them `base(...)` names.
+class ComparedMap: System.Collections.Generic.Dictionary<string, int> {
+    constructor(comparer: System.Collections.Generic.IEqualityComparer<string>): base(comparer) {
+    }
+
+    constructor(capacity: int, comparer: System.Collections.Generic.IEqualityComparer<string>): base(capacity, comparer) {
+    }
+}

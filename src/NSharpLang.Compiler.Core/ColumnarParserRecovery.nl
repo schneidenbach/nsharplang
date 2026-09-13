@@ -3110,6 +3110,23 @@ class ColumnarParserRecovery {
                 memberLine := Current().Line
                 // Parser.cs :1293 (captured BEFORE the name)
                 memberColumn := Current().Column
+                // AN ENUM MEMBER HAS NO ATTRIBUTE POSITION. An enum's members become literal fields of a
+                // type that is finalized before any attribute in the program has been bound, so there
+                // is no point at which one could be attached — and a silently dropped attribute is
+                // worse than a refused one. Reporting it here and skipping the `[...]` keeps the
+                // member itself parsing: `[Mark] Low = 1` used to produce nine diagnostics.
+                while Check(TokenType.LeftBracket) {
+                    ReportEnumMemberAttribute()
+                    Advance()
+                    if !SkipAttributeGroup() {
+                        TypeBodyMaterializable = false
+                        return members
+                    }
+
+                    memberLine = Current().Line
+                    memberColumn = Current().Column
+                }
+
                 // Stage N+1c tranche 11: an `<error>` member name is Parser.cs's own placeholder and it
                 // still builds the EnumMember around it.
                 memberName := ConsumeIdentifier("Expected enum member name")
@@ -9850,6 +9867,21 @@ class ColumnarParserRecovery {
             // Parser.cs :275
             Advance()
             // consume '['
+            // A TARGET PREFIX IS A POSITION N# HAS NO ATTRIBUTE FOR. `[return: X]` names a method's
+            // return value, `[assembly: X]` names the assembly — declarations N#'s grammar cannot
+            // spell at all. Reading the prefix as the attribute NAME is what produced four
+            // diagnostics, none of which named the real problem, so the prefix is reported once and
+            // the whole `[...]` is skipped: the declaration after it still parses.
+            if LooksLikeAttributeTargetPrefix() {
+                ReportAttributeTargetPrefix()
+                if !SkipAttributeGroup() {
+                    AttributesMaterializable = false
+                    return attributes
+                }
+
+                continue
+            }
+
             name := ConsumeAttributeIdentifier("Expected attribute name")
             while Check(TokenType.Dot) {
                 Advance()
@@ -9885,6 +9917,67 @@ class ColumnarParserRecovery {
             }
         }
         return attributes
+    }
+
+    // `[target: Attr]` — ONE TOKEN, THEN A COLON, INSIDE AN ATTRIBUTE. The prefix is written as a
+    // keyword (`return`) or as a plain identifier (`field`), so the token KIND cannot decide it; the
+    // colon does. `[Attr]` and `[Name.Attr(x: 1)]` never present a colon at this position, and a
+    // named argument's `=` is inside the parentheses.
+    func LooksLikeAttributeTargetPrefix(): bool {
+        if IsAtEnd() || Check(TokenType.RightBracket) {
+            return false
+        }
+
+        return Position + 1 < Tokens.Count && Tokens[Position + 1].Type == TokenType.Colon
+    }
+
+    func ReportEnumMemberAttribute() {
+        marker := Current()
+        Report(
+            ErrorCode.AttributePositionUnsupported,
+            "N# has no attribute position on an enum member",
+            marker.Line,
+            marker.Column,
+            "An enum's members become literal fields of a type the compiler finalizes before any attribute in the program has been bound, so an attribute written on one has no row it could be attached to. Accepting the syntax would mean dropping the attribute.",
+            "Write the attribute on the enum declaration itself, or model the per-member data as a lookup the program owns.",
+            null,
+            MaxInt(1, marker.Value.Length)
+        )
+    }
+
+    func ReportAttributeTargetPrefix() {
+        prefix := Current()
+        Report(
+            ErrorCode.AttributePositionUnsupported,
+            "N# has no '" + prefix.Value + ":' attribute position — an attribute is written on the declaration it belongs to",
+            prefix.Line,
+            prefix.Column,
+            "C# writes an attribute's target before a colon so one `[...]` can reach a position the declaration does not name — a method's return value, the assembly, a property's backing field. N# writes every attribute directly on the declaration it belongs to, and has no spelling for those positions.",
+            "Remove the '" + prefix.Value + ":' prefix, or move the attribute onto a declaration that can carry one.",
+            null,
+            MaxInt(1, prefix.Value.Length)
+        )
+    }
+
+    // THE REST OF A REFUSED `[...]`, BRACKETS BALANCED. False means the group never closed, which the
+    // caller turns into a declined declaration rather than a second cascade.
+    func SkipAttributeGroup(): bool {
+        depth := 1
+        while !IsAtEnd() {
+            if Check(TokenType.LeftBracket) {
+                depth = depth + 1
+            } else if Check(TokenType.RightBracket) {
+                depth = depth - 1
+                if depth == 0 {
+                    Advance()
+                    return true
+                }
+            }
+
+            Advance()
+        }
+
+        return false
     }
 
     // THE ATTRIBUTE'S OWN SOURCE TEXT, `[` THROUGH `]` INCLUSIVE, OR NULL WHEN THE SPAN CANNOT BE READ.

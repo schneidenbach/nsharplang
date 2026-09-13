@@ -657,3 +657,69 @@ test "parameter-default emitter emits executable call defaults and leaves a null
     )
     assert rejectedType == null
 }
+
+// AN EXTERNAL CONSTRUCTOR'S OMITTED ARGUMENT HAS NO DEFAULT TEXT TO READ. Its value is a metadata
+// `Constant` row the CLR already decoded, and it arrives boxed — so the plan is made from the
+// constant, against the parameter type the signature declares. The probe parameters come from an
+// N#-declared constructor in this very assembly, which is a baked runtime type here.
+func MetadataDefaultProbeParameters(): ParameterInfo[] {
+    constructors := typeof(ColumnarSourceAttributeInput).GetConstructors()
+    assert constructors.Length == 1
+    return constructors[0].GetParameters()
+}
+
+test "a metadata default is planned from its boxed constant" {
+    parameters := MetadataDefaultProbeParameters()
+    assert parameters.Length == 4
+
+    kind := 0
+    bits := 0L
+    text := ""
+    // `argumentTexts: string[]? = null`
+    assert ColumnarParameterDefaultEmitter.TryPlanMetadataDefault(parameters[2], parameters[2].get_ParameterType(), out kind, out bits, out text)
+    assert kind == ColumnarParameterDefaultEmitter.NullMetadataDefault
+
+    // `isStringArgumentList: bool = true`
+    assert ColumnarParameterDefaultEmitter.TryPlanMetadataDefault(parameters[3], typeof(bool), out kind, out bits, out text)
+    assert kind == ColumnarParameterDefaultEmitter.Int32MetadataDefault
+    assert bits == 1L
+
+    // A parameter with no default supplies nothing, and neither does a default whose type is not the
+    // parameter's own — an omitted argument is not a conversion site.
+    assert !ColumnarParameterDefaultEmitter.TryPlanMetadataDefault(parameters[0], typeof(string), out kind, out bits, out text)
+    assert !ColumnarParameterDefaultEmitter.CanUseMetadataDefaultAs(parameters[3], typeof(int))
+    assert !ColumnarParameterDefaultEmitter.CanUseMetadataDefaultAs(parameters[2], typeof(int))
+    assert ColumnarParameterDefaultEmitter.CanUseMetadataDefaultAs(parameters[3], typeof(bool))
+}
+
+test "a metadata default emits at the parameter's own type" {
+    parameters := MetadataDefaultProbeParameters()
+    noParameters := new Type[](0)
+    emitted := BoundDynamicMethod(
+        "ParameterDefaultMetadataEmit",
+        ExecutorVoidType(),
+        noParameters
+    )
+    emittedType: Type? = null
+    assert ColumnarParameterDefaultEmitter.TryEmitMetadataDefaultArgument(
+        emitted.GetILGenerator(),
+        parameters[3],
+        typeof(bool),
+        out emittedType
+    )
+    assert emittedType == typeof(bool)
+
+    refused := BoundDynamicMethod(
+        "ParameterDefaultMetadataRefused",
+        ExecutorVoidType(),
+        noParameters
+    )
+    refusedType: Type? = typeof(string)
+    assert !ColumnarParameterDefaultEmitter.TryEmitMetadataDefaultArgument(
+        refused.GetILGenerator(),
+        parameters[0],
+        typeof(string),
+        out refusedType
+    )
+    assert refusedType == null
+}

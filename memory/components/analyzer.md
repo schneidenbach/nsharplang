@@ -1968,17 +1968,62 @@ diagnostics enforce it:
 |---|---|
 | `NL933` | The attribute is written on a declaration its `AttributeTargets` exclude. |
 | `NL934` | The attribute is written twice on one declaration without `AllowMultiple = true`. |
+| `NL935` | The attribute is written at a position N# has none — a target prefix, or an enum member. |
 
 The target is the DECLARATION's, and a property offers both `Property` and `Method` because N# has no
 attribute position inside accessor braces. `[MethodImpl]`'s placement is exempt from `NL933`: `NL930`
 already says the same thing better, and reporting both would report one mistake twice.
 
 Attachment reaches types, methods and free functions, constructors, properties (the PROPERTY row —
-which is where `PropertyInfo.GetCustomAttributes` and every framework that reads it looks) and
-parameters. A FIELD's attributes are validated and then dropped: the struct field scan in
-`ColumnarParserKernels.ParseColumnarStructInfoInto` yields field NAME and TYPE texts, not the field's
-declaration token index, so there is no position for `ColumnarSourceAttributes.Read` to scan back
-from. Closing it means adding a field-token-index column to that scan and its output table.
+which is where `PropertyInfo.GetCustomAttributes` and every framework that reads it looks), FIELDS and
+parameters. A field's attributes used to be validated and then dropped, because the struct field scan
+in `ColumnarParserKernels.ParseColumnarStructInfoInto` yielded field NAME and TYPE texts with no
+declaration token index for `ColumnarSourceAttributes.Read` to scan back from. The scan now records
+each field's NAME TOKEN index in a `FieldDeclTokens` column — the same shape `FieldInitTokens` takes —
+carried through `ColumnarStructOutputTable` to `ColumnarStructInput.FieldSourceAttributes`, and the
+emitter queues them through the same deferred attachment every other position uses. A field
+synthesized from a primary-constructor parameter has no member position of its own and records -1.
+
+### An omitted argument, and an argument that converts per element
+
+A custom-attribute blob has no notion of an omitted argument: every fixed argument is written. So an
+attribute that leaves an optional parameter off has to write the parameter's DECLARED DEFAULT, which
+is what the C# compiler writes for the same declaration. Both halves changed together:
+
+- `AnalyzerAttributeValidator` asks arity as a RANGE — from the constructor's required count to its
+  full parameter list — on the source path (`DeclaredMemberInfo.RequiredParameterCount`) and on the
+  metadata path (`ParameterInfo.IsOptional`, counted from the end). Only the arguments the source
+  WROTE are measured against their parameters.
+- `ColumnarSourceAttributeBinder` carries a `DefaultValues` column beside each candidate's parameter
+  types and fills the omitted tail from it. A source constructor's defaults come from the declaration
+  columns (`ColumnarConstructorDef.DefaultKinds`/`DefaultTexts`, which are TOKEN kinds); a metadata
+  one's come from `ParameterInfo.DefaultValue`, turned into the same `ColumnarAttributeArgumentNode`
+  shape a written argument reduces to so the one blob writer encodes both. Among applicable
+  signatures, fewer omitted arguments wins, then fewer `object` parameters.
+
+An ARRAY argument converts per ELEMENT, not as a whole. `[Bytes([1, 2])]` writes an `int[]` as
+written and there is no conversion from `int[]` to `byte[]`, but the blob already writes each element
+against the ELEMENT type — so `IsAttributeArgumentCompatibleValue` applies the same
+constant-expression conversion one level down, which is as deep as attribute metadata goes.
+
+### Positions N# has no attribute for
+
+`NL935` (`ErrorCode.AttributePositionUnsupported`) is reported by `ColumnarParserRecovery` at two
+places, and both of them SKIP the refused `[...]` so nothing after it cascades:
+
+| Written | Reported |
+|---|---|
+| an attribute TARGET prefix — `[return: X]`, `[assembly: X]`, `[field: X]` | one `NL935` naming the prefix; `[return: Mark]` used to produce four diagnostics, none of which named the problem |
+| an attribute on an ENUM MEMBER | one `NL935` at the first attributed member; `[Mark] Low = 1` used to produce nine |
+
+The prefix is recognised by the COLON after the first token inside `[`, not by the token's kind: a
+prefix may be a keyword (`return`) or a plain identifier (`field`), and no legal attribute presents a
+colon at that position (a named argument's `name:` is inside the parentheses). An enum member has a
+declaration, but an enum's members become literal fields of a type the emitter finalizes in its first
+pass — before any attribute in the program has been bound — so there is no point at which an
+attribute on one could be attached. Supporting them means deferring `EnumBuilder.CreateType` past the
+attribute-queue flush, which every struct field-type resolution depends on. The formatter never
+rewrites a file that reported a parse error, so a refused attribute is never silently deleted.
 
 Not supported, and stated as such in `website/docs/basics.md`: `[assembly: ...]`, `[return: ...]`, an
 attribute on an enum member, and generic attributes.

@@ -3514,6 +3514,7 @@ sealed class ColumnarIlEmitter {
                         return DeclineStatic("emit.declaration.const-initializer", "const field '" + st.Name + "." + fieldName + "' requires an unsuffixed int literal initializer", st.Name, -1, 0)
                     }
                     sfb := ColumnarFieldMetadataEmitter.Define(tb, fieldName, fieldType, (int)fieldAttributes, fieldRows.FieldIsThreadStatic[s][fi], isLiteral, literalValue)
+                    sourceAttributeQueue.QueueField(sfb, st.FieldSourceAttributesAt(fi), typeResolution)
                     // A named tuple's element names live on the DECLARING position, so a field that
                     // mentions one carries the same attribute a return or a parameter does.
                     ColumnarTupleElementNameEmitter.ApplyToField(sfb, st.FieldTypeCanonicals[fi])
@@ -3529,6 +3530,7 @@ sealed class ColumnarIlEmitter {
                     return DeclineStatic("emit.declaration.field-initializer", "instance field initializer is not modeled for '" + st.Name + "." + fieldName + "'", st.Name, -1, 0)
                 }
                 instanceField := ColumnarFieldMetadataEmitter.Define(tb, fieldName, fieldType, (int)fieldAttributes, fieldRows.FieldIsThreadStatic[s][fi], false, 0)
+                sourceAttributeQueue.QueueField(instanceField, st.FieldSourceAttributesAt(fi), typeResolution)
                 ColumnarTupleElementNameEmitter.ApplyToField(instanceField, st.FieldTypeCanonicals[fi])
                 def.MemberLabeledCanonicals[fieldName] = st.FieldTypeCanonicals[fi]
                 fields[fieldName] = instanceField
@@ -24087,6 +24089,110 @@ sealed class ColumnarIlEmitter {
         return emitted
     }
 
+    // A `: base(...)` WHOSE BASE CAME FROM A REFERENCED ASSEMBLY. The base's constructors are
+    // `ConstructorInfo`s read by reflection rather than this assembly's own `ColumnarConstructorDef`
+    // rows, so the candidate set is collected differently — but the SELECTION is the same: the
+    // signatures whose leading parameters this argument list can be emitted as, with any trailing
+    // parameter supplying its own metadata default, exact arity preferred, and an ambiguity refused.
+    private func TrySelectExternalBaseConstructor(
+        ctor: ColumnarConstructorInput,
+        currentStruct: ColumnarStructDef,
+        out chosenCtor: ConstructorInfo,
+        out chosenParamTypes: Type[],
+        out chosenMetadataParameters: ParameterInfo[]
+    ): bool {
+        chosenCtor = null
+        chosenParamTypes = null
+        chosenMetadataParameters = null
+        baseType := currentStruct.ExactBaseType
+        if baseType == null {
+            return false
+        }
+
+        argCount := ctor.ChainArgNodes.Length
+        candidates := new List<ConstructorInfo>()
+        for candidate in ColumnarConstructorDeclarationPlanner.ResolveAccessibleExternalConstructors(baseType) {
+            parameters := candidate.GetParameters()
+            if parameters.Length < argCount {
+                continue
+            }
+
+            usable := true
+            defaultIndex := argCount
+            while defaultIndex < parameters.Length {
+                if !ColumnarParameterDefaultEmitter.CanUseMetadataDefaultAs(parameters[defaultIndex], parameters[defaultIndex].get_ParameterType()) {
+                    usable = false
+                    break
+                }
+
+                defaultIndex = defaultIndex + 1
+            }
+
+            if usable {
+                candidates.Add(candidate)
+            }
+        }
+
+        if candidates.Count == 0 {
+            return false
+        }
+
+        exactCandidates := new List<ConstructorInfo>()
+        for candidate in candidates {
+            if candidate.GetParameters().Length == argCount {
+                exactCandidates.Add(candidate)
+            }
+        }
+
+        if exactCandidates.Count > 0 {
+            candidates = exactCandidates
+        }
+
+        selected: ConstructorInfo = null
+        if candidates.Count == 1 {
+            selected = candidates[0]
+        } else {
+            for candidate in candidates {
+                candidateParameters := candidate.GetParameters()
+                matches := true
+                argumentIndex := 0
+                while argumentIndex < argCount {
+                    if !CanEmitConstructorChainArgumentAs(ctor, argumentIndex, candidateParameters[argumentIndex].get_ParameterType()) {
+                        matches = false
+                        break
+                    }
+
+                    argumentIndex = argumentIndex + 1
+                }
+
+                if matches {
+                    if selected != null {
+                        return false
+                    }
+
+                    selected = candidate
+                }
+            }
+        }
+
+        if selected == null {
+            return false
+        }
+
+        selectedParameters := selected.GetParameters()
+        parameterTypes := new Type[](selectedParameters.Length)
+        parameterIndex := 0
+        while parameterIndex < selectedParameters.Length {
+            parameterTypes[parameterIndex] = selectedParameters[parameterIndex].get_ParameterType()
+            parameterIndex = parameterIndex + 1
+        }
+
+        chosenCtor = selected
+        chosenParamTypes = parameterTypes
+        chosenMetadataParameters = selectedParameters
+        return true
+    }
+
     private func TrySelectChainedConstructor(
         ctor: ColumnarConstructorInput,
         self: ConstructorBuilder,
@@ -24094,12 +24200,14 @@ sealed class ColumnarIlEmitter {
         out chosenCtor: ConstructorInfo,
         out chosenParamTypes: Type[],
         out chosenDefaultKinds: int[],
-        out chosenDefaultTexts: string[]
+        out chosenDefaultTexts: string[],
+        out chosenMetadataParameters: ParameterInfo[]
     ): bool {
         chosenCtor = null
         chosenParamTypes = null
         chosenDefaultKinds = null
         chosenDefaultTexts = null
+        chosenMetadataParameters = null
         if (ctor.ChainInitKind != 1 && ctor.ChainInitKind != 2) || ctor.ChainArgNodes.Length != ctor.ChainArgTexts.Length || ctor.ChainArgRoots.Length != ctor.ChainArgTexts.Length {
             return false
         }
@@ -24108,7 +24216,7 @@ sealed class ColumnarIlEmitter {
         if ctor.ChainInitKind == 2 {
             targetDefinition = currentStruct.BaseDef
             if targetDefinition == null {
-                return false
+                return TrySelectExternalBaseConstructor(ctor, currentStruct, out chosenCtor, out chosenParamTypes, out chosenMetadataParameters)
             }
         }
 
@@ -24281,6 +24389,7 @@ sealed class ColumnarIlEmitter {
         let chainedParameterTypes: System.Type[]? = null
         let chainedDefaultKinds: int[]? = null
         let chainedDefaultTexts: string[]? = null
+        let chainedMetadataParameters: System.Reflection.ParameterInfo[]? = null
         if !TrySelectChainedConstructor(
             ctor,
             self,
@@ -24288,7 +24397,8 @@ sealed class ColumnarIlEmitter {
             out chained,
             out chainedParameterTypes,
             out chainedDefaultKinds,
-            out chainedDefaultTexts
+            out chainedDefaultTexts,
+            out chainedMetadataParameters
         ) {
             targetSpanStart := -1
             targetSpanLength := 0
@@ -24324,7 +24434,18 @@ sealed class ColumnarIlEmitter {
                 }
             } else {
                 let ignoredDefaultResultType: System.Type? = null
-                if !ColumnarParameterDefaultEmitter.TryEmitConstructorDefaultArgument(
+                // AN EXTERNAL BASE'S OMITTED ARGUMENT COMES FROM ITS OWN METADATA; a source one comes
+                // from the declaration columns this program parsed.
+                if chainedMetadataParameters != null {
+                    if !ColumnarParameterDefaultEmitter.TryEmitMetadataDefaultArgument(
+                        _il,
+                        chainedMetadataParameters[argumentIndex],
+                        chainedParameterTypes[argumentIndex],
+                        out ignoredDefaultResultType
+                    ) {
+                        return false
+                    }
+                } else if !ColumnarParameterDefaultEmitter.TryEmitConstructorDefaultArgument(
                     _il,
                     chainedParameterTypes[argumentIndex],
                     chainedDefaultKinds[argumentIndex],

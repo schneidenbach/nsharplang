@@ -664,6 +664,7 @@ sealed class ColumnarProgramInputBuilder {
             outFieldStaticFlags := new int[](cap)
             outFieldInitKinds := new int[](cap)
             outFieldInitTexts := new string[](cap)
+            outFieldDeclTokens := new int[](cap)
             outMethodFuncIndices := new int[](cap)
             outMethodStaticFlags := new int[](cap)
             outCtorIndices := new int[](cap)
@@ -700,6 +701,7 @@ sealed class ColumnarProgramInputBuilder {
                 outFieldStaticFlags,
                 outFieldInitKinds,
                 outFieldInitTexts,
+                outFieldDeclTokens,
                 outMethodFuncIndices,
                 outMethodStaticFlags,
                 outCtorIndices,
@@ -870,6 +872,22 @@ sealed class ColumnarProgramInputBuilder {
                 fieldConstFlags
             )
             structInput.SourceAttributes = ColumnarSourceAttributes.Read(source, ck, cs, cv, structIndex)
+            // A FIELD'S ATTRIBUTES ARE READ FROM ITS OWN DECLARATION POSITION. The member scan records
+            // each field's name-token index, so the same backward scan that finds a method's or a
+            // property's `[...]` finds a field's. A field synthesized from a primary-constructor
+            // parameter has no member position and carries none.
+            fieldSourceAttributes := new ColumnarSourceAttributeInput[]?[](fieldNames.Length)
+            fieldSlot := 0
+            while fieldSlot < fieldNames.Length {
+                declToken := outFieldDeclTokens[fieldSlot]
+                if declToken >= 0 {
+                    fieldSourceAttributes[fieldSlot] = ColumnarSourceAttributes.Read(source, ck, cs, cv, declToken)
+                }
+
+                fieldSlot = fieldSlot + 1
+            }
+
+            structInput.FieldSourceAttributes = fieldSourceAttributes
             // A type with static field initializers carries the synthesized `.cctor` body: one
             // `Name = <expression>` statement per non-const static initializer, in textual order.
             if outStaticInitResult[2] > 0 {
