@@ -447,9 +447,12 @@ test "`Value` on a reference nullable is NOT the unwrap and is not warned about"
     trace := MemberDriveWith(harness, MemberAccessOf("content", "Value", false), content)
 
     // The class declares no members in this harness, so ordinary resolution is what answers — and
-    // what it answers is the point: the fork did not.
+    // what it answers is the point: the fork did not. The receiver is maybe-null and the access is
+    // unguarded, so the ORDINARY dereference rule reports NL905 on it, which is the other half of
+    // reading `.Value` as a member rather than as the unwrap.
     assert trace.Answer == "unknown"
     assert !MemberCodes(harness.Errors).Contains("907")
+    assert MemberCodes(harness.Errors).Contains("905")
 }
 
 test "`HasValue` on a reference nullable is the class's own name, not the nullable's" {
