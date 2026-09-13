@@ -18316,8 +18316,21 @@ sealed class ColumnarIlEmitter {
         // widen a receiver through its interfaces, so `values.Count()` — no arguments at all — needs
         // this walk just as much as `values.Count(predicate)` does; the two are the same resolution
         // and only one of them has a lambda in it.
-        if (scope == null || argCount < 0 || receiverType == null || receiverType.get_IsByRef() || receiverType.get_IsPointer() || receiverType.get_IsGenericParameter()) {
+        if (scope == null || argCount < 0 || receiverType == null || receiverType.get_IsByRef() || receiverType.get_IsPointer()) {
             return false
+        }
+        // A TYPE PARAMETER IS THE INTERFACE ITS CONSTRAINT NAMES. `func CountOf<T>(items: T): int where
+        // T: IEnumerable<string>` writes `items.Count()`, and the receiver's static type is `T` — which
+        // has no members of its own and no reflectable interface list. Its CONSTRAINT is what the
+        // extension's receiver slot is matched against, exactly as C# matches it; one constraint
+        // answers, and two is an ambiguity this owner does not resolve.
+        matchType := receiverType
+        if (receiverType.get_IsGenericParameter()) {
+            constraints := GetGenericInterfaceConstraints(receiverType)
+            if (constraints.Length != 1) {
+                return false
+            }
+            matchType = constraints[0]
         }
         candidates := scope.ExtensionCandidates(member)
         if (candidates.Count == 0) {
@@ -18326,11 +18339,11 @@ sealed class ColumnarIlEmitter {
         bindings := new List<NSharpLang.Compiler.Columnar.ColumnarContextualExtensionBinding>()
         for candidate in candidates {
             let binding: NSharpLang.Compiler.Columnar.ColumnarContextualExtensionBinding? = null
-            if (ColumnarContextualExtensionInference.TryBegin(candidate, receiverType, argCount, out binding)) {
+            if (ColumnarContextualExtensionInference.TryBegin(candidate, matchType, argCount, out binding)) {
                 bindings.Add(binding)
             }
         }
-        return TrySelectContextualCandidate(callIdx, argCount, bindings, receiverType, true, out closedCandidate)
+        return TrySelectContextualCandidate(callIdx, argCount, bindings, matchType, true, out closedCandidate)
     }
 
     // The candidates an ordinary (non-extension) call has: every public method of that name on the
@@ -18503,6 +18516,15 @@ sealed class ColumnarIlEmitter {
         let candidate: NSharpLang.Compiler.Columnar.ColumnarExtensionMethodCandidate? = null
         if (!TryResolveContextualExtensionCandidate(callIdx, receiverType, member, argCount, out candidate)) {
             return false
+        }
+        // A TYPE-PARAMETER RECEIVER IS BOXED INTO THE REFERENCE SLOT IT SATISFIES, which is the same
+        // instruction C# writes for `T` -> an interface it is constrained to: `box !!T` is a no-op at
+        // run time when `T` turns out to be a reference type, and the real box when it does not.
+        if (receiverType.get_IsGenericParameter()) {
+            if (candidate.ParameterTypes[0].get_IsValueType()) {
+                return false
+            }
+            _il.Emit(OpCodes.Box, receiverType)
         }
         for a := 0; a < argCount; a++ {
             if (!EmitDeclaredCallArgument(Child(callIdx, 1 + a), candidate.ParameterTypes[a + 1], true)) {
@@ -18704,8 +18726,13 @@ sealed class ColumnarIlEmitter {
 
         // An INSTANCE member of the receiver's own type wins against an extension of the same name,
         // so the contextual instance walk runs first — exactly the precedence ordinary resolution
-        // already keeps one tier above.
+        // already keeps one tier above. A TYPE PARAMETER's instance members are the ones its
+        // constraint declares, so that arm answers the same question and keeps the same precedence.
         if (TryEmitContextualInstanceCall(callIdx, receiverType, member, argCount, out columnarResolvedType)) {
+            return true
+        }
+
+        if (receiverType.get_IsGenericParameter() && TryEmitGenericParameterConstrainedInterfaceCall(callIdx, receiverType, member, argCount, out columnarResolvedType)) {
             return true
         }
 

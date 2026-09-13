@@ -820,6 +820,23 @@ number you wrote is not a candidate at all, so writing too many or too few repor
 rather than closing the wrong one. The receiver may be a value type (`JsonElement` above) — an
 extension's receiver is its first argument, so the struct's value is passed, never its address.
 
+### Extensions over a type parameter
+
+A type parameter constrained to an interface IS that interface for an extension call:
+
+```n#
+import System.Collections.Generic
+import System.Linq
+
+func CountOf<T>(items: T): int where T: IEnumerable<string> {
+    return items.Count()
+}
+```
+
+A member the CONSTRAINT itself declares wins over an extension of the same name, which is the same
+precedence an ordinary receiver keeps. A lambda argument at such a call site is not typed yet — write
+the call on a concrete receiver, or take `IEnumerable<string>` directly, when you need one.
+
 ## Best Practices
 
 ### 1. Use Expression-Bodied Members for Simple Functions

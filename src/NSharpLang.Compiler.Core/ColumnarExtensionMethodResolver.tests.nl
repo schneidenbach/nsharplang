@@ -319,9 +319,13 @@ test "a written type-argument count that the declaration does not have EXCLUDES 
     wrongArity := ColumnarExtensionMethodResolver.ResolveExplicit(index, typeof(List<object>), "Cast", ExtensionTwoTypes(typeof(string), typeof(int)), new Type[](0), facts)
     assert !wrongArity.IsSelected, "A written type-argument count the declaration does not have must not bind."
 
-    // A NON-GENERIC extension is never a candidate for a site that wrote type arguments at all.
-    nonGeneric := ColumnarExtensionMethodResolver.ResolveExplicit(index, typeof(IEnumerable<int>), "ToList", ExtensionOneType(typeof(int)), new Type[](0), facts)
-    assert !nonGeneric.IsSelected, "ToList declares its own type parameter count; a written one that disagrees excludes it."
+    // `Enumerable.ToList<TSource>` declares ONE, so writing one BINDS and writing two does not.
+    matchingArity := ColumnarExtensionMethodResolver.ResolveExplicit(index, typeof(IEnumerable<int>), "ToList", ExtensionOneType(typeof(int)), new Type[](0), facts)
+    assert matchingArity.IsSelected, "A written type-argument count the declaration DOES have must bind."
+    assert matchingArity.ReturnType == typeof(List<int>)
+
+    tooMany := ColumnarExtensionMethodResolver.ResolveExplicit(index, typeof(IEnumerable<int>), "ToList", ExtensionTwoTypes(typeof(int), typeof(int)), new Type[](0), facts)
+    assert !tooMany.IsSelected, "A written type-argument count the declaration does not have must not bind."
 
     missing := ColumnarExtensionMethodResolver.ResolveExplicitUnique(index, typeof(string[]), "TotallyMissingExtensionXyz", ExtensionOneType(typeof(string)), 0)
     assert !missing.IsSelected, "An unknown extension name declines however its type arguments were written."

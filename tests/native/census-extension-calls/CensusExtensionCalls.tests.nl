@@ -228,3 +228,12 @@ test "a lambda assigned to a delegate FIELD inside a constructor executes" {
     // The lambda captured the constructor's own parameter, so the closure is real.
     assert box.Scale(14) == 42
 }
+
+test "a type parameter constrained to an interface is that interface for an extension call" {
+    // Both a reference collection and an ARRAY satisfy the constraint, and a value-type receiver
+    // would be boxed into the reference slot by the same instruction.
+    assert CountOf(Words()) == 3
+    assert CountOf(WordArray()) == 3
+    assert FirstOf(Words()) == "alpha"
+    assert FirstOf(WordArray()) == "alpha"
+}

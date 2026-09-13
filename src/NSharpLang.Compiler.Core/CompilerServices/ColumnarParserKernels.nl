@@ -354,7 +354,8 @@ class TypeReferenceTupleNameTable {
 //                                         full-expression entry and in EVERY ARGUMENT POSITION: a call argument,
 //                                         a CONSTRUCTOR argument (`new Lazy<int>(() => 1)`), an indexer
 //                                         argument, an object-, anonymous-object- or `with`-initializer value,
-//                                         and an array or tuple literal element. Kind 40 is
+//                                         an array or tuple literal element, and an ASSIGNMENT's right-hand
+//                                         side (`map[k] = v => ...`, `this.handler = v => ...`). Kind 40 is
 //                                         TypedLocalDeclaration and 41 LocalFunctionDeclaration in
 //                                         ParserStatements. )
 //   BareNew                 -> kind 42  ( `new <type>` with neither `( args )` nor `{ inits }` -- children

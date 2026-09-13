@@ -128,3 +128,13 @@ class Box {
         return scale(value)
     }
 }
+
+// A TYPE PARAMETER constrained to an interface. The receiver's static type is `T`, which has no
+// members of its own: its CONSTRAINT is what the extension's receiver slot is matched against.
+func CountOf<T>(items: T): int where T: IEnumerable<string> {
+    return items.Count()
+}
+
+func FirstOf<T>(items: T): string where T: IEnumerable<string> {
+    return items.First()
+}
