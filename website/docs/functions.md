@@ -591,6 +591,42 @@ Element names are still an annotation on the position, so a `ValueTuple<...>` sp
 declares none. `ValueTuple<T>` — a one-element tuple — has no tuple syntax in N# or in C#, and keeps
 its `Item1`.
 
+The two spellings are interchangeable in **every** position, including nested inside a generic
+argument and in a parameter or a return type:
+
+```n#
+func TakeRows(rows: List<ValueTuple<string, int>>): int => rows.Count
+
+func Rows(): List<(string, int)> => new List<(string, int)>()
+
+TakeRows(Rows())                                   // one type, two spellings
+```
+
+#### Element Names Are An Annotation, Never An Identity
+
+Because element names have no CLR identity, two tuple types that differ **only** in their names are
+one type. A value flows between them in every position — assignment, argument, return, `ref`, `out`,
+and a generic argument — and each position keeps reading the names **it** declared:
+
+```n#
+func Bump(ref row: (Item: string, Count: int)) {
+    row = (row.Item, row.Count + 1)
+}
+
+row: (Left: string, Right: int) = ("a", 1)
+Bump(ref row)                                      // names differ; the type does not
+Console.WriteLine(row.Right)                       // reads the name this position declared
+
+groups := new Dictionary<string, (Item: string, Ranges: List<int>)>()
+found: (Label: string, Lines: List<int>) = default
+if groups.TryGetValue("k", out found) {
+    Console.WriteLine(found.Lines.Count)           // and so does the `out` target
+}
+```
+
+A tuple **literal** written without names converts to a named tuple type the same way; the names on a
+literal are labels on a value, and the value's type is the declared one.
+
 #### Where The Names Reach
 
 A named tuple's element names follow the value wherever the declaring position can be found, not just
@@ -610,6 +646,29 @@ for group in groups.Values {                      // and onto a foreach variable
 }
 ```
 
+Storing a value in a **local** is not a place a name can be lost, so the same chain broken over
+several statements reads exactly as the single expression does — which is what a generated or
+translated body usually writes:
+
+```n#
+vals := groups.Values                             // declares no names of its own
+first := vals.First()
+Console.WriteLine(first.Ranges.Count)             // still the dictionary's value names
+```
+
+A **generic function's inferred return** is the argument it was inferred from, names and all, because
+a tuple type includes its element names:
+
+```n#
+func Echo<T>(value: T): T => value
+
+row: (Item: string, Count: int) = ("a", 4)
+Console.WriteLine(Echo(row).Count)
+```
+
+Two parameter positions declared with the same type parameter cannot say which argument the result
+came from, so such a call says nothing and the element is read positionally.
+
 A **field** and a **property** may be declared with a tuple type, and their names are written to
 metadata the same way a return's and a parameter's are:
 
@@ -621,6 +680,28 @@ class Holder {
 
 Console.WriteLine(holder.Pair.Item)
 Console.WriteLine(holder.Bounds.Max)
+```
+
+A field or property is a **link** in the chain, not a dead end — a value read out of one carries the
+names that member's written type declared:
+
+```n#
+class GroupHolder {
+    Pairs: Dictionary<string, (Item: string, Ranges: List<int>)>
+    Rows: (Item: string, Count: int)[]
+}
+
+Console.WriteLine(holder.Pairs["k"].Ranges.Count)
+Console.WriteLine(holder.Rows[1].Item)
+```
+
+An **array** may have a tuple element type, like every other declared position, and its element names
+ride on the declaring position just the same:
+
+```n#
+rows: (Item: string, Count: int)[] = [("a", 1), ("b", 5)]
+rows[1] = ("cd", 7)
+Console.WriteLine(rows[1].Item)
 ```
 
 The one rule that decides all of this: names come from the position that DECLARED them, and a

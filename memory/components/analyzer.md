@@ -204,6 +204,17 @@ Without that arm the funnel answered null for every tuple, which is why a tuple 
 explicit type ARGUMENT to a referenced assembly's generic method (`Enumerable.Empty<(int, string)>()`)
 was refused before its arguments were ever scored.
 
+THE NORMALISATION MUST HOLD AT EVERY BOUNDARY THAT REBUILDS A CONSTRUCTED GENERIC, not only at the
+three that resolve one. `AnalyzerTypeSubstitution.ResolveGenericTypeWithSubstitution` re-resolves a
+head and then rebuilds it over substituted arguments, and it read the head's definition off the plain
+walk's answer CAST TO `GenericTypeInfo` — which a normalised tuple is not, so the definition came back
+null and the rebuild produced the second representation of `ValueTuple`N` this compiler deliberately
+does not have. That path is how a SOURCE function's SIGNATURE is resolved, so a parameter or return
+written `ValueTuple<string, int>` disagreed with the tuple spelling everywhere it was called, while
+the same annotation on a LOCAL (which resolves through `AnalyzerDeclarationContext`) agreed: the head
+is now asked for its own definition when the plain walk answered a tuple, and the rebuild runs the
+same `ValueTupleTypeFacts.TryNormalizeConstructed` the other two boundaries run.
+
 The well-known-type bag is NULLABLE and that state is live: until the analyzer has loaded its
 `MetadataLoadContext` there are no metadata facts and the funnel falls back to
 `AnalyzerWellKnownTypeFacts.BuiltInRuntimeClrType`, which answers with the COMPILER's own runtime
@@ -1150,11 +1161,12 @@ with the two halves of one type printed as if they disagreed, and the mirror ass
 mirror image. `ValueTupleTypeFacts.TryNormalizeConstructed` normalises a constructed `ValueTuple`N`
 into a `TupleTypeInfo` at the CONVERSION BOUNDARY — `ReflectionTypeInfoFactory.FromConstructedGeneric`
 for everything reflected, `AnalyzerTypeResolver.ResolveGenericTypeReference` and
-`AnalyzerDeclarationContext.ResolveGenericType` for the written spelling — which is the rule
-`AnalyzerReflectionTypeConversion` already applies to `Nullable<T>`: lift once, rather than special-
-case identity, assignability, display, member resolution and overload scoring one at a time. Arity
-one keeps the constructed shape (`(T)` is not tuple syntax), and the `ValueTuple`8` REST nesting is
-flattened so an eight-element tuple is eight flat elements.
+`AnalyzerDeclarationContext.ResolveGenericType` for the written spelling, and
+`AnalyzerTypeSubstitution.ResolveGenericTypeWithSubstitution` for the REBUILD a source signature goes
+through — which is the rule `AnalyzerReflectionTypeConversion` already applies to `Nullable<T>`: lift
+once, rather than special-case identity, assignability, display, member resolution and overload
+scoring one at a time. Arity one keeps the constructed shape (`(T)` is not tuple syntax), and the
+`ValueTuple`8` REST nesting is flattened so an eight-element tuple is eight flat elements.
 
 NAMES TRAVEL WITH THE POSITION A VALUE WAS READ OUT OF. A member resolved through reflection has no
 element names in it — `Dictionary<string, (Item: string, Ranges: List<int>)>.Values` substitutes over
@@ -1164,6 +1176,36 @@ every read off it reported NL303. `AnalyzerTupleElementNames.GraftFromReceiver`,
 of the receiver's own tuple when the receiver's written type mentions exactly ONE tuple of that shape.
 Only names change; identity is unaffected, because `TypeInfoIdentityFacts.AreEqual` ignores them. The
 match must be unique: a receiver mentioning the same shape twice with different names says nothing.
+
+AT EMIT, THE SAME WALK MUST PASS THROUGH THREE MORE LINKS, each of which used to end it — so a chain
+written in ONE expression compiled while the same chain broken over statements did not, and the other
+way round. `tests/native/census-parse-shapes/TupleNamesThroughBindings.tests.nl` executes all three.
+
+- A LOCAL BINDING. `vals := groups.Values` binds a `ValueCollection<...>` that no annotation ever
+  named, so `_labeledTypeByVariable` got no entry and `NearestLabeledContext` had nothing to follow.
+  `_labeledContextByVariable` records where such a binding's value CAME FROM, and the walk goes
+  through a local exactly as it goes through an undeclared property hop. Only one of the two maps is
+  ever set for a name: one says what a binding IS, the other where it came from.
+- A FIELD OR PROPERTY OF A SOURCE TYPE. `ColumnarInstanceMemberPlanner` claims a member access before
+  the emitter's own arm sees it, and its name rewrite could only start a chain at a bare identifier,
+  so `holder.Pairs["k"].Ranges` declined while `pairs["k"].Ranges` compiled.
+  `TryReceiverWrittenType` answers the written spelling AND the CLR type that spelling names in one
+  recursive walk (binding, source member, index read), because each link needs both: the label to
+  carry and the type that says which position the next link reads. `TryGetPreflightMemberAccessType`
+  gained the matching arm — preflight could not type an instance member of one of this compilation's
+  own types at all, so every chain rooted at a source field was untypable.
+- A GENERIC FUNCTION'S INFERRED RETURN. `Echo(row)` declared `func Echo<T>(value: T): T` answers the
+  tuple `row` is, because a tuple type includes its element names and inference gives `T` the
+  argument's own type. The written return canonical is `T`, which names nothing, and that empty
+  answer used to win; a return written as a type PARAMETER now declares nothing, and
+  `SiblingInferredReturnLabeled` reads the answer off the argument whose position is declared with
+  that same parameter. The rule is structural (live signature handles, no name strings) and an
+  ambiguous inference — two positions declared with the parameter — says nothing.
+
+A TUPLE IS AN ARRAY'S ELEMENT TYPE too. `ColumnarTypeOfPlanner.IsSupportedElementType` admitted the
+tuple syntax at every declared position except that one, so `rows: (Item: string, Count: int)[]`
+declined at emit — and `ColumnarTupleElementNames.ArrayElementText`, written for exactly this read,
+could never be reached.
 
 A NARROWED nullable answers `.Value` whatever family its inner type is in. The narrowed-origin gate in
 `AnalyzerMemberAccess` admitted only a `SimpleTypeInfo` or a `ReflectionTypeInfo`, so `found.Value` on

@@ -150,6 +150,33 @@ test "catalog reference elements require the reproduced foreign assembly identit
     assert !ColumnarTypeOfPlanner.IsSupportedElementType(forged)
 }
 
+test "a tuple is an array's element type, and a foreign value-type generic still is not" {
+    // A TUPLE IS A VALUE A POSITION MAY HOLD, AND AN ARRAY IS A POSITION. The tuple syntax was
+    // admitted at every declared position EXCEPT an array element, so `(Item: string, Count: int)[]`
+    // declined at emit as a field's, a property's and a local's type alike -- and the labelled walk's
+    // own array-element read could never be reached. An array of a tuple loads, stores and addresses
+    // with the ordinary struct opcodes every other admitted value type already uses.
+    tuple := typeof(ValueTuple<string, int>)
+    assert tuple.get_IsValueType()
+    assert ColumnarTypeOfPlanner.IsSupportedValueTuple(tuple)
+    assert ColumnarTypeOfPlanner.IsSupportedElementType(tuple)
+    assert ColumnarTypeOfPlanner.IsSupportedType(tuple.MakeArrayType())
+
+    // Nested and long tuples answer the same way, because the admission asks the tuple question and
+    // nothing else.
+    nested := typeof(ValueTuple<int, ValueTuple<int, int>>)
+    assert ColumnarTypeOfPlanner.IsSupportedElementType(nested)
+
+    // The OPEN definition is not a tuple value, and neither is arity one -- `(T)` is not tuple syntax.
+    assert !ColumnarTypeOfPlanner.IsSupportedElementType(tuple.GetGenericTypeDefinition())
+    assert !ColumnarTypeOfPlanner.IsSupportedElementType(typeof(ValueTuple<int>))
+
+    // AND THIS IS NOT A BLANKET ADMISSION OF CONSTRUCTED EXTERNAL VALUE-TYPE GENERICS: the documented
+    // limit on `Vector<int>[]` is unchanged, which is what keeps the rule "a tuple" rather than "a
+    // struct that happens to be generic".
+    assert !ColumnarTypeOfPlanner.IsSupportedElementType(typeof(System.Numerics.Vector<int>))
+}
+
 test "catalog reference element admission keeps unsupported runtime shapes out" {
     dictionary := CatalogReferenceArrayDictionaryType()
     openDictionary := dictionary.GetGenericTypeDefinition()

@@ -190,10 +190,20 @@ class AnalyzerTypeSubstitution {
     // records the reference and finds the open definition — and only the arguments are rewritten, so
     // the result keeps the head's nominal identity while its arguments carry the binding.
     func ResolveGenericTypeWithSubstitution(generic: GenericTypeReference, substitution: Dictionary<string, TypeInfo>): TypeInfo {
-        resolved := typeResolverValue.ResolveType(generic) as GenericTypeInfo
+        plain := typeResolverValue.ResolveType(generic)
+        resolved := plain as GenericTypeInfo
         genericDefinition: TypeInfo? = null
         if resolved != null {
             genericDefinition = resolved.GenericDefinition
+        } else if plain as TupleTypeInfo != null {
+            // THE PLAIN WALK ANSWERED A TUPLE, WHICH IS NOT A GENERIC HEAD. `ValueTuple<string, int>`
+            // IS the tuple `(string, int)` -- the normalisation `ValueTupleTypeFacts` describes runs
+            // at resolution, so the head is gone by the time the answer comes back. Asking the head
+            // for its own definition is what lets the rebuild below normalise too; without it a
+            // parameter or return written `ValueTuple<...>` came back as the SECOND representation of
+            // that one CLR type this compiler deliberately does not have, and a call passing the
+            // tuple spelling reported NL202 with the two halves printed as if they disagreed.
+            genericDefinition = typeResolverValue.ResolveGenericHead(generic)
         }
 
         typeArguments := new List<TypeInfo>()
@@ -201,6 +211,12 @@ class AnalyzerTypeSubstitution {
         while index < generic.TypeArguments.Count {
             typeArguments.Add(ResolveTypeWithSubstitution(generic.TypeArguments[index], substitution))
             index = index + 1
+        }
+
+        // The rebuild goes through the SAME normalisation the plain walk applied.
+        normalizedTuple: TypeInfo = BuiltInTypes.Unknown
+        if ValueTupleTypeFacts.TryNormalizeConstructed(genericDefinition, typeArguments, out normalizedTuple) {
+            return normalizedTuple
         }
 
         return new GenericTypeInfo(generic.Name, typeArguments, genericDefinition)

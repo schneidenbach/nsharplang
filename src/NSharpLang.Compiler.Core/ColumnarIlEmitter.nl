@@ -41,6 +41,14 @@ sealed class ColumnarIlEmitter {
     // there, so this is the map an INDEX READ or a member hop walks. Both maps are seeded from the
     // same source at every site, so they cannot disagree about a name.
     private readonly _labeledTypeByVariable: Dictionary<string, string>
+    // THE LABELLED WRITTEN TYPE A BINDING'S VALUE CAME OUT OF, for a binding whose OWN type declares
+    // no names. `vals := groups.Values` binds a `ValueCollection<...>` -- a shape no annotation ever
+    // named -- yet the tuples inside it still came out of the dictionary's written type, so a read
+    // through `vals` must reach the answer the unbroken chain `groups.Values.First().Ranges` reaches.
+    // A LOCAL BINDING IS THEREFORE WALKED THROUGH exactly as an undeclared property hop is: storing a
+    // value in a local is not a place names can be lost. `_labeledTypeByVariable` answers what a
+    // binding IS; this answers where it CAME FROM, and only one of the two is ever set for a name.
+    private readonly _labeledContextByVariable: Dictionary<string, string>
     // THE NAMES FLOW HAS PROVED PRESENT AT THIS POINT IN THE BODY — the emit-side half of the
     // analyzer's narrowing, and the only thing that lets a `Nullable<T>` binding be READ as its `T`.
     // The analyzer rewrites the SYMBOL's type when a guard clause proves a name non-null, so from
@@ -271,6 +279,7 @@ sealed class ColumnarIlEmitter {
         _nullConditionalReceivers = null
         _tupleNamesByVariable = new Dictionary<string, string[]>(StringComparer.Ordinal)
         _labeledTypeByVariable = new Dictionary<string, string>(StringComparer.Ordinal)
+        _labeledContextByVariable = new Dictionary<string, string>(StringComparer.Ordinal)
         _narrowedNonNull = new HashSet<string>(StringComparer.Ordinal)
         _preserveNullableNode = -1
         _neverReturningCallStatements = new HashSet<int>()
@@ -6732,6 +6741,17 @@ sealed class ColumnarIlEmitter {
             inferredLabeled := LabeledTypeOfExpressionNode(Child(idx, 0))
             if (inferredLabeled != null) {
                 _labeledTypeByVariable[name] = inferredLabeled
+                _labeledContextByVariable.Remove(name)
+            } else {
+                // NOTHING WRITTEN NAMES THIS LOCAL'S OWN TYPE, but the value still came out of a
+                // receiver that names things one level in. Remember that receiver's written type, so a
+                // later read through this local searches the same spelling an unbroken chain would.
+                inferredContext := NearestLabeledContext(Child(idx, 0))
+                if (inferredContext != null) {
+                    _labeledContextByVariable[name] = inferredContext
+                } else {
+                    _labeledContextByVariable.Remove(name)
+                }
             }
             return true
         } else if columnarSwitchValue0 == 40 {
@@ -6843,6 +6863,7 @@ sealed class ColumnarIlEmitter {
             // The ANNOTATION is the declared type, so its labelled spelling is what every later read
             // through this local -- `pair.Item`, `rows[0].Item` -- resolves names against.
             _labeledTypeByVariable[declaredName] = declaredLabeledCanonical
+            _labeledContextByVariable.Remove(declaredName)
             if (declaredTupleNames != null) {
                 _tupleNamesByVariable[declaredName] = declaredTupleNames
             } else {
@@ -16031,10 +16052,67 @@ sealed class ColumnarIlEmitter {
             return null
         }
         returnLabeled: string? = null
-        if (_siblingReturnLabeledCanonicals.TryGetValue(calleeName, out returnLabeled)) {
-            return returnLabeled
+        if (!_siblingReturnLabeledCanonicals.TryGetValue(calleeName, out returnLabeled)) {
+            return null
         }
-        return null
+        // A RETURN WRITTEN AS A TYPE PARAMETER DECLARES NOTHING. `func Echo<T>(value: T): T` writes
+        // the canonical `T`, which names no element of anything; the answer for such a call is the
+        // argument inference picked it from, which `SiblingInferredReturnLabeled` supplies.
+        let definition: ColumnarSiblingMethodDefinition? = null
+        if (_siblings.TryGetValue(calleeName, out definition) && definition != null && definition.ReturnType != null && definition.ReturnType.get_IsGenericParameter()) {
+            return null
+        }
+        return returnLabeled
+    }
+
+    // A GENERIC SIBLING'S RETURN IS THE ARGUMENT IT WAS INFERRED FROM. `Echo(row)` declared as
+    // `func Echo<T>(value: T): T` answers the tuple `row` is, NAMES AND ALL, because a tuple type
+    // includes its element names and inference gives `T` the argument's own type -- the same answer
+    // C# reaches. The rule is STRUCTURAL and reads nothing but the signature's own live handles: the
+    // written return IS one of the method's own type parameters, and exactly ONE parameter position is
+    // declared with that same parameter. Two positions declared with it cannot say which argument the
+    // result came from, so the call says nothing and the read stays positional.
+    private func SiblingInferredReturnLabeled(callNode: int, callee: int): string? {
+        if (_nodes.Kind(callee) != 6 || _nodes.ValueStart(callee) < 0) {
+            return null
+        }
+        calleeName := ColumnarNodeTextFacts.Text(_nodes, _source, callee)
+        if (_locals.ContainsKey(calleeName) || _paramOrdinals.ContainsKey(calleeName)) {
+            return null
+        }
+        let definition: ColumnarSiblingMethodDefinition? = null
+        if (!_siblings.TryGetValue(calleeName, out definition) || definition == null) {
+            return null
+        }
+        returnType := definition.ReturnType
+        typeParams := definition.TypeParams
+        paramTypes := definition.ParamTypes
+        if (returnType == null || typeParams == null || paramTypes == null || !returnType.get_IsGenericParameter()) {
+            return null
+        }
+        ownsReturn := false
+        for typeParam in typeParams {
+            if (Object.ReferenceEquals(typeParam, returnType)) {
+                ownsReturn = true
+            }
+        }
+        if (!ownsReturn || _nodes.ChildCount(callNode) != paramTypes.Length + 1) {
+            return null
+        }
+        inferredFrom := -1
+        for i := 0; i < paramTypes.Length; i++ {
+            if (!Object.ReferenceEquals(paramTypes[i], returnType)) {
+                continue
+            }
+            if (inferredFrom >= 0) {
+                return null
+            }
+            inferredFrom = i
+        }
+        if (inferredFrom < 0) {
+            return null
+        }
+        return LabeledTypeOfExpressionNode(Child(callNode, inferredFrom + 1))
     }
 
     // THE LABELLED CANONICAL OF AN EXPRESSION'S DECLARED TYPE -- its written spelling, tuple element
@@ -16100,6 +16178,9 @@ sealed class ColumnarIlEmitter {
         }
         contextLabeled := DirectLabeledTypeOfExpressionNode(collectionNode)
         if (contextLabeled == null) {
+            contextLabeled = LabeledContextOfBindingNode(collectionNode)
+        }
+        if (contextLabeled == null) {
             contextLabeled = NearestLabeledContext(collectionNode)
         }
         if (contextLabeled == null) {
@@ -16128,7 +16209,29 @@ sealed class ColumnarIlEmitter {
             return receiverDirect
         }
 
+        receiverContext := LabeledContextOfBindingNode(receiver)
+        if (receiverContext != null) {
+            return receiverContext
+        }
+
         return NearestLabeledContext(receiver)
+    }
+
+    // WHERE A BINDING'S VALUE CAME FROM, when the binding's own type declares nothing. This is the
+    // link that keeps `vals := groups.Values` from ending the walk: an identifier is a dead end for
+    // `ReceiverOfExpressionNode`, so without it the chain `vals.First()` had nothing left to search
+    // and the read stayed positional even though the very same chain written in one expression
+    // answered. Returns null for every binding that answers for itself.
+    private func LabeledContextOfBindingNode(node: int): string? {
+        unwrapped := UnwrapParenthesizedNode(node)
+        if (_nodes.Kind(unwrapped) != 6 || _nodes.ValueStart(unwrapped) < 0) {
+            return null
+        }
+        context: string? = null
+        if (_labeledContextByVariable.TryGetValue(ColumnarNodeTextFacts.Text(_nodes, _source, unwrapped), out context)) {
+            return context
+        }
+        return null
     }
 
     // The WRITTEN element type an index read answers, taken from the receiver's written type. WHICH
@@ -16140,17 +16243,23 @@ sealed class ColumnarIlEmitter {
         if (receiverNode < 0) {
             return false
         }
-        let receiverType: System.Type? = null
-        if (!TryGetDeclaredBindingType(receiverNode, out receiverType) || receiverType == null) {
-            return false
-        }
-        if (ColumnarTypeEquivalenceFacts.IsSafeSzArrayType(receiverType)) {
-            arrayElement := ColumnarTupleElementNames.ArrayElementText(receiverLabeled)
-            if (arrayElement == null) {
-                return false
-            }
+        // AN ARRAY SPELLS ITS OWN ELEMENT TYPE, so its written form answers with no CLR type in hand.
+        arrayElement := ColumnarTupleElementNames.ArrayElementText(receiverLabeled)
+        if (arrayElement != null) {
             elementLabeled = arrayElement
             return true
+        }
+        let receiverType: System.Type? = null
+        if (!TryGetDeclaredBindingType(receiverNode, out receiverType) || receiverType == null) {
+            // THE RECEIVER IS NOT A BINDING, BUT IT STILL DECLARED A TYPE. `holder.Pairs[k]` reads out
+            // of a FIELD of one of this compilation's own types, and preflight cannot type that member
+            // access before the receiver is emitted -- which is the very reason this arm exists. The
+            // written type already in hand is the answer, so it is resolved from its own canonical
+            // instead. Without this the same index read compiled through a local copy of the field and
+            // declined when written in one expression.
+            if (!TryResolveBodyType(ColumnarTupleElementNames.StripAllElementNames(receiverLabeled), out receiverType) || receiverType == null) {
+                return false
+            }
         }
         if (!receiverType.get_IsGenericType()) {
             return false
@@ -16242,6 +16351,10 @@ sealed class ColumnarIlEmitter {
             siblingLabeled := SiblingReturnLabeledCanonical(callee)
             if (siblingLabeled != null) {
                 return siblingLabeled
+            }
+            inferredSiblingLabeled := SiblingInferredReturnLabeled(node, callee)
+            if (inferredSiblingLabeled != null) {
+                return inferredSiblingLabeled
             }
             if (_nodes.Kind(callee) == 8 && _nodes.ChildCount(callee) >= 1) {
                 return DeclaredMethodCallLabeledCanonical(node, callee)
@@ -19143,6 +19256,29 @@ sealed class ColumnarIlEmitter {
         if (member == "Length" && TryGetPreflightExpressionType(receiver, out lengthReceiverType) && (ColumnarTypeEquivalenceFacts.IsSafeSzArrayType(lengthReceiverType) || lengthReceiverType == typeof(string) || lengthReceiverType == typeof(System.Text.StringBuilder) || ColumnarTypeOfPlanner.IsSupportedSpanLikeType(lengthReceiverType))) {
             columnarResolvedType = typeof(int)
             return true
+        }
+
+        // AN INSTANCE FIELD OR PROPERTY OF ONE OF THIS COMPILATION'S OWN TYPES. The emitted read
+        // already resolves through this same chain walk, but preflight -- which must answer BEFORE
+        // anything is emitted -- had no arm for it at all. Every chain rooted at `holder.Pairs` was
+        // therefore untypable, so `holder.Pairs.Values.First()` could not be typed and the element
+        // names the field's written type declared could not be reached through it, while the same
+        // chain rooted at a LOCAL copy of that field answered.
+        let sourceReceiverType: System.Type? = null
+        if (TryGetPreflightExpressionType(receiver, out sourceReceiverType) && sourceReceiverType != null) {
+            sourceOwner := ColumnarSourceDefinitionResolver.FindByBuilderIdentity(_structRegistry.get_Values(), sourceReceiverType)
+            if (sourceOwner != null) {
+                let sourceField: System.Reflection.Emit.FieldBuilder? = null
+                if (ColumnarSourceMemberChainResolver.TryFindFieldOnChain(sourceOwner, member, out sourceField)) {
+                    columnarResolvedType = sourceField.get_FieldType()
+                    return true
+                }
+                let sourceProperty: NSharpLang.Compiler.Columnar.ColumnarPropertyDef? = null
+                if (TryFindPropertyOnChain(sourceOwner, member, out sourceProperty)) {
+                    columnarResolvedType = sourceProperty.PropertyType
+                    return true
+                }
+            }
         }
 
         let dottedReceiverName: string? = null

@@ -1612,9 +1612,9 @@ Two rules the compiler enforces about the type-argument list itself:
 ### Current limits
 
 - An **array of a constructed external value-type generic** (`Vector<int>[]`) does not emit yet.
-  Arrays of your own types, of reference types and of the primitive types are unaffected. The same
-  limit applies to an array of an external generic closed over your own type parameter
-  (`List<T>[]`); `T[]` itself is unaffected.
+  Arrays of your own types, of reference types, of the primitive types and of **tuples**
+  (`(Item: string, Count: int)[]`) are unaffected. The same limit applies to an array of an external
+  generic closed over your own type parameter (`List<T>[]`); `T[]` itself is unaffected.
 - **Implementing `IEnumerable<T>` on your own class** compiles, but the emitted type cannot be
   loaded: `IEnumerable<T>` inherits the non-generic `IEnumerable.GetEnumerator()`, which differs from
   the generic one only by return type, and N# has no explicit interface implementation to spell it.

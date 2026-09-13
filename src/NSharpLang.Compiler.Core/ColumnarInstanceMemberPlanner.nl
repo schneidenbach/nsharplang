@@ -896,9 +896,9 @@ class ColumnarInstanceMemberPlanner {
     // exist -- a `ValueTuple` erases them -- and two receiver shapes answer:
     //
     //   * a BINDING that is itself a named tuple, from its own element names; and
-    //   * an INDEX READ, whose element names sit one level inside the indexed binding's written type
-    //     (`rows: List<(Item: string, Count: int)>`), taken through the same labelled canonical the IL
-    //     emitter walks.
+    //   * a VALUE READ OUT OF A WRITTEN TYPE, whose element names sit one level inside the written
+    //     type of whatever it came out of (`rows: List<(Item: string, Count: int)>`), taken through
+    //     the same labelled canonical the IL emitter walks.
     //
     // The second shape matters because THIS planner claims the member access before the emitter's own
     // arm sees it: without the rewrite here, `rows[0].Item` was claimed, failed to select a member and
@@ -912,13 +912,17 @@ class ColumnarInstanceMemberPlanner {
         names: string[]? = null
         if nodes.Kind(candidate) == ColumnarExpressionNodeKind.IdentifierExpression() && nodes.ChildCount(candidate) == 0 {
             receiverName := nodes.Text(source, candidate)
-            if !bindings.TupleNames.ContainsKey(receiverName) {
-                return memberName
+            if bindings.TupleNames.ContainsKey(receiverName) {
+                names = bindings.TupleNames[receiverName]
             }
+        }
 
-            names = bindings.TupleNames[receiverName]
-        } else {
-            names = IndexedElementNames(nodes, source, candidate, bindings)
+        if names == null {
+            receiverLabeled := ""
+            receiverWrittenType := typeof(int)
+            if TryReceiverWrittenType(nodes, source, candidate, bindings, out receiverLabeled, out receiverWrittenType) {
+                names = ColumnarTupleElementNames.TopLevelNames(receiverLabeled)
+            }
         }
 
         if names == null {
@@ -937,51 +941,158 @@ class ColumnarInstanceMemberPlanner {
         return memberName
     }
 
-    // The element names an INDEX READ answers, taken from the indexed binding's written type. WHICH
+    // THE WRITTEN TYPE OF AN EXPRESSION THIS PLANNER CAN CLAIM AS A RECEIVER -- its spelling, tuple
+    // element labels and all -- TOGETHER WITH the CLR type that spelling names. The two facts are
+    // answered by ONE walk because each link needs both: the label to carry, and the type that says
+    // which position the next link reads. Three shapes answer, and a name is never lost by moving a
+    // value between them:
+    //
+    //   * a BINDING answers from its own annotation (`bindings.LabeledTypes`);
+    //   * a FIELD or PROPERTY of one of this compilation's own types answers from its written member
+    //     type, so `holder.Pairs` is as good a starting point as a local that copied it; and
+    //   * an INDEX READ answers the element its receiver's own generic DEFINITION says its indexer
+    //     returns -- so there is no table of collection names, and a user generic answers the way
+    //     `List<T>` and `Dictionary<K, V>` do. An array answers its element type.
+    //
+    // The walk is recursive on the receiver, which is what makes `holder.Pairs["k"].Ranges` read the
+    // same as `pairs["k"].Ranges`: the field hop is a link in the chain, not a dead end. A CLR type is
+    // never asked of the ordinary receiver resolver for a non-binding link, because that resolver
+    // cannot type a member access before the receiver is emitted -- the written type already in hand
+    // is the more direct answer.
+    static func TryReceiverWrittenType(nodes: ColumnarNodeTable, source: string, node: int, bindings: ColumnarFragmentBindings, out labeled: string, out writtenType: Type): bool {
+        labeled = ""
+        writtenType = typeof(int)
+        candidate := UnwrapParentheses(nodes, node)
+        if candidate < 0 {
+            return false
+        }
+
+        candidateKind := nodes.Kind(candidate)
+        if candidateKind == ColumnarExpressionNodeKind.IdentifierExpression() && nodes.ChildCount(candidate) == 0 {
+            bindingName := nodes.Text(source, candidate)
+            if !bindings.LabeledTypes.ContainsKey(bindingName) {
+                return false
+            }
+
+            bindingType := typeof(int)
+            _bindingDirect := false
+            _bindingByRef := false
+            if !ColumnarBoundIdentifierPlanner.TryGetReceiverType(nodes, source, candidate, bindings, out bindingType, out _bindingDirect, out _bindingByRef) {
+                return false
+            }
+
+            labeled = bindings.LabeledTypes[bindingName]
+            writtenType = bindingType
+            return true
+        }
+
+        if candidateKind == ColumnarExpressionNodeKind.MemberAccessExpression() && nodes.ChildCount(candidate) >= 1 {
+            return TrySourceMemberWrittenType(nodes, source, candidate, bindings, out labeled, out writtenType)
+        }
+
+        if candidateKind == ColumnarExpressionNodeKind.IndexAccessExpression() && nodes.ChildCount(candidate) >= 1 {
+            return TryIndexedElementWrittenType(nodes, source, candidate, bindings, out labeled, out writtenType)
+        }
+
+        return false
+    }
+
+    // The written member type of a FIELD or PROPERTY declared by one of this compilation's own types.
+    // An external member declares nothing this compilation can read labels off, so it answers false
+    // and the read stays positional.
+    static func TrySourceMemberWrittenType(nodes: ColumnarNodeTable, source: string, memberNode: int, bindings: ColumnarFragmentBindings, out labeled: string, out writtenType: Type): bool {
+        labeled = ""
+        writtenType = typeof(int)
+        memberName := nodes.Text(source, memberNode)
+        if memberName == "" {
+            return false
+        }
+
+        memberReceiver := UnwrapParentheses(nodes, nodes.Child(memberNode, 0))
+        if memberReceiver < 0 {
+            return false
+        }
+
+        receiverType := typeof(int)
+        _memberDirect := false
+        _memberByRef := false
+        receiverLabeled := ""
+        if !ColumnarBoundIdentifierPlanner.TryGetReceiverType(nodes, source, memberReceiver, bindings, out receiverType, out _memberDirect, out _memberByRef) && !TryReceiverWrittenType(nodes, source, memberReceiver, bindings, out receiverLabeled, out receiverType) {
+            return false
+        }
+
+        owner := ColumnarSourceDefinitionResolver.FindByBuilderIdentity(bindings.SourceTypeDefinitions, receiverType)
+        memberLabeled := ""
+        while owner != null {
+            if owner.MemberLabeledCanonicals.ContainsKey(memberName) {
+                memberLabeled = owner.MemberLabeledCanonicals[memberName]
+                owner = null
+            } else {
+                owner = owner.BaseDef
+            }
+        }
+
+        if memberLabeled == "" {
+            return false
+        }
+
+        selection := EmptySelection()
+        if !TrySelect(receiverType, memberName, bindings, out selection) || selection.ResultType == null {
+            return false
+        }
+
+        labeled = memberLabeled
+        writtenType = selection.ResultType
+        return true
+    }
+
+    // The written element type an INDEX READ answers, taken from its receiver's written type. WHICH
     // type argument the indexer answers comes from the receiver's own generic DEFINITION, so there is
     // no table of collection names; an array answers its element type.
-    static func IndexedElementNames(nodes: ColumnarNodeTable, source: string, indexNode: int, bindings: ColumnarFragmentBindings): string[]? {
-        if nodes.Kind(indexNode) != ColumnarExpressionNodeKind.IndexAccessExpression() || nodes.ChildCount(indexNode) < 1 {
-            return null
+    static func TryIndexedElementWrittenType(nodes: ColumnarNodeTable, source: string, indexNode: int, bindings: ColumnarFragmentBindings, out labeled: string, out writtenType: Type): bool {
+        labeled = ""
+        writtenType = typeof(int)
+        indexedReceiver := UnwrapParentheses(nodes, nodes.Child(indexNode, 0))
+        if indexedReceiver < 0 {
+            return false
         }
 
-        indexedBinding := UnwrapParentheses(nodes, nodes.Child(indexNode, 0))
-        if indexedBinding < 0 || nodes.Kind(indexedBinding) != ColumnarExpressionNodeKind.IdentifierExpression() {
-            return null
+        receiverLabeled := ""
+        receiverType := typeof(int)
+        if !TryReceiverWrittenType(nodes, source, indexedReceiver, bindings, out receiverLabeled, out receiverType) {
+            return false
         }
 
-        bindingName := nodes.Text(source, indexedBinding)
-        if !bindings.LabeledTypes.ContainsKey(bindingName) {
-            return null
+        if ColumnarTypeEquivalenceFacts.IsSafeSzArrayType(receiverType) {
+            arrayElement := ColumnarTupleElementNames.ArrayElementText(receiverLabeled)
+            arrayElementType := receiverType.GetElementType()
+            if arrayElement == null || arrayElementType == null {
+                return false
+            }
+
+            labeled = arrayElement
+            writtenType = arrayElementType
+            return true
         }
 
-        labeled := bindings.LabeledTypes[bindingName]
-        bindingType := typeof(int)
-        _indexedDirect := false
-        _indexedByRef := false
-        if !ColumnarBoundIdentifierPlanner.TryGetReceiverType(nodes, source, indexedBinding, bindings, out bindingType, out _indexedDirect, out _indexedByRef) {
-            return null
+        if !receiverType.get_IsGenericType() {
+            return false
         }
 
-        if ColumnarTypeEquivalenceFacts.IsSafeSzArrayType(bindingType) {
-            return ColumnarTupleElementNames.TopLevelNames(ColumnarTupleElementNames.ArrayElementText(labeled))
-        }
-
-        if !bindingType.get_IsGenericType() {
-            return null
-        }
-
-        position := IndexerResultArgumentPosition(bindingType.GetGenericTypeDefinition())
+        position := IndexerResultArgumentPosition(receiverType.GetGenericTypeDefinition())
         if position < 0 {
-            return null
+            return false
         }
 
-        arguments := ColumnarTupleElementNames.TopLevelGenericArguments(labeled)
-        if arguments == null || position >= arguments.Count {
-            return null
+        arguments := ColumnarTupleElementNames.TopLevelGenericArguments(receiverLabeled)
+        runtimeArguments := receiverType.GetGenericArguments()
+        if arguments == null || position >= arguments.Count || position >= runtimeArguments.Length {
+            return false
         }
 
-        return ColumnarTupleElementNames.TopLevelNames(arguments[position])
+        labeled = arguments[position]
+        writtenType = runtimeArguments[position]
+        return true
     }
 
     // Which of a generic type DEFINITION's type-argument positions its indexer answers, or -1.
