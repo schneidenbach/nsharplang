@@ -1673,7 +1673,7 @@ class ColumnarDirectCallPlanner {
     }
 
     static func AppendArguments(nodes: ColumnarNodeTable, source: string, callNode: int, bindings: ColumnarFragmentBindings, handles: ColumnarRangeIndexHandles, plan: ColumnarCodePlan, parentFragment: int, depth: int, allowPrimitiveBinary: bool, inferredTypes: Type[], parameterTypes: Type[], argumentFacts: ColumnarDirectCallArgumentFacts): bool {
-        if inferredTypes.Length != parameterTypes.Length || nodes.ChildCount(callNode) - 1 != parameterTypes.Length || argumentFacts == null || argumentFacts.IsUnsuffixedIntegerLiteral.Length != parameterTypes.Length || argumentFacts.IsNegativeIntegerLiteral.Length != parameterTypes.Length || argumentFacts.IntegerLiteralValues.Length != parameterTypes.Length || argumentFacts.IsNullLiteral.Length != parameterTypes.Length {
+        if inferredTypes.Length != parameterTypes.Length || nodes.ChildCount(callNode) - 1 != parameterTypes.Length || argumentFacts == null || argumentFacts.IsUnsuffixedIntegerLiteral.Length != parameterTypes.Length || argumentFacts.IsNegativeIntegerLiteral.Length != parameterTypes.Length || argumentFacts.IntegerLiteralValues.Length != parameterTypes.Length || argumentFacts.IsNullLiteral.Length != parameterTypes.Length || argumentFacts.IsIntegerConstantArrayLiteral.Length != parameterTypes.Length || argumentFacts.ArrayLiteralMinimumValues.Length != parameterTypes.Length || argumentFacts.ArrayLiteralMaximumValues.Length != parameterTypes.Length {
             return false
         }
 
@@ -1730,6 +1730,19 @@ class ColumnarDirectCallPlanner {
                     index += 1
                     continue
                 }
+            }
+
+            // AN ARRAY LITERAL WRITTEN AT AN ARRAY PARAMETER TAKES THAT PARAMETER'S ELEMENT TYPE, which
+            // is what the score one owner over already admitted it on. `[0]` infers `int[]` and is not
+            // an `int[]` the call converts — it is a `byte[]` the call WRITES — so it is planned
+            // against the declared parameter rather than inferred and then converted.
+            if argumentFacts.IsIntegerConstantArrayLiteral[index] && ColumnarSourceDirectCallResolver.CanAdoptIntegerConstantArrayLiteral(parameterTypes[index], argumentFacts.ArrayLiteralMinimumValues[index], argumentFacts.ArrayLiteralMaximumValues[index]) {
+                if !ColumnarConstructionPlanner.TryAppendTargetTypedArray(nodes, source, argumentNode, bindings, handles, plan, parentFragment, depth + 1, parameterTypes[index]) {
+                    return false
+                }
+
+                index += 1
+                continue
             }
 
             actualType := typeof(int)
@@ -1967,6 +1980,14 @@ class ColumnarDirectCallPlanner {
                 argumentFacts.IntegerLiteralValues[index] = literalValue
             }
 
+            minimumElement := 0L
+            maximumElement := 0L
+            if TryGetIntegerConstantArrayLiteralRange(nodes, source, argumentNode, out minimumElement, out maximumElement) {
+                argumentFacts.IsIntegerConstantArrayLiteral[index] = true
+                argumentFacts.ArrayLiteralMinimumValues[index] = minimumElement
+                argumentFacts.ArrayLiteralMaximumValues[index] = maximumElement
+            }
+
             index += 1
         }
 
@@ -2018,6 +2039,48 @@ class ColumnarDirectCallPlanner {
         }
 
         value = isNegative ? -(long)magnitude : (long)magnitude
+        return true
+    }
+
+    // THE WIDEST CONSTANTS AN ARRAY LITERAL WROTE, IN EACH DIRECTION, or false when the argument is not
+    // an array literal of integer constants at all.
+    //
+    // The literal's ELEMENTS are what decide whether it fits a `byte[]` parameter, and the resolver that
+    // asks is deliberately node-free — so the two endpoints travel with the argument facts instead. An
+    // EMPTY literal answers false: it has no constant to carry, so its ordinary inferred type is the
+    // whole answer, and claiming otherwise would make `[]` adopt every array parameter in the set at once.
+    static func TryGetIntegerConstantArrayLiteralRange(nodes: ColumnarNodeTable, source: string, argumentNode: int, out minimumValue: long, out maximumValue: long): bool {
+        minimumValue = 0L
+        maximumValue = 0L
+        literal := UnwrapParentheses(nodes, argumentNode)
+        if literal < 0 || nodes.Kind(literal) != ColumnarExpressionNodeKind.ArrayLiteralExpression() {
+            return false
+        }
+
+        elementCount := nodes.ChildCount(literal)
+        if elementCount == 0 {
+            return false
+        }
+
+        elementIndex := 0
+        while elementIndex < elementCount {
+            elementValue := 0L
+            elementNegative := false
+            if !TryGetTargetTypedIntegerArgumentValue(nodes, source, nodes.Child(literal, elementIndex), out elementValue, out elementNegative) {
+                return false
+            }
+
+            if elementIndex == 0 || elementValue < minimumValue {
+                minimumValue = elementValue
+            }
+
+            if elementIndex == 0 || elementValue > maximumValue {
+                maximumValue = elementValue
+            }
+
+            elementIndex += 1
+        }
+
         return true
     }
 

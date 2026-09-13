@@ -50,6 +50,17 @@ class ColumnarDirectCallArgumentFacts {
     // ELEMENT type (the storage's own type), because that is what the parameter's element type is
     // compared against.
     IsByRefArgument: bool[]
+
+    // AN ARRAY LITERAL WHOSE ELEMENTS ARE ALL UNSUFFIXED INTEGER CONSTANTS, and the widest constant it
+    // wrote in each direction. `[0]` has the provisional type `int[]` and no element of its own that a
+    // TYPE-to-TYPE score can look at, so `sha.TransformBlock([0], 0, 1, null, 0)` scored -1 against
+    // `byte[]` and the only overload there is was rejected. The ENDPOINTS are the whole test because
+    // every integral target is an interval: a literal converts at every element exactly when its
+    // largest and smallest constants both convert, which is the same §10.2.11 question the scalar facts
+    // beside these already ask, asked once per direction instead of once per element.
+    IsIntegerConstantArrayLiteral: bool[]
+    ArrayLiteralMinimumValues: long[]
+    ArrayLiteralMaximumValues: long[]
     SourceTypeDefinitions: IEnumerable<ColumnarStructDef>
 
     constructor(isUnsuffixedIntegerLiteral: bool[], isNegativeIntegerLiteral: bool[], integerLiteralValues: long[]) {
@@ -62,6 +73,9 @@ class ColumnarDirectCallArgumentFacts {
         IntegerLiteralValues = integerLiteralValues
         IsNullLiteral = new bool[](isUnsuffixedIntegerLiteral.Length)
         IsByRefArgument = new bool[](isUnsuffixedIntegerLiteral.Length)
+        IsIntegerConstantArrayLiteral = new bool[](isUnsuffixedIntegerLiteral.Length)
+        ArrayLiteralMinimumValues = new long[](isUnsuffixedIntegerLiteral.Length)
+        ArrayLiteralMaximumValues = new long[](isUnsuffixedIntegerLiteral.Length)
         SourceTypeDefinitions = new List<ColumnarStructDef>()
     }
 
@@ -1082,6 +1096,15 @@ class ColumnarSourceDirectCallResolver {
                 argumentScore = 2
             }
 
+            // AN ARRAY LITERAL ADOPTS THE PARAMETER'S ELEMENT TYPE, exactly as a scalar literal adopts
+            // the parameter's own. `[0]` is provisionally `int[]` and scores nothing against `byte[]`,
+            // which is what rejected `sha.TransformBlock([0], 0, 1, null, 0)` against the only
+            // `TransformBlock` there is. It ranks with constant adoption (2) and for the same reason:
+            // the raw `int[]` identity must still win for a parameter that takes one.
+            if argumentScore < 0 && argumentFacts.IsIntegerConstantArrayLiteral[index] && CanAdoptIntegerConstantArrayLiteral(expected[index], argumentFacts.ArrayLiteralMinimumValues[index], argumentFacts.ArrayLiteralMaximumValues[index]) {
+                argumentScore = 2
+            }
+
             if argumentScore < 0 {
                 return -1
             }
@@ -1091,6 +1114,24 @@ class ColumnarSourceDirectCallResolver {
         }
 
         return score
+    }
+
+    // WHETHER EVERY CONSTANT AN ARRAY LITERAL WROTE FITS THIS PARAMETER'S ELEMENT TYPE.
+    //
+    // Only the two extremes are asked, because every integral target is an interval: a value between
+    // two that both fit also fits. A multidimensional or by-ref array is not an adoption target — the
+    // literal emits as a vector — and a parameter that is not an array at all answers false.
+    static func CanAdoptIntegerConstantArrayLiteral(targetType: Type, minimumValue: long, maximumValue: long): bool {
+        if targetType == null || targetType.get_IsByRef() || !ColumnarTypeEquivalenceFacts.IsSafeSzArrayType(targetType) {
+            return false
+        }
+
+        elementType := targetType.GetElementType()
+        if elementType == null {
+            return false
+        }
+
+        return CanAdoptIntegerLiteralArgument(elementType, minimumValue, minimumValue < 0) && CanAdoptIntegerLiteralArgument(elementType, maximumValue, maximumValue < 0)
     }
 
     static func CanAdoptIntegerLiteralArgument(targetType: Type, value: long, negative: bool): bool {
@@ -1109,7 +1150,7 @@ class ColumnarSourceDirectCallResolver {
     }
 
     static func ValidateArgumentFacts(argumentTypes: Type[], argumentFacts: ColumnarDirectCallArgumentFacts) {
-        if argumentTypes == null || argumentFacts == null || argumentFacts.IsUnsuffixedIntegerLiteral == null || argumentFacts.IsNegativeIntegerLiteral == null || argumentFacts.IntegerLiteralValues == null || argumentFacts.IsNullLiteral == null || argumentFacts.IsByRefArgument == null || argumentFacts.SourceTypeDefinitions == null || argumentFacts.IsUnsuffixedIntegerLiteral.Length != argumentTypes.Length || argumentFacts.IsNegativeIntegerLiteral.Length != argumentTypes.Length || argumentFacts.IntegerLiteralValues.Length != argumentTypes.Length || argumentFacts.IsNullLiteral.Length != argumentTypes.Length || argumentFacts.IsByRefArgument.Length != argumentTypes.Length {
+        if argumentTypes == null || argumentFacts == null || argumentFacts.IsUnsuffixedIntegerLiteral == null || argumentFacts.IsNegativeIntegerLiteral == null || argumentFacts.IntegerLiteralValues == null || argumentFacts.IsNullLiteral == null || argumentFacts.IsByRefArgument == null || argumentFacts.IsIntegerConstantArrayLiteral == null || argumentFacts.ArrayLiteralMinimumValues == null || argumentFacts.ArrayLiteralMaximumValues == null || argumentFacts.SourceTypeDefinitions == null || argumentFacts.IsUnsuffixedIntegerLiteral.Length != argumentTypes.Length || argumentFacts.IsNegativeIntegerLiteral.Length != argumentTypes.Length || argumentFacts.IntegerLiteralValues.Length != argumentTypes.Length || argumentFacts.IsNullLiteral.Length != argumentTypes.Length || argumentFacts.IsByRefArgument.Length != argumentTypes.Length || argumentFacts.IsIntegerConstantArrayLiteral.Length != argumentTypes.Length || argumentFacts.ArrayLiteralMinimumValues.Length != argumentTypes.Length || argumentFacts.ArrayLiteralMaximumValues.Length != argumentTypes.Length {
             throw new InvalidOperationException("Direct-call argument syntax facts must match the argument types.")
         }
 
@@ -1133,6 +1174,16 @@ class ColumnarSourceDirectCallResolver {
 
             if argumentFacts.IsByRefArgument[index] && (argumentFacts.IsNullLiteral[index] || argumentFacts.IsUnsuffixedIntegerLiteral[index] || argumentFacts.IsNegativeIntegerLiteral[index]) {
                 throw new InvalidOperationException("A by-reference direct-call argument names storage, so it cannot also be a literal.")
+            }
+
+            if argumentFacts.IsIntegerConstantArrayLiteral[index] {
+                if argumentFacts.IsNullLiteral[index] || argumentFacts.IsUnsuffixedIntegerLiteral[index] || argumentFacts.IsByRefArgument[index] {
+                    throw new InvalidOperationException("A direct-call array literal cannot also be a scalar literal or by-reference storage.")
+                }
+
+                if argumentFacts.ArrayLiteralMinimumValues[index] > argumentFacts.ArrayLiteralMaximumValues[index] {
+                    throw new InvalidOperationException("A direct-call array literal's constant range cannot be inverted.")
+                }
             }
 
             index += 1

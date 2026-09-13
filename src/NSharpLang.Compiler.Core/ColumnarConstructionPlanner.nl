@@ -576,6 +576,17 @@ class ColumnarConstructionPlanner {
         if candidate >= 0 && nodes.Kind(candidate) == ColumnarExpressionNodeKind.ArrayLiteralExpression() && ColumnarTypeEquivalenceFacts.IsSafeSzArrayType(targetType) {
             return TryAppendTargetTypedArray(nodes, source, candidate, bindings, handles, plan, fragment, depth, targetType)
         }
+        // AN INTEGER CONSTANT ADOPTS THE POSITION'S TYPE (ECMA-334 §10.2.11), which at an ELEMENT
+        // position is the only way `[0]` can ever be a `byte[]`: the literal has type `int`, `int` does
+        // not convert to `byte`, and the conversion owner below is a type-to-type question that cannot
+        // see the value. This is the same adoption a call ARGUMENT already gets one owner over, asked
+        // here so an element is not the one position where a constant is refused.
+        constantValue := 0L
+        constantNegative := false
+        if ColumnarDirectCallPlanner.TryGetTargetTypedIntegerArgumentValue(nodes, source, node, out constantValue, out constantNegative) && ColumnarSourceDirectCallResolver.CanAdoptIntegerLiteral(targetType, constantValue, constantNegative) {
+            return ColumnarDirectCallPlanner.TryAppendTargetTypedIntegerArgument(nodes, node, plan, fragment, targetType, constantValue)
+        }
+
         valueType := typeof(int)
         if !ColumnarRangeIndexPlanner.TryAppendConstructionValue(nodes, source, node, bindings, handles, plan, fragment, depth, out valueType) {
             return false

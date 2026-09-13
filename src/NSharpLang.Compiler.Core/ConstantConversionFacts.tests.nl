@@ -1,6 +1,9 @@
 namespace NSharpLang.Compiler.Columnar
 
 import System
+import System.IO
+import System.Reflection
+import System.Runtime.InteropServices
 
 
 // 023/1e — THE TWO CONSTANT CONVERSIONS, AND THE THREE CAPS THAT ARE NOT THE SPEC'S.
@@ -136,4 +139,71 @@ test "the constant operand facts read a literal, a negated literal, and nothing 
 
     // `!x` is a unary that is NOT a negation, so it is not a negated constant.
     assert !ConstantOperandFacts.FromExpression(new UnaryExpression(UnaryOperator.Not, new IntLiteralExpression("1", 1, 2), 1, 1)).HasIntegerLiteral
+}
+
+// ── §CONV/3 — THE PAIR, ASKED OF A CLR TYPE ──────────────────────────────────────────────────────
+// `AcceptsIntegerConstant` is the one question every position with a target and a literal asks: the
+// assignability owner for `b: byte = 0`, the reflection binder for `roots.TryAdd(root, 0)`. Its two
+// arms are the two rules above, and the guards are what keeps a constant out of method type
+// inference and away from a position that is written through.
+// The METHOD type parameter of an open generic declaration — the shape a reflected parameter has
+// before inference binds it.
+func ConstantFactsOpenTypeParameter(): Type {
+    definition := typeof(Nullable<int>).GetGenericTypeDefinition()
+    return definition.GetGenericArguments()[0]
+}
+
+test "both constant conversions are one question when a CLR target is in hand" {
+    // §10.2.11 — an in-range integral target.
+    assert ConstantConversionFacts.AcceptsIntegerConstant(typeof(byte), "0", false)
+    assert ConstantConversionFacts.AcceptsIntegerConstant(typeof(byte), "255", false)
+    assert !ConstantConversionFacts.AcceptsIntegerConstant(typeof(byte), "256", false)
+    assert !ConstantConversionFacts.AcceptsIntegerConstant(typeof(byte), "1", true)
+    assert ConstantConversionFacts.AcceptsIntegerConstant(typeof(short), "1", true)
+
+    // §10.2.4 — an enum takes the literal zero and nothing else.
+    assert ConstantConversionFacts.AcceptsIntegerConstant(ConstantFactsEnumType(), "0", false)
+    assert !ConstantConversionFacts.AcceptsIntegerConstant(ConstantFactsEnumType(), "7", false)
+
+    // A target the rule does not name at all.
+    assert !ConstantConversionFacts.AcceptsIntegerConstant(typeof(string), "0", false)
+    assert !ConstantConversionFacts.AcceptsIntegerConstant(typeof(int), "0", false)
+
+    // No target, no literal.
+    assert !ConstantConversionFacts.AcceptsIntegerConstant(null, "0", false)
+    assert !ConstantConversionFacts.AcceptsIntegerConstant(typeof(byte), null, false)
+
+    // AN OPEN TYPE IS REFUSED: a constant conversion drives no method type inference, so a parameter
+    // still mentioning a type parameter must be bound by the standard rules or not at all.
+    assert !ConstantConversionFacts.AcceptsIntegerConstant(ConstantFactsOpenTypeParameter(), "0", false)
+
+    // A BY-REF position names storage, and a constant is not a variable.
+    assert !ConstantConversionFacts.AcceptsIntegerConstant(typeof(byte).MakeByRefType(), "0", false)
+}
+
+// THE TARGET IS IDENTIFIED BY NAME, NOT BY INSTANCE, and that is the whole reason the reflection
+// binder can ask at all: its parameter types come from a MetadataLoadContext, so `target ==
+// typeof(byte)` — reference equality over `Type` — was false for the CLR's own `System.Byte`.
+test "a primitive target is recognised through a load context that did not produce typeof(byte)" {
+    resolver := new PathAssemblyResolver(Directory.GetFiles(RuntimeEnvironment.GetRuntimeDirectory(), "*.dll"))
+    loadContext := new MetadataLoadContext(resolver)
+    try {
+        core := loadContext.LoadFromAssemblyName("System.Runtime")
+        loadedByte := core.GetType("System.Byte")
+        assert loadedByte != null
+
+        // The two are the same type by NAME and a different instance, which is exactly the state the
+        // old `==` test could not see through.
+        assert !Object.ReferenceEquals(loadedByte, typeof(byte))
+        assert loadedByte.FullName == typeof(byte).FullName
+
+        assert ConstantConversionFacts.AcceptsIntegerConstant(loadedByte, "200", false)
+        assert !ConstantConversionFacts.AcceptsIntegerConstant(loadedByte, "256", false)
+
+        loadedLong := core.GetType("System.Int64")
+        assert loadedLong != null
+        assert ConstantConversionFacts.IsInt64ConstantTarget(loadedLong)
+    } finally {
+        loadContext.Dispose()
+    }
 }
