@@ -322,6 +322,8 @@ class ColumnarCodePlanExecutor {
         } else if operandKind == ColumnarCodePlanContract.MethodOperand() {
             if opCodeValue == ColumnarCodePlanContract.Call() {
                 il.Emit(OpCodes.Call, plan.Methods[operandIndex])
+            } else if opCodeValue == ColumnarCodePlanContract.Ldftn() {
+                il.Emit(OpCodes.Ldftn, plan.Methods[operandIndex])
             } else {
                 il.Emit(OpCodes.Callvirt, plan.Methods[operandIndex])
             }
@@ -632,6 +634,7 @@ class ColumnarCodePlanExecutor {
         // "inside a protected region" (ret is invalid there; leave is the only exit).
         regionLabelStack := new int[](n + 1)
         regionHandlerStarted := new bool[](n + 1)
+        regionTerminalHandler := new bool[](n + 1)
         regionTop := 0
         depth := 0
         i := 0
@@ -678,13 +681,23 @@ class ColumnarCodePlanExecutor {
                 }
                 regionLabelStack[regionTop] = operandIndex
                 regionHandlerStarted[regionTop] = false
+                regionTerminalHandler[regionTop] = false
                 regionTop += 1
                 depth += 1
-            } else if (operationKind == ColumnarCodePlanContract.BeginFinallyBlockOperation() || operationKind == ColumnarCodePlanContract.BeginFaultBlockOperation()) || operationKind == ColumnarCodePlanContract.BeginCatchBlockOperation() {
-                if regionTop == 0 || regionHandlerStarted[regionTop - 1] {
-                    throw new InvalidOperationException(schemaName + " finally/fault/catch handler must open exactly one enclosing try region.")
+            } else if operationKind == ColumnarCodePlanContract.BeginCatchBlockOperation() {
+                // A region may declare SEVERAL catch handlers, and a `finally` may follow them; what
+                // it may not do is declare a handler after the terminal one, because `finally`/`fault`
+                // close the region's handler list.
+                if regionTop == 0 || regionTerminalHandler[regionTop - 1] {
+                    throw new InvalidOperationException(schemaName + " a catch handler must open one enclosing try region that has no finally or fault handler yet.")
                 }
                 regionHandlerStarted[regionTop - 1] = true
+            } else if operationKind == ColumnarCodePlanContract.BeginFinallyBlockOperation() || operationKind == ColumnarCodePlanContract.BeginFaultBlockOperation() {
+                if regionTop == 0 || regionTerminalHandler[regionTop - 1] {
+                    throw new InvalidOperationException(schemaName + " a finally or fault handler must open one enclosing try region and be its last handler.")
+                }
+                regionHandlerStarted[regionTop - 1] = true
+                regionTerminalHandler[regionTop - 1] = true
             } else if operationKind == ColumnarCodePlanContract.EndExceptionBlockOperation() {
                 if regionTop == 0 || !regionHandlerStarted[regionTop - 1] {
                     throw new InvalidOperationException(schemaName + " exception region must open a handler before it ends.")
@@ -901,6 +914,10 @@ class ColumnarCodePlanExecutor {
             return 0
         }
         if operandKind == ColumnarCodePlanContract.MethodOperand() {
+            // `ldftn` names a method without calling it: it reads no argument and leaves one value.
+            if opCodeValue == ColumnarCodePlanContract.Ldftn() {
+                return 1
+            }
             return MethodBodyMethodDelta(plan, operandIndex)
         }
         if operandKind == ColumnarCodePlanContract.ConstructorOperand() {
@@ -1710,6 +1727,11 @@ class ColumnarCodePlanExecutor {
         } else if ColumnarCodePlanContract.IsLocalOpcode(opCodeValue) {
             localType := LocalType(plan, operationIndex)
             ApplyLocal(plan, operationIndex, opCodeValue, localType, state, schemaName)
+        } else if opCodeValue == ColumnarCodePlanContract.Ldftn() {
+            // The function pointer a delegate is built from. `native int` is what the delegate
+            // constructor declares as its second parameter, so `IntPtr` is the exact stack type the
+            // following `newobj` has to match, not an approximation of one.
+            state.Push(typeof(IntPtr), false, ColumnarCodePlanStackValueKind.Exact(), false, 0)
         } else if opCodeValue == ColumnarCodePlanContract.Call() || opCodeValue == ColumnarCodePlanContract.Callvirt() {
             ApplyMethodCall(plan, operationIndex, operandIndex, opCodeValue, state, schemaName)
         } else if opCodeValue == ColumnarCodePlanContract.Newobj() {

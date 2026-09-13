@@ -269,8 +269,21 @@ class AnalyzerResourceStatements {
     func AdvanceTry(state: ResourceStatementState, statement: TryStatement): ResourceStatementRequest? {
         phase := state.Phase
         if phase == 0 {
-            state.Phase = 1
+            // A `try` that declares a `catch` cannot hold a suspension point: the region would have to
+            // be re-entered with its handler re-armed after a `yield` returned control to the caller.
+            if statement.CatchClauses.Count > 0 {
+                ambientValue.EnterYieldForbidden("try")
+            }
+            state.Phase = 8
             return NewStatementRequest(statement.TryBlock)
+        }
+
+        if phase == 8 {
+            if statement.CatchClauses.Count > 0 {
+                ambientValue.ExitYieldForbidden()
+            }
+            state.Phase = 1
+            return null
         }
 
         if phase == 1 {
@@ -318,11 +331,13 @@ class AnalyzerResourceStatements {
 
         if phase == 4 {
             clause := CatchAt(statement, state.CatchIndex)
+            ambientValue.EnterYieldForbidden("catch")
             state.Phase = 5
             return NewStatementRequest(clause.Block)
         }
 
         if phase == 5 {
+            ambientValue.ExitYieldForbidden()
             state.CatchIndex = state.CatchIndex + 1
             state.Phase = 1
             return new ResourceStatementRequest(6, BuiltInTypes.Unknown)
@@ -339,11 +354,13 @@ class AnalyzerResourceStatements {
             }
 
             ambientValue.EnterFinally()
+            ambientValue.EnterYieldForbidden("finally")
             state.Phase = 7
             return NewStatementRequest(finallyBlock)
         }
 
         if phase == 7 {
+            ambientValue.ExitYieldForbidden()
             ambientValue.ExitFinally()
             state.Phase = 99
             return null

@@ -2903,9 +2903,151 @@ replaces `callFragment == 0` in `ColumnarDirectCallPlanner`'s void guards; and a
 non-root claim at every position a method body can put it in, because an index access is never a
 statement. A NESTED void fragment is still refused on every schema.
 
+### A generator suspends inside `try`/`finally`
+
+A `yield` may appear inside a `try` whose ONLY handler is a `finally`. The lowering is the C#
+compiler's:
+
+- **Every `try` in the body is a region ordinal**, assigned in classification walk order and re-assigned
+  identically by the emission walk (`ColumnarIteratorWalkState.TryRegionParents` /
+  `ResumeRegions`, carried on `ColumnarIteratorShape`). A resume state records the innermost region it
+  suspends inside.
+- **A resume point inside a region is reached by dispatching twice.** A branch INTO a protected region
+  is illegal IL, so the method prologue's dispatch sends such a state to the region's ENTRY label
+  (just before its `try`), and the region's own first rows are a second dispatch that finishes the hop
+  — recursively, for nested regions (`ColumnarIteratorBodyPlanner.AppendStateDispatch` /
+  `DispatchTargetFor`).
+- **The `finally` handler is guarded by the machine's state**: `if (<>__state < 0) { <handler> }`. A
+  handler runs on every exit from a protected region, and a `yield return` leaves one — but suspending
+  is not ending the statement. The suspension stored a POSITIVE resume state just before branching out;
+  a normal completion, an in-flight exception and a dispose-driven unwind are all still `-1` (running).
+- **Abandonment re-drives the machine in dispose mode.** A `<>__disposing` field (role 9) exists only
+  on a machine that can suspend inside a region; `Dispose` sets it and calls `MoveNext`, which resumes
+  at the suspension point, marks itself running, sees the flag and branches to the end label — leaving
+  every open region so the runtime runs each `finally`, innermost first
+  (`ColumnarIteratorBodyPlanner.AppendDisposeModeUnwind` / `AppendDisposeModeExit`).
+- **`ret` is illegal inside a protected region**, so a body that writes any `try` takes the same
+  result-local-plus-`leave` exit shape the hoisted-enumerator (try/FAULT) layout already used;
+  `BuildMoveNextPlan` now emits all three shapes from one walk.
+- **A catch clause hoists the exception it binds** — a state machine's bindings are fields — under the
+  clause's own variable name, or `<>__exception{k}` for a clause that binds none.
+- `ColumnarCodePlanExecutor` now admits SEVERAL catch handlers on one region and a `finally`/`fault`
+  after them, as its terminal handler.
+
+The three placements a suspension cannot resume from are **NL332**
+(`AnalyzerAmbientContext.EnterYieldForbidden` / `ReportYieldPlacementIfNeeded`, pushed by
+`AnalyzerResourceStatements.AdvanceTry`): a `yield` inside a `try` that declares a `catch`, inside a
+`catch` handler, or inside a `finally` handler. `ColumnarIteratorPlanner.WalkTryStatement` refuses the
+same three with the same sentences, so no shape can reach lowering without a diagnostic.
+
+### An assignment target may be a member or an indexer
+
+`ColumnarStoreTargetPlanner` is the WRITE twin of the member and index reads, as code-plan rows, and
+it is a general owner rather than an iterator one: `ClaimsTarget` takes a one-child member access or a
+two-child index access, and `TryAppendStore` appends receiver, index and value in source order.
+
+- A MEMBER is selected by `ColumnarInstanceMemberPlanner.TrySelect` — the same call the READ takes —
+  so a source field, an inherited source field, a reflected field and a settable property all resolve
+  identically on both sides. A property's setter is the `set_X` beside the `get_X` the read selected,
+  on the same declaring type (`SetterFor`); a builder-bound owner cannot answer a reflection query and
+  declines.
+- An INDEXER over an SZ array is `stelem` with the element conversion; every other receiver resolves
+  `set_Item` through `ColumnarOrdinaryRuntimeDirectCallResolver` against the WRITTEN index and value
+  types, which are discovered by planning them into a scratch plan first (overload selection has to
+  finish before a receiver that cannot be reached again goes on the stack).
+- A VALUE-TYPE receiver reached as a value is a COPY, so `IsObservableWriteReceiver` refuses it rather
+  than emitting a store nothing can read back. A read-only field and a get-only property decline for
+  the same reason.
+- The stored value goes through `ColumnarConstructionPlanner.TryAppendTargetTypedValue`, the one
+  target-typed door, so a target-typed literal and an ordinary value both take the conversion a call
+  argument at that type would take.
+
+Inside a generator, `ColumnarIteratorBodyPlanner.EmitStoreTargetAssignment` routes to it, and
+`EmitEnclosingMemberAssignment` writes an instance generator's enclosing member through the captured
+`<>__this` — the same two-hop write the READ of that name already performs. A COMPOUND assignment to a
+member or an indexer still declines (it would evaluate the receiver twice, and this owner does not yet
+hold the single-evaluation temporaries).
+
+### The annotated loop variable, inside a generator
+
+`for v: T in e` (node kind 76) shares ONE classification walk and ONE emission walk with the
+unannotated spelling — `ColumnarIteratorPlanner.WalkForIn` and `ColumnarIteratorBodyPlanner.EmitForIn`
+— because the two differ in exactly one fact: whether the loop variable's type is WRITTEN. An
+annotated variable's hoisted field is defined from the annotation; an inferred one's is defined from
+the element the planned source produces, as before.
+
+The conversion itself is `ColumnarCastConversionPlanner`, the plan-row counterpart of
+`ColumnarIlEmitter.TryEmitCastConversion`: identity and a reference widening cost nothing, a boxing is
+`box`, an unboxing (and every conversion TO a type parameter) is `unbox.any`, a reference downcast is
+`castclass`, and a numeric conversion is the unchecked `conv.*` its TARGET selects (an enum through its
+underlying type). `ForeachElementConversionFacts` still owns the QUESTION — NL330 reports the pair
+that has no conversion — so a program the analyzer accepted is the program the machine runs.
+
+Merging the two walks also closed a latent mismatch: classification hoisted an `<>__index{k}` slot
+only for an array element the index loop can load (`IsLowerableArrayElementCanonical`), while emission
+took the array loop for ANY array element canonical. An `object[]` source therefore hoisted enumerator
+facts and then looked for an index field that was never reserved. Both sides now ask the identical
+question.
+
+### `await`, for any awaitable, in any BOUND position
+
+The `await Task.Delay(<int>)`-only admission is gone. `ColumnarIteratorPlanner.WalkAwait` counts the
+suspension and walks the operand as an ordinary expression;
+`ColumnarIteratorBodyPlanner.AppendAwait` then asks the operand's PLANNED type for `GetAwaiter()`, and
+that awaiter for `get_IsCompleted`, `OnCompleted(Action)` and `GetResult()` — ordinary CLR member
+lookup, no table of known tasks. A `Task`, a `Task<T>`, a `ValueTask<T>` and a user awaitable all
+answer; a struct awaitable is called through the address of a temporary, and a struct awaiter through
+the address of its own field (a copy would throw the continuation state away). The awaiter field is
+hoisted UNRESOLVED (role 5) and defined from that awaiter type when the lowering reaches the
+suspension, so a machine with two awaits of different awaitables carries two differently-typed slots.
+
+An ASYNC machine may enumerate a sequence source too: the hoisted `<>__enum{k}` field is the same one
+the synchronous machine reserves, and only its RELEASE differs — a synchronous machine has a FAULT
+handler for the exceptional path, and the async step core rides the `catch (Exception)` it already has
+(an exception must reach the pending call's promise) plus `DisposeAsync` for the abandonment path.
+
+An `await` may be the WHOLE value of a declaration, an assignment or a `yield`
+(`ColumnarIteratorPlanner.WalkBoundValue` / `ColumnarIteratorBodyPlanner.AppendBoundFieldStore`), and
+nothing else: a suspension branches out of the step core and ECMA requires an EMPTY evaluation stack
+at that branch, so the awaited value is produced FIRST, parked in a plan local, and only then is
+`this` loaded and the field written. An `await` nested inside a larger expression needs a spill this
+owner does not yet hold and declines saying so.
+
+### A lambda is a method on the state machine
+
+A generator has already hoisted every parameter and every local of its body into a field of its own
+machine, so the machine IS the closure's display: there is no second object to synthesize and no
+capture to copy. `ColumnarIteratorBodyPlanner.AppendLambda` defines a private INSTANCE method
+`<>__lambda{k}` on the machine builder, plans its body through the ONE expression door against a scope
+that differs from the body's in exactly one way (the lambda's parameters are its own arguments 1..n),
+and builds the delegate from the machine the body is already running on: `ldarg.0; ldftn <>__lambda0;
+newobj <Delegate>..ctor(object, native int)`. The signature comes from the delegate's own `Invoke`, so
+the target type decides the parameters and the result — the ordinary lambda-conversion rule. An
+instance generator's enclosing members reach through `<>__this`, the same two-hop read the body takes.
+
+`ldftn` is new in the plan schema (`ColumnarCodePlanContract.Ldftn`, 0xFE06): it reads no argument and
+pushes one value, modelled as `IntPtr` because that is exactly what a delegate constructor's second
+parameter is declared as, so the following `newobj` matches with no new stack kind.
+
+TWO SHAPES DECLINE, both precisely. A BLOCK-bodied lambda needs a statement emitter for a method that
+is not a state machine. And a lambda that captures a local declared INSIDE a loop cannot be lowered at
+all: a generator holds ONE field per local, so every iteration would share it where the language
+promises a fresh binding — `ColumnarIteratorWalkState.LocalLoopDepths` records the loop nesting each
+local was declared at, and `ColumnarIteratorPlanner.CapturedLoopLocalName` reads it (the lambda's own
+parameters shadow, so they are skipped).
+
+Closing this also fixed a delegate-canonical bug that was never iterator-specific:
+`ColumnarCanonicalTypeResolver.TrySelectDelegateCanonical` split `Func<int, int>` into `int` and
+` int` and failed on the second, so every delegate written with a space after its comma failed to
+resolve while the same type written without one succeeded. And `TryResolveIteratorCanonical` now
+accepts a complete external DELEGATE type as a hoisted field type; the general storable-type catalog
+has not been widened, because that is a question about the whole value surface.
+
 Not yet lowered inside a generator body, each with its own decline: `return <value>`
-(`emit.iterator.unsupported-shape`), a lambda (`emit.iterator.lambda-unsupported`), `try`/`using`/
-`lock`, `await` in a value position, and `await foreach`.
+(`emit.iterator.unsupported-shape`), a block-bodied lambda and a loop-scoped capture
+(`emit.iterator.lambda-unsupported`), a `try` inside an `async func*`
+(`emit.iterator.async-unsupported`), `lock`, an `await` nested in a larger expression, and
+`await foreach`. (`using` is not a statement this language parses at all.)
 
 ## One Exception-Resolution Path
 

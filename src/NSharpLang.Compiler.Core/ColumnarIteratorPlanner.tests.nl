@@ -1066,9 +1066,43 @@ test "iterator planner declines a return statement in an iterator body" {
     assert probe.Shape.DeclineMessage == "a `return` statement cannot appear in an iterator body; use `yield` to produce a value and `yield break` to stop"
 }
 
-test "iterator planner declines a lambda inside an iterator body" {
+// A LAMBDA IS A METHOD ON THE MACHINE, and the machine is already the closure's display. What that
+// cannot express is a FRESH BINDING PER ITERATION: a local declared inside a loop is one field
+// re-used by every iteration, so a closure over it would read whatever the last iteration left.
+test "iterator planner plans a lambda over the machine's own bindings" {
     probe := new ColumnarIteratorShapeProbe(
-        "func* WithLambda(n: int): IEnumerable<int> { pick := x => x + n\n yield pick(1) }",
+        "func* WithLambda(n: int): IEnumerable<int> { pick: Func<int, int> = x => x + n\n yield pick(1) }",
+        "IEnumerable<int>",
+        IteratorOne("n"),
+        IteratorOne("int"),
+        IteratorNoStrings(),
+        false
+    )
+
+    assert probe.Shape.Supported
+    assert probe.Shape.YieldReturnCount == 1
+    assert probe.Shape.FieldNames[3] == "pick"
+    assert probe.Shape.FieldCanonicals[3] == "Func<int, int>"
+}
+
+test "iterator planner declines a lambda that captures a variable declared inside a loop" {
+    probe := new ColumnarIteratorShapeProbe(
+        "func* PerIteration(values: int[]): IEnumerable<int> { for v in values { pick: Func<int, int> = x => x + v\n yield pick(1) } }",
+        "IEnumerable<int>",
+        IteratorOne("values"),
+        IteratorOne("int[]"),
+        IteratorNoStrings(),
+        false
+    )
+
+    assert !probe.Shape.Supported
+    assert probe.Shape.DeclineSite == "emit.iterator.lambda-unsupported"
+    assert probe.Shape.DeclineMessage == "a lambda inside an iterator body cannot capture 'v', which is declared inside a loop: a generator holds one field per local, so every iteration would share it"
+}
+
+test "iterator planner declines a block-bodied lambda inside an iterator body" {
+    probe := new ColumnarIteratorShapeProbe(
+        "func* WithLambda(n: int): IEnumerable<int> { pick: Func<int, int> = x => { return x + n }\n yield pick(1) }",
         "IEnumerable<int>",
         IteratorOne("n"),
         IteratorOne("int"),
@@ -1078,12 +1112,89 @@ test "iterator planner declines a lambda inside an iterator body" {
 
     assert !probe.Shape.Supported
     assert probe.Shape.DeclineSite == "emit.iterator.lambda-unsupported"
-    assert probe.Shape.DeclineMessage == "a lambda inside an iterator body is not yet lowered"
+    assert probe.Shape.DeclineMessage == "a block-bodied lambda inside an iterator body is not yet lowered; write it as a single expression"
 }
 
-test "iterator planner declines a try statement around a yield" {
+// A LAMBDA'S OWN PARAMETER SHADOWS the body's bindings, so a parameter that happens to share a
+// loop-declared local's name is NOT a capture of it.
+test "a lambda parameter that shadows a loop local is not a capture" {
     probe := new ColumnarIteratorShapeProbe(
-        "func* Guarded(): IEnumerable<int> { try { yield 1 } catch ex: Exception { yield 2 } }",
+        "func* Shadowed(values: int[]): IEnumerable<int> { total := 0\n for v in values { pick: Func<int, int> = v => v + total\n yield pick(1) } }",
+        "IEnumerable<int>",
+        IteratorOne("values"),
+        IteratorOne("int[]"),
+        IteratorNoStrings(),
+        false
+    )
+
+    assert probe.Shape.Supported
+}
+
+// THE PROTECTED-REGION RULES. A `yield` may suspend inside a `try` whose only handler is a
+// `finally`; the three placements that cannot resume are refused, with the same sentences NL332
+// reports, so the emit path can never lower a shape the analyzer would have rejected.
+test "iterator planner plans a yield inside a try with only a finally" {
+    probe := new ColumnarIteratorShapeProbe(
+        "func* Guarded(): IEnumerable<int> { try { yield 1\n yield 2 } finally { } }",
+        "IEnumerable<int>",
+        IteratorNoStrings(),
+        IteratorNoStrings(),
+        IteratorNoStrings(),
+        false
+    )
+
+    assert probe.Shape.Supported
+    assert probe.Shape.YieldReturnCount == 2
+    assert probe.Shape.TryRegionCount == 1
+    assert probe.Shape.TryRegionParents[0] == 0 - 1
+    assert probe.Shape.ResumeRegionOf(1) == 0
+    assert probe.Shape.ResumeRegionOf(2) == 0
+    assert probe.Shape.FieldNames[probe.Shape.FieldCount - 1] == "<>__disposing"
+    assert probe.Shape.FieldCanonicals[probe.Shape.FieldCount - 1] == "bool"
+    assert probe.Shape.FieldRoles[probe.Shape.FieldCount - 1] == ColumnarIteratorPlanner.DisposeModeFieldRole()
+}
+
+test "iterator planner nests protected regions and records each resume home" {
+    probe := new ColumnarIteratorShapeProbe(
+        "func* Nested(): IEnumerable<int> { try { try { yield 1 } finally { } \n yield 2 } finally { } }",
+        "IEnumerable<int>",
+        IteratorNoStrings(),
+        IteratorNoStrings(),
+        IteratorNoStrings(),
+        false
+    )
+
+    assert probe.Shape.Supported
+    assert probe.Shape.TryRegionCount == 2
+    assert probe.Shape.TryRegionParents[0] == 0 - 1
+    assert probe.Shape.TryRegionParents[1] == 0
+    assert probe.Shape.ResumeRegionOf(1) == 1
+    assert probe.Shape.ResumeRegionOf(2) == 0
+}
+
+test "iterator planner leaves a region-free machine without a dispose flag" {
+    probe := new ColumnarIteratorShapeProbe(
+        "func* Caught(): IEnumerable<int> { total: int = 0\n try { total = 1 } finally { total = 2 }\n yield total }",
+        "IEnumerable<int>",
+        IteratorNoStrings(),
+        IteratorNoStrings(),
+        IteratorNoStrings(),
+        false
+    )
+
+    assert probe.Shape.Supported
+    assert probe.Shape.TryRegionCount == 1
+    assert probe.Shape.ResumeRegionOf(1) == 0 - 1
+    i := 0
+    while i < probe.Shape.FieldCount {
+        assert probe.Shape.FieldNames[i] != "<>__disposing"
+        i = i + 1
+    }
+}
+
+test "iterator planner declines a yield inside a try that declares a catch" {
+    probe := new ColumnarIteratorShapeProbe(
+        "func* Guarded(): IEnumerable<int> { try { yield 1 } catch ex: Exception { } }",
         "IEnumerable<int>",
         IteratorNoStrings(),
         IteratorNoStrings(),
@@ -1093,7 +1204,53 @@ test "iterator planner declines a try statement around a yield" {
 
     assert !probe.Shape.Supported
     assert probe.Shape.DeclineSite == "emit.iterator.unsupported-shape"
-    assert probe.Shape.DeclineMessage == "an iterator body statement (node kind 49) is not yet lowered"
+    assert probe.Shape.DeclineMessage == "a `yield` cannot appear inside a `try` that declares a `catch`; a generator may only suspend inside a `try` whose only handler is `finally`"
+}
+
+test "iterator planner declines a yield inside a catch handler" {
+    probe := new ColumnarIteratorShapeProbe(
+        "func* Guarded(): IEnumerable<int> { try { } catch ex: Exception { yield 1 } }",
+        "IEnumerable<int>",
+        IteratorNoStrings(),
+        IteratorNoStrings(),
+        IteratorNoStrings(),
+        false
+    )
+
+    assert !probe.Shape.Supported
+    assert probe.Shape.DeclineSite == "emit.iterator.unsupported-shape"
+    assert probe.Shape.DeclineMessage == "a `yield` cannot appear inside a `catch` handler"
+}
+
+test "iterator planner declines a yield inside a finally handler" {
+    probe := new ColumnarIteratorShapeProbe(
+        "func* Guarded(): IEnumerable<int> { try { } finally { yield 1 } }",
+        "IEnumerable<int>",
+        IteratorNoStrings(),
+        IteratorNoStrings(),
+        IteratorNoStrings(),
+        false
+    )
+
+    assert !probe.Shape.Supported
+    assert probe.Shape.DeclineSite == "emit.iterator.unsupported-shape"
+    assert probe.Shape.DeclineMessage == "a `yield` cannot appear inside a `finally` handler"
+}
+
+test "iterator planner declines a try statement inside an async iterator body" {
+    probe := new ColumnarIteratorShapeProbe(
+        "async func* Guarded(): IAsyncEnumerable<int> { try { yield 1 } finally { } }",
+        "IAsyncEnumerable<int>",
+        IteratorNoStrings(),
+        IteratorNoStrings(),
+        IteratorNoStrings(),
+        false,
+        true
+    )
+
+    assert !probe.Shape.Supported
+    assert probe.Shape.DeclineSite == "emit.iterator.async-unsupported"
+    assert probe.Shape.DeclineMessage == "a `try` statement inside an `async func*` body is a later slice"
 }
 
 test "iterator planner declines a lock statement in an iterator body" {
@@ -2065,9 +2222,44 @@ test "iterator planner hoists the receiver and runs enclosing member reads" {
     assert results[1] == 9
 }
 
-test "iterator planner declines enclosing member writes" {
+// An INSTANCE generator writes its enclosing type's members through the receiver it captured, which
+// is the same two-hop path the READ of that name already takes. A name that is neither a binding nor
+// an enclosing member is still unbound, and that is the only decline left on this statement.
+test "iterator planner plans enclosing member writes and refuses unbound ones" {
+    writeProbe := new ColumnarIteratorShapeProbe(
+        "func* Good(): IEnumerable<int> { Value = 3\n yield Value }",
+        "IEnumerable<int>",
+        IteratorNoStrings(),
+        IteratorNoStrings(),
+        IteratorNoStrings(),
+        true,
+        false
+    )
+    written := ColumnarIteratorPlanner.AnalyzeShape(
+        writeProbe.Nodes,
+        writeProbe.Source,
+        writeProbe.BodyRoot,
+        "Good",
+        0,
+        "IEnumerable<int>",
+        IteratorNoStrings(),
+        IteratorNoStrings(),
+        IteratorNoStrings(),
+        true,
+        "HostProbe",
+        IteratorOne("Value"),
+        IteratorOne("int"),
+        IteratorNoStrings(),
+        IteratorNoStrings(),
+        false
+    )
+
+    assert written.Supported
+    assert written.YieldReturnCount == 1
+    assert written.FieldNames[2] == "<>__this"
+
     parseProbe := new ColumnarIteratorShapeProbe(
-        "func* Bad(): IEnumerable<int> { Value = 3\n yield 1 }",
+        "func* Bad(): IEnumerable<int> { Absent = 3\n yield 1 }",
         "IEnumerable<int>",
         IteratorNoStrings(),
         IteratorNoStrings(),
@@ -2095,6 +2287,7 @@ test "iterator planner declines enclosing member writes" {
 
     assert !shape.Supported
     assert shape.DeclineSite == "emit.iterator.unsupported-shape"
+    assert shape.DeclineMessage == "assignment to an unbound identifier 'Absent'"
 }
 
 test "iterator planner classifies member-call for..in sources" {
@@ -2279,7 +2472,9 @@ test "async iterator planner lays out awaiter, promise, result, and continuation
     assert probe.Shape.FieldRoles[3] == ColumnarIteratorPlanner.HoistedLocalFieldRole()
     assert probe.Shape.FieldNames[4] == "<>__awaiter0"
     assert probe.Shape.FieldRoles[4] == ColumnarIteratorPlanner.AwaiterFieldRole()
-    assert probe.Shape.FieldCanonicals[4] == "TaskAwaiter"
+    // An awaiter's type is the awaited operand's own `GetAwaiter()` return type, which needs live CLR
+    // handles: the slot is reserved here and defined when the lowering reaches the suspension point.
+    assert ColumnarIteratorPlanner.IsUnresolvedCanonical(probe.Shape.FieldCanonicals[4])
     assert probe.Shape.FieldNames[5] == "<>__promise"
     assert probe.Shape.FieldRoles[5] == ColumnarIteratorPlanner.PromiseFieldRole()
     assert probe.Shape.FieldCanonicals[5] == "TaskCompletionSource<bool>"
@@ -2349,9 +2544,13 @@ test "async iterator planner declines a generic async iterator" {
     assert probe.Shape.DeclineSite == "emit.iterator.async-unsupported"
 }
 
-test "async iterator planner declines a non-Task-Delay awaited operand" {
-    probe := new ColumnarIteratorShapeProbe(
-        "async func* Bad(): IAsyncEnumerable<int> { await Other()\n yield 1 }",
+// THE AWAITED OPERAND IS AN ORDINARY EXPRESSION. Classification counts the suspension point and
+// numbers its awaiter field — the machine's own business — and walks the operand as the value it is.
+// WHICH awaitable it names, and therefore which awaiter type the machine hoists, is answered at
+// realization by asking the operand's own type for `GetAwaiter()`.
+test "async iterator planner admits any awaited operand and counts its suspension" {
+    delay := new ColumnarIteratorShapeProbe(
+        "async func* Ticks(): IAsyncEnumerable<int> { await Task.Delay(1)\n yield 1 }",
         "IAsyncEnumerable<int>",
         IteratorNoStrings(),
         IteratorNoStrings(),
@@ -2359,14 +2558,11 @@ test "async iterator planner declines a non-Task-Delay awaited operand" {
         false,
         true
     )
+    assert delay.Shape.Supported
+    assert delay.Shape.AwaitResumeCount == 1
 
-    assert !probe.Shape.Supported
-    assert probe.Shape.DeclineSite == "emit.iterator.async-await-unsupported"
-}
-
-test "async iterator planner declines an await in a value position" {
-    probe := new ColumnarIteratorShapeProbe(
-        "async func* Bad(): IAsyncEnumerable<int> { x := await Task.Delay(1)\n yield 1 }",
+    other := new ColumnarIteratorShapeProbe(
+        "async func* Ticks(): IAsyncEnumerable<int> { await Other()\n yield 1 }",
         "IAsyncEnumerable<int>",
         IteratorNoStrings(),
         IteratorNoStrings(),
@@ -2374,17 +2570,15 @@ test "async iterator planner declines an await in a value position" {
         false,
         true
     )
-
-    assert !probe.Shape.Supported
-    assert probe.Shape.DeclineSite == "emit.iterator.async-await-unsupported"
+    assert other.Shape.Supported
+    assert other.Shape.AwaitResumeCount == 1
 }
 
-// The awaited operand's SHAPE is still classification's (the suspension point and its awaiter field
-// are the machine's own numbering); the ARGUMENT's type is the expression owner's, checked at
-// realization against the `Task.Delay(int)` overload the lowering calls.
-test "async iterator planner admits a Task.Delay argument and types it at realization" {
+// AN AWAITER FIELD'S TYPE IS NOT WRITTEN ANYWHERE, so it is hoisted UNRESOLVED and defined when the
+// lowering reaches the suspension point — the same discipline a `:=` local's field takes.
+test "an async machine hoists its awaiter fields unresolved" {
     probe := new ColumnarIteratorShapeProbe(
-        "async func* Bad(): IAsyncEnumerable<int> { await Task.Delay(true)\n yield 1 }",
+        "async func* Ticks(): IAsyncEnumerable<int> { v := await Other()\n yield v }",
         "IAsyncEnumerable<int>",
         IteratorNoStrings(),
         IteratorNoStrings(),
@@ -2395,9 +2589,25 @@ test "async iterator planner admits a Task.Delay argument and types it at realiz
 
     assert probe.Shape.Supported
     assert probe.Shape.AwaitResumeCount == 1
+    awaiterCount := 0
+    i := 0
+    while i < probe.Shape.FieldCount {
+        if probe.Shape.FieldRoles[i] == ColumnarIteratorPlanner.AwaiterFieldRole() {
+            awaiterCount = awaiterCount + 1
+            assert probe.Shape.FieldNames[i] == "<>__awaiter0"
+            assert ColumnarIteratorPlanner.IsUnresolvedCanonical(probe.Shape.FieldCanonicals[i])
+        }
+        i = i + 1
+    }
+    assert awaiterCount == 1
+}
 
-    operand := new ColumnarIteratorShapeProbe(
-        "async func* Bad(): IAsyncEnumerable<int> { await Other()\n yield 1 }",
+// AN `await` MAY BE THE WHOLE VALUE OF A BOUND STATEMENT, and only that. A suspension branches out of
+// the step core with an empty evaluation stack, so a nested one would have nowhere to leave its
+// result; that shape declines with the reason, and says what to write instead.
+test "async iterator planner admits a bound await and refuses a nested one" {
+    bound := new ColumnarIteratorShapeProbe(
+        "async func* Ticks(): IAsyncEnumerable<int> { x := await Other()\n yield x }",
         "IAsyncEnumerable<int>",
         IteratorNoStrings(),
         IteratorNoStrings(),
@@ -2405,14 +2615,67 @@ test "async iterator planner admits a Task.Delay argument and types it at realiz
         false,
         true
     )
+    assert bound.Shape.Supported
+    assert bound.Shape.AwaitResumeCount == 1
+    assert bound.Shape.YieldReturnCount == 1
 
-    assert !operand.Shape.Supported
-    assert operand.Shape.DeclineSite == "emit.iterator.async-await-unsupported"
+    yielded := new ColumnarIteratorShapeProbe(
+        "async func* Ticks(): IAsyncEnumerable<int> { yield await Other() }",
+        "IAsyncEnumerable<int>",
+        IteratorNoStrings(),
+        IteratorNoStrings(),
+        IteratorNoStrings(),
+        false,
+        true
+    )
+    assert yielded.Shape.Supported
+    assert yielded.Shape.AwaitResumeCount == 1
+
+    nested := new ColumnarIteratorShapeProbe(
+        "async func* Ticks(): IAsyncEnumerable<int> { x := 1 + await Other()\n yield x }",
+        "IAsyncEnumerable<int>",
+        IteratorNoStrings(),
+        IteratorNoStrings(),
+        IteratorNoStrings(),
+        false,
+        true
+    )
+    assert !nested.Shape.Supported
+    assert nested.Shape.DeclineSite == "emit.iterator.async-await-unsupported"
+    assert nested.Shape.DeclineMessage == "an `await` nested inside a larger expression is not yet lowered in an async iterator body; bind it first (`value := await ...`)"
 }
 
-test "async iterator planner declines for..in over a sequence source" {
+// `await` OUTSIDE AN ASYNC GENERATOR IS STILL AN ERROR, in both positions.
+test "a synchronous generator refuses await in either position" {
+    unit := new ColumnarIteratorShapeProbe(
+        "func* Ticks(): IEnumerable<int> { await Other()\n yield 1 }",
+        "IEnumerable<int>",
+        IteratorNoStrings(),
+        IteratorNoStrings(),
+        IteratorNoStrings(),
+        false
+    )
+    assert !unit.Shape.Supported
+    assert unit.Shape.DeclineMessage == "`await` is only valid inside an async iterator body"
+
+    bound := new ColumnarIteratorShapeProbe(
+        "func* Ticks(): IEnumerable<int> { x := await Other()\n yield x }",
+        "IEnumerable<int>",
+        IteratorNoStrings(),
+        IteratorNoStrings(),
+        IteratorNoStrings(),
+        false
+    )
+    assert !bound.Shape.Supported
+    assert bound.Shape.DeclineMessage == "`await` is only valid inside an async iterator body"
+}
+
+// A SEQUENCE SOURCE IS ENUMERATED BY AN ASYNC MACHINE TOO. The hoisted enumerator field is the same
+// one the synchronous machine reserves; what differs is where it is RELEASED — a synchronous machine
+// has a FAULT handler, and the async step core rides the catch it already has plus `DisposeAsync`.
+test "async iterator planner hoists an enumerator for a sequence source" {
     probe := new ColumnarIteratorShapeProbe(
-        "async func* Bad(items: IEnumerable<int>): IAsyncEnumerable<int> { for x in items { yield x } }",
+        "async func* Walk(items: IEnumerable<int>): IAsyncEnumerable<int> { for x in items { yield x } }",
         "IAsyncEnumerable<int>",
         IteratorOne("items"),
         IteratorOne("IEnumerable<int>"),
@@ -2421,11 +2684,25 @@ test "async iterator planner declines for..in over a sequence source" {
         true
     )
 
-    assert !probe.Shape.Supported
-    assert probe.Shape.DeclineSite == "emit.iterator.for-in-unsupported"
+    assert probe.Shape.Supported
+    assert probe.Shape.YieldReturnCount == 1
+    enumerators := 0
+    i := 0
+    while i < probe.Shape.FieldCount {
+        if probe.Shape.FieldRoles[i] == ColumnarIteratorPlanner.HoistedEnumeratorFieldRole() {
+            enumerators = enumerators + 1
+            assert probe.Shape.FieldNames[i] == "<>__enum0"
+        }
+        i = i + 1
+    }
+    assert enumerators == 1
 }
 
-test "async iterator planner declines await foreach inside an iterator body" {
+// `await foreach` INSIDE a generator body needs an AWAIT INSIDE A HANDLER: the inner
+// `IAsyncEnumerator<T>` is released by awaiting its `DisposeAsync()`, and two of the three paths that
+// must release it — an exception passing through the body, and a consumer abandoning the outer
+// enumeration — are handler positions where a suspension has no resume label to return to.
+test "async iterator planner declines await foreach inside a generator body" {
     probe := new ColumnarIteratorShapeProbe(
         "async func* Bad(xs: IAsyncEnumerable<int>): IAsyncEnumerable<int> { await foreach x in xs { yield x } }",
         "IAsyncEnumerable<int>",
@@ -2438,6 +2715,7 @@ test "async iterator planner declines await foreach inside an iterator body" {
 
     assert !probe.Shape.Supported
     assert probe.Shape.DeclineSite == "emit.iterator.async-await-unsupported"
+    assert probe.Shape.DeclineMessage == "`await foreach` inside a generator body is not yet lowered: releasing the inner enumerator needs an `await` inside a handler"
 }
 
 // ---- async state-machine executed proofs (plans realized onto a reflective probe host) ----

@@ -409,6 +409,13 @@ class ColumnarIteratorRealization {
         }
         moveNextIl := moveNext.GetILGenerator()
         ColumnarCodePlanExecutor.Execute(moveNextPlan, moveNextIl)
+        // `Dispose` drives this exact handle to unwind a machine abandoned inside a protected region.
+        // A generic machine's members are taken on the instantiation its fields already came from.
+        moveNextHandle: MethodInfo = moveNext
+        if smTypeParamMap != null {
+            moveNextHandle = TypeBuilder.GetMethod(memberSmType, moveNext)
+        }
+        context.MoveNextMethod = moveNextHandle
 
         getCurrent := sm.DefineMethod(
             shape.MemberNames[2],
@@ -558,7 +565,12 @@ class ColumnarIteratorRealization {
             fieldType: Type = null
             role := shape.FieldRoles[i]
             if role == ColumnarIteratorPlanner.AwaiterFieldRole() {
-                fieldType = typeof(System.Runtime.CompilerServices.TaskAwaiter)
+                // An awaiter's type is whatever the awaited operand's own `GetAwaiter()` returns —
+                // `TaskAwaiter` for a unit task, `TaskAwaiter<T>` for a value-producing one, and a
+                // user awaitable's own awaiter for anything else. The body lowering defines the field
+                // when it reaches the suspension point, exactly as it defines a `:=` local's.
+                i = i + 1
+                continue
             } else if role == ColumnarIteratorPlanner.PromiseFieldRole() {
                 fieldType = typeof(System.Threading.Tasks.TaskCompletionSource<bool>)
             } else if role == ColumnarIteratorPlanner.ResultFieldRole() {
@@ -764,7 +776,19 @@ class ColumnarIteratorRealization {
             typeResolution.Structs,
             typeResolution.Unions,
             out resolvedType
-        ) && ColumnarTypeOfPlanner.IsSupportedType(resolvedType)
+        ) && (ColumnarTypeOfPlanner.IsSupportedType(resolvedType) || IsOrdinaryDelegateFieldType(resolvedType))
+    }
+
+    // A COMPLETE EXTERNAL DELEGATE TYPE — `Func<int, int>`, `Predicate<string>`, a `delegate` a
+    // referenced assembly declares. It is an ordinary reference and stores in an ordinary field, which
+    // is all a hoisted local needs of it. The general storable-type catalog has not been widened to
+    // say so, and widening it is a question about the whole value surface rather than about the one
+    // field a generator hoists for a local the author wrote a delegate type on.
+    static func IsOrdinaryDelegateFieldType(candidate: Type): bool {
+        if candidate == null || candidate is TypeBuilder || candidate.get_IsGenericTypeDefinition() || candidate.get_IsByRef() || candidate.get_IsPointer() || ColumnarTypeOfPlanner.ContainsBuilderBoundType(candidate) {
+            return false
+        }
+        return typeof(Delegate).IsAssignableFrom(candidate)
     }
 
     // Only the machine's own generic parameters are legal in its field signatures. Preserve the

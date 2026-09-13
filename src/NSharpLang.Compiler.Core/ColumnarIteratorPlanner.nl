@@ -76,6 +76,11 @@ class ColumnarIteratorShape {
     // async EMISSION slice; the classification here computes element type and resume counts only.
     IsAsync: bool
     AwaitResumeCount: int
+    // Protected-region facts, carried from classification to emission (see `ColumnarIteratorWalkState`).
+    // `ResumeRegions` is indexed by resume state (1..YieldReturnCount); index 0 is unused.
+    TryRegionCount: int
+    TryRegionParents: int[]
+    ResumeRegions: int[]
 
     constructor(supported: bool, declineSite: string, declineMessage: string, typeName: string, elementCanonical: string, yieldReturnCount: int, fieldCount: int, fieldNames: string[], fieldCanonicals: string[], fieldRoles: int[], memberCount: int, memberNames: string[], memberSignatures: string[], memberOverrideRows: ColumnarIteratorOverrideDeclaration[], isAsync: bool, awaitResumeCount: int) {
         Supported = supported
@@ -97,6 +102,18 @@ class ColumnarIteratorShape {
         MemberOverrideRows = memberOverrideRows
         IsAsync = isAsync
         AwaitResumeCount = awaitResumeCount
+        TryRegionCount = 0
+        TryRegionParents = new int[](0)
+        ResumeRegions = new int[](0)
+    }
+
+    // The innermost protected region resume state `state` suspends inside, or -1 when it suspends in
+    // unprotected code. A shape with no regions answers -1 for every state without carrying a table.
+    func ResumeRegionOf(state: int): int {
+        if state < 0 || state >= ResumeRegions.Length {
+            return 0 - 1
+        }
+        return ResumeRegions[state]
     }
 }
 
@@ -109,10 +126,29 @@ class ColumnarIteratorWalkState {
     IsAsync: bool
     ForInCount: int
     EnumeratorCount: int
+    CatchCount: int
+    // PROTECTED-REGION FACTS. Every `try` in the body is one region; ordinals are assigned in walk
+    // order and the emission walk assigns exactly the same ones, so the two passes agree on which
+    // region a resume state suspends inside. `TryRegionParents[k]` is the enclosing region (-1 at
+    // the top level) and `ResumeRegions[s]` is the innermost region resume state `s` suspends in
+    // (-1 when that `yield return` is not inside any `try`). The dispatch needs this because a
+    // branch INTO a protected region is illegal IL: a state suspended inside a region is reached by
+    // branching to the region's entry, re-entering the `try`, and dispatching again inside it.
+    TryRegionCount: int
+    TryRegionParents: int[]
+    ResumeRegions: int[]
+    CurrentRegion: int
     LocalCount: int
     LocalNames: string[]
     LocalCanonicals: string[]
     LocalRoles: int[]
+    // The LOOP NESTING each hoisted local was declared at. Every local in a generator body lives in
+    // ONE field of the machine, so a local declared inside a loop is the SAME storage on every
+    // iteration. That is invisible until something captures it: a lambda created inside the loop
+    // would see whatever the last iteration left, where the language promises a fresh binding per
+    // iteration. The depth is what tells those two cases apart.
+    LocalLoopDepths: int[]
+    LoopDepth: int
     Declined: bool
     DeclineSite: string
     DeclineMessage: string
@@ -132,10 +168,17 @@ class ColumnarIteratorWalkState {
         IsAsync = isAsync
         ForInCount = 0
         EnumeratorCount = 0
+        CatchCount = 0
+        TryRegionCount = 0
+        TryRegionParents = new int[](capacity)
+        ResumeRegions = new int[](capacity)
+        CurrentRegion = 0 - 1
         LocalCount = 0
         LocalNames = new string[](capacity)
         LocalCanonicals = new string[](capacity)
         LocalRoles = new int[](capacity)
+        LocalLoopDepths = new int[](capacity)
+        LoopDepth = 0
         Declined = false
         DeclineSite = ""
         DeclineMessage = ""
@@ -209,6 +252,19 @@ class ColumnarIteratorWalkState {
         return LookupMemberFieldCanonical(name)
     }
 
+    // The loop nesting the hoisted local `name` was declared at, or -1 when the name is not a
+    // hoisted local at all (a parameter, an enclosing member, an unknown).
+    func LocalLoopDepthOf(name: string): int {
+        i := 0
+        while i < LocalCount {
+            if LocalNames[i] == name {
+                return LocalLoopDepths[i]
+            }
+            i = i + 1
+        }
+        return 0 - 1
+    }
+
     func NameIsTypeParameter(name: string): bool {
         i := 0
         while i < TypeParamNames.Length {
@@ -252,6 +308,7 @@ class ColumnarIteratorWalkState {
         LocalNames[LocalCount] = name
         LocalCanonicals[LocalCount] = canonical
         LocalRoles[LocalCount] = role
+        LocalLoopDepths[LocalCount] = LoopDepth
         LocalCount = LocalCount + 1
     }
 }
@@ -296,6 +353,13 @@ class ColumnarIteratorPlanner {
     }
     static func ContinuationFieldRole(): int {
         return 8
+    }
+    // The dispose-mode flag (role 9, `<>__disposing`): present only on a machine that can suspend
+    // inside a protected region. `Dispose` sets it and drives `MoveNext` once, so the machine resumes
+    // where it suspended, immediately leaves the region, and the runtime runs every `finally` it was
+    // standing inside — the same discipline the C# compiler uses for an async iterator.
+    static func DisposeModeFieldRole(): int {
+        return 9
     }
 
     // Analyze a func* and produce its state-machine shape facts, or a precise decline. An INSTANCE
@@ -344,6 +408,12 @@ class ColumnarIteratorPlanner {
 
         if isAsync {
             return BuildSupportedAsyncShape(funcName, funcOrdinal, element, paramNames, paramCanonicals, state)
+        }
+        if SuspendsInsideRegion(state) {
+            state.AddHoistedLocal(DisposeModeFieldName(), "bool", DisposeModeFieldRole())
+            if state.Declined {
+                return Declined(state.DeclineSite, state.DeclineMessage)
+            }
         }
         return BuildSupportedShape(funcName, funcOrdinal, element, paramNames, paramCanonicals, state, isInstance ? receiverCanonical : "")
     }
@@ -394,7 +464,38 @@ class ColumnarIteratorPlanner {
         memberSignatures := BuildMemberSignatures(element)
         memberOverrideRows := BuildMemberOverrideRows()
 
-        return new ColumnarIteratorShape(true, "", "", typeName, element, state.YieldReturnCount, fieldCount, fieldNames, fieldCanonicals, fieldRoles, memberNames.Length, memberNames, memberSignatures, memberOverrideRows, false, 0)
+        shape := new ColumnarIteratorShape(true, "", "", typeName, element, state.YieldReturnCount, fieldCount, fieldNames, fieldCanonicals, fieldRoles, memberNames.Length, memberNames, memberSignatures, memberOverrideRows, false, 0)
+        shape.TryRegionCount = state.TryRegionCount
+        shape.TryRegionParents = CopyInts(state.TryRegionParents, state.TryRegionCount)
+        shape.ResumeRegions = CopyInts(state.ResumeRegions, state.YieldReturnCount + 1)
+        return shape
+    }
+
+    static func CopyInts(values: int[], count: int): int[] {
+        copied := new int[](count)
+        i := 0
+        while i < count {
+            copied[i] = values[i]
+            i = i + 1
+        }
+        return copied
+    }
+
+    // True when any `yield return` suspends inside a `try`: the only machines that need a dispose
+    // flag, because only they can be abandoned while standing inside a handler that must still run.
+    static func SuspendsInsideRegion(state: ColumnarIteratorWalkState): bool {
+        s := 1
+        while s <= state.YieldReturnCount {
+            if state.ResumeRegions[s] >= 0 {
+                return true
+            }
+            s = s + 1
+        }
+        return false
+    }
+
+    static func DisposeModeFieldName(): string {
+        return "<>__disposing"
     }
 
     // The async state-machine shape (`async func*` returning IAsyncEnumerable<T>). Field layout extends
@@ -434,7 +535,10 @@ class ColumnarIteratorPlanner {
         a := 0
         while a < state.AwaitCount {
             fieldNames[cursor] = "<>__awaiter" + a.ToString()
-            fieldCanonicals[cursor] = "TaskAwaiter"
+            // The awaiter's TYPE is whatever the awaited operand's own `GetAwaiter()` returns, and
+            // that answer needs live CLR handles; the field is defined when the lowering reaches the
+            // suspension point, exactly as a `:=` local's field is.
+            fieldCanonicals[cursor] = UnresolvedCanonical()
             fieldRoles[cursor] = AwaiterFieldRole()
             cursor = cursor + 1
             a = a + 1
@@ -566,7 +670,7 @@ class ColumnarIteratorPlanner {
             nameNode := nodes.Child(node, 0)
             name := nodes.Text(source, nameNode)
             if nodes.ChildCount(node) >= 2 {
-                WalkExpression(nodes, source, nodes.Child(node, 1), state)
+                WalkBoundValue(nodes, source, nodes.Child(node, 1), state)
             }
             state.AddLocal(name, declaredType)
             return true
@@ -580,7 +684,7 @@ class ColumnarIteratorPlanner {
             // the guarded-layout decision depend on.
             name := nodes.Text(source, node)
             if nodes.ChildCount(node) >= 1 {
-                WalkExpression(nodes, source, nodes.Child(node, 0), state)
+                WalkBoundValue(nodes, source, nodes.Child(node, 0), state)
             }
             state.AddLocal(name, UnresolvedCanonical())
             return true
@@ -602,7 +706,7 @@ class ColumnarIteratorPlanner {
                     state.Decline("emit.iterator.unsupported-shape", "`await` is only valid inside an async iterator body")
                     return false
                 }
-                WalkUnitAwait(nodes, source, inner, state)
+                WalkAwait(nodes, source, inner, state)
                 return !state.Declined
             }
             // A bare `<ident>++` / `<ident>--` statement (the classic-for increment clause parses to
@@ -618,19 +722,27 @@ class ColumnarIteratorPlanner {
                 }
                 target := nodes.Child(inner, 0)
                 if nodes.Kind(target) != 6 {
-                    state.Decline("emit.iterator.unsupported-shape", "an iterator assignment target must be a bound identifier")
-                    return false
-                }
-                name := nodes.Text(source, target)
-                if state.LookupCanonical(name) == "" {
-                    if state.LookupMemberFieldCanonical(name) != "" {
-                        state.Decline("emit.iterator.unsupported-shape", "assignment to enclosing member '" + name + "' is not lowered in an iterator body (reads only)")
+                    // A MEMBER or INDEXER target is an ordinary store — `ColumnarStoreTargetPlanner`
+                    // decides which member or `set_Item` it selects, and it needs live CLR handles
+                    // this pass does not have. Classification admits the shape and walks both sides
+                    // for suspension points; realization answers precisely.
+                    if !ColumnarStoreTargetPlanner.ClaimsTarget(nodes, target) {
+                        state.Decline("emit.iterator.unsupported-shape", "an iterator assignment target must be a bound identifier, a member or an indexer")
                         return false
                     }
+                    WalkExpression(nodes, source, target, state)
+                    if state.Declined {
+                        return false
+                    }
+                    WalkExpression(nodes, source, nodes.Child(inner, 1), state)
+                    return !state.Declined
+                }
+                name := nodes.Text(source, target)
+                if state.LookupCanonical(name) == "" && state.LookupMemberFieldCanonical(name) == "" {
                     state.Decline("emit.iterator.unsupported-shape", "assignment to an unbound identifier '" + name + "'")
                     return false
                 }
-                WalkExpression(nodes, source, nodes.Child(inner, 1), state)
+                WalkBoundValue(nodes, source, nodes.Child(inner, 1), state)
                 return true
             }
             WalkExpression(nodes, source, inner, state)
@@ -644,7 +756,7 @@ class ColumnarIteratorPlanner {
                 return false
             }
             WalkExpression(nodes, source, nodes.Child(node, 0), state)
-            WalkStatement(nodes, source, nodes.Child(node, 1), state)
+            WalkLoopBody(nodes, source, nodes.Child(node, 1), state)
             return !state.Declined
         }
         if kind == 27 {
@@ -692,71 +804,46 @@ class ColumnarIteratorPlanner {
                 state.Decline("emit.iterator.unsupported-shape", "a for initializer or increment that cannot complete is not lowered in an iterator body")
                 return false
             }
-            WalkStatement(nodes, source, nodes.Child(node, 3), state)
+            WalkLoopBody(nodes, source, nodes.Child(node, 3), state)
             return !state.Declined
         }
         if kind == 72 {
             // YieldStatement: 1 child = yield return (a resume state, falls through at its resume
             // label), 0 children = yield break (transfers to the shared end label — never falls).
             if nodes.ChildCount(node) == 1 {
-                WalkExpression(nodes, source, nodes.Child(node, 0), state)
+                WalkBoundValue(nodes, source, nodes.Child(node, 0), state)
                 state.YieldReturnCount = state.YieldReturnCount + 1
+                state.ResumeRegions[state.YieldReturnCount] = state.CurrentRegion
                 return true
             }
             return false
         }
+        if kind == 49 {
+            return WalkTryStatement(nodes, source, node, state)
+        }
         if kind == 29 {
             // Foreach / `for..in` [source, body], loop-var name in the value span. A hoisted ARRAY
-            // identifier lowers as an index loop over its own length; EVERY OTHER SOURCE lowers through
-            // the sequence's own enumerator, hoisted into a `<>__enum{k}` field inside MoveNext's fault
-            // region. The source is an ordinary expression — a call, a member read, an array literal —
-            // so its element type is resolved at realization from the planned value rather than guessed
-            // from a spelling here. Counters and synthetic names are assigned in walk order, exactly
-            // mirrored by the emit walk.
+            // identifier lowers as an index loop over its own length; EVERY OTHER SOURCE lowers
+            // through the sequence's own enumerator, hoisted into a `<>__enum{k}` field inside
+            // MoveNext's fault region. The source is an ordinary expression — a call, a member read,
+            // an array literal — so its element type is resolved at realization from the planned
+            // value rather than guessed from a spelling here. Counters and synthetic names are
+            // assigned in walk order, exactly mirrored by the emit walk.
             if nodes.ChildCount(node) != 2 {
                 state.Decline("emit.iterator.for-in-unsupported", "unsupported for..in statement in an iterator body")
                 return false
             }
-            sourceNode := nodes.Child(node, 0)
-            if nodes.Kind(sourceNode) == 6 {
-                sourceName := nodes.Text(source, sourceNode)
-                arrayElement := ArrayElementCanonicalOf(state.LookupCanonical(sourceName))
-                if arrayElement != "" && IsLowerableArrayElementCanonical(arrayElement) {
-                    state.AddLocal("<>__index" + state.ForInCount.ToString(), "int")
-                    state.ForInCount = state.ForInCount + 1
-                    state.AddLocal(nodes.Text(source, node), arrayElement)
-                    if state.Declined {
-                        return false
-                    }
-                    // The empty-array exit edge always falls through; the body drives dead-code dropping.
-                    WalkStatement(nodes, source, nodes.Child(node, 1), state)
-                    return !state.Declined
-                }
-            }
-            WalkExpression(nodes, source, sourceNode, state)
-            if state.Declined {
-                return false
-            }
-            if state.IsAsync {
-                // The guarded try/FAULT enumerator layout and the async try/CATCH step core do not
-                // compose yet; async bodies keep the array index loop only.
-                state.Decline("emit.iterator.for-in-unsupported", "`for..in` over a sequence source in an async iterator body is a later slice")
-                return false
-            }
-            state.AddHoistedLocal("<>__enum" + state.EnumeratorCount.ToString(), UnresolvedCanonical(), HoistedEnumeratorFieldRole())
-            state.EnumeratorCount = state.EnumeratorCount + 1
-            state.AddLocal(nodes.Text(source, node), UnresolvedCanonical())
-            if state.Declined {
-                return false
-            }
-            // The exhausted-enumerator exit edge always falls through, like the array form.
-            WalkStatement(nodes, source, nodes.Child(node, 1), state)
-            return !state.Declined
+            return WalkForIn(nodes, source, node, nodes.Child(node, 0), nodes.Child(node, 1), nodes.Text(source, node), "", state)
         }
         if kind == 73 {
-            // AwaitForeachStatement: asynchronous enumeration INSIDE an async iterator body composes two
-            // machines and is a later slice (consumer-side await foreach lowering is separate).
-            state.Decline("emit.iterator.async-await-unsupported", "`await foreach` inside an iterator body is a later slice")
+            // `await foreach` INSIDE a generator body composes two machines, and what it needs that
+            // nothing here has is an AWAIT INSIDE A HANDLER. The inner `IAsyncEnumerator<T>` must be
+            // released by awaiting its `DisposeAsync()` on three paths — the loop's normal exit, an
+            // exception passing through the body, and a consumer that abandons the outer enumeration
+            // — and the last two are handler positions, where a suspension has no resume label to
+            // come back to. Consuming the sequence outside the generator, or enumerating a
+            // synchronous sequence inside it, both work today.
+            state.Decline("emit.iterator.async-await-unsupported", "`await foreach` inside a generator body is not yet lowered: releasing the inner enumerator needs an `await` inside a handler")
             return false
         }
         if kind == 48 {
@@ -775,11 +862,186 @@ class ColumnarIteratorPlanner {
             return false
         }
         if kind == 76 {
-            state.Decline("emit.iterator.for-in-unsupported", "a `for..in` with an annotated loop variable is not yet lowered in an iterator body")
-            return false
+            // TypedForeach: the annotation's source span is the VALUE slot, children are
+            // [name (kind 6), collection, body]. The loop variable's canonical is WRITTEN, so its
+            // hoisted field is defined from the annotation rather than from the element, and each
+            // element is converted to it once per iteration — exactly the ordinary form's rule.
+            if nodes.ChildCount(node) != 3 || nodes.Kind(nodes.Child(node, 0)) != 6 {
+                state.Decline("emit.iterator.for-in-unsupported", "unsupported for..in statement in an iterator body")
+                return false
+            }
+            return WalkForIn(nodes, source, node, nodes.Child(node, 1), nodes.Child(node, 2), nodes.Text(source, nodes.Child(node, 0)), nodes.Text(source, node), state)
         }
         state.Decline("emit.iterator.unsupported-shape", "an iterator body statement (node kind " + kind.ToString() + ") is not yet lowered")
         return false
+    }
+
+    // THE ONE `for..in` CLASSIFICATION, WRITTEN ONCE FOR BOTH SPELLINGS. `for v in e` and
+    // `for v: T in e` differ in exactly one fact — whether the loop variable's type is WRITTEN — so
+    // they share this walk and `declaredCanonical` carries that one difference. An annotated variable
+    // hoists at its annotation (the field's type is what the author wrote); an inferred one hoists
+    // UNRESOLVED and realization defines it from the element the planned source actually produces.
+    static func WalkForIn(nodes: ColumnarNodeTable, source: string, node: int, sourceNode: int, bodyNode: int, varName: string, declaredCanonical: string, state: ColumnarIteratorWalkState): bool {
+        if nodes.Kind(sourceNode) == 6 {
+            sourceName := nodes.Text(source, sourceNode)
+            arrayElement := ArrayElementCanonicalOf(state.LookupCanonical(sourceName))
+            if arrayElement != "" && IsLowerableArrayElementCanonical(arrayElement) {
+                state.AddLocal("<>__index" + state.ForInCount.ToString(), "int")
+                state.ForInCount = state.ForInCount + 1
+                // The LOOP VARIABLE is a fresh binding per iteration in the language and one field in
+                // the machine, so it is recorded at the loop's own depth.
+                state.LoopDepth = state.LoopDepth + 1
+                state.AddLocal(varName, declaredCanonical == "" ? arrayElement : declaredCanonical)
+                state.LoopDepth = state.LoopDepth - 1
+                if state.Declined {
+                    return false
+                }
+                // The empty-array exit edge always falls through; the body drives dead-code dropping.
+                WalkLoopBody(nodes, source, bodyNode, state)
+                return !state.Declined
+            }
+        }
+        WalkExpression(nodes, source, sourceNode, state)
+        if state.Declined {
+            return false
+        }
+        state.AddHoistedLocal("<>__enum" + state.EnumeratorCount.ToString(), UnresolvedCanonical(), HoistedEnumeratorFieldRole())
+        state.EnumeratorCount = state.EnumeratorCount + 1
+        state.LoopDepth = state.LoopDepth + 1
+        state.AddLocal(varName, declaredCanonical == "" ? UnresolvedCanonical() : declaredCanonical)
+        state.LoopDepth = state.LoopDepth - 1
+        if state.Declined {
+            return false
+        }
+        // The exhausted-enumerator exit edge always falls through, like the array form.
+        WalkLoopBody(nodes, source, bodyNode, state)
+        return !state.Declined
+    }
+
+    // A `try` STATEMENT INSIDE A GENERATOR BODY — the shape C# admits, classified.
+    //
+    // A `yield` may appear inside a `try` that has ONLY a `finally` (the handler runs when the body
+    // completes, when an exception passes through, and when a consumer abandons the enumeration and
+    // calls `Dispose`), and nowhere else: not inside a `try` that also declares a `catch`, and not
+    // inside a `catch` or `finally` handler. Those three placements are refused by the analyzer with
+    // NL332; the classification refuses them again here so no shape can reach lowering without a
+    // diagnostic, and the messages are the same sentences.
+    //
+    // Each `try` takes a region ordinal in walk order. A `yield return` inside one records that
+    // region as its resume home, which is what lets MoveNext dispatch to a resume point that lives
+    // inside a protected region (a branch straight into a region is illegal IL). Each catch clause
+    // hoists the exception it binds, exactly like every other local in the body.
+    static func WalkTryStatement(nodes: ColumnarNodeTable, source: string, node: int, state: ColumnarIteratorWalkState): bool {
+        if state.IsAsync {
+            state.Decline("emit.iterator.async-unsupported", "a `try` statement inside an `async func*` body is a later slice")
+            return false
+        }
+        childCount := nodes.ChildCount(node)
+        if childCount < 1 || nodes.Kind(nodes.Child(node, 0)) != 25 {
+            state.Decline("emit.iterator.unsupported-shape", "unsupported try statement in an iterator body")
+            return false
+        }
+        finallyNode := 0 - 1
+        handlerEnd := childCount
+        if childCount >= 2 && nodes.Kind(nodes.Child(node, childCount - 1)) == 25 {
+            finallyNode = nodes.Child(node, childCount - 1)
+            handlerEnd = childCount - 1
+        }
+        catchCount := handlerEnd - 1
+        tryBlock := nodes.Child(node, 0)
+        if ContainsYield(nodes, tryBlock) && catchCount > 0 {
+            state.Decline("emit.iterator.unsupported-shape", YieldInTryWithCatchMessage())
+            return false
+        }
+        c := 1
+        while c < handlerEnd {
+            if ContainsYield(nodes, nodes.Child(node, c)) {
+                state.Decline("emit.iterator.unsupported-shape", YieldInHandlerMessage("catch"))
+                return false
+            }
+            c = c + 1
+        }
+        if finallyNode >= 0 && ContainsYield(nodes, finallyNode) {
+            state.Decline("emit.iterator.unsupported-shape", YieldInHandlerMessage("finally"))
+            return false
+        }
+        if catchCount == 0 && finallyNode < 0 {
+            state.Decline("emit.iterator.unsupported-shape", "a `try` statement needs a `catch` or a `finally` handler")
+            return false
+        }
+
+        region := state.TryRegionCount
+        state.TryRegionParents[region] = state.CurrentRegion
+        state.TryRegionCount = state.TryRegionCount + 1
+        enclosing := state.CurrentRegion
+        state.CurrentRegion = region
+        tryFalls := WalkStatement(nodes, source, tryBlock, state)
+        state.CurrentRegion = enclosing
+        if state.Declined {
+            return false
+        }
+
+        handlersFall := false
+        c = 1
+        while c < handlerEnd {
+            clause := nodes.Child(node, c)
+            if nodes.Kind(clause) != 50 || nodes.ChildCount(clause) < 1 {
+                state.Decline("emit.iterator.unsupported-shape", "unsupported catch clause in an iterator body")
+                return false
+            }
+            state.AddLocal(CatchBindingName(nodes, source, clause, state.CatchCount), CatchTypeCanonical(nodes, source, clause))
+            state.CatchCount = state.CatchCount + 1
+            if state.Declined {
+                return false
+            }
+            if WalkStatement(nodes, source, nodes.Child(clause, nodes.ChildCount(clause) - 1), state) {
+                handlersFall = true
+            }
+            if state.Declined {
+                return false
+            }
+            c = c + 1
+        }
+        if finallyNode >= 0 {
+            if !WalkStatement(nodes, source, finallyNode, state) {
+                // A `finally` that cannot complete would swallow every path through the statement;
+                // the analyzer already refuses control transfers out of one, so the remaining way to
+                // reach this is an unconditional `throw`, which no lowering can resume from.
+                state.Decline("emit.iterator.unsupported-shape", "a `finally` handler that cannot complete is not lowered in an iterator body")
+                return false
+            }
+            if state.Declined {
+                return false
+            }
+        }
+        return tryFalls || handlersFall
+    }
+
+    // The name the caught exception is hoisted under: the clause's own variable when it binds one,
+    // and a synthesized slot otherwise — the handler still needs a typed place to put the exception
+    // the runtime hands it, because a state machine's bindings are fields.
+    static func CatchBindingName(nodes: ColumnarNodeTable, source: string, clause: int, ordinal: int): string {
+        if nodes.ChildCount(clause) == 2 && nodes.Kind(nodes.Child(clause, 0)) == 6 {
+            return nodes.Text(source, nodes.Child(clause, 0))
+        }
+        return "<>__exception" + ordinal.ToString()
+    }
+
+    // The exception type a catch clause selects. A bare `catch` selects `System.Exception`, exactly
+    // as it does in an ordinary body.
+    static func CatchTypeCanonical(nodes: ColumnarNodeTable, source: string, clause: int): string {
+        if nodes.ValueStart(clause) >= 0 {
+            return nodes.Text(source, clause)
+        }
+        return "System.Exception"
+    }
+
+    static func YieldInTryWithCatchMessage(): string {
+        return "a `yield` cannot appear inside a `try` that declares a `catch`; a generator may only suspend inside a `try` whose only handler is `finally`"
+    }
+
+    static func YieldInHandlerMessage(handler: string): string {
+        return "a `yield` cannot appear inside a `" + handler + "` handler"
     }
 
     // THE EXPRESSION WALK NO LONGER CLASSIFIES VALUES, AND THAT IS THE POINT OF THIS OWNER.
@@ -804,7 +1066,7 @@ class ColumnarIteratorPlanner {
                 state.Decline("emit.iterator.unsupported-shape", "`await` is only valid inside an async iterator body")
                 return
             }
-            state.Decline("emit.iterator.async-await-unsupported", "`await` in a value position is not yet lowered in an async iterator body")
+            state.Decline("emit.iterator.async-await-unsupported", "an `await` nested inside a larger expression is not yet lowered in an async iterator body; bind it first (`value := await ...`)")
             return
         }
         if kind == 44 {
@@ -814,9 +1076,7 @@ class ColumnarIteratorPlanner {
             return
         }
         if kind == 39 {
-            // A lambda inside an iterator body captures the state machine's own `this`, which the
-            // closure-display planner has no route to synthesize from a synthesized type.
-            state.Decline("emit.iterator.lambda-unsupported", "a lambda inside an iterator body is not yet lowered")
+            WalkLambda(nodes, source, node, state)
             return
         }
         c := 0
@@ -856,27 +1116,118 @@ class ColumnarIteratorPlanner {
         }
     }
 
-    // A statement-position `await <operand>` (a unit await): a suspension point that resumes at its own
-    // state, exactly like a `yield return`. Classification counts it and admits exactly the operand the
-    // lowering emits — `Task.Delay(<int-expr>)`, the awaited shape the async examples use — so analysis
-    // and emission stay in lockstep. Every other operand declines at a precise site.
-    static func WalkUnitAwait(nodes: ColumnarNodeTable, source: string, node: int, state: ColumnarIteratorWalkState) {
+    // A LAMBDA INSIDE A GENERATOR BODY. The state machine already IS the closure's display: every
+    // parameter and every local of the body lives in one of its fields, and the captured receiver of
+    // an instance generator lives in `<>__this`. So a lambda becomes an instance method ON the
+    // machine, and its capture costs nothing but the `this` it is already built from.
+    //
+    // WHAT THAT CANNOT EXPRESS IS A FRESH BINDING PER ITERATION. A local declared inside a loop is
+    // one field re-used by every iteration; a closure built over it would read whatever the LAST
+    // iteration left, where the language promises each iteration its own. Capturing such a name is
+    // therefore refused rather than lowered to a value nobody wrote. A local declared outside every
+    // loop, a parameter, and an enclosing member are all shared bindings in the language too, so
+    // capturing them is exactly right.
+    static func WalkLambda(nodes: ColumnarNodeTable, source: string, node: int, state: ColumnarIteratorWalkState) {
+        childCount := nodes.ChildCount(node)
+        if childCount < 1 {
+            state.Decline("emit.iterator.lambda-unsupported", "malformed lambda in an iterator body")
+            return
+        }
+        bodyNode := nodes.Child(node, childCount - 1)
+        if nodes.Kind(bodyNode) == 25 {
+            state.Decline("emit.iterator.lambda-unsupported", "a block-bodied lambda inside an iterator body is not yet lowered; write it as a single expression")
+            return
+        }
+        captured := CapturedLoopLocalName(nodes, source, node, state)
+        if captured != "" {
+            state.Decline("emit.iterator.lambda-unsupported", "a lambda inside an iterator body cannot capture '" + captured + "', which is declared inside a loop: a generator holds one field per local, so every iteration would share it")
+            return
+        }
+        WalkExpression(nodes, source, bodyNode, state)
+    }
+
+    // The first name the lambda reads that is a hoisted local declared INSIDE a loop, or "" when it
+    // reads none. The lambda's own parameters shadow the body's bindings and are skipped.
+    static func CapturedLoopLocalName(nodes: ColumnarNodeTable, source: string, lambda: int, state: ColumnarIteratorWalkState): string {
+        childCount := nodes.ChildCount(lambda)
+        parameterNames := new string[](childCount)
+        parameterCount := 0
+        p := 0
+        while p < childCount - 1 {
+            parameterNames[parameterCount] = nodes.Text(source, nodes.Child(lambda, p))
+            parameterCount = parameterCount + 1
+            p = p + 1
+        }
+        return FirstCapturedLoopLocal(nodes, source, nodes.Child(lambda, childCount - 1), parameterNames, parameterCount, state)
+    }
+
+    static func FirstCapturedLoopLocal(nodes: ColumnarNodeTable, source: string, node: int, parameterNames: string[], parameterCount: int, state: ColumnarIteratorWalkState): string {
+        if nodes.Kind(node) == 6 {
+            name := nodes.Text(source, node)
+            shadowed := false
+            p := 0
+            while p < parameterCount {
+                if parameterNames[p] == name {
+                    shadowed = true
+                }
+                p = p + 1
+            }
+            if !shadowed && state.LocalLoopDepthOf(name) > 0 {
+                return name
+            }
+        }
+        c := 0
+        while c < nodes.ChildCount(node) {
+            found := FirstCapturedLoopLocal(nodes, source, nodes.Child(node, c), parameterNames, parameterCount, state)
+            if found != "" {
+                return found
+            }
+            c = c + 1
+        }
+        return ""
+    }
+
+    // A LOOP BODY, walked one nesting level deeper. The depth is what the lambda-capture rule reads:
+    // a local declared here is one field re-used by every iteration, so a closure created here cannot
+    // be given the fresh binding per iteration the language promises.
+    static func WalkLoopBody(nodes: ColumnarNodeTable, source: string, bodyNode: int, state: ColumnarIteratorWalkState): bool {
+        state.LoopDepth = state.LoopDepth + 1
+        fell := WalkStatement(nodes, source, bodyNode, state)
+        state.LoopDepth = state.LoopDepth - 1
+        return fell
+    }
+
+    // A VALUE WHOSE RESULT IS BOUND — the initializer of a declaration, the right-hand side of an
+    // assignment to a binding, the operand of a `yield`. These are the positions where an `await` can
+    // be the WHOLE value, and therefore the positions where a suspension point has somewhere to put
+    // its result: the awaited value lands in the storage the statement already names, so the
+    // suspension needs no spill slot of its own. An `await` nested inside a larger expression does
+    // need one, and declines with that reason rather than silently losing its result.
+    static func WalkBoundValue(nodes: ColumnarNodeTable, source: string, node: int, state: ColumnarIteratorWalkState) {
+        if nodes.Kind(node) == 53 {
+            if !state.IsAsync {
+                state.Decline("emit.iterator.unsupported-shape", "`await` is only valid inside an async iterator body")
+                return
+            }
+            WalkAwait(nodes, source, node, state)
+            return
+        }
+        WalkExpression(nodes, source, node, state)
+    }
+
+    // AN `await <operand>` — a suspension point that resumes at its own state, exactly like a
+    // `yield return`. Classification counts it and walks the operand as the ORDINARY expression it
+    // is; WHICH awaitable it names, and therefore which awaiter type the machine hoists, is a
+    // question that needs live CLR handles, so the emission asks the awaitable pattern
+    // (`GetAwaiter()` / `IsCompleted` / `OnCompleted(Action)` / `GetResult()`) of whatever the
+    // operand's planned type turns out to be.
+    static func WalkAwait(nodes: ColumnarNodeTable, source: string, node: int, state: ColumnarIteratorWalkState) {
         if nodes.ChildCount(node) != 1 {
             state.Decline("emit.iterator.async-await-unsupported", "malformed await expression in an async iterator body")
             return
         }
         state.AwaitCount = state.AwaitCount + 1
-        operand := nodes.Child(node, 0)
-        if nodes.Kind(operand) != 9 || nodes.ChildCount(operand) != 2 {
-            state.Decline("emit.iterator.async-await-unsupported", "only `await Task.Delay(<int>)` awaited operands are lowered in an async iterator body")
-            return
-        }
-        callee := nodes.Child(operand, 0)
-        if nodes.Kind(callee) != 8 || nodes.ChildCount(callee) != 1 || nodes.Text(source, callee) != "Delay" || nodes.Kind(nodes.Child(callee, 0)) != 6 || nodes.Text(source, nodes.Child(callee, 0)) != "Task" || state.LookupReadCanonical("Task") != "" {
-            state.Decline("emit.iterator.async-await-unsupported", "only `await Task.Delay(<int>)` awaited operands are lowered in an async iterator body")
-            return
-        }
-        WalkExpression(nodes, source, nodes.Child(operand, 1), state)
+        WalkExpression(nodes, source, nodes.Child(node, 0), state)
     }
 
     // THE MARKER FOR A HOISTED FIELD WHOSE TYPE REALIZATION RESOLVES. Classification owns a hoisted
@@ -1039,6 +1390,10 @@ class ColumnarIteratorEmitContext {
     EnclosingMethods: MethodInfo[]
     // Async-machine extra: the MoveNextCore handle MoveNextAsync's plan drives (null for sync machines).
     CoreMethod: MethodInfo?
+    // The machine's own MoveNext, published once the realization has defined it. `Dispose` drives it
+    // in dispose mode to unwind a machine abandoned inside a protected region; a machine that cannot
+    // suspend inside one never reads it.
+    MoveNextMethod: MethodInfo?
     // The body's ORDINARY-EXPRESSION scope: the state machine's name bindings expressed as the one
     // fragment-binding contract, so every value in the body reaches the single expression owner.
     Scope: ColumnarIteratorBodyScope?
@@ -1068,6 +1423,7 @@ class ColumnarIteratorEmitContext {
         EnclosingMethodNames = enclosingMethodNames ?? new string[](0)
         EnclosingMethods = enclosingMethods ?? new MethodInfo[](0)
         CoreMethod = coreMethod
+        MoveNextMethod = null
         Builder = builder
         GenericMemberType = genericMemberType
         DeclineSite = ""
@@ -1275,13 +1631,23 @@ class ColumnarMoveNextEmit {
     RegionMode: bool
     ResultLocal: int
     RegionEndLabel: int
+    // FaultGuarded marks the outer try/FAULT wrapper: at depth 0 the code is already inside a
+    // protected region, so every exit is a `leave`. RegionDepth counts the body's own `try`
+    // statements, RegionEntryLabels[k] is the point just before region k's `try` (the only legal way
+    // to reach a resume label inside it), and NextTryRegion assigns ordinals in the same walk order
+    // classification used.
+    FaultGuarded: bool
+    RegionDepth: int
+    RegionEntryLabels: int[]
+    NextTryRegion: int
     // Async mode: yields and awaits share ONE resume-state counter (walk order), awaits number their
     // awaiter fields with NextAwait, and suspension/completion go through the promise/result fields.
     IsAsync: bool
     NextResume: int
     NextAwait: int
+    NextLambda: int
 
-    constructor(plan: ColumnarCodePlan, context: ColumnarIteratorEmitContext, thisArg: int, stateFieldPool: int, resumeLabels: int[], endLabel: int, regionMode: bool, resultLocal: int, regionEndLabel: int, isAsync: bool = false) {
+    constructor(plan: ColumnarCodePlan, context: ColumnarIteratorEmitContext, thisArg: int, stateFieldPool: int, resumeLabels: int[], endLabel: int, regionMode: bool, resultLocal: int, regionEndLabel: int, isAsync: bool = false, faultGuarded: bool = false, regionEntryLabels: int[]? = null) {
         Plan = plan
         Context = context
         ThisArg = thisArg
@@ -1297,25 +1663,46 @@ class ColumnarMoveNextEmit {
         IsAsync = isAsync
         NextResume = 0
         NextAwait = 0
+        NextLambda = 0
+        FaultGuarded = faultGuarded
+        RegionDepth = 0
+        RegionEntryLabels = regionEntryLabels ?? new int[](0)
+        NextTryRegion = 0
     }
+
+    // True where the plan is standing inside a protected region, which is exactly where a branch out
+    // must be a `leave` and a `ret` is illegal.
+    InsideRegion: bool => FaultGuarded || RegionDepth > 0
 }
 
 class ColumnarIteratorBodyPlanner {
 
-    // MoveNext(): the resumable state machine. A dispatch prologue routes each resume state to its label;
-    // state 0 falls through to the body start (state set running = -1); every `yield return` stores current,
-    // sets its resume state, returns true, then resumes by resetting to running; `yield break` and the
-    // natural body end reach the shared end label that returns false. A body with hoisted enumerators
-    // takes the guarded layout instead (the whole dispatch+body inside a try/FAULT region).
+    // MoveNext(): the resumable state machine. A dispatch prologue routes each resume state to its
+    // label; state 0 falls through to the body start (state set running = -1); every `yield return`
+    // stores current, sets its resume state, returns true, then resumes by resetting to running;
+    // `yield break` and the natural body end reach the shared end label that returns false.
+    //
+    // THREE EXIT SHAPES, ONE WALK. A body with no protected region at all returns directly. A body
+    // with hoisted enumerators takes the GUARDED layout — the whole dispatch and body inside a
+    // try/FAULT region that disposes live enumerators — and a body that writes its own `try`
+    // statements takes the same result-local discipline without the outer wrapper. Both of the
+    // latter two stash the result and branch past every region rather than returning inside one,
+    // because ECMA forbids `ret` in a protected region and `leave` is its only legal exit.
     static func BuildMoveNextPlan(context: ColumnarIteratorEmitContext): ColumnarCodePlan {
-        if HoistedEnumeratorFieldCount(context) > 0 {
-            return BuildGuardedMoveNextPlan(context)
-        }
+        faultGuarded := HoistedEnumeratorFieldCount(context) > 0
+        regionCount := context.Shape.TryRegionCount
+        exitViaResult := faultGuarded || regionCount > 0
+
         plan := new ColumnarCodePlan()
         plan.PrepareMethodBody()
         smTypeIdx := plan.AddType(context.StructuralTypeReferences.SelectRuntimeType(context.StateMachineType), context.StructuralTypeReferences)
         thisArg := plan.AddArgument(0, smTypeIdx)
         stateFieldPool := plan.AddField(context.FieldForName("<>__state"))
+        resultLocal := 0
+        if exitViaResult {
+            boolTypeIdx := plan.AddType(context.StructuralTypeReferences.SelectRuntimeType(typeof(bool)), context.StructuralTypeReferences)
+            resultLocal = plan.DeclarePlanLocal(boolTypeIdx)
+        }
 
         yieldCount := context.Shape.YieldReturnCount
         resumeLabels := new int[](yieldCount + 1)
@@ -1325,8 +1712,21 @@ class ColumnarIteratorBodyPlanner {
             s = s + 1
         }
         endLabel := plan.DefineLabel()
-        emit := new ColumnarMoveNextEmit(plan, context, thisArg, stateFieldPool, resumeLabels, endLabel, false, 0, 0)
+        regionEnd := 0
+        if exitViaResult {
+            regionEnd = plan.DefineLabel()
+        }
+        regionEntryLabels := new int[](regionCount)
+        k := 0
+        while k < regionCount {
+            regionEntryLabels[k] = plan.DefineLabel()
+            k = k + 1
+        }
+        emit := new ColumnarMoveNextEmit(plan, context, thisArg, stateFieldPool, resumeLabels, endLabel, exitViaResult, resultLocal, regionEnd, false, faultGuarded, regionEntryLabels)
 
+        if faultGuarded {
+            plan.AppendBeginExceptionBlock(regionEnd)
+        }
         AppendMoveNextDispatch(emit, yieldCount)
 
         EmitStatement(emit, context.BodyRoot)
@@ -1339,55 +1739,21 @@ class ColumnarIteratorBodyPlanner {
 
         plan.AppendMarkLabel(endLabel)
         EmitInt(emit, 0)
-        plan.AppendInstructionWithoutOperand(ColumnarCodePlanContract.Ret())
-        plan.CompleteMethodBody(typeof(bool))
-        return plan
-    }
-
-    // The guarded MoveNext layout (Roslyn's iterator discipline): try { dispatch + body } fault
-    // { dispose live enumerators }. Suspension stores the result local and `leave`s past the region
-    // (leave never runs a fault handler); each MoveNext call re-enters the region at its start and the
-    // in-region dispatch branches to the resume label, which is how IL legally resumes inside a
-    // protected region. The done/finish path is an in-region label that leaves with result 0.
-    static func BuildGuardedMoveNextPlan(context: ColumnarIteratorEmitContext): ColumnarCodePlan {
-        plan := new ColumnarCodePlan()
-        plan.PrepareMethodBody()
-        smTypeIdx := plan.AddType(context.StructuralTypeReferences.SelectRuntimeType(context.StateMachineType), context.StructuralTypeReferences)
-        thisArg := plan.AddArgument(0, smTypeIdx)
-        stateFieldPool := plan.AddField(context.FieldForName("<>__state"))
-        boolTypeIdx := plan.AddType(context.StructuralTypeReferences.SelectRuntimeType(typeof(bool)), context.StructuralTypeReferences)
-        resultLocal := plan.DeclarePlanLocal(boolTypeIdx)
-
-        yieldCount := context.Shape.YieldReturnCount
-        resumeLabels := new int[](yieldCount + 1)
-        s := 1
-        while s <= yieldCount {
-            resumeLabels[s] = plan.DefineLabel()
-            s = s + 1
-        }
-        endLabel := plan.DefineLabel()
-        regionEnd := plan.DefineLabel()
-        emit := new ColumnarMoveNextEmit(plan, context, thisArg, stateFieldPool, resumeLabels, endLabel, true, resultLocal, regionEnd)
-
-        plan.AppendBeginExceptionBlock(regionEnd)
-        AppendMoveNextDispatch(emit, yieldCount)
-
-        EmitStatement(emit, context.BodyRoot)
-        if context.Declined {
-            // A declined body leaves the plan half-built on purpose: the caller reports the decline and
-            // never executes it, and completing a plan whose labels and regions were abandoned mid-walk
-            // would report the ABANDONMENT rather than the shape that could not be lowered.
+        if !exitViaResult {
+            plan.AppendInstructionWithoutOperand(ColumnarCodePlanContract.Ret())
+            plan.CompleteMethodBody(typeof(bool))
             return plan
         }
 
-        plan.AppendMarkLabel(endLabel)
-        EmitInt(emit, 0)
         plan.AppendPlanLocalInstruction(ColumnarCodePlanContract.Stloc(), resultLocal)
-        plan.AppendLabelInstruction(ColumnarCodePlanContract.Leave(), regionEnd)
-
-        plan.AppendBeginFaultBlock()
-        AppendEnumeratorDisposals(plan, context, thisArg)
-        plan.AppendEndExceptionBlock()
+        if faultGuarded {
+            plan.AppendLabelInstruction(ColumnarCodePlanContract.Leave(), regionEnd)
+            plan.AppendBeginFaultBlock()
+            AppendEnumeratorDisposals(plan, context, thisArg)
+            plan.AppendEndExceptionBlock()
+        } else {
+            plan.AppendMarkLabel(regionEnd)
+        }
 
         plan.AppendPlanLocalInstruction(ColumnarCodePlanContract.Ldloc(), resultLocal)
         plan.AppendInstructionWithoutOperand(ColumnarCodePlanContract.Ret())
@@ -1419,7 +1785,7 @@ class ColumnarIteratorBodyPlanner {
         }
         endLabel := plan.DefineLabel()
         regionEnd := plan.DefineLabel()
-        emit := new ColumnarMoveNextEmit(plan, context, thisArg, stateFieldPool, resumeLabels, endLabel, true, 0, regionEnd, true)
+        emit := new ColumnarMoveNextEmit(plan, context, thisArg, stateFieldPool, resumeLabels, endLabel, true, 0, regionEnd, true, true)
 
         plan.AppendBeginExceptionBlock(regionEnd)
         AppendMoveNextDispatch(emit, resumeCount)
@@ -1439,6 +1805,11 @@ class ColumnarIteratorBodyPlanner {
         plan.AppendBeginCatchBlock(exTypeIdx)
         plan.AppendPlanLocalInstruction(ColumnarCodePlanContract.Stloc(), exLocal)
         StoreState(emit, ColumnarIteratorPlanner.DoneState())
+        // The exceptional path releases whatever the body was enumerating. A synchronous machine
+        // does this from a FAULT handler; the async core already has to catch — an exception has to
+        // reach the pending call's promise rather than this frame's caller — so the disposal rides
+        // the handler it already has.
+        AppendEnumeratorDisposals(plan, context, thisArg)
         promPool := FieldPool(emit, "<>__promise")
         exViaPromise := plan.DefineLabel()
         LoadThis(emit)
@@ -1512,14 +1883,17 @@ class ColumnarIteratorBodyPlanner {
         return plan
     }
 
-    // DisposeAsync(): mark the machine done and complete synchronously (default ValueTask). No async
-    // machine holds a hoisted enumerator (the walk declines them), so there is nothing to release.
+    // DisposeAsync(): release whatever the body was still enumerating, mark the machine done, and
+    // complete synchronously (default ValueTask). A consumer that stops an `await foreach` part-way
+    // calls this while the machine is suspended inside a loop, which is exactly when a hoisted
+    // enumerator is live.
     static func BuildDisposeAsyncPlan(context: ColumnarIteratorEmitContext): ColumnarCodePlan {
         plan := new ColumnarCodePlan()
         plan.PrepareMethodBody()
         smTypeIdx := plan.AddType(context.StructuralTypeReferences.SelectRuntimeType(context.StateMachineType), context.StructuralTypeReferences)
         thisArg := plan.AddArgument(0, smTypeIdx)
         statePool := plan.AddField(context.FieldForName("<>__state"))
+        AppendEnumeratorDisposals(plan, context, thisArg)
         plan.AppendArgumentInstruction(ColumnarCodePlanContract.Ldarg(), thisArg)
         plan.AppendInt32Instruction(ColumnarCodePlanContract.LdcI4(), plan.AddInt32(ColumnarIteratorPlanner.DoneState()))
         plan.AppendFieldInstruction(ColumnarCodePlanContract.Stfld(), statePool)
@@ -1547,20 +1921,56 @@ class ColumnarIteratorBodyPlanner {
 
     // The state dispatch: each resume state branches to its label; any other non-zero state (running or
     // done) reaches the end label; state 0 falls through into a fresh run.
+    //
+    // A resume point that lives inside a `try` cannot be branched to from here — a branch INTO a
+    // protected region is illegal IL — so its state branches to the ENTRY of the outermost `try` that
+    // contains it. Control then enters that region normally and the region's own dispatch (emitted as
+    // its first rows) repeats the question one level down, until the resume label itself is reachable
+    // from inside every region it stands in.
     static func AppendMoveNextDispatch(emit: ColumnarMoveNextEmit, yieldCount: int) {
-        s := 1
-        while s <= yieldCount {
-            LoadThis(emit)
-            emit.Plan.AppendFieldInstruction(ColumnarCodePlanContract.Ldfld(), emit.StateFieldPool)
-            EmitInt(emit, s)
-            emit.Plan.AppendInstructionWithoutOperand(ColumnarCodePlanContract.Ceq())
-            emit.Plan.AppendLabelInstruction(ColumnarCodePlanContract.Brtrue(), emit.ResumeLabels[s])
-            s = s + 1
-        }
+        AppendStateDispatch(emit, yieldCount, 0 - 1)
         LoadThis(emit)
         emit.Plan.AppendFieldInstruction(ColumnarCodePlanContract.Ldfld(), emit.StateFieldPool)
         emit.Plan.AppendLabelInstruction(ColumnarCodePlanContract.Brtrue(), emit.EndLabel)
         StoreState(emit, ColumnarIteratorPlanner.RunningState())
+    }
+
+    // One dispatch level. `region` is the region the rows are being emitted inside (-1 for the method
+    // prologue); every resume state whose home is that region — or any region nested inside it —
+    // branches to the next hop on the way there.
+    static func AppendStateDispatch(emit: ColumnarMoveNextEmit, yieldCount: int, region: int) {
+        s := 1
+        while s <= yieldCount {
+            target := DispatchTargetFor(emit, s, region)
+            if target >= 0 {
+                LoadThis(emit)
+                emit.Plan.AppendFieldInstruction(ColumnarCodePlanContract.Ldfld(), emit.StateFieldPool)
+                EmitInt(emit, s)
+                emit.Plan.AppendInstructionWithoutOperand(ColumnarCodePlanContract.Ceq())
+                emit.Plan.AppendLabelInstruction(ColumnarCodePlanContract.Brtrue(), target)
+            }
+            s = s + 1
+        }
+    }
+
+    // The label a dispatch emitted inside `region` must branch to so that resume state `s` is
+    // reached: its own resume label when the state's home IS this region, the entry of the child
+    // region on the path when it is nested deeper, and -1 when the state does not live under this
+    // region at all (an enclosing dispatch already routed it, or will).
+    static func DispatchTargetFor(emit: ColumnarMoveNextEmit, s: int, region: int): int {
+        home := emit.Context.Shape.ResumeRegionOf(s)
+        if home == region {
+            return emit.ResumeLabels[s]
+        }
+        parents := emit.Context.Shape.TryRegionParents
+        hop := home
+        while hop >= 0 && hop < parents.Length {
+            if parents[hop] == region {
+                return emit.RegionEntryLabels[hop]
+            }
+            hop = parents[hop]
+        }
+        return 0 - 1
     }
 
     static func HoistedEnumeratorFieldCount(context: ColumnarIteratorEmitContext): int {
@@ -1573,6 +1983,48 @@ class ColumnarIteratorBodyPlanner {
             i = i + 1
         }
         return count
+    }
+
+    // THE ABANDONED-MACHINE UNWIND. A consumer that stops early calls `Dispose` while the machine is
+    // suspended, and every `finally` it is standing inside still has to run. The machine already
+    // knows how to get back to that exact point — its own state dispatch — so `Dispose` sets the
+    // dispose flag and drives `MoveNext` once: the resume point marks the machine running, sees the
+    // flag, and branches to the end label, which leaves every open region and lets the runtime run
+    // each `finally` on the way out, innermost first. Only the states that suspended INSIDE a region
+    // are driven; everything else has nothing to unwind.
+    static func AppendDisposeModeUnwind(plan: ColumnarCodePlan, context: ColumnarIteratorEmitContext, thisArg: int, statePool: int) {
+        moveNext := context.MoveNextMethod
+        if moveNext == null || !context.HasHoistedField(ColumnarIteratorPlanner.DisposeModeFieldName()) {
+            return
+        }
+        shape := context.Shape
+        unwindLabel := plan.DefineLabel()
+        skipLabel := plan.DefineLabel()
+        driven := false
+        s := 1
+        while s <= shape.YieldReturnCount {
+            if shape.ResumeRegionOf(s) >= 0 {
+                plan.AppendArgumentInstruction(ColumnarCodePlanContract.Ldarg(), thisArg)
+                plan.AppendFieldInstruction(ColumnarCodePlanContract.Ldfld(), statePool)
+                plan.AppendInt32Instruction(ColumnarCodePlanContract.LdcI4(), plan.AddInt32(s))
+                plan.AppendInstructionWithoutOperand(ColumnarCodePlanContract.Ceq())
+                plan.AppendLabelInstruction(ColumnarCodePlanContract.Brtrue(), unwindLabel)
+                driven = true
+            }
+            s = s + 1
+        }
+        if !driven {
+            throw new InvalidOperationException("A machine with a dispose flag must suspend inside at least one protected region.")
+        }
+        plan.AppendLabelInstruction(ColumnarCodePlanContract.Br(), skipLabel)
+        plan.AppendMarkLabel(unwindLabel)
+        plan.AppendArgumentInstruction(ColumnarCodePlanContract.Ldarg(), thisArg)
+        plan.AppendInt32Instruction(ColumnarCodePlanContract.LdcI4(), plan.AddInt32(1))
+        plan.AppendFieldInstruction(ColumnarCodePlanContract.Stfld(), plan.AddField(context.FieldForName(ColumnarIteratorPlanner.DisposeModeFieldName())))
+        plan.AppendArgumentInstruction(ColumnarCodePlanContract.Ldarg(), thisArg)
+        plan.AppendMethodInstruction(ColumnarCodePlanContract.Callvirt(), plan.AddMethod(moveNext))
+        plan.AppendInstructionWithoutOperand(ColumnarCodePlanContract.Pop())
+        plan.AppendMarkLabel(skipLabel)
     }
 
     // Null-checked disposal (+ null-out) of every hoisted enumerator field: the fault handler's body,
@@ -1644,6 +2096,7 @@ class ColumnarIteratorBodyPlanner {
         thisArg := plan.AddArgument(0, smTypeIdx)
         statePool := plan.AddField(context.FieldForName("<>__state"))
         donePool := plan.AddInt32(ColumnarIteratorPlanner.DoneState())
+        AppendDisposeModeUnwind(plan, context, thisArg, statePool)
         AppendEnumeratorDisposals(plan, context, thisArg)
         plan.AppendArgumentInstruction(ColumnarCodePlanContract.Ldarg(), thisArg)
         plan.AppendInt32Instruction(ColumnarCodePlanContract.LdcI4(), donePool)
@@ -1834,6 +2287,19 @@ class ColumnarIteratorBodyPlanner {
         return emit.Plan.AddField(emit.Context.FieldForName(name))
     }
 
+    // A branch to a label at the BODY's own level (the shared end label). It crosses out of every
+    // `try` the body wrote, so it is a `leave` exactly when one of those is open; the outer fault
+    // wrapper, when there is one, encloses the end label too and is not crossed.
+    static func AppendBodyExit(emit: ColumnarMoveNextEmit, label: int) {
+        emit.Plan.AppendLabelInstruction(emit.RegionDepth > 0 ? ColumnarCodePlanContract.Leave() : ColumnarCodePlanContract.Br(), label)
+    }
+
+    // A branch to the label past EVERY region — where the method's single `ret` stands. It crosses
+    // the outer fault wrapper as well, so any open region at all makes it a `leave`.
+    static func AppendMethodExit(emit: ColumnarMoveNextEmit, label: int) {
+        emit.Plan.AppendLabelInstruction(emit.InsideRegion ? ColumnarCodePlanContract.Leave() : ColumnarCodePlanContract.Br(), label)
+    }
+
     // THE ONE EXPRESSION DOOR. A value inside a `func*` body is planned by the SAME owner that plans a
     // value inside an ordinary function body — `ColumnarMethodBodyPlanner.TryAppendValue` — against
     // bindings in which this body's names resolve to the machine's fields. Nothing about a call, a
@@ -1877,6 +2343,9 @@ class ColumnarIteratorBodyPlanner {
         if emit.Context.Declined {
             return false
         }
+        if emit.Context.Nodes.Kind(node) == 39 {
+            return AppendLambda(emit, node, storageType)
+        }
         // The iterator-owned value forms take the ordinary value path plus the storage conversion; only
         // target-typed forms need the position's type handed down.
         if emit.Context.Nodes.Kind(node) == 44 {
@@ -1900,6 +2369,193 @@ class ColumnarIteratorBodyPlanner {
         emit.Plan.Rollback(checkpoint)
         emit.Context.Decline("emit.iterator.unsupported-shape", "an iterator body value (node kind " + emit.Context.Nodes.Kind(node).ToString() + ") could not be lowered as '" + storageType.Name + "'")
         return false
+    }
+
+    // A VALUE STORED INTO ONE OF THE MACHINE'S FIELDS, which is the only place an `await` can be the
+    // whole value. A suspension point branches out of the method, and ECMA requires an EMPTY
+    // evaluation stack at a `leave` — so an awaited value cannot be produced with the receiver of its
+    // own store already pushed. The await therefore runs FIRST, parks its result in a plan local, and
+    // only then is `this` loaded and the field written. Every other value keeps the ordinary order:
+    // receiver, value, store.
+    static func AppendBoundFieldStore(emit: ColumnarMoveNextEmit, valueNode: int, fieldPool: int, storageType: Type): bool {
+        if emit.Context.Nodes.Kind(valueNode) != 53 {
+            LoadThis(emit)
+            if !AppendStoredValue(emit, valueNode, storageType) {
+                return false
+            }
+            emit.Plan.AppendFieldInstruction(ColumnarCodePlanContract.Stfld(), fieldPool)
+            return true
+        }
+
+        awaitedType := VoidReturnType()
+        if !AppendAwait(emit, valueNode, out awaitedType) {
+            return false
+        }
+        if ColumnarCodePlanExecutor.IsVoidType(awaitedType) {
+            emit.Context.Decline("emit.iterator.async-await-unsupported", "this `await` produces no value to bind")
+            return false
+        }
+        spill := emit.Plan.DeclarePlanLocal(emit.Plan.AddType(emit.Context.StructuralTypeReferences.SelectRuntimeType(awaitedType), emit.Context.StructuralTypeReferences))
+        emit.Plan.AppendPlanLocalInstruction(ColumnarCodePlanContract.Stloc(), spill)
+        LoadThis(emit)
+        emit.Plan.AppendPlanLocalInstruction(ColumnarCodePlanContract.Ldloc(), spill)
+        if awaitedType != storageType && !emit.Context.RequiredScope().TryAppendStorageConversion(emit.Plan, awaitedType, storageType) {
+            emit.Context.Decline("emit.iterator.async-await-unsupported", "an awaited '" + awaitedType.Name + "' cannot be stored as '" + storageType.Name + "'")
+            return false
+        }
+        emit.Plan.AppendFieldInstruction(ColumnarCodePlanContract.Stfld(), fieldPool)
+        return true
+    }
+
+    // The type a bound value produces, without appending anything that runs. An `await`'s type is what
+    // its awaiter's `GetResult()` returns, which is one ordinary member lookup away from the operand's
+    // own planned type.
+    static func TryDiscoverBoundValueType(emit: ColumnarMoveNextEmit, node: int, out resultType: Type): bool {
+        resultType = typeof(int)
+        nodes := emit.Context.Nodes
+        if nodes.Kind(node) != 53 {
+            return emit.Context.RequiredScope().TryDiscoverValueType(nodes, emit.Context.Source, node, out resultType)
+        }
+        if nodes.ChildCount(node) != 1 {
+            return false
+        }
+        operandType := typeof(int)
+        if !emit.Context.RequiredScope().TryDiscoverValueType(nodes, emit.Context.Source, nodes.Child(node, 0), out operandType) {
+            return false
+        }
+        getAwaiter := ParameterlessMethodOrNull(operandType, "GetAwaiter")
+        if getAwaiter == null {
+            return false
+        }
+        getResult := ParameterlessMethodOrNull(getAwaiter.get_ReturnType(), "GetResult")
+        if getResult == null {
+            return false
+        }
+        resultType = getResult.get_ReturnType()
+        return !ColumnarCodePlanExecutor.IsVoidType(resultType)
+    }
+
+    // A LAMBDA, AS A METHOD ON THE STATE MACHINE ITSELF.
+    //
+    // A generator has already hoisted every parameter and every local of its body into a field of its
+    // own machine, so the machine IS the closure's display class — there is no second object to
+    // synthesize, and no capture to copy. The lambda becomes a private INSTANCE method on the machine
+    // whose argument 0 is that machine, and the delegate is built from the machine the body is
+    // already running on: `ldarg.0; ldftn <>__lambdaK; newobj <Delegate>..ctor`. An instance
+    // generator's enclosing members reach the same way they reach from the body, through `<>__this`.
+    //
+    // The lambda's SIGNATURE is the delegate's own `Invoke`, so the target type decides the parameter
+    // types and the result — the same rule an ordinary lambda conversion follows. Its body is planned
+    // by the ONE expression door, against a scope that differs from the body's in exactly one way:
+    // the lambda's parameters are arguments of its own.
+    static func AppendLambda(emit: ColumnarMoveNextEmit, node: int, delegateType: Type): bool {
+        nodes := emit.Context.Nodes
+        source := emit.Context.Source
+        invoke := DelegateInvokeOrNull(delegateType)
+        if invoke == null {
+            emit.Context.Decline("emit.iterator.lambda-unsupported", "a lambda in an iterator body needs a delegate type to convert to, not '" + delegateType.Name + "'")
+            return false
+        }
+        constructor := DelegateConstructorOrNull(delegateType)
+        if constructor == null {
+            emit.Context.Decline("emit.iterator.lambda-unsupported", "'" + delegateType.Name + "' has no (object, native int) constructor to build a lambda from")
+            return false
+        }
+        builder := emit.Context.Builder
+        if builder == null {
+            emit.Context.Decline("emit.iterator.lambda-unsupported", "a lambda in an iterator body requires the state-machine builder")
+            return false
+        }
+
+        invokeParameters := invoke.GetParameters()
+        childCount := nodes.ChildCount(node)
+        if childCount - 1 != invokeParameters.Length {
+            emit.Context.Decline("emit.iterator.lambda-unsupported", "this lambda declares " + (childCount - 1).ToString() + " parameter(s) but '" + delegateType.Name + "' takes " + invokeParameters.Length.ToString())
+            return false
+        }
+        parameterTypes := new Type[](invokeParameters.Length)
+        parameterOrdinals := new Dictionary<string, int>(StringComparer.Ordinal)
+        parameterTypeMap := new Dictionary<string, Type>(StringComparer.Ordinal)
+        p := 0
+        while p < invokeParameters.Length {
+            parameterTypes[p] = invokeParameters[p].get_ParameterType()
+            parameterName := nodes.Text(source, nodes.Child(node, p))
+            parameterOrdinals[parameterName] = p + 1
+            parameterTypeMap[parameterName] = parameterTypes[p]
+            p = p + 1
+        }
+        returnType: Type = invoke.get_ReturnType()
+
+        lambdaName := "<>__lambda" + emit.NextLambda.ToString()
+        emit.NextLambda = emit.NextLambda + 1
+        lambdaMethod := builder.DefineMethod(lambdaName, MethodAttributes.Private | MethodAttributes.HideBySig, returnType, parameterTypes)
+        if !AppendLambdaBody(emit, nodes.Child(node, childCount - 1), lambdaMethod, parameterOrdinals, parameterTypeMap, returnType) {
+            return false
+        }
+
+        lambdaHandle: MethodInfo = lambdaMethod
+        instantiation := emit.Context.GenericMemberType
+        if instantiation != null {
+            lambdaHandle = TypeBuilder.GetMethod(instantiation, lambdaMethod)
+        }
+        LoadThis(emit)
+        emit.Plan.AppendMethodInstruction(ColumnarCodePlanContract.Ldftn(), emit.Plan.AddMethod(lambdaHandle))
+        emit.Plan.AppendConstructorInstruction(ColumnarCodePlanContract.Newobj(), emit.Plan.AddConstructor(constructor))
+        return true
+    }
+
+    // The lambda's own body, planned into its own method. It is an EXPRESSION body — a block-bodied
+    // lambda is refused at classification — so the whole method is the value plus a `ret`.
+    static func AppendLambdaBody(emit: ColumnarMoveNextEmit, bodyNode: int, lambdaMethod: MethodBuilder, parameterOrdinals: Dictionary<string, int>, parameterTypes: Dictionary<string, Type>, returnType: Type): bool {
+        context := emit.Context
+        scope := ColumnarIteratorBodyScope.Create(context.StateMachineType, context.RequiredScope().Facts, null, parameterOrdinals, parameterTypes)
+        index := 0
+        while index < context.FieldNames.Length && index < context.Fields.Length {
+            if context.Fields[index] != null {
+                scope.PublishField(context.FieldNames[index], context.Fields[index])
+            }
+            index = index + 1
+        }
+        if scope.HasField("<>__this") {
+            receiver := scope.FieldHandle("<>__this")
+            member := 0
+            while member < context.EnclosingFieldNames.Length && member < context.EnclosingFields.Length {
+                scope.PublishEnclosingMember(context.EnclosingFieldNames[member], receiver, context.EnclosingFields[member])
+                member = member + 1
+            }
+        }
+
+        plan := new ColumnarCodePlan()
+        plan.PrepareMethodBody()
+        plan.AddArgument(0, plan.AddType(context.StructuralTypeReferences.SelectRuntimeType(context.StateMachineType), context.StructuralTypeReferences))
+        if !scope.TryAppendTargetTypedValue(context.Nodes, context.Source, bodyNode, plan, returnType) {
+            context.Decline("emit.iterator.lambda-unsupported", "the body of a lambda in an iterator body could not be lowered as '" + returnType.Name + "'")
+            return false
+        }
+        plan.AppendInstructionWithoutOperand(ColumnarCodePlanContract.Ret())
+        plan.CompleteMethodBody(returnType)
+        ColumnarCodePlanExecutor.Execute(plan, lambdaMethod.GetILGenerator())
+        return true
+    }
+
+    // A delegate's `Invoke`, which is the signature a lambda converted to it must have.
+    static func DelegateInvokeOrNull(delegateType: Type): MethodInfo? {
+        if delegateType == null || !typeof(Delegate).IsAssignableFrom(delegateType) {
+            return null
+        }
+        return delegateType.GetMethod("Invoke")
+    }
+
+    // The `(object, native int)` constructor every delegate declares, which is the second half of a
+    // delegate creation.
+    static func DelegateConstructorOrNull(delegateType: Type): ConstructorInfo? {
+        if delegateType == null || !typeof(Delegate).IsAssignableFrom(delegateType) {
+            return null
+        }
+        parameters := new Type[](2)
+        parameters[0] = typeof(object)
+        parameters[1] = typeof(IntPtr)
+        return delegateType.GetConstructor(parameters)
     }
 
     // A condition: an ordinary value the branch rows consume as a Boolean.
@@ -1942,12 +2598,9 @@ class ColumnarIteratorBodyPlanner {
             // initializer leaves the field at its default — nothing to store.
             if nodes.ChildCount(node) >= 2 {
                 name := nodes.Text(source, nodes.Child(node, 0))
-                fieldPool := FieldPool(emit, name)
-                LoadThis(emit)
-                if !AppendStoredValue(emit, nodes.Child(node, 1), emit.Context.FieldForName(name).get_FieldType()) {
+                if !AppendBoundFieldStore(emit, nodes.Child(node, 1), FieldPool(emit, name), emit.Context.FieldForName(name).get_FieldType()) {
                     return false
                 }
-                emit.Plan.AppendFieldInstruction(ColumnarCodePlanContract.Stfld(), fieldPool)
             }
             return true
         }
@@ -1957,7 +2610,7 @@ class ColumnarIteratorBodyPlanner {
             // the field is defined from it, and only then do the real rows go down in evaluation order.
             name := nodes.Text(source, node)
             initializerType := typeof(int)
-            if !emit.Context.RequiredScope().TryDiscoverValueType(nodes, source, nodes.Child(node, 0), out initializerType) {
+            if !TryDiscoverBoundValueType(emit, nodes.Child(node, 0), out initializerType) {
                 emit.Context.Decline("emit.iterator.unsupported-shape", "the initializer of local '" + name + "' could not be lowered in an iterator body")
                 return false
             }
@@ -1966,12 +2619,9 @@ class ColumnarIteratorBodyPlanner {
                 emit.Context.Decline("emit.iterator.unsupported-shape", "local '" + name + "' cannot be hoisted as '" + initializerType.Name + "' in an iterator body")
                 return false
             }
-            fieldPool := FieldPool(emit, name)
-            LoadThis(emit)
-            if !AppendStoredValue(emit, nodes.Child(node, 0), initializerType) {
+            if !AppendBoundFieldStore(emit, nodes.Child(node, 0), FieldPool(emit, name), initializerType) {
                 return false
             }
-            emit.Plan.AppendFieldInstruction(ColumnarCodePlanContract.Stfld(), fieldPool)
             return true
         }
         if kind == 23 {
@@ -2048,8 +2698,11 @@ class ColumnarIteratorBodyPlanner {
                 EmitYieldReturn(emit, nodes.Child(node, 0))
                 return !emit.Context.Declined
             }
-            emit.Plan.AppendLabelInstruction(ColumnarCodePlanContract.Br(), emit.EndLabel)
+            AppendBodyExit(emit, emit.EndLabel)
             return false
+        }
+        if kind == 49 {
+            return EmitTryStatement(emit, node)
         }
         if kind == 28 {
             // For [init, cond, incr, body]: `init` runs once (its local is a hoisted field), then the
@@ -2082,18 +2735,13 @@ class ColumnarIteratorBodyPlanner {
         if kind == 29 {
             // for..in [source, body]: a hoisted ARRAY field takes the index loop; every other source
             // takes the hoisted-enumerator loop — mirroring the walk.
-            if nodes.Kind(nodes.Child(node, 0)) != 6 {
-                return EmitEnumerableForIn(emit, node)
-            }
-            sourceName := nodes.Text(source, nodes.Child(node, 0))
-            if !emit.Context.HasHoistedField(sourceName) {
-                return EmitEnumerableForIn(emit, node)
-            }
-            sourceCanonical := emit.Context.FieldCanonicalForName(sourceName)
-            if ColumnarIteratorPlanner.ArrayElementCanonicalOf(sourceCanonical) == "" {
-                return EmitEnumerableForIn(emit, node)
-            }
-            return EmitArrayForIn(emit, node, sourceName)
+            return EmitForIn(emit, nodes.Child(node, 0), nodes.Child(node, 1), nodes.Text(source, node))
+        }
+        if kind == 76 {
+            // The ANNOTATED spelling: name in child 0, collection in child 1, body in child 2. The
+            // loop variable's field was defined from the annotation, so the element is converted to
+            // it — the same conversion the ordinary form performs, once per iteration.
+            return EmitForIn(emit, nodes.Child(node, 1), nodes.Child(node, 2), nodes.Text(source, nodes.Child(node, 0)))
         }
         if kind == 48 {
             // throw <expression>: the ordinary value owner builds the exception, then `throw`. A throw
@@ -2109,23 +2757,130 @@ class ColumnarIteratorBodyPlanner {
         return false
     }
 
+    // THE PROTECTED REGION A GENERATOR BODY WRITES. The `try` becomes a real EH clause whose resume
+    // points live INSIDE it, so the region opens with its own state dispatch: the enclosing dispatch
+    // could only branch to the region's entry, and this is the hop that finishes the journey.
+    //
+    // The `finally` handler is guarded by the machine's own state. A handler runs on every way out of
+    // a protected region, and a `yield return` leaves one — but suspending is not leaving the
+    // statement, so its handler must not run. The state says which happened: a suspension stored its
+    // resume state (a positive number) just before branching out, while a normal completion, an
+    // exception in flight and a dispose-driven unwind are all still marked running (-1). `state < 0`
+    // is therefore exactly "this exit is final", and it is the same test the C# compiler emits.
+    static func EmitTryStatement(emit: ColumnarMoveNextEmit, node: int): bool {
+        nodes := emit.Context.Nodes
+        childCount := nodes.ChildCount(node)
+        finallyNode := 0 - 1
+        handlerEnd := childCount
+        if childCount >= 2 && nodes.Kind(nodes.Child(node, childCount - 1)) == 25 {
+            finallyNode = nodes.Child(node, childCount - 1)
+            handlerEnd = childCount - 1
+        }
+
+        region := emit.NextTryRegion
+        emit.NextTryRegion = emit.NextTryRegion + 1
+        emit.Plan.AppendMarkLabel(emit.RegionEntryLabels[region])
+        regionEnd := emit.Plan.DefineLabel()
+        emit.Plan.AppendBeginExceptionBlock(regionEnd)
+        emit.RegionDepth = emit.RegionDepth + 1
+        AppendStateDispatch(emit, emit.Context.Shape.YieldReturnCount, region)
+
+        tryFalls := EmitStatement(emit, nodes.Child(node, 0))
+        if emit.Context.Declined {
+            return false
+        }
+        if tryFalls {
+            AppendBodyExit(emit, regionEnd)
+        }
+
+        handlersFall := false
+        catchOrdinal := 0
+        c := 1
+        while c < handlerEnd {
+            clause := nodes.Child(node, c)
+            catchFalls := false
+            if !EmitCatchClause(emit, clause, catchOrdinal, regionEnd, out catchFalls) {
+                return false
+            }
+            if catchFalls {
+                handlersFall = true
+            }
+            catchOrdinal = catchOrdinal + 1
+            c = c + 1
+        }
+
+        if finallyNode >= 0 {
+            emit.Plan.AppendBeginFinallyBlock()
+            skipLabel := emit.Plan.DefineLabel()
+            LoadThis(emit)
+            emit.Plan.AppendFieldInstruction(ColumnarCodePlanContract.Ldfld(), emit.StateFieldPool)
+            EmitInt(emit, 0)
+            emit.Plan.AppendInstructionWithoutOperand(ColumnarCodePlanContract.Clt())
+            emit.Plan.AppendLabelInstruction(ColumnarCodePlanContract.Brfalse(), skipLabel)
+            EmitStatement(emit, finallyNode)
+            if emit.Context.Declined {
+                return false
+            }
+            emit.Plan.AppendMarkLabel(skipLabel)
+        }
+
+        emit.Plan.AppendEndExceptionBlock()
+        emit.RegionDepth = emit.RegionDepth - 1
+        return tryFalls || handlersFall
+    }
+
+    // One `catch` handler. The runtime hands the exception on the stack; a state machine's bindings
+    // are FIELDS, so it is parked in a plan local and stored into the hoisted slot classification
+    // reserved for this clause — the clause's own variable when it names one, and a synthesized slot
+    // otherwise, which is what gives a bare `catch` a typed handler at all.
+    static func EmitCatchClause(emit: ColumnarMoveNextEmit, clause: int, ordinal: int, regionEnd: int, out fellThrough: bool): bool {
+        fellThrough = false
+        nodes := emit.Context.Nodes
+        if nodes.Kind(clause) != 50 || nodes.ChildCount(clause) < 1 {
+            emit.Context.Decline("emit.iterator.unsupported-shape", "unsupported catch clause in an iterator body")
+            return false
+        }
+        name := ColumnarIteratorPlanner.CatchBindingName(nodes, emit.Context.Source, clause, ordinal)
+        field := emit.Context.FieldForName(name)
+        exceptionType := field.get_FieldType()
+        typeIdx := emit.Plan.AddType(emit.Context.StructuralTypeReferences.SelectRuntimeType(exceptionType), emit.Context.StructuralTypeReferences)
+        emit.Plan.AppendBeginCatchBlock(typeIdx)
+        caught := emit.Plan.DeclarePlanLocal(typeIdx)
+        emit.Plan.AppendPlanLocalInstruction(ColumnarCodePlanContract.Stloc(), caught)
+        LoadThis(emit)
+        emit.Plan.AppendPlanLocalInstruction(ColumnarCodePlanContract.Ldloc(), caught)
+        emit.Plan.AppendFieldInstruction(ColumnarCodePlanContract.Stfld(), emit.Plan.AddField(field))
+
+        fell := EmitStatement(emit, nodes.Child(clause, nodes.ChildCount(clause) - 1))
+        if emit.Context.Declined {
+            return false
+        }
+        if fell {
+            AppendBodyExit(emit, regionEnd)
+        }
+        fellThrough = fell
+        return true
+    }
+
     // `target = value` / `target op= value` where the target is a hoisted binding. The plain form is a
     // store; the compound form reads the field, applies the binary operator's own opcode selection for
     // the field's exact type, and stores back — the single arithmetic owner chooses the instruction.
     static func EmitAssignment(emit: ColumnarMoveNextEmit, node: int): bool {
         nodes := emit.Context.Nodes
         source := emit.Context.Source
-        name := nodes.Text(source, nodes.Child(node, 0))
+        target := nodes.Child(node, 0)
+        if nodes.Kind(target) != 6 {
+            return EmitStoreTargetAssignment(emit, node, target)
+        }
+        name := nodes.Text(source, target)
+        if !emit.Context.HasHoistedField(name) {
+            return EmitEnclosingMemberAssignment(emit, node, name)
+        }
         fieldPool := FieldPool(emit, name)
         fieldType := emit.Context.FieldForName(name).get_FieldType()
         assignOperator := nodes.Text(source, node)
         if assignOperator == "=" || assignOperator.Length == 0 {
-            LoadThis(emit)
-            if !AppendStoredValue(emit, nodes.Child(node, 1), fieldType) {
-                return false
-            }
-            emit.Plan.AppendFieldInstruction(ColumnarCodePlanContract.Stfld(), fieldPool)
-            return true
+            return AppendBoundFieldStore(emit, nodes.Child(node, 1), fieldPool, fieldType)
         }
         if assignOperator.Length != 2 || assignOperator[1] != '=' {
             emit.Context.Decline("emit.iterator.unsupported-shape", "the assignment operator '" + assignOperator + "' is not yet lowered in an iterator body")
@@ -2147,18 +2902,155 @@ class ColumnarIteratorBodyPlanner {
         return true
     }
 
+    // `member = value` FROM AN INSTANCE GENERATOR, where `member` is a field of the enclosing type.
+    // The machine captured its receiver as `<>__this`, so the store is the same two-hop write a
+    // closure performs through the display it captured: `ldarg.0; ldfld <>__this; <value>; stfld`. The
+    // READ of the same name is already the two-hop load the body scope publishes, so a write and a
+    // read of one member now agree about where it lives.
+    static func EmitEnclosingMemberAssignment(emit: ColumnarMoveNextEmit, node: int, name: string): bool {
+        nodes := emit.Context.Nodes
+        index := emit.Context.EnclosingFieldIndex(name)
+        if index < 0 || !emit.Context.HasHoistedField("<>__this") {
+            emit.Context.Decline("emit.iterator.unsupported-shape", "assignment to an unbound identifier '" + name + "'")
+            return false
+        }
+
+        assignOperator := nodes.Text(emit.Context.Source, node)
+        memberField := emit.Context.EnclosingFields[index]
+        fieldType := memberField.get_FieldType()
+        if memberField.get_IsInitOnly() || memberField.get_IsLiteral() {
+            emit.Context.Decline("emit.iterator.unsupported-shape", "'" + name + "' is read-only and cannot be assigned")
+            return false
+        }
+
+        receiverPool := FieldPool(emit, "<>__this")
+        memberPool := emit.Plan.AddField(memberField)
+        if assignOperator.Length != 0 && assignOperator != "=" {
+            if assignOperator.Length != 2 || assignOperator[1] != '=' {
+                emit.Context.Decline("emit.iterator.unsupported-shape", "the assignment operator '" + assignOperator + "' is not yet lowered in an iterator body")
+                return false
+            }
+            LoadThis(emit)
+            emit.Plan.AppendFieldInstruction(ColumnarCodePlanContract.Ldfld(), receiverPool)
+            LoadThis(emit)
+            emit.Plan.AppendFieldInstruction(ColumnarCodePlanContract.Ldfld(), receiverPool)
+            emit.Plan.AppendFieldInstruction(ColumnarCodePlanContract.Ldfld(), memberPool)
+            if !AppendStoredValue(emit, nodes.Child(node, 1), fieldType) {
+                return false
+            }
+            resultType := typeof(int)
+            if !ColumnarPrimitiveBinaryPlanner.TryAppendArithmeticOperator(assignOperator.Substring(0, 1), fieldType, emit.Context.RequiredScope().Bindings, emit.Plan, out resultType) || resultType != fieldType {
+                emit.Context.Decline("emit.iterator.unsupported-shape", "a compound assignment of '" + fieldType.Name + "' with '" + assignOperator + "' is not yet lowered in an iterator body")
+                return false
+            }
+            emit.Plan.AppendFieldInstruction(ColumnarCodePlanContract.Stfld(), memberPool)
+            return true
+        }
+
+        LoadThis(emit)
+        emit.Plan.AppendFieldInstruction(ColumnarCodePlanContract.Ldfld(), receiverPool)
+        if !AppendStoredValue(emit, nodes.Child(node, 1), fieldType) {
+            return false
+        }
+        emit.Plan.AppendFieldInstruction(ColumnarCodePlanContract.Stfld(), memberPool)
+        return true
+    }
+
+    // `receiver.Member = value` / `receiver[index] = value` INSIDE A GENERATOR. The store is planned by
+    // the one store owner against the machine's own bindings, so the member a name selects, the
+    // `set_Item` an index list selects and the conversion the stored value takes are all the same
+    // answers the identical statement gets in a plain function body. Only `=` reaches here: a compound
+    // form would evaluate the receiver twice, and this owner does not yet hold the single-evaluation
+    // temporaries that requires.
+    static func EmitStoreTargetAssignment(emit: ColumnarMoveNextEmit, node: int, target: int): bool {
+        nodes := emit.Context.Nodes
+        assignOperator := nodes.Text(emit.Context.Source, node)
+        if assignOperator.Length != 0 && assignOperator != "=" {
+            emit.Context.Decline("emit.iterator.unsupported-shape", "a compound assignment to a member or an indexer is not yet lowered in an iterator body")
+            return false
+        }
+
+        declineReason := ""
+        if !ColumnarStoreTargetPlanner.TryAppendStore(nodes, emit.Context.Source, target, nodes.Child(node, 1), emit.Context.RequiredScope().Bindings, emit.Plan, out declineReason) {
+            emit.Context.Decline("emit.iterator.unsupported-shape", declineReason)
+            return false
+        }
+        return true
+    }
+
+    // THE ONE `for..in` EMISSION, for both spellings. A hoisted ARRAY identifier takes the index loop
+    // over its own length; every other source takes the hoisted-enumerator loop. Which spelling was
+    // written changes nothing here except the type the element is stored at, which the loop
+    // variable's own field already records.
+    static func EmitForIn(emit: ColumnarMoveNextEmit, sourceNode: int, bodyNode: int, varName: string): bool {
+        nodes := emit.Context.Nodes
+        if nodes.Kind(sourceNode) != 6 {
+            return EmitEnumerableForIn(emit, sourceNode, bodyNode, varName)
+        }
+        sourceName := nodes.Text(emit.Context.Source, sourceNode)
+        if !emit.Context.HasHoistedField(sourceName) {
+            return EmitEnumerableForIn(emit, sourceNode, bodyNode, varName)
+        }
+        // THE SAME TEST THE WALK MADE. Classification hoists an `<>__index{k}` slot only for an
+        // array element the index loop can load, so the emission has to ask the identical question:
+        // an array of any other element goes through its enumerator, exactly as the walk assumed.
+        arrayElement := ColumnarIteratorPlanner.ArrayElementCanonicalOf(emit.Context.FieldCanonicalForName(sourceName))
+        if arrayElement == "" || !ColumnarIteratorPlanner.IsLowerableArrayElementCanonical(arrayElement) {
+            return EmitEnumerableForIn(emit, sourceNode, bodyNode, varName)
+        }
+        return EmitArrayForIn(emit, sourceName, bodyNode, varName)
+    }
+
+    // THE TYPE THE LOOP VARIABLE IS STORED AT, and the conversion the element takes to reach it. An
+    // INFERRED variable's field is defined here from the element type, so there is no conversion; an
+    // ANNOTATED one's field was already defined from the type the author wrote, and the element
+    // converts to it the way a cast does — a downcast out of `object`, an unboxing, or a numeric
+    // conversion. A conversion that does not exist is the loop's own decline, and the analyzer has
+    // already reported NL330 for the same pair.
+    static func TryResolveLoopVariableStorage(emit: ColumnarMoveNextEmit, varName: string, elementType: Type, out storageType: Type): bool {
+        storageType = elementType
+        loopField: FieldInfo? = null
+        if emit.Context.TryEnsureHoistedField(varName, elementType, out loopField) {
+            return true
+        }
+        if !emit.Context.HasHoistedField(varName) {
+            emit.Context.Decline("emit.iterator.for-in-unsupported", "the `for..in` element '" + varName + "' could not be hoisted as '" + elementType.Name + "'")
+            return false
+        }
+        declared := emit.Context.FieldForName(varName).get_FieldType()
+        if !ColumnarCastConversionPlanner.CanAppendCast(elementType, declared) {
+            emit.Context.Decline("emit.iterator.for-in-unsupported", "a '" + elementType.Name + "' cannot be read as a '" + declared.Name + "' by the annotated loop variable '" + varName + "'")
+            return false
+        }
+        storageType = declared
+        return true
+    }
+
+    static func AppendLoopVariableConversion(emit: ColumnarMoveNextEmit, elementType: Type, storageType: Type): bool {
+        if elementType == storageType {
+            return true
+        }
+        if !ColumnarCastConversionPlanner.TryAppendCast(emit.Plan, elementType, storageType, emit.Context.StructuralTypeReferences) {
+            emit.Context.Decline("emit.iterator.for-in-unsupported", "a '" + elementType.Name + "' cannot be read as a '" + storageType.Name + "'")
+            return false
+        }
+        return true
+    }
+
     // for..in over a hoisted ARRAY field: the index loop over its own length, with the element load the
     // ordinary indexer owner emits.
-    static func EmitArrayForIn(emit: ColumnarMoveNextEmit, node: int, sourceName: string): bool {
-        nodes := emit.Context.Nodes
-        source := emit.Context.Source
+    static func EmitArrayForIn(emit: ColumnarMoveNextEmit, sourceName: string, bodyNode: int, varName: string): bool {
         indexName := "<>__index" + emit.NextForIn.ToString()
         emit.NextForIn = emit.NextForIn + 1
-        varName := nodes.Text(source, node)
         arrayPool := FieldPool(emit, sourceName)
         indexPool := FieldPool(emit, indexName)
+        arrayType := emit.Context.FieldForName(sourceName).get_FieldType()
+        elementType: Type = arrayType.GetElementType()
+        storageType := elementType
+        if !TryResolveLoopVariableStorage(emit, varName, elementType, out storageType) {
+            return false
+        }
         varPool := FieldPool(emit, varName)
-        elementType := emit.Context.FieldForName(varName).get_FieldType()
         // index = 0
         LoadThis(emit)
         EmitInt(emit, 0)
@@ -2182,8 +3074,11 @@ class ColumnarIteratorBodyPlanner {
         LoadThis(emit)
         emit.Plan.AppendFieldInstruction(ColumnarCodePlanContract.Ldfld(), indexPool)
         ColumnarRangeIndexPlanner.AppendArrayElementLoad(emit.Plan, elementType)
+        if !AppendLoopVariableConversion(emit, elementType, storageType) {
+            return false
+        }
         emit.Plan.AppendFieldInstruction(ColumnarCodePlanContract.Stfld(), varPool)
-        if EmitStatement(emit, nodes.Child(node, 1)) {
+        if EmitStatement(emit, bodyNode) {
             // index = index + 1
             LoadThis(emit)
             LoadThis(emit)
@@ -2205,15 +3100,14 @@ class ColumnarIteratorBodyPlanner {
     // the `IEnumerable<T>` the loop enumerates. `this.enumK = <source>.GetEnumerator()`, then
     // MoveNext/get_Current callvirts; the loop's normal exit disposes and nulls the enumerator inline
     // (the fault handler and Dispose() cover the exceptional and suspended-abandonment paths).
-    static func EmitEnumerableForIn(emit: ColumnarMoveNextEmit, node: int): bool {
+    static func EmitEnumerableForIn(emit: ColumnarMoveNextEmit, sourceNode: int, bodyNode: int, varName: string): bool {
         nodes := emit.Context.Nodes
         source := emit.Context.Source
         enumName := "<>__enum" + emit.NextEnumerator.ToString()
         emit.NextEnumerator = emit.NextEnumerator + 1
-        varName := nodes.Text(source, node)
 
         sourceType := typeof(int)
-        if !emit.Context.RequiredScope().TryDiscoverValueType(nodes, source, nodes.Child(node, 0), out sourceType) {
+        if !emit.Context.RequiredScope().TryDiscoverValueType(nodes, source, sourceNode, out sourceType) {
             emit.Context.Decline("emit.iterator.for-in-unsupported", "the `for..in` source could not be lowered in an iterator body")
             return false
         }
@@ -2228,9 +3122,8 @@ class ColumnarIteratorBodyPlanner {
             emit.Context.Decline("emit.iterator.for-in-unsupported", "the `for..in` enumerator over '" + elementType.Name + "' could not be hoisted")
             return false
         }
-        loopField: FieldInfo? = null
-        if !emit.Context.TryEnsureHoistedField(varName, elementType, out loopField) {
-            emit.Context.Decline("emit.iterator.for-in-unsupported", "the `for..in` element '" + varName + "' could not be hoisted as '" + elementType.Name + "'")
+        storageType := elementType
+        if !TryResolveLoopVariableStorage(emit, varName, elementType, out storageType) {
             return false
         }
 
@@ -2243,7 +3136,7 @@ class ColumnarIteratorBodyPlanner {
         // this.enum = <source>.GetEnumerator()
         LoadThis(emit)
         sequenceType := typeof(int)
-        if !AppendValue(emit, nodes.Child(node, 0), out sequenceType) {
+        if !AppendValue(emit, sourceNode, out sequenceType) {
             return false
         }
         emit.Plan.AppendMethodInstruction(ColumnarCodePlanContract.Callvirt(), getEnumeratorPool)
@@ -2261,8 +3154,11 @@ class ColumnarIteratorBodyPlanner {
         LoadThis(emit)
         emit.Plan.AppendFieldInstruction(ColumnarCodePlanContract.Ldfld(), enumPool)
         emit.Plan.AppendMethodInstruction(ColumnarCodePlanContract.Callvirt(), currentPool)
+        if !AppendLoopVariableConversion(emit, elementType, storageType) {
+            return false
+        }
         emit.Plan.AppendFieldInstruction(ColumnarCodePlanContract.Stfld(), varPool)
-        if EmitStatement(emit, nodes.Child(node, 1)) {
+        if EmitStatement(emit, bodyNode) {
             emit.Plan.AppendLabelInstruction(ColumnarCodePlanContract.Br(), condLabel)
         }
         if emit.Context.Declined {
@@ -2566,15 +3462,35 @@ class ColumnarIteratorBodyPlanner {
         StoreState(emit, resumeState)
         EmitInt(emit, 1)
         if emit.RegionMode {
-            // Suspension inside the protected region: stash the result and `leave` to the ret outside
-            // (leave never runs the fault handler, so live enumerators survive the suspension).
+            // Suspension inside a protected region: stash the result and branch to the ret outside
+            // every region. A `leave` never runs a FAULT handler, so live enumerators survive the
+            // suspension; a `finally` the suspension leaves behind is skipped by its own state guard,
+            // because the resume state this just stored is not negative.
             emit.Plan.AppendPlanLocalInstruction(ColumnarCodePlanContract.Stloc(), emit.ResultLocal)
-            emit.Plan.AppendLabelInstruction(ColumnarCodePlanContract.Leave(), emit.RegionEndLabel)
+            AppendMethodExit(emit, emit.RegionEndLabel)
         } else {
             emit.Plan.AppendInstructionWithoutOperand(ColumnarCodePlanContract.Ret())
         }
         emit.Plan.AppendMarkLabel(emit.ResumeLabels[resumeState])
         StoreState(emit, ColumnarIteratorPlanner.RunningState())
+        AppendDisposeModeExit(emit, resumeState)
+    }
+
+    // THE ABANDONMENT PATH. A machine that suspended inside a `try` is resumed by `Dispose` with the
+    // dispose flag set: it marks itself running (so every state-guarded `finally` will fire) and
+    // branches straight to the end label, which crosses out of every region it was standing in and
+    // makes the runtime run each `finally` on the way, innermost first. A resume point in
+    // unprotected code has nothing to unwind and carries no check at all.
+    static func AppendDisposeModeExit(emit: ColumnarMoveNextEmit, resumeState: int) {
+        if emit.Context.Shape.ResumeRegionOf(resumeState) < 0 || !emit.Context.HasHoistedField(ColumnarIteratorPlanner.DisposeModeFieldName()) {
+            return
+        }
+        continueLabel := emit.Plan.DefineLabel()
+        LoadThis(emit)
+        emit.Plan.AppendFieldInstruction(ColumnarCodePlanContract.Ldfld(), FieldPool(emit, ColumnarIteratorPlanner.DisposeModeFieldName()))
+        emit.Plan.AppendLabelInstruction(ColumnarCodePlanContract.Brfalse(), continueLabel)
+        AppendBodyExit(emit, emit.EndLabel)
+        emit.Plan.AppendMarkLabel(continueLabel)
     }
 
     // Async `yield return`: store current, set the yield-resume state (the SHARED resume counter),
@@ -2582,12 +3498,9 @@ class ColumnarIteratorBodyPlanner {
     static func EmitAsyncYieldReturn(emit: ColumnarMoveNextEmit, valueNode: int) {
         emit.NextResume = emit.NextResume + 1
         resumeState := emit.NextResume
-        currentPool := FieldPool(emit, "<>__current")
-        LoadThis(emit)
-        if !AppendStoredValue(emit, valueNode, emit.Context.ElementType) {
+        if !AppendBoundFieldStore(emit, valueNode, FieldPool(emit, "<>__current"), emit.Context.ElementType) {
             return
         }
-        emit.Plan.AppendFieldInstruction(ColumnarCodePlanContract.Stfld(), currentPool)
         StoreState(emit, resumeState)
         EmitAsyncComplete(emit, 1)
         emit.Plan.AppendMarkLabel(emit.ResumeLabels[resumeState])
@@ -2615,32 +3528,78 @@ class ColumnarIteratorBodyPlanner {
         emit.Plan.AppendLabelInstruction(ColumnarCodePlanContract.Leave(), emit.RegionEndLabel)
     }
 
-    // A unit await (`await Task.Delay(<int>)` — the walk admitted exactly this shape): store the
-    // awaiter, fast-path a completed one, otherwise suspend — set the await-resume state, ensure the
-    // promise (TaskCreationOptions.RunContinuationsAsynchronously so completions never re-enter this
-    // frame), register the re-drive continuation, and leave with the pending call unresolved. The
-    // resume label re-enters through the dispatch, marks running, and falls into GetResult.
-    static func EmitUnitAwait(emit: ColumnarMoveNextEmit, awaitNode: int) {
+    // A SUSPENSION POINT, FOR ANY AWAITABLE. The operand is an ordinary expression planned by the one
+    // expression owner; the awaitable PATTERN is then asked of whatever type it produced — the same
+    // four members C# asks for, resolved by ordinary CLR member lookup rather than from a table of
+    // known tasks:
+    //
+    //     this.<>__awaiterK = <operand>.GetAwaiter()
+    //     if (awaiter.IsCompleted) goto fast
+    //     state = <resume>; ensure the promise; awaiter.OnCompleted(this.<>__continuation); leave
+    //   resume:
+    //     state = running
+    //   fast:
+    //     <result> = awaiter.GetResult(); reset the awaiter slot
+    //
+    // The promise is created with RunContinuationsAsynchronously so a completion never re-enters this
+    // frame. `resultType` is what `GetResult()` returned — `System.Void` for a unit await, and the
+    // awaited value for a bound one, which is left on the stack for the statement that binds it.
+    static func AppendAwait(emit: ColumnarMoveNextEmit, awaitNode: int, out resultType: Type): bool {
+        resultType = VoidReturnType()
+        operand := emit.Context.Nodes.Child(awaitNode, 0)
+        operandType := typeof(int)
+        if !emit.Context.RequiredScope().TryDiscoverValueType(emit.Context.Nodes, emit.Context.Source, operand, out operandType) {
+            emit.Context.Decline("emit.iterator.async-await-unsupported", "the awaited operand could not be lowered in an async iterator body")
+            return false
+        }
+        getAwaiter := ParameterlessMethodOrNull(operandType, "GetAwaiter")
+        if getAwaiter == null {
+            emit.Context.Decline("emit.iterator.async-await-unsupported", "'" + operandType.Name + "' is not awaitable: it has no `GetAwaiter()`")
+            return false
+        }
+        awaiterType: Type = getAwaiter.get_ReturnType()
+        isCompleted := ParameterlessMethodOrNull(awaiterType, "get_IsCompleted")
+        getResult := ParameterlessMethodOrNull(awaiterType, "GetResult")
+        onCompleted := ActionMethodOrNull(awaiterType, "OnCompleted")
+        if isCompleted == null || getResult == null || onCompleted == null {
+            emit.Context.Decline("emit.iterator.async-await-unsupported", "'" + awaiterType.Name + "' is not an awaiter: it needs `IsCompleted`, `OnCompleted(Action)` and `GetResult()`")
+            return false
+        }
+
         emit.NextResume = emit.NextResume + 1
         resumeState := emit.NextResume
         awaiterName := "<>__awaiter" + emit.NextAwait.ToString()
         emit.NextAwait = emit.NextAwait + 1
+        awaiterField: FieldInfo? = null
+        if !emit.Context.TryEnsureHoistedField(awaiterName, awaiterType, out awaiterField) {
+            emit.Context.Decline("emit.iterator.async-await-unsupported", "the awaiter for '" + operandType.Name + "' could not be hoisted")
+            return false
+        }
         awPool := FieldPool(emit, awaiterName)
         promPool := FieldPool(emit, "<>__promise")
-        operand := emit.Context.Nodes.Child(awaitNode, 0)
-        // this.<>__awaiterK = Task.Delay(<arg>).GetAwaiter()
+        byAddress := awaiterType.get_IsValueType()
+
+        // this.<>__awaiterK = <operand>.GetAwaiter()
         LoadThis(emit)
-        if !AppendStoredValue(emit, emit.Context.Nodes.Child(operand, 1), typeof(int)) {
-            return
+        plannedOperandType := typeof(int)
+        if !AppendValue(emit, operand, out plannedOperandType) {
+            return false
         }
-        emit.Plan.AppendMethodInstruction(ColumnarCodePlanContract.Call(), emit.Plan.AddMethod(TaskDelayMethod()))
-        emit.Plan.AppendMethodInstruction(ColumnarCodePlanContract.Callvirt(), emit.Plan.AddMethod(TaskGetAwaiterMethod()))
+        if operandType.get_IsValueType() {
+            // An instance call on a STRUCT needs a managed pointer, and the operand is a value on the
+            // stack; park it in a temporary and call through its address. The receiver of the store
+            // (`this`) is already below it and is untouched.
+            operandTemp := emit.Plan.DeclarePlanLocal(emit.Plan.AddType(emit.Context.StructuralTypeReferences.SelectRuntimeType(operandType), emit.Context.StructuralTypeReferences))
+            emit.Plan.AppendPlanLocalInstruction(ColumnarCodePlanContract.Stloc(), operandTemp)
+            emit.Plan.AppendPlanLocalInstruction(ColumnarCodePlanContract.Ldloca(), operandTemp)
+        }
+        emit.Plan.AppendMethodInstruction(InstanceCallOpcode(operandType), emit.Plan.AddMethod(getAwaiter))
         emit.Plan.AppendFieldInstruction(ColumnarCodePlanContract.Stfld(), awPool)
+
         fastLabel := emit.Plan.DefineLabel()
         havePromise := emit.Plan.DefineLabel()
-        LoadThis(emit)
-        emit.Plan.AppendFieldInstruction(ColumnarCodePlanContract.Ldflda(), awPool)
-        emit.Plan.AppendMethodInstruction(ColumnarCodePlanContract.Call(), emit.Plan.AddMethod(AwaiterIsCompletedGetter()))
+        AppendAwaiterReceiver(emit, awPool, byAddress)
+        emit.Plan.AppendMethodInstruction(AwaiterCallOpcode(byAddress), emit.Plan.AddMethod(isCompleted))
         emit.Plan.AppendLabelInstruction(ColumnarCodePlanContract.Brtrue(), fastLabel)
         StoreState(emit, resumeState)
         LoadThis(emit)
@@ -2651,27 +3610,78 @@ class ColumnarIteratorBodyPlanner {
         emit.Plan.AppendConstructorInstruction(ColumnarCodePlanContract.Newobj(), emit.Plan.AddConstructor(PromiseConstructor()))
         emit.Plan.AppendFieldInstruction(ColumnarCodePlanContract.Stfld(), promPool)
         emit.Plan.AppendMarkLabel(havePromise)
-        LoadThis(emit)
-        emit.Plan.AppendFieldInstruction(ColumnarCodePlanContract.Ldflda(), awPool)
+        AppendAwaiterReceiver(emit, awPool, byAddress)
         LoadThis(emit)
         emit.Plan.AppendFieldInstruction(ColumnarCodePlanContract.Ldfld(), FieldPool(emit, "<>__continuation"))
-        emit.Plan.AppendMethodInstruction(ColumnarCodePlanContract.Call(), emit.Plan.AddMethod(AwaiterOnCompletedMethod()))
+        emit.Plan.AppendMethodInstruction(AwaiterCallOpcode(byAddress), emit.Plan.AddMethod(onCompleted))
         emit.Plan.AppendLabelInstruction(ColumnarCodePlanContract.Leave(), emit.RegionEndLabel)
         emit.Plan.AppendMarkLabel(emit.ResumeLabels[resumeState])
         StoreState(emit, ColumnarIteratorPlanner.RunningState())
         emit.Plan.AppendMarkLabel(fastLabel)
-        LoadThis(emit)
-        emit.Plan.AppendFieldInstruction(ColumnarCodePlanContract.Ldflda(), awPool)
-        emit.Plan.AppendMethodInstruction(ColumnarCodePlanContract.Call(), emit.Plan.AddMethod(AwaiterGetResultMethod()))
-        awaiterTypeIdx := emit.Plan.AddType(emit.Context.StructuralTypeReferences.SelectRuntimeType(TaskAwaiterRuntimeType()), emit.Context.StructuralTypeReferences)
-        LoadThis(emit)
-        emit.Plan.AppendFieldInstruction(ColumnarCodePlanContract.Ldflda(), awPool)
-        emit.Plan.AppendTypeInstruction(ColumnarCodePlanContract.Initobj(), awaiterTypeIdx)
+        AppendAwaiterReceiver(emit, awPool, byAddress)
+        emit.Plan.AppendMethodInstruction(AwaiterCallOpcode(byAddress), emit.Plan.AddMethod(getResult))
+        resultType = getResult.get_ReturnType()
+
+        // Release whatever the awaiter held: a struct awaiter is re-initialized in place, a reference
+        // one is nulled out, so a completed suspension never keeps its continuation state alive.
+        if byAddress {
+            LoadThis(emit)
+            emit.Plan.AppendFieldInstruction(ColumnarCodePlanContract.Ldflda(), awPool)
+            emit.Plan.AppendTypeInstruction(ColumnarCodePlanContract.Initobj(), emit.Plan.AddType(emit.Context.StructuralTypeReferences.SelectRuntimeType(awaiterType), emit.Context.StructuralTypeReferences))
+        } else {
+            LoadThis(emit)
+            emit.Plan.AppendInstructionWithoutOperand(ColumnarCodePlanContract.Ldnull())
+            emit.Plan.AppendFieldInstruction(ColumnarCodePlanContract.Stfld(), awPool)
+        }
+        return true
     }
 
-    // `<ident>++` / `<ident>--` on a hoisted numeric field. keepValue pushes the PRE-step value first
-    // (N# postfix semantics); the step itself is a load/add-or-sub/store through `this`, with the
-    // instruction chosen by the single arithmetic owner for the field's exact type.
+    // A statement-position `await <operand>`: the same suspension, with a result nothing binds.
+    static func EmitUnitAwait(emit: ColumnarMoveNextEmit, awaitNode: int) {
+        resultType := VoidReturnType()
+        if !AppendAwait(emit, awaitNode, out resultType) {
+            return
+        }
+        if !ColumnarCodePlanExecutor.IsVoidType(resultType) {
+            emit.Plan.AppendInstructionWithoutOperand(ColumnarCodePlanContract.Pop())
+        }
+    }
+
+    // The awaiter as a CALL RECEIVER: a struct awaiter is called through the address of its own
+    // field (a copy would throw the continuation state away); a reference awaiter is loaded.
+    static func AppendAwaiterReceiver(emit: ColumnarMoveNextEmit, awaiterPool: int, byAddress: bool) {
+        LoadThis(emit)
+        emit.Plan.AppendFieldInstruction(byAddress ? ColumnarCodePlanContract.Ldflda() : ColumnarCodePlanContract.Ldfld(), awaiterPool)
+    }
+
+    static func AwaiterCallOpcode(byAddress: bool): short {
+        return byAddress ? ColumnarCodePlanContract.Call() : ColumnarCodePlanContract.Callvirt()
+    }
+
+    static func InstanceCallOpcode(receiverType: Type): short {
+        return receiverType.get_IsValueType() ? ColumnarCodePlanContract.Call() : ColumnarCodePlanContract.Callvirt()
+    }
+
+    // A public parameterless instance method, by ordinary CLR lookup. `null` when the type does not
+    // have one, which is how "this is not awaitable" is discovered rather than asserted.
+    static func ParameterlessMethodOrNull(owner: Type, name: string): MethodInfo? {
+        if owner == null || owner.get_IsGenericParameter() {
+            return null
+        }
+        return owner.GetMethod(name, BindingFlags.Public | BindingFlags.Instance, null, new Type[](0), null)
+    }
+
+    // A public instance method taking exactly one `System.Action`.
+    static func ActionMethodOrNull(owner: Type, name: string): MethodInfo? {
+        if owner == null || owner.get_IsGenericParameter() {
+            return null
+        }
+        actionType := typeof(Action)
+        parameters := new Type[](1)
+        parameters[0] = actionType
+        return owner.GetMethod(name, BindingFlags.Public | BindingFlags.Instance, null, parameters, null)
+    }
+
     static func EmitPostfixStep(emit: ColumnarMoveNextEmit, node: int, keepValue: bool) {
         nodes := emit.Context.Nodes
         source := emit.Context.Source
