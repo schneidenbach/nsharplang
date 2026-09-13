@@ -1566,6 +1566,109 @@ For external methods with multiple overloads:
   as ambiguous rather than selected by declaration or reflection order.
 - N# overload groups use the same principle: argument types and conversion specificity decide the
   unique best candidate; incompatible candidates and equal-best ties are diagnostics.
+
+#### `AnalyzerOverloadSpecificity` — "better function member", one owner, three callers (census 2026-09-13, OVERLOAD)
+
+The score ladder rates two candidates the same whenever neither parameter is the argument's own type,
+and until this owner existed the tie was broken by ORDER: declaration order in the source world,
+metadata order in the reflected one. `Assert.Single(x.EnumerateArray())` bound the non-generic
+`Single(IEnumerable): object?` over `Single<T>(IEnumerable<T>): T`, and the call's type silently
+became `object?` (24 of the converted census's 29 `this value` NL905s).
+
+`AnalyzerOverloadSpecificity` is ECMA-334 §12.6.4.3 stated once. It takes BOOLEANS, not types, so the
+three worlds supply their own conversion oracle and share only the decision:
+
+- `CompareConversionTargets(leftIsIdentity, rightIsIdentity, leftToRight, rightToLeft)` — one
+  argument position's verdict. Identity first (the argument's own type wins the position), then the
+  more specific type (the one that converts to the other and not back).
+- `FoldArgumentVerdicts` — ALL-OR-NOTHING. A candidate that wins one position and loses another is
+  not better, it is INCOMPARABLE, and incomparable is what NL414 reports.
+- `CompareTieBreaks(parameterTypesIdentical, …)` — non-generic over generic (gated on the substituted
+  parameter types being IDENTICAL), normal form over an expanded `params` tail, fewer defaults.
+- `FindMaximalIndexes(comparisons, count)` — SELECTION IS A MAXIMAL-SET SEARCH, NOT A SORT. "Better"
+  is a PARTIAL order, so a sort has no defined answer and would make the chosen overload depend on the
+  candidate order. One maximal candidate is the call's overload; two or more is NL414; NONE (a cycle
+  in the verdicts) leaves the caller's existing order alone.
+
+The three callers:
+
+- `AnalyzerCallAnalysis.PromoteBestReflectionCandidate` — runs after `SortReflectionCandidates` (which
+  still owns the RETRY order) and moves the unique maximal candidate to the front. Oracle:
+  `TypeInfoIdentityFacts.HaveSameReflectionTypeIdentity` and `HasImplicitReflectionConversion`
+  (`IsReflectionAssignableFrom` plus the numeric widening table) over each candidate's SUBSTITUTED
+  parameter type per position. A member declared on a MORE DERIVED type wins an otherwise-identical
+  pair (§12.6.4.4 hiding), asked before the generic rule. Three rules the positions themselves need:
+  - **THE EXTENSION RECEIVER IS POSITION 0.** `values.AsQueryable()` writes no arguments at all and
+    chooses between `AsQueryable(IEnumerable)` and `AsQueryable<T>(IEnumerable<T>)` entirely on the
+    receiver; a comparison that read only the written list saw nothing to tell them apart, fell through
+    to "non-generic beats generic" and typed the result as the bare `IQueryable`, after which
+    `query.Where(x => x > 1)` had no element type to give the lambda (NL203).
+  - **A POSITION NEITHER CANDIDATE FILLS IS NOT A DIFFERENCE.** Slot 0 is null for every non-extension
+    call; treating that as "the parameter lists differ" switches off the non-generic tie-break for
+    every ordinary static call.
+  - **AN ARGUMENT WITH NO CLR FORM FALLS BACK TO THE N# RELATION** (`assignability.IsAssignable` over
+    the parameter's `ConvertReflectionType`): a parameter that accepts the argument is a better target
+    than one that does not, which is applicability stated as betterness for the case where
+    applicability had no CLR type to reject either candidate with.
+- `ReflectionComparisonIsFullyInformed` GATES THE REPORT, not the choice. NL414 accuses the reader of
+  writing a call the LANGUAGE cannot resolve, and that is only honest when the comparison had something
+  to compare. A position where the two parameter types DIFFER and the argument has no type at all — an
+  anonymous object, which types as `unknown` and is therefore assignable to every parameter, or a lambda
+  phase 32 deliberately left unanalysed — means the tie is the compiler's, not the program's, so the
+  candidate is still chosen but nothing is reported. `BadRequest(new { errors: errors })` is that case
+  (`BadRequest(object?)` vs `BadRequest(ModelStateDictionary)`); a METHOD GROUP has a type and is not
+  exempt, which is the `Enumerable.Select` case NL414 exists for.
+- `AnalyzerSyntheticCallWalk.BindNSharpCall` — collects the applicable candidates first and compares
+  them afterwards, for the same partial-order reason. Oracle: `TypeInfoIdentityFacts.AreEqual` and
+  `AnalyzerAssignability.IsAssignable` over the same `GetArgumentComparisonTypes` the SCORER reads, so
+  the types the rule compares are the types the score came from. The two candidates must be asked
+  about the SAME argument type (a `params` tail can make one compare a spread's element).
+- `ColumnarSourceDirectCallResolver.SelectMostSpecificParameters` — the EMITTER resolves source calls
+  independently, so it needs the rule too or it declines (NL103) a call the analyzer accepted. Oracle:
+  `ExactTypeShapeMatches` and `ArgumentFlowScore(...) >= 0`. Asked only on a tie.
+
+`AnalyzerOverloadFacts.LambdaBodyProducesValue` scores BOTH directions of the lambda-return rule. An
+expression-bodied lambda has a value to give and prefers a delegate that keeps it (`Task.Run(() => 42)`
+picks `Run<TResult>(Func<TResult>)`); a STATEMENT-bodied one with no `return <expr>` has none and
+prefers a delegate that expects none (`Task.Run(() => { work() })` picks `Run(Action)`). Rewarding only
+the first direction left the second pair tied on every key, which became an ambiguity report for a call
+C# resolves without hesitating. The walk descends every statement the lambda's own body executes and
+stops at a nested LOCAL FUNCTION; nested lambdas are never reached, because they live in expressions.
+
+`AnalyzerOverloadFacts.MethodGroupConversionScore()` is 6, a CONSTANT. The inner walk that picks which
+overload of a method GROUP to use still adds one ladder value per delegate parameter plus one for the
+return — right there, because every survivor matched the same expected signature — but that sum may
+not reach the enclosing candidate's score: `Enumerable.Select` declares a one-parameter and a
+two-parameter selector, and the longer signature used to win purely for having one more position to
+add up. C# does not rank a method-group conversion at all; it ranks the delegate PARAMETER TYPES.
+
+**NL414** (`ErrorCode.AmbiguousCall`) is reported by `AnalyzerReflectionCallReporter.ReportAmbiguousCall`
+and `AnalyzerSyntheticCallReporter.ReportAmbiguousCall`, both rendering
+`AnalyzerOverloadSpecificity.AmbiguousCallSummary/Explanation/Hint`. The reflected arm dedupes through
+the analyzer-lifetime `AnalyzerCallableReferenceReportLog` (key prefix `NL414 `), because a method
+group is pre-bound several times for one written occurrence. A SURROGATE method group is exempt: its
+candidates are read off an instantiation closed over `object`, so two of them looking alike is the
+surrogate failing to represent the call. Both arms still BIND the first maximal candidate, so the
+call keeps a type and the IDE keeps its semantic-model row.
+
+MEASURED, tip against `census/merge` 17d626dca, over the converted census at
+`/Users/spencer/repos/nsharp-cs2nl/out` (`nlc check --json`, five projects): `cli` 22 -> 15 rows
+(NL402 8 -> 1: the `compileProjectWithIlBackend(..., out ignored3, ...)` family, fixed by the by-ref
+shell below), `tests` 53 -> 29 (NL905 29 -> 5: the 24 `this value` rows an `object?`-returning overload
+produced), `languageserver` 36 -> 36, `playground-wasm` 23 -> 23, `runtime` 0 -> 0. No code appears that
+did not appear before, and NL414 appears in NONE of them.
+
+The same measurement over the COMPILER'S OWN 819 `.nl` files (`nlc check --json` in
+`src/NSharpLang.Compiler.Core`) moves 1588 rows -> 1313: NL402 195 -> 3, NL905 540 -> 469, NL202 406 ->
+394, every other code identical, and again no NL414. The NL402 collapse is the `ref`/`out` shell; the
+NL905 collapse is the calls that used to bind an `object?`-returning overload.
+
+A source `ref`/`out` position is scored through its BY-REF SHELL:
+`AnalyzerSyntheticCallBinder.GetArgumentComparisonTypes` applies
+`AnalyzerOverloadFacts.ApplySyntheticParameterModifier` exactly as the validator does. Without it a
+`Facts` parameter did not accept the `&Facts` an `out` argument carries, so an overload set containing
+an `out` signature reported NL402 for the very call that signature exists for — while the same call to
+a LONE declaration bound, because a lone declaration is never scored.
 - Exact type identity is decided on the `TypeInfo` values, not only by reference or by CLR type. A
   CONSTRUCTED SOURCE GENERIC converts to no CLR type at all, so without that rule
   `Equals(Outcome<TOk, TErr>)` and `Equals(object?)` score the same and tie.
