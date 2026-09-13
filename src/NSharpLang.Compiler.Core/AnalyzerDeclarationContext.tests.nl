@@ -993,11 +993,18 @@ test "runtime generic arity retries an imported non-generic metadata head" {
     reference := new GenericTypeReference("ValueTuple", arguments)
     resolved := new TypeInfo()
     resolved = context.ResolveTypeReference(reference, path, null, null)
-    generic := resolved as GenericTypeInfo
-    assert generic != null
-    definition := generic.GenericDefinition as ReflectionTypeInfo
-    assert definition != null
-    assert definition.Type == typeof(ValueTuple<int, string>).GetGenericTypeDefinition()
+
+    // THE ARITY RETRY IS WHAT THIS ROW PROVES, and the normalisation is how it is now visible: a
+    // constructed `System.ValueTuple`2` IS the tuple type `(int, string)` (see `ValueTupleTypeFacts`),
+    // and only the arity-2 DEFINITION can be normalised — the non-generic `System.ValueTuple` head the
+    // bare name answers with cannot. Before the retry existed the bare head won and nothing here
+    // resolved.
+    tuple := resolved as TupleTypeInfo
+    assert tuple != null
+    assert tuple.Elements.Count == 2
+    assert BuiltInTypes.Is(tuple.Elements[0].Type, BuiltInTypes.Int)
+    assert BuiltInTypes.Is(tuple.Elements[1].Type, BuiltInTypes.String)
+    assert tuple.Elements[0].Name == null
 
     barePath := "/tmp/runtime-generic-bare-valuetuple.nl"
     bareContext := AnalyzerContextFor(barePath, new List<object>())
@@ -1008,9 +1015,9 @@ test "runtime generic arity retries an imported non-generic metadata head" {
         null,
         null
     )
-    bareGeneric := bareResolved as GenericTypeInfo
-    assert bareGeneric != null
-    assert bareGeneric.GenericDefinition != null
+    bareTuple := bareResolved as TupleTypeInfo
+    assert bareTuple != null
+    assert bareTuple.Elements.Count == 2
 }
 
 test "runtime Result structural members preserve nominal source arguments" {
@@ -1605,4 +1612,42 @@ test "a dictionary keyed on a source-declared enum removes by key alone" {
     assert !states.Remove("x")
     assert states.Remove("x.y")
     assert states.Count == 0
+}
+
+// A LONG TUPLE'S ELEMENTS ARE HELD FLAT, AND `Rest` IS STILL A MEMBER.
+//
+// `ValueTuple`8`'s eighth field is spelled `Rest`, and C# lets a caller read it; the compiler's own
+// emitter does. The analyzer holds a tuple's elements FLAT -- a nine-element tuple is nine elements,
+// not seven plus a nested pair -- so `Rest` is rebuilt from the elements past the seventh rather than
+// stored, which is the same nesting the CLR signature has.
+func TupleMemberElements(count: int): List<TupleTypeElementInfo> {
+    elements := new List<TupleTypeElementInfo>()
+    index := 0
+    while index < count {
+        elements.Add(new TupleTypeElementInfo(null, BuiltInTypes.Int))
+        index = index + 1
+    }
+
+    return elements
+}
+
+test "a long tuple answers Rest with the elements past the seventh, nested as the CLR nests them" {
+    context := new AnalyzerDeclarationContext()
+    long := new TupleTypeInfo(TupleMemberElements(9))
+
+    ninth := new TypeInfo()
+    assert context.TryResolveTupleMember(long, "Item9", out ninth)
+    assert BuiltInTypes.Is(ninth, BuiltInTypes.Int)
+
+    rest := new TypeInfo()
+    assert context.TryResolveTupleMember(long, "Rest", out rest)
+    restTuple := rest as TupleTypeInfo
+    assert restTuple != null
+    assert restTuple.Elements.Count == 2
+
+    // A tuple SHORT enough to have no rest position has no `Rest` at all, exactly as the CLR does not.
+    short := new TupleTypeInfo(TupleMemberElements(3))
+    shortRest := new TypeInfo()
+    assert !context.TryResolveTupleMember(short, "Rest", out shortRest)
+    assert BuiltInTypes.IsUnknown(shortRest)
 }

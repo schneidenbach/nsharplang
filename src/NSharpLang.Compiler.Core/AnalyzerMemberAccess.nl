@@ -443,6 +443,11 @@ class AnalyzerMemberAccess {
             soaEscapeValue.RecordColumnMemberAccess(member)
         }
 
+        // A MEMBER RESOLVED THROUGH REFLECTION HAS NO ELEMENT NAMES IN IT, because a named tuple has
+        // none in the CLR. The receiver's WRITTEN type is the position that named them, so the member's
+        // type takes them back from it -- see `AnalyzerTupleElementNames.GraftFromReceiver`.
+        memberType = AnalyzerTupleElementNames.GraftFromReceiver(memberType, receiverType)
+
         if member.IsNullConditional {
             state.ResultType = MakeNullableResult(memberType)
         } else {
@@ -453,11 +458,19 @@ class AnalyzerMemberAccess {
     // `HasValue` AND `Value` ON A NULLABLE, and nothing else — a third name falls through so member
     // resolution can answer it against the INNER type.
     //
-    // The second way in is the one that carries the rule: a receiver whose type is a plain primitive
-    // but whose SYMBOL was declared nullable and has been narrowed. `x!.Value` inside
+    // The second way in is the one that carries the rule: a receiver whose SYMBOL was declared
+    // nullable and has been NARROWED, so the type reaching here is the inner one. `x.Value` inside
     // `if x != null { … }` reaches here with `int`, not `int?`, and it must still mean the unwrap —
     // and it must NOT be warned about, because the narrowing already proved it safe. That is the
     // whole of `isNarrowedNullableOrigin`.
+    //
+    // THE NARROWED RECEIVER IS RECOGNISED BY TYPE IDENTITY WITH THE ORIGIN'S INNER TYPE, not by the
+    // receiver belonging to some family of types. The gate used to admit only a `SimpleTypeInfo` or a
+    // `ReflectionTypeInfo`, which is why a narrowed `(Uri: string, Line: int)?` — a `TupleTypeInfo`,
+    // and by construction not "primitive-like" — reported NL303 "Member 'Value' not found on type
+    // '(Uri: string, Line: int)'" for the same `.Value` an `int?` answered. Identity with the origin
+    // is the question the second nullable arm below already asked, and it is the only one that
+    // matters: this receiver IS the narrowed form of that nullable symbol, whatever family it is in.
     func TryResolveNullableMemberAccess(member: MemberAccessExpression, objectType: TypeInfo, out memberType: TypeInfo): bool {
         memberType = BuiltInTypes.Unknown
 
@@ -465,9 +478,9 @@ class AnalyzerMemberAccess {
         isNarrowedNullableOrigin := false
         if nullableType == null {
             identifier := member.Object as IdentifierExpression
-            if identifier != null && IsPrimitiveLikeType(objectType) {
+            if identifier != null {
                 origin := scopesValue.FindEnclosingNullableSymbol(identifier.Name)
-                if origin != null {
+                if origin != null && TypeInfoIdentityFacts.AreEqual(origin.InnerType, objectType) {
                     nullableType = origin
                     isNarrowedNullableOrigin = true
                 }
@@ -517,7 +530,7 @@ class AnalyzerMemberAccess {
         nullableType := declarationContextValue.ResolveDeclaredAlias(objectType) as NullableTypeInfo
         if nullableType == null {
             identifier := member.Object as IdentifierExpression
-            if identifier == null || !IsPrimitiveLikeType(objectType) {
+            if identifier == null {
                 return false
             }
 
@@ -554,10 +567,6 @@ class AnalyzerMemberAccess {
 
         memberType = resolved
         return true
-    }
-
-    static func IsPrimitiveLikeType(candidate: TypeInfo): bool {
-        return candidate as SimpleTypeInfo != null || candidate as ReflectionTypeInfo != null
     }
 
     // WHETHER THE RECEIVER NAMES A TYPE RATHER THAN A VALUE, which is what decides whether STATIC
