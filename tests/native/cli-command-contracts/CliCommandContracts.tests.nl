@@ -1278,7 +1278,7 @@ test "nlc check reports the AOT columnar requirement after analysis declines" {
         WriteProjectYml(directory, "name: AotCheckRequiresColumnar\noutputType: library\ntargetFramework: net10.0\n")
         File.WriteAllText(
             Path.Combine(directory, "Program.nl"),
-            "func countChars(s: string): int {\n    n := 0\n    foreach c in s {\n        n = n + 1\n    }\n    return n\n}\n"
+            "struct Counter {\n    value: int\n\n    func Bump(): bool {\n        value = value + 1\n        return value < 3\n    }\n}\n"
         )
 
         run := NlcIn(directory, "check --aot")
@@ -1304,7 +1304,7 @@ test "nlc check AOT project references report the referenced source decline" {
         WriteProjectYml(sharedDirectory, "name: SharedLib\noutputType: library\ntargetFramework: net10.0\n")
         File.WriteAllText(
             Path.Combine(sharedDirectory, "Shared.nl"),
-            "func CountChars(s: string): int {\n    n := 0\n    foreach c in s {\n        n = n + 1\n    }\n    return n\n}\n"
+            "struct Counter {\n    value: int\n\n    func Bump(): bool {\n        value = value + 1\n        return value < 3\n    }\n}\n"
         )
         WriteProjectYml(
             directory,

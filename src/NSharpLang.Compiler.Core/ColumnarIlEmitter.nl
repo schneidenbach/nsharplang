@@ -7230,9 +7230,14 @@ sealed class ColumnarIlEmitter {
             }
             return true
         } else if columnarSwitchValue0 == 29 {
-            // Foreach [collection, body] — arrays lower to an index loop; supported BCL
-            // collections lower through the interface-enumerator shape. Everything else
-            // declines. The var name is in the value span.
+            // Foreach [collection, body] — the C# `foreach` shape, decided by
+            // `ColumnarForeachLoopPlanner` and lowered here. An array and a `string` become index
+            // loops; everything else becomes an enumerator loop over whatever the collection's own
+            // pattern or sequence interface produced, with a `try`/`finally` around the body when
+            // that enumerator is disposable. NOTHING is matched by name: a `List<T>`, a
+            // `Dictionary<K,V>.KeyCollection`, a `Span<T>`, a `JsonElement.ArrayEnumerator` and a
+            // user type with a struct enumerator all arrive here as the same three handles. The var
+            // name is in the value span.
             collectionNode := Child(idx, 0)
             body := Child(idx, 1)
             varName := ColumnarNodeTextFacts.Text(_nodes, _source, idx)
@@ -7249,119 +7254,30 @@ sealed class ColumnarIlEmitter {
             outerLocals := new HashSet<string>(_locals.Keys, StringComparer.Ordinal)
             outerLifted := new HashSet<string>(_liftedLocals.Keys, StringComparer.Ordinal)
 
-            // Evaluate the collection; a List<T>/Dictionary<K,V>/SortedDictionary<K,V>/HashSet<T> takes the enumerator branch,
-            // a single-dim array the index loop; everything else declines.
+            // The collection is evaluated ONCE, and its value is on the stack when the plan is asked.
             let collectionType: System.Type? = null
             if (!EmitExpression(collectionNode, out collectionType)) {
                 return false
             }
-            if (ColumnarTypeOfPlanner.IsSupportedCollectionType(collectionType)) {
-                collectionDef := collectionType.GetGenericTypeDefinition()
-                listElementType := ColumnarGenericCallBindingPlanner.IsAnyDictionaryCollectionDefinition(collectionDef) ? typeof(KeyValuePair<int, int>).GetGenericTypeDefinition().MakeGenericType(collectionType.GetGenericArguments()) : collectionType.GetGenericArguments()[0]
-                if (!ColumnarTypeOfPlanner.IsSupportedType(listElementType) && !ColumnarTypeOfPlanner.IsSupportedKeyValuePairType(listElementType)) {
-                    return false
-                }
-                enumerableInterface := typeof(IEnumerable<int>).GetGenericTypeDefinition().MakeGenericType([listElementType])
-                enumeratorInterface := typeof(IEnumerator<int>).GetGenericTypeDefinition().MakeGenericType([listElementType])
-                _il.Emit(OpCodes.Callvirt, ResolveClosedGenericMethod(enumerableInterface, typeof(IEnumerable<int>).GetGenericTypeDefinition().GetMethod("GetEnumerator")))
-                enumeratorLocal := _il.DeclareLocal(enumeratorInterface)
-                _il.Emit(OpCodes.Stloc, enumeratorLocal)
 
-                listLoopStart := _il.DefineLabel()
-                disposeLabel := _il.DefineLabel()
-                _il.MarkLabel(listLoopStart)
-                _il.Emit(OpCodes.Ldloc, enumeratorLocal)
-                _il.Emit(OpCodes.Callvirt, typeof(System.Collections.IEnumerator).GetMethod(nameof(System.Collections.IEnumerator.MoveNext)))
-                _il.Emit(OpCodes.Brfalse, disposeLabel)
-                _il.Emit(OpCodes.Ldloc, enumeratorLocal)
-                _il.Emit(OpCodes.Callvirt, ResolveClosedGenericMethod(enumeratorInterface, typeof(IEnumerator<int>).GetGenericTypeDefinition().GetProperty("Current").GetGetMethod()))
-                listLoopVar := _il.DeclareLocal(listElementType)
-                _il.Emit(OpCodes.Stloc, listLoopVar)
-                _locals[varName] = listLoopVar
-
-                _loopLabels.Push((disposeLabel, listLoopStart, _protectedDepth, _finallyDepth))
-                listBodyEmitted := EmitStatement(body)
-                _loopLabels.Pop()
-                if (!listBodyEmitted) {
-                    return false
-                }
-                _il.Emit(OpCodes.Br, listLoopStart)
-                _il.MarkLabel(disposeLabel)
-                _il.Emit(OpCodes.Ldloc, enumeratorLocal)
-                _il.Emit(OpCodes.Callvirt, typeof(IDisposable).GetMethod(nameof(IDisposable.Dispose)))
-
-                columnarStringKeySnapshot13 := new List<string>(_locals.Keys)
-
-                for name in columnarStringKeySnapshot13 {
-                    if (!outerLocals.Contains(name)) {
-                        _locals.Remove(name)
-                    }
-                }
-                columnarStringKeySnapshot14 := new List<string>(_liftedLocals.Keys)
-                for name in columnarStringKeySnapshot14 {
-                    if (!outerLifted.Contains(name)) {
-                        _liftedLocals.Remove(name)
-                    }
-                }
-                return true
+            foreachPlan := ColumnarForeachLoopPlanner.Plan(collectionType, _structRegistry)
+            if (foreachPlan == null) {
+                return Decline("emit.foreach.not-enumerable", "foreach collection type '" + ForeachCollectionTypeName(collectionType) + "' has no GetEnumerator() pattern and is not a sequence", collectionNode)
             }
-            if (!ColumnarTypeEquivalenceFacts.IsSafeSzArrayType(collectionType)) {
-                return false
-            }
-            elementType := collectionType.GetElementType()
-            if (!ColumnarTypeOfPlanner.IsSupportedElementType(elementType)) {
-                return false
-            }
-            arrayLocal := _il.DeclareLocal(collectionType)
-            _il.Emit(OpCodes.Stloc, arrayLocal)
-            indexLocal := _il.DeclareLocal(typeof(int))
-            _il.Emit(OpCodes.Ldc_I4_0)
-            _il.Emit(OpCodes.Stloc, indexLocal)
 
-            checkLabel := _il.DefineLabel()
-            contLabel := _il.DefineLabel()
-            endLabel := _il.DefineLabel()
-            _il.MarkLabel(checkLabel)
-            _il.Emit(OpCodes.Ldloc, indexLocal)
-            _il.Emit(OpCodes.Ldloc, arrayLocal)
-            _il.Emit(OpCodes.Ldlen)
-            _il.Emit(OpCodes.Conv_I4)
-            _il.Emit(OpCodes.Bge, endLabel)
-            // index >= length -> exit
-
-            // <var> := arr[index]  (declare the loop variable of the element type, store the current element).
-            _il.Emit(OpCodes.Ldloc, arrayLocal)
-            _il.Emit(OpCodes.Ldloc, indexLocal)
-            EmitArrayElementLoad(elementType)
-            loopVar := _il.DeclareLocal(elementType)
-            _il.Emit(OpCodes.Stloc, loopVar)
-            _locals[varName] = loopVar
-
-            _loopLabels.Push((endLabel, contLabel, _protectedDepth, _finallyDepth))
-            foreachBodyEmitted := EmitStatement(body)
-            _loopLabels.Pop()
-            if (!foreachBodyEmitted) {
+            if (!EmitForeachLoopBody(foreachPlan, collectionType, varName, body)) {
                 return false
             }
 
-            _il.MarkLabel(contLabel)
-            // `continue` lands here -> increment the index, then re-test.
-            _il.Emit(OpCodes.Ldloc, indexLocal)
-            _il.Emit(OpCodes.Ldc_I4_1)
-            _il.Emit(OpCodes.Add)
-            _il.Emit(OpCodes.Stloc, indexLocal)
-            _il.Emit(OpCodes.Br, checkLabel)
-            _il.MarkLabel(endLabel)
+            columnarStringKeySnapshot13 := new List<string>(_locals.Keys)
 
-            columnarStringKeySnapshot15 := new List<string>(_locals.Keys)
-
-            for name in columnarStringKeySnapshot15 {
+            for name in columnarStringKeySnapshot13 {
                 if (!outerLocals.Contains(name)) {
                     _locals.Remove(name)
                 }
             }
-            columnarStringKeySnapshot16 := new List<string>(_liftedLocals.Keys)
-            for name in columnarStringKeySnapshot16 {
+            columnarStringKeySnapshot14 := new List<string>(_liftedLocals.Keys)
+            for name in columnarStringKeySnapshot14 {
                 if (!outerLifted.Contains(name)) {
                     _liftedLocals.Remove(name)
                 }
@@ -10593,36 +10509,8 @@ sealed class ColumnarIlEmitter {
                 columnarResolvedType = typeof(object)
                 return true
             }
-            if (ColumnarTypeOfPlanner.IsSupportedReadOnlySpanType(indexedType)) {
-                spanElementType := indexedType.GetGenericArguments()[0]
-                spanSlice := indexedType.GetMethod("Slice", [typeof(int), typeof(int)])
-                asBytesCandidates := typeof(System.Runtime.InteropServices.MemoryMarshal).GetMethods(BindingFlags.Public | BindingFlags.Static)
-                let asBytes: System.Reflection.MethodInfo? = null
-                for method in asBytesCandidates {
-                    if (method.get_Name() != nameof(System.Runtime.InteropServices.MemoryMarshal.AsBytes) || !method.get_IsGenericMethodDefinition()) {
-                        continue
-                    }
-                    parameters := method.GetParameters()
-                    if (parameters.Length == 1 && parameters[0].get_ParameterType().get_IsGenericType() && parameters[0].get_ParameterType().GetGenericTypeDefinition() == typeof(ReadOnlySpan<int>).GetGenericTypeDefinition()) {
-                        asBytes = method
-                        break
-                    }
-                }
-                memoryReadCandidates := typeof(System.Runtime.InteropServices.MemoryMarshal).GetMethods(BindingFlags.Public | BindingFlags.Static)
-                let memoryRead: System.Reflection.MethodInfo? = null
-                for method in memoryReadCandidates {
-                    if (method.get_Name() != nameof(System.Runtime.InteropServices.MemoryMarshal.Read) || !method.get_IsGenericMethodDefinition()) {
-                        continue
-                    }
-                    parameters := method.GetParameters()
-                    if (parameters.Length == 1 && parameters[0].get_ParameterType() == typeof(ReadOnlySpan<byte>)) {
-                        memoryRead = method
-                        break
-                    }
-                }
-                if (spanSlice == null || asBytes == null || memoryRead == null) {
-                    return false
-                }
+            readOnlySpanRead := ColumnarReadOnlySpanElementRead.Resolve(indexedType)
+            if (readOnlySpanRead != null) {
                 spanTemp := _il.DeclareLocal(indexedType)
                 _il.Emit(OpCodes.Stloc, spanTemp)
                 _il.Emit(OpCodes.Ldloca, spanTemp)
@@ -10631,10 +10519,10 @@ sealed class ColumnarIlEmitter {
                     return false
                 }
                 _il.Emit(OpCodes.Ldc_I4_1)
-                _il.Emit(OpCodes.Call, spanSlice)
-                _il.Emit(OpCodes.Call, asBytes.MakeGenericMethod([spanElementType]))
-                _il.Emit(OpCodes.Call, memoryRead.MakeGenericMethod([spanElementType]))
-                columnarResolvedType = spanElementType
+                _il.Emit(OpCodes.Call, readOnlySpanRead.SliceMethod)
+                _il.Emit(OpCodes.Call, readOnlySpanRead.AsBytesMethod)
+                _il.Emit(OpCodes.Call, readOnlySpanRead.ReadMethod)
+                columnarResolvedType = readOnlySpanRead.ElementType
                 return true
             }
             if (ColumnarTypeOfPlanner.IsSupportedSpanType(indexedType)) {
@@ -19717,6 +19605,346 @@ sealed class ColumnarIlEmitter {
         }
 
         return false
+    }
+
+    // ---- the `foreach` lowerings -----------------------------------------------------------------
+
+    // THE THREE SHAPES A PLANNED `foreach` CAN TAKE. The plan has already decided which; this only
+    // emits it. The collection's value is on the stack on entry, and nothing is left on it on exit.
+    private func EmitForeachLoopBody(plan: ColumnarForeachPlan, collectionType: Type, varName: string, body: int): bool {
+        if (plan.Kind == 1) {
+            return EmitForeachOverArray(plan, collectionType, varName, body)
+        }
+        if (plan.Kind == 2) {
+            return EmitForeachOverString(plan, varName, body)
+        }
+        if (plan.Kind == 4) {
+            return EmitForeachOverIndexedCollection(plan, collectionType, varName, body)
+        }
+        return EmitForeachOverEnumerator(plan, collectionType, varName, body)
+    }
+
+    // An ARRAY is an index loop: no enumerator, no disposal, no protected region. `continue` lands on
+    // the increment, `break` on the exit.
+    private func EmitForeachOverArray(plan: ColumnarForeachPlan, collectionType: Type, varName: string, body: int): bool {
+        elementType := plan.ElementType
+        if (!ColumnarTypeOfPlanner.IsSupportedElementType(elementType)) {
+            return false
+        }
+        arrayLocal := _il.DeclareLocal(collectionType)
+        _il.Emit(OpCodes.Stloc, arrayLocal)
+        indexLocal := _il.DeclareLocal(typeof(int))
+        _il.Emit(OpCodes.Ldc_I4_0)
+        _il.Emit(OpCodes.Stloc, indexLocal)
+
+        checkLabel := _il.DefineLabel()
+        contLabel := _il.DefineLabel()
+        endLabel := _il.DefineLabel()
+        _il.MarkLabel(checkLabel)
+        _il.Emit(OpCodes.Ldloc, indexLocal)
+        _il.Emit(OpCodes.Ldloc, arrayLocal)
+        _il.Emit(OpCodes.Ldlen)
+        _il.Emit(OpCodes.Conv_I4)
+        _il.Emit(OpCodes.Bge, endLabel)
+
+        _il.Emit(OpCodes.Ldloc, arrayLocal)
+        _il.Emit(OpCodes.Ldloc, indexLocal)
+        EmitArrayElementLoad(elementType)
+        loopVar := _il.DeclareLocal(elementType)
+        _il.Emit(OpCodes.Stloc, loopVar)
+        _locals[varName] = loopVar
+
+        _loopLabels.Push((endLabel, contLabel, _protectedDepth, _finallyDepth))
+        arrayBodyEmitted := EmitStatement(body)
+        _loopLabels.Pop()
+        if (!arrayBodyEmitted) {
+            return false
+        }
+
+        _il.MarkLabel(contLabel)
+        _il.Emit(OpCodes.Ldloc, indexLocal)
+        _il.Emit(OpCodes.Ldc_I4_1)
+        _il.Emit(OpCodes.Add)
+        _il.Emit(OpCodes.Stloc, indexLocal)
+        _il.Emit(OpCodes.Br, checkLabel)
+        _il.MarkLabel(endLabel)
+        return true
+    }
+
+    // A `string` is an index loop over `Length`/`Chars`, which is what C# emits and why iterating a
+    // string allocates nothing — its `CharEnumerator` is a heap object the language declines to use.
+    private func EmitForeachOverString(plan: ColumnarForeachPlan, varName: string, body: int): bool {
+        stringLocal := _il.DeclareLocal(typeof(string))
+        _il.Emit(OpCodes.Stloc, stringLocal)
+        indexLocal := _il.DeclareLocal(typeof(int))
+        _il.Emit(OpCodes.Ldc_I4_0)
+        _il.Emit(OpCodes.Stloc, indexLocal)
+
+        checkLabel := _il.DefineLabel()
+        contLabel := _il.DefineLabel()
+        endLabel := _il.DefineLabel()
+        _il.MarkLabel(checkLabel)
+        _il.Emit(OpCodes.Ldloc, indexLocal)
+        _il.Emit(OpCodes.Ldloc, stringLocal)
+        _il.Emit(OpCodes.Callvirt, RequiredStringLengthGetter())
+        _il.Emit(OpCodes.Bge, endLabel)
+
+        _il.Emit(OpCodes.Ldloc, stringLocal)
+        _il.Emit(OpCodes.Ldloc, indexLocal)
+        _il.Emit(OpCodes.Callvirt, RequiredStringCharGetter())
+        loopVar := _il.DeclareLocal(typeof(char))
+        _il.Emit(OpCodes.Stloc, loopVar)
+        _locals[varName] = loopVar
+
+        _loopLabels.Push((endLabel, contLabel, _protectedDepth, _finallyDepth))
+        stringBodyEmitted := EmitStatement(body)
+        _loopLabels.Pop()
+        if (!stringBodyEmitted) {
+            return false
+        }
+
+        _il.MarkLabel(contLabel)
+        _il.Emit(OpCodes.Ldloc, indexLocal)
+        _il.Emit(OpCodes.Ldc_I4_1)
+        _il.Emit(OpCodes.Add)
+        _il.Emit(OpCodes.Stloc, indexLocal)
+        _il.Emit(OpCodes.Br, checkLabel)
+        _il.MarkLabel(endLabel)
+        return true
+    }
+
+    // A BY-REF-LIKE COLLECTION WHOSE ENUMERATOR CANNOT BE NAMED walks by index instead: `Length`
+    // bounds the loop and the element is read through the one owner that knows how to read a
+    // `ref readonly` element without calling its indexer. There is no enumerator and therefore no
+    // disposal and no protected region, which is also what C# emits for a span.
+    private func EmitForeachOverIndexedCollection(plan: ColumnarForeachPlan, collectionType: Type, varName: string, body: int): bool {
+        lengthGetter := plan.LengthGetter
+        elementRead := plan.ElementRead
+        if (lengthGetter == null || elementRead == null) {
+            return false
+        }
+
+        collectionLocal := _il.DeclareLocal(collectionType)
+        _il.Emit(OpCodes.Stloc, collectionLocal)
+        indexLocal := _il.DeclareLocal(typeof(int))
+        _il.Emit(OpCodes.Ldc_I4_0)
+        _il.Emit(OpCodes.Stloc, indexLocal)
+
+        checkLabel := _il.DefineLabel()
+        contLabel := _il.DefineLabel()
+        endLabel := _il.DefineLabel()
+        _il.MarkLabel(checkLabel)
+        _il.Emit(OpCodes.Ldloc, indexLocal)
+        _il.Emit(OpCodes.Ldloca, collectionLocal)
+        _il.Emit(OpCodes.Call, lengthGetter)
+        _il.Emit(OpCodes.Bge, endLabel)
+
+        _il.Emit(OpCodes.Ldloca, collectionLocal)
+        _il.Emit(OpCodes.Ldloc, indexLocal)
+        _il.Emit(OpCodes.Ldc_I4_1)
+        _il.Emit(OpCodes.Call, elementRead.SliceMethod)
+        _il.Emit(OpCodes.Call, elementRead.AsBytesMethod)
+        _il.Emit(OpCodes.Call, elementRead.ReadMethod)
+        loopVar := _il.DeclareLocal(plan.ElementType)
+        _il.Emit(OpCodes.Stloc, loopVar)
+        _locals[varName] = loopVar
+
+        _loopLabels.Push((endLabel, contLabel, _protectedDepth, _finallyDepth))
+        indexedBodyEmitted := EmitStatement(body)
+        _loopLabels.Pop()
+        if (!indexedBodyEmitted) {
+            return false
+        }
+
+        _il.MarkLabel(contLabel)
+        _il.Emit(OpCodes.Ldloc, indexLocal)
+        _il.Emit(OpCodes.Ldc_I4_1)
+        _il.Emit(OpCodes.Add)
+        _il.Emit(OpCodes.Stloc, indexLocal)
+        _il.Emit(OpCodes.Br, checkLabel)
+        _il.MarkLabel(endLabel)
+        return true
+    }
+
+    // THE ENUMERATOR LOOP. The enumerator is a HIDDEN LOCAL of its own exact type — never `object`,
+    // never the interface when the pattern gave a struct — so a struct enumerator is stepped in
+    // place through `ldloca`/`call` and the mutation `MoveNext` performs is the one the loop reads.
+    // Boxing it would give every iteration a fresh copy and the loop would never advance.
+    //
+    // THE PROTECTED REGION EXISTS ONLY WHEN THE ENUMERATOR IS DISPOSABLE. `break` and the exhausted
+    // `MoveNext` both land on a label INSIDE the `try`, so the implicit leave at the finally runs the
+    // disposal once for every way out; a `return` from the body leaves through the body-level tail
+    // that every protected region shares.
+    private func EmitForeachOverEnumerator(plan: ColumnarForeachPlan, collectionType: Type, varName: string, body: int): bool {
+        enumeratorType := plan.EnumeratorType
+        getEnumerator := plan.GetEnumeratorMethod
+        if (enumeratorType == null || getEnumerator == null || plan.MoveNextMethod == null || plan.CurrentGetter == null) {
+            return false
+        }
+
+        if (IsForeachValueType(collectionType)) {
+            collectionLocal := _il.DeclareLocal(collectionType)
+            _il.Emit(OpCodes.Stloc, collectionLocal)
+            getEnumeratorOwner := getEnumerator.get_DeclaringType()
+            if (getEnumeratorOwner != null && !IsForeachValueType(getEnumeratorOwner)) {
+                // A struct that iterates only through the interface it implements has to be boxed
+                // once, exactly as C# boxes it — the enumerator it hands back is the interface's.
+                _il.Emit(OpCodes.Ldloc, collectionLocal)
+                _il.Emit(OpCodes.Box, collectionType)
+                _il.Emit(OpCodes.Callvirt, getEnumerator)
+            } else {
+                _il.Emit(OpCodes.Ldloca, collectionLocal)
+                _il.Emit(OpCodes.Call, getEnumerator)
+            }
+        } else {
+            _il.Emit(OpCodes.Callvirt, getEnumerator)
+        }
+
+        enumeratorLocal := _il.DeclareLocal(enumeratorType)
+        _il.Emit(OpCodes.Stloc, enumeratorLocal)
+
+        foreachProtected := plan.DisposeKind != 0
+        if (foreachProtected) {
+            if (_protectedResult == null && _returnType != ColumnarTypeOfPlanner.RequiredVoidType()) {
+                _protectedResult = _il.DeclareLocal(_returnType)
+            }
+            if (!_protectedDoneCreated) {
+                _protectedDone = _il.DefineLabel()
+                _protectedDoneCreated = true
+            }
+            _protectedDepth = _protectedDepth + 1
+            _il.BeginExceptionBlock()
+        }
+
+        loopStart := _il.DefineLabel()
+        endLabel := _il.DefineLabel()
+        _il.MarkLabel(loopStart)
+        EmitForeachEnumeratorCall(enumeratorLocal, enumeratorType, plan.MoveNextMethod)
+        _il.Emit(OpCodes.Brfalse, endLabel)
+        EmitForeachEnumeratorCall(enumeratorLocal, enumeratorType, plan.CurrentGetter)
+        if (plan.CurrentIsByRef) {
+            EmitLoadByRefElement(plan.ElementType)
+        }
+        loopVar := _il.DeclareLocal(plan.ElementType)
+        _il.Emit(OpCodes.Stloc, loopVar)
+        _locals[varName] = loopVar
+
+        _loopLabels.Push((endLabel, loopStart, _protectedDepth, _finallyDepth))
+        enumeratorBodyEmitted := EmitStatement(body)
+        _loopLabels.Pop()
+        if (!enumeratorBodyEmitted) {
+            return false
+        }
+        _il.Emit(OpCodes.Br, loopStart)
+        _il.MarkLabel(endLabel)
+
+        if (foreachProtected) {
+            _il.BeginFinallyBlock()
+            _finallyDepth = _finallyDepth + 1
+            EmitForeachDisposal(plan, enumeratorLocal)
+            _finallyDepth = _finallyDepth - 1
+            _il.EndExceptionBlock()
+            _protectedDepth = _protectedDepth - 1
+        }
+        return true
+    }
+
+    // ONE MEMBER CALL ON THE HIDDEN ENUMERATOR LOCAL. A value-type enumerator is called through its
+    // own address: `call` when the member is its own, `constrained.` when the member belongs to an
+    // interface it implements. Either way it is never boxed, which is the whole point of a struct
+    // enumerator.
+    private func EmitForeachEnumeratorCall(enumeratorLocal: LocalBuilder, enumeratorType: Type, method: MethodInfo): void {
+        if (IsForeachValueType(enumeratorType)) {
+            _il.Emit(OpCodes.Ldloca, enumeratorLocal)
+            declaringType := method.get_DeclaringType()
+            if (declaringType != null && declaringType.get_IsInterface()) {
+                _il.Emit(OpCodes.Constrained, enumeratorType)
+                _il.Emit(OpCodes.Callvirt, method)
+                return
+            }
+            _il.Emit(OpCodes.Call, method)
+            return
+        }
+        _il.Emit(OpCodes.Ldloc, enumeratorLocal)
+        _il.Emit(OpCodes.Callvirt, method)
+    }
+
+    // THE FOUR DISPOSALS, and each is the one C# emits for that enumerator shape.
+    private func EmitForeachDisposal(plan: ColumnarForeachPlan, enumeratorLocal: LocalBuilder): void {
+        disposeMethod := plan.DisposeMethod
+        if (disposeMethod == null) {
+            return
+        }
+
+        if (plan.DisposeKind == 1) {
+            _il.Emit(OpCodes.Ldloca, enumeratorLocal)
+            _il.Emit(OpCodes.Constrained, plan.EnumeratorType)
+            _il.Emit(OpCodes.Callvirt, disposeMethod)
+            return
+        }
+
+        if (plan.DisposeKind == 4) {
+            _il.Emit(OpCodes.Ldloca, enumeratorLocal)
+            _il.Emit(OpCodes.Call, disposeMethod)
+            return
+        }
+
+        if (plan.DisposeKind == 2) {
+            skipDispose := _il.DefineLabel()
+            _il.Emit(OpCodes.Ldloc, enumeratorLocal)
+            _il.Emit(OpCodes.Brfalse, skipDispose)
+            _il.Emit(OpCodes.Ldloc, enumeratorLocal)
+            _il.Emit(OpCodes.Callvirt, disposeMethod)
+            _il.MarkLabel(skipDispose)
+            return
+        }
+
+        disposableLocal := _il.DeclareLocal(typeof(IDisposable))
+        skipRuntimeDispose := _il.DefineLabel()
+        _il.Emit(OpCodes.Ldloc, enumeratorLocal)
+        _il.Emit(OpCodes.Isinst, typeof(IDisposable))
+        _il.Emit(OpCodes.Stloc, disposableLocal)
+        _il.Emit(OpCodes.Ldloc, disposableLocal)
+        _il.Emit(OpCodes.Brfalse, skipRuntimeDispose)
+        _il.Emit(OpCodes.Ldloc, disposableLocal)
+        _il.Emit(OpCodes.Callvirt, disposeMethod)
+        _il.MarkLabel(skipRuntimeDispose)
+    }
+
+    // `IsValueType` on a construction over an unbaked source type can throw; a shape that cannot say
+    // is treated as a reference, which is the answer for every shape that reaches this loop.
+    private static func IsForeachValueType(candidate: Type): bool {
+        if (candidate == null) {
+            return false
+        }
+        try {
+            return candidate.get_IsValueType()
+        } catch {
+            return false
+        }
+    }
+
+    private static func ForeachCollectionTypeName(candidate: Type): string {
+        if (candidate == null) {
+            return "<unknown>"
+        }
+        return candidate.FullName ?? candidate.Name
+    }
+
+    private static func RequiredStringLengthGetter(): MethodInfo {
+        getter := typeof(string).GetProperty("Length").GetGetMethod()
+        if (getter == null) {
+            throw new InvalidOperationException("The foreach lowering requires System.String.Length.")
+        }
+        return getter
+    }
+
+    private static func RequiredStringCharGetter(): MethodInfo {
+        getter := typeof(string).GetProperty("Chars").GetGetMethod()
+        if (getter == null) {
+            throw new InvalidOperationException("The foreach lowering requires System.String.Chars.")
+        }
+        return getter
     }
 
     private func EmitLoadByRefElement(elementType: Type): void {

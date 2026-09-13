@@ -124,9 +124,14 @@ func ResolverWriteAotProjectFixture(projectRoot: string, rootOutputType: string)
         Path.Combine(sharedDir, "project.yml"),
         "name: SharedLib\noutputType: library\ntargetFramework: net10.0"
     )
+    // THE SHARED SOURCE MUST BE A SHAPE THE COLUMNAR BACKEND DECLINES, because the failure this
+    // fixture exists to produce is the AOT path's "requires successful N# columnar emission". It used
+    // to be a `foreach` over a `string`, which the backend now emits as an index loop; assigning to a
+    // struct's own field from its own method is the shape that declines today. When that one lands,
+    // replace it with another declining shape rather than deleting this fixture.
     ResolverWrite(
         Path.Combine(sharedDir, "Shared.nl"),
-        "func CountChars(s: string): int {\n    n := 0\n    foreach c in s {\n        n = n + 1\n    }\n    return n\n}"
+        "struct Counter {\n    value: int\n\n    func Bump(): bool {\n        value = value + 1\n        return value < 3\n    }\n}"
     )
     ResolverWrite(
         Path.Combine(projectRoot, "project.yml"),

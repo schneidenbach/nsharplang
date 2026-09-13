@@ -128,11 +128,57 @@ for item in items {
     Console.WriteLine(item)
 }
 
-// With index
-numbers := [10, 20, 30]
-foreach num in numbers {
-    Console.WriteLine(num)
+// Counted loop
+for i := 0; i < numbers.Length; i++ {
+    Console.WriteLine(numbers[i])
 }
+```
+
+`foreach` is accepted as a synonym for the `for x in e` form.
+
+#### What `for x in e` can iterate
+
+`for x in e` follows the same rules as C#'s `foreach`, and they are structural: N# looks at what the
+collection's type *has*, never at what it is called. In order:
+
+1. An **array** — an index loop over its length, with `x` typed as the element type.
+2. A **`string`** — an index loop over its characters, with `x` typed as `char`. No enumerator is
+   allocated.
+3. The **enumerator pattern** — an accessible parameterless `GetEnumerator()` whose result has a
+   readable `Current` and a parameterless `bool MoveNext()`. `x` is typed as `Current`'s type.
+4. **`IEnumerable<T>`**, and then the non-generic **`IEnumerable`** (where `x` is `object`).
+
+The pattern is why `List<T>`, `Dictionary<K, V>` (which iterates `KeyValuePair<K, V>`),
+`Span<T>`, `Stack<T>`, `Dictionary<K, V>.Keys`, `JsonElement.EnumerateArray()` and a type you wrote
+yourself all iterate without implementing anything:
+
+```n#
+class Countdown {
+    Start: int
+
+    func GetEnumerator(): CountdownEnumerator {
+        return new CountdownEnumerator(Start)
+    }
+}
+
+for value in new Countdown(3) {   // 3, 2, 1 — Countdown implements no interface
+    print value
+}
+```
+
+When the enumerator is a **struct** it stays a struct: the loop keeps it in a local of its own type
+and steps it in place, so iterating a `List<int>` allocates nothing. When the enumerator is
+**disposable**, the loop body runs inside a `try`/`finally` and the enumerator is disposed on every
+way out — falling off the end, `break`, `return`, or an exception.
+
+A value that has none of the four shapes is an error at the collection:
+
+```text
+foreach collection must be enumerable, but this collection is 'int'
+
+Suggestion: A foreach collection needs an accessible parameterless GetEnumerator() whose result
+has a readable Current and a bool MoveNext(), or it must be an array, a string, an IEnumerable<T>
+or an IEnumerable.
 ```
 
 ## Collections

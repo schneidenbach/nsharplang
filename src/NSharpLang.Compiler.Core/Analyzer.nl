@@ -199,7 +199,8 @@ class Analyzer: IDisposable {
             TypeResolver,
             Ambient,
             SoaEscape,
-            Conditions
+            Conditions,
+            TypeSubstitution
         )
         ResourceStatements = new AnalyzerResourceStatements(
             Diagnostics,

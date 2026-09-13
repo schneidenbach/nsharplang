@@ -137,16 +137,16 @@ func main(): int {
         {
             var sourcePath = Path.Combine(tempDir, "Program.nl");
             File.WriteAllText(sourcePath, """
-func CountChars(s: string): int {
-    n := 0
-    foreach c in s {
-        n = n + 1
+struct Counter {
+    value: int
+    func Bump(): bool {
+        value = value + 1
+        return value < 3
     }
-    return n
 }
 
 func main() {
-    print CountChars("abc")
+    print "counted"
 }
 """);
 
@@ -387,16 +387,16 @@ func main() {
         {
             var sourcePath = Path.Combine(tempDir, "Program.nl");
             File.WriteAllText(sourcePath, """
-func CountChars(s: string): int {
-    n := 0
-    foreach c in s {
-        n = n + 1
+struct Counter {
+    value: int
+    func Bump(): bool {
+        value = value + 1
+        return value < 3
     }
-    return n
 }
 
 func main() {
-    print CountChars("abc")
+    print "counted"
 }
 """);
 
@@ -589,12 +589,12 @@ outputType: library
 targetFramework: net10.0
 """);
             File.WriteAllText(Path.Combine(sharedDir, "Shared.nl"), """
-func CountChars(s: string): int {
-    n := 0
-    foreach c in s {
-        n = n + 1
+struct Counter {
+    value: int
+    func Bump(): bool {
+        value = value + 1
+        return value < 3
     }
-    return n
 }
 """);
 
