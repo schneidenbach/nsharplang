@@ -406,6 +406,21 @@ that hover, completion and every diagnostic that prints a CLR member signature r
   A NULLABLE VALUE TYPE is never wrapped in an oblivious or nullable layer of its own — it already
   IS one. Every reference layer carries its own state, so `string[]` answers
   `Oblivious(Array(Oblivious(string)))`: the array and its element are annotated separately.
+- **"IS THIS A NULLABLE VALUE TYPE" IS ANSWERED BY METADATA NAME, NEVER BY `Nullable.GetUnderlyingType`.**
+  The BCL helper compares against `typeof(Nullable<>)` by reference, and under a MetadataLoadContext
+  the projected `System.Nullable`1` is a different object — so it answered NO for every `int?` that
+  came from a referenced assembly, and the parameter converted to a `GenericTypeInfo` named
+  "Nullable" instead of the `NullableTypeInfo` that `int?` in source produces. The two then failed to
+  match in either direction, with NL402 printing the two halves of one type as `SymbolKind?` and
+  `Nullable<SymbolKind>` in the same sentence. `ExternalUserDefinedConversions.NullableUnderlyingTypeOrNull`
+  is the one reader; `AnalyzerReflectionTypeConversion`'s plain and substitution-aware walks lift
+  through it too, so there is ONE spelling of `T?` in the analyzer.
+- **AN OBLIVIOUS SHELL IS TRANSPARENT TO IDENTITY ON EITHER SIDE.** `TypeInfoIdentityFacts.AreEqual`
+  used to unwrap one only when BOTH sides had it, and `ResolveDeclaredAlias` already strips it at the
+  top of a comparison — so it was transparent for `string` and opaque one level down, and the
+  `string![]!` an N#-emitted `string[]` parameter reads back as refused a `string[]` argument. It
+  unwraps on either side now, comparing the inner type against the other side, so `string![]` matches
+  `string[]` and still does not match `string?[]`.
 - THE TYPE OVERRIDE is consulted TWICE — once before the walk for a generic parameter, and again at
   the leaf for a type the walk did not decompose. A null answer means "decline", and falls through
   to exactly what no override at all would produce.
