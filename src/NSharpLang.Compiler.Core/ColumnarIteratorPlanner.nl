@@ -76,6 +76,11 @@ class ColumnarIteratorShape {
     // async EMISSION slice; the classification here computes element type and resume counts only.
     IsAsync: bool
     AwaitResumeCount: int
+    // Protected-region facts, carried from classification to emission (see `ColumnarIteratorWalkState`).
+    // `ResumeRegions` is indexed by resume state (1..YieldReturnCount); index 0 is unused.
+    TryRegionCount: int
+    TryRegionParents: int[]
+    ResumeRegions: int[]
 
     constructor(supported: bool, declineSite: string, declineMessage: string, typeName: string, elementCanonical: string, yieldReturnCount: int, fieldCount: int, fieldNames: string[], fieldCanonicals: string[], fieldRoles: int[], memberCount: int, memberNames: string[], memberSignatures: string[], memberOverrideRows: ColumnarIteratorOverrideDeclaration[], isAsync: bool, awaitResumeCount: int) {
         Supported = supported
@@ -97,6 +102,18 @@ class ColumnarIteratorShape {
         MemberOverrideRows = memberOverrideRows
         IsAsync = isAsync
         AwaitResumeCount = awaitResumeCount
+        TryRegionCount = 0
+        TryRegionParents = new int[](0)
+        ResumeRegions = new int[](0)
+    }
+
+    // The innermost protected region resume state `state` suspends inside, or -1 when it suspends in
+    // unprotected code. A shape with no regions answers -1 for every state without carrying a table.
+    func ResumeRegionOf(state: int): int {
+        if state < 0 || state >= ResumeRegions.Length {
+            return 0 - 1
+        }
+        return ResumeRegions[state]
     }
 }
 
@@ -109,6 +126,18 @@ class ColumnarIteratorWalkState {
     IsAsync: bool
     ForInCount: int
     EnumeratorCount: int
+    CatchCount: int
+    // PROTECTED-REGION FACTS. Every `try` in the body is one region; ordinals are assigned in walk
+    // order and the emission walk assigns exactly the same ones, so the two passes agree on which
+    // region a resume state suspends inside. `TryRegionParents[k]` is the enclosing region (-1 at
+    // the top level) and `ResumeRegions[s]` is the innermost region resume state `s` suspends in
+    // (-1 when that `yield return` is not inside any `try`). The dispatch needs this because a
+    // branch INTO a protected region is illegal IL: a state suspended inside a region is reached by
+    // branching to the region's entry, re-entering the `try`, and dispatching again inside it.
+    TryRegionCount: int
+    TryRegionParents: int[]
+    ResumeRegions: int[]
+    CurrentRegion: int
     LocalCount: int
     LocalNames: string[]
     LocalCanonicals: string[]
@@ -132,6 +161,11 @@ class ColumnarIteratorWalkState {
         IsAsync = isAsync
         ForInCount = 0
         EnumeratorCount = 0
+        CatchCount = 0
+        TryRegionCount = 0
+        TryRegionParents = new int[](capacity)
+        ResumeRegions = new int[](capacity)
+        CurrentRegion = 0 - 1
         LocalCount = 0
         LocalNames = new string[](capacity)
         LocalCanonicals = new string[](capacity)
@@ -297,6 +331,13 @@ class ColumnarIteratorPlanner {
     static func ContinuationFieldRole(): int {
         return 8
     }
+    // The dispose-mode flag (role 9, `<>__disposing`): present only on a machine that can suspend
+    // inside a protected region. `Dispose` sets it and drives `MoveNext` once, so the machine resumes
+    // where it suspended, immediately leaves the region, and the runtime runs every `finally` it was
+    // standing inside — the same discipline the C# compiler uses for an async iterator.
+    static func DisposeModeFieldRole(): int {
+        return 9
+    }
 
     // Analyze a func* and produce its state-machine shape facts, or a precise decline. An INSTANCE
     // method supplies its receiver canonical plus the enclosing type's readable field and callable
@@ -344,6 +385,12 @@ class ColumnarIteratorPlanner {
 
         if isAsync {
             return BuildSupportedAsyncShape(funcName, funcOrdinal, element, paramNames, paramCanonicals, state)
+        }
+        if SuspendsInsideRegion(state) {
+            state.AddHoistedLocal(DisposeModeFieldName(), "bool", DisposeModeFieldRole())
+            if state.Declined {
+                return Declined(state.DeclineSite, state.DeclineMessage)
+            }
         }
         return BuildSupportedShape(funcName, funcOrdinal, element, paramNames, paramCanonicals, state, isInstance ? receiverCanonical : "")
     }
@@ -394,7 +441,38 @@ class ColumnarIteratorPlanner {
         memberSignatures := BuildMemberSignatures(element)
         memberOverrideRows := BuildMemberOverrideRows()
 
-        return new ColumnarIteratorShape(true, "", "", typeName, element, state.YieldReturnCount, fieldCount, fieldNames, fieldCanonicals, fieldRoles, memberNames.Length, memberNames, memberSignatures, memberOverrideRows, false, 0)
+        shape := new ColumnarIteratorShape(true, "", "", typeName, element, state.YieldReturnCount, fieldCount, fieldNames, fieldCanonicals, fieldRoles, memberNames.Length, memberNames, memberSignatures, memberOverrideRows, false, 0)
+        shape.TryRegionCount = state.TryRegionCount
+        shape.TryRegionParents = CopyInts(state.TryRegionParents, state.TryRegionCount)
+        shape.ResumeRegions = CopyInts(state.ResumeRegions, state.YieldReturnCount + 1)
+        return shape
+    }
+
+    static func CopyInts(values: int[], count: int): int[] {
+        copied := new int[](count)
+        i := 0
+        while i < count {
+            copied[i] = values[i]
+            i = i + 1
+        }
+        return copied
+    }
+
+    // True when any `yield return` suspends inside a `try`: the only machines that need a dispose
+    // flag, because only they can be abandoned while standing inside a handler that must still run.
+    static func SuspendsInsideRegion(state: ColumnarIteratorWalkState): bool {
+        s := 1
+        while s <= state.YieldReturnCount {
+            if state.ResumeRegions[s] >= 0 {
+                return true
+            }
+            s = s + 1
+        }
+        return false
+    }
+
+    static func DisposeModeFieldName(): string {
+        return "<>__disposing"
     }
 
     // The async state-machine shape (`async func*` returning IAsyncEnumerable<T>). Field layout extends
@@ -701,9 +779,13 @@ class ColumnarIteratorPlanner {
             if nodes.ChildCount(node) == 1 {
                 WalkExpression(nodes, source, nodes.Child(node, 0), state)
                 state.YieldReturnCount = state.YieldReturnCount + 1
+                state.ResumeRegions[state.YieldReturnCount] = state.CurrentRegion
                 return true
             }
             return false
+        }
+        if kind == 49 {
+            return WalkTryStatement(nodes, source, node, state)
         }
         if kind == 29 {
             // Foreach / `for..in` [source, body], loop-var name in the value span. A hoisted ARRAY
@@ -780,6 +862,132 @@ class ColumnarIteratorPlanner {
         }
         state.Decline("emit.iterator.unsupported-shape", "an iterator body statement (node kind " + kind.ToString() + ") is not yet lowered")
         return false
+    }
+
+    // A `try` STATEMENT INSIDE A GENERATOR BODY — the shape C# admits, classified.
+    //
+    // A `yield` may appear inside a `try` that has ONLY a `finally` (the handler runs when the body
+    // completes, when an exception passes through, and when a consumer abandons the enumeration and
+    // calls `Dispose`), and nowhere else: not inside a `try` that also declares a `catch`, and not
+    // inside a `catch` or `finally` handler. Those three placements are refused by the analyzer with
+    // NL332; the classification refuses them again here so no shape can reach lowering without a
+    // diagnostic, and the messages are the same sentences.
+    //
+    // Each `try` takes a region ordinal in walk order. A `yield return` inside one records that
+    // region as its resume home, which is what lets MoveNext dispatch to a resume point that lives
+    // inside a protected region (a branch straight into a region is illegal IL). Each catch clause
+    // hoists the exception it binds, exactly like every other local in the body.
+    static func WalkTryStatement(nodes: ColumnarNodeTable, source: string, node: int, state: ColumnarIteratorWalkState): bool {
+        if state.IsAsync {
+            state.Decline("emit.iterator.async-unsupported", "a `try` statement inside an `async func*` body is a later slice")
+            return false
+        }
+        childCount := nodes.ChildCount(node)
+        if childCount < 1 || nodes.Kind(nodes.Child(node, 0)) != 25 {
+            state.Decline("emit.iterator.unsupported-shape", "unsupported try statement in an iterator body")
+            return false
+        }
+        finallyNode := 0 - 1
+        handlerEnd := childCount
+        if childCount >= 2 && nodes.Kind(nodes.Child(node, childCount - 1)) == 25 {
+            finallyNode = nodes.Child(node, childCount - 1)
+            handlerEnd = childCount - 1
+        }
+        catchCount := handlerEnd - 1
+        tryBlock := nodes.Child(node, 0)
+        if ContainsYield(nodes, tryBlock) && catchCount > 0 {
+            state.Decline("emit.iterator.unsupported-shape", YieldInTryWithCatchMessage())
+            return false
+        }
+        c := 1
+        while c < handlerEnd {
+            if ContainsYield(nodes, nodes.Child(node, c)) {
+                state.Decline("emit.iterator.unsupported-shape", YieldInHandlerMessage("catch"))
+                return false
+            }
+            c = c + 1
+        }
+        if finallyNode >= 0 && ContainsYield(nodes, finallyNode) {
+            state.Decline("emit.iterator.unsupported-shape", YieldInHandlerMessage("finally"))
+            return false
+        }
+        if catchCount == 0 && finallyNode < 0 {
+            state.Decline("emit.iterator.unsupported-shape", "a `try` statement needs a `catch` or a `finally` handler")
+            return false
+        }
+
+        region := state.TryRegionCount
+        state.TryRegionParents[region] = state.CurrentRegion
+        state.TryRegionCount = state.TryRegionCount + 1
+        enclosing := state.CurrentRegion
+        state.CurrentRegion = region
+        tryFalls := WalkStatement(nodes, source, tryBlock, state)
+        state.CurrentRegion = enclosing
+        if state.Declined {
+            return false
+        }
+
+        handlersFall := false
+        c = 1
+        while c < handlerEnd {
+            clause := nodes.Child(node, c)
+            if nodes.Kind(clause) != 50 || nodes.ChildCount(clause) < 1 {
+                state.Decline("emit.iterator.unsupported-shape", "unsupported catch clause in an iterator body")
+                return false
+            }
+            state.AddLocal(CatchBindingName(nodes, source, clause, state.CatchCount), CatchTypeCanonical(nodes, source, clause))
+            state.CatchCount = state.CatchCount + 1
+            if state.Declined {
+                return false
+            }
+            if WalkStatement(nodes, source, nodes.Child(clause, nodes.ChildCount(clause) - 1), state) {
+                handlersFall = true
+            }
+            if state.Declined {
+                return false
+            }
+            c = c + 1
+        }
+        if finallyNode >= 0 {
+            if !WalkStatement(nodes, source, finallyNode, state) {
+                // A `finally` that cannot complete would swallow every path through the statement;
+                // the analyzer already refuses control transfers out of one, so the remaining way to
+                // reach this is an unconditional `throw`, which no lowering can resume from.
+                state.Decline("emit.iterator.unsupported-shape", "a `finally` handler that cannot complete is not lowered in an iterator body")
+                return false
+            }
+            if state.Declined {
+                return false
+            }
+        }
+        return tryFalls || handlersFall
+    }
+
+    // The name the caught exception is hoisted under: the clause's own variable when it binds one,
+    // and a synthesized slot otherwise — the handler still needs a typed place to put the exception
+    // the runtime hands it, because a state machine's bindings are fields.
+    static func CatchBindingName(nodes: ColumnarNodeTable, source: string, clause: int, ordinal: int): string {
+        if nodes.ChildCount(clause) == 2 && nodes.Kind(nodes.Child(clause, 0)) == 6 {
+            return nodes.Text(source, nodes.Child(clause, 0))
+        }
+        return "<>__exception" + ordinal.ToString()
+    }
+
+    // The exception type a catch clause selects. A bare `catch` selects `System.Exception`, exactly
+    // as it does in an ordinary body.
+    static func CatchTypeCanonical(nodes: ColumnarNodeTable, source: string, clause: int): string {
+        if nodes.ValueStart(clause) >= 0 {
+            return nodes.Text(source, clause)
+        }
+        return "System.Exception"
+    }
+
+    static func YieldInTryWithCatchMessage(): string {
+        return "a `yield` cannot appear inside a `try` that declares a `catch`; a generator may only suspend inside a `try` whose only handler is `finally`"
+    }
+
+    static func YieldInHandlerMessage(handler: string): string {
+        return "a `yield` cannot appear inside a `" + handler + "` handler"
     }
 
     // THE EXPRESSION WALK NO LONGER CLASSIFIES VALUES, AND THAT IS THE POINT OF THIS OWNER.
@@ -1039,6 +1247,10 @@ class ColumnarIteratorEmitContext {
     EnclosingMethods: MethodInfo[]
     // Async-machine extra: the MoveNextCore handle MoveNextAsync's plan drives (null for sync machines).
     CoreMethod: MethodInfo?
+    // The machine's own MoveNext, published once the realization has defined it. `Dispose` drives it
+    // in dispose mode to unwind a machine abandoned inside a protected region; a machine that cannot
+    // suspend inside one never reads it.
+    MoveNextMethod: MethodInfo?
     // The body's ORDINARY-EXPRESSION scope: the state machine's name bindings expressed as the one
     // fragment-binding contract, so every value in the body reaches the single expression owner.
     Scope: ColumnarIteratorBodyScope?
@@ -1068,6 +1280,7 @@ class ColumnarIteratorEmitContext {
         EnclosingMethodNames = enclosingMethodNames ?? new string[](0)
         EnclosingMethods = enclosingMethods ?? new MethodInfo[](0)
         CoreMethod = coreMethod
+        MoveNextMethod = null
         Builder = builder
         GenericMemberType = genericMemberType
         DeclineSite = ""
@@ -1275,13 +1488,22 @@ class ColumnarMoveNextEmit {
     RegionMode: bool
     ResultLocal: int
     RegionEndLabel: int
+    // FaultGuarded marks the outer try/FAULT wrapper: at depth 0 the code is already inside a
+    // protected region, so every exit is a `leave`. RegionDepth counts the body's own `try`
+    // statements, RegionEntryLabels[k] is the point just before region k's `try` (the only legal way
+    // to reach a resume label inside it), and NextTryRegion assigns ordinals in the same walk order
+    // classification used.
+    FaultGuarded: bool
+    RegionDepth: int
+    RegionEntryLabels: int[]
+    NextTryRegion: int
     // Async mode: yields and awaits share ONE resume-state counter (walk order), awaits number their
     // awaiter fields with NextAwait, and suspension/completion go through the promise/result fields.
     IsAsync: bool
     NextResume: int
     NextAwait: int
 
-    constructor(plan: ColumnarCodePlan, context: ColumnarIteratorEmitContext, thisArg: int, stateFieldPool: int, resumeLabels: int[], endLabel: int, regionMode: bool, resultLocal: int, regionEndLabel: int, isAsync: bool = false) {
+    constructor(plan: ColumnarCodePlan, context: ColumnarIteratorEmitContext, thisArg: int, stateFieldPool: int, resumeLabels: int[], endLabel: int, regionMode: bool, resultLocal: int, regionEndLabel: int, isAsync: bool = false, faultGuarded: bool = false, regionEntryLabels: int[]? = null) {
         Plan = plan
         Context = context
         ThisArg = thisArg
@@ -1297,25 +1519,45 @@ class ColumnarMoveNextEmit {
         IsAsync = isAsync
         NextResume = 0
         NextAwait = 0
+        FaultGuarded = faultGuarded
+        RegionDepth = 0
+        RegionEntryLabels = regionEntryLabels ?? new int[](0)
+        NextTryRegion = 0
     }
+
+    // True where the plan is standing inside a protected region, which is exactly where a branch out
+    // must be a `leave` and a `ret` is illegal.
+    InsideRegion: bool => FaultGuarded || RegionDepth > 0
 }
 
 class ColumnarIteratorBodyPlanner {
 
-    // MoveNext(): the resumable state machine. A dispatch prologue routes each resume state to its label;
-    // state 0 falls through to the body start (state set running = -1); every `yield return` stores current,
-    // sets its resume state, returns true, then resumes by resetting to running; `yield break` and the
-    // natural body end reach the shared end label that returns false. A body with hoisted enumerators
-    // takes the guarded layout instead (the whole dispatch+body inside a try/FAULT region).
+    // MoveNext(): the resumable state machine. A dispatch prologue routes each resume state to its
+    // label; state 0 falls through to the body start (state set running = -1); every `yield return`
+    // stores current, sets its resume state, returns true, then resumes by resetting to running;
+    // `yield break` and the natural body end reach the shared end label that returns false.
+    //
+    // THREE EXIT SHAPES, ONE WALK. A body with no protected region at all returns directly. A body
+    // with hoisted enumerators takes the GUARDED layout — the whole dispatch and body inside a
+    // try/FAULT region that disposes live enumerators — and a body that writes its own `try`
+    // statements takes the same result-local discipline without the outer wrapper. Both of the
+    // latter two stash the result and branch past every region rather than returning inside one,
+    // because ECMA forbids `ret` in a protected region and `leave` is its only legal exit.
     static func BuildMoveNextPlan(context: ColumnarIteratorEmitContext): ColumnarCodePlan {
-        if HoistedEnumeratorFieldCount(context) > 0 {
-            return BuildGuardedMoveNextPlan(context)
-        }
+        faultGuarded := HoistedEnumeratorFieldCount(context) > 0
+        regionCount := context.Shape.TryRegionCount
+        exitViaResult := faultGuarded || regionCount > 0
+
         plan := new ColumnarCodePlan()
         plan.PrepareMethodBody()
         smTypeIdx := plan.AddType(context.StructuralTypeReferences.SelectRuntimeType(context.StateMachineType), context.StructuralTypeReferences)
         thisArg := plan.AddArgument(0, smTypeIdx)
         stateFieldPool := plan.AddField(context.FieldForName("<>__state"))
+        resultLocal := 0
+        if exitViaResult {
+            boolTypeIdx := plan.AddType(context.StructuralTypeReferences.SelectRuntimeType(typeof(bool)), context.StructuralTypeReferences)
+            resultLocal = plan.DeclarePlanLocal(boolTypeIdx)
+        }
 
         yieldCount := context.Shape.YieldReturnCount
         resumeLabels := new int[](yieldCount + 1)
@@ -1325,8 +1567,21 @@ class ColumnarIteratorBodyPlanner {
             s = s + 1
         }
         endLabel := plan.DefineLabel()
-        emit := new ColumnarMoveNextEmit(plan, context, thisArg, stateFieldPool, resumeLabels, endLabel, false, 0, 0)
+        regionEnd := 0
+        if exitViaResult {
+            regionEnd = plan.DefineLabel()
+        }
+        regionEntryLabels := new int[](regionCount)
+        k := 0
+        while k < regionCount {
+            regionEntryLabels[k] = plan.DefineLabel()
+            k = k + 1
+        }
+        emit := new ColumnarMoveNextEmit(plan, context, thisArg, stateFieldPool, resumeLabels, endLabel, exitViaResult, resultLocal, regionEnd, false, faultGuarded, regionEntryLabels)
 
+        if faultGuarded {
+            plan.AppendBeginExceptionBlock(regionEnd)
+        }
         AppendMoveNextDispatch(emit, yieldCount)
 
         EmitStatement(emit, context.BodyRoot)
@@ -1339,55 +1594,21 @@ class ColumnarIteratorBodyPlanner {
 
         plan.AppendMarkLabel(endLabel)
         EmitInt(emit, 0)
-        plan.AppendInstructionWithoutOperand(ColumnarCodePlanContract.Ret())
-        plan.CompleteMethodBody(typeof(bool))
-        return plan
-    }
-
-    // The guarded MoveNext layout (Roslyn's iterator discipline): try { dispatch + body } fault
-    // { dispose live enumerators }. Suspension stores the result local and `leave`s past the region
-    // (leave never runs a fault handler); each MoveNext call re-enters the region at its start and the
-    // in-region dispatch branches to the resume label, which is how IL legally resumes inside a
-    // protected region. The done/finish path is an in-region label that leaves with result 0.
-    static func BuildGuardedMoveNextPlan(context: ColumnarIteratorEmitContext): ColumnarCodePlan {
-        plan := new ColumnarCodePlan()
-        plan.PrepareMethodBody()
-        smTypeIdx := plan.AddType(context.StructuralTypeReferences.SelectRuntimeType(context.StateMachineType), context.StructuralTypeReferences)
-        thisArg := plan.AddArgument(0, smTypeIdx)
-        stateFieldPool := plan.AddField(context.FieldForName("<>__state"))
-        boolTypeIdx := plan.AddType(context.StructuralTypeReferences.SelectRuntimeType(typeof(bool)), context.StructuralTypeReferences)
-        resultLocal := plan.DeclarePlanLocal(boolTypeIdx)
-
-        yieldCount := context.Shape.YieldReturnCount
-        resumeLabels := new int[](yieldCount + 1)
-        s := 1
-        while s <= yieldCount {
-            resumeLabels[s] = plan.DefineLabel()
-            s = s + 1
-        }
-        endLabel := plan.DefineLabel()
-        regionEnd := plan.DefineLabel()
-        emit := new ColumnarMoveNextEmit(plan, context, thisArg, stateFieldPool, resumeLabels, endLabel, true, resultLocal, regionEnd)
-
-        plan.AppendBeginExceptionBlock(regionEnd)
-        AppendMoveNextDispatch(emit, yieldCount)
-
-        EmitStatement(emit, context.BodyRoot)
-        if context.Declined {
-            // A declined body leaves the plan half-built on purpose: the caller reports the decline and
-            // never executes it, and completing a plan whose labels and regions were abandoned mid-walk
-            // would report the ABANDONMENT rather than the shape that could not be lowered.
+        if !exitViaResult {
+            plan.AppendInstructionWithoutOperand(ColumnarCodePlanContract.Ret())
+            plan.CompleteMethodBody(typeof(bool))
             return plan
         }
 
-        plan.AppendMarkLabel(endLabel)
-        EmitInt(emit, 0)
         plan.AppendPlanLocalInstruction(ColumnarCodePlanContract.Stloc(), resultLocal)
-        plan.AppendLabelInstruction(ColumnarCodePlanContract.Leave(), regionEnd)
-
-        plan.AppendBeginFaultBlock()
-        AppendEnumeratorDisposals(plan, context, thisArg)
-        plan.AppendEndExceptionBlock()
+        if faultGuarded {
+            plan.AppendLabelInstruction(ColumnarCodePlanContract.Leave(), regionEnd)
+            plan.AppendBeginFaultBlock()
+            AppendEnumeratorDisposals(plan, context, thisArg)
+            plan.AppendEndExceptionBlock()
+        } else {
+            plan.AppendMarkLabel(regionEnd)
+        }
 
         plan.AppendPlanLocalInstruction(ColumnarCodePlanContract.Ldloc(), resultLocal)
         plan.AppendInstructionWithoutOperand(ColumnarCodePlanContract.Ret())
@@ -1547,20 +1768,56 @@ class ColumnarIteratorBodyPlanner {
 
     // The state dispatch: each resume state branches to its label; any other non-zero state (running or
     // done) reaches the end label; state 0 falls through into a fresh run.
+    //
+    // A resume point that lives inside a `try` cannot be branched to from here — a branch INTO a
+    // protected region is illegal IL — so its state branches to the ENTRY of the outermost `try` that
+    // contains it. Control then enters that region normally and the region's own dispatch (emitted as
+    // its first rows) repeats the question one level down, until the resume label itself is reachable
+    // from inside every region it stands in.
     static func AppendMoveNextDispatch(emit: ColumnarMoveNextEmit, yieldCount: int) {
-        s := 1
-        while s <= yieldCount {
-            LoadThis(emit)
-            emit.Plan.AppendFieldInstruction(ColumnarCodePlanContract.Ldfld(), emit.StateFieldPool)
-            EmitInt(emit, s)
-            emit.Plan.AppendInstructionWithoutOperand(ColumnarCodePlanContract.Ceq())
-            emit.Plan.AppendLabelInstruction(ColumnarCodePlanContract.Brtrue(), emit.ResumeLabels[s])
-            s = s + 1
-        }
+        AppendStateDispatch(emit, yieldCount, 0 - 1)
         LoadThis(emit)
         emit.Plan.AppendFieldInstruction(ColumnarCodePlanContract.Ldfld(), emit.StateFieldPool)
         emit.Plan.AppendLabelInstruction(ColumnarCodePlanContract.Brtrue(), emit.EndLabel)
         StoreState(emit, ColumnarIteratorPlanner.RunningState())
+    }
+
+    // One dispatch level. `region` is the region the rows are being emitted inside (-1 for the method
+    // prologue); every resume state whose home is that region — or any region nested inside it —
+    // branches to the next hop on the way there.
+    static func AppendStateDispatch(emit: ColumnarMoveNextEmit, yieldCount: int, region: int) {
+        s := 1
+        while s <= yieldCount {
+            target := DispatchTargetFor(emit, s, region)
+            if target >= 0 {
+                LoadThis(emit)
+                emit.Plan.AppendFieldInstruction(ColumnarCodePlanContract.Ldfld(), emit.StateFieldPool)
+                EmitInt(emit, s)
+                emit.Plan.AppendInstructionWithoutOperand(ColumnarCodePlanContract.Ceq())
+                emit.Plan.AppendLabelInstruction(ColumnarCodePlanContract.Brtrue(), target)
+            }
+            s = s + 1
+        }
+    }
+
+    // The label a dispatch emitted inside `region` must branch to so that resume state `s` is
+    // reached: its own resume label when the state's home IS this region, the entry of the child
+    // region on the path when it is nested deeper, and -1 when the state does not live under this
+    // region at all (an enclosing dispatch already routed it, or will).
+    static func DispatchTargetFor(emit: ColumnarMoveNextEmit, s: int, region: int): int {
+        home := emit.Context.Shape.ResumeRegionOf(s)
+        if home == region {
+            return emit.ResumeLabels[s]
+        }
+        parents := emit.Context.Shape.TryRegionParents
+        hop := home
+        while hop >= 0 && hop < parents.Length {
+            if parents[hop] == region {
+                return emit.RegionEntryLabels[hop]
+            }
+            hop = parents[hop]
+        }
+        return 0 - 1
     }
 
     static func HoistedEnumeratorFieldCount(context: ColumnarIteratorEmitContext): int {
@@ -1573,6 +1830,48 @@ class ColumnarIteratorBodyPlanner {
             i = i + 1
         }
         return count
+    }
+
+    // THE ABANDONED-MACHINE UNWIND. A consumer that stops early calls `Dispose` while the machine is
+    // suspended, and every `finally` it is standing inside still has to run. The machine already
+    // knows how to get back to that exact point — its own state dispatch — so `Dispose` sets the
+    // dispose flag and drives `MoveNext` once: the resume point marks the machine running, sees the
+    // flag, and branches to the end label, which leaves every open region and lets the runtime run
+    // each `finally` on the way out, innermost first. Only the states that suspended INSIDE a region
+    // are driven; everything else has nothing to unwind.
+    static func AppendDisposeModeUnwind(plan: ColumnarCodePlan, context: ColumnarIteratorEmitContext, thisArg: int, statePool: int) {
+        moveNext := context.MoveNextMethod
+        if moveNext == null || !context.HasHoistedField(ColumnarIteratorPlanner.DisposeModeFieldName()) {
+            return
+        }
+        shape := context.Shape
+        unwindLabel := plan.DefineLabel()
+        skipLabel := plan.DefineLabel()
+        driven := false
+        s := 1
+        while s <= shape.YieldReturnCount {
+            if shape.ResumeRegionOf(s) >= 0 {
+                plan.AppendArgumentInstruction(ColumnarCodePlanContract.Ldarg(), thisArg)
+                plan.AppendFieldInstruction(ColumnarCodePlanContract.Ldfld(), statePool)
+                plan.AppendInt32Instruction(ColumnarCodePlanContract.LdcI4(), plan.AddInt32(s))
+                plan.AppendInstructionWithoutOperand(ColumnarCodePlanContract.Ceq())
+                plan.AppendLabelInstruction(ColumnarCodePlanContract.Brtrue(), unwindLabel)
+                driven = true
+            }
+            s = s + 1
+        }
+        if !driven {
+            throw new InvalidOperationException("A machine with a dispose flag must suspend inside at least one protected region.")
+        }
+        plan.AppendLabelInstruction(ColumnarCodePlanContract.Br(), skipLabel)
+        plan.AppendMarkLabel(unwindLabel)
+        plan.AppendArgumentInstruction(ColumnarCodePlanContract.Ldarg(), thisArg)
+        plan.AppendInt32Instruction(ColumnarCodePlanContract.LdcI4(), plan.AddInt32(1))
+        plan.AppendFieldInstruction(ColumnarCodePlanContract.Stfld(), plan.AddField(context.FieldForName(ColumnarIteratorPlanner.DisposeModeFieldName())))
+        plan.AppendArgumentInstruction(ColumnarCodePlanContract.Ldarg(), thisArg)
+        plan.AppendMethodInstruction(ColumnarCodePlanContract.Callvirt(), plan.AddMethod(moveNext))
+        plan.AppendInstructionWithoutOperand(ColumnarCodePlanContract.Pop())
+        plan.AppendMarkLabel(skipLabel)
     }
 
     // Null-checked disposal (+ null-out) of every hoisted enumerator field: the fault handler's body,
@@ -1644,6 +1943,7 @@ class ColumnarIteratorBodyPlanner {
         thisArg := plan.AddArgument(0, smTypeIdx)
         statePool := plan.AddField(context.FieldForName("<>__state"))
         donePool := plan.AddInt32(ColumnarIteratorPlanner.DoneState())
+        AppendDisposeModeUnwind(plan, context, thisArg, statePool)
         AppendEnumeratorDisposals(plan, context, thisArg)
         plan.AppendArgumentInstruction(ColumnarCodePlanContract.Ldarg(), thisArg)
         plan.AppendInt32Instruction(ColumnarCodePlanContract.LdcI4(), donePool)
@@ -1832,6 +2132,19 @@ class ColumnarIteratorBodyPlanner {
 
     static func FieldPool(emit: ColumnarMoveNextEmit, name: string): int {
         return emit.Plan.AddField(emit.Context.FieldForName(name))
+    }
+
+    // A branch to a label at the BODY's own level (the shared end label). It crosses out of every
+    // `try` the body wrote, so it is a `leave` exactly when one of those is open; the outer fault
+    // wrapper, when there is one, encloses the end label too and is not crossed.
+    static func AppendBodyExit(emit: ColumnarMoveNextEmit, label: int) {
+        emit.Plan.AppendLabelInstruction(emit.RegionDepth > 0 ? ColumnarCodePlanContract.Leave() : ColumnarCodePlanContract.Br(), label)
+    }
+
+    // A branch to the label past EVERY region — where the method's single `ret` stands. It crosses
+    // the outer fault wrapper as well, so any open region at all makes it a `leave`.
+    static func AppendMethodExit(emit: ColumnarMoveNextEmit, label: int) {
+        emit.Plan.AppendLabelInstruction(emit.InsideRegion ? ColumnarCodePlanContract.Leave() : ColumnarCodePlanContract.Br(), label)
     }
 
     // THE ONE EXPRESSION DOOR. A value inside a `func*` body is planned by the SAME owner that plans a
@@ -2048,8 +2361,11 @@ class ColumnarIteratorBodyPlanner {
                 EmitYieldReturn(emit, nodes.Child(node, 0))
                 return !emit.Context.Declined
             }
-            emit.Plan.AppendLabelInstruction(ColumnarCodePlanContract.Br(), emit.EndLabel)
+            AppendBodyExit(emit, emit.EndLabel)
             return false
+        }
+        if kind == 49 {
+            return EmitTryStatement(emit, node)
         }
         if kind == 28 {
             // For [init, cond, incr, body]: `init` runs once (its local is a hoisted field), then the
@@ -2107,6 +2423,111 @@ class ColumnarIteratorBodyPlanner {
         }
         emit.Context.Decline("emit.iterator.unsupported-shape", "an iterator body statement (node kind " + kind.ToString() + ") is not yet lowered")
         return false
+    }
+
+    // THE PROTECTED REGION A GENERATOR BODY WRITES. The `try` becomes a real EH clause whose resume
+    // points live INSIDE it, so the region opens with its own state dispatch: the enclosing dispatch
+    // could only branch to the region's entry, and this is the hop that finishes the journey.
+    //
+    // The `finally` handler is guarded by the machine's own state. A handler runs on every way out of
+    // a protected region, and a `yield return` leaves one — but suspending is not leaving the
+    // statement, so its handler must not run. The state says which happened: a suspension stored its
+    // resume state (a positive number) just before branching out, while a normal completion, an
+    // exception in flight and a dispose-driven unwind are all still marked running (-1). `state < 0`
+    // is therefore exactly "this exit is final", and it is the same test the C# compiler emits.
+    static func EmitTryStatement(emit: ColumnarMoveNextEmit, node: int): bool {
+        nodes := emit.Context.Nodes
+        childCount := nodes.ChildCount(node)
+        finallyNode := 0 - 1
+        handlerEnd := childCount
+        if childCount >= 2 && nodes.Kind(nodes.Child(node, childCount - 1)) == 25 {
+            finallyNode = nodes.Child(node, childCount - 1)
+            handlerEnd = childCount - 1
+        }
+
+        region := emit.NextTryRegion
+        emit.NextTryRegion = emit.NextTryRegion + 1
+        emit.Plan.AppendMarkLabel(emit.RegionEntryLabels[region])
+        regionEnd := emit.Plan.DefineLabel()
+        emit.Plan.AppendBeginExceptionBlock(regionEnd)
+        emit.RegionDepth = emit.RegionDepth + 1
+        AppendStateDispatch(emit, emit.Context.Shape.YieldReturnCount, region)
+
+        tryFalls := EmitStatement(emit, nodes.Child(node, 0))
+        if emit.Context.Declined {
+            return false
+        }
+        if tryFalls {
+            AppendBodyExit(emit, regionEnd)
+        }
+
+        handlersFall := false
+        catchOrdinal := 0
+        c := 1
+        while c < handlerEnd {
+            clause := nodes.Child(node, c)
+            catchFalls := false
+            if !EmitCatchClause(emit, clause, catchOrdinal, regionEnd, out catchFalls) {
+                return false
+            }
+            if catchFalls {
+                handlersFall = true
+            }
+            catchOrdinal = catchOrdinal + 1
+            c = c + 1
+        }
+
+        if finallyNode >= 0 {
+            emit.Plan.AppendBeginFinallyBlock()
+            skipLabel := emit.Plan.DefineLabel()
+            LoadThis(emit)
+            emit.Plan.AppendFieldInstruction(ColumnarCodePlanContract.Ldfld(), emit.StateFieldPool)
+            EmitInt(emit, 0)
+            emit.Plan.AppendInstructionWithoutOperand(ColumnarCodePlanContract.Clt())
+            emit.Plan.AppendLabelInstruction(ColumnarCodePlanContract.Brfalse(), skipLabel)
+            EmitStatement(emit, finallyNode)
+            if emit.Context.Declined {
+                return false
+            }
+            emit.Plan.AppendMarkLabel(skipLabel)
+        }
+
+        emit.Plan.AppendEndExceptionBlock()
+        emit.RegionDepth = emit.RegionDepth - 1
+        return tryFalls || handlersFall
+    }
+
+    // One `catch` handler. The runtime hands the exception on the stack; a state machine's bindings
+    // are FIELDS, so it is parked in a plan local and stored into the hoisted slot classification
+    // reserved for this clause — the clause's own variable when it names one, and a synthesized slot
+    // otherwise, which is what gives a bare `catch` a typed handler at all.
+    static func EmitCatchClause(emit: ColumnarMoveNextEmit, clause: int, ordinal: int, regionEnd: int, out fellThrough: bool): bool {
+        fellThrough = false
+        nodes := emit.Context.Nodes
+        if nodes.Kind(clause) != 50 || nodes.ChildCount(clause) < 1 {
+            emit.Context.Decline("emit.iterator.unsupported-shape", "unsupported catch clause in an iterator body")
+            return false
+        }
+        name := ColumnarIteratorPlanner.CatchBindingName(nodes, emit.Context.Source, clause, ordinal)
+        field := emit.Context.FieldForName(name)
+        exceptionType := field.get_FieldType()
+        typeIdx := emit.Plan.AddType(emit.Context.StructuralTypeReferences.SelectRuntimeType(exceptionType), emit.Context.StructuralTypeReferences)
+        emit.Plan.AppendBeginCatchBlock(typeIdx)
+        caught := emit.Plan.DeclarePlanLocal(typeIdx)
+        emit.Plan.AppendPlanLocalInstruction(ColumnarCodePlanContract.Stloc(), caught)
+        LoadThis(emit)
+        emit.Plan.AppendPlanLocalInstruction(ColumnarCodePlanContract.Ldloc(), caught)
+        emit.Plan.AppendFieldInstruction(ColumnarCodePlanContract.Stfld(), emit.Plan.AddField(field))
+
+        fell := EmitStatement(emit, nodes.Child(clause, nodes.ChildCount(clause) - 1))
+        if emit.Context.Declined {
+            return false
+        }
+        if fell {
+            AppendBodyExit(emit, regionEnd)
+        }
+        fellThrough = fell
+        return true
     }
 
     // `target = value` / `target op= value` where the target is a hoisted binding. The plain form is a
@@ -2566,15 +2987,35 @@ class ColumnarIteratorBodyPlanner {
         StoreState(emit, resumeState)
         EmitInt(emit, 1)
         if emit.RegionMode {
-            // Suspension inside the protected region: stash the result and `leave` to the ret outside
-            // (leave never runs the fault handler, so live enumerators survive the suspension).
+            // Suspension inside a protected region: stash the result and branch to the ret outside
+            // every region. A `leave` never runs a FAULT handler, so live enumerators survive the
+            // suspension; a `finally` the suspension leaves behind is skipped by its own state guard,
+            // because the resume state this just stored is not negative.
             emit.Plan.AppendPlanLocalInstruction(ColumnarCodePlanContract.Stloc(), emit.ResultLocal)
-            emit.Plan.AppendLabelInstruction(ColumnarCodePlanContract.Leave(), emit.RegionEndLabel)
+            AppendMethodExit(emit, emit.RegionEndLabel)
         } else {
             emit.Plan.AppendInstructionWithoutOperand(ColumnarCodePlanContract.Ret())
         }
         emit.Plan.AppendMarkLabel(emit.ResumeLabels[resumeState])
         StoreState(emit, ColumnarIteratorPlanner.RunningState())
+        AppendDisposeModeExit(emit, resumeState)
+    }
+
+    // THE ABANDONMENT PATH. A machine that suspended inside a `try` is resumed by `Dispose` with the
+    // dispose flag set: it marks itself running (so every state-guarded `finally` will fire) and
+    // branches straight to the end label, which crosses out of every region it was standing in and
+    // makes the runtime run each `finally` on the way, innermost first. A resume point in
+    // unprotected code has nothing to unwind and carries no check at all.
+    static func AppendDisposeModeExit(emit: ColumnarMoveNextEmit, resumeState: int) {
+        if emit.Context.Shape.ResumeRegionOf(resumeState) < 0 || !emit.Context.HasHoistedField(ColumnarIteratorPlanner.DisposeModeFieldName()) {
+            return
+        }
+        continueLabel := emit.Plan.DefineLabel()
+        LoadThis(emit)
+        emit.Plan.AppendFieldInstruction(ColumnarCodePlanContract.Ldfld(), FieldPool(emit, ColumnarIteratorPlanner.DisposeModeFieldName()))
+        emit.Plan.AppendLabelInstruction(ColumnarCodePlanContract.Brfalse(), continueLabel)
+        AppendBodyExit(emit, emit.EndLabel)
+        emit.Plan.AppendMarkLabel(continueLabel)
     }
 
     // Async `yield return`: store current, set the yield-resume state (the SHARED resume counter),

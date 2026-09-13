@@ -632,6 +632,7 @@ class ColumnarCodePlanExecutor {
         // "inside a protected region" (ret is invalid there; leave is the only exit).
         regionLabelStack := new int[](n + 1)
         regionHandlerStarted := new bool[](n + 1)
+        regionTerminalHandler := new bool[](n + 1)
         regionTop := 0
         depth := 0
         i := 0
@@ -678,13 +679,23 @@ class ColumnarCodePlanExecutor {
                 }
                 regionLabelStack[regionTop] = operandIndex
                 regionHandlerStarted[regionTop] = false
+                regionTerminalHandler[regionTop] = false
                 regionTop += 1
                 depth += 1
-            } else if (operationKind == ColumnarCodePlanContract.BeginFinallyBlockOperation() || operationKind == ColumnarCodePlanContract.BeginFaultBlockOperation()) || operationKind == ColumnarCodePlanContract.BeginCatchBlockOperation() {
-                if regionTop == 0 || regionHandlerStarted[regionTop - 1] {
-                    throw new InvalidOperationException(schemaName + " finally/fault/catch handler must open exactly one enclosing try region.")
+            } else if operationKind == ColumnarCodePlanContract.BeginCatchBlockOperation() {
+                // A region may declare SEVERAL catch handlers, and a `finally` may follow them; what
+                // it may not do is declare a handler after the terminal one, because `finally`/`fault`
+                // close the region's handler list.
+                if regionTop == 0 || regionTerminalHandler[regionTop - 1] {
+                    throw new InvalidOperationException(schemaName + " a catch handler must open one enclosing try region that has no finally or fault handler yet.")
                 }
                 regionHandlerStarted[regionTop - 1] = true
+            } else if operationKind == ColumnarCodePlanContract.BeginFinallyBlockOperation() || operationKind == ColumnarCodePlanContract.BeginFaultBlockOperation() {
+                if regionTop == 0 || regionTerminalHandler[regionTop - 1] {
+                    throw new InvalidOperationException(schemaName + " a finally or fault handler must open one enclosing try region and be its last handler.")
+                }
+                regionHandlerStarted[regionTop - 1] = true
+                regionTerminalHandler[regionTop - 1] = true
             } else if operationKind == ColumnarCodePlanContract.EndExceptionBlockOperation() {
                 if regionTop == 0 || !regionHandlerStarted[regionTop - 1] {
                     throw new InvalidOperationException(schemaName + " exception region must open a handler before it ends.")

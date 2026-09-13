@@ -2727,9 +2727,47 @@ replaces `callFragment == 0` in `ColumnarDirectCallPlanner`'s void guards; and a
 non-root claim at every position a method body can put it in, because an index access is never a
 statement. A NESTED void fragment is still refused on every schema.
 
+### A generator suspends inside `try`/`finally`
+
+A `yield` may appear inside a `try` whose ONLY handler is a `finally`. The lowering is the C#
+compiler's:
+
+- **Every `try` in the body is a region ordinal**, assigned in classification walk order and re-assigned
+  identically by the emission walk (`ColumnarIteratorWalkState.TryRegionParents` /
+  `ResumeRegions`, carried on `ColumnarIteratorShape`). A resume state records the innermost region it
+  suspends inside.
+- **A resume point inside a region is reached by dispatching twice.** A branch INTO a protected region
+  is illegal IL, so the method prologue's dispatch sends such a state to the region's ENTRY label
+  (just before its `try`), and the region's own first rows are a second dispatch that finishes the hop
+  — recursively, for nested regions (`ColumnarIteratorBodyPlanner.AppendStateDispatch` /
+  `DispatchTargetFor`).
+- **The `finally` handler is guarded by the machine's state**: `if (<>__state < 0) { <handler> }`. A
+  handler runs on every exit from a protected region, and a `yield return` leaves one — but suspending
+  is not ending the statement. The suspension stored a POSITIVE resume state just before branching out;
+  a normal completion, an in-flight exception and a dispose-driven unwind are all still `-1` (running).
+- **Abandonment re-drives the machine in dispose mode.** A `<>__disposing` field (role 9) exists only
+  on a machine that can suspend inside a region; `Dispose` sets it and calls `MoveNext`, which resumes
+  at the suspension point, marks itself running, sees the flag and branches to the end label — leaving
+  every open region so the runtime runs each `finally`, innermost first
+  (`ColumnarIteratorBodyPlanner.AppendDisposeModeUnwind` / `AppendDisposeModeExit`).
+- **`ret` is illegal inside a protected region**, so a body that writes any `try` takes the same
+  result-local-plus-`leave` exit shape the hoisted-enumerator (try/FAULT) layout already used;
+  `BuildMoveNextPlan` now emits all three shapes from one walk.
+- **A catch clause hoists the exception it binds** — a state machine's bindings are fields — under the
+  clause's own variable name, or `<>__exception{k}` for a clause that binds none.
+- `ColumnarCodePlanExecutor` now admits SEVERAL catch handlers on one region and a `finally`/`fault`
+  after them, as its terminal handler.
+
+The three placements a suspension cannot resume from are **NL332**
+(`AnalyzerAmbientContext.EnterYieldForbidden` / `ReportYieldPlacementIfNeeded`, pushed by
+`AnalyzerResourceStatements.AdvanceTry`): a `yield` inside a `try` that declares a `catch`, inside a
+`catch` handler, or inside a `finally` handler. `ColumnarIteratorPlanner.WalkTryStatement` refuses the
+same three with the same sentences, so no shape can reach lowering without a diagnostic.
+
 Not yet lowered inside a generator body, each with its own decline: `return <value>`
-(`emit.iterator.unsupported-shape`), a lambda (`emit.iterator.lambda-unsupported`), `try`/`using`/
-`lock`, `await` in a value position, and `await foreach`.
+(`emit.iterator.unsupported-shape`), a lambda (`emit.iterator.lambda-unsupported`), a `try` inside an
+`async func*` (`emit.iterator.async-unsupported`), `lock`, `await` in a value position, and
+`await foreach`. (`using` is not a statement this language parses at all.)
 
 ## One Exception-Resolution Path
 

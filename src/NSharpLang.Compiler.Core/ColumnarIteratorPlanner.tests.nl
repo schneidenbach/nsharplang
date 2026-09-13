@@ -1081,9 +1081,71 @@ test "iterator planner declines a lambda inside an iterator body" {
     assert probe.Shape.DeclineMessage == "a lambda inside an iterator body is not yet lowered"
 }
 
-test "iterator planner declines a try statement around a yield" {
+// THE PROTECTED-REGION RULES. A `yield` may suspend inside a `try` whose only handler is a
+// `finally`; the three placements that cannot resume are refused, with the same sentences NL332
+// reports, so the emit path can never lower a shape the analyzer would have rejected.
+test "iterator planner plans a yield inside a try with only a finally" {
     probe := new ColumnarIteratorShapeProbe(
-        "func* Guarded(): IEnumerable<int> { try { yield 1 } catch ex: Exception { yield 2 } }",
+        "func* Guarded(): IEnumerable<int> { try { yield 1\n yield 2 } finally { } }",
+        "IEnumerable<int>",
+        IteratorNoStrings(),
+        IteratorNoStrings(),
+        IteratorNoStrings(),
+        false
+    )
+
+    assert probe.Shape.Supported
+    assert probe.Shape.YieldReturnCount == 2
+    assert probe.Shape.TryRegionCount == 1
+    assert probe.Shape.TryRegionParents[0] == 0 - 1
+    assert probe.Shape.ResumeRegionOf(1) == 0
+    assert probe.Shape.ResumeRegionOf(2) == 0
+    assert probe.Shape.FieldNames[probe.Shape.FieldCount - 1] == "<>__disposing"
+    assert probe.Shape.FieldCanonicals[probe.Shape.FieldCount - 1] == "bool"
+    assert probe.Shape.FieldRoles[probe.Shape.FieldCount - 1] == ColumnarIteratorPlanner.DisposeModeFieldRole()
+}
+
+test "iterator planner nests protected regions and records each resume home" {
+    probe := new ColumnarIteratorShapeProbe(
+        "func* Nested(): IEnumerable<int> { try { try { yield 1 } finally { } \n yield 2 } finally { } }",
+        "IEnumerable<int>",
+        IteratorNoStrings(),
+        IteratorNoStrings(),
+        IteratorNoStrings(),
+        false
+    )
+
+    assert probe.Shape.Supported
+    assert probe.Shape.TryRegionCount == 2
+    assert probe.Shape.TryRegionParents[0] == 0 - 1
+    assert probe.Shape.TryRegionParents[1] == 0
+    assert probe.Shape.ResumeRegionOf(1) == 1
+    assert probe.Shape.ResumeRegionOf(2) == 0
+}
+
+test "iterator planner leaves a region-free machine without a dispose flag" {
+    probe := new ColumnarIteratorShapeProbe(
+        "func* Caught(): IEnumerable<int> { total: int = 0\n try { total = 1 } finally { total = 2 }\n yield total }",
+        "IEnumerable<int>",
+        IteratorNoStrings(),
+        IteratorNoStrings(),
+        IteratorNoStrings(),
+        false
+    )
+
+    assert probe.Shape.Supported
+    assert probe.Shape.TryRegionCount == 1
+    assert probe.Shape.ResumeRegionOf(1) == 0 - 1
+    i := 0
+    while i < probe.Shape.FieldCount {
+        assert probe.Shape.FieldNames[i] != "<>__disposing"
+        i = i + 1
+    }
+}
+
+test "iterator planner declines a yield inside a try that declares a catch" {
+    probe := new ColumnarIteratorShapeProbe(
+        "func* Guarded(): IEnumerable<int> { try { yield 1 } catch ex: Exception { } }",
         "IEnumerable<int>",
         IteratorNoStrings(),
         IteratorNoStrings(),
@@ -1093,7 +1155,53 @@ test "iterator planner declines a try statement around a yield" {
 
     assert !probe.Shape.Supported
     assert probe.Shape.DeclineSite == "emit.iterator.unsupported-shape"
-    assert probe.Shape.DeclineMessage == "an iterator body statement (node kind 49) is not yet lowered"
+    assert probe.Shape.DeclineMessage == "a `yield` cannot appear inside a `try` that declares a `catch`; a generator may only suspend inside a `try` whose only handler is `finally`"
+}
+
+test "iterator planner declines a yield inside a catch handler" {
+    probe := new ColumnarIteratorShapeProbe(
+        "func* Guarded(): IEnumerable<int> { try { } catch ex: Exception { yield 1 } }",
+        "IEnumerable<int>",
+        IteratorNoStrings(),
+        IteratorNoStrings(),
+        IteratorNoStrings(),
+        false
+    )
+
+    assert !probe.Shape.Supported
+    assert probe.Shape.DeclineSite == "emit.iterator.unsupported-shape"
+    assert probe.Shape.DeclineMessage == "a `yield` cannot appear inside a `catch` handler"
+}
+
+test "iterator planner declines a yield inside a finally handler" {
+    probe := new ColumnarIteratorShapeProbe(
+        "func* Guarded(): IEnumerable<int> { try { } finally { yield 1 } }",
+        "IEnumerable<int>",
+        IteratorNoStrings(),
+        IteratorNoStrings(),
+        IteratorNoStrings(),
+        false
+    )
+
+    assert !probe.Shape.Supported
+    assert probe.Shape.DeclineSite == "emit.iterator.unsupported-shape"
+    assert probe.Shape.DeclineMessage == "a `yield` cannot appear inside a `finally` handler"
+}
+
+test "iterator planner declines a try statement inside an async iterator body" {
+    probe := new ColumnarIteratorShapeProbe(
+        "async func* Guarded(): IAsyncEnumerable<int> { try { yield 1 } finally { } }",
+        "IAsyncEnumerable<int>",
+        IteratorNoStrings(),
+        IteratorNoStrings(),
+        IteratorNoStrings(),
+        false,
+        true
+    )
+
+    assert !probe.Shape.Supported
+    assert probe.Shape.DeclineSite == "emit.iterator.async-unsupported"
+    assert probe.Shape.DeclineMessage == "a `try` statement inside an `async func*` body is a later slice"
 }
 
 test "iterator planner declines a lock statement in an iterator body" {

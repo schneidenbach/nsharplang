@@ -409,6 +409,13 @@ class ColumnarIteratorRealization {
         }
         moveNextIl := moveNext.GetILGenerator()
         ColumnarCodePlanExecutor.Execute(moveNextPlan, moveNextIl)
+        // `Dispose` drives this exact handle to unwind a machine abandoned inside a protected region.
+        // A generic machine's members are taken on the instantiation its fields already came from.
+        moveNextHandle: MethodInfo = moveNext
+        if smTypeParamMap != null {
+            moveNextHandle = TypeBuilder.GetMethod(memberSmType, moveNext)
+        }
+        context.MoveNextMethod = moveNextHandle
 
         getCurrent := sm.DefineMethod(
             shape.MemberNames[2],

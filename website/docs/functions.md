@@ -799,12 +799,46 @@ target-typed literal needs.
 generator. The enumerator is disposed when the loop ends, when the consumer stops early, and when the
 sequence itself is disposed.
 
+### Cleanup: `try`/`finally` around a `yield`
+
+A generator may suspend inside a `try` whose only handler is a `finally`, and the handler runs on
+every way the enumeration can end:
+
+```n#
+import System.Collections.Generic
+import System.IO
+
+func* trimmedLines(path: string): IEnumerable<string> {
+    reader := new StreamReader(path)
+    try {
+        line := reader.ReadLine()
+        while line != null {
+            yield line.Trim()
+            line = reader.ReadLine()
+        }
+    } finally {
+        reader.Dispose()
+    }
+}
+```
+
+The `finally` runs when the body finishes, when an exception passes through it, and when a consumer
+stops enumerating part-way and disposes the enumerator — which is what `for..in` does when its body
+`break`s or throws. It does **not** run when the generator merely suspends at a `yield`. Nested
+regions unwind innermost first, exactly as they do in a plain function.
+
+`catch` and `finally` handlers that contain no `yield` are ordinary protected regions and may be
+written anywhere in a generator body.
+
 ### What a generator body may not contain
 
 - `return <value>` — a generator produces values with `yield` and stops with `yield break`.
+- a `yield` inside a `try` that declares a `catch`, or inside a `catch` or `finally` handler
+  ([NL332](./errors/NL332.md)) — a suspension has to be resumable, and only a `finally` can be
+  re-entered that way.
 - a lambda (its capture of the state machine's own `this` is not lowered yet).
 - `await` outside an `async func*`, and `await` in a value position inside one.
-- `try`/`catch`/`finally`, `using` and `lock` are not yet lowered inside a generator body.
+- a `try` statement inside an `async func*` body, and `lock` inside any generator body.
 - an assignment whose TARGET is an indexer or a member (`table[key] = v`, `obj.Field = v`); the
   assignment target must be a local or a parameter. Call the member instead (`table.Add(key, v)`).
 - an assignment to an enclosing-type member from an instance generator (those members are read-only

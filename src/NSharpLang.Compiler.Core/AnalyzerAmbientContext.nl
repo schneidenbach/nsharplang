@@ -179,6 +179,7 @@ class AnalyzerAmbientContext {
     isAsyncValue: bool
     inLoopValue: bool
     finallyDepthValue: int
+    yieldForbiddenPlacementsValue: List<string>
     breakTargetFinallyDepthValue: int
     continueTargetFinallyDepthValue: int
     currentExpectedTypeValue: TypeInfo?
@@ -361,6 +362,7 @@ class AnalyzerAmbientContext {
         isAsyncValue = false
         inLoopValue = false
         finallyDepthValue = 0
+        yieldForbiddenPlacementsValue = new List<string>()
         breakTargetFinallyDepthValue = 0
         continueTargetFinallyDepthValue = 0
         currentExpectedTypeValue = null
@@ -391,6 +393,7 @@ class AnalyzerAmbientContext {
         isAsyncValue = false
         inLoopValue = false
         finallyDepthValue = 0
+        yieldForbiddenPlacementsValue.Clear()
         breakTargetFinallyDepthValue = 0
         continueTargetFinallyDepthValue = 0
         inConstructorValue = false
@@ -696,6 +699,53 @@ class AnalyzerAmbientContext {
 
     func ExitFinally() {
         finallyDepthValue = finallyDepthValue - 1
+    }
+
+    // WHERE A GENERATOR MAY NOT SUSPEND. A `yield` inside a protected region has to be resumable: the
+    // state machine re-enters the region and dispatches to the resume point inside it, and the
+    // `finally` it is standing in must run when the consumer abandons the enumeration. That is only
+    // expressible when the region's ONLY handler is a `finally`; a `catch` would have to be re-armed
+    // across a suspension that is not inside the call at all, and a handler body cannot be suspended
+    // out of and resumed back into. These three placements are therefore refused (NL332), and the
+    // innermost reason is what the message names — the stack nests because a `try` can sit inside a
+    // `catch` that sits inside a `finally`.
+    func EnterYieldForbidden(placement: string) {
+        yieldForbiddenPlacementsValue.Add(placement)
+    }
+
+    func ExitYieldForbidden() {
+        yieldForbiddenPlacementsValue.RemoveAt(yieldForbiddenPlacementsValue.Count - 1)
+    }
+
+    // NL332, reported at the `yield` keyword itself: the reader needs to see the suspension point,
+    // not the handler that forbids it.
+    func ReportYieldPlacementIfNeeded(line: int, column: int) {
+        if yieldForbiddenPlacementsValue.Count == 0 {
+            return
+        }
+
+        placement := yieldForbiddenPlacementsValue[yieldForbiddenPlacementsValue.Count - 1]
+        diagnosticsValue.Report(ErrorCode.YieldInProtectedRegion, YieldPlacementMessage(placement), line, column, YieldPlacementHint(placement), 5)
+    }
+
+    static func YieldPlacementMessage(placement: string): string {
+        if placement == "try" {
+            return "A 'yield' cannot appear inside a 'try' that declares a 'catch'"
+        }
+
+        return "A 'yield' cannot appear inside a '" + placement + "' handler"
+    }
+
+    static func YieldPlacementHint(placement: string): string {
+        if placement == "try" {
+            return "A generator may only suspend inside a `try` whose only handler is `finally`. Move the `catch` to a wrapping function, or move the `yield` out of this `try`."
+        }
+
+        if placement == "catch" {
+            return "Move the `yield` after the `try` statement — a handler body cannot be suspended out of and resumed back into."
+        }
+
+        return "Move the `yield` out of the `finally` handler — a `finally` may only complete through its own end."
     }
 
     // A NESTED WALK UNDER A TARGET TYPE. The saved value is a bare type rather than a frame, exactly

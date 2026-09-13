@@ -152,6 +152,7 @@ class DiagnosticCatalog {
         AddCompiler(descriptors, ErrorCode.FieldInitializerUsesInstance)
         AddCompiler(descriptors, ErrorCode.StructFieldInitializer)
         AddCompiler(descriptors, ErrorCode.ForeachElementConversion)
+        AddCompiler(descriptors, ErrorCode.YieldInProtectedRegion)
 
         AddCompiler(descriptors, ErrorCode.WrongArgumentCount)
         AddCompiler(descriptors, ErrorCode.NoMatchingOverload)
