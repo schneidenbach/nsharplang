@@ -2052,8 +2052,10 @@ Consequences worth knowing:
   owns each hoisted field's NAME, ROLE and POSITION (which is what state numbering and the
   guarded-layout decision need) but marks a `:=` local's canonical UNRESOLVED (`"?"`,
   `ColumnarIteratorPlanner.IsUnresolvedCanonical`). `ColumnarIteratorEmitContext.TryEnsureHoistedField`
-  defines the CLR field from the initializer's planned type when the lowering reaches the declaration;
-  a re-declaration in a disjoint scope shares the slot only when the two types agree.
+  defines the CLR field from the initializer's planned type when the lowering reaches the declaration.
+  A slot that already exists keeps ITS type and the value must be storable in it (identity, or a
+  reference widening between two baked handles), so `v := 1` then `v := true` in disjoint branches
+  declines while a host-supplied wider slot is reused.
 - **A decline can now happen during body lowering** rather than only during classification. The
   context carries `DeclineSite`/`DeclineMessage`; `ColumnarIteratorRealization` reports it after
   `BuildMoveNextPlan` and before any IL is executed into the method.

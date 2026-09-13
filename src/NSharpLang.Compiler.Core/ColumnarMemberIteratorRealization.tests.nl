@@ -493,7 +493,8 @@ func MemberIteratorControlsCall(
     resolution: ColumnarSemanticTypeResolution,
     source: string,
     types: List<TypeBuilder>,
-    ordinal: int[]
+    ordinal: int[],
+    bodyFacts: ColumnarIteratorBodyFacts?
 ): ColumnarIteratorRealizationResult {
     return ColumnarIteratorRealization.EmitMember(
         module,
@@ -506,7 +507,24 @@ func MemberIteratorControlsCall(
         source,
         types,
         ordinal,
-        null
+        bodyFacts
+    )
+}
+
+// The live facts a member iterator's BODY resolves its own expressions through: the enclosing type's
+// definition, which is what an `other.Original()` receiver's member lookup needs.
+func MemberIteratorControlsBodyFacts(definition: ColumnarStructDef, resolution: ColumnarSemanticTypeResolution): ColumnarIteratorBodyFacts {
+    definitions := new List<ColumnarStructDef>()
+    definitions.Add(definition)
+    return new ColumnarIteratorBodyFacts(
+        new Dictionary<string, ColumnarEnumDef>(StringComparer.Ordinal),
+        definitions,
+        new List<ColumnarUnionDef>(),
+        new Dictionary<string, Type>(StringComparer.Ordinal),
+        new Dictionary<string, ColumnarSiblingCallFacts>(StringComparer.Ordinal),
+        new string[](0),
+        definition,
+        resolution.StructuralTypeReferences
     )
 }
 
@@ -556,7 +574,8 @@ test "member iterator retains early rejection and static ordinal before its own 
         null,
         asyncSource,
         asyncTypes,
-        asyncOrdinal
+        asyncOrdinal,
+        null
     )
     assert !asyncResult.Succeeded
     assert asyncResult.DeclineSite == "emit.iterator.async-unsupported"
@@ -586,7 +605,8 @@ test "member iterator retains early rejection and static ordinal before its own 
         null,
         syncSource,
         genericTypes,
-        genericOrdinal
+        genericOrdinal,
+        null
     )
     assert !genericResult.Succeeded
     assert genericResult.DeclineSite == "emit.iterator.instance-unsupported"
@@ -611,7 +631,8 @@ test "member iterator retains early rejection and static ordinal before its own 
             null,
             syncSource,
             staticTypes,
-            staticOrdinal
+            staticOrdinal,
+            null
         )
     } catch error: NullReferenceException {
         staticThrew = true
@@ -709,7 +730,8 @@ test "member iterator takes the first source row and disposes before field and o
         positiveResolution,
         source,
         positiveTypes,
-        positiveOrdinal
+        positiveOrdinal,
+        null
     )
     assert positiveResult.Succeeded
     assert positiveTypes.Count == 1
@@ -760,7 +782,8 @@ test "member iterator takes the first source row and disposes before field and o
             null,
             source,
             throwingTypes,
-            throwingOrdinal
+            throwingOrdinal,
+            null
         )
     } catch error: InvalidOperationException {
         throwingCaught = error.Message == "member iterator fixture disposal failed"
@@ -830,7 +853,8 @@ test "member iterator disposes method enumeration before its shape phase" {
             null,
             source,
             throwingTypes,
-            throwingOrdinal
+            throwingOrdinal,
+            null
         )
     } catch error: InvalidOperationException {
         throwingCaught = error.Message == "member iterator fixture disposal failed"
@@ -865,7 +889,8 @@ test "member iterator disposes method enumeration before its shape phase" {
         null,
         source,
         normalTypes,
-        normalOrdinal
+        normalOrdinal,
+        null
     )
     assert !normalResult.Succeeded
     assert normalResult.DeclineSite == "emit.iterator.unsupported-shape"
@@ -932,6 +957,13 @@ test "member iterator preserves live repeated method-name reads and overload adm
     positiveTypes := new List<TypeBuilder>()
     positiveOrdinal := new int[](1)
     positiveOrdinal[0] = 40
+    positiveBodyResolution := MemberIteratorControlsEnclosingResolution(
+        positiveSource,
+        "MethodPositive",
+        IteratorNoStrings(),
+        IteratorNoStrings(),
+        positiveDefinition
+    )
     positiveResult: ColumnarIteratorRealizationResult = MemberIteratorControlsCall(
         IteratorRealizationControlPersistedModule(positiveOwner),
         positiveDefinition,
@@ -948,18 +980,15 @@ test "member iterator preserves live repeated method-name reads and overload adm
         positiveFactory,
         false,
         positiveProgram,
-        MemberIteratorControlsEnclosingResolution(
-            positiveSource,
-            "MethodPositive",
-            IteratorNoStrings(),
-            IteratorNoStrings(),
-            positiveDefinition
-        ),
+        positiveBodyResolution,
         positiveSource,
         positiveTypes,
-        positiveOrdinal
+        positiveOrdinal,
+        MemberIteratorControlsBodyFacts(positiveDefinition, positiveBodyResolution)
     )
-    assert positiveResult.Succeeded
+    if !positiveResult.Succeeded {
+        throw new InvalidOperationException("Member iterator realization declined at " + positiveResult.DeclineSite + ": " + positiveResult.DeclineMessage)
+    }
     assert positiveTypes.Count == 1
     assert positiveOrdinal[0] == 41
 
@@ -1038,7 +1067,8 @@ test "member iterator preserves live repeated method-name reads and overload adm
             null,
             nullSource,
             nullTypes,
-            nullOrdinal
+            nullOrdinal,
+            null
         )
     } catch error: NullReferenceException {
         nullCaught = error.Message == expectedNullMessage
@@ -1118,8 +1148,19 @@ test "member iterator preserves live repeated method-name reads and overload adm
     mutatingTypes := new List<TypeBuilder>()
     mutatingOrdinal := new int[](1)
     mutatingOrdinal[0] = 42
+    // The shape is admitted now, so realization reaches the factory's IL before it declines the body —
+    // a real module and factory builder are what let this case pin the METHOD WALK rather than an
+    // argument-null crash.
+    mutatingFactoryParameters := new Type[](1)
+    mutatingOwnerType: Type = mutatingOwner
+    mutatingFactoryParameters[0] = mutatingOwnerType
+    mutatingFactory := MemberIteratorControlsInstanceFactory(
+        mutatingOwner,
+        "Gen",
+        mutatingFactoryParameters
+    )
     mutatingResult: ColumnarIteratorRealizationResult = MemberIteratorControlsCall(
-        null,
+        IteratorRealizationControlPersistedModule(mutatingOwner),
         mutatingDefinition,
         IteratorRealizationControlFunctionWithSignature(
             mutatingProbe,
@@ -1131,14 +1172,25 @@ test "member iterator preserves live repeated method-name reads and overload adm
             false,
             806
         ),
-        null,
+        mutatingFactory,
         false,
         mutatingProgram,
-        null,
+        MemberIteratorControlsEnclosingResolution(
+            mutatingSource,
+            "MethodMutating",
+            IteratorNoStrings(),
+            IteratorNoStrings(),
+            mutatingDefinition
+        ),
         mutatingSource,
         mutatingTypes,
-        mutatingOrdinal
+        mutatingOrdinal,
+        null
     )
+    // The `for..in` source is an ordinary expression now, so the shape is ADMITTED and the decline
+    // comes from the body: with no program facts routed, the one expression owner cannot resolve
+    // `other.Original()`. Same site, later phase — which is what lets the method-walk assertions below
+    // still pin exactly what they pinned.
     assert !mutatingResult.Succeeded
     assert mutatingResult.DeclineSite == "emit.iterator.for-in-unsupported"
     assert mutatingResult.DeclineMember == "MemberIteratorMethodMutatingHost.Gen"

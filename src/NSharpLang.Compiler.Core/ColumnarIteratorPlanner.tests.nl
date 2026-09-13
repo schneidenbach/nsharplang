@@ -595,6 +595,26 @@ class ColumnarIteratorShapeProbe {
             spanStarts,
             spanLengths
         )
+        // THE BINDING SCOPE THE BODY'S OWN EXPRESSIONS RESOLVE THROUGH. A `func*` body is planned by the
+        // ordinary value owner, which asks the node table's scope for `new Exception(...)` and for any
+        // other written type. A probe with no scope can classify a shape but cannot lower one, so the
+        // probe stamps the same scope the emission host does — over the probe's own source plus the two
+        // imports every generator here uses.
+        scopeSources := new string[](1)
+        scopeFileNames := new string[](1)
+        scopeSources[0] = "import System\nimport System.Collections.Generic\nimport System.Threading.Tasks\n" + source
+        scopeFileNames[0] = "iterator-probe.nl"
+        scope := ColumnarBindingScopeFacts.Create(
+            ColumnarEmissionPlanner.BuildSourceFiles(scopeSources, scopeFileNames),
+            new List<ColumnarEnumInput>(),
+            new List<ColumnarStructInput>(),
+            new List<ColumnarUnionInput>(),
+            new List<ColumnarInterfaceInput>(),
+            null
+        )
+        scope.PrepareExternalTypeBindings(null)
+        nodes.SetBindingContext(scope.ForSourceFile(0), "", typeParamNames, null)
+
         Nodes = nodes
         BodyRoot = bodyRoot
         Source = source
@@ -2109,11 +2129,12 @@ test "iterator planner classifies member-call for..in sources" {
     assert shape.YieldReturnCount == 2
     assert shape.FieldCount == 7
     assert shape.FieldNames[2] == "<>__this"
-    assert shape.FieldCanonicals[3] == "IEnumerator<TreeNode>"
     assert shape.FieldRoles[3] == ColumnarIteratorPlanner.HoistedEnumeratorFieldRole()
+    assert ColumnarIteratorPlanner.IsUnresolvedCanonical(shape.FieldCanonicals[3])
     assert shape.FieldNames[4] == "child"
-    assert shape.FieldCanonicals[4] == "TreeNode"
-    assert shape.FieldCanonicals[5] == "IEnumerator<int>"
+    assert ColumnarIteratorPlanner.IsUnresolvedCanonical(shape.FieldCanonicals[4])
+    assert shape.FieldRoles[5] == ColumnarIteratorPlanner.HoistedEnumeratorFieldRole()
+    assert ColumnarIteratorPlanner.IsUnresolvedCanonical(shape.FieldCanonicals[5])
     assert shape.FieldNames[6] == "v"
 }
 
@@ -2358,7 +2379,10 @@ test "async iterator planner declines an await in a value position" {
     assert probe.Shape.DeclineSite == "emit.iterator.async-await-unsupported"
 }
 
-test "async iterator planner declines a non-int Task.Delay argument" {
+// The awaited operand's SHAPE is still classification's (the suspension point and its awaiter field
+// are the machine's own numbering); the ARGUMENT's type is the expression owner's, checked at
+// realization against the `Task.Delay(int)` overload the lowering calls.
+test "async iterator planner admits a Task.Delay argument and types it at realization" {
     probe := new ColumnarIteratorShapeProbe(
         "async func* Bad(): IAsyncEnumerable<int> { await Task.Delay(true)\n yield 1 }",
         "IAsyncEnumerable<int>",
@@ -2369,8 +2393,21 @@ test "async iterator planner declines a non-int Task.Delay argument" {
         true
     )
 
-    assert !probe.Shape.Supported
-    assert probe.Shape.DeclineSite == "emit.iterator.async-await-unsupported"
+    assert probe.Shape.Supported
+    assert probe.Shape.AwaitResumeCount == 1
+
+    operand := new ColumnarIteratorShapeProbe(
+        "async func* Bad(): IAsyncEnumerable<int> { await Other()\n yield 1 }",
+        "IAsyncEnumerable<int>",
+        IteratorNoStrings(),
+        IteratorNoStrings(),
+        IteratorNoStrings(),
+        false,
+        true
+    )
+
+    assert !operand.Shape.Supported
+    assert operand.Shape.DeclineSite == "emit.iterator.async-await-unsupported"
 }
 
 test "async iterator planner declines for..in over a sequence source" {

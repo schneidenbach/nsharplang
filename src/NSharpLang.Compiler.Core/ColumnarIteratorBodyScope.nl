@@ -11,9 +11,9 @@ import System.Reflection
 // where its name bindings LIVE: a parameter and a local become fields of the machine instead of an
 // argument slot and a local slot. Everything else — which overload a call selects, which conversion a
 // value needs, what an array literal costs — is the same question an ordinary body asks, and it has
-// exactly one owner: `ColumnarMethodBodyPlanner`'s append-mode expression door and the planners behind
-// it. This bundle is what the emission host routes so the iterator can ASK that owner instead of
-// carrying a second, smaller copy of the answer.
+// exactly one owner: `ColumnarRangeIndexPlanner`'s append-mode value cascade and the planners behind
+// it — the same owner a call ARGUMENT reaches. This bundle is what the emission host routes so the
+// iterator can ASK that owner instead of carrying a second, smaller copy of the answer.
 //
 // Every field here is the same live map the ordinary body path hands `ColumnarFragmentBindings`; none
 // of them is iterator-specific, and none of them is a table of admitted shapes.
