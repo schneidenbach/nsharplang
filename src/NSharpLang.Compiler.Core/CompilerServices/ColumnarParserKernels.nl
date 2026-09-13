@@ -588,6 +588,16 @@ class ColumnarExpressionNodeKind {
     static func DefaultExpression(): int {
         return 74
     }
+
+    // `on <receiver>.<Event> <handler>` — the event SUBSCRIPTION, and the VALUE it produces: a
+    // `NSharpLang.Runtime.NSharpEventSubscription` handle that `off` (statement kind 80) detaches.
+    // Children are [target, handler]: the target is the member chain ENDING in the event name (a
+    // kind-8 MemberAccess, or a kind-71 `base.Event`), the handler any expression of the event's
+    // delegate type — a lambda (kind 39), a delegate-typed local, a field, a call result. The `on`
+    // keyword's own byte span is the value span.
+    static func OnSubscriptionExpression(): int {
+        return 79
+    }
 }
 
 class ParserExpressionNodeTable {
@@ -753,6 +763,11 @@ class ParserExpressionNodeTable {
 //                                             token in the value span, ONE child [body block]. Kind 63 belongs
 //                                             to the expression kernel (TargetTypedNewExpression); kind 64 belongs
 //                                             to the expression kernel (SpreadArgumentExpression). )
+//   OffStatement                 -> kind 80  ( `off <handle>` -- the UNSUBSCRIBE, ONE child [the handle
+//                                             expression]. The contextual `off` is committed only when an
+//                                             IDENTIFIER follows it (ColumnarParserRecovery.IsOffStatementStart's
+//                                             rule), so a local named `off` keeps every other spelling.
+//                                             Detaching an already-detached handle is a no-op at runtime. )
 //   AwaitForeachStatement        -> kind 73  ( `await foreach <var> in <coll> { body }` -- the Await 69 +
 //                                             Foreach 26 two-token dispatch (Parser.cs:2249). Same shape as
 //                                             kind 29: var name in the value span, children [coll, body];
@@ -6090,9 +6105,136 @@ func ParseAssignmentExpressionNode(tokens: ParserTokenTable, count: int, st: Par
     return target
 }
 
+// `on` is a CONTEXTUAL keyword, committed on exactly the shape ColumnarParserRecovery.IsOnSubscriptionStart
+// commits on: the identifier `on` followed by an identifier, `this` or `base`. Every other spelling — a local
+// named `on`, `on = 1`, `on.Length` — stays an ordinary expression. An entry with no source text cannot compare
+// the token, so the contextual form simply does not match there (safe under-accept -> decline).
+func ParserTokenIsOnKeyword(tokens: ParserTokenTable, count: int, st: ParserState, pos: int): bool {
+    if pos + 1 >= count || tokens.Kinds[pos] != 0 || st.Source.Length == 0 || !ParserDeclarationTokenTextEquals(st.Source, tokens.Starts[pos], tokens.ValueLengths[pos], "on") {
+        return false
+    }
+
+    next := tokens.Kinds[pos + 1]
+    return next == 0 || next == 42 || next == 43
+}
+
+// `off <handle>`, the same contextual rule (ColumnarParserRecovery.IsOffStatementStart): the identifier
+// `off` followed by an IDENTIFIER.
+func ParserTokenIsOffKeyword(tokens: ParserTokenTable, count: int, st: ParserState, pos: int): bool {
+    return pos + 1 < count && tokens.Kinds[pos] == 0 && st.Source.Length > 0 && ParserDeclarationTokenTextEquals(st.Source, tokens.Starts[pos], tokens.ValueLengths[pos], "off") && tokens.Kinds[pos + 1] == 0
+}
+
+// THE EVENT TARGET (ColumnarParserRecovery.ParseEventTarget's mirror): a primary plus a `.member` /
+// `[index]` chain that deliberately STOPS before a `(`, so the handler lambda's own parameter list is
+// never swallowed as a call argument list. `this.Member` collapses to the bare member read exactly as
+// the postfix parser collapses it, and `base.Member` keeps its kind-71 identity so the emitter binds
+// non-virtually. A NULL-CONDITIONAL link (`?.` 118 / `?[` 119) is refused: a subscription that may not
+// happen has no handle to answer with, and the analyzer reports that shape at its own position.
+// Returns the chain root, or -1.
+func ParseEventTargetNode(tokens: ParserTokenTable, count: int, st: ParserState, argStack: ParserArgumentStack, nodes: ParserExpressionNodeTable, children: ParserChildIndexTable, depth: int): int {
+    if depth > 200 {
+        return -1
+    }
+
+    target := -1
+    if st.Pos + 2 < count && tokens.Kinds[st.Pos] == 42 && tokens.Kinds[st.Pos + 1] == 124 && tokens.Kinds[st.Pos + 2] == 0 {
+        thisStart := tokens.Starts[st.Pos]
+        thisMemberStart := tokens.Starts[st.Pos + 2]
+        thisMemberLength := tokens.ValueLengths[st.Pos + 2]
+        target = EmitExpressionNode(st, nodes, ColumnarExpressionNodeKind.IdentifierExpression(), thisMemberStart, thisMemberLength, -1, 0, thisStart, thisMemberStart + thisMemberLength - thisStart)
+        st.Pos = st.Pos + 3
+    } else if st.Pos + 2 < count && tokens.Kinds[st.Pos] == 43 && tokens.Kinds[st.Pos + 1] == 124 && tokens.Kinds[st.Pos + 2] == 0 {
+        baseStart := tokens.Starts[st.Pos]
+        baseMemberStart := tokens.Starts[st.Pos + 2]
+        baseMemberLength := tokens.ValueLengths[st.Pos + 2]
+        target = EmitExpressionNode(st, nodes, ColumnarExpressionNodeKind.BaseMemberExpression(), baseMemberStart, baseMemberLength, -1, 0, baseStart, baseMemberStart + baseMemberLength - baseStart)
+        st.Pos = st.Pos + 3
+    } else {
+        if st.Pos >= count || tokens.Kinds[st.Pos] != 0 {
+            return -1
+        }
+
+        rootStart := tokens.Starts[st.Pos]
+        rootLength := tokens.ValueLengths[st.Pos]
+        target = EmitExpressionNode(st, nodes, ColumnarExpressionNodeKind.IdentifierExpression(), rootStart, rootLength, -1, 0, rootStart, rootLength)
+        st.Pos = st.Pos + 1
+    }
+
+    scanning := true
+    while scanning {
+        pos := st.Pos
+        if pos + 1 < count && tokens.Kinds[pos] == 124 && tokens.Kinds[pos + 1] == 0 {
+            targetSpanStart := nodes.SpanStarts[target]
+            memberStart := tokens.Starts[pos + 1]
+            memberLength := tokens.ValueLengths[pos + 1]
+            memberChildRun := st.ChildCursor
+            AppendExpressionChild(st, children, target)
+            target = EmitExpressionNode(st, nodes, ColumnarExpressionNodeKind.MemberAccessExpression(), memberStart, memberLength, memberChildRun, 1, targetSpanStart, memberStart + memberLength - targetSpanStart)
+            st.Pos = pos + 2
+        } else if pos < count && tokens.Kinds[pos] == 131 {
+            targetSpanStart := nodes.SpanStarts[target]
+            st.Pos = pos + 1
+            indexRoot := ParseAssignmentExpressionNode(tokens, count, st, argStack, nodes, children, depth + 1)
+            if indexRoot < 0 || st.Pos >= count || tokens.Kinds[st.Pos] != 132 {
+                return -1
+            }
+
+            closeEnd := tokens.Starts[st.Pos] + tokens.ValueLengths[st.Pos]
+            st.Pos = st.Pos + 1
+            indexChildRun := st.ChildCursor
+            AppendExpressionChild(st, children, target)
+            AppendExpressionChild(st, children, indexRoot)
+            target = EmitExpressionNode(st, nodes, ColumnarExpressionNodeKind.IndexAccessExpression(), -1, 0, indexChildRun, 2, targetSpanStart, closeEnd - targetSpanStart)
+        } else {
+            scanning = false
+        }
+    }
+
+    return target
+}
+
+// `on <target> <handler>` -> OnSubscriptionExpression kind 79, children [target, handler]. The handler
+// parses at the FULL-EXPRESSION level, so a block-bodied lambda, an expression-bodied lambda, a
+// delegate-typed name and a call that returns a delegate all reach the same node slot. A target that
+// never took a `.`/`[` link names no member and cannot be an event, so it refuses here rather than
+// reaching the emitter as a bare name.
+func ParseOnSubscriptionNode(tokens: ParserTokenTable, count: int, st: ParserState, argStack: ParserArgumentStack, nodes: ParserExpressionNodeTable, children: ParserChildIndexTable, depth: int): int {
+    if depth > 200 {
+        return -1
+    }
+
+    onStart := tokens.Starts[st.Pos]
+    onLength := tokens.ValueLengths[st.Pos]
+    st.Pos = st.Pos + 1
+    target := ParseEventTargetNode(tokens, count, st, argStack, nodes, children, depth + 1)
+    if target < 0 {
+        return -1
+    }
+
+    targetKind := nodes.Kinds[target]
+    if targetKind != ColumnarExpressionNodeKind.MemberAccessExpression() && targetKind != ColumnarExpressionNodeKind.BaseMemberExpression() {
+        return -1
+    }
+
+    handler := ParseLambdaOrAssignmentExpressionNode(tokens, count, st, argStack, nodes, children, depth + 1)
+    if handler < 0 {
+        return -1
+    }
+
+    handlerEnd := nodes.SpanStarts[handler] + nodes.SpanLengths[handler]
+    childRunStart := st.ChildCursor
+    AppendExpressionChild(st, children, target)
+    AppendExpressionChild(st, children, handler)
+    return EmitExpressionNode(st, nodes, ColumnarExpressionNodeKind.OnSubscriptionExpression(), onStart, onLength, childRunStart, 2, onStart, handlerEnd - onStart)
+}
+
 func ParseLambdaOrAssignmentExpressionNode(tokens: ParserTokenTable, count: int, st: ParserState, argStack: ParserArgumentStack, nodes: ParserExpressionNodeTable, children: ParserChildIndexTable, depth: int): int {
     if depth > 200 {
         return -1
+    }
+
+    if ParserTokenIsOnKeyword(tokens, count, st, st.Pos) {
+        return ParseOnSubscriptionNode(tokens, count, st, argStack, nodes, children, depth)
     }
 
     pos := st.Pos
@@ -6845,6 +6987,38 @@ func ScanTupleDeconstructionTargetList(tokens: ParserTokenTable, count: int, ope
 func ParseSimpleStatementNode(tokens: ParserTokenTable, count: int, st: ParserState, argStack: ParserArgumentStack, nodes: ParserExpressionNodeTable, children: ParserChildIndexTable): int {
     start := st.Pos
     kind := tokens.Kinds[start]
+
+    // `off <handle>` -- OffStatement kind 80, ONE child [handle]. The handle parses at the assignment
+    // level, so `off subs[0]` and `off this.sub` reach the same slot as a bare name.
+    if ParserTokenIsOffKeyword(tokens, count, st, start) {
+        offStart := tokens.Starts[start]
+        st.Pos = start + 1
+        offHandle := ParseAssignmentExpressionNode(tokens, count, st, argStack, nodes, children, 0)
+        if offHandle < 0 {
+            return -1
+        }
+
+        offEnd := nodes.SpanStarts[offHandle] + nodes.SpanLengths[offHandle]
+        offChildRun := st.ChildCursor
+        AppendExpressionChild(st, children, offHandle)
+        return EmitExpressionNode(st, nodes, 80, -1, 0, offChildRun, 1, offStart, offEnd - offStart)
+    }
+
+    // A BARE `on <target> <handler>` STATEMENT -- the subscription whose handle is discarded. It reaches
+    // the statement door ahead of the expression fall-through below because that one parses at the
+    // ASSIGNMENT level, one rung under the lambda level `on` needs for its handler.
+    if ParserTokenIsOnKeyword(tokens, count, st, start) {
+        onRoot := ParseOnSubscriptionNode(tokens, count, st, argStack, nodes, children, 0)
+        if onRoot < 0 {
+            return -1
+        }
+
+        onSpanStart := nodes.SpanStarts[onRoot]
+        onSpanEnd := onSpanStart + nodes.SpanLengths[onRoot]
+        onChildRun := st.ChildCursor
+        AppendExpressionChild(st, children, onRoot)
+        return EmitExpressionNode(st, nodes, 23, -1, 0, onChildRun, 1, onSpanStart, onSpanEnd - onSpanStart)
+    }
 
     if kind == 29 {
         returnStart := tokens.Starts[start]

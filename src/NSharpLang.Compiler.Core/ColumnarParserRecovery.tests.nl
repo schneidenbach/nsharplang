@@ -4302,18 +4302,32 @@ test "016 stmt: an off unsubscription statement parses clean" {
     assert errors.Count == 0
 }
 
-test "016 stmt: an on subscription whose handler is not a lambda reports the InvalidSyntax NL103 at the handler" {
+// THE CONTRACT THIS REPLACED SAID A NON-LAMBDA HANDLER WAS A SYNTAX ERROR. It is not: a DELEGATE
+// VALUE in handler position is the shape C#'s `x.E += handler` maps onto, and rejecting it at parse
+// made a well-typed program unspellable. Whether the handler FITS is a question about types, and the
+// analyzer answers it at the handler's own position with the delegate type named.
+test "016 stmt: an on subscription whose handler is a DELEGATE VALUE parses clean" {
     errors := RunPreamble("func f() {\n    on widget.Clicked foo\n}\n")
+    assert errors.Count == 0
+    errors2 := RunPreamble("func f() {\n    sub := on widget.Clicked handlers[0]\n}\n")
+    assert errors2.Count == 0
+}
+
+// WHAT THE PARSER STILL OWNS IS THE HANDLER'S PRESENCE, under the rule the rest of the language uses:
+// a statement ends at a newline, so a handler on the NEXT line is a missing handler rather than a
+// silently swallowed next statement.
+test "016 stmt: an on subscription with no handler on the event's own line reports the InvalidSyntax NL103 where the handler should be" {
+    errors := RunPreamble("func f() {\n    on widget.Clicked\n    print 1\n}\n")
     assert errors.Count == 1
     e := errors[0]
     assert e.Code == ErrorCode.InvalidSyntax
-    assert e.Message == "Expected an event handler lambda after the event"
-    assert e.Line == 2
-    assert e.Column == 23
+    assert e.Message == "Expected an event handler after the event"
+    assert e.Line == 3
+    assert e.Column == 5
     assert e.Length == 1
-    assert e.SourceSnippet == "    on widget.Clicked foo"
-    assert e.HumanExplanation == "`on` subscribes a handler to a .NET event, so it needs a lambda to run when the event fires."
-    assert e.ContextualHint == "Write the handler inline, e.g. `on widget.Clicked (sender, args) => { ... }`."
+    assert e.SourceSnippet == "    print 1"
+    assert e.HumanExplanation == "`on` subscribes a handler to a .NET event, so it needs something to run when the event fires - a lambda, or any expression of the event's delegate type."
+    assert e.ContextualHint == "Write the handler on the same line as the event, either inline or as a delegate value."
 }
 
 test "016 stmt: an on subscription whose event target ends with a bare dot reports the member-after-dot NL102, panic-suppressing the non-lambda report" {

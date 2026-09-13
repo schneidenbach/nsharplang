@@ -1351,9 +1351,89 @@ func main() {
 }
 ```
 
+### Any receiver, anywhere a call goes
+
+`on <receiver>.<Event> <handler>` is an expression wherever a call is, and the receiver is any
+expression whose value (or type) owns the event — a static type, a local, a parameter, a field
+with or without `this.`, a property chain, an indexed element, `base.`:
+
+```n#
+import System
+import System.Collections.ObjectModel
+
+class Watcher {
+    items: ObservableCollection<string>
+
+    constructor(source: ObservableCollection<string>) {
+        items = source
+    }
+
+    func Watch(other: ObservableCollection<string>, all: ObservableCollection<string>[]) {
+        a := on items.CollectionChanged (sender, args) => { print "field" }
+        b := on this.items.CollectionChanged (sender, args) => { print "this.field" }
+        c := on other.CollectionChanged (sender, args) => { print "parameter" }
+        d := on all[0].CollectionChanged (sender, args) => { print "indexed" }
+        e := on Console.CancelKeyPress (sender, args) => { args.Cancel = true }
+        off a
+        off b
+        off c
+        off d
+        off e
+    }
+}
+```
+
+The handle is an ordinary local, so it is captured by a lambda or a local function like any other
+name, and `off` inside one of those detaches the subscription the enclosing body made.
+
+### Handlers: a lambda, a delegate value, or a method
+
+The handler is any expression of the event's delegate type. An inline lambda is the common
+spelling — its parameter types are inferred from the event — but a delegate you already hold works
+too, which is what C#'s `x.E += handler` maps onto, and so does naming a function directly:
+
+```n#
+import System.Collections.ObjectModel
+import System.Collections.Specialized
+
+func Log(_sender: object?, _args: NotifyCollectionChangedEventArgs) {
+    print "changed"
+}
+
+func main() {
+    items := new ObservableCollection<string>()
+
+    inline := on items.CollectionChanged (sender, args) => { print "inline" }
+    named: NotifyCollectionChangedEventHandler = (sender, args) => { print "named" }
+    held := on items.CollectionChanged named
+    group := on items.CollectionChanged Log
+
+    off inline
+    off held
+    off group
+}
+```
+
+The handler must begin **on the event's own line**; a handler on the next line is reported as a
+missing one rather than silently swallowing the next statement.
+
+### Detaching
+
+`off <handle>` detaches exactly the handler that handle attached — including an inline lambda,
+which .NET's own `-=` cannot do without you keeping the delegate. Two subscriptions to one event
+detach independently, and **`off` twice is a no-op**: the handle claims its remove accessor once,
+so the second call does nothing (and never detaches somebody else's handler).
+
+A bare `on …` statement discards the handle, which is how you subscribe for the life of the
+object.
+
 `+=`/`-=` on an event is a compile error that points you to `on`/`off` (it used to compile and
 then crash at runtime). On a real `Func`/`Action` field, `+=`/`-=` still combine/remove
 delegates.
+
+**Current limits.** N# has no syntax for declaring an event on your own type yet — `on`/`off`
+subscribe to events declared by .NET types and by libraries you reference. Expose a
+`Func`/`Action` field, or an `Add…`/`Remove…` method pair, until it does.
 
 ## Working With Nullable Values
 

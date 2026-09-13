@@ -361,7 +361,14 @@ class AnalyzerAssignabilityFacts {
 
         reflectionType := resolvedExpected as ReflectionTypeInfo
         if reflectionType != null {
-            return IsDelegateType(reflectionType.Type) || AnalyzerCallableReferenceFacts.IsRuntimeDelegateType(reflectionType.Type)
+            // THE METADATA SPELLING IS THE THIRD ANSWER, and leaving it out made this question depend on
+            // WHICH ASSEMBLY THE DELEGATE CAME FROM. `IsDelegateType` asks the well-known `Delegate`
+            // and `IsRuntimeDelegateType` asks the core library's, and both compare by CLR identity —
+            // so a delegate loaded into a `MetadataLoadContext`, which is every delegate a reference
+            // assembly declares, answered NO to a question about its own kind. Naming a method where
+            // `NotifyCollectionChangedEventHandler` or `ConsoleCancelEventHandler` was expected then
+            // reported NL411 "must be called or passed to a delegate" at a position that IS one.
+            return IsDelegateType(reflectionType.Type) || AnalyzerCallableReferenceFacts.IsRuntimeDelegateType(reflectionType.Type) || AnalyzerCallableReferenceFacts.IsMetadataDelegateType(reflectionType.Type)
         }
 
         obliviousType := resolvedExpected as ObliviousTypeInfo

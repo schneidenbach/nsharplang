@@ -1482,7 +1482,7 @@ class Golden {
         return new LambdaExpression(parameters, null, body, line, column)
     }
 
-    static func OnSub(target: Expression, handler: LambdaExpression, line: int, column: int): Expression {
+    static func OnSub(target: Expression, handler: Expression, line: int, column: int): Expression {
         return new OnSubscriptionExpression(target, handler, line, column)
     }
 
@@ -6003,10 +6003,13 @@ test "016 N+1c tranche 11: a body-less LOCAL FUNCTION gets Parser.cs's synthetic
     assert AstEq.Diff(expected, actual, "unit") == ""
 }
 
-test "016 N+1c tranche 11: a non-lambda `on` handler gets the synthetic empty-parameter lambda (:2930)" {
+// THE SYNTHETIC EMPTY-PARAMETER LAMBDA IS GONE, and so is the report it stood in for. A non-lambda
+// handler is not a syntax error: a DELEGATE VALUE in handler position is the shape C#'s
+// `x.E += handler` maps onto. The handler slot holds the expression the user wrote, and whether it
+// FITS the event is the analyzer's question, asked of its type.
+test "016 events: a non-lambda `on` handler is the expression it names, not a synthetic lambda" {
     actual := RunFn("on w.C foo")
-    handler := Golden.BlockLambda(Golden.NoParams(), Golden.Block(Golden.NoStmts(), 1, 19), 1, 19)
-    subscription := Golden.OnSub(Golden.Member(Golden.Ident("w", 1, 15), "C", false, 1, 16), handler, 1, 12)
+    subscription := Golden.OnSub(Golden.Member(Golden.Ident("w", 1, 15), "C", false, 1, 16), Golden.Ident("foo", 1, 19), 1, 12)
     expected := FnUnit1(Golden.ExprStmt(subscription, 1, 12))
     assert AstEq.Diff(expected, actual, "unit") == ""
 }
