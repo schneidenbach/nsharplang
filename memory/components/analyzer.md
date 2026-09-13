@@ -1992,6 +1992,13 @@ delegate's RETURN position, repeating while anything moves.
   referenced assembly's own all failed the same way. The emitter's half is
   `ColumnarIlEmitter.TryGetDelegateDefinitionInvokeSignature`, reached from
   `TryGetSupportedDelegateSignature` whenever the instantiation is builder-bound.
+- AN `async` LAMBDA'S TYPE IS THE TARGET'S TASK FAMILY OVER ITS BODY'S RESULT, AND THE TARGET IS
+  SPELLED EITHER WAY (census wave 9, LAMBDA4). `AnalyzerLambdaAnalysis.AsyncWrappedReturnType` read
+  only a `ReflectionTypeInfo`, but `AnalyzerReflectionTypeConversion` spells a constructed generic as
+  a `GenericTypeInfo` over the reflected DEFINITION — so `Task<TResult>` answered nothing and the
+  lambda kept the target's own unbound return. `Task.Run(async () => { return 11 })` and
+  `Task.Run(async () => await Task.FromResult(11))` both reported `Task<TResult>` where `Task<int>`
+  was expected. `AsyncTaskFamilyDefinition` answers for both spellings.
 - `unknown` contributes NO binding (`PopulateReflectionBindingsFromTypeInfo` returns immediately).
   It is the analyzer's answer for an expression it could not type, and recording it closed the method
   over a type the program never wrote.

@@ -574,13 +574,8 @@ class AnalyzerLambdaAnalysis {
     // any shape whose CLR type cannot be constructed — in each case the target's own return is the
     // truthful answer and the conversion is judged on it.
     func AsyncWrappedReturnType(signatureReturn: TypeInfo, bodyResult: TypeInfo): TypeInfo {
-        reflection := signatureReturn as ReflectionTypeInfo
-        if reflection == null {
-            return signatureReturn
-        }
-
-        reflectedTask := reflection.Type
-        if !reflectedTask.get_IsGenericType() {
+        taskDefinition := AsyncTaskFamilyDefinition(signatureReturn)
+        if taskDefinition == null {
             return signatureReturn
         }
 
@@ -595,8 +590,46 @@ class AnalyzerLambdaAnalysis {
 
         taskArguments := new Type[](1)
         taskArguments[0] = bodyClrType
-        constructedTask := reflectedTask.GetGenericTypeDefinition().MakeGenericType(taskArguments)
+        constructedTask := taskDefinition.MakeGenericType(taskArguments)
         return AnalyzerReflectionTypeConversion.ConvertReflectionType(constructedTask)
+    }
+
+    // THE TASK FAMILY A SIGNATURE'S RETURN NAMES, as the open definition the body's result is closed
+    // over — the `Task` or `ValueTask` definition — or nothing at all when the return is not a constructed
+    // generic.
+    //
+    // IT IS ASKED OF BOTH SPELLINGS, and that is the whole point. A constructed generic read out of
+    // metadata is a `GenericTypeInfo` over a reflected DEFINITION, not a `ReflectionTypeInfo` over
+    // the constructed type — `AnalyzerReflectionTypeConversion` builds it that way — so a read that
+    // recognised only the second answered nothing for `Task<TResult>` and left an `async` lambda's
+    // type as the target's own unbound `Task<TResult>`. `Task.Run(async () => { return 11 })` then
+    // reported `Task<TResult>` where `Task<int>` was expected, for a call that decides `TResult` from
+    // exactly that body.
+    static func AsyncTaskFamilyDefinition(signatureReturn: TypeInfo): Type? {
+        reflection := signatureReturn as ReflectionTypeInfo
+        if reflection != null {
+            if !reflection.Type.get_IsGenericType() {
+                return null
+            }
+
+            return reflection.Type.GetGenericTypeDefinition()
+        }
+
+        generic := signatureReturn as GenericTypeInfo
+        if generic == null {
+            return null
+        }
+
+        definition := generic.GenericDefinition as ReflectionTypeInfo
+        if definition == null {
+            return null
+        }
+
+        if !definition.Type.get_IsGenericTypeDefinition() {
+            return null
+        }
+
+        return definition.Type
     }
 
     // THE SIGNATURE'S RETURN TYPE AS AN EXPECTED TYPE — null when nothing names a signature, which is

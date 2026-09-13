@@ -1117,6 +1117,16 @@ either an expression body or a block body, and the target may be any delegate re
 `Task<T>`, `ValueTask` or `ValueTask<T>`. An async lambda captures like any other lambda: enclosing
 locals, `this`, and a fresh copy of each loop iteration's own locals.
 
+Its type is the **target's task family over the body's result**, so an `async` lambda decides an open
+result position exactly as a plain one does:
+
+```n#
+// The body answers `int`; the lambda is a `Func<Task<int>>`, and the call is a `Task<int>`.
+running := Task.Run(async () => {
+    return 11
+})
+```
+
 **An exception raised inside the body lands on the returned task**, not on the caller that invoked
 the delegate:
 
