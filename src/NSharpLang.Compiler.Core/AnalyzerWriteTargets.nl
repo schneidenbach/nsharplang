@@ -523,6 +523,33 @@ class AnalyzerWriteTargets {
     // RULE 5 — THE READONLY FIELD, AND ITS THREE REPORTS.
     // ------------------------------------------------------------------------------------------
 
+    // A `using` RESOURCE, WRITTEN TO — NL309. The statement disposes what the name holds when the
+    // region ends, so rebinding the name is either a leak (the original resource is never released)
+    // or a double release; neither is what the author meant. The wording says WHY rather than only
+    // WHAT, because "read-only" on a local the author just declared reads as arbitrary otherwise.
+    //
+    // Only a BARE NAME answers. Writing THROUGH the resource (`file.Position = 0`) is ordinary
+    // mutation and is none of this rule's business.
+    func ReportUsingResourceWriteIfNeeded(target: Expression, action: string): bool {
+        parenthesized := target as ParenthesizedExpression
+        if parenthesized != null {
+            return ReportUsingResourceWriteIfNeeded(parenthesized.Inner, action)
+        }
+
+        identifier := target as IdentifierExpression
+        if identifier == null {
+            return false
+        }
+
+        if !scopesValue.IsReadOnlySymbol(identifier.Name) {
+            return false
+        }
+
+        span := spansValue.GetAssignmentTargetNameDiagnosticSpan(target, target.Line, target.Column)
+        diagnosticsValue.Report(ErrorCode.ReadonlyAssignment, "The using resource '" + identifier.Name + "' is read-only — it can't be " + action, span.Line, span.Column, "A `using` disposes whatever this name holds when its region ends, so the name has to keep holding it. Bind the new value to a different name, or give it its own `using`.", span.Length)
+        return true
+    }
+
     // THE ASSIGNMENT FORM. A static readonly field can only ever be initialized at its declaration; an
     // instance one may be assigned by its OWN constructor, and the wording differs between "you are
     // not in a constructor" and "you are in a constructor but this is somebody else's instance",

@@ -127,6 +127,10 @@ class ColumnarIteratorWalkState {
     ForInCount: int
     EnumeratorCount: int
     CatchCount: int
+    // The `using` statements whose resource is UNBOUND (`using e { … }`). A state machine's bindings
+    // are FIELDS, so even a resource nobody named needs one to be read from in the handler — and the
+    // two walks number those fields in the same walk order, exactly as they number try regions.
+    UsingResourceCount: int
     // PROTECTED-REGION FACTS. Every `try` in the body is one region; ordinals are assigned in walk
     // order and the emission walk assigns exactly the same ones, so the two passes agree on which
     // region a resume state suspends inside. `TryRegionParents[k]` is the enclosing region (-1 at
@@ -169,6 +173,7 @@ class ColumnarIteratorWalkState {
         ForInCount = 0
         EnumeratorCount = 0
         CatchCount = 0
+        UsingResourceCount = 0
         TryRegionCount = 0
         TryRegionParents = new int[](capacity)
         ResumeRegions = new int[](capacity)
@@ -652,17 +657,10 @@ class ColumnarIteratorPlanner {
         kind := nodes.Kind(node)
         if kind == 25 {
             // Block: stop at the first non-falling child (everything after it is dead code).
-            n := 0
-            while n < nodes.ChildCount(node) {
-                if state.Declined {
-                    return false
-                }
-                if !WalkStatement(nodes, source, nodes.Child(node, n), state) {
-                    return false
-                }
-                n = n + 1
-            }
-            return true
+            return WalkBlockChildrenFrom(nodes, source, node, 0, state)
+        }
+        if kind == 77 || kind == 78 {
+            return WalkUsingStatement(nodes, source, node, state)
         }
         if kind == 40 {
             // TypedLocalDeclaration: value span = declared type canonical, child 0 = name, child 1 = init.
@@ -931,6 +929,125 @@ class ColumnarIteratorPlanner {
     // region as its resume home, which is what lets MoveNext dispatch to a resume point that lives
     // inside a protected region (a branch straight into a region is illegal IL). Each catch clause
     // hoists the exception it binds, exactly like every other local in the body.
+    // THE BLOCK WALK, ENTERED AT AN ORDINAL. A using DECLARATION (`using x := e` with no block) guards
+    // THE REST OF THE BLOCK, so reaching one means everything after it belongs inside a protected
+    // region — and the region has to be opened around those statements rather than around the
+    // declaration. The walk therefore hands the remainder to the using walk, which opens the region
+    // and calls back in at the next ordinal; the emission walk does the identical thing, so the two
+    // passes agree about which region each resume state suspends inside.
+    static func WalkBlockChildrenFrom(nodes: ColumnarNodeTable, source: string, node: int, from: int, state: ColumnarIteratorWalkState): bool {
+        n := from
+        while n < nodes.ChildCount(node) {
+            if state.Declined {
+                return false
+            }
+
+            child := nodes.Child(node, n)
+            if (nodes.Kind(child) == 77 || nodes.Kind(child) == 78) && nodes.ChildCount(child) == 1 {
+                return WalkUsingDeclarationRegion(nodes, source, node, n, state)
+            }
+
+            if !WalkStatement(nodes, source, child, state) {
+                return false
+            }
+
+            n = n + 1
+        }
+
+        return true
+    }
+
+    // A `using` INSIDE A GENERATOR BODY IS A `try`/`finally` THAT WRITES ITSELF. It takes a region
+    // ordinal exactly as a written `try` does, because the resume machinery cares about the region and
+    // not about which keyword opened it.
+    //
+    // The RESOURCE is acquired OUTSIDE the region — before its entry label — so a resume, which
+    // branches straight to that label, never acquires a second resource and never leaks the first.
+    static func WalkUsingStatement(nodes: ColumnarNodeTable, source: string, node: int, state: ColumnarIteratorWalkState): bool {
+        if nodes.ChildCount(node) != 2 {
+            // A using DECLARATION reaches the block walk, which opens the region around its siblings.
+            // One that reaches HERE is the brace-less body of an `if` or a loop, where the region it
+            // guards is empty — a shape with no reason to exist inside a generator.
+            state.Decline("emit.iterator.unsupported-shape", "a `using` declaration with no block is not lowered in this position; write `using r := … { … }` with a block")
+            return false
+        }
+
+        if !BeginUsingResourceWalk(nodes, source, node, state) {
+            return false
+        }
+
+        region := state.TryRegionCount
+        state.TryRegionParents[region] = state.CurrentRegion
+        state.TryRegionCount = state.TryRegionCount + 1
+        enclosing := state.CurrentRegion
+        state.CurrentRegion = region
+        bodyFalls := WalkStatement(nodes, source, nodes.Child(node, 1), state)
+        state.CurrentRegion = enclosing
+        if state.Declined {
+            return false
+        }
+
+        return bodyFalls
+    }
+
+    static func WalkUsingDeclarationRegion(nodes: ColumnarNodeTable, source: string, blockNode: int, ordinal: int, state: ColumnarIteratorWalkState): bool {
+        usingNode := nodes.Child(blockNode, ordinal)
+        if !BeginUsingResourceWalk(nodes, source, usingNode, state) {
+            return false
+        }
+
+        region := state.TryRegionCount
+        state.TryRegionParents[region] = state.CurrentRegion
+        state.TryRegionCount = state.TryRegionCount + 1
+        enclosing := state.CurrentRegion
+        state.CurrentRegion = region
+        restFalls := WalkBlockChildrenFrom(nodes, source, blockNode, ordinal + 1, state)
+        state.CurrentRegion = enclosing
+        if state.Declined {
+            return false
+        }
+
+        return restFalls
+    }
+
+    // The resource, hoisted. A BOUND resource is an ordinary local declaration and is walked as one; an
+    // unbound one still needs a field to be read from in the handler, so it is given a synthesized name
+    // numbered in walk order.
+    static func BeginUsingResourceWalk(nodes: ColumnarNodeTable, source: string, node: int, state: ColumnarIteratorWalkState): bool {
+        if state.IsAsync {
+            state.Decline("emit.iterator.async-unsupported", "a `using` statement inside an `async func*` body is a later slice")
+            return false
+        }
+
+        if nodes.Kind(node) == 78 {
+            // `await using` needs an `await` INSIDE A HANDLER, where a suspension has no resume label
+            // to come back to — the same wall `await foreach` meets in a generator body.
+            state.Decline("emit.iterator.async-await-unsupported", "`await using` inside a generator body is not yet lowered: releasing the resource needs an `await` inside a handler")
+            return false
+        }
+
+        resourceNode := nodes.Child(node, 0)
+        resourceKind := nodes.Kind(resourceNode)
+        if resourceKind == 24 || resourceKind == 40 {
+            return WalkStatement(nodes, source, resourceNode, state)
+        }
+
+        WalkBoundValue(nodes, source, resourceNode, state)
+        if state.Declined {
+            return false
+        }
+
+        state.AddLocal(UsingResourceFieldName(state.UsingResourceCount), UnresolvedCanonical())
+        state.UsingResourceCount = state.UsingResourceCount + 1
+        return !state.Declined
+    }
+
+    // The field an UNBOUND `using` resource lives in. Numbered in walk order, so classification and
+    // emission name the same field without either one telling the other.
+    static func UsingResourceFieldName(ordinal: int): string {
+        return "<>__using" + ordinal.ToString()
+    }
+
     static func WalkTryStatement(nodes: ColumnarNodeTable, source: string, node: int, state: ColumnarIteratorWalkState): bool {
         if state.IsAsync {
             state.Decline("emit.iterator.async-unsupported", "a `try` statement inside an `async func*` body is a later slice")
@@ -1640,6 +1757,7 @@ class ColumnarMoveNextEmit {
     RegionDepth: int
     RegionEntryLabels: int[]
     NextTryRegion: int
+    NextUsingResource: int
     // Async mode: yields and awaits share ONE resume-state counter (walk order), awaits number their
     // awaiter fields with NextAwait, and suspension/completion go through the promise/result fields.
     IsAsync: bool
@@ -1668,6 +1786,7 @@ class ColumnarMoveNextEmit {
         RegionDepth = 0
         RegionEntryLabels = regionEntryLabels ?? new int[](0)
         NextTryRegion = 0
+        NextUsingResource = 0
     }
 
     // True where the plan is standing inside a protected region, which is exactly where a branch out
@@ -2583,14 +2702,10 @@ class ColumnarIteratorBodyPlanner {
         }
         kind := nodes.Kind(node)
         if kind == 25 {
-            n := 0
-            while n < nodes.ChildCount(node) {
-                if !EmitStatement(emit, nodes.Child(node, n)) {
-                    return false
-                }
-                n = n + 1
-            }
-            return true
+            return EmitBlockChildrenFrom(emit, node, 0)
+        }
+        if kind == 77 || kind == 78 {
+            return EmitUsingStatement(emit, node)
         }
         if kind == 40 {
             // typed local declaration: value span = type, child 0 = name, child 1 = init. The field's
@@ -2755,6 +2870,189 @@ class ColumnarIteratorBodyPlanner {
         }
         emit.Context.Decline("emit.iterator.unsupported-shape", "an iterator body statement (node kind " + kind.ToString() + ") is not yet lowered")
         return false
+    }
+
+    // The block's statement loop, entered at an ordinal — the emission mirror of
+    // `WalkBlockChildrenFrom`, and it has to be the mirror: a using DECLARATION guards the REST of the
+    // block in both passes, so both passes must hand the remainder to the same region.
+    static func EmitBlockChildrenFrom(emit: ColumnarMoveNextEmit, node: int, from: int): bool {
+        nodes := emit.Context.Nodes
+        n := from
+        while n < nodes.ChildCount(node) {
+            child := nodes.Child(node, n)
+            if (nodes.Kind(child) == 77 || nodes.Kind(child) == 78) && nodes.ChildCount(child) == 1 {
+                return EmitUsingDeclarationRegion(emit, node, n)
+            }
+
+            if !EmitStatement(emit, child) {
+                return false
+            }
+
+            n = n + 1
+        }
+
+        return true
+    }
+
+    // A `using` STATEMENT INSIDE A GENERATOR BODY, lowered to the region the statement means.
+    //
+    // THE RESOURCE IS ACQUIRED BEFORE THE REGION ENTRY LABEL, which is the whole trick: a resume
+    // branches to that label, so it re-enters the `try` without re-running the acquisition, and the
+    // resource the suspended machine was holding is still in its field. The handler is guarded by
+    // `state < 0` exactly as a written `finally` is — a `yield return` leaves the region without
+    // leaving the statement, and releasing there would dispose a resource the consumer is about to
+    // come back to.
+    static func EmitUsingStatement(emit: ColumnarMoveNextEmit, node: int): bool {
+        nodes := emit.Context.Nodes
+        if nodes.ChildCount(node) != 2 {
+            emit.Context.Decline("emit.iterator.unsupported-shape", "a `using` declaration with no block is not lowered in this position; write `using r := … { … }` with a block")
+            return false
+        }
+
+        resourceName := ""
+        if !EmitUsingResource(emit, node, out resourceName) {
+            return false
+        }
+
+        return EmitUsingRegion(emit, node, resourceName, nodes.Child(node, 1), 0 - 1, 0)
+    }
+
+    static func EmitUsingDeclarationRegion(emit: ColumnarMoveNextEmit, blockNode: int, ordinal: int): bool {
+        usingNode := emit.Context.Nodes.Child(blockNode, ordinal)
+        resourceName := ""
+        if !EmitUsingResource(emit, usingNode, out resourceName) {
+            return false
+        }
+
+        return EmitUsingRegion(emit, usingNode, resourceName, 0 - 1, blockNode, ordinal + 1)
+    }
+
+    // The resource into its field, before any region opens.
+    static func EmitUsingResource(emit: ColumnarMoveNextEmit, node: int, out resourceName: string): bool {
+        nodes := emit.Context.Nodes
+        source := emit.Context.Source
+        resourceName = ""
+        resourceNode := nodes.Child(node, 0)
+        resourceKind := nodes.Kind(resourceNode)
+        if resourceKind == 24 || resourceKind == 40 {
+            if !EmitStatement(emit, resourceNode) {
+                return false
+            }
+
+            if resourceKind == 24 {
+                resourceName = nodes.Text(source, resourceNode)
+            } else {
+                resourceName = nodes.Text(source, nodes.Child(resourceNode, 0))
+            }
+
+            return true
+        }
+
+        name := ColumnarIteratorPlanner.UsingResourceFieldName(emit.NextUsingResource)
+        emit.NextUsingResource = emit.NextUsingResource + 1
+        resourceType := typeof(int)
+        if !TryDiscoverBoundValueType(emit, resourceNode, out resourceType) {
+            emit.Context.Decline("emit.iterator.unsupported-shape", "the resource of a `using` statement could not be lowered in an iterator body")
+            return false
+        }
+
+        hoisted: FieldInfo? = null
+        if !emit.Context.TryEnsureHoistedField(name, resourceType, out hoisted) {
+            emit.Context.Decline("emit.iterator.unsupported-shape", "a `using` resource cannot be hoisted as '" + resourceType.Name + "' in an iterator body")
+            return false
+        }
+
+        if !AppendBoundFieldStore(emit, resourceNode, FieldPool(emit, name), resourceType) {
+            return false
+        }
+
+        resourceName = name
+        return true
+    }
+
+    // ONE region shape for both forms: `bodyNode >= 0` is the block form's body, and otherwise the
+    // guarded statements are the remaining children of `blockNode` from `restFrom` — the using
+    // DECLARATION, whose region is the rest of its block.
+    static func EmitUsingRegion(emit: ColumnarMoveNextEmit, node: int, resourceName: string, bodyNode: int, blockNode: int, restFrom: int): bool {
+        field := emit.Context.FieldForName(resourceName)
+        disposal := ColumnarUsingResourcePlanner.Plan(field.get_FieldType(), false, null)
+        if disposal == null || disposal.Kind == 1 || disposal.Kind == 4 {
+            // A VALUE-typed resource would have to be released through its own address
+            // (`ldflda` + `constrained.`), and the generator's instruction plan has no `constrained.`
+            // row — releasing a boxed copy would run `Dispose` on something nobody can observe, so the
+            // shape is refused rather than lowered wrongly.
+            emit.Context.Decline("emit.iterator.unsupported-shape", "a value-type `using` resource is not yet lowered in a generator body; hold the resource in a class, or use the `using` outside the generator")
+            return false
+        }
+
+        region := emit.NextTryRegion
+        emit.NextTryRegion = emit.NextTryRegion + 1
+        emit.Plan.AppendMarkLabel(emit.RegionEntryLabels[region])
+        regionEnd := emit.Plan.DefineLabel()
+        emit.Plan.AppendBeginExceptionBlock(regionEnd)
+        emit.RegionDepth = emit.RegionDepth + 1
+        AppendStateDispatch(emit, emit.Context.Shape.YieldReturnCount, region)
+
+        bodyFalls := false
+        if bodyNode >= 0 {
+            bodyFalls = EmitStatement(emit, bodyNode)
+        } else {
+            bodyFalls = EmitBlockChildrenFrom(emit, blockNode, restFrom)
+        }
+
+        if emit.Context.Declined {
+            return false
+        }
+
+        if bodyFalls {
+            AppendBodyExit(emit, regionEnd)
+        }
+
+        emit.Plan.AppendBeginFinallyBlock()
+        skipLabel := emit.Plan.DefineLabel()
+        LoadThis(emit)
+        emit.Plan.AppendFieldInstruction(ColumnarCodePlanContract.Ldfld(), emit.StateFieldPool)
+        EmitInt(emit, 0)
+        emit.Plan.AppendInstructionWithoutOperand(ColumnarCodePlanContract.Clt())
+        emit.Plan.AppendLabelInstruction(ColumnarCodePlanContract.Brfalse(), skipLabel)
+        AppendUsingRelease(emit, disposal, resourceName)
+        emit.Plan.AppendMarkLabel(skipLabel)
+        emit.Plan.AppendEndExceptionBlock()
+        emit.RegionDepth = emit.RegionDepth - 1
+        return bodyFalls
+    }
+
+    // The release itself, over a FIELD rather than a local: a null check then the interface call for a
+    // resource whose type names the interface, a run-time test for one whose static type does not, and
+    // a direct call for a declared member. All three are reference-typed by construction — the value
+    // shapes were refused above.
+    static func AppendUsingRelease(emit: ColumnarMoveNextEmit, disposal: ColumnarUsingDisposalPlan, resourceName: string) {
+        fieldPool := FieldPool(emit, resourceName)
+        methodPool := emit.Plan.AddMethod(disposal.Method)
+        if disposal.Kind == 3 {
+            interfaceTypeIdx := emit.Plan.AddType(emit.Context.StructuralTypeReferences.SelectRuntimeType(disposal.InterfaceType), emit.Context.StructuralTypeReferences)
+            testedLocal := emit.Plan.DeclarePlanLocal(interfaceTypeIdx)
+            skipRuntime := emit.Plan.DefineLabel()
+            LoadThis(emit)
+            emit.Plan.AppendFieldInstruction(ColumnarCodePlanContract.Ldfld(), fieldPool)
+            emit.Plan.AppendTypeInstruction(ColumnarCodePlanContract.Isinst(), interfaceTypeIdx)
+            emit.Plan.AppendPlanLocalInstruction(ColumnarCodePlanContract.Stloc(), testedLocal)
+            emit.Plan.AppendPlanLocalInstruction(ColumnarCodePlanContract.Ldloc(), testedLocal)
+            emit.Plan.AppendLabelInstruction(ColumnarCodePlanContract.Brfalse(), skipRuntime)
+            emit.Plan.AppendPlanLocalInstruction(ColumnarCodePlanContract.Ldloc(), testedLocal)
+            emit.Plan.AppendMethodInstruction(ColumnarCodePlanContract.Callvirt(), methodPool)
+            emit.Plan.AppendMarkLabel(skipRuntime)
+            return
+        }
+
+        skipDispose := emit.Plan.DefineLabel()
+        LoadThis(emit)
+        emit.Plan.AppendFieldInstruction(ColumnarCodePlanContract.Ldfld(), fieldPool)
+        emit.Plan.AppendLabelInstruction(ColumnarCodePlanContract.Brfalse(), skipDispose)
+        LoadThis(emit)
+        emit.Plan.AppendFieldInstruction(ColumnarCodePlanContract.Ldfld(), fieldPool)
+        emit.Plan.AppendMethodInstruction(ColumnarCodePlanContract.Callvirt(), methodPool)
+        emit.Plan.AppendMarkLabel(skipDispose)
     }
 
     // THE PROTECTED REGION A GENERATOR BODY WRITES. The `try` becomes a real EH clause whose resume

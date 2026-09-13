@@ -578,6 +578,22 @@ class ErrorMessageBuilder {
         }
     }
 
+    // NL333 — a `using` resource nothing can release. The sentence names the TYPE and the INTERFACE
+    // because the author can see only one of them: the type is written on the line, the contract is
+    // the one the keyword silently requires. `await using` asks for `IAsyncDisposable`, so the same
+    // builder says which keyword was written rather than assuming the synchronous one.
+    static func ResourceNotDisposable(fileName: string, line: int, column: int, sourceSnippet: string, length: int, typeText: string, interfaceName: string, memberName: string, keyword: string): CompilerError {
+        return new CompilerError(ErrorCode.ResourceNotDisposable, "A '" + typeText + "' is not a resource '" + keyword + "' can release", line, column, ErrorSeverity.Error) {
+            FileName: fileName,
+            SourceSnippet: sourceSnippet,
+            Length: length,
+            HumanExplanation: "`" + keyword + "` releases its resource by calling `" + memberName + "()` on it when the block ends, and a `" + typeText + "` has no such member:",
+            ContextualHint: "A resource qualifies either nominally — it implements `" + interfaceName + "` — or structurally: it declares a parameterless `" + memberName + "` of its own. A `" + typeText + "` does neither, so there would be nothing to run in the `finally`.",
+            Suggestion: "Make `" + typeText + "` implement `" + interfaceName + "`, give it a parameterless `" + memberName + "` member, or drop the `" + keyword + "` and let the value fall out of scope like any other.",
+            DocsUrl: DiagnosticDocs.UrlFor("NL333")
+        }
+    }
+
     static func Pluralize(count: int, singular: string, plural: string): string {
         if count == 1 {
             return singular

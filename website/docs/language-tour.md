@@ -1548,6 +1548,95 @@ guard should not have their build broken by a keyword that is merely no longer n
 
 ## Resource Management and Locking
 
+### `using`
+
+`using` releases a resource when its region ends — on the way out of the block, whether the block
+finished, returned, or threw. It is the statement a `try`/`finally` around a `Dispose()` call would
+be, written once.
+
+```n#
+import System.IO
+
+func ReadAll(path: string): string {
+    using reader := new StreamReader(path) {
+        return reader.ReadToEnd()
+    }
+}
+```
+
+There are four ways to write it, and they differ only in what they bind and where the region ends.
+
+**Bind and scope to a block.** `using name := resource { … }` binds the resource, makes it visible
+inside the block, and releases it when the block ends. Add an annotation when the inferred type is
+not the one you want — `using reader: TextReader = new StreamReader(path) { … }` — following the
+ordinary variable rule: `:=` infers the type, `=` names it. (`using reader: TextReader := …` is
+accepted too, and `nlc format` rewrites it to `=`.) A redundant `let` is accepted —
+`using let reader := …` — and means the same thing (`nlc format` drops it).
+
+**Bind to the rest of the enclosing block.** Leave the block off and the resource is released at the
+end of the **enclosing** block, in reverse declaration order. It is the shape that keeps deeply
+nested cleanup flat:
+
+```n#
+func Copy(from: string, to: string) {
+    using source := new StreamReader(from)
+    using target := new StreamWriter(to)
+    target.Write(source.ReadToEnd())
+}
+// target is released first, then source.
+```
+
+**Release something already named.** `using resource { … }` takes an expression instead of a binding,
+for a resource that already has a name — or none at all, when the expression is the whole story. A
+block is required here: a resource nobody named and nobody scoped would be released at a point the
+reader cannot see.
+
+**Release asynchronously.** `await using` releases through `IAsyncDisposable.DisposeAsync()` instead
+of `IDisposable.Dispose()`, and is written wherever `await` is legal.
+
+```n#
+async func Send(): Task {
+    await using client := new HttpClient() {
+        await client.GetStringAsync("https://example.com")
+    }
+}
+```
+
+#### The rules
+
+- **The resource must be releasable.** Its type either implements `IDisposable` (`IAsyncDisposable`
+  for `await using`) or declares a parameterless `Dispose` (`DisposeAsync`) of its own. Anything else
+  is [NL333](https://schneidenbach.github.io/nsharplang/docs/errors/NL333).
+- **The resource is read-only for as long as it is visible.** Rebinding the name is
+  [NL309](https://schneidenbach.github.io/nsharplang/docs/errors/NL309) — the statement has to still be holding
+  what it promised to release. Writing *through* the resource is ordinary mutation and stays legal.
+- **A null resource is skipped, not crashed on.** `using x := MightReturnNull() { … }` runs its body
+  and releases nothing.
+- **A struct resource is released through its own address**, never through a box, so a `Dispose` that
+  mutates the value mutates the value the statement is holding. (As in C#, the unbound
+  `using someStructLocal { … }` holds a COPY of that local — the statement captures its resource when
+  it begins — so bind the resource with `using r := …` when the release has to be observable
+  afterwards.)
+- **An exception from the release propagates.** A `finally` is not a `catch`.
+- `using` works inside generators, async functions, lambdas and local functions. Inside a generator,
+  the release runs when the enumeration ends — by completion, by an exception, or because the
+  consumer stopped early — and never when the generator merely suspends at a `yield`. A generator
+  body is the one place two shapes are refused: a STRUCT resource and `await using`
+  ([why](./functions.md)).
+
+#### One thing to watch: object initializers
+
+A `{` immediately after the resource opens the **body**, so an object initializer in that position
+has to be parenthesised:
+
+```n#
+using widget := (new Widget { Name: "a" }) {
+    widget.Run()
+}
+```
+
+### `lock`
+
 `lock` takes a mutual-exclusion lock for a critical section (parentheses optional). Use it
 to guard shared state across threads.
 

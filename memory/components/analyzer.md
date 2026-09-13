@@ -3458,6 +3458,36 @@ Not yet lowered inside a generator body, each with its own decline: `return <val
 (`emit.iterator.async-unsupported`), `lock`, an `await` nested in a larger expression, and
 `await foreach`. (`using` is not a statement this language parses at all.)
 
+## The `using` Resource: NL333 and a Read-Only Binding
+
+`AnalyzerResourceStatements` is the driver for `try`, `using` and `lock`, and the `using` walk asks
+TWO questions the other two do not.
+
+**Is the resource releasable?** Either nominally — the type implements `IDisposable` — or
+structurally: it declares a parameterless `Dispose` returning `void`. Neither is NL333, whose sentence
+names both the TYPE and the INTERFACE, because the author can see only one of them on the line. An
+`await using` asks the SAME shape about a DIFFERENT contract (`IAsyncDisposable` / `DisposeAsync`), so
+the walk reads which contract to ask about off `UsingStatement.IsAsync` rather than threading it
+through the recursion: every arm — the wrappers, the redirects, the structural test and the nominal
+test — is one shape asked twice. The squiggle goes under the RESOURCE, not under the bound name: the
+name is not the mistake, and for the `using x := e` spelling the declaration is anchored on the
+`using` keyword anyway, so a caret at the name would underline the one token that is certainly right.
+
+**Is the name still holding what the statement promised to release?** The resource binding is
+READ-ONLY for as long as it is visible, and rebinding it reports NL309. The mark lives on the SCOPE
+(`Scope.MarkReadOnly` / `AnalyzerScopeStack.IsReadOnlySymbol`) rather than in a walk-lifetime set,
+because the region and the scope are the same thing: the block form marks the name in the scope the
+statement opened, and a using DECLARATION marks it in the ENCLOSING block — so the mark expires
+exactly when the guarantee does, with nothing to unwind. Writing THROUGH the resource is ordinary
+mutation and is none of the rule's business.
+
+**A using DECLARATION opens no scope.** Its guarded region is the rest of the enclosing block, which
+is also where its binding belongs; a scope of its own would end at the statement and hide the name
+from every line the declaration is supposed to cover. `AnalyzerStatementTermination` treats a `using`
+BLOCK as terminating when its body terminates (the release runs on the way out and changes nothing
+about whether control leaves) and a using DECLARATION as terminating nothing, because the statements
+it guards are its siblings and the block walk measures those.
+
 ## One Exception-Resolution Path
 
 `ColumnarCanonicalTypeResolver.TryResolveBclExceptionType` resolves a catch/throw type by ORDINARY CLR

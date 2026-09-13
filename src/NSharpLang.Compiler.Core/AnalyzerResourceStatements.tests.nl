@@ -635,11 +635,21 @@ test "a using EXPRESSION is analysed instead, and never asks for a declaration w
     assert ResKinds(harness.Steps) == "2,1,5,6"
 }
 
-test "a using with no body still opens and closes its scope" {
+test "a using DECLARATION opens NO scope, because the region it guards is the enclosing block" {
+    harness := ResHarnessNew()
+    ResRun(harness, harness.Owner.BeginUsing(ResUsingWithDeclaration("handle", false), harness.Assignability))
+
+    // No kind 2 and no kind 6: the binding is declared where the statement stands, so every statement
+    // after it — which is exactly the region the declaration disposes at the end of — can see it.
+    assert ResKinds(harness.Steps) == "7"
+    assert harness.ScopeDepth == 0
+}
+
+test "an UNBOUND using with no body opens no scope either" {
     harness := ResHarnessNew()
     ResRun(harness, harness.Owner.BeginUsing(ResUsingWithExpression(ResName("handle"), false), harness.Assignability))
 
-    assert ResKinds(harness.Steps) == "2,1,6"
+    assert ResKinds(harness.Steps) == "1"
 }
 
 test "the using scope opens at the using statement's own position" {
@@ -662,18 +672,34 @@ test "a declared resource whose own declaration FAILED is not also told it is no
     assert harness.Errors[0].Message == "injected"
 }
 
-test "a clean declaration of a non-disposable type reports NL103 at the declared NAME" {
+test "a clean declaration of a non-disposable type reports NL333 at the RESOURCE, not at the name" {
     harness := ResHarnessNew()
     harness.DeclaredResourceType = harness.Scopes.LookupType("Widget")
     ResRun(harness, harness.Owner.BeginUsing(ResUsingWithDeclaration("handle", true), harness.Assignability))
 
     assert harness.Errors.Count == 1
     reported := harness.Errors[0]
-    assert reported.Code == ErrorCode.InvalidSyntax
-    assert reported.Message == "Using resource of type 'Widget' must implement IDisposable or provide Dispose(): void"
-    assert reported.Suggestion == "Use a resource type with a parameterless void Dispose method, or remove the using statement."
+    assert reported.Code == ErrorCode.ResourceNotDisposable
+    assert reported.Message == "A 'Widget' is not a resource 'using' can release"
+    assert reported.Suggestion == "Give 'Widget' a parameterless 'Dispose' member, or drop the 'using'."
+    // The RESOURCE's own span — here the `Open` callee at column 5 — not column 11 where the name is:
+    // the name is not the mistake, and for the `using x := e` spelling the declaration is anchored on
+    // the `using` keyword anyway, so a caret at the name would land on the one token that is correct.
     assert reported.Line == 7
-    assert reported.Column == 11
+    assert reported.Column == 5
+}
+
+test "an `await using` of a type with only Dispose reports NL333 naming IAsyncDisposable" {
+    harness := ResHarnessNew()
+    harness.DeclaredResourceType = harness.Scopes.LookupType("Handle")
+    statement := ResUsingWithDeclaration("handle", true)
+    ResRun(harness, harness.Owner.BeginUsing(new UsingStatement(statement.Declaration, null, statement.Body, 7, 5, true), harness.Assignability))
+
+    assert harness.Errors.Count == 1
+    reported := harness.Errors[0]
+    assert reported.Code == ErrorCode.ResourceNotDisposable
+    assert reported.Message == "A 'Handle' is not a resource 'await using' can release"
+    assert reported.Suggestion == "Give 'Handle' a parameterless 'DisposeAsync' member, or drop the 'await using'."
 }
 
 test "a declared type that carries the Dispose PATTERN is accepted without naming IDisposable" {

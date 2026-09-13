@@ -121,7 +121,8 @@ yielded; this exists because late-added children (`NewExpression.ArrayLengthExpr
 - **ReturnStatement**: `return expr`
 - **YieldStatement**: `yield value`, `yield break`
 - **TryCatchStatement**: `try { } catch e { }`
-- **UsingStatement**: `using resource { }`
+- **UsingStatement**: `using resource { }`, `using x := e { }`, `using x: T = e { }`, `using x := e`
+  (no block — the using DECLARATION), and `await using` (`IsAsync`)
 - **LockStatement**: `lock obj { }`
 
 ### Declarations (`Declarations.nl`)
@@ -232,6 +233,39 @@ while the same type on a local, a parameter or a return read fine. A leading `(`
 its own paren depth, the rule Roslyn's `ScanTupleType` applies for the same reason — and then falls
 into the shared `[]`/`?` suffix walk. `ParserDeclarationCanonicalTypeText` strips whitespace for a
 `(` head as well as a `<` one, because a canonical never contains a space.
+
+### The `using` statement, and the one `{` that is not an object initializer
+
+FIVE written forms reach ONE `UsingStatement` node. `using x := e { … }`, `using x: T = e { … }` (the
+annotated form also accepts `:=`) and `using let x := e { … }` fill `Declaration`; `using e { … }`
+fills `Expression`; and every BINDING form may omit the block, which is the using DECLARATION whose
+guarded region is the remainder of the ENCLOSING block. The node records which it is by carrying a
+null `Body`; `IsAsync` is the `await using` spelling, dispatched on the Await+Using token pair
+beside `await foreach`.
+
+**WHICH FORM IS WRITTEN IS DECIDED BEFORE ANY OF IT IS PARSED**, from two tokens
+(`IsUsingDeclarationForm`): a bare identifier followed by `:=` or `:` BINDS, and one followed by
+another identifier binds too — that is the `using r open()` slip, and taking the declaration arm
+there is what makes the parser say "Expected ':='" at the offending token instead of inventing a
+resource expression nobody wrote. Every other continuation is a resource EXPRESSION, whose block is
+REQUIRED: a resource nobody named and nobody scoped would be released where the reader cannot see it.
+
+**THE `{` AMBIGUITY IS SETTLED BY TOKEN INDEX, NOT BY A MODE FLAG.** `using r := new Res() { … }` is
+the shape it lives in: `new Res() { … }` is also a legal object initializer, so the same brace could
+close the resource or open the body. The rule is the one Go and C# reach for — the FIRST `{` at
+paren/bracket depth zero after the resource belongs to the statement, and an initializer in that
+position must be parenthesised (`using r := (new Res { A: 1 }) { … }`). Both parsers enforce it the
+same way: `ColumnarParserRecovery.UsingBodyBraceIndex` and `ParserState.UsingBodyBrace` name ONE
+token, and only the initializer gate standing at exactly that cursor yields. Nesting therefore needs
+no bookkeeping — a brace anywhere inside the expression sits at a different index and is untouched by
+construction.
+
+The columnar kernel takes node kind **77** (`using`) and **79** (`await using`); kind 78 is
+unassigned. Children are `[resource]` for the declaration form and `[resource, body]` for the block
+form, where the resource is a kind-24 or kind-40 local DECLARATION when the statement binds it and an
+ordinary expression when it does not — the two shapes the lowering already declares, reused rather
+than re-encoded, and told apart from an expression by node kind. The typed-local annotation scan now
+terminates at `:=` as well as `=`, which is what lets `x: T := e` reach the backend at all.
 
 ### Tuple deconstruction has two spellings, and two operators
 

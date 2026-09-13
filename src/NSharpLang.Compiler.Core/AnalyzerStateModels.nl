@@ -65,6 +65,13 @@ class Scope {
     hoistedLocalFunctionsValue: HashSet<string>
     typeParameterConstraintsValue: Dictionary<string, List<TypeInfo>>
 
+    // THE NAMES THIS SCOPE BOUND THAT MAY NOT BE WRITTEN AGAIN. Today exactly one thing fills it: a
+    // `using` resource, which the statement disposes at the end of its region and therefore has to
+    // still be holding. It is a SCOPE field because the region is a scope — the block form marks the
+    // name in the scope the statement opened, the DECLARATION form marks it in the enclosing block —
+    // so the mark expires exactly when the guarantee does, with no separate bookkeeping to unwind.
+    readOnlyNamesValue: HashSet<string>
+
     Kind: ScopeKind => kindValue
     Symbols: Dictionary<string, TypeInfo> => symbolsValue
 
@@ -99,6 +106,15 @@ class Scope {
         typeAritiesValue = new Dictionary<string, List<int>>(StringComparer.Ordinal)
         hoistedLocalFunctionsValue = new HashSet<string>(StringComparer.Ordinal)
         typeParameterConstraintsValue = new Dictionary<string, List<TypeInfo>>(StringComparer.Ordinal)
+        readOnlyNamesValue = new HashSet<string>(StringComparer.Ordinal)
+    }
+
+    func MarkReadOnly(name: string) {
+        readOnlyNamesValue.Add(name)
+    }
+
+    func IsReadOnly(name: string): bool {
+        return readOnlyNamesValue.Contains(name)
     }
 
     // THE LOCAL FUNCTIONS THIS SCOPE ALREADY BOUND BEFORE ITS FIRST STATEMENT RAN. A local

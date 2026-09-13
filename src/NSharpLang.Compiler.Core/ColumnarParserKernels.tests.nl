@@ -913,6 +913,140 @@ class ColumnarFunctionBodyAwaitForeachProbe {
     }
 }
 
+// THE `using` STATEMENT AS THE KERNEL LANDS IT. Kind 77 is the synchronous statement and kind 78 the
+// `await using` twin; children are [resource] for a using DECLARATION and [resource, body] for the
+// block form, and the RESOURCE's own node kind says whether the statement bound it (24 / 40) or only
+// named it (any expression kind).
+class ColumnarFunctionBodyUsingProbe {
+    Status: int
+    UsingNodeCount: int
+    UsingKind: int
+    ChildCount: int
+    ResourceKind: int
+    BodyKind: int
+    ResourceText: string
+
+    constructor(source: string) {
+        capacity := source.Length * 3 + 16
+        rawKinds := new int[](capacity)
+        rawStarts := new int[](capacity)
+        rawValueLengths := new int[](capacity)
+        tokenKinds := new int[](capacity)
+        tokenStarts := new int[](capacity)
+        tokenValueLengths := new int[](capacity)
+        tokenCounts := new int[](2)
+        tokenCount := TokenizeColumnarSourceInto(
+            source,
+            rawKinds,
+            rawStarts,
+            rawValueLengths,
+            tokenKinds,
+            tokenStarts,
+            tokenValueLengths,
+            tokenCounts
+        )
+
+        funcIndex := 0
+        while funcIndex < tokenCount && tokenKinds[funcIndex] != 7 {
+            funcIndex = funcIndex + 1
+        }
+
+        functionNameTexts := new string[](1)
+        returnTypeTexts := new string[](1)
+        paramNameTexts := new string[](capacity)
+        paramTypeTexts := new string[](capacity)
+        paramModifierKinds := new int[](capacity)
+        paramDefaultKinds := new int[](capacity)
+        paramDefaultTexts := new string[](capacity)
+        paramTupleNameCounts := new int[](capacity)
+        paramTupleNameTexts := new string[](capacity)
+        returnTupleNameTexts := new string[](capacity)
+        returnLabeledTypeTexts := new string[](capacity)
+        paramLabeledTypeTexts := new string[](capacity)
+        typeParamTexts := new string[](capacity)
+        typeParamSpecials := new int[](capacity)
+        typeParamConstraintCounts := new int[](capacity)
+        typeParamConstraintTypeTexts := new string[](capacity)
+        nodeKinds := new int[](capacity)
+        valueStarts := new int[](capacity)
+        valueLengths := new int[](capacity)
+        childStart := new int[](capacity)
+        childCount := new int[](capacity)
+        childIndices := new int[](capacity)
+        spanStarts := new int[](capacity)
+        spanLengths := new int[](capacity)
+        localFunctionNodeIndices := new int[](capacity)
+        localFunctionTokenIndices := new int[](capacity)
+        result := new int[](9)
+
+        Status = ParseColumnarProductFunctionInfoInto(
+            source,
+            tokenKinds,
+            tokenStarts,
+            tokenValueLengths,
+            tokenCount,
+            funcIndex,
+            0,
+            functionNameTexts,
+            returnTypeTexts,
+            paramNameTexts,
+            paramTypeTexts,
+            paramModifierKinds,
+            paramDefaultKinds,
+            paramDefaultTexts,
+            paramTupleNameCounts,
+            paramTupleNameTexts,
+            returnTupleNameTexts,
+            returnLabeledTypeTexts,
+            paramLabeledTypeTexts,
+            typeParamTexts,
+            typeParamSpecials,
+            typeParamConstraintCounts,
+            typeParamConstraintTypeTexts,
+            nodeKinds,
+            valueStarts,
+            valueLengths,
+            childStart,
+            childCount,
+            childIndices,
+            spanStarts,
+            spanLengths,
+            localFunctionNodeIndices,
+            localFunctionTokenIndices,
+            result
+        )
+
+        UsingNodeCount = 0
+        UsingKind = -1
+        ChildCount = -1
+        ResourceKind = -1
+        BodyKind = -1
+        ResourceText = ""
+        if Status >= 0 {
+            bodyNodeCount := result[7]
+            n := 0
+            while n < bodyNodeCount {
+                if nodeKinds[n] == 77 || nodeKinds[n] == 78 {
+                    if UsingNodeCount == 0 {
+                        UsingKind = nodeKinds[n]
+                        ChildCount = childCount[n]
+                        resource := childIndices[childStart[n]]
+                        ResourceKind = nodeKinds[resource]
+                        ResourceText = source.Substring(spanStarts[resource], spanLengths[resource])
+                        if childCount[n] == 2 {
+                            BodyKind = nodeKinds[childIndices[childStart[n] + 1]]
+                        }
+                    }
+
+                    UsingNodeCount = UsingNodeCount + 1
+                }
+
+                n = n + 1
+            }
+        }
+    }
+}
+
 func AssertColumnarSeparatedIntegerLiteral(source: string, expectedValue: ulong): void {
     probe := new ColumnarNumericLiteralParseProbe(source)
     probe.AssertSingleLiteral(1, ColumnarExpressionNodeKind.IntLiteralExpression())
@@ -1463,6 +1597,124 @@ test "function body parser keeps a bare await statement an expression statement"
 
     assert probe.Status >= 0
     assert probe.AwaitForeachNodeCount == 0
+}
+
+// ---- the `using` statement (kinds 77 / 78) ----
+
+test "function body parser lands `using r := e { }` as kind 77 over a kind-24 declaration and a block" {
+    probe := new ColumnarFunctionBodyUsingProbe(
+        "func Read() { using reader := Open() { print reader } }"
+    )
+
+    assert probe.Status >= 0
+    assert probe.UsingNodeCount == 1
+    assert probe.UsingKind == 77
+    assert probe.ChildCount == 2
+    assert probe.ResourceKind == 24
+    assert probe.BodyKind == 25
+}
+
+test "an ANNOTATED using resource lands as the kind-40 typed declaration, with either operator" {
+    colonAssign := new ColumnarFunctionBodyUsingProbe(
+        "func Read() { using reader: TextReader := Open() { print reader } }"
+    )
+
+    assert colonAssign.Status >= 0
+    assert colonAssign.UsingKind == 77
+    assert colonAssign.ResourceKind == 40
+
+    equals := new ColumnarFunctionBodyUsingProbe(
+        "func Read() { using reader: TextReader = Open() { print reader } }"
+    )
+
+    assert equals.Status >= 0
+    assert equals.ResourceKind == 40
+}
+
+test "a redundant `let` is the same statement" {
+    probe := new ColumnarFunctionBodyUsingProbe(
+        "func Read() { using let reader := Open() { print reader } }"
+    )
+
+    assert probe.Status >= 0
+    assert probe.UsingKind == 77
+    assert probe.ResourceKind == 24
+}
+
+test "an UNBOUND using resource is an ordinary expression child, and its block is required" {
+    probe := new ColumnarFunctionBodyUsingProbe(
+        "func Read(reader: TextReader) { using reader { print reader } }"
+    )
+
+    assert probe.Status >= 0
+    assert probe.UsingKind == 77
+    assert probe.ChildCount == 2
+    // Kind 6 is an identifier: the resource is NOT a declaration, which is how the two forms differ.
+    assert probe.ResourceKind == 6
+    assert probe.BodyKind == 25
+
+    // The same statement with no block refuses, exactly as C# has no `using (e);`.
+    blockless := new ColumnarFunctionBodyUsingProbe(
+        "func Read(reader: TextReader) { using reader }"
+    )
+
+    assert blockless.Status < 0
+}
+
+test "a using DECLARATION lands with ONE child and no body" {
+    probe := new ColumnarFunctionBodyUsingProbe(
+        "func Read() { using reader := Open() print reader }"
+    )
+
+    assert probe.Status >= 0
+    assert probe.UsingKind == 77
+    assert probe.ChildCount == 1
+    assert probe.ResourceKind == 24
+    assert probe.BodyKind == -1
+}
+
+test "`await using` lands as kind 78, the same shape released asynchronously" {
+    probe := new ColumnarFunctionBodyUsingProbe(
+        "async func Read() { await using reader := Open() { print reader } }"
+    )
+
+    assert probe.Status >= 0
+    assert probe.UsingNodeCount == 1
+    assert probe.UsingKind == 78
+    assert probe.ChildCount == 2
+    assert probe.ResourceKind == 24
+}
+
+test "the BODY brace is not an object initializer, and one inside parentheses still is" {
+    // `new Res() { … }` is also a legal object initializer; the first `{` at depth zero after the
+    // resource belongs to the STATEMENT, so the resource stops at `new Res()`.
+    body := new ColumnarFunctionBodyUsingProbe(
+        "func Read() { using reader := new Res() { print reader } }"
+    )
+
+    assert body.Status >= 0
+    assert body.ChildCount == 2
+    assert body.BodyKind == 25
+    assert body.ResourceText == "reader := new Res()"
+
+    // Parenthesised, the brace is at a different token index and the initializer parses again.
+    initializer := new ColumnarFunctionBodyUsingProbe(
+        "func Read() { using reader := (new Res { Name: 1 }) { print reader } }"
+    )
+
+    assert initializer.Status >= 0
+    assert initializer.ChildCount == 2
+    assert initializer.BodyKind == 25
+    assert initializer.ResourceText == "reader := (new Res { Name: 1 })"
+}
+
+test "two using DECLARATIONS in one block are two kind-77 nodes" {
+    probe := new ColumnarFunctionBodyUsingProbe(
+        "func Read() { using a := Open() using b := Open() print a }"
+    )
+
+    assert probe.Status >= 0
+    assert probe.UsingNodeCount == 2
 }
 
 test "await foreach without the in keyword refuses" {

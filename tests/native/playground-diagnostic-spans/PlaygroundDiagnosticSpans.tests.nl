@@ -1657,7 +1657,7 @@ test "020 s37 playground diagnostic spans: Check RecoverySpans AvoidPunctuationO
     assert PgRow(other, 1) == "NL301|error|Variable 'condition' not found|Program.tests.nl|4|15|9"
 }
 
-test "020 s37 playground diagnostic spans: Check UsingTupleDeconstruction PreservesTuplePatternSpanForMarkers — NL103@8:15+13;NL103@8:32+7;, and the test-file route agrees (was PlaygroundCompilerTests.Check_UsingTupleDeconstruction_PreservesTuplePatternSpanForMarkers)" {
+test "020 s37 playground diagnostic spans: Check UsingTupleDeconstruction PreservesTuplePatternSpanForMarkers — NL103@8:15+13;NL333@8:32+7;, and the test-file route agrees (was PlaygroundCompilerTests.Check_UsingTupleDeconstruction_PreservesTuplePatternSpanForMarkers)" {
     source := "package Playground\n\nfunc getPair(): (int, int) {\n    return (1, 2)\n}\n\nfunc main() {\n    using let (left, right) := getPair() {\n        print \"ok\"\n    }\n}"
     response := PgCheck(source)
     assert PgOk(response) == "False"
@@ -1665,22 +1665,22 @@ test "020 s37 playground diagnostic spans: Check UsingTupleDeconstruction Preser
     assert PgFileName(response) == "Program.nl"
     assert PgSummary(response) == "2/0/0"
     assert PgCount(response) == 2
-    assert PgCensus(response) == "NL103@8:15+13;NL103@8:32+7;"
+    assert PgCensus(response) == "NL103@8:15+13;NL333@8:32+7;"
     assert PgRow(response, 0) == "NL103|error|Using statement requires a variable declaration, not tuple deconstruction|Program.nl|8|15|13"
     assert PgDetail(response, 0) == "    using let (left, right) := getPair() {|The 'using' statement can only work with single variable declarations, not tuple deconstruction.|Change from tuple deconstruction to single variable|Use a single variable: using let resource := getResource() { ... }"
     // The message names the tuple the way the source writes it. Before named tuple element metadata
     // landed, `TupleTypeInfo` had no `ToString` and this diagnostic leaked the CLASS name
     // `NSharpLang.Compiler.TupleTypeInfo` at the user.
-    assert PgRow(response, 1) == "NL103|error|Using resource of type '(int, int)' must implement IDisposable or provide Dispose(): void|Program.nl|8|32|7"
-    assert PgDetail(response, 1) == "    using let (left, right) := getPair() {|<null>|Use a resource type with a parameterless void Dispose method, or remove the using statement.|<null>"
+    assert PgRow(response, 1) == "NL333|error|A '(int, int)' is not a resource 'using' can release|Program.nl|8|32|7"
+    assert PgDetail(response, 1) == "    using let (left, right) := getPair() {|`using` releases its resource by calling `Dispose()` on it when the block ends, and a `(int, int)` has no such member:|Make `(int, int)` implement `IDisposable`, give it a parameterless `Dispose` member, or drop the `using` and let the value fall out of scope like any other.|A resource qualifies either nominally — it implements `IDisposable` — or structurally: it declares a parameterless `Dispose` of its own. A `(int, int)` does neither, so there would be nothing to run in the `finally`."
     assert PgRow(response, 2) == "<no-such-diagnostic>"
     other := PgCheckTestFile(source)
     assert PgOk(other) == "False"
     assert PgFileName(other) == "Program.tests.nl"
     assert PgCount(other) == 2
-    assert PgCensus(other) == "NL103@8:15+13;NL103@8:32+7;"
+    assert PgCensus(other) == "NL103@8:15+13;NL333@8:32+7;"
     assert PgRow(other, 0) == "NL103|error|Using statement requires a variable declaration, not tuple deconstruction|Program.tests.nl|8|15|13"
-    assert PgRow(other, 1) == "NL103|error|Using resource of type '(int, int)' must implement IDisposable or provide Dispose(): void|Program.tests.nl|8|32|7"
+    assert PgRow(other, 1) == "NL333|error|A '(int, int)' is not a resource 'using' can release|Program.tests.nl|8|32|7"
 }
 
 test "020 s37 playground diagnostic spans: Check StringLiteralUnknownMember ReturnsUndefinedMemberDiagnostic — NL303@4:26+4;, and the test-file route agrees (was PlaygroundCompilerTests.Check_StringLiteralUnknownMember_ReturnsUndefinedMemberDiagnostic)" {

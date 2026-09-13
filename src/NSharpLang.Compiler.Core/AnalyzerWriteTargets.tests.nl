@@ -264,6 +264,37 @@ test "a name the table does not declare is not a table member mutation, and neit
     assert harness.Errors.Count == 0
 }
 
+// ---- the one LOCAL that is read-only: a `using` resource -------------------------------------------
+
+// A `using` promises to release whatever its name holds when the region ends, and it can only keep
+// that promise while the name is still holding it. The mark is a SCOPE fact, so the rule needs no
+// statement to consult: it asks whether the name the write targets is read-only where it is visible.
+test "a using resource refuses a write, a name beside it does not, and only a BARE NAME answers" {
+    harness := WriteTargetHarnessOf()
+    resourceType: TypeInfo = new SimpleTypeInfo("Stream")
+    WriteTargetDeclare(harness, "reader", resourceType)
+    WriteTargetDeclare(harness, "other", resourceType)
+    harness.Scopes.MarkSymbolReadOnly("reader")
+
+    assert harness.Targets.ReportUsingResourceWriteIfNeeded(WriteTargetName("reader"), "assigned with '='")
+    assert harness.Errors.Count == 1
+    assert harness.Errors[0].Message == "The using resource 'reader' is read-only — it can't be assigned with '='"
+    assert harness.Errors[0].Suggestion == "A `using` disposes whatever this name holds when its region ends, so the name has to keep holding it. Bind the new value to a different name, or give it its own `using`."
+    assert WriteTargetCodes(harness.Errors) == "309"
+
+    // A parenthesised target is the same name.
+    parenthesized: Expression = new ParenthesizedExpression(WriteTargetName("reader"), 3, 4)
+    assert harness.Targets.ReportUsingResourceWriteIfNeeded(parenthesized, "changed with '++'")
+    assert harness.Errors.Count == 2
+    assert harness.Errors[1].Message == "The using resource 'reader' is read-only — it can't be changed with '++'"
+
+    // An ordinary binding beside it is untouched, and writing THROUGH the resource is ordinary
+    // mutation: only rebinding the NAME is this rule's business.
+    assert !harness.Targets.ReportUsingResourceWriteIfNeeded(WriteTargetName("other"), "assigned with '='")
+    assert !harness.Targets.ReportUsingResourceWriteIfNeeded(WriteTargetMember(WriteTargetName("reader"), "Position", false), "assigned with '='")
+    assert harness.Errors.Count == 2
+}
+
 // ---- rule 3: the unsupported built-in indexed mutation ---------------------------------------------
 
 test "a STRING index and an array SLICE are refused and an array ELEMENT is not" {

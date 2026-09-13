@@ -218,6 +218,37 @@ test "events: the finder descends into an `on` subscription's receiver, event na
 // lines of two of the fixtures — the signature and the closing brace of the first, and the
 // signature and the closing brace of the class-body one — and every column of all four answers
 // nothing. Nothing in the deleted file asked a second position of any fixture.
+// A `using` HAS AN EXPRESSION IN TWO PLACES AND A BODY IN A THIRD, and until the statement had an
+// arm here every one of them answered `<none>` — hover and completion inside a `using` block would
+// have found nothing at all, on a statement whose whole point is to name a resource and use it.
+test "finder: a using statement answers its RESOURCE on its own line and its body's expressions inside the block" {
+    source := "func main() {\n    using reader := open() {\n        print reader.Name\n    }\n}"
+    assert PsCensus(source) == ""
+
+    // The resource: the bound form's expression is its declaration's initializer. The callee alone
+    // answers at its own column, the call from the open paren on.
+    assert AnfAt(source, 1, 20) == "Identifier@2:21|Name=open"
+    assert AnfAt(source, 1, 24) == "Call@2:25|Callee=Identifier@2:21|Name=open"
+
+    // The body: the receiver alone left of the dot, the member access from the dot on.
+    assert AnfAt(source, 2, 14) == "Identifier@3:15|Name=reader"
+    assert AnfAt(source, 2, 20) == "MemberAccess@3:21|Member=Name|Object=Identifier@3:15|Name=reader"
+}
+
+test "finder: an UNBOUND using answers its resource, and a using DECLARATION answers the statements after it" {
+    unbound := "func main(reader: Reader) {\n    using reader {\n        print reader.Name\n    }\n}"
+    assert PsCensus(unbound) == ""
+    assert AnfAt(unbound, 1, 10) == "Identifier@2:11|Name=reader"
+    assert AnfAt(unbound, 2, 20) == "MemberAccess@3:21|Member=Name|Object=Identifier@3:15|Name=reader"
+
+    // The DECLARATION form carries no body: the statements it guards are its SIBLINGS, and the block
+    // walk reaches them without this arm descending anywhere.
+    declaration := "func main() {\n    using reader := open()\n    print reader.Name\n}"
+    assert PsCensus(declaration) == ""
+    assert AnfAt(declaration, 1, 24) == "Call@2:25|Callee=Identifier@2:21|Name=open"
+    assert AnfAt(declaration, 2, 16) == "MemberAccess@3:17|Member=Name|Object=Identifier@3:11|Name=reader"
+}
+
 test "020 s23 finder: the answer is LINE-SCOPED — every column of the signature line and of the closing-brace line of both the member-access fixture and the class-body fixture answers nothing at all" {
     memberAccessSource := "func main() {\n    value := user.Name\n}"
     classBodySource := "class Person {\n    func Speak(): string {\n        return Name\n    }\n}"
