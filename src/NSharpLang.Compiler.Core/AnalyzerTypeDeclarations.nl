@@ -863,6 +863,11 @@ class AnalyzerTypeDeclarations {
 
         AnalyzerDeclarationConventions.CheckVisibilityConvention(diagnosticsValue, field.Name, field.Modifiers, field.Line, field.Column)
         initializer := field.Initializer
+        if initializer != null {
+            AnalyzerFieldInitializerRules.ReportIfNeeded(field, initializer, scopesValue, diagnosticsValue)
+            AnalyzerFieldInitializerRules.ReportStructInitializerIfNeeded(field, initializer, scopesValue, spansValue, diagnosticsValue)
+        }
+
         if field.Type == null {
             if initializer == null {
                 state.Phase = 43

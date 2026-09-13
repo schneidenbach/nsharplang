@@ -551,11 +551,13 @@ test "compile-time bench: the skipped source directories are exactly the twelve 
 // target-typed array literals added tests/native/census-conversions; 96 since the C# `foreach`
 // pattern added tests/native/census-pattern-foreach; 97 since the type-argument scan and per-element
 // tuple naming added tests/native/census-parse-shapes; 98 since lambda parameter inference and
-// extension-result widening added tests/native/census-lambda-inference.
-test "compile-time bench: the corpus is the 98 project.yml projects under examples, tests and templates" {
+// extension-result widening added tests/native/census-lambda-inference; 99 since field initializers
+// became ordinary expressions added tests/native/census-field-initializers.
+test "compile-time bench: the corpus is the 99 project.yml projects under examples, tests and templates" {
     projects := BenchCollectCorpusProjects(BenchRepositoryRoot())
-    assert projects.Count == 98
+    assert projects.Count == 99
     assert BenchListContains(projects, "tests/native/census-lambda-inference")
+    assert BenchListContains(projects, "tests/native/census-field-initializers")
     assert BenchListContains(projects, "examples/01-hello-world")
     assert BenchListContains(projects, "tests/native/qualified-names")
     assert BenchListContains(projects, "tests/native/census-conversions")
@@ -565,6 +567,7 @@ test "compile-time bench: the corpus is the 98 project.yml projects under exampl
     assert BenchListContains(projects, "tests/native/complete-source-generic-args")
     assert BenchListContains(projects, "tests/native/constructed-generic-interop")
     assert BenchListContains(projects, "tests/native/external-generic-construction")
+    assert BenchListContains(projects, "tests/native/census-field-initializers")
     assert BenchListContains(projects, "tests/native/external-generic-methods")
     assert BenchListContains(projects, "tests/native/generic-static-members")
     assert BenchListContains(projects, "tests/native/user-generic-methods")

@@ -1,25 +1,25 @@
 namespace NSharpLang.ReadonlyInit.Tests
 
-// Fixture types for readonly-field initialization placement. A field initializer (`readonly Pi = 3.14159`)
-// is parsed into a synthesized initializer constructor whose stores N# places according to the CLR
-// verification rule that an initonly field may be stored only inside a constructor of its declaring type.
-// Each type below pins one placement shape; the .tests.nl file executes them, reflects over the emitted
-// `<InitializeFields>$` helper, and verifies the readonly attribute and initialized values.
+// Fixture types for field-initialization placement. A field initializer (`readonly Pi = 3.14159`) is
+// parsed into a synthesized initializer constructor whose stores are emitted INLINE in every
+// base-reaching constructor, ahead of the base constructor call — the C# order, and the only order an
+// initonly store and an uninitialized `this` both allow. Each type below pins one placement shape; the
+// .tests.nl file executes them, proves no `<InitializeFields>$` helper is emitted, and verifies the
+// readonly attribute and initialized values.
 
-// Readonly-only, no user constructor: the synthesized DEFAULT constructor must inline both initonly stores.
-// No `<InitializeFields>$` helper is synthesized (a readonly store would be unverifiable there).
+// Readonly-only, no user constructor: the synthesized DEFAULT constructor inlines both initonly stores.
 class ReadonlyOnly {
     readonly Pi: double = 3.14159
     readonly Label: string = "ro"
 }
 
-// Mutable-only initializers: keep the shared `<InitializeFields>$` helper (a mutable store verifies there).
+// Mutable-only initializers: inlined in the synthesized default constructor like every other store.
 class MutableOnly {
     Count: int = 5
     Name: string = "m"
 }
 
-// Mixed: the readonly store is inlined in the constructor, the mutable store keeps the helper.
+// Mixed: both the readonly and the mutable store are inlined in the constructor.
 class Mixed {
     readonly Ro: int = 1
     Mut: int = 2

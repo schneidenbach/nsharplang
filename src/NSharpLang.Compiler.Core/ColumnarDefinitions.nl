@@ -408,13 +408,12 @@ class ColumnarStructDef {
     StaticIntConstants: Dictionary<string, int>
     StaticProperties: Dictionary<string, ColumnarPropertyDef>
     Constructors: List<ColumnarConstructorDef>
-    InstanceInitializerMethod: MethodBuilder?
     InstanceInitializerFields: HashSet<string>
     // The N#-owned placement plan for this type's synthesized instance field initializers, and the
     // synthesized initializer constructor whose body those ordinals index. Left null for a type with no
     // instance field initializers. ColumnarFieldInitPlanner produces the plan; the emitter consumes its
-    // InlineOrdinals to emit readonly stores directly in each constructor and its HelperOrdinals to emit
-    // mutable stores into the helper.
+    // InlineOrdinals to emit every store directly in each base-reaching constructor, ahead of the base
+    // constructor call.
     InstanceInitializerPlan: ColumnarFieldInitPlan?
     InstanceInitializerCtor: ColumnarConstructorInput?
     Properties: Dictionary<string, ColumnarPropertyDef>

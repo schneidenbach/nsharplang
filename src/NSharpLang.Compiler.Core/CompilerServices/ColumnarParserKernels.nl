@@ -946,6 +946,10 @@ class StructDeclarationTable {
     FieldInitKinds: int[]
     FieldInitStarts: int[]
     FieldInitLengths: int[]
+    // The TOKEN index of each field initializer's first token (-1 with no initializer). The source
+    // span above names the initializer for metadata and diagnostics; this column is what lets the
+    // static-initializer body re-enter the ordinary expression parser at exactly that token.
+    FieldInitTokens: int[]
     MethodFuncIndices: int[]
     MethodStaticFlags: int[]
     MethodModifierFlags: int[]
@@ -957,7 +961,7 @@ class StructDeclarationTable {
     BaseNameStarts: int[]
     BaseNameLengths: int[]
     Where: ParserDeclarationWhereTable
-    constructor(fieldNameStarts: int[], fieldNameLengths: int[], fieldTypeStarts: int[], fieldTypeLengths: int[], fieldStaticFlags: int[], fieldInitKinds: int[], fieldInitStarts: int[], fieldInitLengths: int[], methodFuncIndices: int[], methodStaticFlags: int[], methodModifierFlags: int[], ctorIndices: int[], propIndices: int[], propStaticFlags: int[], typeParamStarts: int[], typeParamLengths: int[], baseNameStarts: int[], baseNameLengths: int[], whereTable: ParserDeclarationWhereTable) {
+    constructor(fieldNameStarts: int[], fieldNameLengths: int[], fieldTypeStarts: int[], fieldTypeLengths: int[], fieldStaticFlags: int[], fieldInitKinds: int[], fieldInitStarts: int[], fieldInitLengths: int[], fieldInitTokens: int[], methodFuncIndices: int[], methodStaticFlags: int[], methodModifierFlags: int[], ctorIndices: int[], propIndices: int[], propStaticFlags: int[], typeParamStarts: int[], typeParamLengths: int[], baseNameStarts: int[], baseNameLengths: int[], whereTable: ParserDeclarationWhereTable) {
         FieldNameStarts = fieldNameStarts
         FieldNameLengths = fieldNameLengths
         FieldTypeStarts = fieldTypeStarts
@@ -966,6 +970,7 @@ class StructDeclarationTable {
         FieldInitKinds = fieldInitKinds
         FieldInitStarts = fieldInitStarts
         FieldInitLengths = fieldInitLengths
+        FieldInitTokens = fieldInitTokens
         MethodFuncIndices = methodFuncIndices
         MethodStaticFlags = methodStaticFlags
         MethodModifierFlags = methodModifierFlags
@@ -1713,18 +1718,20 @@ class ColumnarStructScratchTable {
     FieldTypeLengths: int[]
     FieldInitStarts: int[]
     FieldInitLengths: int[]
+    FieldInitTokens: int[]
     TypeParamStarts: int[]
     TypeParamLengths: int[]
     BaseNameStarts: int[]
     BaseNameLengths: int[]
     Where: ParserDeclarationWhereTable
-    constructor(fieldNameStarts: int[], fieldNameLengths: int[], fieldTypeStarts: int[], fieldTypeLengths: int[], fieldInitStarts: int[], fieldInitLengths: int[], typeParamStarts: int[], typeParamLengths: int[], baseNameStarts: int[], baseNameLengths: int[], whereTable: ParserDeclarationWhereTable) {
+    constructor(fieldNameStarts: int[], fieldNameLengths: int[], fieldTypeStarts: int[], fieldTypeLengths: int[], fieldInitStarts: int[], fieldInitLengths: int[], fieldInitTokens: int[], typeParamStarts: int[], typeParamLengths: int[], baseNameStarts: int[], baseNameLengths: int[], whereTable: ParserDeclarationWhereTable) {
         FieldNameStarts = fieldNameStarts
         FieldNameLengths = fieldNameLengths
         FieldTypeStarts = fieldTypeStarts
         FieldTypeLengths = fieldTypeLengths
         FieldInitStarts = fieldInitStarts
         FieldInitLengths = fieldInitLengths
+        FieldInitTokens = fieldInitTokens
         TypeParamStarts = typeParamStarts
         TypeParamLengths = typeParamLengths
         BaseNameStarts = baseNameStarts
@@ -9887,6 +9894,10 @@ func ParserDeclarationModifierFlagsIncludeReadonly(flags: int): bool {
     return (flags / 512) % 2 == 1
 }
 
+func ParserDeclarationModifierFlagsIncludeConst(flags: int): bool {
+    return (flags & 1024) != 0
+}
+
 // Field metadata currently has one intrinsic attribute surface. Require the exact System-qualified
 // CLR identity, accept its suffixed spelling, and allow either omitted or empty argument syntax.
 // The parser has no semantic import scope, so an unqualified or foreign name cannot prove that
@@ -10862,6 +10873,7 @@ func ParseStructDeclarationCore(source: string, tokens: ParserDeclarationTokenTa
             decl.FieldInitKinds[fieldCount] = -1
             decl.FieldInitStarts[fieldCount] = -1
             decl.FieldInitLengths[fieldCount] = 0
+            decl.FieldInitTokens[fieldCount] = -1
 
             if pos < count && tokens.Kinds[pos] == 129 {
                 decl.PropIndices[propCount] = memberStart
@@ -10908,56 +10920,41 @@ func ParseStructDeclarationCore(source: string, tokens: ParserDeclarationTokenTa
                     return -1
                 }
 
+                initTokenIndex := pos
                 initKind := tokens.Kinds[pos]
                 initStart := tokens.Starts[pos]
                 initLength := tokens.ValueLengths[pos]
-                if initKind == 0 {
-                    paramIndex := PrimaryConstructorParameterIndexOf(source, primaryParameters, primaryCtorParamCount, initStart, initLength)
-                    if paramIndex < 0 {
-                        initEnd := ParseDeclarationSimpleInitializerEndCore(tokens, count, pos, initializerTypeResult)
-                        if initEnd < 0 {
-                            if memberModifiers.Values[0] == 0 {
-                                return -1
-                            }
-
-                            initEnd = ParseDeclarationInitializerExpressionEndCore(source, tokens, count, pos)
-                            if initEnd < 0 {
-                                return -1
-                            }
-
-                            initKind = ParserDeclarationFieldInitializerExpressionKind()
-                        }
-
-                        initLength = tokens.Starts[initEnd - 1] + tokens.ValueLengths[initEnd - 1] - initStart
-                        pos = initEnd - 1
-                    } else {
-                        primaryAssignedFlags[paramIndex] = 1
-                    }
-                } else if !ParseDeclarationSimpleInitializerTokenIsLiteral(initKind) {
-                    initEnd := ParseDeclarationSimpleInitializerEndCore(tokens, count, pos, initializerTypeResult)
-                    if initEnd < 0 {
-                        initEnd = ParseDeclarationInitializerExpressionEndCore(source, tokens, count, pos)
-                        if initEnd < 0 {
-                            return -1
-                        }
-
-                        if memberModifiers.Values[0] != 0 {
-                            initKind = ParserDeclarationFieldInitializerExpressionKind()
-                        }
-                    }
-
-                    initLength = tokens.Starts[initEnd - 1] + tokens.ValueLengths[initEnd - 1] - initStart
-                    pos = initEnd - 1
+                // A FIELD INITIALIZER IS AN ORDINARY EXPRESSION. Read its full extent with the
+                // expression parser, and keep a "simple" classification (a lone literal, a dotted
+                // name, or `new T(...)`) only when that simple form covers the WHOLE initializer:
+                // `3 + 4` opens on a literal token but is not one, and reading only the literal
+                // used to strand `+ 4` in the member scan and decline the entire declaration.
+                initEnd := ParseDeclarationInitializerExpressionEndCore(source, tokens, count, pos)
+                if initEnd < 0 {
+                    return -1
                 }
 
-                if memberModifiers.Values[0] == 1 {
-                    if initKind == 0 || initKind == 41 {
-                        return -1
-                    }
+                if ParseDeclarationSimpleInitializerEndCore(tokens, count, pos, initializerTypeResult) != initEnd {
+                    initKind = ParserDeclarationFieldInitializerExpressionKind()
+                }
 
+                // Only a BARE primary-constructor parameter name makes the declared field that
+                // parameter's storage; `param + 1` is an expression that happens to read it.
+                if initKind == 0 && initEnd == pos + 1 {
+                    primaryParamIndex := PrimaryConstructorParameterIndexOf(source, primaryParameters, primaryCtorParamCount, initStart, initLength)
+                    if primaryParamIndex >= 0 {
+                        primaryAssignedFlags[primaryParamIndex] = 1
+                    }
+                }
+
+                initLength = tokens.Starts[initEnd - 1] + tokens.ValueLengths[initEnd - 1] - initStart
+                pos = initEnd - 1
+
+                if memberModifiers.Values[0] == 1 {
                     decl.FieldInitKinds[fieldCount] = initKind
                     decl.FieldInitStarts[fieldCount] = initStart
                     decl.FieldInitLengths[fieldCount] = initLength
+                    decl.FieldInitTokens[fieldCount] = initTokenIndex
                 } else {
                     hasInstanceInitializer = 1
                 }
@@ -10981,6 +10978,7 @@ func ParseStructDeclarationCore(source: string, tokens: ParserDeclarationTokenTa
                 decl.FieldInitKinds[fieldCount] = -1
                 decl.FieldInitStarts[fieldCount] = -1
                 decl.FieldInitLengths[fieldCount] = 0
+                decl.FieldInitTokens[fieldCount] = -1
                 fieldCount = fieldCount + 1
             }
 
@@ -11072,10 +11070,6 @@ func ParseStructDeclarationCore(source: string, tokens: ParserDeclarationTokenTa
             pos = signatureEnd
         } else if tokens.Kinds[memberStart] == 0 && memberStart + 1 < count && tokens.Kinds[memberStart + 1] == 127 {
             if memberModifiers.Values[0] == 1 {
-                return -1
-            }
-
-            if syntheticCtorNeeded && tokens.Kinds[structIndex] == 9 {
                 return -1
             }
 
@@ -13252,34 +13246,6 @@ func ParseColumnarConstructorInfoCore(source: string, tokens: ColumnarConstructo
     return paramCount
 }
 
-func ColumnarPrimaryConstructorLiteralExpressionKind(tokenKind: int): int {
-    if tokenKind == 1 {
-        return ColumnarExpressionNodeKind.IntLiteralExpression()
-    }
-
-    if tokenKind == 2 {
-        return ColumnarExpressionNodeKind.FloatLiteralExpression()
-    }
-
-    if tokenKind == 3 {
-        return ColumnarExpressionNodeKind.CharLiteralExpression()
-    }
-
-    if tokenKind == 4 {
-        return ColumnarExpressionNodeKind.StringLiteralExpression()
-    }
-
-    if tokenKind == 44 || tokenKind == 45 {
-        return ColumnarExpressionNodeKind.BoolLiteralExpression()
-    }
-
-    if tokenKind == 46 {
-        return ColumnarExpressionNodeKind.NullLiteralExpression()
-    }
-
-    return -1
-}
-
 func ColumnarPrimaryConstructorTypeIsNullable(source: string, typeStart: int, typeLength: int): bool {
     if typeStart < 0 || typeLength <= 0 || typeStart + typeLength > source.Length {
         return false
@@ -13591,43 +13557,26 @@ func ParseColumnarPrimaryConstructorInfoCore(source: string, tokens: ColumnarCon
                         return -1
                     }
 
-                    if tokens.Kinds[scan] == 0 {
+                    // EVERY written initializer is an ordinary expression — a lone literal and
+                    // `3 + 4` take the same path, so a literal opening token can no longer strand
+                    // the rest of the expression in the member scan.
+                    expressionState := new ParserState(scan, nodeCursor, childCursor, 0, 0, 0)
+                    valueRoot = ParseLambdaOrAssignmentExpressionNode(expressionTokens, tokens.Count, expressionState, expressionStack, expressionNodes, expressionChildren, 0)
+                    if valueRoot < 0 || expressionState.Pos <= scan {
+                        return -1
+                    }
+
+                    // Only a BARE parameter name makes this field the primary parameter's storage.
+                    if tokens.Kinds[scan] == 0 && expressionState.Pos == scan + 1 {
                         paramIndex := PrimaryConstructorParameterIndexOf(source, primaryParameters, paramCount, tokens.Starts[scan], tokens.ValueLengths[scan])
                         if paramIndex >= 0 {
                             assignedFlags[paramIndex] = 1
-                            valueKind = 6
-                            valueStart = tokens.Starts[scan]
-                            valueLength = tokens.ValueLengths[scan]
-                            scan = scan + 1
-                        } else {
-                            expressionState := new ParserState(scan, nodeCursor, childCursor, 0, 0, 0)
-                            valueRoot = ParseLambdaOrAssignmentExpressionNode(expressionTokens, tokens.Count, expressionState, expressionStack, expressionNodes, expressionChildren, 0)
-                            if valueRoot < 0 || expressionState.Pos <= scan {
-                                return -1
-                            }
-
-                            nodeCursor = expressionState.NodeCursor
-                            childCursor = expressionState.ChildCursor
-                            scan = expressionState.Pos
-                        }
-                    } else {
-                        valueKind = ColumnarPrimaryConstructorLiteralExpressionKind(tokens.Kinds[scan])
-                        if valueKind >= 0 {
-                            valueStart = tokens.Starts[scan]
-                            valueLength = tokens.ValueLengths[scan]
-                            scan = scan + 1
-                        } else {
-                            expressionState := new ParserState(scan, nodeCursor, childCursor, 0, 0, 0)
-                            valueRoot = ParseLambdaOrAssignmentExpressionNode(expressionTokens, tokens.Count, expressionState, expressionStack, expressionNodes, expressionChildren, 0)
-                            if valueRoot < 0 || expressionState.Pos <= scan {
-                                return -1
-                            }
-
-                            nodeCursor = expressionState.NodeCursor
-                            childCursor = expressionState.ChildCursor
-                            scan = expressionState.Pos
                         }
                     }
+
+                    nodeCursor = expressionState.NodeCursor
+                    childCursor = expressionState.ChildCursor
+                    scan = expressionState.Pos
                 } else if ColumnarPrimaryConstructorTypeIsNullable(source, typeResult.Values[0], typeResult.Values[1]) {
                     valueKind = ColumnarExpressionNodeKind.NullLiteralExpression()
                 } else {
@@ -13724,18 +13673,20 @@ func ParseColumnarConstructorBodyNodesCore(source: string, tokens: ColumnarConst
     return ParseStatementNodesCore(source, statementTokens, tokens.Count, bodyBrace, argStack, nodes, children, statementResult)
 }
 
-func ParseColumnarStructInfoInto(source: string, tokenKinds: int[], tokenStarts: int[], tokenValueLengths: int[], count: int, structIndex: int, isReference: int, isRecord: int, outFieldNameTexts: string[], outFieldTypeTexts: string[], outFieldStaticFlags: int[], outFieldInitKinds: int[], outFieldInitTexts: string[], outMethodFuncIndices: int[], outMethodStaticFlags: int[], outCtorIndices: int[], outPropIndices: int[], outPropStaticFlags: int[], outTypeParamTexts: string[], outBaseNameTexts: string[], outStructNameTexts: string[], outWhereOwnerTexts: string[], outWhereItemCodes: int[], outWhereTypeTexts: string[], outResult: int[]): int {
+func ParseColumnarStructInfoInto(source: string, tokenKinds: int[], tokenStarts: int[], tokenValueLengths: int[], count: int, structIndex: int, isReference: int, isRecord: int, outFieldNameTexts: string[], outFieldTypeTexts: string[], outFieldStaticFlags: int[], outFieldInitKinds: int[], outFieldInitTexts: string[], outMethodFuncIndices: int[], outMethodStaticFlags: int[], outCtorIndices: int[], outPropIndices: int[], outPropStaticFlags: int[], outTypeParamTexts: string[], outBaseNameTexts: string[], outStructNameTexts: string[], outWhereOwnerTexts: string[], outWhereItemCodes: int[], outWhereTypeTexts: string[], outResult: int[], outStaticInitNodeKinds: int[], outStaticInitValueStarts: int[], outStaticInitValueLengths: int[], outStaticInitChildStart: int[], outStaticInitChildCount: int[], outStaticInitChildIndices: int[], outStaticInitSpanStarts: int[], outStaticInitSpanLengths: int[], outStaticInitResult: int[]): int {
     tokens := new ColumnarStructTokenTable(tokenKinds, tokenStarts, tokenValueLengths, count)
     whereScratch := new ParserDeclarationWhereTable(new int[](count + 1), new int[](count + 1), new int[](count + 1), new int[](count + 1), new int[](count + 1))
-    scratch := new ColumnarStructScratchTable(new int[](count + 1), new int[](count + 1), new int[](count + 1), new int[](count + 1), new int[](count + 1), new int[](count + 1), new int[](count + 1), new int[](count + 1), new int[](count + 1), new int[](count + 1), whereScratch)
+    scratch := new ColumnarStructScratchTable(new int[](count + 1), new int[](count + 1), new int[](count + 1), new int[](count + 1), new int[](count + 1), new int[](count + 1), new int[](count + 1), new int[](count + 1), new int[](count + 1), new int[](count + 1), new int[](count + 1), whereScratch)
     outputs := new ColumnarStructOutputTable(outFieldNameTexts, outFieldTypeTexts, outFieldStaticFlags, outFieldInitKinds, outFieldInitTexts, outMethodFuncIndices, outMethodStaticFlags, outCtorIndices, outPropIndices, outPropStaticFlags, outTypeParamTexts, outBaseNameTexts, outStructNameTexts, outWhereOwnerTexts, outWhereItemCodes, outWhereTypeTexts)
     result := new ColumnarStructResultTable(outResult)
-    return ParseColumnarStructInfoCore(source, tokens, structIndex, isReference, isRecord, scratch, outputs, result)
+    staticInitializerBody := new ColumnarConstructorBodyTable(outStaticInitNodeKinds, outStaticInitValueStarts, outStaticInitValueLengths, outStaticInitChildStart, outStaticInitChildCount, outStaticInitChildIndices, outStaticInitSpanStarts, outStaticInitSpanLengths)
+    staticInitializerResult := new ColumnarConstructorResultTable(outStaticInitResult)
+    return ParseColumnarStructInfoCore(source, tokens, structIndex, isReference, isRecord, scratch, outputs, result, staticInitializerBody, staticInitializerResult)
 }
 
-func ParseColumnarStructInfoCore(source: string, tokens: ColumnarStructTokenTable, structIndex: int, isReference: int, _isRecord: int, scratch: ColumnarStructScratchTable, outputs: ColumnarStructOutputTable, result: ColumnarStructResultTable): int {
+func ParseColumnarStructInfoCore(source: string, tokens: ColumnarStructTokenTable, structIndex: int, isReference: int, _isRecord: int, scratch: ColumnarStructScratchTable, outputs: ColumnarStructOutputTable, result: ColumnarStructResultTable, staticInitializerBody: ColumnarConstructorBodyTable, staticInitializerResult: ColumnarConstructorResultTable): int {
     declarationTokens := new ParserDeclarationTokenTable(tokens.Kinds, tokens.Starts, tokens.ValueLengths)
-    decl := new StructDeclarationTable(scratch.FieldNameStarts, scratch.FieldNameLengths, scratch.FieldTypeStarts, scratch.FieldTypeLengths, outputs.FieldStaticFlags, outputs.FieldInitKinds, scratch.FieldInitStarts, scratch.FieldInitLengths, outputs.MethodFuncIndices, outputs.MethodStaticFlags, outputs.MethodStaticFlags, outputs.CtorIndices, outputs.PropIndices, outputs.PropStaticFlags, scratch.TypeParamStarts, scratch.TypeParamLengths, scratch.BaseNameStarts, scratch.BaseNameLengths, scratch.Where)
+    decl := new StructDeclarationTable(scratch.FieldNameStarts, scratch.FieldNameLengths, scratch.FieldTypeStarts, scratch.FieldTypeLengths, outputs.FieldStaticFlags, outputs.FieldInitKinds, scratch.FieldInitStarts, scratch.FieldInitLengths, scratch.FieldInitTokens, outputs.MethodFuncIndices, outputs.MethodStaticFlags, outputs.MethodStaticFlags, outputs.CtorIndices, outputs.PropIndices, outputs.PropStaticFlags, scratch.TypeParamStarts, scratch.TypeParamLengths, scratch.BaseNameStarts, scratch.BaseNameLengths, scratch.Where)
     declarationResult := new ParserDeclarationResultTable(result.Values)
     fieldCount := ParseStructDeclarationCore(source, declarationTokens, tokens.Count, structIndex, decl, declarationResult)
     methodCount := result.Values[2]
@@ -13924,7 +13875,117 @@ func ParseColumnarStructInfoCore(source: string, tokens: ColumnarStructTokenTabl
         i = i + 1
     }
 
+    if BuildColumnarStaticInitializerBodyCore(source, tokens, scratch, outputs, fieldCount, staticInitializerBody, staticInitializerResult) < 0 {
+        return -1
+    }
+
     return fieldCount
+}
+
+// THE SYNTHESIZED STATIC INITIALIZER. A type's static field initializers are ordinary expressions
+// that run once, in textual order, inside the type's `.cctor`. Reading them as a BLOCK of
+// `Name = <expression>` statements puts them on the same lowering path every other statement takes,
+// so a static initializer resolves names, overloads, operators and conversions exactly the way the
+// same assignment written in a static method does. `const` is excluded: its initializer is metadata
+// (`.field static literal`), not code. The result's statement count is 0 for a type that declares no
+// static initializer, and the emitter defines no `.cctor` for one.
+func BuildColumnarStaticInitializerBodyCore(source: string, tokens: ColumnarStructTokenTable, scratch: ColumnarStructScratchTable, outputs: ColumnarStructOutputTable, fieldCount: int, body: ColumnarConstructorBodyTable, result: ColumnarConstructorResultTable): int {
+    if result.Values.Length < 6 {
+        return -1
+    }
+
+    result.Values[0] = 0
+    result.Values[1] = -1
+    result.Values[2] = 0
+    result.Values[3] = 0
+    result.Values[4] = -1
+    result.Values[5] = 0
+    statementIndices := new int[](fieldCount + 1)
+    cursorResult := new ColumnarConstructorResultTable(new int[](2))
+    expressionTokens := new ParserTokenTable(tokens.Kinds, tokens.Starts, tokens.ValueLengths, source)
+    expressionNodes := new ParserExpressionNodeTable(body.NodeKinds, body.ValueStarts, body.ValueLengths, body.ChildStart, body.ChildCount, body.SpanStarts, body.SpanLengths)
+    expressionChildren := new ParserChildIndexTable(body.ChildIndices)
+    expressionStack := new ParserArgumentStack(new int[](tokens.Count + 1))
+    nodeCursor := 0
+    childCursor := 0
+    statementCount := 0
+    firstInitializerStart := -1
+    lastInitializerEnd := -1
+    i := 0
+    while i < fieldCount {
+        if outputs.FieldInitKinds[i] < 0 || !ColumnarStructFieldFlagIsStatic(outputs.FieldStaticFlags[i]) || ColumnarStructFieldFlagIsConst(outputs.FieldStaticFlags[i]) {
+            i = i + 1
+            continue
+        }
+
+        initToken := scratch.FieldInitTokens[i]
+        if initToken <= 0 || initToken >= tokens.Count {
+            return -1
+        }
+
+        expressionState := new ParserState(initToken, nodeCursor, childCursor, 0, 0, 0)
+        valueRoot := ParseLambdaOrAssignmentExpressionNode(expressionTokens, tokens.Count, expressionState, expressionStack, expressionNodes, expressionChildren, 0)
+        if valueRoot < 0 || expressionState.Pos <= initToken {
+            return -1
+        }
+
+        nodeCursor = expressionState.NodeCursor
+        childCursor = expressionState.ChildCursor
+        // The assignment operator span is the `=` token immediately before the initializer.
+        statementNode := EmitColumnarPrimaryConstructorAssignmentRootNode(
+            body,
+            scratch.FieldNameStarts[i],
+            scratch.FieldNameLengths[i],
+            valueRoot,
+            tokens.Starts[initToken - 1],
+            tokens.ValueLengths[initToken - 1],
+            nodeCursor,
+            childCursor,
+            cursorResult
+        )
+        if statementNode < 0 || statementCount >= statementIndices.Length {
+            return -1
+        }
+
+        nodeCursor = cursorResult.Values[0]
+        childCursor = cursorResult.Values[1]
+        statementIndices[statementCount] = statementNode
+        statementCount = statementCount + 1
+        if firstInitializerStart < 0 {
+            firstInitializerStart = scratch.FieldNameStarts[i]
+        }
+
+        lastInitializerEnd = scratch.FieldInitStarts[i] + scratch.FieldInitLengths[i]
+        i = i + 1
+    }
+
+    if statementCount == 0 {
+        return 0
+    }
+
+    if nodeCursor >= body.NodeKinds.Length || childCursor + statementCount > body.ChildIndices.Length {
+        return -1
+    }
+
+    root := nodeCursor
+    body.NodeKinds[root] = 25
+    body.ValueStarts[root] = -1
+    body.ValueLengths[root] = 0
+    body.ChildStart[root] = childCursor
+    body.ChildCount[root] = statementCount
+    body.SpanStarts[root] = firstInitializerStart
+    body.SpanLengths[root] = lastInitializerEnd - firstInitializerStart
+    i = 0
+    while i < statementCount {
+        body.ChildIndices[childCursor + i] = statementIndices[i]
+        i = i + 1
+    }
+
+    nodeCursor = nodeCursor + 1
+    result.Values[4] = root
+    result.Values[5] = nodeCursor
+    result.Values[2] = statementCount
+    return statementCount
 }
 
 func ColumnarStructFieldFlagIsStatic(flags: int): bool {
@@ -14139,7 +14200,16 @@ func ColumnarStructConstructorUnsupportedStatus(source: string, tokens: Columnar
         nextCtorParamType = nextCtorParamType + paramCount
 
         if isReference == 0 {
-            if result.Values[0] != 0 || paramCount == 0 {
+            if currentIsInitializerMethod {
+                // A VALUE TYPE TAKES THE SYNTHESIZED FIELD-INITIALIZER CONSTRUCTOR, but only when the
+                // type declares a constructor of its own for those stores to run in: with none, every
+                // value of the type would skip them. NL329 says exactly that at `check`; refusing the
+                // shape here too keeps any other path from emitting a type whose initializers can
+                // never run. A WRITTEN parameterless struct constructor stays refused below.
+                if ctorCount <= 1 {
+                    return 1
+                }
+            } else if result.Values[0] != 0 || paramCount == 0 {
                 return 1
             }
         }
@@ -14159,12 +14229,15 @@ func ColumnarStructConstructorUnsupportedStatus(source: string, tokens: Columnar
     return 0
 }
 
+// The synthesized field-initializer constructor is the one recorded at the TYPE's own keyword token,
+// and it carries no parameters. Class (8), struct (9) and record (13) all produce one: a struct's is
+// what carries its field initializers into each of its declared constructors.
 func ColumnarStructCtorIndexIsZeroParamSynthesizedInitializer(tokens: ColumnarStructTokenTable, ctorIndex: int, paramCount: int): bool {
     if paramCount != 0 || ctorIndex < 0 || ctorIndex >= tokens.Count {
         return false
     }
 
-    return tokens.Kinds[ctorIndex] == 8 || tokens.Kinds[ctorIndex] == 13
+    return tokens.Kinds[ctorIndex] == 8 || tokens.Kinds[ctorIndex] == 9 || tokens.Kinds[ctorIndex] == 13
 }
 
 func ColumnarStructNameMatchesTypeParam(source: string, scratch: ColumnarStructScratchTable, typeParamCount: int, nameStart: int, nameLength: int): bool {

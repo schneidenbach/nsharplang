@@ -226,6 +226,28 @@ with the `(` of a tuple. A FIELD or property still may not be declared with a tu
 is in the columnar struct kernel, applies to unnamed tuples too, and is recorded in
 `website/docs/functions.md`.
 
+### Field initializers, and the two synthesized bodies they become
+
+A field initializer is read by the ordinary expression parser, never as a literal token. The struct
+member scan (`ParseStructDeclarationCore`) calls `ParseDeclarationInitializerExpressionEndCore` to
+find the initializer's full extent and keeps the "simple" classification — a lone literal, a dotted
+name, `new T(...)` — only when `ParseDeclarationSimpleInitializerEndCore` covers exactly the same
+span. That classification is what `const` uses for its metadata literal; everything else is code.
+
+The initializers then become two synthesized bodies, both built from the same expression parser and
+both shaped as a block of `Name = <expression>` statements in textual order:
+
+- **Instance** initializers ride the synthesized zero-parameter initializer constructor the member
+  scan already schedules (`ParseColumnarPrimaryConstructorInfoCore`, which also carries a record's
+  or class's primary-constructor parameter assignments).
+- **Static** initializers become `ColumnarStructInput.StaticInitializer`, built by
+  `BuildColumnarStaticInitializerBodyCore` from the per-field initializer TOKEN index the
+  declaration table records (`StructDeclarationTable.FieldInitTokens`). `const` fields are excluded.
+
+Both bodies are stamped with their file's binding scope like every other body
+(`ColumnarProgramInput.StampBindingContexts`); without that stamp an external type name inside an
+initializer cannot resolve and the type declines at emit.
+
 ### Nested Type Support
 `ParseMemberDeclaration` handles nested types (classes, structs, records inside other types).
 

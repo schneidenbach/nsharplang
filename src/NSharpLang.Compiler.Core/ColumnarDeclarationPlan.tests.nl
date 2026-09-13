@@ -186,13 +186,16 @@ test "the typedef rows publish the interface word and BOTH halves of the nested-
 
     // A TOP-LEVEL type ORs Public; a NESTED one ORs its own visibility word INSTEAD, never both.
     // Folding the two would flip the visibility of every nested type in the estate, so all four
-    // combinations are pinned rather than described.
-    assert ColumnarDeclarationPlanner.StructTypeAttributesFor(true, false, false, 0) == 1
-    assert ColumnarDeclarationPlanner.StructTypeAttributesFor(false, false, false, 0) == 257
-    assert ColumnarDeclarationPlanner.StructTypeAttributesFor(true, false, true, 2) == 2
-    assert ColumnarDeclarationPlanner.StructTypeAttributesFor(false, false, true, 2) == 258
+    // combinations are pinned rather than described. Every source class and struct also carries
+    // BeforeFieldInit (0x00100000 == 1048576): N# has no static-constructor spelling, so a type's
+    // only static initialization is its field initializers, exactly the C# condition for the bit.
+    assert ColumnarDeclarationPlanner.BeforeFieldInitTypeAttribute() == 1048576
+    assert ColumnarDeclarationPlanner.StructTypeAttributesFor(true, false, false, 0) == 1048577
+    assert ColumnarDeclarationPlanner.StructTypeAttributesFor(false, false, false, 0) == 1048833
+    assert ColumnarDeclarationPlanner.StructTypeAttributesFor(true, false, true, 2) == 1048578
+    assert ColumnarDeclarationPlanner.StructTypeAttributesFor(false, false, true, 2) == 1048834
     // And a nested type never acquires Public by accident, whatever its visibility word.
-    assert ColumnarDeclarationPlanner.StructTypeAttributesFor(true, false, true, 4) == 4
+    assert ColumnarDeclarationPlanner.StructTypeAttributesFor(true, false, true, 4) == 1048580
 }
 
 test "the typedef rows preserve explicit sealed on top-level and nested reference classes and records" {
@@ -214,12 +217,12 @@ test "the typedef rows preserve explicit sealed on top-level and nested referenc
     assert structs[3].IsSealed
     assert !structs[4].IsSealed
     assert !structs[5].IsSealed
-    assert rows.StructTypeAttributes[0] == 257
-    assert rows.StructTypeAttributes[1] == 257
-    assert rows.StructTypeAttributes[2] == 259
-    assert rows.StructTypeAttributes[3] == 259
-    assert rows.StructTypeAttributes[4] == 1
-    assert rows.StructTypeAttributes[5] == 257
+    assert rows.StructTypeAttributes[0] == 1048833
+    assert rows.StructTypeAttributes[1] == 1048833
+    assert rows.StructTypeAttributes[2] == 1048835
+    assert rows.StructTypeAttributes[3] == 1048835
+    assert rows.StructTypeAttributes[4] == 1048577
+    assert rows.StructTypeAttributes[5] == 1048833
 }
 
 test "the typedef rows resolve every declared type name and select its attribute word" {
@@ -238,9 +241,9 @@ test "the typedef rows resolve every declared type name and select its attribute
 
     assert rows.StructCount == 2
     assert rows.StructExactNames[0] == "Demo.Product"
-    assert rows.StructTypeAttributes[0] == 1
+    assert rows.StructTypeAttributes[0] == 1048577
     assert rows.StructExactNames[1] == "Demo.Point"
-    assert rows.StructTypeAttributes[1] == 257
+    assert rows.StructTypeAttributes[1] == 1048833
     // A top-level type carries the EMPTY enclosing name, which is what the executor branches on.
     assert rows.StructEnclosingExactNames[0].Length == 0
     assert rows.StructEnclosingExactNames[1].Length == 0
@@ -1335,18 +1338,18 @@ test "ordinary override execution consumes its ordered NSharp target row" {
 }
 
 test "an abstract class carries the Abstract typedef bit and a value type never can" {
-    // TypeAttributes.Abstract == 128. A top-level abstract class is Public|Abstract == 129; an
-    // abstract class that is ALSO sealed (which the language does not admit, but the word pair must
-    // not silently drop a bit here) is Public|Sealed|Abstract == 385.
+    // TypeAttributes.Abstract == 128. A top-level abstract class is Public|Abstract|BeforeFieldInit;
+    // an abstract class that is ALSO sealed (which the language does not admit, but the word pair
+    // must not silently drop a bit here) adds Sealed.
     assert ColumnarDeclarationPlanner.AbstractTypeAttribute() == 128
-    assert ColumnarDeclarationPlanner.StructTypeAttributesFor(true, false, true, false, 0) == 129
-    assert ColumnarDeclarationPlanner.StructTypeAttributesFor(true, true, true, false, 0) == 385
+    assert ColumnarDeclarationPlanner.StructTypeAttributesFor(true, false, true, false, 0) == 1048705
+    assert ColumnarDeclarationPlanner.StructTypeAttributesFor(true, true, true, false, 0) == 1048961
 
     // A NESTED abstract class ORs its own visibility word instead of Public, and still gains Abstract.
-    assert ColumnarDeclarationPlanner.StructTypeAttributesFor(true, false, true, true, 2) == 130
+    assert ColumnarDeclarationPlanner.StructTypeAttributesFor(true, false, true, true, 2) == 1048706
 
     // A value type is Sealed by construction and can never be abstract, so the flag is ignored.
-    assert ColumnarDeclarationPlanner.StructTypeAttributesFor(false, false, true, false, 0) == 257
+    assert ColumnarDeclarationPlanner.StructTypeAttributesFor(false, false, true, false, 0) == 1048833
 
     // The four-argument overload is the same call with `abstract` off, so nothing that does not say
     // `abstract` changes shape.

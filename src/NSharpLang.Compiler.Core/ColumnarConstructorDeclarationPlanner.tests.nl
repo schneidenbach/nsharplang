@@ -458,17 +458,13 @@ test "constructor declaration owner retains source-order user jobs and depth-ord
     assert secondJob.Ordinals["label"] == 1
     assert secondJob.ParamTypes["label"] == typeof(string)
 
+    // Every field initializer is inline, mutable stores included: an instance helper could not be
+    // called at the point the initializers run, ahead of the base constructor call.
     assert initialized.InstanceInitializerPlan != null
-    assert initialized.InstanceInitializerPlan.NeedsHelper
-    assert initialized.InstanceInitializerPlan.InlineOrdinals.Length == 0
-    assert initialized.InstanceInitializerPlan.HelperOrdinals.Length == 1
-    assert initialized.InstanceInitializerPlan.HelperOrdinals[0] == 0
+    assert initialized.InstanceInitializerPlan.InlineOrdinals.Length == 1
+    assert initialized.InstanceInitializerPlan.InlineOrdinals[0] == 0
     assert initialized.InstanceInitializerFields.Contains("Value")
     assert Object.ReferenceEquals(initialized.InstanceInitializerCtor, initializer)
-    assert result.InitializerJobs.Count == 1
-    assert Object.ReferenceEquals(result.InitializerJobs[0].Struct, initialized)
-    assert Object.ReferenceEquals(result.InitializerJobs[0].Ctor, initializer)
-    assert Object.ReferenceEquals(result.InitializerJobs[0].Builder, initialized.InstanceInitializerMethod)
 
     assert baseDefinition.DefaultCtor != null
     assert derived.DefaultCtor != null
@@ -543,14 +539,10 @@ test "constructor declaration owner retains initialized state when a later base-
     assert result.DeclineMember == failing.Builder.get_Name() + ".constructor"
     assert result.ConstructorJobs.Count == 0
     assert result.DefaultConstructorJobs.Count == 0
-    assert result.InitializerJobs.Count == 1
-    assert Object.ReferenceEquals(result.InitializerJobs[0].Struct, initialized)
-    assert Object.ReferenceEquals(result.InitializerJobs[0].Ctor, initializer)
     assert initialized.InstanceInitializerPlan != null
-    assert initialized.InstanceInitializerPlan.NeedsHelper
+    assert initialized.InstanceInitializerPlan.InlineOrdinals.Length == 1
     assert initialized.InstanceInitializerFields.Contains("Ready")
     assert Object.ReferenceEquals(initialized.InstanceInitializerCtor, initializer)
-    assert initialized.InstanceInitializerMethod != null
     assert failing.Constructors.Count == 0
 }
 

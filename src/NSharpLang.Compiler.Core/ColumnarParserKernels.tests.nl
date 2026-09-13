@@ -233,7 +233,16 @@ class ColumnarStructDeclarationParseProbe {
             WhereOwnerTexts,
             WhereItemCodes,
             WhereTypeTexts,
-            Result
+            Result,
+            new int[](capacity * 4),
+            new int[](capacity * 4),
+            new int[](capacity * 4),
+            new int[](capacity * 4),
+            new int[](capacity * 4),
+            new int[](capacity * 4),
+            new int[](capacity * 4),
+            new int[](capacity * 4),
+            new int[](6)
         )
 
         constructorOffset := 0
@@ -946,13 +955,6 @@ test "literal node-kind ledger owns every primary literal ordinal" {
     assert ColumnarExpressionNodeKind.CallExpression() == 9
     assert ColumnarExpressionNodeKind.BinaryExpression() == 12
 
-    assert ColumnarPrimaryConstructorLiteralExpressionKind(1) == ColumnarExpressionNodeKind.IntLiteralExpression()
-    assert ColumnarPrimaryConstructorLiteralExpressionKind(2) == ColumnarExpressionNodeKind.FloatLiteralExpression()
-    assert ColumnarPrimaryConstructorLiteralExpressionKind(3) == ColumnarExpressionNodeKind.CharLiteralExpression()
-    assert ColumnarPrimaryConstructorLiteralExpressionKind(4) == ColumnarExpressionNodeKind.StringLiteralExpression()
-    assert ColumnarPrimaryConstructorLiteralExpressionKind(44) == ColumnarExpressionNodeKind.BoolLiteralExpression()
-    assert ColumnarPrimaryConstructorLiteralExpressionKind(45) == ColumnarExpressionNodeKind.BoolLiteralExpression()
-    assert ColumnarPrimaryConstructorLiteralExpressionKind(46) == ColumnarExpressionNodeKind.NullLiteralExpression()
     assert ColumnarExpressionNodeKind.DefaultExpression() == 74
     assert ColumnarExpressionNodeKind.NullGuardExpression() == 75
 }

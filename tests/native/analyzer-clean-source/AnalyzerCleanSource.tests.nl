@@ -3704,7 +3704,7 @@ test "020 s29 analyzer clean source: the parse is SILENT in both file-name spell
 }
 
 test "020 s29 analyzer clean source: the parse is SILENT in both file-name spellings; and ONE `NL202:TypeMismatch` that MOVES between the entry points — `7:17+1` plain, `7:28+4` through the four-argument route production actually calls; the `ContextualHint` is `<null>` plain and NON-NULL rich; the deleted claim was `HasErrors == true` plus one message substring (was AnalyzerTests.NullAssignment_NullToRecordStruct_Rejected)" {
-    source := "\n            record struct Point {\n                x: int = 0\n                y: int = 0\n            }\n            func Main() {\n                p: Point = null\n            }\n        "
+    source := "\n            record struct Point {\n                x: int\n                y: int\n            }\n            func Main() {\n                p: Point = null\n            }\n        "
     assert AcParseSuccess(source) == "True"
     assert AcParseCensus(source) == ""
     assert AcParseNamedSuccess(source) == "True"
@@ -3748,7 +3748,7 @@ test "020 s29 analyzer clean source: the parse is SILENT in both file-name spell
 }
 
 test "020 s29 analyzer clean source: the parse is SILENT in both file-name spellings; and ONE `NL202:TypeMismatch` that MOVES between the entry points — `7:17+1` plain, `7:28+4` through the four-argument route production actually calls; the `ContextualHint` is `<null>` plain and NON-NULL rich; the deleted claim was `HasErrors == true` plus one message substring (was AnalyzerTests.NullAssignment_NullToStruct_Rejected)" {
-    source := "\n            struct Point {\n                x: int = 0\n                y: int = 0\n            }\n            func Main() {\n                p: Point = null\n            }\n        "
+    source := "\n            struct Point {\n                x: int\n                y: int\n            }\n            func Main() {\n                p: Point = null\n            }\n        "
     assert AcParseSuccess(source) == "True"
     assert AcParseCensus(source) == ""
     assert AcParseNamedSuccess(source) == "True"

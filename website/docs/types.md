@@ -278,6 +278,72 @@ result := MathHelper.square(5)
 pi := MathHelper.Pi
 ```
 
+### Field initializers
+
+A field initializer is an ordinary expression — a literal, a call, a construction, an operator
+chain, anything the language admits — and it is evaluated where its kind of field is initialized.
+
+```n#
+import System.Collections.Generic
+import System.Runtime.CompilerServices
+
+class Registry {
+    // Static: evaluated once, in textual order, inside the type's initializer.
+    static readonly HotPath: MethodImplOptions = MethodImplOptions.AggressiveInlining | MethodImplOptions.AggressiveOptimization
+    static readonly Limit: int = int.MaxValue
+    static readonly Names: List<string> = new List<string>()
+    static readonly Seed: int = Make(4)
+
+    // Instance: evaluated at the start of every constructor.
+    readonly Scale: int = 3 + 4
+    readonly Label: string = "a" + "b"
+
+    static func Make(value: int): int => value * 2
+}
+```
+
+**Static field initializers** run once, in the order they are written, inside a synthesized type
+initializer, before the first access to any of the type's static fields. An initializer may call the
+type's own static methods and read a static field declared *earlier*; a static field declared *later*
+still holds its default when an earlier initializer reads it, which is the same rule C# applies.
+A `const` field is different: its value is metadata on the field itself, so it must be a compile-time
+constant and it never runs as code. On a generic type, static storage belongs to the instantiation —
+`Cache<int>` and `Cache<string>` each get their own fields and their own initializer run.
+
+Every emitted class and struct carries the CLR `beforefieldinit` flag, exactly as a C# type with no
+declared static constructor does: the runtime may run the type initializer at any point before the
+first static-field access rather than exactly at it.
+
+**Instance field initializers** run at the very start of *every* constructor that reaches the base
+constructor — before the base constructor call, and before the constructor body. A constructor that
+chains to another constructor of the same type (`: this(...)`) does not re-run them; the constructor
+it delegates to already did. Because the object does not exist yet at that point, an initializer may
+not name any part of the instance: `this`, `base`, and bare instance fields, methods and properties
+of the declaring type are all [NL328](./errors/NL328.md). Assign such a field in a constructor
+instead, or make what it needs `static`.
+
+A `readonly` field with an initializer is `initonly` in metadata and assignable only from its
+initializer or a constructor.
+
+**A struct's instance field initializers need a constructor.** A `struct` value can be produced
+without running one — `default(Point)`, an array element, an uninitialized field — so the
+initializers run for the values built through a constructor and the CLR zero stands for the rest. A
+struct that declares no constructor at all (primary or written) would therefore never run its
+initializers, and that shape is [NL329](./errors/NL329.md).
+
+```n#
+struct Point {
+    X: double = 1.0
+
+    constructor(x: double) {
+        X = x
+    }
+}
+// new Point(3.0).X is 3.0; new Point() is not a thing; default(Point).X is 0.0
+```
+
+Static field initializers on a struct are unaffected and behave exactly as a class's do.
+
 ### Literal constant fields
 
 Classes can expose CLR literal fields with the `const` member modifier:

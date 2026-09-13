@@ -27,18 +27,6 @@ class ColumnarConstructorBodyJob {
     }
 }
 
-class ColumnarInstanceInitializerJob {
-    Struct: ColumnarStructDef
-    Ctor: ColumnarConstructorInput
-    Builder: MethodBuilder
-
-    constructor(structDefinition: ColumnarStructDef, ctor: ColumnarConstructorInput, builder: MethodBuilder) {
-        Struct = structDefinition
-        Ctor = ctor
-        Builder = builder
-    }
-}
-
 class ColumnarDefaultConstructorJob {
     Struct: ColumnarStructDef
     Builder: ConstructorBuilder
@@ -56,7 +44,6 @@ class ColumnarConstructorDeclarationResult {
     DeclineMember: string
     ObjectConstructor: ConstructorInfo
     ConstructorJobs: List<ColumnarConstructorBodyJob>
-    InitializerJobs: List<ColumnarInstanceInitializerJob>
     DefaultConstructorJobs: List<ColumnarDefaultConstructorJob>
 
     constructor(
@@ -66,7 +53,6 @@ class ColumnarConstructorDeclarationResult {
         declineMember: string,
         objectConstructor: ConstructorInfo,
         constructorJobs: List<ColumnarConstructorBodyJob>,
-        initializerJobs: List<ColumnarInstanceInitializerJob>,
         defaultConstructorJobs: List<ColumnarDefaultConstructorJob>
     ) {
         Succeeded = succeeded
@@ -75,7 +61,6 @@ class ColumnarConstructorDeclarationResult {
         DeclineMember = declineMember
         ObjectConstructor = objectConstructor
         ConstructorJobs = constructorJobs
-        InitializerJobs = initializerJobs
         DefaultConstructorJobs = defaultConstructorJobs
     }
 }
@@ -93,7 +78,6 @@ class ColumnarConstructorDeclarationPlanner {
     ): ColumnarConstructorDeclarationResult {
         objectConstructor := typeof(object).GetConstructor(Type.EmptyTypes)
         constructorJobs := new List<ColumnarConstructorBodyJob>()
-        initializerJobs := new List<ColumnarInstanceInitializerJob>()
         defaultConstructorJobs := new List<ColumnarDefaultConstructorJob>()
 
         structIndex := 0
@@ -109,18 +93,11 @@ class ColumnarConstructorDeclarationPlanner {
                     while constructorMovement.MoveNext() {
                         ctor := constructorEnumerator.get_Current()
                         if IsZeroParamSynthesizedInitializer(ctor) {
-                            if !definition.IsReference {
-                                return Declined(
-                                    "emit.ctor.instance-initializer-value-type",
-                                    "instance field initializer constructor is only modeled for reference types",
-                                    BuilderName(definition),
-                                    objectConstructor,
-                                    constructorJobs,
-                                    initializerJobs,
-                                    defaultConstructorJobs
-                                )
-                            }
-
+                            // A VALUE TYPE TAKES THE SAME PLAN. Its declared constructors each run the
+                            // stores inline; the values that never reach a constructor (`default(S)`,
+                            // an array element) never run them, which is the language rule the
+                            // analyzer already enforces (NL329 refuses a struct initializer when the
+                            // type declares no constructor at all).
                             ctorSource := program.GetSourceForFileId(ctor.Body.SourceFileId)
                             initPlan := ColumnarFieldInitPlanner.PlanFieldInitialization(ctor.Body, ctorSource, definition)
                             definition.InstanceInitializerPlan = initPlan
@@ -131,16 +108,6 @@ class ColumnarConstructorDeclarationPlanner {
                                 definition.InstanceInitializerFields.Add(initializedFieldNames[initializedIndex])
                                 initializedIndex += 1
                             }
-                            if initPlan.NeedsHelper {
-                                initializer := definition.Builder.DefineMethod(
-                                    "<InitializeFields>$",
-                                    MethodAttributes.Private | MethodAttributes.HideBySig,
-                                    ColumnarTypeOfPlanner.RequiredVoidType(),
-                                    Type.EmptyTypes
-                                )
-                                definition.InstanceInitializerMethod = initializer
-                                initializerJobs.Add(new ColumnarInstanceInitializerJob(definition, ctor, initializer))
-                            }
                         } else {
                             if ctor.ChainInitKind == 2 && definition.BaseDef == null {
                                 return Declined(
@@ -149,7 +116,6 @@ class ColumnarConstructorDeclarationPlanner {
                                     BuilderName(definition) + ".constructor",
                                     objectConstructor,
                                     constructorJobs,
-                                    initializerJobs,
                                     defaultConstructorJobs
                                 )
                             }
@@ -160,7 +126,6 @@ class ColumnarConstructorDeclarationPlanner {
                                     BuilderName(definition) + ".constructor",
                                     objectConstructor,
                                     constructorJobs,
-                                    initializerJobs,
                                     defaultConstructorJobs
                                 )
                             }
@@ -185,7 +150,6 @@ class ColumnarConstructorDeclarationPlanner {
                                         BuilderName(definition) + ".constructor",
                                         objectConstructor,
                                         constructorJobs,
-                                        initializerJobs,
                                         defaultConstructorJobs
                                     )
                                 }
@@ -210,7 +174,6 @@ class ColumnarConstructorDeclarationPlanner {
                                     BuilderName(definition) + ".constructor",
                                     objectConstructor,
                                     constructorJobs,
-                                    initializerJobs,
                                     defaultConstructorJobs
                                 )
                             }
@@ -223,7 +186,6 @@ class ColumnarConstructorDeclarationPlanner {
                                     BuilderName(definition) + ".constructor",
                                     objectConstructor,
                                     constructorJobs,
-                                    initializerJobs,
                                     defaultConstructorJobs
                                 )
                             }
@@ -243,7 +205,6 @@ class ColumnarConstructorDeclarationPlanner {
                                     BuilderName(definition) + ".constructor",
                                     objectConstructor,
                                     constructorJobs,
-                                    initializerJobs,
                                     defaultConstructorJobs
                                 )
                             }
@@ -278,7 +239,6 @@ class ColumnarConstructorDeclarationPlanner {
                                     BuilderName(definition),
                                     objectConstructor,
                                     constructorJobs,
-                                    initializerJobs,
                                     defaultConstructorJobs
                                 )
                             }
@@ -288,11 +248,10 @@ class ColumnarConstructorDeclarationPlanner {
                                 BuilderName(definition),
                                 objectConstructor,
                                 constructorJobs,
-                                initializerJobs,
                                 defaultConstructorJobs
                             )
                         }
-                        if definition.BaseDef == null && definition.InstanceInitializerMethod == null && !hasInlineInitializers {
+                        if definition.BaseDef == null && !hasInlineInitializers {
                             definition.DefaultCtor = definition.Builder.DefineDefaultConstructor(MethodAttributes.Public)
                         } else {
                             defaultBuilder := definition.Builder.DefineConstructor(
@@ -317,7 +276,6 @@ class ColumnarConstructorDeclarationPlanner {
             "",
             objectConstructor,
             constructorJobs,
-            initializerJobs,
             defaultConstructorJobs
         )
     }
@@ -433,14 +391,6 @@ class ColumnarConstructorDeclarationPlanner {
         return TypeBuilder.GetConstructor(exactType, openConstructor)
     }
 
-    static func EmitInstanceInitializerCall(il: ILGenerator, definition: ColumnarStructDef) {
-        if definition.InstanceInitializerMethod == null {
-            return
-        }
-        il.Emit(OpCodes.Ldarg_0)
-        il.Emit(OpCodes.Call, definition.InstanceInitializerMethod)
-    }
-
     static func IsValidReferenceCtorBody(nodes: ColumnarNodeTable, source: string, currentStruct: ColumnarStructDef?, bodyRoot: int): bool {
         if currentStruct == null || nodes.Kind(bodyRoot) != 25 || ColumnarMethodBodyPlanner.ContainsValueReturnStatement(nodes, bodyRoot) {
             return false
@@ -510,7 +460,6 @@ class ColumnarConstructorDeclarationPlanner {
         member: string,
         objectConstructor: ConstructorInfo,
         constructorJobs: List<ColumnarConstructorBodyJob>,
-        initializerJobs: List<ColumnarInstanceInitializerJob>,
         defaultConstructorJobs: List<ColumnarDefaultConstructorJob>
     ): ColumnarConstructorDeclarationResult {
         ColumnarDeclineTrace.Record(site, message, -1, 0, member)
@@ -521,7 +470,6 @@ class ColumnarConstructorDeclarationPlanner {
             member,
             objectConstructor,
             constructorJobs,
-            initializerJobs,
             defaultConstructorJobs
         )
     }
