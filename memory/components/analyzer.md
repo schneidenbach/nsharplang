@@ -585,6 +585,55 @@ half is recorded by `AnalyzerSyntheticCallValidator.RecordCallPostconditions`, a
 same binding the argument checks used (a second pass because the first `continue`s past positions it
 has nothing to report about, and those positions still owe a postcondition).
 
+A MEMBER'S NULLABILITY ATTRIBUTES TRAVEL ON `DeclaredMemberInfo` (census 2026-09-13, §FLOW6).
+`AnalyzerFunctionTypeFactory.BuildFromDeclaration` reads them straight off a free function's
+`FunctionDeclaration`, but a member declared on a TYPE reaches its callers through
+`NominalTypeInfoFactory.CreateDeclaredMemberInfo`, and that record used to carry only the
+REACHABILITY bits. So `Assert.NotNull(x)` proved nothing whenever `Assert` was a class — which is
+every converted xunit file — while the identical free function proved it. `ParameterNullabilityFacts`
+now sits beside `ParameterReachabilityFacts`, is filled by `GetParameterNullabilityFactArray` /
+`ReadNullabilityFlowFacts` (the same walk as the reachability reader, asking the other vocabulary),
+and both arrays reach the signature through one `ToDeclaredFactList` — both spell "nothing to say" as
+zero, and a null list is what keeps the call validator's cheap skip cheap.
+
+### An unwrap is a flow fact (census 2026-09-13, §FLOW6)
+
+`AnalyzerNullFlow.RecordAssertedNonNullPath` is called from `AnalyzerExpressionTail.Finish` for EVERY
+expression, before the tail reads that expression's own null state. Two shapes qualify, recognised
+syntactically: `must e`, and `e ?? throw …` (through a parenthesised `throw`). Both record
+`NullState.NotNull` for the operand's STABLE PATH, so a member path is proved exactly as a local is,
+and an unstable operand records nothing.
+
+`must` IS TRANSPARENT IN BOTH STABLE-PATH WALKS. `TryGetStableNullPath` and
+`TryGetNullConditionalChainPath` step through a `MustExpression` the way they step through a
+parenthesis: `must x` denotes the storage `x` denotes, and the keyword adds a throw rather than a
+different path. That is what makes `Assert.NotNull((must doc).Error)` file its postcondition against
+`doc.Error` instead of against nothing — the shape the converter writes for C#'s `doc!.Error`.
+
+The over-approximation is deliberate and matches the postcondition machinery beside it: an unwrap in
+a conditionally-evaluated position (an `&&` right operand, a ternary arm) still records, because the
+author asserted it and the runtime check is real.
+
+### A loop's back edge (census 2026-09-13, §FLOW6)
+
+`AnalyzerLoopCarriedNullFacts` collects every stable path a loop body — and, for a `for`, its update
+clause — can write; `AnalyzerLoopSequence.JoinLoopBackEdge` invalidates each one at the loop head.
+The analyzer walks a body ONCE and the program runs it many times, so without the join a fact proved
+before the loop was believed on every turn even when the body wrote the path it was about, in all
+four loop forms and for a local as well as a member path.
+
+WHERE THE JOIN SITS IS THE RULE. `while` joins at phase 10 and `for` at phase 22 — BEFORE the
+condition, so `while x != null { … }` still narrows inside its own body, and AFTER a `for`'s
+initializer, which runs once and whose facts survive. `foreach` joins at phase 4, before the body and
+after the collection, because the collection is evaluated once outside the loop.
+
+WHAT COUNTS AS A WRITE is what invalidates a fact anywhere else: an assignment, a `++`/`--`, and a
+`ref`/`out` argument, each named by `TryGetStableNullPath`, walked through lambdas and local functions
+declared in the body. A method call on a receiver is NOT a write (C#'s optimistic rule), and a `:=`
+tuple deconstruction declares rather than writes. The walk is typed rather than reflective; a new
+expression node needs an arm there, and its absence is a SILENT missing NL905 rather than a red test,
+which is why `AnalyzerLoopCarriedNullFacts.tests.nl` pins every container shape.
+
 ### Lifted equality on a nullable value type (census 2026-09-13, §FLOW5)
 
 `AnalyzerOperatorExpressions.CanCompareLiftedEquality` is the whole analyzer half: both operands are
@@ -1286,7 +1335,11 @@ and records the declaration binding of whichever scope answered.
 Null facts are flow-sensitive scope state: the innermost recorded fact for a path wins, an assignment
 invalidates the path and every member path under it in EVERY open scope (a name that merely shares a
 prefix survives), and presence is asked separately from value — a path with no fact is not the same as
-a path recorded as `NullState.Unknown`, and `NullState?` is off the columnar surface.
+a path recorded as `NullState.Unknown`, and `NullState?` is off the columnar surface. A PATH is a
+first-class subject here, not a second-class one: `doc.Error` carries its own state, established by a
+guard, by `must`, by `?? throw` or by a `[NotNull]` postcondition on the argument expression, and
+dropped by a write to any prefix, a `ref`/`out` on a prefix, the scope ending, or a loop's back edge
+— see "An unwrap is a flow fact" and "A loop's back edge".
 
 Declaration POLICY stays in the shell because it reports: `DeclareSymbol`, `DeclareType`,
 `CheckShadowedDeclaration`'s diagnostic and the file-import walk. What they use of the stack is the

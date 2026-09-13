@@ -1698,6 +1698,70 @@ func textLength(doc: Document?): int {
 }
 ```
 
+#### A path carries its own state
+
+Narrowing is about a **path**, not only about a name. `doc.Error` has its own flow state, so proving
+it once is enough for everything that follows:
+
+```n#
+func report(response: DaemonResponse): string {
+    code := (must response.Error).Code       // the unwrap throws if it is null …
+    return response.Error.Message            // … so this read is safe
+}
+```
+
+Four things establish the fact, and all four work on a path exactly as they work on a local:
+
+| Written | What it proves |
+|---|---|
+| `if x.P != null { … }` | `x.P` non-null inside the branch |
+| `must x.P` | `x.P` non-null for everything after it — the unwrap throws otherwise |
+| `x.P ?? throw …` | `x.P` non-null after it — the fallback leaves the method |
+| `Assert.NotNull(x.P)` | `x.P` non-null, from a `[NotNull]` parameter on the signature |
+
+`must` is *transparent* for this purpose: `(must x).P` names the same path `x.P` does, so
+`Assert.NotNull((must response).Error)` files its fact against `response.Error` — which is what the
+line after it reads.
+
+Four things take the fact away, and one deliberately does not:
+
+- **writing the path** — `x.P = other` — which also drops everything under it (`x.P.Q`);
+- **writing any prefix** — `x = other` drops `x`, `x.P` and `x.P.Q` together;
+- **passing a prefix by `ref` or `out`**, which is an assignment the callee performs;
+- **leaving the scope** the fact was proved in;
+- but **not** a method call on the receiver. `response.Touch()` *could* have set `Error` to null, and
+  the compiler deliberately does not assume it did — this is C#'s rule, and without it a guard would
+  be worth nothing past the next call.
+
+#### A loop's back edge joins
+
+A loop's body runs many times, so the state at the top of it is the join of the code before the loop
+**and of the loop's own back edge**. A path proved before the loop and written inside it is
+maybe-null at the top of every turn — including the first one, because the compiler answers one
+question for all of them:
+
+```n#
+func messages(response: DaemonResponse, replacement: ResponseError?, turns: int): string {
+    total := ""
+    turn := 0
+    while turn < turns {
+        if response.Error != null {          // the guard belongs INSIDE the loop …
+            total = total + response.Error.Message
+        }
+
+        response.Error = replacement         // … because this is what the back edge carries
+        turn = turn + 1
+    }
+
+    return total
+}
+```
+
+The join covers every write the body can make — an assignment, an `++`/`--`, a `ref`/`out` argument,
+and anything a lambda or local function declared in the body writes — and, for a `for`, its update
+clause as well. A `for`'s **initializer** runs once, ahead of the first test, so the facts it
+establishes survive. A loop that writes nothing keeps whatever it was given.
+
 ### Nullable value types keep their own members
 
 `int?` is `System.Nullable<int>`, and its own members always bind — narrowed or not:
