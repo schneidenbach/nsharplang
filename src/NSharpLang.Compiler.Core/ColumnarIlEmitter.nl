@@ -10514,6 +10514,12 @@ sealed class ColumnarIlEmitter {
         } else if columnarSwitchValue2 == 11 {
             // Unary [operand] — int/long prefix `-`/`~`, or bool `!`. Index-from-end `^` and every
             // range/index read are owned by ColumnarRangeIndexPlanner ahead of this switch.
+            //
+            // A `Nullable<T>` OPERAND IS LIFTED FIRST, for the same reason a lifted binary is: the
+            // operand is not a value the unlifted opcodes below can read.
+            if (TryEmitLiftedNullableUnary(idx, out columnarResolvedType)) {
+                return true
+            }
             let operandType: System.Type? = null
             if (!EmitExpression(Child(idx, 0), out operandType)) {
                 return false
@@ -10560,8 +10566,11 @@ sealed class ColumnarIlEmitter {
                 columnarResolvedType = operandType
                 return true
             } else if columnarSwitchValue3 == "~" {
-                // bitwise not — Not works on i4 and i8 (and on ulong's u8 bit pattern).
-                if (operandType != typeof(int) && operandType != typeof(long) && operandType != typeof(ulong)) {
+                // bitwise not — Not works on i4 and i8 (and on ulong's u8 bit pattern). AN ENUM is
+                // carried as its underlying integral value, so the SAME instruction answers for it
+                // and the result stays that enum — which is what the analyzer's `~Flags.A` rule
+                // already promised, and what the LIFTED `~` over a `Flags?` emits.
+                if (operandType != typeof(int) && operandType != typeof(long) && operandType != typeof(ulong) && !ColumnarTypeOfPlanner.IsEnumType(operandType)) {
                     return false
                 }
                 _il.Emit(OpCodes.Not)
@@ -10758,6 +10767,12 @@ sealed class ColumnarIlEmitter {
                 return true
             }
 
+            // LIFTED ARITHMETIC, BITWISE, SHIFT AND COMPARISON over a `Nullable<T>` operand --
+            // C# §12.4.8, and ahead of the unlifted arms because a lifted operand is not a value
+            // any of them can read.
+            if (TryEmitLiftedNullableBinary(idx, op, out columnarResolvedType)) {
+                return true
+            }
             if (TryEmitMixedNumericBinary(idx, op, out columnarResolvedType)) {
                 return true
             }
@@ -16913,6 +16928,14 @@ sealed class ColumnarIlEmitter {
             return false
         }
 
+        // A LIFTED COMPOUND IS THE LIFTED BINARY, STORED BACK. `total += 5` on an `int?` is
+        // `total = total + 5`, so an absent target stays absent and a present one is written back as
+        // a `T?`; the two values are already on the stack, which is exactly the shape the lifted
+        // lowering wants once they are parked.
+        if (ColumnarTypeOfPlanner.IsSupportedNullable(targetType) || ColumnarTypeOfPlanner.IsSupportedNullable(valueType)) {
+            return TryEmitLiftedCompoundOperation(op, targetType, valueType)
+        }
+
         if (targetType == typeof(string)) {
             if (op != "+" || !TypesEquivalent(valueType, targetType)) {
                 return false
@@ -16946,6 +16969,72 @@ sealed class ColumnarIlEmitter {
         }
 
         _il.Emit(OpCodes.Call, selection.Method)
+        return true
+    }
+
+    // THE LIFTED COMPOUND OPERATION, WITH BOTH OPERANDS ALREADY ON THE STACK. They are parked in
+    // locals in the order they were pushed -- the value is on top, so it is stored first -- and the
+    // rest is the lifted binary lowering: every lifted side's presence is tested, the unlifted
+    // operation runs on the values, and the answer is rebuilt as the TARGET'S OWN `T?`.
+    //
+    // THE RESULT MUST BE EXACTLY THE TARGET'S TYPE. A compound assignment writes back into the
+    // storage it read, and N# has no implicit narrowing to hide there -- so `intNullable += 1L`
+    // declines here rather than truncating.
+    private func TryEmitLiftedCompoundOperation(op: string, targetType: Type, valueType: Type): bool {
+        if (!ColumnarTypeOfPlanner.IsSupportedNullable(targetType)) {
+            return false
+        }
+        targetElement := targetType.GetGenericArguments()[0]
+        valueLifted := ColumnarTypeOfPlanner.IsSupportedNullable(valueType)
+        valueElement := valueLifted ? valueType.GetGenericArguments()[0] : valueType
+
+        targetParameter: System.Type? = null
+        valueParameter: System.Type? = null
+        operatorMethod: System.Reflection.MethodInfo? = null
+        elementResult: System.Type? = null
+        if (!TrySelectLiftedElementBinary(op, targetElement, valueElement, out targetParameter, out valueParameter, out operatorMethod, out elementResult)) {
+            return false
+        }
+        if (!TypesEquivalent(elementResult, targetElement)) {
+            return false
+        }
+
+        valueLocal := _il.DeclareLocal(valueType)
+        _il.Emit(OpCodes.Stloc, valueLocal)
+        targetLocal := _il.DeclareLocal(targetType)
+        _il.Emit(OpCodes.Stloc, targetLocal)
+
+        absentLabel := _il.DefineLabel()
+        endLabel := _il.DefineLabel()
+        _il.Emit(OpCodes.Ldloca, targetLocal)
+        _il.Emit(OpCodes.Call, ResolveNullableGetter(targetType, "HasValue"))
+        _il.Emit(OpCodes.Brfalse, absentLabel)
+        if (valueLifted) {
+            _il.Emit(OpCodes.Ldloca, valueLocal)
+            _il.Emit(OpCodes.Call, ResolveNullableGetter(valueType, "HasValue"))
+            _il.Emit(OpCodes.Brfalse, absentLabel)
+        }
+
+        EmitLiftedOperandValue(targetLocal, targetType, true)
+        if (!TypesEquivalent(targetElement, targetParameter) && !TryEmitImplicitWidening(targetElement, targetParameter)) {
+            return false
+        }
+        EmitLiftedOperandValue(valueLocal, valueType, valueLifted)
+        if (!TypesEquivalent(valueElement, valueParameter) && !TryEmitImplicitWidening(valueElement, valueParameter)) {
+            return false
+        }
+        if (operatorMethod != null) {
+            _il.Emit(OpCodes.Call, operatorMethod)
+        } else {
+            if (!EmitPrimitiveElementBinary(op, targetParameter, false)) {
+                return false
+            }
+        }
+        _il.Emit(OpCodes.Newobj, ResolveNullableConstructor(targetType))
+        _il.Emit(OpCodes.Br, endLabel)
+        _il.MarkLabel(absentLabel)
+        EmitAbsentNullableValue(targetType)
+        _il.MarkLabel(endLabel)
         return true
     }
 
@@ -17080,10 +17169,10 @@ sealed class ColumnarIlEmitter {
             return false
         }
 
-        if (leftKnown && !IsLiftedEqualityOperandType(leftType)) {
+        if (leftKnown && !IsLiftedEqualityOperandType(leftType) && !IsLiftedEqualityOperatorOperandType(leftType, rightType)) {
             return false
         }
-        if (rightKnown && !IsLiftedEqualityOperandType(rightType)) {
+        if (rightKnown && !IsLiftedEqualityOperandType(rightType) && !IsLiftedEqualityOperatorOperandType(rightType, leftType)) {
             return false
         }
         if (!leftKnown && !rightKnown) {
@@ -17105,9 +17194,6 @@ sealed class ColumnarIlEmitter {
             _il.Emit(OpCodes.Ldloca, leftLocal)
             _il.Emit(OpCodes.Call, ResolveNullableMethod(emittedLeft, "GetValueOrDefault", []))
         }
-        if (!IsLiftedEqualityElement(leftElement)) {
-            return false
-        }
 
         emittedRight: System.Type? = null
         if (!EmitExpressionPreservingNullable(rightNode, out emittedRight) || emittedRight == null) {
@@ -17124,8 +17210,9 @@ sealed class ColumnarIlEmitter {
         if (!TypesEquivalent(leftElement, rightElement)) {
             return false
         }
-
-        _il.Emit(OpCodes.Ceq)
+        if (!EmitLiftedEqualityElementComparison(leftElement, rightElement)) {
+            return false
+        }
 
         if (leftLocal != null) {
             _il.Emit(OpCodes.Ldloca, leftLocal)
@@ -17151,6 +17238,55 @@ sealed class ColumnarIlEmitter {
         return true
     }
 
+    // THE VALUE HALF OF A LIFTED EQUALITY, which is `ceq` for the elements the instruction answers
+    // for and the element's OWN `op_Equality` for the rest. `decimal` and `TimeSpan` carry their
+    // equality as a method rather than as an instruction, so a lifted comparison over them is that
+    // method under the same presence test -- and `!=` is still the negation the caller applies,
+    // never `op_Inequality`, because the two halves are combined before the negation happens.
+    private func EmitLiftedEqualityElementComparison(leftElement: Type, rightElement: Type): bool {
+        if (IsLiftedEqualityElement(leftElement)) {
+            _il.Emit(OpCodes.Ceq)
+            return true
+        }
+        equality := ResolveLiftedEqualityOperator(leftElement, rightElement)
+        if (equality == null) {
+            return false
+        }
+        _il.Emit(OpCodes.Call, equality)
+        return true
+    }
+
+    // The element's own `op_Equality`, read through the same source-then-runtime operator lookup
+    // every other operator selection in this emitter uses, and accepted only when it answers `bool`.
+    private func ResolveLiftedEqualityOperator(leftElement: Type, rightElement: Type): MethodInfo? {
+        sourceSelection := ColumnarSourceOperatorResolver.ResolveBinary("==", leftElement, rightElement, _typeResolutionStructs.Values)
+        if (sourceSelection.IsSelected && sourceSelection.Method != null && sourceSelection.ReturnType == typeof(bool) && TypesEquivalent(sourceSelection.ParameterTypes[0], leftElement) && TypesEquivalent(sourceSelection.ParameterTypes[1], rightElement)) {
+            return sourceSelection.Method
+        }
+        if (ColumnarRuntimeOperatorResolver.IsIlPrimitiveOperandType(leftElement) && ColumnarRuntimeOperatorResolver.IsIlPrimitiveOperandType(rightElement)) {
+            return null
+        }
+        runtimeSelection := ColumnarRuntimeOperatorResolver.ResolveBinary("==", leftElement, rightElement)
+        if (runtimeSelection.IsSelected && runtimeSelection.Method != null && runtimeSelection.ReturnType == typeof(bool) && TypesEquivalent(runtimeSelection.ParameterTypes[0], leftElement) && TypesEquivalent(runtimeSelection.ParameterTypes[1], rightElement)) {
+            return runtimeSelection.Method
+        }
+        return null
+    }
+
+    // An operand carried by the `op_Equality` half rather than by `ceq`: the two elements must be
+    // the same and must declare an equality operator between them.
+    private func IsLiftedEqualityOperatorOperandType(operandType: Type, otherType: Type): bool {
+        element := ColumnarTypeOfPlanner.IsSupportedNullable(operandType) ? operandType.GetGenericArguments()[0] : operandType
+        otherElement := otherType
+        if (otherElement != null && ColumnarTypeOfPlanner.IsSupportedNullable(otherElement)) {
+            otherElement = otherElement.GetGenericArguments()[0]
+        }
+        if (otherElement == null || !TypesEquivalent(element, otherElement)) {
+            return false
+        }
+        return ResolveLiftedEqualityOperator(element, otherElement) != null
+    }
+
     // An operand this lowering can carry: a `ceq` element, or a `Nullable<T>` over one.
     private static func IsLiftedEqualityOperandType(operandType: Type): bool {
         if (ColumnarTypeOfPlanner.IsSupportedNullable(operandType)) {
@@ -17169,6 +17305,566 @@ sealed class ColumnarIlEmitter {
             return true
         }
         return ColumnarTypeOfPlanner.IsEnumType(elementType)
+    }
+
+    // C# §12.4.8'S LIFTED BINARY OPERATORS, AS ONE LOWERING.
+    //
+    // `a op b` with a `Nullable<T>` on either side evaluates BOTH operands in source order into
+    // locals -- a lifted operator does not short-circuit -- tests every lifted side's `HasValue`,
+    // and only then performs the UNLIFTED operation on the values. The absent path answers
+    // `default(R?)` for an arithmetic, bitwise or shift result and `false` for a comparison, which
+    // is the whole difference between the two families: an absent operand makes an arithmetic
+    // answer ABSENT and makes a comparison answer FALSE, so `x < y` is always decided.
+    //
+    // THERE IS NO PER-OPERATOR TABLE HERE. The operation performed on the two element values is the
+    // one the UNLIFTED resolution selects -- the same source-declared `op_*` lookup, the same
+    // runtime `op_*` lookup and the same primitive promotion the non-lifted arm performs, asked of
+    // the ELEMENT types. An operator the unlifted arm could not emit declines here rather than
+    // being approximated.
+    //
+    // `bool? & bool?` AND `bool? | bool?` ARE NOT THIS LOWERING. C# §12.14 gives them a THREE-VALUED
+    // table in which an absent operand does NOT make the answer absent (`false & null` is `false`),
+    // so they have their own owner below. `bool? ^ bool?` IS this one: an absent operand always
+    // makes an exclusive-or absent.
+    private func TryEmitLiftedNullableBinary(idx: int, op: string, out resolvedClrType: Type): bool {
+        resolvedClrType = null
+        if (_nodes.ChildCount(idx) != 2) {
+            return false
+        }
+        relational := IsLiftedRelationalOperator(op)
+        if (!relational && op != "+" && op != "-" && op != "*" && op != "/" && op != "%" && op != "&" && op != "|" && op != "^" && op != "<<" && op != ">>") {
+            return false
+        }
+
+        leftNode := Child(idx, 0)
+        rightNode := Child(idx, 1)
+        preflightLeft: System.Type? = null
+        preflightRight: System.Type? = null
+        if (!TryGetPreflightExpressionType(leftNode, out preflightLeft) || preflightLeft == null) {
+            return false
+        }
+        if (!TryGetPreflightExpressionType(rightNode, out preflightRight) || preflightRight == null) {
+            return false
+        }
+
+        leftType := LiftedOperandArrivalType(leftNode, preflightLeft)
+        rightType := LiftedOperandArrivalType(rightNode, preflightRight)
+        leftLifted := ColumnarTypeOfPlanner.IsSupportedNullable(leftType)
+        rightLifted := ColumnarTypeOfPlanner.IsSupportedNullable(rightType)
+        if (!leftLifted && !rightLifted) {
+            return false
+        }
+
+        leftElement := leftLifted ? leftType.GetGenericArguments()[0] : leftType
+        rightElement := rightLifted ? rightType.GetGenericArguments()[0] : rightType
+        if ((op == "&" || op == "|") && leftElement == typeof(bool) && rightElement == typeof(bool)) {
+            return TryEmitThreeValuedBooleanLogical(leftNode, rightNode, op, out resolvedClrType)
+        }
+
+        leftParameter: System.Type? = null
+        rightParameter: System.Type? = null
+        operatorMethod: System.Reflection.MethodInfo? = null
+        elementResult: System.Type? = null
+        if (!TrySelectLiftedElementBinary(op, leftElement, rightElement, out leftParameter, out rightParameter, out operatorMethod, out elementResult)) {
+            return false
+        }
+
+        liftedResult: System.Type? = null
+        if (relational) {
+            // A COMPARISON ANSWERS `bool`, INCLUDING THROUGH AN OVERLOAD. The analyzer refuses an
+            // ordering operator that returns anything else, and so does this arm rather than
+            // branching over a value the absent path cannot produce.
+            if (!TypesEquivalent(elementResult, typeof(bool))) {
+                return false
+            }
+        } else {
+            if (!ColumnarTypeOfPlanner.IsLiftableNullableElement(elementResult)) {
+                return false
+            }
+            liftedResult = ColumnarTypeOfPlanner.RequiredNullableDefinition().MakeGenericType([elementResult])
+        }
+
+        // BOTH OPERANDS ARE EVALUATED BEFORE EITHER IS TESTED, and each is parked in a local so the
+        // `HasValue` question and the value read are the same evaluation -- re-reading the operand
+        // would run its side effects twice.
+        emittedLeft: System.Type? = null
+        if (!EmitExpression(leftNode, out emittedLeft) || !TypesEquivalent(emittedLeft, leftType)) {
+            return false
+        }
+        leftLocal := _il.DeclareLocal(leftType)
+        _il.Emit(OpCodes.Stloc, leftLocal)
+        emittedRight: System.Type? = null
+        if (!EmitExpression(rightNode, out emittedRight) || !TypesEquivalent(emittedRight, rightType)) {
+            return false
+        }
+        rightLocal := _il.DeclareLocal(rightType)
+        _il.Emit(OpCodes.Stloc, rightLocal)
+
+        absentLabel := _il.DefineLabel()
+        endLabel := _il.DefineLabel()
+        if (leftLifted) {
+            _il.Emit(OpCodes.Ldloca, leftLocal)
+            _il.Emit(OpCodes.Call, ResolveNullableGetter(leftType, "HasValue"))
+            _il.Emit(OpCodes.Brfalse, absentLabel)
+        }
+        if (rightLifted) {
+            _il.Emit(OpCodes.Ldloca, rightLocal)
+            _il.Emit(OpCodes.Call, ResolveNullableGetter(rightType, "HasValue"))
+            _il.Emit(OpCodes.Brfalse, absentLabel)
+        }
+
+        EmitLiftedOperandValue(leftLocal, leftType, leftLifted)
+        if (!TypesEquivalent(leftElement, leftParameter) && !TryEmitImplicitWidening(leftElement, leftParameter)) {
+            return false
+        }
+        EmitLiftedOperandValue(rightLocal, rightType, rightLifted)
+        if (!TypesEquivalent(rightElement, rightParameter) && !TryEmitImplicitWidening(rightElement, rightParameter)) {
+            return false
+        }
+
+        if (operatorMethod != null) {
+            _il.Emit(OpCodes.Call, operatorMethod)
+        } else {
+            if (!EmitPrimitiveElementBinary(op, leftParameter, relational)) {
+                return false
+            }
+        }
+
+        if (relational) {
+            _il.Emit(OpCodes.Br, endLabel)
+            _il.MarkLabel(absentLabel)
+            _il.Emit(OpCodes.Ldc_I4_0)
+            _il.MarkLabel(endLabel)
+            resolvedClrType = typeof(bool)
+            return true
+        }
+
+        _il.Emit(OpCodes.Newobj, ResolveNullableConstructor(liftedResult))
+        _il.Emit(OpCodes.Br, endLabel)
+        _il.MarkLabel(absentLabel)
+        EmitAbsentNullableValue(liftedResult)
+        _il.MarkLabel(endLabel)
+        resolvedClrType = liftedResult
+        return true
+    }
+
+    // THE UNARY TWIN. `-x`, `~x` and `!x` over a `T?` are absent in, absent out, and the operation
+    // applied to a present value is again whatever the UNLIFTED resolution selects for the element.
+    private func TryEmitLiftedNullableUnary(idx: int, out resolvedClrType: Type): bool {
+        resolvedClrType = null
+        if (_nodes.ChildCount(idx) != 1) {
+            return false
+        }
+        op := ColumnarNodeTextFacts.Text(_nodes, _source, idx)
+        if (op != "-" && op != "~" && op != "!") {
+            return false
+        }
+
+        operandNode := Child(idx, 0)
+        preflight: System.Type? = null
+        if (!TryGetPreflightExpressionType(operandNode, out preflight) || preflight == null) {
+            return false
+        }
+        operandType := LiftedOperandArrivalType(operandNode, preflight)
+        if (!ColumnarTypeOfPlanner.IsSupportedNullable(operandType)) {
+            return false
+        }
+        element := operandType.GetGenericArguments()[0]
+
+        parameterType: System.Type? = null
+        operatorMethod: System.Reflection.MethodInfo? = null
+        elementResult: System.Type? = null
+        if (!TrySelectLiftedElementUnary(op, element, out parameterType, out operatorMethod, out elementResult)) {
+            return false
+        }
+        if (!ColumnarTypeOfPlanner.IsLiftableNullableElement(elementResult)) {
+            return false
+        }
+        liftedResult := ColumnarTypeOfPlanner.RequiredNullableDefinition().MakeGenericType([elementResult])
+
+        emitted: System.Type? = null
+        if (!EmitExpression(operandNode, out emitted) || !TypesEquivalent(emitted, operandType)) {
+            return false
+        }
+        operandLocal := _il.DeclareLocal(operandType)
+        _il.Emit(OpCodes.Stloc, operandLocal)
+
+        absentLabel := _il.DefineLabel()
+        endLabel := _il.DefineLabel()
+        _il.Emit(OpCodes.Ldloca, operandLocal)
+        _il.Emit(OpCodes.Call, ResolveNullableGetter(operandType, "HasValue"))
+        _il.Emit(OpCodes.Brfalse, absentLabel)
+        EmitLiftedOperandValue(operandLocal, operandType, true)
+        if (!TypesEquivalent(element, parameterType) && !TryEmitImplicitWidening(element, parameterType)) {
+            return false
+        }
+        if (operatorMethod != null) {
+            _il.Emit(OpCodes.Call, operatorMethod)
+        } else {
+            if (!EmitPrimitiveElementUnary(op, parameterType)) {
+                return false
+            }
+        }
+        _il.Emit(OpCodes.Newobj, ResolveNullableConstructor(liftedResult))
+        _il.Emit(OpCodes.Br, endLabel)
+        _il.MarkLabel(absentLabel)
+        EmitAbsentNullableValue(liftedResult)
+        _il.MarkLabel(endLabel)
+        resolvedClrType = liftedResult
+        return true
+    }
+
+    // C# §12.14'S THREE-VALUED `&` AND `|` OVER `bool?`, WHICH ARE NOT ORDINARY LIFTS: `false & null`
+    // is FALSE and `true | null` is TRUE, because one operand already decides the answer. Written
+    // as the two facts the table actually states, with no branch per case:
+    //
+    //   `&`  value = a.v & b.v   present = (a.h & b.h) | (a.h & !a.v) | (b.h & !b.v)
+    //   `|`  value = a.v | b.v   present = (a.h & b.h) | (a.h &  a.v) | (b.h &  b.v)
+    //
+    // -- the answer is present when both operands are, or when either one ALONE already fixes it
+    // (a `false` under `&`, a `true` under `|`). The value half is the plain lifted one, and it is
+    // only read on the present path, where `GetValueOrDefault`'s zero for an absent operand is the
+    // identity element of the operator that reads it.
+    //
+    // A NON-LIFTED `bool` OPERAND IS WRAPPED INTO A `bool?` FIRST, so one lowering serves
+    // `bool? & bool`, `bool & bool?` and `bool? & bool?` -- which is C#'s own reading, where the
+    // plain operand converts to `bool?` before the operator is applied.
+    private func TryEmitThreeValuedBooleanLogical(leftNode: int, rightNode: int, op: string, out resolvedClrType: Type): bool {
+        resolvedClrType = null
+        nullableBool := ColumnarTypeOfPlanner.RequiredNullableDefinition().MakeGenericType([typeof(bool)])
+
+        if (!EmitOperandAsNullableBool(leftNode, nullableBool)) {
+            return false
+        }
+        leftLocal := _il.DeclareLocal(nullableBool)
+        _il.Emit(OpCodes.Stloc, leftLocal)
+        if (!EmitOperandAsNullableBool(rightNode, nullableBool)) {
+            return false
+        }
+        rightLocal := _il.DeclareLocal(nullableBool)
+        _il.Emit(OpCodes.Stloc, rightLocal)
+
+        EmitNullableBoolHasValue(leftLocal, nullableBool)
+        EmitNullableBoolHasValue(rightLocal, nullableBool)
+        _il.Emit(OpCodes.And)
+        EmitNullableBoolHasValue(leftLocal, nullableBool)
+        EmitDecidingBooleanValue(leftLocal, nullableBool, op)
+        _il.Emit(OpCodes.And)
+        _il.Emit(OpCodes.Or)
+        EmitNullableBoolHasValue(rightLocal, nullableBool)
+        EmitDecidingBooleanValue(rightLocal, nullableBool, op)
+        _il.Emit(OpCodes.And)
+        _il.Emit(OpCodes.Or)
+
+        absentLabel := _il.DefineLabel()
+        endLabel := _il.DefineLabel()
+        _il.Emit(OpCodes.Brfalse, absentLabel)
+        EmitLiftedOperandValue(leftLocal, nullableBool, true)
+        EmitLiftedOperandValue(rightLocal, nullableBool, true)
+        logicalEmitter := _il
+        logicalOpcode := op == "&" ? OpCodes.And : OpCodes.Or
+        logicalEmitter.Emit(logicalOpcode)
+        _il.Emit(OpCodes.Newobj, ResolveNullableConstructor(nullableBool))
+        _il.Emit(OpCodes.Br, endLabel)
+        _il.MarkLabel(absentLabel)
+        EmitAbsentNullableValue(nullableBool)
+        _il.MarkLabel(endLabel)
+        resolvedClrType = nullableBool
+        return true
+    }
+
+    // One operand of the three-valued table, normalised to a `bool?`.
+    private func EmitOperandAsNullableBool(node: int, nullableBool: Type): bool {
+        emitted: System.Type? = null
+        if (!EmitExpression(node, out emitted)) {
+            return false
+        }
+        if (TypesEquivalent(emitted, nullableBool)) {
+            return true
+        }
+        if (!TypesEquivalent(emitted, typeof(bool))) {
+            return false
+        }
+        _il.Emit(OpCodes.Newobj, ResolveNullableConstructor(nullableBool))
+        return true
+    }
+
+    private func EmitNullableBoolHasValue(local: LocalBuilder, nullableBool: Type): void {
+        _il.Emit(OpCodes.Ldloca, local)
+        _il.Emit(OpCodes.Call, ResolveNullableGetter(nullableBool, "HasValue"))
+    }
+
+    // The value that DECIDES a three-valued answer on its own: a `false` under `&`, a `true` under `|`.
+    private func EmitDecidingBooleanValue(local: LocalBuilder, nullableBool: Type, op: string): void {
+        EmitLiftedOperandValue(local, nullableBool, true)
+        if (op == "&") {
+            _il.Emit(OpCodes.Ldc_I4_0)
+            _il.Emit(OpCodes.Ceq)
+        }
+    }
+
+    // A parked operand's VALUE: the element of a lifted one, the value itself otherwise.
+    private func EmitLiftedOperandValue(local: LocalBuilder, localType: Type, lifted: bool): void {
+        if (!lifted) {
+            _il.Emit(OpCodes.Ldloc, local)
+            return
+        }
+        _il.Emit(OpCodes.Ldloca, local)
+        _il.Emit(OpCodes.Call, ResolveNullableMethod(localType, "GetValueOrDefault", []))
+    }
+
+    // `default(T?)`, which is the absent value every lifted lowering answers with.
+    private func EmitAbsentNullableValue(nullableType: Type): void {
+        absentLocal := _il.DeclareLocal(nullableType)
+        _il.Emit(OpCodes.Ldloca, absentLocal)
+        _il.Emit(OpCodes.Initobj, nullableType)
+        _il.Emit(OpCodes.Ldloc, absentLocal)
+    }
+
+    // THE TYPE AN OPERAND ACTUALLY ARRIVES WITH, WHICH IS NOT ALWAYS THE ONE IT WAS DECLARED WITH. A
+    // bare name FLOW has proved present is read as its ELEMENT type -- that is the narrowed read
+    // `EmitExpression` performs -- so an operand inside `if x != null { ... }` is an `int` and must
+    // not be lifted a second time. Asking the question the emitter's own read asks is what keeps the
+    // two answers identical.
+    private func LiftedOperandArrivalType(node: int, preflightType: Type): Type {
+        narrowed := NarrowedNullableElement(UnwrapParenthesizedNode(node), preflightType)
+        if (narrowed != null) {
+            return narrowed
+        }
+        return preflightType
+    }
+
+    private static func IsLiftedRelationalOperator(op: string): bool {
+        return op == "<" || op == ">" || op == "<=" || op == ">="
+    }
+
+    // THE UNLIFTED SELECTION, ASKED OF THE ELEMENT TYPES, IN THE ORDER THE UNLIFTED ARM ASKS IT: a
+    // SOURCE-declared operator first, then a RUNTIME one, then the predefined primitive promotion.
+    // Nothing here is specific to lifting -- a lifted operator is the unlifted one with a
+    // presence test around it.
+    private func TrySelectLiftedElementBinary(op: string, leftElement: Type, rightElement: Type, out leftParameter: Type, out rightParameter: Type, out operatorMethod: MethodInfo, out elementResult: Type): bool {
+        leftParameter = null
+        rightParameter = null
+        operatorMethod = null
+        elementResult = null
+
+        sourceSelection := ColumnarSourceOperatorResolver.ResolveBinary(op, leftElement, rightElement, _typeResolutionStructs.Values)
+        if (sourceSelection.IsSelected && sourceSelection.Method != null) {
+            leftParameter = sourceSelection.ParameterTypes[0]
+            rightParameter = sourceSelection.ParameterTypes[1]
+            operatorMethod = sourceSelection.Method
+            elementResult = sourceSelection.ReturnType
+            return true
+        }
+
+        if (!ColumnarRuntimeOperatorResolver.IsIlPrimitiveOperandType(leftElement) || !ColumnarRuntimeOperatorResolver.IsIlPrimitiveOperandType(rightElement)) {
+            runtimeSelection := ColumnarRuntimeOperatorResolver.ResolveBinary(op, leftElement, rightElement)
+            if (runtimeSelection.IsSelected && runtimeSelection.Method != null) {
+                leftParameter = runtimeSelection.ParameterTypes[0]
+                rightParameter = runtimeSelection.ParameterTypes[1]
+                operatorMethod = runtimeSelection.Method
+                elementResult = runtimeSelection.ReturnType
+                return true
+            }
+        }
+
+        return TrySelectPredefinedElementBinary(op, leftElement, rightElement, out leftParameter, out rightParameter, out elementResult)
+    }
+
+    // The predefined half: N#'s own promotion rules, stated once for the lifted lowering and
+    // deliberately the same ones the unlifted arm applies.
+    private static func TrySelectPredefinedElementBinary(op: string, leftElement: Type, rightElement: Type, out leftParameter: Type, out rightParameter: Type, out elementResult: Type): bool {
+        leftParameter = null
+        rightParameter = null
+        elementResult = null
+
+        // A SHIFT IS ONE-SIDED: the count does not participate in the result, and the value is the
+        // UNARY promotion of the left operand alone -- `byteValue << 1` is an `int`.
+        if (op == "<<" || op == ">>") {
+            shiftedValue := UnaryPromotedIntegralType(leftElement)
+            if (shiftedValue == null || !ColumnarNumericFacts.IsIntPromotable(rightElement)) {
+                return false
+            }
+            leftParameter = shiftedValue
+            rightParameter = typeof(int)
+            elementResult = shiftedValue
+            return true
+        }
+
+        // A BITWISE OPERATOR OVER THE SAME ENUM ANSWERS THAT ENUM. The CLR carries an enum as its
+        // underlying integral value, so the instruction is the integral one and only the RESULT
+        // differs from the integral case.
+        if ((op == "&" || op == "|" || op == "^") && TypesEquivalent(leftElement, rightElement) && ColumnarTypeOfPlanner.IsEnumType(leftElement)) {
+            leftParameter = leftElement
+            rightParameter = rightElement
+            elementResult = leftElement
+            return true
+        }
+
+        opType: System.Type? = null
+        if (TypesEquivalent(leftElement, rightElement)) {
+            opType = ColumnarNumericFacts.IsIntPromotable(leftElement) ? typeof(int) : leftElement
+        } else {
+            if (ColumnarNumericFacts.IsIntPromotable(leftElement) && ColumnarNumericFacts.IsIntPromotable(rightElement)) {
+                opType = typeof(int)
+            } else {
+                if (!TrySelectMixedNumericCommonType(leftElement, rightElement, out opType)) {
+                    return false
+                }
+            }
+        }
+
+        if (!IsPredefinedElementOperandType(op, opType)) {
+            return false
+        }
+        leftParameter = opType
+        rightParameter = opType
+        elementResult = IsLiftedRelationalOperator(op) ? typeof(bool) : opType
+        return true
+    }
+
+    // The operand types each predefined family has an instruction for. Arithmetic and ordering run
+    // over the integral and floating scalars; the bitwise family runs over the integral ones and
+    // over `bool`. `decimal` is in NEITHER: its operators are `op_*` calls, which the runtime
+    // lookup above has already selected by the time this is asked.
+    private static func IsPredefinedElementOperandType(op: string, opType: Type): bool {
+        if (op == "&" || op == "|" || op == "^") {
+            return opType == typeof(int) || opType == typeof(long) || opType == typeof(ulong) || opType == typeof(uint) || opType == typeof(bool)
+        }
+        return opType == typeof(int) || opType == typeof(long) || opType == typeof(ulong) || opType == typeof(uint) || opType == typeof(double) || opType == typeof(float)
+    }
+
+    // N#'s unary numeric promotion for the integral family, which is what a shift's VALUE operand
+    // takes: the int-promotable scalars become `int`, and the wider integrals answer themselves.
+    private static func UnaryPromotedIntegralType(operandType: Type): Type? {
+        if (ColumnarNumericFacts.IsIntPromotable(operandType)) {
+            return typeof(int)
+        }
+        if (operandType == typeof(long) || operandType == typeof(ulong) || operandType == typeof(uint)) {
+            return operandType
+        }
+        return null
+    }
+
+    // The predefined instruction for one already-promoted element pair, with the enclosing
+    // `checked` context honoured exactly as the unlifted arm honours it: a lifted `+` in a checked
+    // body still throws on overflow, because only the PRESENCE test is lifted, never the arithmetic.
+    private func EmitPrimitiveElementBinary(op: string, opType: Type, relational: bool): bool {
+        unsigned := opType == typeof(ulong) || opType == typeof(uint)
+        if (relational) {
+            EmitComparison(op, unsigned, opType == typeof(double) || opType == typeof(float))
+            return true
+        }
+        if (op == "&" || op == "|" || op == "^") {
+            bitwiseEmitter := _il
+            bitwiseOpcode := op == "&" ? OpCodes.And : op == "|" ? OpCodes.Or : OpCodes.Xor
+            bitwiseEmitter.Emit(bitwiseOpcode)
+            return true
+        }
+        if (op == "<<" || op == ">>") {
+            shiftEmitter := _il
+            shiftOpcode := op == "<<" ? OpCodes.Shl : unsigned ? OpCodes.Shr_Un : OpCodes.Shr
+            shiftEmitter.Emit(shiftOpcode)
+            return true
+        }
+        checkedIntegral := _overflowCheckingEnabled && (op == "+" || op == "-" || op == "*") && (opType == typeof(int) || opType == typeof(long) || opType == typeof(ulong) || opType == typeof(uint))
+        arithmeticEmitter := _il
+        arithmeticOpcode := op == "+" ? (checkedIntegral ? (unsigned ? OpCodes.Add_Ovf_Un : OpCodes.Add_Ovf) : OpCodes.Add) : op == "-" ? (checkedIntegral ? (unsigned ? OpCodes.Sub_Ovf_Un : OpCodes.Sub_Ovf) : OpCodes.Sub) : op == "*" ? (checkedIntegral ? (unsigned ? OpCodes.Mul_Ovf_Un : OpCodes.Mul_Ovf) : OpCodes.Mul) : op == "/" ? (unsigned ? OpCodes.Div_Un : OpCodes.Div) : (unsigned ? OpCodes.Rem_Un : OpCodes.Rem)
+        arithmeticEmitter.Emit(arithmeticOpcode)
+        return true
+    }
+
+    // The unary selection, in the same order and with the same reading as the binary one.
+    private func TrySelectLiftedElementUnary(op: string, element: Type, out parameterType: Type, out operatorMethod: MethodInfo, out elementResult: Type): bool {
+        parameterType = null
+        operatorMethod = null
+        elementResult = null
+
+        sourceSelection := ColumnarSourceOperatorResolver.ResolveUnary(op, element, _typeResolutionStructs.Values)
+        if (sourceSelection.IsSelected && sourceSelection.Method != null) {
+            parameterType = sourceSelection.ParameterTypes[0]
+            operatorMethod = sourceSelection.Method
+            elementResult = sourceSelection.ReturnType
+            return true
+        }
+
+        if (!ColumnarRuntimeOperatorResolver.IsIlPrimitiveOperandType(element)) {
+            runtimeSelection := ColumnarRuntimeOperatorResolver.ResolveUnary(op, element)
+            if (runtimeSelection.IsSelected && runtimeSelection.Method != null) {
+                parameterType = runtimeSelection.ParameterTypes[0]
+                operatorMethod = runtimeSelection.Method
+                elementResult = runtimeSelection.ReturnType
+                return true
+            }
+        }
+
+        if (op == "!") {
+            if (element != typeof(bool)) {
+                return false
+            }
+            parameterType = typeof(bool)
+            elementResult = typeof(bool)
+            return true
+        }
+
+        if (op == "~") {
+            if (ColumnarTypeOfPlanner.IsEnumType(element)) {
+                parameterType = element
+                elementResult = element
+                return true
+            }
+            promoted := UnaryPromotedIntegralType(element)
+            if (promoted == null) {
+                return false
+            }
+            parameterType = promoted
+            elementResult = promoted
+            return true
+        }
+
+        // NEGATION'S PROMOTION IS NOT THE OTHER ONE. `uint` widens to `long` because `-uint` does not
+        // fit a `uint`, and `ulong` has no answer at all -- and the widening from `uint` is one this
+        // emitter does not perform, so both of those decline here rather than negating wrongly.
+        if (ColumnarNumericFacts.IsIntPromotable(element)) {
+            parameterType = typeof(int)
+            elementResult = typeof(int)
+            return true
+        }
+        if (element == typeof(long) || element == typeof(double) || element == typeof(float)) {
+            parameterType = element
+            elementResult = element
+            return true
+        }
+        return false
+    }
+
+    private func EmitPrimitiveElementUnary(op: string, operandType: Type): bool {
+        if (op == "!") {
+            _il.Emit(OpCodes.Ldc_I4_0)
+            _il.Emit(OpCodes.Ceq)
+            return true
+        }
+        if (op == "~") {
+            _il.Emit(OpCodes.Not)
+            return true
+        }
+        // `-x` IN A CHECKED BODY IS `0 - x`, because `neg` does not trap and `-int.MinValue` has no
+        // `int` -- the same lowering the unlifted arm emits, and the operand is parked so the zero
+        // can be pushed underneath it.
+        if (_overflowCheckingEnabled && (operandType == typeof(int) || operandType == typeof(long))) {
+            negationOperand := _il.DeclareLocal(operandType)
+            _il.Emit(OpCodes.Stloc, negationOperand)
+            if (operandType == typeof(long)) {
+                _il.Emit(OpCodes.Ldc_I8, 0L)
+            } else {
+                _il.Emit(OpCodes.Ldc_I4_0)
+            }
+            _il.Emit(OpCodes.Ldloc, negationOperand)
+            _il.Emit(OpCodes.Sub_Ovf)
+            return true
+        }
+        _il.Emit(OpCodes.Neg)
+        return true
     }
 
     private func TryEmitMixedNumericBinary(idx: int, op: string, out resolvedClrType: Type): bool {
@@ -17935,7 +18631,7 @@ sealed class ColumnarIlEmitter {
                 thisField: System.Reflection.Emit.FieldBuilder? = null
                 if (_currentStruct != null && (_currentStruct.IsReference || _isConstructorBody) && ColumnarSourceMemberChainResolver.TryFindFieldOnChain(_currentStruct, name, out thisField)) {
                     targetType = thisField.get_FieldType()
-                    if (targetType != typeof(int) && targetType != typeof(long) && targetType != typeof(ulong)) {
+                    if (!IsSteppableTargetType(targetType)) {
                         return false
                     }
 
@@ -17961,7 +18657,7 @@ sealed class ColumnarIlEmitter {
                 }
             }
         }
-        if (targetType != typeof(int) && targetType != typeof(long) && targetType != typeof(ulong)) {
+        if (!IsSteppableTargetType(targetType)) {
             return false
         }
 
@@ -18000,7 +18696,7 @@ sealed class ColumnarIlEmitter {
         }
 
         targetType := field.get_FieldType()
-        if (targetType != typeof(int) && targetType != typeof(long) && targetType != typeof(ulong)) {
+        if (!IsSteppableTargetType(targetType)) {
             return false
         }
 
@@ -18023,7 +18719,37 @@ sealed class ColumnarIlEmitter {
         return true
     }
 
+    // WHAT `++` AND `--` CAN STEP: the three integral slots the step instruction is written for, or
+    // a `T?` over one of them -- a lifted step is the same instruction under a presence test.
+    private static func IsSteppableTargetType(targetType: Type): bool {
+        stepped := targetType
+        if (ColumnarTypeOfPlanner.IsSupportedNullable(targetType)) {
+            stepped = targetType.GetGenericArguments()[0]
+        }
+        return stepped == typeof(int) || stepped == typeof(long) || stepped == typeof(ulong)
+    }
+
     private func EmitPostfixStep(targetType: Type, op: string): void {
+        // A LIFTED STEP IS ABSENT IN, ABSENT OUT. `count++` on an absent `int?` leaves it absent --
+        // it does not become 1 -- so the step runs only on the present path and the answer is
+        // rebuilt as the target's own `T?`.
+        if (ColumnarTypeOfPlanner.IsSupportedNullable(targetType)) {
+            steppedLocal := _il.DeclareLocal(targetType)
+            _il.Emit(OpCodes.Stloc, steppedLocal)
+            absentLabel := _il.DefineLabel()
+            endLabel := _il.DefineLabel()
+            _il.Emit(OpCodes.Ldloca, steppedLocal)
+            _il.Emit(OpCodes.Call, ResolveNullableGetter(targetType, "HasValue"))
+            _il.Emit(OpCodes.Brfalse, absentLabel)
+            EmitLiftedOperandValue(steppedLocal, targetType, true)
+            EmitPostfixStep(targetType.GetGenericArguments()[0], op)
+            _il.Emit(OpCodes.Newobj, ResolveNullableConstructor(targetType))
+            _il.Emit(OpCodes.Br, endLabel)
+            _il.MarkLabel(absentLabel)
+            EmitAbsentNullableValue(targetType)
+            _il.MarkLabel(endLabel)
+            return
+        }
         _il.Emit(OpCodes.Ldc_I4_1)
         if (targetType != typeof(int)) {
             _il.Emit(OpCodes.Conv_I8)
