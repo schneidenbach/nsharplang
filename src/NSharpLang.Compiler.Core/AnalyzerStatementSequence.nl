@@ -48,15 +48,22 @@ import NSharpLang.Compiler.Ast
 //      suspends independently of the one that contains it, and the walk needs no stack of its own.
 //   2  open a BLOCK scope on the analyzer's scope stack at `Line` / `Column`.
 //   3  close the scope kind 2 opened.
+//   4  BIND EVERY LOCAL FUNCTION written directly in `Statements` into the scope the list runs in,
+//      before its first statement is walked. A local function's name is in scope throughout the
+//      whole block that declares it — including above its own declaration and inside its siblings —
+//      so the binding cannot wait for the walk to reach the statement. It is emitted after kind 2
+//      for a block, so the names land in the block's OWN scope and die with it.
 class StatementSequenceRequest {
     Kind: int
     Body: Statement?
+    Statements: List<Statement>?
     Line: int
     Column: int
 
     constructor(kind: int) {
         Kind = kind
         Body = null
+        Statements = null
         Line = 0
         Column = 0
     }
@@ -72,7 +79,8 @@ class StatementSequenceRequest {
 //      first statement and closed after the last.
 //   2  a TRANSPARENT wrapper's body — exactly one statement, no scope, no unreachable rule.
 //
-// `Phase` is the walk's program counter. 0 is the entry that chooses the form. 1 is the list's step:
+// `Phase` is the walk's program counter. 0 is the entry that chooses the form, 4 binds the list's
+// local functions before anything in it runs. 1 is the list's step:
 // it either finishes, reports the first unreachable statement and finishes, or hands out the
 // statement at `Index`. 2 folds that statement's termination judgement in and advances `Index`. 3 is
 // the exit that closes a block's scope. 99 is done for all three forms.
@@ -172,6 +180,10 @@ class AnalyzerStatementSequence {
             return EnterSequence(state)
         }
 
+        if state.Phase == 4 {
+            return HoistLocalFunctions(state)
+        }
+
         if state.Phase == 1 {
             return NextListStatement(state)
         }
@@ -185,7 +197,9 @@ class AnalyzerStatementSequence {
 
     // PHASE 0. The transparent form is one statement and nothing else. The block form opens its scope
     // before any statement is walked, which is what puts the block's own locals inside it. The bare
-    // list opens nothing and falls straight into the walk.
+    // list opens nothing and falls straight into the walk. Both list forms go to the local-function
+    // binding first — for the block form that is AFTER its scope opened, so the names are the
+    // block's own.
     func EnterSequence(state: StatementSequenceState): StatementSequenceRequest? {
         if state.Form == 2 {
             state.Phase = 99
@@ -197,12 +211,45 @@ class AnalyzerStatementSequence {
             return SingleStatement(transparentBody)
         }
 
-        state.Phase = 1
+        state.Phase = 4
         if state.Form == 1 {
             return ScopeStep(2, state.Line, state.Column)
         }
 
         return null
+    }
+
+    // PHASE 4. THE LIST'S LOCAL FUNCTIONS, BOUND BEFORE ITS FIRST STATEMENT. A list with none asks
+    // nothing — the driver is handed the statements and decides there is nothing to declare — so the
+    // step is skipped outright rather than paid for by every block in the program.
+    func HoistLocalFunctions(state: StatementSequenceState): StatementSequenceRequest? {
+        state.Phase = 1
+        statements := state.Statements
+        if statements == null {
+            return null
+        }
+
+        if !HasLocalFunction(statements) {
+            return null
+        }
+
+        request := new StatementSequenceRequest(4)
+        request.Statements = statements
+        return request
+    }
+
+    // Whether this list writes a local function DIRECTLY — a nested block's own are not this list's.
+    func HasLocalFunction(statements: List<Statement>): bool {
+        index := 0
+        while index < statements.Count {
+            if statements[index] as LocalFunctionStatement != null {
+                return true
+            }
+
+            index = index + 1
+        }
+
+        return false
     }
 
     // PHASE 1. The list's step. A list that has run out finishes. A list whose previous statement
