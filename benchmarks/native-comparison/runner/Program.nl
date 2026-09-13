@@ -844,12 +844,10 @@ func main(): void {
         Console.Error.WriteLine("error: " + options.Error)
         Console.Error.WriteLine(UsageText())
         Environment.Exit(2)
-        return
     }
 
     if options.Mode == "compare" {
         Environment.Exit(RunCompare(options))
-        return
     }
 
     Environment.Exit(RunGate(options))
