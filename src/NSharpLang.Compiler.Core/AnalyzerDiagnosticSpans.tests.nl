@@ -24,7 +24,7 @@ import NSharpLang.Compiler.Ast
 //     whole written statement rather than one token;
 //   * a multi-line `SourceSpan` is REFUSED as a span, because one underlined run cannot render it.
 func SpanSource(): string {
-    return "package probe\n" + "func main() {\n" + "    total := customer.Account.Balance\n" + "    name := \"he said \\\"hi\\\" ok\"\n" + "    values := [1, 2, 3]\n" + "    Compute(alpha,beta) ok\n" + "    a.b = a.b\n" + "}\n"
+    return "package probe\n" + "func main() {\n" + "    total := customer.Account.Balance\n" + "    name := \"he said \\\"hi\\\" ok\"\n" + "    values := [1, 2, 3]\n" + "    Compute(alpha,beta) ok\n" + "    a.b = a.b\n" + "}\n" + "    length := (must customer).Account.Balance\n"
 }
 
 func SpanResolver(): AnalyzerDiagnosticSpans {
@@ -159,6 +159,21 @@ test "a path the line does not contain still reports, at the expression's start"
     spans := SpanResolver()
 
     assert SpanText(spans.GetStablePathDiagnosticSpan(SpanIdentifier("zzz", 7, 5), "zzz.qqq", 7, 5)) == "7|5|7"
+}
+
+test "A PATH THE LINE SPELLS DIFFERENTLY UNDERLINES ITS LAST HOP" {
+    // Line 9 is `    length := (must customer).Account.Balance`. `(must customer).Account` DENOTES
+    // `customer.Account`, and those two are not the same eight characters — so the whole-path search
+    // finds nothing. Underlining the full path's WIDTH at the expression's start would squiggle
+    // `(must cu`; the last hop is written, and `Account` is what the finding is about.
+    spans := SpanResolver()
+    unwrapped: Expression = new MustExpression(SpanIdentifier("customer", 9, 21), 9, 16)
+    overUnwrap: Expression = new MemberAccessExpression(unwrapped, "Account", false, 9, 30)
+
+    assert SpanText(spans.GetStablePathDiagnosticSpan(overUnwrap, "customer.Account", 9, 30)) == "9|31|7"
+
+    // A path whose LAST HOP the line does not spell either still anchors at the expression's start.
+    assert SpanText(spans.GetStablePathDiagnosticSpan(SpanIdentifier("zzz", 9, 5), "zzz.qqq", 9, 5)) == "9|5|7"
 }
 
 test "THE TOKEN SCAN STOPS AT `,` `)` `]` `}` BUT NOT AT `(` OR `[`" {

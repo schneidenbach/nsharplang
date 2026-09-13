@@ -539,8 +539,16 @@ class AnalyzerDiagnosticSpans {
 
     // THE WRITTEN PATH, LOCATED IN THE LINE. The path is found by searching FORWARD from the
     // expression's start, and only then from the start of the line, so a line that mentions `a.b`
-    // twice underlines the occurrence this expression actually is. A path the line does not contain
-    // at all — a continuation across lines — still reports, anchored at the expression's start.
+    // twice underlines the occurrence this expression actually is.
+    //
+    // A PATH CAN NAME STORAGE THE LINE DOES NOT SPELL. `(must doc).Error` denotes `doc.Error` and is
+    // written with eight characters in between, so the search for the whole path finds nothing; the
+    // LAST HOP is still written, and underlining `.Error`'s name is both accurate and the narrowest
+    // honest claim. Anchoring the full path's WIDTH at the expression's start instead would underline
+    // `mus`, which is what the reader would have seen.
+    //
+    // A path the line does not contain in any form — a continuation across lines — still reports,
+    // anchored at the expression's start.
     func GetStablePathDiagnosticSpan(expression: Expression, path: string, fallbackLine: int, fallbackColumn: int): DiagnosticSpan {
         line := 0
         column := 0
@@ -563,6 +571,17 @@ class AnalyzerDiagnosticSpans {
 
             if index >= 0 {
                 return new DiagnosticSpan(line, index + 1, Math.Max(1, path.Length))
+            }
+
+            lastHop := path.LastIndexOf('.')
+            if lastHop > 0 && lastHop + 1 < path.Length {
+                // The DOT is part of the needle, so a one-letter member name cannot match a letter
+                // inside the receiver's own spelling.
+                memberName := path.Substring(lastHop)
+                memberIndex := sourceLine.IndexOf(memberName, startIndex, StringComparison.Ordinal)
+                if memberIndex >= 0 {
+                    return new DiagnosticSpan(line, memberIndex + 2, Math.Max(1, memberName.Length - 1))
+                }
             }
         }
 
