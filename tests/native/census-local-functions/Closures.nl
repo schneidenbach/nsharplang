@@ -203,6 +203,16 @@ class Walker {
 
         clear()
     }
+
+    // Converted to a delegate, a `this`-capturing local function binds that delegate to the receiver
+    // the call was made on — the same binding a call to it would have used.
+    func TimesCount(): Func<int, int> {
+        func scaled(value: int): int {
+            return value * Count
+        }
+
+        return scaled
+    }
 }
 
 // `this` AND A LOCAL together: the display carries `<>4__this`, and the instance METHOD call inside

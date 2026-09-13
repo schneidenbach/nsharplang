@@ -102,6 +102,20 @@ test "a local function that captures only `this` writes the instance it was call
     assert other.Count == 5
 }
 
+test "a `this`-capturing local function converted to a delegate binds the receiver" {
+    walker := new Walker()
+    walker.Count = 3
+    scale := walker.TimesCount()
+    assert scale(2) == 6
+
+    other := new Walker()
+    other.Count = 10
+    otherScale := other.TimesCount()
+    assert otherScale(2) == 20
+    // The first delegate still reads the object it was made from.
+    assert scale(2) == 6
+}
+
 test "a local function that captures `this` and a local reaches both" {
     scaler := new Scaler()
     scaler.Factor = 3
