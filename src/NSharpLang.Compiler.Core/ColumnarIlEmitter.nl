@@ -6997,6 +6997,10 @@ sealed class ColumnarIlEmitter {
                 DropNarrowingsAssignedIn(thenStmt)
             }
             return true
+        } else if columnarSwitchValue0 == 80 {
+            // OffStatement [handle] — detach the handler this handle added. Idempotent by construction:
+            // the runtime handle claims its remove accessor once, so a second `off` does nothing.
+            return TryEmitOffStatement(idx)
         } else if columnarSwitchValue0 == 23 {
             // ExpressionStatement — a SIMPLE `=` assignment (kind 14) to a `:=` local OR an array
             // element `a[i] = value`, OR a bare CALL statement (a void BCL call such as `Array.Fill(...)`,
@@ -7010,6 +7014,19 @@ sealed class ColumnarIlEmitter {
                 // a bare `n++` / `n--` statement — the stepped value is not kept.
                 let columnarDiscard13: System.Type = null
                 return TryEmitPostfixUnary(expr, false, out columnarDiscard13)
+            }
+
+            if (_nodes.Kind(expr) == 79) {
+                // A BARE `on <target> <handler>` STATEMENT — the handler is attached and the handle is
+                // discarded, which is the "subscribe for the life of the process" shape. The `pop`
+                // matches what a discarded call result gets, so the side effect is identical and only
+                // the value is dropped.
+                let subscriptionType: System.Type? = null
+                if (!TryEmitOnSubscription(expr, out subscriptionType)) {
+                    return false
+                }
+                _il.Emit(OpCodes.Pop)
+                return true
             }
 
             if (_nodes.Kind(expr) == 9) {
@@ -10413,6 +10430,11 @@ sealed class ColumnarIlEmitter {
             return false
         }
         columnarSwitchValue2 := _nodes.Kind(idx)
+        if columnarSwitchValue2 == 79 {
+            // `on <receiver>.<Event> <handler>` — the subscription VALUE. It sits ahead of the chain
+            // because its own owner reads the target and handler itself; nothing below can see an event.
+            return TryEmitOnSubscription(idx, out columnarResolvedType)
+        }
         if columnarSwitchValue2 == 6 {
             // N# owns ordinary lexical/current-instance reads. The mechanical host retains only
             // address dereference for ref/out parameters plus the separate bare-static fallback.
@@ -24515,6 +24537,220 @@ sealed class ColumnarIlEmitter {
             }
         }
         throw new InvalidOperationException("DefaultInterpolatedStringHandler.AppendFormatted overload not found")
+    }
+
+    // ---- `on` / `off` : .NET EVENT SUBSCRIPTION ----
+    //
+    // `on <receiver>.<Event> <handler>` (node kind 79) evaluates to a
+    // `NSharpLang.Runtime.NSharpEventSubscription` handle, and `off <handle>` (statement kind 80) calls
+    // `Unsubscribe()` on it. There is no event-name table and no modelled-API list anywhere below: the
+    // owner type comes from ORDINARY scoped resolution (a type name for a static event, the emitted
+    // receiver's own type otherwise) and every fact about the event — its handler delegate type, its
+    // `add_`/`remove_` accessors, whether those accessors are virtual — is read off the `EventInfo`
+    // reflection already answers for every other member.
+    //
+    // THE HANDLE IS WHAT MAKES `off` WORK ON A LAMBDA. .NET's own `-=` needs the caller to have kept the
+    // delegate instance; the handle keeps it, together with the `remove_` accessor already bound to this
+    // receiver, so detaching an inline lambda needs nothing from the user. `Unsubscribe` claims the
+    // accessor with an `Interlocked.Exchange`, which is why `off` twice is a no-op rather than a second
+    // detach.
+    private func TryResolveEventOwnerTypeName(receiverNode: int, out ownerType: Type): bool {
+        ownerType = null
+        scope := _nodes.BindingScope
+        ownerName := ""
+        rootName := ""
+        if (scope == null || !ColumnarExternalStaticMemberPlanner.TryGetQualifiedName(_nodes, _source, receiverNode, 0, out ownerName, out rootName)) {
+            return false
+        }
+        // A VALUE BINDING SHADOWS A TYPE NAME. `watcher.Changed` where `watcher` is a local, a parameter,
+        // a lifted capture or a sibling function is a value receiver whatever type shares the spelling.
+        if (_locals.ContainsKey(rootName) || _liftedLocals.ContainsKey(rootName) || _paramOrdinals.ContainsKey(rootName) || (_boxedCaptures != null && _boxedCaptures.ContainsKey(rootName)) || _siblings.ContainsKey(rootName) || _nodes.HasAdditionalRootBinding(rootName)) {
+            return false
+        }
+        let resolved: System.Type? = null
+        if (!scope.TryResolveExternalStaticOwnerType(_nodes.EnclosingTypeName, _nodes.VisibleTypeParameterNames, rootName, ownerName, out resolved)) {
+            return false
+        }
+        ownerType = resolved
+        return true
+    }
+
+    private static func FindEventOnChain(ownerType: Type, eventName: string, staticOnly: bool): EventInfo {
+        flags := BindingFlags.Public | BindingFlags.FlattenHierarchy
+        if (staticOnly) {
+            flags = flags | BindingFlags.Static
+        } else {
+            flags = flags | BindingFlags.Instance
+        }
+        walk := ownerType
+        while (walk != null) {
+            // A TYPE STILL BEING BUILT ANSWERS NO REFLECTION QUESTION — `TypeBuilder.GetEvent` throws
+            // rather than returning null — so a source rung is skipped rather than asked. Source-declared
+            // events are resolved by their own owner before this walk is reached.
+            if (walk as TypeBuilder == null && walk as EnumBuilder == null) {
+                candidate := walk.GetEvent(eventName, flags)
+                if (candidate != null) {
+                    return candidate
+                }
+            }
+            walk = walk.get_BaseType()
+        }
+        return null
+    }
+
+    private func TryEmitOnSubscription(idx: int, out columnarResolvedType: Type): bool {
+        columnarResolvedType = null
+        if (_nodes.ChildCount(idx) != 2) {
+            return Decline("emit.on.shape", "`on` subscription is missing its event target or handler", idx)
+        }
+        targetNode := Child(idx, 0)
+        handlerNode := Child(idx, 1)
+        targetKind := _nodes.Kind(targetNode)
+        eventName := ColumnarNodeTextFacts.Text(_nodes, _source, targetNode)
+        if (eventName.Length == 0) {
+            return Decline("emit.on.event-name", "`on` subscription target names no event", targetNode)
+        }
+
+        // THE RECEIVER, IN THE THREE SHAPES THE LANGUAGE HAS. A `base.Event` target (kind 71) and a
+        // member chain over a value both bind through `this`/the evaluated receiver; only a chain whose
+        // whole prefix resolves to a TYPE is a static subscription with no receiver at all.
+        let ownerType: System.Type? = null
+        let receiverLocal: System.Reflection.Emit.LocalBuilder? = null
+        if (targetKind == 71) {
+            if (_currentStruct == null || !_currentStruct.IsReference) {
+                return Decline("emit.on.base-receiver", "`on base.<Event>` needs an enclosing reference type", targetNode)
+            }
+            let baseType: System.Type? = _currentStruct.ExactBaseType
+            if (baseType == null && _currentStruct.BaseDef != null) {
+                baseType = _currentStruct.BaseDef.Builder
+            }
+            if (baseType == null) {
+                return Decline("emit.on.base-receiver", "the enclosing type has no base type to subscribe through", targetNode)
+            }
+            ownerType = baseType
+            receiverLocal = _il.DeclareLocal(_currentStruct.Builder)
+            _il.Emit(OpCodes.Ldarg_0)
+            _il.Emit(OpCodes.Stloc, receiverLocal)
+        } else {
+            if (targetKind != 8 || _nodes.ChildCount(targetNode) != 1) {
+                return Decline("emit.on.target-shape", "`on` subscription target is not a member access ending in an event name", targetNode)
+            }
+            receiverNode := Child(targetNode, 0)
+            let staticOwner: System.Type? = null
+            if (TryResolveEventOwnerTypeName(receiverNode, out staticOwner) && FindEventOnChain(staticOwner, eventName, true) != null) {
+                ownerType = staticOwner
+            } else {
+                let receiverType: System.Type? = null
+                if (!EmitExpression(receiverNode, out receiverType)) {
+                    return Decline("emit.on.receiver", "`on` subscription receiver could not be emitted", receiverNode)
+                }
+                if (receiverType.get_IsValueType()) {
+                    return Decline("emit.on.value-type-receiver", "an instance event cannot be bound through a value-type receiver", receiverNode)
+                }
+                receiverLocal = _il.DeclareLocal(receiverType)
+                _il.Emit(OpCodes.Stloc, receiverLocal)
+                ownerType = receiverType
+            }
+        }
+
+        eventInfo := FindEventOnChain(ownerType, eventName, receiverLocal == null)
+        if (eventInfo == null) {
+            return Decline("emit.on.event-lookup", "no accessible event '" + eventName + "' on '" + ownerType.FullName + "'", targetNode)
+        }
+        handlerType := eventInfo.get_EventHandlerType()
+        addMethod := eventInfo.GetAddMethod(false)
+        removeMethod := eventInfo.GetRemoveMethod(false)
+        if (handlerType == null || addMethod == null || removeMethod == null) {
+            return Decline("emit.on.accessors", "event '" + eventName + "' has no accessible add/remove accessors", targetNode)
+        }
+        if (addMethod.get_IsStatic() != (receiverLocal == null)) {
+            return Decline("emit.on.receiver-kind", "event '" + eventName + "' is " + (addMethod.get_IsStatic() ? "static" : "an instance member") + " and the receiver does not match", targetNode)
+        }
+
+        // THE HANDLER. A lambda takes the event's delegate type as its contextual target, exactly as it
+        // does in an argument position; ANY other expression is an ordinary value that must already BE
+        // that delegate type — a `ConsoleCancelEventHandler` local, a field, a call result.
+        if (_nodes.Kind(handlerNode) == 39) {
+            if (!IsSupportedContextualDelegateType(handlerType) || !TryEmitLambdaLiteral(handlerNode, handlerType)) {
+                return Decline("emit.on.handler-lambda", "the handler lambda could not be bound to '" + handlerType.FullName + "'", handlerNode)
+            }
+        } else {
+            let handlerValueType: System.Type? = null
+            if (!EmitExpression(handlerNode, out handlerValueType)) {
+                return Decline("emit.on.handler", "the event handler expression could not be emitted", handlerNode)
+            }
+            if (!TypesEquivalent(handlerValueType, handlerType)) {
+                return Decline("emit.on.handler-type", "the event handler is '" + handlerValueType.FullName + "' where '" + handlerType.FullName + "' is required", handlerNode)
+            }
+        }
+        handlerLocal := _il.DeclareLocal(handlerType)
+        _il.Emit(OpCodes.Stloc, handlerLocal)
+
+        if (receiverLocal != null) {
+            _il.Emit(OpCodes.Ldloc, receiverLocal)
+        }
+        _il.Emit(OpCodes.Ldloc, handlerLocal)
+        _il.Emit(addMethod.get_IsStatic() ? OpCodes.Call : OpCodes.Callvirt, addMethod)
+
+        // THE REMOVE ACCESSOR, BOUND TO THIS RECEIVER, as an `Action<THandler>` the handle keeps. A
+        // virtual accessor takes `ldvirtftn` over the receiver so an override on the runtime type wins,
+        // which is the same dispatch the `add_` above just used.
+        actionType := typeof(Action<int>).GetGenericTypeDefinition().MakeGenericType([handlerType])
+        actionCtor := actionType.GetConstructor([typeof(object), typeof(IntPtr)])
+        if (actionCtor == null) {
+            return Decline("emit.on.remove-delegate", "Action<T> has no (object, IntPtr) constructor", idx)
+        }
+        if (receiverLocal == null) {
+            _il.Emit(OpCodes.Ldnull)
+            _il.Emit(OpCodes.Ldftn, removeMethod)
+        } else {
+            _il.Emit(OpCodes.Ldloc, receiverLocal)
+            if (removeMethod.get_IsVirtual() && !removeMethod.get_IsFinal()) {
+                _il.Emit(OpCodes.Dup)
+                _il.Emit(OpCodes.Ldvirtftn, removeMethod)
+            } else {
+                _il.Emit(OpCodes.Ldftn, removeMethod)
+            }
+        }
+        _il.Emit(OpCodes.Newobj, actionCtor)
+        _il.Emit(OpCodes.Ldloc, handlerLocal)
+
+        let openSubscription: System.Type? = null
+        if (!ColumnarTypeOfPlanner.TryResolveRuntimeGenericDefinition("NSharpLang.Runtime.NSharpEventSubscription`1", "NSharpLang.Runtime", out openSubscription)) {
+            return Decline("emit.on.runtime-handle", "the N# runtime's event-subscription handle type could not be resolved", idx)
+        }
+        subscriptionType := openSubscription.MakeGenericType([handlerType])
+        subscriptionCtor := subscriptionType.GetConstructor([actionType, handlerType])
+        if (subscriptionCtor == null) {
+            return Decline("emit.on.runtime-handle", "the N# runtime's event-subscription handle has no (Action<T>, T) constructor", idx)
+        }
+        _il.Emit(OpCodes.Newobj, subscriptionCtor)
+        // THE STATIC TYPE IS THE NON-GENERIC ROOT, which is what makes every `on` result and every `off`
+        // target one type — the same identity `Analyzer` gives the expression, so the two halves of the
+        // feature cannot disagree about what a handle is.
+        columnarResolvedType = typeof(NSharpLang.Runtime.NSharpEventSubscription)
+        return true
+    }
+
+    private func TryEmitOffStatement(idx: int): bool {
+        if (_nodes.ChildCount(idx) != 1) {
+            return Decline("emit.off.shape", "`off` has no subscription handle", idx)
+        }
+        handleNode := Child(idx, 0)
+        let handleType: System.Type? = null
+        if (!EmitExpression(handleNode, out handleType)) {
+            return Decline("emit.off.handle", "`off` handle expression could not be emitted", handleNode)
+        }
+        subscriptionRoot := typeof(NSharpLang.Runtime.NSharpEventSubscription)
+        if (!subscriptionRoot.IsAssignableFrom(handleType)) {
+            return Decline("emit.off.handle-type", "`off` needs a subscription handle, got '" + handleType.FullName + "'", handleNode)
+        }
+        unsubscribe := subscriptionRoot.GetMethod("Unsubscribe", System.Type.EmptyTypes)
+        if (unsubscribe == null) {
+            return Decline("emit.off.runtime-handle", "the N# runtime's event-subscription handle has no Unsubscribe()", idx)
+        }
+        _il.Emit(OpCodes.Callvirt, unsubscribe)
+        return true
     }
 
     private func Child(idx: int, n: int): int => _nodes.Child(idx, n)
