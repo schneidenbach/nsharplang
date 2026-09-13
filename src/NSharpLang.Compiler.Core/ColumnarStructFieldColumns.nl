@@ -6,6 +6,9 @@ class ColumnarStructFieldColumns {
     FieldStaticFlags: bool[]
     FieldReadonlyFlags: bool[]
     FieldPrivateFlags: bool[]
+    // The written accessibility words, in the `Modifiers` bit space, one word per field. Zero means
+    // none was written and the casing convention alone decides.
+    FieldVisibilityFlags: int[]
     FieldThreadStaticFlags: bool[]
     FieldConstFlags: bool[]
     FieldInitKinds: int[]
@@ -17,6 +20,7 @@ class ColumnarStructFieldColumns {
         fieldStaticFlags: bool[],
         fieldReadonlyFlags: bool[],
         fieldPrivateFlags: bool[],
+        fieldVisibilityFlags: int[],
         fieldThreadStaticFlags: bool[],
         fieldConstFlags: bool[],
         fieldInitKinds: int[],
@@ -27,6 +31,7 @@ class ColumnarStructFieldColumns {
         FieldStaticFlags = fieldStaticFlags
         FieldReadonlyFlags = fieldReadonlyFlags
         FieldPrivateFlags = fieldPrivateFlags
+        FieldVisibilityFlags = fieldVisibilityFlags
         FieldThreadStaticFlags = fieldThreadStaticFlags
         FieldConstFlags = fieldConstFlags
         FieldInitKinds = fieldInitKinds
@@ -48,6 +53,7 @@ class ColumnarStructFieldColumns {
         fieldInitKinds := new int[](count)
         fieldInitTexts := new string[](count)
         fieldPrivateFlags := new bool[](count)
+        fieldVisibilityFlags := new int[](count)
         fieldThreadStaticFlags := new bool[](count)
         fieldConstFlags := new bool[](count)
 
@@ -68,6 +74,7 @@ class ColumnarStructFieldColumns {
                 fieldInitTexts[fieldIndex] = ""
             }
             fieldPrivateFlags[fieldIndex] = ColumnarStructFieldFlagIsPrivate(fieldModifierFlags)
+            fieldVisibilityFlags[fieldIndex] = ColumnarStructFieldVisibilityModifiers(fieldModifierFlags)
             fieldThreadStaticFlags[fieldIndex] = ColumnarStructFieldFlagIsThreadStatic(fieldModifierFlags)
             fieldConstFlags[fieldIndex] = ColumnarStructFieldFlagIsConst(fieldModifierFlags)
             fieldIndex = fieldIndex + 1
@@ -79,6 +86,7 @@ class ColumnarStructFieldColumns {
             fieldStatics,
             fieldReadonlyFlags,
             fieldPrivateFlags,
+            fieldVisibilityFlags,
             fieldThreadStaticFlags,
             fieldConstFlags,
             fieldInitKinds,

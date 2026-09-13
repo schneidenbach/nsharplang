@@ -381,8 +381,16 @@ class TaggedError: Exception {
 }
 ```
 
-Only `public` inherited members are in scope. A `protected` member of an external base is not
-reachable yet — hold an instance of the base, or expose what you need from a type you declare.
+A `protected` member of an external base is in scope too, which is what makes the extension points
+of types like `Collection<T>` usable: `this.SetItem(0, item)` and `base.ClearItems()` inside a
+`class Bag: Collection<string>` both compile, and `base.` emits a non-virtual call to the base
+implementation. The rule is C#'s (§7.5.4) — the receiver has to be your type or one derived from it,
+and `base.` is always allowed inside the deriving type.
+
+Two spellings of that surface are not compiled yet: a protected member named with **no receiver at
+all** (write `this.SetItem(...)` rather than a bare `SetItem(...)`), and a protected **field or
+property** READ (`this.Items`) — the inherited-member read path admits a narrower set of result
+types than the call path does, independently of accessibility. Both report NL103.
 
 ### Abstract Classes
 

@@ -2772,6 +2772,10 @@ class ColumnarBindingScopeFacts {
         return kind == 8 || kind == 9 || kind == 10 || kind == 12 || kind == 13 || kind == 14 || kind == 72
     }
 
+    // THE ONE BIT SPACE IS `Modifiers` (DeclarationEnums.nl): Public 1, Private 2, Internal 4,
+    // Protected 8, File 32768. This answered 4 for `protected` and 8 for `internal` — harmless while
+    // the only reader treated every non-`public` word alike, and a trap for the next one, because
+    // `MethodVisibilityAttributes` reads 8 as `family` and 4 as `assembly`.
     static func VisibilityModifierFlag(kind: int): int {
         if kind == Convert.ToInt32(TokenType.Public) {
             return 1
@@ -2779,10 +2783,10 @@ class ColumnarBindingScopeFacts {
         if kind == Convert.ToInt32(TokenType.Private) {
             return 2
         }
-        if kind == Convert.ToInt32(TokenType.Protected) {
+        if kind == Convert.ToInt32(TokenType.Internal) {
             return 4
         }
-        if kind == Convert.ToInt32(TokenType.Internal) {
+        if kind == Convert.ToInt32(TokenType.Protected) {
             return 8
         }
         if kind == Convert.ToInt32(TokenType.File) {

@@ -127,6 +127,22 @@ class ColumnarOrdinaryRuntimeDirectCallResolver {
     }
 
     static func ResolveWithFacts(lookupType: Type, memberName: string, argumentTypes: Type[], argumentFacts: ColumnarDirectCallArgumentFacts, expectedStatic: bool): ColumnarOrdinaryRuntimeDirectCallSelection {
+        return ResolveWithFactsCore(lookupType, memberName, argumentTypes, argumentFacts, expectedStatic, false)
+    }
+
+    // THE SAME RESOLUTION, WITH THE BASE'S `protected` SURFACE IN THE CANDIDATE SET.
+    //
+    // `lookupType` here is the EXTERNAL BASE of the source type whose body is being emitted, and a
+    // derived type owns everything its base declares `protected`: `SetItem(0, v)`,
+    // `base.ClearItems()` and `this.SetItem(...)` inside a `Collection<T>` subclass are calls the
+    // CLR admits and `GetMethods()`'s default public-only enumeration could not see. Only the
+    // inherited-base call sites enter here; every other receiver keeps the public surface, and the
+    // level filter still refuses `private` and `assembly` because the base is in another assembly.
+    static func ResolveInheritedWithFacts(lookupType: Type, memberName: string, argumentTypes: Type[], argumentFacts: ColumnarDirectCallArgumentFacts, expectedStatic: bool): ColumnarOrdinaryRuntimeDirectCallSelection {
+        return ResolveWithFactsCore(lookupType, memberName, argumentTypes, argumentFacts, expectedStatic, true)
+    }
+
+    static func ResolveWithFactsCore(lookupType: Type, memberName: string, argumentTypes: Type[], argumentFacts: ColumnarDirectCallArgumentFacts, expectedStatic: bool, allowInheritedProtected: bool): ColumnarOrdinaryRuntimeDirectCallSelection {
         ValidateInputs(lookupType, memberName, argumentTypes)
         ColumnarSourceDirectCallResolver.ValidateArgumentFacts(argumentTypes, argumentFacts)
 
@@ -145,12 +161,12 @@ class ColumnarOrdinaryRuntimeDirectCallResolver {
         closedArguments := new Type[](0)
         if TryGetBuilderBoundRuntimeDefinition(lookupType, out genericDefinition, out closedArguments) {
             try {
-                candidates := genericDefinition.GetMethods()
+                candidates := genericDefinition.GetMethods(CandidateMethodFlags(allowInheritedProtected))
                 if candidates == null {
                     throw new InvalidOperationException("Runtime generic method enumeration returned null.")
                 }
 
-                return ResolveFromCandidatesCore(lookupType, genericDefinition, closedArguments, memberName, argumentTypes, argumentFacts, expectedStatic, candidates)
+                return ResolveFromCandidatesCore(lookupType, genericDefinition, closedArguments, memberName, argumentTypes, argumentFacts, expectedStatic, candidates, allowInheritedProtected)
             } catch ex: NotSupportedException {
                 return Empty(ColumnarOrdinaryRuntimeDirectCallStatus.Excluded, lookupType, expectedStatic)
             } catch ex: NotImplementedException {
@@ -163,12 +179,12 @@ class ColumnarOrdinaryRuntimeDirectCallResolver {
         }
 
         try {
-            candidates := CandidateMethods(lookupType)
+            candidates := CandidateMethods(lookupType, allowInheritedProtected)
             if candidates == null {
                 throw new InvalidOperationException("Runtime method enumeration returned null.")
             }
 
-            return ResolveFromCandidatesWithFacts(lookupType, memberName, argumentTypes, argumentFacts, expectedStatic, candidates)
+            return ResolveFromCandidatesCore(lookupType, lookupType, new Type[](0), memberName, argumentTypes, argumentFacts, expectedStatic, candidates, allowInheritedProtected)
         } catch ex: NotSupportedException {
             return Empty(ColumnarOrdinaryRuntimeDirectCallStatus.Excluded, lookupType, expectedStatic)
         } catch ex: InvalidOperationException {
@@ -186,8 +202,25 @@ class ColumnarOrdinaryRuntimeDirectCallResolver {
     // declaring type each candidate carries is the real CLR owner the call must be emitted against.
     // Duplicates are harmless: candidate selection compares signatures, and a base interface reached
     // twice offers the same `MethodInfo`.
+    // Which accessibilities the candidate enumeration asks metadata for. `Public | Instance | Static`
+    // is exactly what a bare `GetMethods()` answers, so the ordinary path is unchanged; the
+    // inherited-base form adds `NonPublic`, and the level filter beside it decides what of that is
+    // actually reachable.
+    static func CandidateMethodFlags(allowInheritedProtected: bool): BindingFlags {
+        flags := BindingFlags.Public | BindingFlags.Instance | BindingFlags.Static
+        if allowInheritedProtected {
+            flags = flags | BindingFlags.NonPublic
+        }
+
+        return flags
+    }
+
     static func CandidateMethods(lookupType: Type): MethodInfo[] {
-        declared := lookupType.GetMethods()
+        return CandidateMethods(lookupType, false)
+    }
+
+    static func CandidateMethods(lookupType: Type, allowInheritedProtected: bool): MethodInfo[] {
+        declared := lookupType.GetMethods(CandidateMethodFlags(allowInheritedProtected))
         if declared == null || !lookupType.get_IsInterface() {
             return declared
         }
@@ -206,7 +239,7 @@ class ColumnarOrdinaryRuntimeDirectCallResolver {
 
         baseIndex := 0
         while baseIndex < baseInterfaces.Length {
-            inherited := baseInterfaces[baseIndex].GetMethods()
+            inherited := baseInterfaces[baseIndex].GetMethods(CandidateMethodFlags(allowInheritedProtected))
             baseIndex = baseIndex + 1
             if inherited == null {
                 continue
@@ -380,6 +413,10 @@ class ColumnarOrdinaryRuntimeDirectCallResolver {
     }
 
     static func ResolveFromCandidatesCore(lookupType: Type, candidateLookupType: Type, closedArguments: Type[], memberName: string, argumentTypes: Type[], argumentFacts: ColumnarDirectCallArgumentFacts, expectedStatic: bool, candidates: MethodInfo[]): ColumnarOrdinaryRuntimeDirectCallSelection {
+        return ResolveFromCandidatesCore(lookupType, candidateLookupType, closedArguments, memberName, argumentTypes, argumentFacts, expectedStatic, candidates, false)
+    }
+
+    static func ResolveFromCandidatesCore(lookupType: Type, candidateLookupType: Type, closedArguments: Type[], memberName: string, argumentTypes: Type[], argumentFacts: ColumnarDirectCallArgumentFacts, expectedStatic: bool, candidates: MethodInfo[], allowInheritedProtected: bool): ColumnarOrdinaryRuntimeDirectCallSelection {
         hadExcludedShape := false
         hadFixedArity := false
         bestScore := -1
@@ -395,7 +432,7 @@ class ColumnarOrdinaryRuntimeDirectCallResolver {
         index := 0
         while index < candidates.Length {
             candidate := candidates[index]
-            if candidate != null && IsPublicCandidateForLookup(candidate, candidateLookupType, memberName, expectedStatic) {
+            if candidate != null && IsPublicCandidateForLookup(candidate, candidateLookupType, memberName, expectedStatic, allowInheritedProtected) {
                 parameters := candidate.GetParameters()
                 if parameters == null {
                     throw new InvalidOperationException("Runtime method parameters cannot be null.")
@@ -540,7 +577,11 @@ class ColumnarOrdinaryRuntimeDirectCallResolver {
     }
 
     static func IsPublicCandidateForLookup(method: MethodInfo, lookupType: Type, memberName: string, expectedStatic: bool): bool {
-        if !method.get_IsPublic() || method.get_Name() != memberName || method.get_IsStatic() != expectedStatic {
+        return IsPublicCandidateForLookup(method, lookupType, memberName, expectedStatic, false)
+    }
+
+    static func IsPublicCandidateForLookup(method: MethodInfo, lookupType: Type, memberName: string, expectedStatic: bool, allowInheritedProtected: bool): bool {
+        if !ColumnarRuntimeInstanceMemberResolver.IsReachableInheritedLevel(MemberAccessibility.LevelOfMethod(method), allowInheritedProtected) || method.get_Name() != memberName || method.get_IsStatic() != expectedStatic {
             return false
         }
 

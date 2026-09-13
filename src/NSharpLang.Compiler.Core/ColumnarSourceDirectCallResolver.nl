@@ -230,7 +230,7 @@ class ColumnarSourceDirectCallResolver {
             return NotSource()
         }
 
-        return ResolveKnownInstance(definition, receiverType, closed, memberName, argumentTypes, facts, null, false)
+        return ResolveKnownInstance(definition, receiverType, closed, memberName, argumentTypes, facts, null, false, false)
     }
 
     // Direct planning inside the assembly carries the accessing source declaration separately
@@ -249,7 +249,7 @@ class ColumnarSourceDirectCallResolver {
             return NotSource()
         }
 
-        return ResolveKnownInstance(definition, receiverType, closed, memberName, argumentTypes, facts, accessingDefinition, true)
+        return ResolveKnownInstance(definition, receiverType, closed, memberName, argumentTypes, facts, accessingDefinition, true, false)
     }
 
     static func ResolveImplicitInstance(currentDefinition: ColumnarStructDef?, receiverType: Type, memberName: string, argumentTypes: Type[]): ColumnarSourceDirectCallSelection {
@@ -271,7 +271,7 @@ class ColumnarSourceDirectCallResolver {
             }
         }
 
-        return ResolveKnownInstance(currentDefinition, receiverType, closed, memberName, argumentTypes, facts, currentDefinition, true)
+        return ResolveKnownInstance(currentDefinition, receiverType, closed, memberName, argumentTypes, facts, currentDefinition, true, false)
     }
 
     static func ResolveExplicitStatic(ownerType: Type, memberName: string, argumentTypes: Type[], sourceDefinitions: IEnumerable<ColumnarStructDef>): ColumnarSourceDirectCallSelection {
@@ -346,14 +346,14 @@ class ColumnarSourceDirectCallResolver {
         return ResolveClassifiedStaticInCompilation(enclosingDefinition, ownerType, memberName, argumentTypes, argumentFacts, enclosingDefinition)
     }
 
-    static func ResolveKnownInstance(root: ColumnarStructDef, receiverType: Type, closed: bool, memberName: string, argumentTypes: Type[], argumentFacts: ColumnarDirectCallArgumentFacts, accessingDefinition: ColumnarStructDef?, sameAssembly: bool): ColumnarSourceDirectCallSelection {
+    static func ResolveKnownInstance(root: ColumnarStructDef, receiverType: Type, closed: bool, memberName: string, argumentTypes: Type[], argumentFacts: ColumnarDirectCallArgumentFacts, accessingDefinition: ColumnarStructDef?, sameAssembly: bool, receiverIsAccessingInstance: bool): ColumnarSourceDirectCallSelection {
         ValidateDefinitionGraph(root)
         ValidateReceiverShape(root, receiverType)
         if memberName.Length == 0 {
             return Rejected(root, receiverType, false)
         }
 
-        selected := closed ? SelectLocalInstance(root, root, receiverType, true, memberName, argumentTypes, argumentFacts, accessingDefinition, sameAssembly) : SelectInstanceChain(root, root, receiverType, memberName, argumentTypes, argumentFacts, accessingDefinition, sameAssembly)
+        selected := closed ? SelectLocalInstance(root, root, receiverType, true, memberName, argumentTypes, argumentFacts, accessingDefinition, sameAssembly, receiverIsAccessingInstance) : SelectInstanceChain(root, root, receiverType, memberName, argumentTypes, argumentFacts, accessingDefinition, sameAssembly, receiverIsAccessingInstance)
 
         if selected.Status == ColumnarSourceDirectCallStatus.NotSourceType {
             return Rejected(root, receiverType, false)
@@ -381,8 +381,8 @@ class ColumnarSourceDirectCallResolver {
     // Instance declarations hide by invocation arity. Once a definition has a same-arity fixed
     // declaration, or an excluded params/varargs shape that can accept this argument count, an
     // inaccessible, excluded, type-incompatible, or ambiguous local set blocks every base match.
-    static func SelectInstanceChain(root: ColumnarStructDef, current: ColumnarStructDef, receiverType: Type, memberName: string, argumentTypes: Type[], argumentFacts: ColumnarDirectCallArgumentFacts, accessingDefinition: ColumnarStructDef?, sameAssembly: bool): ColumnarSourceDirectCallSelection {
-        local := SelectLocalInstance(root, current, receiverType, false, memberName, argumentTypes, argumentFacts, accessingDefinition, sameAssembly)
+    static func SelectInstanceChain(root: ColumnarStructDef, current: ColumnarStructDef, receiverType: Type, memberName: string, argumentTypes: Type[], argumentFacts: ColumnarDirectCallArgumentFacts, accessingDefinition: ColumnarStructDef?, sameAssembly: bool, receiverIsAccessingInstance: bool): ColumnarSourceDirectCallSelection {
+        local := SelectLocalInstance(root, current, receiverType, false, memberName, argumentTypes, argumentFacts, accessingDefinition, sameAssembly, receiverIsAccessingInstance)
 
         if local.Status != ColumnarSourceDirectCallStatus.NotSourceType {
             return local
@@ -391,7 +391,7 @@ class ColumnarSourceDirectCallResolver {
         if current.IsInterface {
             baseIndex := 0
             while baseIndex < current.InterfaceBases.Count {
-                inherited := SelectInstanceChain(root, current.InterfaceBases[baseIndex], receiverType, memberName, argumentTypes, argumentFacts, accessingDefinition, sameAssembly)
+                inherited := SelectInstanceChain(root, current.InterfaceBases[baseIndex], receiverType, memberName, argumentTypes, argumentFacts, accessingDefinition, sameAssembly, receiverIsAccessingInstance)
 
                 if inherited.Status != ColumnarSourceDirectCallStatus.NotSourceType {
                     return inherited
@@ -403,13 +403,13 @@ class ColumnarSourceDirectCallResolver {
 
         baseDefinition := current.BaseDef
         if baseDefinition != null {
-            return SelectInstanceChain(root, baseDefinition, receiverType, memberName, argumentTypes, argumentFacts, accessingDefinition, sameAssembly)
+            return SelectInstanceChain(root, baseDefinition, receiverType, memberName, argumentTypes, argumentFacts, accessingDefinition, sameAssembly, receiverIsAccessingInstance)
         }
 
         return NoDeclaration()
     }
 
-    static func SelectLocalInstance(root: ColumnarStructDef, owner: ColumnarStructDef, receiverType: Type, closed: bool, memberName: string, argumentTypes: Type[], argumentFacts: ColumnarDirectCallArgumentFacts, accessingDefinition: ColumnarStructDef?, sameAssembly: bool): ColumnarSourceDirectCallSelection {
+    static func SelectLocalInstance(root: ColumnarStructDef, owner: ColumnarStructDef, receiverType: Type, closed: bool, memberName: string, argumentTypes: Type[], argumentFacts: ColumnarDirectCallArgumentFacts, accessingDefinition: ColumnarStructDef?, sameAssembly: bool, receiverIsAccessingInstance: bool): ColumnarSourceDirectCallSelection {
         overloads := new List<ColumnarInstanceMethodDef>()
         if !owner.MethodOverloads.TryGetValue(memberName, out overloads) {
             return NoDeclaration()
@@ -435,7 +435,7 @@ class ColumnarSourceDirectCallResolver {
 
             if candidate.ParamTypes.Length == argumentTypes.Length {
                 hadArityMatch = true
-                if IsCallableInstanceMethod(root, owner, accessingDefinition, sameAssembly, candidate) {
+                if IsCallableInstanceMethod(root, owner, accessingDefinition, sameAssembly, candidate, receiverIsAccessingInstance) {
                     parameters := ResolveParameterTypes(candidate.ParamTypes, receiverType, closed)
 
                     score := ArgumentsScoreWithFacts(parameters, argumentTypes, argumentFacts)
@@ -604,10 +604,10 @@ class ColumnarSourceDirectCallResolver {
         return new ColumnarSourceDirectCallSelection(ColumnarSourceDirectCallStatus.Selected, ColumnarSourceDirectCallDispatch.Call, owner, ownerType, declaringType, method, parameterTypes, returnType, root.IsReference, true, false)
     }
 
-    static func IsCallableInstanceMethod(receiverDefinition: ColumnarStructDef, declaringDefinition: ColumnarStructDef, accessingDefinition: ColumnarStructDef?, sameAssembly: bool, definition: ColumnarInstanceMethodDef): bool {
+    static func IsCallableInstanceMethod(receiverDefinition: ColumnarStructDef, declaringDefinition: ColumnarStructDef, accessingDefinition: ColumnarStructDef?, sameAssembly: bool, definition: ColumnarInstanceMethodDef, receiverIsAccessingInstance: bool): bool {
         method: MethodInfo = definition.Builder
         accessAttributes := (int)method.get_Attributes() & 7
-        if !CanAccessSourceInstanceMethod(receiverDefinition, declaringDefinition, accessingDefinition, sameAssembly, accessAttributes) || method.get_IsGenericMethod() || IsVarArgs(method) || method.get_IsAbstract() && !receiverDefinition.IsReference || HasUnsupportedModifiers(definition.ParamModifierKinds) || !HasSupportedSignature(definition.ParamTypes, definition.ReturnType) {
+        if !CanAccessSourceInstanceMethod(receiverDefinition, declaringDefinition, accessingDefinition, sameAssembly, accessAttributes, receiverIsAccessingInstance) || method.get_IsGenericMethod() || IsVarArgs(method) || method.get_IsAbstract() && !receiverDefinition.IsReference || HasUnsupportedModifiers(definition.ParamModifierKinds) || !HasSupportedSignature(definition.ParamTypes, definition.ReturnType) {
             return false
         }
 
@@ -619,7 +619,7 @@ class ColumnarSourceDirectCallResolver {
     // one of its derived types. Assembly access is an independent alternative for FamORAssem, so a
     // same-assembly call through a base-typed receiver remains valid. Static methods have no
     // receiver and continue through CanAccessSourceMethod directly.
-    static func CanAccessSourceInstanceMethod(receiverDefinition: ColumnarStructDef, declaringDefinition: ColumnarStructDef, accessingDefinition: ColumnarStructDef?, sameAssembly: bool, accessAttributes: int): bool {
+    static func CanAccessSourceInstanceMethod(receiverDefinition: ColumnarStructDef, declaringDefinition: ColumnarStructDef, accessingDefinition: ColumnarStructDef?, sameAssembly: bool, accessAttributes: int, receiverIsAccessingInstance: bool): bool {
         if !CanAccessSourceMethod(declaringDefinition, accessingDefinition, sameAssembly, accessAttributes) {
             return false
         }
@@ -631,6 +631,16 @@ class ColumnarSourceDirectCallResolver {
         if accessingDefinition == null {
             return false
         }
+
+        // `base.M()` SATISFIES THE FAMILY-RECEIVER CONSTRAINT BY CONSTRUCTION. The written receiver is
+        // the BASE — the one receiver type that is never the accessing type or derived from it — but
+        // the value passed as argument zero is `this`, so the constraint the rule actually states
+        // ("the receiver is an instance of the accessing type") holds. C# spells this out as its own
+        // case (§7.6.8) and so does this; without it `base.ProtectedMember()` was unreachable.
+        if receiverIsAccessingInstance {
+            return true
+        }
+
         return IsSameOrDerivedSourceType(receiverDefinition, accessingDefinition)
     }
 

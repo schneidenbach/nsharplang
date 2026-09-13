@@ -1273,6 +1273,11 @@ class ColumnarDeclarationPlanner {
         return 5
     }
 
+    // `private protected` — a deriving type in this assembly, and nobody else.
+    static func FamilyAndAssemblyMethodAttribute(): int {
+        return 2
+    }
+
     static func VirtualMethodAttribute(): int {
         return 64
     }
@@ -1325,12 +1330,17 @@ class ColumnarDeclarationPlanner {
 
     // Member visibility follows the language's casing convention unless an explicit CLR-facing
     // modifier overrides it. `public` wins malformed combinations exactly as the analyzer's shared
-    // visibility convention does; protected+internal is the one combined accessibility word.
+    // visibility convention does; `protected internal` and `private protected` are the two combined
+    // accessibility words, and both are asked BEFORE their single-word halves so a pair is not read as
+    // whichever half happens to be tested first.
     // Lowercase members are assembly-visible so calls from another file in the same package remain
     // legal, while an explicit private modifier produces a genuinely private CLR member.
     static func MethodVisibilityAttributes(name: string, modifierFlags: int): int {
         if (modifierFlags & 1) != 0 {
             return PublicFieldAttribute()
+        }
+        if (modifierFlags & 8) != 0 && (modifierFlags & 2) != 0 {
+            return FamilyAndAssemblyMethodAttribute()
         }
         if (modifierFlags & 8) != 0 && (modifierFlags & 4) != 0 {
             return FamilyOrAssemblyMethodAttribute()
@@ -1398,7 +1408,35 @@ class ColumnarDeclarationPlanner {
     }
 
     static func FreeFunctionAttributes(name: string, modifierFlags: int): int {
-        return MethodVisibilityAttributes(name, modifierFlags) | StaticMethodAttribute()
+        return FreeFunctionVisibilityAttributes(name, modifierFlags) | StaticMethodAttribute()
+    }
+
+    // A FREE FUNCTION HAS TWO CLR SHAPES, NOT SIX, and the reason is that it has no containing user
+    // type. A member's `private` means "this type only" and the CLR enforces it; a free function's
+    // privacy boundary is the PACKAGE (the namespace), which the CLR has no concept of and the
+    // analyzer enforces on its own with NL308. So `public` — written, or implied by a PascalCase
+    // name — is the one word that widens the emitted method to `Public`; every other spelling,
+    // including a written `private` or `internal` and the camelCase default, emits `Assembly`.
+    //
+    // `Assembly` rather than `Private` is the load-bearing half. Free functions of one namespace are
+    // emitted onto that namespace's single free-function type, but a class of the same package, a
+    // lambda's display class and a local function's closure are all DIFFERENT CLR types, and each of
+    // them may legally call a package-private function. `Private` would make every one of those
+    // calls unverifiable IL for a rule the language never stated.
+    static func FreeFunctionVisibilityAttributes(name: string, modifierFlags: int): int {
+        if (modifierFlags & 1) != 0 {
+            return PublicFieldAttribute()
+        }
+
+        if (modifierFlags & 2) != 0 || (modifierFlags & 4) != 0 || (modifierFlags & 8) != 0 || (modifierFlags & 32768) != 0 {
+            return AssemblyMethodAttribute()
+        }
+
+        if name != null && name.Length > 0 && char.IsUpper(name[0]) {
+            return PublicFieldAttribute()
+        }
+
+        return AssemblyMethodAttribute()
     }
 
     // `this` occupies argument 0 of an instance method, so user parameter ordinals shift by one; a
@@ -1471,7 +1509,10 @@ class ColumnarDeclarationPlanner {
         index = 0
         while index < functionCount {
             function := functions[index]
-            functionWords[index] = FreeFunctionAttributes(function.Name, function.ModifierFlags)
+            // THE WRITTEN VISIBILITY WORD IS PART OF THE ANSWER. A free function's modifier column
+            // carries `async`/`generator`/`native import`; the visibility word is parsed into its own
+            // column, so both are read here and `public func helper()` reaches metadata as public.
+            functionWords[index] = FreeFunctionAttributes(function.Name, function.ModifierFlags | function.VisibilityModifierFlags)
             functionVoids[index] = IsVoidReturnCanonical(function.ReturnCanonical)
             index = index + 1
         }
@@ -1541,11 +1582,47 @@ class ColumnarDeclarationPlanner {
         return 32768
     }
 
+    // ONE ACCESSIBILITY WORD PER LEVEL, and it is the SAME encoding a method carries: `FieldAttributes`
+    // and `MethodAttributes` share their low three bits (ECMA-335 II.23.1.5 and II.23.1.10), which is
+    // why `PublicFieldAttribute` is already reused for methods above.
+    static func FieldVisibilityAttributeFor(level: int): int {
+        if level == MemberAccessibility.Private {
+            return PrivateFieldAttribute()
+        }
+
+        if level == MemberAccessibility.PrivateProtected {
+            return FamilyAndAssemblyMethodAttribute()
+        }
+
+        if level == MemberAccessibility.Assembly {
+            return AssemblyMethodAttribute()
+        }
+
+        if level == MemberAccessibility.Family {
+            return FamilyMethodAttribute()
+        }
+
+        if level == MemberAccessibility.FamilyOrAssembly {
+            return FamilyOrAssemblyMethodAttribute()
+        }
+
+        return PublicFieldAttribute()
+    }
+
     // Private 1 or Public 6; +Static 16 for a static field; +InitOnly 32 for a readonly one;
     // +Literal 64 and +HasDefault 32768 for a const field. Literal storage is static and cannot
     // also carry InitOnly, because the CLR Constant table is the field's complete value contract.
     static func FieldAttributesFor(isStatic: bool, isReadonly: bool, isPrivate: bool, isLiteral: bool = false): int {
-        bits := isPrivate ? PrivateFieldAttribute() : PublicFieldAttribute()
+        level := isPrivate ? MemberAccessibility.Private : MemberAccessibility.Public
+        return FieldAttributesForLevel(isStatic, isReadonly, level, isLiteral)
+    }
+
+    // THE SAME COMPUTATION DRIVEN BY THE WRITTEN WORD. A field used to carry one accessibility BIT —
+    // private or not — so `protected Seed: int` was emitted `public` while `protected func` beside it
+    // was emitted `family`. The level comes from `MemberAccessibility`, which is also what the
+    // analyzer refuses an out-of-family read with, so metadata and diagnostic cannot disagree.
+    static func FieldAttributesForLevel(isStatic: bool, isReadonly: bool, level: int, isLiteral: bool): int {
+        bits := FieldVisibilityAttributeFor(level)
         if isStatic || isLiteral {
             bits = bits | StaticFieldAttribute()
         }
@@ -1580,6 +1657,21 @@ class ColumnarDeclarationPlanner {
             return input.FieldReadonlyFlags[index]
         }
         return false
+    }
+
+    // THE LEVEL A FIELD'S WRITTEN WORDS NAME. The visibility column carries the words; the older
+    // boolean column is the `private` bit of the same word, and it still answers for the synthesized
+    // fields (a primary constructor's captured parameters) that have no written word at all.
+    static func FieldAccessibilityLevelAt(input: ColumnarStructInput, index: int): int {
+        if index < input.FieldVisibilityFlags.Length && input.FieldVisibilityFlags[index] != 0 {
+            return MemberAccessibility.LevelOfDeclaredModifiers(input.FieldVisibilityFlags[index])
+        }
+
+        if FieldIsPrivateAt(input, index) {
+            return MemberAccessibility.Private
+        }
+
+        return MemberAccessibility.Public
     }
 
     static func FieldIsPrivateAt(input: ColumnarStructInput, index: int): bool {
@@ -1635,10 +1727,9 @@ class ColumnarDeclarationPlanner {
                 isLiteral := FieldIsLiteralAt(input, field)
                 isStatic := input.FieldStaticFlags[field] || isLiteral
                 fieldStatics[field] = isStatic
-                isPrivate := FieldIsPrivateAt(input, field)
                 fieldThreadStatics[field] = FieldIsThreadStaticAt(input, field)
                 fieldLiterals[field] = isLiteral
-                fieldWords[field] = FieldAttributesFor(isStatic, FieldIsReadonlyAt(input, field), isPrivate, isLiteral)
+                fieldWords[field] = FieldAttributesForLevel(isStatic, FieldIsReadonlyAt(input, field), FieldAccessibilityLevelAt(input, field), isLiteral)
                 fieldNullables[field] = FieldIsNullableAt(input, field)
                 field = field + 1
             }

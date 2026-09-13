@@ -1946,7 +1946,29 @@ test "the struct parser recognizes only exact qualified no-argument System Threa
     assert probe.FieldStaticFlags[4] == 5
     assert probe.FieldStaticFlags[5] == 5
     assert probe.FieldStaticFlags[6] == 5
-    assert probe.FieldStaticFlags[7] == 9
+    // `public static PublicField` is static (1) + ThreadStatic (8) + the WRITTEN `public` word (128).
+    // The word used to reach no bit at all, which is why a `protected` field was emitted `public`:
+    // the field planner could not tell a written accessibility from an unwritten one.
+    assert probe.FieldStaticFlags[7] == 137
+    assert ColumnarStructFieldVisibilityModifiers(probe.FieldStaticFlags[7]) == 1
+    assert ColumnarStructFieldVisibilityModifiers(probe.FieldStaticFlags[0]) == 2
+    assert ColumnarStructFieldVisibilityModifiers(0) == 0
+}
+
+test "the field word carries every written accessibility word, in the one Modifiers bit space" {
+    probe := new ColumnarStructDeclarationParseProbe(
+        "class Guarded {\n" + "protected Family: int\n" + "protected internal FamilyOrAssembly: int\n" + "private protected FamilyAndAssembly: int\n" + "internal Assembly: int\n" + "public Open: int\n" + "Unwritten: int\n" + "}"
+    )
+
+    assert probe.FieldCount == 6
+    // Modifiers: Public 1, Private 2, Internal 4, Protected 8 — the same bit space the method word,
+    // the type word and `MemberAccessibility.LevelOfDeclaredModifiers` all read.
+    assert ColumnarStructFieldVisibilityModifiers(probe.FieldStaticFlags[0]) == 8
+    assert ColumnarStructFieldVisibilityModifiers(probe.FieldStaticFlags[1]) == 12
+    assert ColumnarStructFieldVisibilityModifiers(probe.FieldStaticFlags[2]) == 10
+    assert ColumnarStructFieldVisibilityModifiers(probe.FieldStaticFlags[3]) == 4
+    assert ColumnarStructFieldVisibilityModifiers(probe.FieldStaticFlags[4]) == 1
+    assert ColumnarStructFieldVisibilityModifiers(probe.FieldStaticFlags[5]) == 0
 }
 
 test "the method flag word names `static`, `async` and the LibraryImport bit rather than their numbers" {

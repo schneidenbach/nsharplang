@@ -1099,6 +1099,76 @@ PascalCase one `public`; the ruling changed the LANGUAGE rule, not one metadata 
 `tests/native/census-visibility` (runtime, CLR metadata, `FindDefinition`/`FindReferences`,
 completion and the NL308 negative, over files on disk).
 
+**THE DECLARED ACCESSIBILITY RULE IS A SECOND, INDEPENDENT SYSTEM** (2026-09-13, stream ACCESS), and
+`MemberAccessibility` is its one owner. The package rule above is about a NAME's casing;
+`private` / `protected` / `protected internal` / `private protected` / `internal` are about a TYPE,
+mean what the CLR means, and until this slice N# parsed them, emitted them into metadata, and
+enforced NONE of them — `d.Seed` on a `protected` field from a free function checked clean and
+emitted.
+
+`MemberAccessibility` publishes the CLR's six levels as an ORDERING (`Private` 0 …`Public` 5), reads
+a level off written modifier bits (`LevelOfDeclaredModifiers`) or off a reflected
+`MethodBase`/`FieldInfo` (`LevelOfMethod` / `LevelOfField` / `LevelOfClrFlags`), and answers ONE
+relation for both:
+
+```
+IsAccessible(level, isDeclaringType, derivesFromDeclaringType, receiverIsAccessingTypeOrDerived, sameAssembly)
+```
+
+The receiver argument is C# §7.5.4 and is not optional: inside a derived type, `this.Seed`,
+`Seed`, `base.Seed` and `other.Seed` where `other` is of the DERIVED type are legal, and
+`other.Seed` where `other` is typed as the BASE is not. `base.` is its own arm at the call site
+rather than a receiver judgement, because `base` is typed as the base and so never satisfies the
+receiver test.
+
+`LevelOfDeclaredModifiers` deliberately answers `Public` for a member with NO written word,
+including a camelCase one. Folding casing in here would refuse `widget.count` inside the package
+that declared it — casing is the other rule, with the other owner and the other sentence.
+
+`AnalyzerMemberAccess.ValidateDeclaredMemberAccessibility` is the call site, and it runs only when
+the package rule did NOT report: one wrong thing gets one underline.
+`AnalyzerDiagnosticSink.ReportInaccessibleDeclaredMember` renders it, naming the word, the declaring
+type, and the type the access was written from ("from outside every type" at namespace scope).
+`CompletionVisibilityFacts.IsOfferableByDeclaredAccessibility` keeps the editor from offering what
+the analyzer will refuse, driven by `EnclosingTypeName(unit, line)` and the name-based base-chain
+walk `IsTypeOrDerived`; a caret outside every type offers exactly the public and package surface.
+Contracts: `MemberAccessibility.tests.nl` (the relation as a table, source and reflected levels),
+`SourceAccessibilityDiagnostics.tests.nl` (the refusals and their exact text, plus a fixture of
+every access the rule ADMITS so a false refusal fails) and `tests/native/census-accessibility`
+(runtime reads through `this`/bare/`base`/sibling receivers and the emitted metadata word).
+
+**A SOURCE TYPE REACHES ITS EXTERNAL BASE'S `protected` METHODS** (2026-09-13, stream ACCESS,
+PARTIAL). `Collection<T>` is designed to be extended through `SetItem`/`ClearItems`/`InsertItem`, all
+`protected virtual`, and a `class Bag: Collection<string>` could not NAME any of them: the analyzer's
+metadata arm asked `BindingFlags.Public` only (NL303/NL412) and the emitter's candidate enumeration
+did the same. `AnalyzerMemberResolution.ResolveMember` now carries `inheritedProtectedAccess` — the
+receiver half of the rule, answered by the caller (`AnalyzerMemberAccess.InheritsProtectedThrough`
+for a written receiver, unconditionally true for a bare name, `base.`/`this.` as their own cases) —
+and `IsReachableReflectedLevel` decides what that admits: the family surface and nothing else,
+because the base is in a REFERENCED assembly and `assembly`-level members are never reachable.
+`ColumnarOrdinaryRuntimeDirectCallResolver.ResolveInheritedWithFacts` is the emitter's twin, used by
+the three inherited-base call sites only.
+
+WHAT STILL DECLINES (NL103), for whoever picks this up:
+* a protected method named with NO receiver (`SetItem(0, v)`): `ColumnarDirectCallPlanner`'s bare-call
+  branch does not claim it, while the identical `this.SetItem(0, v)` does — the difference is the
+  `explicitThis || !bindings.IsValueBinding(name)` guard ahead of the inherited-base branch;
+* a protected FIELD or PROPERTY read (`this.Items`, `this.CoreNewLine`): the `this.`-receiver READ
+  path for inherited external members is `TrySelectAdmittedProperty`, which handles properties only
+  and requires `IsAdmittedValueType` — `IList<string>` and `char[]` fail that test for PUBLIC members
+  too, so this is a result-type gap sitting behind the accessibility one, not an accessibility gap.
+
+**A FREE FUNCTION'S VISIBILITY WORD NOW REACHES METADATA** (2026-09-13, stream ACCESS). The word was
+parsed into `ColumnarFunctionInput.VisibilityModifierFlags` and read by free-function identity, but
+`ColumnarDeclarationPlan.BuildMethods` passed only `ModifierFlags` — which carries
+`async`/`generator`/`native import` and never the visibility word — so `public func helper()` emitted
+non-public and `private func Helper()` emitted PUBLIC. Both columns are now read.
+`FreeFunctionVisibilityAttributes` is the rule and it has only TWO answers: `public` (written, or
+implied by a PascalCase name) is `Public|Static` (22), and EVERY other spelling — a written
+`private` or `internal`, and the camelCase default — is `Assembly|Static` (19). `Private` would be
+wrong: a class of the same package, a lambda's display class and a local function's closure are each
+a different CLR type and may all legally call a package-private function.
+
 A resolved declaration's LINE is the declaration's own and its COLUMN is where the NAME starts on
 that line (`CodeIntelligenceTextUtilities.FindIdentifierNameColumn`), which is what a
 go-to-definition span has to point at.

@@ -47,7 +47,11 @@ class AnalyzerMemberResolution {
     // WHAT A MEMBER NAME RESOLVES TO, read as a VALUE. Every caller that is not the callee of a call
     // asks this question.
     func ResolveMember(objectType: TypeInfo, memberName: string, includeStaticMembers: bool, currentTypeName: string?): TypeInfo {
-        return ResolveMember(objectType, memberName, includeStaticMembers, currentTypeName, false)
+        return ResolveMember(objectType, memberName, includeStaticMembers, currentTypeName, false, false)
+    }
+
+    func ResolveMember(objectType: TypeInfo, memberName: string, includeStaticMembers: bool, currentTypeName: string?, invocationPosition: bool): TypeInfo {
+        return ResolveMember(objectType, memberName, includeStaticMembers, currentTypeName, invocationPosition, false)
     }
 
     // WHAT A MEMBER NAME RESOLVES TO. `unknown` is the "no such member" answer; every arm that can
@@ -60,7 +64,20 @@ class AnalyzerMemberResolution {
     // property, `Enumerable.Count<TSource>` is an extension, and only the second one is invocable.
     // Every arm that answers with a VALUE asks the question; the arms that answer with a method
     // group, a signature or a shape are invocable by construction and do not.
-    func ResolveMember(objectType: TypeInfo, memberName: string, includeStaticMembers: bool, currentTypeName: string?, invocationPosition: bool): TypeInfo {
+    // `inheritedProtectedAccess` IS THE PROTECTED RULE'S RECEIVER HALF, ANSWERED BY THE CALLER.
+    //
+    // A `protected` member of an EXTERNAL base — `Collection<T>.Items`, `KeyedCollection<K,V>.SetItem`
+    // — is a member of every type that derives from it, and a source type that does derive may read
+    // it through `this`, through a bare name and through `base`. Metadata resolution asked for
+    // `BindingFlags.Public` only, so all three answered "no such member" (NL303/NL412) on a member
+    // the CLR would have let the derived type reach.
+    //
+    // The caller answers because only the caller knows where the access was WRITTEN: the receiver's
+    // type has to be the accessing type or derived from it (C# §7.5.4), and `base.` is its own case.
+    // `MemberAccessibility` then decides which non-public levels that admits — `family` and its two
+    // combinations, never `private`, and never `assembly`, because the member lives in another
+    // assembly and N# models no `InternalsVisibleTo`.
+    func ResolveMember(objectType: TypeInfo, memberName: string, includeStaticMembers: bool, currentTypeName: string?, invocationPosition: bool, inheritedProtectedAccess: bool): TypeInfo {
         current: TypeInfo = objectType
 
         oblivious := current as ObliviousTypeInfo
@@ -235,7 +252,7 @@ class AnalyzerMemberResolution {
                         }
 
                         bindingMemberType: TypeInfo = BuiltInTypes.Unknown
-                        if TryResolveReflectionPropertyOrField(bindingClrType, memberName, includeStaticMembers, out bindingMemberType) && AnswersInPosition(bindingMemberType, invocationPosition) {
+                        if TryResolveReflectionPropertyOrField(bindingClrType, memberName, includeStaticMembers, inheritedProtectedAccess, out bindingMemberType) && AnswersInPosition(bindingMemberType, invocationPosition) {
                             return bindingMemberType
                         }
 
@@ -253,7 +270,7 @@ class AnalyzerMemberResolution {
                         // no `[MaybeNullWhen(false)]`, so `if map.TryGetValue(k, out v)` left `v`
                         // maybe-null in the branch where the BCL guarantees it is present.
                         bindingMethodGroup: TypeInfo = BuiltInTypes.Unknown
-                        if TryResolveReflectionMethodGroup(bindingClrType, memberName, includeStaticMembers, true, out bindingMethodGroup) {
+                        if TryResolveReflectionMethodGroup(bindingClrType, memberName, includeStaticMembers, true, inheritedProtectedAccess, out bindingMethodGroup) {
                             return bindingMethodGroup
                         }
                     }
@@ -267,7 +284,7 @@ class AnalyzerMemberResolution {
         reflectionType := current as ReflectionTypeInfo
         if reflectionType != null {
             clrType := reflectionType.Type
-            memberFlags := GetReflectionMemberFlags(includeStaticMembers)
+            memberFlags := GetReflectionMemberFlags(includeStaticMembers, inheritedProtectedAccess)
 
             interfaceMemberType: TypeInfo = BuiltInTypes.Unknown
             if declarationContext.TryResolveRuntimeInterfaceMethodMember(clrType, memberName, includeStaticMembers, out interfaceMemberType) {
@@ -275,7 +292,7 @@ class AnalyzerMemberResolution {
             }
 
             reflectedMemberType: TypeInfo = BuiltInTypes.Unknown
-            if TryResolveReflectionPropertyOrField(clrType, memberName, includeStaticMembers, out reflectedMemberType) && AnswersInPosition(reflectedMemberType, invocationPosition) {
+            if TryResolveReflectionPropertyOrField(clrType, memberName, includeStaticMembers, inheritedProtectedAccess, out reflectedMemberType) && AnswersInPosition(reflectedMemberType, invocationPosition) {
                 return reflectedMemberType
             }
 
@@ -284,7 +301,7 @@ class AnalyzerMemberResolution {
             reflectedIndex := 0
             while reflectedIndex < reflectedMethods.Length {
                 reflectedMethod := reflectedMethods[reflectedIndex]
-                if reflectedMethod.get_Name() == memberName {
+                if reflectedMethod.get_Name() == memberName && IsReachableReflectedMethod(reflectedMethod, inheritedProtectedAccess) {
                     matchingMethods.Add(reflectedMethod)
                 }
                 reflectedIndex = reflectedIndex + 1
@@ -331,7 +348,7 @@ class AnalyzerMemberResolution {
 
             declaredBaseType := sourceShape.BaseType
             if declaredBaseType != null {
-                baseMember := ResolveMember(declaredBaseType, memberName, includeStaticMembers, currentTypeName, invocationPosition)
+                baseMember := ResolveMember(declaredBaseType, memberName, includeStaticMembers, currentTypeName, invocationPosition, inheritedProtectedAccess)
                 if !BuiltInTypes.IsUnknown(baseMember) {
                     return baseMember
                 }
@@ -479,14 +496,29 @@ class AnalyzerMemberResolution {
 
     // Every method of that name the type declares, as a group. The caller decides whether a group is
     // an acceptable answer in its position; overload resolution happens later, in the binder.
+    // A PROPERTY'S ACCESSIBILITY IS ITS ACCESSORS'. Metadata carries no accessibility on a property
+    // row at all, so the getter decides; a property with no getter is not a read this arm can answer.
+    static func IsReachableReflectedProperty(property: PropertyInfo, inheritedProtectedAccess: bool): bool {
+        getter := property.GetGetMethod(true)
+        if getter == null {
+            return false
+        }
+
+        return IsReachableReflectedMethod(getter, inheritedProtectedAccess)
+    }
+
     static func TryResolveReflectionMethodGroup(clrType: Type, memberName: string, includeStaticMembers: bool, surrogateBinding: bool, out memberType: TypeInfo): bool {
+        return TryResolveReflectionMethodGroup(clrType, memberName, includeStaticMembers, surrogateBinding, false, out memberType)
+    }
+
+    static func TryResolveReflectionMethodGroup(clrType: Type, memberName: string, includeStaticMembers: bool, surrogateBinding: bool, inheritedProtectedAccess: bool, out memberType: TypeInfo): bool {
         memberType = BuiltInTypes.Unknown
-        methods := clrType.GetMethods(GetReflectionMemberFlags(includeStaticMembers))
+        methods := clrType.GetMethods(GetReflectionMemberFlags(includeStaticMembers, inheritedProtectedAccess))
         matching := new List<MethodInfo>()
         index := 0
         while index < methods.Length {
             method := methods[index]
-            if method.get_Name() == memberName {
+            if method.get_Name() == memberName && IsReachableReflectedMethod(method, inheritedProtectedAccess) {
                 matching.Add(method)
             }
 
@@ -538,12 +570,35 @@ class AnalyzerMemberResolution {
     }
 
     static func GetReflectionMemberFlags(includeStaticMembers: bool): BindingFlags {
+        return GetReflectionMemberFlags(includeStaticMembers, false)
+    }
+
+    // NON-PUBLIC IS AN OPT-IN AND THE FILTER BESIDE IT IS NOT OPTIONAL. Asking metadata for
+    // non-public members returns `private` and `assembly` ones too, neither of which a derived type
+    // in ANOTHER assembly may touch, so every arm that widens these flags also asks
+    // `IsReachableReflectedLevel` about what came back.
+    static func GetReflectionMemberFlags(includeStaticMembers: bool, includeInheritedProtected: bool): BindingFlags {
         memberFlags := BindingFlags.Public | BindingFlags.Instance
         if includeStaticMembers {
             memberFlags = memberFlags | BindingFlags.Static
         }
 
+        if includeInheritedProtected {
+            memberFlags = memberFlags | BindingFlags.NonPublic
+        }
+
         return memberFlags
+    }
+
+    // Which levels a source type derived from an EXTERNAL base may reach on it: `public` always, and
+    // the three `family` spellings when the access is written inside that derived type through a
+    // compatible receiver. `assembly` and `private` never — the member is in a referenced assembly.
+    static func IsReachableReflectedLevel(level: int, inheritedProtectedAccess: bool): bool {
+        return MemberAccessibility.IsAccessible(level, false, inheritedProtectedAccess, inheritedProtectedAccess, false)
+    }
+
+    static func IsReachableReflectedMethod(method: MethodInfo, inheritedProtectedAccess: bool): bool {
+        return IsReachableReflectedLevel(MemberAccessibility.LevelOfMethod(method), inheritedProtectedAccess)
     }
 
     // PROPERTY, THEN FIELD, THEN EVENT — and a name that is more than one answers as the earlier
@@ -563,7 +618,11 @@ class AnalyzerMemberResolution {
     // `GetInterfaces()` is FLATTENED, so one loop reaches every transitive base and there is no
     // recursion to bound.
     static func TryResolveReflectionPropertyOrField(reflectedType: Type, memberName: string, includeStaticMembers: bool, out memberType: TypeInfo): bool {
-        if TryResolveReflectionMemberOnType(reflectedType, memberName, includeStaticMembers, out memberType) {
+        return TryResolveReflectionPropertyOrField(reflectedType, memberName, includeStaticMembers, false, out memberType)
+    }
+
+    static func TryResolveReflectionPropertyOrField(reflectedType: Type, memberName: string, includeStaticMembers: bool, inheritedProtectedAccess: bool, out memberType: TypeInfo): bool {
+        if TryResolveReflectionMemberOnType(reflectedType, memberName, includeStaticMembers, inheritedProtectedAccess, out memberType) {
             return true
         }
 
@@ -574,7 +633,7 @@ class AnalyzerMemberResolution {
         baseInterfaces := reflectedType.GetInterfaces()
         index := 0
         while index < baseInterfaces.Length {
-            if TryResolveReflectionMemberOnType(baseInterfaces[index], memberName, includeStaticMembers, out memberType) {
+            if TryResolveReflectionMemberOnType(baseInterfaces[index], memberName, includeStaticMembers, inheritedProtectedAccess, out memberType) {
                 return true
             }
 
@@ -585,17 +644,17 @@ class AnalyzerMemberResolution {
         return false
     }
 
-    static func TryResolveReflectionMemberOnType(reflectedType: Type, memberName: string, includeStaticMembers: bool, out memberType: TypeInfo): bool {
-        memberFlags := GetReflectionMemberFlags(includeStaticMembers)
+    static func TryResolveReflectionMemberOnType(reflectedType: Type, memberName: string, includeStaticMembers: bool, inheritedProtectedAccess: bool, out memberType: TypeInfo): bool {
+        memberFlags := GetReflectionMemberFlags(includeStaticMembers, inheritedProtectedAccess)
 
         property := reflectedType.GetProperty(memberName, memberFlags)
-        if property != null {
+        if property != null && IsReachableReflectedProperty(property, inheritedProtectedAccess) {
             memberType = NullabilityMetadataReflection.ConvertProperty(property)
             return true
         }
 
         field := reflectedType.GetField(memberName, memberFlags)
-        if field != null {
+        if field != null && IsReachableReflectedLevel(MemberAccessibility.LevelOfField(field), inheritedProtectedAccess) {
             memberType = NullabilityMetadataReflection.ConvertField(field)
             return true
         }

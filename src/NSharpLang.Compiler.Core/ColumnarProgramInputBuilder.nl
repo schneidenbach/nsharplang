@@ -589,10 +589,10 @@ sealed class ColumnarProgramInputBuilder {
             ) {
                 return DeclineAtToken(ColumnarParseDeclines.FunctionDeclaration, cs, cv, funcIndices[fi], "")
             }
-            // THE VISIBILITY WORD, READ BUT NOT FOLDED INTO `ModifierFlags`. `public func helper()` is
-            // exported despite its casing, and free-function identity has to know that; folding the
-            // word into the modifier column instead would change every existing program's emitted
-            // method attributes, which is a separate decision from this one.
+            // THE VISIBILITY WORD, IN ITS OWN COLUMN. `public func helper()` is exported despite its
+            // casing, and both free-function identity and the emitted method's accessibility read
+            // this column: the modifier column beside it carries `async`/`generator`/`native import`
+            // and would lose the word among them.
             input.VisibilityModifierFlags = ColumnarStructDeclarationMetadataModifierFlagsAt(ck, funcIndices[fi])
             inputs.Add(input)
             fi = fi + 1
@@ -780,6 +780,7 @@ sealed class ColumnarProgramInputBuilder {
             fieldStatics := fieldColumns.FieldStaticFlags
             fieldReadonlyFlags := fieldColumns.FieldReadonlyFlags
             fieldPrivateFlags := fieldColumns.FieldPrivateFlags
+            fieldVisibilityFlags := fieldColumns.FieldVisibilityFlags
             fieldThreadStaticFlags := fieldColumns.FieldThreadStaticFlags
             fieldConstFlags := fieldColumns.FieldConstFlags
             fieldInitKinds := fieldColumns.FieldInitKinds
@@ -889,7 +890,8 @@ sealed class ColumnarProgramInputBuilder {
                 typeParamTypeConstraints,
                 fieldPrivateFlags,
                 fieldThreadStaticFlags,
-                fieldConstFlags
+                fieldConstFlags,
+                fieldVisibilityFlags
             )
             structInput.SourceAttributes = ColumnarSourceAttributes.Read(source, ck, cs, cv, structIndex)
             // A FIELD'S ATTRIBUTES ARE READ FROM ITS OWN DECLARATION POSITION. The member scan records

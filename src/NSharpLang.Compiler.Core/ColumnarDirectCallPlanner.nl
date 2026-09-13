@@ -433,7 +433,9 @@ class ColumnarDirectCallPlanner {
         exactBaseType := currentDefinition.ExactBaseType
         if sourceBase != null && exactBaseType != null {
             closedBase := ColumnarSourceDirectCallResolver.ExactSourceTypeMatch(sourceBase, exactBaseType)
-            sourceSelection := ColumnarSourceDirectCallResolver.ResolveKnownInstance(sourceBase, exactBaseType, closedBase, memberName, argumentTypes, argumentFacts, currentDefinition, true)
+            // The last argument says what `base.` means to the family-receiver rule: the written
+            // receiver is the base, but argument zero is `this`, so the receiver IS the accessing type.
+            sourceSelection := ColumnarSourceDirectCallResolver.ResolveKnownInstance(sourceBase, exactBaseType, closedBase, memberName, argumentTypes, argumentFacts, currentDefinition, true, true)
 
             if sourceSelection.IsSelected && !sourceSelection.IsAbstract {
                 if !AppendSourceSelection(nodes, source, callNode, -1, true, bindings, handles, plan, callFragment, depth, argumentTypes, argumentFacts, NonVirtualBaseSelection(sourceSelection, current.ExactType), out resultType) {
@@ -458,7 +460,8 @@ class ColumnarDirectCallPlanner {
             runtimeBase = typeof(object)
         }
 
-        runtimeSelection := ColumnarOrdinaryRuntimeDirectCallResolver.ResolveWithFacts(runtimeBase, memberName, argumentTypes, argumentFacts, false)
+        // `base.M()` inside a derived type reaches everything the base declares protected.
+        runtimeSelection := ColumnarOrdinaryRuntimeDirectCallResolver.ResolveInheritedWithFacts(runtimeBase, memberName, argumentTypes, argumentFacts, false)
 
         runtimeMethod := runtimeSelection.Method
         if !runtimeSelection.IsSelected || runtimeMethod == null || runtimeMethod.get_IsAbstract() {
@@ -616,7 +619,7 @@ class ColumnarDirectCallPlanner {
                 externalBase = typeof(object)
             }
             if externalBase != null {
-                inherited := ColumnarOrdinaryRuntimeDirectCallResolver.ResolveWithFacts(externalBase, memberName, argumentTypes, argumentFacts, false)
+                inherited := ColumnarOrdinaryRuntimeDirectCallResolver.ResolveInheritedWithFacts(externalBase, memberName, argumentTypes, argumentFacts, false)
 
                 if inherited.IsSelected {
                     ownership = ColumnarDirectCallOwnership.OwnedRejected
@@ -1236,7 +1239,7 @@ class ColumnarDirectCallPlanner {
                 if sourceDefinition != null {
                     externalBase := ResolveExternalRuntimeBase(sourceDefinition)
                     if externalBase != null {
-                        inherited := ColumnarOrdinaryRuntimeDirectCallResolver.ResolveWithFacts(externalBase, memberName, argumentTypes, argumentFacts, false)
+                        inherited := ColumnarOrdinaryRuntimeDirectCallResolver.ResolveInheritedWithFacts(externalBase, memberName, argumentTypes, argumentFacts, false)
 
                         if inherited.IsSelected {
                             ownership = ColumnarDirectCallOwnership.OwnedRejected

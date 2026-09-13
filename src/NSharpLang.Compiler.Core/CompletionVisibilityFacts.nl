@@ -169,6 +169,122 @@ class CompletionVisibilityFacts {
         return found
     }
 
+    // THE DECLARED-ACCESSIBILITY HALF, which is the OTHER rule NL308 reports. A member kept in by a
+    // written `private` or `protected` is refused by the analyzer even inside its own package, so a
+    // completion that offers it is the same defect as one that offers a camelCase member across
+    // packages: the editor writes it and the next diagnostic pass underlines it.
+    //
+    // `canReachProtected` is the receiver rule the analyzer enforces, answered by the caller: the
+    // caret sits inside a type that IS the receiver's type or derives from it. `isInsideDeclaringType`
+    // is the narrower question `private` asks. Both false is the ordinary "completing on somebody
+    // else's object" case, and it is also what a caret outside every type answers.
+    static func IsOfferableByDeclaredAccessibility(declaredModifiers: int, canReachProtected: bool, isInsideDeclaringType: bool): bool {
+        level := MemberAccessibility.LevelOfDeclaredModifiers(declaredModifiers)
+
+        // The whole completion list is one project, so `internal` and the assembly half of
+        // `protected internal` are satisfied for every source member the editor can see.
+        return MemberAccessibility.IsAccessible(level, isInsideDeclaringType, canReachProtected, canReachProtected, true)
+    }
+
+    // THE TYPE A CARET IS WRITTEN INSIDE, or null when it is at namespace scope.
+    //
+    // A declaration carries its START line and no end, so the enclosing type is read the way a
+    // reader would read it: the LAST declaration that begins at or above the caret. When that
+    // declaration is a type, the caret is inside it; when it is a top-level `func`, the caret has
+    // left the type above and is at namespace scope again.
+    static func EnclosingTypeName(unit: CompilationUnit?, line: int): string? {
+        if unit == null {
+            return null
+        }
+
+        best: Declaration? = null
+        declarations := unit.Declarations
+        index := 0
+        while index < declarations.Count {
+            candidate := declarations[index]
+            if candidate.Line <= line && (best == null || candidate.Line > best.Line) {
+                best = candidate
+            }
+
+            index = index + 1
+        }
+
+        if best == null {
+            return null
+        }
+
+        return TypeDeclarationName(best)
+    }
+
+    // Whether `candidateName` is `ancestorName` or names it somewhere up its declared base chain,
+    // read off the parsed files. A base the project did not write ends the walk: an external base
+    // contributes no SOURCE member whose declared modifiers this filter could read.
+    static func IsTypeOrDerived(candidateName: string?, ancestorName: string?, compilationUnits: IEnumerable<CompilationUnit>): bool {
+        if candidateName == null || ancestorName == null {
+            return false
+        }
+
+        target := SimpleTypeName(ancestorName)
+        current := SimpleTypeName(candidateName)
+        depth := 0
+        while depth < 64 {
+            if current == target {
+                return true
+            }
+
+            next := DeclaredBaseName(current, compilationUnits)
+            if next == null {
+                return false
+            }
+
+            current = next
+            depth = depth + 1
+        }
+
+        return false
+    }
+
+    // The simple name of a source class's `:` clause, or null for anything else.
+    static func DeclaredBaseName(typeName: string, compilationUnits: IEnumerable<CompilationUnit>): string? {
+        for unit in compilationUnits {
+            if unit != null {
+                declarations := unit.Declarations
+                index := 0
+                while index < declarations.Count {
+                    classDeclaration := declarations[index] as ClassDeclaration
+                    if classDeclaration != null && classDeclaration.Name == typeName && classDeclaration.BaseClass != null {
+                        baseName := TypeReferenceName(classDeclaration.BaseClass)
+                        if baseName == null {
+                            return null
+                        }
+
+                        return SimpleTypeName(baseName)
+                    }
+
+                    index = index + 1
+                }
+            }
+        }
+
+        return null
+    }
+
+    // The written name of a base-class reference. Only the two spellings a `:` clause can carry
+    // answer; anything else is not a class the project declared and ends the walk.
+    static func TypeReferenceName(reference: TypeReference): string? {
+        generic := reference as GenericTypeReference
+        if generic != null {
+            return generic.Name
+        }
+
+        simple := reference as SimpleTypeReference
+        if simple != null {
+            return simple.Name
+        }
+
+        return null
+    }
+
     // The whole rule, in one line of code and two words of English: exported, or same package.
     // `declaringNamespace` null is the fail-open case described in the header.
     static func IsOfferableAcrossPackages(isExported: bool, declaringNamespace: string?, requestingNamespace: string): bool {

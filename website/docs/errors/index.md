@@ -94,7 +94,7 @@ These are not style rules; style is `nlc format`'s job and produces no diagnosti
 | [`NL305`](./NL305.md) | A path out of a value-returning function with no `return`. |
 | [`NL306`](./NL306.md) | Two declarations of the same name in one scope. |
 | `NL307` | A dependency that closes a cycle. |
-| [`NL308`](./NL308.md) | A member the calling code is not allowed to see. |
+| [`NL308`](./NL308.md) | A member the calling code is not allowed to see — not exported from its package, or kept in by a written `private`/`protected`/`internal`. |
 | [`NL309`](./NL309.md) | A write to a `readonly` field outside its constructor. |
 | [`NL310`](./NL310.md) | An expression that must be a compile-time constant and is not. |
 | [`NL311`](./NL311.md) | A modifier that is not legal on this declaration. |

@@ -191,6 +191,35 @@ class AnalyzerDiagnosticSink {
         return true
     }
 
+    // NL308, THE OTHER HALF. The package rule above is about a NAME's casing; this is about a
+    // written accessibility WORD, and the two failures need different sentences because they have
+    // different fixes. This one names three facts the developer has to act on: the word, the type
+    // that declared it, and where the access was written from — "from outside every type" when it
+    // was written at namespace scope, which is the shape that reads as a bare mistake otherwise.
+    func ReportInaccessibleDeclaredMember(memberName: string, declaringTypeName: string, level: int, accessingTypeName: string?, line: int, column: int, length: int): bool {
+        word := MemberAccessibility.LevelWord(level)
+        fromPhrase := "from outside every type"
+        if accessingTypeName != null && accessingTypeName.Length > 0 {
+            fromPhrase = "from '" + accessingTypeName + "'"
+        }
+
+        message := "'" + memberName + "' is declared '" + word + "' on '" + declaringTypeName + "', so " + MemberAccessibility.AllowedFromPhrase(level, declaringTypeName) + " — this reads it " + fromPhrase
+        Report(ErrorCode.InaccessibleMember, message, line, column, DeclaredAccessibilitySuggestion(memberName, declaringTypeName, level), Math.Max(1, length))
+        return true
+    }
+
+    func DeclaredAccessibilitySuggestion(memberName: string, declaringTypeName: string, level: int): string {
+        if level == MemberAccessibility.Private {
+            return "Move the access inside '" + declaringTypeName + "', expose '" + memberName + "' through a member that is not private, or drop 'private' so the package can read it."
+        }
+
+        if level == MemberAccessibility.Assembly {
+            return "'" + memberName + "' is internal to the assembly that declares '" + declaringTypeName + "'. Use a public member of '" + declaringTypeName + "' instead."
+        }
+
+        return "Write the access inside a type that derives from '" + declaringTypeName + "' and read it through 'this' or a receiver of that derived type, or drop '" + MemberAccessibility.LevelWord(level) + "' from '" + memberName + "'."
+    }
+
     // NL209. TWO IMPORTS SUPPLY THIS NAME AND NEITHER IS CLOSER, so the compiler will not pick one:
     // whichever `import` happens to be written first is not what the developer meant to select. The
     // message names BOTH candidates in full, because the fix is to write one of them — and the

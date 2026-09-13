@@ -227,10 +227,13 @@ class AnalyzerIdentifierResolution {
             return true
         }
 
-        // 2. The enclosing type's members, static ones included.
+        // 2. The enclosing type's members, static ones included. A BARE NAME HAS NO WRITTEN RECEIVER,
+        // so the receiver is the enclosing instance and the `protected` receiver rule is satisfied by
+        // construction: what an external base declares `protected` is in scope here exactly as a
+        // source base's is.
         currentType := scopesValue.CurrentTypeScope()
         if currentType != null {
-            memberType := memberResolutionValue.ResolveMember(currentType, name, true, ambientValue.CurrentTypeName)
+            memberType := memberResolutionValue.ResolveMember(currentType, name, true, ambientValue.CurrentTypeName, false, true)
             if !BuiltInTypes.IsUnknown(memberType) {
                 resolvedType = memberType
                 return true
