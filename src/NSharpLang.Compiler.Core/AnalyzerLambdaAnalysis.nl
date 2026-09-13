@@ -103,8 +103,10 @@ class LambdaAnalysisState {
     ReportedInferenceFailure: bool
 
     // NL334 is reported once per lambda for the same reason: `async` is written once, and its target
-    // is one fact about the whole lambda.
+    // is one fact about the whole lambda. NL335 is the mirror — the keyword that is MISSING — and it
+    // is one sentence about the lambda too.
     ReportedAsyncTarget: bool
+    ReportedMissingAsync: bool
 
     ParameterIndex: int
     ParameterType: TypeInfo
@@ -128,6 +130,7 @@ class LambdaAnalysisState {
         ReportInferenceFailure = reportInferenceFailure
         ReportedInferenceFailure = false
         ReportedAsyncTarget = false
+        ReportedMissingAsync = false
         ParameterIndex = 0
         ParameterType = BuiltInTypes.Unknown
         Phase = 0
@@ -468,6 +471,7 @@ class AnalyzerLambdaAnalysis {
 
         soaEscape.ReportSoaRowEscapeIfNeeded(expressionBody, state.ReturnType, "returned")
         soaEscape.ReportUnsupportedSoaDirectColumnValueEscapeIfNeeded(expressionBody, "returned")
+        ReportMissingAsyncIfNeeded(state)
         state.Phase = 8
         if !state.TargetsExpressionTree || diagnostics.ErrorCount != state.ErrorsBeforeBody {
             return null
@@ -653,6 +657,40 @@ class AnalyzerLambdaAnalysis {
     // and the one the overload scorer needs so a `void` candidate is not silently preferred.
     static func IsAsyncLambdaTarget(signatureReturn: TypeInfo?): bool {
         return AsyncBodyReturnType(signatureReturn) != null
+    }
+
+    // NL335: THE DELEGATE WANTS A TASK AND THE BODY DID NOT PRODUCE ONE, which is what writing the
+    // `async` keyword would have fixed. `let load: Func<Task<int>> = () => await readAsync()` awaits
+    // its way to an `int` and hands an `int` to a position that takes a `Task<int>`; the generic
+    // mismatch that follows names two delegate types and leaves the reader to spot the missing word.
+    //
+    // THE RULE IS ABOUT THE CONVERSION, NOT ABOUT `await`. N# allows `await` in a body that is not
+    // declared `async` — the lowering is identical — so "you awaited without saying async" would be a
+    // rule this language does not have. What IS wrong here is narrower and certain: the target's
+    // return is task-like, and the body's value is not a task, so there is no conversion at all.
+    // A body that already produces a task (`() => Task.FromResult(1)`) is correct and says nothing.
+    //
+    // A BLOCK BODY IS NOT ASKED, because a lambda does not infer a block's return type: its `return`s
+    // are measured against the signature by the nested-body boundary, and that is where their own
+    // mismatch is already reported.
+    func ReportMissingAsyncIfNeeded(state: LambdaAnalysisState) {
+        lambda := state.Lambda
+        if lambda.IsAsync || state.ReportedMissingAsync || !state.ReportInferenceFailure {
+            return
+        }
+
+        signature := state.ExpectedSignature
+        if signature == null || !AnalyzerFunctionTypeFactory.IsTaskLikeTypeInfo(signature.ReturnType) {
+            return
+        }
+
+        bodyType := state.ReturnType
+        if BuiltInTypes.IsUnknown(bodyType) || AnalyzerFunctionTypeFactory.IsTaskLikeTypeInfo(bodyType) {
+            return
+        }
+
+        state.ReportedMissingAsync = true
+        diagnostics.Report(ErrorCode.LambdaBodyNeedsAsync, "This lambda has to produce '" + LambdaTypeText(signature.ReturnType) + "', but its body produces '" + LambdaTypeText(bodyType) + "' — it is missing the 'async' keyword", lambda.Line, lambda.Column, "Write `async` in front of the lambda and its body's value becomes the task's result, or return a task the body builds itself (for example with `Task.FromResult(...)`).", 1)
     }
 
     // NL334, ONCE PER LAMBDA, AT THE `async` KEYWORD. An `async` lambda produces a task, so a target

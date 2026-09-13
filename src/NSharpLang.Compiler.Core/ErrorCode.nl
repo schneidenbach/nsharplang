@@ -52,6 +52,7 @@ enum ErrorCode {
     YieldInProtectedRegion = 332,
     RethrowOutsideCatch = 333,
     AsyncLambdaTargetNotTaskLike = 334,
+    LambdaBodyNeedsAsync = 335,
     WrongArgumentCount = 401,
     NoMatchingOverload = 402,
     InvalidParameter = 405,

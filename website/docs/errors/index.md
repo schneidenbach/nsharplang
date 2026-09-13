@@ -121,6 +121,7 @@ These are not style rules; style is `nlc format`'s job and produces no diagnosti
 | [`NL332`](./NL332.md) | A `yield` inside a protected region that cannot resume. |
 | [`NL333`](./NL333.md) | A bare `throw` with no `catch` handler to re-throw from. |
 | [`NL334`](./NL334.md) | An `async` lambda whose target delegate returns no task. |
+| [`NL335`](./NL335.md) | A lambda whose body is missing the `async` keyword. |
 
 ## Calls — `NL4xx`
 

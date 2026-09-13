@@ -3210,6 +3210,12 @@ parameter list, the contextual typing, the display class — is unchanged.
   `Task.Run(Action)` and silently discard what the body awaited. The emitter agrees through
   `IsContextualLambdaTarget`, and its `Task.Run` arm picks `Action` or `Func<Task>` by the argument's
   own shape rather than by a fixed table row.
+- **NL335 IS NL334'S MIRROR** and is reported from the expression-body phase: the target's return IS
+  task-like and the body's value is NOT a task, so no conversion exists and the missing `async` is
+  the fix. It is a rule about the CONVERSION rather than about `await` — N# allows `await` in a body
+  that is not declared `async`, so "you awaited without saying async" is not a rule this language has.
+  A block body is not asked: a lambda does not infer a block's return type, and its `return`s are
+  measured against the signature by the nested-body boundary, which reports their mismatch there.
 - **An `async` LOCAL FUNCTION is the same shape in a local function's method.** It declares its INNER
   type and the emitted method returns the wrap (`TryComputeAsyncReturnShape`, the same owner a
   top-level `async func` asks), so every call site sees `ValueTask<T>`; the body sub-emitter is given

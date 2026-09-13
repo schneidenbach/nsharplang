@@ -768,6 +768,9 @@ func loadAll(paths: string[]): int {
 }
 ```
 
+Leaving the keyword off when the target wants a task is [`NL335`](./errors/NL335.md), which names the
+missing word rather than leaving you to read two delegate types side by side.
+
 There is **no `async void`**: a lambda whose target returns `void` (an `Action`) has nowhere to put
 its task, so N# reports [`NL334`](./errors/NL334.md) and asks you to drop the keyword or give the
 target a task-like return. That page explains why N# departs from C# here, and what it buys.

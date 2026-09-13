@@ -980,3 +980,74 @@ test "NL334 is reported ONCE per lambda and never on a candidate being measured"
     LambdaRun(harness, loud, BuiltInTypes.Int)
     assert harness.Errors.Count == 1
 }
+
+// ── THE MISSING `async` (NL335) ───────────────────────────────────────────────
+//
+// The mirror of NL334: the target DOES return a task and the body did not produce one. It is a rule
+// about the CONVERSION, not about `await` — N# allows `await` in a body that is not declared
+// `async`, so the question is only whether the body's value can reach the delegate's return.
+
+test "a non-async lambda whose body is not a task, against a task-returning delegate, is NL335" {
+    harness := LambdaHarnessOf()
+    signature := LambdaSignature(LambdaTypes(), LambdaReflectedTaskOfInt())
+    state := harness.Owner.BeginLambda(LambdaExpr(LambdaParams(), LambdaBody()), signature, true, false)
+
+    LambdaRun(harness, state, BuiltInTypes.Int)
+
+    assert harness.Errors.Count == 1
+    assert harness.Errors[0].Code == ErrorCode.LambdaBodyNeedsAsync
+    assert harness.Errors[0].Line == 3
+    assert harness.Errors[0].Column == 5
+    assert harness.Errors[0].Message.Contains("missing the 'async' keyword")
+}
+
+test "a body that ALREADY produces a task is correct and says nothing" {
+    harness := LambdaHarnessOf()
+    signature := LambdaSignature(LambdaTypes(), LambdaReflectedTaskOfInt())
+    state := harness.Owner.BeginLambda(LambdaExpr(LambdaParams(), LambdaBody()), signature, true, false)
+
+    LambdaRun(harness, state, LambdaReflectedTaskOfInt())
+
+    assert harness.Errors.Count == 0
+}
+
+test "a delegate that returns no task asks the question of nobody" {
+    harness := LambdaHarnessOf()
+    signature := LambdaSignature(LambdaTypes(), BuiltInTypes.Int)
+    state := harness.Owner.BeginLambda(LambdaExpr(LambdaParams(), LambdaBody()), signature, true, false)
+
+    LambdaRun(harness, state, BuiltInTypes.Int)
+
+    assert harness.Errors.Count == 0
+}
+
+test "an ASYNC lambda never reports NL335 — the keyword it names is already there" {
+    harness := LambdaHarnessOf()
+    signature := LambdaSignature(LambdaTypes(), LambdaReflectedTaskOfInt())
+    state := harness.Owner.BeginLambda(AsyncLambdaExpr(LambdaParams(), LambdaBody()), signature, true, false)
+
+    LambdaRun(harness, state, BuiltInTypes.Int)
+
+    assert harness.Errors.Count == 0
+}
+
+test "NL335 stays quiet on a candidate being measured, exactly as NL334 does" {
+    harness := LambdaHarnessOf()
+    signature := LambdaSignature(LambdaTypes(), LambdaReflectedTaskOfInt())
+    quiet := harness.Owner.BeginLambda(LambdaExpr(LambdaParams(), LambdaBody()), signature, false, false)
+
+    LambdaRun(harness, quiet, BuiltInTypes.Int)
+
+    assert harness.Errors.Count == 0
+}
+
+test "a unit-task delegate asks the same question of a body that produces a value" {
+    harness := LambdaHarnessOf()
+    signature := LambdaSignature(LambdaTypes(), LambdaReflectedTask())
+    state := harness.Owner.BeginLambda(LambdaExpr(LambdaParams(), LambdaBody()), signature, true, false)
+
+    LambdaRun(harness, state, BuiltInTypes.Int)
+
+    assert harness.Errors.Count == 1
+    assert harness.Errors[0].Code == ErrorCode.LambdaBodyNeedsAsync
+}
