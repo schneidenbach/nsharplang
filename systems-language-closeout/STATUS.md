@@ -37,6 +37,23 @@ Facade and MSBuild task lanes are running from `06186dc6d`; CLI/LSP/Playground/R
 Visual Studio is deferred; compiler completion and rename evidence below remain accepted.
 Shared compiler prerequisites, seeds and integration gates remain root-owned.
 
+**Toolchain candidate reconnected and the compiler seed republished, 2026-09-12** (systems-language
+`e9ca730b6` → `a0bd6fd1e`): the Codex managed-toolchain candidate (`codex/toolchain-integration` `5ebd18b72`, 68
+commits: N# facade, Build.Tasks, CheckCommand/FixCommand, Playground) merged with the capability-gap arc; the
+candidate's self-host blocker fixed at its root (`efc20ae33`: a reference contract's runtime handle is the one the
+compiler's own binder answers, not a load-context object comparison — `ITaskItem[]` inside MSBuild); the ordinary
+runtime call tier refuses source owners (`c654d08ad`); ONE simple-name precedence rule for the analyzer and the
+binding scope — enclosing namespaces, then explicit imports (NL209 on a tie), then auto-discovery
+(`41413e325`..`c3b14fd66`, 153 estate sites qualified); Playground SDK pin; `Result.Equals` value-type `is` fix and
+documented-limit decline fixtures (`a39e4a255`, `acfb44700`). Seed: `bootstrap/` repacked from `a268185de` by a TWO-stage
+bootstrap (the old seed compiles Core; that Core recompiles itself so its `[Output]` task metadata is real; then the
+new targets load every task from Core), forced clean self-rebuild and estate 8,408/8,408 under the new seed
+(`3e0afb64e`). Ratchet: code rows keep immutable ceilings (epoch E1, `codeEpochFileCount` 223), config/MSBuild/shell
+rows are exact-match reviewed rows, delivery blind spot closed (`c9f874451`, `a553c96b6`, `a0bd6fd1e`). Fresh gates at
+`a0bd6fd1e`: `VSCODE_TESTS=skip` 10m35s and VS Code-enabled 11m32s, both ALL TESTS PASSED. Converter census slices
+(`nlc check` exponential fluent-chain walk → linear; try/finally return, break/continue narrowing, cross-assembly
+`Nullable<T>`/array identity, defaulted arguments, `object[]` stores, array-literal casts) follow as `census/merge`.
+
 **Capability-gap arc integrated, 2026-09-10** (readonly structs, static members on generic types,
 type identity by arity, constructed external generics; see
 [tasks/TOOLCHAIN-NATIVE.md](../tasks/TOOLCHAIN-NATIVE.md) "Compiler capability gaps for the Runtime
