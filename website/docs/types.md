@@ -1212,6 +1212,21 @@ Two rules the compiler enforces about the type-argument list itself:
   does not parse, `import System` plus `catch ex: InvalidOperationException` does. Relatedly, a type
   used ONLY as a catch type or only inside a delegate type in a signature does not yet count as a use
   of its import, so `NL010` can report an import that is in fact needed.
+- A **defaulted parameter is filled only for a member of a referenced assembly**. Omitting the
+  argument works for an external instance, static or extension member, whose default the call site
+  reads out of the callee's metadata and writes as a literal. A function or method declared in the
+  SAME project does not yet offer its defaults to a call in that project — pass every argument, or
+  split the declaration into explicit arities. The defaults that can be filled are the null
+  reference, an integral, floating, `char`, `bool`, `string` or enum constant, and a `Nullable<T>`
+  with no value; a `decimal` or `DateTime` default, and a bare `[Optional]` with no constant at all,
+  still decline.
+- A **constructor's defaulted parameter is not filled**: `new Reason(a, b)` on a type whose
+  constructor declares `(a, b, c: int = 0)` declines, in the same project and across assemblies
+  alike. Pass every constructor argument.
+- **Reading a member off a local initialised from an external static call** declines
+  (`summary := Kernels.Summarize(args)` then `summary.ShowHelp`). The same member read works off a
+  parameter of that type and off a local initialised with `new`, so binding the value differently is
+  the workaround.
 
 ## Nullable Types
 

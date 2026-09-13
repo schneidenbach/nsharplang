@@ -11074,17 +11074,6 @@ sealed class ColumnarIlEmitter {
                 columnarResolvedType = targetType
                 return true
             }
-            // AN EXPLICIT CAST PERMITS EVERY IMPLICIT CONVERSION (C# §10.3: the set of explicit
-            // conversions includes the implicit ones), so the upcasts route through the SAME funnel an
-            // assignment and an argument already use rather than through a second, narrower list.
-            // `(object)name` is the shape converted C# writes whenever it builds an `object[]`, and it
-            // declined here while the identical widening at a call site was free. The numeric casts
-            // are NOT routed through this: an explicit numeric cast may narrow, and the scalar arm
-            // below owns the whole target-driven opcode table.
-            if (!ColumnarNumericFacts.IsCastableScalar(targetType) && (ColumnarReferenceCoercionPlanner.TryEmitInterfaceUpcast(sourceType, targetType, _structRegistry, _il) || ColumnarReferenceConversionFacts.TryEmitReferenceConversion(sourceType, targetType) || ColumnarReferenceCoercionPlanner.TryEmitObjectConversion(sourceType, targetType, _structRegistry, _il))) {
-                columnarResolvedType = targetType
-                return true
-            }
             if (!ColumnarNumericFacts.IsCastableScalar(targetType)) {
                 if (sourceType == typeof(object)) {
                     targetBuilder := targetType as TypeBuilder
@@ -11113,6 +11102,22 @@ sealed class ColumnarIlEmitter {
                 }
                 if (sourceType == typeof(object) && !targetType.get_IsValueType()) {
                     _il.Emit(OpCodes.Castclass, targetType)
+                    columnarResolvedType = targetType
+                    return true
+                }
+                // AN EXPLICIT CAST PERMITS EVERY IMPLICIT CONVERSION (C# §10.3: the set of explicit
+                // conversions includes the implicit ones), so a cast that is really an UPCAST routes
+                // through the same funnel an assignment and an argument already use rather than
+                // through a second, narrower list. `(object)name` is the shape converted C# writes
+                // whenever it builds an `object[]`, and it declined here while the identical widening
+                // at a call site was free.
+                //
+                // IT IS THE LAST ARM, AND THAT IS LOAD-BEARING. The arms above own the DOWNCASTS out
+                // of `object`, and one of them — `unbox.any` for a type-parameter target — is the
+                // only correct answer for a shape the funnel's reference-conversion reader would
+                // accept with no opcode at all. A type-parameter or value-type target is excluded
+                // here for the same reason: this funnel only ever widens a reference.
+                if (!targetType.get_IsGenericParameter() && !targetType.get_IsValueType() && (ColumnarReferenceCoercionPlanner.TryEmitInterfaceUpcast(sourceType, targetType, _structRegistry, _il) || ColumnarReferenceConversionFacts.TryEmitReferenceConversion(sourceType, targetType) || ColumnarReferenceCoercionPlanner.TryEmitObjectConversion(sourceType, targetType, _structRegistry, _il))) {
                     columnarResolvedType = targetType
                     return true
                 }
