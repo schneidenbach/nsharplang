@@ -48,6 +48,7 @@ enum ErrorCode {
     FieldInitializerUsesInstance = 328,
     StructFieldInitializer = 329,
     ForeachElementConversion = 330,
+    ByRefParameterCapturedByLocalFunction = 331,
     WrongArgumentCount = 401,
     NoMatchingOverload = 402,
     InvalidParameter = 405,

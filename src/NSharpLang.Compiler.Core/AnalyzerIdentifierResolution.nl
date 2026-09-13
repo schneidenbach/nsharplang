@@ -131,6 +131,7 @@ class AnalyzerIdentifierResolution {
         resolved: TypeInfo = BuiltInTypes.Unknown
         if TryResolveBindingTarget(name, line, column, out resolved) {
             ReportUnverifiedErrorTupleResultUseIfNeeded(name, line, column)
+            ReportCapturedByRefParameterIfNeeded(name, line, column)
             return resolved
         }
 
@@ -144,6 +145,30 @@ class AnalyzerIdentifierResolution {
 
         ReportUndefined(name, line, column, reportMissingAsFunction)
         return BuiltInTypes.Unknown
+    }
+
+    // NL331: A LOCAL FUNCTION MAY NOT READ AN ENCLOSING FUNCTION'S `ref`, `out` OR `in` PARAMETER.
+    //
+    // A capturing local function's storage outlives the call that created it — the captured bindings
+    // live in a closure object on the heap — and a byref parameter is a managed pointer into the
+    // CALLER's frame. There is nowhere to put it, which is why C# refuses the same program as CS1628
+    // rather than choosing between a stale copy and a dangling pointer.
+    //
+    // It is reported at the READ, where the fix goes: copy the parameter into an ordinary local and
+    // capture that instead, then write the result back after the call.
+    private func ReportCapturedByRefParameterIfNeeded(name: string, line: int, column: int) {
+        if line <= 0 || !ambientValue.IsCapturedByRefParameter(name) {
+            return
+        }
+
+        diagnosticsValue.Report(
+            ErrorCode.ByRefParameterCapturedByLocalFunction,
+            "'" + name + "' is a 'ref', 'out' or 'in' parameter of the enclosing function, so a local function cannot use it",
+            line,
+            column,
+            "Copy '" + name + "' into an ordinary local before the local function, use that local inside it, and assign the result back to '" + name + "' afterwards.",
+            Math.Max(1, name.Length)
+        )
     }
 
     // THE CALLEE-POSITION FORM of the same rule, and the reason it lives here rather than in the call

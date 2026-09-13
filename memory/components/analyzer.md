@@ -2578,13 +2578,62 @@ collecting reports nothing and merges its reads outwards. The sub-walk is driven
 `AnalyzerDefiniteAssignment`'s own call arm rather than from the capture owner, because that class is
 at the columnar front end's per-class member ceiling and a bare `this` declines it.
 
-NOT YET: a local function cannot CAPTURE anything — the columnar emitter models locals as static
-methods with no display class, so a read or write of an enclosing local declines at
-`emit.return.expression` / `emit.statement.block-child`. The definite-assignment rule above is
-therefore analyzer-visible (`nlc check`) before that decline is reached, and is the rule that will
-still be right when closures land. A local function also does not SHADOW a same-named top-level
-function at the call site (both calls resolve to the top-level one) — a separate pre-existing gap in
-the call planner, unchanged by the block-scoping rule.
+A local function CAPTURES through the same model a lambda does — see "A local function and a lambda
+are one closure" below. A local function still does not SHADOW a same-named top-level function at
+the call site (both calls resolve to the top-level one) — a separate pre-existing gap in the call
+planner, unchanged by the block-scoping rule.
+
+`ref`, `out` and `in` parameters are the one thing a local function may not capture. A byref
+parameter is a pointer into the CALLER's frame and the closure object outlives it, so
+`AnalyzerIdentifierResolution.Resolve` reports NL331 at the READ — C#'s CS1628 position and C#'s
+rule. The enclosing function's byref parameter names travel into the local function's walk through
+`AnalyzerAmbientContext.EnterLocalFunctionByRefParameters`, which ACCUMULATES rather than replaces,
+so a nested local function may not read an outer function's byref parameter either. It is asked at
+the one identifier door rather than by a second AST walk, so every use — read, write, argument —
+reports without the rule naming any of those forms.
+
+### A local function and a lambda are one closure
+
+`ColumnarLocalFunctionClosurePlanner.nl` is the N# owner of "what do this body's local functions
+capture, and where does each one live". It is asked BEFORE the enclosing body emits, because the
+answer chooses each local function's OWNER and the call sites need the `MethodBuilder` in hand.
+
+The plan is STRUCTURAL — names, not types — which is what lets it run that early. A local function's
+free names are read from its own body table, the names it binds for itself are subtracted, and what
+remains is matched against the DECLARING SCOPE (the enclosing parameters plus the root block's own
+declarations) and against the enclosing type's instance members.
+
+- CAPTURES NOTHING -> a private static, the lowering that was already there.
+- CAPTURES A LOCAL OR PARAMETER -> an instance method of one `<>c__DisplayClass{n}` created for the
+  scope. The captured binding is lifted into a shared `StrongBox<T>` in the enclosing body and the
+  display holds the BOX, so both sides read and write one storage location — the `_liftedLocals`
+  route in the body and the `_boxedCaptures` route off `ldarg.0` in the method, which is exactly what
+  a capturing lambda already uses. The box is stored into its display field at the point the box is
+  created, because a local's box does not exist until its declaration runs; a capture that never
+  reached a box is reported BY NAME at `emit.local-function.capture`.
+- CAPTURES ONLY `this` -> an instance method of the ENCLOSING TYPE. Its own arg 0 is the receiver, so
+  every bare member read, write and call inside it lowers exactly as in an ordinary method body — and
+  for a STRUCT that placement IS C#'s `ref this`, since an instance method of a value type receives
+  its receiver by reference.
+- CAPTURES BOTH -> a display method, with `<>4__this` on the display (the field a mixed-capture
+  lambda already carries).
+
+BOTH REQUIREMENTS FLOW BACKWARDS ALONG THE CALL GRAPH, IN ONE FIXPOINT. A capture-free local function
+that calls a capturing one needs the receiver that sibling runs on, and one that calls a
+`this`-reading sibling needs the instance; mutual recursion is a cycle in that graph and settles in
+the same loop.
+
+THE DECLARING SCOPE IS NOT THE WHOLE BODY. `CollectDeclaringScopeBindingNames` reads the enclosing
+parameters plus the ROOT BLOCK's declarations. Reading every name the body binds anywhere refused
+`func visit(item: string)` in a body that also wrote `for item in items` — two `item`s that never
+share a scope, which `nlc check` and C# both accept.
+
+`TryDeclareLocalFunctions` and `TryEmitLocalFunctionBodies` in `ColumnarIlEmitter.nl` are the one
+pair of helpers a FREE function's body and a type MEMBER's body both call; the member half also
+needed `ColumnarStructMethodUnsupportedStatus` to stop answering "unsupported" for any member with a
+local function, which used to decline the whole type declaration at `parse.struct`. A local function
+in a GENERIC member still declines (`emit.local-function.generic-member`): a synthesized display
+cannot carry the type parameters in scope.
 
 ### A substituted type parameter takes the type ARGUMENT's nullability
 
