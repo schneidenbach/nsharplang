@@ -3,6 +3,7 @@ namespace NSharpLang.ColumnarEmitFacts.Tests
 import System
 import System.IO
 import System.Reflection
+import System.Collections.Generic
 
 // These are emitted production declarations, not a resolver surrogate.  The two Stream slots are
 // deliberately declared at different external base levels; the generic comparer retains both its

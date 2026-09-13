@@ -1,10 +1,10 @@
 namespace NSharpLang.CensusExtensionCalls.Tests
 
+import System
 import System.Collections
 import System.Collections.Generic
 import System.Linq
 import System.Text.Json
-import System
 
 
 // ── the receiver the census actually wrote: a sequence of a type THIS compilation declares ────

@@ -2,8 +2,15 @@ namespace Census.Imports.Tests
 
 import System
 import System.Collections.Generic
-import System.Reflection
+// THE IMPORT IS THE FIXTURE. Every spelling below is written in FULL, so nothing binds through
+// this line and NL010 is right that it supplies nothing — but deleting it would delete the
+// collision these contracts are about.
+// nlc:ignore NL010
 import Census.Imports.Left
+// THE IMPORT IS THE FIXTURE. Every spelling below is written in FULL, so nothing binds through
+// this line and NL010 is right that it supplies nothing — but deleting it would delete the
+// collision these contracts are about.
+// nlc:ignore NL010
 import Census.Imports.Right
 
 

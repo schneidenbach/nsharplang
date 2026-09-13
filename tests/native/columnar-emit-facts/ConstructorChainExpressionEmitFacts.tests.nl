@@ -1,7 +1,6 @@
 namespace NSharpLang.ColumnarEmitFacts.Tests
 
 import System
-import System.Collections
 
 class ConstructorChainExpressionRecorder {
     Events: string

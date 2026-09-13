@@ -2,7 +2,7 @@ namespace NSharpLang.PatternForeach.Tests
 
 import System.Collections
 import System.Collections.Generic
-import System.Reflection
+import System
 
 func AnnotatedShapesUnderTest(): AnnotatedShapes {
     return new AnnotatedShapes()

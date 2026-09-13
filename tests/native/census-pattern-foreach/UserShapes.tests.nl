@@ -2,7 +2,6 @@ namespace NSharpLang.PatternForeach.Tests
 
 import System
 import System.Collections.Generic
-import System.Reflection
 
 func UserShapesUnderTest(): UserShapes {
     return new UserShapes()

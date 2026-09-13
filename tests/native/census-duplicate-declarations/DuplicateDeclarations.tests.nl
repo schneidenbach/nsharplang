@@ -106,10 +106,10 @@ func DupWrite(directory: string, fileName: string, text: string) {
 func DupDelete(directory: string) {
     try {
         Directory.Delete(directory, true)
-    // nlc:ignore NL011
     } catch {
     }
 }
+// nlc:ignore NL011
 
 // Every `results` row of a `nlc check --json` run, as "<code>@<file>:<line>:<column>+<length>".
 func DupCheckCensus(directory: string): List<string> {

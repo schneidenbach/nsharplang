@@ -103,10 +103,10 @@ func IuWrite(directory: string, fileName: string, text: string) {
 func IuDelete(directory: string) {
     try {
         Directory.Delete(directory, true)
-    // nlc:ignore NL011
     } catch {
     }
 }
+// nlc:ignore NL011
 
 // Every `results` row of a `nlc check --json` run, as "<code>@<file>:<line>:<column>+<length>".
 func IuCheckCensus(directory: string): string {
