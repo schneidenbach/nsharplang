@@ -419,6 +419,7 @@ class Analyzer: IDisposable {
         MemberAccess.SetImportUsageCredit(ImportUsageCredit)
         ProjectDiscovery.SetImportUsageCredit(ImportUsageCredit)
         Diagnostics.SetImportUsageCredit(ImportUsageCredit)
+        Imports.SetImportUsageCredit(ImportUsageCredit)
     }
 
     private func CreateAttributeValidator(): AnalyzerAttributeValidator {

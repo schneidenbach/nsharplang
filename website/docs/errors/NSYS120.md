@@ -29,6 +29,8 @@ language:
 ```
 
 ```n#
+import System
+
 func Fail() {
     throw alloc new Exception("frame too short")          // ERROR NSYS120
 }

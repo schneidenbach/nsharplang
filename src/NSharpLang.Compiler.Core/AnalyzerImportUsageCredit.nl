@@ -267,6 +267,16 @@ class AnalyzerImportUsageCredit {
         RecordMetadataName(writtenName, supplier ?? "")
     }
 
+    // A FULLY QUALIFIED CANDIDATE — `Reporting.Widget` — credited to the namespace half of itself.
+    // NL209's two candidates come back this way, and both of them supplied the name: that is what
+    // makes the reference ambiguous rather than unresolved.
+    func CreditQualifiedCandidate(qualifiedName: string) {
+        separator := qualifiedName.LastIndexOf('.')
+        if separator > 0 {
+            CreditNamespaceSupplier(qualifiedName.Substring(0, separator))
+        }
+    }
+
     // A NAMESPACE THAT ANSWERED FOR A NAME, credited directly by the channel that swept it. The
     // project-type sweep is the case: a source type carries its own name and not the namespace that
     // supplied it, so the arithmetic above has nothing to work on and the sweep is the only owner

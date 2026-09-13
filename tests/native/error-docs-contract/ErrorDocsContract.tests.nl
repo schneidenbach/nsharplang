@@ -4,6 +4,7 @@ import System
 import System.Collections.Generic
 import System.Diagnostics
 import System.IO
+import NSharpLang.Compiler
 
 
 // A DIAGNOSTIC CODE WITHOUT A DOCUMENTATION PAGE CANNOT BE ADDED.

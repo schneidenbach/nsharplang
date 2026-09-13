@@ -243,13 +243,27 @@ class AnalyzerDiagnosticSink {
     // qualification it suggests is the FIRST, which is the one the old first-import-wins order would
     // silently have chosen.
     func ReportAmbiguousTypeReference(name: string, firstCandidate: string, secondCandidate: string, line: int, column: int): bool {
+        CreditAmbiguousCandidates(firstCandidate, secondCandidate)
         ReportBuilt(ErrorMessageBuilder.AmbiguousTypeReference(currentFilePathValue, line, column, SourceSnippet(line), Math.Max(1, name.Length), name, firstCandidate, secondCandidate))
         return true
     }
 
     func ReportAmbiguousFunctionReference(name: string, firstCandidate: string, secondCandidate: string, line: int, column: int): bool {
+        CreditAmbiguousCandidates(firstCandidate, secondCandidate)
         ReportBuilt(ErrorMessageBuilder.AmbiguousFunctionReference(currentFilePathValue, line, column, SourceSnippet(line), Math.Max(1, name.Length), name, firstCandidate, secondCandidate))
         return true
+    }
+
+    // NL010: BOTH CANDIDATES SUPPLIED THE NAME, WHICH IS WHY THIS IS A TIE. The name does not
+    // resolve, so nothing else credits either import — and without this the file would be told that
+    // both of the imports the tie is ABOUT are also dead, each with a fix that deletes one of the two
+    // lines the report names.
+    func CreditAmbiguousCandidates(firstCandidate: string, secondCandidate: string) {
+        credit := importUsageCreditValue
+        if credit != null {
+            credit.CreditQualifiedCandidate(firstCandidate)
+            credit.CreditQualifiedCandidate(secondCandidate)
+        }
     }
 
     // THE VALUE COULD BE CONVERTED TWO WAYS AND NEITHER IS BETTER. Every position that is

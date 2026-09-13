@@ -83,6 +83,36 @@ class AnalyzerTypeResolver {
         reportedSoaRowTypeRefsValue.Clear()
     }
 
+    // A FUNCTION TYPE IS RESOLVED STRUCTURALLY, SO ITS WRITTEN NAME RESOLVES NOWHERE.
+    //
+    // `f: Func<int, int>` becomes a `FunctionTypeInfo` built from its parts; the spelling `Func` is
+    // never looked up as a name, so no channel credits the import that supplies it and
+    // `import System` beside a file whose only use of it was a delegate annotation read as dead. The
+    // name is resolved here for the credit alone — positionless, so it reports nothing of its own —
+    // and at the ARITY the reference writes, because `Func` exists in metadata only as ``Func`1``
+    // and up.
+    //
+    // A hand-built reference carries no written name and asks nothing.
+    func CreditWrittenDelegateName(functionReference: FunctionTypeReference, parameterCount: int, returnType: TypeInfo) {
+        if importUsageCreditValue == null {
+            return
+        }
+
+        writtenName := functionReference.WrittenName
+        if writtenName.Length == 0 {
+            return
+        }
+
+        arity := parameterCount
+        returnSimple := returnType as SimpleTypeInfo
+        if returnSimple == null || returnSimple.Name != "void" {
+            arity = arity + 1
+        }
+
+        ignored := ResolveTypeNameWithArity(writtenName, arity, 0, 0)
+        _ = ignored
+    }
+
     // The well-known-type bag is rebuilt, never mutated, so the resolver is told about the new bag
     // rather than being rebuilt itself: rebuilding would drop the dedupe sets mid-analysis.
     func SetWellKnownTypes(wellKnownTypes: AnalyzerWellKnownTypes?) {
@@ -201,6 +231,7 @@ class AnalyzerTypeResolver {
             functionType := new FunctionTypeInfo()
             functionType.ParameterTypes = parameterTypes
             functionType.ReturnType = ResolveType(functionReference.ReturnType)
+            CreditWrittenDelegateName(functionReference, parameterTypes.Count, functionType.ReturnType)
             return functionType
         }
 
