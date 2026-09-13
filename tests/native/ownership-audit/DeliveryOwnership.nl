@@ -48,13 +48,13 @@ class DeliveryOwnershipPolicy {
             return "text-v1:3d3d168339548fa7"
         }
         if path == "bootstrap/NSharpLang.Runtime.0.1.0.nupkg" {
-            return "binary-v1:2e0fa24ab2748f34"
+            return "binary-v1:ee5dcdc3873d65d8"
         }
         if path == "bootstrap/NSharpLang.Sdk.0.1.0.nupkg" {
-            return "binary-v1:d6256d015646c855"
+            return "binary-v1:e2a1aa92b2f571da"
         }
         if path == "scripts/lib/packages.sh" {
-            return "text-v1:a14472510bd75cac"
+            return "text-v1:19d879a4d1e607d5"
         }
         if path == "scripts/pack-nuget.sh" {
             return "text-v1:4a62685e3e4e0eba"
