@@ -899,6 +899,21 @@ test "&& AND || OVER A bool? ARE REFUSED, WITH THE == true FIX IN THE SUGGESTION
     assert harness.Errors[0].Suggestion == "Say what an absent value means first: 'x == true' is true only when the value is present and true, 'x != false' also accepts an absent one, and 'x ?? false' supplies a default. The non-short-circuiting '&' does work on 'bool?' and answers the three-valued result."
 }
 
+test "A LIFTED COMPARISON PROVES NOTHING, SO ITS RIGHT-HAND SIDE TAKES THE PLAIN WALK" {
+    harness := OperatorDefault()
+
+    // `x < 5` on an `int?` is TRUE only when `x` is present -- and the analyzer still narrows
+    // NOTHING out of it. A comparison whose answer is decided for an absent operand is not a
+    // presence test, and reading one as a narrowing would make `x >= 5`'s FALSE branch prove the
+    // mirror of a fact it never established.
+    comparison := OperatorBinary(OperatorIdentifier("x", 2, 5), BinaryOperator.Less, new IntLiteralExpression("5", 2, 9))
+    state := harness.Operators.Begin(OperatorBinary(comparison, BinaryOperator.And, OperatorIdentifier("b", 2, 15)))
+    steps := OperatorRun(harness, state, OperatorAnswers(BuiltInTypes.Bool, BuiltInTypes.Bool))
+
+    assert steps[1].Kind == 1
+    assert steps[1].Narrowings == -1
+}
+
 test "THE NON-SHORT-CIRCUITING & AND | DO WORK OVER A bool?" {
     harness := OperatorDefault()
     nullableBool: TypeInfo = new NullableTypeInfo(BuiltInTypes.Bool)
