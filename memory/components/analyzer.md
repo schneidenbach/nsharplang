@@ -1606,6 +1606,18 @@ Two consequences the analyzer owns:
   emitted TWO type rows named `Program` into one assembly and the program still ran, so the fallback
   makes that metadata single-valued as well. (An earlier revision of this slice reported NL306 here
   instead; it broke three shipped examples and was withdrawn.)
+- **A free-function name is declared ONCE per namespace, across files (NL306).** Measured on
+  a755caeea: two files of `X` each declaring `func Helper()` passed `check`, built, and the program
+  printed the second file's answer — the analyzer's file scan and the emitter's declaration order
+  had each picked a winner. `AnalyzerProjectTypeDiscovery.SameNamespaceFunctionTwins` builds, once
+  per analysis, the top-level function names the OTHER files of the current namespace declare (first
+  other file wins, own file excluded), and `AnalyzerDeclarationPolicy.DeclareTopLevelFunction`
+  reports at each file's declaration naming the other — neither file is "second". The parameter
+  lists play no part: the identity is (namespace, name); cross-file overloads of one name never
+  worked (the view is name-keyed, and a call at the other arity reported NL401 against whichever
+  file discovery happened to reach), and in-file free-function overloads decline at
+  `parse.declaration-scan`. The emitter's own word is `ColumnarFreeFunctionScope.Declare` answering
+  `false` for a second (namespace, name) row, declined at `emit.declaration.duplicate`.
 
 **EXPORT IS REQUIRED ONLY ACROSS NAMESPACES, AND ONE OWNER SAYS SO.**
 `SimpleNamePrecedence.RequiresExport(currentNamespace, candidateNamespace)` is that half of the rule:

@@ -62,6 +62,9 @@ class ColumnarFreeFunctionScope {
     returnLabeledCanonicals: List<string>
     viewsByFile: Dictionary<int, Dictionary<string, ColumnarSiblingMethodDefinition>>
     labeledViewsByFile: Dictionary<int, Dictionary<string, string>>
+    // Every (namespace, name) declared so far, so a second declaration of one is refused rather than
+    // silently shadowing the first.
+    declaredIdentities: HashSet<string>
 
     constructor(programInput: ColumnarProgramInput, rootHolderTypeName: string) {
         program = programInput
@@ -74,6 +77,7 @@ class ColumnarFreeFunctionScope {
         returnLabeledCanonicals = new List<string>()
         viewsByFile = new Dictionary<int, Dictionary<string, ColumnarSiblingMethodDefinition>>()
         labeledViewsByFile = new Dictionary<int, Dictionary<string, string>>()
+        declaredIdentities = new HashSet<string>(StringComparer.Ordinal)
     }
 
     // The CLR name of the holder type a namespace's free functions are declared on. The global
@@ -100,13 +104,26 @@ class ColumnarFreeFunctionScope {
 
     // One declared top-level function. Declaration order is preserved, because it is what settles a
     // tie the precedence order cannot: two candidates at the same rank keep the first one declared.
-    func Declare(function: ColumnarFunctionInput, definition: ColumnarSiblingMethodDefinition) {
+    //
+    // A SECOND DECLARATION OF ONE (NAMESPACE, NAME) IS REFUSED, and the caller declines the program.
+    // The identity has one row — there is no cross-file overload group for a second declaration to
+    // join — and every view is keyed by the bare name within a namespace, so keeping both would put
+    // one of them silently out of reach of every caller while the CLR type still carried two rows of
+    // one signature. The analyzer reports the pair as NL306 first; this is the emitter's own word on
+    // it, for the paths that reach the emitter without the analyzer.
+    func Declare(function: ColumnarFunctionInput, definition: ColumnarSiblingMethodDefinition): bool {
+        namespaceName := program.NamespaceNameForFile(function.SourceFileId)
+        if !declaredIdentities.Add(namespaceName + "\n" + function.Name) {
+            return false
+        }
+
         definitions.Add(definition)
         names.Add(function.Name)
-        namespaceNames.Add(program.NamespaceNameForFile(function.SourceFileId))
+        namespaceNames.Add(namespaceName)
         sourceFileIds.Add(function.SourceFileId)
         exportedFlags.Add(VisibilityConventions.IsExportedIdentifierWithFlags(function.Name, function.VisibilityModifierFlags))
         returnLabeledCanonicals.Add(function.ReturnLabeledCanonical ?? "")
+        return true
     }
 
     // Whether a candidate declared in `candidateNamespace` has to be exported to be reachable from a

@@ -633,6 +633,63 @@ class AnalyzerProjectTypeDiscovery {
         return false
     }
 
+    // THE ONE-DECLARATION-PER-NAMESPACE RULE FOR A FREE FUNCTION, asked across files.
+    //
+    // A free function is identified by (namespace, name): that is the emitter's identity for it
+    // (`ColumnarFreeFunctionScope`), the key every bare-call view is built on, and what the function
+    // channel above resolves a call to. A namespace spans files, so a second file of the same
+    // namespace declaring a name the first already declares is a duplicate of it — whatever the two
+    // parameter lists say, because there is no cross-file overload group for the second to join: a
+    // top-level `func` name has ONE declaration per namespace. Before this walk existed, two files of
+    // `X` could each declare `func Helper()`, `check` was clean, and the program printed whichever
+    // one the emitter's declaration order happened to keep.
+    //
+    // The answer is every name some OTHER file of the namespace declares, each mapped to the FIRST
+    // such file in enumeration order (rule 1) with the declaration's line, so a report can point at
+    // it. The caller's own file is excluded on purpose: its own duplicates are its scope's business
+    // (`AnalyzerDeclarationPolicy.DeclareSymbol`), and a file is never its own twin. Built once per
+    // analysis by the policy, not once per declaration, since a project's files do not change
+    // between two declarations of one unit.
+    func SameNamespaceFunctionTwins(currentFilePath: string?, currentNamespace: string?): Dictionary<string, ProjectFunctionTwin> {
+        twins := new Dictionary<string, ProjectFunctionTwin>(StringComparer.Ordinal)
+        ownPath := currentFilePath == null ? "" : Path.GetFullPath(currentFilePath)
+        wantedNamespace := currentNamespace ?? ""
+        paths := sources.SourceFilePaths()
+        fileIndex := 0
+        while fileIndex < paths.Count {
+            candidatePath := paths[fileIndex]
+            fileIndex = fileIndex + 1
+            if string.Equals(Path.GetFullPath(candidatePath), ownPath, StringComparison.OrdinalIgnoreCase) {
+                continue
+            }
+
+            unit := sources.GetProjectCompilationUnit(candidatePath)
+            if unit == null {
+                continue
+            }
+
+            candidateNamespace := AnalyzerProjectSourceProvider.UnitNamespace(unit) ?? ""
+            if !string.Equals(candidateNamespace, wantedNamespace, StringComparison.Ordinal) {
+                continue
+            }
+
+            declarations := unit.Declarations
+            declarationIndex := 0
+            while declarationIndex < declarations.Count {
+                candidate := declarations[declarationIndex]
+                declarationIndex = declarationIndex + 1
+                functionDeclaration := candidate as FunctionDeclaration
+                if functionDeclaration == null || twins.ContainsKey(functionDeclaration.Name) {
+                    continue
+                }
+
+                twins[functionDeclaration.Name] = new ProjectFunctionTwin(candidatePath, functionDeclaration.Line)
+            }
+        }
+
+        return twins
+    }
+
     // NL209 FOR THE FUNCTION CHANNEL. The same tie the type half reports, asked of top-level `func`
     // declarations: two IMPORTED namespaces each export this spelling, so `SimpleNamePrecedence`
     // rule 3 has two winners and the file has to settle it.
@@ -818,5 +875,19 @@ class AnalyzerProjectTypeDiscovery {
         }
 
         return DeclarationFacts.IsExportedDeclaration(declaration, name)
+    }
+}
+
+// WHERE ANOTHER FILE OF THE SAME NAMESPACE DECLARES A TOP-LEVEL FUNCTION OF SOME NAME — the file and
+// the declaration's line, which is all a duplicate report needs to point at it. Deliberately not a
+// `SymbolDeclaration`: that carries the NAME column, which costs a read of the declaring file's text,
+// and this index is built for every file of every analysis.
+class ProjectFunctionTwin {
+    FilePath: string
+    Line: int
+
+    constructor(filePath: string, line: int) {
+        FilePath = filePath
+        Line = line
     }
 }

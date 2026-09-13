@@ -27,10 +27,8 @@ func FromReturn(): object[] {
     return ["return", 2, ["nested"], null]
 }
 
-func CountValues(values: object[]): int {
-    return values.Length
-}
-
+// `CountValues` is declared once for this namespace, in `ArrayCovariance.nl`: a free-function name has
+// one declaration per namespace (NL306), and this file reaches it with no import.
 func FirstOfValues(values: object[]): object {
     return values[0]
 }

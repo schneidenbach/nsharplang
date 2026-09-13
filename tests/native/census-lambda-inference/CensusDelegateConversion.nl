@@ -16,10 +16,10 @@ import System.Collections.Generic
 // Everything below EXECUTES: the delegates are invoked, the sorts and searches really run, and the
 // CLR type of what was built is asserted, because a conversion that produced the wrong delegate
 // type would still satisfy a check that only looked at the source text.
-func RuntimeTypeOf(value: object): Type {
-    return value.GetType()
-}
-
+//
+// `RuntimeTypeOf` and `Words` are declared once for this namespace, in `CensusLambdaInference.nl`: a
+// free-function name has one declaration per namespace (NL306), and this file reaches both with no
+// import.
 func DescendingComparison(): Comparison<int> {
     ordering: Comparison<int> = (left, right) => right - left
     return ordering
@@ -82,13 +82,5 @@ func SortedDescending(values: int[]): int[] {
 
 func SortedThrough(values: int[], ordering: Comparison<int>): int[] {
     Array.Sort(values, ordering)
-    return values
-}
-
-func Words(): List<string> {
-    values := new List<string>()
-    values.Add("alpha")
-    values.Add("be")
-    values.Add("gamma")
     return values
 }

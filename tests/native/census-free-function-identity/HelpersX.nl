@@ -11,8 +11,8 @@ func Helper(): string {
     return "X"
 }
 
-// A camelCase free function is FILE-PRIVATE: only the calls written in this file may reach it, and
-// `HelpersY.nl` declares one with the same spelling.
+// A camelCase free function is NAMESPACE-private: every file of `X` may reach it and no other
+// namespace can, and `HelpersY.nl` declares one with the same spelling for `Y`.
 func helper(): string {
     return "x"
 }

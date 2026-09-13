@@ -92,7 +92,7 @@ These are not style rules; style is `nlc format`'s job and produces no diagnosti
 | [`NL303`](./NL303.md) | A member that the receiver's type does not have. |
 | [`NL304`](./NL304.md) | A read of something not assigned on every path. |
 | [`NL305`](./NL305.md) | A path out of a value-returning function with no `return`. |
-| [`NL306`](./NL306.md) | Two declarations of the same name in one scope. |
+| [`NL306`](./NL306.md) | Two declarations of the same name in one scope, or of one free-function name in one namespace. |
 | `NL307` | A dependency that closes a cycle. |
 | [`NL308`](./NL308.md) | A member the calling code is not allowed to see — not exported from its package, or kept in by a written `private`/`protected`/`internal`. |
 | [`NL309`](./NL309.md) | A write to a `readonly` field outside its constructor. |

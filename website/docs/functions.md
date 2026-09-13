@@ -128,6 +128,11 @@ N# — `public func helper()` is reachable from other namespaces and `internal f
 Unlike types, a free function is *not* auto-discovered across namespaces — `import` the namespace
 that declares it.
 
+A namespace declares a free-function name **once**, across all of its files. Two files of
+`namespace Reporting` that both declare `func Helper()` — with the same parameter list or a
+different one — is [NL306](./errors/NL306.md), reported in each file and naming the other. The same
+two declarations in two different namespaces are two functions.
+
 ### What a free function looks like from .NET
 
 Free functions are emitted as **static methods on a `Program` class inside their own namespace**, so

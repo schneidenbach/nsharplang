@@ -1278,3 +1278,112 @@ test "a non-exported free function is not one of the candidates a tie is decided
     assert !discovery.TryFindAmbiguousImportedFunction("Render", "Mine", out first, out second)
     assert !discovery.TryFindAmbiguousImportedFunction("render", "Mine", out first, out second)
 }
+
+// THE ONE-DECLARATION-PER-NAMESPACE RULE, at discovery. A namespace spans files, so the names the
+// OTHER files of the current namespace declare as top-level functions are what a duplicate report is
+// built from — the first other file wins, the caller's own file is never its own twin, and another
+// namespace's same-named function is a different function altogether. The parameter lists play no
+// part: a free function's identity is (namespace, name), and there is no cross-file overload group.
+test "the same-namespace function twins are the names the OTHER files of one namespace declare" {
+    provider := ProjectProviderOf(
+        ["/p/a.nl", "/p/b.nl", "/p/c.nl", "/p/other.nl"],
+        [
+            ProjectSourceOf("X", "func Helper(): int {\n    return 1\n}\n"),
+            ProjectSourceOf("X", "func Helper(_count: int): int {\n    return 2\n}\n\nfunc Alone(): int {\n    return 3\n}\n"),
+            ProjectSourceOf("X", "func Helper(): int {\n    return 4\n}\n"),
+            ProjectSourceOf("Y", "func Helper(): int {\n    return 5\n}\n")
+        ]
+    )
+    discovery := ProjectDiscoveryOf(provider, [])
+
+    // From a.nl: b.nl's `Helper` is the twin (the first OTHER file), whatever its parameter list,
+    // and so is `Alone` — the index is by name, not by what a.nl happens to declare.
+    fromA := discovery.SameNamespaceFunctionTwins("/p/a.nl", "X")
+    assert fromA.Count == 2
+    assert Path.GetFileName(fromA["Helper"].FilePath) == "b.nl"
+    assert fromA["Helper"].Line == 3
+    assert Path.GetFileName(fromA["Alone"].FilePath) == "b.nl"
+
+    // From b.nl: a.nl's `Helper`, and never its own `Alone`.
+    fromB := discovery.SameNamespaceFunctionTwins("/p/b.nl", "X")
+    assert fromB.Count == 1
+    assert Path.GetFileName(fromB["Helper"].FilePath) == "a.nl"
+
+    // Y's `Helper` is a different function: from other.nl there is no twin at all.
+    fromOther := discovery.SameNamespaceFunctionTwins("/p/other.nl", "Y")
+    assert fromOther.Count == 0
+}
+
+test "the global namespace is one namespace for the twin index, whether spelled null or empty" {
+    provider := ProjectProviderOf(
+        ["/p/one.nl", "/p/two.nl"],
+        [
+            ProjectSourceOf(null, "func Helper(): int {\n    return 1\n}\n"),
+            ProjectSourceOf(null, "func Helper(): int {\n    return 2\n}\n")
+        ]
+    )
+    discovery := ProjectDiscoveryOf(provider, [])
+
+    fromNull := discovery.SameNamespaceFunctionTwins("/p/one.nl", null)
+    assert fromNull.Count == 1
+    assert Path.GetFileName(fromNull["Helper"].FilePath) == "two.nl"
+    assert fromNull["Helper"].Line == 1
+
+    fromEmpty := discovery.SameNamespaceFunctionTwins("/p/one.nl", "")
+    assert fromEmpty.Count == 1
+}
+
+// THE SAME RULE END TO END, through `Analyzer.Analyze` over a project on disk: the report is NL306,
+// it lands in EACH file naming the other, and a third namespace's same-named function reports
+// nothing. Measured on a755caeea before this rule: the pair passed analysis, built, and the program
+// printed the second file's answer.
+func TopLevelFunctionTwinReports(filePath: string, source: string, projectRoot: string): List<string> {
+    parsed := ColumnarParserRecovery.ParseFileAst(source, filePath)
+    assert parsed.Errors.Count == 0
+    unit := parsed.CompilationUnit
+    assert unit != null
+    analyzer := new Analyzer()
+    messages := new List<string>()
+    try {
+        result := analyzer.Analyze(unit, filePath, projectRoot, source)
+        for error in result.Errors {
+            if error.Code == ErrorCode.DuplicateDeclaration {
+                messages.Add(error.Message + " @" + error.Line.ToString() + ":" + error.Column.ToString())
+            }
+        }
+    } finally {
+        analyzer.Dispose()
+    }
+
+    return messages
+}
+
+test "two files of one namespace that declare the same free function each report NL306 naming the other" {
+    projectRoot := Path.Combine(Path.GetTempPath(), "nsharp-function-twin-" + Guid.NewGuid().ToString("N"))
+    Directory.CreateDirectory(projectRoot)
+    try {
+        aPath := Path.Combine(projectRoot, "A.nl")
+        aSource := "namespace X\n\nfunc Helper(): string {\n    return \"A\"\n}\n"
+        bPath := Path.Combine(projectRoot, "B.nl")
+        bSource := "namespace X\n\nfunc Helper(_count: int): string {\n    return \"B\"\n}\n"
+        cPath := Path.Combine(projectRoot, "C.nl")
+        cSource := "namespace Y\n\nfunc Helper(): string {\n    return \"C\"\n}\n"
+        File.WriteAllText(aPath, aSource)
+        File.WriteAllText(bPath, bSource)
+        File.WriteAllText(cPath, cSource)
+
+        fromA := TopLevelFunctionTwinReports(aPath, aSource, projectRoot)
+        assert fromA.Count == 1
+        assert fromA[0] == "'Helper' is already declared in namespace 'X' by B.nl:3 — a free function name must be unique across every file of its namespace @3:6"
+
+        // The other file reports too, naming THIS one: neither file is "second".
+        fromB := TopLevelFunctionTwinReports(bPath, bSource, projectRoot)
+        assert fromB.Count == 1
+        assert fromB[0].Contains("by A.nl:3")
+
+        // A different namespace is a different function.
+        assert TopLevelFunctionTwinReports(cPath, cSource, projectRoot).Count == 0
+    } finally {
+        Directory.Delete(projectRoot, true)
+    }
+}

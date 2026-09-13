@@ -6549,7 +6549,11 @@ sealed class ColumnarIlEmitter {
             siblingDefinition.DoesNotReturn = ColumnarReachabilityAttributeFacts.DeclaresDoesNotReturn(fn.SourceAttributes)
             siblingDefinition.ParameterDoesNotReturnIf = ColumnarReachabilityAttributeFacts.ParameterDoesNotReturnIf(fn.ParameterSourceAttributes)
             siblingDefinitionsByFunc[f] = siblingDefinition
-            freeFunctionScope.Declare(fn, siblingDefinition)
+            if (!freeFunctionScope.Declare(fn, siblingDefinition)) {
+                duplicateNamespace := program.NamespaceNameForFile(fn.SourceFileId)
+                duplicateWhere := duplicateNamespace.Length == 0 ? "the global namespace" : "namespace '" + duplicateNamespace + "'"
+                return DeclineStatic("emit.declaration.duplicate", "free function '" + fn.Name + "' is declared more than once in " + duplicateWhere, fn.Name, -1, 0)
+            }
         }
 
         // Pass 2: emit each body into its declared method's IL stream. The body's OWN namespace holder +

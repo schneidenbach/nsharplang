@@ -901,7 +901,7 @@ class Analyzer: IDisposable {
                                                     functionDeclaration := declaration as FunctionDeclaration
                                                     if functionDeclaration != null {
                                                         functionType := FunctionTypeFactory.CreateFromDeclaration(functionDeclaration, Ambient.CurrentTypeName)
-                                                        DeclarationPolicy.DeclareSymbol(functionDeclaration.Name, functionType, functionDeclaration.Line, functionDeclaration.Column, null, true)
+                                                        DeclarationPolicy.DeclareTopLevelFunction(functionDeclaration, functionType)
                                                     }
                                                 }
                                             }

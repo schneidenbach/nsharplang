@@ -4348,3 +4348,51 @@ test "nlc test refuses coverage collection on both output routes and exits 1" {
         Directory.Delete(directory, true)
     }
 }
+
+// ONE FREE-FUNCTION NAME PER NAMESPACE, ACROSS FILES, at the product surface. Measured on a755caeea:
+// this project passed `nlc check`, built, and printed the second file's `Helper`. Now each file
+// reports NL306 naming the other, so the JSON carries two results — one per declaration.
+test "nlc check reports NL306 in each file when two files of one namespace declare the same free function" {
+    directory := NewTempDirectory("nlc-check-function-twin")
+    try {
+        WriteProjectYml(directory, "name: FunctionTwin\nversion: 0.1.0\noutputType: exe\ntargetFramework: net10.0\n")
+        File.WriteAllText(Path.Combine(directory, "A.nl"), "namespace X\n\nfunc Helper(): string {\n    return \"A\"\n}\n")
+        File.WriteAllText(Path.Combine(directory, "B.nl"), "namespace X\n\nfunc Helper(): string {\n    return \"B\"\n}\n")
+        File.WriteAllText(Path.Combine(directory, "Main.nl"), "namespace X\n\nfunc main() {\n    print Helper()\n}\n")
+
+        run := NlcIn(directory, "check")
+
+        assert run.ExitCode == 1
+        assert run.Stderr.Trim().Length == 0
+        document := JsonDocument.Parse(run.Stdout)
+        root := document.RootElement
+        assert !root.GetProperty("ok").GetBoolean()
+        assert root.GetProperty("summary").GetProperty("errors").GetInt32() == 2
+        results := root.GetProperty("results")
+        assert results.GetArrayLength() == 2
+        sawA := false
+        sawB := false
+        resultEnumerator := results.EnumerateArray()
+        while resultEnumerator.MoveNext() {
+            result := resultEnumerator.Current
+            assert TextOf(result.GetProperty("code")) == "NL306"
+            assert result.GetProperty("line").GetInt32() == 3
+            assert result.GetProperty("column").GetInt32() == 6
+            resultFile := TextOf(result.GetProperty("file"))
+            message := TextOf(result.GetProperty("message"))
+            if resultFile == "A.nl" {
+                sawA = true
+                assert message.Contains("'Helper' is already declared in namespace 'X' by B.nl:3")
+            }
+            if resultFile == "B.nl" {
+                sawB = true
+                assert message.Contains("'Helper' is already declared in namespace 'X' by A.nl:3")
+            }
+        }
+        assert sawA
+        assert sawB
+        document.Dispose()
+    } finally {
+        Directory.Delete(directory, true)
+    }
+}

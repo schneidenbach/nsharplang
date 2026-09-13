@@ -151,6 +151,9 @@ class AnalyzerDeclarationPolicy {
     currentFilePath: string?
     declarationContextFilePath: string?
     compilationUnit: CompilationUnit?
+    // The names the OTHER files of this file's namespace declare as top-level functions, built on the
+    // first top-level function of an analysis and dropped at the next `BeginAnalysis`.
+    sameNamespaceFunctionTwins: Dictionary<string, ProjectFunctionTwin>?
 
     constructor(diagnosticSink: AnalyzerDiagnosticSink, diagnosticSpans: AnalyzerDiagnosticSpans, scopeStack: AnalyzerScopeStack, flow: AnalyzerNullFlow, context: AnalyzerDeclarationContext, resolver: AnalyzerTypeResolver, parameters: AnalyzerParameterDeclarations, discovery: AnalyzerProjectTypeDiscovery, assemblies: List<Assembly>, aliases: Dictionary<string, string>, symbolsByAlias: Dictionary<string, Dictionary<string, TypeInfo>>, declarationsByAlias: Dictionary<string, Dictionary<string, SymbolDeclaration>>, declarationFiles: Dictionary<string, string>) {
         diagnostics = diagnosticSink
@@ -171,6 +174,7 @@ class AnalyzerDeclarationPolicy {
         currentFilePath = null
         declarationContextFilePath = null
         compilationUnit = null
+        sameNamespaceFunctionTwins = null
     }
 
     // One call per analysis, from the reset block, AFTER the semantic model and the binding map have
@@ -182,6 +186,7 @@ class AnalyzerDeclarationPolicy {
         currentFilePath = filePath
         compilationUnit = unit
         declarationContextFilePath = null
+        sameNamespaceFunctionTwins = null
     }
 
     // The declaration context's file path is established after the imports are walked, so it is set
@@ -218,6 +223,49 @@ class AnalyzerDeclarationPolicy {
             RecordDeclaration(name, line, nameColumn, kind)
             currentScope.RecordDeclarationLocation(name, currentFilePath, line, nameColumn, kind)
         }
+    }
+
+    // ----------------------------------------------------------------------------------------------
+    // A TOP-LEVEL FUNCTION, AGAINST THE REST OF ITS NAMESPACE
+    // ----------------------------------------------------------------------------------------------
+
+    // A free function's identity is (namespace, name), and a namespace spans files — so once this
+    // file's scope has taken the declaration, the OTHER files of the same namespace are asked whether
+    // one of them already declares the name. `DeclareSymbol` cannot see them: its scope is this
+    // file's. Before this, two files of `X` could each declare `func Helper()`, `check` was clean,
+    // and the program printed whichever one the emitter's declaration order kept — a silent wrong
+    // answer, which is worse than a refusal.
+    //
+    // The report lands in EVERY file that declares the name, each naming the other, because neither
+    // file is "second": a file is analysed on its own, and the one open in the editor is the one
+    // whose diagnostic the developer sees. The emitter refuses the same pair at
+    // `emit.declaration.duplicate`, so a program this reports can never be built by another path.
+    func DeclareTopLevelFunction(functionDeclaration: FunctionDeclaration, functionType: TypeInfo) {
+        name := functionDeclaration.Name
+        DeclareSymbol(name, functionType, functionDeclaration.Line, functionDeclaration.Column, null, true)
+
+        namespaceName := AnalyzerProjectSourceProvider.UnitNamespace(compilationUnit)
+        twins := sameNamespaceFunctionTwins
+        if twins == null {
+            twins = projectDiscovery.SameNamespaceFunctionTwins(currentFilePath, namespaceName)
+            sameNamespaceFunctionTwins = twins
+        }
+
+        twin: ProjectFunctionTwin? = null
+        if !twins.TryGetValue(name, out twin) {
+            return
+        }
+
+        scopeText := namespaceName == null || namespaceName.Length == 0 ? "the global namespace" : "namespace '" + namespaceName + "'"
+        nameColumn := spans.GetDeclarationNameColumn(name, functionDeclaration.Line, functionDeclaration.Column)
+        diagnostics.Report(
+            ErrorCode.DuplicateDeclaration,
+            "'" + name + "' is already declared in " + scopeText + " by " + Path.GetFileName(twin.FilePath) + ":" + twin.Line.ToString() + " — a free function name must be unique across every file of its namespace",
+            functionDeclaration.Line,
+            nameColumn,
+            "Rename one of the two, or move one into a different namespace.",
+            NameLength(name)
+        )
     }
 
     // THE OVERLOAD MERGE, IN ITS TWO SHAPES. Answers whether the collision was absorbed; a `false`
