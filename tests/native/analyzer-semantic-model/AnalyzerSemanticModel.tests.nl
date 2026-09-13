@@ -1430,11 +1430,14 @@ test "020 s26 analyzer semantic model: a call to an undefined function still rec
 }
 
 // WHAT THIS ADDS: The deleted method asserted `doubled` is `List<int>`. The scope census is the find:
-// two lambdas produce TWELVE scopes, eight at 6:30 and four at 6:49, every one of them holding the
-// same `x=int` — the analyzer re-enters lambda bodies during overload resolution and each entry opens
-// a scope that is never merged. The expression table also names the intermediate `Where(...)` /
+// two lambdas produce FOUR scopes, two at 6:30 and two at 6:49, every one of them holding the same
+// `x=int` — the analyzer enters each lambda body once per overload-resolution pass and each entry
+// opens a scope that is never merged. Before the call walk kept its member-access receiver (the
+// `nlc check` fluent-chain fix) the same statement opened TWELVE lambda scopes, because every later
+// read of the receiver re-walked the chain and re-entered the lambdas; the count is pinned so a
+// return of that re-walk shows here. The expression table also names the intermediate `Where(...)` /
 // `Select(...)` / `ToList(...)` method types.
-test "020 s26 analyzer semantic model: a LINQ chain infers `List<int>` and opens FIFTEEN scopes for one statement (was AnalyzerSemanticModelTests.Analyzer_LINQMethodChain_InfersConstructedListType)" {
+test "020 s26 analyzer semantic model: a LINQ chain infers `List<int>` and opens SEVEN scopes for one statement (was AnalyzerSemanticModelTests.Analyzer_LINQMethodChain_InfersConstructedListType)" {
     source := "\nimport System.Linq\n\nfunc test() {\n    numbers: int[] = [1, 2, 3, 4, 5]\n    doubled := numbers.Where(x => x > 2).Select(x => x * 2).ToList()\n}"
     assert source.Length == 142
     assert SmParseCensus(source) == ""
@@ -1451,13 +1454,14 @@ test "020 s26 analyzer semantic model: a LINQ chain infers `List<int>` and opens
     assert SmTypeMembers(model) == ""
     assert SmExpressionTypes(model) == "5:22=int[];5:23=int;5:26=int;5:29=int;5:32=int;5:35=int;6:16=int[];6:23=Where(...);6:29=IEnumerable<int>;6:35=int;6:37=bool;6:39=int;6:41=Select(...);6:48=IEnumerable<int>;6:54=int;6:56=int;6:58=int;6:60=ToList(...);6:67=List<int>;"
     assert SmTypeReferenceTypes(model) == "5:14=int[];"
-    assert SmScopeCount(model) == 15
-    assert SmScopes(model) == "0<-1|1:1-6:2147483647|v=|f=;1<0|4:1-6:2147483647|v=|f=test=NSharpLang.Compiler.FunctionTypeInfo;;2<1|4:13-6:2147483647|v=doubled=List<int>;numbers=int[];|f=;3<2|6:30-6:2147483647|v=x=int;|f=;4<2|6:30-6:2147483647|v=x=int;|f=;5<2|6:30-6:2147483647|v=x=int;|f=;6<2|6:30-6:2147483647|v=x=int;|f=;7<2|6:49-6:2147483647|v=x=int;|f=;8<2|6:49-6:2147483647|v=x=int;|f=;9<2|6:30-6:2147483647|v=x=int;|f=;10<2|6:30-6:2147483647|v=x=int;|f=;11<2|6:30-6:2147483647|v=x=int;|f=;12<2|6:30-6:2147483647|v=x=int;|f=;13<2|6:49-6:2147483647|v=x=int;|f=;14<2|6:49-6:2147483647|v=x=int;|f=;"
+    assert SmScopeCount(model) == 7
+    assert SmScopes(model) == "0<-1|1:1-6:2147483647|v=|f=;1<0|4:1-6:2147483647|v=|f=test=NSharpLang.Compiler.FunctionTypeInfo;;2<1|4:13-6:2147483647|v=doubled=List<int>;numbers=int[];|f=;3<2|6:30-6:2147483647|v=x=int;|f=;4<2|6:30-6:2147483647|v=x=int;|f=;5<2|6:49-6:2147483647|v=x=int;|f=;6<2|6:49-6:2147483647|v=x=int;|f=;"
     assert SmLookupIdentifier(model, "doubled") == "List<int>"
 }
 
-// WHAT THIS ADDS: The deleted method asserted `indexed` is `List<int>`. Four scopes are opened at 6:31
-// and each holds both `item` and `index`.
+// WHAT THIS ADDS: The deleted method asserted `indexed` is `List<int>`. Two scopes are opened at 6:31
+// (one per overload-resolution pass; four before the call walk kept its receiver) and each holds both
+// `item` and `index`.
 test "020 s26 analyzer semantic model: a two-parameter indexed `Select` infers `List<int>` and puts BOTH lambda parameters in every lambda scope (was AnalyzerSemanticModelTests.Analyzer_LINQIndexedSelect_InfersConstructedListType)" {
     source := "\nimport System.Linq\n\nfunc test() {\n    numbers: int[] = [1, 2, 3]\n    indexed := numbers.Select((item, index) => item + index).ToList()\n}"
     assert source.Length == 137
@@ -1475,8 +1479,8 @@ test "020 s26 analyzer semantic model: a two-parameter indexed `Select` infers `
     assert SmTypeMembers(model) == ""
     assert SmExpressionTypes(model) == "5:22=int[];5:23=int;5:26=int;5:29=int;6:16=int[];6:23=Select(...);6:30=IEnumerable<int>;6:48=int;6:53=int;6:55=int;6:61=ToList(...);6:68=List<int>;"
     assert SmTypeReferenceTypes(model) == "5:14=int[];"
-    assert SmScopeCount(model) == 7
-    assert SmScopes(model) == "0<-1|1:1-6:2147483647|v=|f=;1<0|4:1-6:2147483647|v=|f=test=NSharpLang.Compiler.FunctionTypeInfo;;2<1|4:13-6:2147483647|v=indexed=List<int>;numbers=int[];|f=;3<2|6:31-6:2147483647|v=index=int;item=int;|f=;4<2|6:31-6:2147483647|v=index=int;item=int;|f=;5<2|6:31-6:2147483647|v=index=int;item=int;|f=;6<2|6:31-6:2147483647|v=index=int;item=int;|f=;"
+    assert SmScopeCount(model) == 5
+    assert SmScopes(model) == "0<-1|1:1-6:2147483647|v=|f=;1<0|4:1-6:2147483647|v=|f=test=NSharpLang.Compiler.FunctionTypeInfo;;2<1|4:13-6:2147483647|v=indexed=List<int>;numbers=int[];|f=;3<2|6:31-6:2147483647|v=index=int;item=int;|f=;4<2|6:31-6:2147483647|v=index=int;item=int;|f=;"
     assert SmLookupIdentifier(model, "indexed") == "List<int>"
 }
 
