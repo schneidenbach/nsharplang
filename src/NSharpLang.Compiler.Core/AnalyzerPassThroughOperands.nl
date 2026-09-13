@@ -580,9 +580,33 @@ class AnalyzerPassThroughOperands {
         element := tupleNode.Elements[state.ElementIndex]
         soaEscapeValue.ReportSoaRowEscapeIfNeeded(element.Value, state.OperandType, "stored in a tuple")
         soaEscapeValue.ReportUnsupportedSoaDirectColumnValueEscapeIfNeeded(element.Value, "stored in a tuple")
-        state.Elements.Add(new TupleTypeElementInfo(element.Name, state.OperandType))
+        state.Elements.Add(new TupleTypeElementInfo(element.Name, RecordedTupleElementType(tupleNode, state.ElementIndex, state.OperandType)))
         state.ElementIndex = state.ElementIndex + 1
         return null
+    }
+
+    // A TYPELESS ELEMENT TAKES THE TARGET'S TYPE. `null` has no type of its own, so an element written
+    // `null` used to contribute `null` to the tuple's type — and `(null, "x")` was then not the
+    // declared `(string?, string)`, so `return (null, last, IsConstructor: true)` reported NL202 about
+    // a tuple the writer had spelled correctly. Where the surrounding annotation says what the element
+    // should be, and that type ACCEPTS null, it is the element's type — exactly as `x: string? = null`
+    // takes the local's declared type. A target that does not accept null keeps `null` here, so the
+    // ordinary assignability report still names the element that cannot be null.
+    //
+    // The expected type is re-read AFTER the element's own bracket closed, which is the same
+    // decomposition `AdvanceTupleElement` pushed for the element and is the outer annotation again by
+    // the time this runs.
+    func RecordedTupleElementType(tupleNode: TupleExpression, elementIndex: int, operandType: TypeInfo): TypeInfo {
+        if !BuiltInTypes.Is(operandType, BuiltInTypes.Null) {
+            return operandType
+        }
+
+        expected := ExpectedTupleElementType(tupleNode, elementIndex)
+        if expected == null || !AnalyzerConversionFacts.AcceptsNull(declarationContextValue.ResolveDeclaredAlias(expected)) {
+            return operandType
+        }
+
+        return expected
     }
 
     // WHAT THE SURROUNDING ANNOTATION EXPECTS OF ONE ELEMENT. Only a tuple annotation decomposes; a

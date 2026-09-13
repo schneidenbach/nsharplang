@@ -129,6 +129,18 @@ class AnalyzerConversionFacts {
         return false
     }
 
+    // IS `null` ONE OF THIS TYPE'S VALUES? A nullable annotation says so outright, and every reference
+    // type says so by construction. This is the rule the null arm of `IsAssignable` applies, named so
+    // that a position which has to decide the same thing without an assignability owner in hand —
+    // target-typing a `null` tuple element, say — asks the same question rather than a similar one.
+    static func AcceptsNull(candidate: TypeInfo): bool {
+        if (candidate as NullableTypeInfo) != null {
+            return true
+        }
+
+        return IsReferenceType(candidate)
+    }
+
     // DEFINITELY A NON-NULLABLE VALUE TYPE — a POSITIVE test, and that is the whole point of it.
     //
     // `!IsReferenceType(x)` is NOT this question. That predicate answers FALSE for a bare type

@@ -3671,26 +3671,33 @@ func TypeReferenceLabeledCanonicalTextCore(source: string, nodes: TypeReferenceC
     return "?"
 }
 
+// The top-level tuple's element names in source order, one slot per element. An element the source
+// left POSITIONAL contributes the empty string, which is the same "no name here" the CLR attribute
+// spells as a null slot -- naming is decided per element, so `(string, string, IsConstructor: bool)`
+// answers three slots of which only the last is filled. Zero means the type is not a tuple at all, or
+// is a tuple with nothing named; no shape is an error any more.
 func TypeReferenceTupleElementNamesCore(source: string, nodes: TypeReferenceCanonicalTable, root: int, names: TypeReferenceTupleNameTable): int {
     if root < 0 || root >= nodes.Kinds.Length || nodes.Kinds[root] != 6 || nodes.ChildCount[root] == 0 {
         return 0
     }
 
     run := nodes.ChildStart[root]
-    first := nodes.ChildIndices[run]
-    if nodes.Kinds[first] != 7 {
-        return 0
-    }
-
+    named := false
     i := 0
     while i < nodes.ChildCount[root] {
         elem := nodes.ChildIndices[run + i]
-        if nodes.Kinds[elem] != 7 {
-            return -1
+        if nodes.Kinds[elem] == 7 {
+            names.Names[i] = source.Substring(nodes.ValueStarts[elem], nodes.ValueLengths[elem])
+            named = true
+        } else {
+            names.Names[i] = ""
         }
 
-        names.Names[i] = source.Substring(nodes.ValueStarts[elem], nodes.ValueLengths[elem])
         i = i + 1
+    }
+
+    if !named {
+        return 0
     }
 
     return nodes.ChildCount[root]
@@ -3768,25 +3775,21 @@ func ParseBaseTypeReferenceNodeCore(tokens: ParserTokenTable, count: int, st: Pa
     // least TWO postfix/union element types, closed by `)`. A single `(T)` is not a tuple (no comma) -> refuse.
     // Variable arity via the LIFO arg-stack, exactly like the generic argument list.
     //
-    // NAMED elements `(x: int, y: int)` are modelled ALL-OR-NOTHING (the production parser errors on partial
-    // naming -- probe-pinned): each `Identifier :` prefix wraps its element type in a NamedTupleElement node
-    // (kind 7, the element NAME in the name slot, ONE child = the element type). The tuple's children are then
-    // either all kind-7 wrappers or all bare element types. Names are ERASED from canonicals (tuple identity is
-    // positional -- .NET semantics); the host extracts them for the emitter's name->ItemN member mapping.
+    // A NAMED element `x: int` wraps its element type in a NamedTupleElement node (kind 7, the element NAME
+    // in the name slot, ONE child = the element type), and naming is decided PER ELEMENT: the production
+    // parser takes each `Identifier :` prefix on its own, so `(string, string, IsConstructor: bool)` is an
+    // ordinary three-element tuple type whose third element is named, and the all-or-nothing reading this
+    // replaced declined the whole enclosing function for it. Names are ERASED from canonicals (tuple identity
+    // is positional -- .NET semantics); the host extracts them for the emitter's name->ItemN member mapping.
     if tokens.Kinds[pos] == 127 {
         tupleTypeStart := tokens.Starts[pos]
         st.Pos = pos + 1
         tupleArgBase := st.ArgStackTop
 
-        // namedForm: -1 undecided, 1 named, 0 positional -- decided by the FIRST element, enforced after.
-        namedForm := 0 - 1
-        if st.Pos + 1 < count && tokens.Kinds[st.Pos] == 0 && tokens.Kinds[st.Pos + 1] == 122 {
-            namedForm = 1
-        }
-
         firstElemNameStart := 0 - 1
         firstElemNameLength := 0
-        if namedForm == 1 {
+        firstElemNamed := st.Pos + 1 < count && tokens.Kinds[st.Pos] == 0 && tokens.Kinds[st.Pos + 1] == 122
+        if firstElemNamed {
             firstElemNameStart = tokens.Starts[st.Pos]
             firstElemNameLength = tokens.ValueLengths[st.Pos]
             st.Pos = st.Pos + 2
@@ -3798,12 +3801,10 @@ func ParseBaseTypeReferenceNodeCore(tokens: ParserTokenTable, count: int, st: Pa
             return -1
         }
 
-        if namedForm == 1 {
+        if firstElemNamed {
             firstWrapRun := st.ChildCursor
             AppendTypeReferenceChild(st, outChildIndices, firstElem)
             firstElem = EmitTypeReferenceNode(st, nodes, 7, firstElemNameStart, firstElemNameLength, firstWrapRun, 1, firstElemNameStart, nodes.SpanStarts[firstElem] + nodes.SpanLengths[firstElem] - firstElemNameStart)
-        } else {
-            namedForm = 0
         }
 
         argStack.Values[st.ArgStackTop] = firstElem
@@ -3818,18 +3819,11 @@ func ParseBaseTypeReferenceNodeCore(tokens: ParserTokenTable, count: int, st: Pa
             st.Pos = st.Pos + 1
             elemNameStart := 0 - 1
             elemNameLength := 0
-            if st.Pos + 1 < count && tokens.Kinds[st.Pos] == 0 && tokens.Kinds[st.Pos + 1] == 122 {
-                if namedForm == 0 {
-                    st.ArgStackTop = tupleArgBase
-                    return -1
-                }
-
+            elemNamed := st.Pos + 1 < count && tokens.Kinds[st.Pos] == 0 && tokens.Kinds[st.Pos + 1] == 122
+            if elemNamed {
                 elemNameStart = tokens.Starts[st.Pos]
                 elemNameLength = tokens.ValueLengths[st.Pos]
                 st.Pos = st.Pos + 2
-            } else if namedForm == 1 {
-                st.ArgStackTop = tupleArgBase
-                return -1
             }
 
             nextElem := ParseUnionTypeReferenceNodeCore(tokens, count, st, argStack, nodes, outChildIndices, depth + 1)
@@ -3838,7 +3832,7 @@ func ParseBaseTypeReferenceNodeCore(tokens: ParserTokenTable, count: int, st: Pa
                 return -1
             }
 
-            if namedForm == 1 {
+            if elemNamed {
                 wrapRun := st.ChildCursor
                 AppendTypeReferenceChild(st, outChildIndices, nextElem)
                 nextElem = EmitTypeReferenceNode(st, nodes, 7, elemNameStart, elemNameLength, wrapRun, 1, elemNameStart, nodes.SpanStarts[nextElem] + nodes.SpanLengths[nextElem] - elemNameStart)
@@ -4110,17 +4104,53 @@ func IsExpressionStartKind(kind: int): bool {
     return kind == 20 || kind == 31 || kind == 34 || kind == 37 || kind == 41 || kind == 42 || kind == 43 || kind == 44 || kind == 45 || kind == 46 || kind == 49 || kind == 50 || kind == 51 || kind == 69 || kind == 70 || kind == 83 || kind == 84 || kind == 88 || kind == 89 || kind == 106 || kind == 110 || kind == 113 || kind == 114 || kind == 127 || kind == 131 || kind == 143 || kind == 145
 }
 
-// The CONSTRUCTED GENERIC TYPE RECEIVER twin of IsGenericCallTypeArgs: the same bounded scan of a
-// candidate type-argument list, answering true only when the matching close is followed DIRECTLY by
-// a `.` (124) rather than by a `(` (127). That trailing dot is the whole disambiguation --
-// `Vector<int>.Count` is a receiver, while `a < b && c > d` and `x < y.Z` are comparisons and answer
-// false here. Pure lookahead; the two predicates are mutually exclusive by their close token.
-func IsGenericTypeReceiverArgs(tokens: ParserTokenTable, count: int, lessPos: int): bool {
+// THE ONE BOUNDED TYPE-ARGUMENT-LIST SCAN BOTH `<` DISAMBIGUATIONS SHARE -- the columnar twin of
+// `ColumnarParserRecovery.ScanTypeArgumentListClose`, whose header comment carries the full rule.
+// From the `<` at `lessPos`, walk a candidate type-argument list and answer the index of the token
+// AFTER its matching close, or -1 when the run cannot be a type-argument list at all. A type argument
+// is a whole TYPE: identifiers (0) and `.`-qualified names (124), nested generics with `>>` (112)
+// spending two levels of depth, array ranks (131/132), nullable suffixes (115/119) and tuples.
+// A `(` (127) group is admitted only as a TUPLE type -- it needs a comma (134) of its own paren depth
+// before its `)` (128) -- and a `:` (122) only inside such a group, where it names an element.
+func ScanTypeArgsClose(tokens: ParserTokenTable, count: int, lessPos: int): int {
     i := lessPos + 1
+    if i >= count {
+        return -1
+    }
+
+    firstKind := tokens.Kinds[i]
+    if firstKind != 0 && firstKind != 127 {
+        return -1
+    }
+
     depth := 1
+    // One entry per open tuple group: whether that group has yet seen a comma of its own.
+    parenCommas := new List<bool>()
     while i < count {
         k := tokens.Kinds[i]
-        if k == 0 || k == 115 || k == 124 || k == 134 || k == 131 || k == 132 {
+        if k == 0 || k == 115 || k == 119 || k == 124 || k == 131 || k == 132 {
+            i = i + 1
+        } else if k == 134 {
+            if parenCommas.Count > 0 {
+                parenCommas[parenCommas.Count - 1] = true
+            }
+
+            i = i + 1
+        } else if k == 122 {
+            if parenCommas.Count == 0 {
+                return -1
+            }
+
+            i = i + 1
+        } else if k == 127 {
+            parenCommas.Add(false)
+            i = i + 1
+        } else if k == 128 {
+            if parenCommas.Count == 0 || !parenCommas[parenCommas.Count - 1] {
+                return -1
+            }
+
+            parenCommas.RemoveAt(parenCommas.Count - 1)
             i = i + 1
         } else if k == 100 {
             depth = depth + 1
@@ -4129,58 +4159,47 @@ func IsGenericTypeReceiverArgs(tokens: ParserTokenTable, count: int, lessPos: in
             depth = depth - 1
             i = i + 1
             if depth == 0 {
-                return i < count && tokens.Kinds[i] == 124
+                if parenCommas.Count != 0 {
+                    return -1
+                }
+
+                return i
             }
         } else if k == 112 {
             depth = depth - 2
             i = i + 1
             if depth == 0 {
-                return i < count && tokens.Kinds[i] == 124
+                if parenCommas.Count != 0 {
+                    return -1
+                }
+
+                return i
             }
 
             if depth < 0 {
-                return false
+                return -1
             }
         } else {
-            return false
+            return -1
         }
     }
 
-    return false
+    return -1
 }
 
+// The CONSTRUCTED GENERIC TYPE RECEIVER half: the matching close is followed DIRECTLY by a `.` (124).
+// That trailing dot is the whole disambiguation -- `Vector<int>.Count` is a receiver, while
+// `a < b && c > d` and `x < y.Z` are comparisons and answer false here. The two predicates are
+// mutually exclusive by their close token.
+func IsGenericTypeReceiverArgs(tokens: ParserTokenTable, count: int, lessPos: int): bool {
+    closePos := ScanTypeArgsClose(tokens, count, lessPos)
+    return closePos >= 0 && closePos < count && tokens.Kinds[closePos] == 124
+}
+
+// The generic METHOD CALL half: the matching close is followed DIRECTLY by a `(` (127).
 func IsGenericCallTypeArgs(tokens: ParserTokenTable, count: int, lessPos: int): bool {
-    i := lessPos + 1
-    depth := 1
-    while i < count {
-        k := tokens.Kinds[i]
-        if k == 0 || k == 115 || k == 124 || k == 134 || k == 131 || k == 132 {
-            i = i + 1
-        } else if k == 100 {
-            depth = depth + 1
-            i = i + 1
-        } else if k == 102 {
-            depth = depth - 1
-            i = i + 1
-            if depth == 0 {
-                return i < count && tokens.Kinds[i] == 127
-            }
-        } else if k == 112 {
-            depth = depth - 2
-            i = i + 1
-            if depth == 0 {
-                return i < count && tokens.Kinds[i] == 127
-            }
-
-            if depth < 0 {
-                return false
-            }
-        } else {
-            return false
-        }
-    }
-
-    return false
+    closePos := ScanTypeArgsClose(tokens, count, lessPos)
+    return closePos >= 0 && closePos < count && tokens.Kinds[closePos] == 127
 }
 
 func ParseMatchPatternNode(tokens: ParserTokenTable, count: int, st: ParserState, argStack: ParserArgumentStack, nodes: ParserExpressionNodeTable, children: ParserChildIndexTable, depth: int): int {
@@ -5174,63 +5193,30 @@ func ParsePrimaryExpressionNode(tokens: ParserTokenTable, count: int, st: Parser
         st.SplitGreaterDepth = 0
         st.Pos = pos + 1
 
-        // NAMED tuple literal `(x: 1, y: 2)` (TupleExpression kind 17 whose children are kind-43
-        // NamedTupleElement wrappers -- element NAME in the name slot, ONE child = the element value).
-        // ALL-OR-NOTHING naming (partial naming is a production-parser error, probe-pinned) and >=2
-        // elements (a single named element is not a tuple) -- refuse otherwise. Detected by the
-        // `Identifier :` lookahead, which no other parenthesised expression form can start with.
-        if st.Pos + 1 < count && tokens.Kinds[st.Pos] == 0 && tokens.Kinds[st.Pos + 1] == 122 {
-            namedTupleArgBase := st.ArgStackTop
-            namedScanning := true
-            while namedScanning {
-                if st.Pos + 1 >= count || tokens.Kinds[st.Pos] != 0 || tokens.Kinds[st.Pos + 1] != 122 {
-                    st.ArgStackTop = namedTupleArgBase
-                    return -1
-                }
-
-                namedElemNameStart := tokens.Starts[st.Pos]
-                namedElemNameLength := tokens.ValueLengths[st.Pos]
-                st.Pos = st.Pos + 2
-                namedElemValue := ParseAssignmentExpressionNode(tokens, count, st, argStack, nodes, children, depth + 1)
-                if namedElemValue < 0 {
-                    st.ArgStackTop = namedTupleArgBase
-                    return -1
-                }
-
-                namedWrapRun := st.ChildCursor
-                AppendExpressionChild(st, children, namedElemValue)
-                namedWrapped := EmitExpressionNode(st, nodes, 43, namedElemNameStart, namedElemNameLength, namedWrapRun, 1, namedElemNameStart, nodes.SpanStarts[namedElemValue] + nodes.SpanLengths[namedElemValue] - namedElemNameStart)
-                argStack.Values[st.ArgStackTop] = namedWrapped
-                st.ArgStackTop = st.ArgStackTop + 1
-                if st.Pos < count && tokens.Kinds[st.Pos] == 134 {
-                    st.Pos = st.Pos + 1
-                } else {
-                    namedScanning = false
-                }
-            }
-
-            if st.Pos >= count || tokens.Kinds[st.Pos] != 128 || st.ArgStackTop - namedTupleArgBase < 2 {
-                st.ArgStackTop = namedTupleArgBase
-                return -1
-            }
-
-            namedTupleEnd := tokens.Starts[st.Pos] + tokens.ValueLengths[st.Pos]
-            st.Pos = st.Pos + 1
-            namedTupleChildCount := st.ArgStackTop - namedTupleArgBase
-            namedTupleChildRun := st.ChildCursor
-            namedTupleArg := namedTupleArgBase
-            while namedTupleArg < st.ArgStackTop {
-                AppendExpressionChild(st, children, argStack.Values[namedTupleArg])
-                namedTupleArg = namedTupleArg + 1
-            }
-
-            st.ArgStackTop = namedTupleArgBase
-            return EmitExpressionNode(st, nodes, 17, -1, 0, namedTupleChildRun, namedTupleChildCount, parenStart, namedTupleEnd - parenStart)
+        // A TUPLE ELEMENT'S NAME IS DECIDED PER ELEMENT, NOT FOR THE WHOLE LITERAL.
+        // A `name: value` element becomes a kind-43 NamedTupleElement wrapper -- element NAME in the
+        // name slot, ONE child = the element value -- and a positional element is its bare value, so
+        // `(null, last, IsConstructor: true)` mixes the two exactly as C# does. The all-or-nothing
+        // reading this replaced refused every mixed literal outright. Detected by the `Identifier :`
+        // lookahead, which no other parenthesised expression element form can start with.
+        firstNameStart := 0
+        firstNameLength := 0
+        firstNamed := st.Pos + 1 < count && tokens.Kinds[st.Pos] == 0 && tokens.Kinds[st.Pos + 1] == 122
+        if firstNamed {
+            firstNameStart = tokens.Starts[st.Pos]
+            firstNameLength = tokens.ValueLengths[st.Pos]
+            st.Pos = st.Pos + 2
         }
 
         inner := ParseAssignmentExpressionNode(tokens, count, st, argStack, nodes, children, depth + 1)
         if inner < 0 {
             return -1
+        }
+
+        if firstNamed {
+            firstWrapRun := st.ChildCursor
+            AppendExpressionChild(st, children, inner)
+            inner = EmitExpressionNode(st, nodes, 43, firstNameStart, firstNameLength, firstWrapRun, 1, firstNameStart, nodes.SpanStarts[inner] + nodes.SpanLengths[inner] - firstNameStart)
         }
 
         // A `,` after the first parenthesised expression makes this a TUPLE `( e0, e1, ... )` (TupleExpression
@@ -5242,10 +5228,25 @@ func ParsePrimaryExpressionNode(tokens: ParserTokenTable, count: int, st: Parser
             st.ArgStackTop = st.ArgStackTop + 1
             while st.Pos < count && tokens.Kinds[st.Pos] == 134 {
                 st.Pos = st.Pos + 1
+                elemNameStart := 0
+                elemNameLength := 0
+                elemNamed := st.Pos + 1 < count && tokens.Kinds[st.Pos] == 0 && tokens.Kinds[st.Pos + 1] == 122
+                if elemNamed {
+                    elemNameStart = tokens.Starts[st.Pos]
+                    elemNameLength = tokens.ValueLengths[st.Pos]
+                    st.Pos = st.Pos + 2
+                }
+
                 tupleElem := ParseAssignmentExpressionNode(tokens, count, st, argStack, nodes, children, depth + 1)
                 if tupleElem < 0 {
                     st.ArgStackTop = tupleArgBase
                     return -1
+                }
+
+                if elemNamed {
+                    elemWrapRun := st.ChildCursor
+                    AppendExpressionChild(st, children, tupleElem)
+                    tupleElem = EmitExpressionNode(st, nodes, 43, elemNameStart, elemNameLength, elemWrapRun, 1, elemNameStart, nodes.SpanStarts[tupleElem] + nodes.SpanLengths[tupleElem] - elemNameStart)
                 }
 
                 argStack.Values[st.ArgStackTop] = tupleElem
@@ -5271,7 +5272,9 @@ func ParsePrimaryExpressionNode(tokens: ParserTokenTable, count: int, st: Parser
             return EmitExpressionNode(st, nodes, 17, -1, 0, tupleChildRunStart, tupleChildCount, parenStart, tupleRightParenEnd - parenStart)
         }
 
-        if st.Pos >= count || tokens.Kinds[st.Pos] != 128 {
+        // A single element is not a tuple. Unnamed, it is the parenthesized expression below; NAMED, it
+        // is a shape with no meaning at all and the columnar parse refuses it.
+        if firstNamed || st.Pos >= count || tokens.Kinds[st.Pos] != 128 {
             return -1
         }
 
@@ -6975,13 +6978,11 @@ func ParseSimpleStatementNode(tokens: ParserTokenTable, count: int, st: ParserSt
         typedNameStart := tokens.Starts[typedNameIndex]
         typedNameLength := tokens.ValueLengths[typedNameIndex]
         typeFirst := typedNameIndex + 2
-        // The BARE form's type span must not start with `(` -- the production grammar REJECTS a bare
-        // tuple-typed local (`t: (int, int) = ...` is a parse error; only `let t: (...)` parses --
-        // probe-pinned; accepting it was a routed over-accept). The `let` form is unaffected.
-        if kind == 0 && typeFirst < count && tokens.Kinds[typeFirst] == 127 {
-            return -1
-        }
-
+        // A TUPLE TYPE STARTS THE SPAN IN BOTH FORMS. The bare form used to refuse a type span opening
+        // with `(`, because the production parser's typed-declaration lookahead admitted only a type
+        // starting with an IDENTIFIER and read `t: (int, int) = …` as an expression statement instead.
+        // That lookahead now admits the `(` of a tuple, so the two forms agree again and the refusal
+        // would only recreate the gap on the emit side.
         scanPos := typeFirst
         angleDepth := 0
         groupDepth := 0

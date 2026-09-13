@@ -1059,7 +1059,45 @@ func Wrap(value: int): Result<int, string> {
 }
 ```
 
-The rules are the ones C# states, and they are the same rules your own generic methods follow:
+**A written type argument is a whole TYPE**, not just a name: a nullable annotation, an array, a
+tuple, a nested generic and a fully qualified name all belong in the list, and so does any
+combination of them.
+
+```n#
+import System.Collections.Generic
+import System.Linq
+import System.Threading.Tasks
+
+func NoRows(): Task<List<int>?> {
+    return Task.FromResult<List<int>?>(null)              // nullable, over a nested generic
+}
+
+func NoAge(): Task<int?> {
+    return Task.FromResult<int?>(null)                    // a nullable VALUE type
+}
+
+func NoNames(): Task<string[]?> {
+    return Task.FromResult<string[]?>(null)               // an array
+}
+
+func EmptyPairs(): int {
+    return Enumerable.Empty<(Item: int, Label: string)>().Count()   // a named tuple
+}
+```
+
+A nullable REFERENCE annotation is not a CLR type, so `Task<List<int>?>` and `Task<List<int>>` are
+one constructed type; a nullable VALUE type is a real construction, and `Task<int?>` is
+`Task<Nullable<int>>`.
+
+The `<` that opens the list is told apart from a comparison the way C# tells them apart: the type
+argument list is read only when its matching `>` is followed directly by a `(` — a generic call — or
+by a `.` — a constructed generic type receiver such as `Comparer<int>.Create`. Everything else stays a
+comparison, `a < b && c > d` and `x < y.Z` included. Two shapes sit on the boundary and behave as they
+do in C#: `a < b > (c)` is read as the generic call `a<b>(c)`, and `a < (b) > (c)` is a comparison,
+because a one-element parenthesised group is not a tuple type.
+
+The rest of the rules are the ones C# states, and they are the same rules your own generic methods
+follow:
 
 - The **count must match the declaration's arity**. `u.Is<int, string>()` against `Is<T>()` is
   [NL207](./errors/NL207.md), in the same words a method of your own would report.

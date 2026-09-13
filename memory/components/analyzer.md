@@ -197,6 +197,12 @@ argument, a delegate parameter or a union arm. `JsonTypeInfo<T>` is the ONE gene
 argument may come from the surrogate conversion — source-generated JSON metadata over N#-declared
 types is the reason the surrogate exists — and both spellings of the name carry that exception.
 An anonymous union reifies as `NSharpLang.Runtime.Union<,>` at arity two and at no other arity.
+A written TUPLE reifies as `System.ValueTuple`N` closed over its element types, with the eighth and
+later elements in a REST tuple exactly as the CLR spells them; element names are not part of the CLR
+type, so `(Item: string, Count: int)` and `(string, int)` convert to one `ValueTuple<string, int>`.
+Without that arm the funnel answered null for every tuple, which is why a tuple written as an
+explicit type ARGUMENT to a referenced assembly's generic method (`Enumerable.Empty<(int, string)>()`)
+was refused before its arguments were ever scored.
 
 The well-known-type bag is NULLABLE and that state is live: until the analyzer has loaded its
 `MetadataLoadContext` there are no metadata facts and the funnel falls back to
@@ -267,11 +273,30 @@ is one owner and not several.
 THE DISPATCH ORDER IS THE SPECIFICATION. Moving one arm past another changes the language:
 
 - Identity, `null`, `never` and the three unknown KINDS answer first, so error recovery never
-  produces a second diagnostic and the bottom type is universally assignable.
+  produces a second diagnostic and the bottom type is universally assignable. The `null` arm asks
+  `AnalyzerConversionFacts.AcceptsNull`, which is also what a position with no assignability owner
+  in hand (target-typing a `null` tuple element) asks, so the two cannot drift. That predicate
+  reaches `IsReferenceType`, and a CONSTRUCTED GENERIC there is asked of its own DEFINITION rather
+  than answered false on sight: `List<int>` is a class and `KeyValuePair<int, int>` is a struct, and
+  the constructed shape alone does not say which. Answering a blanket false made
+  `Task.FromResult<List<int>?>(null)` report NL402 "no overload accepts 1 argument with these types"
+  — `null` was assignable to no constructed generic at all — while the same call with `string?` or
+  `int[]` bound without complaint. A constructed generic whose definition is unknown stays false,
+  because `IsReferenceType` is the predicate callers REPORT on.
 - BY-REF is symmetric and TOTAL: if EITHER side is by-ref the answer is "both are, over equal inner
   types", and no later arm is consulted — not even the `object` arm.
 - The UNION arms come before everything structural. A target union needs ONE arm to accept; a source
   union needs EVERY arm to be assignable.
+- TUPLE-TO-TUPLE comes next, and compares ELEMENT BY ELEMENT rather than by identity. Element names
+  are not part of tuple identity, and a nullable annotation over a REFERENCE type is not a CLR type,
+  so `(string, string)` fits `(string?, string)` and a `null` element fits any slot that accepts
+  null. A REPRESENTATION-CHANGING element conversion is refused on purpose — C# converts
+  `(int, int)` to `(long, long)` and `(string, string)` to `(object, object)` by taking the tuple
+  apart and rebuilding it, and N# emits no such per-element conversion, so accepting it would hand
+  the emitter a shape it can only decline. `Nullable<int>` is a real CLR type and stays a difference
+  from `int` for the same reason. Before this arm existed, a tuple whose declared type differed from
+  the literal's only by a nullable annotation reported NL202 against source the writer had spelled
+  correctly.
 - The CALLABLE-REFERENCE arms come before `object`. A bare method group is not a value, so it is NOT
   assignable to `object` — that single exception is what forces the whole ordering, and it composes:
   a union with a method-group arm is not assignable to `object` either.

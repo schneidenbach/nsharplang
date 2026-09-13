@@ -6061,7 +6061,11 @@ sealed class ColumnarIlEmitter {
                     return false
                 }
             } else {
-                if (TryEmitTargetTypedNewAsType(retNode, _returnType, out retType)) {
+                // `return (null, last, IsConstructor: true)` — a target-typed tuple literal, where each
+                // element adopts its DECLARED element type. That is the only way an element with no
+                // type of its own can be emitted at all.
+                if (TryEmitTupleLiteralAsType(retNode, _returnType, out retType)) {
+                } else if (TryEmitTargetTypedNewAsType(retNode, _returnType, out retType)) {
                 } else {
                     // `return new(args)` adopts the declared return type.
                     if (TryEmitIntLiteralAsType(retNode, _returnType, out retType)) {
@@ -6208,8 +6212,12 @@ sealed class ColumnarIlEmitter {
                         return Decline("emit.typed-local.union-adoption", "typed local union construction could not adopt declared type for '" + declaredName + "'", declaredInit)
                     }
                 } else {
+                    let columnarTupleLiteralType: System.Type = null
                     let columnarDiscard7: System.Type = null
-                    if (TryEmitTargetTypedNewAsType(declaredInit, declaredType, out columnarDiscard7)) {
+                    // `pair: (string?, string) = (null, "x")` — each element adopts its declared
+                    // element type, exactly as in the return position.
+                    if (TryEmitTupleLiteralAsType(declaredInit, declaredType, out columnarTupleLiteralType)) {
+                    } else if (TryEmitTargetTypedNewAsType(declaredInit, declaredType, out columnarDiscard7)) {
                     } else {
                         // `value: T = new(args)` adopts the declared type.
                         let columnarDiscard8: System.Type = null
@@ -14906,17 +14914,25 @@ sealed class ColumnarIlEmitter {
             return null
         }
         if (nodeKind == 17) {
-            if (_nodes.ChildCount(node) == 0 || _nodes.Kind(Child(node, 0)) != 43) {
+            if (_nodes.ChildCount(node) == 0) {
                 return null
             }
+            // Naming is per ELEMENT, so a literal can carry both kinds; an element the source left
+            // positional contributes the empty name, which is what every reader here treats as "no
+            // name at this position".
             literalNames := new string[](_nodes.ChildCount(node))
+            anyNamed := false
             for i := 0; i < literalNames.Length; i++ {
                 elementNode := Child(node, i)
-                if (_nodes.Kind(elementNode) != 43) {
-                    return null
+                if (_nodes.Kind(elementNode) == 43) {
+                    literalNames[i] = ColumnarNodeTextFacts.Text(_nodes, _source, elementNode)
+                    anyNamed = true
+                } else {
+                    literalNames[i] = ""
                 }
-                // all-or-nothing by the kernel; defensive.
-                literalNames[i] = ColumnarNodeTextFacts.Text(_nodes, _source, elementNode)
+            }
+            if (!anyNamed) {
+                return null
             }
             return literalNames
         }
@@ -15709,6 +15725,65 @@ sealed class ColumnarIlEmitter {
         return true
     }
 
+    // A TUPLE LITERAL BUILT AS THE TARGET TUPLE TYPE, so an element the literal cannot type on its own
+    // takes the target's. `return (null, last, IsConstructor: true)` from a declared
+    // `(string?, string, IsConstructor: bool)` used to reach the untargeted kind-17 arm, where every
+    // element is emitted on its own terms and a bare `null` has no type at all — NL103
+    // `emit.expression.unhandled-kind`, node kind 5, pointing at the `null`. Here each element is
+    // emitted AS its declared element type through the same `EmitConstructorArgumentValueAs` a
+    // constructor argument uses, so `null`, `default`, a target-typed `new`, a collection literal and
+    // an adopting int literal all work in an element position exactly as they do in an argument one.
+    //
+    // Element NAMES play no part: they are metadata, the kind-43 wrapper is unwrapped, and the
+    // positional `ValueTuple` constructor is the one that runs.
+    private func TryEmitTupleLiteralAsType(node: int, target: Type, out resolvedClrType: Type): bool {
+        resolvedClrType = null
+        literalNode := UnwrapParenthesizedNode(node)
+        if (!CanUseTupleLiteralAsType(literalNode, target)) {
+            return false
+        }
+        elementTypes := target.GetGenericArguments()
+        for i := 0; i < elementTypes.Length; i++ {
+            if (!EmitConstructorArgumentValueAs(TupleLiteralElementValueNode(literalNode, i), elementTypes[i])) {
+                return false
+            }
+        }
+        tupleCtor := target.GetConstructor(elementTypes)
+        if (tupleCtor == null) {
+            return false
+        }
+        _il.Emit(OpCodes.Newobj, tupleCtor)
+        resolvedClrType = target
+        return true
+    }
+
+    private func CanUseTupleLiteralAsType(node: int, target: Type): bool {
+        literalNode := UnwrapParenthesizedNode(node)
+        if (_nodes.Kind(literalNode) != 17 || target == null || !ColumnarTypeOfPlanner.IsSupportedValueTuple(target)) {
+            return false
+        }
+        elementTypes := target.GetGenericArguments()
+        if (elementTypes.Length != _nodes.ChildCount(literalNode)) {
+            return false
+        }
+        for i := 0; i < elementTypes.Length; i++ {
+            if (!CanEmitAssignableValueAsType(TupleLiteralElementValueNode(literalNode, i), elementTypes[i])) {
+                return false
+            }
+        }
+        return true
+    }
+
+    // The VALUE of a tuple literal's element: the kind-43 named wrapper's only child, or the element
+    // node itself when the element is positional. Naming is per element, so one literal carries both.
+    private func TupleLiteralElementValueNode(literalNode: int, index: int): int {
+        elementNode := Child(literalNode, index)
+        if (_nodes.Kind(elementNode) == 43 && _nodes.ChildCount(elementNode) == 1) {
+            return Child(elementNode, 0)
+        }
+        return elementNode
+    }
+
     private func TryEmitArrayLiteralAsType(node: int, target: Type, out resolvedClrType: Type): bool {
         resolvedClrType = null
         if (!CanUseArrayLiteralAsType(node, target)) {
@@ -15841,6 +15916,9 @@ sealed class ColumnarIlEmitter {
             return true
         }
         if (CanUseArrayLiteralAsType(valueNode, targetType)) {
+            return true
+        }
+        if (CanUseTupleLiteralAsType(valueNode, targetType)) {
             return true
         }
         valueType: System.Type? = null

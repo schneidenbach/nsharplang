@@ -192,6 +192,21 @@ func ConversionUnresolvedGenericType(): GenericTypeInfo {
     arguments := new List<TypeInfo>()
     arguments.Add(BuiltInTypes.Int)
     return new GenericTypeInfo("Box", arguments)
+
+// A constructed generic over a VALUE-type definition: `KeyValuePair<int, int>` is a struct, and the
+// constructed shape alone carries nothing that separates it from `List<int>`.
+func ConversionValueGenericType(): GenericTypeInfo {
+    arguments := new List<TypeInfo>()
+    arguments.Add(BuiltInTypes.Int)
+    arguments.Add(BuiltInTypes.Int)
+    return new GenericTypeInfo("KeyValuePair", arguments, new ReflectionTypeInfo(typeof(KeyValuePair<int, int>)))
+}
+
+// A constructed generic the analyzer never resolved a definition for.
+func ConversionDefinitionlessGenericType(): GenericTypeInfo {
+    arguments := new List<TypeInfo>()
+    arguments.Add(BuiltInTypes.Int)
+    return new GenericTypeInfo("List", arguments)
 }
 
 func ConversionFunctionType(): FunctionTypeInfo {
@@ -402,6 +417,11 @@ test "reference-type classification covers every type-info family" {
     assert AnalyzerConversionFacts.IsReferenceType(new ObliviousTypeInfo(ConversionReadOnlyDictionaryGenericType()))
     assert AnalyzerConversionFacts.IsReferenceType(new ObliviousTypeInfo(new ArrayTypeInfo(new ObliviousTypeInfo(BuiltInTypes.String))))
     assert !AnalyzerConversionFacts.IsReferenceType(new ObliviousTypeInfo(BuiltInTypes.Int))
+
+    // A constructed generic over a VALUE-type definition is not a reference type, and one carrying
+    // NO definition keeps the conservative answer.
+    assert !AnalyzerConversionFacts.IsReferenceType(ConversionValueGenericType())
+    assert !AnalyzerConversionFacts.IsReferenceType(ConversionDefinitionlessGenericType())
 
     // Reflection types defer to the CLR value-type flag.
     assert AnalyzerConversionFacts.IsReferenceType(new ReflectionTypeInfo(typeof(string)))

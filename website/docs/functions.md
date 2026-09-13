@@ -288,9 +288,43 @@ let bounds: (int, int) = minMax([3, 1, 4])        // fine: names are not part of
 let renamed: (Low: int, High: int) = minMax([3, 1, 4])
 ```
 
-Two spellings are still unsupported: a tuple element may not be named individually
-(`(A: int, int)` — name all of them or none), and a field or property may not itself be declared with
-a tuple type.
+#### Naming Is Per Element
+
+Names are chosen one element at a time, in a tuple type and in a tuple literal alike — there is no
+"name all of them or none" rule:
+
+```n#
+func parsePart(parts: string[]): (string?, string, IsConstructor: bool) {
+    last := parts[parts.Length - 1]
+    return (null, last, IsConstructor: true)      // two positional elements, one named
+}
+
+row := parsePart(["System", "Ctor"])
+Console.WriteLine($"{row.Item2} {row.IsConstructor}")
+```
+
+The `TupleElementNamesAttribute` records a positional element as an empty slot, so the shape above is
+written `[null, null, "IsConstructor"]` — the same array a C# `(string?, string, bool IsConstructor)`
+produces.
+
+An element written `null` takes its type from the surrounding annotation, so the literal above is a
+`(string?, string, bool)` rather than a tuple with an untyped first element. A tuple also converts to
+another tuple element by element, wherever every element's conversion is one the CLR spells as
+identity — names erased, and a nullable annotation over a reference type erased — so
+`("a", "b", IsConstructor: true)` fits a declared `(string?, string, IsConstructor: bool)`. A
+conversion that would have to rebuild the tuple (`(int, int)` to `(long, long)`, `(string, string)` to
+`(object, object)`) is not performed.
+
+A name the literal writes that the target type does not have is a label on that literal and nothing
+more — the value's type is the declared one, and a mismatch is never an error, exactly as with a
+mismatched variable annotation above.
+
+Two limits remain. A **field or property** may not itself be declared with a tuple type; locals,
+parameters, return types and generic arguments all accept one. And an element read straight **out of
+an indexer** is positional: `rows[0].Item1` compiles where `rows[0].Item` does not, even though
+`rows` is a `List<(Item: string, Count: int)>` and the names are on its declaration — bind the
+element to a name first (`row := rows[0]` is not enough; annotate it, `row: (Item: string, Count:
+int) = rows[0]`) or use `ItemN`.
 
 ## Lambda Expressions
 
