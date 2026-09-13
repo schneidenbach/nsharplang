@@ -20968,7 +20968,7 @@ test "020 s36 analyzer clean source V-CONTROL V7: `names.Add(alpha)` -> `names.A
     assert AcHasErrors(rich) == "True"
     assert AcErrorCount(rich) == 1
     assert AcRow(rich, 0) == "NoMatchingOverload|No overload of 'Add' accepts 1 argument with these types|<null>|Error"
-    assert AcHint(rich, 0) == "This call passes 1 argument: `int`.\nAvailable overloads:\n  - Add(string? item): void\n\nCheck the argument count and types. If you meant to reference the method itself, use it in a context with a delegate type instead of calling it."
+    assert AcHint(rich, 0) == "This call passes 1 argument: `int`.\nAvailable overloads:\n  - Add(string item): void\n\nCheck the argument count and types. If you meant to reference the method itself, use it in a context with a delegate type instead of calling it."
     assert AcSnippet(rich, 0) == "                names.Add(1)"
     assert AcRow(rich, 1) == "<no-such-error>"
 }

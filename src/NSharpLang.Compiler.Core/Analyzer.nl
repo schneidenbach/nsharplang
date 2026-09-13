@@ -1162,7 +1162,25 @@ class Analyzer: IDisposable {
             if kind == 3 {
                 PopScope()
             }
+            if kind == 4 {
+                DeclareBlockLocalFunctions(step.Statements)
+            }
             step = StatementSequence.NextStep(state)
+        }
+    }
+
+    // A BLOCK'S LOCAL FUNCTIONS, BOUND BEFORE ITS FIRST STATEMENT RUNS. The scope REMEMBERS that it
+    // bound them, because the walk still reaches each declaration statement later and must not
+    // declare the same name twice and report itself as a duplicate.
+    private func DeclareBlockLocalFunctions(statements: List<Statement>?) {
+        hoisted := AnalyzerLocalFunctionScope.Hoist(statements, Ambient.CurrentTypeName, FunctionTypeFactory)
+        currentScope := Scopes.Peek()
+        index := 0
+        while index < hoisted.Count {
+            entry := hoisted[index]
+            currentScope.RecordHoistedLocalFunction(entry.Name)
+            DeclarationPolicy.DeclareSymbol(entry.Name, entry.Signature, entry.Line, entry.Column, null, true)
+            index = index + 1
         }
     }
 

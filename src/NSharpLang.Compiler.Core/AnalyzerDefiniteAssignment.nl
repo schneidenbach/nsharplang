@@ -418,6 +418,10 @@ class AnalyzerDefiniteAssignment {
     }
 
     func AnalyzeBlock(block: BlockStatement, state: DefiniteAssignmentState): bool {
+        // The block's local functions are in scope throughout it, so a call to one of them may be
+        // written above its declaration; they are recorded before any statement runs for exactly the
+        // reason the analyzer's scope stack binds them there.
+        AnalyzerLocalFunctionCaptures.Collect(block.Statements, state)
         for statement in block.Statements {
             if AnalyzeStatement(statement, state) {
                 return true
@@ -643,6 +647,23 @@ class AnalyzerDefiniteAssignment {
 
         call := expr as CallExpression
         if call != null {
+            // CALLING A LOCAL FUNCTION READS WHAT ITS BODY READS, and the question is asked HERE
+            // rather than in the body: the same body is legal after the variable is assigned and
+            // illegal before it, so the call is what is wrong. The sub-walk is driven from this arm
+            // because `AnalyzerLocalFunctionCaptures` cannot be handed this owner — the class is at
+            // the columnar front end's per-class member ceiling and a bare `this` declines it.
+            localCallee := call.Callee as IdentifierExpression
+            if localCallee != null {
+                capturedBody := AnalyzerLocalFunctionCaptures.BodyToRead(localCallee.Name, state)
+                if capturedBody != null {
+                    state.Active.Add(localCallee.Name)
+                    capturedReads := AnalyzerLocalFunctionCaptures.BeginRead(state)
+                    AnalyzeBlock(capturedBody, capturedReads)
+                    state.Active.Remove(localCallee.Name)
+                    AnalyzerLocalFunctionCaptures.ReportUnassignedReads(diagnosticsValue, capturedReads, localCallee.Name, localCallee, state)
+                }
+            }
+
             AnalyzeExpression(call.Callee, state)
             for argument in call.Arguments {
                 // out arguments assign the target rather than reading it.
@@ -809,6 +830,15 @@ class AnalyzerDefiniteAssignment {
     func ReportIfReadBeforeAssigned(identifier: IdentifierExpression, state: DefiniteAssignmentState) {
         name := identifier.Name
         if !state.Candidates.Contains(name) || state.Assigned.Contains(name) {
+            return
+        }
+
+        // COLLECTION MODE. This walk is reading a local function's body on behalf of a CALL to it;
+        // the read is recorded and the call site says what it means. See
+        // `AnalyzerLocalFunctionCaptures`.
+        collected := state.Collected
+        if collected != null {
+            collected.Add(name)
             return
         }
 

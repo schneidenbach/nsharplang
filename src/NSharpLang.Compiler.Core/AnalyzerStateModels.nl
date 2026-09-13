@@ -62,6 +62,7 @@ class Scope {
     availableErrorTupleResultsValue: HashSet<string>
     declarationLocations: Dictionary<string, SymbolDeclaration>
     typeAritiesValue: Dictionary<string, List<int>>
+    hoistedLocalFunctionsValue: HashSet<string>
 
     Kind: ScopeKind => kindValue
     Symbols: Dictionary<string, TypeInfo> => symbolsValue
@@ -90,6 +91,21 @@ class Scope {
         availableErrorTupleResultsValue = new HashSet<string>(StringComparer.Ordinal)
         declarationLocations = new Dictionary<string, SymbolDeclaration>()
         typeAritiesValue = new Dictionary<string, List<int>>(StringComparer.Ordinal)
+        hoistedLocalFunctionsValue = new HashSet<string>(StringComparer.Ordinal)
+    }
+
+    // THE LOCAL FUNCTIONS THIS SCOPE ALREADY BOUND BEFORE ITS FIRST STATEMENT RAN. A local
+    // function's name is in scope throughout the block that declares it, so the block binds every
+    // one of them up front; when the walk later reaches the declaration STATEMENT it must not
+    // declare the name a second time and report itself as a duplicate. This set is that memory, and
+    // it is per-scope because visibility is per-block: an inner block's local functions are not
+    // visible outside it and its set dies with it.
+    func RecordHoistedLocalFunction(name: string) {
+        hoistedLocalFunctionsValue.Add(name)
+    }
+
+    func HasHoistedLocalFunction(name: string): bool {
+        return hoistedLocalFunctionsValue.Contains(name)
     }
 
     // The one write path for a type binding. `key` is an identity key; the arity index is derived

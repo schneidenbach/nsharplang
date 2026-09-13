@@ -1685,6 +1685,45 @@ length := item.Length       // still an error: `item` is maybe-null
 A `continue` in that same position *does* narrow, because it belongs to the enclosing loop, which is
 outside the branch.
 
+### A generic member's nullability follows its type argument
+
+When you read a member of a constructed generic whose declared type is a bare type parameter, the
+answer's nullability is the **type argument's** — not "maybe, because a `T` could be anything":
+
+```n#
+func Describe(box: Lazy<string>, pending: Task<string>): int {
+    // `Lazy<T>.Value` and `Task<T>.Result` are declared `T`, and the argument is `string`.
+    return box.Value.Length + pending.Result.Length
+}
+
+func DescribeNullable(box: Lazy<string?>): int {
+    // Here the argument is `string?`, so the guard is required.
+    value := box.Value
+    if value == null {
+        return 0
+    }
+
+    return value.Length
+}
+```
+
+The same rule reaches lambda parameters — the parameter of a `Predicate<string>` is `string`, so
+`items.FindAll(s => s.Length > 0)` needs no check inside the lambda.
+
+A member that annotates the position itself keeps its `?` through the substitution, however
+non-nullable the argument is:
+
+```n#
+func FirstLongWord(items: List<string>): string {
+    // `List<T>.Find` returns `T?`, so this needs a check even though the argument is `string`.
+    found := items.Find(s => s.Length > 2)
+    return found ?? ""
+}
+```
+
+`Enumerable.First` follows the argument; `Enumerable.FirstOrDefault`, `Enumerable.LastOrDefault`,
+`List<T>.Find` and a `Dictionary<K, V>.TryGetValue` `out` value are all annotated and stay maybe-null.
+
 ## Type Aliases
 
 Create transparent type aliases (interchangeable with the underlying type):

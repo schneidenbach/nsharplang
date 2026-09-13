@@ -366,10 +366,12 @@ sealed class ColumnarIlEmitter {
     // sibling (probe-pinned: the pipeline calls the local). _declaredLocalFuncNodes holds the kind-41
     // body-node indices that were declared; any other kind-41 (a nested-block declaration) declines.
 
-    // Local-function VISIBILITY is strictly TEXTUAL (probe-pinned: the pipeline NL412s a call before the
-    // declaration, in the parent AND between locals — so true mutual recursion is impossible; only
-    // self-recursion and backward calls). A name enters this set when its kind-41 statement is reached;
-    // the call tier requires it. Local bodies start pre-populated with declarations up to themselves.
+    // Local-function VISIBILITY IS THE WHOLE BLOCK, which is C#'s rule and the analyzer's: every local
+    // function a body declares is bound before the body's first statement is bound, so a call written
+    // ABOVE the declaration and a pair that call EACH OTHER both resolve. The parent body and every
+    // local body therefore start with the full declared-name set, and the kind-41 statement's own add
+    // is idempotent. (This used to be strictly TEXTUAL — a name entered the set only when its kind-41
+    // statement was reached — which made true mutual recursion unspellable.)
 
     // In a CLOSURE emitter: captured-and-lifted names -> the display field holding the shared box. Reads
     // emit `ldarg.0; ldfld boxField; ldfld Value`, writes `ldarg.0; ldfld boxField; <v>; stfld Value` —
@@ -4753,9 +4755,13 @@ sealed class ColumnarIlEmitter {
             // sites (probe-pinned), so the map is its own resolution tier.
             localFuncs: Dictionary<string, (Method: MethodBuilder, ParamTypes: Type[], ReturnType: Type)>? = null
             declaredLocalFuncNodes: Dictionary<int, string>? = null
+            // Every local function this body declares, visible from the body's FIRST statement — the
+            // block-wide scoping rule, so a forward call and a mutually recursive pair both resolve.
+            visibleLocalFuncNames: List<string>? = null
             if (fn.LocalFunctions != null) {
                 localFuncs = new Dictionary<string, (MethodBuilder, Type[], Type)>(StringComparer.Ordinal)
                 declaredLocalFuncNodes = new Dictionary<int, string>()
+                visibleLocalFuncNames = new List<string>()
                 for localFunction in fn.LocalFunctions {
                     nodeIndex := localFunction.NodeIndex
                     localFn := localFunction.Function
@@ -4801,6 +4807,7 @@ sealed class ColumnarIlEmitter {
                     ColumnarTupleElementNameEmitter.ApplyToReturn(localMethod, localFn.ReturnLabeledCanonical)
                     localFuncs[localFn.Name] = (localMethod, localParams, localReturn)
                     declaredLocalFuncNodes[nodeIndex] = localFn.Name
+                    visibleLocalFuncNames.Add(localFn.Name)
                 }
             }
             fnParamTupleNames := ColumnarTupleElementNames.ParameterNameMap(fn.ParamNames, fn.ParamTupleElementNames)
@@ -4846,7 +4853,7 @@ sealed class ColumnarIlEmitter {
                 null,
                 localFuncs,
                 declaredLocalFuncNodes,
-                null,
+                visibleLocalFuncNames,
                 siblingReturnTupleNames,
                 fnParamTupleNames,
                 null,
@@ -4878,10 +4885,8 @@ sealed class ColumnarIlEmitter {
                 // any parent statement binds; extra declines are safe under-acceptance).
                 parentBindings := new HashSet<string>(ordinalsByFunc[f].Keys, StringComparer.Ordinal)
                 ColumnarClosureBindingPlanner.CollectBindingNames(fn.BodyNodes, functionSource, fn.BodyRoot, parentBindings)
-                visiblePrefix := new List<string>()
                 for localFunction in fn.LocalFunctions {
                     localFn := localFunction.Function
-                    visiblePrefix.Add(localFn.Name)
                     target := localFuncs[localFn.Name]
                     localOrdinals := new Dictionary<string, int>(StringComparer.Ordinal)
                     localParamTypes := new Dictionary<string, Type>(StringComparer.Ordinal)
@@ -4925,7 +4930,7 @@ sealed class ColumnarIlEmitter {
                         null,
                         localFuncs,
                         null,
-                        visiblePrefix,
+                        visibleLocalFuncNames,
                         null,
                         null,
                         parentBindings,
@@ -5897,8 +5902,17 @@ sealed class ColumnarIlEmitter {
                 // analyzer-validated product path authoritative. (A break/continue nested inside an `if` is
                 // conditional, so only a DIRECT break/continue child counts here.)
                 transfers := AlwaysReturns(child) || _nodes.Kind(child) == 21 || _nodes.Kind(child) == 22
-                if (transfers && n != _nodes.ChildCount(idx) - 1) {
-                    return Decline("emit.statement.unreachable-after-transfer", "block contains a statement after an unconditional transfer", child)
+                if (transfers) {
+                    // A LOCAL FUNCTION DECLARATION (kind 41) EMITS NO IL AT ALL — the method was declared
+                    // before the body walk and its body is emitted separately — so one written after the
+                    // transfer is not code after the transfer. The analyzer's unreachable rule makes the
+                    // same exception, and it is what lets a body call a local function on its first line
+                    // and declare it on its last.
+                    for after := n + 1; after < _nodes.ChildCount(idx); after++ {
+                        if (_nodes.Kind(Child(idx, after)) != 41) {
+                            return Decline("emit.statement.unreachable-after-transfer", "block contains a statement after an unconditional transfer", child)
+                        }
+                    }
                 }
             }
 

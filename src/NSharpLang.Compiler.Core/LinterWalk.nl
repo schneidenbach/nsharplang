@@ -437,12 +437,24 @@ class LinterWalk {
     // A block opens a scope and closes it. NL006 is reported ONCE per block, at the first statement the
     // walk cannot reach, and the statements after it are not walked at all: an unreachable statement
     // must not cascade NL001-class findings of its own.
+    //
+    // A LOCAL FUNCTION DECLARATION IS NOT CODE THAT RUNS IN THE BLOCK, so it is never the statement
+    // the walk cannot reach. Its name is bound before the block's first statement and its body is
+    // reached through calls written ABOVE it, so declaring it after the `return` that calls it is
+    // the ordinary shape; C# makes the same exception. It is still WALKED — its own body has lint
+    // rules of its own — and it does not clear the flag, so an ordinary statement after it is still
+    // reported.
     func VisitBlock(block: BlockStatement) {
         state.PushScope()
         unreachableReported := false
         restIsUnreachable := false
 
         for statement in block.Statements {
+            if restIsUnreachable && (statement as LocalFunctionStatement) != null {
+                VisitStatement(statement)
+                continue
+            }
+
             if restIsUnreachable {
                 if !unreachableReported {
                     state.ReportUnreachableCode(statement.Line, statement.Column)

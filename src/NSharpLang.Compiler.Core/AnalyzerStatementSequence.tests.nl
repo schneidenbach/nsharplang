@@ -461,3 +461,147 @@ test "A FUNCTION GOES INTO THE FLAT TABLE WHEN NO SEMANTIC SCOPE IS OPEN" {
     assert model.Functions.ContainsKey("loose")
     assert model.Scopes.Count == 0
 }
+
+// ---- the local-function binding step -----------------------------------------------------------
+//
+// A local function's name is in scope throughout the block that declares it, so the binding cannot
+// wait for the walk to reach the declaration statement: a call written ABOVE it, and a call from a
+// SIBLING local function written above it, both have to resolve. The step that binds them is
+// therefore emitted before the list's first statement — and, for a block, AFTER the block's own
+// scope opened, so the names die with the block and a nested block's local functions stay invisible
+// outside it.
+
+func SequenceLocalFunction(name: string, line: int): Statement {
+    declaration := new FunctionDeclaration(name, new List<Parameter>(), null, SequenceBlock(SequenceEmpty(), line, 5), null, null, null, Modifiers.None, new List<AttributeNode>(), false, null, false, false, line, 5)
+    statement: Statement = new LocalFunctionStatement(declaration, line, 1)
+    return statement
+}
+
+func SequenceStepKinds(harness: SequenceHarness, state: StatementSequenceState): string {
+    kinds := ""
+    step := harness.Sequence.NextStep(state)
+    while step != null {
+        kinds = kinds + step.Kind.ToString()
+        step = harness.Sequence.NextStep(state)
+    }
+
+    return kinds
+}
+
+test "A LIST WITH A LOCAL FUNCTION BINDS IT BEFORE ITS FIRST STATEMENT" {
+    harness := SequenceDefault()
+    statements := SequenceEmpty()
+    statements.Add(SequencePlain(3))
+    statements.Add(SequenceLocalFunction("helper", 4))
+
+    kinds := SequenceStepKinds(harness, harness.Sequence.BeginList(statements))
+
+    // The binding step comes FIRST, before the `print` on line 3 that may already call `helper`.
+    assert kinds == "411"
+}
+
+test "A BLOCK BINDS ITS LOCAL FUNCTIONS AFTER ITS OWN SCOPE OPENS" {
+    harness := SequenceDefault()
+    statements := SequenceEmpty()
+    statements.Add(SequenceLocalFunction("helper", 5))
+
+    kinds := SequenceStepKinds(harness, harness.Sequence.BeginBlock(SequenceBlock(statements, 4, 1)))
+
+    // 2 (open), 4 (bind), 1 (the declaration statement), 3 (close). The binding is INSIDE the scope
+    // it belongs to, which is what makes a nested block's local functions invisible outside it.
+    assert kinds == "2413"
+}
+
+test "THE BINDING STEP CARRIES THE LIST ITSELF, NOT ONE STATEMENT" {
+    harness := SequenceDefault()
+    statements := SequenceEmpty()
+    statements.Add(SequenceLocalFunction("first", 3))
+    statements.Add(SequenceLocalFunction("second", 6))
+
+    step := harness.Sequence.NextStep(harness.Sequence.BeginList(statements))
+
+    assert step != null
+    assert step.Kind == 4
+    assert step.Body == null
+    carried := step.Statements
+    assert carried != null
+    assert carried.Count == 2
+}
+
+test "A LIST WITH NO LOCAL FUNCTION ASKS FOR NO BINDING AT ALL" {
+    harness := SequenceDefault()
+    statements := SequenceEmpty()
+    statements.Add(SequencePlain(3))
+    statements.Add(SequencePlain(4))
+
+    kinds := SequenceStepKinds(harness, harness.Sequence.BeginList(statements))
+
+    // The step is skipped outright rather than emitted empty: every block in the program walks this
+    // phase and almost none of them declares a local function.
+    assert kinds == "11"
+}
+
+test "A TRANSPARENT WRAPPER BINDS NOTHING — ITS BODY IS A BLOCK AND THE BLOCK WILL" {
+    harness := SequenceDefault()
+    statements := SequenceEmpty()
+    statements.Add(SequenceLocalFunction("helper", 6))
+    body: Statement = SequenceBlock(statements, 5, 9)
+
+    kinds := SequenceStepKinds(harness, harness.Sequence.BeginTransparent(body))
+
+    assert kinds == "1"
+}
+
+test "AN EMPTY BLOCK STILL ASKS FOR NO BINDING" {
+    harness := SequenceDefault()
+
+    kinds := SequenceStepKinds(harness, harness.Sequence.BeginBlock(SequenceBlock(SequenceEmpty(), 4, 1)))
+
+    assert kinds == "23"
+}
+
+test "A LOCAL FUNCTION NESTED INSIDE A BLOCK STATEMENT IS NOT THIS LIST'S TO BIND" {
+    harness := SequenceDefault()
+    inner := SequenceEmpty()
+    inner.Add(SequenceLocalFunction("hidden", 5))
+    outer := SequenceEmpty()
+    nested: Statement = SequenceBlock(inner, 4, 1)
+    outer.Add(nested)
+
+    kinds := SequenceStepKinds(harness, harness.Sequence.BeginList(outer))
+
+    // Only DIRECT children are bound. The nested block binds `hidden` when IT is walked, into its
+    // own scope, which is exactly why the name is not visible out here.
+    assert kinds == "1"
+}
+
+test "A LOCAL FUNCTION DECLARED AFTER A `return` IS NOT DEAD CODE" {
+    harness := SequenceDefault()
+    statements := SequenceEmpty()
+    statements.Add(SequenceLeaving(4))
+    statements.Add(SequenceLocalFunction("describe", 6))
+
+    kinds := SequenceStepKinds(harness, harness.Sequence.BeginList(statements))
+
+    // The declaration is not code that runs in this list — its name was bound before the first
+    // statement and its body is reached through calls written ABOVE it — so it is handed out and
+    // nothing is reported. C# makes the same exception.
+    assert kinds == "411"
+    assert harness.Errors.Count == 0
+}
+
+test "AN ORDINARY STATEMENT AFTER THAT DECLARATION IS STILL DEAD CODE" {
+    harness := SequenceDefault()
+    statements := SequenceEmpty()
+    statements.Add(SequenceLeaving(4))
+    statements.Add(SequenceLocalFunction("describe", 6))
+    statements.Add(SequencePlain(9))
+
+    kinds := SequenceStepKinds(harness, harness.Sequence.BeginList(statements))
+
+    // Walking the declaration does not clear the flag: the `print` on line 9 is still reported, and
+    // it is still the ONE report.
+    assert kinds == "411"
+    assert harness.Errors.Count == 1
+    assert harness.Errors[0].Line == 9
+}

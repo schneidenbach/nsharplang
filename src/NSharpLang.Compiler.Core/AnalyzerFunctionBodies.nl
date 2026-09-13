@@ -383,12 +383,24 @@ class AnalyzerFunctionBodies {
     // PHASE 0 — THE NAME, DECLARED INTO THE SCOPE THAT ENCLOSES THE FUNCTION AND BEFORE THE FUNCTION
     // SCOPE OPENS. Both halves of that order are behaviour. ENCLOSING scope, so the name outlives the
     // body and a sibling statement below can call it; BEFORE the scope opens, so the body's own scope
-    // chain already contains the name and a RECURSIVE call resolves. It is NOT a hoist: the name lands
-    // when this STATEMENT is walked, so a call written ABOVE the declaration does not resolve.
+    // chain already contains the name and a RECURSIVE call resolves.
+    //
+    // THE BLOCK USUALLY BOUND THE NAME ALREADY. A local function is visible throughout the block that
+    // declares it — above its own declaration and inside its siblings — so `AnalyzerStatementSequence`
+    // binds every one of a list's local functions before the list's first statement is walked, and
+    // the scope remembers it did. Declaring the name a SECOND time here would report the declaration
+    // as a duplicate of itself, so this step is skipped when the enclosing scope already holds the
+    // hoisted binding. It is not skipped unconditionally: a `LocalFunctionStatement` reached by any
+    // path that did not walk a statement list still gets its name here, which is why the binding is
+    // asked for rather than assumed.
     func AdvanceDeclareFunction(state: FunctionBodyState): FunctionBodyRequest? {
         declaration := state.Declaration
-        functionType := functionTypeFactoryValue.CreateFromDeclaration(declaration, state.ContainingType)
         state.Phase = 1
+        if scopesValue.Peek().HasHoistedLocalFunction(declaration.Name) {
+            return null
+        }
+
+        functionType := functionTypeFactoryValue.CreateFromDeclaration(declaration, state.ContainingType)
         request := new FunctionBodyRequest(3, functionType)
         request.Name = declaration.Name
         request.Line = state.Line
