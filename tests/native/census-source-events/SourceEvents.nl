@@ -78,6 +78,21 @@ struct Gauge {
     }
 }
 
+// VISIBILITY: the accessors take the EVENT's own word — the written one, else the name's casing —
+// while the backing storage is private whatever that says. A camelCase event is package-private and a
+// `private` one is private, and both are raised by the declaring type exactly like the exported one.
+class Panel {
+    event Resized: EventHandler
+    event moved: EventHandler
+    private event Closed: EventHandler
+
+    func RaiseAll() {
+        Resized?.Invoke(this, EventArgs.Empty)
+        moved?.Invoke(this, EventArgs.Empty)
+        Closed?.Invoke(this, EventArgs.Empty)
+    }
+}
+
 // A SUBSCRIBER WRITTEN OUTSIDE THE DECLARING TYPE — the only thing an event admits there is `on`/`off`.
 class Counter {
     Count: int

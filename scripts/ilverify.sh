@@ -262,6 +262,7 @@ if [ "$BUILD_NATIVE_TESTS" = "1" ]; then
     build_native_test "census iterator" "$REPO_ROOT/tests/native/census-iterators" "$REPO_ROOT/tests/native/census-iterators/bin/Debug/net10.0/tests/NSharpLang.CensusIterators.Tests.dll" || BUILD_FAILED=1
     build_native_test "lifted operators" "$REPO_ROOT/tests/native/census-lifted-operators" "$REPO_ROOT/tests/native/census-lifted-operators/bin/Debug/net10.0/tests/NSharpLang.CensusLiftedOperators.Tests.dll" || BUILD_FAILED=1
     build_native_test "census events" "$REPO_ROOT/tests/native/census-events" "$REPO_ROOT/tests/native/census-events/bin/Debug/net10.0/tests/NSharpLang.CensusEvents.Tests.dll" || BUILD_FAILED=1
+    build_native_test "census source events" "$REPO_ROOT/tests/native/census-source-events" "$REPO_ROOT/tests/native/census-source-events/bin/Debug/net10.0/tests/NSharpLang.CensusSourceEvents.Tests.dll" || BUILD_FAILED=1
 fi
 if [ "$BUILD_FAILED" = "1" ]; then
     fail "One or more nlc builds failed; cannot run IL verification."

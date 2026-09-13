@@ -150,6 +150,28 @@ test "a static event's accessors and storage are static" {
     assert backing.IsPrivate
 }
 
+// THE ACCESSORS CARRY THE EVENT'S OWN VISIBILITY, AND THE STORAGE NEVER DOES. That asymmetry is C#'s
+// and it is the reason a reader outside the declaring type reaches the EVENT rather than the delegate.
+test "an event's accessors take its visibility and its storage stays private" {
+    exported := must typeof(Panel).GetEvent("Resized")
+    assert (must exported.AddMethod).IsPublic
+    assert (must exported.RemoveMethod).IsPublic
+
+    packagePrivate := must typeof(Panel).GetEvent("moved", BindingFlags.NonPublic | BindingFlags.Instance)
+    assert (must packagePrivate.AddMethod).IsAssembly
+    assert typeof(Panel).GetEvent("moved") == null
+
+    hidden := must typeof(Panel).GetEvent("Closed", BindingFlags.NonPublic | BindingFlags.Instance)
+    assert (must hidden.AddMethod).IsPrivate
+    assert typeof(Panel).GetEvent("Closed") == null
+
+    for name in ["Resized", "moved", "Closed"] {
+        storage := must typeof(Panel).GetField(name, BindingFlags.NonPublic | BindingFlags.Instance)
+        assert storage.IsPrivate
+        assert storage.IsDefined(typeof(System.Runtime.CompilerServices.CompilerGeneratedAttribute), false)
+    }
+}
+
 test "a generic handler type reaches metadata closed over its written argument" {
     priceChanged := must typeof(Ticker).GetEvent("PriceChanged")
     handlerType := must priceChanged.EventHandlerType
