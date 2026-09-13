@@ -240,9 +240,17 @@ class AnalyzerDeclarationPolicy {
     // file is "second": a file is analysed on its own, and the one open in the editor is the one
     // whose diagnostic the developer sees. The emitter refuses the same pair at
     // `emit.declaration.duplicate`, so a program this reports can never be built by another path.
+    //
+    // ONLY FILES THAT COMPILE TOGETHER SHARE A NAMESPACE. The rule is asked when the analysis root
+    // is a project — a directory with a `project.yml` — and never of a folder of standalone scripts,
+    // where every file has its own `Main` and is its own program (the product gate checks
+    // `examples/03-functions` as one directory, and it is seven programs).
     func DeclareTopLevelFunction(functionDeclaration: FunctionDeclaration, functionType: TypeInfo) {
         name := functionDeclaration.Name
         DeclareSymbol(name, functionType, functionDeclaration.Line, functionDeclaration.Column, null, true)
+        if !projectDiscovery.CompilesAsOneProgram() {
+            return
+        }
 
         namespaceName := AnalyzerProjectSourceProvider.UnitNamespace(compilationUnit)
         twins := sameNamespaceFunctionTwins

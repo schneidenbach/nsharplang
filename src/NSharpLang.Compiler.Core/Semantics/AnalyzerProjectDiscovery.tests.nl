@@ -1336,7 +1336,8 @@ test "the global namespace is one namespace for the twin index, whether spelled 
 // THE SAME RULE END TO END, through `Analyzer.Analyze` over a project on disk: the report is NL306,
 // it lands in EACH file naming the other, and a third namespace's same-named function reports
 // nothing. Measured on a755caeea before this rule: the pair passed analysis, built, and the program
-// printed the second file's answer.
+// printed the second file's answer. The `project.yml` is what makes the files one program; without
+// it they are standalone scripts and the rule is not asked — see the test after this one.
 func TopLevelFunctionTwinReports(filePath: string, source: string, projectRoot: string): List<string> {
     parsed := ColumnarParserRecovery.ParseFileAst(source, filePath)
     assert parsed.Errors.Count == 0
@@ -1371,6 +1372,7 @@ test "two files of one namespace that declare the same free function each report
         File.WriteAllText(aPath, aSource)
         File.WriteAllText(bPath, bSource)
         File.WriteAllText(cPath, cSource)
+        File.WriteAllText(Path.Combine(projectRoot, "project.yml"), "name: FunctionTwin\nversion: 0.1.0\noutputType: exe\ntargetFramework: net10.0\n")
 
         fromA := TopLevelFunctionTwinReports(aPath, aSource, projectRoot)
         assert fromA.Count == 1
@@ -1383,6 +1385,35 @@ test "two files of one namespace that declare the same free function each report
 
         // A different namespace is a different function.
         assert TopLevelFunctionTwinReports(cPath, cSource, projectRoot).Count == 0
+    } finally {
+        Directory.Delete(projectRoot, true)
+    }
+}
+
+test "a folder of standalone scripts with no project.yml is not one program, so same-named functions in it are not twins" {
+    // `examples/03-functions` is this shape: seven single-file programs, each with its own `Main`
+    // and its own helpers, checked by the product gate as one directory. The Language Server opens
+    // such a folder with the directory as its fallback root, and the CLI builds its files one at a
+    // time — nothing ever compiles them together, so nothing they declare can collide.
+    projectRoot := Path.Combine(Path.GetTempPath(), "nsharp-script-folder-" + Guid.NewGuid().ToString("N"))
+    Directory.CreateDirectory(projectRoot)
+    try {
+        firstPath := Path.Combine(projectRoot, "First.nl")
+        firstSource := "func Sum(a: int, b: int): int {\n    return a + b\n}\n\nfunc Main() {\n    print Sum(1, 2)\n}\n"
+        secondPath := Path.Combine(projectRoot, "Second.nl")
+        secondSource := "func Sum(values: int[]): int {\n    return values.Length\n}\n\nfunc Main() {\n    print Sum([1, 2])\n}\n"
+        File.WriteAllText(firstPath, firstSource)
+        File.WriteAllText(secondPath, secondSource)
+
+        assert TopLevelFunctionTwinReports(firstPath, firstSource, projectRoot).Count == 0
+        assert TopLevelFunctionTwinReports(secondPath, secondSource, projectRoot).Count == 0
+
+        // The same two files under a `project.yml` ARE one program, and then they collide.
+        File.WriteAllText(Path.Combine(projectRoot, "project.yml"), "name: ScriptFolder\nversion: 0.1.0\noutputType: exe\ntargetFramework: net10.0\n")
+        reports := TopLevelFunctionTwinReports(firstPath, firstSource, projectRoot)
+        assert reports.Count == 2
+        assert reports[0].Contains("'Sum' is already declared in the global namespace by Second.nl:1")
+        assert reports[1].Contains("'Main' is already declared in the global namespace by Second.nl:5")
     } finally {
         Directory.Delete(projectRoot, true)
     }

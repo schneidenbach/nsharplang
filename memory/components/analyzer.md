@@ -1617,7 +1617,12 @@ Two consequences the analyzer owns:
   worked (the view is name-keyed, and a call at the other arity reported NL401 against whichever
   file discovery happened to reach), and in-file free-function overloads decline at
   `parse.declaration-scan`. The emitter's own word is `ColumnarFreeFunctionScope.Declare` answering
-  `false` for a second (namespace, name) row, declined at `emit.declaration.duplicate`.
+  `false` for a second (namespace, name) row, declined at `emit.declaration.duplicate`. The report
+  is asked only when `AnalyzerProjectSourceProvider.CompilesAsOneProgram()` — the analysis root has
+  a `project.yml`. The first cut asked it everywhere and the product gate's Step 10 failed on six
+  example folders: `examples/03-functions` and its siblings are standalone single-file programs
+  (seven `Main`s, repeated helpers) that the gate checks as ONE directory and the LSP opens with
+  the directory as its fallback root; nothing compiles them together, so they cannot collide.
 
 **EXPORT IS REQUIRED ONLY ACROSS NAMESPACES, AND ONE OWNER SAYS SO.**
 `SimpleNamePrecedence.RequiresExport(currentNamespace, candidateNamespace)` is that half of the rule:

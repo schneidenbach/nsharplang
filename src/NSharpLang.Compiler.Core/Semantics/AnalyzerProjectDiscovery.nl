@@ -116,6 +116,21 @@ class AnalyzerProjectSourceProvider {
         fileNamespaceCache.Clear()
     }
 
+    // WHETHER THE FILES UNDER THIS ROOT COMPILE INTO ONE ASSEMBLY. A `project.yml` is what says so:
+    // it is the file the SDK and `nlc build` read, and every file beneath it is one program with one
+    // `Program` holder per namespace. A directory WITHOUT one is a folder of standalone scripts —
+    // `examples/03-functions` is seven programs, each with its own `Main` — which the CLI builds one
+    // file at a time and the Language Server opens with the directory as its fallback root. Rules
+    // about what two FILES may declare between them apply only to the first shape.
+    func CompilesAsOneProgram(): bool {
+        root := projectRootValue
+        if root == null || string.IsNullOrWhiteSpace(root) {
+            return false
+        }
+
+        return File.Exists(Path.Combine(root, "project.yml"))
+    }
+
     // The snapshot's text for a file, or null when the file is not in the snapshot. Null means "ask
     // the disk", not "empty file".
     func TryGetProjectSourceText(filePath: string?): string? {
@@ -649,7 +664,12 @@ class AnalyzerProjectTypeDiscovery {
     // it. The caller's own file is excluded on purpose: its own duplicates are its scope's business
     // (`AnalyzerDeclarationPolicy.DeclareSymbol`), and a file is never its own twin. Built once per
     // analysis by the policy, not once per declaration, since a project's files do not change
-    // between two declarations of one unit.
+    // between two declarations of one unit. This is the INDEX only: whether the files are one program
+    // at all is `CompilesAsOneProgram`, and the policy asks that first.
+    func CompilesAsOneProgram(): bool {
+        return sources.CompilesAsOneProgram()
+    }
+
     func SameNamespaceFunctionTwins(currentFilePath: string?, currentNamespace: string?): Dictionary<string, ProjectFunctionTwin> {
         twins := new Dictionary<string, ProjectFunctionTwin>(StringComparer.Ordinal)
         ownPath := currentFilePath == null ? "" : Path.GetFullPath(currentFilePath)
