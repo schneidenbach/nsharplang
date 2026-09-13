@@ -838,10 +838,10 @@ class LinterWalk {
         identifier := expression as IdentifierExpression
         if identifier != null {
             state.MarkVariableUsed(identifier.Name, true)
-            // NL010's FILE arm: every identifier the code mentions is a use of whatever file import
-            // supplies it. The NAMESPACE arm and NL002 are both answered after the walk, from what
-            // the analyzer bound — see `LinterWalkState.CheckMissingImports`.
+            // NL010: every identifier the code mentions is a use of whatever import supplies it.
             state.NoteCodeIdentifier(identifier.Name)
+            // NL002: a bare name that looks like a type may need an import.
+            state.CheckMissingImport(identifier)
             return
         }
 
@@ -868,14 +868,15 @@ class LinterWalk {
         //   - `x.Field = 1` writes a MEMBER and reads `x` to find it — a use;
         //   - `x = x + 1` reads x on the RIGHT, and the value walk marks it used from there.
         // Only the bare-name target of a plain `=` is skipped, and only for the USAGE question: the
-        // name is still a written identifier, so NL010's file arm still counts it as a mention of
-        // whatever import supplies it.
+        // name is still a written identifier, so NL010 still counts it as a mention of whatever
+        // import supplies it and NL002 still asks whether it needs one.
         assignment := expression as AssignmentExpression
         if assignment != null {
             targetIdentifier := assignment.Target as IdentifierExpression
             if targetIdentifier != null && assignment.Operator == AssignmentOperator.Assign {
                 state.MarkVariableWritten(targetIdentifier.Name)
                 state.NoteCodeIdentifier(targetIdentifier.Name)
+                state.CheckMissingImport(targetIdentifier)
             } else {
                 VisitExpression(assignment.Target)
             }
@@ -888,9 +889,12 @@ class LinterWalk {
         if newExpression != null {
             constructedType := newExpression.Type
             if constructedType != null {
-                // EVERY name the constructed type mentions, not only the one it is CALLED.
+                state.CheckMissingImportForType(constructedType, newExpression.Line, newExpression.Column)
+                // NL010: EVERY name the constructed type mentions, not only the one it is CALLED.
                 // `new List<StringBuilder>()` recorded `List` and stopped, so a file whose only mention
-                // of `System.Text` was that type argument had its FILE import reported dead.
+                // of `System.Text` was that type argument had the import reported dead — the same
+                // difference between `Base` and `CollectMentionedNames` that NL002 already respects a
+                // few lines up.
                 state.NoteTypeReferenceNames(constructedType)
             }
 

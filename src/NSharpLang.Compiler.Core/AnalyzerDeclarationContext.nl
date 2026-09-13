@@ -1205,7 +1205,7 @@ class AnalyzerDeclarationContext {
         resolved := ResolveTypeNameWalk(facts, name, activeAliases, out claimed)
         credit := importUsageCredit
         if credit != null && string.Equals(facts.FilePath, importUsageFilePath, StringComparison.OrdinalIgnoreCase) {
-            credit.CreditResolvedType(name, resolved, 0, 0)
+            credit.CreditResolvedType(name, resolved)
         }
 
         return resolved

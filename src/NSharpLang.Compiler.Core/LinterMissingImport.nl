@@ -361,38 +361,80 @@ class LinterTypeReferenceName {
 // of names the BCL is known to provide — 25 for a bare identifier, 16 for a written type — and spoke
 // only when a file wrote one of those without importing the namespace beside it. That made the rule
 // silent for every other name in the framework: `OperatingSystem.IsWindows()` with no `import System`
-// was accepted in silence, while its mirror — the same file WITH the import — had NL010 report the
-// import dead, because NL010's own table had never heard of the name either. Two tables, two gaps,
-// one name falling through both.
+// was accepted without a word, while its mirror — the same file WITH the import — had NL010 report
+// the import dead, because NL010's own table had never heard of the name either. Two tables, two
+// gaps, one name falling through both.
 //
 // IT IS NOW THE OTHER READING OF NL010'S FACT. When a simple name resolves, the analyzer records the
 // namespace that supplied it (`ImportUsageFacts`). If the file imports that namespace, the import is
 // used and NL010 stays quiet; if it does not, this rule speaks. The two cannot disagree, because
 // there is one measurement and no list anywhere.
 //
-// ONLY A METADATA TYPE IS EVER A FINDING, and the analyzer decides that, not this rule. A SOURCE
-// type declared in another namespace of the same project resolves with no import at all — that is
-// the language's rule — so it is never recorded as needing one, and demanding `import` for a
-// sibling namespace would be wrong.
+// ONLY A METADATA TYPE IS EVER A FINDING, and the analyzer decides that, not this rule. A SOURCE type
+// declared in another namespace of the same project resolves with no import at all — that is the
+// language's rule, proven by `namespace A` writing a type from `namespace B` and building — so it is
+// never recorded as needing one, and demanding `import` for a sibling namespace would be wrong.
 //
-// THREE THINGS SILENCE IT, and the order does not matter because they are independent. A name
-// brought in by a FILE import is already resolved; a namespace the file already imports needs no
-// second import; and a file does not import its own namespace. The first is the only one that is not
-// obvious: a file import puts a name in scope without a namespace import, so the same spelling can
-// resolve through metadata AND be supplied locally.
+// THE POSITION IS STILL THE LINTER'S. The analyzer records WHICH import a name needs; where the
+// squiggle goes is a span question the walk already answers for every position a type can be written
+// in — a `new`, an annotation, a type argument, a bare identifier — and it answers it better than a
+// re-derivation from the source line could.
+//
+// FOUR THINGS SILENCE IT, IN THIS ORDER, AND THE ORDER IS OBSERVABLE. A file that was never analysed
+// has no answer at all; a name declared by an enclosing type's own members is not a BCL name; a name
+// brought in by a FILE import is already resolved; and a namespace that is already imported needs no
+// second import.
 class LinterMissingImport {
 
-    // Whether a resolved name is a missing-import finding.
-    static func NeedsImport(name: string, requiredNamespace: string, importedFileSymbols: HashSet<string>, importedNamespaces: List<string>): bool {
-        if requiredNamespace.Length == 0 {
-            return false
+    // The identifier arm: a bare name written in code. Answers with the namespace that must be
+    // imported, or nothing when the rule stays silent.
+    static func MissingNamespaceForIdentifier(name: string, usage: ImportUsageFacts?, typeMemberNameScopes: Stack<HashSet<string>>, importedFileSymbols: HashSet<string>, importedNamespaces: List<string>): string? {
+        for scope in typeMemberNameScopes {
+            if scope.Contains(name) {
+                return null
+            }
+        }
+
+        return MissingNamespace(SupplyingNamespace(usage, name), name, importedFileSymbols, importedNamespaces)
+    }
+
+    // The type arm: a name written as a type. It never consults the member scopes — a `new` names a
+    // TYPE, and an enclosing type's member cannot shadow one.
+    static func MissingNamespaceForTypeName(typeName: string, usage: ImportUsageFacts?, importedFileSymbols: HashSet<string>, importedNamespaces: List<string>): string? {
+        return MissingNamespace(SupplyingNamespace(usage, typeName), typeName, importedFileSymbols, importedNamespaces)
+    }
+
+    // WHICH NAMESPACE SUPPLIED THIS SPELLING, according to the analysis of this file. Nothing when the
+    // file was never analysed, when its analysis did not complete, or when the name did not resolve to
+    // a metadata type — a local, a member, a type parameter, a source declaration or a name that did
+    // not resolve at all. Each of those is silence rather than a guess.
+    static func SupplyingNamespace(usage: ImportUsageFacts?, name: string): string? {
+        if usage == null {
+            return null
+        }
+
+        facts := usage ?? new ImportUsageFacts()
+        if !facts.Analyzed {
+            return null
+        }
+
+        return facts.SupplierFor(name)
+    }
+
+    static func MissingNamespace(requiredNamespace: string?, name: string, importedFileSymbols: HashSet<string>, importedNamespaces: List<string>): string? {
+        if requiredNamespace == null {
+            return null
         }
 
         if importedFileSymbols.Contains(name) {
-            return false
+            return null
         }
 
-        return !importedNamespaces.Contains(requiredNamespace)
+        if importedNamespaces.Contains(requiredNamespace ?? "") {
+            return null
+        }
+
+        return requiredNamespace
     }
 
     // ── what the diagnostic says ─────────────────────────────────────────────────────────────

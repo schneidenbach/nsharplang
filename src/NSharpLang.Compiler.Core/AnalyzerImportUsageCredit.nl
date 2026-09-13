@@ -66,11 +66,11 @@ class AnalyzerImportUsageCredit {
 
     Facts: ImportUsageFacts? => facts
 
-    // THE CREDIT DOOR every resolution channel calls. `writtenName` is the developer's spelling at
-    // this position; `resolved` is what it bound to. A position of `line <= 0` is a positionless
-    // probe — an attribute's alternate spelling, a well-known-type question — and still credits the
-    // namespace, because an import that answered a probe answered for something the file wrote.
-    func CreditResolvedType(writtenName: string, resolved: TypeInfo?, line: int, column: int) {
+    // THE CREDIT DOOR every resolution channel calls. `writtenName` is the developer's spelling;
+    // `resolved` is what it bound to. Positions are not recorded: NL002 reports at the spelling the
+    // LINTER walked to, which is the same spelling, and the linter already owns the span rules for
+    // every position a type can be written in.
+    func CreditResolvedType(writtenName: string, resolved: TypeInfo?) {
         ledger := facts
         if ledger == null || resolved == null || writtenName.Length == 0 {
             return
@@ -80,7 +80,7 @@ class AnalyzerImportUsageCredit {
         if metadataType != null {
             supplier := MetadataSupplier(writtenName, metadataType)
             if supplier != null {
-                RecordMetadataName(writtenName, supplier ?? "", line, column, writtenName.Length)
+                RecordMetadataName(writtenName, supplier ?? "")
             }
 
             return
@@ -225,7 +225,7 @@ class AnalyzerImportUsageCredit {
     // would tell the author to import a namespace their program does not use. NL010 is unaffected,
     // because keeping an import alive on a name that might have come through it is the safe
     // direction and reporting one that did not is not.
-    func RecordMetadataName(writtenName: string, supplier: string, line: int, column: int, length: int) {
+    func RecordMetadataName(writtenName: string, supplier: string) {
         ledger := facts
         if ledger == null {
             return
@@ -236,7 +236,7 @@ class AnalyzerImportUsageCredit {
             return
         }
 
-        ledger.CreditReference(writtenName, supplier, line, column, length)
+        ledger.CreditName(writtenName, supplier)
     }
 
     // AN ATTRIBUTE HAS TWO LEGAL SPELLINGS AND A FILE MAY WRITE EITHER. `[Obsolete]` and
@@ -249,7 +249,7 @@ class AnalyzerImportUsageCredit {
     // the squiggle covers; only the lookup uses the other one. A fully qualified `[System.Obsolete]`
     // credits nothing, as every fully qualified spelling does: there is no prefix left over for an
     // import to have supplied.
-    func CreditAttributeType(writtenName: string, attributeType: Type, line: int, column: int, length: int) {
+    func CreditAttributeType(writtenName: string, attributeType: Type) {
         ledger := facts
         if ledger == null || writtenName.Length == 0 {
             return
@@ -264,7 +264,7 @@ class AnalyzerImportUsageCredit {
             return
         }
 
-        RecordMetadataName(writtenName, supplier ?? "", line, column, length)
+        RecordMetadataName(writtenName, supplier ?? "")
     }
 
     // A NAMESPACE THAT ANSWERED FOR A NAME, credited directly by the channel that swept it. The

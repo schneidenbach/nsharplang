@@ -10,11 +10,10 @@ import NSharpLang.Compiler.Ast
 // The FILE arm is `LinterFileImportUsage`; this is the NAMESPACE arm, and the two together are the
 // whole rule.
 //
-// THE ANSWER IS AN ANALYSIS, AND IT USED TO BE A TABLE. This owner carried a hand-written list of
-// the names each of ten namespaces provides — 112 spellings for `System` alone — and read it as a
-// CLOSED WORLD: a namespace the table named supplied exactly those names and nothing else, and a
-// namespace it did not name was reported USED no matter what. Both readings were wrong in a way that
-// shipped:
+// THE ANSWER IS AN ANALYSIS, AND IT USED TO BE A TABLE. This owner carried a hand-written list of the
+// names each of ten namespaces provides — 112 spellings for `System` alone — and read it as a CLOSED
+// WORLD: a namespace the table named supplied exactly those names and nothing else, and a namespace
+// it did not name was reported USED no matter what. Both readings were wrong in a way that shipped:
 //
 //   * A GAP IN A ROW WAS A FALSE POSITIVE ON AN ERROR WHOSE FIX DELETES CODE. `import System` beside
 //     `OperatingSystem.IsWindows()` was reported unused, because the row had never heard of
@@ -31,8 +30,8 @@ import NSharpLang.Compiler.Ast
 // thing is used — no list, no arity, no BCL knowledge anywhere in this rule.
 //
 // AN UNANALYSED FILE ANSWERS NOTHING, AND THAT IS THE HONEST ANSWER RATHER THAN A DEGRADED ONE. An
-// import's use is a binding fact; a file that was never bound has no facts, and guessing is what the
-// table was. `CheckUnusedImports` therefore asks `HasFacts` first and reports nothing without them.
+// import's use is a binding fact; a file that was never bound has none, and guessing is what the
+// table was. `CheckUnusedImports` asks `HasFacts` first and reports no namespace import without them.
 class LinterNamespaceImportUsage {
 
     // Whether this file's imports can be judged at all: the unit carries facts and its analysis ran
@@ -56,6 +55,7 @@ class LinterNamespaceImportUsage {
     // than two. C#'s `using Txt = System.Text;` binds only the alias, which is the rule an earlier
     // alias-only arm was asked under — and under it a converted file whose only use of an aliased
     // namespace was a bare `new CompletionEngine()` was told to delete the import its build needs.
+    //
     // A file with no facts answers USED for every import, because an import whose use cannot be
     // proven has not been proven dead. `CheckUnusedImports` asks `HasFacts` before it gets here, so
     // that arm is a guarantee rather than a path.

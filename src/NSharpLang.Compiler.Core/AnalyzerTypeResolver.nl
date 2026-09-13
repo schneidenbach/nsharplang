@@ -568,7 +568,7 @@ class AnalyzerTypeResolver {
         resolved := ResolveSimpleTypeWalk(lookupName, writtenName, line, column)
         credit := importUsageCreditValue
         if credit != null {
-            credit.CreditResolvedType(writtenName, resolved, line, column)
+            credit.CreditResolvedType(writtenName, resolved)
         }
 
         return resolved

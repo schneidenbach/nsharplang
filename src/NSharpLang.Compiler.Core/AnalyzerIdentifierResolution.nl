@@ -314,7 +314,7 @@ class AnalyzerIdentifierResolution {
             resolvedType = externalType
             credit := importUsageCreditValue
             if credit != null {
-                credit.CreditResolvedType(name, externalType, line, column)
+                credit.CreditResolvedType(name, externalType)
             }
 
             return true

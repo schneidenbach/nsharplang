@@ -2,42 +2,359 @@ namespace NSharpLang.Compiler
 
 import System
 import System.Collections.Generic
+import System.IO
+import System.Net.Http
+import System.Reflection
+import System.Text
+import System.Text.Json
+import System.Text.RegularExpressions
+import System.Threading
+import System.Threading.Tasks
+import System.Linq
+import NSharpLang.Compiler.Ast
+
+// THE IMPORTS ABOVE ARE PART OF THE FIXTURE. `LnieDeclares` resolves against the assemblies this test
+// host has LOADED, so a namespace no code in the estate mentions would answer "declares nothing" and
+// the fixture would credit nothing for its names. Naming them here is what loads them.
+func LnieLoadedNamespaceAnchors(): int {
+    return typeof(StringBuilder).Name.Length + typeof(Regex).Name.Length + typeof(HttpClient).Name.Length + typeof(JsonSerializer).Name.Length + typeof(CancellationToken).Name.Length + typeof(Task).Name.Length + typeof(File).Name.Length
+}
 
 
-// CONTRACTS FOR WHAT MAKES A NAMESPACE IMPORT USED (task 019 slice 7). These are the semantic
-// assertions that came out of `Linter.cs` with the two known-namespace tables and the namespace arm
-// of `CheckUnusedImports`, plus the rules the move made checkable rather than implied: the table's
-// exact membership, its ordinal case sensitivity, and the fact that the member half is consulted
-// for `System.Linq` and for nothing else.
+// CONTRACTS FOR WHAT MAKES A NAMESPACE IMPORT USED.
 //
-// NL010 is BUILD-BLOCKING at `error` severity in the estate's own configuration, so a table row
-// silently lost here does not merely under-report — it breaks a build that was green. Every count
-// below is therefore an exact equality rather than a lower bound.
-func LniuSet(names: string[]): HashSet<string> {
-    result := new HashSet<string>(StringComparer.Ordinal)
+// These replace 633 lines that pinned a TABLE — the exact membership of ten hand-written rows of BCL
+// spellings, their ordinal case sensitivity, and the fact that the member half was consulted for
+// `System.Linq` and for nothing else. Every one of those assertions was about a list that could not
+// be finished: `System` alone has thousands of public types, the row carried 112, and each of the
+// missing ones was a FALSE POSITIVE on an ERROR whose `nlc fix` deletes the import. The census found
+// one of them in the field — `import System` beside `OperatingSystem.IsWindows()`.
+//
+// WHAT IS PINNED NOW IS THE MEASUREMENT, AND IT HAS NO LIST IN IT. An import is used when the
+// analyzer resolved at least one written name through it, which is recorded as the name resolves;
+// the rule reads that and nothing else. So these contracts are about three things: that a credited
+// namespace is used, that an uncredited one is not, and that a file with no facts — or with partial
+// ones — is answered with silence rather than with a guess.
+//
+// THE ARITHMETIC THAT PRODUCES THE CREDIT IS PINNED TOO, at the bottom. It is the one piece of the
+// rule that can be wrong in a way nothing else would notice, and it is what makes a FULLY QUALIFIED
+// spelling credit nothing at all — the fact behind both of the census's `import System` findings.
+
+func LniuFacts(supplied: string[]): ImportUsageFacts {
+    facts := new ImportUsageFacts()
     index := 0
-    while index < names.Length {
-        result.Add(names[index])
+    while index < supplied.Length {
+        facts.CreditNamespace(supplied[index])
         index = index + 1
     }
 
-    return result
+    facts.Analyzed = true
+    return facts
 }
 
-func LniuNone(): HashSet<string> {
-    return new HashSet<string>(StringComparer.Ordinal)
-}
-
-func LniuOne(name: string): HashSet<string> {
-    result := new HashSet<string>(StringComparer.Ordinal)
-    result.Add(name)
-    return result
-}
-
-func LniuHas(names: string[], name: string): bool {
+func LniuUnanalyzed(supplied: string[]): ImportUsageFacts {
+    facts := new ImportUsageFacts()
     index := 0
-    while index < names.Length {
-        if names[index] == name {
+    while index < supplied.Length {
+        facts.CreditNamespace(supplied[index])
+        index = index + 1
+    }
+
+    return facts
+}
+
+func LniuOneNamespace(namespaceName: string): string[] {
+    return [namespaceName]
+}
+
+func LniuNoNamespaces(): string[] {
+    return new string[](0)
+}
+
+// ── whether the question can be asked at all ─────────────────────────────────────────────────
+
+test "a unit with NO facts cannot be judged, and says so" {
+    assert !LinterNamespaceImportUsage.HasFacts(null)
+}
+
+test "facts whose analysis did not COMPLETE cannot be judged either" {
+    // A walk abandoned part-way credited part of the file. The import the missing half would have
+    // credited is not an import that has been proven dead.
+    assert !LinterNamespaceImportUsage.HasFacts(LniuUnanalyzed(LniuOneNamespace("System.Text")))
+}
+
+test "facts from a completed analysis can be judged, even when they credit nothing" {
+    // An empty ledger from a COMPLETE analysis is a real answer — it is what a file that uses none of
+    // its imports looks like — and it is the answer NL010 exists to report.
+    assert LinterNamespaceImportUsage.HasFacts(LniuFacts(LniuNoNamespaces()))
+}
+
+// ── the answer ───────────────────────────────────────────────────────────────────────────────
+
+test "a namespace the file bound through is USED" {
+    assert LinterNamespaceImportUsage.IsImportUsed("System.Text", LniuFacts(LniuOneNamespace("System.Text")))
+}
+
+test "a namespace nothing bound through is NOT used" {
+    assert !LinterNamespaceImportUsage.IsImportUsed("System.Text", LniuFacts(LniuOneNamespace("System")))
+}
+
+test "NOTHING ABOUT THE NAME MATTERS — a namespace no table ever carried answers the same way" {
+    assert LinterNamespaceImportUsage.IsImportUsed("Contoso.Widgets.Internal", LniuFacts(LniuOneNamespace("Contoso.Widgets.Internal")))
+    assert !LinterNamespaceImportUsage.IsImportUsed("Contoso.Widgets.Internal", LniuFacts(LniuOneNamespace("Contoso.Widgets")))
+}
+
+test "the match is ORDINAL and EXACT: neither a prefix, a child, nor a case variant credits it" {
+    supplied := LniuFacts(LniuOneNamespace("System.Text"))
+    assert !LinterNamespaceImportUsage.IsImportUsed("System", supplied)
+    assert !LinterNamespaceImportUsage.IsImportUsed("System.Text.Json", supplied)
+    assert !LinterNamespaceImportUsage.IsImportUsed("system.text", supplied)
+}
+
+test "an unjudgeable file answers USED for every import, which is the safe direction" {
+    // The gate is asked by the caller, but the rule itself must never answer "unused" without
+    // evidence: a false NL010 is a deleted import and a broken build.
+    assert LinterNamespaceImportUsage.IsImportUsed("System.Text", null)
+    assert LinterNamespaceImportUsage.IsImportUsed("System.Text", LniuUnanalyzed(LniuNoNamespaces()))
+}
+
+// ── the ledger itself ────────────────────────────────────────────────────────────────────────
+
+test "an empty or null namespace credits nothing, so a nameless answer cannot mark an import used" {
+    facts := new ImportUsageFacts()
+    facts.CreditNamespace(null)
+    facts.CreditNamespace("")
+    assert facts.SuppliedNamespaces.Count == 0
+}
+
+test "a credited NAME also credits its namespace, because they are one fact" {
+    facts := new ImportUsageFacts()
+    facts.CreditName("StringBuilder", "System.Text")
+    assert facts.SuppliedBy("System.Text")
+    assert facts.SupplierFor("StringBuilder") == "System.Text"
+}
+
+test "a name with no namespace, and a namespace with no name, each credit what they can" {
+    facts := new ImportUsageFacts()
+    facts.CreditName("StringBuilder", null)
+    assert facts.SupplierFor("StringBuilder") == null
+    assert facts.SuppliedNamespaces.Count == 0
+
+    facts.CreditName("", "System.Text")
+    assert facts.SuppliedBy("System.Text")
+    assert facts.SupplierFor("") == null
+}
+
+// ── the arithmetic behind the credit ─────────────────────────────────────────────────────────
+
+test "a SIMPLE spelling is supplied by the prefix its resolved identity leaves over" {
+    assert AnalyzerImportUsageCredit.SupplyingNamespace("StringBuilder", "System.Text.StringBuilder") == "System.Text"
+}
+
+test "a PARTIALLY QUALIFIED spelling credits the import that supplied its ROOT" {
+    // `import System` beside `Collections.Generic.List<int>` is used, and no per-name table can say
+    // so: the name the file wrote is not a name the namespace declares.
+    assert AnalyzerImportUsageCredit.SupplyingNamespace("Collections.Generic.List", "System.Collections.Generic.List") == "System"
+}
+
+test "a FULLY QUALIFIED spelling credits NOTHING, which is why import System beside System.Type is dead" {
+    // Both of the census's `import System` findings are this line. A fully qualified name spells its
+    // own identity, so no prefix is left over for an import to have supplied.
+    assert AnalyzerImportUsageCredit.SupplyingNamespace("System.Type", "System.Type") == null
+}
+
+test "a spelling the identity does not END with credits nothing" {
+    // A channel that answered with a type of some other name did not resolve this spelling.
+    assert AnalyzerImportUsageCredit.SupplyingNamespace("Widget", "System.Text.StringBuilder") == null
+    assert AnalyzerImportUsageCredit.SupplyingNamespace("", "System.Text.StringBuilder") == null
+}
+
+test "the boundary is a DOT, so a longer name ending in the spelling is not a match" {
+    assert AnalyzerImportUsageCredit.SupplyingNamespace("Builder", "System.Text.StringBuilder") == null
+}
+
+test "the two metadata spellings are normalised, because neither is how a developer writes the name" {
+    assert AnalyzerImportUsageCredit.NormalizeMetadataName("System.Collections.Generic.List`1") == "System.Collections.Generic.List"
+    assert AnalyzerImportUsageCredit.NormalizeMetadataName("Catalog.Outer+Inner") == "Catalog.Outer.Inner"
+    assert AnalyzerImportUsageCredit.NormalizeMetadataName("System.Func`2") == "System.Func"
+    assert AnalyzerImportUsageCredit.NormalizeMetadataName("System.Text.StringBuilder") == "System.Text.StringBuilder"
+}
+
+test "a generic spelling is credited through the normalisation, arity and all" {
+    assert AnalyzerImportUsageCredit.SupplyingNamespace("List", "System.Collections.Generic.List`1") == "System.Collections.Generic"
+}
+
+test "a NESTED type's written spelling credits the namespace of its outer type" {
+    assert AnalyzerImportUsageCredit.SupplyingNamespace("Outer.Inner", "Catalog.Outer+Inner") == "Catalog"
+}
+
+// ══════════════════════════════════════════════════════════════════════════════════════════════
+// END-TO-END CONTRACTS OVER REAL SOURCE
+//
+// These lint whole source strings through the shipped `Linter`, which is what makes them contracts
+// about the WALK — which positions keep an import alive — rather than about the rule's arithmetic.
+//
+// THE BINDING FACTS ARE A FIXTURE HERE, AND THEY HAVE TO BE. The linter answers both import rules
+// from what the ANALYZER resolved, and an analyzer needs a metadata load context, a project and a
+// reference set — none of which belongs in a per-file unit contract. So `LnieFacts` states the
+// analysis's answer directly: a spelling the source WRITES is credited to the namespace that
+// supplies it, and one it does not write is credited to nothing. The analyzer's own half — that it
+// really does credit those namespaces, through every channel a name can resolve by — is proven where
+// it can be: end-to-end against the shipped compiler in `tests/native/census-import-usage`.
+//
+// EVERY ABSENCE CLAIM CARRIES A REMOVAL CONTROL — the same source with the one usage that keeps the
+// import alive taken out — which must then report the import at a stated line, column and length. The
+// claims are whole CENSUSES rather than `Contains` probes, so a diagnostic that appears where none
+// was expected fails here even when it is not an NL010.
+
+// THE ANALYZER'S ANSWER, STOOD IN FOR BY REAL RESOLUTION.
+//
+// The linter answers both import rules from what the ANALYZER resolved, and an analyzer needs a
+// metadata load context, a project and a reference set — none of which belongs in a per-file unit
+// contract. So the fixture below answers the same question the analyzer answers, by RESOLVING each
+// name the source writes against the runtime the estate is already running on: a spelling that names
+// a real type under a candidate namespace is credited to that namespace, and one that does not is
+// credited to nothing. No list of names anywhere — the same property the production rule has.
+//
+// The candidate NAMESPACES are a fixture, and they are the one place this differs from production.
+// The analyzer probes the file's imports in order and then every loaded assembly's exported types;
+// the estate probes the file's imports and a handful of BCL namespaces, which is what the sources
+// below write. The analyzer's own half — that it really does credit through every channel a name can
+// resolve by — is proven where it can be: end-to-end against the shipped compiler in
+// `tests/native/census-import-usage`.
+
+func LnieIsNameChar(value: char): bool {
+    return char.IsLetterOrDigit(value) || value == '_'
+}
+
+// Every capitalised word the source writes. A type name is capitalised by convention in every source
+// below, and a word that names nothing resolvable is credited to nothing anyway.
+func LnieWrittenNames(source: string): List<string> {
+    names := new List<string>()
+    seen := new HashSet<string>(StringComparer.Ordinal)
+    index := 0
+    while index < source.Length {
+        if char.IsUpper(source[index]) && (index == 0 || !LnieIsNameChar(source[index - 1])) {
+            end := index
+            while end < source.Length && LnieIsNameChar(source[end]) {
+                end = end + 1
+            }
+
+            word := source.Substring(index, end - index)
+            if seen.Add(word) {
+                names.Add(word)
+            }
+
+            index = end
+        } else {
+            index = index + 1
+        }
+    }
+
+    return names
+}
+
+// The namespaces the file imports, in written order, followed by the BCL namespaces the analyzer's
+// bare-name scan would reach for a file that imports nothing.
+func LnieCandidateNamespaces(source: string): List<string> {
+    candidates := new List<string>()
+    lines := source.Split('\n')
+    index := 0
+    while index < lines.Length {
+        line := lines[index].Trim()
+        index = index + 1
+        if !line.StartsWith("import ", StringComparison.Ordinal) {
+            continue
+        }
+
+        rest := line.Substring(7).Trim()
+        aliasAt := rest.IndexOf(" as ", StringComparison.Ordinal)
+        if aliasAt > 0 {
+            rest = rest.Substring(0, aliasAt).Trim()
+        }
+
+        if rest.Length > 0 && !rest.StartsWith("\"", StringComparison.Ordinal) {
+            candidates.Add(rest)
+        }
+    }
+
+    candidates.Add("System")
+    candidates.Add("System.Text")
+    candidates.Add("System.Collections.Generic")
+    candidates.Add("System.IO")
+    candidates.Add("System.Threading")
+    candidates.Add("System.Threading.Tasks")
+    candidates.Add("System.Text.RegularExpressions")
+    candidates.Add("System.Text.Json")
+    candidates.Add("System.Net.Http")
+    candidates.Add("System.Linq")
+    return candidates
+}
+
+// Does any loaded assembly declare `<namespace>.<name>`, at any arity a source might write, under
+// either of an attribute's two legal spellings?
+func LnieDeclares(namespaceName: string, name: string): bool {
+    if LnieDeclaresExactly(namespaceName, name) {
+        return true
+    }
+
+    // `[Obsolete]` and `[ObsoleteAttribute]` name one type, and only the second is the metadata name.
+    return !name.EndsWith("Attribute", StringComparison.Ordinal) && LnieDeclaresExactly(namespaceName, name + "Attribute")
+}
+
+func LnieDeclaresExactly(namespaceName: string, name: string): bool {
+    if LnieTypeExists(namespaceName + "." + name) {
+        return true
+    }
+
+    arity := 1
+    while arity <= 4 {
+        if LnieTypeExists(namespaceName + "." + name + "`" + arity.ToString()) {
+            return true
+        }
+
+        arity = arity + 1
+    }
+
+    return false
+}
+
+// THE EXTENSION-METHOD HALF. `import System.Linq` used only as `.Select(...)` writes no type of that
+// namespace at all, so the credit comes from the METHOD's declaring type — which is exactly what the
+// analyzer credits. The fixture asks the same question of the same metadata: does a static class in
+// this namespace declare a method of that name?
+func LnieCreditExtensionMethods(facts: ImportUsageFacts, source: string, candidates: List<string>) {
+    names := LnieCalledMemberNames(source)
+    nameIndex := 0
+    while nameIndex < names.Count {
+        name := names[nameIndex]
+        nameIndex = nameIndex + 1
+        candidateIndex := 0
+        while candidateIndex < candidates.Count {
+            candidate := candidates[candidateIndex]
+            candidateIndex = candidateIndex + 1
+            if LnieDeclaresStaticMethod(candidate, name) {
+                facts.CreditNamespace(candidate)
+                break
+            }
+        }
+    }
+}
+
+// `System.Linq.Enumerable` and `System.Linq.Queryable` are the two static classes a `.Select(...)`
+// can come from; the fixture asks them by name rather than scanning every type in every assembly,
+// which is the one shortcut it takes over the analyzer.
+func LnieDeclaresStaticMethod(namespaceName: string, methodName: string): bool {
+    if namespaceName != "System.Linq" {
+        return false
+    }
+
+    // The METHODS are scanned rather than asked for by name: `Enumerable.Where` has several
+    // overloads and `GetMethod` throws on an ambiguous match.
+    methods := typeof(Enumerable).GetMethods()
+    index := 0
+    while index < methods.Length {
+        if methods[index].Name == methodName {
             return true
         }
 
@@ -47,397 +364,93 @@ func LniuHas(names: string[], name: string): bool {
     return false
 }
 
-func LniuDistinctCount(names: string[]): int {
+// Every `.Name(` spelling the source calls.
+func LnieCalledMemberNames(source: string): List<string> {
+    names := new List<string>()
     seen := new HashSet<string>(StringComparer.Ordinal)
-    index := 0
-    while index < names.Length {
-        seen.Add(names[index])
-        index = index + 1
+    index := source.IndexOf('.')
+    while index >= 0 {
+        start := index + 1
+        end := start
+        while end < source.Length && LnieIsNameChar(source[end]) {
+            end = end + 1
+        }
+
+        if end > start && end < source.Length && source[end] == '(' {
+            word := source.Substring(start, end - start)
+            if seen.Add(word) {
+                names.Add(word)
+            }
+        }
+
+        index = source.IndexOf('.', index + 1)
     }
 
-    return seen.Count
+    return names
 }
 
-func LniuTableNamespaces(): string[] {
-    return ["System", "System.Collections.Generic", "System.Text", "System.Text.RegularExpressions", "System.IO", "System.Net.Http", "System.Text.Json", "System.Threading.Tasks", "System.Threading", "System.Linq"]
-}
-
-// ── the decision: which of the three answers a namespace gets ────────────────────────────────
-
-test "a namespace the table does not name is reported USED, because unknown is not unused" {
-    identifiers := LniuOne("Widget")
-    members := LniuOne("Frobnicate")
-
-    assert LinterNamespaceImportUsage.IsUsed("Acme.Widgets", identifiers, members)
-    assert LinterNamespaceImportUsage.IsUsed("MyApp.Models", identifiers, members)
-
-    // `System.Xml.Linq` is a real BCL namespace that the table does not carry, and it gets the
-    // same conservative answer as a user namespace. The table is a whitelist of what NL010 may
-    // flag, never a claim about what exists.
-    assert LinterNamespaceImportUsage.IsUsed("System.Xml.Linq", identifiers, members)
-    assert LinterNamespaceImportUsage.IsUsed("System.Diagnostics", identifiers, members)
-}
-
-test "the empty and whitespace spellings are unknown namespaces, so they are reported USED" {
-    empty := LniuNone()
-
-    assert LinterNamespaceImportUsage.IsUsed("", empty, empty)
-    assert LinterNamespaceImportUsage.IsUsed("   ", empty, empty)
-    assert LinterNamespaceImportUsage.IsUsed(".", empty, empty)
-    assert LinterNamespaceImportUsage.IsUsed("System.", empty, empty)
-}
-
-test "a table namespace whose types are all absent is reported UNUSED" {
-    identifiers := LniuOne("Widget")
-    members := LniuOne("Frobnicate")
-
-    assert LinterNamespaceImportUsage.IsUsed("System.IO", identifiers, members) == false
-    assert LinterNamespaceImportUsage.IsUsed("System.Collections.Generic", identifiers, members) == false
-    assert LinterNamespaceImportUsage.IsUsed("System", identifiers, members) == false
-    assert LinterNamespaceImportUsage.IsUsed("System.Linq", identifiers, members) == false
-}
-
-test "one named type is enough to mark its namespace used" {
-    members := LniuNone()
-
-    assert LinterNamespaceImportUsage.IsUsed("System.IO", LniuOne("File"), members)
-    assert LinterNamespaceImportUsage.IsUsed("System.Collections.Generic", LniuOne("Dictionary"), members)
-    assert LinterNamespaceImportUsage.IsUsed("System.Text", LniuOne("StringBuilder"), members)
-    assert LinterNamespaceImportUsage.IsUsed("System.Text.RegularExpressions", LniuOne("Regex"), members)
-    assert LinterNamespaceImportUsage.IsUsed("System.Net.Http", LniuOne("HttpClient"), members)
-    assert LinterNamespaceImportUsage.IsUsed("System.Text.Json", LniuOne("JsonSerializer"), members)
-    assert LinterNamespaceImportUsage.IsUsed("System.Threading.Tasks", LniuOne("Task"), members)
-    assert LinterNamespaceImportUsage.IsUsed("System.Threading", LniuOne("CancellationToken"), members)
-    assert LinterNamespaceImportUsage.IsUsed("System", LniuOne("Guid"), members)
-    assert LinterNamespaceImportUsage.IsUsed("System.Linq", LniuOne("Enumerable"), members)
-}
-
-// AN ATTRIBUTE'S OTHER SPELLING IS THE SAME TYPE. `typeof(ObsoleteAttribute)` is the only way to
-// name the type outside attribute position, and a file whose only use of `import System` was that
-// spelling was told the import was dead.
-test "the Attribute-suffixed spelling of an attribute type uses its namespace" {
-    members := LniuNone()
-
-    assert LinterNamespaceImportUsage.IsUsed("System", LniuOne("ObsoleteAttribute"), members)
-    assert LinterNamespaceImportUsage.IsUsed("System", LniuOne("FlagsAttribute"), members)
-    assert LinterNamespaceImportUsage.IsUsed("System", LniuOne("AttributeUsageAttribute"), members)
-    assert LinterNamespaceImportUsage.IsUsed("System", LniuOne("ThreadStaticAttribute"), members)
-
-    // The member half keeps ONE spelling: a method is not an attribute, and `x.SelectAttribute()` is
-    // not a use of `import System.Linq`.
-    assert LinterNamespaceImportUsage.IsUsed("System.Linq", LniuNone(), LniuOne("SelectAttribute")) == false
-}
-
-test "System.Linq is used by a CALL alone, with no LINQ type ever named" {
-    // This is the whole reason the member half exists: `xs.Select(...)` names no type at all, and
-    // without this arm every `import System.Linq` in an idiomatic file would be flagged.
-    assert LinterNamespaceImportUsage.IsUsed("System.Linq", LniuNone(), LniuOne("Select"))
-    assert LinterNamespaceImportUsage.IsUsed("System.Linq", LniuNone(), LniuOne("Where"))
-    assert LinterNamespaceImportUsage.IsUsed("System.Linq", LniuNone(), LniuOne("FirstOrDefault"))
-    assert LinterNamespaceImportUsage.IsUsed("System.Linq", LniuNone(), LniuOne("OrderDescending"))
-}
-
-test "the member half is consulted for System.Linq and for no other namespace" {
-    // `File` is a `System.IO` TYPE. Seeing it as a member-access name — `x.File` — is not a use of
-    // the import, and the table has no `System.IO` member row for it to match.
-    assert LinterNamespaceImportUsage.IsUsed("System.IO", LniuNone(), LniuOne("File")) == false
-    assert LinterNamespaceImportUsage.IsUsed("System.Text", LniuNone(), LniuOne("Encoding")) == false
-    assert LinterNamespaceImportUsage.IsUsed("System", LniuNone(), LniuOne("Console")) == false
-
-    // Symmetrically, a LINQ METHOD name appearing as a code identifier is not a type use.
-    assert LinterNamespaceImportUsage.IsUsed("System.Linq", LniuOne("Select"), LniuNone()) == false
-    assert LinterNamespaceImportUsage.IsUsed("System.Linq", LniuOne("Where"), LniuNone()) == false
-}
-
-test "either half alone answers for System.Linq, the one namespace carrying both" {
-    typeOnly := LinterNamespaceImportUsage.IsUsed("System.Linq", LniuOne("IGrouping"), LniuNone())
-    memberOnly := LinterNamespaceImportUsage.IsUsed("System.Linq", LniuNone(), LniuOne("GroupBy"))
-    both := LinterNamespaceImportUsage.IsUsed("System.Linq", LniuOne("IGrouping"), LniuOne("GroupBy"))
-    neither := LinterNamespaceImportUsage.IsUsed("System.Linq", LniuOne("Widget"), LniuOne("Frobnicate"))
-
-    assert typeOnly
-    assert memberOnly
-    assert both
-    assert neither == false
-}
-
-test "the lookup is ORDINAL: a namespace or name that differs in case does not match" {
-    assert LinterNamespaceImportUsage.IsUsed("system.io", LniuOne("File"), LniuNone())
-    assert LinterNamespaceImportUsage.IsUsed("SYSTEM", LniuOne("Guid"), LniuNone())
-
-    // Those two are USED only because the namespace spelling missed the table entirely. Inside a
-    // namespace that DOES match, a mis-cased type name is not a use.
-    assert LinterNamespaceImportUsage.IsUsed("System.IO", LniuOne("file"), LniuNone()) == false
-    assert LinterNamespaceImportUsage.IsUsed("System.Collections.Generic", LniuOne("list"), LniuNone()) == false
-    assert LinterNamespaceImportUsage.IsUsed("System.Linq", LniuNone(), LniuOne("select")) == false
-}
-
-test "System.HashCode marks its own import used" {
-    // `HashCode.Combine(...)` is the idiomatic GetHashCode body and was missing from the System row,
-    // so every struct that wrote one was told `import System` was unused.
-    identifiers := LniuOne("HashCode")
-
-    assert LinterNamespaceImportUsage.IsUsed("System", identifiers, LniuNone())
-    assert LinterNamespaceImportUsage.IsUsed("System.Collections.Generic", identifiers, LniuNone()) == false
-}
-
-test "System.Range marks its own import used, beside the Index already in the row" {
-    // THE CENSUS FINDING. `import System` beside `func F(r: Range)` was reported NL010 unused —
-    // an ERROR whose `nlc fix` deletes the import — because `Range` was missing from the System row
-    // while its sibling `Index` was present. A row is a closed-world claim about the namespace it
-    // names, so a gap in one is a false positive rather than a missed report.
-    assert LinterNamespaceImportUsage.IsUsed("System", LniuOne("Range"), LniuNone())
-    assert LinterNamespaceImportUsage.IsUsed("System", LniuOne("Index"), LniuNone())
-
-    // The gaps closed alongside it, each a sibling of a spelling the row already carried: the
-    // numeric aliases beside `Int32`, the date/time-only types beside `DateTime`, the
-    // async-disposable interface beside `IDisposable`, and the common runtime exceptions beside the
-    // argument ones.
-    assert LinterNamespaceImportUsage.IsUsed("System", LniuOne("Int64"), LniuNone())
-    assert LinterNamespaceImportUsage.IsUsed("System", LniuOne("Double"), LniuNone())
-    assert LinterNamespaceImportUsage.IsUsed("System", LniuOne("DateOnly"), LniuNone())
-    assert LinterNamespaceImportUsage.IsUsed("System", LniuOne("IAsyncDisposable"), LniuNone())
-    assert LinterNamespaceImportUsage.IsUsed("System", LniuOne("ObjectDisposedException"), LniuNone())
-
-    // And none of them belongs to a DIFFERENT tabled namespace, so nothing else was widened.
-    assert LinterNamespaceImportUsage.IsUsed("System.Collections.Generic", LniuOne("Range"), LniuNone()) == false
-    assert LinterNamespaceImportUsage.IsUsed("System.IO", LniuOne("DateOnly"), LniuNone()) == false
-}
-
-test "an identifier belonging to one namespace does not mark a different one used" {
-    identifiers := LniuOne("StringBuilder")
-
-    assert LinterNamespaceImportUsage.IsUsed("System.Text", identifiers, LniuNone())
-    assert LinterNamespaceImportUsage.IsUsed("System.IO", identifiers, LniuNone()) == false
-    assert LinterNamespaceImportUsage.IsUsed("System", identifiers, LniuNone()) == false
-    assert LinterNamespaceImportUsage.IsUsed("System.Text.Json", identifiers, LniuNone()) == false
-}
-
-test "a file naming many types marks exactly the namespaces that provide them" {
-    identifiers := LniuSet(["List", "Task", "Regex", "Widget"])
-    members := LniuSet(["ToList", "Frobnicate"])
-
-    assert LinterNamespaceImportUsage.IsUsed("System.Collections.Generic", identifiers, members)
-    assert LinterNamespaceImportUsage.IsUsed("System.Threading.Tasks", identifiers, members)
-    assert LinterNamespaceImportUsage.IsUsed("System.Text.RegularExpressions", identifiers, members)
-    assert LinterNamespaceImportUsage.IsUsed("System.Linq", identifiers, members)
-    assert LinterNamespaceImportUsage.IsUsed("System.IO", identifiers, members) == false
-    assert LinterNamespaceImportUsage.IsUsed("System.Net.Http", identifiers, members) == false
-    assert LinterNamespaceImportUsage.IsUsed("System", identifiers, members) == false
-}
-
-// ── the table itself: exact membership, because a lost row breaks a green build ───────────────
-
-test "the type half names exactly ten namespaces and nothing else" {
-    namespaces := LniuTableNamespaces()
-    index := 0
-    total := 0
-    while index < namespaces.Length {
-        assert LinterNamespaceImportUsage.KnownTypeNames(namespaces[index]).Length > 0
-        total = total + LinterNamespaceImportUsage.KnownTypeNames(namespaces[index]).Length
-        index = index + 1
+func LnieTypeExists(fullName: string): bool {
+    if Type.GetType(fullName) != null {
+        return true
     }
 
-    assert namespaces.Length == 10
-    // 199 = 131 at the move, plus the eleven `System` ATTRIBUTE types the row was missing, plus the
-    // eleven `System` DELEGATE and console types it was missing once a lambda could convert to any
-    // delegate (a file whose only use of the import was `p: Predicate<string>` or
-    // `h: ConsoleCancelEventHandler` was told the import was dead), plus the forty-six `System`
-    // spellings the 2026-09-13 import census found missing BY SIBLING — `Range` beside `Index`, the
-    // numeric aliases beside `Int32`, the date/time-only types beside `DateTime`, the
-    // async-disposable interface beside `IDisposable`, and the common runtime exceptions beside the
-    // argument ones. A row is a closed-world claim, so every gap in one was a false NL010.
-    assert total == 199
-
-    // Namespaces that look like table rows but are not.
-    assert LinterNamespaceImportUsage.KnownTypeNames("System.Collections").Length == 0
-    assert LinterNamespaceImportUsage.KnownTypeNames("System.Net").Length == 0
-    assert LinterNamespaceImportUsage.KnownTypeNames("System.Threading.Channels").Length == 0
-    assert LinterNamespaceImportUsage.KnownTypeNames("").Length == 0
-}
-
-// `System` is 44 + the eleven attribute types and the eleven delegate/console types the row gained:
-// a file whose only use of the import was `[Obsolete("…")]`, `[Flags]`, `p: Predicate<string>` or
-// `h: ConsoleCancelEventHandler` was told the import was dead. Every other row is its moved count.
-test "each namespace's type row holds exactly the count it was moved with" {
-    assert LinterNamespaceImportUsage.KnownTypeNames("System").Length == 112
-    assert LinterNamespaceImportUsage.KnownTypeNames("System.Collections.Generic").Length == 24
-    assert LinterNamespaceImportUsage.KnownTypeNames("System.IO").Length == 14
-    assert LinterNamespaceImportUsage.KnownTypeNames("System.Text.Json").Length == 7
-    assert LinterNamespaceImportUsage.KnownTypeNames("System.Linq").Length == 7
-    assert LinterNamespaceImportUsage.KnownTypeNames("System.Threading").Length == 22
-    assert LinterNamespaceImportUsage.KnownTypeNames("System.Net.Http").Length == 5
-    assert LinterNamespaceImportUsage.KnownTypeNames("System.Text.RegularExpressions").Length == 3
-    assert LinterNamespaceImportUsage.KnownTypeNames("System.Threading.Tasks").Length == 3
-    assert LinterNamespaceImportUsage.KnownTypeNames("System.Text").Length == 2
-}
-
-test "the member half is System.Linq alone, with all sixty-six methods" {
-    assert LinterNamespaceImportUsage.KnownMemberNames("System.Linq").Length == 66
-
-    namespaces := LniuTableNamespaces()
+    assemblies := AppDomain.CurrentDomain.GetAssemblies()
     index := 0
-    rows := 0
-    while index < namespaces.Length {
-        if LinterNamespaceImportUsage.KnownMemberNames(namespaces[index]).Length > 0 {
-            rows = rows + 1
+    while index < assemblies.Length {
+        if assemblies[index].GetType(fullName) != null {
+            return true
         }
 
         index = index + 1
     }
 
-    assert rows == 1
-    assert LinterNamespaceImportUsage.KnownMemberNames("System").Length == 0
-    assert LinterNamespaceImportUsage.KnownMemberNames("System.Collections.Generic").Length == 0
-    assert LinterNamespaceImportUsage.KnownMemberNames("Acme.Widgets").Length == 0
+    return false
 }
 
-test "no row repeats a name, so every count is a real membership count" {
-    namespaces := LniuTableNamespaces()
-    index := 0
-    while index < namespaces.Length {
-        types := LinterNamespaceImportUsage.KnownTypeNames(namespaces[index])
-        assert LniuDistinctCount(types) == types.Length
-        index = index + 1
+func LnieFacts(source: string): ImportUsageFacts {
+    facts := new ImportUsageFacts()
+    candidates := LnieCandidateNamespaces(source)
+    names := LnieWrittenNames(source)
+    nameIndex := 0
+    while nameIndex < names.Count {
+        name := names[nameIndex]
+        nameIndex = nameIndex + 1
+        candidateIndex := 0
+        while candidateIndex < candidates.Count {
+            candidate := candidates[candidateIndex]
+            candidateIndex = candidateIndex + 1
+            if LnieDeclares(candidate, name) {
+                facts.CreditName(name, candidate)
+                break
+            }
+        }
     }
 
-    members := LinterNamespaceImportUsage.KnownMemberNames("System.Linq")
-    assert LniuDistinctCount(members) == members.Length
+    LnieCreditExtensionMethods(facts, source, candidates)
+    facts.Analyzed = true
+    return facts
 }
 
-test "the rows that shared a source line in the deleted C# all survived the move" {
-    // Seven entries were written two- or three-to-a-line in `BuildKnownNamespaceTypes`, which is
-    // exactly where a hand transcription loses one.
-    json := LinterNamespaceImportUsage.KnownTypeNames("System.Text.Json")
-    assert LniuHas(json, "JsonNode")
-    assert LniuHas(json, "JsonValueKind")
-
-    system := LinterNamespaceImportUsage.KnownTypeNames("System")
-    assert LniuHas(system, "StringComparison")
-    assert LniuHas(system, "StringComparer")
-    assert LniuHas(system, "ValueTuple")
-    assert LniuHas(system, "Version")
-    assert LniuHas(system, "Index")
-}
-
-test "Index is the one name carried by both halves, in different namespaces" {
-    // `System.Index` the range type, and `Enumerable.Index` the net9 method. A file writing
-    // `xs.Index()` uses `System.Linq`; a file writing `Index` as a type uses `System`.
-    assert LniuHas(LinterNamespaceImportUsage.KnownTypeNames("System"), "Index")
-    assert LniuHas(LinterNamespaceImportUsage.KnownMemberNames("System.Linq"), "Index")
-    assert LniuHas(LinterNamespaceImportUsage.KnownTypeNames("System.Linq"), "Index") == false
-
-    assert LinterNamespaceImportUsage.IsUsed("System", LniuOne("Index"), LniuNone())
-    assert LinterNamespaceImportUsage.IsUsed("System.Linq", LniuNone(), LniuOne("Index"))
-    assert LinterNamespaceImportUsage.IsUsed("System.Linq", LniuOne("Index"), LniuNone()) == false
-}
-
-test "Lookup and ILookup are System.Linq TYPES, which is what the census hit named" {
-    linq := LinterNamespaceImportUsage.KnownTypeNames("System.Linq")
-    assert LniuHas(linq, "Lookup")
-    assert LniuHas(linq, "ILookup")
-    assert LniuHas(LinterNamespaceImportUsage.KnownMemberNames("System.Linq"), "ToLookup")
-    assert LniuHas(LinterNamespaceImportUsage.KnownMemberNames("System.Linq"), "Lookup") == false
-}
-
-test "the net8 and net9 LINQ additions are present, not just the classic operators" {
-    members := LinterNamespaceImportUsage.KnownMemberNames("System.Linq")
-    assert LniuHas(members, "SkipLast")
-    assert LniuHas(members, "TakeLast")
-    assert LniuHas(members, "TryGetNonEnumeratedCount")
-    assert LniuHas(members, "CountBy")
-    assert LniuHas(members, "AggregateBy")
-    assert LniuHas(members, "Order")
-    assert LniuHas(members, "OrderDescending")
-    assert LniuHas(members, "Chunk")
-    assert LniuHas(members, "DistinctBy")
-    assert LniuHas(members, "MinBy")
-    assert LniuHas(members, "MaxBy")
-}
-
-test "the collection interfaces travel with their concrete types" {
-    generic := LinterNamespaceImportUsage.KnownTypeNames("System.Collections.Generic")
-    assert LniuHas(generic, "IEnumerable")
-    assert LniuHas(generic, "IReadOnlyDictionary")
-    assert LniuHas(generic, "IAsyncEnumerable")
-    assert LniuHas(generic, "IEqualityComparer")
-    assert LniuHas(generic, "KeyValuePair")
-
-    // AND THE CONCRETE COMPARERS TRAVEL WITH THEIR INTERFACES. `EqualityComparer<T>.Default` and
-    // `Comparer<T>.Default` are the ordinary way a file reaches this namespace without ever naming
-    // a collection, and the table carried only the two INTERFACES — so a file whose single mention
-    // of `System.Collections.Generic` was `EqualityComparer<string>.Default` had its import
-    // reported unused and `nlc fix` deleted the import it needs.
-    assert LniuHas(generic, "Comparer")
-    assert LniuHas(generic, "EqualityComparer")
-    assert LinterNamespaceImportUsage.IsUsed("System.Collections.Generic", LniuOne("EqualityComparer"), LniuNone())
-
-    // `IEnumerable` is deliberately the GENERIC one: the non-generic sits in
-    // `System.Collections`, which the table does not carry at all.
-    assert LinterNamespaceImportUsage.KnownTypeNames("System.Collections").Length == 0
-    assert LinterNamespaceImportUsage.IsUsed("System.Collections", LniuOne("IEnumerable"), LniuNone())
-}
-
-test "the span and memory types are System rows, not System.Buffers ones" {
-    system := LinterNamespaceImportUsage.KnownTypeNames("System")
-    assert LniuHas(system, "Span")
-    assert LniuHas(system, "Memory")
-    assert LniuHas(system, "ReadOnlySpan")
-    assert LniuHas(system, "ReadOnlyMemory")
-    assert LinterNamespaceImportUsage.KnownTypeNames("System.Buffers").Length == 0
-}
-
-test "an unknown namespace answers with an empty row from both halves" {
-    // This is the encoding the move chose: "absent from the table" and "has an empty row" are the
-    // same state, which is sound only because no namespace in the table has an empty row.
-    assert LinterNamespaceImportUsage.KnownTypeNames("Acme.Widgets").Length == 0
-    assert LinterNamespaceImportUsage.KnownMemberNames("Acme.Widgets").Length == 0
-    assert LinterNamespaceImportUsage.NoNames().Length == 0
-}
-
-test "ContainsAny is a pure membership scan and never reads order" {
-    names := LniuSet(["Beta", "Alpha"])
-
-    assert LinterNamespaceImportUsage.ContainsAny(names, ["Alpha", "Gamma"])
-    assert LinterNamespaceImportUsage.ContainsAny(names, ["Gamma", "Alpha"])
-    assert LinterNamespaceImportUsage.ContainsAny(names, ["Gamma", "Delta"]) == false
-    assert LinterNamespaceImportUsage.ContainsAny(names, LinterNamespaceImportUsage.NoNames()) == false
-    assert LinterNamespaceImportUsage.ContainsAny(LniuNone(), ["Alpha"]) == false
-}
-
-// ══════════════════════════════════════════════════════════════════════════════════════════════
-// END-TO-END NL010 CONTRACTS OVER REAL SOURCE (020 slice 15)
-//
-// These came out of `tests/ExampleLintTests.cs`, which is deleted. That file linted eighteen source
-// strings and asked, of each, whether an `NL010` was present or absent.
-//
-// TWELVE OF THE EIGHTEEN ASSERTED ONLY ABSENCE, AND NINE OF THOSE TWELVE RAN AGAINST AN ENTIRELY
-// EMPTY DIAGNOSTIC LIST. That is measured, not alleged: the census of every one of those nine
-// sources is `""`. A linter with the NL010 rule deleted outright would have passed twelve of the
-// eighteen. Every absence claim below therefore carries a REMOVAL CONTROL — the same source with
-// the one usage that keeps the import alive taken out — which must then report the import at a
-// stated line, column and length.
-//
-// AND THE CLAIMS THEMSELVES ARE WHOLE CENSUSES RATHER THAN `Contains`/`DoesNotContain` PROBES, so
-// a diagnostic that appears where none was expected fails here even when it is not an NL010. Two
-// of the deleted file's own readings of its sources turn out to have been wrong, and both are
-// recorded where they occur.
-
-func LnieCensus(source: string): string {
+func LnieLint(source: string): List<Diagnostic> {
     parsed := ColumnarParserRecovery.ParseFileAst(source, "test.nl")
     unit := parsed.CompilationUnit
     if unit == null {
         throw new InvalidOperationException("the parser answered no compilation unit for: " + source)
     }
 
+    unit.ImportUsage = LnieFacts(source)
+    linter := new Linter(LinterConfig.Default())
+    return linter.Lint(unit, "test.nl", source)
+}
+
+func LnieCensus(source: string): string {
+    parsed := ColumnarParserRecovery.ParseFileAst(source, "test.nl")
     if parsed.Errors.Count != 0 {
         throw new InvalidOperationException("the source did not parse cleanly: " + source)
     }
 
-    linter := new Linter(LinterConfig.Default())
-    diagnostics := linter.Lint(unit, "test.nl", source)
     census := ""
-    for diagnostic in diagnostics {
+    for diagnostic in LnieLint(source) {
         census = census + diagnostic.Code + "@" + diagnostic.Location.Line.ToString() + ":" + diagnostic.Location.Column.ToString() + "+" + diagnostic.Length.ToString() + ";"
     }
 
@@ -445,22 +458,13 @@ func LnieCensus(source: string): string {
 }
 
 func LnieMessages(source: string): string {
-    parsed := ColumnarParserRecovery.ParseFileAst(source, "test.nl")
-    unit := parsed.CompilationUnit
-    if unit == null {
-        throw new InvalidOperationException("the parser answered no compilation unit for: " + source)
-    }
-
-    linter := new Linter(LinterConfig.Default())
-    diagnostics := linter.Lint(unit, "test.nl", source)
     census := ""
-    for diagnostic in diagnostics {
+    for diagnostic in LnieLint(source) {
         census = census + diagnostic.Code + "|" + diagnostic.Message + ";"
     }
 
     return census
 }
-
 // ── `print` is a language primitive, so `import System` is not what makes it work ──────────────
 
 test "PRINT ALONE DOES NOT USE `import System`, AND THE IMPORT IS REPORTED WHERE IT IS WRITTEN" {
@@ -526,13 +530,16 @@ test "THREE IMPORTS, AND THE CENSUS SAYS WHICH TWO ARE DEAD RATHER THAN THAT AT 
     assert LnieCensus("\nimport System\nimport System.Collections.Generic\nimport System.Text\n\nfunc main() {\n    items := new List<int>()\n    count := items.Count\n    print count\n}") == "NL010@2:8+6;NL010@4:8+11;"
 }
 
-test "an unknown namespace is conservatively USED, and a known one beside it is still reported" {
-    assert LnieCensus("\nimport MyCustom.Namespace\n\nfunc main() {\n    x := 5\n    y := x + 1\n}") == "NL001@6:5+1;"
+test "A NAMESPACE THE RULE HAS NEVER HEARD OF IS REPORTED LIKE ANY OTHER, WHICH IT WAS NOT" {
+    // THE TABLE'S SECOND FAILURE, INVERTED. A namespace with no table row used to be reported USED no
+    // matter what, so a dead import of any name outside the ten listed rows — a project's own
+    // namespace, `System.Runtime.CompilerServices`, anything a developer writes — was invisible. The
+    // rule now asks what the file BOUND, and an unknown namespace that bound nothing is dead.
+    assert LnieCensus("\nimport MyCustom.Namespace\n\nfunc main() {\n    x := 5\n    y := x + 1\n}") == "NL001@6:5+1;NL010@2:8+18;"
 
-    // SIBLING CONTROL: the same file with `import System` added. The known row is reported at line
-    // 3 and the unknown one at line 2 is not — so the silence above is the unknown-namespace rule
-    // and not a walk that never looked.
-    assert LnieCensus("\nimport MyCustom.Namespace\nimport System\n\nfunc main() {\n    x := 5\n    y := x + 1\n}") == "NL001@7:5+1;NL010@3:8+6;"
+    // SIBLING CONTROL: a second dead import beside it is reported too, at its own span, so the row
+    // above is one finding about one import rather than a blanket answer.
+    assert LnieCensus("\nimport MyCustom.Namespace\nimport System\n\nfunc main() {\n    x := 5\n    y := x + 1\n}") == "NL001@7:5+1;NL010@2:8+18;NL010@3:8+6;"
 }
 
 // ── the real-world shapes the deleted file lifted out of the examples ─────────────────────────
@@ -595,29 +602,20 @@ test "a STATIC METHOD BODY is walked, which is the task-cli formatter shape" {
 // only unqualified use of `import NSharpLang.Compiler.CodeIntelligence as CodeIntel` is a
 // `new CompletionEngine()` in a field initializer, every other use being fully qualified.
 
-test "IsImportUsed answers for an ALIASED import from the alias OR the namespace, and an unaliased one from the namespace alone" {
-    // The alias is written: used, whatever the namespace's own names do.
-    assert LinterNamespaceImportUsage.IsImportUsed("System.Text", "Txt", LniuOne("Txt"), LniuNone())
-
-    // The alias is NOT written and the namespace's own name is: still used, because the import is
-    // what supplies that bare name.
-    assert LinterNamespaceImportUsage.IsImportUsed("System.Text", "Txt", LniuOne("StringBuilder"), LniuNone())
-
-    // NEITHER: unused, which is the report that must survive the union.
-    assert !LinterNamespaceImportUsage.IsImportUsed("System.Text", "Txt", LniuOne("Encoder"), LniuNone())
-
-    // The member half answers for an aliased import too — `System.Linq as L` used only as `.Select()`.
-    assert LinterNamespaceImportUsage.IsImportUsed("System.Linq", "L", LniuNone(), LniuOne("Select"))
-
-    // An unaliased import takes the namespace arm unchanged: an empty alias must not make every
-    // import answer "used" by matching nothing.
-    assert LinterNamespaceImportUsage.IsImportUsed("System.Text", null, LniuOne("StringBuilder"), LniuNone())
-    assert !LinterNamespaceImportUsage.IsImportUsed("System.Text", null, LniuOne("Encoder"), LniuNone())
-    assert !LinterNamespaceImportUsage.IsImportUsed("System.Text", "", LniuOne("Encoder"), LniuNone())
-
-    // The unknown-namespace rule is the namespace arm's, and the union inherits it rather than
-    // overriding it: an aliased import of a namespace the table has never heard of stays quiet.
-    assert LinterNamespaceImportUsage.IsImportUsed("MyCustom.Namespace", "M", LniuNone(), LniuNone())
+test "AN ALIASED IMPORT IS ONE IMPORT WITH TWO SPELLINGS, SO IT HAS ONE ANSWER" {
+    // C#'s `using Txt = System.Text;` binds the alias and NOTHING ELSE: `new StringBuilder()` under
+    // it is CS0246. N#'s `import System.Text as Txt` binds `Txt` AND brings the namespace's names
+    // into scope unqualified — measured on the tip CLI, a file whose only import is the aliased one
+    // BUILDS `new StringBuilder()`. So both spellings credit the same NAMESPACE as the name resolves,
+    // and this rule asks one question rather than two.
+    //
+    // An earlier arm asked the alias question ALONE and reported an import the build needs as dead,
+    // at ERROR severity, with a `nlc fix` that deletes it. The census that found it: the converted
+    // language server's `CompletionHandler.nl`, whose only unqualified use of
+    // `import NSharpLang.Compiler.CodeIntelligence as CodeIntel` is a `new CompletionEngine()` in a
+    // field initializer.
+    assert LinterNamespaceImportUsage.IsImportUsed("System.Text", LniuFacts(LniuOneNamespace("System.Text")))
+    assert !LinterNamespaceImportUsage.IsImportUsed("System.Text", LniuFacts(LniuOneNamespace("System.Linq")))
 }
 
 test "an ALIASED import used only through the namespace's own bare name is NOT reported" {

@@ -24,8 +24,29 @@ import NSharpLang.Compiler.Ast
 //       a recoverable shape into a throw, so both are asserted alone.
 //   (c) a parser-error placeholder suppresses a declaration's BINDING as well as its initializer
 //       walk — the linter must not report a name the parser could not read as unused.
+// THE WALK STATE AS A FILE'S ANALYSIS LEAVES IT. The two import rules read what the ANALYZER
+// resolved, so a state that was never told is the "never analysed" shape and both rules are silent in
+// it. These contracts are about the WALK — which positions it asks, where the squiggle lands — so the
+// facts are registered as a fixture crediting the BCL spelling every test below writes.
+func LwkFacts(): ImportUsageFacts {
+    facts := new ImportUsageFacts()
+    facts.CreditName("StringBuilder", "System.Text")
+    facts.CreditName("List", "System.Collections.Generic")
+    facts.CreditName("Dictionary", "System.Collections.Generic")
+    facts.Analyzed = true
+    return facts
+}
+
+func LwkFactsUnit(): CompilationUnit {
+    unit := new CompilationUnit(null, new List<ImportDirective>(), new List<Statement>(), null, new List<Declaration>(), 1, 1)
+    unit.ImportUsage = LwkFacts()
+    return unit
+}
+
 func LwkState(): LinterWalkState {
-    return new LinterWalkState("test.nl", null, LinterConfig.Default())
+    state := new LinterWalkState("test.nl", null, LinterConfig.Default())
+    state.RegisterImports(LwkFactsUnit())
+    return state
 }
 
 func LwkCodes(state: LinterWalkState): string {
@@ -768,7 +789,9 @@ test "the blindness was never NL001-only: NL010 and NL011 were lost inside a wra
     // An import used ONLY inside an `unsafe` body was reported unused, and an empty catch block inside
     // one was never reported. Both are the same missing arm.
     assert LnieCensus("\nimport System.Text\n\nfunc F() {\n    unsafe {\n        sb := new StringBuilder()\n        print sb\n    }\n}\n") == ""
-    assert LnieCensus("\nfunc F() {\n    unsafe {\n        try {\n            print 1\n        } catch ex: Exception {\n        }\n    }\n}\n") == "NL011@6:11+5;"
+    // `import System` is written because `Exception` needs it: a name whose supplying namespace is
+    // not imported is NL002, which is another rule's contract and not this one's.
+    assert LnieCensus("\nimport System\n\nfunc F() {\n    unsafe {\n        try {\n            print 1\n        } catch ex: Exception {\n        }\n    }\n}\n") == "NL011@8:11+5;"
 }
 
 test "a wrapper body owns its scope, so a binding inside one does not leak past it" {

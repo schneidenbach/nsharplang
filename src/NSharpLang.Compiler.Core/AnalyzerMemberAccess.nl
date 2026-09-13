@@ -677,7 +677,7 @@ class AnalyzerMemberAccess {
                 // the only channel that sees it: `Encoding.UTF8` writes no annotation.
                 credit := importUsageCreditValue
                 if credit != null {
-                    credit.CreditResolvedType(identifier.Name, externalType, identifier.Line, identifier.Column)
+                    credit.CreditResolvedType(identifier.Name, externalType)
                 }
             } else {
                 resolvedType = BuiltInTypes.Unknown

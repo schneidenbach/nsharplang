@@ -1082,16 +1082,13 @@ class AnalyzerAttributeValidator {
         importUsageCredit = credit
     }
 
-    // The import that supplied this attribute's type, credited at the bracket spelling's own span so
-    // NL002 can report on the name a developer wrote rather than on the whole attribute.
+    // The import that supplied this attribute's type. An attribute is a TYPE POSITION that is not a
+    // `TypeReference`, so it reaches none of the walks the type resolver credits.
     func CreditAttributeImport(attribute: AttributeNode, attributeType: Type) {
         credit := importUsageCredit
-        if credit == null {
-            return
+        if credit != null {
+            credit.CreditAttributeType(attribute.Name, attributeType)
         }
-
-        span := AnalyzerDiagnosticSpanFacts.GetAttributeTypeDiagnosticSpan(attribute)
-        credit.CreditAttributeType(attribute.Name, attributeType, span.Line, span.Column, span.Length)
     }
 
     func TryResolveClrAttributeType(attributeName: string, out attributeType: Type): bool {

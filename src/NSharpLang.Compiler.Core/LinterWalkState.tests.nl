@@ -37,12 +37,34 @@ func LwsConfigWithout(ruleCode: string): LinterConfig {
     return config
 }
 
+// EVERY STATE BUILT HERE CARRIES THE BINDING FACTS AN ANALYSIS WOULD HAVE STAMPED ON ITS UNIT.
+//
+// NL002 and NL010 are answered by what the file BOUND, and these contracts are about what the WALK
+// does with that answer — which positions it asks, where the squiggle lands, which silencers apply.
+// So the facts are a fixture crediting the two BCL spellings the tests write, registered through the
+// one door that carries them: `RegisterImports`.
+// THE ANALYSED-BUT-UNUSED SHAPE: a completed analysis that credited no NAMESPACE, and recorded the
+// three BCL spellings these contracts write as needing one. That is what lets an NL010 contract ask
+// "is this import reported" and an NL002 contract ask "is this name reported" from the same fixture.
+func LwsFacts(): ImportUsageFacts {
+    facts := new ImportUsageFacts()
+    facts.CreditName("StringBuilder", "System.Text")
+    facts.CreditName("Dictionary", "System.Collections.Generic")
+    facts.CreditName("List", "System.Collections.Generic")
+    facts.Analyzed = true
+    return facts
+}
+
 func LwsState(): LinterWalkState {
-    return new LinterWalkState("test.nl", null, LwsConfig())
+    state := new LinterWalkState("test.nl", null, LwsConfig())
+    state.RegisterImports(LwsUnit([], []))
+    return state
 }
 
 func LwsStateWithSource(source: string): LinterWalkState {
-    return new LinterWalkState("test.nl", source, LwsConfig())
+    state := new LinterWalkState("test.nl", source, LwsConfig())
+    state.RegisterImports(LwsUnit([], []))
+    return state
 }
 
 func LwsCodes(state: LinterWalkState): string {
@@ -116,7 +138,51 @@ func LwsUnit(namespaceImports: string[], fileImports: string[]): CompilationUnit
         fileIndex = fileIndex + 1
     }
 
-    return new CompilationUnit(null, imports, files, null, new List<Declaration>(), 1, 1)
+    unit := new CompilationUnit(null, imports, files, null, new List<Declaration>(), 1, 1)
+    unit.ImportUsage = LwsFacts()
+    return unit
+}
+
+// The same unit crediting exactly the namespaces named and nothing else, for the contracts that are
+// about WHICH import the rule reports.
+func LwsUnitCrediting(namespaceImports: string[], fileImports: string[], supplied: string[]): CompilationUnit {
+    unit := LwsUnit(namespaceImports, fileImports)
+    facts := new ImportUsageFacts()
+    index := 0
+    while index < supplied.Length {
+        facts.CreditNamespace(supplied[index])
+        index = index + 1
+    }
+
+    facts.Analyzed = true
+    unit.ImportUsage = facts
+    return unit
+}
+
+// The same unit with NO binding facts: what a parse-only caller hands the linter, and the shape both
+// import rules answer with silence.
+func LwsUnanalyzedUnit(namespaceImports: string[]): CompilationUnit {
+    imports := new List<ImportDirective>()
+    index := 0
+    while index < namespaceImports.Length {
+        imports.Add(new ImportDirective(namespaceImports[index], null, index + 1, 1))
+        index = index + 1
+    }
+
+    return new CompilationUnit(null, imports, new List<Statement>(), null, new List<Declaration>(), 1, 1)
+}
+
+// A unit whose analysis was ABANDONED part-way: facts exist but nothing may be concluded from what is
+// missing from them.
+func LwsIncompleteUnit(namespaceImports: string[]): CompilationUnit {
+    unit := LwsUnanalyzedUnit(namespaceImports)
+    unit.ImportUsage = new ImportUsageFacts()
+    return unit
+}
+
+    facts.Analyzed = true
+    unit.ImportUsage = facts
+    return unit
 }
 
 // The shape a function walk opens: a fresh scope, the parameters declared into it and marked as
@@ -410,78 +476,97 @@ test "the await flag belongs to the INNERMOST function and is restored on exit" 
     assert LwsCodes(state) == "NL004@7:1;"
 }
 
-test "an async function's implicit Task usage is recorded as a code identifier" {
+// ── NL010: the namespace arm, answered from the analyzer's binding facts ────────────────────
+//
+// The rule no longer asks a table of BCL names what a namespace provides — it asks what the FILE
+// BOUND. So the contracts below hand the walk a unit carrying the facts an analysis would have
+// stamped on it, and the rule's whole decision is whether the namespace is among them. What the walk
+// itself collects — every identifier, every member-access name, every name a written type mentions —
+// is what the FILE arm reads, and that half is unchanged.
+
+test "an import no binding credited is NL010" {
     state := LwsState()
-    state.RegisterImports(LwsUnit(["System.Threading.Tasks"], []))
-    frame := state.EnterFunction(true)
-    state.ExitFunction(frame)
-    state.CheckUnusedImports()
-    assert state.Diagnostics.Count == 0
-
-    // Non-vacuity: without the async function the same import is unused.
-    idle := LwsState()
-    idle.RegisterImports(LwsUnit(["System.Threading.Tasks"], []))
-    idle.CheckUnusedImports()
-    assert idle.Diagnostics.Count == 1
-}
-
-// ── the import and identifier ledgers ────────────────────────────────────────────────────────
-
-test "an import nothing mentions is NL010" {
-    state := LwsState()
-    state.RegisterImports(LwsUnit(["System.Text"], []))
+    state.RegisterImports(LwsUnitCrediting(["System.Text"], [], []))
     state.CheckUnusedImports()
     assert LwsCodes(state) == "NL010@1:1;"
 }
 
-test "an identifier the code mentions makes its import used" {
+test "an import the analysis credited is USED, whatever its name is" {
+    // Deliberately a namespace no table ever carried: nothing about this rule knows the BCL.
     state := LwsState()
-    state.RegisterImports(LwsUnit(["System.Text"], []))
-    state.NoteCodeIdentifier("StringBuilder")
+    state.RegisterImports(LwsUnitCrediting(["Contoso.Widgets"], [], ["Contoso.Widgets"]))
     state.CheckUnusedImports()
     assert state.Diagnostics.Count == 0
 }
 
-test "a member access makes an extension-method namespace used" {
+test "MENTIONING A NAME IS NOT USING AN IMPORT, which is the whole of what changed" {
+    // The old rule matched written identifiers against a table of names each namespace provides, so
+    // writing `StringBuilder` anywhere kept `import System.Text` alive whether or not that import is
+    // what supplied it. Now the credit comes from the RESOLUTION, and a mention the analysis did not
+    // credit keeps nothing alive.
     state := LwsState()
-    state.RegisterImports(LwsUnit(["System.Linq"], []))
+    state.RegisterImports(LwsUnitCrediting(["System.Text"], [], []))
+    state.NoteCodeIdentifier("StringBuilder")
     state.NoteMemberAccessName("Select")
     state.CheckUnusedImports()
-    assert state.Diagnostics.Count == 0
+    assert LwsCodes(state) == "NL010@1:1;"
 }
 
-test "a written type reference mentions every name in it" {
+test "an EXTENSION-METHOD namespace is credited by the call, with no type of it ever named" {
+    // `import System.Linq` used only as `.Select(...)`: the analyzer credits the namespace of the
+    // method's DECLARING type, and the file writes no LINQ type at all.
     state := LwsState()
-    state.RegisterImports(LwsUnit(["System.Collections.Generic"], []))
-    arguments := new List<TypeReference>()
-    arguments.Add(LwsSimpleType("string"))
-    listOfString := new GenericTypeReference("List", arguments, 1, 1)
-    state.TrackTypeReference(listOfString)
+    state.RegisterImports(LwsUnitCrediting(["System.Linq"], [], ["System.Linq"]))
     state.CheckUnusedImports()
     assert state.Diagnostics.Count == 0
 }
 
-test "NL010 is silent unless its code is in the severity table" {
-    state := new LinterWalkState("test.nl", null, LwsConfigWithout("NL010"))
-    state.RegisterImports(LwsUnit(["System.Text"], []))
+test "the credit is EXACT: a namespace is not credited by a prefix or a child of itself" {
+    state := LwsState()
+    state.RegisterImports(LwsUnitCrediting(["System", "System.Text"], [], ["System.Text"]))
+    state.CheckUnusedImports()
+    assert LwsCodes(state) == "NL010@1:1;"
+}
+
+test "a file that was NEVER ANALYSED reports no namespace import at all" {
+    // An import's use is a binding fact. NL010 is an ERROR whose `nlc fix` DELETES the line it names,
+    // so a file with no facts is answered with silence rather than with a guess.
+    state := LwsState()
+    state.RegisterImports(LwsUnanalyzedUnit(["System.Text"]))
     state.CheckUnusedImports()
     assert state.Diagnostics.Count == 0
 }
 
-test "a file import whose target cannot be read is treated as USED" {
-    // The linter refuses to report what it cannot verify: with no file on disk to extract exported
-    // symbols from, the import stands. This is the file arm's behaviour and not an accident of the
-    // fixture, so it is asserted rather than avoided.
+test "a file whose analysis did not COMPLETE reports no namespace import either" {
+    // Partial facts are worse than none: the walk that was abandoned is exactly the one that would
+    // have credited the import.
+    state := LwsState()
+    state.RegisterImports(LwsIncompleteUnit(["System.Text"]))
+    state.CheckUnusedImports()
+    assert state.Diagnostics.Count == 0
+}
+
+test "the FILE arm still answers without any binding facts, because it needs none" {
+    // A file import resolves against the exported symbols of the file it names — a syntactic
+    // question — so it is answered whether or not the unit was analysed. With no file on disk to read
+    // symbols from the import stands, which is the file arm's own contract.
     state := LwsState()
     state.RegisterImports(LwsUnit([], ["helpers.nl"]))
     state.CheckUnusedImports()
     assert state.Diagnostics.Count == 0
 
-    // Non-vacuity: a namespace import registered by the same call IS reported.
+    // Non-vacuity: a namespace import registered by the same call IS reported once facts exist.
     both := LwsState()
-    both.RegisterImports(LwsUnit(["System.Text"], ["helpers.nl"]))
+    both.RegisterImports(LwsUnitCrediting(["System.Text"], ["helpers.nl"], []))
     both.CheckUnusedImports()
     assert LwsCodes(both) == "NL010@1:1;"
+}
+
+test "NL010 is silent unless its code is in the severity table" {
+    state := new LinterWalkState("test.nl", null, LwsConfigWithout("NL010"))
+    state.RegisterImports(LwsUnitCrediting(["System.Text"], [], []))
+    state.CheckUnusedImports()
+    assert state.Diagnostics.Count == 0
 }
 
 test "NL002 fires for a bare name that needs an import" {
@@ -791,19 +876,19 @@ test "an interpolated string's holes are genuine reads" {
 }
 
 test "the current namespace and package supply type scope without inventing an import to lint" {
-    namespaceUnit := CodeFixUnit("namespace System.Text\nfunc Build() {}")
+    namespaceUnit := CodeFixUnitCrediting("namespace System.Text\nfunc Build() {}", "StringBuilder", "System.Text")
     state := LwsState()
     state.RegisterImports(namespaceUnit)
     state.TrackTypeReference(LwsSimpleType("StringBuilder"))
     state.CheckUnusedImports()
     assert LwsCodes(state) == ""
-    packageUnit := CodeFixUnit("package System.Text\nfunc Build() {}")
+    packageUnit := CodeFixUnitCrediting("package System.Text\nfunc Build() {}", "StringBuilder", "System.Text")
     state = LwsState()
     state.RegisterImports(packageUnit)
     state.TrackTypeReference(LwsSimpleType("StringBuilder"))
     state.CheckUnusedImports()
     assert LwsCodes(state) == ""
-    differentUnit := CodeFixUnit("namespace Example\nfunc Build() {}")
+    differentUnit := CodeFixUnitCrediting("namespace Example\nfunc Build() {}", "StringBuilder", "System.Text")
     state = LwsState()
     state.RegisterImports(differentUnit)
     state.TrackTypeReference(LwsSimpleType("StringBuilder"))
