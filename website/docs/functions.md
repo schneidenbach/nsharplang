@@ -705,6 +705,17 @@ whatever type parameter stands in the delegate's return position:
 words.Select(word => word.Length)
 ```
 
+A lambda's result fixes the type parameter through whatever the result's type actually **is** — its
+interfaces and its base chain included, and whether the type was declared in your project or read out
+of a referenced assembly. A `List<TextEdit>` reaches a `Func<T, IEnumerable<TResult>>` because a
+`List<T>` is an `IEnumerable<T>`:
+
+```n#
+// `Edits` may be a `List<TextEdit>`, an `IReadOnlyList<TextEdit>` or a referenced assembly's own
+// collection; `TResult` is `TextEdit` either way.
+allEdits := actions.SelectMany(action => action.Edits).ToList()
+```
+
 The two phases repeat until nothing changes, so one lambda may fix a type parameter that a later
 lambda's parameters depend on. Each lambda folds into **its own** position — two lambdas fix two
 different type parameters:
@@ -768,6 +779,56 @@ When the name has **several overloads**, the delegate the position wants picks o
 applicable method converts, and two is an ambiguity rather than a choice. A group whose parameter
 admits more than the delegate's does still converts — a `func Format(name: string?)` is a
 `Func<string, string?>`, because a parameter that admits null admits everything a non-null one does.
+
+This works even when the delegate's **return** position is one of the things still being inferred.
+The group's overloads are filtered by the delegate's input types — which the earlier arguments and
+the receiver have already fixed — and the one survivor's return type is what the type parameter
+takes:
+
+```n#
+class Widen {
+    static func Of(value: int): long => value * 10
+    static func Of(value: string): long => value.Length
+
+    // `TSource` is `int` from the receiver, so `Of(int)` is the overload; its `long` return
+    // is what makes the call a `long[]`.
+    static func Longs(values: int[]): long[] => values.Select(Of).ToArray()
+}
+```
+
+A method group may also name a **static method of any type**, including one from a referenced
+assembly. The receiver there is a type rather than a value, so the delegate has no target to bind:
+
+```n#
+import System.IO
+
+// `Directory.Exists` and `File.Exists` are method groups exactly as your own functions are.
+existing := roots.Where(Directory.Exists).ToArray()
+isEmpty: Func<string, bool> = String.IsNullOrEmpty
+```
+
+A group whose name is overloaded still picks the single applicable overload — `Int32.Parse` as a
+`Func<string, int>` is `Parse(string)` — and a generic method (`Array.Empty<T>`) or one with a
+`ref`/`out` parameter (`Int32.TryParse`) is not a method group a delegate position can take.
+
+### When two arguments disagree only about `?`
+
+A type parameter met by both `X` and `X?` is fixed to `X?`. The two are not a contradiction: `X`
+converts to `X?` and `X?` does not convert back, so the nullable one is the type both arguments
+reach — the same rule `flag ? value : null` uses to decide a conditional's type.
+
+```n#
+func AssertSame<T>(expected: T, actual: T) { /* ... */ }
+
+severity: Level = Level.Error
+reported: Level? = ReadSeverity()
+
+AssertSame(severity, reported)     // T is `Level?`, and `severity` lifts into it
+```
+
+This applies wherever the type parameter is inferred, including generic methods declared in a
+referenced assembly. It does not weaken the result: the position that was already nullable keeps its
+nullability, and the one that was not is the one that widens.
 
 ### Any delegate type, not only `Func` and `Action`
 

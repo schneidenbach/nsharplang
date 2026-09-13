@@ -343,7 +343,11 @@ class AnalyzerAssignability {
             }
 
             if AnalyzerCallableReferenceFacts.IsMethodGroupReferenceType(resolvedSource) {
-                return false
+                // A REFLECTED METHOD GROUP CONVERTS TO A DELEGATE TOO. C#'s rule does not ask where the
+                // group was declared: a group converts when EXACTLY ONE of its methods is applicable to
+                // the delegate's signature. Before this, `local: Func<string, bool> = Directory.Exists`
+                // reported NL202 and a reflected group at any target-typed position was refused.
+                return IsReflectionMethodGroupAssignableToDelegate(resolvedSource, resolvedTarget)
             }
         }
 
@@ -979,6 +983,48 @@ class AnalyzerAssignability {
         index := 0
         while index < candidates.Count {
             if IsFunctionTypeAssignableToRuntimeDelegateMethodGroup(candidates[index], delegateSignature) {
+                applicable = applicable + 1
+            }
+
+            index = index + 1
+        }
+
+        return applicable == 1
+    }
+
+    // THE REFLECTED HALVES OF THE SAME RULE. The two reflection shapes carry `MethodInfo`s rather
+    // than source signatures, so each candidate is read into a signature first
+    // (`AnalyzerFunctionTypeFactory.CreateFromReflectionMethodGroup`, which declines a generic
+    // definition and a by-ref position) and then scored by the SAME relation a source candidate is
+    // scored by. Exactly one applicable candidate converts; two is an ambiguity to report rather
+    // than a choice to make here, and none is simply not a conversion.
+    func IsReflectionMethodGroupAssignableToDelegate(source: TypeInfo, target: TypeInfo): bool {
+        if !assignabilityFacts.CanBindCallableReferenceToExpectedType(target) {
+            return false
+        }
+
+        delegateSignature := DelegateSignatureOfExpectedType(target)
+        if delegateSignature == null {
+            return false
+        }
+
+        reflectionMethod := source as ReflectionMethodInfo
+        if reflectionMethod != null {
+            single := AnalyzerFunctionTypeFactory.CreateFromReflectionMethodGroup(reflectionMethod.Method)
+            return single != null && IsFunctionTypeAssignableToRuntimeDelegateMethodGroup(single, delegateSignature)
+        }
+
+        reflectionGroup := source as ReflectionMethodGroupInfo
+        if reflectionGroup == null {
+            return false
+        }
+
+        applicable := 0
+        methods := reflectionGroup.Methods
+        index := 0
+        while index < methods.Length {
+            candidate := AnalyzerFunctionTypeFactory.CreateFromReflectionMethodGroup(methods[index])
+            if candidate != null && IsFunctionTypeAssignableToRuntimeDelegateMethodGroup(candidate, delegateSignature) {
                 applicable = applicable + 1
             }
 

@@ -232,15 +232,15 @@ test "an unbound reflection type parameter binds, and a later position must agre
     elementParameter := sequenceParameter.GetGenericArguments()[0]
 
     bindings := new Dictionary<Type, Type>()
-    assert AnalyzerOverloadFacts.TryMatchReflectionParameter(elementParameter, typeof(int), bindings)
+    assert AnalyzerOverloadFacts.TryMatchReflectionParameter(elementParameter, typeof(int), bindings, true)
     bound: Type = typeof(object)
     assert bindings.TryGetValue(elementParameter, out bound)
     assert bound == typeof(int)
 
     // The SAME parameter, a second time: a disagreeing argument is refused, an assignable one and an
     // implicit numeric widening are accepted.
-    assert !AnalyzerOverloadFacts.TryMatchReflectionParameter(elementParameter, typeof(string), bindings)
-    assert AnalyzerOverloadFacts.TryMatchReflectionParameter(elementParameter, typeof(int), bindings)
+    assert !AnalyzerOverloadFacts.TryMatchReflectionParameter(elementParameter, typeof(string), bindings, true)
+    assert AnalyzerOverloadFacts.TryMatchReflectionParameter(elementParameter, typeof(int), bindings, true)
 }
 
 test "a bound reflection type parameter accepts an assignable argument and a numeric widening" {
@@ -249,27 +249,27 @@ test "a bound reflection type parameter accepts an assignable argument and a num
 
     objectBindings := new Dictionary<Type, Type>()
     objectBindings[elementParameter] = typeof(object)
-    assert AnalyzerOverloadFacts.TryMatchReflectionParameter(elementParameter, typeof(string), objectBindings)
+    assert AnalyzerOverloadFacts.TryMatchReflectionParameter(elementParameter, typeof(string), objectBindings, true)
 
     longBindings := new Dictionary<Type, Type>()
     longBindings[elementParameter] = typeof(long)
-    assert AnalyzerOverloadFacts.TryMatchReflectionParameter(elementParameter, typeof(int), longBindings)
-    assert !AnalyzerOverloadFacts.TryMatchReflectionParameter(elementParameter, typeof(string), longBindings)
+    assert AnalyzerOverloadFacts.TryMatchReflectionParameter(elementParameter, typeof(int), longBindings, true)
+    assert !AnalyzerOverloadFacts.TryMatchReflectionParameter(elementParameter, typeof(string), longBindings, true)
 }
 
 test "a closed reflection parameter is a plain assignability question" {
     bindings := new Dictionary<Type, Type>()
-    assert AnalyzerOverloadFacts.TryMatchReflectionParameter(typeof(object), typeof(string), bindings)
-    assert AnalyzerOverloadFacts.TryMatchReflectionParameter(typeof(long), typeof(int), bindings)
-    assert !AnalyzerOverloadFacts.TryMatchReflectionParameter(typeof(string), typeof(int), bindings)
+    assert AnalyzerOverloadFacts.TryMatchReflectionParameter(typeof(object), typeof(string), bindings, true)
+    assert AnalyzerOverloadFacts.TryMatchReflectionParameter(typeof(long), typeof(int), bindings, true)
+    assert !AnalyzerOverloadFacts.TryMatchReflectionParameter(typeof(string), typeof(int), bindings, true)
     assert bindings.Count == 0
 }
 
 test "a by-ref reflection parameter matches through its element type" {
     byRefInt := typeof(int).MakeByRefType()
     bindings := new Dictionary<Type, Type>()
-    assert AnalyzerOverloadFacts.TryMatchReflectionParameter(byRefInt, typeof(int), bindings)
-    assert !AnalyzerOverloadFacts.TryMatchReflectionParameter(byRefInt, typeof(string), bindings)
+    assert AnalyzerOverloadFacts.TryMatchReflectionParameter(byRefInt, typeof(int), bindings, true)
+    assert !AnalyzerOverloadFacts.TryMatchReflectionParameter(byRefInt, typeof(string), bindings, true)
 }
 
 test "an open array parameter descends into its element and refuses a non-array argument" {
@@ -278,13 +278,13 @@ test "an open array parameter descends into its element and refuses a non-array 
     openArray := elementParameter.MakeArrayType()
 
     arrayBindings := new Dictionary<Type, Type>()
-    assert AnalyzerOverloadFacts.TryMatchReflectionParameter(openArray, typeof(int[]), arrayBindings)
+    assert AnalyzerOverloadFacts.TryMatchReflectionParameter(openArray, typeof(int[]), arrayBindings, true)
     bound: Type = typeof(object)
     assert arrayBindings.TryGetValue(elementParameter, out bound)
     assert bound == typeof(int)
 
     scalarBindings := new Dictionary<Type, Type>()
-    assert !AnalyzerOverloadFacts.TryMatchReflectionParameter(openArray, typeof(int), scalarBindings)
+    assert !AnalyzerOverloadFacts.TryMatchReflectionParameter(openArray, typeof(int), scalarBindings, true)
 }
 
 // The case the argument walk exists for: a `List<int>` argument against an `IEnumerable<T>`
@@ -296,7 +296,7 @@ test "an open generic parameter matches through the argument's interface" {
 
     bindings := new Dictionary<Type, Type>()
     listOfInt := OverloadClosed1("System.Collections.Generic.List`1, System.Private.CoreLib", typeof(int))
-    assert AnalyzerOverloadFacts.TryMatchReflectionParameter(sequenceParameter, listOfInt, bindings)
+    assert AnalyzerOverloadFacts.TryMatchReflectionParameter(sequenceParameter, listOfInt, bindings, true)
     bound: Type = typeof(object)
     assert bindings.TryGetValue(elementParameter, out bound)
     assert bound == typeof(int)
@@ -306,7 +306,7 @@ test "an open generic parameter refuses an argument that cannot be re-expressed 
     identity := OverloadEnumerableMethod("Count", 1)
     sequenceParameter := identity.GetParameters()[0].get_ParameterType()
     bindings := new Dictionary<Type, Type>()
-    assert !AnalyzerOverloadFacts.TryMatchReflectionParameter(sequenceParameter, typeof(int), bindings)
+    assert !AnalyzerOverloadFacts.TryMatchReflectionParameter(sequenceParameter, typeof(int), bindings, true)
 }
 
 test "a compatible generic type is searched for on the type itself, its interfaces and its base chain" {
@@ -996,4 +996,31 @@ test "a source parameter with no name or source type falls back to a positional 
     types := OverloadTypeList(BuiltInTypes.Int)
     signature := OverloadSignature(types)
     assert AnalyzerOverloadFacts.FormatSyntheticParameterSignature(signature, 0) == "arg1: int"
+}
+
+test "a `ref`/`out` position makes an EXACT inference, so the nullable lift does not reach it" {
+    listDefinition := BinderRuntimeTypeForScoring("System.Collections.Generic.List`1, System.Private.CoreLib")
+    openParameter := listDefinition.GetGenericArguments()[0]
+
+    // A LOWER bound lifts: two value positions offering `int` and `int?` settle on `int?`.
+    lifted := new Dictionary<Type, Type>()
+    assert AnalyzerOverloadFacts.TryMatchReflectionParameter(openParameter, typeof(int), lifted, true)
+    assert AnalyzerOverloadFacts.TryMatchReflectionParameter(openParameter, typeof(int?), lifted, true)
+    assert lifted[openParameter] == typeof(int?)
+
+    // The same pair at a `ref`/`out` position does not: `map.TryGetValue(key, out found)` writes the
+    // position through, so `TValue` stays exactly what the receiver fixed.
+    exact := new Dictionary<Type, Type>()
+    assert AnalyzerOverloadFacts.TryMatchReflectionParameter(openParameter, typeof(int), exact, true)
+    assert !AnalyzerOverloadFacts.TryMatchReflectionParameter(openParameter, typeof(int?), exact, false)
+    assert exact[openParameter] == typeof(int)
+}
+
+func BinderRuntimeTypeForScoring(assemblyQualifiedName: string): Type {
+    resolved := Type.GetType(assemblyQualifiedName)
+    if resolved == null {
+        throw new InvalidOperationException("Expected the runtime to carry " + assemblyQualifiedName)
+    }
+
+    return resolved
 }

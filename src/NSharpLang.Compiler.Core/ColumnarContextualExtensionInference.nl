@@ -723,6 +723,18 @@ class ColumnarContextualExtensionInference {
                 return true
             }
 
+            // `X` AND `X?` ARE ONE BOUND, AND IT IS `X?` — the same rule the direct-call resolver and
+            // the analyzer state, because a type parameter met by both is fixed to the bound the other
+            // converts to.
+            if ColumnarTypeEquivalenceFacts.IsNullableLiftOf(actualType, existing) {
+                inferred[position] = actualType
+                return true
+            }
+
+            if ColumnarTypeEquivalenceFacts.IsNullableLiftOf(existing, actualType) {
+                return true
+            }
+
             return ColumnarTypeEquivalenceFacts.TypesEquivalent(existing, actualType)
         }
 

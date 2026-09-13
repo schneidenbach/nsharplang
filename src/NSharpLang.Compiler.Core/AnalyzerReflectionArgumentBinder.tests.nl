@@ -1429,16 +1429,16 @@ test "the N# half of inference binds the leftmost occurrence and never overwrite
     openArguments := openFunc.GetGenericArguments()
 
     typeInfoBindings := new Dictionary<Type, TypeInfo>()
-    binder.PopulateTypeInfoBindingsFromType(openArguments[0], BuiltInTypes.Int, typeInfoBindings)
+    binder.PopulateTypeInfoBindingsFromType(openArguments[0], BuiltInTypes.Int, typeInfoBindings, true)
     assert BinderTypeName(typeInfoBindings[openArguments[0]]) == "int"
 
     // FIRST BINDING WINS, so a repeated type parameter is decided by its leftmost occurrence.
-    binder.PopulateTypeInfoBindingsFromType(openArguments[0], BuiltInTypes.String, typeInfoBindings)
+    binder.PopulateTypeInfoBindingsFromType(openArguments[0], BuiltInTypes.String, typeInfoBindings, true)
     assert BinderTypeName(typeInfoBindings[openArguments[0]]) == "int"
 
     // A non-generic parameter contributes nothing.
     plain := new Dictionary<Type, TypeInfo>()
-    binder.PopulateTypeInfoBindingsFromType(typeof(int), BuiltInTypes.String, plain)
+    binder.PopulateTypeInfoBindingsFromType(typeof(int), BuiltInTypes.String, plain, true)
     assert plain.Count == 0
 }
 
@@ -1462,7 +1462,7 @@ test "an array argument contributes its ELEMENT type to every read-only sequence
         arguments[0] = openParameter
         closed := definition.MakeGenericType(arguments)
         bindings := new Dictionary<Type, TypeInfo>()
-        binder.PopulateTypeInfoBindingsFromType(closed, intArray, bindings)
+        binder.PopulateTypeInfoBindingsFromType(closed, intArray, bindings, true)
         assert BinderTypeName(bindings[openParameter]) == "int"
         index = index + 1
     }
@@ -1472,7 +1472,8 @@ test "an array argument contributes its ELEMENT type to every read-only sequence
     binder.PopulateTypeInfoBindingsFromType(
         openParameter.MakeArrayType(),
         intArray,
-        arrayBindings
+        arrayBindings,
+        true
     )
     assert BinderTypeName(arrayBindings[openParameter]) == "int"
 
@@ -1488,7 +1489,8 @@ test "an array argument contributes its ELEMENT type to every read-only sequence
     binder.PopulateTypeInfoBindingsFromType(
         dictionaryDefinition.MakeGenericType(dictionaryArguments),
         intArray,
-        dictionaryBindings
+        dictionaryBindings,
+        true
     )
     assert dictionaryBindings.Count == 0
 }
@@ -1512,7 +1514,7 @@ test "a generic argument that does not match the parameter's definition is trace
             BinderTypeArguments(BuiltInTypes.String)
         )
         directBindings := new Dictionary<Type, TypeInfo>()
-        binder.PopulateTypeInfoBindingsFromType(openEnumerable, directArgument, directBindings)
+        binder.PopulateTypeInfoBindingsFromType(openEnumerable, directArgument, directBindings, true)
         assert BinderTypeName(directBindings[openParameter]) == "string"
 
         // TRACED: `List<int>` is not an `IEnumerable<T>` by name, so the interface's own type
@@ -1520,14 +1522,14 @@ test "a generic argument that does not match the parameter's definition is trace
         // `T`. This arm needs the well-known bag: the argument has to be given a CLR form first.
         listArgument: TypeInfo = new GenericTypeInfo("List", BinderTypeArguments(BuiltInTypes.Int))
         tracedBindings := new Dictionary<Type, TypeInfo>()
-        binder.PopulateTypeInfoBindingsFromType(openEnumerable, listArgument, tracedBindings)
+        binder.PopulateTypeInfoBindingsFromType(openEnumerable, listArgument, tracedBindings, true)
         assert BinderTypeName(tracedBindings[openParameter]) == "int"
 
         // WITHOUT the bag the same trace finds no CLR form and binds nothing, which is why the two
         // are different answers rather than one.
         bagless := BinderDefault()
         baglessBindings := new Dictionary<Type, TypeInfo>()
-        bagless.PopulateTypeInfoBindingsFromType(openEnumerable, listArgument, baglessBindings)
+        bagless.PopulateTypeInfoBindingsFromType(openEnumerable, listArgument, baglessBindings, true)
         assert baglessBindings.Count == 0
     } finally {
         scan.Dispose()
@@ -1551,7 +1553,8 @@ test "both halves of inference run together and the by-ref shell is stripped fir
         openParameter.MakeByRefType(),
         BuiltInTypes.Int,
         bindings,
-        typeInfoBindings
+        typeInfoBindings,
+        true
     )
     assert bindings[openParameter] == typeof(int)
     assert BinderTypeName(typeInfoBindings[openParameter]) == "int"
@@ -1561,7 +1564,8 @@ test "both halves of inference run together and the by-ref shell is stripped fir
         openParameter,
         BuiltInTypes.String,
         bindings,
-        typeInfoBindings
+        typeInfoBindings,
+        true
     )
     assert bindings[openParameter] == typeof(int)
     assert BinderTypeName(typeInfoBindings[openParameter]) == "int"
@@ -1574,7 +1578,8 @@ test "both halves of inference run together and the by-ref shell is stripped fir
         openParameter.MakeArrayType(),
         intArray,
         arrayBindings,
-        arrayTypeInfos
+        arrayTypeInfos,
+        true
     )
     assert arrayBindings[openParameter] == typeof(string)
 
@@ -1587,10 +1592,67 @@ test "both halves of inference run together and the by-ref shell is stripped fir
         openParameter,
         sourceType,
         sourceBindings,
-        sourceTypeInfos
+        sourceTypeInfos,
+        true
     )
     assert sourceBindings.Count == 0
     assert BinderTypeName(sourceTypeInfos[openParameter]) == "Point"
+}
+
+test "a bound's DIRECTION decides whether the nullable lift applies" {
+    binder := BinderDefault()
+    openFunc := BinderRuntimeType("System.Func`2, System.Private.CoreLib")
+    openParameter := openFunc.GetGenericArguments()[0]
+
+    // A LOWER bound — an argument's own type, or a delegate's RETURN position — lifts: the two
+    // bounds `string` and `string?` are both reached by `string?`.
+    lifted := new Dictionary<Type, TypeInfo>()
+    binder.PopulateTypeInfoBindingsFromType(openParameter, BuiltInTypes.String, lifted, true)
+    binder.PopulateTypeInfoBindingsFromType(openParameter, new NullableTypeInfo(BuiltInTypes.String), lifted, true)
+    assert BinderTypeName(lifted[openParameter]) == "string?"
+
+    // A bound read off a delegate's PARAMETER position is contravariant and must NOT widen what the
+    // receiver already fixed: `roots.Where(Directory.Exists)` stays a sequence of `string`, because
+    // `Exists(string? path)` says what the position ACCEPTS rather than what it produces.
+    held := new Dictionary<Type, TypeInfo>()
+    binder.PopulateTypeInfoBindingsFromType(openParameter, BuiltInTypes.String, held, true)
+    binder.PopulateTypeInfoBindingsFromType(openParameter, new NullableTypeInfo(BuiltInTypes.String), held, false)
+    assert BinderTypeName(held[openParameter]) == "string"
+
+    // The lift is one-way in both directions of arrival: an already-lifted bound absorbs the plain
+    // one rather than narrowing back to it.
+    absorbed := new Dictionary<Type, TypeInfo>()
+    binder.PopulateTypeInfoBindingsFromType(openParameter, new NullableTypeInfo(BuiltInTypes.Int), absorbed, true)
+    binder.PopulateTypeInfoBindingsFromType(openParameter, BuiltInTypes.Int, absorbed, true)
+    assert BinderTypeName(absorbed[openParameter]) == "int?"
+}
+
+test "a reflected method group is read into a signature, and the shapes that are not signatures decline" {
+    exists := typeof(System.IO.Directory).GetMethod("Exists", [typeof(string)])
+    assert exists != null
+
+    signature := AnalyzerFunctionTypeFactory.CreateFromReflectionMethodGroup(exists)
+    assert signature != null
+
+    // A method group, not a lambda: the discriminator is the recorded name, and it records no
+    // declaration SITE.
+    assert AnalyzerCallableReferenceFacts.HasSourceFunctionIdentity(signature)
+    assert signature.SourceName == "Exists"
+    assert signature.SourceLine == 0
+    assert signature.ParameterTypes.Count == 1
+    assert BinderTypeName(signature.ReturnType) == "bool"
+
+    // A GENERIC METHOD DEFINITION is not a signature yet — its own type arguments would have to be
+    // inferred from the delegate.
+    emptyDefinition := typeof(System.Array).GetMethod("Empty")
+    assert emptyDefinition != null
+    assert emptyDefinition.get_IsGenericMethodDefinition()
+    assert AnalyzerFunctionTypeFactory.CreateFromReflectionMethodGroup(emptyDefinition) == null
+
+    // A `ref`/`out` position is not part of a delegate's shape here.
+    tryParse := typeof(int).GetMethod("TryParse", [typeof(string), typeof(int).MakeByRefType()])
+    assert tryParse != null
+    assert AnalyzerFunctionTypeFactory.CreateFromReflectionMethodGroup(tryParse) == null
 }
 
 test "a receiver contributes bindings only when its declaring type mentions a type parameter" {

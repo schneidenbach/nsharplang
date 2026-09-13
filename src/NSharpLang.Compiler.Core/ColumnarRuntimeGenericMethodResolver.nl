@@ -263,7 +263,25 @@ class ColumnarRuntimeGenericMethodResolver {
             position := parameterType.get_GenericParameterPosition()
             existing := typeof(object)
             if bindings.TryGetValue(position, out existing) {
-                return existing != null && ColumnarSourceDirectCallResolver.ExactTypeShapeMatches(existing, argumentType)
+                if existing == null {
+                    return false
+                }
+
+                // `X` AND `X?` ARE ONE BOUND, AND IT IS `X?`. Two positions that disagree only about
+                // the nullable lift do not contradict each other: `X` converts to `X?`, so the lifted
+                // one is the bound both arguments reach and the binding widens to it. Without this,
+                // `Assert.Equal(severity, maybeSeverity)` bound `T` from the first argument and then
+                // refused the second.
+                if ColumnarTypeEquivalenceFacts.IsNullableLiftOf(argumentType, existing) {
+                    bindings[position] = argumentType
+                    return true
+                }
+
+                if ColumnarTypeEquivalenceFacts.IsNullableLiftOf(existing, argumentType) {
+                    return true
+                }
+
+                return ColumnarSourceDirectCallResolver.ExactTypeShapeMatches(existing, argumentType)
             }
             bindings[position] = argumentType
             return true

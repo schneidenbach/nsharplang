@@ -287,3 +287,27 @@ test "the safe predicate answers without throwing for a generic parameter" {
     assert ColumnarTypeEquivalenceFacts.IsSafeSzArrayType(typeof(int[]))
     assert !ColumnarTypeEquivalenceFacts.IsSafeSzArrayType(typeof(int))
 }
+
+// ── the nullable lift between two inference bounds ────────────────────────────────────────────
+test "the nullable-lift relation holds exactly one way" {
+    assert ColumnarTypeEquivalenceFacts.IsNullableLiftOf(typeof(int?), typeof(int))
+    assert !ColumnarTypeEquivalenceFacts.IsNullableLiftOf(typeof(int), typeof(int?))
+    assert !ColumnarTypeEquivalenceFacts.IsNullableLiftOf(typeof(long?), typeof(int))
+    assert !ColumnarTypeEquivalenceFacts.IsNullableLiftOf(typeof(int?), typeof(int?))
+}
+
+test "a reference type has no lift to find, because its annotation is not a CLR type" {
+    assert !ColumnarTypeEquivalenceFacts.IsNullableLiftOf(typeof(string), typeof(string))
+    assert !ColumnarTypeEquivalenceFacts.IsNullableLiftOf(typeof(List<int>), typeof(int))
+}
+
+test "an unbaked builder answers 'not a lift' rather than throwing" {
+    assembly := AssemblyBuilder.DefineDynamicAssembly(new AssemblyName("NullableLiftProbe"), AssemblyBuilderAccess.Run)
+    module := assembly.DefineDynamicModule("NullableLiftProbe")
+    owner := module.DefineType("Probe", TypeAttributes.Public)
+    method := owner.DefineMethod("Generic", MethodAttributes.Public | MethodAttributes.Static)
+    parameters := method.DefineGenericParameters(["T"])
+
+    assert !ColumnarTypeEquivalenceFacts.IsNullableLiftOf(parameters[0], typeof(int))
+    assert !ColumnarTypeEquivalenceFacts.IsNullableLiftOf(typeof(int?), parameters[0])
+}
