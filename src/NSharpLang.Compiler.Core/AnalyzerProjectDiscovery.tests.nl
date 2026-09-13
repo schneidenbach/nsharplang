@@ -701,7 +701,7 @@ test "every declared family is a top-level TYPE declaration and a function is no
     assert !isType
 }
 
-test "an exported top-level function is visible project-wide and a camelCase one is not" {
+test "an exported top-level function is visible project-wide and a camelCase one only inside its namespace" {
     provider := ProjectProviderOf(
         ["/p/funcs.nl"],
         [ProjectSourceOf("Other", "public func Exported() {\n}\n\nfunc notExported() {\n}\n")]
@@ -725,8 +725,8 @@ test "an exported top-level function is visible project-wide and a camelCase one
     assert declaration != null
     assert declaration.Kind == "function"
 
-    // Non-exported stays file-private across namespaces, and instead shows up as the inaccessible
-    // case for the identifier path.
+    // A camelCase function is private to its NAMESPACE, so another namespace does not see it and it
+    // shows up as the inaccessible case for the identifier path instead.
     assert !discovery.TryResolveVisibleProjectFunction(
         "notExported",
         "Mine",
@@ -746,6 +746,65 @@ test "an exported top-level function is visible project-wide and a camelCase one
     assert inaccessible == null
     assert !discovery.TryFindInaccessibleVisibleFunction("notExported", "Other", out inaccessible)
     assert inaccessible == null
+}
+
+// THE RULING OF 2026-09-02, at the function channel: camelCase is private to the NAMESPACE, not to
+// the FILE. `funcs.nl` and `caller.nl` both declare namespace `Other`, so `caller.nl` sees
+// `notExported` with no import and no export — exactly as it already saw a camelCase CLASS declared
+// in `funcs.nl`, which is the half of the rule that was already right. Before this, `B.nl` calling
+// `A.nl`'s `func formatTypeRef` reported NL412 at a direct call and NL402 at `names.Select(...)`.
+test "a camelCase top-level function is visible to every OTHER file of its own namespace" {
+    provider := ProjectProviderOf(
+        ["/p/funcs.nl", "/p/caller.nl"],
+        [
+            ProjectSourceOf("Other", "func notExported() {\n}\n\nclass alsoNotExported {\n}\n"),
+            ProjectSourceOf("Other", "func Caller() {\n}\n")
+        ]
+    )
+    discovery := ProjectDiscoveryOf(provider, [])
+
+    declarationFile: string? = null
+    functionDeclaration: FunctionDeclaration? = null
+    declaration: SymbolDeclaration? = null
+
+    assert discovery.TryResolveVisibleProjectFunction(
+        "notExported",
+        "Other",
+        out declarationFile,
+        out functionDeclaration,
+        out declaration
+    )
+    assert Path.GetFileName(declarationFile) == "funcs.nl"
+    assert functionDeclaration != null
+    assert functionDeclaration.Name == "notExported"
+    assert declaration != null
+    assert declaration.Kind == "function"
+
+    // The type half of the same rule, unchanged, said here so the two stay pinned together.
+    resolvedType := BuiltInTypes.Unknown as TypeInfo
+    typeDeclaration: SymbolDeclaration? = null
+    typeInaccessible: string? = null
+    assert discovery.ResolveVisibleProjectType(
+        "alsoNotExported",
+        "Other",
+        true,
+        out resolvedType,
+        out typeDeclaration,
+        out typeInaccessible
+    )
+    assert typeInaccessible == null
+
+    // And the namespace really is the unit: asking from ANOTHER namespace still declines, whether or
+    // not that namespace imported this one.
+    importingDiscovery := ProjectDiscoveryOf(provider, ["Other"])
+    assert !importingDiscovery.TryResolveVisibleProjectFunction(
+        "notExported",
+        "Mine",
+        out declarationFile,
+        out functionDeclaration,
+        out declaration
+    )
+    assert declarationFile == null
 }
 
 test "the inaccessible probe does not confuse a type with a function of the same name" {

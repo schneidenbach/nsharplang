@@ -800,7 +800,17 @@ class CompletionEngineKernels {
     // KEYWORDS, PRIMITIVE TYPES AND MODIFIERS ARE OFF BY DEFAULT, and that is the LLM-first rule
     // this engine was built for: a model already knows the language's vocabulary, so spending
     // tokens on it is waste. An editor asks for them explicitly.
+    //
+    // THE FUNCTION GROUP IS NAMESPACE-WIDE, NOT FILE-WIDE, because visibility is. A top-level `func`
+    // is visible to every file of the namespace that declares it whatever its casing — camelCase is
+    // namespace-private, never file-private — so a caret in `B.nl` can write `A.nl`'s `formatTypeRef`
+    // and the offer has to say so. The sibling files ride in as `projectUnits`; the five-argument
+    // overload passes none, which is what a caller holding a single unit can honestly answer.
     static func GetIdentifierCompletions(unit: CompilationUnit, semanticModel: SemanticModel?, includeKeywords: bool, line: int, column: int): CompletionResult {
+        return GetIdentifierCompletions(unit, semanticModel, includeKeywords, line, column, new List<CompilationUnit>())
+    }
+
+    static func GetIdentifierCompletions(unit: CompilationUnit, semanticModel: SemanticModel?, includeKeywords: bool, line: int, column: int, projectUnits: IEnumerable<CompilationUnit>): CompletionResult {
         completions := new Dictionary<string, List<CompletionItem>>()
 
         if semanticModel != null {
@@ -810,6 +820,7 @@ class CompletionEngineKernels {
             }
 
             functions := FunctionItems(semanticModel)
+            AppendNamespaceVisibleFunctionItems(functions, unit, projectUnits)
             if functions.Count > 0 {
                 completions["functions"] = functions
             }
@@ -869,6 +880,52 @@ class CompletionEngineKernels {
         }
 
         return items
+    }
+
+    // THE OTHER FILES OF MY NAMESPACE, APPENDED TO THE FUNCTION GROUP. The semantic model above knows
+    // only the file it was built for, so without this a caret sees a namespace's helpers only if they
+    // happen to live in the same file — while the resolver, go-to-definition and find-references all
+    // see the whole namespace. A camelCase `func` is private to its NAMESPACE, so the unit of the
+    // sweep is the declared namespace name and casing plays no part in it; a file of ANOTHER namespace
+    // is skipped, because from there the same name is an NL308 rather than an offer.
+    //
+    // ALREADY-OFFERED NAMES WIN. The model's entry carries the resolved type, so a sibling that
+    // repeats a name the model already filed adds nothing and is dropped rather than shown twice.
+    static func AppendNamespaceVisibleFunctionItems(items: List<CompletionItem>, unit: CompilationUnit, projectUnits: IEnumerable<CompilationUnit>) {
+        currentNamespace := AnalyzerProjectSourceProvider.UnitNamespace(unit)
+        if currentNamespace == null {
+            return
+        }
+
+        offered := new HashSet<string>(StringComparer.Ordinal)
+        for offeredItem in items {
+            offered.Add(offeredItem.Name)
+        }
+
+        for candidateUnit in projectUnits {
+            if Object.ReferenceEquals(candidateUnit, unit) {
+                continue
+            }
+
+            if !string.Equals(AnalyzerProjectSourceProvider.UnitNamespace(candidateUnit), currentNamespace, StringComparison.Ordinal) {
+                continue
+            }
+
+            declarations := candidateUnit.Declarations
+            index := 0
+            while index < declarations.Count {
+                declaration := declarations[index] as FunctionDeclaration
+                index = index + 1
+                if declaration == null || !offered.Add(declaration.Name) {
+                    continue
+                }
+
+                item := CompletionDeclarationFacts.ToCompletionItem(declaration)
+                if item != null {
+                    items.Add(item)
+                }
+            }
+        }
     }
 
     // The types this file declares, in source order. A declaration with no completion shape is

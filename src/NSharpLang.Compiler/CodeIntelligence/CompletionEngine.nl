@@ -56,7 +56,11 @@ class CompletionEngine {
                 unitValues)
         }
 
-        return CompletionEngineKernels.GetIdentifierCompletions(unit, semanticModel, includeKeywords, line, col)
+        // The snapshot's other units ride along so the function group can be namespace-wide: a
+        // top-level `func` is visible to every file of its namespace whatever its casing.
+        identifierUnits := snapshot.CompilationUnits
+        identifierUnitValues := identifierUnits.Values
+        return CompletionEngineKernels.GetIdentifierCompletions(unit, semanticModel, includeKeywords, line, col, identifierUnitValues)
     }
 
     private static func emptyResult(context: CompletionContext): CompletionResult {

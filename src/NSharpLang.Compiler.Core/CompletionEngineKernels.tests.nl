@@ -215,6 +215,90 @@ test "a function type shows its parameter list and anything else filed as a func
     }
 }
 
+// ── THE FUNCTION GROUP IS NAMESPACE-WIDE ────────────────────────────────────────────────────────
+//
+// Visibility's unit is the NAMESPACE, so the offer's unit has to be too: a camelCase top-level
+// `func` in `A.nl` is callable from `B.nl` of the same namespace, and before this the caret in
+// `B.nl` was never told it existed (the semantic model knows one file). A file of ANOTHER namespace
+// is skipped, because naming that function from there is an NL308 rather than an offer.
+func CekNamespacedUnit(namespaceName: string?, functionNames: string[]): CompilationUnit {
+    declarations := new List<Declaration>()
+    index := 0
+    while index < functionNames.Length {
+        declaration: Declaration = new FunctionDeclaration(functionNames[index], new List<Parameter>(), new SimpleTypeReference("string"), null, null, null, null, Modifiers.None, new List<AttributeNode>(), false, null, false, false, index + 1, 1)
+        declarations.Add(declaration)
+        index = index + 1
+    }
+
+    namespaceDeclaration: NamespaceDeclaration? = null
+    if namespaceName != null {
+        namespaceDeclaration = new NamespaceDeclaration(namespaceName, 1, 1)
+    }
+
+    return new CompilationUnit(namespaceDeclaration, new List<ImportDirective>(), new List<Statement>(), null, declarations, 1, 1)
+}
+
+func CekProjectUnits(units: CompilationUnit[]): List<CompilationUnit> {
+    list := new List<CompilationUnit>()
+    index := 0
+    while index < units.Length {
+        list.Add(units[index])
+        index = index + 1
+    }
+
+    return list
+}
+
+test "a sibling file of the same namespace contributes its functions, camelCase included" {
+    current := CekNamespacedUnit("X", ["UseIt"])
+    sibling := CekNamespacedUnit("X", ["formatTypeRef", "Exported"])
+    stranger := CekNamespacedUnit("Y", ["elsewhere", "AlsoElsewhere"])
+
+    model := new SemanticModel()
+    functions := model.Functions
+    functions["UseIt"] = BuiltInTypes.String
+
+    result := CompletionEngineKernels.GetIdentifierCompletions(current, model, false, 0, 0, CekProjectUnits([current, sibling, stranger]))
+
+    // The model's own entry first, then the sibling's in its source order. The camelCase one is
+    // offered exactly like the exported one: inside the namespace they are equally visible.
+    assert CekItemNames(result, "functions") == "UseIt,formatTypeRef,Exported"
+
+    // NOT the other namespace's, whatever its casing.
+    assert CekItemCount(result, "functions") == 3
+
+    // The declared-TYPES group stays the current file's alone: it answers "what does THIS file
+    // declare", which is a different question.
+    assert CekItemNames(result, "types") == "UseIt"
+}
+
+test "the namespace sweep skips the current unit, repeats no name, and needs a declared namespace" {
+    current := CekNamespacedUnit("X", ["Shared"])
+    sibling := CekNamespacedUnit("X", ["Shared", "Other"])
+
+    model := new SemanticModel()
+    functions := model.Functions
+    functions["Shared"] = BuiltInTypes.String
+
+    // `current` is in the list and is skipped by identity; the sibling's `Shared` repeats a name the
+    // model already filed with a resolved type, so the model's entry is the one that survives.
+    result := CompletionEngineKernels.GetIdentifierCompletions(current, model, false, 0, 0, CekProjectUnits([current, sibling]))
+    assert CekItemNames(result, "functions") == "Shared,Other"
+
+    // A file with NO namespace declaration has no namespace to be private to, so it gains nothing —
+    // the global namespace is not a shared visibility unit here.
+    globalUnit := CekNamespacedUnit(null, ["Local"])
+    globalModel := new SemanticModel()
+    globalFunctions := globalModel.Functions
+    globalFunctions["Local"] = BuiltInTypes.String
+    globalResult := CompletionEngineKernels.GetIdentifierCompletions(globalUnit, globalModel, false, 0, 0, CekProjectUnits([globalUnit, sibling]))
+    assert CekItemNames(globalResult, "functions") == "Local"
+
+    // And the five-argument overload — a caller holding a single unit — answers the file's alone.
+    soloResult := CompletionEngineKernels.GetIdentifierCompletions(current, model, false, 0, 0)
+    assert CekItemNames(soloResult, "functions") == "Shared"
+}
+
 test "the declared types of the file are offered in source order and unnameable declarations are dropped" {
     declarations := new List<Declaration>()
     first: Declaration = new ClassDeclaration("Alpha", null, null, new List<TypeReference>(), new List<Declaration>(), null, Modifiers.None, new List<AttributeNode>(), 1, 1)

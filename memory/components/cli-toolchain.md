@@ -340,6 +340,13 @@ $ nlc query completions --file Program.nl --pos 15:4
 }
 ```
 
+The `functions` group is **namespace-wide, not file-wide**: it carries the current file's functions
+(from its semantic model) followed by the top-level functions declared by every OTHER file of the
+SAME namespace, in source order, camelCase ones included — because a camelCase top-level `func` is
+private to its namespace, not to its file, so a caret in one file may legitimately write another
+file's helper. A file of a different namespace contributes nothing; naming one of its camelCase
+functions would be NL308. Names the current file's model already supplied are not repeated.
+
 **Member access context** (what members does this type have):
 ```bash
 $ nlc query completions --file PersonService.nl --pos 15:15
@@ -958,7 +965,7 @@ nlc query <cmd>
 | `src/NSharpLang.Cli/Daemon/DaemonServer.cs` | Background daemon (Unix socket) |
 | `src/NSharpLang.Cli/Daemon/DaemonClient.cs` | Daemon client for QueryCommand |
 | `src/NSharpLang.Compiler/CodeIntelligence/CodeIntelligenceService.cs` | Shared analysis engine |
-| `src/NSharpLang.Compiler/CodeIntelligence/CompletionEngine.cs` | LLM-optimized completions |
+| `src/NSharpLang.Compiler/CodeIntelligence/CompletionEngine.nl` | LLM-optimized completions (snapshot plumbing; policy lives in `NSharpLang.Compiler.Core/CompletionEngineKernels.nl`) |
 | `src/NSharpLang.Compiler/CodeIntelligence/OutputFormatter.cs` | JSON + Elm-style formatters |
 | `src/NSharpLang.Compiler/CodeIntelligence/FixApplicator.cs` | TextEdit application |
 | `src/NSharpLang.Compiler.Core/CodeIntelligenceModels.nl` | Result types (SymbolResult, etc.) |

@@ -110,12 +110,12 @@ func main() {
 
 ### Classes
 
-Classes are the primary type construct. Visibility is convention-based: PascalCase = exported/public, camelCase = unexported/private-by-convention.
+Classes are the primary type construct. Visibility is convention-based: PascalCase = exported/public, camelCase = namespace-private.
 
 ```n#
 class Person {
     Name: string         // exported/public (PascalCase)
-    age: int             // unexported/private-by-convention (camelCase)
+    age: int             // namespace-private (camelCase)
 
     constructor(name: string, age: int) {
         Name = name
@@ -1888,17 +1888,52 @@ N# uses Go-style naming conventions for visibility — do not write `public`/`pr
 | Convention | Visibility |
 |------------|-----------|
 | `PascalCase` | exported/public |
-| `camelCase` | unexported/private-by-convention |
+| `camelCase` | namespace-private |
 
 ```n#
 class Account {
     Balance: decimal      // exported/public (PascalCase)
-    accountId: string     // unexported/private-by-convention (camelCase)
+    accountId: string     // namespace-private (camelCase)
 
     func Deposit(amount: decimal) { }   // exported/public
-    func validate() { }                  // unexported/private-by-convention
+    func validate() { }                  // namespace-private
 }
 ```
+
+### The unit of privacy is the namespace, not the file
+
+A `camelCase` name — a class member, a top-level `func`, a top-level type — is visible to **every
+file that declares the same namespace** and to nothing outside it. N# has no file-private tier:
+splitting one namespace across many files is the ordinary way to write it, so two halves of a
+namespace must be able to see each other's helpers.
+
+```n#
+// FILE Format.nl
+namespace App.Ast
+
+func formatTypeRef(t: TypeReference): string {
+    return t.Name
+}
+```
+
+```n#
+// FILE Render.nl — same namespace, different file, no import needed
+namespace App.Ast
+
+import System.Collections.Generic
+import System.Linq
+
+func Render(refs: List<TypeReference>): List<string> {
+    return refs.Select(formatTypeRef).ToList()
+}
+```
+
+Reaching `formatTypeRef` from a *different* namespace is [NL308](errors/NL308.md) — an `import`
+does not buy access to what a namespace did not export. Rename it to `FormatTypeRef` to publish it.
+
+In CLR metadata a `camelCase` top-level function is emitted `assembly` (internal) and a
+`PascalCase` one `public`. The namespace boundary is a *language* rule enforced by the compiler, in
+the same way C#'s `private` is a language rule inside one assembly.
 
 Explicit modifiers are narrow .NET interop escape hatches, not the normal way to express visibility. When they override casing, the formatter preserves them because dropping them would change the exported API:
 

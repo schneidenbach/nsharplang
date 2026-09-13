@@ -556,10 +556,11 @@ test "compile-time bench: the skipped source directories are exactly the twelve 
 // program declares for itself added tests/native/census-source-attributes; 101 since one extension-call
 // path from receiver to IL added tests/native/census-extension-calls; 102 since block-scoped local
 // functions added tests/native/census-local-functions; 103 since ordinary expressions inside iterator
-// bodies added tests/native/census-iterators.
-test "compile-time bench: the corpus is the 103 project.yml projects under examples, tests and templates" {
+// bodies added tests/native/census-iterators; 104 since a camelCase top-level function became visible
+// to every file of its namespace added tests/native/census-visibility.
+test "compile-time bench: the corpus is the 104 project.yml projects under examples, tests and templates" {
     projects := BenchCollectCorpusProjects(BenchRepositoryRoot())
-    assert projects.Count == 103
+    assert projects.Count == 104
     assert BenchListContains(projects, "tests/native/census-local-functions")
     assert BenchListContains(projects, "tests/native/census-extension-calls")
     assert BenchListContains(projects, "tests/native/census-lambda-inference")
@@ -589,6 +590,7 @@ test "compile-time bench: the corpus is the 103 project.yml projects under examp
     assert BenchListContains(projects, "tests/native/census-flow-rules")
     assert BenchListContains(projects, "tests/native/census-parse-shapes")
     assert BenchListContains(projects, "tests/native/census-iterators")
+    assert BenchListContains(projects, "tests/native/census-visibility")
 }
 
 test "compile-time bench: the large-project case is NOT in the corpus, and neither is this harness's own project" {

@@ -50,6 +50,12 @@ import NSharpLang.Compiler.Columnar
 //      them walks already-parsed units: a shared analyzer runs one `Analyze` per project file, so a
 //      namespace rebuild that re-parsed the project would parse it once per file — O(files²), the
 //      2026-08 `nlc query completions` hang (693 files, 480k recovery parses, tens of minutes).
+//   4. THE UNIT OF PRIVACY IS THE NAMESPACE, NOT THE FILE. A camelCase top-level declaration — type
+//      OR function — is visible to every file of the namespace that declares it and to no other
+//      namespace. So both channels take the SAME export decision: require an export from every
+//      visible namespace EXCEPT the asking file's own. A file-private tier does not exist in N#;
+//      splitting one namespace across files is the ordinary way to write it, and two halves of one
+//      namespace must see each other's helpers.
 
 // The analyzer's view of the project's sources: which files there are, what they contain, what they
 // parse to, and what namespace they declare. Constructed once per analyzer and never rebuilt, because
@@ -517,16 +523,23 @@ class AnalyzerProjectTypeDiscovery {
         return new SymbolDeclaration(writtenName, filePath, line, CodeIntelligenceTextUtilities.FindIdentifierNameColumn(sourceText, writtenName, line, column), DeclarationFacts.GetDeclarationKind(topLevelDeclaration))
     }
 
-    // THE FUNCTION CHANNEL's discovery half. Exported top-level functions are visible project-wide in
-    // visible namespaces without an import; non-exported ones stay file-private and fall through to
-    // the undefined/inaccessible diagnostics. The FunctionTypeInfo itself is built by the caller,
-    // which is why the matched declaration and its file come back out.
+    // THE FUNCTION CHANNEL's discovery half, and it takes the SAME export decision the type channel
+    // takes in `TryResolveProjectTypeInNamespace`: a camelCase top-level declaration is private to its
+    // NAMESPACE, not to its file. Every file that declares namespace `X` sees `X`'s camelCase
+    // functions with no import and no export; every OTHER namespace needs the declaration exported
+    // (PascalCase), and a camelCase one it names falls through to the inaccessible probe below, which
+    // is what produces NL308 naming the declaring namespace. Before this the function channel required
+    // export unconditionally, so `A.nl`'s `func formatTypeRef` was invisible to `B.nl` of the same
+    // namespace (NL412 at a direct call, NL402 at a method group) while a camelCase CLASS in the same
+    // two files already resolved — the two halves of one rule disagreed. The FunctionTypeInfo itself
+    // is built by the caller, which is why the matched declaration and its file come back out.
     func TryResolveVisibleProjectFunction(name: string, currentNamespace: string?, out filePath: string?, out functionDeclaration: FunctionDeclaration?, out declaration: SymbolDeclaration?): bool {
         visible := AnalyzerTypeReferenceFacts.VisibleTypeNamespaces(currentNamespace, usingNamespaces)
         paths := sources.SourceFilePaths()
         namespaceIndex := 0
         while namespaceIndex < visible.Count {
             visibleNamespace := visible[namespaceIndex]
+            requireExported := !string.Equals(visibleNamespace, currentNamespace, StringComparison.Ordinal)
             fileIndex := 0
             while fileIndex < paths.Count {
                 candidatePath := paths[fileIndex]
@@ -536,7 +549,7 @@ class AnalyzerProjectTypeDiscovery {
                     declarationIndex := 0
                     while declarationIndex < declarations.Count {
                         candidate := declarations[declarationIndex]
-                        if IsExportedFunctionNamed(candidate, name) {
+                        if IsFunctionNamed(candidate, name, requireExported) {
                             filePath = candidatePath
                             functionDeclaration = candidate as FunctionDeclaration
                             declaration = CreateTopLevelSymbolDeclaration(name, candidatePath, sources.ProjectSourceText(candidatePath), candidate)
@@ -664,7 +677,9 @@ class AnalyzerProjectTypeDiscovery {
         return false
     }
 
-    static func IsExportedFunctionNamed(declaration: Declaration, name: string): bool {
+    // A top-level function of this name, exported when the asking file is in ANOTHER namespace and
+    // regardless of export when it is in the declaring one (a camelCase function is namespace-private).
+    static func IsFunctionNamed(declaration: Declaration, name: string, requireExported: bool): bool {
         functionDeclaration := declaration as FunctionDeclaration
         if functionDeclaration == null {
             return false
@@ -672,6 +687,10 @@ class AnalyzerProjectTypeDiscovery {
 
         if !string.Equals(functionDeclaration.Name, name, StringComparison.Ordinal) {
             return false
+        }
+
+        if !requireExported {
+            return true
         }
 
         return DeclarationFacts.IsExportedDeclaration(declaration, name)

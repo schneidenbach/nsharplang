@@ -36,15 +36,19 @@ Functions that return a value must declare that return type. Omitting the return
 
 ### Visibility
 
-Functions follow N#'s convention-based visibility:
+Functions follow N#'s convention-based visibility, and the unit of privacy is the **namespace, not
+the file**. A `camelCase` top-level function is visible to every file that declares the same
+namespace — splitting a namespace across files is the ordinary way to write one — and to nothing
+outside it. Naming it from another namespace is [NL308](errors/NL308.md), whether or not that
+namespace imported yours.
 
 ```n#
-// Public function (PascalCase)
+// Public function (PascalCase) — visible everywhere, exported from the assembly
 func ProcessData(input: string): string {
     return input.ToUpper()
 }
 
-// Private function (camelCase)
+// Namespace-private function (camelCase) — visible to every file of this namespace
 func validateInput(input: string): bool {
     return !string.IsNullOrEmpty(input)
 }
@@ -54,6 +58,29 @@ internal func InternalMethod() { }
 protected func ProtectedMethod() { }
 
 // Do not write public/private in ordinary N#; casing carries that meaning.
+```
+
+A second file of the same namespace needs no import and no qualification to call either of them:
+
+```n#
+// FILE Validate.nl
+namespace App.Text
+
+func validateInput(input: string): bool {
+    return !string.IsNullOrEmpty(input)
+}
+```
+
+```n#
+// FILE Process.nl — same namespace, different file
+namespace App.Text
+
+import System.Collections.Generic
+import System.Linq
+
+func ProcessAll(inputs: List<string>): List<string> {
+    return inputs.Where(validateInput).ToList()     // the method group resolves too
+}
 ```
 
 ## Function Parameters
