@@ -1104,6 +1104,15 @@ class ColumnarDeclarationPlanner {
         return 256
     }
 
+    // `beforefieldinit` tells the CLR that a type's static initialization may run at any point before
+    // the first static-field access rather than exactly at it. C# sets it on every type that does not
+    // declare a static constructor in source, and N# has no static-constructor spelling: a type's only
+    // static initialization is its field initializers, which the emitter gathers into a synthesized
+    // `.cctor`. So every source class and struct carries the bit, exactly as the C# equivalent does.
+    static func BeforeFieldInitTypeAttribute(): int {
+        return 1048576
+    }
+
     static func InterfaceTypeAttribute(): int {
         return 32
     }
@@ -1122,9 +1131,9 @@ class ColumnarDeclarationPlanner {
     }
 
     static func StructTypeAttributesFor(isReference: bool, isSealed: bool, isAbstract: bool, isNested: bool, nestedVisibilityAttributes: int): int {
-        bits := 0
+        bits := BeforeFieldInitTypeAttribute()
         if !isReference || isSealed {
-            bits = SealedTypeAttribute()
+            bits = bits | SealedTypeAttribute()
         }
 
         // `abstract class C` is `Abstract` in metadata, which is the bit `newobj` consults. A value

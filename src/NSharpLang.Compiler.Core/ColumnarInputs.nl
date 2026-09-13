@@ -271,6 +271,10 @@ class ColumnarStructInput {
     FieldConstFlags: bool[]
     FieldInitKinds: int[]
     FieldInitTexts: string[]
+    // The synthesized `.cctor` body: `Name = <expression>` statements, in textual order, for every
+    // non-const static field that declares an initializer. Null for a type that declares none, and
+    // the emitter defines no type initializer for such a type.
+    StaticInitializer: ColumnarFunctionInput?
     IsRecord: bool
     IsNewtype: bool
     TypeParamNames: string[]
@@ -319,6 +323,12 @@ class ColumnarStructInput {
         FieldPrivateFlags = fieldPrivateFlags ?? new bool[](fieldNames.Length)
         FieldThreadStaticFlags = fieldThreadStaticFlags ?? new bool[](fieldNames.Length)
         FieldConstFlags = fieldConstFlags ?? new bool[](fieldNames.Length)
+    }
+
+    // The synthesized static-initializer body's name. It is never emitted as a method — the emitter
+    // writes its statements into the type initializer — but every body carries one for diagnostics.
+    static func StaticInitializerName(): string {
+        return "<StaticInitialize>$"
     }
 
     static func NestedVisibilityFor(name: string, flags: int): int {
@@ -554,6 +564,11 @@ class ColumnarProgramInput {
         structIndex := 0
         while structIndex < Structs.Count {
             structInput := Structs[structIndex]
+            staticInitializer := structInput.StaticInitializer
+            if staticInitializer != null {
+                StampFunctionBindingContext(staticInitializer, scope, scope.ExactStructTypeName(structInput), structInput.TypeParamNames, null)
+            }
+
             methodIndex := 0
             while methodIndex < structInput.Methods.Count {
                 StampFunctionBindingContext(structInput.Methods[methodIndex], scope, scope.ExactStructTypeName(structInput), structInput.TypeParamNames, null)
@@ -722,6 +737,10 @@ class ColumnarProgramInput {
 
     static func AssignStructSourceFileId(structInput: ColumnarStructInput, sourceFileId: int) {
         structInput.SourceFileId = sourceFileId
+        staticInitializer := structInput.StaticInitializer
+        if staticInitializer != null {
+            AssignFunctionSourceFileId(staticInitializer, sourceFileId)
+        }
 
         methodIndex := 0
         while methodIndex < structInput.Methods.Count {

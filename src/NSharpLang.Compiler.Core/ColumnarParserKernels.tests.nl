@@ -233,7 +233,16 @@ class ColumnarStructDeclarationParseProbe {
             WhereOwnerTexts,
             WhereItemCodes,
             WhereTypeTexts,
-            Result
+            Result,
+            new int[](capacity * 4),
+            new int[](capacity * 4),
+            new int[](capacity * 4),
+            new int[](capacity * 4),
+            new int[](capacity * 4),
+            new int[](capacity * 4),
+            new int[](capacity * 4),
+            new int[](capacity * 4),
+            new int[](6)
         )
 
         constructorOffset := 0

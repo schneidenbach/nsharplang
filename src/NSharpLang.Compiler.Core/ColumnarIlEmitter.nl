@@ -3335,7 +3335,6 @@ sealed class ColumnarIlEmitter {
             return false
         }
         // interface inheritance cycle.
-        pendingStaticFieldInits := new List<ColumnarStaticFieldInitializer>()
         structTypeResolutions := new ColumnarSemanticTypeResolution[structs.Count]
         for s := 0; s < structs.Count; s++ {
             st := structs[s]
@@ -3380,10 +3379,6 @@ sealed class ColumnarIlEmitter {
                     def.StaticFields[fieldName] = sfb
                     if isLiteral {
                         def.StaticIntConstants[fieldName] = literalValue
-                    }
-                    initKind := st.FieldInitKinds[fi]
-                    if (initKind >= 0 && !isLiteral) {
-                        pendingStaticFieldInits.Add(new ColumnarStaticFieldInitializer(def, sfb, fieldType, initKind, st.FieldInitTexts[fi]))
                     }
                     continue
                 }
@@ -4626,14 +4621,6 @@ sealed class ColumnarIlEmitter {
             siblings[siblingName] = siblingDefinition
         }
 
-        if (!ColumnarStaticFieldInitializerEmitter.TryEmitAll(
-            structDefsInOrder,
-            pendingStaticFieldInits,
-            siblings
-        )) {
-            return false
-        }
-
         // Pass 2: emit each body into its declared method's IL stream. The Program TypeBuilder + a shared
         // lambda counter ride along so bodies can synthesize `<Lambda>_{n}` static methods (L1b — interleaved
         // DefineMethod and forward ldftn both bake at Save, spike-proven).
@@ -5154,6 +5141,76 @@ sealed class ColumnarIlEmitter {
                     memberDeclineMethodName := memberDeclineMethod.Name
                     memberDeclineMember := memberDeclinePrefix + memberDeclineMethodName
                     return DeclineStatic("emit.body", "member body emission declined", memberDeclineMember, -1, 0)
+                }
+            } finally {
+                ColumnarDeclineTrace.ClearSourceFileId()
+            }
+        }
+
+        // STATIC FIELD INITIALIZERS ARE A `.cctor` BODY. The parser read them as a block of
+        // `Name = <expression>` statements in textual order, so they lower exactly the way the same
+        // assignments written in a static method of the type do: ordinary scoped resolution, ordinary
+        // overload selection, ordinary conversions. An initializer that reads a static field declared
+        // LATER therefore sees that field's default, which is the C# rule. `const` fields are metadata
+        // and never appear here; a type with no static initializer gets no type initializer at all.
+        for s := 0; s < structs.Count; s++ {
+            staticInitializer := structs[s].StaticInitializer
+            if (staticInitializer == null) {
+                continue
+            }
+            staticInitializerDef := structDefsInOrder[s]
+            staticInitializerIl := staticInitializerDef.Builder.DefineTypeInitializer().GetILGenerator()
+            staticInitializerSource := program.GetSourceForFileId(staticInitializer.SourceFileId)
+            staticInitializerTypeResolution := typeResolutionCatalog.For(
+                staticInitializer.SourceFileId,
+                staticInitializerDef.GenericParameters,
+                staticInitializerDef.DeclaredTypeName
+            )
+            staticInitializerEmitter := new ColumnarIlEmitter(
+                staticInitializer.BodyNodes,
+                staticInitializerSource,
+                new Dictionary<string, int>(StringComparer.Ordinal),
+                new Dictionary<string, Type>(StringComparer.Ordinal),
+                ColumnarTypeOfPlanner.RequiredVoidType(),
+                staticInitializerIl,
+                siblings,
+                enumRegistry,
+                structRegistry,
+                unionRegistry,
+                unionCaseRegistry,
+                null,
+                staticInitializerDef,
+                false,
+                false,
+                columnarResolvedType,
+                lambdaCounter,
+                displayClasses,
+                null,
+                null,
+                null,
+                null,
+                siblingReturnTupleNames,
+                null,
+                null,
+                null,
+                false,
+                referenceAssemblyPaths,
+                null,
+                staticInitializerDef.GenericParameters,
+                staticInitializerTypeResolution.Enums,
+                staticInitializerTypeResolution.Structs,
+                staticInitializerTypeResolution.Unions
+            )
+            ColumnarDeclineTrace.SetSourceFileId(staticInitializer.SourceFileId)
+            try {
+                if (!staticInitializerEmitter.EmitBody(staticInitializer.BodyRoot, true)) {
+                    return DeclineStatic(
+                        "emit.body",
+                        "static field initializer emission declined",
+                        staticInitializerDef.Builder.get_Name() + "." + staticInitializer.Name,
+                        -1,
+                        0
+                    )
                 }
             } finally {
                 ColumnarDeclineTrace.ClearSourceFileId()
@@ -13814,7 +13871,7 @@ sealed class ColumnarIlEmitter {
     private func TryGetGenericExtensionReceiverChainType(receiverChain: string, out resolvedClrType: Type): bool {
         resolvedClrType = null
         names: string[]? = null
-        if (!ColumnarStaticFieldInitializerEmitter.IsSupportedGenericExtensionReceiverChainText(receiverChain, out names)) {
+        if (!ColumnarGenericExtensionReceiverChain.IsSupportedText(receiverChain, out names)) {
             return false
         }
 
@@ -13859,7 +13916,7 @@ sealed class ColumnarIlEmitter {
     private func TryEmitGenericExtensionReceiverChain(receiverChain: string, out resolvedClrType: Type): bool {
         resolvedClrType = null
         names: string[]? = null
-        if (!ColumnarStaticFieldInitializerEmitter.IsSupportedGenericExtensionReceiverChainText(receiverChain, out names)) {
+        if (!ColumnarGenericExtensionReceiverChain.IsSupportedText(receiverChain, out names)) {
             return false
         }
 

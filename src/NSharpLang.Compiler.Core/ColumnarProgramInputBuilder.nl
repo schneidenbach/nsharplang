@@ -678,6 +678,16 @@ sealed class ColumnarProgramInputBuilder {
             outWhereItemCodes := new int[](cap)
             outWhereTypeTexts := new string[](cap)
             outResult := new int[](11)
+            staticInitCap := cap * 4
+            outStaticInitNodeKinds := new int[](staticInitCap)
+            outStaticInitValueStarts := new int[](staticInitCap)
+            outStaticInitValueLengths := new int[](staticInitCap)
+            outStaticInitChildStart := new int[](staticInitCap)
+            outStaticInitChildCount := new int[](staticInitCap)
+            outStaticInitChildIndices := new int[](staticInitCap)
+            outStaticInitSpanStarts := new int[](staticInitCap)
+            outStaticInitSpanLengths := new int[](staticInitCap)
+            outStaticInitResult := new int[](6)
             fieldCount := ParseColumnarStructInfoInto(
                 source,
                 ck,
@@ -703,7 +713,16 @@ sealed class ColumnarProgramInputBuilder {
                 outWhereOwnerTexts,
                 outWhereItemCodes,
                 outWhereTypeTexts,
-                outResult
+                outResult,
+                outStaticInitNodeKinds,
+                outStaticInitValueStarts,
+                outStaticInitValueLengths,
+                outStaticInitChildStart,
+                outStaticInitChildCount,
+                outStaticInitChildIndices,
+                outStaticInitSpanStarts,
+                outStaticInitSpanLengths,
+                outStaticInitResult
             )
             if fieldCount < 0 || outResult[1] <= 0 {
                 return DeclineAtToken(ColumnarParseDeclines.StructDeclaration, cs, cv, structIndex, "")
@@ -853,6 +872,30 @@ sealed class ColumnarProgramInputBuilder {
                 fieldConstFlags
             )
             structInput.SourceAttributes = ColumnarSourceAttributes.Read(source, ck, cs, cv, structIndex)
+            // A type with static field initializers carries the synthesized `.cctor` body: one
+            // `Name = <expression>` statement per non-const static initializer, in textual order.
+            if outStaticInitResult[2] > 0 {
+                structInput.StaticInitializer = new ColumnarFunctionInput(
+                    ColumnarStructInput.StaticInitializerName(),
+                    "void",
+                    System.Array.Empty<string>(),
+                    System.Array.Empty<string>(),
+                    BuildTrimmedNodeTable(
+                        outStaticInitNodeKinds,
+                        outStaticInitValueStarts,
+                        outStaticInitValueLengths,
+                        outStaticInitChildStart,
+                        outStaticInitChildCount,
+                        outStaticInitChildIndices,
+                        outStaticInitSpanStarts,
+                        outStaticInitSpanLengths,
+                        outStaticInitResult[5]
+                    ),
+                    outStaticInitResult[4],
+                    true
+                )
+            }
+
             structs.Add(structInput)
             declSlot = declSlot + 1
         }
