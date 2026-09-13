@@ -42,7 +42,7 @@ FLOW4, EMIT2 and ATTR2 merged in landing order onto `census/merge` (`ad8e92c8a`:
 corpus pin 105, ownership audit green after the C# sentinel fixtures moved within their immutable ceiling). Converted
 census at the LAMBDA2 tip: runtime 0, cli 28 (12 warnings), tests 79 (20 warnings), languageserver 52 (13 warnings).
 Two silent defects surfaced and are in flight as EMIT3 (same-named free functions across namespaces collide) and
-INHERIT (a source class cannot see its external base's members). Gates: GATE_PLACEHOLDER_W5.
+INHERIT (a source class cannot see its external base's members). Fresh gates at `a4945e330` (twenty-six merges, incl. EMIT3's namespace-keyed free functions and the FLOW4 `[DoesNotReturn]` fix to the benchmark runner): `VSCODE_TESTS=skip` 12m18s and VS Code-enabled 12m47s (smoke 16/16), both ALL TESTS PASSED; pushed as systems-language `ee1b12a65` → this commit.
 
 **Census waves 3 and 4 integrated, 2026-09-13** (systems-language `755e53a14` → see the push line below):
 seventeen converter-census streams merged in landing order onto `census/merge` — CONV, FLOW2, TOOL, ENUM, PARSE2,
