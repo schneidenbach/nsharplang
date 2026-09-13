@@ -145,6 +145,15 @@ class AnalyzerFlowNarrowing {
         binary := condition as BinaryExpression
         isExpr := condition as IsExpression
         if binary != null {
+            // `c == true` IS `c`, AND THE OTHER THREE SPELLINGS ARE ITS NEGATION OR ITS MIRROR. Stated
+            // once here for the same reason `!` is stated once: a converter writes `== true` wherever
+            // the source compared a lifted `bool?`, and without this arm the comparison proved nothing
+            // at all — including the postconditions the call inside it had already established.
+            booleanComparisonSplit := TryExtractBooleanLiteralComparison(binary)
+            if booleanComparisonSplit != null {
+                return booleanComparisonSplit
+            }
+
             // x != null → narrow x to non-nullable in then-branch
             if binary.Operator == BinaryOperator.NotEqual {
                 TryExtractNullNarrowing(binary.Left, binary.Right, thenNarrowings, elseNarrowings, true)
@@ -227,6 +236,68 @@ class AnalyzerFlowNarrowing {
                 AddRange(thenNarrowings, postconditionsValue.BranchNarrowings(callCondition, true))
                 AddRange(elseNarrowings, postconditionsValue.BranchNarrowings(callCondition, false))
             }
+        }
+
+        return new FlowNarrowingSplit(thenNarrowings, elseNarrowings)
+    }
+
+    // A CONDITION COMPARED TO A BOOLEAN LITERAL IS THAT CONDITION, and which of its two lists lands
+    // on which branch is decided by one question: does the comparison hold when the operand is TRUE?
+    // `c == true` and `c != false` say yes and pass the lists through; `c == false` and `c != true`
+    // say no and swap them, which is exactly what `!c` does.
+    //
+    // A LIFTED OPERAND ONLY PROVES THE SIDE THE COMPARISON DECIDED. `x?.TryGetValue(k, out v) == true`
+    // is true ONLY when `x` was non-null AND the call answered true, so that branch carries both the
+    // chain`s tested receivers and the call`s true-branch postconditions. Its other branch is
+    // `x is null OR the call answered false` — a disjunction, and a disjunction proves nothing about
+    // either side, which is the same rule `||` and `x?.M == null` already state. `!=` is the same
+    // statement with the decided side swapped: `c != true` rules nothing out when it holds, and
+    // proves everything when it does not.
+    func TryExtractBooleanLiteralComparison(binary: BinaryExpression): FlowNarrowingSplit? {
+        equality := binary.Operator == BinaryOperator.Equal
+        if !equality && binary.Operator != BinaryOperator.NotEqual {
+            return null
+        }
+
+        operand := binary.Left
+        literal := binary.Right as BoolLiteralExpression
+        if literal == null {
+            literal = binary.Left as BoolLiteralExpression
+            operand = binary.Right
+        }
+
+        if literal == null {
+            return null
+        }
+
+        if operand as BoolLiteralExpression != null {
+            return null
+        }
+
+        split := ExtractFlowNarrowings(operand)
+        if equality != literal.Value {
+            split = NegateSplit(split)
+        }
+
+        if !AnalyzerNullConditionalChainFacts.SpineReachesNullGuard(operand) {
+            return split
+        }
+
+        guardedPaths := new List<string>()
+        AnalyzerNullConditionalChainFacts.CollectGuardedReceiverPaths(operand, guardedPaths)
+
+        thenNarrowings := new List<FlowNarrowing>()
+        elseNarrowings := new List<FlowNarrowing>()
+        decided := elseNarrowings
+        decidedSource := split.Else
+        if equality {
+            decided = thenNarrowings
+            decidedSource = split.Then
+        }
+
+        decided.AddRange(decidedSource)
+        for guardedPath in guardedPaths {
+            decided.Add(new FlowNarrowing(guardedPath, null, NullState.NotNull))
         }
 
         return new FlowNarrowingSplit(thenNarrowings, elseNarrowings)

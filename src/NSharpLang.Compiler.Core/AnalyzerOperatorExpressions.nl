@@ -1902,7 +1902,56 @@ class AnalyzerOperatorExpressions {
             return true
         }
 
+        if CanCompareLiftedEquality(resolvedLeft, resolvedRight) {
+            return true
+        }
+
         return AnalyzerConversionFacts.IsReferenceType(resolvedLeft) && AnalyzerConversionFacts.IsReferenceType(resolvedRight)
+    }
+
+    // THE LIFTED FORM OF EVERY EQUALITY THE RULE ABOVE ALREADY ADMITS. `Nullable<T>` gets a lifted
+    // `==` and `!=` for each predefined one on `T` — that is C# §12.12.7 — and the answer is `bool`,
+    // not `bool?`: two absent values are EQUAL and an absent one differs from every present one, so
+    // the comparison is always decided. `x?.TryGetValue(k, out v) == true` is the shape that needs it,
+    // and it is the shape a converter writes wherever the source tested a lifted boolean.
+    //
+    // ONE SIDE LIFTED IS ENOUGH, because the non-nullable operand converts to `T?` implicitly. Both
+    // sides are unwrapped and the SAME question is asked of what is left, so the lifted rule can
+    // never admit a pair the unlifted rule refuses — and it recurses at most once, because an
+    // unwrapped operand is not a nullable.
+    //
+    // A REFERENCE `T?` IS NOT A LIFT. Its `?` is an annotation on one CLR type, and the reference arm
+    // below already answers it; unwrapping here would let `string? == int` through the primitive arm.
+    func CanCompareLiftedEquality(left: TypeInfo, right: TypeInfo): bool {
+        unwrappedLeft := UnwrapLiftedValueOperand(left)
+        unwrappedRight := UnwrapLiftedValueOperand(right)
+        if unwrappedLeft == null && unwrappedRight == null {
+            return false
+        }
+
+        liftedLeft := unwrappedLeft ?? left
+        liftedRight := unwrappedRight ?? right
+        if AnalyzerConversionFacts.IsReferenceType(liftedLeft) || AnalyzerConversionFacts.IsReferenceType(liftedRight) {
+            return false
+        }
+
+        return CanCompareWithEqualityOperator(liftedLeft, liftedRight)
+    }
+
+    // The `T` of a `T?` whose `T` is a VALUE type, and nothing else — a reference annotation and a
+    // plain type both answer null, which is what stops the caller from unwrapping either of them.
+    func UnwrapLiftedValueOperand(candidate: TypeInfo): TypeInfo? {
+        nullable := declarationsValue.ResolveDeclaredAlias(candidate) as NullableTypeInfo
+        if nullable == null {
+            return null
+        }
+
+        inner := declarationsValue.ResolveDeclaredAlias(nullable.InnerType)
+        if AnalyzerConversionFacts.IsReferenceType(inner) {
+            return null
+        }
+
+        return inner
     }
 
     // BOOLEANS COMPARE ONLY WITH BOOLEANS. The test is asymmetric on purpose: one boolean side makes

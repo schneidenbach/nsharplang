@@ -1696,6 +1696,25 @@ optionalName: string? = null
 optionalName = "Bob"  // OK
 ```
 
+A reference `T?` is an **annotation**, not a construction: `MarkupContent?` and `MarkupContent` are
+the same CLR type, and everything after the dot is whatever the class itself declares. `Value`,
+`HasValue` and `GetValueOrDefault` are `Nullable<T>`'s members and exist only for a **value** `T?`;
+on a reference `T?` they are ordinary names, and a class free to declare them or not.
+
+```n#
+class MarkupContent {
+    Value: string
+    constructor(value: string) { Value = value }
+}
+
+func Text(markup: MarkupContent?): string? {
+    return markup?.Value       // string? — the CLASS's `Value`, lifted by the chain
+}
+```
+
+Reading such a member is an ordinary dereference, so it follows the ordinary rules: guard it with
+`?.`, a null check or `must`. `must markup` on a reference `T?` is the null assertion it always was.
+
 ### Nullable Value Types
 
 ```n#
@@ -1711,6 +1730,31 @@ if age != null {
 // Null-coalescing operator
 displayAge := age ?? 0
 ```
+
+`==` and `!=` are **lifted** over a nullable value type: two absent values are equal, an absent one
+differs from every present one, and the answer is a plain `bool` rather than a `bool?`. One side may
+be the non-nullable type.
+
+```n#
+age: int? = null
+same := age == 25          // bool — false, and false again for `age == 0`
+absent := age == null      // the null comparison, unchanged
+
+ready: bool? = TryLoad()   // a lifted boolean
+if ready == true {         // true ONLY when there IS a value and it is true
+    // ...
+}
+```
+
+That is the spelling a lifted boolean is tested with, and it narrows exactly like the boolean it
+compares: `c == true` proves what `c` proves, `c == false` proves the mirror, and the two `!=`
+spellings swap the branches. When the operand crosses a `?.`, only the branch the comparison
+*decided* proves anything — `map?.TryGetValue(key, out value) == true` holds only when `map` was
+non-null **and** the call answered true, so that branch narrows both `map` and `value`, while its
+other branch is a disjunction and proves neither.
+
+No other operator is lifted: `age + 1` on an `int?` is an error, and `must age + 1` or `(age ?? 0) + 1`
+is how it is written.
 
 ### Null-conditional Operator
 

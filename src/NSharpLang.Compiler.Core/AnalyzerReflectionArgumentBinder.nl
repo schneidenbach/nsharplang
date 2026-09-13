@@ -1025,7 +1025,28 @@ class AnalyzerReflectionArgumentBinder {
             return
         }
 
-        arrayTypeInfo := argumentTypeInfo as ArrayTypeInfo
+        // A NULLABILITY ANNOTATION IS NOT A SHAPE. A member read out of an assembly that was compiled
+        // WITHOUT a nullable context converts to an `ObliviousTypeInfo` wrapper — `ITestCase.Traits`
+        // is `Dictionary<string!, List<string!>!>!` — and asking that wrapper whether it is a generic
+        // or an array answered NO, so the receiver contributed no bindings at all and the method's
+        // own type parameters were left to be bound by whichever ARGUMENT came next. On
+        // `dict.TryGetValue(k, out v)` that argument is the `out` variable, so `TValue` bound to the
+        // variable's own `List<string>?` and the postcondition then said the call leaves a MAYBE-NULL
+        // value in the true branch. The structure is read through the wrapper and the ANSWER keeps it,
+        // because the annotation is part of what the receiver said about its own type argument.
+        structuralTypeInfo := NullabilityMetadataCore.StripMetadata(argumentTypeInfo)
+
+        // A NULLABLE REFERENCE ANNOTATION IS NOT A SHAPE EITHER, and it reaches this walk the same
+        // way: `doc.Symbols?.TryGetValue(k, out v)` hands the receiver as `Dictionary<K, V>?`, whose
+        // `?` is an annotation on one CLR type rather than a `Nullable<>` construction. A VALUE
+        // nullable is left alone — `int?` IS `Nullable<int>`, and a parameter spelled `T?` matches it
+        // as the construction it is.
+        structuralNullable := structuralTypeInfo as NullableTypeInfo
+        if structuralNullable != null && AnalyzerConversionFacts.IsReferenceType(structuralNullable.InnerType) {
+            structuralTypeInfo = NullabilityMetadataCore.StripMetadata(structuralNullable.InnerType)
+        }
+
+        arrayTypeInfo := structuralTypeInfo as ArrayTypeInfo
         if arrayTypeInfo != null {
             enumerableElementParameter := TryGetReflectionEnumerableElementParameter(openParameterType)
             if enumerableElementParameter != null {
@@ -1034,7 +1055,7 @@ class AnalyzerReflectionArgumentBinder {
             }
         }
 
-        argGeneric := argumentTypeInfo as GenericTypeInfo
+        argGeneric := structuralTypeInfo as GenericTypeInfo
         if !openParameterType.get_IsGenericType() || argGeneric == null {
             return
         }
@@ -1053,7 +1074,7 @@ class AnalyzerReflectionArgumentBinder {
             return
         }
 
-        argClrType := clrTypeConversion.TryConvertTypeInfoToClrTypeForBinding(argumentTypeInfo)
+        argClrType := clrTypeConversion.TryConvertTypeInfoToClrTypeForBinding(structuralTypeInfo)
         if argClrType == null || !argClrType.get_IsGenericType() {
             return
         }

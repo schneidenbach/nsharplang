@@ -566,6 +566,15 @@ Three rules, composed in this order:
 CONDITIONAL FACTS ARE FILED AGAINST THE CALL NODE RATHER THAN APPLIED, because a call in a condition
 is analysed BEFORE the `if` walk asks what the condition proves; `AnalyzerFlowNarrowing`'s call arm
 reads them back when it meets the same node, so `&&`, `||`, `!` and the ternary compose for free.
+
+`c == true` IS `c` (census 2026-09-13, §FLOW5). `AnalyzerFlowNarrowing.TryExtractBooleanLiteralComparison`
+is the one rule behind all four spellings: the comparison holds when the operand is TRUE exactly when
+`(operator is ==) == (literal is true)`, which passes the two lists through, and otherwise swaps them
+— the same thing `!` does. A converter writes `== true` wherever the source compared a LIFTED boolean,
+and until this rule existed the comparison proved nothing at all. A LIFTED operand (its spine crosses
+a `?.`) only proves the side the comparison DECIDED: `==` is definite when it held and `!=` when it did
+not, and the decided side also gets the chain's tested receivers, while the other side is a
+disjunction with "the receiver was null" and proves neither operand.
 Unconditional facts are written into the flow immediately, INCLUDING the invalidation an assignment
 performs — an `out` argument IS an assignment, so every fact derived from that path is stale.
 
@@ -575,6 +584,38 @@ and committed by `AnalyzerCallAnalysis` only when the call's walk accepts the ca
 half is recorded by `AnalyzerSyntheticCallValidator.RecordCallPostconditions`, a second pass over the
 same binding the argument checks used (a second pass because the first `continue`s past positions it
 has nothing to report about, and those positions still owe a postcondition).
+
+### Lifted equality on a nullable value type (census 2026-09-13, §FLOW5)
+
+`AnalyzerOperatorExpressions.CanCompareLiftedEquality` is the whole analyzer half: both operands are
+unwrapped by `UnwrapLiftedValueOperand` — which answers the `T` of a `T?` ONLY when `T` is a value
+type, so a reference annotation is left to the reference arm — and the SAME equality question is then
+asked of what is left. It therefore admits exactly the lifted forms of the pairs the unlifted rule
+already admits, and the result is `bool` rather than `bool?`: two absent values are equal and an
+absent one differs from every present one, so the comparison is always decided (C# §12.12.7). It
+recurses at most once, because an unwrapped operand is not a nullable.
+
+`==` and `!=` are the ONLY operators N# lifts. `int? + 1` is still NL202, and that is a deliberate
+line rather than an oversight: `== true` is the spelling a lifted boolean is tested with and the one
+the census corpus needs, while lifted arithmetic has `must` and `??` as its spellings.
+
+EMIT MIRRORS IT IN `ColumnarIlEmitter.TryEmitLiftedNullableEquality`:
+`a.GetValueOrDefault() == b.GetValueOrDefault() & a.HasValue == b.HasValue` when both sides are
+lifted, and `a.GetValueOrDefault() == <b> & a.HasValue` when one is. The lifted operand is STORED into
+a local before its value is read, which is what preserves left-to-right evaluation order; the
+`HasValue` half re-reads the locals and evaluates nothing. The element must be one `ceq` answers for
+(the integral family, `char`, `bool`, the two floating types, any enum); anything else declines rather
+than comparing wrongly. The arm commits when either side preflights as a `Nullable<T>` OR is a `?.`
+chain root the preflight could not answer for — the other operand's known `ceq` element is what makes
+that safe — and then reads the real types off what it emitted. `TryGetPreflightExpressionType` now
+answers for a `?.` chain (`TryGetPreflightNullConditionalChainType` applies the chain's lift, and the
+guard node itself is transparent to the type), which it previously could not do at all.
+
+A `null` TERNARY ARM TAKES THE OTHER ARM'S TYPE. `flag ? name : null` used to decline with
+"unsupported expression (node kind 5)" because a bare `null` has no self-type; the residual ternary
+arm now emits `ldnull` for it and takes the other arm's type, which must be a reference type. When the
+literal is the THEN arm it is emitted first, so the else arm's type is preflighted before the branch
+is written at all.
 
 ### Reachability attributes — where a call sends control (census 2026-09-13, §FLOW4)
 
@@ -596,6 +637,19 @@ call's walk accepts the candidate for the same reason the postconditions are.
   narrowed by what the argument proved on the branch the attribute did NOT name, through
   `AnalyzerExpressionStatements`' discard phase 4 and request kinds 9 (narrow by TRUE) and 10 (by
   FALSE) — the same step the `assert` statement uses.
+
+WHOSE NULLABILITY THE `out` PARAMETER TAKES IS THE RECEIVER'S, AND A NULLABILITY ANNOTATION IS NOT A
+SHAPE (census 2026-09-13, §FLOW5). `AnalyzerReflectionArgumentBinder.PopulateTypeInfoBindingsFromType`
+reads the argument's structure to bind the method's own type parameters, and it asked
+`argumentTypeInfo as GenericTypeInfo` directly — so a receiver wearing an `ObliviousTypeInfo` shell
+(`ITestCase.Traits` is `Dictionary<string!, List<string!>!>!`, because xunit.abstractions carries no
+nullable context) or a nullable REFERENCE annotation (`doc.Symbols?.TryGetValue(...)` hands the
+receiver over as `Dictionary<K, V>?`) answered "not a generic" and contributed NOTHING. First binding
+wins, so `TValue` was then bound by the next argument — the `out` variable, whose own `List<string>?`
+made `DeclaredParameterState` answer MAYBE-NULL and the `[MaybeNullWhen(false)]` fallback fact say the
+TRUE branch leaves a maybe-null value. The strip is structural only: the bare type-parameter position
+still binds the annotated `TypeInfo` verbatim, and a VALUE nullable is never stripped because `int?`
+IS `Nullable<int>` and a parameter spelled `T?` matches it as the construction it is.
 
 A MEMBER DECLARED ON A TYPE reaches its callers through `DeclaredMemberInfo`, not through its
 `FunctionDeclaration`, so that record carries `DoesNotReturn` and `ParameterReachabilityFacts` too;
@@ -640,6 +694,22 @@ A PARENTHESIS ENDS THE CHAIN and the walk does not step through one, which is th
 `ColumnarIlEmitter.IsNullConditionalChainRoot` stops at. The emitter has always read chains this way;
 before this slice the ANALYZER did not, so `s?.Trim()` typed as `string` while the emitter returned a
 null reference for a null receiver.
+
+THE LIFT SKIPS A CALLEE — EVERY CALLEE, INCLUDING THE `?.` LINK ITSELF (census 2026-09-13, §FLOW5).
+`AnalyzerMemberAccess.Finish` used to lift on `member.IsNullConditional` regardless of whether the
+member sat in INVOCATION position, so `x?.M(...)`'s callee came back as a `NullableTypeInfo` over a
+`ReflectionMethodGroupInfo` — and `AnalyzerCallAnalysis.Dispatch` matches nothing against that, so
+the call fell off the end of the dispatch table and answered `unknown`. Every `?.` invocation in the
+language was therefore unbound: no overload resolution, no argument diagnostics (`h?.M("a","b","c")`
+reported no arity error at all), no nullability postconditions and no `[DoesNotReturn]` facts. The
+gate is now `(member.IsNullConditional || isChainContinuation) && !invocationPosition`, and the
+INVOCATION lifts the result exactly as it always did.
+
+`AnalyzerNullConditionalChainFacts.CollectGuardedReceiverPaths` answers the other half — WHICH
+receivers a chain tested — by walking the same spine and handing the first `?.` link's receiver to
+`AnalyzerDiagnosticSpanFacts.TryGetNullConditionalChainPath`, which collects any further `?.` to its
+left. `AnalyzerFlowNarrowing` uses it to narrow those receivers on the branch a lifted comparison
+decided.
 
 ### Substitution-aware resolution
 
@@ -1212,6 +1282,18 @@ A NARROWED nullable answers `.Value` whatever family its inner type is in. The n
 a narrowed `(Uri: string, Line: int)?` reported NL303 while the same access on a narrowed `int?`
 resolved. The gate is identity with the origin's INNER type — the question the second nullable arm
 already asked.
+
+BUT ONLY FOR A VALUE `T?` (census 2026-09-13, §FLOW5). `Nullable<T>`'s surface exists because
+`Nullable<T>` is a CLR STRUCT; a reference `T?` is an ANNOTATION on one CLR type, so `Value`,
+`HasValue` and `GetValueOrDefault` there are whatever the CLASS declares and nothing more.
+`TryResolveNullableMemberAccess` answered them for EVERY `NullableTypeInfo`, so
+`documentation.MarkupContent?.Value` — `MarkupContent` being a class with its own `Value: string` —
+typed as `MarkupContent`, warned NL907 about an unwrap the program never wrote, and then refused the
+`string?` the function returned. The arm is now gated on
+`!AnalyzerConversionFacts.IsReferenceType(nullableType.InnerType)` (the second arm,
+`TryResolveNullableValueTypeOwnMember`, was already value-type-gated through the CLR handle). A
+reference `T?` therefore falls through to ordinary resolution, and its maybe-null dereference rules
+apply exactly as they do to every other member read.
 
 DECONSTRUCTION IS NOT ONLY FOR TUPLES. `AnalyzerVariableDeclaration.TryGetDeconstructMethodElements`
 asks a non-tuple source for an accessible instance `Deconstruct(out ...)` whose out-parameter count

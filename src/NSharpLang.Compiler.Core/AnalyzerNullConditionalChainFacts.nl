@@ -1,5 +1,6 @@
 namespace NSharpLang.Compiler
 
+import System.Collections.Generic
 import NSharpLang.Compiler.Ast
 
 
@@ -69,6 +70,60 @@ class AnalyzerNullConditionalChainFacts {
         }
 
         return false
+    }
+
+    // THE RECEIVERS A `?.` CHAIN TESTED ON ITS WAY TO ITS RESULT. A chain that produced a value at
+    // all proves every one of them non-null, which is what lets `x?.M(k, out v) == true` narrow `x`
+    // on the branch the comparison decided.
+    //
+    // The walk is the RECEIVER SPINE `SpineReachesNullGuard` follows, and it stops at the first `?.`
+    // it meets: that link's own receiver is handed to the chain-path reader, which collects any
+    // further `?.` written to ITS left. A parenthesis ends a chain, so it is not stepped through
+    // here either.
+    static func CollectGuardedReceiverPaths(expression: Expression?, paths: List<string>) {
+        current := expression
+        depth := 0
+        while current != null && depth < 64 {
+            member := current as MemberAccessExpression
+            if member != null {
+                if member.IsNullConditional {
+                    AddGuardedReceiverPath(member.Object, paths)
+                    return
+                }
+
+                current = member.Object
+                depth = depth + 1
+                continue
+            }
+
+            indexAccess := current as IndexAccessExpression
+            if indexAccess != null {
+                if indexAccess.IsNullConditional {
+                    AddGuardedReceiverPath(indexAccess.Object, paths)
+                    return
+                }
+
+                current = indexAccess.Object
+                depth = depth + 1
+                continue
+            }
+
+            nestedCall := current as CallExpression
+            if nestedCall != null {
+                current = nestedCall.Callee
+                depth = depth + 1
+                continue
+            }
+
+            return
+        }
+    }
+
+    static func AddGuardedReceiverPath(receiver: Expression, paths: List<string>) {
+        receiverPath := AnalyzerDiagnosticSpanFacts.TryGetNullConditionalChainPath(receiver, paths)
+        if receiverPath != null {
+            paths.Add(receiverPath)
+        }
     }
 
     // Whether a member access is a continuation link — a `.` written to the right of a `?.` in the
