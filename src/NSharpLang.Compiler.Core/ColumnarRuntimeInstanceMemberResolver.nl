@@ -159,8 +159,30 @@ class ColumnarRuntimeInstanceMemberResolver {
             return false
         }
 
-        if ContainsOpenGenericParameters(receiverType) || ContainsBuilderBoundType(receiverType) || IsSourceBuilderShape(receiverType) {
+        if ContainsOpenGenericParameters(receiverType) || IsSourceBuilderShape(receiverType) {
             return false
+        }
+
+        // WHAT MAKES A RECEIVER "SOURCE" IS ITS DEFINITION, NOT ITS ARGUMENTS. `IsSourceBuilderShape`
+        // above already refuses a type this compilation is WRITING, including a generic whose
+        // definition is one. What is left here is an EXTERNAL generic closed over a source type —
+        // `Lazy<Query>` for a source class `Query` — and refusing that made `new Lazy<Query>(...)`
+        // compile while `.Value` on it declined, because a member of it could not be reached at all.
+        //
+        // Its members ARE reachable: `TryResolvePublicGetter` reads the getter off the DEFINITION and
+        // rebinds it through `TypeBuilder.GetMethod`, substituting this instantiation's arguments —
+        // the same rebind the call path already does. A builder-bound receiver still cannot be asked
+        // any reflection question directly, which is why nothing below this point reads a property of
+        // it that is not routed through that rebind.
+        if ContainsBuilderBoundType(receiverType) {
+            if !receiverType.get_IsGenericType() || receiverType.get_IsGenericTypeDefinition() {
+                return false
+            }
+
+            // The DEFINITION answers what kind of type this is, because a constructed generic the CLR
+            // has no handle for cannot be asked directly.
+            builderBoundDefinition := receiverType.GetGenericTypeDefinition()
+            return builderBoundDefinition.get_IsClass() || builderBoundDefinition.get_IsInterface()
         }
 
         return receiverType.get_IsClass() || receiverType.get_IsInterface()
@@ -436,7 +458,15 @@ class ColumnarRuntimeInstanceMemberResolver {
     static func TrySelectOrdinaryReadableMember(receiverType: Type, member: string, out selection: ColumnarRuntimeInstanceMemberSelection): bool {
         selection = EmptySelection()
 
-        field := receiverType.GetField(member, BindingFlags.Public | BindingFlags.Instance)
+        // A CONSTRUCTED GENERIC CLOSED OVER A TYPE THIS COMPILATION IS WRITING ANSWERS NO MEMBER
+        // QUERY AT ALL — `GetField` on one throws "TypeBuilder generic instantiation does not support
+        // resolving members". The PROPERTY read below reaches its getter through the definition and
+        // `TypeBuilder.GetMethod`, which is the whole point of admitting such a receiver; the FIELD
+        // probe has no such rebind here, so it is skipped rather than asked.
+        field: FieldInfo? = null
+        if !ContainsBuilderBoundType(receiverType) {
+            field = receiverType.GetField(member, BindingFlags.Public | BindingFlags.Instance)
+        }
         if field != null {
             declaringType := field.get_DeclaringType()
             fieldType := field.get_FieldType()
@@ -546,7 +576,11 @@ class ColumnarRuntimeInstanceMemberResolver {
             return true
         }
 
-        if !lookupType.get_IsInterface() {
+        // A CONSTRUCTED GENERIC CLOSED OVER A TYPE THIS COMPILATION IS WRITING CANNOT BE ASKED FOR ITS
+        // INTERFACE LIST — `TypeBuilderInstantiation.GetInterfaces()` throws `NotSupportedException` —
+        // so the inherited-interface sweep is skipped for one rather than attempted. The direct read
+        // above already went through the definition, which is the only reachable answer.
+        if !lookupType.get_IsInterface() || ContainsBuilderBoundType(lookupType) {
             return false
         }
 

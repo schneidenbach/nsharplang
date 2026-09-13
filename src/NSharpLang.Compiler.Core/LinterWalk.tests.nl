@@ -1259,3 +1259,27 @@ test "the exception VARIABLE is still exempt from NL001, and the clause type doe
     // not how you use a value, and tracking the TYPE must not change that either way.
     assert LnieCensus("\nimport System.Text\n\nfunc F() {\n    try {\n        print(\"body\")\n    } catch (error: StringBuilder) {\n        print(\"caught\")\n    }\n}\n") == ""
 }
+
+// ── a type named ONLY in a `where` clause ─────────────────────────────────────────────────────
+//
+// A `where` clause is part of the signature and its constraint types are written `TypeReference`s,
+// exactly as a parameter's type is — but it is neither a parameter, a return type nor an expression,
+// so the ledger never saw it. A file whose only mention of a namespace was
+// `where T: IEnumerable<string>` reported a false NL010 against the import it needs, an ERROR whose
+// `nlc fix` would DELETE it; and NL002 was never asked whether the import was missing at all.
+
+test "a type named ONLY in a `where` clause makes its import used" {
+    // The import is the file's only reason to exist and the clause is its only mention.
+    assert LnieCensus("\nimport System.Collections.Generic\n\nfunc F<T>(items: T): bool where T: IEnumerable<string> {\n    return items != null\n}\n") == ""
+    assert LnieCensus("\nimport System.Text\n\nfunc F<T>(items: T): bool where T: StringBuilder {\n    return items != null\n}\n") == ""
+}
+
+test "a constraint type with no import is NL002, reported at the type's own columns" {
+    assert LnieCensus("\nfunc F<T>(items: T): bool where T: StringBuilder {\n    return items != null\n}\n") == "NL002@2:36+13;"
+}
+
+test "a constraint's type ARGUMENT counts as a mention too" {
+    // `IEnumerable<StringBuilder>` mentions both names; the import that supplies the ARGUMENT is kept
+    // alive by the clause exactly as the one supplying the head would be.
+    assert LnieCensus("\nimport System.Text\nimport System.Collections.Generic\n\nfunc F<T>(items: T): bool where T: IEnumerable<StringBuilder> {\n    return items != null\n}\n") == ""
+}

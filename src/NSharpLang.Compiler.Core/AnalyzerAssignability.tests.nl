@@ -550,18 +550,23 @@ test "a lambda's function type matches a Func by argument order and an Action by
     assert assignability.IsAssignable(funcIntToInt, inferring)
 }
 
-test "a zero-argument void lambda matches the exact reflected ThreadStart delegate only" {
+// A LAMBDA REACHES ANY REFLECTED DELEGATE, and the shape still has to match. `ThreadStart` used to be
+// the ONLY reflected delegate a lambda could reach — a hand-placed bridge compared by type identity —
+// so every other one, `Predicate<T>` and the event-handler family included, was refused for no reason
+// but its name. The signature is read off `Invoke` now, so the accept/reject line below is the
+// delegate's own signature rather than which delegate it is.
+test "a lambda matches any reflected delegate whose Invoke signature it fits" {
     assignability := AssignabilityDefault()
     threadStart: TypeInfo = new ReflectionTypeInfo(typeof(ThreadStart))
 
     voidLambda: TypeInfo = AssignabilityLambda(AssignabilityNone(), BuiltInTypes.Void)
-    assert assignability.IsAssignable(threadStart, voidLambda)
+    assert assignability.IsAssignable(threadStart, voidLambda), "a () -> void lambda is a ThreadStart"
 
     wrongParameter: TypeInfo = AssignabilityLambda(AssignabilityOne(BuiltInTypes.Int), BuiltInTypes.Void)
-    assert !assignability.IsAssignable(threadStart, wrongParameter)
+    assert !assignability.IsAssignable(threadStart, wrongParameter), "an (int) -> void lambda is not a ThreadStart"
 
     wrongReturn: TypeInfo = AssignabilityLambda(AssignabilityNone(), BuiltInTypes.Int)
-    assert !assignability.IsAssignable(threadStart, wrongReturn)
+    assert !assignability.IsAssignable(threadStart, wrongReturn), "a () -> int lambda is not a ThreadStart"
 
     scan := ExternalAssemblyScan.OpenWithReferences(null)
     try {
@@ -575,6 +580,45 @@ test "a zero-argument void lambda matches the exact reflected ThreadStart delega
     } finally {
         scan.Dispose()
     }
+}
+
+// The census's own shape: a NON-GENERIC delegate that is not `ThreadStart`, whose `Invoke` is
+// `(object, ConsoleCancelEventArgs) -> void`. Nothing about the name is consulted.
+test "a lambda matches a non-generic event-handler delegate by its Invoke signature" {
+    assignability := AssignabilityDefault()
+    cancelHandler: TypeInfo = new ReflectionTypeInfo(typeof(ConsoleCancelEventHandler))
+
+    handlerLambda: TypeInfo = AssignabilityLambda(
+        AssignabilityTwo(BuiltInTypes.Object, new ReflectionTypeInfo(typeof(ConsoleCancelEventArgs))),
+        BuiltInTypes.Void
+    )
+    assert assignability.IsAssignable(cancelHandler, handlerLambda)
+
+    // A lambda whose parameters are not inferred yet is not pre-judged, and the arity still is.
+    inferring: TypeInfo = AssignabilityLambda(
+        AssignabilityTwo(BuiltInTypes.Unknown, BuiltInTypes.Unknown),
+        BuiltInTypes.Void
+    )
+    assert assignability.IsAssignable(cancelHandler, inferring)
+
+    wrongArity: TypeInfo = AssignabilityLambda(AssignabilityNone(), BuiltInTypes.Void)
+    assert !assignability.IsAssignable(cancelHandler, wrongArity)
+}
+
+// A CONSTRUCTED GENERIC delegate that is neither `Func` nor `Action` carries its shape in exactly the
+// same place: `Predicate<int>` takes one `int` and returns `bool`.
+test "a lambda matches a constructed generic delegate that is neither Func nor Action" {
+    assignability := AssignabilityDefault()
+    predicate: TypeInfo = new ReflectionTypeInfo(typeof(Predicate<int>))
+
+    predicateLambda: TypeInfo = AssignabilityLambda(AssignabilityOne(BuiltInTypes.Int), BuiltInTypes.Bool)
+    assert assignability.IsAssignable(predicate, predicateLambda)
+
+    wrongReturn: TypeInfo = AssignabilityLambda(AssignabilityOne(BuiltInTypes.Int), BuiltInTypes.Void)
+    assert !assignability.IsAssignable(predicate, wrongReturn)
+
+    wrongArity: TypeInfo = AssignabilityLambda(AssignabilityNone(), BuiltInTypes.Bool)
+    assert !assignability.IsAssignable(predicate, wrongArity)
 }
 
 test "function-type structural comparison compares parameters and the return, not the display form" {

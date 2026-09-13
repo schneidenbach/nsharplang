@@ -344,9 +344,19 @@ class AnalyzerAssignabilityFacts {
             return true
         }
 
+        // A CONSTRUCTED GENERIC DELEGATE, BY WHAT IT IS as well as by what it is CALLED. The name test
+        // alone said `Predicate<string>`, `Comparison<int>`, `Converter<T, R>` and `EventHandler<T>`
+        // could not take a method group, so naming one there reported NL411 "must be called or passed
+        // to a delegate" — about a position that is exactly a delegate. The definition's base type
+        // answers for every one of them.
+        //
+        // THE TWO NAMES REMAIN, and not as a shortcut: `Func` and `Action` are the two spellings the
+        // analyzer also builds WITHOUT a reflected definition behind them (the same reason
+        // `IsLambdaAssignableToDelegate` reads their type arguments positionally), and such a
+        // spelling has no base type to consult.
         genericType := resolvedExpected as GenericTypeInfo
         if genericType != null {
-            return genericType.Name == "Func" || genericType.Name == "Action"
+            return genericType.Name == "Func" || genericType.Name == "Action" || TypeInfoIdentityFacts.IsRuntimeDelegateDefinition(genericType)
         }
 
         reflectionType := resolvedExpected as ReflectionTypeInfo

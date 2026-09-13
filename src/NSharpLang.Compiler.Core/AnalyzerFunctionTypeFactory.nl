@@ -133,6 +133,131 @@ class AnalyzerFunctionTypeFactory {
         return signature
     }
 
+    // THE SIGNATURE A CONSTRUCTED GENERIC DELEGATE CARRIES, READ THROUGH ITS DEFINITION. A delegate
+    // instantiation the analyzer holds as a `GenericTypeInfo` may close over a type this compilation
+    // is still writing (`Predicate<Query>`), and such an instantiation cannot be turned into a CLR
+    // type at all — but its DEFINITION can: `Predicate<T>` declares `bool Invoke(T obj)`, and the
+    // instantiation supplies `T`.
+    //
+    // Only a position the definition spells as a NAKED type parameter is substituted, from the type
+    // argument at that parameter's own position. A position spelled with a constructed type that
+    // MENTIONS a parameter (`Invoke(List<T> items)`) is not something this positional read can
+    // rewrite, so it answers null rather than reporting a signature it would have to guess at;
+    // `Func` and `Action` are excluded for the opposite reason — they have no `Invoke` worth reading
+    // and the arity tables already state their shape exactly.
+    static func CreateFromDelegateDefinition(definitionType: Type, typeArguments: List<TypeInfo>): FunctionTypeInfo? {
+        definition := definitionType
+        if !definition.get_IsGenericTypeDefinition() {
+            if !definition.get_IsGenericType() {
+                return null
+            }
+
+            definition = definition.GetGenericTypeDefinition()
+        }
+
+        genericParameters := definition.GetGenericArguments()
+        if genericParameters == null || genericParameters.Length != typeArguments.Count {
+            return null
+        }
+
+        invokeMethod := AnalyzerReflectionMemberProbe.MethodOrNull(definition, "Invoke")
+        if invokeMethod == null {
+            return null
+        }
+
+        invokeParameters := AnalyzerReflectionMemberProbe.ParametersOrNull(invokeMethod)
+        if invokeParameters == null {
+            return null
+        }
+
+        parameterTypeList := new List<TypeInfo>()
+        parameterModifierList := new List<Ast.ParameterModifier>()
+        index := 0
+        while index < invokeParameters.Length {
+            parameter := invokeParameters[index]
+            substituted := SubstituteDelegateDefinitionType(parameter.get_ParameterType(), genericParameters, typeArguments)
+            if substituted == null {
+                return null
+            }
+
+            parameterTypeList.Add(substituted)
+            parameterModifierList.Add(GetReflectionParameterModifier(parameter))
+            index = index + 1
+        }
+
+        returnReflection := AnalyzerReflectionMemberProbe.ReturnTypeOrNull(invokeMethod)
+        if returnReflection == null {
+            return null
+        }
+
+        signature := new FunctionTypeInfo()
+        signature.ParameterTypes = parameterTypeList
+        signature.ParameterModifiers = parameterModifierList
+        if IsVoidReflectionType(returnReflection) {
+            signature.ReturnType = BuiltInTypes.Void
+            return signature
+        }
+
+        substitutedReturn := SubstituteDelegateDefinitionType(returnReflection, genericParameters, typeArguments)
+        if substitutedReturn == null {
+            return null
+        }
+
+        signature.ReturnType = substitutedReturn
+        return signature
+    }
+
+    // One position of a definition's `Invoke`, in the instantiation's vocabulary: a naked parameter
+    // becomes the type argument at its own position, and anything else must be a type that does not
+    // mention a parameter at all.
+    static func SubstituteDelegateDefinitionType(declaredType: Type, genericParameters: Type[], typeArguments: List<TypeInfo>): TypeInfo? {
+        if declaredType.get_IsGenericParameter() {
+            position := declaredType.get_GenericParameterPosition()
+            if position < 0 || position >= typeArguments.Count {
+                return null
+            }
+
+            return typeArguments[position]
+        }
+
+        if MentionsGenericParameter(declaredType, genericParameters) {
+            return null
+        }
+
+        return AnalyzerReflectionTypeConversion.ConvertReflectionType(declaredType)
+    }
+
+    static func MentionsGenericParameter(candidate: Type, genericParameters: Type[]): bool {
+        if candidate.get_IsGenericParameter() {
+            return true
+        }
+
+        elementType := candidate.GetElementType()
+        if elementType != null && MentionsGenericParameter(elementType, genericParameters) {
+            return true
+        }
+
+        if !candidate.get_IsGenericType() {
+            return false
+        }
+
+        arguments := candidate.GetGenericArguments()
+        index := 0
+        while index < arguments.Length {
+            if MentionsGenericParameter(arguments[index], genericParameters) {
+                return true
+            }
+
+            index = index + 1
+        }
+
+        return false
+    }
+
+    static func IsVoidReflectionType(candidate: Type): bool {
+        return candidate.get_FullName() == "System.Void"
+    }
+
     // The DEFINITION's own `Invoke` parameters for a constructed generic delegate, positionally
     // aligned with the closed ones — or null when there is no definition to read (a non-generic
     // delegate) or the two disagree about arity (which nothing should produce, and which this read

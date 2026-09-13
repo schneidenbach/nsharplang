@@ -68,11 +68,20 @@ class LinterWalk {
     func VisitFunction(declaration: FunctionDeclaration) {
         // NL010: the signature's type references are used names, and so is every type a parameter's
         // own attributes name.
+        //
+        // A `where` CLAUSE IS PART OF THE SIGNATURE. `func Widest<T>(items: T) where T:
+        // IEnumerable<string>` may be a file's ONLY mention of the namespace that supplies
+        // `IEnumerable`, and the clause is not an `Expression`, a `Parameter` or a return type — so
+        // the ledger never saw it and NL010 called the import dead, an ERROR whose `nlc fix` would
+        // DELETE the import the file needs. The constraint TYPE PARAMETER is not tracked: it is a
+        // binding this declaration introduces, not a name an import supplies.
         state.TrackTypeReference(declaration.ReturnType)
         for parameter in declaration.Parameters {
             NoteAttributeNames(parameter.Attributes)
             state.TrackTypeReference(parameter.Type)
         }
+
+        TrackGenericConstraints(declaration.Constraints)
 
         frame := state.EnterFunction(IsAsync(declaration))
 
@@ -95,6 +104,23 @@ class LinterWalk {
         // NL004: async without await.
         state.CheckAsyncWithoutAwait(declaration)
         state.ExitFunction(frame)
+    }
+
+    // Every type a `where` clause names, through the same door every other written type reference
+    // goes through — which answers NL010 and NL002 together.
+    func TrackGenericConstraints(constraints: List<GenericConstraint>?) {
+        if constraints == null {
+            return
+        }
+
+        for constraint in constraints {
+            references := constraint.Constraints
+            if references != null {
+                for reference in references {
+                    state.TrackTypeReference(reference)
+                }
+            }
+        }
     }
 
     // Binds this function's parameters into the scope that was just opened, and records that scope so a

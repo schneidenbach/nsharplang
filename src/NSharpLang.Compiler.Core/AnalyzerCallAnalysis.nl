@@ -546,6 +546,16 @@ class AnalyzerCallAnalysis {
             state.ReflectionReceiverTypeInfo = restoredReceiver
         }
 
+        // A CONSTRAINED TYPE PARAMETER BINDS AS THE ONE THING ITS CLAUSE SAYS IT IS. The member
+        // surface was already resolved through the same substitution, so the two must agree: an
+        // extension's receiver slot is matched against `IEnumerable<string>`, not against `T`, and
+        // the type arguments that match fixes are what type a lambda argument at the same call.
+        constrainedReceiver := scopes.ConstrainedReceiverType(receiverTypeInfo)
+        if !Object.ReferenceEquals(constrainedReceiver, receiverTypeInfo) {
+            receiverTypeInfo = constrainedReceiver
+            state.ReflectionReceiverTypeInfo = constrainedReceiver
+        }
+
         clrType := clrTypeConversion.TryConvertTypeInfoToClrType(receiverTypeInfo)
         if clrType == null {
             clrType = clrTypeConversion.TryConvertTypeInfoToClrTypeForBinding(receiverTypeInfo)

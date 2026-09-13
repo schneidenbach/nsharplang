@@ -6346,9 +6346,12 @@ sealed class ColumnarIlEmitter {
                 return Decline("emit.typed-local.unsupported-type", "typed local declaration type is not supported for '" + declaredName + "': " + typeCanonical, idx)
             }
             declaredInit := Child(idx, 1)
-            if (_nodes.Kind(declaredInit) == 39) {
-                if (!TryEmitLambdaLiteral(declaredInit, declaredType)) {
-                    return false
+            // A LAMBDA *OR A METHOD GROUP* IS SHAPED BY THE STORAGE IT IS WRITTEN AT, and a typed
+            // local's declared type is such a storage exactly as an argument position is. Routing both
+            // through the one argument door is what lets `p: Predicate<string> = IsShort` emit.
+            if (IsContextualDelegateValueNode(declaredInit)) {
+                if (!EmitDeclaredCallArgument(declaredInit, declaredType, true)) {
+                    return Decline("emit.typed-local.delegate-initializer", "typed local delegate initializer could not be built for '" + declaredName + "'", declaredInit)
                 }
             } else {
                 // A generic-union case construction with NO type args ADOPTS the declared type's arguments
@@ -9317,41 +9320,61 @@ sealed class ColumnarIlEmitter {
         return false
     }
 
+    // A SETTABLE INSTANCE PROPERTY OF A REFERENCED ASSEMBLY'S TYPE, BY ORDINARY RESOLUTION. This used
+    // to be a table of five APIs — `Thread.Name`, `HttpClient.Timeout`, six `ProcessStartInfo`
+    // members, four Cecil members and whatever ASP.NET exposed — so `eventArgs.Cancel = true` and
+    // `sb.Capacity = 32` declined for no reason other than not being on the list. The rule is the
+    // CLR's: a public instance property with a public setter, on a REFERENCE receiver, whose type the
+    // backend can spell.
+    //
+    // THE THREE EXCLUSIONS ARE EACH A CORRECTNESS RULE, not a taste. A type this compilation is still
+    // WRITING cannot be reflected at all (its members are answered by the source path above, and
+    // `GetProperty` on a `TypeBuilder` throws). A VALUE-type receiver is loaded by VALUE here, so a
+    // property write would mutate a copy and silently lose the assignment — the source path declines
+    // struct property writes for exactly this reason. An INIT-ONLY setter is not an assignment target
+    // outside construction, and its `modreq(IsExternalInit)` says so in metadata. An INDEXER's setter
+    // takes its indices as parameters and is reached by `receiver[i] = v`, never by a member name.
     private static func TryGetSupportedBclWritableProperty(receiverType: Type, member: string, out property: PropertyInfo): bool {
         property = null
-        if (receiverType == typeof(Thread) && (member == nameof(Thread.IsBackground) || member == nameof(Thread.Name))) {
-            resolvedProperty := typeof(Thread).GetProperty(member)
-            property = resolvedProperty
-            return resolvedProperty != null && resolvedProperty.get_SetMethod() != null
+        if (receiverType == null || receiverType.get_IsValueType() || ColumnarTypeOfPlanner.ContainsBuilderBoundType(receiverType)) {
+            return false
         }
-        if (receiverType == typeof(HttpClient) && member == nameof(HttpClient.Timeout)) {
-            resolvedProperty := typeof(HttpClient).GetProperty(nameof(HttpClient.Timeout))
-            property = resolvedProperty
-            return resolvedProperty != null && resolvedProperty.get_SetMethod() != null
+        let resolvedProperty: System.Reflection.PropertyInfo? = null
+        try {
+            resolvedProperty = receiverType.GetProperty(member, BindingFlags.Public | BindingFlags.Instance)
+        } catch {
+            return false
         }
-        if ColumnarRuntimeInstanceMemberResolver.IsSupportedCecilReceiver(receiverType) {
-            receiverName := receiverType.FullName ?? ""
-            supported := receiverName == "Mono.Cecil.ReaderParameters" && (member == "ReadingMode" || member == "InMemory") || receiverName == "Mono.Cecil.TypeReference" && member == "Scope" || receiverName == "Mono.Cecil.AssemblyNameReference" && (member == "Culture" || member == "PublicKeyToken")
-            if !supported {
-                return false
-            }
+        if (resolvedProperty == null) {
+            return false
+        }
+        setter := resolvedProperty.get_SetMethod()
+        if (setter == null || setter.get_IsStatic() || setter.GetParameters().Length != 1 || IsInitOnlySetter(setter)) {
+            return false
+        }
+        if (!ColumnarTypeOfPlanner.IsSupportedType(resolvedProperty.get_PropertyType())) {
+            return false
+        }
+        property = resolvedProperty
+        return true
+    }
 
-            resolvedProperty := receiverType.GetProperty(member, BindingFlags.Public | BindingFlags.Instance)
-            property = resolvedProperty
-            return resolvedProperty != null && resolvedProperty.get_SetMethod() != null && ColumnarTypeOfPlanner.IsSupportedType(resolvedProperty.get_PropertyType())
+    // `init` IN METADATA IS A REQUIRED MODIFIER ON THE SETTER'S RETURN, and that is the only place it
+    // is written. A setter carrying it may be called during construction and nowhere else.
+    private static func IsInitOnlySetter(setter: MethodInfo): bool {
+        let modifiers: System.Type[]? = null
+        try {
+            modifiers = setter.get_ReturnParameter().GetRequiredCustomModifiers()
+        } catch {
+            return false
         }
-        if (receiverType == typeof(ProcessStartInfo) && (member == nameof(ProcessStartInfo.FileName) || member == nameof(ProcessStartInfo.Arguments) || member == nameof(ProcessStartInfo.WorkingDirectory) || member == nameof(ProcessStartInfo.RedirectStandardOutput) || member == nameof(ProcessStartInfo.RedirectStandardError) || member == nameof(ProcessStartInfo.UseShellExecute))) {
-            resolvedProperty := typeof(ProcessStartInfo).GetProperty(member)
-            property = resolvedProperty
-            return resolvedProperty.get_SetMethod() != null
+        if (modifiers == null) {
+            return false
         }
-        if (ColumnarRuntimeInstanceMemberResolver.IsSupportedAspNetReceiver(receiverType)) {
-            resolvedProperty := receiverType.GetProperty(member, BindingFlags.Public | BindingFlags.Instance)
-            property = resolvedProperty
-            if (resolvedProperty == null || resolvedProperty.get_SetMethod() == null) {
-                return false
+        for modifier in modifiers {
+            if (modifier.get_FullName() == "System.Runtime.CompilerServices.IsExternalInit") {
+                return true
             }
-            return ColumnarTypeOfPlanner.IsSupportedType(resolvedProperty.get_PropertyType())
         }
         return false
     }
@@ -14862,10 +14885,19 @@ sealed class ColumnarIlEmitter {
             return true
         }
         if (typeName == "Array" && member == "Sort" && (argCount == 1 || argCount == 2 || argCount == 3 || argCount == 4)) {
-            // Array.Sort<T>(T[] array), Array.Sort<T>(T[] array, IComparer<T> comparer),
-            // Array.Sort<T>(T[] array, int index, int length), and the ranged IComparer<T> overload -> void.
-            // Keep this to one supported SZ array; key/value parallel arrays and comparison-delegate
-            // overloads stay declined.
+            // Array.Sort<T>(T[] array), Array.Sort<T>(T[] array, int index, int length), and the two
+            // ORDERING overloads — `IComparer<T>` and `Comparison<T>` — which differ only in how the
+            // ordering is spelled. WHICH OF THE TWO IS MEANT IS DECIDED BY THE ARGUMENT WRITTEN, before
+            // anything is emitted: a lambda literal or a delegate-typed value is the `Comparison<T>`
+            // overload, and everything else is the comparer. Key/value parallel arrays stay declined.
+            comparerPosition := 2
+            if (argCount == 4) {
+                comparerPosition = 4
+            }
+            sortUsesComparison := false
+            if (argCount == 2 || argCount == 4) {
+                sortUsesComparison = IsComparisonDelegateArgument(Child(callIdx, comparerPosition))
+            }
             arrayType: System.Type? = null
             if (!EmitExpression(Child(callIdx, 1), out arrayType) || !ColumnarTypeEquivalenceFacts.IsSafeSzArrayType(arrayType)) {
                 return false
@@ -14874,16 +14906,20 @@ sealed class ColumnarIlEmitter {
             if (!ColumnarTypeOfPlanner.IsSupportedElementType(elementType)) {
                 return false
             }
-            if (argCount == 2 && !EmitArg(callIdx, 2, typeof(IComparer<int>).GetGenericTypeDefinition().MakeGenericType([elementType]))) {
+            orderingParameterType := typeof(IComparer<int>).GetGenericTypeDefinition().MakeGenericType([elementType])
+            if (sortUsesComparison) {
+                orderingParameterType = typeof(Comparison<int>).GetGenericTypeDefinition().MakeGenericType([elementType])
+            }
+            if (argCount == 2 && !EmitDeclaredCallArgument(Child(callIdx, 2), orderingParameterType, true)) {
                 return false
             }
             if (argCount == 3 && (!EmitArg(callIdx, 2, typeof(int)) || !EmitArg(callIdx, 3, typeof(int)))) {
                 return false
             }
-            if (argCount == 4 && (!EmitArg(callIdx, 2, typeof(int)) || !EmitArg(callIdx, 3, typeof(int)) || !EmitArg(callIdx, 4, typeof(IComparer<int>).GetGenericTypeDefinition().MakeGenericType([elementType])))) {
+            if (argCount == 4 && (!EmitArg(callIdx, 2, typeof(int)) || !EmitArg(callIdx, 3, typeof(int)) || !EmitDeclaredCallArgument(Child(callIdx, 4), orderingParameterType, true))) {
                 return false
             }
-            sort := ResolveArraySort(argCount)
+            sort := ResolveArraySort(argCount, sortUsesComparison)
             if (sort == null) {
                 return false
             }
@@ -15038,10 +15074,27 @@ sealed class ColumnarIlEmitter {
         return null
     }
 
-    // System.Array.Sort<T>(T[] array[, int index, int length][, IComparer<T> comparer]) as a generic method
-    // DEFINITION: 1 = array only, 2 = array + comparer, 3 = array + range, 4 = array + range + comparer.
+    // WHETHER AN ORDERING ARGUMENT IS THE DELEGATE SPELLING. A lambda literal has no type yet and is
+    // always the delegate overload; anything else is asked what it IS, and only a delegate answers
+    // yes. The question is asked BEFORE the call emits anything, because the answer chooses which
+    // overload's parameter type the argument is then emitted against.
+    private func IsComparisonDelegateArgument(argNode: int): bool {
+        unwrapped := UnwrapParenthesizedNode(argNode)
+        if (_nodes.Kind(unwrapped) == 39) {
+            return true
+        }
+        let argType: System.Type? = null
+        if (!TryGetPreflightExpressionType(unwrapped, out argType) || argType == null) {
+            return false
+        }
+        return IsRuntimeDelegateType(argType)
+    }
+
+    // System.Array.Sort<T>(T[] array[, int index, int length][, IComparer<T> comparer | Comparison<T> comparison])
+    // as a generic method DEFINITION: 1 = array only, 2 = array + ordering, 3 = array + range,
+    // 4 = array + range + ordering.
     // The single-type-parameter guard keeps the key/value Sort<TKey, TValue> family out of every arity.
-    private static func ResolveArraySort(parameterCount: int): MethodInfo? {
+    private static func ResolveArraySort(parameterCount: int, useComparison: bool): MethodInfo? {
         methods := typeof(System.Array).GetMethods(BindingFlags.Public | BindingFlags.Static)
         methodIndex := 0
         while (methodIndex < methods.Length) {
@@ -15054,7 +15107,11 @@ sealed class ColumnarIlEmitter {
                         comparerMatches := true
                         if (parameterCount == 2 || parameterCount == 4) {
                             comparerType := parameters[parameterCount - 1].get_ParameterType()
-                            comparerMatches = comparerType.get_IsGenericType() && comparerType.GetGenericTypeDefinition() == typeof(IComparer<int>).GetGenericTypeDefinition()
+                            expectedOrderingDefinition := typeof(IComparer<int>).GetGenericTypeDefinition()
+                            if (useComparison) {
+                                expectedOrderingDefinition = typeof(Comparison<int>).GetGenericTypeDefinition()
+                            }
+                            comparerMatches = comparerType.get_IsGenericType() && comparerType.GetGenericTypeDefinition() == expectedOrderingDefinition
                         }
                         if (comparerMatches) {
                             return m
@@ -18861,7 +18918,14 @@ sealed class ColumnarIlEmitter {
         }
         let groupParameterTypes: System.Type[]? = null
         let groupReturnType: System.Type? = null
-        return TryGetMethodGroupSignature(node, out groupParameterTypes, out groupReturnType)
+        if (TryGetMethodGroupSignature(node, out groupParameterTypes, out groupReturnType)) {
+            return true
+        }
+        // A NAME WITH SEVERAL OVERLOADS CARRIES NO SINGLE SIGNATURE, so it contributes nothing to
+        // inference — but it is still a method group, and the delegate the position wants is exactly
+        // what selects among its candidates.
+        let overloadedCandidates: System.Collections.Generic.List<NSharpLang.Compiler.Columnar.ColumnarEnclosingMethodGroupCandidate>? = null
+        return TryGetEnclosingMethodGroupCandidates(node, out overloadedCandidates)
     }
 
     // Does this call carry an argument whose type only a delegate context can supply? Ordinary
@@ -20622,7 +20686,7 @@ sealed class ColumnarIlEmitter {
         if (allowLambdaLiteral && _nodes.Kind(argNode) == 39) {
             return IsSupportedContextualDelegateType(expectedParamType)
         }
-        if (allowLambdaLiteral && (CanEmitLocalFunctionMethodGroupAsDelegate(argNode, expectedParamType) || CanEmitSiblingMethodGroupAsDelegate(argNode, expectedParamType))) {
+        if (allowLambdaLiteral && (CanEmitLocalFunctionMethodGroupAsDelegate(argNode, expectedParamType) || CanEmitSiblingMethodGroupAsDelegate(argNode, expectedParamType) || CanEmitEnclosingMethodGroupAsDelegate(argNode, expectedParamType))) {
             return true
         }
         if (_nodes.Kind(argNode) == ColumnarExpressionNodeKind.DefaultExpression()) {
@@ -20676,7 +20740,7 @@ sealed class ColumnarIlEmitter {
         if (allowLambdaLiteral && _nodes.Kind(argNode) == 39) {
             return TryEmitLambdaLiteral(argNode, expectedParamType)
         }
-        if (allowLambdaLiteral && (TryEmitLocalFunctionMethodGroupAsDelegate(argNode, expectedParamType) || TryEmitSiblingMethodGroupAsDelegate(argNode, expectedParamType))) {
+        if (allowLambdaLiteral && (TryEmitLocalFunctionMethodGroupAsDelegate(argNode, expectedParamType) || TryEmitSiblingMethodGroupAsDelegate(argNode, expectedParamType) || TryEmitEnclosingMethodGroupAsDelegate(argNode, expectedParamType))) {
             return true
         }
         let ignoredTargetTypedNewType: System.Type? = null
@@ -20742,9 +20806,146 @@ sealed class ColumnarIlEmitter {
         return true
     }
 
+    // THE ENCLOSING TYPE'S OWN METHODS, AS METHOD-GROUP CANDIDATES. A bare name written inside a type
+    // body may name one of that type's methods, and naming one where a delegate is expected makes it
+    // a method group exactly as a top-level `func` is one. Before this, only `_localFuncs` (functions
+    // lifted out of a body) and `_siblings` (the file's top-level declarations) were candidates, so a
+    // class's own `static func formatTypeRef` passed to `names.Select(formatTypeRef)` declined at
+    // emit while the same function written at the top level emitted.
+    //
+    // STATICS answer from ANY body the type owns, for the same reason a bare static FIELD read does:
+    // the method belongs to the type. INSTANCE methods answer only where `this` exists — a plain
+    // instance body of a REFERENCE type, never a closure display and never a struct body, whose `this`
+    // is a managed pointer to a copy. ALL the overloads of the name are collected: which one is meant
+    // is a question about the delegate being built, and only the caller holds that.
+    private func CollectEnclosingMethodGroupCandidates(name: string): List<ColumnarEnclosingMethodGroupCandidate> {
+        candidates := new List<ColumnarEnclosingMethodGroupCandidate>()
+        staticOwner := _enclosingType
+        while (staticOwner != null) {
+            let staticOverloads: System.Collections.Generic.List<NSharpLang.Compiler.Columnar.ColumnarStaticMethodDef>? = null
+            if (staticOwner.StaticMethods.TryGetValue(name, out staticOverloads) && staticOverloads != null) {
+                for staticMethod in staticOverloads {
+                    if (staticMethod.Generics == null && !HasModifiedParameter(staticMethod.ParamModifierKinds)) {
+                        candidates.Add(new ColumnarEnclosingMethodGroupCandidate(staticMethod.Builder, staticMethod.ParamTypes, staticMethod.ReturnType))
+                    }
+                }
+            }
+            staticOwner = staticOwner.BaseDef
+        }
+
+        if (!HasEmittableEnclosingThis()) {
+            return candidates
+        }
+
+        instanceOwner := _currentStruct
+        while (instanceOwner != null) {
+            let instanceOverloads: System.Collections.Generic.List<NSharpLang.Compiler.Columnar.ColumnarInstanceMethodDef>? = null
+            if (instanceOwner.MethodOverloads.TryGetValue(name, out instanceOverloads) && instanceOverloads != null) {
+                for instanceMethod in instanceOverloads {
+                    if (instanceMethod.Generics == null && !HasModifiedParameter(instanceMethod.ParamModifierKinds)) {
+                        candidates.Add(new ColumnarEnclosingMethodGroupCandidate(instanceMethod.Builder, instanceMethod.ParamTypes, instanceMethod.ReturnType))
+                    }
+                }
+            }
+            instanceOwner = instanceOwner.BaseDef
+        }
+
+        return candidates
+    }
+
+    // Is there a `this` at argument 0 that a delegate may close over? Only a plain instance body of a
+    // reference type has one; a closure display's body, a struct body and a static body do not.
+    private func HasEmittableEnclosingThis(): bool {
+        current := _currentStruct
+        return current != null && current.IsReference && !current.IsClosureDisplay && Object.ReferenceEquals(current, _enclosingType)
+    }
+
+    private static func HasModifiedParameter(modifierKinds: int[]): bool {
+        if (modifierKinds == null) {
+            return false
+        }
+        for modifierKind in modifierKinds {
+            if (modifierKind != 0) {
+                return true
+            }
+        }
+        return false
+    }
+
+    private func TryGetEnclosingMethodGroupCandidates(argNode: int, out candidates: List<ColumnarEnclosingMethodGroupCandidate>): bool {
+        candidates = new List<ColumnarEnclosingMethodGroupCandidate>()
+        argNode = UnwrapParenthesizedNode(argNode)
+        if (_nodes.Kind(argNode) != 6 || _enclosingType == null) {
+            return false
+        }
+        name := ColumnarNodeTextFacts.Text(_nodes, _source, argNode)
+        if (ColumnarClosureBindingPlanner.IsVisibleBindingName(name, _locals, _paramOrdinals, _liftedLocals, _boxedCaptures, _enclosingBindingNames)) {
+            return false
+        }
+        candidates = CollectEnclosingMethodGroupCandidates(name)
+        return candidates.Count > 0
+    }
+
+    // THE ONE OF A NAME'S OVERLOADS THIS DELEGATE SELECTS. C#'s rule is that a method group converts
+    // when EXACTLY ONE of its methods is applicable to the delegate's signature; two would be an
+    // ambiguity to report rather than a choice to make here, so two decline.
+    private static func TrySelectMethodGroupOverload(candidates: List<ColumnarEnclosingMethodGroupCandidate>, delegateReturnType: Type, delegateParamTypes: Type[], out selected: ColumnarEnclosingMethodGroupCandidate): bool {
+        selected = null
+        for candidate in candidates {
+            if (SignatureMatchesDelegate(candidate.ParamTypes, candidate.ReturnType, delegateReturnType, delegateParamTypes)) {
+                if (selected != null) {
+                    selected = null
+                    return false
+                }
+                selected = candidate
+            }
+        }
+        return selected != null
+    }
+
+    private func CanEmitEnclosingMethodGroupAsDelegate(argNode: int, expectedDelegateType: Type): bool {
+        let candidates: System.Collections.Generic.List<NSharpLang.Compiler.Columnar.ColumnarEnclosingMethodGroupCandidate>? = null
+        let delegateReturnType: System.Type? = null
+        let delegateParamTypes: System.Type[]? = null
+        let ignoredDelegateConstructor: System.Reflection.ConstructorInfo? = null
+        let selected: NSharpLang.Compiler.Columnar.ColumnarEnclosingMethodGroupCandidate? = null
+        return TryGetEnclosingMethodGroupCandidates(argNode, out candidates) && TryGetSupportedDelegateSignature(expectedDelegateType, true, out delegateReturnType, out delegateParamTypes, out ignoredDelegateConstructor) && TrySelectMethodGroupOverload(candidates, delegateReturnType, delegateParamTypes, out selected)
+    }
+
+    private func TryEmitEnclosingMethodGroupAsDelegate(argNode: int, expectedDelegateType: Type): bool {
+        let candidates: System.Collections.Generic.List<NSharpLang.Compiler.Columnar.ColumnarEnclosingMethodGroupCandidate>? = null
+        let delegateReturnType: System.Type? = null
+        let delegateParamTypes: System.Type[]? = null
+        let delegateCtor: System.Reflection.ConstructorInfo? = null
+        let selected: NSharpLang.Compiler.Columnar.ColumnarEnclosingMethodGroupCandidate? = null
+        if (!TryGetEnclosingMethodGroupCandidates(argNode, out candidates) || !TryGetSupportedDelegateSignature(expectedDelegateType, true, out delegateReturnType, out delegateParamTypes, out delegateCtor) || !TrySelectMethodGroupOverload(candidates, delegateReturnType, delegateParamTypes, out selected)) {
+            return false
+        }
+        selectedMethod := selected.Method
+        if (selectedMethod.get_IsStatic()) {
+            _il.Emit(OpCodes.Ldnull)
+            _il.Emit(OpCodes.Ldftn, selectedMethod)
+            _il.Emit(OpCodes.Newobj, delegateCtor)
+            return true
+        }
+        // AN INSTANCE TARGET BINDS `this`, and a VIRTUAL one binds the runtime method the receiver
+        // actually has — `dup; ldvirtftn` is what C# emits for the same reason it emits `callvirt`.
+        _il.Emit(OpCodes.Ldarg_0)
+        if (selectedMethod.get_IsVirtual()) {
+            _il.Emit(OpCodes.Dup)
+            _il.Emit(OpCodes.Ldvirtftn, selectedMethod)
+        } else {
+            _il.Emit(OpCodes.Ldftn, selectedMethod)
+        }
+        _il.Emit(OpCodes.Newobj, delegateCtor)
+        return true
+    }
+
     // THE SIGNATURE A METHOD GROUP WRITTEN AS AN ARGUMENT CARRIES, whichever table holds it. This is
     // what lets inference fold a method group into a delegate's positions exactly as it folds a
-    // lambda's body — one path, no special case for how the signature was written.
+    // lambda's body — one path, no special case for how the signature was written. A name with
+    // SEVERAL overloads carries no single signature, so it contributes nothing to inference and is
+    // resolved later against the delegate the position actually wants.
     private func TryGetMethodGroupSignature(argNode: int, out parameterTypes: Type[], out returnType: Type): bool {
         parameterTypes = Type.EmptyTypes
         returnType = null
@@ -20761,6 +20962,12 @@ sealed class ColumnarIlEmitter {
         if (TryGetSiblingMethodGroup(argNode, out siblingTarget)) {
             parameterTypes = siblingTarget.ParamTypes
             returnType = siblingTarget.ReturnType
+            return true
+        }
+        let enclosingCandidates: System.Collections.Generic.List<NSharpLang.Compiler.Columnar.ColumnarEnclosingMethodGroupCandidate>? = null
+        if (TryGetEnclosingMethodGroupCandidates(argNode, out enclosingCandidates) && enclosingCandidates.Count == 1) {
+            parameterTypes = enclosingCandidates[0].ParamTypes
+            returnType = enclosingCandidates[0].ReturnType
             return true
         }
         return false

@@ -1219,12 +1219,22 @@ test "instance member runtime admission rejects pointer and open generic externa
     assert !ColumnarRuntimeInstanceMemberResolver.IsOrdinaryExternalValueReceiver(sourceBuilder)
     assert !ColumnarRuntimeInstanceMemberResolver.IsOrdinaryExternalReferenceReceiver(sourceBuilder)
 
+    // AN EXTERNAL GENERIC CLOSED OVER A TYPE THIS COMPILATION IS WRITING IS STILL EXTERNAL. What makes
+    // a receiver source is its DEFINITION, and `List<T>`'s is a complete reflected shape whose members
+    // rebind through `TypeBuilder.GetMethod`; refusing `List<Source>` outright is what made
+    // `new Lazy<Query>(...)` compile while `.Value` on it declined. The VALUE arm keeps its refusal,
+    // because a struct receiver needs an address and a builder-bound one cannot supply one.
     builderArgument: Type = sourceBuilder
     builderArguments := new Type[](1)
     builderArguments[0] = builderArgument
     builderBoundList := typeof(List<int>).GetGenericTypeDefinition().MakeGenericType(builderArguments)
     assert !ColumnarRuntimeInstanceMemberResolver.IsOrdinaryExternalValueReceiver(builderBoundList)
-    assert !ColumnarRuntimeInstanceMemberResolver.IsOrdinaryExternalReferenceReceiver(builderBoundList)
+    assert ColumnarRuntimeInstanceMemberResolver.IsOrdinaryExternalReferenceReceiver(builderBoundList)
+
+    // A BARE type parameter and a NON-generic builder are both still refused: neither has a
+    // definition whose members could be rebound.
+    assert !ColumnarRuntimeInstanceMemberResolver.IsOrdinaryExternalReferenceReceiver(sourceBuilder)
+    assert !ColumnarRuntimeInstanceMemberResolver.IsOrdinaryExternalReferenceReceiver(typeof(List<int>).GetGenericTypeDefinition())
 }
 
 test "ordinary baked receivers select inherited fields and getters and reject unsafe members" {

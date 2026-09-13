@@ -63,6 +63,7 @@ class Scope {
     declarationLocations: Dictionary<string, SymbolDeclaration>
     typeAritiesValue: Dictionary<string, List<int>>
     hoistedLocalFunctionsValue: HashSet<string>
+    typeParameterConstraintsValue: Dictionary<string, List<TypeInfo>>
 
     Kind: ScopeKind => kindValue
     Symbols: Dictionary<string, TypeInfo> => symbolsValue
@@ -78,6 +79,11 @@ class Scope {
     // arity-mismatch diagnostic both read it; a name with one non-generic declaration has the single
     // entry 0.
     TypeArities: Dictionary<string, List<int>> => typeAritiesValue
+    // THE CONSTRAINT TYPES OF EVERY TYPE PARAMETER THIS SCOPE DECLARES. A type parameter is a
+    // `SimpleTypeInfo` of its own name and carries nothing else, so the one place its `where` clause
+    // can live is beside the declaration that introduced it — and it leaves scope with that
+    // declaration, which is why this is a scope field rather than a walk-lifetime map.
+    TypeParameterConstraints: Dictionary<string, List<TypeInfo>> => typeParameterConstraintsValue
     NullStates: Dictionary<string, NullState> => nullStatesValue
     ErrorTupleResults: Dictionary<string, ErrorTupleResultGuard> => errorTupleResultsValue
     AvailableErrorTupleResults: HashSet<string> => availableErrorTupleResultsValue
@@ -92,6 +98,7 @@ class Scope {
         declarationLocations = new Dictionary<string, SymbolDeclaration>()
         typeAritiesValue = new Dictionary<string, List<int>>(StringComparer.Ordinal)
         hoistedLocalFunctionsValue = new HashSet<string>(StringComparer.Ordinal)
+        typeParameterConstraintsValue = new Dictionary<string, List<TypeInfo>>(StringComparer.Ordinal)
     }
 
     // THE LOCAL FUNCTIONS THIS SCOPE ALREADY BOUND BEFORE ITS FIRST STATEMENT RAN. A local
