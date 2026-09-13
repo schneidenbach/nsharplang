@@ -422,6 +422,10 @@ class AnalyzerLambdaAnalysis {
     // before it is told anything about its contents. NEITHER body answers `unknown`.
     func EnterLambdaBody(state: LambdaAnalysisState): LambdaAnalysisRequest? {
         lambda := state.Lambda
+        if lambda.IsAsync && state.TargetsExpressionTree {
+            expressionTrees.ReportAsyncLambdaIfNeeded(lambda)
+        }
+
         ReportAsyncTargetIfNeeded(state)
         expressionBody := lambda.ExpressionBody
         if expressionBody != null {
