@@ -427,12 +427,14 @@ class AnalyzerConstruction {
 
         constructedClrType := clrTypeConversionValue.TryConvertTypeInfoToClrType(state.ConstructedType)
         if constructedClrType != null {
-            reflectedConstructors := constructedClrType.GetConstructors()
+            reflectedConstructors := AnalyzerReflectionMemberProbe.ConstructorsOrEmpty(constructedClrType)
             reflectedIndex := 0
             while reflectedIndex < reflectedConstructors.Length {
-                parameters := reflectedConstructors[reflectedIndex].GetParameters()
-                if parameters.Length == argumentCount && index < parameters.Length {
-                    candidate := AnalyzerReflectionTypeConversion.ConvertReflectionType(parameters[index].get_ParameterType())
+                // A constructor whose signature mentions a type the reference set cannot resolve is
+                // read as "no delegate here" rather than throwing out of the whole analysis.
+                parameterTypes := AnalyzerReflectionMemberProbe.ParameterTypesOrNull(reflectedConstructors[reflectedIndex])
+                if parameterTypes != null && parameterTypes.Length == argumentCount && index < parameterTypes.Length {
+                    candidate := AnalyzerReflectionTypeConversion.ConvertReflectionType(parameterTypes[index])
                     if AnalyzerCallableReferenceFacts.IsInvocableMemberType(candidate) {
                         if !found {
                             agreed = candidate

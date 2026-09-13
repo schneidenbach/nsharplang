@@ -125,7 +125,10 @@ class ColumnarContextualExtensionInference {
             return false
         }
 
-        parameters := method.GetParameters()
+        // A REFERENCED TYPE'S SIGNATURE MAY NOT BE READABLE AT ALL — a parameter whose type lives in
+        // an assembly the reference set does not carry throws while it is being materialised — so
+        // every read here is guarded and an unreadable candidate is simply not a candidate.
+        parameters := ColumnarExtensionMethodResolver.ParametersOrNull(method)
         if parameters == null || parameters.Length != argumentCount {
             return false
         }
@@ -150,7 +153,7 @@ class ColumnarContextualExtensionInference {
             return false
         }
 
-        returnType := method.get_ReturnType()
+        returnType := ColumnarExtensionMethodResolver.ReturnTypeOrNull(method)
         if returnType == null {
             return false
         }
@@ -353,7 +356,7 @@ class ColumnarContextualExtensionInference {
             return false
         }
 
-        closedParameters := closedMethod.GetParameters()
+        closedParameters := ColumnarExtensionMethodResolver.ParametersOrNull(closedMethod)
         if closedParameters == null || closedParameters.Length != candidate.ParameterTypes.Length {
             return false
         }
@@ -363,7 +366,7 @@ class ColumnarContextualExtensionInference {
             return false
         }
 
-        closedReturnType := closedMethod.get_ReturnType()
+        closedReturnType := ColumnarExtensionMethodResolver.ReturnTypeOrNull(closedMethod)
         if closedReturnType == null || closedReturnType.get_ContainsGenericParameters() {
             return false
         }
@@ -437,20 +440,18 @@ class ColumnarContextualExtensionInference {
             return false
         }
 
-        invokeParameters := invoke.GetParameters()
-        if invokeParameters == null {
+        declared := ColumnarExtensionMethodResolver.ParameterTypesOrNull(ColumnarExtensionMethodResolver.ParametersOrNull(invoke) ?? new ParameterInfo[](0))
+        if declared == null {
             return false
         }
 
-        declared := new Type[](invokeParameters.Length)
-        index := 0
-        while index < invokeParameters.Length {
-            declared[index] = invokeParameters[index].get_ParameterType()
-            index = index + 1
+        invokeReturnType := ColumnarExtensionMethodResolver.ReturnTypeOrNull(invoke)
+        if invokeReturnType == null {
+            return false
         }
 
         parameterTypes = declared
-        returnType = invoke.get_ReturnType()
+        returnType = invokeReturnType
         return true
     }
 
@@ -458,7 +459,7 @@ class ColumnarContextualExtensionInference {
     // identity check the rest of the emitter uses cannot answer for an instantiation over method
     // type parameters, and this question is asked of exactly those.
     static func IsDelegateShapedType(candidate: Type): bool {
-        current: Type? = candidate.get_BaseType()
+        current: Type? = BaseTypeOrNull(candidate)
         depth := 0
         while current != null && depth < 32 {
             fullName := current.get_FullName()
@@ -466,11 +467,21 @@ class ColumnarContextualExtensionInference {
                 return true
             }
 
-            current = current.get_BaseType()
+            current = BaseTypeOrNull(current)
             depth = depth + 1
         }
 
         return false
+    }
+
+    // A base-type read that answers null rather than throwing, for the same reason every other read
+    // over a referenced type does.
+    static func BaseTypeOrNull(candidate: Type): Type? {
+        try {
+            return candidate.get_BaseType()
+        } catch {
+            return null
+        }
     }
 
     // THE RECEIVER SLOT, WIDENED. The declared receiver is matched against the receiver's own type
@@ -521,7 +532,7 @@ class ColumnarContextualExtensionInference {
             }
         }
 
-        current: Type? = candidate.get_BaseType()
+        current: Type? = BaseTypeOrNull(candidate)
         depth := 0
         while current != null && depth < 64 {
             if current.get_IsGenericType() && current.GetGenericTypeDefinition() == openDefinition {
@@ -532,7 +543,7 @@ class ColumnarContextualExtensionInference {
                 return current
             }
 
-            current = current.get_BaseType()
+            current = BaseTypeOrNull(current)
             depth = depth + 1
         }
 

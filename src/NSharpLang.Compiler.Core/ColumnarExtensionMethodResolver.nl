@@ -148,16 +148,28 @@ class ColumnarExtensionMethodResolver {
         }
     }
 
+    // A REFERENCED ASSEMBLY IS NOT A PROMISE THAT ITS WHOLE CLOSURE IS PRESENT, and the index build
+    // is the one walk that touches EVERY extension method of EVERY referenced assembly rather than
+    // only the ones a call names. `System.Reactive` declares extensions over WPF types, so its
+    // `WindowsBase` reference is real; on macOS that assembly does not exist, and materialising such
+    // a signature throws `FileNotFoundException` out of `GetParameters`. That is a fact about the
+    // reference set and not about the program being compiled, so the method contributes nothing and
+    // the scan continues — an exception here ended the whole compilation with a sentence about an
+    // assembly the user never named.
+    //
+    // Every per-method read is therefore guarded, not just the enumeration: the parameter ROWS exist
+    // in metadata whatever their types resolve to, so `GetParameters`, each parameter's type, the
+    // return type and the attribute reads each reach the missing assembly on their own.
     static func AddType(index: ColumnarExtensionMethodIndex, hostType: Type) {
         methods := MethodsOrEmpty(hostType)
         methodIndex := 0
         while methodIndex < methods.Length {
             method := methods[methodIndex]
             if IsExtensionMethodCandidate(method) {
-                parameters := method.GetParameters()
+                parameters := ParametersOrNull(method)
                 if parameters != null && parameters.Length >= 1 && !HasExcludedParameterShape(parameters) {
                     parameterTypes := ParameterTypesOrNull(parameters)
-                    returnType := method.get_ReturnType()
+                    returnType := ReturnTypeOrNull(method)
                     if parameterTypes != null && returnType != null && IsSupportedReceiverParameter(parameterTypes[0]) {
                         index.Add(method.get_Name(), new ColumnarExtensionMethodCandidate(method, hostType, parameterTypes, returnType))
                     }
@@ -168,8 +180,44 @@ class ColumnarExtensionMethodResolver {
         }
     }
 
+    static func ParametersOrNull(method: MethodInfo): ParameterInfo[]? {
+        try {
+            return method.GetParameters()
+        } catch {
+            return null
+        }
+    }
+
+    static func ReturnTypeOrNull(method: MethodInfo): Type? {
+        try {
+            return method.get_ReturnType()
+        } catch {
+            return null
+        }
+    }
+
+    static func ParameterTypeOrNull(parameter: ParameterInfo): Type? {
+        try {
+            return parameter.get_ParameterType()
+        } catch {
+            return null
+        }
+    }
+
     static func IsStaticExtensionHost(candidateType: Type): bool {
-        return candidateType != null && candidateType.get_IsClass() && candidateType.get_IsSealed() && candidateType.get_IsAbstract() && !candidateType.get_IsGenericType() && HasExtensionAttribute(candidateType)
+        if candidateType == null {
+            return false
+        }
+
+        try {
+            if !candidateType.get_IsClass() || !candidateType.get_IsSealed() || !candidateType.get_IsAbstract() || candidateType.get_IsGenericType() {
+                return false
+            }
+        } catch {
+            return false
+        }
+
+        return HasExtensionAttribute(candidateType)
     }
 
     // The scan is spelled HERE rather than shared with `AnalyzerOverloadScoring`'s identical one: a
@@ -198,20 +246,42 @@ class ColumnarExtensionMethodResolver {
         return list.Count
     }
 
+    // An attribute list whose ARGUMENT types cannot be resolved throws while it is being read, so
+    // each of the three reads below answers "no such attribute" rather than ending the scan.
     static func HasExtensionAttribute(candidateType: Type): bool {
-        return HasAttributeNamed(candidateType.GetCustomAttributesData(), "System.Runtime.CompilerServices.ExtensionAttribute")
+        try {
+            return HasAttributeNamed(candidateType.GetCustomAttributesData(), "System.Runtime.CompilerServices.ExtensionAttribute")
+        } catch {
+            return false
+        }
     }
 
     static func MethodHasExtensionAttribute(method: MethodInfo): bool {
-        return HasAttributeNamed(method.GetCustomAttributesData(), "System.Runtime.CompilerServices.ExtensionAttribute")
+        try {
+            return HasAttributeNamed(method.GetCustomAttributesData(), "System.Runtime.CompilerServices.ExtensionAttribute")
+        } catch {
+            return false
+        }
     }
 
     static func IsParamsParameter(parameter: ParameterInfo): bool {
-        return HasAttributeNamed(parameter.GetCustomAttributesData(), "System.ParamArrayAttribute")
+        try {
+            return HasAttributeNamed(parameter.GetCustomAttributesData(), "System.ParamArrayAttribute")
+        } catch {
+            return false
+        }
     }
 
     static func IsExtensionMethodCandidate(method: MethodInfo): bool {
-        if method == null || !method.get_IsStatic() || !method.get_IsPublic() {
+        if method == null {
+            return false
+        }
+
+        try {
+            if !method.get_IsStatic() || !method.get_IsPublic() {
+                return false
+            }
+        } catch {
             return false
         }
 
@@ -232,7 +302,7 @@ class ColumnarExtensionMethodResolver {
                 return true
             }
 
-            parameterType := parameter.get_ParameterType()
+            parameterType := ParameterTypeOrNull(parameter)
             if parameterType == null || parameterType.get_IsByRef() || parameterType.get_IsPointer() {
                 return true
             }
@@ -260,7 +330,7 @@ class ColumnarExtensionMethodResolver {
                 return null
             }
 
-            parameterType := parameter.get_ParameterType()
+            parameterType := ParameterTypeOrNull(parameter)
             if parameterType == null {
                 return null
             }

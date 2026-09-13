@@ -98,7 +98,7 @@ class AnalyzerCallableReferenceFacts {
             return false
         }
 
-        current: Type? = candidate.get_BaseType()
+        current: Type? = AnalyzerReflectionMemberProbe.BaseTypeOrNull(candidate)
         depth := 0
         while current != null && depth < 32 {
             fullName := current.get_FullName()
@@ -106,7 +106,7 @@ class AnalyzerCallableReferenceFacts {
                 return true
             }
 
-            current = current.get_BaseType()
+            current = AnalyzerReflectionMemberProbe.BaseTypeOrNull(current)
             depth = depth + 1
         }
 
