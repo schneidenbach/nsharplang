@@ -562,10 +562,11 @@ test "compile-time bench: the skipped source directories are exactly the twelve 
 // tests/native/census-free-function-identity; 107 since the test-framework reference set and
 // attributes on `test` blocks added tests/native/census-testrefs; 108 since lifted operators over a
 // nullable value type added tests/native/census-lifted-operators; 109 since `on`/`off` event
-// subscriptions reached the columnar pipeline added tests/native/census-events.
-test "compile-time bench: the corpus is the 109 project.yml projects under examples, tests and templates" {
+// subscriptions reached the columnar pipeline added tests/native/census-events; 110 since NL209 for a simple name two imports supply added tests/native/census-imports.
+test "compile-time bench: the corpus is the 110 project.yml projects under examples, tests and templates" {
     projects := BenchCollectCorpusProjects(BenchRepositoryRoot())
-    assert projects.Count == 109
+    assert projects.Count == 110
+    assert BenchListContains(projects, "tests/native/census-imports")
     assert BenchListContains(projects, "tests/native/census-lifted-operators")
     assert BenchListContains(projects, "tests/native/census-events")
     assert BenchListContains(projects, "tests/native/census-testrefs")

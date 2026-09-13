@@ -172,6 +172,12 @@ class AnalyzerAmbientContext {
     diagnosticsValue: AnalyzerDiagnosticSink
     spansValue: AnalyzerDiagnosticSpans
     soaEscapeValue: AnalyzerSoaEscape
+    // ONLY FOR RENDERING A MISMATCH PAIR. `TypeMismatchDisplay` needs a source type's declaring
+    // namespace to spell it in full, and the declaration context is the only owner that knows one.
+    // It is a DEFAULTED trailing constructor parameter so that every hand-built shape in the estate
+    // keeps its own arity; production always supplies it, and without one the metadata half of the
+    // qualification still answers.
+    declarationContextValue: AnalyzerDeclarationContext?
 
     currentReturnTypeValue: TypeInfo?
     currentFunctionValue: FunctionDeclaration?
@@ -356,10 +362,11 @@ class AnalyzerAmbientContext {
 
     WriteTargetExpressionTypes: Dictionary<object, TypeInfo>? => writeTargetExpressionTypesValue
 
-    constructor(diagnostics: AnalyzerDiagnosticSink, spans: AnalyzerDiagnosticSpans, soaEscape: AnalyzerSoaEscape) {
+    constructor(diagnostics: AnalyzerDiagnosticSink, spans: AnalyzerDiagnosticSpans, soaEscape: AnalyzerSoaEscape, declarationContext: AnalyzerDeclarationContext? = null) {
         diagnosticsValue = diagnostics
         spansValue = spans
         soaEscapeValue = soaEscape
+        declarationContextValue = declarationContext
         currentReturnTypeValue = null
         currentFunctionValue = null
         returnTypeWasOmittedValue = false
@@ -1120,8 +1127,11 @@ class AnalyzerAmbientContext {
             return BuildVoidReturnValueError(currentFilePath, span, sourceSnippet, EnclosingFunctionName(), returnedType)
         }
 
-        actualTypeName := TypeText(returnedType)
-        expectedTypeName := TypeText(expectedReturnValueType)
+        // Rendered as a PAIR, so a declared return type and a returned value that share a simple name
+        // are both spelled in full. See `TypeMismatchDisplay`.
+        actualTypeName := ""
+        expectedTypeName := ""
+        TypeMismatchDisplay.Pair(declarationContextValue, returnedType, expectedReturnValueType, out actualTypeName, out expectedTypeName)
         return ErrorMessageBuilder.ReturnTypeMismatch(currentFilePath, span.Line, span.Column, sourceSnippet, span.Length, EnclosingFunctionName(), actualTypeName, expectedTypeName)
     }
 

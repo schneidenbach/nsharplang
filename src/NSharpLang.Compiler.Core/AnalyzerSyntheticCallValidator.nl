@@ -482,10 +482,16 @@ class AnalyzerSyntheticCallValidator {
             parameterNameText = parameterName
         }
 
-        expectedTypeText := DescribeTypeForDiagnostic(expectedType)
+        // THE TWO NAMES ARE RENDERED AS A PAIR. "Cannot pass Range as argument for parameter r of
+        // type Range" is a sentence that states a contradiction and tells the reader nothing; when
+        // the argument and the parameter are DIFFERENT types that share a simple name, both are
+        // spelled with their namespaces. This site's own renderings are the baseline, because a
+        // delegate signature and a method-group phrase are spelled here and not by `ToString`.
+        expectedTypeText := ""
+        argumentTypeText := ""
+        TypeMismatchDisplay.Qualify(declarationContext, argType, expectedType, DescribeTypeForDiagnostic(argType), DescribeTypeForDiagnostic(expectedType), out argumentTypeText, out expectedTypeText)
 
         conversion := assignability.ClassifyUserDefinedConversion(expectedType, argType)
-        argumentTypeText := DescribeTypeForDiagnostic(argType)
         if diagnostics.ReportAmbiguousUserDefinedConversion(conversion, argumentTypeText, expectedTypeText, span.Line, span.Column, span.Length) {
             return
         }
@@ -493,7 +499,15 @@ class AnalyzerSyntheticCallValidator {
         filePath := ""
         snippet := ""
         if TryGetRichContext(span.Line, out filePath, out snippet) && parameterName != null {
-            diagnostics.ReportBuilt(ErrorMessageBuilder.WrongArgumentType(filePath, span.Line, span.Column, snippet, span.Length, functionName, argumentIndex + 1, parameterNameText, GetArgumentTypeDiagnosticName(call.Arguments[argumentIndex], argType), expectedTypeText))
+            // The rich shape names the argument the way this site describes it — a METHOD GROUP is a
+            // phrase, not a type name, and stays exactly as written. An ordinary type name is the
+            // one the pair already decided, so both halves of the report agree.
+            argumentDisplayName := GetArgumentTypeDiagnosticName(call.Arguments[argumentIndex], argType)
+            if argumentDisplayName == DescribeTypeForDiagnostic(argType) {
+                argumentDisplayName = argumentTypeText
+            }
+
+            diagnostics.ReportBuilt(ErrorMessageBuilder.WrongArgumentType(filePath, span.Line, span.Column, snippet, span.Length, functionName, argumentIndex + 1, parameterNameText, argumentDisplayName, expectedTypeText))
             return
         }
 

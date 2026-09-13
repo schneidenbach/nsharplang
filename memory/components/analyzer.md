@@ -885,11 +885,49 @@ namespace) stand the gate down, and an `import` that merely names one of them is
 rather than counted as a rival — and the project-wide unique-exported FALLBACK is never a candidate,
 because it is the channel that runs when no import supplies the name.
 
-ONE MEASURED LIMIT. The metadata half of the tie check is asked only once the SOURCE half has
-matched: an assembly sweep is imports × assemblies of `Assembly.GetType`, a miss is deliberately not
-cached, and running it for every name that reaches the gate would put that cost on `Console`, `List`
-and every other ordinary CLR spelling. So two IMPORTED CLR namespaces that declare the same spelling
-still resolve first-import-wins. That limit is written down on `website/docs/errors/NL209.md`.
+THE METADATA HALF IS NO LONGER A HALF (census 2026-09-13, §AMBIG). The tie check used to ask the
+assemblies only once the SOURCE sweep had already matched, because a miss was re-swept over every
+loaded assembly on every call and putting that on `Console`, `List` and every other ordinary CLR
+spelling was not affordable — so two IMPORTED CLR namespaces declaring one spelling resolved
+first-import-wins with NO diagnostic, and `import System` beside a library that declares its own
+`Range` silently meant a type its author never chose. That was a cost, never a rule: C# reports
+CS0104 for that shape too. `AnalyzerExternalTypeProbe.TryResolveFullName` now remembers a miss
+against the ASSEMBLY COUNT that proved it — the analyzer's assembly list only grows while a file's
+imports are processed, so the count is an exact invalidation — and the sweep the resolver was going
+to take a step later is what answers the gate. The tie is reported wherever it occurs: source against
+source, source against metadata, metadata against metadata. The probe name carries its ARITY (`List`1`
+and `List` are different metadata identities); the two candidates a reader is shown are spelled the
+way the file spells them.
+
+THE NAMESPACE WALK LIVES IN THE DISCOVERY OWNER, not in the probe: only discovery knows the file's
+namespace, so only it can skip an import that merely names a LEXICAL namespace, or the namespace a
+source declaration already claimed. `AnalyzerExternalTypeProbe.ImportedNamespaceDeclares` is the
+single step it walks with.
+
+EVERY POSITION REACHES THE GATE. `AnalyzerTypeResolver.ReportAmbiguousImportedTypeIfNeeded` is the
+callable owner (the inline block it replaced could only be reached by the type walk). An ATTRIBUTE's
+bracket spelling is looked up through a deliberately positionless probe — `ResolveSimpleType(name, 0, 0)`,
+so `AnalyzerAttributeValidator` can own its own "not found" wording — and that silence used to swallow
+the tie as well; the validator now asks the gate first, for both of `[Tag]`'s legal spellings
+(`Tag`, `TagAttribute`), and reporting ends that attribute.
+
+A CROSS-FILE MEMBER'S TYPE REFERENCE IS READ IN THE FILE THAT DECLARES IT. `DeclaredMemberInfo`
+carries raw `TypeReference`s out of another file's syntax tree: their spelling is scoped by THAT
+file's imports and their line/column are positions in THAT file.
+`AnalyzerConstruction.DelegateConstructorParameterType` handed them to the current file's resolver,
+which produced a false NL209 decided by the CONSUMER's imports and stamped at the declaring file's
+coordinates against the consumer's path — a caret pointing into the middle of a line that never
+spells the name (census 2026-09-13, §AMBIG, finding 4). It now reads them through
+`AnalyzerDeclarationContext.TryResolveTypeForOwner`, the owner-scoped door the rest of the
+declared-member family already uses. Any new site that resolves a `TypeReference` it did not read out
+of the file being analysed must use that door.
+
+**THE GENERIC HALF OF THAT GUARD WAS UNREACHABLE** (census 2026-09-13, §AMBIG). The
+imported-CLR-type probe below was asked for `TypeArityNames.Display(name)` — the identity with its
+arity suffix stripped — and no assembly declares a type called `List`, so a source `class List<T>` in
+a namespace a file never imported took the name back from the `System.Collections.Generic.List` that
+file's own `import` brought in, and `items.Add(1)` reported NL303. The probe is asked at the LOOKUP
+name now. `tests/native/census-imports/ShadowingGeneric.tests.nl` executes it.
 
 **AN EXPLICIT IMPORT OUTRANKS PROJECT-WIDE AUTO-DISCOVERY, and that ordering is a correctness fix.**
 `ResolveVisibleProjectType`'s third outcome — the unique-exported fallback — matches by unqualified

@@ -45,10 +45,57 @@ class AnalyzerExternalTypeProbe {
     usingNamespaces: List<string>
     typeCache: Dictionary<string, Type>
 
+    // A FULL NAME NO LOADED ASSEMBLY DECLARES, REMEMBERED AGAINST THE ASSEMBLY COUNT THAT PROVED IT.
+    //
+    // Every question this owner answers is a sweep of `assemblies x Assembly.GetType`, and the MISS
+    // is the expensive half: a hit stops at the assembly that answers, a miss pays for all of them,
+    // and the import-ordered probe walks a whole PREFIX of misses before reaching the namespace that
+    // answers. Re-sweeping those misses on every call is what made "does a SECOND import also supply
+    // this spelling" look unaffordable, and that cost — not the rule — is why an imported-CLR tie
+    // went unreported. Remembering the miss makes the second half of the sweep free after the first
+    // file pays for it.
+    //
+    // THE COUNT IS THE INVALIDATION, AND IT IS EXACT. The assembly list is the analyzer's own and
+    // only ever GROWS — imports load references into it as a file is read — so a remembered miss is
+    // still a miss for as long as the count is unchanged, and a newly loaded assembly retries every
+    // one of them. That is the same guarantee the previous "a miss is deliberately not cached"
+    // comment was protecting, kept without paying for it twice.
+    missedFullNames: Dictionary<string, int>
+
     constructor(mlcAssemblies: List<Assembly>, importedNamespaces: List<string>) {
         assemblies = mlcAssemblies
         usingNamespaces = importedNamespaces
         typeCache = new Dictionary<string, Type>()
+        missedFullNames = new Dictionary<string, int>(StringComparer.Ordinal)
+    }
+
+    // THE ONE SWEEP EVERY QUESTION BELOW IS MADE OF: does any loaded assembly declare this exact full
+    // name? A hit is cached under the full name and a miss under the assembly count, so the three
+    // callers share one memo and cannot disagree about what the metadata says.
+    func TryResolveFullName(fullName: string, out resolved: Type): bool {
+        resolved = typeof(object)
+        if typeCache.TryGetValue(fullName, out resolved) {
+            return true
+        }
+
+        missedAtCount := 0
+        if missedFullNames.TryGetValue(fullName, out missedAtCount) && missedAtCount == assemblies.Count {
+            return false
+        }
+
+        assemblyIndex := 0
+        while assemblyIndex < assemblies.Count {
+            candidate := assemblies[assemblyIndex].GetType(fullName)
+            if candidate != null {
+                typeCache[fullName] = candidate
+                resolved = candidate
+                return true
+            }
+            assemblyIndex = assemblyIndex + 1
+        }
+
+        missedFullNames[fullName] = assemblies.Count
+        return false
     }
 
     // The ordered probe. A fresh ReflectionTypeInfo per call, exactly as the analyzer's own resolver
@@ -88,26 +135,15 @@ class AnalyzerExternalTypeProbe {
     // scan is a project-wide guess — and the ordered probe above is still the two halves in order,
     // so nothing about `ResolveExternalType` changes.
     //
-    // The cache participates exactly as before: a hit caches under the FULL name, and a miss is not
-    // cached, so a namespace whose assembly loads later is genuinely retried.
+    // The cache participates exactly as before: a hit caches under the FULL name, and a miss is
+    // remembered only against the assembly count that proved it, so a namespace whose assembly loads
+    // later is genuinely retried.
     func ResolveImportedExternalType(name: string): TypeInfo? {
         namespaceIndex := 0
         while namespaceIndex < usingNamespaces.Count {
-            fullName := usingNamespaces[namespaceIndex] + "." + name
-
-            cachedFullType := typeof(object)
-            if typeCache.TryGetValue(fullName, out cachedFullType) {
-                return new ReflectionTypeInfo(cachedFullType)
-            }
-
-            assemblyIndex := 0
-            while assemblyIndex < assemblies.Count {
-                resolved := assemblies[assemblyIndex].GetType(fullName)
-                if resolved != null {
-                    typeCache[fullName] = resolved
-                    return new ReflectionTypeInfo(resolved)
-                }
-                assemblyIndex = assemblyIndex + 1
+            resolved := typeof(object)
+            if TryResolveFullName(usingNamespaces[namespaceIndex] + "." + name, out resolved) {
+                return new ReflectionTypeInfo(resolved)
             }
 
             namespaceIndex = namespaceIndex + 1
@@ -116,59 +152,24 @@ class AnalyzerExternalTypeProbe {
         return null
     }
 
-    // WHICH IMPORTED NAMESPACE, IF ANY, DECLARES THIS SPELLING — the same sweep as
-    // `ResolveImportedExternalType`, answering with the namespace rather than the type, because an
-    // ambiguity report has to NAME the two candidates. `skipNamespace` is the one already claimed by
-    // another channel, so a second hit means a genuine tie rather than the same answer twice.
-    func TryFindImportedExternalNamespace(name: string, skipNamespace: string?, out namespaceName: string): bool {
-        namespaceName = ""
-        namespaceIndex := 0
-        while namespaceIndex < usingNamespaces.Count {
-            candidateNamespace := usingNamespaces[namespaceIndex]
-            namespaceIndex = namespaceIndex + 1
-            if skipNamespace != null && string.Equals(candidateNamespace, skipNamespace, StringComparison.Ordinal) {
-                continue
-            }
-
-            fullName := candidateNamespace + "." + name
-            cachedFullType := typeof(object)
-            if typeCache.TryGetValue(fullName, out cachedFullType) {
-                namespaceName = candidateNamespace
-                return true
-            }
-
-            assemblyIndex := 0
-            while assemblyIndex < assemblies.Count {
-                resolved := assemblies[assemblyIndex].GetType(fullName)
-                if resolved != null {
-                    typeCache[fullName] = resolved
-                    namespaceName = candidateNamespace
-                    return true
-                }
-                assemblyIndex = assemblyIndex + 1
-            }
-        }
-
-        return false
+    // DOES THIS ONE NAMESPACE DECLARE THIS SPELLING — the single step both sweeps above are built
+    // from, exposed so a caller that owns its own namespace ORDER and its own exclusions can take the
+    // walk itself. `AnalyzerProjectTypeDiscovery` needs exactly that for NL209: it skips an import
+    // that merely names a LEXICAL namespace (redundant, not a rival — `SimpleNamePrecedence` rules 1
+    // and 2) and the namespace a source declaration already claimed, which is not something a single
+    // `skipNamespace` argument can say.
+    func ImportedNamespaceDeclares(namespaceName: string, name: string): bool {
+        resolved := typeof(object)
+        return TryResolveFullName(namespaceName + "." + name, out resolved)
     }
 
     // The EXACT probe: no using-namespace prefixing and no exported-name scan, so it answers only
     // for a fully-qualified spelling. Shares the same cache as the ordered probe, which is why an
     // exact hit here is visible to a later bare-name lookup and vice versa.
     func ResolveExactExternalType(fullName: string): Type? {
-        cachedType := typeof(object)
-        if typeCache.TryGetValue(fullName, out cachedType) {
-            return cachedType
-        }
-
-        assemblyIndex := 0
-        while assemblyIndex < assemblies.Count {
-            resolved := assemblies[assemblyIndex].GetType(fullName)
-            if resolved != null {
-                typeCache[fullName] = resolved
-                return resolved
-            }
-            assemblyIndex = assemblyIndex + 1
+        resolved := typeof(object)
+        if TryResolveFullName(fullName, out resolved) {
+            return resolved
         }
 
         return null

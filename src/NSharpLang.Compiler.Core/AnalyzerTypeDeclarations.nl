@@ -981,9 +981,14 @@ class AnalyzerTypeDeclarations {
         span := spansValue.GetExpressionDiagnosticSpan(initializer)
         sourceSnippet := diagnosticsValue.SourceSnippet(span.Line)
         currentFilePath := diagnosticsValue.CurrentFilePath
-        message := "Field '" + field.Name + "' is typed as '" + TypeText(state.FieldType) + "', but the initializer gives '" + TypeText(initializerType) + "'"
+        // Rendered as a PAIR, so a field and its initializer that name two different types with one
+        // simple name are both spelled in full. See `TypeMismatchDisplay`.
+        initializerText := ""
+        fieldText := ""
+        TypeMismatchDisplay.Pair(declarationContextValue, initializerType, state.FieldType, out initializerText, out fieldText)
+        message := "Field '" + field.Name + "' is typed as '" + fieldText + "', but the initializer gives '" + initializerText + "'"
         if sourceSnippet != null && currentFilePath != null {
-            diagnosticsValue.ReportBuilt(ErrorMessageBuilder.TypeMismatch(currentFilePath, span.Line, span.Column, sourceSnippet, span.Length, TypeText(initializerType), TypeText(state.FieldType), message))
+            diagnosticsValue.ReportBuilt(ErrorMessageBuilder.TypeMismatch(currentFilePath, span.Line, span.Column, sourceSnippet, span.Length, initializerText, fieldText, message))
             return
         }
 

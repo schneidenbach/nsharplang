@@ -1250,10 +1250,19 @@ class ColumnarBindingScopeFacts {
             claimed = true
             return false
         }
-        if TryResolveExplicitKnownRuntime(canonical, out result) {
+        // THE REFERENCED ASSEMBLIES ARE ASKED BEFORE THE KNOWN-RUNTIME SPELLINGS, AND THAT ORDER IS
+        // THE FIX FOR A DRIFT. `TryResolveExplicitKnownRuntime` used to run first, so `Range` meant
+        // `System.Range` in the emitter whatever the file imported — while the ANALYZER resolved the
+        // same spelling through the file's imports in order and answered a referenced assembly's
+        // `Range`. The two walks disagreed, which is exactly the failure `SimpleNamePrecedence`
+        // exists to prevent: analysis accepted the program and emission then declined it (NL103) for
+        // a member the type it had chosen does not have. An `import` is something the file asked for
+        // and it now outranks the known-runtime table, which stays as the LAST resort — what a file
+        // that imported nothing still means by `DateTime`.
+        if TryResolveExactExternalAtFile(sourceFileId, canonical, out result) {
             return true
         }
-        return TryResolveExactExternalAtFile(sourceFileId, canonical, out result)
+        return TryResolveExplicitKnownRuntime(canonical, out result)
     }
 
     // THE HEAD ANSWERED, BUT WITH THE WRONG ARITY. `Subscription<int>` written where both
