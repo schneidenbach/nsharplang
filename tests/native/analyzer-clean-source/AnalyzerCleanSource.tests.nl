@@ -4629,21 +4629,25 @@ test "020 s30 analyzer error codes: `UndefinedMember`: the whole census is pinne
     assert AcHint(rich, 0) == "The type `Status` does not have a member named `Activ`.\nCheck for typos, or make sure you're accessing the right type."
 }
 
-test "020 s30 analyzer error codes: THE TRANCHE'S ONE FALSE CLEAN — the method name says it RESOLVES and the deleted `AssertNoErrorCode(UndefinedMember)` passed, but the analysis reports `NL202:TypeMismatch@10:17+1`; it is the only one of the 35 absence claims whose fixture is not completely silent (was AnalyzerTests.EnumValueObjectMemberAccess_Resolves)" {
+test "020 s30 analyzer error codes: the tranche's last non-silent fixture is silent — an enum value's `ToString()` is `System.Enum`'s, which returns a NON-null `string`, so the `string` return it feeds is exact and the census is empty (was AnalyzerTests.EnumValueObjectMemberAccess_Resolves)" {
+    // WAS `NL202:TypeMismatch@10:17+1` — "should return 'string', but this return statement gives
+    // back 'string?'". An enum's instance members were resolved against `object`, so the answer was
+    // `object.ToString()`'s `string?`; the CLR gives every enum `System.Enum` as its base type, and
+    // `System.Enum.ToString()` returns a non-nullable `string`. The 35th absence claim is now a
+    // completely silent fixture like the other 34.
     source := "\n            enum Status {\n                Pending,\n                Active,\n                Done\n            }\n\n            func Main(): string {\n                status := Status.Active\n                return status.ToString()\n            }\n        "
     assert AcParseCensus(source) == ""
     assert AcParseSuccess(source) == "True"
     analysis := AcAnalyze(source)
-    assert AcCensus(analysis) == "NL202:TypeMismatch@10:17+1;"
-    assert AcHasErrors(analysis) == "True"
-    assert AcErrorCount(analysis) == 1
-    assert AcRow(analysis, 0) == "TypeMismatch|Function 'Main' should return 'string', but this return statement gives back 'string?'|Ensure types are compatible or add explicit cast|Error"
+    assert AcCensus(analysis) == ""
+    assert AcHasErrors(analysis) == "False"
+    assert AcErrorCount(analysis) == 0
     assert AcCodeErrorCount(analysis, "UndefinedMember") == 0
     assert AcCodeCount(analysis, "UndefinedMember") == 0
     assert AcCodeRow(analysis, "UndefinedMember") == "<no-such-code>"
     assert AcCodeAnchor(analysis, "UndefinedMember") == "<no-such-code>"
     rich := AcAnalyzeWithSource(source)
-    assert AcCensus(rich) == "NL202:TypeMismatch@10:31+8;"
+    assert AcCensus(rich) == ""
     assert AcCodeRow(rich, "UndefinedMember") == "<no-such-code>"
     assert AcCodeAnchor(rich, "UndefinedMember") == "<no-such-code>"
 }

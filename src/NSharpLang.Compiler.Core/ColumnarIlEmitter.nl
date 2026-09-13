@@ -13797,34 +13797,16 @@ sealed class ColumnarIlEmitter {
         return true
     }
 
-    // A BARE NAME THAT IS A MEMBER OF THE TYPE BEING COMPILED IS A VALUE, NOT A TYPE NAME. The call
-    // door uses this to decide whether `Entries.Add(name)` names a receiver or a type; before the
-    // STATIC arm existed it asked only about INSTANCE members, so a static field receiver fell into
-    // the static-call door as a type called `Entries` and the whole statement declined at
-    // `emit.expression-statement.call` — even though the bare READ of that same field emits
-    // (`ldsfld`) two thousand lines below. The anchors differ for the same reason they differ there:
-    // an instance member is in scope only through `_currentStruct`, while a static member belongs to
-    // the TYPE and is in scope through `_enclosingType` in every body the type declares.
     private func IsCurrentInstanceMemberName(name: string): bool {
-        if (_currentStruct != null) {
-            let currentField: System.Reflection.Emit.FieldBuilder = null
-            if (ColumnarSourceMemberChainResolver.TryFindFieldOnChain(_currentStruct, name, out currentField)) {
-                return true
-            }
-            let currentProperty: NSharpLang.Compiler.Columnar.ColumnarPropertyDef = null
-            if (TryFindPropertyOnChain(_currentStruct, name, out currentProperty)) {
-                return true
-            }
-        }
-        if (_enclosingType == null) {
+        if (_currentStruct == null) {
             return false
         }
-        let currentStaticField: System.Reflection.Emit.FieldBuilder = null
-        if (ColumnarSourceMemberChainResolver.TryFindStaticFieldOnChain(_enclosingType, name, out currentStaticField)) {
+        let currentField: System.Reflection.Emit.FieldBuilder = null
+        if (ColumnarSourceMemberChainResolver.TryFindFieldOnChain(_currentStruct, name, out currentField)) {
             return true
         }
-        let currentStaticProperty: NSharpLang.Compiler.Columnar.ColumnarPropertyDef = null
-        return ColumnarSourceMemberChainResolver.TryFindStaticPropertyOnChain(_enclosingType, name, out currentStaticProperty)
+        let currentProperty: NSharpLang.Compiler.Columnar.ColumnarPropertyDef = null
+        return TryFindPropertyOnChain(_currentStruct, name, out currentProperty)
     }
 
     private func TryEmitJsonSerializerSerializeGenericCall(callIdx: int, callee: int, out resolvedClrType: Type): bool {
