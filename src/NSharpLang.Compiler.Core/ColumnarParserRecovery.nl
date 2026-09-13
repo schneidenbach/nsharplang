@@ -5462,7 +5462,16 @@ class ColumnarParserRecovery {
                         declined = true
                     }
                 }
-                initializerToken := ConsumeToken(TokenType.ColonAssign, "Expected ':='", "colonassign")
+                // AN ANNOTATED BINDING ACCEPTS EITHER OPERATOR, exactly as an ordinary annotated
+                // declaration does: `x: T = e` is how N# spells a written type, and `x: T := e` is
+                // the spelling the `using` form was introduced with. The UNANNOTATED form still
+                // requires `:=`, so the missing-operator diagnostic that names it stays put.
+                initializerToken := Current()
+                if declaredType != null && Check(TokenType.Assign) {
+                    Advance()
+                } else {
+                    initializerToken = ConsumeToken(TokenType.ColonAssign, "Expected ':='", "colonassign")
+                }
                 initializer := ParseRequiredExpressionAfter(initializerToken, "an initializer expression", "This using declaration", null)
                 // Parser.cs :3109 anchors this synthesized declaration on the USING keyword's line/column.
                 // Parser.cs :3109 keeps an `<error>` variable name verbatim.

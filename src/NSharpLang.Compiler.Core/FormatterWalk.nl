@@ -1270,13 +1270,18 @@ class FormatterWalk {
                     builder.Append(FormatterSyntaxText.FormatTypeReference(usingDeclaration.Type))
                 }
 
-                // A `using` BINDS its resource, and N# spells a binding `:=` whether or not the name
-                // carries an annotation — the same operator the author wrote and the same one the
-                // variable rule above writes. (It used to write `=` here, which was C#'s spelling
-                // transcribed into a language that does not have it: reformatting a valid `using`
-                // produced source the parser then rejected.)
+                // A `using` BINDS its resource, and it is spelled the way EVERY other binding in the
+                // language is spelled: `:=` when the type is inferred, `=` when it is written. That is
+                // the variable rule above, applied here rather than replaced. (It used to write `=`
+                // unconditionally, which was C#'s spelling transcribed into a language that does not
+                // have it: reformatting a valid `using` produced source the parser then rejected.)
                 if usingDeclaration.Initializer != null {
-                    builder.Append(" := ")
+                    if usingDeclaration.Type != null {
+                        builder.Append(" = ")
+                    } else {
+                        builder.Append(" := ")
+                    }
+
                     FormatExpression(usingDeclaration.Initializer, builder)
                 }
             } else if usingStatement.Expression != null {

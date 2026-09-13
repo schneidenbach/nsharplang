@@ -261,9 +261,11 @@ test "a using declaration binds with := like every other N# binding, and `await 
     asyncStatement := new UsingStatement(asyncDeclaration, null, null, 0, 0, true)
     assert FwkStatementText(asyncStatement) == "await using r := open|"
 
+    // An ANNOTATED binding writes `=`, which is the ordinary variable rule rather than an exception
+    // to it: `:=` infers, `=` names the type.
     typed := new VariableDeclarationStatement("r", FwkType("Stream"), FwkIdentifier("open"), VariableKind.Let, 0, 0)
     typedStatement := new UsingStatement(typed, null, null, 0, 0)
-    assert FwkStatementText(typedStatement) == "using r: Stream := open|"
+    assert FwkStatementText(typedStatement) == "using r: Stream = open|"
 }
 
 test "const and readonly are written before the name and let is not" {
