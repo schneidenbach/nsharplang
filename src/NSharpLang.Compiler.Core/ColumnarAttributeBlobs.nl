@@ -36,19 +36,39 @@ class ColumnarAttributeBlobs {
 
     // Generated rows have one blob for each valid constructor slot. Like the other declaration
     // columns, both arrays are read-only after planning; this executor does not accept source data.
-    static func ApplyToTestMethod(target: MethodBuilder, traitConstructor: ConstructorInfo, factConstructor: ConstructorInfo, constructorSlots: int[], blobs: byte[][]) {
+    // `attachFactAttribute` IS FALSE FOR A TEST THAT ALREADY CARRIES A FACT. xunit discovers a test
+    // method by the `FactAttribute` on it, derived or not, and a method carrying TWO is reported as
+    // "has multiple [Fact]-derived attributes" and not run at all. So when the author wrote an
+    // attribute deriving from `FactAttribute`, theirs is the one the method carries — which is also
+    // what makes the `Skip` their constructor sets the one xunit reads. The `[Trait]` row that
+    // carries the test's sentence is attached either way.
+    static func ApplyToTestMethod(target: MethodBuilder, traitConstructor: ConstructorInfo, factConstructor: ConstructorInfo, constructorSlots: int[], blobs: byte[][], attachFactAttribute: bool) {
         index := 0
         while index < constructorSlots.Length {
-            target.SetCustomAttribute(TestConstructorForSlot(constructorSlots[index], traitConstructor, factConstructor), blobs[index])
+            slot := constructorSlots[index]
+            if slot == FactConstructorSlot() && !attachFactAttribute {
+                index = index + 1
+                continue
+            }
+
+            target.SetCustomAttribute(TestConstructorForSlot(slot, traitConstructor, factConstructor), blobs[index])
             index = index + 1
         }
     }
 
+    static func TraitConstructorSlot(): int {
+        return 0
+    }
+
+    static func FactConstructorSlot(): int {
+        return 1
+    }
+
     static func TestConstructorForSlot(slot: int, traitConstructor: ConstructorInfo, factConstructor: ConstructorInfo): ConstructorInfo {
-        if slot == 0 {
+        if slot == TraitConstructorSlot() {
             return traitConstructor
         }
-        if slot == 1 {
+        if slot == FactConstructorSlot() {
             return factConstructor
         }
         throw new InvalidOperationException("Unknown custom test attribute constructor slot.")

@@ -128,6 +128,9 @@ class AnalyzerAttributeValidator {
     func ValidateDeclarationAttributeArguments(decl: Declaration) {
         test := decl as TestDeclaration
         if test != null {
+            // A `test` BLOCK IS A METHOD once it is lowered, so an attribute written on it is
+            // measured against `AttributeTargets.Method` — the same target a `func` gets.
+            ValidateAttributeArgumentsOn(test.Attributes, AnalyzerAttributeUsageFacts.MethodTarget)
             ValidateParameterAttributeArguments(test.TableParameters)
             return
         }

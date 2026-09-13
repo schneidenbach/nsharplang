@@ -442,6 +442,21 @@ sealed class ColumnarProgramInputBuilder {
         return true
     }
 
+    // THE ATTRIBUTES WRITTEN ABOVE A TEST, read from the same preamble scan every other declaration's
+    // attributes are read from. The entry a test scan records is the `test` keyword for a plain test
+    // and a ROW's opening `(` for a table-driven one, so the head is resolved first — a row does not
+    // carry its own attributes, the declaration above it does, and all of that declaration's rows
+    // carry the same ones.
+    private static func ColumnarTestSourceAttributes(ck: int[], cs: int[], cv: int[], n: int, testIndex: int, source: string): ColumnarSourceAttributeInput[] {
+        tokens := new ParserDeclarationTokenTable(ck, cs, cv)
+        entry := new int[](2)
+        if !ResolveColumnarTestCaseEntry(source, tokens, n, testIndex, entry) {
+            return System.Array.Empty<ColumnarSourceAttributeInput>()
+        }
+
+        return ColumnarSourceAttributes.Read(source, ck, cs, cv, entry[0])
+    }
+
     private static func TryParseColumnarTestAt(ck: int[], cs: int[], cv: int[], n: int, testIndex: int, source: string, out input: ColumnarTestInput): bool {
         input = null
         cap := n + 1
@@ -504,7 +519,7 @@ sealed class ColumnarProgramInputBuilder {
             "",
             ""
         )
-        input = new ColumnarTestInput(description, body)
+        input = new ColumnarTestInput(description, body, ColumnarTestSourceAttributes(ck, cs, cv, n, testIndex, source))
         return true
     }
 

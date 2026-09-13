@@ -400,12 +400,19 @@ class TestDeclaration: Declaration {
     TableCases: List<List<Expression>>?
     SkipReason: string?
 
-    constructor(Description: string, Body: BlockStatement, TableParameters: List<Parameter>?, TableCases: List<List<Expression>>?, SkipReason: string?, Line: int, Column: int): base(Line, Column) {
+    // A `test` BLOCK LOWERS TO A METHOD, so an attribute written above it is an attribute on that
+    // method — and it is carried in the same list shape every other declaration carries. An absent
+    // attribute list is an EMPTY list, never null, because every walker that reads it reads it the
+    // same way it reads a function's.
+    Attributes: List<AttributeNode>
+
+    constructor(Description: string, Body: BlockStatement, TableParameters: List<Parameter>?, TableCases: List<List<Expression>>?, SkipReason: string?, Line: int, Column: int, Attributes: List<AttributeNode>? = null): base(Line, Column) {
         this.Description = Description
         this.Body = Body
         this.TableParameters = TableParameters
         this.TableCases = TableCases
         this.SkipReason = SkipReason
+        this.Attributes = Attributes ?? new List<AttributeNode>()
     }
 }
 

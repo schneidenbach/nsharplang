@@ -928,7 +928,7 @@ class ColumnarParserRecovery {
         // dispatched BEFORE attributes/modifiers, so each is its own top-level declaration and
         // participates in the declaration-boundary panic reset (Run's per-iteration PanicMode reset).
         if IsTestDeclarationStart() {
-            ParseTestDeclaration()
+            ParseTestDeclaration(NoDeclarationAttributes())
             return
         }
         if IsSetupDeclarationStart() {
@@ -957,6 +957,18 @@ class ColumnarParserRecovery {
         // Modifiers value Parser.cs :215 hangs on the declaration node.
         attributes := ParseAttributes()
         attrsOk := AttributesMaterializable
+
+        // A `test` BLOCK MAY CARRY ATTRIBUTES, and it is asked here rather than at the contextual
+        // dispatch above because `test` is an IDENTIFIER: the attribute list has to be consumed
+        // before the word after it can be read at all. Attributes are the only preamble a test
+        // takes — a test block has no accessibility and no modifiers — so this is asked BEFORE
+        // `ParseModifiers`, and a modifier written on a test still reaches the unexpected-token arm
+        // it always reached.
+        if IsTestDeclarationStart() {
+            ParseTestDeclaration(attributes)
+            return
+        }
+
         modifiers := ParseTypeDeclarationModifiers()
 
         if Check(TokenType.Func) {
@@ -9655,6 +9667,12 @@ class ColumnarParserRecovery {
     // attribute args reuse the Stage-10 ParseArgumentList; the bodies reuse the Stage-6/13 ParseBlock.
     // ============================================================================
 
+    // An attribute list a declaration did not have. Spelled once so the two `test` dispatch arms
+    // hand the same shape to the same parser.
+    func NoDeclarationAttributes(): List<AttributeNode> {
+        return new List<AttributeNode>()
+    }
+
     // Parser.cs IsTestDeclarationStart (:642): the `test` keyword token OR the contextual identifier.
     func IsTestDeclarationStart(): bool {
         if Check(TokenType.Test) {
@@ -9695,7 +9713,7 @@ class ColumnarParserRecovery {
     // skipReason, line, column)` (Parser.cs :650). The description and the skip reason are the string
     // literal's text with its surrounding quotes TRIMMED (`Trim('"')`, :574/:642); an absent `with`
     // clause leaves BOTH tableParameters and tableCases null (never empty lists).
-    func ParseTestDeclaration() {
+    func ParseTestDeclaration(attributes: List<AttributeNode>) {
         line := Current().Line
         column := Current().Column
         ConsumeTestKeyword()
@@ -9808,9 +9826,9 @@ class ColumnarParserRecovery {
         }
         // An ABSENT `with` clause leaves BOTH lists null (Parser.cs :579-580), never empty lists.
         if hasTable {
-            AddDeclaration(new TestDeclaration(description, body, tableParameters, tableCases, skipReason, line, column))
+            AddDeclaration(new TestDeclaration(description, body, tableParameters, tableCases, skipReason, line, column, attributes))
         } else {
-            AddDeclaration(new TestDeclaration(description, body, NoTableParameters(), NoTableCases(), skipReason, line, column))
+            AddDeclaration(new TestDeclaration(description, body, NoTableParameters(), NoTableCases(), skipReason, line, column, attributes))
         }
     }
 

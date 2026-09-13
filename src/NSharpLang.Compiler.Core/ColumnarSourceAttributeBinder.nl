@@ -212,15 +212,51 @@ class ColumnarSourceAttributeBinder {
     // that loops — which only a malformed program produces — is bounded by its own length rather than
     // trusted to terminate.
     static func DerivesFromAttribute(candidate: Type): bool {
+        return DerivesFromFullName(candidate, "System.Attribute")
+    }
+
+    // The same walk, asked about any base. `xunit` DISCOVERS A TEST BY ITS `FactAttribute`, derived
+    // or not, so "does this written attribute already say `Fact`?" is exactly this question with a
+    // different name in it — and it has to be asked by full name for the same reason: a source
+    // attribute being BUILT and the reference-loaded `Xunit.FactAttribute` it derives from live in
+    // two different type universes.
+    static func DerivesFromFullName(candidate: Type, baseFullName: string): bool {
         current: Type = candidate
         depth := 0
         while current != null && depth < 64 {
-            if current.get_FullName() == "System.Attribute" {
+            if current.get_FullName() == baseFullName {
                 return true
             }
 
             current = current.get_BaseType()
             depth = depth + 1
+        }
+
+        return false
+    }
+
+    // DOES THIS TEST ALREADY CARRY ITS OWN FACT ATTRIBUTE? A `test` block's lowering attaches
+    // `[Fact]` so xunit can find the method; an attribute the author wrote that DERIVES from
+    // `FactAttribute` is already a `[Fact]`, and attaching a second one makes the method carry two —
+    // which xunit reports as "has multiple [Fact]-derived attributes" and refuses to run. So the
+    // written one wins and the synthesized one is not attached, which is also what makes its `Skip`
+    // the one xunit reads.
+    static func DeclaresFactAttribute(attributes: ColumnarSourceAttributeInput[]?, resolution: ColumnarSemanticTypeResolution, factAttributeFullName: string): bool {
+        if attributes == null {
+            return false
+        }
+
+        index := 0
+        while index < attributes.Length {
+            attributeType: Type = null
+            sourceDefinition: ColumnarStructDef = null
+            if TryResolveAttributeType(attributes[index].Name, resolution, out attributeType, out sourceDefinition) {
+                if DerivesFromFullName(attributeType, factAttributeFullName) {
+                    return true
+                }
+            }
+
+            index = index + 1
         }
 
         return false

@@ -819,6 +819,7 @@ class Formatter {
     // nullable fields and the header is written only when both are present, because a `with (…)`
     // with no rows and rows with no parameters are both unparseable.
     func FormatTest(testDeclaration: TestDeclaration, builder: StringBuilder) {
+        walk.FormatAttributes(testDeclaration.Attributes, builder)
         state.Indent(builder)
         builder.Append("test ")
         builder.Append("\"")
