@@ -233,7 +233,7 @@ test "nullable widening walks the inner types in both shapes" {
     assert !assignability.IsAssignable(BuiltInTypes.Int, nullableInt)
 }
 
-test "oblivious array metadata is compatible while nullable array elements remain distinct" {
+test "oblivious array metadata is compatible, and nullable array elements widen in ONE direction" {
     assignability := AssignabilityDefault()
     source: TypeInfo = new ArrayTypeInfo(BuiltInTypes.String)
     obliviousElement: TypeInfo = new ArrayTypeInfo(new ObliviousTypeInfo(BuiltInTypes.String))
@@ -244,7 +244,15 @@ test "oblivious array metadata is compatible while nullable array elements remai
     assert assignability.IsAssignable(source, obliviousElement)
     assert assignability.IsAssignable(outerOblivious, source)
     assert assignability.IsAssignable(source, outerOblivious)
-    assert !assignability.IsAssignable(nullableElement, source)
+
+    // NULLABILITY IS ARRAY-COVARIANT FOR READS. A reference nullable annotation is not a CLR type,
+    // so `string[]` and `string?[]` are one runtime array: the widened view costs nothing and every
+    // element read out of it is honestly typed `string?`. This was refused before, which is what
+    // kept an `object[]` out of `MethodInfo.Invoke`'s `object?[]?` parameter.
+    assert assignability.IsAssignable(nullableElement, source)
+
+    // THE REVERSE IS STILL REFUSED: a `string?[]` may already hold a null, so reading it back as a
+    // `string[]` would promise something the array does not have.
     assert !assignability.IsAssignable(source, nullableElement)
 }
 

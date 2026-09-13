@@ -552,7 +552,10 @@ test "the surrogate conversion substitutes object for every declared family and 
         assert ClrTypeName(funnel.TryConvertTypeInfoToClrTypeForBinding(recordType)) == "System.Object"
         assert ClrTypeName(funnel.TryConvertTypeInfoToClrTypeForBinding(structType)) == "System.Object"
         assert ClrTypeName(funnel.TryConvertTypeInfoToClrTypeForBinding(interfaceType)) == "System.Object"
-        assert ClrTypeName(funnel.TryConvertTypeInfoToClrTypeForBinding(enumType)) == "System.Object"
+        // A SOURCE ENUM'S SURROGATE IS `System.Enum`, not `object`. Every other declared family has
+        // no CLR base the compiler can name before it is emitted; an enum's is fixed by the CLR, and
+        // naming it is what lets `flags.HasFlag(other)` bind the `System.Enum` parameter.
+        assert ClrTypeName(funnel.TryConvertTypeInfoToClrTypeForBinding(enumType)) == "System.Enum"
         assert ClrTypeName(funnel.TryConvertTypeInfoToClrTypeForBinding(unionType)) == "System.Object"
         assert ClrTypeName(funnel.TryConvertTypeInfoToClrTypeForBinding(distinct)) == "System.Object"
 
