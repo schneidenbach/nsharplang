@@ -51,6 +51,26 @@ test "the custom attribute executor selects only declared constructor slots" {
     }
 }
 
+test "the two test slots are named, so the fact slot can be identified rather than counted" {
+    assert ColumnarAttributeBlobs.TraitConstructorSlot() == 0
+    assert ColumnarAttributeBlobs.FactConstructorSlot() == 1
+    assert ColumnarAttributeBlobs.TraitConstructorSlot() != ColumnarAttributeBlobs.FactConstructorSlot()
+}
+
+test "a fact-derived attribute walk crosses from a built type to a reference-loaded base" {
+    // The same walk `DerivesFromAttribute` is, asked about a different base. It compares FULL NAMES
+    // because a type being built and the reference-loaded type it derives from are two different
+    // `Type` instances for one type, so identity answers no about a chain that plainly reaches it.
+    assert NSharpLang.Compiler.Columnar.ColumnarSourceAttributeBinder.DerivesFromFullName(typeof(InvalidOperationException), "System.Exception")
+    assert NSharpLang.Compiler.Columnar.ColumnarSourceAttributeBinder.DerivesFromFullName(typeof(InvalidOperationException), "System.InvalidOperationException")
+    assert !NSharpLang.Compiler.Columnar.ColumnarSourceAttributeBinder.DerivesFromFullName(typeof(InvalidOperationException), "System.ArgumentException")
+    assert !NSharpLang.Compiler.Columnar.ColumnarSourceAttributeBinder.DerivesFromFullName(null, "System.Exception")
+
+    // And the rule it serves: `DerivesFromAttribute` IS this walk with `System.Attribute` in it.
+    assert NSharpLang.Compiler.Columnar.ColumnarSourceAttributeBinder.DerivesFromFullName(typeof(ObsoleteAttribute), "System.Attribute")
+    assert NSharpLang.Compiler.Columnar.ColumnarSourceAttributeBinder.DerivesFromAttribute(typeof(ObsoleteAttribute))
+}
+
 test "a no-argument attribute blob is the prologue and a zero named count" {
     blob := ColumnarAttributeBlobs.NoArgument()
     assert blob.Length == 4

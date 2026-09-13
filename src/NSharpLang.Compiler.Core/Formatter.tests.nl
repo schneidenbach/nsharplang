@@ -442,6 +442,20 @@ test "a test description is quoted and NOT escaped" {
     assert FmtRender(declaration) == "test \"a \\\" quote\" {|}|"
 }
 
+// A `test` BLOCK MAY CARRY ATTRIBUTES, because it lowers to a method and an attribute on it is an
+// attribute on that method — `[SlowFact]` deriving from xunit's `FactAttribute` is the shape the
+// converted corpus writes. They are written the way every other declaration's are, above the keyword.
+test "a test declaration writes the attributes above its keyword" {
+    attributed := new TestDeclaration("d", FmtEmptyBlock(), null, null, null, 1, 1, FmtAttribute("SlowFact", 1))
+    assert FmtRender(attributed) == "[SlowFact]|test \"d\" {|}|"
+}
+
+test "a test declaration with no attributes writes no bracket line at all" {
+    plain := new TestDeclaration("d", FmtEmptyBlock(), null, null, null, 1, 1)
+    assert plain.Attributes.Count == 0
+    assert FmtRender(plain) == "test \"d\" {|}|"
+}
+
 test "a skip reason is written after the description and before the brace" {
     declaration := new TestDeclaration("d", FmtEmptyBlock(), null, null, "flaky", 1, 1)
     assert FmtRender(declaration) == "test \"d\" skip \"flaky\" {|}|"

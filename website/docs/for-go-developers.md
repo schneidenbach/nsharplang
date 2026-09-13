@@ -400,10 +400,11 @@ test "should add task" {
 }
 ```
 
-There is **no equivalent of `t.Skip()`**. N# parses a `skip "reason"` clause for forward
-compatibility, but no backend emits it and `nlc test` reports `NL323` on a file that spells one.
-Comment the declaration out, or select tests with `nlc test --filter`. See
-[Skipping a Test](language-tour.md#skipping-a-test).
+The `skip "reason"` CLAUSE is not the way to skip a test: N# parses it for forward compatibility, but
+no backend emits it and `nlc test` reports `NL323` on a file that spells one. The equivalent of
+`t.Skip()` is an ATTRIBUTE — a class deriving from xunit's `FactAttribute` whose constructor sets
+`Skip` — written above the `test` block, and `nlc test` reports that test as `skipped` with the
+reason. See [Skipping a Test](language-tour.md#skipping-a-test).
 
 ## Formatting
 

@@ -1635,6 +1635,38 @@ help: Delete the skip clause and its reason, or comment out the whole test decla
 To leave a test out of a run, comment out the whole declaration, or use `nlc test --filter` to
 select the tests you want. A `skip` clause is not a way to keep an unfinished test in the file.
 
+**A conditional test is an attribute, and it runs.** A `test` block lowers to a method, so it takes
+attributes the way any other declaration does — and an attribute that derives from xunit's
+`FactAttribute` decides, in its own constructor, whether the test runs at all. That is how a test
+that needs a prerequisite is written:
+
+```n#
+import System
+import Xunit
+
+sealed class DockerFactAttribute: FactAttribute {
+    public constructor() {
+        if Environment.GetEnvironmentVariable("DOCKER_HOST") == null {
+            Skip = "Docker is not running"
+        }
+    }
+}
+
+[DockerFact]
+test "the container starts" {
+    assert StartContainer() != null
+}
+```
+
+`nlc test` reports that test as `skipped` with the reason the constructor set. The attribute class
+may live in any file of the project — it is usually its own — and `Skip` is a property the external
+base declares, so setting it is an ordinary assignment.
+
+The compiler attaches its own `[Fact]` **only when the test does not already carry one**. A method
+with two `[Fact]`-derived attributes is a discovery error in xunit ("has multiple [Fact]-derived
+attributes"), which would drop the test from the run rather than fail it, so the attribute you wrote
+is the one the method carries.
+
 ### Setup Blocks
 
 Share setup code across all tests in a file. One `setup` block per file — runs before each test:

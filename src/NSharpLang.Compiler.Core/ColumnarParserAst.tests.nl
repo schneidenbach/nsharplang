@@ -1541,6 +1541,12 @@ class Golden {
         decls.Add(new TestDeclaration(description, body, tableParameters, tableCases, skipReason, line, column))
     }
 
+    // The same declaration with the attributes written above its keyword. A `test` block lowers to a
+    // method, so it carries a method's attribute list.
+    static func AddTestAttr(decls: List<Declaration>, description: string, body: BlockStatement, tableParameters: List<Parameter>?, tableCases: List<List<Expression>>?, skipReason: string?, attrs: List<AttributeNode>, line: int, column: int) {
+        decls.Add(new TestDeclaration(description, body, tableParameters, tableCases, skipReason, line, column, attrs))
+    }
+
     static func NoTableParams(): List<Parameter>? {
         return null
     }
@@ -5455,6 +5461,27 @@ test "016 N+1c tranche 10: a `test` declaration materializes TestDeclaration wit
     Golden.AddTest(decls, "adds", body, Golden.NoTableParams(), Golden.NoTable(), null, 1, 1)
     expected := Golden.Unit(null, NoImports(), NoFileImports(), null, decls, 1, 1)
     assert AstEq.Diff(expected, actual, "unit") == ""
+}
+
+// A `test` BLOCK MAY CARRY ATTRIBUTES. `test` is a CONTEXTUAL identifier, so the attribute list has to
+// be consumed before the word after it can be read at all — which is why the test-DSL dispatch is
+// asked twice: once before any preamble, and once after the attributes and before the modifiers.
+test "a test declaration carries the attributes written above its keyword" {
+    actual := RunAst("[SlowFact]\ntest \"adds\" {\n    assert a\n}\n")
+    body := Golden.Block1(Golden.Assert(Golden.Ident("a", 3, 12), null, 3, 5), 2, 13)
+    attrs := new List<AttributeNode>()
+    Golden.AddAttr(attrs, "SlowFact", 1, 2)
+    decls := new List<Declaration>()
+    Golden.AddTestAttr(decls, "adds", body, Golden.NoTableParams(), Golden.NoTable(), null, attrs, 2, 1)
+    expected := Golden.Unit(null, NoImports(), NoFileImports(), null, decls, 1, 1)
+    assert AstEq.Diff(expected, actual, "unit") == ""
+}
+
+test "a test declaration with no attribute list carries an EMPTY list, never null" {
+    actual := RunAst("test \"adds\" {\n    assert a\n}\n")
+    declaration := actual.Declarations[0] as TestDeclaration
+    assert declaration != null
+    assert declaration.Attributes.Count == 0
 }
 
 test "016 N+1c tranche 10: `skip \"reason\"` lands unquoted in TestDeclaration.SkipReason (Parser.cs :642)" {
