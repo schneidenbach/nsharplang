@@ -1046,7 +1046,7 @@ class ColumnarIteratorEmitContext {
     DeclineSite: string
     DeclineMessage: string
 
-    constructor(nodes: ColumnarNodeTable, source: string, bodyRoot: int, shape: ColumnarIteratorShape, stateMachineType: Type, elementType: Type, fieldNames: string[], fields: FieldInfo[], structuralTypeReferences: ColumnarStructuralTypeReferenceTable, smConstructor: ConstructorInfo? = null, enclosingType: Type? = null, enclosingFieldNames: string[]? = null, enclosingFields: FieldInfo[]? = null, enclosingFieldCanonicals: string[]? = null, enclosingMethodNames: string[]? = null, enclosingMethods: MethodInfo[]? = null, coreMethod: MethodInfo? = null, scope: ColumnarIteratorBodyScope? = null, builder: TypeBuilder? = null, genericMemberType: Type? = null) {
+    constructor(nodes: ColumnarNodeTable, source: string, bodyRoot: int, shape: ColumnarIteratorShape, stateMachineType: Type, elementType: Type, fieldNames: string[], fields: FieldInfo[], structuralTypeReferences: ColumnarStructuralTypeReferenceTable, smConstructor: ConstructorInfo? = null, enclosingType: Type? = null, enclosingFieldNames: string[]? = null, enclosingFields: FieldInfo[]? = null, enclosingFieldCanonicals: string[]? = null, enclosingMethodNames: string[]? = null, enclosingMethods: MethodInfo[]? = null, coreMethod: MethodInfo? = null, bodyFacts: ColumnarIteratorBodyFacts? = null, builder: TypeBuilder? = null, genericMemberType: Type? = null, typeParameters: Dictionary<string, Type>? = null) {
         Nodes = nodes
         Source = source
         BodyRoot = bodyRoot
@@ -1064,11 +1064,33 @@ class ColumnarIteratorEmitContext {
         EnclosingMethodNames = enclosingMethodNames ?? new string[](0)
         EnclosingMethods = enclosingMethods ?? new MethodInfo[](0)
         CoreMethod = coreMethod
-        Scope = scope
         Builder = builder
         GenericMemberType = genericMemberType
         DeclineSite = ""
         DeclineMessage = ""
+
+        // THE BODY'S NAME BINDINGS, PUBLISHED ONCE HERE. Every field the machine already has is visible
+        // to the body's own code as a field of `this`; an instance machine's enclosing members are
+        // visible through the captured receiver. A machine whose program facts are not supplied — a
+        // contract that exercises the member bodies rather than a program — still gets a scope, with an
+        // empty declaration registry, so the ONE expression owner is reachable from every context.
+        bodyScope := ColumnarIteratorBodyScope.Create(stateMachineType, bodyFacts ?? ColumnarIteratorBodyFacts.Empty(StructuralTypeReferences), typeParameters)
+        index := 0
+        while index < FieldNames.Length && index < Fields.Length {
+            if Fields[index] != null {
+                bodyScope.PublishField(FieldNames[index], Fields[index])
+            }
+            index = index + 1
+        }
+        if bodyScope.HasField("<>__this") {
+            receiver := bodyScope.FieldHandle("<>__this")
+            member := 0
+            while member < EnclosingFieldNames.Length && member < EnclosingFields.Length {
+                bodyScope.PublishEnclosingMember(EnclosingFieldNames[member], receiver, EnclosingFields[member])
+                member = member + 1
+            }
+        }
+        Scope = bodyScope
     }
 
     Declined: bool => DeclineMessage.Length > 0

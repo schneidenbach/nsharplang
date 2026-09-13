@@ -162,8 +162,6 @@ class ColumnarAsyncProbeMachine {
             null,
             null,
             null,
-            null,
-            null,
             (MethodInfo)coreBox
         )
         PlanningContext = context
@@ -1921,9 +1919,7 @@ test "iterator planner hoists the receiver and runs enclosing member reads" {
         hostFields,
         memberCanonicals,
         IteratorNoStrings(),
-        new MethodInfo[](0),
-        IteratorNoStrings(),
-        new Type[](0)
+        new MethodInfo[](0)
     )
 
     moveNext := MakeIteratorDynamicMethod("InstanceMoveNext", typeof(bool), smType)

@@ -371,7 +371,8 @@ test "persisted realization preserves sync registration before an element declin
         syncEnclosingFields,
         syncEnclosingFieldCanonicals,
         syncEnclosingMethodNames,
-        syncEnclosingMethods
+        syncEnclosingMethods,
+        null
     )
     assert !syncResult.Succeeded
     assert syncResult.DeclineSite == "emit.iterator.element-type"
@@ -423,7 +424,8 @@ test "persisted realization preserves sync registration before an element declin
         asyncSource,
         asyncResolution,
         asyncFactoryIl,
-        asyncTypes
+        asyncTypes,
+        null
     )
     assert !asyncResult.Succeeded
     assert asyncResult.DeclineSite == "emit.iterator.element-type"
@@ -496,7 +498,8 @@ test "persisted generic realization rebinds its retained machine-VAR field throu
         noEnclosingFields,
         noEnclosingFieldCanonicals,
         noEnclosingMethodNames,
-        noEnclosingMethods
+        noEnclosingMethods,
+        null
     )
     assert result.Succeeded
     assert types.Count == 1

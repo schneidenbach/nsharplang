@@ -374,8 +374,6 @@ class ColumnarIteratorRealization {
         if smTypeParamMap != null {
             genericMemberType = memberSmType
         }
-        scope := ColumnarIteratorBodyScope.Create(memberSmType, bodyFacts ?? ColumnarIteratorBodyFacts.Empty(table), smTypeParamMap)
-        PublishMachineBindings(scope, shape, memberFields, enclosingFieldNames, enclosingFields)
         context := new ColumnarIteratorEmitContext(
             fn.BodyNodes,
             functionSource,
@@ -394,9 +392,10 @@ class ColumnarIteratorRealization {
             enclosingMethodNames,
             enclosingMethods,
             null,
-            scope,
+            bodyFacts,
             sm,
-            genericMemberType
+            genericMemberType,
+            smTypeParamMap
         )
         overrideContext := ColumnarIteratorOverrideContext.ForSync(table, elementType, enumerableOfT, enumeratorOfT)
         publicImpl := MethodAttributes.Public | MethodAttributes.Virtual | MethodAttributes.Final | MethodAttributes.HideBySig | MethodAttributes.NewSlot
@@ -487,7 +486,6 @@ class ColumnarIteratorRealization {
                 table,
                 factoryCtor
             )
-            factoryContext.Scope = ColumnarIteratorBodyScope.Create(factorySmType, bodyFacts ?? ColumnarIteratorBodyFacts.Empty(table), smTypeParamMap)
         }
         factoryPlan := ColumnarIteratorBodyPlanner.BuildFactoryPlan(factoryContext)
         ColumnarCodePlanExecutor.Execute(factoryPlan, factoryIl)
@@ -623,9 +621,6 @@ class ColumnarIteratorRealization {
         ctorIl.Emit(OpCodes.Ret)
 
         ctorHandle: ConstructorInfo = ctor
-        smType: Type = sm
-        scope := ColumnarIteratorBodyScope.Create(smType, bodyFacts ?? ColumnarIteratorBodyFacts.Empty(table), null)
-        PublishMachineBindings(scope, shape, fields, null, null)
         context := new ColumnarIteratorEmitContext(
             fn.BodyNodes,
             functionSource,
@@ -644,7 +639,7 @@ class ColumnarIteratorRealization {
             null,
             null,
             coreHandle,
-            scope,
+            bodyFacts,
             sm,
             null
         )
@@ -708,31 +703,6 @@ class ColumnarIteratorRealization {
         ColumnarCodePlanExecutor.Execute(factoryPlan, factoryIl)
         synthesizedTypes.Add(sm)
         return Completed()
-    }
-
-    // Publish the machine's own name bindings into the body scope: every field defined ahead of the
-    // body (the state, the current value, the captured parameters and the explicitly typed locals), and
-    // — for an instance machine — the enclosing type's readable members, which the body reads through
-    // the captured `<>__this` receiver.
-    static func PublishMachineBindings(scope: ColumnarIteratorBodyScope, shape: ColumnarIteratorShape, fields: FieldInfo[], enclosingFieldNames: string[]?, enclosingFields: FieldInfo[]?) {
-        index := 0
-        while index < shape.FieldCount {
-            if fields[index] != null {
-                scope.PublishField(shape.FieldNames[index], fields[index])
-            }
-            index = index + 1
-        }
-        names := enclosingFieldNames
-        handles := enclosingFields
-        if names == null || handles == null || !scope.HasField("<>__this") {
-            return
-        }
-        receiver := scope.FieldHandle("<>__this")
-        member := 0
-        while member < names.Length && member < handles.Length {
-            scope.PublishEnclosingMember(names[member], receiver, handles[member])
-            member = member + 1
-        }
     }
 
     static func Completed(): ColumnarIteratorRealizationResult {

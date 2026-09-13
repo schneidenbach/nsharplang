@@ -751,50 +751,12 @@ class ColumnarTypeOfPlanner {
         return false
     }
 
+    // ONE EXCEPTION-RESOLUTION PATH FOR THE WHOLE COMPILER. This owner used to carry its own copy of
+    // the admitted-exception list beside `ColumnarCanonicalTypeResolver`'s, and the two drifted: a
+    // qualified `System.ArrayTypeMismatchException` was in one and not the other. There is no list any
+    // more, and there is no second resolver — this forwards.
     static func TryResolveExceptionType(canonical: string, out result: Type): bool {
-        result = typeof(object)
-        if canonical == "Exception" || canonical == "System.Exception" {
-            result = typeof(Exception)
-        } else if canonical == "InvalidOperationException" || canonical == "System.InvalidOperationException" {
-            result = typeof(InvalidOperationException)
-        } else if canonical == "ArgumentException" || canonical == "System.ArgumentException" {
-            result = typeof(ArgumentException)
-        } else if canonical == "ArgumentNullException" || canonical == "System.ArgumentNullException" {
-            result = typeof(ArgumentNullException)
-        } else if canonical == "ArgumentOutOfRangeException" || canonical == "System.ArgumentOutOfRangeException" {
-            result = typeof(ArgumentOutOfRangeException)
-        } else if canonical == "FormatException" || canonical == "System.FormatException" {
-            result = typeof(FormatException)
-        } else if canonical == "NotSupportedException" || canonical == "System.NotSupportedException" {
-            result = typeof(NotSupportedException)
-        } else if canonical == "NotImplementedException" || canonical == "System.NotImplementedException" {
-            result = typeof(NotImplementedException)
-        } else if canonical == "TimeoutException" || canonical == "System.TimeoutException" {
-            result = typeof(TimeoutException)
-        } else if canonical == "DivideByZeroException" || canonical == "System.DivideByZeroException" {
-            result = typeof(DivideByZeroException)
-        } else if canonical == "ArithmeticException" || canonical == "System.ArithmeticException" {
-            result = typeof(ArithmeticException)
-        } else if canonical == "OverflowException" || canonical == "System.OverflowException" {
-            result = typeof(OverflowException)
-        } else if canonical == "NullReferenceException" || canonical == "System.NullReferenceException" {
-            result = typeof(NullReferenceException)
-        } else if canonical == "IndexOutOfRangeException" || canonical == "System.IndexOutOfRangeException" {
-            result = typeof(IndexOutOfRangeException)
-        } else if canonical == "InvalidCastException" || canonical == "System.InvalidCastException" {
-            result = typeof(InvalidCastException)
-        } else if canonical == "ArrayTypeMismatchException" || canonical == "System.ArrayTypeMismatchException" {
-            // The covariant-array store's own exception. `string[]` viewed as `object[]` is one object,
-            // so the CLR checks every store through the view and throws this when the value is not an
-            // instance of the array's REAL element type — which is the only way a program observes
-            // that array covariance is a view rather than a copy.
-            result = typeof(ArrayTypeMismatchException)
-        } else if canonical == "FileNotFoundException" || canonical == "System.IO.FileNotFoundException" {
-            result = typeof(FileNotFoundException)
-        } else {
-            return false
-        }
-        return true
+        return ColumnarCanonicalTypeResolver.TryResolveBclExceptionType(canonical, out result)
     }
 
     static func TryResolveCollection(head: string, argumentCanonicals: List<string>, bindings: ColumnarFragmentBindings, out result: Type): bool {

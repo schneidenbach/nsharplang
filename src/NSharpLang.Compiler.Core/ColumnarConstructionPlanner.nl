@@ -676,7 +676,11 @@ class ColumnarConstructionPlanner {
             return true
         }
 
-        if !IsApprovedRuntimeObjectInitializerType(targetType) || !TryAppendRuntimeObjectInitializerConstruction(nodes, source, node, bindings, handles, plan, fragment, depth, targetType, out ownership, out legacyWholeSubtreePlanning) {
+        // NO APPROVED-TYPE LIST. A reflected type participates in an object initializer exactly when
+        // ordinary member resolution can satisfy what the initializer writes: a parameterless
+        // constructor to build it and a settable property or writable field for each named member. The
+        // three-type allowlist that stood here was a table of the types the corpus happened to use.
+        if !TryAppendRuntimeObjectInitializerConstruction(nodes, source, node, bindings, handles, plan, fragment, depth, targetType, out ownership, out legacyWholeSubtreePlanning) {
             return false
         }
         resultType = targetType
@@ -819,7 +823,29 @@ class ColumnarConstructionPlanner {
 
             runtimeProperty := targetType.GetProperty(memberName)
             if runtimeProperty == null {
-                return false
+                // A REFLECTED TYPE'S MEMBER MAY BE A FIELD, and an object initializer names members,
+                // not properties. An N#-compiled record in a referenced assembly publishes most of its
+                // members as public fields, so a `new CompilerError(...) { FileName: "a.nl" }` written
+                // against that assembly reaches here and not the property arm. Ordinary member
+                // resolution: a public, non-static, writable instance field is assigned by `stfld`,
+                // which is the same row the source-definition arm above emits for a field member.
+                runtimeField := targetType.GetField(memberName)
+                if runtimeField == null || runtimeField.get_IsStatic() || runtimeField.get_IsInitOnly() || runtimeField.get_IsLiteral() {
+                    return false
+                }
+                runtimeFieldDeclaringType := runtimeField.get_DeclaringType()
+                if runtimeFieldDeclaringType == null {
+                    return false
+                }
+                runtimeFieldType := runtimeField.get_FieldType()
+                plan.AppendInstructionWithoutOperand(ColumnarCodePlanContract.Dup())
+                if !TryAppendObjectInitializerValue(nodes, source, valueNode, bindings, handles, plan, fragment, depth + 1, runtimeFieldType, out ownership, out legacyWholeSubtreePlanning) {
+                    return false
+                }
+                runtimeFieldIndex := plan.AddFieldWithSignature(runtimeField, runtimeFieldDeclaringType, runtimeFieldType, false)
+                plan.AppendFieldInstruction(ColumnarCodePlanContract.Stfld(), runtimeFieldIndex)
+                index += 2
+                continue
             }
             selectedProperty: PropertyInfo = runtimeProperty
             setterCandidate := selectedProperty.get_SetMethod()
@@ -1027,10 +1053,6 @@ class ColumnarConstructionPlanner {
             current = candidate.BaseDef
         }
         return false
-    }
-
-    static func IsApprovedRuntimeObjectInitializerType(targetType: Type): bool {
-        return targetType == typeof(JsonSerializerOptions) || targetType == typeof(ProcessStartInfo) || targetType == typeof(Process)
     }
 
     static func RequiredVoidType(): Type {

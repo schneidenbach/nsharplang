@@ -6796,6 +6796,52 @@ sealed class ColumnarIlEmitter {
                             return true
                         }
                     }
+                    // A REFLECTED OWNER — a type from a referenced assembly, including an N#-compiled
+                    // record in one. The write is the same write: the member resolves by ORDINARY
+                    // reflection instead of through a source definition, and a writable instance field
+                    // takes `stfld` and a settable instance property takes its setter. Nothing about the
+                    // owner's provenance changes which instruction a member assignment is.
+                    if (writeOwnerDef == null && writeChain.ReceiverType != null && writeOwnerTb == null && !writeChain.ReceiverType.get_IsValueType() && !writeChain.ReceiverType.get_IsGenericParameter()) {
+                        reflectedWriteField := writeChain.ReceiverType.GetField(memberName)
+                        if (reflectedWriteField != null && !reflectedWriteField.get_IsStatic() && !reflectedWriteField.get_IsInitOnly() && !reflectedWriteField.get_IsLiteral()) {
+                            EmitMemberWriteLocator(writeChain)
+                            let reflectedFieldValueType: System.Type = null
+                            if (TryEmitIntLiteralAsType(Child(expr, 1), reflectedWriteField.get_FieldType(), out reflectedFieldValueType)) {
+                            } else {
+                                if (TryEmitZeroLiteralAsType(Child(expr, 1), reflectedWriteField.get_FieldType(), out reflectedFieldValueType)) {
+                                } else {
+                                    if (!EmitExpression(Child(expr, 1), out reflectedFieldValueType)) {
+                                        return false
+                                    }
+                                }
+                            }
+                            if (!TypesEquivalent(reflectedFieldValueType, reflectedWriteField.get_FieldType()) && !TryEmitImplicitWidening(reflectedFieldValueType, reflectedWriteField.get_FieldType()) && !ColumnarReferenceCoercionPlanner.TryEmitExternalInterfaceUpcast(reflectedFieldValueType, reflectedWriteField.get_FieldType(), _structRegistry, _il) && !ColumnarReferenceConversionFacts.TryEmitReferenceConversion(reflectedFieldValueType, reflectedWriteField.get_FieldType()) && !ColumnarReferenceCoercionPlanner.TryEmitObjectConversion(reflectedFieldValueType, reflectedWriteField.get_FieldType(), _structRegistry, _il)) {
+                                return false
+                            }
+                            _il.Emit(OpCodes.Stfld, reflectedWriteField)
+                            return true
+                        }
+                        reflectedWriteProperty := writeChain.ReceiverType.GetProperty(memberName)
+                        if (reflectedWriteProperty != null) {
+                            reflectedSetter := reflectedWriteProperty.get_SetMethod()
+                            if (reflectedSetter == null || reflectedSetter.get_IsStatic() || reflectedSetter.GetParameters().Length != 1) {
+                                return false
+                            }
+                            EmitMemberWriteLocator(writeChain)
+                            let reflectedPropertyValueType: System.Type = null
+                            if (TryEmitIntLiteralAsType(Child(expr, 1), reflectedWriteProperty.get_PropertyType(), out reflectedPropertyValueType)) {
+                            } else {
+                                if (!EmitExpression(Child(expr, 1), out reflectedPropertyValueType)) {
+                                    return false
+                                }
+                            }
+                            if (!TypesEquivalent(reflectedPropertyValueType, reflectedWriteProperty.get_PropertyType()) && !TryEmitImplicitWidening(reflectedPropertyValueType, reflectedWriteProperty.get_PropertyType()) && !ColumnarReferenceConversionFacts.TryEmitReferenceConversion(reflectedPropertyValueType, reflectedWriteProperty.get_PropertyType()) && !ColumnarReferenceCoercionPlanner.TryEmitObjectConversion(reflectedPropertyValueType, reflectedWriteProperty.get_PropertyType(), _structRegistry, _il)) {
+                                return false
+                            }
+                            _il.Emit(reflectedSetter.get_IsVirtual() ? OpCodes.Callvirt : OpCodes.Call, reflectedSetter)
+                            return true
+                        }
+                    }
                 }
                 return false
             }
