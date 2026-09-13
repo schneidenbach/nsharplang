@@ -52,7 +52,11 @@ new targets load every task from Core), forced clean self-rebuild and estate 8,4
 rows are exact-match reviewed rows, delivery blind spot closed (`c9f874451`, `a553c96b6`, `a0bd6fd1e`). Fresh gates at
 `a0bd6fd1e`: `VSCODE_TESTS=skip` 10m35s and VS Code-enabled 11m32s, both ALL TESTS PASSED. Converter census slices
 (`nlc check` exponential fluent-chain walk → linear; try/finally return, break/continue narrowing, cross-assembly
-`Nullable<T>`/array identity, defaulted arguments, `object[]` stores, array-literal casts) follow as `census/merge`.
+`Nullable<T>`/array identity, defaulted arguments, `object[]` stores, array-literal casts) landed as `census/merge`
+at `0bd1cf46d`: estate 8,415/8,415, `tests/native/census-flow-rules` 25, corpus pin 94, fresh gates
+`VSCODE_TESTS=skip` and VS Code-enabled 11m33s both ALL TESTS PASSED; record in tasks/TOOLCHAIN-NATIVE.md
+"Converter-driven census slices". Two contracts repinned to the receiver-once call walk (lambda scope census
+15→7 / 7→5) and the known-generic owner's oblivious unwrapping deleted in favour of identity (`0bd1cf46d`).
 
 **Capability-gap arc integrated, 2026-09-10** (readonly structs, static members on generic types,
 type identity by arity, constructed external generics; see
