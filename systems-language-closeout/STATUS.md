@@ -37,6 +37,15 @@ Facade and MSBuild task lanes are running from `06186dc6d`; CLI/LSP/Playground/R
 Visual Studio is deferred; compiler completion and rename evidence below remain accepted.
 Shared compiler prerequisites, seeds and integration gates remain root-owned.
 
+**Census waves 3 and 4 integrated, 2026-09-13** (systems-language `755e53a14` → see the push line below):
+seventeen converter-census streams merged in landing order onto `census/merge` — CONV, FLOW2, TOOL, ENUM, PARSE2,
+LAMBDA (+ its load-tolerant reflection fix), INIT, ATTR, EXT, FLOW3, CONV2, LOCALFN (+ its postcondition/assert fix),
+ENUM2, ITER, TUPLE2 — each verified with its native project(s) and the estate at every merge (final estate 8,679/8,679,
+75 native projects, ownership audit green, corpus pin 103, catalog 92 codes). Records: tasks/TOOLCHAIN-NATIVE.md
+"Census wave 3". Converted-project census (nsharp-cs2nl) at the eleven-stream tip: cli 46→32, languageserver 121→61,
+tests 92→70, runtime 0 (FLOW3's measurement); the converter itself gained twelve mappings. Gate runner fix
+`5b1ea322d` (stdout-only JSON parse) after NL907 became a warning. Gates: GATE_PLACEHOLDER.
+
 **Toolchain candidate reconnected and the compiler seed republished, 2026-09-12** (systems-language
 `e9ca730b6` → `a0bd6fd1e`): the Codex managed-toolchain candidate (`codex/toolchain-integration` `5ebd18b72`, 68
 commits: N# facade, Build.Tasks, CheckCommand/FixCommand, Playground) merged with the capability-gap arc; the

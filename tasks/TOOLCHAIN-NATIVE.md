@@ -307,7 +307,18 @@ diagnostic-catalog counts reconciled at each merge (every stream bumps both; the
 | LAMBDA | one method-type-inference engine by position for extensions, statics, instance and user generic methods; method groups; NL413; the per-member Enumerable emit table deleted; reflection over referenced members is load-tolerant (`AnalyzerReflectionMemberProbe`) | `census-lambda-inference` |
 | INIT | field initializers are expressions: a real `.cctor`, instance initializers before the base call, struct initializers in declared constructors (NL328/NL329), `beforefieldinit` | `census-field-initializers` |
 | ATTR | attributes a program declares for itself: general ECMA-335 blob writer, `AttributeUsage` honored (NL933/NL934), attributes on properties and constructors | `census-source-attributes` |
-| ITER / LOCALFN / EXT | (in flight at the time of this record — see the cursor in STATUS.md) | |
+| EXT | one extension-call path from receiver to IL: source-class element sequences, arrays, explicit type arguments on extension calls (the `Cast`/`OfType` table deleted), lambdas in every argument position through the columnar parser and the construction planner, type-parameter receivers | `census-extension-calls` |
+| ITER | iterator bodies use the ordinary expression planner (the parallel mini-planner deleted): calls, literals, `new`, `for..in` over any sequence, target-typed `yield`; one BCL exception resolution path; external record initializers | `census-iterators` |
+| LOCALFN | local functions bound by the block (forward calls, mutual recursion, definite assignment at the call); a substituted generic parameter takes the type argument's nullability (`Lazy<T>.Value`, `First` vs `FirstOrDefault`); `assert cond` narrows; postcondition attributes belong to the postcondition owner alone | `census-local-functions`, `census-flow-rules` |
+| FLOW3 | `out` arguments take any nullability; `[NotNull]`/`[MaybeNull]`/`[NotNullWhen]`/`[MaybeNullWhen]`/`[NotNullIfNotNull]` read off reflected and source members; a `?.` chain's continuation lifts | `census-flow-rules` |
+| CONV2 | shift operands typed by the operator; integer constants adopt a neighbour's type; user-defined implicit conversions on arguments (`op_Implicit`); array literals scored element-wise against overload sets | `census-conversions` |
+| TUPLE2 | `System.ValueTuple\`N` is the tuple type it spells; element names survive `Nullable<T>.Value`, indexers, dictionary values, chains and foreach variables at emit; tuple-typed fields/properties; `(a, b) := e` / `(a, b) = e` and `Deconstruct(out …)` | `census-parse-shapes` |
+| ENUM2 | `for x: T in e` — an annotated loop variable with the C# explicit element conversion (NL330), node kind 76 | `census-pattern-foreach` |
+
+Wave 4 briefs still running at this record: TOOL2 (import/shadowing fidelity), LAMBDA2 (lambdas to any delegate,
+method groups vs overload sets, static-initializer method groups), LOCALFN2 (closure conversion for local
+functions — LOCALFN found that a local function cannot capture). Open items from every report are collected in
+`/Users/spencer/repos/nsharp-worktrees/census-briefs/FOLLOWUPS.md`.
 
 Converter (`nsharp-cs2nl`) mappings added in the same wave: iterators as `func*`, hoisted local functions, class
 primary constructors, negated `HasValue`, discard assignments, lambda-parameter renames, typed-foreach casts,
