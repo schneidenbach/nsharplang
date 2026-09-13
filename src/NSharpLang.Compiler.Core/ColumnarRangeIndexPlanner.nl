@@ -498,7 +498,12 @@ class ColumnarRangeIndexPlanner {
             // A type-discovery SCRATCH has no parent to point at even when the value it types is destined
             // for one, so it declares the frame instead — see `ColumnarCodePlan.EnableNestedValueFrame`.
             // Only a scratch ever arms that, so an emitted plan still answers this question by position.
-            planned = TryPlanIndexAccess(nodes, source, node, bindings, handles, plan, fragment, depth, parentFragment >= 0 || plan.HasNestedValueFrame(), allowPrimitiveBinary, out resultType, out nestedOwnership)
+            //
+            // A METHOD BODY answers it by construction instead. Its fragments are STATEMENT TREES, and an
+            // index access is never a statement: every `arr[i]` a body contains is consumed by the thing
+            // that asked for it — a store, a condition, an argument, a yielded value — so the claim is a
+            // non-root claim at every position the body can put it in.
+            planned = TryPlanIndexAccess(nodes, source, node, bindings, handles, plan, fragment, depth, parentFragment >= 0 || plan.IsMethodBodySchema() || plan.HasNestedValueFrame(), allowPrimitiveBinary, out resultType, out nestedOwnership)
         }
 
         if !planned {

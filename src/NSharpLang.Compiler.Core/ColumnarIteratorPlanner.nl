@@ -1791,18 +1791,16 @@ class ColumnarIteratorBodyPlanner {
     // reference upcast, a nullable lift, a constructed-generic conversion and a user-defined implicit
     // conversion all behave exactly as they do when the same value is passed to a parameter.
     static func AppendStoredValue(emit: ColumnarMoveNextEmit, node: int, storageType: Type): bool {
-        valueType := typeof(int)
-        if !AppendValue(emit, node, out valueType) {
+        if emit.Context.Declined {
             return false
         }
-        if valueType == storageType {
+        checkpoint := emit.Plan.CreateCheckpoint()
+        if emit.Context.RequiredScope().TryAppendTargetTypedValue(emit.Context.Nodes, emit.Context.Source, node, emit.Plan, storageType) {
             return true
         }
-        if !emit.Context.RequiredScope().TryAppendStorageConversion(emit.Plan, valueType, storageType) {
-            emit.Context.Decline("emit.iterator.unsupported-shape", "an iterator body value of type '" + valueType.Name + "' cannot be stored as '" + storageType.Name + "'")
-            return false
-        }
-        return true
+        emit.Plan.Rollback(checkpoint)
+        emit.Context.Decline("emit.iterator.unsupported-shape", "an iterator body value (node kind " + emit.Context.Nodes.Kind(node).ToString() + ") could not be lowered as '" + storageType.Name + "'")
+        return false
     }
 
     // A condition: an ordinary value the branch rows consume as a Boolean.

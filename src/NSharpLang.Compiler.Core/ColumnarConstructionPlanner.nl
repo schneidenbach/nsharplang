@@ -516,6 +516,76 @@ class ColumnarConstructionPlanner {
         return true
     }
 
+    // THE ARRAY LITERAL AT A POSITION THAT KNOWS ITS ELEMENT TYPE.
+    //
+    // `TryAppendInferredArray` above deliberately refuses a literal whose elements disagree, because
+    // nothing IT can see names the element type: `["a", 1]` is well-formed only because the POSITION
+    // says `object[]`. This is that position's own appender — the caller supplies the exact array type
+    // and every element is planned AGAINST its element type rather than against the first element's.
+    //
+    // A nested literal follows the same rule one level down: when the element type is itself an array,
+    // the nested literal is target-typed too (`[["a"], ["b"]]` as `string[][]`); when it is not (the
+    // `object` element of an `object[]`), the nested literal infers its own type and then converts —
+    // which is how `yield ["symbols", ["symbols", "--project", dir]]` lowers.
+    //
+    // Element conversions are the call-argument conversion owner's, so boxing a value element and
+    // upcasting a reference one behave exactly as they do for a parameter.
+    static func TryAppendTargetTypedArray(nodes: ColumnarNodeTable, source: string, node: int, bindings: ColumnarFragmentBindings, handles: ColumnarRangeIndexHandles, plan: ColumnarCodePlan, fragment: int, depth: int, targetType: Type): bool {
+        if nodes == null || source == null || plan == null || node < 0 || node >= nodes.Kinds.Length || depth > 200 {
+            return false
+        }
+        candidate := UnwrapParentheses(nodes, node)
+        if candidate < 0 || nodes.Kind(candidate) != ColumnarExpressionNodeKind.ArrayLiteralExpression() {
+            return false
+        }
+        if targetType == null || !ColumnarTypeEquivalenceFacts.IsSafeSzArrayType(targetType) {
+            return false
+        }
+        elementType := targetType.GetElementType()
+        if !IsSupportedArrayElement(elementType) {
+            return false
+        }
+
+        elementCount := nodes.ChildCount(candidate)
+        countIndex := plan.AddInt32(elementCount)
+        plan.AppendInt32Instruction(ColumnarCodePlanContract.LdcI4(), countIndex)
+        elementTypeIndex := plan.AddType(elementType)
+        plan.AppendTypeInstruction(ColumnarCodePlanContract.Newarr(), elementTypeIndex)
+
+        index := 0
+        while index < elementCount {
+            plan.AppendInstructionWithoutOperand(ColumnarCodePlanContract.Dup())
+            arrayIndex := plan.AddInt32(index)
+            plan.AppendInt32Instruction(ColumnarCodePlanContract.LdcI4(), arrayIndex)
+            if !TryAppendTargetTypedValue(nodes, source, nodes.Child(candidate, index), bindings, handles, plan, fragment, depth + 1, elementType) {
+                return false
+            }
+            AppendArrayElementStore(plan, elementType)
+            index += 1
+        }
+        return true
+    }
+
+    // One value at a position whose type is known: a nested array literal takes the target-typed array
+    // path, everything else takes the ordinary value cascade and then the call-argument conversion.
+    static func TryAppendTargetTypedValue(nodes: ColumnarNodeTable, source: string, node: int, bindings: ColumnarFragmentBindings, handles: ColumnarRangeIndexHandles, plan: ColumnarCodePlan, fragment: int, depth: int, targetType: Type): bool {
+        if targetType == null || node < 0 || node >= nodes.Kinds.Length {
+            return false
+        }
+        candidate := UnwrapParentheses(nodes, node)
+        if candidate >= 0 && nodes.Kind(candidate) == ColumnarExpressionNodeKind.ArrayLiteralExpression() && ColumnarTypeEquivalenceFacts.IsSafeSzArrayType(targetType) {
+            return TryAppendTargetTypedArray(nodes, source, candidate, bindings, handles, plan, fragment, depth, targetType)
+        }
+        valueType := typeof(int)
+        if !ColumnarRangeIndexPlanner.TryAppendConstructionValue(nodes, source, node, bindings, handles, plan, fragment, depth, out valueType) {
+            return false
+        }
+        if valueType == targetType {
+            return true
+        }
+        return ColumnarDirectCallPlanner.AppendArgumentConversion(plan, valueType, targetType, bindings.SourceTypeDefinitions)
+    }
+
     static func TryAppendObjectInitializer(nodes: ColumnarNodeTable, source: string, node: int, bindings: ColumnarFragmentBindings, handles: ColumnarRangeIndexHandles, plan: ColumnarCodePlan, fragment: int, depth: int, out ownership: ColumnarDirectCallOwnership, out legacyWholeSubtreePlanning: bool, out resultType: Type): bool {
         ownership = ColumnarDirectCallOwnership.OwnedRejected
         legacyWholeSubtreePlanning = false

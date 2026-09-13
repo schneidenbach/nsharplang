@@ -215,10 +215,18 @@ class ColumnarIteratorBodyScope {
         Bindings.CapturedInstanceFields[name] = (ReceiverField: capturedReceiverField, MemberField: memberField)
     }
 
-    // THE EXPRESSION DOOR. One call, one owner: whatever an ordinary method body can say in a value
-    // position, a `func*` body says the same way and by the same rows.
+    // THE EXPRESSION DOOR. One call, one owner: `ColumnarRangeIndexPlanner`'s append-mode value
+    // cascade — the same entry a CALL ARGUMENT uses, which is the general "any plannable value in a
+    // non-root position" owner and the one `ColumnarMethodBodyPlanner`'s own door reaches for every
+    // composite it claims. A value inside a `func*` body is exactly that: an ordinary value written at
+    // a position with no target-typed pre-pass, so it takes the same cascade and produces the same
+    // rows. Literals, identifiers, member access, calls, `new`, object initializers, array and
+    // collection literals, indexers, casts, ranges, ternaries and binaries all answer there.
+    //
+    // A method body plan admits a new ROOT fragment between trees (`ColumnarCodePlan.BeginFragment`),
+    // which is what lets the cascade's fragment discipline hold inside a flat v4 stream.
     func TryAppendValue(nodes: ColumnarNodeTable, source: string, node: int, plan: ColumnarCodePlan, out resultType: Type): bool {
-        return ColumnarMethodBodyPlanner.TryAppendValue(nodes, source, node, Bindings, plan, out resultType)
+        return ColumnarRangeIndexPlanner.TryAppendConstructionValue(nodes, source, node, Bindings, ColumnarRangeIndexHandles.Resolve(), plan, -1, 0, out resultType)
     }
 
     // THE TYPE OF A VALUE, DISCOVERED BY PLANNING IT AND THROWING THE ROWS AWAY. A hoisted local's CLR
@@ -234,6 +242,14 @@ class ColumnarIteratorBodyScope {
             return false
         }
         return !ColumnarCodePlanExecutor.IsVoidType(resultType)
+    }
+
+    // A value at a position whose type is known — a hoisted field, the current field a `yield` writes.
+    // Target-typed forms (an array literal whose elements only agree because the position says so) are
+    // planned against that type by the construction owner; everything else is the ordinary cascade plus
+    // the same conversion a call argument takes.
+    func TryAppendTargetTypedValue(nodes: ColumnarNodeTable, source: string, node: int, plan: ColumnarCodePlan, targetType: Type): bool {
+        return ColumnarConstructionPlanner.TryAppendTargetTypedValue(nodes, source, node, Bindings, ColumnarRangeIndexHandles.Resolve(), plan, -1, 0, targetType)
     }
 
     // The conversion a value needs to reach a storage location — a hoisted field, the current field a
