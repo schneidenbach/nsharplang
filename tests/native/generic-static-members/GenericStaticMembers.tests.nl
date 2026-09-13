@@ -416,11 +416,14 @@ test "a generic type's type-initializer metadata is its non-generic twin's over 
     assert IsBeforeFieldInit(typeof(Seeded<int>).GetGenericTypeDefinition()) == IsBeforeFieldInit(typeof(PlainSeeded))
     assert IsBeforeFieldInit(typeof(Counter<int>).GetGenericTypeDefinition()) == IsBeforeFieldInit(typeof(PlainSeeded))
 
-    // Recorded, not endorsed: neither carries `beforefieldinit`, where C# would stamp both.
-    assert !IsBeforeFieldInit(typeof(PlainSeeded))
+    // Both carry `beforefieldinit`, which is what C# stamps on a type that declares no static
+    // constructor in source — and N# has no static-constructor spelling, so every emitted class and
+    // struct qualifies. The flag is a scheduling freedom: the initializer still runs before the first
+    // static-field read, which the value assertions below depend on.
+    assert IsBeforeFieldInit(typeof(PlainSeeded))
+    assert IsBeforeFieldInit(typeof(Seeded<int>).GetGenericTypeDefinition())
 
-    // The initializer still RUNS, once per constructed type, which is what the value assertions
-    // above depend on — the missing flag is a scheduling freedom, not a missing initializer.
+    // The initializer RUNS once per constructed type.
     assert PlainSeeded.Total == 10
     assert Seeded<int>.Total == 10
 }
