@@ -2,6 +2,7 @@ namespace NSharpLang.Compiler
 
 import System
 import System.Collections.Generic
+import System.Reflection
 import NSharpLang.Compiler.Ast
 
 
@@ -547,6 +548,9 @@ class AnalyzerVariableDeclaration {
         }
 
         elements := TryGetTupleElements(state.FinalType)
+        if elements == null {
+            elements = TryGetDeconstructMethodElements(state.FinalType, targetCount)
+        }
         if elements != null {
             if elements.Count == targetCount {
                 state.TargetTypes = elements
@@ -573,6 +577,16 @@ class AnalyzerVariableDeclaration {
         while index < targetCount {
             name := names[index]
             if name != "_" {
+                // THE `=` FORM WRITES NAMES THAT ALREADY EXIST, so it declares nothing at all: each
+                // target is looked up where it was declared and checked against the element it
+                // receives. Declaring here instead is what made `(x, y) = pair` report NL306 on every
+                // target -- the one spelling C# has for a deconstructing assignment.
+                if tuple.IsAssignment {
+                    AssignTupleTarget(state, tuple, name, index)
+                    index = index + 1
+                    continue
+                }
+
                 state.TargetIndex = index
                 state.PendingName = name
                 state.PendingType = TargetType(state, index)
@@ -590,6 +604,34 @@ class AnalyzerVariableDeclaration {
 
         state.Phase = 99
         return null
+    }
+
+    // ONE TARGET OF THE `=` FORM. An unknown name is NL301, exactly as a bare `x = value` would
+    // report; a target whose declared type cannot take its element is NL202, with the two types named
+    // the way every other assignment mismatch names them. Either way the walk carries on to the next
+    // target, so one bad name does not silence the rest.
+    func AssignTupleTarget(state: VariableDeclarationState, tuple: TupleDeconstructionStatement, name: string, index: int) {
+        declared := scopesValue.LookupSymbol(name)
+        if declared == null {
+            diagnosticsValue.Report(ErrorCode.UndefinedVariable, "Variable '" + name + "' not found", tuple.Line, tuple.Column, "Declare it first, or write ':=' to declare every target of this deconstruction.", MaxOne(name.Length))
+            return
+        }
+
+        elementType := TargetType(state, index)
+        if !BuiltInTypes.IsUnknown(elementType) && !BuiltInTypes.IsUnknown(declared) && !assignabilityValue.IsAssignable(declared, elementType) {
+            diagnosticsValue.Report(ErrorCode.TypeMismatch, "Variable '" + name + "' is typed as '" + TypeText(declared) + "', but the element is '" + TypeText(elementType) + "'", tuple.Line, tuple.Column, "Convert the element, or change the declared type of '" + name + "'.", MaxOne(name.Length))
+            return
+        }
+
+        scopesValue.SetNullStateInCurrentScope(name, nullFlowValue.GetDefaultNullState(elementType))
+    }
+
+    static func MaxOne(length: int): int {
+        if length < 1 {
+            return 1
+        }
+
+        return length
     }
 
     // PHASE 14 — the semantic model the IDE's hover and completion read, for the SAME name and the
@@ -661,11 +703,10 @@ class AnalyzerVariableDeclaration {
         state.TargetTypes = targets
     }
 
-    // WHAT A DECONSTRUCTION SOURCE'S ELEMENTS ARE, or null when the source is not a tuple. Three
-    // shapes answer, in `Analyzer.cs`'s order and after the SAME alias resolution: a declared tuple
-    // type, a constructed generic named `ValueTuple`, and a reflected CLR `System.ValueTuple`N`.
-    // There is NO `Deconstruct`-method resolution — a type with a `Deconstruct` method is not
-    // deconstructable in N#, and that is the language's answer rather than an omission here.
+    // WHAT A DECONSTRUCTION SOURCE'S ELEMENTS ARE WHEN THE SOURCE IS A TUPLE, or null. Three shapes
+    // answer, after the SAME alias resolution: a declared tuple type, a constructed generic named
+    // `ValueTuple`, and a reflected CLR `System.ValueTuple`N`. A source that is NOT a tuple is asked
+    // for its `Deconstruct` method next -- see `TryGetDeconstructMethodElements`.
     func TryGetTupleElements(sourceType: TypeInfo): List<TypeInfo>? {
         resolved := declarationContextValue.ResolveDeclaredAlias(sourceType)
 
@@ -755,11 +796,217 @@ class AnalyzerVariableDeclaration {
         return elements
     }
 
+    // C#'S OTHER DECONSTRUCTION SOURCE: A TYPE THAT DECLARES `Deconstruct(out ...)`.
+    //
+    // A tuple is not the only thing C# deconstructs. Any type with an accessible instance
+    // `void Deconstruct(out T1, ..., out TN)` of the right arity is deconstructable, and
+    // `KeyValuePair<K, V>` -- what every `for pair in dictionary` hands back -- is the one the whole
+    // BCL leans on. N# used to answer "a type with a `Deconstruct` method is not deconstructable", so
+    // `(k, v) := pair` reported NL103 "Tuple deconstruction needs a tuple value" and the only spelling
+    // left was two member reads.
+    //
+    // THE ARITY SELECTS THE METHOD, exactly as it does in C#: a type may declare several `Deconstruct`
+    // overloads, and the one whose out-parameter count matches the target count is the one that runs.
+    // An ambiguous pair -- two overloads of the same arity -- answers nothing rather than picking one,
+    // which is also C#'s rule.
+    //
+    // A CONSTRUCTED GENERIC'S OUT TYPES ARE SUBSTITUTED BY POSITION. `KeyValuePair<string, int>`'s
+    // `Deconstruct(out TKey, out TValue)` is read off the DEFINITION, and each out parameter that is
+    // one of the definition's own type parameters takes the written argument at that position.
+    func TryGetDeconstructMethodElements(sourceType: TypeInfo, targetCount: int): List<TypeInfo>? {
+        if targetCount < 2 {
+            return null
+        }
+
+        resolved := declarationContextValue.ResolveDeclaredAlias(sourceType)
+        nullable := resolved as NullableTypeInfo
+        if nullable != null {
+            resolved = declarationContextValue.ResolveDeclaredAlias(nullable.InnerType)
+        }
+
+        // A type declared in THIS compilation answers from its own declaration.
+        sourceMembers := DeclaredMembersOf(resolved)
+        if sourceMembers != null {
+            return TryGetSourceDeconstructElements(sourceMembers, targetCount)
+        }
+
+        arguments: List<TypeInfo>? = null
+        definitionType: Type? = null
+
+        generic := resolved as GenericTypeInfo
+        if generic != null {
+            definition := generic.GenericDefinition as ReflectionTypeInfo
+            if definition == null {
+                return null
+            }
+
+            definitionType = definition.Type
+            arguments = generic.TypeArguments
+        } else {
+            reflected := resolved as ReflectionTypeInfo
+            if reflected == null {
+                return null
+            }
+
+            definitionType = reflected.Type
+        }
+
+        selected: MethodInfo? = null
+        candidates := definitionType.GetMethods(BindingFlags.Public | BindingFlags.Instance)
+        index := 0
+        while index < candidates.Length {
+            candidate := candidates[index]
+            if candidate.get_Name() == "Deconstruct" && DeconstructOutParameterCount(candidate) == targetCount {
+                if selected != null {
+                    return null
+                }
+
+                selected = candidate
+            }
+
+            index = index + 1
+        }
+
+        if selected == null {
+            return null
+        }
+
+        parameters := selected.GetParameters()
+        elements := new List<TypeInfo>()
+        parameterIndex := 0
+        while parameterIndex < parameters.Length {
+            elementType := parameters[parameterIndex].get_ParameterType().GetElementType()
+            if elementType == null {
+                return null
+            }
+
+            if elementType.get_IsGenericParameter() {
+                position := elementType.get_GenericParameterPosition()
+                if arguments == null || position < 0 || position >= arguments.Count {
+                    return null
+                }
+
+                elements.Add(arguments[position])
+            } else {
+                elements.Add(AnalyzerReflectionTypeConversion.ConvertReflectionType(elementType))
+            }
+
+            parameterIndex = parameterIndex + 1
+        }
+
+        return elements
+    }
+
+    // The declared members of one of THIS compilation's own nominal types, or null for anything else.
+    static func DeclaredMembersOf(typeInfo: TypeInfo): DeclaredMemberInfo[]? {
+        classType := typeInfo as ClassTypeInfo
+        if classType != null {
+            return classType.DeclaredMembers
+        }
+
+        structType := typeInfo as StructTypeInfo
+        if structType != null {
+            return structType.DeclaredMembers
+        }
+
+        recordType := typeInfo as RecordTypeInfo
+        if recordType != null {
+            return recordType.DeclaredMembers
+        }
+
+        return null
+    }
+
+    // The same `Deconstruct` rule, asked of a SOURCE type's own declaration rather than of metadata.
+    func TryGetSourceDeconstructElements(members: DeclaredMemberInfo[], targetCount: int): List<TypeInfo>? {
+        selected: DeclaredMemberInfo? = null
+        index := 0
+        while index < members.Length {
+            candidate := members[index]
+            if candidate.Name == "Deconstruct" && !candidate.IsStatic && candidate.Kind == DeclaredMemberKind.Function && candidate.ParameterCount == targetCount && AllParametersAreOut(candidate) {
+                if selected != null {
+                    return null
+                }
+
+                selected = candidate
+            }
+
+            index = index + 1
+        }
+
+        if selected == null {
+            return null
+        }
+
+        parameterTypes := selected.ParameterTypes
+        elements := new List<TypeInfo>()
+        parameterIndex := 0
+        while parameterIndex < parameterTypes.Length {
+            elements.Add(typeResolverValue.ResolveType(parameterTypes[parameterIndex]))
+            parameterIndex = parameterIndex + 1
+        }
+
+        return elements
+    }
+
+    static func AllParametersAreOut(candidate: DeclaredMemberInfo): bool {
+        modifiers := candidate.ParameterModifiers
+        if modifiers.Length != candidate.ParameterCount || candidate.ParameterCount == 0 {
+            return false
+        }
+
+        index := 0
+        while index < modifiers.Length {
+            if modifiers[index] != ParameterModifier.Out {
+                return false
+            }
+
+            index = index + 1
+        }
+
+        return true
+    }
+
+    // The out-parameter count of a `Deconstruct` candidate, or -1 when it is not one: the method must
+    // return void and EVERY parameter must be `out`.
+    static func DeconstructOutParameterCount(candidate: MethodInfo): int {
+        if candidate.get_IsStatic() || !ColumnarVoidReturnName(candidate) {
+            return -1
+        }
+
+        parameters := candidate.GetParameters()
+        if parameters.Length == 0 {
+            return -1
+        }
+
+        index := 0
+        while index < parameters.Length {
+            if !parameters[index].get_IsOut() || !parameters[index].get_ParameterType().get_IsByRef() {
+                return -1
+            }
+
+            index = index + 1
+        }
+
+        return parameters.Length
+    }
+
+    // `void` by NAME, because the reflected `System.Void` a MetadataLoadContext answers with is not
+    // reference-equal to the runtime one this compiler runs on.
+    static func ColumnarVoidReturnName(candidate: MethodInfo): bool {
+        returnType := candidate.get_ReturnType()
+        if returnType == null {
+            return false
+        }
+
+        return returnType.FullName == "System.Void"
+    }
+
     // NL103 — THE SOURCE IS NOT A TUPLE. The report underlines the initializer, not the target list,
     // because the initializer is what has to change.
     func ReportNotATuple(tuple: TupleDeconstructionStatement, sourceType: TypeInfo) {
         span := spansValue.GetExpressionDiagnosticSpan(tuple.Initializer)
-        diagnosticsValue.Report(ErrorCode.InvalidSyntax, "Tuple deconstruction needs a tuple value, but this initializer is '" + TypeText(sourceType) + "'", span.Line, span.Column, "Return or construct a tuple with the same number of elements as the deconstruction targets.", span.Length)
+        diagnosticsValue.Report(ErrorCode.InvalidSyntax, "Tuple deconstruction needs a tuple value, but this initializer is '" + TypeText(sourceType) + "'", span.Line, span.Column, "Return or construct a tuple with the same number of elements as the deconstruction targets, or give this type a 'Deconstruct' method with one 'out' parameter per target.", span.Length)
     }
 
     // NL103 — THE COUNTS DISAGREE. Both counts are named, because which side is wrong is the

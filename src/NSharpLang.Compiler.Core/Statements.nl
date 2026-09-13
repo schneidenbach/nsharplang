@@ -43,16 +43,28 @@ class VariableDeclarationStatement: Statement {
     }
 }
 
-// Tuple deconstruction: (x, y) := GetPair()
+// Tuple deconstruction: `(x, y) := GetPair()` declares; `(x, y) = GetPair()` assigns.
+//
+// WHICH OPERATOR WAS WRITTEN IS PART OF THE STATEMENT, exactly as it is for a single variable: `:=`
+// introduces new names and `=` writes names that already exist. The parser used to build both forms
+// as a declaration, so `(x, y) = pair` after `x` and `y` were declared reported NL306 "already
+// declared" on every target -- the one spelling C# has for a deconstructing assignment.
 class TupleDeconstructionStatement: Statement {
     Names: List<string>
     Initializer: Expression
     Kind: VariableKind
+    IsAssignment: bool
+    // Whether the target list was written in PARENTHESES. Both spellings are one statement, and the
+    // formatter prints back the one the source wrote rather than normalising them together: the
+    // parenthesised form is what the language tour teaches and what a C# reader expects to see.
+    HasParentheses: bool
 
-    constructor(Names: List<string>, Initializer: Expression, Kind: VariableKind, Line: int, Column: int): base(Line, Column) {
+    constructor(Names: List<string>, Initializer: Expression, Kind: VariableKind, Line: int, Column: int, IsAssignment: bool = false, HasParentheses: bool = false): base(Line, Column) {
         this.Names = Names
         this.Initializer = Initializer
         this.Kind = Kind
+        this.IsAssignment = IsAssignment
+        this.HasParentheses = HasParentheses
     }
 }
 

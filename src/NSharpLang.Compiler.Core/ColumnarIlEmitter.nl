@@ -35,7 +35,14 @@ sealed class ColumnarIlEmitter {
     private readonly _paramTypes: Dictionary<string, Type>
     private readonly _returnType: Type
     private readonly _tupleNamesByVariable: Dictionary<string, string[]>
-    private readonly _siblingReturnTupleNames: IReadOnlyDictionary<string, string[]>?
+    // A BINDING'S TYPE AS WRITTEN, tuple element labels included -- what `_tupleNamesByVariable`
+    // carries only the TOP LEVEL of. A receiver's names may sit one level down
+    // (`rows: List<(Item: string, Count: int)>`), and only the labelled spelling still has them
+    // there, so this is the map an INDEX READ or a member hop walks. Both maps are seeded from the
+    // same source at every site, so they cannot disagree about a name.
+    private readonly _labeledTypeByVariable: Dictionary<string, string>
+    // Each free function's return type AS WRITTEN, by name -- see ColumnarInstanceMethodDef.
+    private readonly _siblingReturnLabeledCanonicals: IReadOnlyDictionary<string, string>?
     private _protectedResult: LocalBuilder?
     private _protectedDone: Label
     private _protectedDoneCreated: bool
@@ -226,7 +233,7 @@ sealed class ColumnarIlEmitter {
     // generated assignments are `Field = parameter`; when the field and parameter share a name, the left side
     // must bind to the field even though ordinary explicit-constructor assignments keep parameter shadowing.
 
-    private constructor(nodes: ColumnarNodeTable, source: string, paramOrdinals: Dictionary<string, int>, paramTypes: Dictionary<string, Type>, returnType: Type, il: ILGenerator, siblings: IReadOnlyDictionary<string, ColumnarSiblingMethodDefinition>, enumRegistry: Dictionary<string, ColumnarEnumDef>, structRegistry: IReadOnlyDictionary<string, ColumnarStructDef>, unionRegistry: IReadOnlyDictionary<string, ColumnarUnionDef>, unionCaseRegistry: IReadOnlyDictionary<string, ColumnarUnionCaseDef>, currentStruct: ColumnarStructDef?, enclosingType: ColumnarStructDef? = null, isConstructorBody: bool = false, isSynthesizedInitializerBody: bool = false, programType: TypeBuilder? = null, lambdaCounter: int[]? = null, displayClasses: List<TypeBuilder>? = null, boxedCaptures: Dictionary<string, (BoxField: FieldInfo, ValueType: Type)>? = null, localFuncs: Dictionary<string, (Method: MethodBuilder, ParamTypes: Type[], ReturnType: Type)>? = null, declaredLocalFuncNodes: Dictionary<int, string>? = null, visibleLocalFuncs: IEnumerable<string>? = null, siblingReturnTupleNames: IReadOnlyDictionary<string, string[]>? = null, paramTupleNames: IReadOnlyDictionary<string, string[]>? = null, enclosingBindingNames: HashSet<string>? = null, asyncReturnType: Type? = null, asyncBareReturnDeclines: bool = false, referenceAssemblyPaths: IReadOnlyList<string>? = null, genericInterfaceConstraints: IReadOnlyDictionary<Type, Type[]>? = null, typeParameters: IReadOnlyDictionary<string, Type>? = null, typeResolutionEnums: ColumnarSemanticRegistry<ColumnarEnumDef>? = null, typeResolutionStructs: ColumnarSemanticRegistry<ColumnarStructDef>? = null, typeResolutionUnions: ColumnarSemanticRegistry<ColumnarUnionDef>? = null) {
+    private constructor(nodes: ColumnarNodeTable, source: string, paramOrdinals: Dictionary<string, int>, paramTypes: Dictionary<string, Type>, returnType: Type, il: ILGenerator, siblings: IReadOnlyDictionary<string, ColumnarSiblingMethodDefinition>, enumRegistry: Dictionary<string, ColumnarEnumDef>, structRegistry: IReadOnlyDictionary<string, ColumnarStructDef>, unionRegistry: IReadOnlyDictionary<string, ColumnarUnionDef>, unionCaseRegistry: IReadOnlyDictionary<string, ColumnarUnionCaseDef>, currentStruct: ColumnarStructDef?, enclosingType: ColumnarStructDef? = null, isConstructorBody: bool = false, isSynthesizedInitializerBody: bool = false, programType: TypeBuilder? = null, lambdaCounter: int[]? = null, displayClasses: List<TypeBuilder>? = null, boxedCaptures: Dictionary<string, (BoxField: FieldInfo, ValueType: Type)>? = null, localFuncs: Dictionary<string, (Method: MethodBuilder, ParamTypes: Type[], ReturnType: Type)>? = null, declaredLocalFuncNodes: Dictionary<int, string>? = null, visibleLocalFuncs: IEnumerable<string>? = null, siblingReturnLabeledCanonicals: IReadOnlyDictionary<string, string>? = null, paramLabeledTypes: IReadOnlyDictionary<string, string>? = null, enclosingBindingNames: HashSet<string>? = null, asyncReturnType: Type? = null, asyncBareReturnDeclines: bool = false, referenceAssemblyPaths: IReadOnlyList<string>? = null, genericInterfaceConstraints: IReadOnlyDictionary<Type, Type[]>? = null, typeParameters: IReadOnlyDictionary<string, Type>? = null, typeResolutionEnums: ColumnarSemanticRegistry<ColumnarEnumDef>? = null, typeResolutionStructs: ColumnarSemanticRegistry<ColumnarStructDef>? = null, typeResolutionUnions: ColumnarSemanticRegistry<ColumnarUnionDef>? = null) {
         // CLR object storage starts zeroed before instance field initializers run. Spell the non-nullable
         // fields explicitly so N# constructor validation sees the same initial state on every path.
         _protectedDone = new Label()
@@ -239,6 +246,7 @@ sealed class ColumnarIlEmitter {
         _nullConditionalEscapes = new Stack<Label>()
         _nullConditionalReceivers = null
         _tupleNamesByVariable = new Dictionary<string, string[]>(StringComparer.Ordinal)
+        _labeledTypeByVariable = new Dictionary<string, string>(StringComparer.Ordinal)
         _codePlan = new ColumnarCodePlan()
         _locals = new Dictionary<string, LocalBuilder>(StringComparer.Ordinal)
         _loopLabels = new Stack<(Break: Label, Continue: Label, ProtectedDepth: int, FinallyDepth: int)>()
@@ -274,12 +282,16 @@ sealed class ColumnarIlEmitter {
         _paramOrdinals = paramOrdinals
         _paramTypes = paramTypes
         _returnType = returnType
-        _siblingReturnTupleNames = siblingReturnTupleNames
-        if (paramTupleNames != null) {
-            for columnarKeyValuePair0 in paramTupleNames {
+        _siblingReturnLabeledCanonicals = siblingReturnLabeledCanonicals
+        if (paramLabeledTypes != null) {
+            for columnarKeyValuePair0 in paramLabeledTypes {
                 tupleParamName := columnarKeyValuePair0.Key
-                tupleParamElementNames := columnarKeyValuePair0.Value
-                _tupleNamesByVariable[tupleParamName] = tupleParamElementNames
+                tupleParamLabeled := columnarKeyValuePair0.Value
+                _labeledTypeByVariable[tupleParamName] = tupleParamLabeled
+                tupleParamElementNames := ColumnarTupleElementNames.TopLevelNames(tupleParamLabeled)
+                if (tupleParamElementNames != null) {
+                    _tupleNamesByVariable[tupleParamName] = tupleParamElementNames
+                }
             }
         }
         _il = il
@@ -3456,6 +3468,10 @@ sealed class ColumnarIlEmitter {
                         return DeclineStatic("emit.declaration.const-initializer", "const field '" + st.Name + "." + fieldName + "' requires an unsuffixed int literal initializer", st.Name, -1, 0)
                     }
                     sfb := ColumnarFieldMetadataEmitter.Define(tb, fieldName, fieldType, (int)fieldAttributes, fieldRows.FieldIsThreadStatic[s][fi], isLiteral, literalValue)
+                    // A named tuple's element names live on the DECLARING position, so a field that
+                    // mentions one carries the same attribute a return or a parameter does.
+                    ColumnarTupleElementNameEmitter.ApplyToField(sfb, st.FieldTypeCanonicals[fi])
+                    def.MemberLabeledCanonicals[fieldName] = st.FieldTypeCanonicals[fi]
                     def.StaticFields[fieldName] = sfb
                     if isLiteral {
                         def.StaticIntConstants[fieldName] = literalValue
@@ -3467,6 +3483,8 @@ sealed class ColumnarIlEmitter {
                     return DeclineStatic("emit.declaration.field-initializer", "instance field initializer is not modeled for '" + st.Name + "." + fieldName + "'", st.Name, -1, 0)
                 }
                 instanceField := ColumnarFieldMetadataEmitter.Define(tb, fieldName, fieldType, (int)fieldAttributes, fieldRows.FieldIsThreadStatic[s][fi], false, 0)
+                ColumnarTupleElementNameEmitter.ApplyToField(instanceField, st.FieldTypeCanonicals[fi])
+                def.MemberLabeledCanonicals[fieldName] = st.FieldTypeCanonicals[fi]
                 fields[fieldName] = instanceField
                 if (fieldRows.FieldIsNullable[s][fi]) {
                     def.NullableFields.Add(fieldName)
@@ -3669,7 +3687,7 @@ sealed class ColumnarIlEmitter {
                             return false
                         }
                         ColumnarTupleElementNameEmitter.ApplyToReturn(pmb, m.ReturnLabeledCanonical)
-                        overloads.Add(new ColumnarStaticMethodDef(pmb, sParamTypes, m.ParamModifierKinds, sSignatureReturn, m.ReturnTupleElementNames))
+                        overloads.Add(new ColumnarStaticMethodDef(pmb, sParamTypes, m.ParamModifierKinds, sSignatureReturn, m.ReturnLabeledCanonical))
                         continue
                     }
 
@@ -3690,7 +3708,7 @@ sealed class ColumnarIlEmitter {
                         return false
                     }
                     ColumnarTupleElementNameEmitter.ApplyToReturn(smb, m.ReturnLabeledCanonical)
-                    staticDefinition := new ColumnarStaticMethodDef(smb, sParamTypes, m.ParamModifierKinds, sSignatureReturn, m.ReturnTupleElementNames)
+                    staticDefinition := new ColumnarStaticMethodDef(smb, sParamTypes, m.ParamModifierKinds, sSignatureReturn, m.ReturnLabeledCanonical)
                     staticDefinition.Generics = sGenerics
                     overloads.Add(staticDefinition)
                     structMethodJobs.Add(new ValueTuple<ColumnarStructDef, ColumnarFunctionInput, MethodBuilder, Type, Type, Type, Dictionary<string, int>, ValueTuple<Dictionary<string, Type>, bool>>(def, m, smb, sSignatureReturn, sReturn, sAsyncWrappedReturn, sOrdinals, new ValueTuple<Dictionary<string, Type>, bool>(sParamTypeMap, true)))
@@ -3778,7 +3796,7 @@ sealed class ColumnarIlEmitter {
                         return false
                     }
                     ColumnarTupleElementNameEmitter.ApplyToReturn(declaredGenericInstance, m.ReturnLabeledCanonical)
-                    genericInstanceDefinition := new ColumnarInstanceMethodDef(declaredGenericInstance, mParamTypes, m.ParamModifierKinds, mSignatureReturn, m.ReturnTupleElementNames)
+                    genericInstanceDefinition := new ColumnarInstanceMethodDef(declaredGenericInstance, mParamTypes, m.ParamModifierKinds, mSignatureReturn, m.ReturnLabeledCanonical)
                     genericInstanceDefinition.Generics = mGenerics
                     AddInstanceMethod(def, m.Name, genericInstanceDefinition)
                     structMethodJobs.Add(new ValueTuple<ColumnarStructDef, ColumnarFunctionInput, MethodBuilder, Type, Type, Type, Dictionary<string, int>, ValueTuple<Dictionary<string, Type>, bool>>(def, m, declaredGenericInstance, mSignatureReturn, mReturn, mAsyncWrappedReturn, mOrdinals, new ValueTuple<Dictionary<string, Type>, bool>(mParamTypeMap, false)))
@@ -3843,7 +3861,7 @@ sealed class ColumnarIlEmitter {
                 AddInstanceMethod(
                     def,
                     m.Name,
-                    new ColumnarInstanceMethodDef(mb, mParamTypes, m.ParamModifierKinds, mSignatureReturn, m.ReturnTupleElementNames)
+                    new ColumnarInstanceMethodDef(mb, mParamTypes, m.ParamModifierKinds, mSignatureReturn, m.ReturnLabeledCanonical)
                 )
                 // An `abstract` member IS its declaration. There is no body to schedule, and
                 // emitting one would make the CLR reject the type.
@@ -3907,6 +3925,8 @@ sealed class ColumnarIlEmitter {
                     }
                     structMethodJobs.Add(new ValueTuple<ColumnarStructDef, ColumnarFunctionInput, MethodBuilder, Type, Type, Type, Dictionary<string, int>, ValueTuple<Dictionary<string, Type>, bool>>(def, prop.Getter, staticGetter, propType, propType, null, new Dictionary<string, int>(StringComparer.Ordinal), new ValueTuple<Dictionary<string, Type>, bool>(new Dictionary<string, Type>(StringComparer.Ordinal), true)))
                     staticProperty := def.Builder.DefineProperty(prop.Name, PropertyAttributes.None, propType, Type.EmptyTypes)
+                    ColumnarTupleElementNameEmitter.ApplyToProperty(staticProperty, prop.TypeCanonical)
+                    def.MemberLabeledCanonicals[prop.Name] = prop.TypeCanonical
                     sourceAttributeQueue.QueueProperty(staticProperty, prop.Getter.SourceAttributes, typeResolution)
                     if declarationPlan.Properties.HasMsBuildRequiredAttribute[s][pi] {
                         requiredConstructor := typeof(Microsoft.Build.Framework.RequiredAttribute).GetConstructor(Type.EmptyTypes)
@@ -3970,6 +3990,8 @@ sealed class ColumnarIlEmitter {
                 }
                 structMethodJobs.Add(new ValueTuple<ColumnarStructDef, ColumnarFunctionInput, MethodBuilder, Type, Type, Type, Dictionary<string, int>, ValueTuple<Dictionary<string, Type>, bool>>(def, prop.Getter, getter, propType, propType, null, new Dictionary<string, int>(StringComparer.Ordinal), new ValueTuple<Dictionary<string, Type>, bool>(new Dictionary<string, Type>(StringComparer.Ordinal), false)))
                 property := def.Builder.DefineProperty(prop.Name, PropertyAttributes.None, propType, Type.EmptyTypes)
+                ColumnarTupleElementNameEmitter.ApplyToProperty(property, prop.TypeCanonical)
+                def.MemberLabeledCanonicals[prop.Name] = prop.TypeCanonical
                 sourceAttributeQueue.QueueProperty(property, prop.Getter.SourceAttributes, typeResolution)
                 if declarationPlan.Properties.HasMsBuildRequiredAttribute[s][pi] {
                     requiredConstructor := typeof(Microsoft.Build.Framework.RequiredAttribute).GetConstructor(Type.EmptyTypes)
@@ -4442,7 +4464,7 @@ sealed class ColumnarIlEmitter {
         interfaceConstraintsByFunc := new Type[][][](funcs.Count)
         // Sibling RETURN tuple element names (a `(x: int, y: int)` return) — drives `t := mk()` / `mk().x`
         // name derivation; canonicals stay name-erased.
-        siblingReturnTupleNames := new Dictionary<string, string[]>(StringComparer.Ordinal)
+        siblingReturnLabeledCanonicals := new Dictionary<string, string>(StringComparer.Ordinal)
         for f := 0; f < funcs.Count; f++ {
             fn := funcs[f]
             // A GENERIC function (`func Identity<T>(x: T): T`) declares a REAL CLR generic method — one
@@ -4686,8 +4708,8 @@ sealed class ColumnarIlEmitter {
             asyncWrappedByFunc[f] = asyncWrappedReturn
             asyncInnerByFunc[f] = returnType
             interfaceConstraintsByFunc[f] = fnInterfaceConstraints
-            if (fn.ReturnTupleElementNames != null) {
-                siblingReturnTupleNames[fn.Name] = fn.ReturnTupleElementNames
+            if (fn.ReturnLabeledCanonical != null && fn.ReturnLabeledCanonical.Length > 0) {
+                siblingReturnLabeledCanonicals[fn.Name] = fn.ReturnLabeledCanonical
             }
             siblingName := fn.Name
             siblingDefinition := new ColumnarSiblingMethodDefinition(
@@ -4824,7 +4846,7 @@ sealed class ColumnarIlEmitter {
                     visibleLocalFuncNames.Add(localFn.Name)
                 }
             }
-            fnParamTupleNames := ColumnarTupleElementNames.ParameterNameMap(fn.ParamNames, fn.ParamTupleElementNames)
+            fnParamTupleNames := ColumnarTupleElementNames.ParameterLabeledMap(fn.ParamNames, fn.ParamLabeledCanonicals)
             // ASYNC bodies check return values against the INNER type; the method's CLR signature
             // (and every sibling call site) sees the WRAPPED type.
             bodyReturnType := asyncWrappedByFunc[f] != null ? asyncInnerByFunc[f] : returnTypeByFunc[f]
@@ -4868,7 +4890,7 @@ sealed class ColumnarIlEmitter {
                 localFuncs,
                 declaredLocalFuncNodes,
                 visibleLocalFuncNames,
-                siblingReturnTupleNames,
+                siblingReturnLabeledCanonicals,
                 fnParamTupleNames,
                 null,
                 asyncWrappedByFunc[f],
@@ -5129,7 +5151,7 @@ sealed class ColumnarIlEmitter {
             // A member's NAMED tuple parameters and the named tuples returned by free functions are
             // visible from a method body exactly as they are from a free function's: the two
             // spellings of "a function with a named tuple in its signature" behave the same.
-            methodJobParamTupleNames := ColumnarTupleElementNames.ParameterNameMap(job.Item2.ParamNames, job.Item2.ParamTupleElementNames)
+            methodJobParamTupleNames := ColumnarTupleElementNames.ParameterLabeledMap(job.Item2.ParamNames, job.Item2.ParamLabeledCanonicals)
             emitter := new ColumnarIlEmitter(
                 methodJobNodes,
                 methodJobSource,
@@ -5153,7 +5175,7 @@ sealed class ColumnarIlEmitter {
                 null,
                 null,
                 null,
-                siblingReturnTupleNames,
+                siblingReturnLabeledCanonicals,
                 methodJobParamTupleNames,
                 null,
                 job.Item6,
@@ -5230,7 +5252,7 @@ sealed class ColumnarIlEmitter {
                 null,
                 null,
                 null,
-                siblingReturnTupleNames,
+                siblingReturnLabeledCanonicals,
                 null,
                 null,
                 null,
@@ -5287,7 +5309,7 @@ sealed class ColumnarIlEmitter {
             )
             // A constructor's NAMED tuple parameters, and the named tuples free functions return, are
             // visible from a constructor body exactly as they are from any other body.
-            ctorJobParamTupleNames := ColumnarTupleElementNames.ParameterNameMapFromLabeled(job.Ctor.Body.ParamNames, job.Ctor.Body.ParamLabeledCanonicals)
+            ctorJobParamTupleNames := ColumnarTupleElementNames.ParameterLabeledMap(job.Ctor.Body.ParamNames, job.Ctor.Body.ParamLabeledCanonicals)
             emitter := new ColumnarIlEmitter(
                 job.Ctor.Body.BodyNodes,
                 ctorSource,
@@ -5311,7 +5333,7 @@ sealed class ColumnarIlEmitter {
                 null,
                 null,
                 null,
-                siblingReturnTupleNames,
+                siblingReturnLabeledCanonicals,
                 ctorJobParamTupleNames,
                 null,
                 null,
@@ -5517,7 +5539,7 @@ sealed class ColumnarIlEmitter {
                     null,
                     null,
                     null,
-                    siblingReturnTupleNames,
+                    siblingReturnLabeledCanonicals,
                     null,
                     null,
                     null,
@@ -5634,6 +5656,7 @@ sealed class ColumnarIlEmitter {
                 _structRegistry.get_Values(),
                 _unionRegistry.get_Values(),
                 _tupleNamesByVariable,
+                _labeledTypeByVariable,
                 _enclosingBindingNames,
                 _siblings.get_Keys(),
                 _visibleLocalFuncs,
@@ -6288,6 +6311,12 @@ sealed class ColumnarIlEmitter {
             if (inferredTupleNames != null) {
                 _tupleNamesByVariable[name] = inferredTupleNames
             }
+            // And so does the initializer's whole WRITTEN type, when one is known: `group := groups["k"]`
+            // takes the names the dictionary's value type declares, one level inside its own annotation.
+            inferredLabeled := LabeledTypeOfExpressionNode(Child(idx, 0))
+            if (inferredLabeled != null) {
+                _labeledTypeByVariable[name] = inferredLabeled
+            }
             return true
         } else if columnarSwitchValue0 == 40 {
             // TypedLocalDeclaration (`[let] name: Type = init` — L2): the DECLARED type's source
@@ -6308,6 +6337,7 @@ sealed class ColumnarIlEmitter {
             // A NAMED tuple annotation (`let t: (x: int, y: int) = ...`) strips to the positional
             // canonical for resolution; the names are recorded for member access below. (The BARE
             // form with a tuple type is a production-grammar parse error — the kernel refuses it.)
+            declaredLabeledCanonical := typeCanonical
             tupleStrip := ColumnarTypeCanonicalizer.StripTupleElementNames(typeCanonical)
             typeCanonical = tupleStrip.Canonical
             declaredTupleNames := tupleStrip.Names
@@ -6388,6 +6418,9 @@ sealed class ColumnarIlEmitter {
             declaredLocal := _il.DeclareLocal(declaredType)
             _il.Emit(OpCodes.Stloc, declaredLocal)
             _locals[declaredName] = declaredLocal
+            // The ANNOTATION is the declared type, so its labelled spelling is what every later read
+            // through this local -- `pair.Item`, `rows[0].Item` -- resolves names against.
+            _labeledTypeByVariable[declaredName] = declaredLabeledCanonical
             if (declaredTupleNames != null) {
                 _tupleNamesByVariable[declaredName] = declaredTupleNames
             } else {
@@ -7461,8 +7494,25 @@ sealed class ColumnarIlEmitter {
                 return Decline("emit.foreach.not-enumerable", "foreach collection type '" + ForeachCollectionTypeName(collectionType) + "' has no GetEnumerator() pattern and is not a sequence", collectionNode)
             }
 
+            // THE LOOP VARIABLE IS A VALUE TAKEN OUT OF THE COLLECTION, so its element names are the
+            // ones the collection's own written type gave that position -- the same rule an index read
+            // follows, asked of the element type the foreach plan settled.
+            foreachElementLabeled := LabeledElementOfCollection(collectionNode, foreachPlan.ElementType)
+            if (foreachElementLabeled != null) {
+                _labeledTypeByVariable[varName] = foreachElementLabeled
+                foreachElementNames := ColumnarTupleElementNames.TopLevelNames(foreachElementLabeled)
+                if (foreachElementNames != null) {
+                    _tupleNamesByVariable[varName] = foreachElementNames
+                }
+            }
+
             if (!EmitForeachLoopBody(foreachPlan, collectionType, varName, body, declaredElementType)) {
                 return false
+            }
+
+            if (foreachElementLabeled != null) {
+                _labeledTypeByVariable.Remove(varName)
+                _tupleNamesByVariable.Remove(varName)
             }
 
             columnarStringKeySnapshot13 := new List<string>(_locals.Keys)
@@ -7625,10 +7675,21 @@ sealed class ColumnarIlEmitter {
                 return true
             }
 
+            // `:=` DECLARES THE TARGETS AND `=` WRITES TARGETS THAT ALREADY EXIST -- the operator rides
+            // in this node's value span because it is meaning rather than style.
+            deconstructionAssigns := ColumnarNodeTextFacts.Text(_nodes, _source, idx) == "="
+
             let tupleType: System.Type? = null
-            if (!EmitExpression(valueNode, out tupleType) || !ColumnarTypeOfPlanner.IsSupportedValueTuple(tupleType)) {
-                return false
+            if (!EmitExpression(valueNode, out tupleType) || tupleType == null) {
+                return Decline("emit.deconstruction.value", "deconstruction source expression could not be emitted", valueNode)
             }
+
+            // A SOURCE THAT IS NOT A TUPLE IS DECONSTRUCTED BY ITS OWN `Deconstruct(out ...)`, which is
+            // the other half of C#'s rule and the shape every `for pair in dictionary` walk produces.
+            if (!ColumnarTypeOfPlanner.IsSupportedValueTuple(tupleType)) {
+                return TryEmitDeconstructMethodTargets(idx, nameCount, tupleType, deconstructionAssigns)
+            }
+
             tupleArgs := tupleType.GetGenericArguments()
             if (tupleArgs.Length != nameCount) {
                 // the tuple arity must match the number of targets.
@@ -7644,10 +7705,6 @@ sealed class ColumnarIlEmitter {
                     // discard — the element is not bound.
                     continue
                 }
-                if (ColumnarClosureBindingPlanner.IsVisibleBindingName(name, _locals, _paramOrdinals, _liftedLocals, _boxedCaptures, _enclosingBindingNames)) {
-                    return false
-                }
-                // redeclaration / shadow — own OR enclosing (NL316) — is not modelled.
                 tupleFieldOwner := tupleType
                 tupleFieldOrdinal := i + 1
                 tupleFieldOrdinalText := tupleFieldOrdinal.ToString()
@@ -7656,6 +7713,20 @@ sealed class ColumnarIlEmitter {
                 if (field == null) {
                     return false
                 }
+                if (deconstructionAssigns) {
+                    let existingTarget: System.Reflection.Emit.LocalBuilder? = null
+                    if (!_locals.TryGetValue(name, out existingTarget) || !TypesEquivalent(existingTarget.get_LocalType(), field.get_FieldType())) {
+                        return Decline("emit.deconstruction.assignment-target", "deconstruction assignment target '" + name + "' is not a local of the element's type", Child(idx, i))
+                    }
+                    _il.Emit(OpCodes.Ldloca, tupleLocal)
+                    _il.Emit(OpCodes.Ldfld, field)
+                    _il.Emit(OpCodes.Stloc, existingTarget)
+                    continue
+                }
+                if (ColumnarClosureBindingPlanner.IsVisibleBindingName(name, _locals, _paramOrdinals, _liftedLocals, _boxedCaptures, _enclosingBindingNames)) {
+                    return false
+                }
+                // redeclaration / shadow — own OR enclosing (NL316) — is not modelled.
                 nameLocal := _il.DeclareLocal(field.get_FieldType())
                 _il.Emit(OpCodes.Ldloca, tupleLocal)
                 // value-type field load: address of the tuple, then ldfld.
@@ -9528,6 +9599,7 @@ sealed class ColumnarIlEmitter {
             _structRegistry.get_Values(),
             _unionRegistry.get_Values(),
             _tupleNamesByVariable,
+            _labeledTypeByVariable,
             _enclosingBindingNames,
             _siblings.get_Keys(),
             _visibleLocalFuncs,
@@ -15018,6 +15090,22 @@ sealed class ColumnarIlEmitter {
     // names, a parenthesized wrap, a NAMED tuple literal (kind-17 with kind-43 wrappers), or a direct
     // sibling call whose declared return type carries names. Null = no names (no rewrite happens).
     private func TupleNamesOfExpressionNode(node: int): string[]? {
+        directNames := TupleNamesOfExpressionNodeCore(node)
+        if (directNames != null) {
+            return directNames
+        }
+        // THE RECEIVER'S DECLARED TYPE IS THE LAST WORD ON ITS ELEMENT NAMES. A name-carrying shape
+        // that is not itself a tracked binding -- `rows[0]`, `groups["k"]`, `holder.Pair` -- has its
+        // names one level inside the WRITTEN type of whatever it was read out of, and the labelled
+        // canonical is the only spelling that still has them there.
+        labeled := LabeledTypeOfExpressionNode(node)
+        if (labeled == null) {
+            return null
+        }
+        return ColumnarTupleElementNames.TopLevelNames(labeled)
+    }
+
+    private func TupleNamesOfExpressionNodeCore(node: int): string[]? {
         nodeKind := _nodes.Kind(node)
         if (nodeKind == 6) {
             variableNames: string[]? = null
@@ -15057,14 +15145,14 @@ sealed class ColumnarIlEmitter {
         }
         if (nodeKind == 9) {
             callee := Child(node, 0)
-            returnNames: string[]? = null
-            if (_nodes.Kind(callee) == 6 && _nodes.ValueStart(callee) >= 0 && _siblingReturnTupleNames != null && !_locals.ContainsKey(ColumnarNodeTextFacts.Text(_nodes, _source, callee)) && !_paramOrdinals.ContainsKey(ColumnarNodeTextFacts.Text(_nodes, _source, callee)) && _siblingReturnTupleNames.TryGetValue(ColumnarNodeTextFacts.Text(_nodes, _source, callee), out returnNames)) {
-                return returnNames
+            siblingLabeled := SiblingReturnLabeledCanonical(callee)
+            if (siblingLabeled != null) {
+                return ColumnarTupleElementNames.TopLevelNames(siblingLabeled)
             }
             if (_nodes.Kind(callee) == 8 && _nodes.ChildCount(callee) >= 1) {
-                declaredNames := TupleNamesOfDeclaredMethodCall(node, callee)
-                if (declaredNames != null) {
-                    return declaredNames
+                declaredLabeled := DeclaredMethodCallLabeledCanonical(node, callee)
+                if (declaredLabeled != null) {
+                    return ColumnarTupleElementNames.TopLevelNames(declaredLabeled)
                 }
                 return TupleNamesOfExternalMethodCall(node, callee)
             }
@@ -15073,14 +15161,320 @@ sealed class ColumnarIlEmitter {
         return null
     }
 
-    // The element names of a NAMED tuple returned by a method DECLARED ON A TYPE -- `Holder.Pair(a, b).Min`
-    // and `holder.Pair(a, b).Min` alike. A free function's names arrive through _siblingReturnTupleNames;
-    // a type's method carries them on its own definition, and the name+arity resolution the call emission
-    // already uses picks which definition answers. Without this, a named tuple returned by a static or
-    // instance method lost its names at the emit boundary and every element access on the result declined,
-    // even though the analyser had resolved it -- the two spellings of "a function that returns a named
-    // tuple" must behave the same.
-    private func TupleNamesOfDeclaredMethodCall(callNode: int, callee: int): string[]? {
+    // The return type AS WRITTEN of the FREE FUNCTION a call names, or null when the callee is not one.
+    private func SiblingReturnLabeledCanonical(callee: int): string? {
+        if (_nodes.Kind(callee) != 6 || _nodes.ValueStart(callee) < 0 || _siblingReturnLabeledCanonicals == null) {
+            return null
+        }
+        calleeName := ColumnarNodeTextFacts.Text(_nodes, _source, callee)
+        if (_locals.ContainsKey(calleeName) || _paramOrdinals.ContainsKey(calleeName)) {
+            return null
+        }
+        returnLabeled: string? = null
+        if (_siblingReturnLabeledCanonicals.TryGetValue(calleeName, out returnLabeled)) {
+            return returnLabeled
+        }
+        return null
+    }
+
+    // THE LABELLED CANONICAL OF AN EXPRESSION'S DECLARED TYPE -- its written spelling, tuple element
+    // labels and all -- or null when nothing visible from this body declared it.
+    //
+    // Element names have no CLR identity, so the only place a body can learn that `rows[0].Item` names
+    // element one is the WRITTEN type of whatever the value came out of. Two rules answer, and between
+    // them they cover every receiver shape:
+    //
+    //   * A DECLARED BINDING answers from its own annotation, and a FIELD or PROPERTY of one of this
+    //     compilation's own types answers from its written member type.
+    //   * ANYTHING ELSE IS A VALUE TAKEN OUT OF A RECEIVER, and its names are the ones the receiver's
+    //     written type gave that position: the receiver chain is walked to the nearest link that
+    //     answers, and that written type is searched for the ONE sub-type whose CLR handle this
+    //     expression has. `rows[0]` finds `(Item: string, Count: int)` inside
+    //     `List<(Item: string, Count: int)>`; `groups["k"]` finds it inside the dictionary's value
+    //     position; `dict.Values.First()` finds the same one through two hops that declare nothing of
+    //     their own. There is no per-API table and no indexer special case -- the question asked is
+    //     "which written sub-type is this value", and the CLR handle answers it.
+    //
+    // THE MATCH MUST BE UNIQUE. A receiver type that mentions the same CLR type twice with DIFFERENT
+    // labels (`Dictionary<(A: int, B: int), (C: int, D: int)>`) cannot say which position a value came
+    // from, so it says nothing at all and the element read stays positional -- the answer it had
+    // before this walk existed. Guessing there would rename the wrong element.
+    private func LabeledTypeOfExpressionNode(node: int): string? {
+        direct := DirectLabeledTypeOfExpressionNode(node)
+        if (direct != null) {
+            return direct
+        }
+
+        receiverLabeled := NearestLabeledContext(node)
+        if (receiverLabeled == null) {
+            return null
+        }
+
+        let nodeType: System.Type? = null
+        if (TryGetPreflightExpressionType(node, out nodeType) && nodeType != null) {
+            found: string? = null
+            if (TryFindLabeledSubtreeForType(receiverLabeled, nodeType, out found)) {
+                return found
+            }
+        }
+
+        // PREFLIGHT CANNOT TYPE AN INDEX READ BEFORE ITS RECEIVER IS EMITTED, and a member rewrite has
+        // to decide the name BEFORE anything is emitted. An index read has a structural answer that
+        // needs no preflight at all: the element its receiver's own indexer answers.
+        if (_nodes.Kind(node) == 10) {
+            indexedLabeled: string? = null
+            if (TryIndexedElementLabeled(ReceiverOfExpressionNode(node), receiverLabeled, out indexedLabeled)) {
+                return indexedLabeled
+            }
+        }
+
+        return null
+    }
+
+    // The WRITTEN element type a collection hands its foreach variable: the collection's own written
+    // type when it declares one, else the nearest link in its receiver chain that does, searched for
+    // the one sub-type the element's CLR handle names.
+    private func LabeledElementOfCollection(collectionNode: int, elementType: Type): string? {
+        if (elementType == null) {
+            return null
+        }
+        contextLabeled := DirectLabeledTypeOfExpressionNode(collectionNode)
+        if (contextLabeled == null) {
+            contextLabeled = NearestLabeledContext(collectionNode)
+        }
+        if (contextLabeled == null) {
+            return null
+        }
+        found: string? = null
+        if (TryFindLabeledSubtreeForType(contextLabeled, elementType, out found)) {
+            return found
+        }
+        return null
+    }
+
+    // THE WRITTEN TYPE OF THE NEAREST LINK IN THE RECEIVER CHAIN THAT DECLARES ONE. A hop that declares
+    // nothing of its own -- an external property, an extension call -- is walked THROUGH rather than
+    // treated as a dead end, so `dict.Values.First()` is still searched against the dictionary's own
+    // written type. That is the position that named the elements; the two hops between only moved the
+    // value.
+    private func NearestLabeledContext(node: int): string? {
+        receiver := ReceiverOfExpressionNode(node)
+        if (receiver < 0) {
+            return null
+        }
+
+        receiverDirect := DirectLabeledTypeOfExpressionNode(receiver)
+        if (receiverDirect != null) {
+            return receiverDirect
+        }
+
+        return NearestLabeledContext(receiver)
+    }
+
+    // The WRITTEN element type an index read answers, taken from the receiver's written type. WHICH
+    // position that is comes from the receiver's own generic DEFINITION -- the type-argument its
+    // indexer returns -- so there is no table of collection names and a user generic answers the same
+    // way `List<T>` and `Dictionary<K, V>` do. An array answers its element type.
+    private func TryIndexedElementLabeled(receiverNode: int, receiverLabeled: string, out elementLabeled: string): bool {
+        elementLabeled = ""
+        if (receiverNode < 0) {
+            return false
+        }
+        let receiverType: System.Type? = null
+        if (!TryGetDeclaredBindingType(receiverNode, out receiverType) || receiverType == null) {
+            return false
+        }
+        if (ColumnarTypeEquivalenceFacts.IsSafeSzArrayType(receiverType)) {
+            arrayElement := ColumnarTupleElementNames.ArrayElementText(receiverLabeled)
+            if (arrayElement == null) {
+                return false
+            }
+            elementLabeled = arrayElement
+            return true
+        }
+        if (!receiverType.get_IsGenericType()) {
+            return false
+        }
+        position := IndexerResultArgumentPosition(receiverType.GetGenericTypeDefinition())
+        if (position < 0) {
+            return false
+        }
+        arguments := ColumnarTupleElementNames.TopLevelGenericArguments(receiverLabeled)
+        if (arguments == null || position >= arguments.Count) {
+            return false
+        }
+        elementLabeled = arguments[position]
+        return true
+    }
+
+    // Which of a generic type DEFINITION's type-argument positions its indexer answers, or -1 when it
+    // declares no indexer whose result is one of its own type parameters.
+    private static func IndexerResultArgumentPosition(definition: Type): int {
+        parameters := definition.GetGenericArguments()
+        for property in definition.GetProperties(BindingFlags.Public | BindingFlags.Instance) {
+            if (property.GetIndexParameters().Length == 0) {
+                continue
+            }
+            resultType := property.get_PropertyType()
+            // The POSITION is the question, not the handle: two reflection worlds can answer the same
+            // type parameter with two different `Type` objects, and the position is the same in both.
+            if (!resultType.get_IsGenericParameter() || resultType.get_DeclaringMethod() != null) {
+                continue
+            }
+            position := resultType.get_GenericParameterPosition()
+            if (position >= 0 && position < parameters.Length) {
+                return position
+            }
+        }
+        return -1
+    }
+
+    // The CLR type a BINDING was declared with, without emitting anything. A local, a parameter and a
+    // lifted local all answer; everything else falls back to the ordinary preflight.
+    private func TryGetDeclaredBindingType(node: int, out columnarResolvedType: Type): bool {
+        columnarResolvedType = null
+        unwrapped := UnwrapParenthesizedNode(node)
+        if (_nodes.Kind(unwrapped) == 6 && _nodes.ValueStart(unwrapped) >= 0) {
+            name := ColumnarNodeTextFacts.Text(_nodes, _source, unwrapped)
+            let declaredLocal: System.Reflection.Emit.LocalBuilder? = null
+            if (_locals.TryGetValue(name, out declaredLocal)) {
+                columnarResolvedType = declaredLocal.get_LocalType()
+                return true
+            }
+            let declaredParamType: System.Type? = null
+            if (_paramOrdinals.ContainsKey(name) && _paramTypes.TryGetValue(name, out declaredParamType)) {
+                columnarResolvedType = declaredParamType
+                return true
+            }
+            let liftedBindingBox: System.Reflection.Emit.LocalBuilder? = null
+            let liftedBindingValueType: System.Type? = null
+            let liftedLocal: (Box: System.Reflection.Emit.LocalBuilder, ValueType: System.Type) = (liftedBindingBox, liftedBindingValueType)
+            if (_liftedLocals.TryGetValue(name, out liftedLocal)) {
+                columnarResolvedType = liftedLocal.ValueType
+                return true
+            }
+            return false
+        }
+        return TryGetPreflightExpressionType(unwrapped, out columnarResolvedType)
+    }
+
+    // The two shapes that declare a written type of their own: a tracked binding, and a member of one
+    // of this compilation's own types.
+    private func DirectLabeledTypeOfExpressionNode(node: int): string? {
+        nodeKind := _nodes.Kind(node)
+        if (nodeKind == 6) {
+            labeled: string? = null
+            if (_nodes.ValueStart(node) >= 0 && _labeledTypeByVariable.TryGetValue(ColumnarNodeTextFacts.Text(_nodes, _source, node), out labeled)) {
+                return labeled
+            }
+            return null
+        }
+        if (nodeKind == 7 || nodeKind == 45) {
+            // A parenthesised wrap and a `must` unwrap are both transparent to the WRITTEN type: `must t`
+            // is the same tuple `t` is, minus the nullable annotation the walk already sees through.
+            if (_nodes.ChildCount(node) == 1) {
+                return LabeledTypeOfExpressionNode(Child(node, 0))
+            }
+            return null
+        }
+        if (nodeKind == 9 && _nodes.ChildCount(node) >= 1) {
+            callee := Child(node, 0)
+            siblingLabeled := SiblingReturnLabeledCanonical(callee)
+            if (siblingLabeled != null) {
+                return siblingLabeled
+            }
+            if (_nodes.Kind(callee) == 8 && _nodes.ChildCount(callee) >= 1) {
+                return DeclaredMethodCallLabeledCanonical(node, callee)
+            }
+            return null
+        }
+        if (nodeKind == 15 && _nodes.ChildCount(node) >= 1) {
+            // `new Dictionary<string, (Item: string, Ranges: List<int>)>()` WRITES the names, exactly as
+            // an annotation does, so a local inferred from one carries them.
+            newLabeled: string? = null
+            if (TryBuildLabeledTypeNodeCanonical(Child(node, 0), out newLabeled)) {
+                return newLabeled
+            }
+            return null
+        }
+        if (nodeKind == 8 && _nodes.ChildCount(node) >= 1) {
+            member := ColumnarNodeTextFacts.Text(_nodes, _source, node)
+            if (member == "") {
+                return null
+            }
+            memberReceiver := UnwrapParenthesizedNode(Child(node, 0))
+            let memberReceiverType: System.Type? = null
+            if (!TryGetPreflightExpressionType(memberReceiver, out memberReceiverType) || memberReceiverType == null) {
+                return null
+            }
+            owner := ColumnarSourceDefinitionResolver.FindByBuilderIdentity(_structRegistry.get_Values(), memberReceiverType)
+            while (owner != null) {
+                memberLabeled: string? = null
+                if (owner.MemberLabeledCanonicals.TryGetValue(member, out memberLabeled)) {
+                    return memberLabeled
+                }
+                owner = owner.BaseDef
+            }
+            return null
+        }
+        return null
+    }
+
+    // The value a member access, an index read or a call is taken OUT of, or -1 for a shape with no
+    // receiver.
+    private func ReceiverOfExpressionNode(node: int): int {
+        nodeKind := _nodes.Kind(node)
+        if ((nodeKind == 8 || nodeKind == 10) && _nodes.ChildCount(node) >= 1) {
+            return UnwrapParenthesizedNode(Child(node, 0))
+        }
+        if (nodeKind == 9 && _nodes.ChildCount(node) >= 1) {
+            callee := Child(node, 0)
+            if (_nodes.Kind(callee) == 8 && _nodes.ChildCount(callee) >= 1) {
+                return UnwrapParenthesizedNode(Child(callee, 0))
+            }
+            return -1
+        }
+        return -1
+    }
+
+    // The ONE written sub-type of `labeled` whose CLR handle is `target`, when exactly one sub-type
+    // resolves to it AND that sub-type actually names something. Anything else is no answer.
+    private func TryFindLabeledSubtreeForType(labeled: string, target: Type, out found: string): bool {
+        found = ""
+        if (target == null) {
+            return false
+        }
+        candidates := new List<string>()
+        ColumnarTupleElementNames.CollectSubtrees(labeled, candidates)
+        matchCount := 0
+        matched := ""
+        for i := 0; i < candidates.Count; i++ {
+            candidate := candidates[i]
+            let candidateType: System.Type? = null
+            if (!TryResolveBodyType(ColumnarTupleElementNames.StripAllElementNames(candidate), out candidateType) || candidateType == null) {
+                continue
+            }
+            if (!TypesEquivalent(candidateType, target)) {
+                continue
+            }
+            matchCount = matchCount + 1
+            matched = candidate
+        }
+        if (matchCount != 1 || ColumnarTupleElementNames.TopLevelNames(matched) == null) {
+            return false
+        }
+        found = matched
+        return true
+    }
+
+    // The return type AS WRITTEN of a method DECLARED ON A TYPE -- `Holder.Pair(a, b).Min` and
+    // `holder.Pair(a, b).Min` alike. A free function's spelling arrives through
+    // _siblingReturnLabeledCanonicals; a type's method carries it on its own definition, and the
+    // name+arity resolution the call emission already uses picks which definition answers. Without
+    // this, a named tuple returned by a static or instance method lost its names at the emit boundary
+    // and every element access on the result declined, even though the analyser had resolved it --
+    // the two spellings of "a function that returns a named tuple" must behave the same.
+    private func DeclaredMethodCallLabeledCanonical(callNode: int, callee: int): string? {
         member := ColumnarNodeTextFacts.Text(_nodes, _source, callee)
         if (member == "") {
             return null
@@ -15095,7 +15489,7 @@ sealed class ColumnarIlEmitter {
                 staticOwner: NSharpLang.Compiler.Columnar.ColumnarStructDef? = null
                 staticMethod: NSharpLang.Compiler.Columnar.ColumnarStaticMethodDef? = null
                 if (_typeResolutionStructs.TryGetValue(receiverText, out staticOwner) && TryFindStaticMethodOnChain(staticOwner, member, argCount, out staticMethod)) {
-                    return staticMethod.ReturnTupleElementNames
+                    return staticMethod.ReturnLabeledCanonical
                 }
             }
         }
@@ -15113,7 +15507,7 @@ sealed class ColumnarIlEmitter {
         if (!ColumnarSourceMemberChainResolver.TryFindMethodOnChain(instanceOwner, member, argCount, out instanceMethod) || instanceMethod == null) {
             return null
         }
-        return instanceMethod.ReturnTupleElementNames
+        return instanceMethod.ReturnLabeledCanonical
     }
 
     // The element names of a named tuple returned by a method from a REFERENCED assembly. A named
@@ -16399,6 +16793,131 @@ sealed class ColumnarIlEmitter {
         }
     }
 
+    // DECONSTRUCTION THROUGH A `Deconstruct(out ...)` METHOD -- C#'s other deconstruction source, and
+    // the one every `for pair in dictionary` walk needs, because `KeyValuePair<K, V>` is not a tuple.
+    //
+    // The source value is on the stack. It is spilled to a temp so its ADDRESS can be taken (a value
+    // type's instance call needs one, and a reference type is loaded from the same temp), one local is
+    // declared per target, and the whole out-parameter list is passed by address in one call. A
+    // discard still gets a local -- the method writes every out parameter whether the source names it
+    // or not -- it is simply never bound.
+    //
+    // THE ARITY SELECTS THE OVERLOAD, exactly as it does in the analyser and in C#. An ambiguous pair
+    // declines rather than picking one.
+    private func TryEmitDeconstructMethodTargets(idx: int, nameCount: int, sourceType: Type, assigns: bool): bool {
+        deconstruct := ResolveDeconstructMethodFor(sourceType, nameCount)
+        if (deconstruct == null) {
+            return Decline("emit.deconstruction.source", "deconstruction source type '" + sourceType.FullName + "' is neither a ValueTuple nor a type with a matching Deconstruct method", idx)
+        }
+
+        sourceLocal := _il.DeclareLocal(sourceType)
+        _il.Emit(OpCodes.Stloc, sourceLocal)
+
+        parameters := deconstruct.GetParameters()
+        outLocals := new LocalBuilder[](nameCount)
+        for i := 0; i < nameCount; i++ {
+            elementType := parameters[i].get_ParameterType().GetElementType()
+            if (elementType == null || !ColumnarTypeOfPlanner.IsSupportedType(elementType)) {
+                return Decline("emit.deconstruction.out-type", "deconstruction out parameter type is not supported", idx)
+            }
+            outLocals[i] = _il.DeclareLocal(elementType)
+        }
+
+        if (sourceType.get_IsValueType()) {
+            _il.Emit(OpCodes.Ldloca, sourceLocal)
+        } else {
+            _il.Emit(OpCodes.Ldloc, sourceLocal)
+        }
+        for i := 0; i < nameCount; i++ {
+            _il.Emit(OpCodes.Ldloca, outLocals[i])
+        }
+        if (sourceType.get_IsValueType()) {
+            _il.Emit(OpCodes.Call, deconstruct)
+        } else {
+            _il.Emit(OpCodes.Callvirt, deconstruct)
+        }
+
+        for i := 0; i < nameCount; i++ {
+            name := ColumnarNodeTextFacts.Text(_nodes, _source, Child(idx, i))
+            if (name == "_") {
+                continue
+            }
+            if (assigns) {
+                let existingTarget: System.Reflection.Emit.LocalBuilder? = null
+                if (!_locals.TryGetValue(name, out existingTarget) || !TypesEquivalent(existingTarget.get_LocalType(), outLocals[i].get_LocalType())) {
+                    return Decline("emit.deconstruction.assignment-target", "deconstruction assignment target '" + name + "' is not a local of the element's type", Child(idx, i))
+                }
+                _il.Emit(OpCodes.Ldloc, outLocals[i])
+                _il.Emit(OpCodes.Stloc, existingTarget)
+                continue
+            }
+            if (ColumnarClosureBindingPlanner.IsVisibleBindingName(name, _locals, _paramOrdinals, _liftedLocals, _boxedCaptures, _enclosingBindingNames)) {
+                return Decline("emit.deconstruction.redeclaration", "deconstruction target '" + name + "' shadows or redeclares a visible binding", Child(idx, i))
+            }
+            _locals[name] = outLocals[i]
+        }
+
+        return true
+    }
+
+    // The `Deconstruct` of the requested arity, whether the type is one of THIS compilation's own --
+    // whose members live on its `ColumnarStructDef` chain rather than in reflection -- or one from a
+    // referenced assembly, read through ordinary reflection.
+    private func ResolveDeconstructMethodFor(sourceType: Type, arity: int): MethodInfo? {
+        sourceOwner := ColumnarSourceDefinitionResolver.FindByBuilderIdentity(_structRegistry.get_Values(), sourceType)
+        if (sourceOwner != null) {
+            declared: NSharpLang.Compiler.Columnar.ColumnarInstanceMethodDef? = null
+            if (!ColumnarSourceMemberChainResolver.TryFindMethodOnChain(sourceOwner, "Deconstruct", arity, out declared) || declared == null) {
+                return null
+            }
+            // Every parameter must be `out` (modifier kind 2, the same word
+            // `ColumnarParameterDefaultEmitter` turns into `ParameterAttributes.Out`).
+            if (declared.ParamModifierKinds.Length != arity) {
+                return null
+            }
+            for parameterKind in declared.ParamModifierKinds {
+                if (parameterKind != 2) {
+                    return null
+                }
+            }
+            return declared.Builder
+        }
+
+        return ResolveDeconstructMethod(sourceType, arity)
+    }
+
+    // The one accessible instance `void Deconstruct(out T1, ..., out TN)` of the requested arity, or
+    // null when the type declares none or declares two of the same arity.
+    private static func ResolveDeconstructMethod(sourceType: Type, arity: int): MethodInfo? {
+        selected: MethodInfo? = null
+        for candidate in sourceType.GetMethods(BindingFlags.Public | BindingFlags.Instance) {
+            if (candidate.get_Name() != "Deconstruct" || candidate.get_IsStatic()) {
+                continue
+            }
+            if (!ColumnarCodePlanExecutor.IsVoidType(candidate.get_ReturnType())) {
+                continue
+            }
+            parameters := candidate.GetParameters()
+            if (parameters.Length != arity) {
+                continue
+            }
+            allOut := true
+            for parameter in parameters {
+                if (!parameter.get_IsOut() || !parameter.get_ParameterType().get_IsByRef()) {
+                    allOut = false
+                }
+            }
+            if (!allOut) {
+                continue
+            }
+            if (selected != null) {
+                return null
+            }
+            selected = candidate
+        }
+        return selected
+    }
+
     // Rewrites a named tuple member to its ItemN spelling when the receiver's tracked names contain it;
     // any other shape returns the original member (declining exactly as before this feature).
     private func MaybeRewriteTupleMemberName(receiverNode: int, member: string): string {
@@ -16469,6 +16988,87 @@ sealed class ColumnarIlEmitter {
         _il.MarkLabel(finished)
         _locals[bindingName] = bindingLocal
         return true
+    }
+
+    // THE SAME WALK AS `TryBuildTypeNodeCanonical`, KEEPING EVERY TUPLE ELEMENT LABEL. The structural
+    // canonical spells a tuple as `ValueTuple<...>` and drops the labels, because names are metadata
+    // rather than identity; this one spells it as the source wrote it -- `(Item:string,Count:int)` --
+    // which is the only form an element read can take its names from.
+    private func TryBuildLabeledTypeNodeCanonical(typeNode: int, out labeled: string): bool {
+        typeNodeKind := _nodes.Kind(typeNode)
+        if (typeNodeKind == 0) {
+            labeled = ColumnarNodeTextFacts.Text(_nodes, _source, typeNode)
+            return true
+        }
+        if (typeNodeKind == 1) {
+            builder := new System.Text.StringBuilder(ColumnarNodeTextFacts.Text(_nodes, _source, typeNode))
+            builder.Append('<')
+            for c := 0; c < _nodes.ChildCount(typeNode); c++ {
+                if (c > 0) {
+                    builder.Append(',')
+                }
+                argLabeled: string? = null
+                if (!TryBuildLabeledTypeNodeCanonical(Child(typeNode, c), out argLabeled)) {
+                    labeled = ""
+                    return false
+                }
+                builder.Append(argLabeled)
+            }
+            builder.Append('>')
+            labeled = builder.ToString()
+            return true
+        }
+        if (typeNodeKind == 2 || typeNodeKind == 3) {
+            elementLabeled: string? = null
+            if (_nodes.ChildCount(typeNode) != 1 || !TryBuildLabeledTypeNodeCanonical(Child(typeNode, 0), out elementLabeled)) {
+                labeled = ""
+                return false
+            }
+            if (typeNodeKind == 2) {
+                labeled = elementLabeled + "[]"
+            } else {
+                labeled = elementLabeled + "?"
+            }
+            return true
+        }
+        if (typeNodeKind == 6) {
+            childCount := _nodes.ChildCount(typeNode)
+            if (childCount < 2) {
+                labeled = ""
+                return false
+            }
+            builder := new System.Text.StringBuilder("(")
+            for c := 0; c < childCount; c++ {
+                if (c > 0) {
+                    builder.Append(',')
+                }
+                elementLabeled: string? = null
+                if (!TryBuildLabeledTypeNodeCanonical(Child(typeNode, c), out elementLabeled)) {
+                    labeled = ""
+                    return false
+                }
+                builder.Append(elementLabeled)
+            }
+            builder.Append(')')
+            labeled = builder.ToString()
+            return true
+        }
+        if (typeNodeKind == 7) {
+            innerLabeled: string? = null
+            if (_nodes.ChildCount(typeNode) != 1 || !TryBuildLabeledTypeNodeCanonical(Child(typeNode, 0), out innerLabeled)) {
+                labeled = ""
+                return false
+            }
+            elementName := ColumnarNodeTextFacts.Text(_nodes, _source, typeNode)
+            if (elementName.Length > 0) {
+                labeled = elementName + ":" + innerLabeled
+            } else {
+                labeled = innerLabeled
+            }
+            return true
+        }
+        labeled = ""
+        return false
     }
 
     private func TryBuildTypeNodeCanonical(typeNode: int, out canonical: string): bool {
@@ -17023,6 +17623,7 @@ sealed class ColumnarIlEmitter {
             _structRegistry.get_Values(),
             _unionRegistry.get_Values(),
             _tupleNamesByVariable,
+            _labeledTypeByVariable,
             _enclosingBindingNames,
             _siblings.get_Keys(),
             _visibleLocalFuncs,
@@ -17869,7 +18470,7 @@ sealed class ColumnarIlEmitter {
             _localFuncs,
             _declaredLocalFuncNodes,
             _visibleLocalFuncs,
-            _siblingReturnTupleNames,
+            _siblingReturnLabeledCanonicals,
             null,
             ColumnarClosureBindingPlanner.VisibleBindingNamesSnapshot(_enclosingBindingNames, _locals, _paramOrdinals, _liftedLocals, _boxedCaptures),
             null,

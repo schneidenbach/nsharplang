@@ -6,8 +6,20 @@ import System.Collections.Generic
 import NSharpLang.Compiler.Ast
 
 class ReflectionTypeInfoFactory {
-    static func FromConstructedGeneric(name: string, arguments: List<TypeInfo>, constructedType: Type): GenericTypeInfo {
-        return new GenericTypeInfo(name, arguments, new ReflectionTypeInfo(constructedType.GetGenericTypeDefinition()))
+
+    // THE ONE FUNNEL EVERY REFLECTED CONSTRUCTED GENERIC COMES THROUGH, which is why the
+    // `ValueTuple`N` normalisation lives here: a tuple read back out of metadata answers the same
+    // `TupleTypeInfo` a written `(T1, T2)` does, so identity, assignability, member resolution and
+    // display never see two shapes for one CLR type. See `ValueTupleTypeFacts`.
+    static func FromConstructedGeneric(name: string, arguments: List<TypeInfo>, constructedType: Type): TypeInfo {
+        definition: TypeInfo = new ReflectionTypeInfo(constructedType.GetGenericTypeDefinition())
+        normalizedTuple: TypeInfo = BuiltInTypes.Unknown
+        if ValueTupleTypeFacts.TryNormalizeConstructed(definition, arguments, out normalizedTuple) {
+            return normalizedTuple
+        }
+
+        constructed: TypeInfo = new GenericTypeInfo(name, arguments, definition)
+        return constructed
     }
 }
 

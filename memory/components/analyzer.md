@@ -1009,12 +1009,46 @@ N# writes and reads it the way every other .NET language does:
 - A named tuple DISPLAYS as `(Min: int, Max: int)` in hover and `nlc query type`; before this it
   answered the class name `NSharpLang.Compiler.TupleTypeInfo`.
 
-`tests/native/tuple-names` is the executable evidence for both directions.
+`tests/native/tuple-names` is the executable evidence for both directions, and
+`tests/native/census-parse-shapes/ValueTupleIdentity.tests.nl` for everything below.
 
-Still unsupported, and reported as such: an individually named element (`(A: int, int)` — the parse
-kernel is all-or-nothing at each level), and a FIELD or PROPERTY declared with a tuple type at all
-(`Pair: (Min: int, Max: int)` inside a class or struct declines at `parse.struct`, even unnamed), so
-those attribute positions are unreachable rather than unimplemented.
+ONE TypeInfo FOR `System.ValueTuple`N`. The analyzer used to have two representations for one CLR
+type — a `GenericTypeInfo` named "ValueTuple" for the reflected or hand-written spelling and a
+`TupleTypeInfo` for the written one — so `g: ValueTuple<string, List<int>> = (x, l)` reported NL202
+with the two halves of one type printed as if they disagreed, and the mirror assignment reported the
+mirror image. `ValueTupleTypeFacts.TryNormalizeConstructed` normalises a constructed `ValueTuple`N`
+into a `TupleTypeInfo` at the CONVERSION BOUNDARY — `ReflectionTypeInfoFactory.FromConstructedGeneric`
+for everything reflected, `AnalyzerTypeResolver.ResolveGenericTypeReference` and
+`AnalyzerDeclarationContext.ResolveGenericType` for the written spelling — which is the rule
+`AnalyzerReflectionTypeConversion` already applies to `Nullable<T>`: lift once, rather than special-
+case identity, assignability, display, member resolution and overload scoring one at a time. Arity
+one keeps the constructed shape (`(T)` is not tuple syntax), and the `ValueTuple`8` REST nesting is
+flattened so an eight-element tuple is eight flat elements.
+
+NAMES TRAVEL WITH THE POSITION A VALUE WAS READ OUT OF. A member resolved through reflection has no
+element names in it — `Dictionary<string, (Item: string, Ranges: List<int>)>.Values` substitutes over
+the CLOSED CLR type — so `groups.Values` typed as `ValueCollection<string, (string, List<int>)>` and
+every read off it reported NL303. `AnalyzerTupleElementNames.GraftFromReceiver`, applied where
+`AnalyzerMemberAccess` settles a member's type, gives an UNNAMED tuple in the member's type the names
+of the receiver's own tuple when the receiver's written type mentions exactly ONE tuple of that shape.
+Only names change; identity is unaffected, because `TypeInfoIdentityFacts.AreEqual` ignores them. The
+match must be unique: a receiver mentioning the same shape twice with different names says nothing.
+
+A NARROWED nullable answers `.Value` whatever family its inner type is in. The narrowed-origin gate in
+`AnalyzerMemberAccess` admitted only a `SimpleTypeInfo` or a `ReflectionTypeInfo`, so `found.Value` on
+a narrowed `(Uri: string, Line: int)?` reported NL303 while the same access on a narrowed `int?`
+resolved. The gate is identity with the origin's INNER type — the question the second nullable arm
+already asked.
+
+DECONSTRUCTION IS NOT ONLY FOR TUPLES. `AnalyzerVariableDeclaration.TryGetDeconstructMethodElements`
+asks a non-tuple source for an accessible instance `Deconstruct(out ...)` whose out-parameter count
+matches the target count, which is C#'s own rule and what makes `(k, v) := pair` work over a
+`KeyValuePair<K, V>`. A type declared in this compilation answers from its own `DeclaredMembers`; one
+from a referenced assembly answers through reflection, with a constructed generic's out types
+substituted by position. Two overloads of the same arity answer nothing rather than picking one.
+
+Still unsupported, and reported as such: an individually named element in a REST position past the
+seventh.
 
 - **ClassTypeInfo**: N#-owned class declaration metadata
 - **StructTypeInfo**: N#-owned struct declaration metadata

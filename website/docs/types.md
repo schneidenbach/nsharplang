@@ -530,8 +530,16 @@ record Person(string FirstName, string LastName, int Age)
 person := new Person("Alice", "Smith", 30)
 Console.WriteLine(person.FirstName)  // "Alice"
 
-// Deconstruction
-(first, last, age) := person
+// Deconstruction goes through a `Deconstruct` method. N# does not synthesize one for a record, so
+// declare it when callers should be able to unpack the value:
+//
+//   func Deconstruct(out firstName: string, out lastName: string, out age: int) {
+//       firstName = FirstName
+//       lastName = LastName
+//       age = Age
+//   }
+//
+//   (first, last, age) := person
 ```
 
 ## Discriminated Unions

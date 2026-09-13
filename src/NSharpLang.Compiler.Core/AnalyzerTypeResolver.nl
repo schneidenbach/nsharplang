@@ -242,6 +242,12 @@ class AnalyzerTypeResolver {
             genericDefinition = ResolveGenericHead(generic)
         }
 
+        // A HAND-WRITTEN `ValueTuple<...>` IS THE TUPLE IT SPELLS. See `ValueTupleTypeFacts`.
+        normalizedTuple: TypeInfo = BuiltInTypes.Unknown
+        if ValueTupleTypeFacts.TryNormalizeConstructed(genericDefinition, typeArguments, out normalizedTuple) {
+            return normalizedTuple
+        }
+
         return new GenericTypeInfo(generic.Name, typeArguments, genericDefinition)
     }
 

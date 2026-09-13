@@ -222,9 +222,29 @@ error there any more.
 
 A bare typed local may be annotated with a tuple type (`pair: (Item: string, Count: int) = …`): the
 typed-declaration lookahead in `ParseExpressionStatement` admits a type starting with an identifier OR
-with the `(` of a tuple. A FIELD or property still may not be declared with a tuple type — that limit
-is in the columnar struct kernel, applies to unnamed tuples too, and is recorded in
-`website/docs/functions.md`.
+with the `(` of a tuple.
+
+A FIELD and a PROPERTY may be declared with one too. `ParseDeclarationTypeSpanCore` — the span reader
+every declared position shares — used to require the first token of a type to be an identifier, which
+is why `Pair: (Item: string, Count: int)` inside a class declined the WHOLE type at `parse.struct`
+while the same type on a local, a parameter or a return read fine. A leading `(` is now scanned by
+`ScanDeclarationTupleTypeCloseCore`, which admits the group only as a TUPLE — it must hold a comma at
+its own paren depth, the rule Roslyn's `ScanTupleType` applies for the same reason — and then falls
+into the shared `[]`/`?` suffix walk. `ParserDeclarationCanonicalTypeText` strips whitespace for a
+`(` head as well as a `<` one, because a canonical never contains a space.
+
+### Tuple deconstruction has two spellings, and two operators
+
+`(a, b) := e` and the bare `a, b := e` are ONE statement, and `=` in place of `:=` makes it an
+ASSIGNMENT to names that already exist rather than a declaration. The columnar statement kernel used
+to read only the bare `:=` form, so the parenthesised spelling the language tour documents reached no
+kernel at all and declined its function at `parse.function` — even though the recovery parser (the
+analyser's front end) has parsed it since the beginning. The kernel now admits both, gated by
+`ScanTupleDeconstructionTargetList`, a PURE lookahead that commits to nothing so an ordinary
+parenthesised expression statement is still read as one. The OPERATOR token rides in the kind-30
+node's value span, because which one was written is meaning rather than style;
+`TupleDeconstructionStatement.IsAssignment` is the same fact on the AST side, and `FormatterWalk`
+prints the operator the source wrote.
 
 ### Field initializers, and the two synthesized bodies they become
 

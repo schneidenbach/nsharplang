@@ -366,7 +366,6 @@ sealed class ColumnarProgramInputBuilder {
                 null,
                 null,
                 null,
-                null,
                 false,
                 0,
                 0,
@@ -491,7 +490,6 @@ sealed class ColumnarProgramInputBuilder {
             bodyNodes,
             bodyRoot,
             false,
-            null,
             null,
             null,
             null,
@@ -1122,7 +1120,6 @@ sealed class ColumnarProgramInputBuilder {
         parsedParamModifierKinds := new int[](paramCount)
         parsedParamDefaultKinds := new int[](paramCount)
         parsedParamDefaultTexts := new string[](paramCount)
-        paramTupleNames: string[][]? = null
         flatParamTupleNameIndex := 0
         p := 0
         while p < paramCount {
@@ -1144,14 +1141,9 @@ sealed class ColumnarProgramInputBuilder {
                     functionName
                 )
             }
-            if tupleNameCount > 0 {
-                tupleNames := new string[](tupleNameCount)
-                Array.Copy(paramTupleNameTexts, flatParamTupleNameIndex, tupleNames, 0, tupleNameCount)
-                if paramTupleNames == null {
-                    paramTupleNames = new string[][](paramCount)
-                }
-                paramTupleNames[p] = tupleNames
-            }
+            // The kernel's per-parameter TOP-LEVEL name run is still validated -- a malformed run is a
+            // parse decline -- but the emitter reads a parameter's element names off its LABELLED
+            // canonical, which has the nested and generic-argument names this column never had.
             flatParamTupleNameIndex = flatParamTupleNameIndex + tupleNameCount
             p = p + 1
         }
@@ -1292,7 +1284,6 @@ sealed class ColumnarProgramInputBuilder {
             parsedTypeParamSpecials,
             typeParamTypeConstraints,
             returnTupleNames,
-            paramTupleNames,
             parsedParamModifierKinds,
             parsedParamDefaultKinds,
             parsedParamDefaultTexts,
@@ -1487,7 +1478,6 @@ sealed class ColumnarProgramInputBuilder {
             null,
             null,
             null,
-            null,
             false,
             0,
             0,
@@ -1596,7 +1586,6 @@ sealed class ColumnarProgramInputBuilder {
             null,
             null,
             null,
-            null,
             false,
             0,
             0,
@@ -1625,7 +1614,6 @@ sealed class ColumnarProgramInputBuilder {
                 setterNodes,
                 setBodyRoot,
                 false,
-                null,
                 null,
                 null,
                 null,

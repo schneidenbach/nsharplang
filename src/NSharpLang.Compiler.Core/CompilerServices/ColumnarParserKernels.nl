@@ -716,7 +716,9 @@ class ParserExpressionNodeTable {
 //                                             collide), so the TYPE's source span rides in the VALUE slot exactly as
 //                                             kind 40's does, and children are [name Identifier (kind 6), coll, body].
 //                                             The element is converted to the annotation once per iteration. )
-//   TupleDeconstructionStatement -> kind 30  ( n0, n1, ... := <tuple>; children [name0..nameN-1 (Identifier kind 6), value] )
+//   TupleDeconstructionStatement -> kind 30  ( `n0, n1, ... := <tuple>` and `(n0, n1, ...) := <tuple>`, with `=`
+//                                         as well as `:=`; children [name0..nameN-1 (Identifier kind 6), value].
+//                                         The OPERATOR token is the value span: `:=` declares, `=` assigns. )
 //   TypedLocalDeclaration        -> kind 40  ( [let] name: Type = init; the TYPE's source span in the VALUE slot
 //                                             (type trees cannot share this table — kind spaces collide), children
 //                                             [name Identifier (kind 6), init root]. Kinds 31-39 belong to the
@@ -6797,6 +6799,39 @@ func ParseTypedForeachTailNode(tokens: ParserTokenTable, count: int, st: ParserS
     return EmitExpressionNode(st, nodes, 76, typedLoopTypeStart, typedLoopTypeEnd - typedLoopTypeStart, typedLoopChildRunStart, 3, keywordStart, typedLoopBodyEnd - keywordStart)
 }
 
+// The index of the `:=` / `=` that follows a parenthesised DECONSTRUCTION TARGET LIST opened at `open`,
+// or -1 when what follows the `(` is not one. This is a pure lookahead and it commits to nothing: a `(`
+// that opens an ordinary parenthesised expression -- a tuple literal statement, a grouped call -- must
+// still be read as one, so the target-list branch may not consume a token until the whole shape is
+// confirmed.
+func ScanTupleDeconstructionTargetList(tokens: ParserTokenTable, count: int, open: int): int {
+    scan := open + 1
+    if scan + 1 >= count || tokens.Kinds[scan] != 0 || tokens.Kinds[scan + 1] != 134 {
+        return -1
+    }
+
+    scan = scan + 1
+    while scan < count && tokens.Kinds[scan] == 134 {
+        scan = scan + 1
+        if scan >= count || tokens.Kinds[scan] != 0 {
+            return -1
+        }
+
+        scan = scan + 1
+    }
+
+    if scan >= count || tokens.Kinds[scan] != 128 {
+        return -1
+    }
+
+    scan = scan + 1
+    if scan >= count || (tokens.Kinds[scan] != 121 && tokens.Kinds[scan] != 93) {
+        return -1
+    }
+
+    return scan
+}
+
 func ParseSimpleStatementNode(tokens: ParserTokenTable, count: int, st: ParserState, argStack: ParserArgumentStack, nodes: ParserExpressionNodeTable, children: ParserChildIndexTable): int {
     start := st.Pos
     kind := tokens.Kinds[start]
@@ -6969,18 +7004,32 @@ func ParseSimpleStatementNode(tokens: ParserTokenTable, count: int, st: ParserSt
         return EmitExpressionNode(st, nodes, 22, -1, 0, -1, 0, tokens.Starts[start], tokens.ValueLengths[start])
     }
 
-    // Tuple DECONSTRUCTION `n0, n1, ... := <tuple>` (>= 2 names): an identifier FOLLOWED BY a comma. Each target
-    // is a bare identifier (or `_` discard) emitted as an Identifier node (kind 6); the value follows `:=`. The
-    // node is TupleDeconstructionStatement kind 30, children = [name0, ..., nameN-1, value]. A malformed list
-    // (a non-identifier target, a missing `:=` or value) refuses with -1 -> declines.
-    if kind == 0 && start + 1 < count && tokens.Kinds[start + 1] == 134 {
+    // Tuple DECONSTRUCTION, in BOTH spellings the language has: the bare `n0, n1, ... := <tuple>` and the
+    // parenthesised `(n0, n1, ...) := <tuple>` the language tour documents, each with `=` as well as `:=`.
+    // Every target is a bare identifier (or `_` discard) emitted as an Identifier node (kind 6); the value
+    // follows the operator. The node is TupleDeconstructionStatement kind 30, children =
+    // [name0, ..., nameN-1, value], and the OPERATOR TOKEN rides in the value span because it is meaning
+    // rather than style: `:=` declares the targets and `=` writes targets that already exist. A malformed
+    // list (a non-identifier target, a missing operator or value) refuses with -1 -> declines.
+    //
+    // THE PARENTHESISED FORM USED TO REACH NO KERNEL AT ALL. `(a, b) := t` was read as an expression
+    // statement, and the whole enclosing function declined at `parse.function` even though the recovery
+    // parser -- the analyser's front end -- has parsed that spelling since the beginning, so the shape
+    // type-checked and then could not be emitted.
+    if (kind == 0 && start + 1 < count && tokens.Kinds[start + 1] == 134) || (kind == 127 && ScanTupleDeconstructionTargetList(tokens, count, start) >= 0) {
         deconStart := tokens.Starts[start]
+        deconParenthesised := kind == 127
+        deconNameStart := start
+        if deconParenthesised {
+            deconNameStart = start + 1
+        }
+
         deconArgBase := st.ArgStackTop
 
-        firstName := EmitExpressionNode(st, nodes, 6, tokens.Starts[start], tokens.ValueLengths[start], -1, 0, tokens.Starts[start], tokens.ValueLengths[start])
+        firstName := EmitExpressionNode(st, nodes, 6, tokens.Starts[deconNameStart], tokens.ValueLengths[deconNameStart], -1, 0, tokens.Starts[deconNameStart], tokens.ValueLengths[deconNameStart])
         argStack.Values[st.ArgStackTop] = firstName
         st.ArgStackTop = st.ArgStackTop + 1
-        st.Pos = start + 1
+        st.Pos = deconNameStart + 1
 
         while st.Pos < count && tokens.Kinds[st.Pos] == 134 {
             st.Pos = st.Pos + 1
@@ -6995,11 +7044,21 @@ func ParseSimpleStatementNode(tokens: ParserTokenTable, count: int, st: ParserSt
             st.Pos = st.Pos + 1
         }
 
-        if st.Pos >= count || tokens.Kinds[st.Pos] != 121 {
+        if deconParenthesised {
+            if st.Pos >= count || tokens.Kinds[st.Pos] != 128 {
+                st.ArgStackTop = deconArgBase
+                return -1
+            }
+
+            st.Pos = st.Pos + 1
+        }
+
+        if st.Pos >= count || (tokens.Kinds[st.Pos] != 121 && tokens.Kinds[st.Pos] != 93) {
             st.ArgStackTop = deconArgBase
             return -1
         }
 
+        deconOperator := st.Pos
         st.Pos = st.Pos + 1
 
         deconValue := ParseAssignmentExpressionNode(tokens, count, st, argStack, nodes, children, 0)
@@ -7021,7 +7080,7 @@ func ParseSimpleStatementNode(tokens: ParserTokenTable, count: int, st: ParserSt
 
         st.ArgStackTop = deconArgBase
 
-        return EmitExpressionNode(st, nodes, 30, -1, 0, deconChildRunStart, deconChildCount, deconStart, deconValueEnd - deconStart)
+        return EmitExpressionNode(st, nodes, 30, tokens.Starts[deconOperator], tokens.ValueLengths[deconOperator], deconChildRunStart, deconChildCount, deconStart, deconValueEnd - deconStart)
     }
 
     // LOCAL FUNCTION declaration (kind 41): `[static|async]* func name(...) ... { body }` as a statement.
@@ -9922,18 +9981,21 @@ func ParserDeclarationCanonicalTypeText(source: string, start: int, length: int)
         return ""
     }
 
-    hasGenericSuffix := false
+    // A COMPOSED type is the one whose written form can hold whitespace, and a TUPLE is composed:
+    // `(Item: string, Count: int)` must canonicalise to `(Item:string,Count:int)` exactly as
+    // `List< int >` canonicalises to `List<int>`, because a canonical never contains a space.
+    hasComposedSuffix := false
     i := 0
     while i < length {
-        if source[start + i] == '<' {
-            hasGenericSuffix = true
+        if source[start + i] == '<' || source[start + i] == '(' {
+            hasComposedSuffix = true
             break
         }
 
         i = i + 1
     }
 
-    if !hasGenericSuffix {
+    if !hasComposedSuffix {
         return source.Substring(start, length)
     }
 
@@ -10341,13 +10403,76 @@ func ParseColumnarNativeImportInfoInto(source: string, tokenKinds: int[], tokenS
     return 1
 }
 
+// The index of the `)` that closes a TUPLE type opened at `open`, or -1 when the group is not a tuple
+// type at all. A `(` group is a TUPLE only when it holds a comma at its OWN paren depth: `(int)` is a
+// parenthesised type and C# reads it as one too (Roslyn's `ScanTupleType` refuses a one-element group
+// for the same reason), and the group may contain nothing but type grammar -- qualified names, nested
+// generics, array ranks, nullable suffixes, element labels and nested tuples.
+func ScanDeclarationTupleTypeCloseCore(tokens: ParserDeclarationTokenTable, count: int, open: int): int {
+    depth := 0
+    sawTopLevelComma := 0
+    scan := open
+    while scan < count {
+        kind := tokens.Kinds[scan]
+        if kind == 127 {
+            depth = depth + 1
+        } else if kind == 128 {
+            depth = depth - 1
+            if depth == 0 {
+                if sawTopLevelComma == 0 {
+                    return -1
+                }
+
+                return scan
+            }
+
+            if depth < 0 {
+                return -1
+            }
+        } else if kind == 134 {
+            if depth == 1 {
+                sawTopLevelComma = 1
+            }
+        } else if kind != 0 && kind != 124 && kind != 131 && kind != 132 && kind != 115 && kind != 100 && kind != 102 && kind != 112 && kind != 122 {
+            return -1
+        }
+
+        scan = scan + 1
+    }
+
+    return -1
+}
+
+// A TYPE AS WRITTEN IN A DECLARED POSITION, as a source span. A TUPLE type is one of the forms it
+// reads: the kernel used to require the first token to be an identifier, which is why a field or a
+// property declared `Pair: (Item: string, Count: int)` declined the WHOLE enclosing type at
+// `parse.struct` while the same type on a local, a parameter or a return read fine. The tuple group
+// is scanned by the shared rule above and then falls into the same suffix walk every other type
+// takes, so `(int, int)?` and `(int, int)[]` read here exactly as they read anywhere else.
 func ParseDeclarationTypeSpanCore(tokens: ParserDeclarationTokenTable, count: int, pos: int, result: ParserDeclarationResultTable): int {
-    if result.Values.Length < 2 || pos < 0 || pos >= count || tokens.Kinds[pos] != 0 {
+    if result.Values.Length < 2 || pos < 0 || pos >= count {
         return -1
     }
 
     typeStart := tokens.Starts[pos]
-    typeEnd := tokens.Starts[pos] + tokens.ValueLengths[pos]
+    typeEnd := 0
+
+    if tokens.Kinds[pos] == 127 {
+        tupleClose := ScanDeclarationTupleTypeCloseCore(tokens, count, pos)
+        if tupleClose < 0 {
+            return -1
+        }
+
+        typeEnd = tokens.Starts[tupleClose] + tokens.ValueLengths[tupleClose]
+        pos = tupleClose + 1
+        return ParseDeclarationTypeSuffixSpanCore(tokens, count, pos, typeStart, typeEnd, result)
+    }
+
+    if tokens.Kinds[pos] != 0 {
+        return -1
+    }
+
+    typeEnd = tokens.Starts[pos] + tokens.ValueLengths[pos]
     pos = pos + 1
 
     while pos + 1 < count && tokens.Kinds[pos] == 124 && tokens.Kinds[pos + 1] == 0 {
@@ -10430,25 +10555,32 @@ func ParseDeclarationTypeSpanCore(tokens: ParserDeclarationTokenTable, count: in
         }
     }
 
+    return ParseDeclarationTypeSuffixSpanCore(tokens, count, pos, typeStart, typeEnd, result)
+}
+
+// The `[]` / `?[]` / `?` suffixes a written type may carry, shared by every head form above.
+func ParseDeclarationTypeSuffixSpanCore(tokens: ParserDeclarationTokenTable, count: int, pos: int, typeStart: int, typeEnd: int, result: ParserDeclarationResultTable): int {
+    scanPos := pos
+    scanEnd := typeEnd
     suffixDone := 0
-    while suffixDone == 0 && pos < count {
-        if pos + 1 < count && tokens.Kinds[pos] == 131 && tokens.Kinds[pos + 1] == 132 {
-            typeEnd = tokens.Starts[pos + 1] + tokens.ValueLengths[pos + 1]
-            pos = pos + 2
-        } else if pos + 1 < count && tokens.Kinds[pos] == 119 && tokens.Kinds[pos + 1] == 132 {
-            typeEnd = tokens.Starts[pos + 1] + tokens.ValueLengths[pos + 1]
-            pos = pos + 2
-        } else if tokens.Kinds[pos] == 115 {
-            typeEnd = tokens.Starts[pos] + tokens.ValueLengths[pos]
-            pos = pos + 1
+    while suffixDone == 0 && scanPos < count {
+        if scanPos + 1 < count && tokens.Kinds[scanPos] == 131 && tokens.Kinds[scanPos + 1] == 132 {
+            scanEnd = tokens.Starts[scanPos + 1] + tokens.ValueLengths[scanPos + 1]
+            scanPos = scanPos + 2
+        } else if scanPos + 1 < count && tokens.Kinds[scanPos] == 119 && tokens.Kinds[scanPos + 1] == 132 {
+            scanEnd = tokens.Starts[scanPos + 1] + tokens.ValueLengths[scanPos + 1]
+            scanPos = scanPos + 2
+        } else if tokens.Kinds[scanPos] == 115 {
+            scanEnd = tokens.Starts[scanPos] + tokens.ValueLengths[scanPos]
+            scanPos = scanPos + 1
         } else {
             suffixDone = 1
         }
     }
 
     result.Values[0] = typeStart
-    result.Values[1] = typeEnd - typeStart
-    return pos
+    result.Values[1] = scanEnd - typeStart
+    return scanPos
 }
 
 func ParseDeclarationSimpleInitializerEndCore(tokens: ParserDeclarationTokenTable, count: int, pos: int, typeResult: ParserDeclarationResultTable): int {

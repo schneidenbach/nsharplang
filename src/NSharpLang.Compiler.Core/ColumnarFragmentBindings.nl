@@ -53,6 +53,11 @@ class ColumnarFragmentBindings {
     SourceUnionDefinitions: IEnumerable<ColumnarUnionDef>
     // CLR ValueTuple erases element names; N# consumes the live per-binding name metadata.
     TupleNames: Dictionary<string, string[]>
+    // Each binding's type AS WRITTEN, tuple element labels included. `TupleNames` carries only the
+    // OUTERMOST names of a binding that is itself a named tuple; a receiver whose names sit one level
+    // down (`rows: List<(Item: string, Count: int)>`) has them only here, which is what an element
+    // read out of an INDEXER needs.
+    LabeledTypes: Dictionary<string, string>
     liftedNames: IEnumerable<string>
     boxedNames: IEnumerable<string>
     enclosingNames: IEnumerable<string>
@@ -85,6 +90,7 @@ class ColumnarFragmentBindings {
         OverflowCheckingEnabled = false
         SourceUnionDefinitions = new List<ColumnarUnionDef>()
         TupleNames = new Dictionary<string, string[]>(StringComparer.Ordinal)
+        LabeledTypes = new Dictionary<string, string>(StringComparer.Ordinal)
         this.liftedNames = liftedNames
         this.boxedNames = boxedNames
         this.enclosingNames = enclosingNames
@@ -157,7 +163,7 @@ class ColumnarFragmentBindings {
         return CreateTypeResolutionBindings(new Dictionary<string, ColumnarEnumDef>(StringComparer.Ordinal), new ColumnarStructDef[](0), new ColumnarUnionDef[](0), copiedTypeParameters)
     }
 
-    static func FromRawFacts(parameterOrdinals: Dictionary<string, int>, parameterTypes: Dictionary<string, Type>, locals: Dictionary<string, LocalBuilder>, enums: Dictionary<string, ColumnarEnumDef>, liftedLocals: Dictionary<string, (Box: LocalBuilder, ValueType: Type)>, boxedCaptures: Dictionary<string, (BoxField: FieldInfo, ValueType: Type)>?, currentInstance: ColumnarStructDef?, sourceTypeDefinitions: IEnumerable<ColumnarStructDef>, sourceUnionDefinitions: IEnumerable<ColumnarUnionDef>, tupleNames: Dictionary<string, string[]>, enclosingNames: IEnumerable<string>, declaredCallableNames: IEnumerable<string>, visibleLocalCallableNames: IEnumerable<string>, typeParameters: Dictionary<string, Type>, structuralTypeReferences: ColumnarStructuralTypeReferenceTable? = null): ColumnarFragmentBindings {
+    static func FromRawFacts(parameterOrdinals: Dictionary<string, int>, parameterTypes: Dictionary<string, Type>, locals: Dictionary<string, LocalBuilder>, enums: Dictionary<string, ColumnarEnumDef>, liftedLocals: Dictionary<string, (Box: LocalBuilder, ValueType: Type)>, boxedCaptures: Dictionary<string, (BoxField: FieldInfo, ValueType: Type)>?, currentInstance: ColumnarStructDef?, sourceTypeDefinitions: IEnumerable<ColumnarStructDef>, sourceUnionDefinitions: IEnumerable<ColumnarUnionDef>, tupleNames: Dictionary<string, string[]>, labeledTypes: Dictionary<string, string>, enclosingNames: IEnumerable<string>, declaredCallableNames: IEnumerable<string>, visibleLocalCallableNames: IEnumerable<string>, typeParameters: Dictionary<string, Type>, structuralTypeReferences: ColumnarStructuralTypeReferenceTable? = null): ColumnarFragmentBindings {
         emptyNames := new string[](0)
         result := new ColumnarFragmentBindings(parameterOrdinals, parameterTypes, locals, enums, emptyNames, emptyNames, enclosingNames, declaredCallableNames, visibleLocalCallableNames)
 
@@ -185,6 +191,9 @@ class ColumnarFragmentBindings {
         result.SourceTypeDefinitions = sourceTypeDefinitions
         result.SourceUnionDefinitions = sourceUnionDefinitions
         result.TupleNames = tupleNames
+        if labeledTypes != null {
+            result.LabeledTypes = labeledTypes
+        }
         if structuralTypeReferences != null {
             result.StructuralTypeReferences = structuralTypeReferences
         }

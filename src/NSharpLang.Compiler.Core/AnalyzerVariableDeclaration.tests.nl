@@ -1274,10 +1274,19 @@ test "a reflected NULLABLE ValueTuple is read through its underlying type" {
     assert VdKinds(steps) == "64545"
     assert BuiltInTypes.Is(steps[1].CarriedType, BuiltInTypes.Int)
 }
-test "a reflected NON-tuple value type is not deconstructable" {
+test "a reflected NON-tuple value type deconstructs only through its own Deconstruct method" {
+    // `DateTime` is not a tuple, and it declares `Deconstruct(out DateOnly, out TimeOnly)` — so C#
+    // deconstructs it into TWO targets, and so does this. The rule is the type's own declaration.
+    deconstructable := VdDefault()
+
+    VdRunTuple(deconstructable, VdTuple(VdNames2("a", "b"), VdName("pair")), VdReflectedType(typeof(DateTime)))
+
+    assert deconstructable.Errors.Count == 0
+
+    // A value type that declares no `Deconstruct` at all is still not deconstructable.
     harness := VdDefault()
 
-    VdRunTuple(harness, VdTuple(VdNames2("a", "b"), VdName("pair")), VdReflectedType(typeof(DateTime)))
+    VdRunTuple(harness, VdTuple(VdNames2("a", "b"), VdName("pair")), VdReflectedType(typeof(Guid)))
 
     assert harness.Errors.Count == 1
     assert harness.Errors[0].Code == ErrorCode.InvalidSyntax
@@ -1310,7 +1319,7 @@ test "a source that is not a tuple reports NL103 with the source's rendered type
     assert harness.Errors.Count == 1
     assert harness.Errors[0].Code == ErrorCode.InvalidSyntax
     assert harness.Errors[0].Message == "Tuple deconstruction needs a tuple value, but this initializer is 'int'"
-    assert harness.Errors[0].Suggestion == "Return or construct a tuple with the same number of elements as the deconstruction targets."
+    assert harness.Errors[0].Suggestion == "Return or construct a tuple with the same number of elements as the deconstruction targets, or give this type a 'Deconstruct' method with one 'out' parameter per target."
 }
 test "a count mismatch reports NL103 naming BOTH counts" {
     harness := VdDefault()

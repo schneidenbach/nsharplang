@@ -951,8 +951,20 @@ class FormatterWalk {
         tupleDeclaration := statement as TupleDeconstructionStatement
         if tupleDeclaration != null {
             state.Indent(builder)
-            builder.Append(string.Join(", ", tupleDeclaration.Names))
-            builder.Append(" := ")
+            if tupleDeclaration.HasParentheses {
+                builder.Append('(')
+                builder.Append(string.Join(", ", tupleDeclaration.Names))
+                builder.Append(')')
+            } else {
+                builder.Append(string.Join(", ", tupleDeclaration.Names))
+            }
+            // The operator is meaning, not style: `=` writes existing names and `:=` introduces new
+            // ones, so a formatter that normalised both to `:=` would change what the statement does.
+            if tupleDeclaration.IsAssignment {
+                builder.Append(" = ")
+            } else {
+                builder.Append(" := ")
+            }
             FormatExpression(tupleDeclaration.Initializer, builder)
             builder.AppendLine()
             return

@@ -1,6 +1,7 @@
 namespace NSharpLang.Compiler.Columnar
 
 import System
+import System.Collections.Generic
 import System.Reflection
 import System.Reflection.Emit
 
@@ -864,18 +865,40 @@ class ColumnarInstanceMemberPlanner {
         plan.AppendPlanLocalInstruction(ColumnarCodePlanContract.Ldloca(), localIndex)
     }
 
+    // A NAMED tuple element read through this planner, rewritten to the positional `ItemN` spelling the
+    // CLR actually has. The names come from the receiver's WRITTEN type, which is the only place they
+    // exist -- a `ValueTuple` erases them -- and two receiver shapes answer:
+    //
+    //   * a BINDING that is itself a named tuple, from its own element names; and
+    //   * an INDEX READ, whose element names sit one level inside the indexed binding's written type
+    //     (`rows: List<(Item: string, Count: int)>`), taken through the same labelled canonical the IL
+    //     emitter walks.
+    //
+    // The second shape matters because THIS planner claims the member access before the emitter's own
+    // arm sees it: without the rewrite here, `rows[0].Item` was claimed, failed to select a member and
+    // declined the whole expression, so `ItemN` was the only spelling that compiled.
     static func RewriteTupleMemberName(nodes: ColumnarNodeTable, source: string, receiver: int, memberName: string, bindings: ColumnarFragmentBindings): string {
         candidate := UnwrapParentheses(nodes, receiver)
-        if candidate < 0 || nodes.Kind(candidate) != ColumnarExpressionNodeKind.IdentifierExpression() || nodes.ChildCount(candidate) != 0 {
+        if candidate < 0 {
             return memberName
         }
 
-        receiverName := nodes.Text(source, candidate)
-        if !bindings.TupleNames.ContainsKey(receiverName) {
+        names: string[]? = null
+        if nodes.Kind(candidate) == ColumnarExpressionNodeKind.IdentifierExpression() && nodes.ChildCount(candidate) == 0 {
+            receiverName := nodes.Text(source, candidate)
+            if !bindings.TupleNames.ContainsKey(receiverName) {
+                return memberName
+            }
+
+            names = bindings.TupleNames[receiverName]
+        } else {
+            names = IndexedElementNames(nodes, source, candidate, bindings)
+        }
+
+        if names == null {
             return memberName
         }
 
-        names := bindings.TupleNames[receiverName]
         i := 0
         while i < names.Length {
             if String.Equals(names[i], memberName, StringComparison.Ordinal) {
@@ -886,6 +909,75 @@ class ColumnarInstanceMemberPlanner {
         }
 
         return memberName
+    }
+
+    // The element names an INDEX READ answers, taken from the indexed binding's written type. WHICH
+    // type argument the indexer answers comes from the receiver's own generic DEFINITION, so there is
+    // no table of collection names; an array answers its element type.
+    static func IndexedElementNames(nodes: ColumnarNodeTable, source: string, indexNode: int, bindings: ColumnarFragmentBindings): string[]? {
+        if nodes.Kind(indexNode) != ColumnarExpressionNodeKind.IndexAccessExpression() || nodes.ChildCount(indexNode) < 1 {
+            return null
+        }
+
+        indexedBinding := UnwrapParentheses(nodes, nodes.Child(indexNode, 0))
+        if indexedBinding < 0 || nodes.Kind(indexedBinding) != ColumnarExpressionNodeKind.IdentifierExpression() {
+            return null
+        }
+
+        bindingName := nodes.Text(source, indexedBinding)
+        if !bindings.LabeledTypes.ContainsKey(bindingName) {
+            return null
+        }
+
+        labeled := bindings.LabeledTypes[bindingName]
+        bindingType := typeof(int)
+        _indexedDirect := false
+        _indexedByRef := false
+        if !ColumnarBoundIdentifierPlanner.TryGetReceiverType(nodes, source, indexedBinding, bindings, out bindingType, out _indexedDirect, out _indexedByRef) {
+            return null
+        }
+
+        if ColumnarTypeEquivalenceFacts.IsSafeSzArrayType(bindingType) {
+            return ColumnarTupleElementNames.TopLevelNames(ColumnarTupleElementNames.ArrayElementText(labeled))
+        }
+
+        if !bindingType.get_IsGenericType() {
+            return null
+        }
+
+        position := IndexerResultArgumentPosition(bindingType.GetGenericTypeDefinition())
+        if position < 0 {
+            return null
+        }
+
+        arguments := ColumnarTupleElementNames.TopLevelGenericArguments(labeled)
+        if arguments == null || position >= arguments.Count {
+            return null
+        }
+
+        return ColumnarTupleElementNames.TopLevelNames(arguments[position])
+    }
+
+    // Which of a generic type DEFINITION's type-argument positions its indexer answers, or -1.
+    static func IndexerResultArgumentPosition(definition: Type): int {
+        parameters := definition.GetGenericArguments()
+        for property in definition.GetProperties(BindingFlags.Public | BindingFlags.Instance) {
+            if property.GetIndexParameters().Length == 0 {
+                continue
+            }
+
+            resultType := property.get_PropertyType()
+            if !resultType.get_IsGenericParameter() || resultType.get_DeclaringMethod() != null {
+                continue
+            }
+
+            position := resultType.get_GenericParameterPosition()
+            if position >= 0 && position < parameters.Length {
+                return position
+            }
+        }
+
+        return -1
     }
 
     static func SubstituteTypeArguments(signatureType: Type, arguments: Type[]): Type {

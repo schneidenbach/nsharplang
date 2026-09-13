@@ -662,6 +662,24 @@ class AnalyzerDeclarationContext {
             }
             index = index + 1
         }
+
+        // `Rest` IS A MEMBER OF A LONG TUPLE, because `ValueTuple`8`'s eighth field is spelled that
+        // way and C# lets a caller read it. The elements are held FLAT here -- a ten-element tuple is
+        // ten elements, not seven plus a nested one -- so the rest tuple is rebuilt from the elements
+        // past the seventh, which is the same nesting the CLR signature has.
+        if name == "Rest" && tupleType.Elements.Count > 7 {
+            rest := new List<TupleTypeElementInfo>()
+            restIndex := 7
+            while restIndex < tupleType.Elements.Count {
+                rest.Add(tupleType.Elements[restIndex])
+                restIndex = restIndex + 1
+            }
+
+            restTuple: TypeInfo = new TupleTypeInfo(rest)
+            memberType = restTuple
+            return true
+        }
+
         memberType = BuiltInTypes.Unknown
         return false
     }
@@ -1009,6 +1027,11 @@ class AnalyzerDeclarationContext {
         genericDefinition: TypeInfo? = null
         if !BuiltInTypes.IsUnknown(definition) {
             genericDefinition = definition
+        }
+        // A HAND-WRITTEN `ValueTuple<...>` IS THE TUPLE IT SPELLS. See `ValueTupleTypeFacts`.
+        normalizedTuple: TypeInfo = BuiltInTypes.Unknown
+        if ValueTupleTypeFacts.TryNormalizeConstructed(genericDefinition, arguments, out normalizedTuple) {
+            return normalizedTuple
         }
         return new GenericTypeInfo(generic.Name, arguments, genericDefinition)
     }

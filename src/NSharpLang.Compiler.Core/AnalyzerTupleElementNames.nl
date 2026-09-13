@@ -120,6 +120,189 @@ class AnalyzerTupleElementNames {
         return Apply(typeInfo, names)
     }
 
+    // NAMES TRAVEL WITH THE POSITION A VALUE WAS READ OUT OF, AND A MEMBER RESOLVED THROUGH REFLECTION
+    // LOSES THEM.
+    //
+    // `Dictionary<string, (Item: string, Ranges: List<int>)>.Values` answers
+    // `Dictionary<K, V>.ValueCollection` with `K` and `V` substituted, and the substitution runs over
+    // the CLOSED CLR type -- which has no element names in it at all, because a named tuple has no CLR
+    // identity. So `groups.Values` typed as `ValueCollection<string, (string, List<int>)>` and every
+    // read off it reported NL303 "Member 'Ranges' not found", even though the dictionary's own
+    // declaration is the position that named those elements.
+    //
+    // THE RULE IS THE ONE C# APPLIES, STATED AS A TYPE OPERATION: a value taken out of a receiver
+    // keeps the annotation the receiver's WRITTEN type gave that position. So an UNNAMED tuple in the
+    // member's type takes the names of the receiver's own tuple when the receiver's written type
+    // mentions exactly ONE tuple of that shape. Names are the only thing that changes -- the type is
+    // identical either way, because `TypeInfoIdentityFacts.AreEqual` ignores element names.
+    //
+    // THE MATCH MUST BE UNIQUE. A receiver that mentions the same tuple shape twice with different
+    // names (`Dictionary<(A: int, B: int), (C: int, D: int)>`) cannot say which position a value came
+    // from, so it says nothing and the member's type stays unnamed -- the answer it had before.
+    static func GraftFromReceiver(memberType: TypeInfo, receiverType: TypeInfo): TypeInfo {
+        if memberType == null || receiverType == null {
+            return memberType
+        }
+
+        named := new List<TupleTypeInfo>()
+        CollectNamedTuples(receiverType, named)
+        if named.Count == 0 {
+            return memberType
+        }
+
+        return GraftInto(memberType, named)
+    }
+
+    static func CollectNamedTuples(typeInfo: TypeInfo, collected: List<TupleTypeInfo>) {
+        if typeInfo == null {
+            return
+        }
+
+        oblivious := typeInfo as ObliviousTypeInfo
+        if oblivious != null {
+            CollectNamedTuples(oblivious.InnerType, collected)
+            return
+        }
+
+        nullable := typeInfo as NullableTypeInfo
+        if nullable != null {
+            CollectNamedTuples(nullable.InnerType, collected)
+            return
+        }
+
+        array := typeInfo as ArrayTypeInfo
+        if array != null {
+            CollectNamedTuples(array.ElementType, collected)
+            return
+        }
+
+        tuple := typeInfo as TupleTypeInfo
+        if tuple != null {
+            if HasDeclaredName(tuple) {
+                collected.Add(tuple)
+            }
+
+            elementIndex := 0
+            while elementIndex < tuple.Elements.Count {
+                CollectNamedTuples(tuple.Elements[elementIndex].Type, collected)
+                elementIndex = elementIndex + 1
+            }
+
+            return
+        }
+
+        generic := typeInfo as GenericTypeInfo
+        if generic != null {
+            argumentIndex := 0
+            while argumentIndex < generic.TypeArguments.Count {
+                CollectNamedTuples(generic.TypeArguments[argumentIndex], collected)
+                argumentIndex = argumentIndex + 1
+            }
+        }
+    }
+
+    static func HasDeclaredName(tuple: TupleTypeInfo): bool {
+        index := 0
+        while index < tuple.Elements.Count {
+            elementName := tuple.Elements[index].Name
+            if elementName != null && elementName.Length > 0 {
+                return true
+            }
+
+            index = index + 1
+        }
+
+        return false
+    }
+
+    static func GraftInto(typeInfo: TypeInfo, named: List<TupleTypeInfo>): TypeInfo {
+        oblivious := typeInfo as ObliviousTypeInfo
+        if oblivious != null {
+            graftedOblivious: TypeInfo = new ObliviousTypeInfo(GraftInto(oblivious.InnerType, named))
+            return graftedOblivious
+        }
+
+        nullable := typeInfo as NullableTypeInfo
+        if nullable != null {
+            grafted: TypeInfo = new NullableTypeInfo(GraftInto(nullable.InnerType, named))
+            return grafted
+        }
+
+        array := typeInfo as ArrayTypeInfo
+        if array != null {
+            graftedArray: TypeInfo = new ArrayTypeInfo(GraftInto(array.ElementType, named))
+            return graftedArray
+        }
+
+        tuple := typeInfo as TupleTypeInfo
+        if tuple != null {
+            if !HasDeclaredName(tuple) {
+                matched: TupleTypeInfo = null
+                if TryUniqueNamedMatch(tuple, named, out matched) {
+                    replacement: TypeInfo = matched
+                    return replacement
+                }
+            }
+
+            elements := new List<TupleTypeElementInfo>()
+            elementIndex := 0
+            while elementIndex < tuple.Elements.Count {
+                element := tuple.Elements[elementIndex]
+                elements.Add(new TupleTypeElementInfo(element.Name, GraftInto(element.Type, named)))
+                elementIndex = elementIndex + 1
+            }
+
+            graftedTuple: TypeInfo = new TupleTypeInfo(elements)
+            return graftedTuple
+        }
+
+        generic := typeInfo as GenericTypeInfo
+        if generic != null {
+            arguments := new List<TypeInfo>()
+            argumentIndex := 0
+            while argumentIndex < generic.TypeArguments.Count {
+                arguments.Add(GraftInto(generic.TypeArguments[argumentIndex], named))
+                argumentIndex = argumentIndex + 1
+            }
+
+            graftedGeneric: TypeInfo = new GenericTypeInfo(generic.Name, arguments, generic.GenericDefinition)
+            return graftedGeneric
+        }
+
+        // A METHOD GROUP read off the receiver is a member too, and what a caller reads back is its
+        // RETURN type, so the graft has to reach through the signature as well as into it.
+        functionType := typeInfo as FunctionTypeInfo
+        if functionType != null && functionType.ReturnType != null {
+            graftedReturn := GraftInto(functionType.ReturnType, named)
+            functionType.ReturnType = graftedReturn
+            return functionType
+        }
+
+        return typeInfo
+    }
+
+    static func TryUniqueNamedMatch(tuple: TupleTypeInfo, named: List<TupleTypeInfo>, out matched: TupleTypeInfo): bool {
+        matched = null
+        found := 0
+        index := 0
+        while index < named.Count {
+            candidate := named[index]
+            if TypeInfoIdentityFacts.AreEqual(candidate, tuple) {
+                found = found + 1
+                matched = candidate
+            }
+
+            index = index + 1
+        }
+
+        if found != 1 {
+            matched = null
+            return false
+        }
+
+        return true
+    }
+
     static func Rewrite(typeInfo: TypeInfo, names: string?[], cursor: int[]): TypeInfo {
         nullable := typeInfo as NullableTypeInfo
         if nullable != null {
