@@ -10630,6 +10630,13 @@ sealed class ColumnarIlEmitter {
                 columnarResolvedType = typeof(bool)
                 return true
             }
+            // LIFTED EQUALITY, which is the only operator family `Nullable<T>` lifts here. Two ABSENT
+            // values are equal, an absent one differs from every present one, and the answer is a
+            // plain `bool` — so the comparison is always decided and never itself lifted.
+            if ((op == "==" || op == "!=") && TryEmitLiftedNullableEquality(idx, op, out columnarResolvedType)) {
+                return true
+            }
+
             if (op == "??") {
                 // `a ?? b` — REFERENCE left: `<a>; dup; brtrue end; pop; <b>; end:`. NULLABLE<T>
                 // left (N2): `tmp = a; tmp.HasValue ? tmp.GetValueOrDefault() : <b as T>` — both the
@@ -12856,6 +12863,28 @@ sealed class ColumnarIlEmitter {
             if (_nodes.ChildCount(idx) != 3) {
                 return false
             }
+
+            // A `null` ARM HAS NO TYPE OF ITS OWN and takes the OTHER arm's. `flag ? name : null` is
+            // the shape a converter writes for every maybe-absent result, and emitting the literal
+            // through the ordinary walk answered "unsupported expression" because a bare `null` has no
+            // self-type to unify with. The arm the literal is NOT on decides, and it has to be a
+            // REFERENCE type — `ldnull` is not a value of any other.
+            ternaryThenNode := Child(idx, 1)
+            ternaryElseNode := Child(idx, 2)
+            ternaryThenIsNull := _nodes.Kind(ternaryThenNode) == 5
+            ternaryElseIsNull := _nodes.Kind(ternaryElseNode) == 5
+            if (ternaryThenIsNull && ternaryElseIsNull) {
+                return false
+            }
+            let ternaryNullArmType: System.Type? = null
+            if (ternaryThenIsNull) {
+                // The literal is emitted FIRST, so the other arm's type has to be known before the
+                // branch is written at all.
+                if (!TryGetPreflightExpressionType(ternaryElseNode, out ternaryNullArmType) || ternaryNullArmType == null || ternaryNullArmType.get_IsValueType()) {
+                    return false
+                }
+            }
+
             if (!EmitCondition(Child(idx, 0))) {
                 return false
             }
@@ -12863,13 +12892,27 @@ sealed class ColumnarIlEmitter {
             ternaryEnd := _il.DefineLabel()
             _il.Emit(OpCodes.Brfalse, ternaryElse)
             let ternaryThenType: System.Type? = null
-            if (!EmitExpression(Child(idx, 1), out ternaryThenType)) {
-                return false
+            if (ternaryThenIsNull) {
+                _il.Emit(OpCodes.Ldnull)
+                ternaryThenType = ternaryNullArmType
+            } else {
+                if (!EmitExpression(ternaryThenNode, out ternaryThenType)) {
+                    return false
+                }
             }
             _il.Emit(OpCodes.Br, ternaryEnd)
             _il.MarkLabel(ternaryElse)
+            if (ternaryElseIsNull) {
+                if (ternaryThenType == null || ternaryThenType.get_IsValueType()) {
+                    return false
+                }
+                _il.Emit(OpCodes.Ldnull)
+                _il.MarkLabel(ternaryEnd)
+                columnarResolvedType = ternaryThenType
+                return true
+            }
             let ternaryElseType: System.Type? = null
-            if (!EmitExpression(Child(idx, 2), out ternaryElseType) || !TypesEquivalent(ternaryThenType, ternaryElseType)) {
+            if (!EmitExpression(ternaryElseNode, out ternaryElseType) || !TypesEquivalent(ternaryThenType, ternaryElseType)) {
                 return false
             }
             _il.MarkLabel(ternaryEnd)
@@ -16790,6 +16833,168 @@ sealed class ColumnarIlEmitter {
         return true
     }
 
+    // THE TYPE A `?.` CHAIN PRODUCES, with the lift the emitter's own chain wrapper applies: a
+    // REFERENCE result keeps its type, and a VALUE result becomes `Nullable<T>` because the chain can
+    // produce no value at all. The unlifted question is asked with the root marked, which is the same
+    // re-entry guard `EmitExpressionRaw` uses so the walk does not meet its own root again.
+    private func TryGetPreflightNullConditionalChainType(root: int, out columnarResolvedType: Type): bool {
+        columnarResolvedType = null
+        previousRoot := _nullConditionalRoot
+        _nullConditionalRoot = root
+        let innerType: System.Type? = null
+        let resolved: bool = false
+        try {
+            resolved = TryGetPreflightExpressionType(root, out innerType)
+        } finally {
+            _nullConditionalRoot = previousRoot
+        }
+        if (!resolved || innerType == null) {
+            return false
+        }
+        if (innerType.get_IsGenericParameter() || innerType.get_IsByRef() || innerType.get_IsPointer() || ColumnarCodePlanExecutor.IsVoidType(innerType)) {
+            return false
+        }
+        if (!innerType.get_IsValueType() || ColumnarTypeOfPlanner.IsSupportedNullable(innerType)) {
+            columnarResolvedType = innerType
+            return true
+        }
+        columnarResolvedType = typeof(Nullable<int>).GetGenericTypeDefinition().MakeGenericType([innerType])
+        return true
+    }
+
+    // `x == y` WHERE EITHER SIDE IS A `Nullable<T>` — C# §12.12.7's lifted equality, written as the
+    // two questions it actually asks:
+    //
+    //   both lifted: `a.GetValueOrDefault() == b.GetValueOrDefault() & a.HasValue == b.HasValue`
+    //   one lifted:  `a.GetValueOrDefault() == <b> & a.HasValue`
+    //
+    // and `!=` is each of those negated. A bitwise `and` rather than a branch, because by the time
+    // the second question is asked both operands are already in locals and neither can throw.
+    //
+    // THE LIFTED OPERAND IS STORED BEFORE ITS VALUE IS READ, and that is what preserves evaluation
+    // ORDER: a left operand is evaluated into its local first and the right one is emitted after it,
+    // exactly as the source reads. The `HasValue` half re-reads the locals and evaluates nothing.
+    //
+    // THE ELEMENT MUST BE ONE `ceq` ANSWERS FOR. The integral, floating, `char`, `bool` and enum
+    // elements are compared by the instruction itself; anything else (a `decimal?`, a user struct)
+    // would need its own `op_Equality` and is declined here rather than compared wrongly.
+    private func TryEmitLiftedNullableEquality(idx: int, op: string, out resolvedClrType: Type): bool {
+        resolvedClrType = null
+        if (op != "==" && op != "!=") {
+            return false
+        }
+
+        leftNode := Child(idx, 0)
+        rightNode := Child(idx, 1)
+        leftType: System.Type? = null
+        rightType: System.Type? = null
+        leftKnown := TryGetPreflightExpressionType(leftNode, out leftType) && leftType != null
+        rightKnown := TryGetPreflightExpressionType(rightNode, out rightType) && rightType != null
+
+        // WHICH SIDES MIGHT BE LIFTED. A preflight that ANSWERED a `Nullable<T>` says so outright; a
+        // `?.` chain the preflight could not answer for MIGHT be, and the other operand decides
+        // whether that is worth committing to — a chain compared against a `ceq` element is either a
+        // lift of that element or a program the analyzer already refused, so the shape is known even
+        // when the type is not. Both sides unanswered is not enough to proceed.
+        leftLifted := leftKnown && ColumnarTypeOfPlanner.IsSupportedNullable(leftType)
+        rightLifted := rightKnown && ColumnarTypeOfPlanner.IsSupportedNullable(rightType)
+        leftMaybeLifted := leftLifted || (!leftKnown && IsNullConditionalChainRoot(UnwrapParenthesizedNode(leftNode)))
+        rightMaybeLifted := rightLifted || (!rightKnown && IsNullConditionalChainRoot(UnwrapParenthesizedNode(rightNode)))
+        if (!leftMaybeLifted && !rightMaybeLifted) {
+            return false
+        }
+
+        if (leftKnown && !IsLiftedEqualityOperandType(leftType)) {
+            return false
+        }
+        if (rightKnown && !IsLiftedEqualityOperandType(rightType)) {
+            return false
+        }
+        if (!leftKnown && !rightKnown) {
+            return false
+        }
+
+        leftLocal: LocalBuilder? = null
+        rightLocal: LocalBuilder? = null
+
+        emittedLeft: System.Type? = null
+        if (!EmitExpressionPreservingNullable(leftNode, out emittedLeft) || emittedLeft == null) {
+            return false
+        }
+        leftElement := emittedLeft
+        if (ColumnarTypeOfPlanner.IsSupportedNullable(emittedLeft)) {
+            leftElement = emittedLeft.GetGenericArguments()[0]
+            leftLocal = _il.DeclareLocal(emittedLeft)
+            _il.Emit(OpCodes.Stloc, leftLocal)
+            _il.Emit(OpCodes.Ldloca, leftLocal)
+            _il.Emit(OpCodes.Call, ResolveNullableMethod(emittedLeft, "GetValueOrDefault", []))
+        }
+        if (!IsLiftedEqualityElement(leftElement)) {
+            return false
+        }
+
+        emittedRight: System.Type? = null
+        if (!EmitExpressionPreservingNullable(rightNode, out emittedRight) || emittedRight == null) {
+            return false
+        }
+        rightElement := emittedRight
+        if (ColumnarTypeOfPlanner.IsSupportedNullable(emittedRight)) {
+            rightElement = emittedRight.GetGenericArguments()[0]
+            rightLocal = _il.DeclareLocal(emittedRight)
+            _il.Emit(OpCodes.Stloc, rightLocal)
+            _il.Emit(OpCodes.Ldloca, rightLocal)
+            _il.Emit(OpCodes.Call, ResolveNullableMethod(emittedRight, "GetValueOrDefault", []))
+        }
+        if (!TypesEquivalent(leftElement, rightElement)) {
+            return false
+        }
+
+        _il.Emit(OpCodes.Ceq)
+
+        if (leftLocal != null) {
+            _il.Emit(OpCodes.Ldloca, leftLocal)
+            _il.Emit(OpCodes.Call, ResolveNullableGetter(emittedLeft, "HasValue"))
+        }
+        if (rightLocal != null) {
+            _il.Emit(OpCodes.Ldloca, rightLocal)
+            _il.Emit(OpCodes.Call, ResolveNullableGetter(emittedRight, "HasValue"))
+        }
+        if (leftLocal != null && rightLocal != null) {
+            _il.Emit(OpCodes.Ceq)
+        }
+        if (leftLocal != null || rightLocal != null) {
+            _il.Emit(OpCodes.And)
+        }
+
+        if (op == "!=") {
+            _il.Emit(OpCodes.Ldc_I4_0)
+            _il.Emit(OpCodes.Ceq)
+        }
+
+        resolvedClrType = typeof(bool)
+        return true
+    }
+
+    // An operand this lowering can carry: a `ceq` element, or a `Nullable<T>` over one.
+    private static func IsLiftedEqualityOperandType(operandType: Type): bool {
+        if (ColumnarTypeOfPlanner.IsSupportedNullable(operandType)) {
+            return IsLiftedEqualityElement(operandType.GetGenericArguments()[0])
+        }
+        return IsLiftedEqualityElement(operandType)
+    }
+
+    // The elements `ceq` compares directly: the integral family, `char`, `bool`, the two floating
+    // types and any enum, which the CLR carries as its underlying integral type.
+    private static func IsLiftedEqualityElement(elementType: Type): bool {
+        if (ColumnarNumericFacts.IsIntPromotable(elementType) || elementType == typeof(bool)) {
+            return true
+        }
+        if (elementType == typeof(long) || elementType == typeof(ulong) || elementType == typeof(uint) || elementType == typeof(float) || elementType == typeof(double)) {
+            return true
+        }
+        return ColumnarTypeOfPlanner.IsEnumType(elementType)
+    }
+
     private func TryEmitMixedNumericBinary(idx: int, op: string, out resolvedClrType: Type): bool {
         resolvedClrType = null
         if (op != "+" && op != "-" && op != "*" && op != "/" && op != "%" && op != "<" && op != ">" && op != "<=" && op != ">=" && op != "==" && op != "!=") {
@@ -18469,6 +18674,14 @@ sealed class ColumnarIlEmitter {
     private func TryGetPreflightExpressionType(node: int, out columnarResolvedType: Type): bool {
         node = UnwrapParenthesizedNode(node)
         columnarResolvedType = null
+        // A `?.` CHAIN'S TYPE IS DECIDED AT ITS ROOT, exactly as its VALUE is: the resolvers below
+        // answer for the access itself, and the chain lifts what they answered. Without this arm a
+        // preflight of `map?.TryGetValue(k, out v)` answered nothing at all — the guard node in the
+        // receiver spine has no resolver of its own — so every caller that asks what an operand
+        // produces had to decline the whole expression.
+        if (node != _nullConditionalRoot && IsNullConditionalChainRoot(node)) {
+            return TryGetPreflightNullConditionalChainType(node, out columnarResolvedType)
+        }
         if (ColumnarBooleanLiteralPlanner.TryGetType(_nodes, _source, node, _codePlan, out columnarResolvedType)) {
             return true
         }
@@ -18548,6 +18761,22 @@ sealed class ColumnarIlEmitter {
                 return true
             }
             return false
+        } else if columnarSwitchValue11 == 75 {
+            // THE GUARD IS TRANSPARENT TO THE TYPE. `?.` tests its receiver and hands the access the
+            // SAME value; a `Nullable<T>` receiver hands over its `T`, which is what makes
+            // `when?.Year` read `Year` off a `DateTime?`. The LIFT belongs to the chain's root.
+            if (_nodes.ChildCount(node) != 1) {
+                return false
+            }
+            let guardedReceiverType: System.Type? = null
+            if (!TryGetPreflightExpressionType(Child(node, 0), out guardedReceiverType) || guardedReceiverType == null) {
+                return false
+            }
+            if (ColumnarTypeOfPlanner.IsSupportedNullable(guardedReceiverType)) {
+                guardedReceiverType = guardedReceiverType.GetGenericArguments()[0]
+            }
+            columnarResolvedType = guardedReceiverType
+            return true
         } else if columnarSwitchValue11 == 8 {
             return TryGetPreflightMemberAccessType(node, out columnarResolvedType)
         } else if columnarSwitchValue11 == 11 {
