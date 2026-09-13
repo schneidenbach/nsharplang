@@ -265,3 +265,28 @@ The A2 stream's three slices (abstract/virtual/override, generic-over-type-param
 exception property reads including the `ArgumentException::get_Message` override contract) are one
 squashed commit whose message names only the first; this paragraph is the record for the other two.
 
+
+## Converter-driven census slices (2026-09-12)
+
+The conversion is now driven by a deterministic C#→N# transducer kept OUTSIDE the product repo
+(`/Users/spencer/repos/nsharp-cs2nl`, Roslyn-based; `convert` writes a 1:1 N# translation with
+`// CONVERT:` stubs where no N# spelling exists yet, `census` tallies those stubs per construct across
+LanguageServer, Cli, Wasm and the C# tests; `CENSUS.md` there is the ranked gap list). The census
+ranks compiler gaps by how much converted code they block; each slice fixes ONE rule in the N#
+compiler with native contracts, and the converted projects are re-run through `nlc check` to
+measure. Slices landed with this record (`census/merge` onto systems-language `a0bd6fd1e`):
+
+| Slice | What blocked the conversion | Rule now | Evidence |
+|---|---|---|---|
+| `nlc check` non-termination | a 27-link `.WithHandler<T>()` chain in the converted LanguageServer `Program.nl`: every receiver read re-walked the chain, 2^N | a call walks its member-access receiver ONCE; later reads re-run only the expression tail at their own position (step kind 16); one report per fault in `check` and `build` | `AnalyzerCallAnalysis.tests.nl` receiver-walk counts; `analyzer-semantic-model` lambda scope census 15→7 / 7→5 |
+| try/finally return | `return` inside `try` with `finally` read as falling through | C# rule: a protected region's return completes the function; regions nest | `tests/native/census-flow-rules/TryFinallyReturn` |
+| break/continue narrowing | `if x == null { continue }` did not narrow `x` afterwards | jumps narrow the way `return` does | `census-flow-rules/JumpNarrowing` |
+| external signature identity | `Nullable<T>` / array annotations and omitted defaulted arguments on cross-assembly members failed to bind | one reflected-type identity rule for both; constructor defaults filled like methods | `census-flow-rules/ExternalSignatures` |
+| reference stores and casts | `object[]` element stores and array-literal explicit casts declined at emit | the conversion the analyzer proved is emitted; downcast arms stay ahead of the upcast funnel | `census-flow-rules/ReferenceStoresAndCasts` |
+
+Corpus pin 94. Remaining ranked gaps (from `CENSUS.md`): non-literal field initializers, generators
+(`yield`), source-declared attributes, struct-enumerator `foreach`, lambda result inference for
+method type parameters, a deep-nesting parser crash, `nlc build` dropping the NL103 decline site,
+NL010 false positives, generic methods on a call result, `IEnumerable<T>` on source classes. The
+order of work is: close gaps until the mechanical conversion of LanguageServer, Cli and Wasm checks
+clean, land those conversions 1:1, then rewrite them into idiomatic N# with the C# owner deleted.
