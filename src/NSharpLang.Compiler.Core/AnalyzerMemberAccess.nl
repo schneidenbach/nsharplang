@@ -865,9 +865,13 @@ class AnalyzerMemberAccess {
             return
         }
 
-        accessingType := TryGetAccessingType()
+        accessingType := TryGetAccessingType(objectType)
         declaringOwner := selection.Owner
-        isDeclaringType := IsSameDeclaredType(accessingType, declaringOwner)
+
+        // THE AMBIENT NAME IS THE LAST WORD ON "am I inside the declaring type". It is what every
+        // member declaration in this walk was recorded under, so it answers even where the registry
+        // hands back a different instance of the same declaration.
+        isDeclaringType := IsSameDeclaredType(accessingType, declaringOwner) || AmbientTypeNameMatches(declaringOwner)
         derives := IsSameOrDerivedFrom(accessingType, declaringOwner)
         receiverCompatible := member.Object as BaseExpression != null || IsStaticMemberAccessTarget(member.Object) || IsSameOrDerivedFrom(objectType, accessingType)
 
@@ -904,22 +908,59 @@ class AnalyzerMemberAccess {
     // analysed. A free function, a top-level statement and a lambda outside every type all answer
     // nothing, which the relation reads as "not the declaring type and not derived from it".
     func TryGetAccessingType(): TypeInfo? {
+        return TryGetAccessingType(null)
+    }
+
+    // The RECEIVER'S OWN CHAIN IS THE SECOND PLACE TO LOOK, and for a generic type it is the only one
+    // that answers: the declaration registry is keyed by written name and a generic declaration does
+    // not always come back out of it as the same shape the walk is standing inside. When the access is
+    // written in a type that IS on the receiver's chain — which is every `this.`/derived access, the
+    // only shape the protected rule can admit — the chain names it exactly.
+    func TryGetAccessingType(receiverType: TypeInfo?): TypeInfo? {
         typeName := ambientValue.CurrentTypeName
         if typeName == null || typeName.Length == 0 {
             return null
         }
 
         currentFile := diagnosticsValue.CurrentFilePath
-        if currentFile == null || currentFile.Length == 0 {
-            return null
+        if currentFile != null && currentFile.Length > 0 {
+            resolved := BuiltInTypes.Unknown as TypeInfo
+            if declarationContextValue.TryGetCanonicalType(currentFile, typeName, out resolved) && !BuiltInTypes.IsUnknown(resolved) {
+                return resolved
+            }
         }
 
-        resolved := BuiltInTypes.Unknown as TypeInfo
-        if declarationContextValue.TryGetCanonicalType(currentFile, typeName, out resolved) && !BuiltInTypes.IsUnknown(resolved) {
-            return resolved
+        return TryFindNamedTypeInChain(receiverType, typeName)
+    }
+
+    func TryFindNamedTypeInChain(start: TypeInfo?, typeName: string): TypeInfo? {
+        visited := new HashSet<object>()
+        current: TypeInfo? = start
+        while current != null {
+            declaration := DeclarationOf(current)
+            if DeclaredSimpleName(declaration) == typeName {
+                return declaration
+            }
+
+            if !visited.Add(declaration) {
+                return null
+            }
+
+            shape := new AnalyzerSourceMemberShape()
+            if !declarationContextValue.TryGetSourceMemberShape(declaration, null, out shape) {
+                return null
+            }
+
+            current = shape.BaseType
         }
 
         return null
+    }
+
+    func AmbientTypeNameMatches(owner: TypeInfo?): bool {
+        ownerName := DeclaredSimpleName(owner)
+        currentName := ambientValue.CurrentTypeName
+        return ownerName != null && currentName != null && ownerName == currentName
     }
 
     func AccessingTypeDisplayName(): string? {
@@ -940,6 +981,12 @@ class AnalyzerMemberAccess {
     // WHETHER TWO TYPE SHAPES ARE THE SAME SOURCE DECLARATION. A closed generic is the same
     // declaration as its own definition — `Box<int>` and `Box<T>` share every member declaration —
     // so both sides are reduced to their definition before being compared.
+    //
+    // THE NAME IS A SECOND CHANCE AND NOT A SHORTCUT. A generic type's `this` receiver and the same
+    // type read back out of the declaration registry are not always the same INSTANCE, and a refusal
+    // built on that difference would report `this.privateField` inside `Box<T>`'s own constructor —
+    // which is what it did. A name match can only ever ADMIT an access, never refuse one, so the
+    // worst a collision costs is a diagnostic this rule declines to raise.
     func IsSameDeclaredType(candidate: TypeInfo?, other: TypeInfo?): bool {
         if candidate == null || other == null {
             return false
@@ -947,7 +994,47 @@ class AnalyzerMemberAccess {
 
         left := DeclarationOf(candidate)
         right := DeclarationOf(other)
-        return left == right
+        if left == right {
+            return true
+        }
+
+        leftName := DeclaredSimpleName(left)
+        rightName := DeclaredSimpleName(right)
+        return leftName != null && rightName != null && leftName == rightName
+    }
+
+    // The written name of a source type declaration, or nothing for a shape that is not one.
+    func DeclaredSimpleName(typeInfo: TypeInfo?): string? {
+        if typeInfo == null {
+            return null
+        }
+
+        classType := typeInfo as ClassTypeInfo
+        if classType != null {
+            return classType.Name
+        }
+
+        structType := typeInfo as StructTypeInfo
+        if structType != null {
+            return structType.Name
+        }
+
+        recordType := typeInfo as RecordTypeInfo
+        if recordType != null {
+            return recordType.Name
+        }
+
+        interfaceType := typeInfo as InterfaceTypeInfo
+        if interfaceType != null {
+            return interfaceType.Name
+        }
+
+        generic := typeInfo as GenericTypeInfo
+        if generic != null {
+            return generic.Name
+        }
+
+        return null
     }
 
     func DeclarationOf(typeInfo: TypeInfo): TypeInfo {
@@ -983,7 +1070,7 @@ class AnalyzerMemberAccess {
         current: TypeInfo? = candidate
         while current != null {
             declaration := DeclarationOf(current)
-            if declaration == target {
+            if IsSameDeclaredType(declaration, target) {
                 return true
             }
 
