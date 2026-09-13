@@ -698,15 +698,6 @@ class ColumnarContextualExtensionInference {
         return implemented == openDefinition
     }
 
-    // A base type a builder-bound instantiation may refuse to report at all.
-    static func BaseTypeOrNull(candidate: Type): Type? {
-        try {
-            return candidate.get_BaseType()
-        } catch {
-            return null
-        }
-    }
-
     // Structural unification of ONE declared slot against one actual type. A slot with nothing open
     // in it carries no inference; a naked type parameter binds its position once and must agree with
     // itself afterwards; an array unifies its element; a constructed shape must name the SAME
