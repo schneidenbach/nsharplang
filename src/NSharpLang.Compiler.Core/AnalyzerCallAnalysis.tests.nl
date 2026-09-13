@@ -107,7 +107,8 @@ func CallWalkHarnessOf(errors: List<CompilerError>): CallWalkHarness {
         spans,
         sink,
         constants,
-        postconditions
+        postconditions,
+        new AnalyzerTerminatingCalls()
     )
     reflectionReporter := new AnalyzerReflectionCallReporter(
         scopes,
@@ -145,7 +146,8 @@ func CallWalkHarnessOf(errors: List<CompilerError>): CallWalkHarness {
         writeTargets,
         identifierResolution,
         context,
-        postconditions
+        postconditions,
+        new AnalyzerTerminatingCalls()
     )
     return new CallWalkHarness(owner, errors, scopes, ambient)
 }

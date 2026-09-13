@@ -43,7 +43,7 @@ func SequenceDefault(): SequenceHarness {
     diagnostics := new AnalyzerDiagnosticSink(errors, provider)
     diagnostics.BeginAnalysis(Path.GetFullPath("statement-sequence-contract.nl"), null)
     spans := new AnalyzerDiagnosticSpans(diagnostics)
-    return new SequenceHarness(new AnalyzerStatementSequence(diagnostics, spans), errors)
+    return new SequenceHarness(new AnalyzerStatementSequence(diagnostics, spans, new AnalyzerTerminatingCalls()), errors)
 }
 
 // A `print 1` statement, which the termination judgement answers FALSE for and which carries a

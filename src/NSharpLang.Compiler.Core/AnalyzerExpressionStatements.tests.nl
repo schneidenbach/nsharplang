@@ -143,7 +143,7 @@ func EsHarnessWith(sourceText: string?): EsHarness {
     clr := new AnalyzerClrTypeConversion(context, null)
     EsDeclareThrowabilityTypes(scopes)
     return new EsHarness(
-        new AnalyzerExpressionStatements(diagnostics, spans, resolver, escape, throwability),
+        new AnalyzerExpressionStatements(diagnostics, spans, resolver, escape, throwability, new AnalyzerTerminatingCalls()),
         diagnostics,
         errors,
         scopes,
