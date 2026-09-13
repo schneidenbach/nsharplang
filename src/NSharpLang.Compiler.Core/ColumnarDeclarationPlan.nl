@@ -1398,7 +1398,35 @@ class ColumnarDeclarationPlanner {
     }
 
     static func FreeFunctionAttributes(name: string, modifierFlags: int): int {
-        return MethodVisibilityAttributes(name, modifierFlags) | StaticMethodAttribute()
+        return FreeFunctionVisibilityAttributes(name, modifierFlags) | StaticMethodAttribute()
+    }
+
+    // A FREE FUNCTION HAS TWO CLR SHAPES, NOT SIX, and the reason is that it has no containing user
+    // type. A member's `private` means "this type only" and the CLR enforces it; a free function's
+    // privacy boundary is the PACKAGE (the namespace), which the CLR has no concept of and the
+    // analyzer enforces on its own with NL308. So `public` — written, or implied by a PascalCase
+    // name — is the one word that widens the emitted method to `Public`; every other spelling,
+    // including a written `private` or `internal` and the camelCase default, emits `Assembly`.
+    //
+    // `Assembly` rather than `Private` is the load-bearing half. Free functions of one namespace are
+    // emitted onto that namespace's single free-function type, but a class of the same package, a
+    // lambda's display class and a local function's closure are all DIFFERENT CLR types, and each of
+    // them may legally call a package-private function. `Private` would make every one of those
+    // calls unverifiable IL for a rule the language never stated.
+    static func FreeFunctionVisibilityAttributes(name: string, modifierFlags: int): int {
+        if (modifierFlags & 1) != 0 {
+            return PublicFieldAttribute()
+        }
+
+        if (modifierFlags & 2) != 0 || (modifierFlags & 4) != 0 || (modifierFlags & 8) != 0 || (modifierFlags & 32768) != 0 {
+            return AssemblyMethodAttribute()
+        }
+
+        if name != null && name.Length > 0 && char.IsUpper(name[0]) {
+            return PublicFieldAttribute()
+        }
+
+        return AssemblyMethodAttribute()
     }
 
     // `this` occupies argument 0 of an instance method, so user parameter ordinals shift by one; a
@@ -1471,7 +1499,10 @@ class ColumnarDeclarationPlanner {
         index = 0
         while index < functionCount {
             function := functions[index]
-            functionWords[index] = FreeFunctionAttributes(function.Name, function.ModifierFlags)
+            // THE WRITTEN VISIBILITY WORD IS PART OF THE ANSWER. A free function's modifier column
+            // carries `async`/`generator`/`native import`; the visibility word is parsed into its own
+            // column, so both are read here and `public func helper()` reaches metadata as public.
+            functionWords[index] = FreeFunctionAttributes(function.Name, function.ModifierFlags | function.VisibilityModifierFlags)
             functionVoids[index] = IsVoidReturnCanonical(function.ReturnCanonical)
             index = index + 1
         }

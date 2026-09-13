@@ -834,7 +834,154 @@ class AnalyzerMemberAccess {
         filePath: string? = null
         if TryFindMemberExportVisibility(objectType, member.MemberName, out isExported, out filePath) && IsCrossPackageFile(filePath) && !isExported {
             diagnosticsValue.ReportInaccessibleMember(member.MemberName, filePath, member.Line, spansValue.GetMemberNameColumn(member))
+            return
         }
+
+        ValidateDeclaredMemberAccessibility(objectType, member)
+    }
+
+    // THE DECLARED-ACCESSIBILITY HALF OF NL308, for a member reached through a written receiver.
+    //
+    // The package rule above and this one are both NL308 and they are genuinely one question — "may
+    // this file read this member" — asked of two independent systems, so only one of them reports:
+    // a camelCase `private` field read from another package has one thing wrong with it that the
+    // developer will fix once, and two underlines saying so would be noise.
+    //
+    // `base.M()` IS ITS OWN ARM and not a receiver judgement. The receiver half of the `protected`
+    // rule asks whether the receiver's type derives from the accessing type, and `base` is typed as
+    // the BASE — the one receiver that never does. C# spells this out separately (§7.6.8) and so
+    // does this: inside a derived type, `base.` reaches exactly what the base declares protected.
+    func ValidateDeclaredMemberAccessibility(objectType: TypeInfo, member: MemberAccessExpression) {
+        selection := new AnalyzerMemberSelection()
+        if !declarationContextValue.TryFindMember(declarationContextValue.ResolveDeclaredAlias(objectType), member.MemberName, out selection) {
+            return
+        }
+
+        declaredMember := selection.Member
+        if declaredMember == null {
+            return
+        }
+
+        level := MemberAccessibility.LevelOfDeclaredModifiers(declaredMember.DeclaredModifiers)
+        if level == MemberAccessibility.Public {
+            return
+        }
+
+        accessingType := TryGetAccessingType()
+        declaringOwner := selection.Owner
+        isDeclaringType := IsSameDeclaredType(accessingType, declaringOwner)
+        derives := IsSameOrDerivedFrom(accessingType, declaringOwner)
+        receiverCompatible := member.Object as BaseExpression != null || IsStaticMemberAccessTarget(member.Object) || IsSameOrDerivedFrom(objectType, accessingType)
+
+        // Source members are compiled into the assembly being produced, so `internal` and the
+        // assembly half of `protected internal` are always satisfied here.
+        if MemberAccessibility.IsAccessible(level, isDeclaringType, derives, receiverCompatible, true) {
+            return
+        }
+
+        diagnosticsValue.ReportInaccessibleDeclaredMember(member.MemberName, DeclaredTypeDisplayName(declaringOwner), level, AccessingTypeDisplayName(), member.Line, spansValue.GetMemberNameColumn(member), member.MemberName.Length)
+    }
+
+    // The type the walk is written inside, resolved from the ambient name against the file being
+    // analysed. A free function, a top-level statement and a lambda outside every type all answer
+    // nothing, which the relation reads as "not the declaring type and not derived from it".
+    func TryGetAccessingType(): TypeInfo? {
+        typeName := ambientValue.CurrentTypeName
+        if typeName == null || typeName.Length == 0 {
+            return null
+        }
+
+        currentFile := diagnosticsValue.CurrentFilePath
+        if currentFile == null || currentFile.Length == 0 {
+            return null
+        }
+
+        resolved := BuiltInTypes.Unknown as TypeInfo
+        if declarationContextValue.TryGetCanonicalType(currentFile, typeName, out resolved) && !BuiltInTypes.IsUnknown(resolved) {
+            return resolved
+        }
+
+        return null
+    }
+
+    func AccessingTypeDisplayName(): string? {
+        return ambientValue.CurrentTypeName
+    }
+
+    // THE NAME A REFUSAL QUOTES for the declaring type. `TypeInfo.ToString()` is what every other
+    // report in this file renders a type with, so a generic owner reads the same way here as it does
+    // everywhere else the developer has already seen it.
+    func DeclaredTypeDisplayName(owner: TypeInfo?): string {
+        if owner == null {
+            return "the declaring type"
+        }
+
+        return owner.ToString()
+    }
+
+    // WHETHER TWO TYPE SHAPES ARE THE SAME SOURCE DECLARATION. A closed generic is the same
+    // declaration as its own definition — `Box<int>` and `Box<T>` share every member declaration —
+    // so both sides are reduced to their definition before being compared.
+    func IsSameDeclaredType(candidate: TypeInfo?, other: TypeInfo?): bool {
+        if candidate == null || other == null {
+            return false
+        }
+
+        left := DeclarationOf(candidate)
+        right := DeclarationOf(other)
+        return left == right
+    }
+
+    func DeclarationOf(typeInfo: TypeInfo): TypeInfo {
+        resolved := declarationContextValue.ResolveDeclaredAlias(typeInfo)
+        generic := resolved as GenericTypeInfo
+        if generic != null && generic.GenericDefinition != null {
+            return generic.GenericDefinition
+        }
+
+        nullable := resolved as NullableTypeInfo
+        if nullable != null {
+            return DeclarationOf(nullable.InnerType)
+        }
+
+        oblivious := resolved as ObliviousTypeInfo
+        if oblivious != null {
+            return DeclarationOf(oblivious.InnerType)
+        }
+
+        return resolved
+    }
+
+    // Whether `candidate` IS `ancestor` or declares it somewhere up its source base chain. The walk
+    // is bounded by a visited set rather than a depth count because a malformed cyclic base clause is
+    // reported elsewhere and must not hang this one.
+    func IsSameOrDerivedFrom(candidate: TypeInfo?, ancestor: TypeInfo?): bool {
+        if candidate == null || ancestor == null {
+            return false
+        }
+
+        target := DeclarationOf(ancestor)
+        visited := new HashSet<object>()
+        current: TypeInfo? = candidate
+        while current != null {
+            declaration := DeclarationOf(current)
+            if declaration == target {
+                return true
+            }
+
+            if !visited.Add(declaration) {
+                return false
+            }
+
+            shape := new AnalyzerSourceMemberShape()
+            if !declarationContextValue.TryGetSourceMemberShape(declaration, null, out shape) {
+                return false
+            }
+
+            current = shape.BaseType
+        }
+
+        return false
     }
 
     func TryFindMemberExportVisibility(objectType: TypeInfo, memberName: string, out isExported: bool, out filePath: string?): bool {

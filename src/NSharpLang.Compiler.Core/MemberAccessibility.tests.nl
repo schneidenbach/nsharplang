@@ -1,0 +1,125 @@
+namespace NSharpLang.Compiler
+
+import System
+import System.Reflection
+
+
+// THE RELATION ITSELF, stated as a table rather than through a compile.
+//
+// The whole point of this owner is that ONE relation answers for a source member and a reflected one
+// alike, so these contracts exercise it from both ends: the levels a written modifier word produces,
+// the levels a `MethodInfo`/`FieldInfo` produces, and the six answers the relation gives for the
+// four facts a caller supplies.
+class AccessibilityLevelProbe {
+    protected Guarded: int = 1
+    private hidden: int = 2
+    protected internal Shared: int = 3
+    Open: int = 4
+
+    func Touch(): int {
+        return Guarded + hidden + Shared + Open
+    }
+}
+
+func AccessibilityProbeFlags(): BindingFlags {
+    return BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.DeclaredOnly
+}
+
+test "a written accessibility word decides the level, and no word means public at this level" {
+    assert MemberAccessibility.LevelOfDeclaredModifiers(1) == MemberAccessibility.Public
+    assert MemberAccessibility.LevelOfDeclaredModifiers(2) == MemberAccessibility.Private
+    assert MemberAccessibility.LevelOfDeclaredModifiers(4) == MemberAccessibility.Assembly
+    assert MemberAccessibility.LevelOfDeclaredModifiers(8) == MemberAccessibility.Family
+    assert MemberAccessibility.LevelOfDeclaredModifiers(12) == MemberAccessibility.FamilyOrAssembly
+    assert MemberAccessibility.LevelOfDeclaredModifiers(10) == MemberAccessibility.PrivateProtected
+    assert MemberAccessibility.LevelOfDeclaredModifiers(32768) == MemberAccessibility.Assembly
+
+    // `public` wins a malformed combination, exactly as the emitted metadata word does.
+    assert MemberAccessibility.LevelOfDeclaredModifiers(15) == MemberAccessibility.Public
+
+    // NO WORD IS `Public` HERE, DELIBERATELY. A camelCase member is package-private, and that is the
+    // OTHER rule with the other owner: folding casing in here would refuse `widget.count` inside the
+    // package that declared it.
+    assert MemberAccessibility.LevelOfDeclaredModifiers(0) == MemberAccessibility.Public
+    assert MemberAccessibility.LevelOfDeclaredModifiers(16) == MemberAccessibility.Public
+}
+
+test "the word a refusal quotes is the word that was written" {
+    assert MemberAccessibility.LevelWord(MemberAccessibility.Private) == "private"
+    assert MemberAccessibility.LevelWord(MemberAccessibility.PrivateProtected) == "private protected"
+    assert MemberAccessibility.LevelWord(MemberAccessibility.Assembly) == "internal"
+    assert MemberAccessibility.LevelWord(MemberAccessibility.Family) == "protected"
+    assert MemberAccessibility.LevelWord(MemberAccessibility.FamilyOrAssembly) == "protected internal"
+    assert MemberAccessibility.LevelWord(MemberAccessibility.Public) == "public"
+}
+
+test "a reflected member reports the same six levels the written words do" {
+    probe := typeof(AccessibilityLevelProbe)
+    assert MemberAccessibility.LevelOfField(probe.GetField("Guarded", AccessibilityProbeFlags())) == MemberAccessibility.Family
+    assert MemberAccessibility.LevelOfField(probe.GetField("hidden", AccessibilityProbeFlags())) == MemberAccessibility.Private
+    assert MemberAccessibility.LevelOfField(probe.GetField("Shared", AccessibilityProbeFlags())) == MemberAccessibility.FamilyOrAssembly
+    assert MemberAccessibility.LevelOfField(probe.GetField("Open", AccessibilityProbeFlags())) == MemberAccessibility.Public
+    assert MemberAccessibility.LevelOfMethod(probe.GetMethod("Touch", AccessibilityProbeFlags())) == MemberAccessibility.Public
+
+    // A member the reflection lookup cannot produce is treated as the most restricted level rather
+    // than as an accident: nothing is admitted on the strength of a null.
+    assert MemberAccessibility.LevelOfField(null) == MemberAccessibility.Private
+    assert MemberAccessibility.LevelOfMethod(null) == MemberAccessibility.Private
+}
+
+test "the CLR flag reading agrees with the ordering, narrowest combined word first" {
+    assert MemberAccessibility.LevelOfClrFlags(true, false, false, false, false) == MemberAccessibility.Public
+    assert MemberAccessibility.LevelOfClrFlags(false, true, false, false, false) == MemberAccessibility.FamilyOrAssembly
+    assert MemberAccessibility.LevelOfClrFlags(false, false, true, false, false) == MemberAccessibility.PrivateProtected
+    assert MemberAccessibility.LevelOfClrFlags(false, false, false, true, false) == MemberAccessibility.Family
+    assert MemberAccessibility.LevelOfClrFlags(false, false, false, false, true) == MemberAccessibility.Assembly
+    assert MemberAccessibility.LevelOfClrFlags(false, false, false, false, false) == MemberAccessibility.Private
+}
+
+test "public is reachable from everywhere and private only from the declaring type" {
+    assert MemberAccessibility.IsAccessible(MemberAccessibility.Public, false, false, false, false)
+    assert MemberAccessibility.IsAccessible(MemberAccessibility.Private, true, true, true, true)
+    assert !MemberAccessibility.IsAccessible(MemberAccessibility.Private, false, true, true, true)
+}
+
+test "internal is an assembly question and nothing else" {
+    assert MemberAccessibility.IsAccessible(MemberAccessibility.Assembly, false, false, false, true)
+    assert !MemberAccessibility.IsAccessible(MemberAccessibility.Assembly, false, true, true, false)
+
+    // A reflected `internal` member of a referenced assembly is out of reach even from a type that
+    // derives from its owner, because N# models no `InternalsVisibleTo`.
+    assert !MemberAccessibility.IsAccessible(MemberAccessibility.Assembly, false, true, true, false)
+}
+
+test "protected needs BOTH halves: a derived accessing type and a compatible receiver" {
+    // Inside the declaring type, the receiver question does not arise.
+    assert MemberAccessibility.IsAccessible(MemberAccessibility.Family, true, true, false, true)
+
+    // Derived, with a receiver of the deriving type.
+    assert MemberAccessibility.IsAccessible(MemberAccessibility.Family, false, true, true, true)
+
+    // Derived, through a receiver typed as the base: refused.
+    assert !MemberAccessibility.IsAccessible(MemberAccessibility.Family, false, true, false, true)
+
+    // Not derived at all: refused, receiver or no receiver.
+    assert !MemberAccessibility.IsAccessible(MemberAccessibility.Family, false, false, true, true)
+
+    // Protected crosses an assembly boundary, which is the difference from `private protected`.
+    assert MemberAccessibility.IsAccessible(MemberAccessibility.Family, false, true, true, false)
+}
+
+test "private protected is protected AND the assembly, and protected internal is either" {
+    assert MemberAccessibility.IsAccessible(MemberAccessibility.PrivateProtected, false, true, true, true)
+    assert !MemberAccessibility.IsAccessible(MemberAccessibility.PrivateProtected, false, true, true, false)
+    assert !MemberAccessibility.IsAccessible(MemberAccessibility.PrivateProtected, false, false, true, true)
+
+    assert MemberAccessibility.IsAccessible(MemberAccessibility.FamilyOrAssembly, false, false, false, true)
+    assert MemberAccessibility.IsAccessible(MemberAccessibility.FamilyOrAssembly, false, true, true, false)
+    assert !MemberAccessibility.IsAccessible(MemberAccessibility.FamilyOrAssembly, false, false, true, false)
+}
+
+test "the refusal phrase names the declaring type and what would have been allowed" {
+    assert MemberAccessibility.AllowedFromPhrase(MemberAccessibility.Private, "Vault") == "only code inside 'Vault' can reach it"
+    assert MemberAccessibility.AllowedFromPhrase(MemberAccessibility.Family, "Seeded") == "only 'Seeded' and the types that derive from it can reach it, through a receiver of the deriving type"
+    assert MemberAccessibility.AllowedFromPhrase(MemberAccessibility.Assembly, "Seeded") == "only code compiled into the same assembly as 'Seeded' can reach it"
+}

@@ -1990,6 +1990,8 @@ In CLR metadata a `camelCase` top-level function is emitted `assembly` (internal
 `PascalCase` one `public`. The namespace boundary is a *language* rule enforced by the compiler, in
 the same way C#'s `private` is a language rule inside one assembly.
 
+### Explicit accessibility words
+
 Explicit modifiers are narrow .NET interop escape hatches, not the normal way to express visibility. When they override casing, the formatter preserves them because dropping them would change the exported API:
 
 ```n#
@@ -2000,6 +2002,54 @@ class Service {
     protected BaseUrl: string
 }
 ```
+
+A written word is enforced, not decoration. On a **type member** it means what it means everywhere
+else on .NET, and it reaches CLR metadata unchanged:
+
+| Written on a member | Reachable from | Emitted as |
+|---|---|---|
+| `public` | anywhere | `public` |
+| `internal` | the assembly being compiled | `assembly` |
+| `protected` | the declaring type and the types that derive from it | `family` |
+| `protected internal` | either of the two above | `famorassem` |
+| `private protected` | a deriving type in the same project | `famandassem` |
+| `private` | the declaring type only | `private` |
+
+`protected` carries C#'s receiver rule as well (§7.5.4): inside a deriving type you may read
+`this.Member`, a bare `Member`, `base.Member` and `other.Member` where `other` is of *your* type —
+but not through a receiver typed as the base, because at run time that value could belong to some
+other type in the family. Reaching past any of these is [NL308](errors/NL308.md).
+
+```n#
+class Seeded {
+    protected Seed: int = 3
+}
+
+class Grower: Seeded {
+    func Mine(): int { return this.Seed + Seed + base.Seed }   // all three fine
+    func Sibling(other: Grower): int { return other.Seed }     // fine
+    func Theirs(other: Seeded): int { return other.Seed }      // NL308
+}
+```
+
+### A free function's visibility
+
+A top-level `func` has no containing user type, so `private` on one cannot mean "this type only".
+At namespace scope there are exactly **two** answers, and a written word overrides the casing:
+
+| Written on a `func` | Meaning | Emitted as |
+|---|---|---|
+| `public` | exported from the package | `public` |
+| *(PascalCase name, no word)* | exported from the package | `public` |
+| `internal` | package-private | `assembly` |
+| `private` | package-private | `assembly` |
+| *(camelCase name, no word)* | package-private | `assembly` |
+
+`assembly` rather than `private` is deliberate: a class of the same package, a lambda's display
+class and a local function's closure are each a *different* CLR type, and every one of them may
+legally call a package-private function. The package boundary itself is enforced by the compiler,
+which reports [NL308](errors/NL308.md) when another namespace names a function its own package
+never exported.
 
 Enum cases are part of the containing enum's value set. Export is controlled by the enum itself, so lowercase enum cases remain visible when the enum is exported; use casing diagnostics as style guidance, not as API hiding.
 
