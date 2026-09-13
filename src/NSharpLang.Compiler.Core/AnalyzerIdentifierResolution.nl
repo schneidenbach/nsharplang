@@ -373,12 +373,26 @@ class AnalyzerIdentifierResolution {
     func ReportAmbiguousImportedTypeIfNeeded(name: string, line: int, column: int) {
         firstCandidate := ""
         secondCandidate := ""
-        if !projectDiscoveryValue.TryFindAmbiguousImportedType(name, UnitNamespace(), out firstCandidate, out secondCandidate) {
+        if projectDiscoveryValue.TryFindAmbiguousImportedType(name, UnitNamespace(), out firstCandidate, out secondCandidate) {
+            if typeResolverValue.MarkUnresolvedTypeReported(name, line, column) {
+                diagnosticsValue.ReportAmbiguousTypeReference(name, firstCandidate, secondCandidate, line, column)
+            }
+            return
+        }
+
+        // THE FUNCTION CHANNEL TIES THE SAME WAY. A free function is not auto-discovered across
+        // namespaces, so an import is the ONLY way one reaches this file from a sibling namespace —
+        // which makes two imports supplying one spelling exactly the NL209 tie, and makes reporting
+        // it the difference between a named ambiguity and a call that silently reaches whichever
+        // import was written first.
+        firstFunctionCandidate := ""
+        secondFunctionCandidate := ""
+        if !projectDiscoveryValue.TryFindAmbiguousImportedFunction(name, UnitNamespace(), out firstFunctionCandidate, out secondFunctionCandidate) {
             return
         }
 
         if typeResolverValue.MarkUnresolvedTypeReported(name, line, column) {
-            diagnosticsValue.ReportAmbiguousTypeReference(name, firstCandidate, secondCandidate, line, column)
+            diagnosticsValue.ReportAmbiguousFunctionReference(name, firstFunctionCandidate, secondFunctionCandidate, line, column)
         }
     }
 

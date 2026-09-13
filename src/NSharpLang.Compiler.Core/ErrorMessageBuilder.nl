@@ -129,6 +129,25 @@ class ErrorMessageBuilder {
         }
     }
 
+    // NL209 FOR A FREE FUNCTION. The same tie, one tier down: two imported namespaces each export a
+    // top-level `func` of this spelling, so the call would silently reach whichever import was
+    // written first. The SUGGESTION differs from the type version on purpose — a free function has no
+    // namespace-qualified call spelling to fall back on, so dropping an import is the fix.
+    static func AmbiguousFunctionReference(fileName: string?, line: int, column: int, sourceSnippet: string?, length: int, name: string, firstCandidate: string, secondCandidate: string): CompilerError {
+        humanExplanation := "`" + name + "` could mean either of two functions on line " + IntText(line) + ", and both are in scope here:"
+        contextualHint := "`" + firstCandidate + "` and `" + secondCandidate + "` are brought in by different imports,\n" + "so neither one is closer than the other. A function declared in this file, or in this\n" + "file's own or an enclosing namespace, would win outright; two imports tie."
+
+        return new CompilerError(ErrorCode.AmbiguousTypeReference, "'" + name + "' is ambiguous between '" + firstCandidate + "' and '" + secondCandidate + "'", line, column, ErrorSeverity.Error) {
+            FileName: fileName,
+            SourceSnippet: sourceSnippet,
+            Length: length,
+            HumanExplanation: humanExplanation,
+            ContextualHint: contextualHint,
+            Suggestion: "Remove the import that supplies the one you do not mean, or move the function you want into this file's own namespace.",
+            DocsUrl: DiagnosticDocs.UrlFor("NL209")
+        }
+    }
+
     // NL202, IN THE SHAPE A TIE NEEDS. The ordinary type-mismatch sentence — "these types are not
     // compatible" — is exactly wrong here: the two types are compatible, TWICE OVER, and the value
     // would silently become whichever operator happened to be found first. This is the same code
@@ -388,6 +407,34 @@ class ErrorMessageBuilder {
             Length: length,
             HumanExplanation: humanExplanation,
             ContextualHint: contextualHint,
+            DocsUrl: DiagnosticDocs.UrlFor("NL306")
+        }
+    }
+
+    // NL306 FOR THE ONE DECLARATION THE COMPILER MAKES. A namespace that declares top-level functions
+    // gets a `Program` class to hold them — that is where `X.Program.Helper` comes from — so a SOURCE
+    // type named `Program` in that namespace is the second declaration of one name, and the first one
+    // is not written anywhere the reader can see. Saying so is the whole job of this sentence.
+    static func FreeFunctionHolderCollision(fileName: string, line: int, column: int, sourceSnippet: string, length: int, namespaceName: string): CompilerError {
+        qualified := "Program"
+        placeName := "the global namespace"
+        owner := "the global namespace"
+        if namespaceName.Length > 0 {
+            qualified = namespaceName + ".Program"
+            placeName = "`" + namespaceName + "`"
+            owner = "'" + namespaceName + "'"
+        }
+        humanExplanation := "`Program` is already taken in " + placeName + " on line " + IntText(line) + ":"
+        contextualHint := "Top-level functions declared in " + placeName + " are emitted as static methods on\n" + "`" + qualified + "`, so that type name is the compiler's. Nothing in your source\n" + "declares it, which is why the other declaration is not on screen."
+        summary := "A type named 'Program' collides with the free-function holder for " + owner
+
+        return new CompilerError(ErrorCode.DuplicateDeclaration, summary, line, column, ErrorSeverity.Error) {
+            FileName: fileName,
+            SourceSnippet: sourceSnippet,
+            Length: length,
+            HumanExplanation: humanExplanation,
+            ContextualHint: contextualHint,
+            Suggestion: "Rename this type, or move it (or the namespace's top-level functions) to a namespace of its own.",
             DocsUrl: DiagnosticDocs.UrlFor("NL306")
         }
     }

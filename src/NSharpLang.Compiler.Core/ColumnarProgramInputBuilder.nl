@@ -574,6 +574,11 @@ sealed class ColumnarProgramInputBuilder {
             ) {
                 return DeclineAtToken(ColumnarParseDeclines.FunctionDeclaration, cs, cv, funcIndices[fi], "")
             }
+            // THE VISIBILITY WORD, READ BUT NOT FOLDED INTO `ModifierFlags`. `public func helper()` is
+            // exported despite its casing, and free-function identity has to know that; folding the
+            // word into the modifier column instead would change every existing program's emitted
+            // method attributes, which is a separate decision from this one.
+            input.VisibilityModifierFlags = ColumnarStructDeclarationMetadataModifierFlagsAt(ck, funcIndices[fi])
             inputs.Add(input)
             fi = fi + 1
         }

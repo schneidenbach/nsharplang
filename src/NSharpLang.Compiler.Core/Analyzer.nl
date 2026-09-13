@@ -869,6 +869,8 @@ class Analyzer: IDisposable {
             declarationEnumerator.Dispose()
         }
 
+        DeclarationPolicy.CheckFreeFunctionHolderCollision(unit)
+
         DeclarationWalkers.CollectTestScaffolding(unit.Declarations)
 
         analysisDeclarationEnumerator := unit.Declarations.GetEnumerator()
