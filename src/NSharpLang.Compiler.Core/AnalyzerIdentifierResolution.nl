@@ -162,10 +162,11 @@ class AnalyzerIdentifierResolution {
         return flowType
     }
 
-    // The function half of project auto-discovery: exported (PascalCase) top-level functions are
-    // visible project-wide within visible namespaces without a file import, mirroring the type half
-    // in `AnalyzerProjectTypeDiscovery`. Non-exported top-level functions stay file-private, so they
-    // intentionally fall through to the undefined/inaccessible diagnostics.
+    // The function half of project auto-discovery, mirroring the type half in
+    // `AnalyzerProjectTypeDiscovery`: exported (PascalCase) top-level functions are visible
+    // project-wide within visible namespaces without a file import, and a camelCase one is visible to
+    // every file of ITS OWN namespace — namespace-private, never file-private. A camelCase function
+    // named from another namespace falls through to the inaccessible probe, which reports NL308.
     //
     // PUBLISHED rather than private because the qualified-external-type probe asks the same question
     // of a dotted name's ROOT before it will accept a CLR type of that name — a project function
