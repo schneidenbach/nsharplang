@@ -9886,6 +9886,10 @@ func ParserDeclarationModifierFlagsIncludeReadonly(flags: int): bool {
     return (flags / 512) % 2 == 1
 }
 
+func ParserDeclarationModifierFlagsIncludeConst(flags: int): bool {
+    return (flags & 1024) != 0
+}
+
 // Field metadata currently has one intrinsic attribute surface. Require the exact System-qualified
 // CLR identity, accept its suffixed spelling, and allow either omitted or empty argument syntax.
 // The parser has no semantic import scope, so an unqualified or foreign name cannot prove that
@@ -10782,6 +10786,7 @@ func ParseStructDeclarationCore(source: string, tokens: ParserDeclarationTokenTa
     fieldTypeResult := new ParserDeclarationResultTable(new int[](2))
     initializerTypeResult := new ParserDeclarationResultTable(new int[](2))
     hasInstanceInitializer := 0
+    hasStaticInitializer := 0
     while fieldsDone == 0 && pos < count && tokens.Kinds[pos] != 130 && tokens.Kinds[pos] != 7 && tokens.Kinds[pos] != 85 && tokens.Kinds[pos] != 86 {
         memberStart := ParseMemberModifierPrefixCore(source, tokens, count, pos, memberModifiers)
         if memberStart < 0 || memberStart >= count {
@@ -10910,53 +10915,41 @@ func ParseStructDeclarationCore(source: string, tokens: ParserDeclarationTokenTa
                 initKind := tokens.Kinds[pos]
                 initStart := tokens.Starts[pos]
                 initLength := tokens.ValueLengths[pos]
-                if initKind == 0 {
-                    paramIndex := PrimaryConstructorParameterIndexOf(source, primaryParameters, primaryCtorParamCount, initStart, initLength)
-                    if paramIndex < 0 {
-                        initEnd := ParseDeclarationSimpleInitializerEndCore(tokens, count, pos, initializerTypeResult)
-                        if initEnd < 0 {
-                            if memberModifiers.Values[0] == 0 {
-                                return -1
-                            }
-
-                            initEnd = ParseDeclarationInitializerExpressionEndCore(source, tokens, count, pos)
-                            if initEnd < 0 {
-                                return -1
-                            }
-
-                            initKind = ParserDeclarationFieldInitializerExpressionKind()
-                        }
-
-                        initLength = tokens.Starts[initEnd - 1] + tokens.ValueLengths[initEnd - 1] - initStart
-                        pos = initEnd - 1
-                    } else {
-                        primaryAssignedFlags[paramIndex] = 1
-                    }
-                } else if !ParseDeclarationSimpleInitializerTokenIsLiteral(initKind) {
-                    initEnd := ParseDeclarationSimpleInitializerEndCore(tokens, count, pos, initializerTypeResult)
-                    if initEnd < 0 {
-                        initEnd = ParseDeclarationInitializerExpressionEndCore(source, tokens, count, pos)
-                        if initEnd < 0 {
-                            return -1
-                        }
-
-                        if memberModifiers.Values[0] != 0 {
-                            initKind = ParserDeclarationFieldInitializerExpressionKind()
-                        }
-                    }
-
-                    initLength = tokens.Starts[initEnd - 1] + tokens.ValueLengths[initEnd - 1] - initStart
-                    pos = initEnd - 1
+                // A FIELD INITIALIZER IS AN ORDINARY EXPRESSION. Read its full extent with the
+                // expression parser, and keep a "simple" classification (a lone literal, a dotted
+                // name, or `new T(...)`) only when that simple form covers the WHOLE initializer:
+                // `3 + 4` opens on a literal token but is not one, and reading only the literal
+                // used to strand `+ 4` in the member scan and decline the entire declaration.
+                initEnd := ParseDeclarationInitializerExpressionEndCore(source, tokens, count, pos)
+                if initEnd < 0 {
+                    return -1
                 }
 
-                if memberModifiers.Values[0] == 1 {
-                    if initKind == 0 || initKind == 41 {
-                        return -1
-                    }
+                if ParseDeclarationSimpleInitializerEndCore(tokens, count, pos, initializerTypeResult) != initEnd {
+                    initKind = ParserDeclarationFieldInitializerExpressionKind()
+                }
 
+                // Only a BARE primary-constructor parameter name makes the declared field that
+                // parameter's storage; `param + 1` is an expression that happens to read it.
+                if initKind == 0 && initEnd == pos + 1 {
+                    primaryParamIndex := PrimaryConstructorParameterIndexOf(source, primaryParameters, primaryCtorParamCount, initStart, initLength)
+                    if primaryParamIndex >= 0 {
+                        primaryAssignedFlags[primaryParamIndex] = 1
+                    }
+                }
+
+                initLength = tokens.Starts[initEnd - 1] + tokens.ValueLengths[initEnd - 1] - initStart
+                pos = initEnd - 1
+
+                if memberModifiers.Values[0] == 1 {
                     decl.FieldInitKinds[fieldCount] = initKind
                     decl.FieldInitStarts[fieldCount] = initStart
                     decl.FieldInitLengths[fieldCount] = initLength
+                    // A `const` field's initializer is metadata (`.field static literal`), not code;
+                    // every other static initializer runs as a statement in the synthesized `.cctor`.
+                    if !ParserDeclarationModifierFlagsIncludeConst(memberModifiers.Values[2]) {
+                        hasStaticInitializer = 1
+                    }
                 } else {
                     hasInstanceInitializer = 1
                 }
@@ -11166,6 +11159,10 @@ func ParseStructDeclarationCore(source: string, tokens: ParserDeclarationTokenTa
     result.Values[2] = methodCount
     result.Values[3] = ctorCount
     result.Values[4] = propCount
+    if result.Values.Length > 11 {
+        result.Values[11] = hasStaticInitializer
+    }
+
     return fieldCount
 }
 
@@ -13251,34 +13248,6 @@ func ParseColumnarConstructorInfoCore(source: string, tokens: ColumnarConstructo
     return paramCount
 }
 
-func ColumnarPrimaryConstructorLiteralExpressionKind(tokenKind: int): int {
-    if tokenKind == 1 {
-        return ColumnarExpressionNodeKind.IntLiteralExpression()
-    }
-
-    if tokenKind == 2 {
-        return ColumnarExpressionNodeKind.FloatLiteralExpression()
-    }
-
-    if tokenKind == 3 {
-        return ColumnarExpressionNodeKind.CharLiteralExpression()
-    }
-
-    if tokenKind == 4 {
-        return ColumnarExpressionNodeKind.StringLiteralExpression()
-    }
-
-    if tokenKind == 44 || tokenKind == 45 {
-        return ColumnarExpressionNodeKind.BoolLiteralExpression()
-    }
-
-    if tokenKind == 46 {
-        return ColumnarExpressionNodeKind.NullLiteralExpression()
-    }
-
-    return -1
-}
-
 func ColumnarPrimaryConstructorTypeIsNullable(source: string, typeStart: int, typeLength: int): bool {
     if typeStart < 0 || typeLength <= 0 || typeStart + typeLength > source.Length {
         return false
@@ -13590,43 +13559,26 @@ func ParseColumnarPrimaryConstructorInfoCore(source: string, tokens: ColumnarCon
                         return -1
                     }
 
-                    if tokens.Kinds[scan] == 0 {
+                    // EVERY written initializer is an ordinary expression — a lone literal and
+                    // `3 + 4` take the same path, so a literal opening token can no longer strand
+                    // the rest of the expression in the member scan.
+                    expressionState := new ParserState(scan, nodeCursor, childCursor, 0, 0, 0)
+                    valueRoot = ParseLambdaOrAssignmentExpressionNode(expressionTokens, tokens.Count, expressionState, expressionStack, expressionNodes, expressionChildren, 0)
+                    if valueRoot < 0 || expressionState.Pos <= scan {
+                        return -1
+                    }
+
+                    // Only a BARE parameter name makes this field the primary parameter's storage.
+                    if tokens.Kinds[scan] == 0 && expressionState.Pos == scan + 1 {
                         paramIndex := PrimaryConstructorParameterIndexOf(source, primaryParameters, paramCount, tokens.Starts[scan], tokens.ValueLengths[scan])
                         if paramIndex >= 0 {
                             assignedFlags[paramIndex] = 1
-                            valueKind = 6
-                            valueStart = tokens.Starts[scan]
-                            valueLength = tokens.ValueLengths[scan]
-                            scan = scan + 1
-                        } else {
-                            expressionState := new ParserState(scan, nodeCursor, childCursor, 0, 0, 0)
-                            valueRoot = ParseLambdaOrAssignmentExpressionNode(expressionTokens, tokens.Count, expressionState, expressionStack, expressionNodes, expressionChildren, 0)
-                            if valueRoot < 0 || expressionState.Pos <= scan {
-                                return -1
-                            }
-
-                            nodeCursor = expressionState.NodeCursor
-                            childCursor = expressionState.ChildCursor
-                            scan = expressionState.Pos
-                        }
-                    } else {
-                        valueKind = ColumnarPrimaryConstructorLiteralExpressionKind(tokens.Kinds[scan])
-                        if valueKind >= 0 {
-                            valueStart = tokens.Starts[scan]
-                            valueLength = tokens.ValueLengths[scan]
-                            scan = scan + 1
-                        } else {
-                            expressionState := new ParserState(scan, nodeCursor, childCursor, 0, 0, 0)
-                            valueRoot = ParseLambdaOrAssignmentExpressionNode(expressionTokens, tokens.Count, expressionState, expressionStack, expressionNodes, expressionChildren, 0)
-                            if valueRoot < 0 || expressionState.Pos <= scan {
-                                return -1
-                            }
-
-                            nodeCursor = expressionState.NodeCursor
-                            childCursor = expressionState.ChildCursor
-                            scan = expressionState.Pos
                         }
                     }
+
+                    nodeCursor = expressionState.NodeCursor
+                    childCursor = expressionState.ChildCursor
+                    scan = expressionState.Pos
                 } else if ColumnarPrimaryConstructorTypeIsNullable(source, typeResult.Values[0], typeResult.Values[1]) {
                     valueKind = ColumnarExpressionNodeKind.NullLiteralExpression()
                 } else {
