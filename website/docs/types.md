@@ -1420,6 +1420,11 @@ Two rules the compiler enforces about the type-argument list itself:
   reference, an integral, floating, `char`, `bool`, `string` or enum constant, and a `Nullable<T>`
   with no value; a `decimal` or `DateTime` default, and a bare `[Optional]` with no constant at all,
   still decline.
+- **Reading a member off an external generic closed over one of your own types** declines:
+  `new Lazy<Query>(() => new Query())` compiles, and so does `new Lazy<int>(...)`, but `.Value` on
+  the first one does not — reflection cannot report the members of `Lazy<Query>` while `Query` is
+  still being written, and only the CALL path rebinds through the definition so far. Close the
+  generic over an external type (`Lazy<string>`), or return the value from a function that builds it.
 - **Reading a member off a local initialised from an external static call** declines
   (`summary := Kernels.Summarize(args)` then `summary.ShowHelp`). The same member read works off a
   parameter of that type and off a local initialised with `new`, so binding the value differently is
