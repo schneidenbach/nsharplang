@@ -1571,6 +1571,13 @@ class ColumnarBindingScopeFacts {
         return new List<string>()
     }
 
+    // "DOES THE PROGRAM DECLARE A TYPE OF EXACTLY THIS NAME?", asked with the CLR identity the
+    // emitter would write. Ambiguous names (two files declaring one spelling) count: the name is
+    // taken either way. The free-function holder asks this before it claims `Program`.
+    func DeclaresSourceTypeNamed(exactName: string): bool {
+        return exactName.Length > 0 && (sourceTypeNames.Contains(exactName) || ambiguousSourceTypeNames.Contains(exactName))
+    }
+
     // The files this one pulled in whole with `import "./other.nl"`, in import order.
     func FileImportSourceFileIdsForFile(sourceFileId: int): List<int> {
         facts := new ColumnarSourceBindingFacts()

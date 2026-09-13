@@ -1278,25 +1278,3 @@ test "a non-exported free function is not one of the candidates a tie is decided
     assert !discovery.TryFindAmbiguousImportedFunction("Render", "Mine", out first, out second)
     assert !discovery.TryFindAmbiguousImportedFunction("render", "Mine", out first, out second)
 }
-
-// `Program` IS THE FREE-FUNCTION HOLDER'S NAME, so the question "does this namespace declare a
-// top-level function at all?" decides whether a source type may take it (NL306).
-test "a namespace declares top-level functions only when one of its files does" {
-    provider := ProjectProviderOf(
-        ["/p/functions.nl", "/p/typesonly.nl", "/p/global.nl"],
-        [
-            ProjectSourceOf("Has", "func helper(): string {\n    return \"x\"\n}\n"),
-            ProjectSourceOf("None", "class Widget {\n}\n"),
-            ProjectSourceOf(null, "func Root(): string {\n    return \"root\"\n}\n")
-        ]
-    )
-    discovery := ProjectDiscoveryOf(provider, [])
-
-    // Casing is irrelevant: a file-private function still needs a holder to live on.
-    assert discovery.NamespaceDeclaresTopLevelFunction("Has")
-    assert !discovery.NamespaceDeclaresTopLevelFunction("None")
-    assert !discovery.NamespaceDeclaresTopLevelFunction("Absent")
-
-    // The GLOBAL namespace is a real answer, not an absence.
-    assert discovery.NamespaceDeclaresTopLevelFunction(null)
-}

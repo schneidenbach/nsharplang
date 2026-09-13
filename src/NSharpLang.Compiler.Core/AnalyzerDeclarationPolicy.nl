@@ -450,57 +450,6 @@ class AnalyzerDeclarationPolicy {
     // that site — a second report naming the placeholder would be noise, so it is skipped. The
     // Name-splitting fallback serves hand-constructed declarations with no parser segments; its
     // reports anchor on the declaration, exactly as before segments existed.
-    // `Program` IS THE FREE-FUNCTION HOLDER'S NAME IN EVERY NAMESPACE THAT DECLARES ONE.
-    //
-    // Top-level functions are emitted as static methods on a `Program` class inside their own
-    // namespace, which is what makes `X.Helper` and `Y.Helper` two different methods instead of one.
-    // That type is declared by the compiler, so a SOURCE type of the same name in the same namespace
-    // is a second declaration of one name — and left unreported it wrote two type rows of the same
-    // name into the assembly, which no ordinary duplicate check could see because one of the two is
-    // not in the source at all.
-    //
-    // Asked ONCE per file, over the file's TOP-LEVEL declarations only: a nested `Program` is
-    // `Outer.Program` and collides with nothing.
-    func CheckFreeFunctionHolderCollision(unit: CompilationUnit) {
-        namespaceName := AnalyzerProjectSourceProvider.UnitNamespace(unit)
-        if !projectDiscovery.NamespaceDeclaresTopLevelFunction(namespaceName) {
-            return
-        }
-
-        reportedNamespace := namespaceName ?? ""
-        declarations := unit.Declarations
-        index := 0
-        while index < declarations.Count {
-            declaration := declarations[index]
-            index = index + 1
-            if !DeclaresEmittedType(declaration) {
-                continue
-            }
-
-            name := DeclarationFacts.GetDeclarationName(declaration)
-            if name != "Program" {
-                continue
-            }
-
-            diagnostics.ReportFreeFunctionHolderCollision(reportedNamespace, declaration.Line, spans.GetDeclarationNameColumn(name, declaration.Line, declaration.Column))
-        }
-    }
-
-    // The declaration forms that become a CLR type row of their own. A type alias is a second name
-    // for an existing type and emits nothing, so it cannot collide with the holder.
-    static func DeclaresEmittedType(declaration: Declaration): bool {
-        if declaration as ClassDeclaration != null || declaration as StructDeclaration != null || declaration as RecordDeclaration != null {
-            return true
-        }
-        if declaration as SoaRecordDeclaration != null || declaration as InterfaceDeclaration != null {
-            return true
-        }
-        if declaration as UnionDeclaration != null || declaration as EnumDeclaration != null || declaration as NewtypeDeclaration != null {
-            return true
-        }
-        return false
-    }
-
     func ValidatePackageName(declaration: PackageDeclaration) {
         segments := declaration.Segments
         if segments != null {

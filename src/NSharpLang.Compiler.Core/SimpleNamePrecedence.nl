@@ -146,6 +146,28 @@ class SimpleNamePrecedence {
         return candidates
     }
 
+    // THE EXPORT HALF OF THE SAME RULE, and it is a total function of the two namespaces.
+    //
+    // A declaration is reachable from its OWN namespace whatever its casing — camelCase is
+    // NAMESPACE-private, not file-private, so every file of `X` sees `X`'s camelCase functions and
+    // types with no import and no export. Every OTHER namespace, an ENCLOSING one included, needs the
+    // declaration exported; an enclosing namespace is nearer than an import but it is still not the
+    // declaration's own namespace, and a private declaration out there must not hijack a name.
+    //
+    // Both walks read this, for the same reason they read the ORDER above: the analyzer's project
+    // discovery (`AnalyzerProjectDiscovery.TryResolveVisibleProjectFunction`) and the emitter's
+    // free-function scope (`ColumnarFreeFunctionScope`) spelled it separately once and drifted — the
+    // analyzer accepted a cross-file call to a camelCase function of the same namespace and the
+    // emitter then refused to emit it.
+    //
+    // `null` and `""` are both the GLOBAL namespace, so a file with no namespace declaration sees the
+    // other global files' non-exported declarations exactly as a named namespace does.
+    static func RequiresExport(currentNamespace: string?, candidateNamespace: string?): bool {
+        current := currentNamespace ?? ""
+        candidate := candidateNamespace ?? ""
+        return !string.Equals(current, candidate, StringComparison.Ordinal)
+    }
+
     // Rule 2 on its own, spelled the way the emitter's binding scope holds a namespace: `""` is the
     // global namespace rather than `null`, and the file's OWN namespace is NOT in the list because
     // every caller has already asked about it. The order is the lexical chain's.

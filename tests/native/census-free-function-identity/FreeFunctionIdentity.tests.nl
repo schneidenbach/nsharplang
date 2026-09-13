@@ -2,6 +2,8 @@ namespace Census.FreeFunctionIdentity.Tests
 
 import System
 import System.Reflection
+import Census.FreeFunctionIdentity.Holder
+import Census.FreeFunctionIdentity.Spread
 import Census.FreeFunctionIdentity.X
 import Census.FreeFunctionIdentity.X.Deep
 import Census.FreeFunctionIdentity.X.Deeper
@@ -141,6 +143,39 @@ test "a method group's delegate carries the holder of the namespace it was writt
 
     assert IdentityFacts.DeclaringTypeName(fromX.get_Method()) == "Census.FreeFunctionIdentity.X.Program"
     assert IdentityFacts.DeclaringTypeName(fromY.get_Method()) == "Census.FreeFunctionIdentity.Y.Program"
+}
+
+test "a camelCase free function is namespace-private, not file-private" {
+    // The analyzer's ruling (census 2026-09-13, §VIS): every file of a namespace sees that
+    // namespace's camelCase functions with no import and no export. The emitter used to refuse the
+    // call the analyzer had already accepted.
+    assert DescribeAcross(3) == "spread:3/label"
+
+    // A method group over one of them binds the same declaration.
+    group := SpreadGroup()
+    assert group() == "label"
+}
+
+test "a user type named `Program` keeps its name and the holder yields" {
+    // The shape three of this repository's examples are written in.
+    made := MakeProgram(21)
+    assert made.Doubled() == 42
+    assert UseHolderHelper() == "holder"
+
+    // The SOURCE type keeps the ordinary name...
+    holderNamespace := "Census.FreeFunctionIdentity.Holder"
+    userType := IdentityFacts.Assembly().GetType(holderNamespace + ".Program")
+    assert userType != null
+    assert IdentityFacts.HolderMethodCount(holderNamespace, "HolderHelper") == 0
+
+    // ...and the free functions live on the reserved spelling instead, which no source can write.
+    reserved := IdentityFacts.Assembly().GetType(holderNamespace + ".<Program>")
+    assert reserved != null
+    assert reserved.GetMethod("HolderHelper", BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static) != null
+    assert reserved.GetMethod("UseHolderHelper", BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static) != null
+
+    // A namespace with no such type is unaffected: it still gets the ordinary `Program`.
+    assert IdentityFacts.Holder("Census.FreeFunctionIdentity.Spread") != null
 }
 
 test "a namespace that declares nothing gets no holder at all" {

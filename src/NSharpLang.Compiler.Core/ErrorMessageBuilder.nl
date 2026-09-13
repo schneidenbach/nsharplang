@@ -411,34 +411,6 @@ class ErrorMessageBuilder {
         }
     }
 
-    // NL306 FOR THE ONE DECLARATION THE COMPILER MAKES. A namespace that declares top-level functions
-    // gets a `Program` class to hold them — that is where `X.Program.Helper` comes from — so a SOURCE
-    // type named `Program` in that namespace is the second declaration of one name, and the first one
-    // is not written anywhere the reader can see. Saying so is the whole job of this sentence.
-    static func FreeFunctionHolderCollision(fileName: string, line: int, column: int, sourceSnippet: string, length: int, namespaceName: string): CompilerError {
-        qualified := "Program"
-        placeName := "the global namespace"
-        owner := "the global namespace"
-        if namespaceName.Length > 0 {
-            qualified = namespaceName + ".Program"
-            placeName = "`" + namespaceName + "`"
-            owner = "'" + namespaceName + "'"
-        }
-        humanExplanation := "`Program` is already taken in " + placeName + " on line " + IntText(line) + ":"
-        contextualHint := "Top-level functions declared in " + placeName + " are emitted as static methods on\n" + "`" + qualified + "`, so that type name is the compiler's. Nothing in your source\n" + "declares it, which is why the other declaration is not on screen."
-        summary := "A type named 'Program' collides with the free-function holder for " + owner
-
-        return new CompilerError(ErrorCode.DuplicateDeclaration, summary, line, column, ErrorSeverity.Error) {
-            FileName: fileName,
-            SourceSnippet: sourceSnippet,
-            Length: length,
-            HumanExplanation: humanExplanation,
-            ContextualHint: contextualHint,
-            Suggestion: "Rename this type, or move it (or the namespace's top-level functions) to a namespace of its own.",
-            DocsUrl: DiagnosticDocs.UrlFor("NL306")
-        }
-    }
-
     static func ControlTransferOutOfFinally(fileName: string, line: int, column: int, sourceSnippet: string, length: int, keyword: string): CompilerError {
         humanExplanation := "This `" + keyword + "` would leave the enclosing `finally` block:"
 

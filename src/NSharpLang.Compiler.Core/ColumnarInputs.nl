@@ -543,6 +543,10 @@ class ColumnarProgramInput {
         return bindingScope.FileImportSourceFileIdsForFile(sourceFileId)
     }
 
+    func DeclaresSourceTypeNamed(exactName: string): bool {
+        return bindingScope.DeclaresSourceTypeNamed(exactName)
+    }
+
     func ExactStructTypeName(input: ColumnarStructInput): string {
         return bindingScope.ExactStructTypeName(input)
     }

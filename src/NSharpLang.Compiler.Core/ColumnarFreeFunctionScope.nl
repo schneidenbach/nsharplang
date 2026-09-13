@@ -22,6 +22,14 @@ import NSharpLang.Compiler
 // consumer writes `X.Program.Helper()` and means it — and it is the only shape in which two
 // same-named functions can coexist, since one type cannot declare the same signature twice.
 //
+// A USER TYPE NAMED `Program` KEEPS ITS NAME. `class Program` beside free functions is ordinary in
+// this language's own examples, so the holder YIELDS: when the namespace already declares a type of
+// that name the holder is spelled `<Program>` instead, which no N# source can spell and which is
+// therefore always available. Nothing is rejected and the source type's CLR name is unchanged.
+// Before free functions were keyed by namespace this shape wrote TWO type rows of one name into the
+// assembly whenever both were in the GLOBAL namespace (measured on 33b777917: `Assembly.GetTypes()`
+// returned `Program` twice, and the program still ran) — so the fallback fixes that too.
+//
 // THE RESOLUTION. A bare call is resolved against the SAME order the analyzer resolved it with
 // (`AnalyzerProjectDiscovery.TryResolveVisibleProjectFunction`), which is `SimpleNamePrecedence`:
 //
@@ -33,11 +41,13 @@ import NSharpLang.Compiler
 //   2. the file's own namespace, then each ENCLOSING namespace outward, ending at the global one;
 //   3. the file's explicit namespace imports, in import order.
 //
-// Only EXPORTED functions are candidates from step 1 onward: a camelCase top-level function is
-// file-private, so another file never sees it, not even one in the same namespace. Exported is the
-// analyzer's own rule (`VisibilityConventions`) — the casing UNLESS a visibility word overrides it,
-// which is why `public func buildExplicit()` is exported and `internal func Helper()` is not, and
-// why `ColumnarFunctionInput` carries that word in its own column.
+// EXPORT IS REQUIRED ONLY ACROSS NAMESPACES, and `SimpleNamePrecedence.RequiresExport` is the one
+// owner of that half of the rule. A camelCase top-level function is NAMESPACE-private, not
+// file-private: every file of `X` reaches `X`'s camelCase functions with no import and no export,
+// while every other namespace — an ENCLOSING one included — needs the declaration exported. Exported
+// itself is the analyzer's rule (`VisibilityConventions`): the casing UNLESS a visibility word
+// overrides it, which is why `public func buildExplicit()` is exported and `internal func Helper()`
+// is not, and why `ColumnarFunctionInput` carries that word in its own column.
 //
 // There is deliberately no project-wide auto-discovery tier for functions — the analyzer has none,
 // and an emitter that resolved a name the analyzer rejected would be inventing a program.
@@ -76,6 +86,14 @@ class ColumnarFreeFunctionScope {
         return namespaceName + "." + rootHolderTypeName
     }
 
+    // THE SPELLING THE HOLDER FALLS BACK TO when the namespace already declares a type of the
+    // ordinary name. `<`and `>` cannot appear in an N# identifier, so this name is unclaimable by
+    // source and the fallback can never need a fallback of its own. It is the same device the
+    // synthesized lambda and display-class names use.
+    static func ReservedHolderTypeName(rootHolderTypeName: string): string {
+        return "<" + rootHolderTypeName + ">"
+    }
+
     func HolderTypeNameForFile(sourceFileId: int): string {
         return HolderTypeName(program.NamespaceNameForFile(sourceFileId), rootTypeName)
     }
@@ -89,6 +107,12 @@ class ColumnarFreeFunctionScope {
         sourceFileIds.Add(function.SourceFileId)
         exportedFlags.Add(VisibilityConventions.IsExportedIdentifierWithFlags(function.Name, function.VisibilityModifierFlags))
         returnLabeledCanonicals.Add(function.ReturnLabeledCanonical ?? "")
+    }
+
+    // Whether a candidate declared in `candidateNamespace` has to be exported to be reachable from a
+    // caller in `callerNamespace`. Delegated, never re-spelled — see the class comment.
+    static func RequiresExport(callerNamespace: string, candidateNamespace: string): bool {
+        return SimpleNamePrecedence.RequiresExport(callerNamespace, candidateNamespace)
     }
 
     // THE SIBLING MAP AS ONE FILE SEES IT. Every body emitted out of `sourceFileId` reads this, so a
@@ -113,6 +137,7 @@ class ColumnarFreeFunctionScope {
 
         view := new Dictionary<string, ColumnarSiblingMethodDefinition>(StringComparer.Ordinal)
         labeled := new Dictionary<string, string>(StringComparer.Ordinal)
+        callerNamespace := program.NamespaceNameForFile(sourceFileId)
         ranks := NamespaceRanks(sourceFileId)
         fileRanks := FileImportRanks(sourceFileId)
         bestRanks := new Dictionary<string, int>(StringComparer.Ordinal)
@@ -123,11 +148,17 @@ class ColumnarFreeFunctionScope {
             if sourceFileIds[index] != sourceFileId {
                 candidateRank := 0
                 fileImportRank := 0
-                if !exportedFlags[index] {
-                    considered = false
-                } else if fileRanks.TryGetValue(sourceFileIds[index], out fileImportRank) {
-                    rank = fileImportRank
+                if fileRanks.TryGetValue(sourceFileIds[index], out fileImportRank) {
+                    // A FILE IMPORT carries only what the imported file EXPORTS, whatever namespace
+                    // that file is in, so this tier always asks.
+                    if exportedFlags[index] {
+                        rank = fileImportRank
+                    } else {
+                        considered = false
+                    }
                 } else if !ranks.TryGetValue(namespaceNames[index], out candidateRank) {
+                    considered = false
+                } else if RequiresExport(callerNamespace, namespaceNames[index]) && !exportedFlags[index] {
                     considered = false
                 } else {
                     rank = candidateRank
@@ -238,12 +269,23 @@ class ColumnarFreeFunctionHolders {
         }
 
         created := module.DefineType(
-            ColumnarFreeFunctionScope.HolderTypeName(namespaceName, rootTypeName),
+            HolderNameFor(namespaceName),
             TypeAttributes.Public | TypeAttributes.Class
         )
         buildersByNamespace[namespaceName] = created
         ordered.Add(created)
         return created
+    }
+
+    // The ordinary name unless this namespace's source already declares a type of it, in which case
+    // the reserved spelling — see `ColumnarFreeFunctionScope`'s comment for why the holder yields.
+    func HolderNameFor(namespaceName: string): string {
+        ordinary := ColumnarFreeFunctionScope.HolderTypeName(namespaceName, rootTypeName)
+        if !program.DeclaresSourceTypeNamed(ordinary) {
+            return ordinary
+        }
+
+        return ColumnarFreeFunctionScope.HolderTypeName(namespaceName, ColumnarFreeFunctionScope.ReservedHolderTypeName(rootTypeName))
     }
 
     // Every holder that was actually needed, in creation order, for the final `CreateType` pass.

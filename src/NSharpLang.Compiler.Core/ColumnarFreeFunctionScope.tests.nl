@@ -48,6 +48,18 @@ func FreeFunctionScopeCall(assembly: Assembly, holderName: string, methodName: s
     return value.ToString() ?? "<null>"
 }
 
+// How many type rows of this exact name the assembly carries. One is correct; the pre-fix global
+// `class Program` shape carried two.
+func FreeFunctionScopeTypeCount(assembly: Assembly, typeName: string): int {
+    matched := 0
+    for candidate in assembly.GetTypes() {
+        if candidate.FullName == typeName {
+            matched = matched + 1
+        }
+    }
+    return matched
+}
+
 func FreeFunctionScopeMethodCount(assembly: Assembly, holderName: string, methodName: string): int {
     holder := assembly.GetType(holderName)
     if holder == null {
@@ -116,7 +128,8 @@ test "an import reaches an exported function in a sibling namespace" {
     assert FreeFunctionScopeCall(assembly, "Right.Program", "Use") == "left"
 }
 
-test "a file-private camelCase function is reached by its own file and shadows nothing elsewhere" {
+test "a camelCase function is NAMESPACE-private: its own namespace reaches it, no other does" {
+    // Two namespaces declaring one camelCase spelling each reach their own...
     assembly := FreeFunctionScopeAssembly(
         ["X", "Y"],
         [
@@ -127,6 +140,35 @@ test "a file-private camelCase function is reached by its own file and shadows n
 
     assert FreeFunctionScopeCall(assembly, "X.Program", "Use") == "x"
     assert FreeFunctionScopeCall(assembly, "Y.Program", "Use") == "y"
+
+    // ...and ANOTHER FILE of the same namespace reaches it too, with no import and no export. The
+    // emitter refused exactly this call after VIS made the analyzer accept it, which is the
+    // `emit.call.bare-unresolved` regression this contract pins.
+    crossFile := FreeFunctionScopeAssembly(
+        ["X", "X"],
+        [
+            "func helper(): string {\n    return \"x\"\n}\n",
+            "func Use(): string {\n    return helper()\n}\n"
+        ]
+    )
+
+    assert FreeFunctionScopeCall(crossFile, "X.Program", "Use") == "x"
+}
+
+test "an ENCLOSING namespace's camelCase function stays private to it" {
+    // Rule 2 is not the declaration's own namespace, so export is still required there. `A.Inner`
+    // reaches `A.Shared` because it is exported and not `A.hidden` because it is not.
+    assembly := FreeFunctionScopeAssembly(
+        ["A", "A", "A.Inner"],
+        [
+            "func Shared(): string {\n    return \"shared\"\n}\n",
+            "func hidden(): string {\n    return \"hidden\"\n}\n\nfunc UseHidden(): string {\n    return hidden()\n}\n",
+            "func Use(): string {\n    return Shared()\n}\n"
+        ]
+    )
+
+    assert FreeFunctionScopeCall(assembly, "A.Inner.Program", "Use") == "shared"
+    assert FreeFunctionScopeCall(assembly, "A.Program", "UseHidden") == "hidden"
 }
 
 test "a global-namespace program still emits exactly one bare Program holder" {
@@ -142,11 +184,9 @@ test "a global-namespace program still emits exactly one bare Program holder" {
     assert FreeFunctionScopeMethodCount(assembly, "Program", "Helper") == 1
 }
 
-test "a `public` word exports a camelCase function, and it outranks a nearer non-exported one" {
-    // `Mine` declares a camelCase `render` in a file the caller is not in — file-private, so the
-    // analyzer does not let the caller see it — while the import supplies one whose `public` word
-    // exports it despite the same casing. The emitter has to reach the SAME declaration the analyzer
-    // resolved, which is the exported one, even though it sits in a farther namespace.
+test "a `public` word exports a camelCase function across namespaces, and the caller's own still wins" {
+    // The caller's OWN namespace is nearer than any import, and export is not required there — so
+    // `Mine`'s camelCase `render` wins even though the import supplies one that `public` exports.
     assembly := FreeFunctionScopeAssembly(
         ["Mine", "Far", "Mine"],
         [
@@ -156,7 +196,56 @@ test "a `public` word exports a camelCase function, and it outranks a nearer non
         ]
     )
 
-    assert FreeFunctionScopeCall(assembly, "Mine.Program", "Use") == "far"
+    assert FreeFunctionScopeCall(assembly, "Mine.Program", "Use") == "near-private"
+
+    // With nothing of that spelling in the caller's own namespace, the `public` word is what makes
+    // the imported camelCase one reachable at all — casing alone would have hidden it.
+    imported := FreeFunctionScopeAssembly(
+        ["Far", "Near"],
+        [
+            "public func render(): string {\n    return \"far\"\n}\n",
+            "import Far\n\nfunc Use(): string {\n    return render()\n}\n"
+        ]
+    )
+
+    assert FreeFunctionScopeCall(imported, "Near.Program", "Use") == "far"
+}
+
+test "a user type named `Program` makes the holder yield to a reserved spelling" {
+    // MEASURED on 33b777917: this shape emitted TWO type rows named `Program` into one assembly
+    // (`Assembly.GetTypes()` returned both) and the program still ran. The holder now yields, so the
+    // metadata is single-valued and the user's type keeps the name it wrote.
+    assembly := FreeFunctionScopeAssembly(
+        ["", ""],
+        [
+            "class Program {\n    Value: int\n}\n",
+            "func Helper(): string {\n    return \"root\"\n}\n\nfunc Use(): string {\n    return Helper()\n}\n"
+        ]
+    )
+
+    assert FreeFunctionScopeCall(assembly, "<Program>", "Use") == "root"
+    assert FreeFunctionScopeMethodCount(assembly, "<Program>", "Helper") == 1
+
+    // The user's type is the only `Program`, and it declares no free function.
+    assert assembly.GetType("Program") != null
+    assert FreeFunctionScopeMethodCount(assembly, "Program", "Helper") == 0
+    assert FreeFunctionScopeTypeCount(assembly, "Program") == 1
+
+    // The same inside a namespace, which is the shape `examples/06-classes-and-records` is written in.
+    namespaced := FreeFunctionScopeAssembly(
+        ["App", "App"],
+        [
+            "class Program {\n    Value: int\n}\n",
+            "func Helper(): string {\n    return \"app\"\n}\n\nfunc Use(): string {\n    return Helper()\n}\n"
+        ]
+    )
+
+    assert FreeFunctionScopeCall(namespaced, "App.<Program>", "Use") == "app"
+    assert namespaced.GetType("App.Program") != null
+    assert FreeFunctionScopeTypeCount(namespaced, "App.Program") == 1
+
+    // The reserved spelling is only used when it has to be.
+    assert ColumnarFreeFunctionScope.ReservedHolderTypeName("Program") == "<Program>"
 }
 
 test "an `internal` word un-exports a PascalCase function, so another namespace never reaches it" {

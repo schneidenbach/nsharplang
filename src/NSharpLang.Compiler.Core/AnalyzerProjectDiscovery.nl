@@ -539,7 +539,7 @@ class AnalyzerProjectTypeDiscovery {
         namespaceIndex := 0
         while namespaceIndex < visible.Count {
             visibleNamespace := visible[namespaceIndex]
-            requireExported := !string.Equals(visibleNamespace, currentNamespace, StringComparison.Ordinal)
+            requireExported := SimpleNamePrecedence.RequiresExport(currentNamespace, visibleNamespace)
             fileIndex := 0
             while fileIndex < paths.Count {
                 candidatePath := paths[fileIndex]
@@ -616,33 +616,6 @@ class AnalyzerProjectTypeDiscovery {
 
             secondCandidate = candidateNamespace + "." + name
             return true
-        }
-
-        return false
-    }
-
-    // "DOES THIS NAMESPACE DECLARE ANY TOP-LEVEL FUNCTION AT ALL?" — the question the free-function
-    // HOLDER depends on. Every namespace that declares one gets a compiler-declared `Program` type to
-    // hold it, so a source type of that name in that namespace is a second declaration of one name.
-    // Casing is irrelevant here: a file-private camelCase function still needs a holder.
-    func NamespaceDeclaresTopLevelFunction(namespaceName: string?): bool {
-        paths := sources.SourceFilePaths()
-        fileIndex := 0
-        while fileIndex < paths.Count {
-            candidatePath := paths[fileIndex]
-            unit := sources.GetProjectCompilationUnit(candidatePath)
-            if unit != null && string.Equals(AnalyzerProjectSourceProvider.UnitNamespace(unit), namespaceName, StringComparison.Ordinal) {
-                declarations := unit.Declarations
-                declarationIndex := 0
-                while declarationIndex < declarations.Count {
-                    if declarations[declarationIndex] as FunctionDeclaration != null {
-                        return true
-                    }
-                    declarationIndex = declarationIndex + 1
-                }
-            }
-
-            fileIndex = fileIndex + 1
         }
 
         return false

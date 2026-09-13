@@ -935,8 +935,8 @@ ONE project-wide sibling map keyed by `fn.Name`, so a second `Helper` declared i
 was shadowed by the first in every caller — `check` and `build` were clean and the program printed
 the other namespace's answer. `ColumnarFreeFunctionScope.nl` is now the emitter's half of the same
 rule: it holds every declared free function as a (namespace, name, exported, source file) row and
-hands each body the sibling map ITS file sees, ranked caller's-file-first, then the lexical chain
-outward, then the imports. `ColumnarFreeFunctionHolders` gives each namespace its own `Program`
+hands each body the sibling map ITS file sees, ranked caller's-file-first, then whole-file imports,
+then the lexical chain outward, then the namespace imports. `ColumnarFreeFunctionHolders` gives each namespace its own `Program`
 holder type, created on demand, so the two `Helper`s are two methods on two types
 (`X.Program.Helper`, `Y.Program.Helper`) instead of two identical rows on one.
 
@@ -946,11 +946,24 @@ Two consequences the analyzer owns:
   `TryFindAmbiguousImportedType` for top-level functions, reported from the same 3a ambiguity gate in
   `AnalyzerIdentifierResolution`. It is asked only when the type half said no. The SUGGESTION differs:
   a free function has no namespace-qualified call spelling, so the fix is to drop an import.
-- **`Program` is reserved in any namespace that declares free functions.**
-  `AnalyzerDeclarationPolicy.CheckFreeFunctionHolderCollision` is asked once per file over its
-  top-level declarations and reports NL306 for a source type of that name, naming the holder the
-  reader cannot see. Before this the assembly quietly got two type rows of one name — the pre-existing
-  global-namespace case included.
+- **A user type named `Program` keeps its name; the HOLDER yields.** `class Program` beside free
+  functions is ordinary in this repository's own examples, so `ColumnarFreeFunctionHolders` asks
+  `ColumnarProgramInput.DeclaresSourceTypeNamed` before it claims the name and falls back to
+  `<Program>` — unspellable in source, therefore always free. Nothing is rejected and the source
+  type's CLR name is untouched. MEASURED on 33b777917: the GLOBAL-namespace form of this shape
+  emitted TWO type rows named `Program` into one assembly and the program still ran, so the fallback
+  makes that metadata single-valued as well. (An earlier revision of this slice reported NL306 here
+  instead; it broke three shipped examples and was withdrawn.)
+
+**EXPORT IS REQUIRED ONLY ACROSS NAMESPACES, AND ONE OWNER SAYS SO.**
+`SimpleNamePrecedence.RequiresExport(currentNamespace, candidateNamespace)` is that half of the rule:
+a declaration is reachable from its OWN namespace whatever its casing — camelCase is
+NAMESPACE-private (§VIS's ruling), not file-private — and every other namespace, an ENCLOSING one
+included, needs it exported. Both `AnalyzerProjectDiscovery.TryResolveVisibleProjectFunction` and
+`ColumnarFreeFunctionScope` read it, because they spelled it separately once and drifted: the
+analyzer accepted a cross-file call to a camelCase function of the same namespace and the emitter
+then declined the program at `emit.call.bare-unresolved`. A FILE import is the exception and always
+requires export, because a file import carries only what the imported file exports.
 
 **WHERE EXPORTEDNESS COMES FROM, AND WHY IT NEEDED A NEW COLUMN.** The declaration scan collects
 modifier words for structs only, so a free function's `public`/`internal` word never reached the
