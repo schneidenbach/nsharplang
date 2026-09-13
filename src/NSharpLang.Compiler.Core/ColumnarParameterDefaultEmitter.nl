@@ -226,6 +226,149 @@ class ColumnarParameterDefaultEmitter {
         return false
     }
 
+    // A DEFAULT THAT LIVES IN METADATA RATHER THAN IN THIS PROGRAM'S SOURCE. An external
+    // constructor's omitted argument has no default TEXT for the kind/text pair above to read: the
+    // value is a `Constant` row the CLR already decoded, and it arrives boxed. It is planned and
+    // emitted from that constant, against the parameter type the signature declares — an omitted
+    // argument is not a conversion site, so a default whose type is not the parameter's own is
+    // refused rather than widened.
+    static NoMetadataDefault: int => 0
+    static NullMetadataDefault: int => 1
+    static Int32MetadataDefault: int => 2
+    static Int64MetadataDefault: int => 3
+    static SingleMetadataDefault: int => 4
+    static DoubleMetadataDefault: int => 5
+    static StringMetadataDefault: int => 6
+
+    static func TryPlanMetadataDefault(parameter: ParameterInfo, expectedType: Type, out kind: int, out bits: long, out text: string): bool {
+        kind = ColumnarParameterDefaultEmitter.NoMetadataDefault
+        bits = 0L
+        text = ""
+        if !parameter.get_IsOptional() || !parameter.get_HasDefaultValue() {
+            return false
+        }
+
+        defaultValue := parameter.get_DefaultValue()
+        if defaultValue == null {
+            if expectedType.get_IsValueType() {
+                return false
+            }
+
+            kind = ColumnarParameterDefaultEmitter.NullMetadataDefault
+            return true
+        }
+
+        known: object = defaultValue
+        defaultText := known as string
+        if defaultText != null {
+            if expectedType != typeof(string) {
+                return false
+            }
+
+            kind = ColumnarParameterDefaultEmitter.StringMetadataDefault
+            text = defaultText
+            return true
+        }
+
+        valueType := known.GetType()
+        if !MetadataDefaultTypeMatches(expectedType, valueType) {
+            return false
+        }
+
+        if valueType == typeof(float) {
+            kind = ColumnarParameterDefaultEmitter.SingleMetadataDefault
+            bits = (long)BitConverter.SingleToInt32Bits(Convert.ToSingle(known))
+            return true
+        }
+
+        if valueType == typeof(double) {
+            kind = ColumnarParameterDefaultEmitter.DoubleMetadataDefault
+            bits = BitConverter.DoubleToInt64Bits(Convert.ToDouble(known))
+            return true
+        }
+
+        if !ColumnarAttributeBlobWriter.TryConstantToBits(known, out bits) {
+            return false
+        }
+
+        kind = MetadataIntegerWidth(valueType) == 8 ? ColumnarParameterDefaultEmitter.Int64MetadataDefault : ColumnarParameterDefaultEmitter.Int32MetadataDefault
+        return true
+    }
+
+    // THE PARAMETER'S OWN TYPE, OR THE ENUM WHOSE UNDERLYING TYPE THE CONSTANT WAS STORED AS — a
+    // metadata `Constant` row for an enum parameter carries the underlying integer, and some readers
+    // hand it back already boxed as the enum.
+    static func MetadataDefaultTypeMatches(expectedType: Type, valueType: Type): bool {
+        if expectedType == valueType {
+            return true
+        }
+
+        if expectedType is TypeBuilder || expectedType is EnumBuilder || !expectedType.get_IsEnum() {
+            return false
+        }
+
+        return Enum.GetUnderlyingType(expectedType) == valueType
+    }
+
+    static func MetadataIntegerWidth(valueType: Type): int {
+        if valueType == typeof(long) || valueType == typeof(ulong) {
+            return 8
+        }
+
+        return 4
+    }
+
+    static func CanUseMetadataDefaultAs(parameter: ParameterInfo, expectedType: Type): bool {
+        kind := 0
+        bits := 0L
+        text := ""
+        return TryPlanMetadataDefault(parameter, expectedType, out kind, out bits, out text)
+    }
+
+    static func TryEmitMetadataDefaultArgument(il: ILGenerator, parameter: ParameterInfo, expectedType: Type, out resultType: Type): bool {
+        resultType = null
+        kind := 0
+        bits := 0L
+        text := ""
+        if !TryPlanMetadataDefault(parameter, expectedType, out kind, out bits, out text) {
+            return false
+        }
+
+        if kind == ColumnarParameterDefaultEmitter.NullMetadataDefault {
+            il.Emit(OpCodes.Ldnull)
+            resultType = expectedType
+            return true
+        }
+
+        if kind == ColumnarParameterDefaultEmitter.StringMetadataDefault {
+            il.Emit(OpCodes.Ldstr, text)
+            resultType = expectedType
+            return true
+        }
+
+        if kind == ColumnarParameterDefaultEmitter.SingleMetadataDefault {
+            il.Emit(OpCodes.Ldc_R4, BitConverter.Int32BitsToSingle((int)bits))
+            resultType = expectedType
+            return true
+        }
+
+        if kind == ColumnarParameterDefaultEmitter.DoubleMetadataDefault {
+            il.Emit(OpCodes.Ldc_R8, BitConverter.Int64BitsToDouble(bits))
+            resultType = expectedType
+            return true
+        }
+
+        if kind == ColumnarParameterDefaultEmitter.Int64MetadataDefault {
+            il.Emit(OpCodes.Ldc_I8, bits)
+            resultType = expectedType
+            return true
+        }
+
+        il.Emit(OpCodes.Ldc_I4, (int)bits)
+        resultType = expectedType
+        return true
+    }
+
     static func CanUseConstructorDefaultAs(
         expectedType: Type,
         defaultKinds: int[],

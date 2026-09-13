@@ -110,7 +110,7 @@ class ColumnarConstructorDeclarationPlanner {
                                 initializedIndex += 1
                             }
                         } else {
-                            if ctor.ChainInitKind == 2 && definition.BaseDef == null {
+                            if ctor.ChainInitKind == 2 && definition.BaseDef == null && definition.ExactBaseType == null {
                                 return Declined(
                                     "emit.ctor.base-chain-without-base",
                                     "constructor base initializer requires a modeled base class",
@@ -343,6 +343,27 @@ class ColumnarConstructorDeclarationPlanner {
             constructorIndex += 1
         }
         return null
+    }
+
+    // EVERY CONSTRUCTOR OF AN EXTERNAL BASE THIS ASSEMBLY MAY CALL. The emitted type lives in another
+    // assembly, so the same three access levels a parameterless base constructor is accepted at are
+    // the ones a parameterised one is accepted at.
+    static func ResolveAccessibleExternalConstructors(baseType: Type): List<ConstructorInfo> {
+        accessible := new List<ConstructorInfo>()
+        flags := BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance
+        constructors := baseType.GetConstructors(flags)
+        constructorIndex := 0
+        while constructorIndex < constructors.Length {
+            candidate := constructors[constructorIndex]
+            accessAttributes := (int)candidate.get_Attributes() & 7
+            if accessAttributes == 6 || accessAttributes == 4 || accessAttributes == 5 {
+                accessible.Add(candidate)
+            }
+
+            constructorIndex += 1
+        }
+
+        return accessible
     }
 
     static func ResolveImplicitBaseConstructor(definition: ColumnarStructDef, objectConstructor: ConstructorInfo): ConstructorInfo? {
