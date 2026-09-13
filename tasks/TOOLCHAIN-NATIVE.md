@@ -315,9 +315,17 @@ diagnostic-catalog counts reconciled at each merge (every stream bumps both; the
 | TUPLE2 | `System.ValueTuple\`N` is the tuple type it spells; element names survive `Nullable<T>.Value`, indexers, dictionary values, chains and foreach variables at emit; tuple-typed fields/properties; `(a, b) := e` / `(a, b) = e` and `Deconstruct(out …)` | `census-parse-shapes` |
 | ENUM2 | `for x: T in e` — an annotated loop variable with the C# explicit element conversion (NL330), node kind 76 | `census-pattern-foreach` |
 
-Wave 4 briefs still running at this record: TOOL2 (import/shadowing fidelity), LAMBDA2 (lambdas to any delegate,
-method groups vs overload sets, static-initializer method groups), LOCALFN2 (closure conversion for local
-functions — LOCALFN found that a local function cannot capture). Open items from every report are collected in
+| LAMBDA2 | a lambda or method group converts to ANY delegate type (signature read off `Invoke`); method groups against overload sets; external generics' delegate positions and member reads through the definition; constrained type-parameter receivers at both lookup sites; external property assignment by ordinary resolution | `census-lambda-inference` |
+| LOCALFN2 | local functions capture like lambdas — one display-class model (`ColumnarLocalFunctionClosurePlanner`), `this`-only capture on the declaring type, NL331 for a captured by-ref parameter; type members may declare local functions | `census-local-functions` |
+| VIS | a camelCase top-level `func` is NAMESPACE-private (visible from every file of its namespace), in discovery, completion and `nlc query` | `census-visibility` |
+| FLOW4 | `[DoesNotReturn]`/`[DoesNotReturnIf]` as one reachability fact both the analyzer and the planner ask; a narrowed `T?` (and a lifted tuple) is read as its `T` at emit; loop bodies that never fall through emit | `census-flow-rules` |
+| EMIT2 | a struct assigns its own field from its own method (addressable receivers); enum instance members resolve against `System.Enum`; a conditional over an interpolated string and a `string` is a `string`; `T[]` → `T?[]` admitted; the "declining shape" sentinel moved to a bare static field as a call receiver (three N# fixtures and the three C# fixtures in `tests/CompilationBackendTests.cs`) | `census-emit-shapes` |
+| ATTR2 | attributes on FIELDS (a `FieldDeclTokens` column on the struct scan), optional attribute-constructor parameters filled from declared defaults, per-element constant conversion in attribute arrays, chaining to an EXTERNAL base constructor with arguments, NL935 for attribute positions N# has none of | `census-source-attributes`, `class-inheritance` |
+
+Still running at this record: TOOL2 (import/shadowing fidelity), ITER2 (protected regions and closures inside
+iterators), EMIT3 (free functions keyed by namespace — VIS found that two same-named functions in different
+namespaces silently share the first one's body), INHERIT (a source class deriving from an external base cannot see
+the base's members — found by ATTR2). Open items from every report are collected in
 `/Users/spencer/repos/nsharp-worktrees/census-briefs/FOLLOWUPS.md`.
 
 Converter (`nsharp-cs2nl`) mappings added in the same wave: iterators as `func*`, hoisted local functions, class

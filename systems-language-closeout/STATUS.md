@@ -37,6 +37,13 @@ Facade and MSBuild task lanes are running from `06186dc6d`; CLI/LSP/Playground/R
 Visual Studio is deferred; compiler completion and rename evidence below remain accepted.
 Shared compiler prerequisites, seeds and integration gates remain root-owned.
 
+**Census wave 5 integrating, 2026-09-13** (systems-language `ee1b12a65` → pending push): LAMBDA2, LOCALFN2, VIS,
+FLOW4, EMIT2 and ATTR2 merged in landing order onto `census/merge` (`ad8e92c8a`: estate 8,741/8,741, catalog 94 codes,
+corpus pin 105, ownership audit green after the C# sentinel fixtures moved within their immutable ceiling). Converted
+census at the LAMBDA2 tip: runtime 0, cli 28 (12 warnings), tests 79 (20 warnings), languageserver 52 (13 warnings).
+Two silent defects surfaced and are in flight as EMIT3 (same-named free functions across namespaces collide) and
+INHERIT (a source class cannot see its external base's members). Gates: GATE_PLACEHOLDER_W5.
+
 **Census waves 3 and 4 integrated, 2026-09-13** (systems-language `755e53a14` → see the push line below):
 seventeen converter-census streams merged in landing order onto `census/merge` — CONV, FLOW2, TOOL, ENUM, PARSE2,
 LAMBDA (+ its load-tolerant reflection fix), INIT, ATTR, EXT, FLOW3, CONV2, LOCALFN (+ its postcondition/assert fix),
