@@ -378,7 +378,12 @@ class AnalyzerMemberAccess {
             return
         }
 
-        nullFlowValue.ReportPossibleNullAccess(member.Object, objectType, member.Line, member.Column, "dereference", member.IsNullConditional)
+        // A CONTINUATION LINK IS PART OF THE CHAIN, NOT A DEREFERENCE OF ITS RESULT. `.Count` in
+        // `snapshot?.Units.Count` runs only when the `?` already proved `snapshot`, so NL905 stays
+        // silent on it and the result is lifted exactly as the guard's own link is — the chain
+        // produces `int?`, and every later link strips the lift again before resolving on it.
+        isChainContinuation := AnalyzerNullConditionalChainFacts.IsMemberContinuation(member)
+        nullFlowValue.ReportPossibleNullAccess(member.Object, objectType, member.Line, member.Column, "dereference", member.IsNullConditional || isChainContinuation)
         receiverType := declarationContextValue.ResolveDeclaredAlias(NonNullableType(objectType))
         byRefReceiver := receiverType as ByRefTypeInfo
         if byRefReceiver != null {
@@ -443,7 +448,9 @@ class AnalyzerMemberAccess {
             soaEscapeValue.RecordColumnMemberAccess(member)
         }
 
-        if member.IsNullConditional {
+        // The LIFT SKIPS A CALLEE. `snapshot?.Name.Trim()` resolves `.Trim` to a method group, and a
+        // method group has no nullable form; the INVOCATION is the chain's result and lifts there.
+        if member.IsNullConditional || (isChainContinuation && !invocationPosition) {
             state.ResultType = MakeNullableResult(memberType)
         } else {
             state.ResultType = memberType

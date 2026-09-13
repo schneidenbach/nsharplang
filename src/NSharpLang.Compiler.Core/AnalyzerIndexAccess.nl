@@ -202,7 +202,9 @@ class AnalyzerIndexAccess {
             return
         }
 
-        nullFlowValue.ReportPossibleNullAccess(node.Object, objectType, node.Line, node.Column, "index", node.IsNullConditional)
+        // An index written to the right of a `?.` is a continuation of that chain: `a?.B[0]` indexes
+        // a value the guard already proved, so it is not a dereference of a maybe-null receiver.
+        nullFlowValue.ReportPossibleNullAccess(node.Object, objectType, node.Line, node.Column, "index", node.IsNullConditional || AnalyzerNullConditionalChainFacts.IsIndexContinuation(node))
         state.ReceiverType = declarationContextValue.ResolveDeclaredAlias(NonNullableType(objectType))
         state.Phase = 2
     }
@@ -277,7 +279,7 @@ class AnalyzerIndexAccess {
         }
 
         elementType := ResolveIndexElementType(receiverType, isRangeAccess)
-        if node.IsNullConditional {
+        if node.IsNullConditional || AnalyzerNullConditionalChainFacts.IsIndexContinuation(node) {
             state.ResultType = memberAccessValue.MakeNullableResult(elementType)
         } else {
             state.ResultType = elementType

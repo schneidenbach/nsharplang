@@ -141,7 +141,8 @@ func CallWalkHarnessOf(errors: List<CompilerError>): CallWalkHarness {
         scopes,
         ambient,
         writeTargets,
-        identifierResolution
+        identifierResolution,
+        context
     )
     return new CallWalkHarness(owner, errors, scopes, ambient)
 }

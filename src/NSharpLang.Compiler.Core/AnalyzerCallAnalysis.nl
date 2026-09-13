@@ -235,8 +235,9 @@ class AnalyzerCallAnalysis {
     ambient: AnalyzerAmbientContext
     writeTargets: AnalyzerWriteTargets
     identifierResolution: AnalyzerIdentifierResolution
+    declarationContext: AnalyzerDeclarationContext
 
-    constructor(callReporter: AnalyzerSyntheticCallReporter, callWalk: AnalyzerSyntheticCallWalk, callValidator: AnalyzerSyntheticCallValidator, reflectionReporter: AnalyzerReflectionCallReporter, argumentBinder: AnalyzerReflectionArgumentBinder, conversion: AnalyzerClrTypeConversion, substitution: AnalyzerTypeSubstitution, assignabilityOwner: AnalyzerAssignability, diagnosticSink: AnalyzerDiagnosticSink, spansOwner: AnalyzerDiagnosticSpans, scopeStack: AnalyzerScopeStack, ambientContext: AnalyzerAmbientContext, writeTargetsOwner: AnalyzerWriteTargets, identifierResolutionOwner: AnalyzerIdentifierResolution) {
+    constructor(callReporter: AnalyzerSyntheticCallReporter, callWalk: AnalyzerSyntheticCallWalk, callValidator: AnalyzerSyntheticCallValidator, reflectionReporter: AnalyzerReflectionCallReporter, argumentBinder: AnalyzerReflectionArgumentBinder, conversion: AnalyzerClrTypeConversion, substitution: AnalyzerTypeSubstitution, assignabilityOwner: AnalyzerAssignability, diagnosticSink: AnalyzerDiagnosticSink, spansOwner: AnalyzerDiagnosticSpans, scopeStack: AnalyzerScopeStack, ambientContext: AnalyzerAmbientContext, writeTargetsOwner: AnalyzerWriteTargets, identifierResolutionOwner: AnalyzerIdentifierResolution, declarationContextOwner: AnalyzerDeclarationContext) {
         syntheticCallReporter = callReporter
         syntheticCallWalk = callWalk
         syntheticCallValidator = callValidator
@@ -251,6 +252,7 @@ class AnalyzerCallAnalysis {
         ambient = ambientContext
         writeTargets = writeTargetsOwner
         identifierResolution = identifierResolutionOwner
+        declarationContext = declarationContextOwner
     }
 
     func BeginCall(call: CallExpression): CallAnalysisState {
@@ -268,7 +270,30 @@ class AnalyzerCallAnalysis {
             }
         }
 
+        // THE CHAIN'S RESULT IS DECIDED WHERE THE CHAIN ENDS, and for `s?.Trim()` that is the
+        // INVOCATION rather than the member access: `.Trim` resolves to a method group, which has no
+        // nullable form, so the lift has to wait until the call has produced a value. The walk's own
+        // exit is the one place every arm of it passes through.
+        state.Result = LiftNullConditionalChainResult(state)
         return null
+    }
+
+    // `s?.Trim()` IS `string?`, AND SO IS EVERY OTHER INVOCATION A `?.` GUARDS. The emitter already
+    // reads the chain this way — it short-circuits to a null reference or an empty `Nullable<T>` —
+    // so an analyzer that reported the unlifted type was describing a value the program cannot
+    // produce, and a `string` local could be assigned a null the flow never admitted.
+    func LiftNullConditionalChainResult(state: CallAnalysisState): TypeInfo {
+        result := state.Result
+        if !IsNullConditionalInvocationTarget(state.Call.Callee) {
+            return result
+        }
+
+        resolved := declarationContext.ResolveDeclaredAlias(result)
+        if BuiltInTypes.Is(resolved, BuiltInTypes.Void) || BuiltInTypes.Is(resolved, BuiltInTypes.Never) || resolved as UnknownTypeInfo != null || resolved as NullableTypeInfo != null {
+            return result
+        }
+
+        return new NullableTypeInfo(result)
     }
 
     // THE ANSWER TO THE OUTSTANDING STEP, folded in according to what was asked. `Pending` is the
@@ -969,46 +994,10 @@ class AnalyzerCallAnalysis {
     }
 
     // Whether a null-conditional access anywhere along the callee's receiver spine short-circuits
-    // this invocation. The walk follows the receiver of a member access, of an index access and of a
-    // nested call, and stops at anything else — an identifier, a literal, a parenthesised expression
-    // — because none of those can carry a `?.` that would guard the call.
+    // this invocation. The spine walk itself belongs to the chain facts, because the member-access
+    // arm and the index arm ask the very same question about their own receivers.
     static func IsNullConditionalInvocationTarget(callee: Expression?): bool {
-        current := callee
-        depth := 0
-        while current != null && depth < 64 {
-            member := current as MemberAccessExpression
-            if member != null {
-                if member.IsNullConditional {
-                    return true
-                }
-
-                current = member.Object
-                depth = depth + 1
-                continue
-            }
-
-            indexAccess := current as IndexAccessExpression
-            if indexAccess != null {
-                if indexAccess.IsNullConditional {
-                    return true
-                }
-
-                current = indexAccess.Object
-                depth = depth + 1
-                continue
-            }
-
-            nestedCall := current as CallExpression
-            if nestedCall != null {
-                current = nestedCall.Callee
-                depth = depth + 1
-                continue
-            }
-
-            return false
-        }
-
-        return false
+        return AnalyzerNullConditionalChainFacts.SpineReachesNullGuard(callee)
     }
 
     // WHICH ARGUMENT SCHEDULE THIS CALL GETS, and it is decided by the callee alone.

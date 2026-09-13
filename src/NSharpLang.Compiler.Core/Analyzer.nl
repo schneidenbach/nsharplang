@@ -567,7 +567,8 @@ class Analyzer: IDisposable {
             Scopes,
             Ambient,
             WriteTargets,
-            IdentifierResolution
+            IdentifierResolution,
+            DeclarationContext
         )
     }
 
