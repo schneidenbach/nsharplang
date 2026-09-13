@@ -99,6 +99,45 @@ func FnBinary(left: Expression, operatorKind: BinaryOperator, right: Expression)
     return new BinaryExpression(left, operatorKind, right, 3, 5)
 }
 
+func FnBool(value: bool): BoolLiteralExpression {
+    return new BoolLiteralExpression(value, 3, 9)
+}
+
+// A call with `value` filed as present in its TRUE branch and absent in its false one — the shape
+// `Dictionary<K, V>.TryGetValue`'s own metadata produces.
+func FnFiledCall(harness: FlowNarrowingHarness, name: string): CallExpression {
+    return FnFileFacts(harness, new CallExpression(FnName(name), new List<Argument>(), null, 3, 5))
+}
+
+// The same call written through a `?.` guard, so the comparison's operand is LIFTED.
+func FnFiledConditionalCall(harness: FlowNarrowingHarness, receiverName: string, memberName: string): CallExpression {
+    callee: Expression = new MemberAccessExpression(FnName(receiverName), memberName, true, 3, 5)
+    return FnFileFacts(harness, new CallExpression(callee, new List<Argument>(), null, 3, 5))
+}
+
+func FnFileFacts(harness: FlowNarrowingHarness, call: CallExpression): CallExpression {
+    facts := new List<NullabilityPostcondition>()
+    facts.Add(new NullabilityPostcondition("value", 1, NullState.NotNull))
+    facts.Add(new NullabilityPostcondition("value", 2, NullState.MaybeNull))
+    harness.Postconditions.Commit(call, facts)
+    return call
+}
+
+func FnPaths(narrowings: List<FlowNarrowing>): string {
+    text := ""
+    index := 0
+    while index < narrowings.Count {
+        if index > 0 {
+            text = text + ","
+        }
+
+        text = text + narrowings[index].Path
+        index = index + 1
+    }
+
+    return text
+}
+
 func FnNotEqualNull(name: string): BinaryExpression {
     return FnBinary(FnName(name), BinaryOperator.NotEqual, FnNull())
 }
@@ -815,6 +854,129 @@ test "a negated call condition swaps the two branches the postconditions named" 
     assert split.Then.Count == 0
     assert split.Else.Count == 1
     assert split.Else[0].NullState == NullState.NotNull
+}
+
+// CENSUS §FLOW5 — `c == true` IS `c`, AND THE OTHER THREE SPELLINGS ARE ITS NEGATION OR ITS MIRROR.
+//
+// A converter writes `== true` wherever the source compared a LIFTED boolean, and without this rule
+// the comparison proved nothing at all — including the postconditions the call inside it had already
+// established. The four spellings are pinned separately because getting one of the two `!=` forms
+// backwards is a silent unsoundness rather than a visible one.
+test "`call == true` proves what the call proves" {
+    harness := FlowNarrowingDefault()
+    call := FnFiledCall(harness, "TryGet")
+
+    split := harness.Owner.ExtractFlowNarrowings(FnBinary(call, BinaryOperator.Equal, FnBool(true)))
+
+    assert split.Then.Count == 1
+    assert split.Then[0].Path == "value"
+    assert split.Then[0].NullState == NullState.NotNull
+    assert split.Else.Count == 1
+    assert split.Else[0].NullState == NullState.MaybeNull
+}
+
+test "`call == false` swaps the two branches" {
+    harness := FlowNarrowingDefault()
+    call := FnFiledCall(harness, "TryGet")
+
+    split := harness.Owner.ExtractFlowNarrowings(FnBinary(call, BinaryOperator.Equal, FnBool(false)))
+
+    assert split.Then.Count == 1
+    assert split.Then[0].NullState == NullState.MaybeNull
+    assert split.Else.Count == 1
+    assert split.Else[0].NullState == NullState.NotNull
+}
+
+test "`call != true` is `call == false`, and `call != false` is `call == true`" {
+    harness := FlowNarrowingDefault()
+
+    notTrue := harness.Owner.ExtractFlowNarrowings(
+        FnBinary(FnFiledCall(harness, "TryGet"), BinaryOperator.NotEqual, FnBool(true))
+    )
+    assert notTrue.Then.Count == 1
+    assert notTrue.Then[0].NullState == NullState.MaybeNull
+    assert notTrue.Else.Count == 1
+    assert notTrue.Else[0].NullState == NullState.NotNull
+
+    notFalse := harness.Owner.ExtractFlowNarrowings(
+        FnBinary(FnFiledCall(harness, "TryGet"), BinaryOperator.NotEqual, FnBool(false))
+    )
+    assert notFalse.Then.Count == 1
+    assert notFalse.Then[0].NullState == NullState.NotNull
+    assert notFalse.Else.Count == 1
+    assert notFalse.Else[0].NullState == NullState.MaybeNull
+}
+
+test "the boolean literal may be written on either side" {
+    harness := FlowNarrowingDefault()
+
+    split := harness.Owner.ExtractFlowNarrowings(
+        FnBinary(FnBool(true), BinaryOperator.Equal, FnFiledCall(harness, "TryGet"))
+    )
+
+    assert split.Then.Count == 1
+    assert split.Then[0].NullState == NullState.NotNull
+}
+
+// A LIFTED OPERAND ONLY PROVES THE SIDE THE COMPARISON DECIDED. `x?.TryGet(out v) == true` holds
+// ONLY when `x` was non-null AND the call answered true, so that branch carries the chain's tested
+// receivers as well. Its other branch is `x is null OR the call answered false` — a disjunction, and
+// a disjunction proves nothing about either side.
+test "a LIFTED `== true` proves the chain's receiver as well as the call's true branch" {
+    harness := FlowNarrowingDefault()
+    call := FnFiledConditionalCall(harness, "map", "TryGet")
+
+    split := harness.Owner.ExtractFlowNarrowings(FnBinary(call, BinaryOperator.Equal, FnBool(true)))
+
+    assert split.Then.Count == 2
+    assert FnPaths(split.Then) == "value,map"
+    assert split.Then[0].NullState == NullState.NotNull
+    assert split.Then[1].NullState == NullState.NotNull
+    assert split.Else.Count == 0
+}
+
+test "a LIFTED `!= true` proves everything on the branch where it did NOT hold" {
+    harness := FlowNarrowingDefault()
+    call := FnFiledConditionalCall(harness, "map", "TryGet")
+
+    split := harness.Owner.ExtractFlowNarrowings(FnBinary(call, BinaryOperator.NotEqual, FnBool(true)))
+
+    assert split.Then.Count == 0
+    assert FnPaths(split.Else) == "value,map"
+}
+
+test "a LIFTED `== false` decides its TRUE branch, and that branch is the call's false one" {
+    harness := FlowNarrowingDefault()
+    call := FnFiledConditionalCall(harness, "map", "TryGet")
+
+    split := harness.Owner.ExtractFlowNarrowings(FnBinary(call, BinaryOperator.Equal, FnBool(false)))
+
+    assert FnPaths(split.Then) == "value,map"
+    assert split.Then[0].NullState == NullState.MaybeNull
+    assert split.Then[1].NullState == NullState.NotNull
+    assert split.Else.Count == 0
+}
+
+test "two boolean literals compared to each other narrow nothing" {
+    harness := FlowNarrowingDefault()
+
+    split := harness.Owner.ExtractFlowNarrowings(
+        FnBinary(FnBool(true), BinaryOperator.Equal, FnBool(false))
+    )
+
+    assert split.Then.Count == 0
+    assert split.Else.Count == 0
+}
+
+test "a comparison against a NON-boolean literal keeps the null-comparison reading" {
+    harness := FlowNarrowingDefault()
+
+    split := harness.Owner.ExtractFlowNarrowings(
+        FnBinary(FnName("x"), BinaryOperator.NotEqual, new IntLiteralExpression("1", 3, 9))
+    )
+
+    assert split.Then.Count == 0
+    assert split.Else.Count == 0
 }
 
 test "an && whose right operand is a call carries that call's true-branch facts" {
