@@ -16,15 +16,20 @@ class ColumnarLocalFunctionClosurePlan {
     // Every enclosing binding — parameter or local — that some local function of this body reads or
     // writes. These are the names the enclosing body lifts into shared boxes and the display holds.
     CaptureNames: HashSet<string>
-    // The local functions that must run as INSTANCE methods of the display: the ones that capture,
-    // plus the ones that only CALL a capturing sibling and therefore need the same receiver in hand.
+    // The local functions that run as instance methods of the body's DISPLAY: the ones that capture a
+    // binding, plus the ones that only CALL such a sibling and therefore need the same receiver.
     DisplayMethodNames: HashSet<string>
-    // True when some display method reads the enclosing instance, which puts `<>4__this` on the display.
+    // The local functions that capture only `this` and run as instance methods of the ENCLOSING TYPE.
+    // That placement is what gives a struct's capturing local function C#'s `ref this`: an instance
+    // method of a value type receives its receiver by reference, so writes are seen by the caller.
+    InstanceMethodNames: HashSet<string>
+    // True when some DISPLAY method also needs the enclosing instance, which puts `<>4__this` on it.
     ReadsEnclosingInstance: bool
 
-    constructor(captureNames: HashSet<string>, displayMethodNames: HashSet<string>, readsEnclosingInstance: bool) {
+    constructor(captureNames: HashSet<string>, displayMethodNames: HashSet<string>, instanceMethodNames: HashSet<string>, readsEnclosingInstance: bool) {
         CaptureNames = captureNames
         DisplayMethodNames = displayMethodNames
+        InstanceMethodNames = instanceMethodNames
         ReadsEnclosingInstance = readsEnclosingInstance
     }
 
@@ -32,8 +37,16 @@ class ColumnarLocalFunctionClosurePlan {
         return DisplayMethodNames.Count > 0
     }
 
+    func NeedsLowering(): bool {
+        return DisplayMethodNames.Count > 0 || InstanceMethodNames.Count > 0
+    }
+
     func IsDisplayMethod(name: string): bool {
         return DisplayMethodNames.Contains(name)
+    }
+
+    func IsInstanceMethod(name: string): bool {
+        return InstanceMethodNames.Contains(name)
     }
 }
 
@@ -46,9 +59,9 @@ class ColumnarLocalFunctionClosurePlanner {
     ): ColumnarLocalFunctionClosurePlan {
         captureNames := new HashSet<string>(StringComparer.Ordinal)
         displayMethodNames := new HashSet<string>(StringComparer.Ordinal)
-        readsEnclosingInstance := false
+        instanceMethodNames := new HashSet<string>(StringComparer.Ordinal)
         if localFunctions == null || localFunctions.Count == 0 {
-            return new ColumnarLocalFunctionClosurePlan(captureNames, displayMethodNames, readsEnclosingInstance)
+            return new ColumnarLocalFunctionClosurePlan(captureNames, displayMethodNames, instanceMethodNames, false)
         }
 
         declaredNames := new HashSet<string>(StringComparer.Ordinal)
@@ -59,6 +72,8 @@ class ColumnarLocalFunctionClosurePlanner {
         }
 
         calledSiblings := new Dictionary<string, HashSet<string>>(StringComparer.Ordinal)
+        needsDisplay := new HashSet<string>(StringComparer.Ordinal)
+        needsEnclosingInstance := new HashSet<string>(StringComparer.Ordinal)
         index = 0
         while index < localFunctions.Count {
             declaration := localFunctions[index].Function
@@ -76,46 +91,40 @@ class ColumnarLocalFunctionClosurePlanner {
             ColumnarClosureBindingPlanner.CollectUnboundNames(declaration.BodyNodes, source, declaration.BodyRoot, bound, freeNames)
 
             siblings := new HashSet<string>(StringComparer.Ordinal)
-            capturesHere := false
-            readsInstanceHere := false
             for freeName in freeNames {
                 if parentBindingNames.Contains(freeName) {
                     captureNames.Add(freeName)
-                    capturesHere = true
+                    needsDisplay.Add(declaration.Name)
                 } else if declaredNames.Contains(freeName) {
                     siblings.Add(freeName)
                 } else if enclosingInstanceNames.Contains(freeName) {
-                    readsInstanceHere = true
+                    needsEnclosingInstance.Add(declaration.Name)
                 }
             }
 
             calledSiblings[declaration.Name] = siblings
-            if capturesHere || readsInstanceHere {
-                displayMethodNames.Add(declaration.Name)
-            }
-            if readsInstanceHere {
-                readsEnclosingInstance = true
-            }
-
             index = index + 1
         }
 
         // A capture-free local function that CALLS a capturing one still needs the display instance to
-        // make that call, so the "runs on the display" set is the closure of the call graph over the
-        // capturing seeds. Mutual recursion is a cycle in that graph and settles in the same fixpoint.
+        // make that call, and one that calls a `this`-reading sibling needs the receiver that sibling
+        // runs on. Both requirements flow BACKWARDS along the call graph, so they are one fixpoint;
+        // mutual recursion is a cycle in that graph and settles in it.
         changed := true
         while changed {
             changed = false
             index = 0
             while index < localFunctions.Count {
                 name := localFunctions[index].Function.Name
-                if !displayMethodNames.Contains(name) {
-                    calls := calledSiblings[name]
-                    for callee in calls {
-                        if displayMethodNames.Contains(callee) && !displayMethodNames.Contains(name) {
-                            displayMethodNames.Add(name)
-                            changed = true
-                        }
+                calls := calledSiblings[name]
+                for callee in calls {
+                    if needsDisplay.Contains(callee) && !needsDisplay.Contains(name) {
+                        needsDisplay.Add(name)
+                        changed = true
+                    }
+                    if needsEnclosingInstance.Contains(callee) && !needsEnclosingInstance.Contains(name) {
+                        needsEnclosingInstance.Add(name)
+                        changed = true
                     }
                 }
 
@@ -123,7 +132,23 @@ class ColumnarLocalFunctionClosurePlanner {
             }
         }
 
-        return new ColumnarLocalFunctionClosurePlan(captureNames, displayMethodNames, readsEnclosingInstance)
+        readsEnclosingInstance := false
+        index = 0
+        while index < localFunctions.Count {
+            name := localFunctions[index].Function.Name
+            if needsDisplay.Contains(name) {
+                displayMethodNames.Add(name)
+                if needsEnclosingInstance.Contains(name) {
+                    readsEnclosingInstance = true
+                }
+            } else if needsEnclosingInstance.Contains(name) {
+                instanceMethodNames.Add(name)
+            }
+
+            index = index + 1
+        }
+
+        return new ColumnarLocalFunctionClosurePlan(captureNames, displayMethodNames, instanceMethodNames, readsEnclosingInstance)
     }
 
     // THE NAMES THE LOCAL FUNCTIONS' OWN SCOPE ENCLOSES: the enclosing body's parameters plus the
@@ -202,7 +227,7 @@ class ColumnarLocalFunctionDisplay {
     Instance: LocalBuilder?
     ReceiverIsArgument: bool
 
-    constructor(builder: TypeBuilder, displayConstructor: ConstructorInfo, plan: ColumnarLocalFunctionClosurePlan) {
+    constructor(builder: TypeBuilder?, displayConstructor: ConstructorInfo?, plan: ColumnarLocalFunctionClosurePlan) {
         Builder = builder
         Constructor = displayConstructor
         Plan = plan
@@ -210,6 +235,10 @@ class ColumnarLocalFunctionDisplay {
         EnclosingThisField = null
         Instance = null
         ReceiverIsArgument = false
+    }
+
+    func HasDisplay(): bool {
+        return Builder != null
     }
 
     func ForDisplayMethodBody(): ColumnarLocalFunctionDisplay {
@@ -252,6 +281,10 @@ class ColumnarLocalFunctionDisplay {
         return Plan.IsDisplayMethod(name)
     }
 
+    func IsInstanceMethod(name: string): bool {
+        return Plan.IsInstanceMethod(name)
+    }
+
     func InstanceLocal(): LocalBuilder? {
         return Instance
     }
@@ -269,5 +302,41 @@ class ColumnarLocalFunctionDisplay {
             }
         }
         return null
+    }
+}
+
+// The declared shape of one body's local functions: the callable map every call site in the body and
+// in the local bodies resolves against, the declaration nodes that make a name visible, and the
+// closure the capturing ones run on. A free function's body and a type member's body both build this
+// the same way, which is what keeps "local function" one lowering rather than two.
+class ColumnarLocalFunctionLowering {
+    LocalFuncs: Dictionary<string, (Method: MethodBuilder, ParamTypes: Type[], ReturnType: Type)>
+    DeclaredNodes: Dictionary<int, string>
+    VisibleNames: List<string>
+    Closure: ColumnarLocalFunctionDisplay?
+    DeclaringScopeBindings: HashSet<string>
+
+    constructor(
+        localFuncs: Dictionary<string, (Method: MethodBuilder, ParamTypes: Type[], ReturnType: Type)>,
+        declaredNodes: Dictionary<int, string>,
+        visibleNames: List<string>,
+        closure: ColumnarLocalFunctionDisplay?,
+        declaringScopeBindings: HashSet<string>
+    ) {
+        LocalFuncs = localFuncs
+        DeclaredNodes = declaredNodes
+        VisibleNames = visibleNames
+        Closure = closure
+        DeclaringScopeBindings = declaringScopeBindings
+    }
+
+    func PlacementShift(name: string): int {
+        if Closure == null {
+            return 0
+        }
+        if Closure.IsDisplayMethod(name) || Closure.IsInstanceMethod(name) {
+            return 1
+        }
+        return 0
     }
 }

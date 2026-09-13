@@ -14234,9 +14234,6 @@ func ColumnarStructMethodUnsupportedStatus(source: string, tokens: ColumnarStruc
         }
 
         nextMethodParamType = nextMethodParamType + paramCount
-        if !nativeImportMethod && result.Values[8] > 0 {
-            return 1
-        }
     }
 
     return 0
