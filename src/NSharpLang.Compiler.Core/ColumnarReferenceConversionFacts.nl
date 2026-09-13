@@ -31,6 +31,10 @@ class ColumnarReferenceConversionFacts {
         } catch ex: NotSupportedException {
         }
 
+        if IsArrayCovariantConversion(sourceType, targetType) {
+            return true
+        }
+
         if IsExactReferenceEqualityComparerUpcast(sourceType, targetType) {
             return true
         }
@@ -84,6 +88,39 @@ class ColumnarReferenceConversionFacts {
         }
 
         return false
+    }
+
+    // ECMA-335 ARRAY COVARIANCE, FOR THE ELEMENT TYPES THIS COMPILATION IS STILL EMITTING.
+    //
+    // `string[]` to `object[]` is answered by `IsAssignableFrom` above, because both element types are
+    // baked. `Dog[]` to `Animal[]` is not: an unbaked `TypeBuilder` element makes Reflection.Emit
+    // refuse the whole array question, and the return/argument/assignment sites read that refusal as a
+    // type mismatch. The relation is the same one either way — the elements must both be reference
+    // types and the source element must convert to the target element by reference — so it is stated
+    // here once and RECURSES through this owner, which is what lets `Dog[][]` reach `Animal[][]`.
+    //
+    // The conversion itself emits NOTHING: a covariant array view is the same object, which is exactly
+    // why the CLR checks stores through it at runtime and throws `ArrayTypeMismatchException`.
+    //
+    // `IsSafeSzArrayType` rather than `IsSZArray` for the usual reason: Reflection.Emit's generic
+    // parameter builder throws `NotImplementedException` out of `IsSZArray`, and this owner is asked
+    // about bare type parameters on every assignment inside a generic body.
+    static func IsArrayCovariantConversion(sourceType: Type, targetType: Type): bool {
+        if !ColumnarTypeEquivalenceFacts.IsSafeSzArrayType(sourceType) || !ColumnarTypeEquivalenceFacts.IsSafeSzArrayType(targetType) {
+            return false
+        }
+
+        sourceElement := sourceType.GetElementType()
+        targetElement := targetType.GetElementType()
+        if sourceElement == null || targetElement == null {
+            return false
+        }
+
+        if ColumnarTypeEquivalenceFacts.TypesEquivalent(sourceElement, targetElement) {
+            return true
+        }
+
+        return TryEmitReferenceConversion(sourceElement, targetElement)
     }
 
     // Source interface identity lives in the declaration registry while its TypeBuilders are

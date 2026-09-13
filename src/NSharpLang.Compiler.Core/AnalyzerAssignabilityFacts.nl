@@ -166,6 +166,27 @@ class AnalyzerAssignabilityFacts {
         return AreKnownGenericArgumentsCompatible(targetArray.ElementType, sourceArray.ElementType)
     }
 
+    // THE ARRAY-CONVERSION SHAPE, WITHOUT THE ELEMENT QUESTION. Both sides must be arrays once their
+    // oblivious shells are off — those shells are metadata written without a nullable context and say
+    // nothing about the array — and what comes back is the pair of element types whose relation
+    // decides the conversion. The relation itself is NOT here: array covariance needs an implicit
+    // REFERENCE conversion between the elements, which re-enters the assignability engine, so the
+    // root answers it and this owner only states the shape.
+    static func TryGetArrayConversionElements(target: TypeInfo, source: TypeInfo, out targetElement: TypeInfo, out sourceElement: TypeInfo): bool {
+        targetElement = BuiltInTypes.Unknown
+        sourceElement = BuiltInTypes.Unknown
+
+        targetArray := UnwrapOblivious(target) as ArrayTypeInfo
+        sourceArray := UnwrapOblivious(source) as ArrayTypeInfo
+        if targetArray == null || sourceArray == null {
+            return false
+        }
+
+        targetElement = targetArray.ElementType
+        sourceElement = sourceArray.ElementType
+        return true
+    }
+
     // Structural function-type assignability. Parameter counts must agree exactly; an INFERRED
     // (unknown) source parameter is accepted without a check rather than rejected, because a lambda
     // whose parameter types are still being inferred must not be pre-judged. Note the directions:

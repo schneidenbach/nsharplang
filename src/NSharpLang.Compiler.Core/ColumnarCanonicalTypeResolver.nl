@@ -2138,6 +2138,12 @@ class ColumnarCanonicalTypeResolver {
             result = typeof(IndexOutOfRangeException)
         } else if canonical == "InvalidCastException" || canonical == "System.InvalidCastException" {
             result = typeof(InvalidCastException)
+        } else if canonical == "ArrayTypeMismatchException" || canonical == "System.ArrayTypeMismatchException" {
+            // The covariant-array store's own exception. `string[]` viewed as `object[]` is one object,
+            // so the CLR checks every store through the view and throws this when the value is not an
+            // instance of the array's REAL element type; a program that cannot CATCH it cannot observe
+            // that array covariance is a view rather than a copy.
+            result = typeof(ArrayTypeMismatchException)
         } else if canonical == "FileNotFoundException" || canonical == "System.IO.FileNotFoundException" {
             result = typeof(FileNotFoundException)
         } else if canonical == "IOException" || canonical == "System.IO.IOException" {

@@ -175,6 +175,25 @@ func ConversionGenericType(): GenericTypeInfo {
     return new GenericTypeInfo("List", arguments, new ReflectionTypeInfo(typeof(List<int>)))
 }
 
+func ConversionNullableGenericType(): GenericTypeInfo {
+    arguments := new List<TypeInfo>()
+    arguments.Add(BuiltInTypes.Int)
+    return new GenericTypeInfo("Nullable", arguments, new ReflectionTypeInfo(typeof(Nullable<int>).GetGenericTypeDefinition()))
+}
+
+func ConversionReadOnlyDictionaryGenericType(): GenericTypeInfo {
+    arguments := new List<TypeInfo>()
+    arguments.Add(BuiltInTypes.String)
+    arguments.Add(BuiltInTypes.String)
+    return new GenericTypeInfo("IReadOnlyDictionary", arguments, new ReflectionTypeInfo(typeof(IReadOnlyDictionary<string, string>).GetGenericTypeDefinition()))
+}
+
+func ConversionUnresolvedGenericType(): GenericTypeInfo {
+    arguments := new List<TypeInfo>()
+    arguments.Add(BuiltInTypes.Int)
+    return new GenericTypeInfo("Box", arguments)
+}
+
 func ConversionFunctionType(): FunctionTypeInfo {
     result := new FunctionTypeInfo()
     result.ParameterTypes = new List<TypeInfo>()
@@ -367,8 +386,22 @@ test "reference-type classification covers every type-info family" {
     assert !AnalyzerConversionFacts.IsReferenceType(ConversionEnumType())
     assert !AnalyzerConversionFacts.IsReferenceType(new ByRefTypeInfo(BuiltInTypes.Int))
 
-    // Closed generic instantiations are NOT treated as reference types here.
-    assert !AnalyzerConversionFacts.IsReferenceType(ConversionGenericType())
+    // A closed generic instantiation answers FROM ITS DEFINITION: `List<int>` is a class, so it is a
+    // reference type and `null` is one of its values; `Nullable<int>` spelled generically is not.
+    assert AnalyzerConversionFacts.IsReferenceType(ConversionGenericType())
+    assert !AnalyzerConversionFacts.IsReferenceType(ConversionNullableGenericType())
+    assert AnalyzerConversionFacts.IsReferenceType(ConversionReadOnlyDictionaryGenericType())
+
+    // An instantiation the analyzer has not resolved to a definition keeps the conservative answer:
+    // no definition is an absence of information, not a decision that it is a value type.
+    assert !AnalyzerConversionFacts.IsReferenceType(ConversionUnresolvedGenericType())
+
+    // An oblivious shell is an ANNOTATION — metadata written without a nullable context — so it is
+    // transparent, and C#'s own rule is that an oblivious reference position admits null.
+    assert AnalyzerConversionFacts.IsReferenceType(new ObliviousTypeInfo(BuiltInTypes.String))
+    assert AnalyzerConversionFacts.IsReferenceType(new ObliviousTypeInfo(ConversionReadOnlyDictionaryGenericType()))
+    assert AnalyzerConversionFacts.IsReferenceType(new ObliviousTypeInfo(new ArrayTypeInfo(new ObliviousTypeInfo(BuiltInTypes.String))))
+    assert !AnalyzerConversionFacts.IsReferenceType(new ObliviousTypeInfo(BuiltInTypes.Int))
 
     // Reflection types defer to the CLR value-type flag.
     assert AnalyzerConversionFacts.IsReferenceType(new ReflectionTypeInfo(typeof(string)))

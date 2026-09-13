@@ -58,9 +58,27 @@ class AnalyzerConversionFacts {
     }
 
     // Returns true when the type is a reference type — that is, when `null` is one of its values.
-    // Numeric primitives, bool, char, structs, record structs, enums, byref types and closed generic
-    // instantiations are value types.
+    // Numeric primitives, bool, char, structs, record structs, enums and byref types are value types.
+    //
+    // A CLOSED GENERIC INSTANTIATION ANSWERS FROM ITS DEFINITION, NOT FROM ITS SHAPE. This owner used
+    // to answer FALSE for every `GenericTypeInfo`, which made `IReadOnlyDictionary<string, string>`
+    // and `List<string>` value types as far as the `null` arm of assignability was concerned — so a
+    // `null` argument was refused by a reflected `IReadOnlyDictionary<string, string>?` parameter with
+    // "No overload accepts 3 arguments with these types", while a bare `string` parameter took one.
+    // `List<T>` is a class and `Nullable<T>` is a struct, and the only thing that knows which is the
+    // DEFINITION, so that is what is asked. An instantiation that carries no definition keeps the old
+    // conservative answer: it is a name the analyzer has not resolved, not a decision.
+    //
+    // AN OBLIVIOUS SHELL IS AN ANNOTATION, NOT A TYPE. Metadata written without a nullable context
+    // reads back as `string![]!` / `IReadOnlyDictionary<string!, string!>!`, and C#'s own rule is that
+    // an oblivious reference position ADMITS null. The shell is therefore transparent here, exactly as
+    // it is to identity and to variance.
     static func IsReferenceType(candidate: TypeInfo): bool {
+        obliviousType := candidate as ObliviousTypeInfo
+        if obliviousType != null {
+            return IsReferenceType(obliviousType.InnerType)
+        }
+
         simple := candidate as SimpleTypeInfo
         if simple != null {
             name := simple.Name
@@ -95,7 +113,12 @@ class AnalyzerConversionFacts {
 
         genericType := candidate as GenericTypeInfo
         if genericType != null {
-            return false
+            genericDefinition := genericType.GenericDefinition
+            if genericDefinition == null {
+                return false
+            }
+
+            return IsReferenceType(genericDefinition)
         }
 
         reflectionType := candidate as ReflectionTypeInfo

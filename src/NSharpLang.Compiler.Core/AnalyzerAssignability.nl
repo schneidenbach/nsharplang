@@ -270,6 +270,14 @@ class AnalyzerAssignability {
             return true
         }
 
+        // ECMA-335 ARRAY COVARIANCE. `S[]` is a `T[]` when `S` has an implicit REFERENCE conversion to
+        // `T`. The conversion is a no-op on the value — one `string[]` object viewed as an `object[]` —
+        // which is why the CLR restricts it to reference elements and why a store through the covariant
+        // view is checked at runtime with `ArrayTypeMismatchException`.
+        if IsArrayCovariantAssignable(resolvedTarget, resolvedSource) {
+            return true
+        }
+
         if TypeInfoIdentityFacts.IsRuntimeSpanToReadOnlySpanConversion(resolvedTarget, resolvedSource) {
             return true
         }
@@ -895,6 +903,79 @@ class AnalyzerAssignability {
     // The known-generic relation, with its covariant argument pairs answered here. This is slice 6's
     // pending-pair protocol ABSORBED: the classification stays in `AnalyzerAssignabilityFacts` and
     // the recursion it could not express is now simply a call.
+    // ARRAY COVARIANCE, AS ONE RELATION FOR EVERY POSITION. A `yield`, a `return`, an argument, an
+    // assignment and an array literal's element all ask this same question, and they ask it here so
+    // they cannot drift apart.
+    func IsArrayCovariantAssignable(target: TypeInfo, source: TypeInfo): bool {
+        targetElement: TypeInfo = BuiltInTypes.Unknown
+        sourceElement: TypeInfo = BuiltInTypes.Unknown
+        if !AnalyzerAssignabilityFacts.TryGetArrayConversionElements(target, source, out targetElement, out sourceElement) {
+            return false
+        }
+
+        return IsImplicitReferenceConversion(targetElement, sourceElement)
+    }
+
+    // THE IMPLICIT REFERENCE CONVERSION, AND IT IS DELIBERATELY NARROWER THAN `IsAssignable`.
+    //
+    // Array covariance is the one relation in the language that is stated over reference conversions
+    // rather than over assignability, and the difference is not academic: `IsAssignable` also admits
+    // boxing, numeric widening, span views, collection-expression targets and USER-DEFINED implicit
+    // operators, and none of those may be carried across an array. A `Celsius[]` is not a
+    // `Fahrenheit[]` however many `implicit operator`s connect the two, because the CLR conversion is
+    // a no-op on the array object and every element would have to be rewritten. So this predicate
+    // names the reference relations and nothing else.
+    //
+    // BOTH HALVES MUST BE REFERENCE TYPES. `int[]` is not an `object[]` — the elements are four bytes
+    // of storage, not a pointer — and that refusal is what the value-element hint explains.
+    //
+    // The oblivious shell is transparent on both sides: an imported `string![]!` and a source
+    // `string[]` are the same array.
+    func IsImplicitReferenceConversion(target: TypeInfo, source: TypeInfo): bool {
+        resolvedTarget := AnalyzerAssignabilityFacts.UnwrapOblivious(declarationContext.ResolveDeclaredAlias(target))
+        resolvedSource := AnalyzerAssignabilityFacts.UnwrapOblivious(declarationContext.ResolveDeclaredAlias(source))
+
+        if BuiltInTypes.IsUnknown(resolvedTarget) || BuiltInTypes.IsUnknown(resolvedSource) {
+            return false
+        }
+
+        if !AnalyzerConversionFacts.IsReferenceType(resolvedTarget) || !AnalyzerConversionFacts.IsReferenceType(resolvedSource) {
+            return false
+        }
+
+        if Object.ReferenceEquals(resolvedTarget, resolvedSource) || TypeInfoIdentityFacts.AreEqual(resolvedTarget, resolvedSource) {
+            return true
+        }
+
+        // Every reference type converts to `object` without touching the value.
+        if BuiltInTypes.Is(resolvedTarget, BuiltInTypes.Object) {
+            return true
+        }
+
+        // Covariance composes: `string[][]` is an `object[][]`.
+        if IsArrayCovariantAssignable(resolvedTarget, resolvedSource) {
+            return true
+        }
+
+        // The CLR's own subtyping, through the identity-aware walk so load-context duplicates match.
+        // ACCEPTANCE-ONLY, exactly as the bridges in `IsAssignableCore`: a refusal falls through to
+        // the source-declared arms below rather than ending the question.
+        bridgeTargetType := clrTypeConversion.TryConvertTypeInfoToClrType(resolvedTarget)
+        bridgeSourceType := clrTypeConversion.TryConvertTypeInfoToClrType(resolvedSource)
+        if bridgeTargetType != null && bridgeSourceType != null && AnalyzerConversionFacts.IsReflectionAssignableFrom(bridgeTargetType, bridgeSourceType) {
+            return true
+        }
+
+        // The N#-declared base chains and interface lists.
+        if IsSubtypeOf(resolvedSource, resolvedTarget) {
+            return true
+        }
+
+        // The variant generic interfaces — `IEnumerable<string>` to `IEnumerable<object>` — which the
+        // CLR carries by reference conversion too.
+        return IsKnownGenericTypeAssignable(resolvedTarget, resolvedSource)
+    }
+
     func IsKnownGenericTypeAssignable(target: TypeInfo, source: TypeInfo): bool {
         decision := assignabilityFacts.ClassifyKnownGenericAssignability(target, source)
         return ResolvePendingPairs(decision)
