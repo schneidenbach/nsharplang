@@ -185,18 +185,6 @@ class ColumnarUsingResourcePlanner {
         }
     }
 
-    static func IsSealedResource(candidate: Type): bool {
-        if candidate == null {
-            return false
-        }
-
-        try {
-            return candidate.get_IsSealed()
-        } catch {
-            return false
-        }
-    }
-
     static func DefinitionNamesInterface(definition: ColumnarStructDef, interfaceName: string): bool {
         index := 0
         while index < definition.ExternalInterfaces.Count {
@@ -252,12 +240,17 @@ class ColumnarUsingResourcePlanner {
             return new ColumnarUsingDisposalPlan(5, patternMethod, interfaceType, resourceType)
         }
 
-        // A by-ref-like value can never be tested at run time — it cannot be boxed — and a sealed or
-        // value type's run-time type IS its static type, so neither has anywhere left to look.
-        if IsByRefLikeResource(resourceType) || IsValueTypeResource(resourceType) || IsSealedResource(resourceType) {
+        // A VALUE type has nowhere left to look: its run-time type IS its static type, and a by-ref-like
+        // one cannot even be tested, because the test would have to box it.
+        if IsByRefLikeResource(resourceType) || IsValueTypeResource(resourceType) {
             return null
         }
 
+        // EVERY REMAINING REFERENCE TYPE CAN ANSWER AT RUN TIME, including a sealed one. The `foreach`
+        // lowering stops at `sealed` because it is guessing whether an enumerator happens to be
+        // disposable; this one is not guessing — the analyzer already PROVED the resource disposable
+        // at the front door (NL333), so the only reason the static test failed is that the type is a
+        // builder that would not answer, and the run-time test will.
         return new ColumnarUsingDisposalPlan(3, interfaceMethod, interfaceType, resourceType)
     }
 }
