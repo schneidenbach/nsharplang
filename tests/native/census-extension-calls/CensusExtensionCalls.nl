@@ -108,3 +108,23 @@ func MakeWeight(): int {
 func IsShort(value: string): bool {
     return value.Length < 3
 }
+
+// A delegate FIELD assigned from a constructor. The right-hand side of an assignment is an argument
+// position, so the field's declared type is what shapes the lambda written there.
+class Box {
+    handler: Func<int, bool>
+    scale: Func<int, int>
+
+    public constructor(factor: int) {
+        this.handler = value => value > 2
+        scale = value => value * factor
+    }
+
+    func Run(value: int): bool {
+        return handler(value)
+    }
+
+    func Scale(value: int): int {
+        return scale(value)
+    }
+}

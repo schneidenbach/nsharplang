@@ -1376,8 +1376,6 @@ Two rules the compiler enforces about the type-argument list itself:
   problem. You do not need the interface to be iterable: a `for x in bag` loop binds an accessible
   parameterless `GetEnumerator()` directly, so declaring one is enough. Return `IEnumerable<T>` from
   a method when a caller needs the interface itself.
-- A **lambda assigned to a delegate FIELD inside a constructor** is not emitted, for any delegate
-  (`Func<int, bool>` too). Build it in a local, or return it from a function.
 - A **generic method an `interface` declares** — `interface IHas { func Get<T>(): T }` — is not
   compiled yet. A generic method on a `class`, `struct` or `record` is unaffected.
 - A **generic method declared on your own type** and called with a lambda — `holder.Match(v => ...)`

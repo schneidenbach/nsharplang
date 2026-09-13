@@ -218,3 +218,13 @@ test "a lambda reaches an indexer argument, an initializer value and a literal e
     assert triple(14) == 42
     assert decrement(43) == 42
 }
+
+test "a lambda assigned to a delegate FIELD inside a constructor executes" {
+    box := new Box(3)
+
+    assert box.Run(5)
+    assert !box.Run(1)
+
+    // The lambda captured the constructor's own parameter, so the closure is real.
+    assert box.Scale(14) == 42
+}
