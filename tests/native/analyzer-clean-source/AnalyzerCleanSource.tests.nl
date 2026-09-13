@@ -8104,7 +8104,7 @@ test "020 s31 analyzer error codes: five relational comparisons over incompatibl
     assert AcRow(analysis, 3) == "TypeMismatch|The '>=' operator doesn't work with 'int?' and 'int' — both sides need primitive numeric values or a comparison operator overload, but the left side is 'int?'|Use primitive numeric operands, convert the non-numeric value, or define an operator overload for this type.|Error"
     assert AcHint(analysis, 3) == "<null>"
     assert AcSuggestions(analysis, 3) == "<null>"
-    assert AcRow(analysis, 4) == "TypeMismatch|The '<' operator doesn't work with 'ulong' and 'long'|Use numeric operands with a compatible common type, or add an explicit conversion.|Error"
+    assert AcRow(analysis, 4) == "TypeMismatch|The '<' operator doesn't work with 'ulong' and 'long' — no single integral type holds every value of both, so there is no common type to compute in. A constant whose value fits converts on its own; a variable needs a cast|Cast the 'long' side to 'ulong', or make both sides signed.|Error"
     assert AcHint(analysis, 4) == "<null>"
     assert AcSuggestions(analysis, 4) == "<null>"
     assert AcRow(analysis, 5) == "<no-such-error>"
@@ -8128,7 +8128,7 @@ test "020 s31 analyzer error codes: five relational comparisons over incompatibl
     assert AcRow(rich, 3) == "TypeMismatch|The '>=' operator doesn't work with 'int?' and 'int' — both sides need primitive numeric values or a comparison operator overload, but the left side is 'int?'|Use primitive numeric operands, convert the non-numeric value, or define an operator overload for this type.|Error"
     assert AcHint(rich, 3) == "<null>"
     assert AcSuggestions(rich, 3) == "<null>"
-    assert AcRow(rich, 4) == "TypeMismatch|The '<' operator doesn't work with 'ulong' and 'long'|Use numeric operands with a compatible common type, or add an explicit conversion.|Error"
+    assert AcRow(rich, 4) == "TypeMismatch|The '<' operator doesn't work with 'ulong' and 'long' — no single integral type holds every value of both, so there is no common type to compute in. A constant whose value fits converts on its own; a variable needs a cast|Cast the 'long' side to 'ulong', or make both sides signed.|Error"
     assert AcHint(rich, 4) == "<null>"
     assert AcSuggestions(rich, 4) == "<null>"
     assert AcRow(rich, 5) == "<no-such-error>"
@@ -10374,7 +10374,7 @@ test "020 s32 analyzer diagnostics: the fixture reports `NL202` at 5:29+1 — th
     assert AcCensus(analysis) == "NL202:TypeMismatch@5:29+1;"
     assert AcHasErrors(analysis) == "True"
     assert AcErrorCount(analysis) == 1
-    assert AcRow(analysis, 0) == "TypeMismatch|The '+' operator doesn't work with 'ulong' and 'int'|Use numeric operands with a compatible common type, or add an explicit conversion.|Error"
+    assert AcRow(analysis, 0) == "TypeMismatch|The '+' operator doesn't work with 'ulong' and 'int' — no single integral type holds every value of both, so there is no common type to compute in. A constant whose value fits converts on its own; a variable needs a cast|Cast the 'int' side to 'ulong', or make both sides signed.|Error"
     assert AcHint(analysis, 0) == "<null>"
     assert AcSuggestions(analysis, 0) == "<null>"
     assert AcSnippet(analysis, 0) == "<null>"
@@ -10383,13 +10383,13 @@ test "020 s32 analyzer diagnostics: the fixture reports `NL202` at 5:29+1 — th
     assert AcRow(analysis, 1) == "<no-such-error>"
     assert AcCodeCount(analysis, "TypeMismatch") == 1
     assert AcCodeErrorCount(analysis, "TypeMismatch") == 1
-    assert AcCodeRow(analysis, "TypeMismatch") == "TypeMismatch|The '+' operator doesn't work with 'ulong' and 'int'|Use numeric operands with a compatible common type, or add an explicit conversion.|Error"
+    assert AcCodeRow(analysis, "TypeMismatch") == "TypeMismatch|The '+' operator doesn't work with 'ulong' and 'int' — no single integral type holds every value of both, so there is no common type to compute in. A constant whose value fits converts on its own; a variable needs a cast|Cast the 'int' side to 'ulong', or make both sides signed.|Error"
     assert AcCodeAnchor(analysis, "TypeMismatch") == "NL202@5:29+1"
     rich := AcAnalyzeWithSource(source)
     assert AcCensus(rich) == "NL202:TypeMismatch@5:29+1;"
     assert AcHasErrors(rich) == "True"
     assert AcErrorCount(rich) == 1
-    assert AcRow(rich, 0) == "TypeMismatch|The '+' operator doesn't work with 'ulong' and 'int'|Use numeric operands with a compatible common type, or add an explicit conversion.|Error"
+    assert AcRow(rich, 0) == "TypeMismatch|The '+' operator doesn't work with 'ulong' and 'int' — no single integral type holds every value of both, so there is no common type to compute in. A constant whose value fits converts on its own; a variable needs a cast|Cast the 'int' side to 'ulong', or make both sides signed.|Error"
     assert AcHint(rich, 0) == "<null>"
     assert AcSuggestions(rich, 0) == "<null>"
     assert AcSnippet(rich, 0) == "                x := getU() + getI()"
@@ -10398,7 +10398,7 @@ test "020 s32 analyzer diagnostics: the fixture reports `NL202` at 5:29+1 — th
     assert AcRow(rich, 1) == "<no-such-error>"
     assert AcCodeCount(rich, "TypeMismatch") == 1
     assert AcCodeErrorCount(rich, "TypeMismatch") == 1
-    assert AcCodeRow(rich, "TypeMismatch") == "TypeMismatch|The '+' operator doesn't work with 'ulong' and 'int'|Use numeric operands with a compatible common type, or add an explicit conversion.|Error"
+    assert AcCodeRow(rich, "TypeMismatch") == "TypeMismatch|The '+' operator doesn't work with 'ulong' and 'int' — no single integral type holds every value of both, so there is no common type to compute in. A constant whose value fits converts on its own; a variable needs a cast|Cast the 'int' side to 'ulong', or make both sides signed.|Error"
     assert AcCodeAnchor(rich, "TypeMismatch") == "NL202@5:29+1"
 }
 

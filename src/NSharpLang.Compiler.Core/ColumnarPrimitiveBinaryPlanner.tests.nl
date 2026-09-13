@@ -357,10 +357,14 @@ test "primitive binary source addition rejects unsupported and corrupt facts ato
 }
 
 test "primitive binary planner declines other operators types and malformed arity atomically" {
-    PrimitiveBinaryDeclines(
+    // `20 + 22L` is not a mixed pair to decline but a CONSTANT against a `long`: §10.2.11 converts
+    // the unsuffixed `20`, and the addition runs in 64 bits exactly as C# runs it.
+    constantAgainstLong := PrimitiveBinaryPlan(
         "20 + 22L",
         ColumnarRangePlannerEmptyBindings()
     )
+    assert constantAgainstLong.ResultType == typeof(long)
+
     PrimitiveBinaryDeclines(
         "left + right",
         PrimitiveBinaryParameterBindings(typeof(bool))
@@ -1317,13 +1321,54 @@ test "primitive binary planner owns shifts with signed and unsigned right select
         2
     ) == "42"
 
+    // A `uint` left operand is one of the four the CLR shifts: `shl` is the same instruction for it,
+    // and its RIGHT shift is the unsigned one, because a `uint` high bit must zero-fill.
+    unsignedLeft := PrimitiveBinaryPlan(
+        "left << right",
+        PrimitiveBinaryPairBindings(typeof(uint), typeof(int))
+    )
+    assert unsignedLeft.ResultType == typeof(uint)
+    assert PrimitiveBinaryOpcodeCount(
+        unsignedLeft,
+        ColumnarCodePlanContract.Shl()
+    ) == 1
+    assert PrimitiveBinaryExecuteParameters(
+        unsignedLeft,
+        typeof(uint),
+        typeof(uint),
+        typeof(int),
+        (uint)21,
+        1
+    ) == "42"
+
+    unsignedLeftRight := PrimitiveBinaryPlan(
+        "left >> right",
+        PrimitiveBinaryPairBindings(typeof(uint), typeof(int))
+    )
+    assert unsignedLeftRight.ResultType == typeof(uint)
+    assert PrimitiveBinaryOpcodeCount(
+        unsignedLeftRight,
+        ColumnarCodePlanContract.ShrUn()
+    ) == 1
+    assert PrimitiveBinaryOpcodeCount(
+        unsignedLeftRight,
+        ColumnarCodePlanContract.Shr()
+    ) == 0
+    // The OPCODE assertions above are what prove the unsigned form; the execution proves the shift
+    // itself, with a value the constant rules admit.
+    assert PrimitiveBinaryExecuteParameters(
+        unsignedLeftRight,
+        typeof(uint),
+        typeof(uint),
+        typeof(int),
+        (uint)168,
+        2
+    ) == "42"
+
+    // The COUNT is still an Int32 and nothing else.
     PrimitiveBinaryDeclines(
         "left >> right",
         PrimitiveBinaryPairBindings(typeof(int), typeof(long))
-    )
-    PrimitiveBinaryDeclines(
-        "left << right",
-        PrimitiveBinaryPairBindings(typeof(uint), typeof(int))
     )
 }
 
@@ -2328,11 +2373,18 @@ test "primitive binary planner declines non-adopting literal mixes atomically" {
     uintBindings := ColumnarRangePlannerEmptyBindings()
     ColumnarRangePlannerAddParameter(uintBindings, "left", 0, typeof(uint))
 
-    // Both operand orders: only the RIGHT literal adopts (the legacy arm's exact rule). A literal
-    // LEFT against a typed uint right stays a mixed int/uint pair and declines.
+    // §10.2.11 is symmetric, so a literal LEFT adopts too — the planner replans the pair with the
+    // constant taking the type the first pass discovered.
     literalLeft := ColumnarRangePlannerEmptyBindings()
     ColumnarRangePlannerAddParameter(literalLeft, "value", 0, typeof(uint))
-    PrimitiveBinaryDeclines("2 / value", literalLeft)
+    adoptedLeft := PrimitiveBinaryPlan("84 / value", literalLeft)
+    assert adoptedLeft.ResultType == typeof(uint)
+    assert PrimitiveBinaryExecuteOneParameter(
+        adoptedLeft,
+        typeof(uint),
+        typeof(uint),
+        (uint)2
+    ) == "42"
 
     // An out-of-range magnitude declines for every target: the cap is Int32.MaxValue, so a literal
     // above it neither adopts nor plans as its own Int32.
