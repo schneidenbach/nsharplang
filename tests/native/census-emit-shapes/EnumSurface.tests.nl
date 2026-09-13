@@ -25,12 +25,24 @@ test "bitwise or over two source enum values keeps the enum type" {
     assert AccessCombined(Access.None, Access.Read) == Access.Read
 }
 
-test "a source enum converts to its underlying value, exactly as a reflected enum does" {
-    assert AccessOrdinal(Access.None) == 0
-    assert AccessOrdinal(Access.Read) == 1
-    assert AccessOrdinal(Access.All) == 3
-    assert AccessOrdinalWide(Access.Write) == 2L
+test "a reflected enum member reads in ordinary position and converts to its underlying value" {
     assert ExternalOrdinal(DayOfWeek.Wednesday) == 3
+    assert IsMidweek(DayOfWeek.Wednesday)
+    assert !IsMidweek(DayOfWeek.Monday)
+}
+
+test "a reflected enum member reads inside an iterator body, yielded and formatted" {
+    days := 0
+    for day in Weekend() {
+        days = days + 1
+    }
+    assert days == 2
+
+    ordinals := 0
+    for ordinal in WeekdayOrdinals() {
+        ordinals = ordinals * 10 + ordinal
+    }
+    assert ordinals == 15
 }
 
 test "the emitted enum really derives from System.Enum and carries an Int32 underlying type" {

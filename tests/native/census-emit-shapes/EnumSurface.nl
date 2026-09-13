@@ -1,4 +1,5 @@
 namespace NSharpLang.CensusEmitShapes.Tests
+import System.Collections.Generic
 
 
 // THE INSTANCE SURFACE A SOURCE ENUM INHERITS IS `System.Enum`, not `object`. Every member below is
@@ -38,17 +39,22 @@ func AccessCombined(left: Access, right: Access): Access {
     return left | right
 }
 
-// `enum as <numeric>`: a source enum's underlying value. The reflected-enum spelling
-// (`DayOfWeek as int`) already emitted; this one declined because the emitter's cast arm asked a
-// narrower "is an enum" than the target side of the same conversion did.
-func AccessOrdinal(value: Access): int {
-    return value as int
-}
-
-func AccessOrdinalWide(value: Access): long {
-    return value as long
-}
-
+// A REFLECTED enum's member read, and its underlying value, in ordinary expression position and
+// inside an ITERATOR body — the census reported the member read as declining, and it emits.
 func ExternalOrdinal(day: DayOfWeek): int {
-    return day as int
+    return (int)day
+}
+
+func IsMidweek(day: DayOfWeek): bool {
+    return day == DayOfWeek.Wednesday
+}
+
+func* Weekend(): IEnumerable<DayOfWeek> {
+    yield DayOfWeek.Saturday
+    yield DayOfWeek.Sunday
+}
+
+func* WeekdayOrdinals(): IEnumerable<int> {
+    yield (int)DayOfWeek.Monday
+    yield (int)DayOfWeek.Friday
 }

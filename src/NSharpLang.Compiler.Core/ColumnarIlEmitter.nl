@@ -7015,7 +7015,7 @@ sealed class ColumnarIlEmitter {
             }
             targetName := ColumnarNodeTextFacts.Text(_nodes, _source, target)
             if (ColumnarExpressionSyntaxFacts.IsExplicitThisIdentifier(_nodes, _source, target)) {
-                if (_currentStruct == null || (!_currentStruct.IsReference && !_isConstructorBody)) {
+                if (_currentStruct == null) {
                     return false
                 }
                 let explicitThisFieldTarget: System.Reflection.Emit.FieldBuilder? = null
@@ -7210,18 +7210,23 @@ sealed class ColumnarIlEmitter {
                 ColumnarArgumentInstructionEmitter.EmitStore(_il, paramOrdinal)
                 return true
             }
-            // `field = expr` inside a REFERENCE-type instance method/constructor body: a bare name that is neither
-            // a local nor a param falls back to a FIELD of the current type (`this.field = expr`). `this` is arg 0
-            // (the object ref), so emit `ldarg.0; <value>; stfld <FieldBuilder>`. (Checked AFTER locals/params so a
-            // local/param shadows a field — matching the bare-field READ in EmitExpression's identifier case.)
-            // GATED to reference types: a VALUE-type (struct) instance call spills the receiver to a TEMP COPY
-            // (TryEmitInstanceCall), so a struct method's field mutation would write the copy, not the caller's
-            // variable — diverging from N#'s in-place value semantics. Struct field-mutation-in-method therefore
-            // DECLINES until the call site addresses the receiver's own storage (a later slice). A class/record
-            // ref is shared through the temp, so the mutation persists correctly. Resolution walks the BASE
-            // chain (nearest first) so a derived member may assign an INHERITED field.
+            // `field = expr` inside an instance method/constructor body: a bare name that is neither a
+            // local nor a param falls back to a FIELD of the current type (`this.field = expr`). `this`
+            // is arg 0 — an object ref for a class, a managed pointer for a struct — so the write is
+            // `ldarg.0; <value>; stfld <FieldBuilder>` in both cases. (Checked AFTER locals/params so a
+            // local/param shadows a field — matching the bare-field READ in EmitExpression's identifier
+            // case.) Resolution walks the BASE chain (nearest first) so a derived member may assign an
+            // INHERITED field.
+            //
+            // A STRUCT METHOD MAY WRITE ITS OWN FIELDS, AND IT IS THE CALL SITE THAT MAKES THAT TRUE.
+            // The write itself was never wrong — the receiver was: every call on a struct used to spill
+            // the receiver's VALUE to a temp and call through the temp's address, so the mutation landed
+            // on a copy. `TryEmitBclMethodCall` now loads an ADDRESSABLE receiver by address, so `this`
+            // is the caller's own storage and the write persists, exactly as in C#. A receiver with no
+            // storage of its own is still a copy there, and mutating it is a no-op there too — the same
+            // answer C# gives.
             let thisFieldTarget: System.Reflection.Emit.FieldBuilder? = null
-            if (_currentStruct != null && (_currentStruct.IsReference || _isConstructorBody) && ColumnarSourceMemberChainResolver.TryFindFieldOnChain(_currentStruct, targetName, out thisFieldTarget)) {
+            if (_currentStruct != null && ColumnarSourceMemberChainResolver.TryFindFieldOnChain(_currentStruct, targetName, out thisFieldTarget)) {
                 _il.Emit(OpCodes.Ldarg_0)
                 let columnarDiscard20: System.Type = null
                 if (!TryEmitAssignableValue(Child(expr, 1), thisFieldTarget.get_FieldType(), out columnarDiscard20)) {
@@ -13739,6 +13744,42 @@ sealed class ColumnarIlEmitter {
             _il.Emit(OpCodes.Call, addressableReceiverType.GetMethod(nameof(JsonElement.ArrayEnumerator.MoveNext), Type.EmptyTypes))
             resolvedClrType = typeof(bool)
             return true
+        }
+
+        // A CALL ON A VALUE-TYPE VARIABLE ACTS ON THE VARIABLE, NOT ON A COPY. A struct's instance
+        // method takes `this` as a managed pointer, and that pointer has to be the RECEIVER'S OWN
+        // storage. The instance-call arm below spills the receiver VALUE to a temp and calls through
+        // the TEMP's address, which is a call on a copy — so a method that assigned one of its own
+        // fields wrote the copy and the caller never saw it. That is the whole reason a bare field
+        // WRITE inside a struct method declined: the write was correct, the receiver was not.
+        //
+        // An ADDRESSABLE receiver — a local, a parameter, or a field chain rooted at one — is loaded
+        // BY ADDRESS here (`ldloca` / `ldarga` / `ldflda`, which `EmitAddressOfByRefTarget` already
+        // composes), which is exactly the IL C# emits for the same call. A receiver with no storage of
+        // its own — a call result, a literal, a property read — is not addressable, keeps the spill
+        // below, and therefore mutates a copy, which is also what C# does with it.
+        addressableStructReceiverType: System.Type? = null
+        if (TryGetAddressableTargetType(receiver, out addressableStructReceiverType) && addressableStructReceiverType != null) {
+            addressableStructBuilder := addressableStructReceiverType as TypeBuilder
+            if (addressableStructBuilder != null) {
+                addressableStructDef := ColumnarSourceDefinitionResolver.FindByBuilderIdentity(_structRegistry.get_Values(), addressableStructBuilder)
+                if (addressableStructDef != null && !addressableStructDef.IsReference) {
+                    let addressableStructMethod: NSharpLang.Compiler.Columnar.ColumnarInstanceMethodDef? = null
+                    if (TrySelectInstanceMethodOnChain(addressableStructDef, memberName, callIdx, out addressableStructMethod) && addressableStructMethod != null && addressableStructMethod.Generics == null) {
+                        if (!EmitAddressOfByRefTarget(receiver, addressableStructReceiverType)) {
+                            return false
+                        }
+                        for addressableArgument := 0; addressableArgument < argCount; addressableArgument++ {
+                            if (!EmitDeclaredCallArgument(Child(callIdx, 1 + addressableArgument), addressableStructMethod.ParamTypes[addressableArgument], true)) {
+                                return false
+                            }
+                        }
+                        _il.Emit(OpCodes.Call, addressableStructMethod.Builder)
+                        resolvedClrType = addressableStructMethod.ReturnType
+                        return true
+                    }
+                }
+            }
         }
 
         receiverType: System.Type? = null
@@ -21393,12 +21434,6 @@ sealed class ColumnarIlEmitter {
         // An i4-underlying enum operand is its int on the stack, so `enum as <numeric>` is a cast FROM int:
         // enum->int is identity (no opcode), enum->long/double/etc. widens exactly like int->long/double. The
         // N# backend path emits the same (the underlying-int value, then the same numeric conversion).
-        //
-        // A SOURCE ENUM IS AN ENUM HERE TOO. This site asked `ColumnarTypeOfPlanner.IsEnumType`, which
-        // knows the REFLECTED enums and not this compilation's own `EnumBuilder`s, so `DayOfWeek as int`
-        // emitted and the identically-shaped `Flags.A as int` declined. The target arm twelve lines above
-        // already asks `IsKnownEnumType`, which is the same question over both registries; this asks it
-        // the same way, so the two directions of one conversion share one definition of "is an enum".
         if (IsKnownEnumType(sourceType)) {
             sourceType = typeof(int)
         }

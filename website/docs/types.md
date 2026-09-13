@@ -850,8 +850,8 @@ enum value satisfies a parameter typed `System.Enum`, `System.ValueType` or `obj
 The bitwise operators work over two values of one enum type and keep that type — `flags & flag`,
 `flags | flag`, `flags ^ flag` — so `(flags & flag) == flag` is the operator spelling of `HasFlag`.
 
-`value as int` converts an enum to its underlying value (and `as long`, `as double` and the rest widen
-from there, exactly as `int` does); `underlying as Priority` converts back.
+`(int)value` converts an enum to its underlying value, and `(Priority)underlying` converts back — `as`
+is the null-propagating reference test, not a numeric conversion, so it is not the operator for this.
 
 ## Interfaces
 
