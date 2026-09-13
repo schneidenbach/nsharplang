@@ -442,7 +442,7 @@ class ColumnarConstructorDeclarationPlanner {
     }
 
     static func IsValidReferenceCtorBody(nodes: ColumnarNodeTable, source: string, currentStruct: ColumnarStructDef?, bodyRoot: int): bool {
-        if currentStruct == null || nodes.Kind(bodyRoot) != 25 || ColumnarMethodBodyPlanner.ContainsReturnStatement(nodes, bodyRoot) {
+        if currentStruct == null || nodes.Kind(bodyRoot) != 25 || ColumnarMethodBodyPlanner.ContainsValueReturnStatement(nodes, bodyRoot) {
             return false
         }
         assigned := new HashSet<string>(currentStruct.InstanceInitializerFields, StringComparer.Ordinal)
@@ -465,7 +465,11 @@ class ColumnarConstructorDeclarationPlanner {
         try {
             while fieldEnumerator.MoveNext() {
                 fieldName := fieldEnumerator.get_Current()
-                if !assigned.Contains(fieldName) && !currentStruct.NullableFields.Contains(fieldName) {
+                // ONLY A NON-NULLABLE REFERENCE-TYPED FIELD OWES THE CONSTRUCTOR AN ASSIGNMENT — the mirror
+                // of `AnalyzerDefiniteAssignment.CheckConstructorFields`. Every value type's `default` is a
+                // valid value the CLR has already written, so a `bool`, an `int`, an enum, a struct and a
+                // type-parameter field are all definitely assigned before the body runs.
+                if !assigned.Contains(fieldName) && !currentStruct.NullableFields.Contains(fieldName) && IsReferenceTypedField(currentStruct, fieldName) {
                     return false
                 }
             }
@@ -473,6 +477,22 @@ class ColumnarConstructorDeclarationPlanner {
             fieldEnumerator.Dispose()
         }
         return true
+    }
+
+    // Whether a declared field's CLR type is a reference type. A type parameter is NOT one: an
+    // unconstrained `T` can be instantiated with a struct, and C# asks nothing of such a field either.
+    static func IsReferenceTypedField(currentStruct: ColumnarStructDef, fieldName: string): bool {
+        let field: System.Reflection.Emit.FieldBuilder? = null
+        if !currentStruct.Fields.TryGetValue(fieldName, out field) {
+            return true
+        }
+
+        fieldType: Type = field.get_FieldType()
+        if fieldType.get_IsGenericParameter() {
+            return false
+        }
+
+        return !fieldType.get_IsValueType()
     }
 
     static func ConstructorInputEnumerator(constructors: IEnumerable<ColumnarConstructorInput>): IEnumerator<ColumnarConstructorInput> {

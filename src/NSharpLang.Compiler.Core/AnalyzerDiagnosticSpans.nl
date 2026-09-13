@@ -1,6 +1,7 @@
 namespace NSharpLang.Compiler
 
 import System
+import System.Collections.Generic
 import NSharpLang.Compiler.Ast
 import NSharpLang.Compiler.CodeIntelligence
 
@@ -155,6 +156,55 @@ class AnalyzerDiagnosticSpanFacts {
             if receiverPath != null {
                 return receiverPath + "." + memberAccess.MemberName
             }
+        }
+
+        return null
+    }
+
+    // THE PATH A NULL-CONDITIONAL CHAIN DENOTES, AND THE RECEIVERS IT TESTED ON THE WAY.
+    //
+    // `a?.B` denotes the same storage `a.B` does; what the `?.` adds is a TEST of `a`. So the chain
+    // yields two things: the dotted path, which is what a narrowing installs a fact for, and the
+    // prefixes whose null-ness the chain asked about — `a` for `a?.B.C`, and `a` AND `a.B` for
+    // `a?.B?.C`. A chain with no conditional hop yields exactly what `TryGetStableNullPath` yields
+    // and an empty prefix list, which is what makes this the general form of that walk rather than
+    // a second opinion about it.
+    //
+    // THE STABILITY RULE IS UNCHANGED. A call, an index or a parser error placeholder anywhere in
+    // the chain still answers null: re-reading it could run something or denote something else, and
+    // a fact about it would not survive to the next statement.
+    static func TryGetNullConditionalChainPath(expression: Expression, testedPrefixes: List<string>): string? {
+        identifier := expression as IdentifierExpression
+        if identifier != null {
+            if identifier.Name != "<error>" {
+                return identifier.Name
+            }
+
+            return null
+        }
+
+        thisExpression := expression as ThisExpression
+        if thisExpression != null {
+            return "this"
+        }
+
+        parenthesized := expression as ParenthesizedExpression
+        if parenthesized != null {
+            return TryGetNullConditionalChainPath(parenthesized.Inner, testedPrefixes)
+        }
+
+        memberAccess := expression as MemberAccessExpression
+        if memberAccess != null {
+            receiverPath := TryGetNullConditionalChainPath(memberAccess.Object, testedPrefixes)
+            if receiverPath == null {
+                return null
+            }
+
+            if memberAccess.IsNullConditional {
+                testedPrefixes.Add(receiverPath)
+            }
+
+            return receiverPath + "." + memberAccess.MemberName
         }
 
         return null

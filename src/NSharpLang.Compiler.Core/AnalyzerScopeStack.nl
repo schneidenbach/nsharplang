@@ -537,11 +537,18 @@ class AnalyzerScopeStack {
         }
     }
 
-    // The nullable type an identifier was DECLARED with, looked up in the ENCLOSING scopes only: the
-    // innermost scope holds the narrowed type, and the question here is what was narrowed. A scope
-    // that binds the name to something that is not nullable does not stop the walk.
+    // THE NULLABLE TYPE AN IDENTIFIER WAS DECLARED WITH, when the flow is reading it as something
+    // narrower. A scope that binds the name to something NOT nullable does not stop the walk — that is
+    // the narrowed binding, and what is wanted is what was narrowed.
+    //
+    // THE WALK STARTS AT THE INNERMOST SCOPE, and it used to start one out. That skip assumed the
+    // narrowing always lives in a scope of its own, which is true of `if x != null { … }` and NOT true
+    // of the guard clause `if x == null { return }`: a guard's facts are installed into the ENCLOSING
+    // scope, the one that also declares the local, and there is no inner scope to skip. Starting at
+    // the top costs nothing in the scoped case — that scope binds the name to the narrowed, non-nullable
+    // type, which this walk steps over — and it is the whole answer in the guard case.
     func FindEnclosingNullableSymbol(name: string): NullableTypeInfo? {
-        index := scopes.Count - 2
+        index := scopes.Count - 1
         while index >= 0 {
             scope := scopes[index]
             candidate := new TypeInfo()

@@ -1321,6 +1321,78 @@ func main() {
 }
 ```
 
+### Flow narrowing
+
+A null check narrows what the code it guards knows. The rule is the same one C# uses: a condition
+yields two sets of facts — what it proves when it is **true** and what it proves when it is
+**false** — and each branch gets its own set. A guard clause whose branch always leaves (`return`,
+`throw`, `break`, `continue`) hands the *opposite* set to the code after the `if`.
+
+```n#
+func describe(value: string?): int {
+    if value == null { return -1 }
+    return value.Length                  // `value` is known non-null here
+}
+```
+
+The connectives compose the two sets rather than merging them:
+
+| Condition | True branch knows | False branch knows |
+|---|---|---|
+| `a != null` | `a` non-null | `a` null |
+| `a && b` | everything `a` and `b` prove | **nothing** — the negation is `!a \|\| !b` |
+| `a \|\| b` | **nothing** | everything `!a` and `!b` prove |
+| `!c` | what `c` proves when false | what `c` proves when true |
+| `(c)` | what `c` proves | what `c` proves |
+
+`a && b` deliberately proves nothing in its false branch: when `a` is false the branch is skipped
+without `b` ever being evaluated, so `if option != null && count == null { return }` tells you
+nothing about `count` afterwards. A `!`, a parenthesis, and a ternary's two arms all follow the same
+lattice:
+
+```n#
+func lengthOrDefault(value: string?): int {
+    return value != null ? value.Length : -1   // the then-arm knows `value` is non-null
+}
+```
+
+A `?.` chain compared against null narrows the **whole chain**: `x?.M == null` being false means
+both `x` and `x.M` are non-null, because a null `x` would have made the whole expression null.
+
+```n#
+func textLength(doc: Document?): int {
+    if doc?.Text == null { return -1 }
+    return doc.Text.Length               // both `doc` and `doc.Text` are known non-null
+}
+```
+
+### Nullable value types keep their own members
+
+`int?` is `System.Nullable<int>`, and its own members always bind — narrowed or not:
+
+```n#
+func parse(text: string?): int? {
+    if text == null { return null }
+    return text.Length
+}
+
+func main() {
+    print parse("abc").HasValue                 // True
+    print parse(null).GetValueOrDefault()       // 0
+    print parse(null).GetValueOrDefault(42)     // 42
+
+    value := parse("abcd")
+    if value == null { return }
+    print value.Value                           // 4 — still binds after narrowing
+    print value + 1                             // 5 — and it reads as `int` where one is wanted
+}
+```
+
+`must` on a value the flow already proved non-null is reported as **NL907**, a *warning* rather than
+an error. Flow state is not something a mechanical translation can know, and a human tightening a
+guard should not have their build broken by a keyword that is merely no longer needed. Remove the
+`must` when the warning appears.
+
 ## Resource Management and Locking
 
 `lock` takes a mutual-exclusion lock for a critical section (parentheses optional). Use it

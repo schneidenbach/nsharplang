@@ -442,13 +442,13 @@ test "the height model refuses every ret that does not balance its declared resu
 // one-sided sweep and then silently drop a trailing `ret` from a body that needed one.
 test "the columnar termination rule answers both ways at every statement kind it distinguishes" {
     // 20 Return and 48 Throw exit unconditionally; 23 (an expression statement) never does.
-    assert ColumnarMethodBodyPlanner.AlwaysReturns(MethodBodyFactsLeaf(20, 0), 0)
-    assert ColumnarMethodBodyPlanner.AlwaysReturns(MethodBodyFactsLeaf(48, 1), 0)
-    assert !ColumnarMethodBodyPlanner.AlwaysReturns(MethodBodyFactsLeaf(23, 0), 0)
+    assert ColumnarMethodBodyPlanner.AlwaysReturns(MethodBodyFactsLeaf(20, 0), "", 0)
+    assert ColumnarMethodBodyPlanner.AlwaysReturns(MethodBodyFactsLeaf(48, 1), "", 0)
+    assert !ColumnarMethodBodyPlanner.AlwaysReturns(MethodBodyFactsLeaf(23, 0), "", 0)
 
     // 72 Yield: `yield break` (no children) terminates; `yield <value>` continues.
-    assert ColumnarMethodBodyPlanner.AlwaysReturns(MethodBodyFactsLeaf(72, 0), 0)
-    assert !ColumnarMethodBodyPlanner.AlwaysReturns(MethodBodyFactsLeaf(72, 1), 0)
+    assert ColumnarMethodBodyPlanner.AlwaysReturns(MethodBodyFactsLeaf(72, 0), "", 0)
+    assert !ColumnarMethodBodyPlanner.AlwaysReturns(MethodBodyFactsLeaf(72, 1), "", 0)
 
     // 25 Block: ANY statement returning is enough — including one that is not the last, because the
     // rest is then unreachable. An empty block does not.
@@ -456,9 +456,9 @@ test "the columnar termination rule answers both ways at every statement kind it
     blockCounts := MethodBodyFactsInts3(2, 0, 0)
     blockChildren := MethodBodyFactsInts2(1, 2)
     zeros := MethodBodyFactsInts3(0, 0, 0)
-    assert ColumnarMethodBodyPlanner.AlwaysReturns(MethodBodyFactsNodes(blockKinds, blockCounts, blockChildren, zeros, zeros, 1), 0)
-    assert !ColumnarMethodBodyPlanner.AlwaysReturns(MethodBodyFactsLeaf(25, 0), 0)
-    assert !ColumnarMethodBodyPlanner.AlwaysReturns(MethodBodyFactsLeaf(25, 2), 0)
+    assert ColumnarMethodBodyPlanner.AlwaysReturns(MethodBodyFactsNodes(blockKinds, blockCounts, blockChildren, zeros, zeros, 1), "", 0)
+    assert !ColumnarMethodBodyPlanner.AlwaysReturns(MethodBodyFactsLeaf(25, 0), "", 0)
+    assert !ColumnarMethodBodyPlanner.AlwaysReturns(MethodBodyFactsLeaf(25, 2), "", 0)
 
     // 27 If: only an if WITH an else, both of whose branches return. A two-child if (no else) never
     // does, whatever its then-branch says.
@@ -466,20 +466,20 @@ test "the columnar termination rule answers both ways at every statement kind it
     ifCounts := MethodBodyFactsInts4(3, 0, 0, 0)
     ifChildren := MethodBodyFactsInts3(1, 2, 3)
     ifZeros := MethodBodyFactsInts4(0, 0, 0, 0)
-    assert ColumnarMethodBodyPlanner.AlwaysReturns(MethodBodyFactsNodes(ifKinds, ifCounts, ifChildren, ifZeros, ifZeros, 1), 0)
+    assert ColumnarMethodBodyPlanner.AlwaysReturns(MethodBodyFactsNodes(ifKinds, ifCounts, ifChildren, ifZeros, ifZeros, 1), "", 0)
 
     elseKinds := MethodBodyFactsInts4(27, 23, 20, 23)
-    assert !ColumnarMethodBodyPlanner.AlwaysReturns(MethodBodyFactsNodes(elseKinds, ifCounts, ifChildren, ifZeros, ifZeros, 1), 0)
+    assert !ColumnarMethodBodyPlanner.AlwaysReturns(MethodBodyFactsNodes(elseKinds, ifCounts, ifChildren, ifZeros, ifZeros, 1), "", 0)
 
     noElseKinds := MethodBodyFactsInts3(27, 23, 20)
     noElseCounts := MethodBodyFactsInts3(2, 0, 0)
-    assert !ColumnarMethodBodyPlanner.AlwaysReturns(MethodBodyFactsNodes(noElseKinds, noElseCounts, blockChildren, zeros, zeros, 1), 0)
+    assert !ColumnarMethodBodyPlanner.AlwaysReturns(MethodBodyFactsNodes(noElseKinds, noElseCounts, blockChildren, zeros, zeros, 1), "", 0)
 
     // 51 Lock exits iff its BODY (child 1, not child 0) exits.
     lockKinds := MethodBodyFactsInts3(51, 23, 20)
-    assert ColumnarMethodBodyPlanner.AlwaysReturns(MethodBodyFactsNodes(lockKinds, noElseCounts, blockChildren, zeros, zeros, 1), 0)
+    assert ColumnarMethodBodyPlanner.AlwaysReturns(MethodBodyFactsNodes(lockKinds, noElseCounts, blockChildren, zeros, zeros, 1), "", 0)
     lockFallsKinds := MethodBodyFactsInts3(51, 20, 23)
-    assert !ColumnarMethodBodyPlanner.AlwaysReturns(MethodBodyFactsNodes(lockFallsKinds, noElseCounts, blockChildren, zeros, zeros, 1), 0)
+    assert !ColumnarMethodBodyPlanner.AlwaysReturns(MethodBodyFactsNodes(lockFallsKinds, noElseCounts, blockChildren, zeros, zeros, 1), "", 0)
 }
 
 // 49 Try is the arm with the analyzer's end-point rule, so it gets its own block: the try block must
@@ -491,27 +491,27 @@ test "the try arm of the termination rule reads the handlers and the finally the
     tryCounts := MethodBodyFactsInts4(2, 0, 1, 0)
     tryChildren := MethodBodyFactsInts3(1, 2, 3)
     tryZeros := MethodBodyFactsInts4(0, 0, 0, 0)
-    assert ColumnarMethodBodyPlanner.AlwaysReturns(MethodBodyFactsNodes(tryKinds, tryCounts, tryChildren, tryZeros, tryZeros, 1), 0)
+    assert ColumnarMethodBodyPlanner.AlwaysReturns(MethodBodyFactsNodes(tryKinds, tryCounts, tryChildren, tryZeros, tryZeros, 1), "", 0)
 
     // The TRY block itself falls through.
     tryFallsKinds := MethodBodyFactsInts4(49, 23, 50, 20)
-    assert !ColumnarMethodBodyPlanner.AlwaysReturns(MethodBodyFactsNodes(tryFallsKinds, tryCounts, tryChildren, tryZeros, tryZeros, 1), 0)
+    assert !ColumnarMethodBodyPlanner.AlwaysReturns(MethodBodyFactsNodes(tryFallsKinds, tryCounts, tryChildren, tryZeros, tryZeros, 1), "", 0)
 
     // The CATCH falls through.
     catchFallsKinds := MethodBodyFactsInts4(49, 20, 50, 23)
-    assert !ColumnarMethodBodyPlanner.AlwaysReturns(MethodBodyFactsNodes(catchFallsKinds, tryCounts, tryChildren, tryZeros, tryZeros, 1), 0)
+    assert !ColumnarMethodBodyPlanner.AlwaysReturns(MethodBodyFactsNodes(catchFallsKinds, tryCounts, tryChildren, tryZeros, tryZeros, 1), "", 0)
 
     // ZERO catches: `try { return } finally { return }`. The finally arrives as a trailing kind-25
     // child; with no handler the guarded block settles it, so this DOES always-return — the shape a
     // C# `using` that returns lowers to.
     finallyKinds := MethodBodyFactsInts4(49, 20, 25, 20)
     finallyCounts := MethodBodyFactsInts4(2, 0, 1, 0)
-    assert ColumnarMethodBodyPlanner.AlwaysReturns(MethodBodyFactsNodes(finallyKinds, finallyCounts, tryChildren, tryZeros, tryZeros, 1), 0)
+    assert ColumnarMethodBodyPlanner.AlwaysReturns(MethodBodyFactsNodes(finallyKinds, finallyCounts, tryChildren, tryZeros, tryZeros, 1), "", 0)
 
     // ZERO catches and a guarded block that FALLS THROUGH, with a finally that also falls through —
     // nothing exits, so neither does the statement.
     finallyFallsKinds := MethodBodyFactsInts4(49, 23, 25, 23)
-    assert !ColumnarMethodBodyPlanner.AlwaysReturns(MethodBodyFactsNodes(finallyFallsKinds, finallyCounts, tryChildren, tryZeros, tryZeros, 1), 0)
+    assert !ColumnarMethodBodyPlanner.AlwaysReturns(MethodBodyFactsNodes(finallyFallsKinds, finallyCounts, tryChildren, tryZeros, tryZeros, 1), "", 0)
 
     // A FINALLY THAT EXITS SETTLES IT ALONE: the guarded block falls through and the single catch
     // falls through, and the statement still exits.
@@ -519,7 +519,7 @@ test "the try arm of the termination rule reads the handlers and the finally the
     finallySettlesCounts := MethodBodyFactsInts6(3, 0, 1, 1, 0, 0)
     finallySettlesChildren := MethodBodyFactsInts5(1, 2, 3, 4, 5)
     finallySettlesZeros := MethodBodyFactsInts6(0, 0, 0, 0, 0, 0)
-    assert ColumnarMethodBodyPlanner.AlwaysReturns(MethodBodyFactsNodes(finallySettlesKinds, finallySettlesCounts, finallySettlesChildren, finallySettlesZeros, finallySettlesZeros, 1), 0)
+    assert ColumnarMethodBodyPlanner.AlwaysReturns(MethodBodyFactsNodes(finallySettlesKinds, finallySettlesCounts, finallySettlesChildren, finallySettlesZeros, finallySettlesZeros, 1), "", 0)
 
     // TWO catches, the SECOND of which falls through — every clause has to exit, not just the first.
     // A rule that stopped at the first catch it saw would answer `true` here.
@@ -527,12 +527,12 @@ test "the try arm of the termination rule reads the handlers and the finally the
     twoCounts := MethodBodyFactsInts6(3, 0, 1, 1, 0, 0)
     twoChildren := MethodBodyFactsInts5(1, 2, 3, 4, 5)
     twoZeros := MethodBodyFactsInts6(0, 0, 0, 0, 0, 0)
-    assert !ColumnarMethodBodyPlanner.AlwaysReturns(MethodBodyFactsNodes(twoKinds, twoCounts, twoChildren, twoZeros, twoZeros, 1), 0)
+    assert !ColumnarMethodBodyPlanner.AlwaysReturns(MethodBodyFactsNodes(twoKinds, twoCounts, twoChildren, twoZeros, twoZeros, 1), "", 0)
 
     // The same two-catch shape with BOTH clauses exiting does return — so the refusal above is about
     // the falling clause and not about the arity.
     bothKinds := MethodBodyFactsInts6(49, 20, 50, 50, 20, 20)
-    assert ColumnarMethodBodyPlanner.AlwaysReturns(MethodBodyFactsNodes(bothKinds, twoCounts, twoChildren, twoZeros, twoZeros, 1), 0)
+    assert ColumnarMethodBodyPlanner.AlwaysReturns(MethodBodyFactsNodes(bothKinds, twoCounts, twoChildren, twoZeros, twoZeros, 1), "", 0)
 }
 
 // ---- BLOCK 5 — THE DRIVER ----

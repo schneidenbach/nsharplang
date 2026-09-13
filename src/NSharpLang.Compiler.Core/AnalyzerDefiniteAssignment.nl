@@ -45,9 +45,11 @@ class AnalyzerDefiniteAssignment {
 
     // ── Definite assignment for fields (NL304) ─────────────────────────────
     //
-    // Every non-nullable field a class declares WITHOUT an initializer must be assigned by every
-    // constructor that does not chain to another one. The report names the field and lands on the
-    // `constructor` keyword, because that is the thing that failed to do its job.
+    // Every non-nullable REFERENCE-typed field a class declares WITHOUT an initializer must be assigned
+    // by every constructor that does not chain to another one. The report names the field and lands on
+    // the `constructor` keyword, because that is the thing that failed to do its job. A value-typed
+    // field — including a nullable one, an enum, a struct and a bare type parameter — is definitely
+    // assigned by the CLR's own zeroing and is not asked for anything.
     func CheckConstructorFields(ctor: ConstructorDeclaration, classDecl: ClassDeclaration) {
         // Collect all non-nullable fields without initializers
         uninitializedFields := new HashSet<string>()
@@ -62,10 +64,17 @@ class AnalyzerDefiniteAssignment {
                 }
 
                 // Skip fields with type inference (they always have initializers)
+                //
+                // ONLY A NON-NULLABLE REFERENCE-TYPED FIELD OWES THE CONSTRUCTOR AN ASSIGNMENT, which is
+                // C#'s rule (CS8618) and not a narrowing of this one. `default` is a valid value of every
+                // VALUE type, and the CLR has already written it into the object before the body runs —
+                // so a `bool`, an `int`, an enum, a struct, an `int?` and an unconstrained `T` field are
+                // all definitely assigned at construction and demanding an assignment for them is an
+                // error about correct code. Only a reference field's `default` is `null`, which the
+                // declared type says the field may not be.
                 if field.Type != null && field.Initializer == null {
                     resolved := typeResolverValue.ResolveType(field.Type)
-                    nullable := resolved as NullableTypeInfo
-                    if nullable == null {
+                    if AnalyzerConversionFacts.IsDefinitelyReferenceType(resolved) {
                         uninitializedFields.Add(field.Name)
                     }
                 }

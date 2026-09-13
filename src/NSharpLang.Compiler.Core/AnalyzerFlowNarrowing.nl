@@ -51,6 +51,11 @@ class FlowNarrowingSplit {
 // is the mirror with the literal `false`. Nothing else is evaluated: a condition whose value this
 // writer cannot read off the syntax proves nothing in either direction.
 //
+// A `?.` CHAIN NARROWS ITS WHOLE PATH. `x?.M == null` is true when `x` is null OR `x.M` is null, so
+// the true side proves nothing and the FALSE side proves both — the same disjunction rule `||` has,
+// applied to the receivers the chain tested on the way to the member. Without it, the guard clause
+// `if doc?.Text == null { return }` left `doc` maybe-null for the rest of the function.
+//
 // THE ARM SUBTRACTION IS ASSIGNABILITY, NOT IDENTITY. An arm is removed when the matched type is
 // assignable to it, so testing a base type removes every derived arm. Removing every arm leaves
 // `never`; removing all but one collapses to that one rather than to a one-armed union; and
@@ -292,8 +297,27 @@ class AnalyzerFlowNarrowing {
             return
         }
 
-        path := AnalyzerDiagnosticSpanFacts.TryGetStableNullPath(expr)
+        // A `?.` CHAIN TESTED ITS OWN RECEIVERS, AND THE COMPARISON REPORTS WHAT THOSE TESTS FOUND.
+        // `x?.M == null` is TRUE when `x` is null OR `x.M` is null — a disjunction, so the true side
+        // proves nothing — and FALSE only when BOTH are non-null. That is the whole rule, and it is
+        // the same shape as `||`'s: the side the disjunction does not cover gets everything.
+        testedPrefixes := new List<string>()
+        path := AnalyzerDiagnosticSpanFacts.TryGetNullConditionalChainPath(expr, testedPrefixes)
         if path == null {
+            return
+        }
+
+        if testedPrefixes.Count > 0 {
+            proved := elseNarrowings
+            if notEqual {
+                proved = thenNarrowings
+            }
+
+            for prefix in testedPrefixes {
+                proved.Add(new FlowNarrowing(prefix, null, NullState.NotNull))
+            }
+
+            proved.Add(new FlowNarrowing(path, null, NullState.NotNull))
             return
         }
 

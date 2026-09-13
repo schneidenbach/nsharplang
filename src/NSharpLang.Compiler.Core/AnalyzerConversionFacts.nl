@@ -151,6 +151,70 @@ class AnalyzerConversionFacts {
         return false
     }
 
+    // DEFINITELY A REFERENCE TYPE — the POSITIVE mirror of the test above, and a positive test for the
+    // same reason: a caller REPORTS on the strength of it.
+    //
+    // `!IsDefinitelyNonNullableValueType(x)` is not this question either. That one answers false for a
+    // constructed generic (`List<int>` is a class, `KeyValuePair<int, int>` is a struct, and it names
+    // neither) and for everything its tail does not reach, so negating it would accuse a struct field
+    // of failing a rule only reference fields have. This one follows a constructed generic to its
+    // DEFINITION and answers from there, and answers FALSE for a bare type parameter, for `unknown`,
+    // and for every shape it cannot place — which is what makes it safe to report on.
+    static func IsDefinitelyReferenceType(candidate: TypeInfo): bool {
+        simple := candidate as SimpleTypeInfo
+        if simple != null {
+            name := simple.Name
+            return name == "string" || name == "object"
+        }
+
+        if (candidate as ClassTypeInfo) != null {
+            return true
+        }
+
+        if (candidate as InterfaceTypeInfo) != null {
+            return true
+        }
+
+        if (candidate as ArrayTypeInfo) != null {
+            return true
+        }
+
+        if (candidate as FunctionTypeInfo) != null {
+            return true
+        }
+
+        if (candidate as UnionTypeInfo) != null {
+            return true
+        }
+
+        if (candidate as AnonymousUnionTypeInfo) != null {
+            return true
+        }
+
+        recordType := candidate as RecordTypeInfo
+        if recordType != null {
+            return !recordType.IsStruct
+        }
+
+        genericType := candidate as GenericTypeInfo
+        if genericType != null {
+            definition := genericType.GenericDefinition
+            return definition != null && IsDefinitelyReferenceType(definition)
+        }
+
+        reflectionType := candidate as ReflectionTypeInfo
+        if reflectionType != null {
+            clrType := reflectionType.Type
+            if clrType.get_IsGenericParameter() {
+                return false
+            }
+
+            return !clrType.get_IsValueType()
+        }
+
+        return false
+    }
+
     // The Span family by name, in every spelling the analyzer sees. This gates the implicit
     // array-to-span conversion, so it belongs with the conversion tables rather than with the
     // callable/delegate facts. Note this is a STRICT SUPERSET of the loop-sequence owner's

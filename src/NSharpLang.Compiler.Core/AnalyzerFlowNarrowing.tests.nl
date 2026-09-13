@@ -277,6 +277,66 @@ test "the connectives NEST, and the order is left then right" {
     assert split.Then[2].Path == "c"
 }
 
+// ── the null-conditional chain ────────────────────────────────────────────
+
+test "`x?.M == null` proves NOTHING when true and the WHOLE CHAIN when false" {
+    harness := FlowNarrowingDefault()
+    chain := new MemberAccessExpression(FnName("doc"), "Text", true, 3, 5)
+
+    split := harness.Owner.ExtractFlowNarrowings(FnBinary(chain, BinaryOperator.Equal, FnNull()))
+
+    assert split.Then.Count == 0
+    assert split.Else.Count == 2
+    assert split.Else[0].Path == "doc"
+    assert split.Else[0].NullState == NullState.NotNull
+    assert split.Else[1].Path == "doc.Text"
+    assert split.Else[1].NullState == NullState.NotNull
+}
+test "`x?.M != null` is the mirror" {
+    harness := FlowNarrowingDefault()
+    chain := new MemberAccessExpression(FnName("doc"), "Text", true, 3, 5)
+
+    split := harness.Owner.ExtractFlowNarrowings(FnBinary(chain, BinaryOperator.NotEqual, FnNull()))
+
+    assert split.Then.Count == 2
+    assert split.Then[0].Path == "doc"
+    assert split.Then[1].Path == "doc.Text"
+    assert split.Else.Count == 0
+}
+test "EVERY conditional hop in the chain is proved, in receiver order" {
+    harness := FlowNarrowingDefault()
+    inner := new MemberAccessExpression(FnName("outer"), "Inner", true, 3, 5)
+    chain := new MemberAccessExpression(inner, "Text", true, 3, 11)
+
+    split := harness.Owner.ExtractFlowNarrowings(FnBinary(chain, BinaryOperator.Equal, FnNull()))
+
+    assert split.Else.Count == 3
+    assert split.Else[0].Path == "outer"
+    assert split.Else[1].Path == "outer.Inner"
+    assert split.Else[2].Path == "outer.Inner.Text"
+}
+test "a chain whose LAST hop alone is conditional still proves its receiver" {
+    harness := FlowNarrowingDefault()
+    inner := new MemberAccessExpression(FnName("outer"), "Inner", false, 3, 5)
+    chain := new MemberAccessExpression(inner, "Text", true, 3, 11)
+
+    split := harness.Owner.ExtractFlowNarrowings(FnBinary(chain, BinaryOperator.NotEqual, FnNull()))
+
+    assert split.Then.Count == 2
+    assert split.Then[0].Path == "outer.Inner"
+    assert split.Then[1].Path == "outer.Inner.Text"
+}
+test "a conditional chain over an UNSTABLE receiver narrows nothing" {
+    harness := FlowNarrowingDefault()
+    call := new CallExpression(FnName("Get"), new List<Argument>(), null, 3, 5)
+    chain := new MemberAccessExpression(call, "Text", true, 3, 11)
+
+    split := harness.Owner.ExtractFlowNarrowings(FnBinary(chain, BinaryOperator.Equal, FnNull()))
+
+    assert split.Then.Count == 0
+    assert split.Else.Count == 0
+}
+
 // ── parentheses and negation ──────────────────────────────────────────────
 
 test "a PARENTHESISED condition proves exactly what its inner condition proves" {
