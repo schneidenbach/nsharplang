@@ -124,18 +124,30 @@ class AnalyzerClrTypeConversion {
 
         resolvedType := declarationContext.ResolveDeclaredAlias(typeInfo)
 
-        // A SOURCE ENUM'S SURROGATE IS `System.Enum`, NOT `object`. Every other N#-declared type has
-        // no CLR base the compiler can name before it is emitted, so `object` is all a surrogate can
-        // say about it — but an enum's base type is fixed by the CLR, and naming it is what lets
-        // `flags.HasFlag(other)` bind the `System.Enum` parameter the runtime declares. `object` is
-        // still satisfied, because `System.Enum` is one; the surrogate simply stopped throwing away
-        // the one thing every enum is known to be.
+        // A SOURCE ENUM'S SURROGATE IS `System.Enum`, NOT `object`. An enum's base type is fixed by
+        // the CLR, and naming it is what lets `flags.HasFlag(other)` bind the `System.Enum`
+        // parameter the runtime declares. `object` is still satisfied, because `System.Enum` is one;
+        // the surrogate simply stopped throwing away the one thing every enum is known to be.
         surrogateEnum := resolvedType as EnumTypeInfo
         if surrogateEnum != null {
             return facts.Enum
         }
 
         if IsSurrogateUserDefinedType(resolvedType) {
+            // A SOURCE TYPE'S SURROGATE IS THE NEAREST CLR TYPE IT IS KNOWN TO BE, and `object` is
+            // only the answer when nothing better is written. `class Names: List<string>` has no CLR
+            // handle of its own while it is being compiled, but the CLR already holds the type its
+            // `:` clause names, and a `Names` IS a `List<string>` — so binding `names.Add("a")`
+            // against `object` was throwing away the one fact the declaration states. Every CLR-level
+            // measurement of the receiver — the declaring type's own type arguments for a call on a
+            // generic base, an overload that takes the base, an extension whose receiver slot the base
+            // satisfies — reads the base instead, and the answer stays a surrogate because the DERIVED
+            // type is still not named.
+            surrogateBase := TryConvertDeclaredBaseChainToClrType(resolvedType)
+            if surrogateBase != null {
+                return surrogateBase
+            }
+
             return facts.Object
         }
 
@@ -539,7 +551,44 @@ class AnalyzerClrTypeConversion {
         return null
     }
 
-    // The seven N#-declared families that get an `object` surrogate. Everything else — simple types,
+    // THE NEAREST CLR TYPE A SOURCE-DECLARED TYPE IS KNOWN TO BE, by walking the `:` clause.
+    //
+    // The walk is the DECLARED base chain, not the CLR one, because the derived links have no CLR
+    // form yet: `class Deeper: Names` and `class Names: List<string>` answer `List<string>` for both.
+    // Only the EXACT conversion is accepted for a link, so a base the CLR cannot name either — a
+    // source generic instantiated over a source type, say — keeps walking rather than contributing a
+    // surrogate of its own; the chain then ends at `object` exactly as it did before.
+    //
+    // The depth bound is what makes a cyclic `:` clause a null answer instead of a hang. A cycle is a
+    // program error the declaration walk reports; this owner reports nothing, so it must simply stop.
+    func TryConvertDeclaredBaseChainToClrType(sourceType: TypeInfo): Type? {
+        current := sourceType
+        depth := 0
+        while depth < 64 {
+            shape := new AnalyzerSourceMemberShape()
+            if !declarationContext.TryGetSourceMemberShape(current, null, out shape) {
+                return null
+            }
+
+            declaredBase := shape.BaseType
+            if declaredBase == null {
+                return null
+            }
+
+            resolvedBase := declarationContext.ResolveDeclaredAlias(declaredBase)
+            externalBase := TryConvertTypeInfoToClrType(resolvedBase)
+            if externalBase != null {
+                return externalBase
+            }
+
+            current = resolvedBase
+            depth = depth + 1
+        }
+
+        return null
+    }
+
+    // The seven N#-declared families that get a CLR surrogate. Everything else — simple types,
     // unknowns, tuples, method groups, anonymous unions — does not.
     static func IsSurrogateUserDefinedType(candidate: TypeInfo): bool {
         classType := candidate as ClassTypeInfo

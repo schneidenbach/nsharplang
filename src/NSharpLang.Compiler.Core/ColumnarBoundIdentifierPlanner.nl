@@ -952,7 +952,34 @@ class ColumnarBoundIdentifierPlanner {
             return true
         }
 
-        return false
+        // A MEMBER THE TYPE INHERITS FROM A BASE THIS COMPILATION DID NOT WRITE, NAMED WITHOUT A
+        // RECEIVER. `class LayerError: Exception` writes no `Message`, so the source facts walk above
+        // found nothing and `"layer:" + Message` inside its own `ToString` declined — while
+        // `base.Message` resolved, because the base walk already ends in the runtime base's metadata.
+        // An unqualified name IS `this.Name`, so the dispatch is the ordinary virtual one and the
+        // receiver is argument zero exactly as it is above.
+        if !root.IsReference {
+            return false
+        }
+
+        inheritedBase := ColumnarInheritedExternalBase.Resolve(root.SourceDefinition, rootType)
+        if inheritedBase == null {
+            return false
+        }
+
+        inheritedSelection := ColumnarRuntimeInstanceMemberSelection.Empty()
+        if !ColumnarRuntimeInstanceMemberResolver.TrySelectAdmittedProperty(inheritedBase, inheritedBase, name, out inheritedSelection) {
+            return false
+        }
+
+        inheritedGetter := inheritedSelection.Getter
+        if inheritedGetter == null || inheritedGetter.get_IsAbstract() {
+            return false
+        }
+
+        selection = new ColumnarBoundIdentifierSelection(ColumnarBoundIdentifierKind.CurrentProperty, inheritedSelection.ResultType, 0, -1, null, null, null, inheritedGetter, inheritedSelection.DeclaringType, receiverType, false)
+
+        return true
     }
 
     static func ResolveStrongBoxValueField(boxType: Type, valueType: Type): FieldInfo {

@@ -313,3 +313,76 @@ class ComparedMap: System.Collections.Generic.Dictionary<string, int> {
     constructor(capacity: int, comparer: System.Collections.Generic.IEqualityComparer<string>): base(capacity, comparer) {
     }
 }
+
+// THE MEMBERS A SOURCE TYPE INHERITS FROM A BASE THIS COMPILATION DID NOT WRITE.
+//
+// A `:` clause naming a referenced type states a fact about the derived type: a `Names` IS a
+// `List<string>`, so every member `List<string>` declares is a member `Names` has, with the base's
+// type arguments already substituted. Reading that fact needs the SAME walk in four places, and each
+// of them used to stop at the last SOURCE link of the chain:
+//
+//   * the analyzer's CLR binding, whose surrogate for any N#-declared type was `object` — so the
+//     receiver contributed no binding for `T` and `names.Add("a")` reported NL402 while PRINTING
+//     `Add(string item)` as the overload it could not match;
+//   * emission's member walk, which answered no property and no indexer past the source chain;
+//   * emission's ordinary call resolution, which is where a call with a LAMBDA or with EXPLICIT TYPE
+//     ARGUMENTS lands;
+//   * the conversion relation, which knew nothing of the interfaces the external base implements.
+//
+// The types below are the shapes those four answer for. Their members are exercised at RUNTIME by
+// the tests, because a member that binds and emits the wrong `MethodInfo` still compiles.
+class Names: System.Collections.Generic.List<string> {
+
+    // An inherited member read WITHOUT a receiver is `this.Name`, and it resolves through the same
+    // walk as an explicit receiver does.
+    func Summary(): string {
+        return Count.ToString() + " names"
+    }
+
+    // ...and `this.` and `base.` name the same inherited member, dispatched the two ways the CLR
+    // distinguishes.
+    func ExplicitCount(): int {
+        return this.Count
+    }
+
+    func BaseCount(): int {
+        return base.Count
+    }
+}
+
+// DEPTH THREE: source ← source ← external. Neither derived link has a CLR base the runtime can be
+// asked for while the builders are open, so the walk is the DECLARED chain rather than the reflected
+// one.
+class DeeperNames: Names {
+}
+
+// A GENERIC EXTERNAL BASE WITH TWO ARGUMENTS, so a member typed in the second one proves the
+// substitution is by position rather than by luck.
+class Counts: System.Collections.Generic.Dictionary<string, int> {
+}
+
+// An external base whose own members are the ones a derived type overrides, read unqualified from
+// inside the override itself.
+class TaggedError: System.Exception {
+    Tag: string
+
+    constructor(tag: string, message: string): base(message) {
+        Tag = tag
+    }
+
+    override func ToString(): string {
+        return Tag + ":" + Message
+    }
+}
+
+// A STATIC MEMBER READ THROUGH THE DERIVED TYPE. It is not an instance member, so it does not go
+// through the receiver walk above; it is here because a rule about inheritance that covers only
+// instance members is not a rule about inheritance.
+//
+// An EVENT the external base declares is NOT covered here, and deliberately: `on`/`off` do not parse
+// into columnar input for ANY receiver — a direct `ObservableCollection<string>` declines at
+// `parse.function` exactly as a derived one does — so there is nothing inheritance-specific to
+// assert at runtime. Analysis of `on derived.SomeBaseEvent (...)` is clean, which is the half this
+// slice owns.
+class SharedRandom: System.Random {
+}

@@ -2493,6 +2493,17 @@ sealed class ColumnarIlEmitter {
         if (TryGetNamedValueBindingType(receiverText, out receiverType) && receiverType != null) {
             instanceSelection := SelectExplicitGenericExternalCall(callIdx, receiverType, memberName, typeArguments, argCount, false)
             if (!instanceSelection.IsSelected) {
+                // The member may be one the receiver INHERITS from a base this compilation did not
+                // write — `n.ConvertAll<int>(...)` on `class Names: List<string>`. The receiver is a
+                // `TypeBuilder` and declares nothing reflection can see, so the selection is retried
+                // on the external base; only the LOOKUP moves, the receiver load below is unchanged.
+                inheritedLookupType := ColumnarInheritedExternalBase.ResolveForReceiver(receiverType, _structRegistry.get_Values())
+                if (inheritedLookupType == null) {
+                    return false
+                }
+                instanceSelection = SelectExplicitGenericExternalCall(callIdx, inheritedLookupType, memberName, typeArguments, argCount, false)
+            }
+            if (!instanceSelection.IsSelected) {
                 return false
             }
             // A VALUE receiver's instance method takes a managed pointer, so the binding is loaded by
@@ -11145,7 +11156,12 @@ sealed class ColumnarIlEmitter {
                         columnarResolvedType = staticPropRead.PropertyType
                         return true
                     }
-                    return false
+                    // THE STATIC SURFACE OF AN EXTERNAL BASE IS INHERITED TOO. `SharedRandom.Shared` on
+                    // `class SharedRandom: Random` names a static `Random` declares; the chain walk above
+                    // sees only source declarations, so the read had nothing to bind. A static member
+                    // belongs to the type that DECLARES it — naming the derived type does not give it a
+                    // second copy — so the instruction is the base's own `ldsfld`/`call`.
+                    return TryEmitInheritedExternalStaticMember(staticOwner, staticFieldName, out columnarResolvedType)
                 }
             }
             // Instance member access: `.Length` (array/string/StringBuilder -> int) or `.ItemN` (a tuple
@@ -14516,7 +14532,21 @@ sealed class ColumnarIlEmitter {
             return true
         }
         let currentProperty: NSharpLang.Compiler.Columnar.ColumnarPropertyDef = null
-        return TryFindPropertyOnChain(_currentStruct, name, out currentProperty)
+        if (TryFindPropertyOnChain(_currentStruct, name, out currentProperty)) {
+            return true
+        }
+        // A MEMBER INHERITED FROM A BASE THIS COMPILATION DID NOT WRITE IS A MEMBER OF THIS INSTANCE.
+        // Without this arm `Count.ToString()` inside `class Names: List<string>` read `Count` as a
+        // TYPE NAME — the one other thing a bare identifier in receiver position can be — and the
+        // whole expression declined, while `this.Count.ToString()` and the bare `Count` as a value
+        // both resolved. The same question decides whether a constructor-chain argument touches the
+        // instance before the base runs, and an inherited read touches it exactly as a declared one does.
+        inheritedBase := ColumnarInheritedExternalBase.Resolve(_currentStruct, null)
+        if (inheritedBase == null) {
+            return false
+        }
+        inheritedSelection := ColumnarRuntimeInstanceMemberSelection.Empty()
+        return ColumnarRuntimeInstanceMemberResolver.TrySelectAdmittedProperty(inheritedBase, inheritedBase, name, out inheritedSelection)
     }
 
     private func TryEmitJsonSerializerSerializeGenericCall(callIdx: int, callee: int, out resolvedClrType: Type): bool {
@@ -16522,6 +16552,20 @@ sealed class ColumnarIlEmitter {
     // is served. A struct value on the stack can only be addressed through a temp, and a write into that
     // temp would be lost -- an addressable struct indexer target is a separate shape, and declining is
     // the honest answer for it rather than emitting a store nothing observes.
+    // WHICH TYPE'S INDEXER A RECEIVER'S `[...]` NAMES. It is the receiver's own type for everything
+    // this compilation did not write, and the external base for a source type that inherits one:
+    // `class Names: List<string>` declares no `get_Item`, but a `Names` IS a `List<string>` and
+    // `names[0]` is the same call `List<string>`'s own receiver would make. The VALUE on the stack
+    // stays the derived type — a `callvirt` to a base's indexer with a derived receiver is exactly
+    // the instruction the base-typed read emits — so only the lookup moves.
+    private func IndexerLookupType(receiverType: Type): Type {
+        inherited := ColumnarInheritedExternalBase.ResolveForReceiver(receiverType, _structRegistry.get_Values())
+        if (inherited == null) {
+            return receiverType
+        }
+        return inherited
+    }
+
     private func TryEmitRuntimeIndexerWrite(targetIdx: int, valueNode: int, receiverType: Type, out wrote: bool): bool {
         wrote = false
         if (receiverType.get_IsValueType() || ColumnarTypeEquivalenceFacts.IsSafeSzArrayType(receiverType) || receiverType.get_IsArray() || receiverType.get_IsByRef() || receiverType.get_IsPointer() || receiverType.get_IsGenericParameter()) {
@@ -16536,7 +16580,7 @@ sealed class ColumnarIlEmitter {
         argumentTypes := new System.Type[](2)
         argumentTypes[0] = indexType
         argumentTypes[1] = valueType
-        selection := ColumnarOrdinaryRuntimeDirectCallResolver.Resolve(receiverType, "set_Item", argumentTypes, false)
+        selection := ColumnarOrdinaryRuntimeDirectCallResolver.Resolve(IndexerLookupType(receiverType), "set_Item", argumentTypes, false)
         if (!selection.IsSelected || selection.Method == null) {
             return false
         }
@@ -16574,7 +16618,8 @@ sealed class ColumnarIlEmitter {
 
         argumentTypes := new System.Type[](1)
         argumentTypes[0] = indexType
-        selection := ColumnarOrdinaryRuntimeDirectCallResolver.Resolve(receiverType, "get_Item", argumentTypes, false)
+        lookupType := IndexerLookupType(receiverType)
+        selection := ColumnarOrdinaryRuntimeDirectCallResolver.Resolve(lookupType, "get_Item", argumentTypes, false)
         if (!selection.IsSelected || selection.Method == null) {
             return false
         }
@@ -19147,9 +19192,82 @@ sealed class ColumnarIlEmitter {
                     columnarResolvedType = staticProperty.PropertyType
                     return true
                 }
+                // The preflight twin of the inherited-static read: the same question, answered before
+                // anything is emitted, so a chain over the value types with the emission.
+                inheritedStatic := InheritedExternalStaticMemberType(staticOwner, ColumnarNodeTextFacts.Text(_nodes, _source, node))
+                if (inheritedStatic != null) {
+                    columnarResolvedType = inheritedStatic
+                    return true
+                }
             }
         }
         return false
+    }
+
+    // A PUBLIC STATIC FIELD OR PROPERTY OF THE BASE THIS COMPILATION DID NOT WRITE, named through a
+    // derived type. The base comes from the one inherited-base walk; the member is chosen by ordinary
+    // reflection on it and must be DECLARED there, so a name the base itself inherits from further up
+    // is answered by that base's own metadata rather than re-derived here.
+    private func TryResolveInheritedExternalStaticMember(staticOwner: ColumnarStructDef, memberName: string, out field: FieldInfo, out getter: MethodInfo, out memberType: Type): bool {
+        field = null
+        getter = null
+        memberType = null
+        if (memberName.Length == 0) {
+            return false
+        }
+        externalBase := ColumnarInheritedExternalBase.Resolve(staticOwner, null)
+        if (externalBase == null) {
+            return false
+        }
+        staticFlags := BindingFlags.Public | BindingFlags.Static | BindingFlags.FlattenHierarchy
+        externalField := externalBase.GetField(memberName, staticFlags)
+        if (externalField != null && externalField.get_IsPublic() && externalField.get_IsStatic() && !externalField.get_IsLiteral()) {
+            field = externalField
+            memberType = externalField.get_FieldType()
+            return true
+        }
+        externalProperty := externalBase.GetProperty(memberName, staticFlags)
+        if (externalProperty == null) {
+            return false
+        }
+        externalGetter := externalProperty.GetGetMethod()
+        if (externalGetter == null || !externalGetter.get_IsPublic() || !externalGetter.get_IsStatic() || externalGetter.GetParameters().Length != 0) {
+            return false
+        }
+        getter = externalGetter
+        memberType = externalGetter.get_ReturnType()
+        return true
+    }
+
+    private func InheritedExternalStaticMemberType(staticOwner: ColumnarStructDef, memberName: string): Type? {
+        let inheritedField: System.Reflection.FieldInfo = null
+        let inheritedGetter: System.Reflection.MethodInfo = null
+        let inheritedType: System.Type = null
+        if (!TryResolveInheritedExternalStaticMember(staticOwner, memberName, out inheritedField, out inheritedGetter, out inheritedType)) {
+            return null
+        }
+        return inheritedType
+    }
+
+    private func TryEmitInheritedExternalStaticMember(staticOwner: ColumnarStructDef, memberName: string, out columnarResolvedType: Type): bool {
+        columnarResolvedType = null
+        let inheritedField: System.Reflection.FieldInfo = null
+        let inheritedGetter: System.Reflection.MethodInfo = null
+        let inheritedType: System.Type = null
+        if (!TryResolveInheritedExternalStaticMember(staticOwner, memberName, out inheritedField, out inheritedGetter, out inheritedType)) {
+            return false
+        }
+        if (inheritedField != null) {
+            _il.Emit(OpCodes.Ldsfld, inheritedField)
+            columnarResolvedType = inheritedType
+            return true
+        }
+        if (inheritedGetter == null) {
+            return false
+        }
+        _il.Emit(OpCodes.Call, inheritedGetter)
+        columnarResolvedType = inheritedType
+        return true
     }
 
     private func CanAdoptIntLiteralAsType(node: int, target: Type): bool {
@@ -20143,6 +20261,17 @@ sealed class ColumnarIlEmitter {
         // below. The direct-call planner owns every external instance call whose arguments it can
         // type; what reaches here is the rest, and a lambda argument is why there is a rest.
         if (TryEmitOrdinaryRuntimeInstanceCall(callIdx, receiverType, member, argCount, out columnarResolvedType)) {
+            return true
+        }
+
+        // THE SAME RESOLUTION, ASKED OF THE BASE THIS COMPILATION DID NOT WRITE. A source receiver is
+        // a `TypeBuilder` and answers no member query at all, so `n.Exists(s => ...)` on
+        // `class Names: List<string>` reached this tier with nothing to bind — the planner had
+        // already yielded it because of the lambda. The receiver's value is on the stack and IS a
+        // `List<string>`, so the member is chosen on the base by the same scoped resolution and
+        // dispatched with `callvirt` exactly as a base-typed receiver would dispatch it.
+        inheritedReceiverType := ColumnarInheritedExternalBase.ResolveForReceiver(receiverType, _structRegistry.get_Values())
+        if (inheritedReceiverType != null && TryEmitOrdinaryRuntimeInstanceCall(callIdx, inheritedReceiverType, member, argCount, out columnarResolvedType)) {
             return true
         }
 

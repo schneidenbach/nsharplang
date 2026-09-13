@@ -1879,6 +1879,55 @@ The EMISSION side has three owners worth knowing about:
 Do not add an override allowlist or a name-based base lookup. The two match owners are the whole
 surface: one for baked bases, one for source ones.
 
+## What a Source Type Inherits From an External Base (census 2026-09-13, INHERIT)
+
+A `:` clause naming a referenced type states a fact: `class Names: List<string>` IS a
+`List<string>`. Four owners read that fact and each of them used to stop at the last SOURCE link of
+the base chain.
+
+**The analyzer's surrogate.** `AnalyzerClrTypeConversion.TryConvertTypeInfoToClrTypeForBinding`
+answered `object` for every N#-declared type, so a call's receiver contributed no binding for the
+declaring type's `T`: `names.Add("a")` reported NL402 "No overload of 'Add' accepts 1 argument with
+these types" while printing `Add(string item)` as the overload it could not match. The surrogate is
+now the NEAREST CLR type the declaration states the receiver is, found by
+`TryConvertDeclaredBaseChainToClrType` walking the DECLARED chain (the derived links have no CLR form
+yet) and accepting only the EXACT conversion per link. This is the generalisation the enum arm
+already made when it answered `System.Enum` instead of `object`. Member RESOLUTION already walked the
+declared base — `AnalyzerMemberResolution.ResolveMember` re-enters itself on `sourceShape.BaseType` —
+so nothing there changed.
+
+**The emitter's one base walk.** `ColumnarInheritedExternalBase` is the single owner: given a
+`ColumnarStructDef` (or a receiver `Type`) it walks `BaseDef`/`ExactBaseType` to the terminal
+external base, substituting each link's type arguments as it descends, and answers nothing for a
+chain that ends at the implicit `System.Object`. Five call sites use it and no other walk exists:
+
+| Site | What it answers |
+| --- | --- |
+| `ColumnarInstanceMemberPlanner.TrySelectSourceDefinition` | a property or field read past the source chain |
+| `ColumnarIlEmitter.IndexerLookupType` | which type's `get_Item`/`set_Item` a `[...]` names |
+| `ColumnarIlEmitter.TryEmitInstanceCall` | a call with a LAMBDA argument, which the direct-call planner yields |
+| `ColumnarIlEmitter.TryEmitExplicitGenericExternalCall` | a call with EXPLICIT type arguments |
+| `ColumnarDirectCallPlanner.ResolveExternalRuntimeBase` | the pre-existing bare/`base.` call arms, now delegating |
+
+In every one of them only the LOOKUP type moves: the receiver value on the stack stays the derived
+type, and a `callvirt` to the base's member with a derived receiver is the instruction a base-typed
+receiver already emits.
+
+**The conversion relation.** `ColumnarReferenceConversionFacts.ExternalBaseImplementsInterface` adds
+the interfaces the external base implements to the derived type's own set. Without it a `Names` had
+no conversion to `IEnumerable<string>` and `list.AddRange(names)` declined.
+
+**The value-binding question, which is asked one step earlier than all of the above.** A qualified
+callee whose ROOT is not a value binding is read as a call on a TYPE of that name. `Count` was not a
+value binding, so `Count.ToString()` inside `Names` was owned-rejected as an unresolvable static
+owner before the receiver was ever resolved — while `Count`, `this.Count` and `base.Count` all
+worked. `ColumnarFragmentBindings.HasCurrentInstanceValue` and the emitter's
+`IsCurrentInstanceMemberName` now ask the same inherited-base walk after the source facts.
+
+Only PUBLIC inherited members are reachable: `TrySelectAdmittedProperty` and the ordinary runtime
+call resolver both filter to public, and N# does not yet model access to an external base's
+`protected` surface. Do not add a base-type allowlist and do not grow a second base walk.
+
 ## Columnar Type Admissibility Over Type Parameters
 
 `ColumnarTypeOfPlanner.IsSupportedType` is the compiler's type-admissibility head. When a type is

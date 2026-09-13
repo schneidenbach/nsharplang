@@ -660,33 +660,12 @@ class ColumnarDirectCallPlanner {
         return true
     }
 
-    // Walk the source base chain to its terminal definition; its recorded ExactBaseType is the
-    // external runtime base (a fully baked Type, never a TypeBuilder) exactly when the terminal
-    // source type extends a runtime class. A source base carries a TypeBuilder ExactBaseType and a
-    // non-null BaseDef, so the walk continues through it; a terminal type with no external base
-    // (implicit System.Object, ExactBaseType null) yields no inherited external surface.
+    // The external runtime base this definition inherits from, through the one inherited-base walk.
+    // The definition is asked without an exact receiver type, so a base template written in the
+    // link's own type parameters stays open — which is what a call planned against the DEFINITION
+    // needs; a caller holding a closed receiver asks `ColumnarInheritedExternalBase.Resolve` with it.
     static func ResolveExternalRuntimeBase(definition: ColumnarStructDef): Type? {
-        current: ColumnarStructDef? = definition
-        guard := 0
-        while current != null {
-            baseDefinition := current.BaseDef
-            if baseDefinition == null {
-                candidate := current.ExactBaseType
-                if candidate != null && !(candidate is TypeBuilder) {
-                    return candidate
-                }
-
-                return null
-            }
-
-            current = baseDefinition
-            guard += 1
-            if guard > 200 {
-                return null
-            }
-        }
-
-        return null
+        return ColumnarInheritedExternalBase.Resolve(definition, null)
     }
 
     // A loose existence check for the entry-gate only: does the recorded external base (or its own

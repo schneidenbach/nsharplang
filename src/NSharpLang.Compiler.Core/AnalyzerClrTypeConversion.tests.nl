@@ -160,6 +160,27 @@ func ClrConversionEnum(name: string): EnumTypeInfo {
     return new EnumTypeInfo(new EnumDeclarationInfo(name, members, EnumType.Int, 0, 0))
 }
 
+func ClrConversionGenericReference(name: string, argument: string): GenericTypeReference {
+    arguments := new List<TypeReference>()
+    arguments.Add(new SimpleTypeReference(argument))
+    return new GenericTypeReference(name, arguments)
+}
+
+// A context whose declarations are the two-link chain `Deeper: Names: List<string>`, so the walk has a
+// SOURCE link to cross before it reaches the external one.
+func ClrConversionInheritanceContext(path: string): AnalyzerDeclarationContext {
+    context := new AnalyzerDeclarationContext()
+    assemblies := new List<Assembly>()
+    assemblies.Add(typeof(List<int>).get_Assembly())
+    declarations := new List<object>()
+    declarations.Add(new NSharpLang.Compiler.TestStubs.ClassDeclaration("Names", ClrConversionGenericReference("List", "string")))
+    declarations.Add(new NSharpLang.Compiler.TestStubs.ClassDeclaration("Deeper", new SimpleTypeReference("Names")))
+    declarations.Add(new NSharpLang.Compiler.TestStubs.ClassDeclaration("Rootless", null))
+    context.Reset("/tmp", assemblies)
+    context.AddCompilationUnit(path, new AnalyzerContextTestUnit(declarations))
+    return context
+}
+
 func ClrConversionUnion(name: string): UnionTypeInfo {
     cases := new List<UnionCase>()
     return new UnionTypeInfo(new UnionDeclarationInfo(name, null, cases, 0, 0))
@@ -589,6 +610,71 @@ test "the surrogate conversion substitutes object for every declared family and 
             new SimpleTypeInfo("NoSuchBuiltIn")
         ) == null
         assert funnel.TryConvertTypeInfoToClrTypeForBinding(BuiltInTypes.Unknown) == null
+    } finally {
+        scan.Dispose()
+    }
+}
+
+// INHERIT — A SOURCE TYPE'S SURROGATE IS THE NEAREST CLR TYPE ITS DECLARATION SAYS IT IS.
+//
+// `object` used to be the answer for every N#-declared type, which threw away the one fact the `:`
+// clause states. A receiver bound against `object` contributes no binding for its declaring type's
+// `T`, and that is exactly why `names.Add("a")` on `class Names: List<string>` reported NL402 "No
+// overload of 'Add' accepts 1 argument with these types" while PRINTING `Add(string item)` as the
+// overload it could not match.
+test "a declared type's surrogate is the external base its colon clause names" {
+    scan := ExternalAssemblyScan.OpenWithReferences(null)
+    try {
+        context := scan.Context
+        assert context != null
+        facts := ClrConversionFacts(context)
+        path := "/tmp/clr-inherit.nl"
+
+        // The TypeInfo the CONTEXT built, not a hand-made twin: the base-chain walk asks the context
+        // which FILE a declaration came from, and it answers by instance.
+        declarationContext := ClrConversionInheritanceContext(path)
+        funnel := new AnalyzerClrTypeConversion(declarationContext, facts)
+        names := declarationContext.ResolveTypeReference(new SimpleTypeReference("Names"), path, null, null)
+        rootless := declarationContext.ResolveTypeReference(new SimpleTypeReference("Rootless"), path, null, null)
+
+        // The base is CLOSED over the arguments the clause wrote, not left open.
+        assert ClrGenericShape(funnel.TryConvertTypeInfoToClrTypeForBinding(names)) == "System.Collections.Generic.List`1<System.String>"
+
+        // A class with no `:` clause still answers `object` — the chain ends at the implicit base.
+        assert ClrTypeName(funnel.TryConvertTypeInfoToClrTypeForBinding(rootless)) == "System.Object"
+
+        // The EXACT conversion is unchanged: a source type still has no CLR spelling of its own.
+        assert funnel.TryConvertTypeInfoToClrType(names) == null
+
+        // Shells rebuild around the base, exactly as they rebuilt around `object`.
+        arrayed := funnel.TryConvertTypeInfoToClrTypeForBinding(new ArrayTypeInfo(names))
+        assert arrayed != null
+        assert (must arrayed).get_IsArray()
+        assert ClrGenericShape((must arrayed).GetElementType()) == "System.Collections.Generic.List`1<System.String>"
+
+        // A record, a struct and an interface name no base class, so their surrogate is untouched.
+        assert ClrTypeName(funnel.TryConvertTypeInfoToClrTypeForBinding(ClrConversionRecord("Point"))) == "System.Object"
+        assert ClrTypeName(funnel.TryConvertTypeInfoToClrTypeForBinding(ClrConversionStruct("Vec"))) == "System.Object"
+        assert ClrTypeName(funnel.TryConvertTypeInfoToClrTypeForBinding(ClrConversionInterface("Shape"))) == "System.Object"
+    } finally {
+        scan.Dispose()
+    }
+}
+
+// The SOURCE link of the same chain, kept apart so a failure names which half broke.
+test "a declared base that is itself source keeps walking to the external base" {
+    scan := ExternalAssemblyScan.OpenWithReferences(null)
+    try {
+        context := scan.Context
+        assert context != null
+        facts := ClrConversionFacts(context)
+        path := "/tmp/clr-inherit-deep.nl"
+        declarationContext := ClrConversionInheritanceContext(path)
+        funnel := new AnalyzerClrTypeConversion(declarationContext, facts)
+
+        deeper := declarationContext.ResolveTypeReference(new SimpleTypeReference("Deeper"), path, null, null)
+        assert ClrGenericShape(funnel.TryConvertTypeInfoToClrTypeForBinding(deeper)) == "System.Collections.Generic.List`1<System.String>"
+        assert funnel.TryConvertTypeInfoToClrType(deeper) == null
     } finally {
         scan.Dispose()
     }

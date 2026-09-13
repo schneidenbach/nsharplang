@@ -247,7 +247,8 @@ class ColumnarReferenceConversionFacts {
                 return true
             }
         }
-        return false
+
+        return ExternalBaseImplementsInterface(source, target, closedArguments)
     }
 
     static func SourceDefinitionImplementsInterface(source: ColumnarStructDef, target: ColumnarStructDef, active: HashSet<object>): bool {
@@ -362,9 +363,41 @@ class ColumnarReferenceConversionFacts {
                     return true
                 }
             }
+
+            // AN INTERFACE THE EXTERNAL BASE IMPLEMENTS IS ONE THIS TYPE IMPLEMENTS. `class Names:
+            // List<string>` writes no interface of its own, so the walk above found none — and a
+            // `Names` passed where `IEnumerable<string>` is expected had no conversion at all, which
+            // is how `d.AddRange(n)` declined. The base is fully baked by the time it is recorded, so
+            // its own interface set answers directly.
+            if ExternalBaseImplementsInterface(source, target, Type.EmptyTypes) {
+                active.Remove(source)
+                return true
+            }
         }
 
         active.Remove(source)
+        return false
+    }
+
+    // Whether the EXTERNAL base at the end of this source type's base chain implements `target`. The
+    // chain walk and its per-link substitution are the emitter's one inherited-base owner; the
+    // interface comparison is the same one a written external interface gets.
+    static func ExternalBaseImplementsInterface(source: ColumnarStructDef, target: Type, sourceArguments: Type[]): bool {
+        externalBase := ColumnarInheritedExternalBase.ResolveWithArguments(source, sourceArguments)
+        if externalBase == null {
+            return false
+        }
+
+        implemented := externalBase.GetInterfaces()
+        index := 0
+        while index < implemented.Length {
+            if RuntimeInterfaceEqualsOrExtends(implemented[index], target) {
+                return true
+            }
+
+            index = index + 1
+        }
+
         return false
     }
 
