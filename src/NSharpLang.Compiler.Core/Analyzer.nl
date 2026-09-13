@@ -195,7 +195,7 @@ class Analyzer: IDisposable {
             Throwability,
             TerminatingCalls
         )
-        Ambient = new AnalyzerAmbientContext(Diagnostics, Spans, SoaEscape)
+        Ambient = new AnalyzerAmbientContext(Diagnostics, Spans, SoaEscape, DeclarationContext)
         LoopSequence = new AnalyzerLoopSequence(
             Diagnostics,
             Spans,
@@ -237,7 +237,8 @@ class Analyzer: IDisposable {
             Spans,
             TypeResolver,
             Ambient,
-            SoaEscape
+            SoaEscape,
+            DeclarationContext
         )
         TypeDeclarations = new AnalyzerTypeDeclarations(
             Diagnostics,

@@ -482,18 +482,32 @@ class AnalyzerConstruction {
             return null
         }
 
+        // A DECLARED CONSTRUCTOR'S PARAMETER TYPE IS WRITTEN IN THE FILE THAT DECLARES THE CLASS, AND
+        // IT IS READ THERE. `constructor.ParameterTypes[index]` is a `TypeReference` out of ANOTHER
+        // file's syntax tree: its spelling is scoped by that file's namespace and imports, and its
+        // line and column are positions in that file. Handing it to the CURRENT file's resolver got
+        // both wrong at once — a bare `SymbolKind` written in `Models.nl` was looked up through the
+        // imports of the file doing the `new`, so a namespace only the CONSUMER imported could claim
+        // it, and the NL209 that followed was stamped at `Models.nl`'s line and column against the
+        // consumer's path, pointing into the middle of an unrelated line that never spells the name.
+        // `TryResolveTypeForOwner` is the owner-scoped read the rest of the declared-member family
+        // already uses (`TryResolveDeclaredValueMember`, `TryResolvePrimaryParameter`): the declaring
+        // file's scope, the owner's open type parameters, and no diagnostic of its own.
         declared := DeclaredConstructors(classType)
+        substitution := DeclaredConstructorSubstitution(generic, classType)
         declaredIndex := 0
         while declaredIndex < declared.Count {
             constructor := declared[declaredIndex]
             if constructor.ParameterCount == argumentCount && index < constructor.ParameterTypes.Length {
-                candidate := typeResolverValue.ResolveType(constructor.ParameterTypes[index])
-                if AnalyzerCallableReferenceFacts.IsInvocableMemberType(candidate) {
-                    if !found {
-                        agreed = candidate
-                        found = true
-                    } else if agreed == null || !TypeInfoIdentityFacts.AreEqual(agreed, candidate) {
-                        return null
+                candidate := BuiltInTypes.Unknown as TypeInfo
+                if declarationContextValue.TryResolveTypeForOwner(constructor.ParameterTypes[index], classType, substitution, out candidate) {
+                    if AnalyzerCallableReferenceFacts.IsInvocableMemberType(candidate) {
+                        if !found {
+                            agreed = candidate
+                            found = true
+                        } else if agreed == null || !TypeInfoIdentityFacts.AreEqual(agreed, candidate) {
+                            return null
+                        }
                     }
                 }
             }
@@ -502,6 +516,18 @@ class AnalyzerConstruction {
         }
 
         return agreed
+    }
+
+    // THE INSTANTIATION'S VOCABULARY FOR A SOURCE GENERIC. `Box<T>`'s constructors are written in
+    // `Box`'s own file, where a parameter reads `Action<T>`; the type arguments THIS `new` supplies
+    // are what turn that into `Action<int>`. A non-generic construction has nothing to substitute and
+    // answers null — the owner-scoped resolver then reads the declaration exactly as it is written.
+    func DeclaredConstructorSubstitution(generic: GenericTypeInfo?, classType: ClassTypeInfo): Dictionary<string, TypeInfo>? {
+        if generic == null {
+            return null
+        }
+
+        return declarationContextValue.CreateGenericSubstitution(classType, generic.TypeArguments)
     }
 
     // The delegate position an EXTERNAL generic's constructors agree on, read through the definition
@@ -1236,9 +1262,14 @@ class AnalyzerConstruction {
         span := spansValue.GetExpressionDiagnosticSpan(property.Value)
         sourceSnippet := diagnosticsValue.SourceSnippet(span.Line)
         currentFilePath := diagnosticsValue.CurrentFilePath
-        message := "'" + property.Name + "' is typed as '" + TypeText(memberType) + "', but the value is '" + TypeText(valueType) + "'"
+        // Rendered as a PAIR, so a member and the value written for it never both print as the same
+        // simple name while naming two different types. See `TypeMismatchDisplay`.
+        valueText := ""
+        memberText := ""
+        TypeMismatchDisplay.Pair(declarationContextValue, valueType, memberType, out valueText, out memberText)
+        message := "'" + property.Name + "' is typed as '" + memberText + "', but the value is '" + valueText + "'"
         if sourceSnippet != null && currentFilePath != null {
-            diagnosticsValue.ReportBuilt(ErrorMessageBuilder.TypeMismatch(currentFilePath, span.Line, span.Column, sourceSnippet, span.Length, TypeText(valueType), TypeText(memberType), message))
+            diagnosticsValue.ReportBuilt(ErrorMessageBuilder.TypeMismatch(currentFilePath, span.Line, span.Column, sourceSnippet, span.Length, valueText, memberText, message))
             return
         }
 

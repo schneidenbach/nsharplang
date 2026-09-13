@@ -1921,7 +1921,11 @@ A bare name is resolved in this order, and the first channel that answers wins:
    `import System` in scope.
 3. **Your imports, in the order you wrote them** — a source namespace and a .NET namespace count
    equally here. If two imports supply the same name, that is [NL209](errors/NL209.md): neither is
-   closer, so the compiler asks you to say which one you mean.
+   closer, so the compiler asks you to say which one you mean. "Equally" is literal: two *referenced
+   assembly* namespaces that both declare `Range` tie exactly as two of your own namespaces would,
+   and so does one of yours against one of theirs. The tie is reported wherever the name is written —
+   an annotation, a `new`, a type argument, a `typeof`, an `is`/`as`, a static receiver, or an
+   attribute's brackets.
 4. **Project-wide auto-discovery.** An exported type anywhere in your project is usable by its bare
    name without an import, as long as exactly one declaration has that name. This is a convenience,
    so it ranks *below* anything you imported explicitly — a `class Version` of your own in a
@@ -1935,6 +1939,11 @@ through an import and competes at step 3 like any other.
 
 When two declarations tie, or when auto-discovery picks up a name you did not mean, write the
 qualified name. It is never ambiguous.
+
+Diagnostics follow the same rule in reverse: when a type mismatch is between two different types that
+share a simple name, both are printed with their namespaces — "expected `System.Range` but got
+`OmniSharp.Extensions.LanguageServer.Protocol.Models.Range`" — rather than the contradiction that
+printing the simple name twice would produce.
 
 ## Visibility
 

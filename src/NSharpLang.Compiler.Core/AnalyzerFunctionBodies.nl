@@ -953,8 +953,11 @@ class AnalyzerFunctionBodies {
     // text there is no span worth narrowing to.
     func ReportExpressionBodyTypeMismatch(declaration: FunctionDeclaration, expressionBody: Expression, returnType: TypeInfo, expressionType: TypeInfo, conversion: ExternalConversionSelection) {
         span := spansValue.GetExpressionDiagnosticSpan(expressionBody)
-        returnTypeName := TypeText(returnType)
-        expressionTypeName := TypeText(expressionType)
+        // Rendered as a PAIR, so a declared return type and a returned value that share a simple
+        // name are both spelled in full. See `TypeMismatchDisplay`.
+        returnTypeName := ""
+        expressionTypeName := ""
+        TypeMismatchDisplay.Pair(declarationContextValue, expressionType, returnType, out expressionTypeName, out returnTypeName)
         sourceSnippet := diagnosticsValue.SourceSnippet(span.Line)
         currentFilePath := diagnosticsValue.CurrentFilePath
         if sourceSnippet != null && currentFilePath != null {

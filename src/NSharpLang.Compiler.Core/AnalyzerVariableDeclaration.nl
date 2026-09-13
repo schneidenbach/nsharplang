@@ -1047,8 +1047,11 @@ class AnalyzerVariableDeclaration {
         span := spansValue.GetExpressionDiagnosticSpan(initializer)
         sourceSnippet := diagnosticsValue.SourceSnippet(span.Line)
         currentFilePath := diagnosticsValue.CurrentFilePath
-        declaredText := TypeText(declaredType)
-        inferredText := TypeText(inferredType)
+        // Rendered as a PAIR, so an annotation and its initializer never both print as the same
+        // simple name while naming two different types. See `TypeMismatchDisplay`.
+        declaredText := ""
+        inferredText := ""
+        TypeMismatchDisplay.Pair(declarationContextValue, inferredType, declaredType, out inferredText, out declaredText)
         conversion := assignabilityValue.ClassifyUserDefinedConversion(declaredType, inferredType)
         if diagnosticsValue.ReportAmbiguousUserDefinedConversion(conversion, inferredText, declaredText, span.Line, span.Column, span.Length) {
             return

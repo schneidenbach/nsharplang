@@ -224,13 +224,17 @@ class AnalyzerAccessorBodies {
     typeResolverValue: AnalyzerTypeResolver
     ambientValue: AnalyzerAmbientContext
     soaEscapeValue: AnalyzerSoaEscape
+    // ONLY FOR RENDERING A MISMATCH PAIR — see the same field on `AnalyzerAmbientContext`. Defaulted
+    // so the estate's hand-built shapes keep their arity.
+    declarationContextValue: AnalyzerDeclarationContext?
 
-    constructor(diagnostics: AnalyzerDiagnosticSink, spans: AnalyzerDiagnosticSpans, typeResolver: AnalyzerTypeResolver, ambient: AnalyzerAmbientContext, soaEscape: AnalyzerSoaEscape) {
+    constructor(diagnostics: AnalyzerDiagnosticSink, spans: AnalyzerDiagnosticSpans, typeResolver: AnalyzerTypeResolver, ambient: AnalyzerAmbientContext, soaEscape: AnalyzerSoaEscape, declarationContext: AnalyzerDeclarationContext? = null) {
         diagnosticsValue = diagnostics
         spansValue = spans
         typeResolverValue = typeResolver
         ambientValue = ambient
         soaEscapeValue = soaEscape
+        declarationContextValue = declarationContext
     }
 
     // THE PROPERTY DECLARATION'S ENTRY. A property has only its own position, so the same value is
@@ -476,9 +480,14 @@ class AnalyzerAccessorBodies {
         span := spansValue.GetExpressionDiagnosticSpan(expressionBody)
         sourceSnippet := diagnosticsValue.SourceSnippet(span.Line)
         currentFilePath := diagnosticsValue.CurrentFilePath
-        message := "Property '" + property.Name + "' is typed as '" + TypeText(memberType) + "', but the expression body returns '" + TypeText(expressionType) + "'"
+        // Rendered as a PAIR, so a property and its expression body never both print as the same
+        // simple name while naming two different types. See `TypeMismatchDisplay`.
+        expressionText := ""
+        memberText := ""
+        TypeMismatchDisplay.Pair(declarationContextValue, expressionType, memberType, out expressionText, out memberText)
+        message := "Property '" + property.Name + "' is typed as '" + memberText + "', but the expression body returns '" + expressionText + "'"
         if sourceSnippet != null && currentFilePath != null {
-            diagnosticsValue.ReportBuilt(ErrorMessageBuilder.TypeMismatch(currentFilePath, span.Line, span.Column, sourceSnippet, span.Length, TypeText(expressionType), TypeText(memberType), message))
+            diagnosticsValue.ReportBuilt(ErrorMessageBuilder.TypeMismatch(currentFilePath, span.Line, span.Column, sourceSnippet, span.Length, expressionText, memberText, message))
             return
         }
 

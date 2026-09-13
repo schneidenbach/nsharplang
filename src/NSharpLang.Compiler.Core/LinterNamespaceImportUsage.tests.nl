@@ -181,6 +181,29 @@ test "System.HashCode marks its own import used" {
     assert LinterNamespaceImportUsage.IsUsed("System.Collections.Generic", identifiers, LniuNone()) == false
 }
 
+test "System.Range marks its own import used, beside the Index already in the row" {
+    // THE CENSUS FINDING. `import System` beside `func F(r: Range)` was reported NL010 unused —
+    // an ERROR whose `nlc fix` deletes the import — because `Range` was missing from the System row
+    // while its sibling `Index` was present. A row is a closed-world claim about the namespace it
+    // names, so a gap in one is a false positive rather than a missed report.
+    assert LinterNamespaceImportUsage.IsUsed("System", LniuOne("Range"), LniuNone())
+    assert LinterNamespaceImportUsage.IsUsed("System", LniuOne("Index"), LniuNone())
+
+    // The gaps closed alongside it, each a sibling of a spelling the row already carried: the
+    // numeric aliases beside `Int32`, the date/time-only types beside `DateTime`, the
+    // async-disposable interface beside `IDisposable`, and the common runtime exceptions beside the
+    // argument ones.
+    assert LinterNamespaceImportUsage.IsUsed("System", LniuOne("Int64"), LniuNone())
+    assert LinterNamespaceImportUsage.IsUsed("System", LniuOne("Double"), LniuNone())
+    assert LinterNamespaceImportUsage.IsUsed("System", LniuOne("DateOnly"), LniuNone())
+    assert LinterNamespaceImportUsage.IsUsed("System", LniuOne("IAsyncDisposable"), LniuNone())
+    assert LinterNamespaceImportUsage.IsUsed("System", LniuOne("ObjectDisposedException"), LniuNone())
+
+    // And none of them belongs to a DIFFERENT tabled namespace, so nothing else was widened.
+    assert LinterNamespaceImportUsage.IsUsed("System.Collections.Generic", LniuOne("Range"), LniuNone()) == false
+    assert LinterNamespaceImportUsage.IsUsed("System.IO", LniuOne("DateOnly"), LniuNone()) == false
+}
+
 test "an identifier belonging to one namespace does not mark a different one used" {
     identifiers := LniuOne("StringBuilder")
 
@@ -216,11 +239,15 @@ test "the type half names exactly ten namespaces and nothing else" {
     }
 
     assert namespaces.Length == 10
-    // 153 = 131 at the move, plus the eleven `System` ATTRIBUTE types the row was missing, plus the
+    // 199 = 131 at the move, plus the eleven `System` ATTRIBUTE types the row was missing, plus the
     // eleven `System` DELEGATE and console types it was missing once a lambda could convert to any
-    // delegate: a file whose only use of the import was `p: Predicate<string>` or
-    // `h: ConsoleCancelEventHandler` was told the import was dead.
-    assert total == 153
+    // delegate (a file whose only use of the import was `p: Predicate<string>` or
+    // `h: ConsoleCancelEventHandler` was told the import was dead), plus the forty-six `System`
+    // spellings the 2026-09-13 import census found missing BY SIBLING — `Range` beside `Index`, the
+    // numeric aliases beside `Int32`, the date/time-only types beside `DateTime`, the
+    // async-disposable interface beside `IDisposable`, and the common runtime exceptions beside the
+    // argument ones. A row is a closed-world claim, so every gap in one was a false NL010.
+    assert total == 199
 
     // Namespaces that look like table rows but are not.
     assert LinterNamespaceImportUsage.KnownTypeNames("System.Collections").Length == 0
@@ -233,7 +260,7 @@ test "the type half names exactly ten namespaces and nothing else" {
 // a file whose only use of the import was `[Obsolete("…")]`, `[Flags]`, `p: Predicate<string>` or
 // `h: ConsoleCancelEventHandler` was told the import was dead. Every other row is its moved count.
 test "each namespace's type row holds exactly the count it was moved with" {
-    assert LinterNamespaceImportUsage.KnownTypeNames("System").Length == 66
+    assert LinterNamespaceImportUsage.KnownTypeNames("System").Length == 112
     assert LinterNamespaceImportUsage.KnownTypeNames("System.Collections.Generic").Length == 24
     assert LinterNamespaceImportUsage.KnownTypeNames("System.IO").Length == 14
     assert LinterNamespaceImportUsage.KnownTypeNames("System.Text.Json").Length == 7

@@ -435,31 +435,54 @@ class AnalyzerProjectTypeDiscovery {
             return true
         }
 
-        // THE METADATA HALF IS ASKED ONLY WHEN THE SOURCE HALF ALREADY MATCHED, and that is a
-        // MEASURED limit rather than a rule: an assembly sweep is imports x assemblies of
-        // `Assembly.GetType`, a miss is deliberately not cached, and running it for every name that
-        // reaches this gate would put that cost on `Console`, `List` and every other ordinary CLR
-        // spelling. A source declaration in an imported namespace is rare, so asking then is cheap.
+        // THE METADATA HALF, AND IT IS NO LONGER A HALF. This used to be asked only once the SOURCE
+        // sweep above had already matched, because an assembly sweep re-ran every miss and putting
+        // that on `Console`, `List` and every other ordinary CLR spelling was not affordable — so two
+        // IMPORTED CLR namespaces declaring one spelling resolved first-import-wins and said nothing.
+        // That was a cost, never a rule: C# reports CS0104 for that shape too. The probe now remembers
+        // a miss against the assembly count that proved it (`TryResolveFullName`), so the sweep the
+        // resolver was going to take a step later is what answers here, and the tie is reported
+        // wherever it occurs — source against source, source against metadata, metadata against
+        // metadata.
         //
-        // WHAT THAT LEAVES UNREPORTED, named so it is a known limit and not a silent one: two
-        // IMPORTED CLR namespaces that declare the same spelling still resolve first-import-wins,
-        // the order `AnalyzerExternalTypeProbe` has always had. Qualify the reference to settle it.
-        if matchedNamespace == null {
-            return false
-        }
-
+        // THE PROBE NAME CARRIES ITS ARITY AND THE REPORT CARRIES THE WRITTEN ONE. ``List`1`` and
+        // `List` are different identities in metadata, so the question asked of the assemblies is the
+        // LOOKUP name; the two candidates a reader is shown are spelled the way the file spells them.
         ambiguityProbe := externalTypeProbe
         if ambiguityProbe == null {
             return false
         }
 
-        firstExternalNamespace := ""
-        if !ambiguityProbe.TryFindImportedExternalNamespace(writtenName, matchedNamespace, out firstExternalNamespace) {
-            return false
+        metadataIndex := 0
+        while metadataIndex < usingNamespaces.Count {
+            candidateNamespace := usingNamespaces[metadataIndex]
+            metadataIndex = metadataIndex + 1
+            if SimpleNamePrecedence.IsLexicalNamespace(currentNamespace, candidateNamespace) {
+                continue
+            }
+
+            // The namespace a SOURCE declaration already claimed is this same candidate, not a second
+            // one: a metadata type of the same spelling there would be the same import, and an import
+            // does not tie with itself.
+            if string.Equals(candidateNamespace, matchedNamespace, StringComparison.Ordinal) {
+                continue
+            }
+
+            if !ambiguityProbe.ImportedNamespaceDeclares(candidateNamespace, name) {
+                continue
+            }
+
+            if matchedNamespace == null {
+                matchedNamespace = candidateNamespace
+                firstCandidate = candidateNamespace + "." + writtenName
+                continue
+            }
+
+            secondCandidate = candidateNamespace + "." + writtenName
+            return true
         }
 
-        secondCandidate = firstExternalNamespace + "." + writtenName
-        return true
+        return false
     }
 
     // A NAMESPACE-QUALIFIED PROJECT TYPE — the `Example` half of `Example.Handle`.
