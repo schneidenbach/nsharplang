@@ -8089,7 +8089,7 @@ test "020 s31 analyzer error codes: `!` on an int is `NL202` naming the operator
 }
 
 test "020 s31 analyzer error codes: five relational comparisons over incompatible operand pairs report FIVE separate `NL202` rows in ONE fixture, and the census pins all five with their anchors in order — the deleted method filtered the list and asserted a count and two substrings, and could not say which row was which (was AnalyzerTests.RelationalOperator_InvalidOperands_ReportTypeMismatch)" {
-    source := "\nfunc BadString(): bool {\n    return \"a\" < \"b\"\n}\n\nfunc BadObject(value: object): bool {\n    return value > 0\n}\n\nfunc BadBool(left: bool, right: bool): bool {\n    return left <= right\n}\n\nfunc BadNullable(value: int?): bool {\n    return value >= 0\n}\n\nfunc BadMixed(left: ulong, right: long): bool {\n    return left < right\n}\n"
+    source := "\nfunc BadString(): bool {\n    return \"a\" < \"b\"\n}\n\nfunc BadObject(value: object): bool {\n    return value > 0\n}\n\nfunc BadBool(left: bool, right: bool): bool {\n    return left <= right\n}\n\nfunc BadNullable(value: string?): bool {\n    return value >= 0\n}\n\nfunc BadMixed(left: ulong, right: long): bool {\n    return left < right\n}\n"
     assert AcParseCensus(source) == ""
     assert AcParseSuccess(source) == "True"
     analysis := AcAnalyze(source)
@@ -8105,7 +8105,7 @@ test "020 s31 analyzer error codes: five relational comparisons over incompatibl
     assert AcRow(analysis, 2) == "TypeMismatch|The '<=' operator doesn't work with 'bool' and 'bool' — both sides need primitive numeric values or a comparison operator overload, but I found 'bool' and 'bool'|Use primitive numeric operands, convert the non-numeric value, or define an operator overload for this type.|Error"
     assert AcHint(analysis, 2) == "<null>"
     assert AcSuggestions(analysis, 2) == "<null>"
-    assert AcRow(analysis, 3) == "TypeMismatch|The '>=' operator doesn't work with 'int?' and 'int' — both sides need primitive numeric values or a comparison operator overload, but the left side is 'int?'|Use primitive numeric operands, convert the non-numeric value, or define an operator overload for this type.|Error"
+    assert AcRow(analysis, 3) == "TypeMismatch|The '>=' operator doesn't work with 'string?' and 'int' — both sides need primitive numeric values or a comparison operator overload, but the left side is 'string?'|Use primitive numeric operands, convert the non-numeric value, or define an operator overload for this type.|Error"
     assert AcHint(analysis, 3) == "<null>"
     assert AcSuggestions(analysis, 3) == "<null>"
     assert AcRow(analysis, 4) == "TypeMismatch|The '<' operator doesn't work with 'ulong' and 'long' — no single integral type holds every value of both, so there is no common type to compute in. A constant whose value fits converts on its own; a variable needs a cast|Cast the 'long' side to 'ulong', or make both sides signed.|Error"
@@ -8129,7 +8129,7 @@ test "020 s31 analyzer error codes: five relational comparisons over incompatibl
     assert AcRow(rich, 2) == "TypeMismatch|The '<=' operator doesn't work with 'bool' and 'bool' — both sides need primitive numeric values or a comparison operator overload, but I found 'bool' and 'bool'|Use primitive numeric operands, convert the non-numeric value, or define an operator overload for this type.|Error"
     assert AcHint(rich, 2) == "<null>"
     assert AcSuggestions(rich, 2) == "<null>"
-    assert AcRow(rich, 3) == "TypeMismatch|The '>=' operator doesn't work with 'int?' and 'int' — both sides need primitive numeric values or a comparison operator overload, but the left side is 'int?'|Use primitive numeric operands, convert the non-numeric value, or define an operator overload for this type.|Error"
+    assert AcRow(rich, 3) == "TypeMismatch|The '>=' operator doesn't work with 'string?' and 'int' — both sides need primitive numeric values or a comparison operator overload, but the left side is 'string?'|Use primitive numeric operands, convert the non-numeric value, or define an operator overload for this type.|Error"
     assert AcHint(rich, 3) == "<null>"
     assert AcSuggestions(rich, 3) == "<null>"
     assert AcRow(rich, 4) == "TypeMismatch|The '<' operator doesn't work with 'ulong' and 'long' — no single integral type holds every value of both, so there is no common type to compute in. A constant whose value fits converts on its own; a variable needs a cast|Cast the 'long' side to 'ulong', or make both sides signed.|Error"
