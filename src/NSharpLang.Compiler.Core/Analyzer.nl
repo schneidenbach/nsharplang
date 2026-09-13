@@ -100,10 +100,32 @@ class Analyzer: IDisposable {
     private readonly ReferenceLoadOrchestration: AnalyzerReferenceLoadOrchestration
     private Disposed: bool
 
+    // THE EXPRESSION WHOSE DISPATCH JUST ANSWERED, AND WHAT IT ANSWERED WITH — the two halves of an
+    // expression walk that `AnalyzeExpression` returns only ONE of. `Finish` folds null flow and the
+    // four value-misuse guards into the answer, and the guards read AMBIENT POSITION, so the tail's
+    // result is a function of WHERE the expression was analysed as well as of what it is. Keeping the
+    // DISPATCHED type is what lets the call walk's later reads of the same receiver re-run the tail
+    // where they stand instead of re-walking the whole subtree — see `DriveMemberAccess`.
+    private DispatchedExpression: Expression?
+    private DispatchedType: TypeInfo?
+
+    // THE RECEIVER A MEMBER-ACCESS WALK ANALYSED, published for the call walk that asked for the
+    // member access. It is a SINGLE SLOT because it is read at one instant: a member access finishes
+    // its own walk last, so the slot holds that member access when `AnalyzeExpression(call.Callee)`
+    // returns to `AnalyzeCall`, and nothing between those two points writes it again.
+    private ReceiverRelayMember: Expression?
+    private ReceiverRelayNode: Expression?
+    private ReceiverRelayDispatchedType: TypeInfo?
+
     constructor() {
         DeclarationContextFilePath = null
         WellKnownTypes = null
         Disposed = false
+        DispatchedExpression = null
+        DispatchedType = null
+        ReceiverRelayMember = null
+        ReceiverRelayNode = null
+        ReceiverRelayDispatchedType = null
         Errors = new List<CompilerError>()
         Scopes = new AnalyzerScopeStack()
         UsingNamespaces = new List<string>()
@@ -1580,13 +1602,37 @@ class Analyzer: IDisposable {
         return Assignment.Result(state)
     }
 
+    // A MEMBER ACCESS, AND THE RECEIVER IT ANALYSED PUBLISHED FOR WHOEVER ASKS FOR IT NEXT.
+    //
+    // A call whose callee is a member access analyses that member access — which analyses the
+    // RECEIVER — and then asks for the same receiver again, once per receiver-shaped question the
+    // bind has (a receiver-style generic candidate, the reflected bind's CLR receiver, and four
+    // more). Each of those repeats used to re-walk the receiver's whole subtree, so a fluent chain
+    // `a.B().C().D()` — whose receiver is itself a call whose receiver is a call — analysed the
+    // innermost link once per PATH through the chain: exponential in the chain's length, and a
+    // 27-link chain does not terminate. The walk is published here and reused there; what is kept is
+    // the DISPATCHED type, so the reader re-runs `ExpressionTail.Finish` under its own ambient
+    // position and sees exactly the answer a re-analysis would have given it.
     private func DriveMemberAccess(state: MemberAccessState): TypeInfo {
+        receiverNode: Expression? = null
+        receiverDispatchedType: TypeInfo? = null
         step := MemberAccess.NextStep(state)
         while step != null {
-            MemberAccess.Supply(state, AnalyzeExpression(step.Node))
+            answer := AnalyzeExpression(step.Node)
+            if DispatchedExpression != null && Object.ReferenceEquals(DispatchedExpression, step.Node) {
+                receiverNode = step.Node
+                receiverDispatchedType = DispatchedType
+            }
+
+            MemberAccess.Supply(state, answer)
             step = MemberAccess.NextStep(state)
         }
-        return MemberAccess.Result(state)
+
+        result := MemberAccess.Result(state)
+        ReceiverRelayMember = state.Member
+        ReceiverRelayNode = receiverNode
+        ReceiverRelayDispatchedType = receiverDispatchedType
+        return result
     }
 
     private func AnalyzeExpression(expression: Expression): TypeInfo {
@@ -1662,6 +1708,8 @@ class Analyzer: IDisposable {
             }
         }
 
+        DispatchedExpression = expression
+        DispatchedType = result
         return ExpressionTail.Finish(expression, result)
     }
 
@@ -1683,8 +1731,17 @@ class Analyzer: IDisposable {
         return RangeExpression.Result(state)
     }
 
+    // THE RECEIVER IS WALKED ONCE PER CALL, AND EVERY LATER READ OF IT IS THE TAIL ALONE.
+    //
+    // `receiverNode` / `receiverDispatchedType` are LOCALS rather than fields because their lifetime
+    // is exactly this call's walk: a nested call analysed inside the callee gets its own pair, and
+    // nothing survives the walk to be read stale. They are filled from the member-access relay the
+    // instant the CALLEE answers, and every kind-16 read afterwards re-runs `ExpressionTail.Finish`
+    // on the kept dispatched type instead of re-walking the receiver's subtree.
     private func AnalyzeCall(call: CallExpression): TypeInfo {
         state := CallAnalysis.BeginCall(call)
+        receiverNode: Expression? = null
+        receiverDispatchedType: TypeInfo? = null
         step := CallAnalysis.NextCallStep(state)
         while step != null {
             answer: TypeInfo? = null
@@ -1703,7 +1760,22 @@ class Analyzer: IDisposable {
                 }
             }
             if kind == 6 {
+                ReceiverRelayMember = null
                 answer = AnalyzeExpression(step.Node)
+                if ReceiverRelayMember != null && Object.ReferenceEquals(ReceiverRelayMember, call.Callee) {
+                    receiverNode = ReceiverRelayNode
+                    receiverDispatchedType = ReceiverRelayDispatchedType
+                }
+
+                ReceiverRelayMember = null
+            }
+            if kind == 16 {
+                keptType := receiverDispatchedType
+                if keptType != null && receiverNode != null && Object.ReferenceEquals(receiverNode, step.Node) {
+                    answer = ExpressionTail.Finish(step.Node, keptType)
+                } else {
+                    answer = AnalyzeExpression(step.Node)
+                }
             }
             if kind == 7 {
                 SoaEscape.ReportSoaRowEscape(step.Node, step.Text)
