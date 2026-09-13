@@ -3372,6 +3372,11 @@ test "nlc check and nlc test read the same file list, so a clean test file keeps
 // `tests/native/error-docs-contract` precisely because its reproducer has to be generated, and this
 // is where that exemption is discharged — the limit the page publishes and the sentence it quotes
 // are read back out of the shipped compiler.
+//
+// THE EXACT BOUNDARY, MEASURED: `return` plus 511 parentheses compiles and 512 does not, because the
+// expression a statement starts with is level 1. The rows below generate four times the limit, so
+// they state the RULE rather than the boundary; the boundary itself is stated by the row that
+// compiles 100 levels.
 
 func NestingLimit(): int {
     return 512

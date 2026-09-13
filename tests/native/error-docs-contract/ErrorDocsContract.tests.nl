@@ -198,7 +198,7 @@ func EdcExemptions(): List<string> {
 // Two narrow exemptions from the SOURCE-repro requirement, never from the page requirement.
 // Internal compiler errors have no supported source reproducer: the named native contract
 // supplies a synthetic exception, runs the product boundary, and pins the page's exact output.
-// NL111 has no reproducer a reader can READ: the shortest source that reaches it is 513 nested
+// NL111 has no reproducer a reader can READ: the shortest source that reaches it is 512 nested
 // parentheses, about a thousand characters on one line, and pasting that into a documentation page
 // teaches nothing the prose does not. The named contract GENERATES it and pins the page's sentence.
 func EdcOutputExampleExemptions(): List<string> {
