@@ -507,10 +507,21 @@ test "the option the suggestion no longer names is the one that does not work, a
     assert commented.IndexOf("add a comment explaining why it's safe to ignore", StringComparison.Ordinal) < 0, commented
 }
 
-test "a bare `throw` is not an N# re-throw form, which is why the suggestion says `throw new ...`" {
-    bare := DhCatch("nl011-bare-throw", "        throw\n")
-    assert DhCodeCount(bare, "NL102") == 1, bare
-    assert bare.IndexOf("Expected an exception expression after 'throw'", StringComparison.Ordinal) >= 0, bare
+// A BARE `throw` IS NOW THE RE-THROW, and it clears NL011 like every other option the suggestion
+// names: the handler does something with the exception. It used to be the missing-operand NL102, and
+// that is the contract this test carried. The template's trailing `return 0` would be unreachable
+// after it, so this probe ends the function at the handler exactly as the fallback and wrapped cases
+// above do.
+test "a bare `throw` re-throws, and a handler that re-throws is not an empty catch" {
+    bare := DhProbe.Check("nl011-bare-throw", "import System\n\nfunc ParseCount(text: string): int {\n    try {\n        return int.Parse(text)\n    } catch (error: FormatException) {\n        throw\n    }\n}\n")
+    assert DhDiagnosticCount(bare) == 0, bare
+}
+
+test "a bare `throw` OUTSIDE a handler is NL336, and it names the missing handler rather than a missing operand" {
+    outside := DhProbe.Check("nl333-outside", "func Fail(): int {\n    throw\n}\n")
+    assert DhCodeCount(outside, "NL336") == 1, outside
+    assert DhCodeCount(outside, "NL102") == 0, outside
+    assert outside.IndexOf("there's no exception here to re-throw", StringComparison.Ordinal) >= 0, outside
 }
 
 // ═══ THE NULL CHECK THAT CANNOT BE NULL — BOTH HALVES, AND NEITHER TWICE ══════════════════════

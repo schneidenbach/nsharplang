@@ -628,6 +628,34 @@ func main() {
 }
 ```
 
+### Re-throwing
+
+A bare `throw` inside a `catch` re-raises the exception that handler is running for, **keeping its
+original stack trace**. Use it whenever you are not changing the exception — logging it, cleaning up,
+deciding it is not yours to handle.
+
+```n#
+import System
+
+func LoadConfig(path: string): int {
+    try {
+        return int.Parse(ReadAll(path))
+    } catch ex: FormatException {
+        print $"{path} is not a number"
+        throw                          // re-raises ex with the original stack intact
+    }
+}
+```
+
+`throw ex` is a different statement. It raises the same object again *from the handler*, which resets
+the stack trace to this frame — the original failure site is lost. Reach for it only when you mean to
+raise the exception anew, and prefer wrapping (`throw new InvalidOperationException(msg, ex)`) when
+you want to add context.
+
+A bare `throw` needs a handler to re-throw from. Outside a `catch`, inside a `finally` nested in the
+handler, or inside a lambda or local function written in the handler (each compiles to a method of
+its own), it is [`NL336`](./errors/NL336.md).
+
 ### Tuple Error Capture
 
 N# has a Go-inspired pattern: assign both the result and error in one line. If the function throws, the error variable captures the exception instead of crashing.
@@ -681,6 +709,71 @@ async func main() {
     print result   // data loaded
 }
 ```
+
+### Async Lambdas
+
+Write `async` in front of a lambda to make its body asynchronous. The body produces the **result**
+the target delegate's task carries — not the task itself — exactly as an `async func` declares its
+inner type and the signature wraps it:
+
+```n#
+import System
+import System.Threading.Tasks
+
+func makeLoader(): Func<string, Task<int>> {
+    return async path => {
+        contents := await readAllTextAsync(path)
+        return contents.Length
+    }
+}
+```
+
+All three parameter spellings take the keyword — `async () => …`, `async x => …`,
+`async (a, b) => …` — with either an expression body or a block body, and the target may be any
+delegate returning `Task`, `Task<T>`, `ValueTask` or `ValueTask<T>`. Which family the value travels
+in is the target's decision, not the body's: the same body serves `Func<Task<int>>` and
+`Func<ValueTask<int>>`.
+
+An async lambda captures like any other lambda — enclosing locals, `this`, and a fresh copy of each
+loop iteration's own locals.
+
+**An exception raised inside the body lands on the returned task**, not on the caller that invoked
+the delegate:
+
+```n#
+failing: Func<Task<int>> = async () => {
+    await Task.Delay(1)
+    throw new InvalidOperationException("nope")
+}
+
+task := failing()        // returns normally; the task is faulted
+print task.IsFaulted     // True
+```
+
+A **local function** can be `async` too. Like a top-level `async func` it declares its *inner* type,
+and the method it compiles to returns the wrap — so `async func inner(): int` is called with `await`:
+
+```n#
+func loadAll(paths: string[]): int {
+    async func lengthOf(path: string): int {
+        contents := await readAllTextAsync(path)
+        return contents.Length
+    }
+
+    total := 0
+    for path in paths {
+        total = total + await lengthOf(path)
+    }
+    return total
+}
+```
+
+Leaving the keyword off when the target wants a task is [`NL335`](./errors/NL335.md), which names the
+missing word rather than leaving you to read two delegate types side by side.
+
+There is **no `async void`**: a lambda whose target returns `void` (an `Action`) has nowhere to put
+its task, so N# reports [`NL334`](./errors/NL334.md) and asks you to drop the keyword or give the
+target a task-like return. That page explains why N# departs from C# here, and what it buys.
 
 ### Async Streams
 

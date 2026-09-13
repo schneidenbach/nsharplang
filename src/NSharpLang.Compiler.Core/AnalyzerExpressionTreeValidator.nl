@@ -81,6 +81,19 @@ class AnalyzerExpressionTreeValidator {
         diagnostics.Report(ErrorCode.FeatureNotImplemented, message, lambda.Line, lambda.Column, "Use 'x => expression' for expression-tree targets, or assign the block lambda to a delegate type such as Func or Action.", spans.GetTokenLength(lambda.Line, lambda.Column))
     }
 
+    // THE `async` KEYWORD. An expression tree records what a body WOULD do; an `async` body does not
+    // describe an expression at all — it describes a task and the machinery that completes it — so
+    // there is nothing for the tree to hold. C# refuses the same conversion, and the fix is the same
+    // one the block-body report offers: give the lambda a delegate home instead of a tree.
+    func ReportAsyncLambdaIfNeeded(lambda: LambdaExpression) {
+        message := "Expression-tree lambdas cannot be 'async'"
+        if diagnostics.HasReported(ErrorCode.FeatureNotImplemented, message, lambda.Line, lambda.Column) {
+            return
+        }
+
+        diagnostics.Report(ErrorCode.FeatureNotImplemented, message, lambda.Line, lambda.Column, "An expression tree records an expression, and an `async` body describes a task instead. Drop the `async`, or assign the lambda to a delegate type such as `Func<Task<T>>`.", spans.GetTokenLength(lambda.Line, lambda.Column))
+    }
+
     // THE BODY'S CONTENTS. ANSWERS whether it reported, which is how the caller distinguishes "this
     // body is fine" from "this body was already complained about". A deduped report answers FALSE:
     // the sentence exists either way, and the caller's question is whether THIS visit added one.

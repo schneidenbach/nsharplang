@@ -320,7 +320,11 @@ class LinterWalk {
 
         throwStatement := statement as ThrowStatement
         if throwStatement != null {
-            VisitExpression(throwStatement.Expression)
+            thrownExpression := throwStatement.Expression
+            if thrownExpression != null {
+                VisitExpression(thrownExpression)
+            }
+
             return
         }
 

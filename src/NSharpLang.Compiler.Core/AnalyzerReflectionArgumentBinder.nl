@@ -379,6 +379,16 @@ class AnalyzerReflectionArgumentBinder {
                 return false
             }
 
+            // AN `async` LAMBDA IS NOT A CANDIDATE FOR A DELEGATE THAT RETURNS NO TASK. `Task.Run`
+            // declares `Action` beside `Func<Task>` and `Func<TResult>` beside `Func<Task<TResult>>`,
+            // and by arity alone an `async () => …` fits all four; without this the `Action` overload
+            // wins on declaration order and the awaited result is silently thrown away. N# has no
+            // `async void` (see `AnalyzerLambdaAnalysis.AsyncBodyReturnType`), so the non-task
+            // positions are not merely worse here — they are not conversions at all.
+            if lambda.IsAsync && !AnalyzerLambdaAnalysis.IsAsyncLambdaTarget(expectedSignature.ReturnType) {
+                return false
+            }
+
             score = 2 + expectedParameterTypes.Count
 
             // A LAMBDA THAT HAS A VALUE TO GIVE PREFERS A DELEGATE THAT KEEPS IT, AND ONE THAT HAS
@@ -388,12 +398,24 @@ class AnalyzerReflectionArgumentBinder {
             // `Action`. Both directions have to be scored, because a rule that only rewarded one of
             // them left the other pair tied on every key — which is now an ambiguity report rather
             // than a silent pick by declaration order.
+            //
+            // FOR AN `async` LAMBDA THE VALUE IS INSIDE THE TASK, so both directions are asked of the
+            // task's RESULT rather than of the delegate's return: `Task.Run(Func<Task>)` and
+            // `Task.Run(Func<Task<TResult>>)` BOTH return something, and only the second keeps what
+            // the body computed. The unwrap cannot answer null here — a target that is not task-like
+            // already failed the viability test above — and a non-async lambda reads the delegate's
+            // own return exactly as before.
+            keptValueType := expectedSignature.ReturnType
+            if lambda.IsAsync {
+                keptValueType = AnalyzerLambdaAnalysis.AsyncBodyReturnType(expectedSignature.ReturnType)
+            }
+
             if AnalyzerOverloadFacts.LambdaBodyProducesValue(lambda) {
-                if !BuiltInTypes.Is(expectedSignature.ReturnType, BuiltInTypes.Void) {
+                if !BuiltInTypes.Is(keptValueType, BuiltInTypes.Void) {
                     score = score + 1
                 }
             } else {
-                if BuiltInTypes.Is(expectedSignature.ReturnType, BuiltInTypes.Void) {
+                if BuiltInTypes.Is(keptValueType, BuiltInTypes.Void) {
                     score = score + 1
                 }
             }

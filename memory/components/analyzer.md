@@ -3452,6 +3452,87 @@ The three placements a suspension cannot resume from are **NL332**
 `catch` handler, or inside a `finally` handler. `ColumnarIteratorPlanner.WalkTryStatement` refuses the
 same three with the same sentences, so no shape can reach lowering without a diagnostic.
 
+### An `async` lambda moves the boundary between the body and the delegate
+
+`async x => …` is the ordinary lambda with one thing changed: the body produces the RESULT the
+target delegate's task carries, and the lambda's own type is a task of it. Everything else — the
+parameter list, the contextual typing, the display class — is unchanged.
+
+- **Two node kinds, one shape.** The parser emits **kind 78** for an `async` lambda and kind 39 for a
+  plain one, with identical children and spans; the `async` token is consumed in
+  `ParseLambdaOrAssignmentExpressionNode` only when a lambda actually follows it, so `async func` (a
+  local function) is untouched. Every reader that only asks "is this a lambda" goes through
+  `ColumnarLambdaNodeFacts.IsLambda`, so no dispatch table could be left behind; only the body's
+  expected type and the method it is emitted into ask `IsAsyncLambda`. The AST twin is
+  `LambdaExpression.IsAsync`, set by `ColumnarParserRecovery` (which re-anchors the node on the
+  `async` keyword) and written back by `FormatterWalk`.
+- **`return` now parses a lambda.** Both parsers take the LAMBDA level after `return`, so
+  `return async () => …` (and `return x => …`) is a delegate-returning function's ordinary body; the
+  emitter's return arm gives a returned lambda its shape from the DECLARED return type, exactly as the
+  method-group arm beside it does.
+- **The analyzer unwraps, then re-wraps.** `AnalyzerLambdaAnalysis.AsyncBodyReturnType` turns the
+  target's `Task<T>`/`ValueTask<T>` into `T` and its `Task`/`ValueTask` into `void` for the body's
+  expected type, and `FinishLambda` puts the body's answer back into the target's task family
+  (`AsyncWrappedReturnType`). Both halves are load-bearing: without the first the body is measured
+  against the task, and without the second `Task.Run(async () => await F())` cannot fix `TResult`,
+  because folding `Task<TResult>` against `Task<TResult>` fixes nothing.
+- **There is NO `async void`, deliberately.** N#'s `await` is sync-lowered, so an async body with no
+  task to carry its result or fault IS its own body — the keyword would mean nothing, and the C#
+  meaning (the exception posted to a synchronization context) is not on offer. **NL334** reports a
+  non-task-like target and a target-less lambda. Refusing it is also what keeps overload selection
+  honest: `AnalyzerReflectionArgumentBinder` drops a non-task candidate for an `async` lambda outright
+  and scores the value-keeping task position higher, so `Task.Run(async () => …)` cannot bind to
+  `Task.Run(Action)` and silently discard what the body awaited. The emitter agrees through
+  `IsContextualLambdaTarget`, and its `Task.Run` arm picks `Action` or `Func<Task>` by the argument's
+  own shape rather than by a fixed table row.
+- **NL335 IS NL334'S MIRROR** and is reported from the expression-body phase: the target's return IS
+  task-like and the body's value is NOT a task, so no conversion exists and the missing `async` is
+  the fix. It is a rule about the CONVERSION rather than about `await` — N# allows `await` in a body
+  that is not declared `async`, so "you awaited without saying async" is not a rule this language has.
+  A block body is not asked: a lambda does not infer a block's return type, and its `return`s are
+  measured against the signature by the nested-body boundary, which reports their mismatch there.
+- **An `async` LOCAL FUNCTION is the same shape in a local function's method.** It declares its INNER
+  type and the emitted method returns the wrap (`TryComputeAsyncReturnShape`, the same owner a
+  top-level `async func` asks), so every call site sees `ValueTask<T>`; the body sub-emitter is given
+  the inner type plus the async return shape. `emit.local-function.async` — the decline that said "its
+  body is not routed through the async return planner" — is gone.
+- **Emission is the async function's shape, in a lambda's method.** `TryEmitLambdaLiteral` keeps the
+  DELEGATE's signature on the synthesized method and hands the sub-emitter the unwrapped type plus
+  `asyncReturnType`, so `EmitBody`'s async fault guard runs for a block body and
+  `EmitAsyncLambdaExpressionBody` writes the same guard around a single expression. That guard is the
+  observable contract: an exception raised in the body becomes a FAULTED TASK rather than reaching the
+  caller.
+
+### A bare `throw` is the rethrow, and its placement is an ambient question
+
+`throw` with no expression re-raises the exception the enclosing `catch` handler is running for, as IL
+`rethrow`, which is the only way to re-raise WITHOUT resetting the stack trace (`throw e` raises the
+same object from the handler's own frame and loses the original site).
+
+- **The parser builds the node either way.** `ColumnarParserRecovery.ParseThrowStatement` produces
+  `ThrowStatement(null, …)` at a statement boundary (EOF, `}`, `;`, or a token on a later line —
+  `IsBareThrowBoundary`), and the kernel's `throw` arm emits **kind 48 with ZERO children**, the same
+  shape `yield break` uses against `yield`. Whether it is legal where it stands is semantic, exactly
+  as `break` outside a loop is. (A `throw` in EXPRESSION position still requires an operand.)
+- **The rule lives on the ambient context**, beside the loop and `finally` families:
+  `EnterCatchHandler` / `ExitCatchHandler` keep `CatchHandlerDepth` and `RethrowTargetFinallyDepth`
+  (the `finally` depth the innermost handler opened at), pushed by
+  `AnalyzerResourceStatements.AdvanceTry` phases 4/5 around a clause's body.
+  `ReportRethrowIfNeeded` raises **NL336** with two different sentences: no handler at all, and a
+  `finally` nested inside the handler it would re-throw from. `EnterNestedBody` ZEROES both — a lambda
+  or a local function compiles to a method of its own, and `rethrow` is valid only in a handler of the
+  method it stands in.
+- **Emission mirrors the same two counters.** `ColumnarIlEmitter` tracks `_catchHandlerDepth` /
+  `_rethrowTargetFinallyDepth` around each handler body and emits `OpCodes.Rethrow`; the state-machine
+  path appends `ColumnarCodePlanContract.Rethrow()` (0xFE1A, `-486`) with
+  `ColumnarMoveNextEmit.CatchHandlerDepth` answering the same question. Both refusals are contract
+  guards: the analyzer has already reported every program that could reach them.
+- **A region END is a reachable entry in the method-body stack validator.** `EndExceptionBlock` writes
+  no instruction of its own and every `leave` out of the region targets the row AFTER it, so a handler
+  that ends in `throw` or `rethrow` leaves that row with nothing falling into it. It is seeded at
+  height 0 alongside the handler starts; without that, an ordinary `catch { throw }` inside a
+  generator was refused as "unreachable instructions".
+
 ### An assignment target may be a member or an indexer
 
 `ColumnarStoreTargetPlanner` is the WRITE twin of the member and index reads, as code-plan rows, and

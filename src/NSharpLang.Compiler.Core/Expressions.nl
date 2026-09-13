@@ -251,15 +251,20 @@ class AssignmentExpression: Expression {
 }
 
 // Lambda expression
+// A lambda literal. `IsAsync` is the `async` keyword written in front of it: the body's value is then
+// what the target delegate's TASK-LIKE return wraps, exactly as an `async func`'s declared return is
+// wrapped, and an exception the body raises lands on that task instead of on the caller.
 class LambdaExpression: Expression {
     Parameters: List<Parameter>
     ExpressionBody: Expression?
     BlockBody: BlockStatement?
+    IsAsync: bool
 
-    constructor(Parameters: List<Parameter>, ExpressionBody: Expression?, BlockBody: BlockStatement?, Line: int, Column: int): base(Line, Column) {
+    constructor(Parameters: List<Parameter>, ExpressionBody: Expression?, BlockBody: BlockStatement?, Line: int, Column: int, IsAsync: bool = false): base(Line, Column) {
         this.Parameters = Parameters
         this.ExpressionBody = ExpressionBody
         this.BlockBody = BlockBody
+        this.IsAsync = IsAsync
     }
 }
 

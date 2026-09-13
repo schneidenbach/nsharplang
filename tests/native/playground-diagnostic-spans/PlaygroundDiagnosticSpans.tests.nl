@@ -2090,10 +2090,12 @@ test "020 s37 playground diagnostic spans: W3 — the parser's error placeholder
 //       bound: it does not report `PG001` at all, it reports `NL101` spanning the whole 65,536
 //       characters AND `NL903` at column 65,537 with `length == 7 == "<error>".Length`.
 //
-//   (b) THE `NL312` ABSENCE CLAIM IS PROVEN NON-VACUOUS BY ITS OWN MINIMAL NEGATIVE. The deleted
-//       `Check_ThrowMissingExpression_…` asserted `DoesNotContain(NL312)`. V33 supplies the missing
-//       exception expression and the SAME following statement becomes `NL312@5:9+8` — the exact
-//       code at the exact span the C# said must be absent.
+//   (b) THE `NL312` ABSENCE CLAIM WAS AN ARTEFACT OF A PARSE ERROR, AND IT IS GONE. The deleted
+//       `Check_ThrowMissingExpression_…` asserted `DoesNotContain(NL312)` of a `throw` with no
+//       operand — which failed to PARSE, so the analyzer never looked at the statement after it. A
+//       bare `throw` is the RE-THROW now, so that fixture parses, reports its placement rule
+//       (`NL336@4:5+5`) and reports `NL312@5:9+8` for the statement that genuinely cannot run. V33,
+//       which supplies an exception expression, reports the same two unreachable rows.
 //
 //   (c) THE ONE SILENT FIXTURE IN THIS CUT IS ANSWERED FROM THE OTHER SIDE. Twenty of the 21
 //       fixtures report; `Check_ValidProgram_HasNoErrors` is the only empty census in the cut, and
@@ -2507,30 +2509,32 @@ test "020 s38 playground diagnostic spans: Check MissingInitializer PreservesVar
     assert PgRow(other, 0) == "NL102|error|Expected an initializer expression after ':='|Program.tests.nl|4|5|4"
 }
 
-test "020 s38 playground diagnostic spans: Check ThrowMissingExpression DoesNotMarkFollowingStatementUnreachable — NL102@4:5+5;NL006@5:9+8;, and the test-file route agrees (was PlaygroundCompilerTests.Check_ThrowMissingExpression_DoesNotMarkFollowingStatementUnreachable)" {
+test "020 s38 playground diagnostic spans: a bare `throw` outside a handler — NL336@4:5+5;NL312@5:9+8;NL006@5:9+8;, and the test-file route agrees (was PlaygroundCompilerTests.Check_ThrowMissingExpression_DoesNotMarkFollowingStatementUnreachable)" {
+    // A BARE `throw` IS THE RE-THROW NOW, so this fixture no longer fails to PARSE. What it reports
+    // is the placement rule (NL336) and — because the statement after it is genuinely unreachable —
+    // the same two unreachable-code rows the V33 control below already pins for `throw new …`. The
+    // C# original asserted NL102 here and asserted NL312 ABSENT, which was an artefact of the parse
+    // error stopping the analyzer before it could look.
     source := "package Playground\n\nfunc main() {\n    throw\n        greeting := \"hi\"\n}"
     response := PgCheck(source)
     assert PgOk(response) == "False"
     assert PgSchemaVersion(response) == "2"
     assert PgFileName(response) == "Program.nl"
-    assert PgSummary(response) == "2/0/0"
-    assert PgCount(response) == 2
-    assert PgCensus(response) == "NL102@4:5+5;NL006@5:9+8;"
-    assert PgRow(response, 0) == "NL102|error|Expected an exception expression after 'throw'|Program.nl|4|5|5"
-    assert PgDetail(response, 0) == "    throw|This throw statement needs an exception expression after 'throw'.|Add an exception expression after 'throw'|Finish the expression before starting the next statement."
-    assert PgRow(response, 1) == "NL006|error|This code will never run — there's a 'return' or 'throw' above it|Program.nl|5|9|8"
-    assert PgDetail(response, 1) == "        greeting := \"hi\"|<null>|Remove the unreachable code, or move it before the return/throw if it should execute|<null>"
-    assert PgRow(response, 2) == "<no-such-diagnostic>"
-    assert PgDetail(response, 2) == "<no-such-diagnostic>"
+    assert PgSummary(response) == "3/0/0"
+    assert PgCount(response) == 3
+    assert PgCensus(response) == "NL336@4:5+5;NL312@5:9+8;NL006@5:9+8;"
+    assert PgRow(response, 0) == "NL336|error|A bare 'throw' can only be used inside a 'catch' handler — there's no exception here to re-throw|Program.nl|4|5|5"
+    assert PgRow(response, 1) == "NL312|error|This code will never run — there's a 'return' or 'throw' above it|Program.nl|5|9|8"
+    assert PgRow(response, 2) == "NL006|error|This code will never run — there's a 'return' or 'throw' above it|Program.nl|5|9|8"
+    assert PgDetail(response, 2) == "        greeting := \"hi\"|<null>|Remove the unreachable code, or move it before the return/throw if it should execute|<null>"
+    assert PgRow(response, 3) == "<no-such-diagnostic>"
     other := PgCheckTestFile(source)
     assert PgOk(other) == "False"
     assert PgFileName(other) == "Program.tests.nl"
-    assert PgCount(other) == 2
-    assert PgCensus(other) == "NL102@4:5+5;NL006@5:9+8;"
-    assert PgRow(other, 0) == "NL102|error|Expected an exception expression after 'throw'|Program.tests.nl|4|5|5"
-    assert PgRow(other, 1) == "NL006|error|This code will never run — there's a 'return' or 'throw' above it|Program.tests.nl|5|9|8"
+    assert PgCount(other) == 3
+    assert PgCensus(other) == "NL336@4:5+5;NL312@5:9+8;NL006@5:9+8;"
+    assert PgRow(other, 0) == "NL336|error|A bare 'throw' can only be used inside a 'catch' handler — there's no exception here to re-throw|Program.tests.nl|4|5|5"
 }
-
 test "020 s38 playground diagnostic spans: Check OversizedProgram ReturnsBoundedError — PG001@1:1+1;, and the test-file route agrees (was PlaygroundCompilerTests.Check_OversizedProgram_ReturnsBoundedError)" {
     source := PgRepeat("x", 65537)
     response := PgCheck(source)

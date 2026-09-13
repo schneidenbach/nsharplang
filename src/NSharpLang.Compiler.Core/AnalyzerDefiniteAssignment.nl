@@ -315,7 +315,11 @@ class AnalyzerDefiniteAssignment {
 
         throwStmt := stmt as ThrowStatement
         if throwStmt != null {
-            AnalyzeExpression(throwStmt.Expression, state)
+            thrownExpression := throwStmt.Expression
+            if thrownExpression != null {
+                AnalyzeExpression(thrownExpression, state)
+            }
+
             return true
         }
 

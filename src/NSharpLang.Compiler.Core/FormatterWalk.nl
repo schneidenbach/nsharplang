@@ -1177,8 +1177,14 @@ class FormatterWalk {
         throwStatement := statement as ThrowStatement
         if throwStatement != null {
             state.Indent(builder)
+            thrownExpression := throwStatement.Expression
+            if thrownExpression == null {
+                builder.AppendLine("throw")
+                return
+            }
+
             builder.Append("throw ")
-            FormatExpression(throwStatement.Expression, builder)
+            FormatExpression(thrownExpression, builder)
             builder.AppendLine()
             return
         }
@@ -1690,6 +1696,12 @@ class FormatterWalk {
 
         lambda := expression as LambdaExpression
         if lambda != null {
+            // `async` COMES FIRST AND IS PART OF THE LAMBDA, not of whatever holds it: it changes what
+            // the body means, so a round trip that dropped it would change the program.
+            if lambda.IsAsync {
+                builder.Append("async ")
+            }
+
             // ONE INFERRED PARAMETER LOSES ITS BRACKETS AND MORE THAN ONE KEEPS THEM; a single
             // parameter with a WRITTEN type keeps them too, because `x: int => …` would not parse.
             // `var` counts as inferred, which is what lets a tree built by an earlier pass round

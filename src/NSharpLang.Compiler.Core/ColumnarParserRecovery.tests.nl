@@ -3487,6 +3487,27 @@ test "016 lambda: a well-formed block-body lambda reports no parser diagnostic" 
     assert errors.Count == 0
 }
 
+// `async` IS A LAMBDA PREFIX ONLY WHEN A LAMBDA FOLLOWS IT. All three spellings take it, a `return`
+// carries one, and an `async` that is NOT followed by a lambda is untouched — it is still the
+// declaration modifier a local function wears.
+test "016 lambda: the three async lambda spellings report no parser diagnostic" {
+    assert RunPreamble("func f() {\n    g: Func<Task<int>> = async () => 1\n}\n").Count == 0
+    assert RunPreamble("func f() {\n    g: Func<int, Task<int>> = async x => x\n}\n").Count == 0
+    assert RunPreamble("func f() {\n    g: Func<int, int, Task<int>> = async (x, y) => x\n}\n").Count == 0
+    assert RunPreamble("func f() {\n    g: Func<Task<int>> = async () => { }\n}\n").Count == 0
+}
+
+test "016 lambda: a `return` carries an async lambda, and the value-less `return` boundary is intact" {
+    assert RunPreamble("func f(): Func<Task<int>> {\n    return async () => 1\n}\n").Count == 0
+    // `async func` on the line after a bare `return` is a LOCAL FUNCTION, not a returned lambda.
+    assert RunPreamble("func f() {\n    return\n}\n").Count == 0
+}
+
+test "016 lambda: an async LOCAL FUNCTION still parses as a declaration, not as a lambda" {
+    errors := RunPreamble("func f() {\n    async func inner(): int {\n        return 1\n    }\n}\n")
+    assert errors.Count == 0
+}
+
 test "016 lambda: a single-parameter lambda missing its body reports NL102 spanning the parameter through '=>'" {
     errors := RunPreamble("func f() {\n    g := x =>\n}\n")
     assert errors.Count == 1
@@ -3868,19 +3889,29 @@ test "016 stmt: break and continue inside a loop parse clean (the loop-context c
 
 // ---- throw ----
 
-test "016 stmt: throw with no operand reports the missing-exception NL102 anchored on 'throw'" {
+// A BARE `throw` NOW PARSES. It used to be the missing-exception NL102 report; it is the RETHROW,
+// and whether it is legal where it stands is a semantic question (NL336, owned by the ambient
+// context) exactly as `break` outside a loop is. The parser's job is to build the node.
+test "016 stmt: a bare throw parses clean — the rethrow's placement rule is semantic, not syntactic" {
     errors := RunPreamble("func f() {\n    throw\n}\n")
-    assert errors.Count == 1
-    e := errors[0]
-    assert e.Code == ErrorCode.ExpectedToken
-    assert e.Message == "Expected an exception expression after 'throw'"
-    assert e.Line == 2
-    assert e.Column == 5
-    assert e.Length == 5
-    assert e.SourceSnippet == "    throw"
-    assert e.HumanExplanation == "This throw statement needs an exception expression after 'throw'."
-    assert e.ContextualHint == "Finish the expression before starting the next statement."
-    assert e.Suggestion == "Add an exception expression after 'throw'"
+    assert errors.Count == 0
+}
+
+test "016 stmt: a bare throw before the enclosing block's '}' on the same line parses clean" {
+    errors := RunPreamble("func f() { throw }\n")
+    assert errors.Count == 0
+}
+
+test "016 stmt: an explicit ';' after a bare throw parses clean" {
+    errors := RunPreamble("func f() {\n    throw;\n}\n")
+    assert errors.Count == 0
+}
+
+test "016 stmt: a bare throw is the LAST statement of the block, not a throw of the next line" {
+    // The newline ends the statement, so the `ex` below is its own expression statement rather than
+    // the operand — the same boundary `return` uses.
+    errors := RunPreamble("func f() {\n    throw\n    ex\n}\n")
+    assert errors.Count == 0
 }
 
 test "016 stmt: throw of an expression parses clean" {

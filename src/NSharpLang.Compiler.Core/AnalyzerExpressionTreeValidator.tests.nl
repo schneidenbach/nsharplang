@@ -143,6 +143,22 @@ test "the block-body report DEDUPES against a report already made at the same po
     assert harness.Errors.Count == 1
 }
 
+test "the async report names the keyword and dedupes like the block-body one" {
+    // An expression tree records an expression; an `async` body describes a task and the machinery
+    // that completes it, so there is nothing for a tree to hold.
+    harness := TreeHarness()
+    lambda := new LambdaExpression(new List<Parameter>(), new IntLiteralExpression("1", 3, 12), null, 3, 5, true)
+
+    harness.Validator.ReportAsyncLambdaIfNeeded(lambda)
+    harness.Validator.ReportAsyncLambdaIfNeeded(lambda)
+
+    assert harness.Errors.Count == 1
+    assert harness.Errors[0].Code == ErrorCode.FeatureNotImplemented
+    assert harness.Errors[0].Message == "Expression-tree lambdas cannot be 'async'"
+    assert harness.Errors[0].Line == 3
+    assert harness.Errors[0].Column == 5
+}
+
 test "a lambda at a DIFFERENT position is a different report" {
     harness := TreeHarness()
     first := new LambdaExpression(new List<Parameter>(), null, new BlockStatement(new List<Statement>(), 3, 12), 3, 5)

@@ -511,7 +511,11 @@ sealed class SystemsAnalyzer {
             throwStatement := statement as ThrowStatement
             context.Summary.Throws = true
             ConstructPolicy.ReportThrow(context.Allows, throwStatement.Line, throwStatement.Column, context.Summary.File, context.Summary.Name, context.Summary.IsHot, context.Summary.IsBoundary)
-            WalkExpression(throwStatement.Expression, context, false)
+            thrownExpression := throwStatement.Expression
+            if thrownExpression != null {
+                WalkExpression(thrownExpression, context, false)
+            }
+
             return
         }
 

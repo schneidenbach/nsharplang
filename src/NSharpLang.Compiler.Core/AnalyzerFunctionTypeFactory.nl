@@ -929,6 +929,18 @@ class AnalyzerFunctionTypeFactory {
     // produced a TypeBuilderInstantiation whose every member lookup throws NotSupportedException —
     // `nlc check` crashed instead of analyzing. Identity here is the full name plus a core-library
     // home, which every twin of the BCL task family carries.
+    // TASK-LIKE AT ALL — `Task`, `ValueTask`, `Task<T>` or `ValueTask<T>`, in the source shapes and in
+    // the reflected ones. The two readings above answer "which task is this" for a family each; this
+    // one answers the question that has no family: is the value already a task?
+    static func IsTaskLikeTypeInfo(candidate: TypeInfo?): bool {
+        if candidate == null {
+            return false
+        }
+
+        taskResult: TypeInfo = BuiltInTypes.Unknown
+        return TryGetTaskLikeResultTypeInfo(candidate, out taskResult) || IsUnitTaskLikeTypeInfo(candidate)
+    }
+
     static func IsCoreTaskFamilyType(candidate: Type, fullName: string): bool {
         if candidate.get_FullName() != fullName {
             return false

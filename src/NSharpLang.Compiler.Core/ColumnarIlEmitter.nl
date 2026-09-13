@@ -80,6 +80,11 @@ sealed class ColumnarIlEmitter {
     private readonly _asyncReturnsValueTask: bool
     private readonly _asyncBareReturnDeclines: bool
     private _finallyDepth: int
+    // How many `catch` HANDLER BODIES this emitter is writing inside, and the `_finallyDepth` the
+    // innermost of them opened at. IL `rethrow` is valid only in a handler's own funclet, so a bare
+    // `throw` needs both: a handler to rethrow from, and no `finally` nested inside it between.
+    private _catchHandlerDepth: int
+    private _rethrowTargetFinallyDepth: int
     private _overflowCheckingEnabled: bool
     private readonly _il: ILGenerator
     private readonly _codePlan: ColumnarCodePlan
@@ -515,6 +520,8 @@ sealed class ColumnarIlEmitter {
         _protectedDepth = 0
         _asyncReturnsValueTask = false
         _finallyDepth = 0
+        _catchHandlerDepth = 0
+        _rethrowTargetFinallyDepth = 0
         _overflowCheckingEnabled = false
         _nullConditionalRoot = -1
         _nullConditionalEscapes = new Stack<Label>()
@@ -907,6 +914,26 @@ sealed class ColumnarIlEmitter {
         return TryGetSupportedDelegateSignature(t, true, out columnarDiscard0, out columnarDiscard1, out columnarDiscard2)
     }
 
+    // CAN THIS LAMBDA LITERAL CONVERT TO THIS DELEGATE? For an ordinary lambda that is the delegate
+    // question alone. An `async` one additionally needs a TASK-LIKE return to wrap its body's value
+    // in, and asking here rather than only at emission is what keeps overload selection honest:
+    // `Task.Run` declares `Action` next to `Func<Task>`, and the candidate scan must not accept the
+    // one that would throw the awaited result away. The analyzer refuses the same programs (NL334)
+    // and its argument binder refuses the same candidates.
+    private func IsContextualLambdaTarget(lambdaNode: int, expectedDelegateType: Type): bool {
+        let delegateReturn: System.Type? = null
+        let delegateParams: System.Type[]? = null
+        let delegateConstructor: System.Reflection.ConstructorInfo? = null
+        if (!TryGetSupportedDelegateSignature(expectedDelegateType, true, out delegateReturn, out delegateParams, out delegateConstructor)) {
+            return false
+        }
+        if (!ColumnarLambdaNodeFacts.IsAsyncLambda(_nodes.Kind(lambdaNode))) {
+            return true
+        }
+        let asyncResult: System.Type? = null
+        return TryGetAsyncLambdaResultType(delegateReturn, out asyncResult)
+    }
+
     private static func TryGetSupportedDelegateSignature(t: Type, allowBuilderBoundArguments: bool, out returnType: Type, out parameterTypes: Type[], out delegateCtor: ConstructorInfo): bool {
         returnType = null
         parameterTypes = System.Array.Empty<Type>()
@@ -1264,6 +1291,22 @@ sealed class ColumnarIlEmitter {
         )) {
             return false
         }
+        // AN `async` LAMBDA (kind 78) KEEPS THE DELEGATE'S SIGNATURE AND CHANGES WHAT ITS BODY MEANS.
+        // The synthesized method still returns what `Invoke` returns — `Task<int>` — while the BODY
+        // produces the task's result, and the async return shape wraps it and guards it exactly as an
+        // `async func`'s body is wrapped and guarded. `bodyReturnType` is therefore the INNER type and
+        // `asyncReturnType` the declared one; for an ordinary lambda they are the same and the second
+        // is null, which is what leaves every non-async path untouched.
+        bodyReturnType := delegateReturnType
+        let asyncReturnType: System.Type? = null
+        if (ColumnarLambdaNodeFacts.IsAsyncLambda(_nodes.Kind(lambdaIdx))) {
+            let asyncInnerType: System.Type? = null
+            if (!TryGetAsyncLambdaResultType(delegateReturnType, out asyncInnerType)) {
+                return DeclineMember("emit.lambda.async-target", "an `async` lambda needs a delegate returning Task, Task<T>, ValueTask or ValueTask<T>", lambdaIdx, "lambda")
+            }
+            bodyReturnType = asyncInnerType
+            asyncReturnType = delegateReturnType
+        }
         // N# owns the contextual-lambda signature binding: each lambda parameter name takes the target
         // delegate's parameter type positionally, and the arity, identifier-node, duplicate-name, and
         // NL316 enclosing-shadow rules are enforced there. Delegate decomposition and construction stay
@@ -1327,6 +1370,7 @@ sealed class ColumnarIlEmitter {
                 signatureTypes,
                 hasThisCapture
             )
+            // The METHOD's signature is the delegate's; only the BODY sees the unwrapped type.
             if (placement == null) {
                 return false
             }
@@ -1343,7 +1387,7 @@ sealed class ColumnarIlEmitter {
                 _source,
                 bodyOrdinals,
                 paramTypeMap,
-                delegateReturnType,
+                bodyReturnType,
                 bodyIl,
                 _siblings,
                 _enumRegistry,
@@ -1364,7 +1408,7 @@ sealed class ColumnarIlEmitter {
                 null,
                 null,
                 ColumnarClosureBindingPlanner.VisibleBindingNamesSnapshot(_enclosingBindingNames, _locals, _paramOrdinals, _liftedLocals, _boxedCaptures),
-                null,
+                asyncReturnType,
                 false,
                 _referenceAssemblyPaths,
                 _genericInterfaceConstraints,
@@ -1373,7 +1417,7 @@ sealed class ColumnarIlEmitter {
                 _typeResolutionStructs.ForSynthesizedMethod(placement.OwnerTypeForBody),
                 _typeResolutionUnions.ForSynthesizedMethod(placement.OwnerTypeForBody)
             )
-            if (!subEmitter.EmitLambdaBody(bodyIl, bodyNode, delegateReturnType)) {
+            if (!subEmitter.EmitLambdaBody(bodyIl, bodyNode, bodyReturnType)) {
                 return DeclineMember("emit.body", "lambda body emission declined", bodyNode, "lambda")
             }
             if (placement.Mode == ColumnarLambdaPlacementMode.InstanceThis) {
@@ -1573,7 +1617,7 @@ sealed class ColumnarIlEmitter {
             _source,
             shiftedOrdinals,
             paramTypeMap,
-            delegateReturnType,
+            bodyReturnType,
             closureIl,
             _siblings,
             _enumRegistry,
@@ -1594,7 +1638,7 @@ sealed class ColumnarIlEmitter {
             null,
             null,
             ColumnarClosureBindingPlanner.VisibleBindingNamesSnapshot(_enclosingBindingNames, _locals, _paramOrdinals, _liftedLocals, _boxedCaptures),
-            null,
+            asyncReturnType,
             false,
             _referenceAssemblyPaths,
             _genericInterfaceConstraints,
@@ -1603,7 +1647,7 @@ sealed class ColumnarIlEmitter {
             _typeResolutionStructs.ForSynthesizedMethod(display),
             _typeResolutionUnions.ForSynthesizedMethod(display)
         )
-        if (!closureEmitter.EmitLambdaBody(closureIl, bodyNode, delegateReturnType)) {
+        if (!closureEmitter.EmitLambdaBody(closureIl, bodyNode, bodyReturnType)) {
             return DeclineMember("emit.body", "capturing lambda body emission declined", bodyNode, "lambda")
         }
         _displayClasses.Add(display)
@@ -1648,6 +1692,9 @@ sealed class ColumnarIlEmitter {
         if (bodyNodeKind == 25) {
             return EmitBody(bodyNode, returnType == ColumnarTypeOfPlanner.RequiredVoidType())
         }
+        if (_asyncReturnType != null) {
+            return EmitAsyncLambdaExpressionBody(bodyNode, returnType)
+        }
         let bodyType: System.Type? = null
         if (!EmitExpression(bodyNode, out bodyType)) {
             return false
@@ -1659,6 +1706,69 @@ sealed class ColumnarIlEmitter {
         return true
     }
 
+    // AN `async` LAMBDA'S EXPRESSION BODY, which is a one-statement async body: the value is the
+    // task's RESULT, so the whole thing is the async fault guard `EmitBody` writes for a block, with
+    // the single expression standing in for the body's statements. The guard is not decoration — it
+    // is the difference the brief names: an exception raised while computing the value must land on
+    // the RETURNED TASK, not on whoever built the delegate.
+    private func EmitAsyncLambdaExpressionBody(bodyNode: int, returnType: Type): bool {
+        _protectedResult = _il.DeclareLocal(_asyncReturnType)
+        _protectedDone = _il.DefineLabel()
+        _protectedDoneCreated = true
+        _protectedDepth = _protectedDepth + 1
+        _il.BeginExceptionBlock()
+        let bodyType: System.Type? = null
+        if (!EmitExpression(bodyNode, out bodyType)) {
+            return false
+        }
+        if (_asyncResultType == null) {
+            // A UNIT task (`Func<Task>` / `Func<ValueTask>`): the body is a statement, so it must
+            // leave nothing behind. A value-producing body has no unit meaning and declines, exactly
+            // as a value body against a `void` delegate does.
+            if (bodyType != ColumnarTypeOfPlanner.RequiredVoidType()) {
+                return DeclineMember("emit.lambda.async-unit-body", "an `async` lambda returning a unit task needs a body that produces no value", bodyNode, "lambda")
+            }
+            EmitWrappedAsyncCompletedReturn(false)
+        } else {
+            if (!TypesEquivalent(bodyType, returnType) && !TryEmitImplicitWidening(bodyType, returnType) && !ColumnarReferenceCoercionPlanner.TryEmitInterfaceUpcast(bodyType, returnType, _structRegistry, _il) && !ColumnarReferenceCoercionPlanner.TryEmitExternalInterfaceUpcast(bodyType, returnType, _structRegistry, _il) && !ColumnarReferenceConversionFacts.TryEmitReferenceConversion(bodyType, returnType) && !ColumnarReferenceCoercionPlanner.TryEmitObjectConversion(bodyType, returnType, _structRegistry, _il) && !TryEmitAnonymousUnionConversion(bodyType, returnType) && !TryEmitUserDefinedConversion(bodyType, returnType, false)) {
+                return DeclineMember("emit.lambda.async-body-type", "an `async` lambda's body does not produce the task's result type", bodyNode, "lambda")
+            }
+            EmitWrappedAsyncCompletedReturn(true)
+        }
+        _il.Emit(OpCodes.Stloc, _protectedResult)
+        _il.Emit(OpCodes.Leave, _protectedDone)
+        _il.BeginCatchBlock(typeof(Exception))
+        EmitFaultedAsyncReturnMirror()
+        _il.Emit(OpCodes.Stloc, _protectedResult)
+        _il.Emit(OpCodes.Leave, _protectedDone)
+        _il.EndExceptionBlock()
+        _protectedDepth = _protectedDepth - 1
+        _il.MarkLabel(_protectedDone)
+        _il.Emit(OpCodes.Ldloc, _protectedResult)
+        _il.Emit(OpCodes.Ret)
+        return true
+    }
+
+    // THE RESULT AN `async` LAMBDA'S BODY MUST PRODUCE, given what its delegate returns. `Task<T>` and
+    // `ValueTask<T>` unwrap to `T`; `Task` and `ValueTask` carry no value. A `void`-returning delegate
+    // is NOT a target — N# has no `async void` (see `AnalyzerLambdaAnalysis.AsyncBodyReturnType` for
+    // why), and the analyzer reports NL334 for every program that reaches this refusal.
+    private static func TryGetAsyncLambdaResultType(delegateReturnType: Type, out resultType: Type): bool {
+        resultType = ColumnarTypeOfPlanner.RequiredVoidType()
+        if (delegateReturnType == typeof(System.Threading.Tasks.Task) || delegateReturnType == typeof(System.Threading.Tasks.ValueTask)) {
+            return true
+        }
+        if (!delegateReturnType.get_IsGenericType()) {
+            return false
+        }
+        definition := delegateReturnType.GetGenericTypeDefinition()
+        if (definition != typeof(System.Threading.Tasks.Task<int>).GetGenericTypeDefinition() && definition != typeof(System.Threading.Tasks.ValueTask<int>).GetGenericTypeDefinition()) {
+            return false
+        }
+        resultType = delegateReturnType.GetGenericArguments()[0]
+        return ColumnarTypeOfPlanner.IsSupportedType(resultType)
+    }
+
     // Emit a ZERO-PARAM expression-bodied lambda with a BODY-INFERRED return type (`zero := () => 99` —
     // L1c): no expected delegate type exists at a `:=` declaration, but a zero-param lambda has no
     // inference gap — the synthesized method is defined signature-LESS, its body emits first (yielding the
@@ -1668,6 +1778,12 @@ sealed class ColumnarIlEmitter {
     // Param-ful `:=` lambdas have no inference source and are pipeline-rejected (NL203) — decline.
     private func TryEmitInferredZeroParamLambda(lambdaIdx: int, out delegateType: Type): bool {
         delegateType = null
+        // An `async` lambda has nothing to infer from: what it produces is the TASK its target
+        // returns, and a `:=` declaration names no target at all. The analyzer reports NL334 for
+        // exactly this program, so the decline here is a contract guard.
+        if (ColumnarLambdaNodeFacts.IsAsyncLambda(_nodes.Kind(lambdaIdx))) {
+            return false
+        }
         if (_programType == null || _lambdaCounter == null || _nodes.ChildCount(lambdaIdx) != 1) {
             return false
         }
@@ -1985,7 +2101,7 @@ sealed class ColumnarIlEmitter {
         argNode := UnwrapParenthesizedNode(Child(callIdx, argPosition))
         let groupParameterTypes: System.Type[]? = null
         let groupReturnType: System.Type? = null
-        isLambda := _nodes.Kind(argNode) == 39
+        isLambda := ColumnarLambdaNodeFacts.IsLambda(_nodes.Kind(argNode))
         isMethodGroup := TryGetMethodGroupSignature(argNode, out groupParameterTypes, out groupReturnType)
         if (!isLambda && !isMethodGroup) {
             return false
@@ -5966,17 +6082,21 @@ sealed class ColumnarIlEmitter {
         }
         for localFunction in fn.LocalFunctions {
             localFn := localFunction.Function
-            // AN ASYNC LOCAL FUNCTION IS NOT HOSTED, capture or no capture. The async body planner
-            // wraps returns and builds its fault guard from a DECLARED function or member's return
-            // type, and a local function's body is not routed to it, so its returns would be checked
-            // against `Task<T>` with an unwrapped value on the stack. Declining by name beats the
-            // return-type mismatch that shape used to report. (`func*` never reaches here: a
-            // generator local function is refused by the parser.)
-            if (localFn.IsAsync) {
-                return DeclineStatic("emit.local-function.async", "an async local function is not modeled: its body is not routed through the async return planner", fn.Name + "." + localFn.Name, -1, 0)
-            }
+            // AN ASYNC LOCAL FUNCTION DECLARES ITS INNER TYPE AND ITS METHOD RETURNS THE WRAP, exactly
+            // as a top-level `async func` does: `async func inner(): int` is a method returning
+            // `ValueTask<int>`, and every call site sees that. The body is routed through the async
+            // return planner below (`TryEmitLocalFunctionBodies` recomputes the same shape), which is
+            // what the decline that used to stand here was waiting for. (`func*` never reaches here:
+            // a generator local function is refused by the parser.)
             let localReturn: System.Type = null
-            if (localFn.ReturnCanonical == "void") {
+            if (localFn.IsAsync) {
+                let localAsyncInner: System.Type? = null
+                let localAsyncWrapped: System.Type? = null
+                if (!ColumnarInterfaceRealization.TryComputeAsyncReturnShape(localFn.Name, localFn.ReturnCanonical, typeResolution.Enums, typeResolution.Structs, typeResolution.Unions, out localAsyncInner, out localAsyncWrapped)) {
+                    return DeclineStatic("emit.local-function.async-return", "async local function return type '" + localFn.ReturnCanonical + "' could not be resolved for '" + localFn.Name + "'", fn.Name + "." + localFn.Name, -1, 0)
+                }
+                localReturn = localAsyncWrapped
+            } else if (localFn.ReturnCanonical == "void") {
                 localReturn = ColumnarTypeOfPlanner.RequiredVoidType()
             } else {
                 if (!ColumnarCanonicalTypeResolver.TryResolveType(localFn.ReturnCanonical, typeResolution.Enums, typeResolution.Structs, typeResolution.Unions, out localReturn) || !ColumnarTypeOfPlanner.IsSupportedType(localReturn)) {
@@ -6097,12 +6217,28 @@ sealed class ColumnarIlEmitter {
                 localClosureView = closure
             }
             localFunctionSource := program.GetSourceForFileId(localFn.SourceFileId)
+            // AN ASYNC LOCAL FUNCTION'S BODY IS CHECKED AGAINST THE INNER TYPE, and the async return
+            // shape it is emitted with wraps every return and guards the whole body — the same two
+            // facts a top-level `async func`'s body is given. The declaration pass already put the
+            // WRAPPED type on the method (and therefore on every call site), so the shape is
+            // recomputed here rather than carried: one owner answers it, twice.
+            localBodyReturn := target.Item3
+            let localAsyncReturn: System.Type? = null
+            if (localFn.IsAsync) {
+                let localAsyncInner: System.Type? = null
+                let localAsyncWrapped: System.Type? = null
+                if (!ColumnarInterfaceRealization.TryComputeAsyncReturnShape(localFn.Name, localFn.ReturnCanonical, typeResolution.Enums, typeResolution.Structs, typeResolution.Unions, out localAsyncInner, out localAsyncWrapped)) {
+                    return DeclineStatic("emit.local-function.async-return", "async local function return type '" + localFn.ReturnCanonical + "' could not be resolved for '" + localFn.Name + "'", fn.Name + "." + localFn.Name, -1, 0)
+                }
+                localBodyReturn = localAsyncInner
+                localAsyncReturn = localAsyncWrapped
+            }
             localEmitter := new ColumnarIlEmitter(
                 localFn.BodyNodes,
                 localFunctionSource,
                 localOrdinals,
                 localParamTypes,
-                target.Item3,
+                localBodyReturn,
                 localIl,
                 siblings,
                 enumRegistry,
@@ -6123,8 +6259,12 @@ sealed class ColumnarIlEmitter {
                 null,
                 null,
                 declaringScopeBindings,
-                null,
-                false,
+                localAsyncReturn,
+                match localFn.ReturnCanonical {
+                    "Task" => true,
+                    "ValueTask" => true,
+                    _ => false
+                },
                 referenceAssemblyPaths,
                 null,
                 null,
@@ -6135,7 +6275,7 @@ sealed class ColumnarIlEmitter {
             )
             ColumnarDeclineTrace.SetSourceFileId(localFn.SourceFileId)
             try {
-                if (!localEmitter.EmitBody(localFn.BodyRoot, target.Item3 == ColumnarTypeOfPlanner.RequiredVoidType())) {
+                if (!localEmitter.EmitBody(localFn.BodyRoot, localBodyReturn == ColumnarTypeOfPlanner.RequiredVoidType())) {
                     return DeclineStatic("emit.body", "local function body emission declined", fn.Name + "." + localFn.Name, -1, 0)
                 }
             } finally {
@@ -6714,7 +6854,13 @@ sealed class ColumnarIlEmitter {
                 }
                 // unbound catch discards the exception object.
 
-                if (!EmitStatement(Child(clause, _nodes.ChildCount(clause) - 1))) {
+                savedRethrowTarget := _rethrowTargetFinallyDepth
+                _catchHandlerDepth = _catchHandlerDepth + 1
+                _rethrowTargetFinallyDepth = _finallyDepth
+                handlerOk := EmitStatement(Child(clause, _nodes.ChildCount(clause) - 1))
+                _catchHandlerDepth = _catchHandlerDepth - 1
+                _rethrowTargetFinallyDepth = savedRethrowTarget
+                if (!handlerOk) {
                     return false
                 }
                 if (catchVarName != null) {
@@ -6812,6 +6958,19 @@ sealed class ColumnarIlEmitter {
             // expression must produce a System.Exception-derived reference (the whitelisted BCL
             // exception constructions; anything else declines — the analyzer's type rule stays
             // with the N# backend path).
+            //
+            // ZERO children is a BARE `throw` — the RETHROW. `rethrow` re-raises the exception the
+            // handler on the frame is running for and, unlike `throw <caught>`, leaves its stack
+            // trace alone. The CLR accepts it only inside a catch handler's own funclet, which is
+            // exactly what the two counters below answer; the analyzer reports NL336 for every
+            // program that would reach the refusal, so this is a contract guard.
+            if (_nodes.ChildCount(idx) == 0) {
+                if (_catchHandlerDepth == 0 || _finallyDepth > _rethrowTargetFinallyDepth) {
+                    return Decline("emit.throw.rethrow-placement", "a bare 'throw' is only valid inside a catch handler", idx)
+                }
+                _il.Emit(OpCodes.Rethrow)
+                return true
+            }
             let thrownType: System.Type? = null
             if (_nodes.ChildCount(idx) != 1 || !EmitExpression(Child(idx, 0), out thrownType)) {
                 return false
@@ -6881,10 +7040,16 @@ sealed class ColumnarIlEmitter {
             }
             retNode := Child(idx, 0)
             let retType: System.Type = null
-            // `return local` / `return Sibling` on a delegate-returning function: a method group has no
-            // type of its own, so the DECLARED return type is what turns it into a delegate — the same
-            // conversion an argument position and a typed local perform, over the same receiver.
-            if (ColumnarTypeOfPlanner.IsSupportedDelegateType(_returnType) && (TryEmitLocalFunctionMethodGroupAsDelegate(retNode, _returnType) || TryEmitSiblingMethodGroupAsDelegate(retNode, _returnType) || TryEmitEnclosingMethodGroupAsDelegate(retNode, _returnType) || TryEmitExternalStaticMethodGroupAsDelegate(retNode, _returnType))) {
+            // `return x => …` ON A DELEGATE-RETURNING FUNCTION. A lambda literal has no type of its
+            // own either, so the DECLARED return type is what gives it its shape — the same reading
+            // the method-group arm below performs, and the same one an argument position performs.
+            // Without it a delegate-returning function could take a method group but not a lambda.
+            if (ColumnarLambdaNodeFacts.IsLambda(_nodes.Kind(retNode)) && IsContextualLambdaTarget(retNode, _returnType)) {
+                if (!TryEmitLambdaLiteral(retNode, _returnType)) {
+                    return Decline("emit.return.lambda", "returned lambda could not be emitted", retNode)
+                }
+                retType = _returnType
+            } else if (ColumnarTypeOfPlanner.IsSupportedDelegateType(_returnType) && (TryEmitLocalFunctionMethodGroupAsDelegate(retNode, _returnType) || TryEmitSiblingMethodGroupAsDelegate(retNode, _returnType) || TryEmitEnclosingMethodGroupAsDelegate(retNode, _returnType) || TryEmitExternalStaticMethodGroupAsDelegate(retNode, _returnType))) {
                 retType = _returnType
             } else if (IsAdoptableUnionConstruction(retNode, _returnType)) {
                 if (!EmitAdoptedUnionConstruction(retNode, _returnType, out retType)) {
@@ -6961,7 +7126,7 @@ sealed class ColumnarIlEmitter {
             // no inference gap (param-ful `:=` lambdas are pipeline-rejected with NL203). The return type
             // is INFERRED from the body, so the synthesized method's signature is set AFTER the body emits
             // (spike-proven order); the local's type is Func<bodyType> (or Action for a void body).
-            if (_nodes.Kind(Child(idx, 0)) == 39) {
+            if (ColumnarLambdaNodeFacts.IsLambda(_nodes.Kind(Child(idx, 0)))) {
                 let lambdaType: System.Type? = null
                 if (!TryEmitInferredZeroParamLambda(Child(idx, 0), out lambdaType)) {
                     return Decline("emit.local.lambda-inference", "local lambda initializer could not be inferred", Child(idx, 0))
@@ -11279,7 +11444,7 @@ sealed class ColumnarIlEmitter {
                     }
                     for a := 1; a <= localArgCount; a++ {
                         localArgNode := Child(idx, a)
-                        if (_nodes.Kind(localArgNode) == 39) {
+                        if (ColumnarLambdaNodeFacts.IsLambda(_nodes.Kind(localArgNode))) {
                             return false
                         }
                         let localArgType: System.Type? = null
@@ -16006,11 +16171,27 @@ sealed class ColumnarIlEmitter {
             return true
         }
         if (typeName == "Task" && member == nameof(System.Threading.Tasks.Task.Run) && argCount == 1) {
-            method := typeof(System.Threading.Tasks.Task).GetMethod(nameof(System.Threading.Tasks.Task.Run), [typeof(Action)])
-            if (method == null || !EmitDeclaredCallArgument(Child(callIdx, 1), typeof(Action), true)) {
+            // `Task.Run` DECLARES BOTH `Action` AND `Func<Task>` AT THIS ARITY, and which one an
+            // argument means is the argument's own shape: a void lambda is an `Action`, and an
+            // `async` lambda cannot be one at all (it produces a task — see
+            // `AnalyzerLambdaAnalysis.AsyncBodyReturnType`), so it is the `Func<Task>` overload. The
+            // ordinary resolver refuses the pair as ambiguous, which is why the choice is made here.
+            taskRunArgument := Child(callIdx, 1)
+            actionRun := typeof(System.Threading.Tasks.Task).GetMethod(nameof(System.Threading.Tasks.Task.Run), [typeof(Action)])
+            if (actionRun != null && CanDeclaredCallArgumentMatch(taskRunArgument, typeof(Action), true)) {
+                if (!EmitDeclaredCallArgument(taskRunArgument, typeof(Action), true)) {
+                    return false
+                }
+                _il.Emit(OpCodes.Call, actionRun)
+                resolvedClrType = typeof(System.Threading.Tasks.Task)
+                return true
+            }
+            taskFactoryType := typeof(Func<System.Threading.Tasks.Task>)
+            taskFactoryRun := typeof(System.Threading.Tasks.Task).GetMethod(nameof(System.Threading.Tasks.Task.Run), [taskFactoryType])
+            if (taskFactoryRun == null || !CanDeclaredCallArgumentMatch(taskRunArgument, taskFactoryType, true) || !EmitDeclaredCallArgument(taskRunArgument, taskFactoryType, true)) {
                 return false
             }
-            _il.Emit(OpCodes.Call, method)
+            _il.Emit(OpCodes.Call, taskFactoryRun)
             resolvedClrType = typeof(System.Threading.Tasks.Task)
             return true
         }
@@ -16409,7 +16590,7 @@ sealed class ColumnarIlEmitter {
     // overload's parameter type the argument is then emitted against.
     private func IsComparisonDelegateArgument(argNode: int): bool {
         unwrapped := UnwrapParenthesizedNode(argNode)
-        if (_nodes.Kind(unwrapped) == 39) {
+        if (ColumnarLambdaNodeFacts.IsLambda(_nodes.Kind(unwrapped))) {
             return true
         }
         let argType: System.Type? = null
@@ -21089,7 +21270,7 @@ sealed class ColumnarIlEmitter {
     private func TryEmitAspNetRouteHandler(handlerNode: int, out delegateType: Type): bool {
         delegateType = null
         handlerNode = UnwrapParenthesizedNode(handlerNode)
-        if (_nodes.Kind(handlerNode) == 39) {
+        if (ColumnarLambdaNodeFacts.IsLambda(_nodes.Kind(handlerNode))) {
             parameterCount := _nodes.ChildCount(handlerNode) - 1
             if (parameterCount == 0) {
                 let inferredReturn: System.Type? = null
@@ -21309,7 +21490,7 @@ sealed class ColumnarIlEmitter {
         resolved := new bool[argCount]
         for a := 0; a < argCount; a++ {
             argNode := UnwrapParenthesizedNode(Child(callIdx, 1 + a))
-            if (_nodes.Kind(argNode) == 39) {
+            if (ColumnarLambdaNodeFacts.IsLambda(_nodes.Kind(argNode))) {
                 continue
             }
             let groupParameterTypes: System.Type[]? = null
@@ -21453,7 +21634,7 @@ sealed class ColumnarIlEmitter {
     // has no delegate context to offer.
     private func IsContextualDelegateValueNode(valueNode: int): bool {
         node := UnwrapParenthesizedNode(valueNode)
-        if (_nodes.Kind(node) == 39) {
+        if (ColumnarLambdaNodeFacts.IsLambda(_nodes.Kind(node))) {
             return true
         }
         let groupParameterTypes: System.Type[]? = null
@@ -23285,8 +23466,8 @@ sealed class ColumnarIlEmitter {
         if (_nodes.Kind(argNode) == 64) {
             return _nodes.ChildCount(argNode) == 1 && CanDeclaredCallArgumentMatch(Child(argNode, 0), expectedParamType, allowLambdaLiteral)
         }
-        if (allowLambdaLiteral && _nodes.Kind(argNode) == 39) {
-            return IsSupportedContextualDelegateType(expectedParamType)
+        if (allowLambdaLiteral && ColumnarLambdaNodeFacts.IsLambda(_nodes.Kind(argNode))) {
+            return IsContextualLambdaTarget(argNode, expectedParamType)
         }
         if (allowLambdaLiteral && (CanEmitLocalFunctionMethodGroupAsDelegate(argNode, expectedParamType) || CanEmitSiblingMethodGroupAsDelegate(argNode, expectedParamType) || CanEmitEnclosingMethodGroupAsDelegate(argNode, expectedParamType) || CanEmitExternalStaticMethodGroupAsDelegate(argNode, expectedParamType))) {
             return true
@@ -23339,7 +23520,7 @@ sealed class ColumnarIlEmitter {
         if (_nodes.Kind(argNode) == 64) {
             return _nodes.ChildCount(argNode) == 1 && EmitDeclaredCallArgument(Child(argNode, 0), expectedParamType, allowLambdaLiteral)
         }
-        if (allowLambdaLiteral && _nodes.Kind(argNode) == 39) {
+        if (allowLambdaLiteral && ColumnarLambdaNodeFacts.IsLambda(_nodes.Kind(argNode))) {
             return TryEmitLambdaLiteral(argNode, expectedParamType)
         }
         if (allowLambdaLiteral && (TryEmitLocalFunctionMethodGroupAsDelegate(argNode, expectedParamType) || TryEmitSiblingMethodGroupAsDelegate(argNode, expectedParamType) || TryEmitEnclosingMethodGroupAsDelegate(argNode, expectedParamType) || TryEmitExternalStaticMethodGroupAsDelegate(argNode, expectedParamType))) {
@@ -25885,8 +26066,10 @@ sealed class ColumnarIlEmitter {
         // this is and an event's handler type is almost never `Func` or `Action`. ANYTHING ELSE is an
         // ordinary value that must already BE that delegate type: a handler local, a field, a call
         // result.
-        if (_nodes.Kind(handlerNode) == 39) {
-            if (!IsSupportedContextualDelegateType(handlerType) || !TryEmitLambdaLiteral(handlerNode, handlerType)) {
+        // (An `async` handler lambda is refused by `IsContextualLambdaTarget`: an event's delegate
+        // returns `void`, and N# has no `async void` — the analyzer names that with NL334.)
+        if (ColumnarLambdaNodeFacts.IsLambda(_nodes.Kind(handlerNode))) {
+            if (!IsContextualLambdaTarget(handlerNode, handlerType) || !TryEmitLambdaLiteral(handlerNode, handlerType)) {
                 return Decline("emit.on.handler-lambda", "the handler lambda could not be bound to '" + handlerType.FullName + "'", handlerNode)
             }
         } else if (!(IsSupportedContextualDelegateType(handlerType) && (TryEmitLocalFunctionMethodGroupAsDelegate(handlerNode, handlerType) || TryEmitSiblingMethodGroupAsDelegate(handlerNode, handlerType) || TryEmitEnclosingMethodGroupAsDelegate(handlerNode, handlerType) || TryEmitExternalStaticMethodGroupAsDelegate(handlerNode, handlerType)))) {

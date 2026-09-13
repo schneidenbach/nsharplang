@@ -559,6 +559,8 @@ class ColumnarCodePlanExecutor {
             il.Emit(OpCodes.Ret)
         } else if opCodeValue == ColumnarCodePlanContract.Throw() {
             il.Emit(OpCodes.Throw)
+        } else if opCodeValue == ColumnarCodePlanContract.Rethrow() {
+            il.Emit(OpCodes.Rethrow)
         } else if opCodeValue == ColumnarCodePlanContract.Pop() {
             il.Emit(OpCodes.Pop)
         }
@@ -753,9 +755,17 @@ class ColumnarCodePlanExecutor {
         // A finally/fault handler is entered by the runtime (on exception, or when a `leave` exits the
         // protected try), not by static fall-through — its try body may exit via `leave` and never reach
         // the handler op in the flat stream. Seed each handler start as a reachable entry at empty stack.
+        //
+        // A REGION END IS SEEDED FOR THE SAME REASON AND IT IS NOT THE SAME FACT. `EndExceptionBlock`
+        // writes no instruction of its own: it closes the clause and marks the region's end label,
+        // which every `leave` out of the region targets DIRECTLY (the leave merges into the row AFTER
+        // this one). So a region whose last handler ends in `throw` — or in `rethrow` — leaves this row
+        // with nothing falling into it, and calling that "unreachable code" would refuse a perfectly
+        // ordinary `catch { throw }`. The empty-stack requirement below still applies wherever a path
+        // does fall into it.
         i = 0
         while i < n {
-            if (plan.OperationKinds[i] == ColumnarCodePlanContract.BeginFinallyBlockOperation() || plan.OperationKinds[i] == ColumnarCodePlanContract.BeginFaultBlockOperation()) || plan.OperationKinds[i] == ColumnarCodePlanContract.BeginCatchBlockOperation() {
+            if (plan.OperationKinds[i] == ColumnarCodePlanContract.BeginFinallyBlockOperation() || plan.OperationKinds[i] == ColumnarCodePlanContract.BeginFaultBlockOperation()) || plan.OperationKinds[i] == ColumnarCodePlanContract.BeginCatchBlockOperation() || plan.OperationKinds[i] == ColumnarCodePlanContract.EndExceptionBlockOperation() {
                 heights[i] = 0
             }
             i += 1
@@ -797,6 +807,13 @@ class ColumnarCodePlanExecutor {
                     } else if opCodeValue == ColumnarCodePlanContract.Throw() {
                         if h < 1 {
                             throw new InvalidOperationException(schemaName + " `throw` requires an exception reference on the stack.")
+                        }
+                    } else if opCodeValue == ColumnarCodePlanContract.Rethrow() {
+                        // `rethrow` reads nothing from the evaluation stack, and the CLR requires the
+                        // stack to be empty where it stands — the exception it re-raises belongs to
+                        // the handler's frame, not to any value the body computed.
+                        if h != 0 {
+                            throw new InvalidOperationException(schemaName + " evaluation stack must be empty at a `rethrow`.")
                         }
                     } else if opCodeValue == ColumnarCodePlanContract.Leave() {
                         if h != 0 {

@@ -1120,8 +1120,8 @@ class ColumnarMethodBodyPlanner {
         }
         // The kinds the parser produces in value position that have no named accessor on the ledger
         // class. They are spelled here exactly as `ColumnarIlEmitter.EmitExpressionCore` spells them.
-        // 17 Tuple, 18 Match, 39 Lambda, 42 BareNew, 44 PostfixUnary, 45 Must.
-        if kind == 17 || kind == 18 || kind == 39 || kind == 42 || kind == 44 || kind == 45 {
+        // 17 Tuple, 18 Match, 39 Lambda (78 its `async` spelling), 42 BareNew, 44 PostfixUnary, 45 Must.
+        if kind == 17 || kind == 18 || ColumnarLambdaNodeFacts.IsLambda(kind) || kind == 42 || kind == 44 || kind == 45 {
             return true
         }
         // 46 Is, 47 As, 52 With, 53 Await, 59 AnonymousObjectInitializer, 64 SpreadArgument.
@@ -1143,7 +1143,7 @@ class ColumnarMethodBodyPlanner {
     // totality property is a fact something can assert, not a promise a comment makes: for every kind
     // here, exactly one of `IsClaimedExpressionKind` and `IsDeclinedExpressionKind` holds.
     static func ExpressionKindLedger(): int[] {
-        return [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 15, 16, 17, 18, 36, 39, 42, 44, 45, 46, 47, 52, 53, 55, 57, 58, 59, 62, 64, 69, 74, 75, 79]
+        return [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 15, 16, 17, 18, 36, 39, 42, 44, 45, 46, 47, 52, 53, 55, 57, 58, 59, 62, 64, 69, 74, 75, 78, 79]
     }
 
     // THE IDENTIFIER CLASSES. `ColumnarBoundIdentifierPlanner` is the SOLE owner of lexical

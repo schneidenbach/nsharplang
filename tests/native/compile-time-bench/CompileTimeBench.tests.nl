@@ -562,10 +562,11 @@ test "compile-time bench: the skipped source directories are exactly the twelve 
 // tests/native/census-free-function-identity; 107 since the test-framework reference set and
 // attributes on `test` blocks added tests/native/census-testrefs; 108 since lifted operators over a
 // nullable value type added tests/native/census-lifted-operators; 109 since `on`/`off` event
-// subscriptions reached the columnar pipeline added tests/native/census-events; 110 since NL209 for a simple name two imports supply added tests/native/census-imports; 111 since one accessibility relation for source and external members added tests/native/census-accessibility; 112 since the using statement added tests/native/census-using-statement; 113 since overload specificity by better conversion added tests/native/census-overload-resolution.
-test "compile-time bench: the corpus is the 113 project.yml projects under examples, tests and templates" {
+// subscriptions reached the columnar pipeline added tests/native/census-events; 110 since NL209 for a simple name two imports supply added tests/native/census-imports; 111 since one accessibility relation for source and external members added tests/native/census-accessibility; 112 since the using statement added tests/native/census-using-statement; 113 since overload specificity by better conversion added tests/native/census-overload-resolution; 114 since async lambdas and the bare `throw` rethrow added tests/native/census-async-lambdas.
+test "compile-time bench: the corpus is the 114 project.yml projects under examples, tests and templates" {
     projects := BenchCollectCorpusProjects(BenchRepositoryRoot())
-    assert projects.Count == 113
+    assert projects.Count == 114
+    assert BenchListContains(projects, "tests/native/census-async-lambdas")
     assert BenchListContains(projects, "tests/native/census-overload-resolution")
     assert BenchListContains(projects, "tests/native/census-using-statement")
     assert BenchListContains(projects, "tests/native/census-accessibility")

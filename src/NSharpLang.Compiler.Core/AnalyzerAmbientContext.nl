@@ -25,8 +25,10 @@ class AmbientContextFrame {
     ContinueTargetFinallyDepth: int
     InConstructor: bool
     MemberIsStatic: bool
+    CatchHandlerDepth: int
+    RethrowTargetFinallyDepth: int
 
-    constructor(returnType: TypeInfo?, declaration: FunctionDeclaration?, returnTypeWasOmitted: bool, isAsync: bool, inLoop: bool, finallyDepth: int, breakTargetFinallyDepth: int, continueTargetFinallyDepth: int, inConstructor: bool, memberIsStatic: bool) {
+    constructor(returnType: TypeInfo?, declaration: FunctionDeclaration?, returnTypeWasOmitted: bool, isAsync: bool, inLoop: bool, finallyDepth: int, breakTargetFinallyDepth: int, continueTargetFinallyDepth: int, inConstructor: bool, memberIsStatic: bool, catchHandlerDepth: int, rethrowTargetFinallyDepth: int) {
         ReturnType = returnType
         Function = declaration
         ReturnTypeWasOmitted = returnTypeWasOmitted
@@ -37,6 +39,8 @@ class AmbientContextFrame {
         ContinueTargetFinallyDepth = continueTargetFinallyDepth
         InConstructor = inConstructor
         MemberIsStatic = memberIsStatic
+        CatchHandlerDepth = catchHandlerDepth
+        RethrowTargetFinallyDepth = rethrowTargetFinallyDepth
     }
 }
 
@@ -188,6 +192,13 @@ class AnalyzerAmbientContext {
     yieldForbiddenPlacementsValue: List<string>
     breakTargetFinallyDepthValue: int
     continueTargetFinallyDepthValue: int
+    // How many `catch` HANDLER BODIES of THIS body the walk is standing inside, and the `finally`
+    // depth the innermost of them was entered at. Together they answer the one question a bare
+    // `throw` asks: may this statement re-raise the exception in flight? A nested body (a lambda, a
+    // local function) compiles to a method of its own and zeroes both — IL `rethrow` is only valid
+    // inside a handler of the SAME method.
+    catchHandlerDepthValue: int
+    rethrowTargetFinallyDepthValue: int
     // The enclosing function's `ref`/`out`/`in` parameter names, live only while a LOCAL FUNCTION's
     // body is being walked. A managed pointer cannot be stored in a closure's storage, so a local
     // function that reads one has no way to be lowered — C# reports that as CS1628 and so does NL331.
@@ -265,6 +276,15 @@ class AnalyzerAmbientContext {
     // The same for `continue`, whose target is always a LOOP: a `switch` moves the break target and
     // leaves this one alone.
     ContinueTargetFinallyDepth: int => continueTargetFinallyDepthValue
+
+    // How many `catch` HANDLER BODIES enclose the walk. A bare `throw` is legal only where this is
+    // positive — it names the exception the innermost of them is running for.
+    CatchHandlerDepth: int => catchHandlerDepthValue
+
+    // The finally depth at which the innermost `catch` handler was entered. A bare `throw` written
+    // deeper than this stands inside a `finally` nested in that handler, where IL `rethrow` is not
+    // valid.
+    RethrowTargetFinallyDepth: int => rethrowTargetFinallyDepthValue
 
     // Whether a `return` at this point would leave a `finally` handler — illegal IL (ECMA-335: a
     // finally may only complete via its own end).
@@ -376,6 +396,8 @@ class AnalyzerAmbientContext {
         yieldForbiddenPlacementsValue = new List<string>()
         breakTargetFinallyDepthValue = 0
         continueTargetFinallyDepthValue = 0
+        catchHandlerDepthValue = 0
+        rethrowTargetFinallyDepthValue = 0
         currentExpectedTypeValue = null
         currentClassValue = null
         currentTypeMembersValue = null
@@ -407,6 +429,8 @@ class AnalyzerAmbientContext {
         yieldForbiddenPlacementsValue.Clear()
         breakTargetFinallyDepthValue = 0
         continueTargetFinallyDepthValue = 0
+        catchHandlerDepthValue = 0
+        rethrowTargetFinallyDepthValue = 0
         inConstructorValue = false
         memberIsStaticValue = false
     }
@@ -520,7 +544,7 @@ class AnalyzerAmbientContext {
     // matching `Exit` restores exactly the subset ITS boundary is responsible for, and the doc on
     // each pair names that subset.
     func Snapshot(): AmbientContextFrame {
-        return new AmbientContextFrame(currentReturnTypeValue, currentFunctionValue, returnTypeWasOmittedValue, isAsyncValue, inLoopValue, finallyDepthValue, breakTargetFinallyDepthValue, continueTargetFinallyDepthValue, inConstructorValue, memberIsStaticValue)
+        return new AmbientContextFrame(currentReturnTypeValue, currentFunctionValue, returnTypeWasOmittedValue, isAsyncValue, inLoopValue, finallyDepthValue, breakTargetFinallyDepthValue, continueTargetFinallyDepthValue, inConstructorValue, memberIsStaticValue, catchHandlerDepthValue, rethrowTargetFinallyDepthValue)
     }
 
     // A TOP-LEVEL FUNCTION DECLARATION'S BODY. Sets the whole function family and leaves the
@@ -686,11 +710,13 @@ class AnalyzerAmbientContext {
         finallyDepthValue = 0
         breakTargetFinallyDepthValue = 0
         continueTargetFinallyDepthValue = 0
+        catchHandlerDepthValue = 0
+        rethrowTargetFinallyDepthValue = 0
         inConstructorValue = false
         return saved
     }
 
-    // Restores ALL NINE. A nested body is the only boundary that saved all of them.
+    // Restores ALL ELEVEN. A nested body is the only boundary that saved all of them.
     func ExitNestedBody(saved: AmbientContextFrame) {
         currentReturnTypeValue = saved.ReturnType
         currentFunctionValue = saved.Function
@@ -700,6 +726,8 @@ class AnalyzerAmbientContext {
         finallyDepthValue = saved.FinallyDepth
         breakTargetFinallyDepthValue = saved.BreakTargetFinallyDepth
         continueTargetFinallyDepthValue = saved.ContinueTargetFinallyDepth
+        catchHandlerDepthValue = saved.CatchHandlerDepth
+        rethrowTargetFinallyDepthValue = saved.RethrowTargetFinallyDepth
         inConstructorValue = saved.InConstructor
     }
 
@@ -734,6 +762,38 @@ class AnalyzerAmbientContext {
 
     func ExitSwitch(saved: int) {
         breakTargetFinallyDepthValue = saved
+    }
+
+    // A `catch` HANDLER BODY. Handlers nest (a `try` inside a `catch`), so the depth is a counter,
+    // and the saved value is the RETHROW TARGET: the `finally` depth this handler was entered at. A
+    // bare `throw` written deeper than that target is standing inside a `finally` nested in this
+    // handler, where IL `rethrow` is not valid — the handler's funclet is no longer on the frame.
+    func EnterCatchHandler(): int {
+        saved := rethrowTargetFinallyDepthValue
+        catchHandlerDepthValue = catchHandlerDepthValue + 1
+        rethrowTargetFinallyDepthValue = finallyDepthValue
+        return saved
+    }
+
+    func ExitCatchHandler(saved: int) {
+        catchHandlerDepthValue = catchHandlerDepthValue - 1
+        rethrowTargetFinallyDepthValue = saved
+    }
+
+    // A BARE `throw` — the rethrow. Legal only in a `catch` handler of this same body, and only
+    // outside any `finally` nested inside that handler. Both refusals are NL336, and the message
+    // names the one that applies: "there is no handler here" and "you are inside a `finally`" are
+    // different mistakes with different fixes.
+    func ReportRethrowIfNeeded(line: int, column: int) {
+        if catchHandlerDepthValue == 0 {
+            diagnosticsValue.Report(ErrorCode.RethrowOutsideCatch, "A bare 'throw' can only be used inside a 'catch' handler — there's no exception here to re-throw", line, column, "A bare `throw` re-raises the exception the enclosing `catch` is handling, keeping its original stack trace. Outside a handler there is no such exception. Write `throw <exception>` to raise a new one.", 5)
+            return
+        }
+
+        if finallyDepthValue > rethrowTargetFinallyDepthValue {
+            diagnosticsValue.Report(ErrorCode.RethrowOutsideCatch, "A bare 'throw' cannot be used inside a 'finally' nested in the 'catch' it would re-throw from", line, column, "A `finally` handler runs on its own, after the `catch` handler's frame is gone, so there is no exception in flight to re-raise. Move the bare `throw` into the `catch` body itself, or throw a new exception here.", 5)
+            return
+        }
     }
 
     // A `finally` BLOCK. Finallys nest, so this is a counter rather than a flag.

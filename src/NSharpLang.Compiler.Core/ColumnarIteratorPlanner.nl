@@ -846,8 +846,12 @@ class ColumnarIteratorPlanner {
         }
         if kind == 48 {
             // Throw [exception]: the thrown value is an ordinary expression — `new T(...)` with any
-            // constructor arguments, a hoisted exception binding, a factory call. A throw never falls
-            // through.
+            // constructor arguments, a hoisted exception binding, a factory call. ZERO children is a
+            // bare `throw`, the rethrow: it has no operand to hoist and reads nothing. A throw of
+            // either shape never falls through.
+            if nodes.ChildCount(node) == 0 {
+                return false
+            }
             if nodes.ChildCount(node) != 1 {
                 state.Decline("emit.iterator.unsupported-shape", "unsupported throw statement in an iterator body")
                 return false
@@ -1192,7 +1196,7 @@ class ColumnarIteratorPlanner {
             WalkPostfixStep(nodes, source, node, state)
             return
         }
-        if kind == 39 {
+        if ColumnarLambdaNodeFacts.IsLambda(kind) {
             WalkLambda(nodes, source, node, state)
             return
         }
@@ -1764,6 +1768,12 @@ class ColumnarMoveNextEmit {
     NextResume: int
     NextAwait: int
     NextLambda: int
+    // How many `catch` HANDLER BODIES of this MoveNext the walk is writing inside. IL `rethrow` is
+    // valid only there, and a state machine's handlers are real EH clauses on this same method, so
+    // the counter answers the question exactly as the ordinary body emitter's does. A generator body
+    // cannot open a `finally` INSIDE a `catch` (a `try` that declares a `catch` refuses to hold a
+    // suspension point at all), so there is no nested-finally barrier to track alongside it.
+    CatchHandlerDepth: int
 
     constructor(plan: ColumnarCodePlan, context: ColumnarIteratorEmitContext, thisArg: int, stateFieldPool: int, resumeLabels: int[], endLabel: int, regionMode: bool, resultLocal: int, regionEndLabel: int, isAsync: bool = false, faultGuarded: bool = false, regionEntryLabels: int[]? = null) {
         Plan = plan
@@ -1787,6 +1797,7 @@ class ColumnarMoveNextEmit {
         RegionEntryLabels = regionEntryLabels ?? new int[](0)
         NextTryRegion = 0
         NextUsingResource = 0
+        CatchHandlerDepth = 0
     }
 
     // True where the plan is standing inside a protected region, which is exactly where a branch out
@@ -2462,7 +2473,7 @@ class ColumnarIteratorBodyPlanner {
         if emit.Context.Declined {
             return false
         }
-        if emit.Context.Nodes.Kind(node) == 39 {
+        if ColumnarLambdaNodeFacts.IsLambda(emit.Context.Nodes.Kind(node)) {
             return AppendLambda(emit, node, storageType)
         }
         // The iterator-owned value forms take the ordinary value path plus the storage conversion; only
@@ -2570,6 +2581,14 @@ class ColumnarIteratorBodyPlanner {
     static func AppendLambda(emit: ColumnarMoveNextEmit, node: int, delegateType: Type): bool {
         nodes := emit.Context.Nodes
         source := emit.Context.Source
+        if ColumnarLambdaNodeFacts.IsAsyncLambda(nodes.Kind(node)) {
+            // An `async` lambda's body needs the wrap-and-fault-guard shape the ordinary emitter
+            // gives it, and this path plans a bare expression body plus a `ret` into a method on the
+            // state machine. Declining by shape beats emitting a body whose value is the task's
+            // RESULT where the delegate expects the task.
+            emit.Context.Decline("emit.iterator.lambda-async", "an `async` lambda inside a generator body is not yet lowered: its body needs the async wrap and fault guard")
+            return false
+        }
         invoke := DelegateInvokeOrNull(delegateType)
         if invoke == null {
             emit.Context.Decline("emit.iterator.lambda-unsupported", "a lambda in an iterator body needs a delegate type to convert to, not '" + delegateType.Name + "'")
@@ -2859,8 +2878,19 @@ class ColumnarIteratorBodyPlanner {
             return EmitForIn(emit, nodes.Child(node, 1), nodes.Child(node, 2), nodes.Text(source, nodes.Child(node, 0)))
         }
         if kind == 48 {
-            // throw <expression>: the ordinary value owner builds the exception, then `throw`. A throw
-            // never falls through.
+            // throw <expression>: the ordinary value owner builds the exception, then `throw`. A bare
+            // `throw` (zero children) is the RETHROW — the exception the enclosing catch handler is
+            // running for, re-raised with its stack trace intact. Either shape ends its path.
+            if nodes.ChildCount(node) == 0 {
+                if emit.CatchHandlerDepth == 0 {
+                    emit.Context.Decline("emit.iterator.rethrow-placement", "a bare 'throw' is only valid inside a catch handler")
+                    return false
+                }
+
+                emit.Plan.AppendInstructionWithoutOperand(ColumnarCodePlanContract.Rethrow())
+                return false
+            }
+
             thrownType := typeof(int)
             if !AppendValue(emit, nodes.Child(node, 0), out thrownType) {
                 return false
@@ -3149,7 +3179,9 @@ class ColumnarIteratorBodyPlanner {
         emit.Plan.AppendPlanLocalInstruction(ColumnarCodePlanContract.Ldloc(), caught)
         emit.Plan.AppendFieldInstruction(ColumnarCodePlanContract.Stfld(), emit.Plan.AddField(field))
 
+        emit.CatchHandlerDepth = emit.CatchHandlerDepth + 1
         fell := EmitStatement(emit, nodes.Child(clause, nodes.ChildCount(clause) - 1))
+        emit.CatchHandlerDepth = emit.CatchHandlerDepth - 1
         if emit.Context.Declined {
             return false
         }

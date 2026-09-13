@@ -1016,6 +1016,65 @@ async func onButtonClick() {
 }
 ```
 
+### Async Lambdas
+
+A lambda takes the `async` keyword too, and it means the same thing it means on a function: the body
+produces the **result** the target delegate's task carries, and the delegate's own signature is
+unchanged.
+
+```n#
+import System
+import System.Threading.Tasks
+
+func makeLoader(): Func<string, Task<int>> {
+    return async path => {
+        contents := await File.ReadAllTextAsync(path)
+        return contents.Length
+    }
+}
+```
+
+All three parameter spellings take it — `async () => …`, `async x => …`, `async (a, b) => …` — with
+either an expression body or a block body, and the target may be any delegate returning `Task`,
+`Task<T>`, `ValueTask` or `ValueTask<T>`. An async lambda captures like any other lambda: enclosing
+locals, `this`, and a fresh copy of each loop iteration's own locals.
+
+**An exception raised inside the body lands on the returned task**, not on the caller that invoked
+the delegate:
+
+```n#
+failing: Func<Task<int>> = async () => {
+    await Task.Delay(1)
+    throw new InvalidOperationException("nope")
+}
+
+task := failing()        // returns normally
+print task.IsFaulted     // True
+```
+
+A **local function** can be `async` as well. Like a top-level `async func` it declares its *inner*
+type, and the method it compiles to returns the wrap:
+
+```n#
+func loadAll(paths: string[]): int {
+    async func lengthOf(path: string): int {
+        contents := await File.ReadAllTextAsync(path)
+        return contents.Length
+    }
+
+    total := 0
+    for path in paths {
+        total = total + await lengthOf(path)
+    }
+    return total
+}
+```
+
+Two diagnostics guard the keyword. Writing `async` where the target returns no task is
+[`NL335`'s mirror, `NL334`](./errors/NL334.md) — there is no `async void` lambda in N#, because
+`await` is lowered synchronously and the keyword would change nothing. Leaving it off when the target
+wants a task is [`NL335`](./errors/NL335.md).
+
 ### Implicit Task Wrapping
 
 N# automatically wraps return values in Task<T>:
