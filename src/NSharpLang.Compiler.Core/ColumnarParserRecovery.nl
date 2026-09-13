@@ -6008,7 +6008,13 @@ class ColumnarParserRecovery {
 
         // Typed variable declaration without `let` (Parser.cs :3507): `name: Type = value`. Speculative —
         // if the `= value` is absent, rewind and parse as a normal expression statement.
-        if Check(TokenType.Identifier) && LookAhead(1).Type == TokenType.Colon && LookAhead(2).Type == TokenType.Identifier {
+        //
+        // A TYPE STARTS WITH AN IDENTIFIER OR WITH THE `(` OF A TUPLE. Admitting only the identifier
+        // made this the ONE declared position a tuple type could not be written in —
+        // `pair: (Item: string, Count: int) = …` fell through to the expression arm and reported
+        // NL101 "Unexpected token ':' in expression" plus an NL301 for every name in the annotation,
+        // while the same type in a parameter, a return and a generic argument parsed cleanly.
+        if Check(TokenType.Identifier) && LookAhead(1).Type == TokenType.Colon && (LookAhead(2).Type == TokenType.Identifier || LookAhead(2).Type == TokenType.LeftParen) {
             saved := Position
             name := Advance().Value
             // the declared name
@@ -6918,9 +6924,9 @@ class ColumnarParserRecovery {
                 looping = false
             } else {
                 // `Name<Args>.` / `A.B.Name<Args>.` — a CONSTRUCTED GENERIC TYPE RECEIVER. Decided
-                // before the generic-CALL arm below, because that arm's Parser.cs-faithful lookahead
-                // answers true at the first `,` and would take `Dictionary<string, int>.Something`
-                // for a `Method<T>(` it then has to report as missing its parentheses.
+                // before the generic-CALL arm below. The two arms share one type-argument scan and
+                // differ only in the close token they accept, so they are mutually exclusive and this
+                // order is a reading convenience rather than a correctness requirement.
                 genericTypeReceiverName: string? = null
                 if Check(TokenType.Less) && IsGenericTypeArgumentListBeforeDot() {
                     genericTypeReceiverName = GenericTypeReceiverName(result.Node)
@@ -7272,74 +7278,61 @@ class ColumnarParserRecovery {
         return HasRecoveryBoundaryColumn && Current().Column <= RecoveryBoundaryColumn
     }
 
-    // Parser.cs IsGenericMethodCall (:2025): a bounded lookahead deciding whether the `<` at the cursor
-    // opens a type-argument list for a method call (`Method<Type>(`) rather than a comparison. Pure
-    // lookahead — no cursor mutation, no diagnostics.
-    func IsGenericMethodCall(): bool {
-        lookAheadPos := Position + 1
-        if lookAheadPos >= Tokens.Count {
-            return false
-        }
-        next := Tokens[lookAheadPos]
-        if next.Type != TokenType.Identifier {
-            return false
-        }
-        lookAheadPos = lookAheadPos + 1
-        scanning := true
-        while scanning {
-            if lookAheadPos >= Tokens.Count {
-                scanning = false
-            } else {
-                token := Tokens[lookAheadPos]
-                if token.Type == TokenType.Greater {
-                    lookAheadPos = lookAheadPos + 1
-                    return lookAheadPos < Tokens.Count && Tokens[lookAheadPos].Type == TokenType.LeftParen
-                }
-                if token.Type == TokenType.RightShift {
-                    lookAheadPos = lookAheadPos + 1
-                    return lookAheadPos < Tokens.Count && Tokens[lookAheadPos].Type == TokenType.LeftParen
-                }
-                if token.Type == TokenType.Comma {
-                    return true
-                }
-                if token.Type == TokenType.Dot || token.Type == TokenType.Less || token.Type == TokenType.LeftBracket || token.Type == TokenType.Question || token.Type == TokenType.QuestionBracket || token.Type == TokenType.Identifier || token.Type == TokenType.RightBracket {
-                    lookAheadPos = lookAheadPos + 1
-                } else {
-                    return false
-                }
-            }
-        }
-        return false
-    }
-
-    // The CONSTRUCTED GENERIC TYPE RECEIVER twin of IsGenericMethodCall: from the `<` at the cursor,
-    // scan a candidate TYPE-ARGUMENT list — identifiers, dots, commas, array brackets, nullable
-    // suffixes, balanced tuple parentheses with their element-name colons, and nested
-    // `<` / `>` / `>>` — and answer true ONLY when the matching close is followed DIRECTLY by a `.`.
-    // That trailing `.` is the whole disambiguation: `Vector<int>.Count` is a type receiver, while
-    // `a < b && c > d`, `a < b > (c)` and `x < y.Z` are comparisons and answer false here.
+    // THE ONE BOUNDED TYPE-ARGUMENT-LIST SCAN BOTH `<` DISAMBIGUATIONS SHARE.
     //
-    // The `>>` split is accounted the way ConsumeGreater accounts it (one `>>` closes two levels), and
-    // the paren depth is tracked so a `)` that belongs to an ENCLOSING expression — the `)` of
-    // `(a < b) && (c > d).Foo` — ends the scan instead of being read as a tuple close.
+    // From the `<` at the cursor, walk a candidate TYPE-ARGUMENT list and answer the index of the token
+    // AFTER its matching close, or -1 when the run cannot be a type-argument list at all. The two
+    // readings differ ONLY in the close token they accept — `(` for a generic method call, `.` for a
+    // constructed generic type receiver — so neither may carry a scan of its own: a scan that admits
+    // less than the type grammar turns `Task.FromResult<List<int>?>(null)` into a comparison and
+    // cascades a parse error, an NL411, an NL301 and every null-narrowing after it through the file.
+    //
+    // A TYPE ARGUMENT IS A WHOLE TYPE. Identifiers and `.`-qualified names, nested generics with the
+    // `>>` split spending two levels of depth exactly as `ConsumeGreater` spends it, array ranks,
+    // nullable `?` suffixes, and tuples — including element names.
+    //
+    // TWO ADMISSIONS ARE DELIBERATELY NARROW, BOTH TO KEEP AMBIGUOUS COMPARISONS COMPARISONS.
+    // A `(` group is admitted only as a TUPLE type, which needs a comma at its own paren depth, so
+    // `Method<(int, string)>(x)` is a call while `a < (b) > (c)` stays the comparison C# also reads
+    // there (Roslyn's `ScanTupleType` likewise refuses a one-element group). And a `:` is admitted
+    // only INSIDE such a group, where it names a tuple element, so the conditional
+    // `a < b ? c : d > (e)` stays a conditional.
     //
     // Pure lookahead — no cursor mutation, no diagnostics.
-    func IsGenericTypeArgumentListBeforeDot(): bool {
+    func ScanTypeArgumentListClose(): int {
         lookAheadPos := Position + 1
+        if lookAheadPos >= Tokens.Count {
+            return -1
+        }
+        firstType := Tokens[lookAheadPos].Type
+        if firstType != TokenType.Identifier && firstType != TokenType.LeftParen {
+            return -1
+        }
         depth := 1
-        parenDepth := 0
+        // One entry per open tuple group: whether that group has yet seen a comma of its own.
+        parenCommas := new List<bool>()
         while lookAheadPos < Tokens.Count {
             tokenType := Tokens[lookAheadPos].Type
-            if tokenType == TokenType.Identifier || tokenType == TokenType.Dot || tokenType == TokenType.Comma || tokenType == TokenType.LeftBracket || tokenType == TokenType.RightBracket || tokenType == TokenType.Question || tokenType == TokenType.QuestionBracket || tokenType == TokenType.Colon {
+            if tokenType == TokenType.Identifier || tokenType == TokenType.Dot || tokenType == TokenType.LeftBracket || tokenType == TokenType.RightBracket || tokenType == TokenType.Question || tokenType == TokenType.QuestionBracket {
+                lookAheadPos = lookAheadPos + 1
+            } else if tokenType == TokenType.Comma {
+                if parenCommas.Count > 0 {
+                    parenCommas[parenCommas.Count - 1] = true
+                }
+                lookAheadPos = lookAheadPos + 1
+            } else if tokenType == TokenType.Colon {
+                if parenCommas.Count == 0 {
+                    return -1
+                }
                 lookAheadPos = lookAheadPos + 1
             } else if tokenType == TokenType.LeftParen {
-                parenDepth = parenDepth + 1
+                parenCommas.Add(false)
                 lookAheadPos = lookAheadPos + 1
             } else if tokenType == TokenType.RightParen {
-                if parenDepth == 0 {
-                    return false
+                if parenCommas.Count == 0 || !parenCommas[parenCommas.Count - 1] {
+                    return -1
                 }
-                parenDepth = parenDepth - 1
+                parenCommas.RemoveAt(parenCommas.Count - 1)
                 lookAheadPos = lookAheadPos + 1
             } else if tokenType == TokenType.Less {
                 depth = depth + 1
@@ -7348,22 +7341,43 @@ class ColumnarParserRecovery {
                 depth = depth - 1
                 lookAheadPos = lookAheadPos + 1
                 if depth == 0 {
-                    return parenDepth == 0 && lookAheadPos < Tokens.Count && Tokens[lookAheadPos].Type == TokenType.Dot
+                    if parenCommas.Count != 0 {
+                        return -1
+                    }
+                    return lookAheadPos
                 }
             } else if tokenType == TokenType.RightShift {
                 depth = depth - 2
                 lookAheadPos = lookAheadPos + 1
                 if depth == 0 {
-                    return parenDepth == 0 && lookAheadPos < Tokens.Count && Tokens[lookAheadPos].Type == TokenType.Dot
+                    if parenCommas.Count != 0 {
+                        return -1
+                    }
+                    return lookAheadPos
                 }
                 if depth < 0 {
-                    return false
+                    return -1
                 }
             } else {
-                return false
+                return -1
             }
         }
-        return false
+        return -1
+    }
+
+    // Parser.cs IsGenericMethodCall (:2025): does the `<` at the cursor open a type-argument list for a
+    // method call (`Method<Type>(`) rather than a comparison? The `(` half of the shared scan.
+    func IsGenericMethodCall(): bool {
+        closePos := ScanTypeArgumentListClose()
+        return closePos >= 0 && closePos < Tokens.Count && Tokens[closePos].Type == TokenType.LeftParen
+    }
+
+    // The CONSTRUCTED GENERIC TYPE RECEIVER twin: the `.` half of the same scan. That trailing `.` is
+    // the whole disambiguation — `Vector<int>.Count` is a type receiver, while `a < b && c > d`,
+    // `a < b > (c)` and `x < y.Z` are comparisons and answer false here.
+    func IsGenericTypeArgumentListBeforeDot(): bool {
+        closePos := ScanTypeArgumentListClose()
+        return closePos >= 0 && closePos < Tokens.Count && Tokens[closePos].Type == TokenType.Dot
     }
 
     // The DOTTED NAME a parsed receiver spells, or null when it is not a name at all. Only a bare
@@ -8599,6 +8613,27 @@ class ColumnarParserRecovery {
         return arrayResult
     }
 
+    // Is this tuple element NAMED, and if so what is it called? True consumes the `:` and leaves the
+    // caller to parse the element's VALUE; false leaves the element positional and the cursor where it
+    // was. The name comes from the already-parsed element expression, which must be a BARE identifier
+    // (Parser.cs :5454's `firstExpr is IdentifierExpression firstIdent`) — the `<error>` terminal
+    // primary is a bare identifier in the owner too but carries no node, so the element is named and
+    // the name is NULL, which is the caller's decline.
+    func TryParseTupleElementName(element: ExprResult, out name: string?): bool {
+        name = null
+        if !Check(TokenType.Colon) || !element.IsBareIdentifier {
+            return false
+        }
+
+        Advance()
+        identifier := element.Node as IdentifierExpression
+        if identifier != null {
+            name = identifier.Name
+        }
+
+        return true
+    }
+
     // Parser.cs ParseTupleOrParenthesizedExpression (:5428): empty tuple `()`, the recovery-boundary
     // `<error>`, single parenthesized `(e)`, named tuple `(a: x, b: y)`, or unnamed tuple `(a, b)`. Every
     // closing `)` routes through the Stage-9 recovery. A TupleExpression falls to the (parenLine, parenColumn,
@@ -8632,70 +8667,63 @@ class ColumnarParserRecovery {
 
         firstExpr := ParseExprValue()
 
-        // Named tuple `(a: x, …)` — only when the first element is a bare identifier (Parser.cs :5454; the
-        // live check is `firstExpr is IdentifierExpression firstIdent`, and the NAME comes from that node).
-        if Check(TokenType.Colon) && firstExpr.IsBareIdentifier {
-            Advance()
-            namedElements := new List<TupleElement>()
-            namedDeclined := false
-            firstValue := ParseExprValue().Node
-            // the first value
-            firstIdentifier := firstExpr.Node as IdentifierExpression
-            // Stage N+1c tranche 9b: `new TupleElement(firstIdent.Name, firstValue)` (:5471). The `<error>`
-            // terminal primary is ALSO a bare identifier in the owner but carries no node → declines.
-            if firstIdentifier == null || firstValue == null {
-                namedDeclined = true
-            } else {
-                namedElements.Add(new TupleElement(firstIdentifier.Name, firstValue))
+        // A TUPLE ELEMENT'S NAME IS DECIDED PER ELEMENT, NOT FOR THE WHOLE LITERAL.
+        //
+        // C# lets positional and named elements mix freely — `(null, last, IsConstructor: true)` is an
+        // ordinary three-element tuple whose third element is named — and the two-mode reading this
+        // replaced could express only all-named or all-positional: the first element decided the mode,
+        // and every later element then had to match it. `(1, B: 2)` reported NL101 "Unexpected token
+        // ':' in expression" at the colon and `(A: 1, 2)` reported NL102 at the `2`.
+        //
+        // A name is `Identifier :` where the identifier is a BARE one, so a conditional element
+        // (`(x, c ? a : b)`) keeps its colon: `ParseExprValue` has already consumed the whole
+        // conditional by the time the colon is looked for.
+        firstElementName: string? = null
+        firstIsNamed := TryParseTupleElementName(firstExpr, out firstElementName)
+        firstElementValue := firstExpr.Node
+        if firstIsNamed {
+            firstElementValue = ParseExprValue().Node
+            if firstElementName == null {
+                firstElementValue = null
             }
-            while Check(TokenType.Comma) {
-                Advance()
-                elementName := ConsumeIdentifier("Expected identifier")
-                // Parser.cs :5465
-                ConsumeToken(TokenType.Colon, "Expected ':'", ":")
-                elementValue := ParseExprValue().Node
-                // Stage N+1c tranche 11: an `<error>` element name is Parser.cs's own placeholder (:5476).
-                if elementValue == null {
-                    namedDeclined = true
-                } else {
-                    namedElements.Add(new TupleElement(elementName, elementValue))
-                }
-            }
-            ConsumeToken(TokenType.RightParen, "Expected ')'", ")")
-            namedTupleResult := new ExprResult(new RecoverySpan(line, column, 1), false)
-            // `new TupleExpression(elements, line, column)` (Parser.cs :5483), anchored on the `(`.
-            if !namedDeclined {
-                namedTupleResult.Node = new TupleExpression(namedElements, line, column)
-            }
-            return namedTupleResult
         }
 
-        // Unnamed tuple `(a, b, …)` (Parser.cs :5476).
-        if Check(TokenType.Comma) {
-            unnamedElements := new List<TupleElement>()
-            unnamedDeclined := false
-            // `new TupleElement(null, firstExpr)` (Parser.cs :5489) is the leading element.
-            if firstExpr.Node == null {
-                unnamedDeclined = true
+        // A tuple `(a, b, …)` / `(a: x, …)` (Parser.cs :5454, :5476). A single element with no name and
+        // no comma is a parenthesized expression instead, and falls through below.
+        if firstIsNamed || Check(TokenType.Comma) {
+            elements := new List<TupleElement>()
+            declined := false
+            // Stage N+1c tranche 9b: `new TupleElement(name, value)` (:5471 / :5489). The `<error>`
+            // terminal primary is ALSO a bare identifier in the owner but carries no node → declines.
+            if firstElementValue == null {
+                declined = true
             } else {
-                unnamedElements.Add(new TupleElement(null, firstExpr.Node))
+                elements.Add(new TupleElement(firstElementName, firstElementValue))
             }
             while Check(TokenType.Comma) {
                 Advance()
-                unnamedValue := ParseExprValue().Node
-                if unnamedValue == null {
-                    unnamedDeclined = true
+                elementExpr := ParseExprValue()
+                elementName: string? = null
+                elementValue := elementExpr.Node
+                if TryParseTupleElementName(elementExpr, out elementName) {
+                    elementValue = ParseExprValue().Node
+                    if elementName == null {
+                        elementValue = null
+                    }
+                }
+                if elementValue == null {
+                    declined = true
                 } else {
-                    unnamedElements.Add(new TupleElement(null, unnamedValue))
+                    elements.Add(new TupleElement(elementName, elementValue))
                 }
             }
             ConsumeToken(TokenType.RightParen, "Expected ')'", ")")
-            unnamedTupleResult := new ExprResult(new RecoverySpan(line, column, 1), false)
-            // `new TupleExpression(elements, line, column)` (Parser.cs :5497).
-            if !unnamedDeclined {
-                unnamedTupleResult.Node = new TupleExpression(unnamedElements, line, column)
+            tupleResult := new ExprResult(new RecoverySpan(line, column, 1), false)
+            // `new TupleExpression(elements, line, column)` (Parser.cs :5483/:5497), anchored on the `(`.
+            if !declined {
+                tupleResult.Node = new TupleExpression(elements, line, column)
             }
-            return unnamedTupleResult
+            return tupleResult
         }
 
         // Parenthesized expression `(e)` (Parser.cs :5489). Its span is the inner expression's. Tranche 7:

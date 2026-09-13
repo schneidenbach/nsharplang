@@ -3053,18 +3053,32 @@ test "016 tuple: an empty tuple reports no parser diagnostic" {
     assert errors.Count == 0
 }
 
-test "016 tuple: a missing ':' after a named-tuple element name reports the NL102 expected-colon" {
+test "016 tuple: a later element with no name is POSITIONAL, so `(x: 1, z 2)` runs out of tuple at the `2` and reports the missing `)`" {
+    // Naming is decided per element (census wave 3): the second element is the bare `z`, the tuple is
+    // complete after it, and the `2` is where the closing `)` should have been. This source used to
+    // report NL102 "Expected ':'" at the same column, because a named FIRST element forced every later
+    // element to carry a name too.
     errors := RunPreamble("func f() {\n    y := (x: 1, z 2)\n}\n")
-    assert errors.Count == 1
-    e := errors[0]
-    assert e.Code == ErrorCode.ExpectedToken
-    assert e.Message == "Expected ':'. Expected ':', got '2'"
-    assert e.Line == 2
-    assert e.Column == 19
-    assert e.Length == 1
-    assert e.SourceSnippet == "    y := (x: 1, z 2)"
-    assert e.HumanExplanation == "I was expecting : here, but I found '2' instead."
-    assert e.ContextualHint == null
+    assert errors.Count == 2
+
+    e0 := errors[0]
+    assert e0.Code == ErrorCode.ExpectedToken
+    assert e0.Message == "Expected ')'. Expected ')', got '2'"
+    assert e0.Line == 2
+    assert e0.Column == 19
+    assert e0.Length == 1
+    assert e0.SourceSnippet == "    y := (x: 1, z 2)"
+    assert e0.HumanExplanation == "I was expecting ) here, but I found '2' instead."
+    assert e0.ContextualHint == "Every opening parenthesis '(' needs a matching closing parenthesis ')'."
+
+    e1 := errors[1]
+    assert e1.Code == ErrorCode.UnexpectedToken
+    assert e1.Message == "Unexpected token ')' in expression"
+    assert e1.Line == 2
+    assert e1.Column == 20
+    assert e1.Length == 1
+    assert e1.HumanExplanation == "I was parsing an expression and found ')', which I don't know how to handle here."
+    assert e1.ContextualHint == "Expressions can be literals (numbers, strings), identifiers, or operators. Check your syntax."
 }
 
 // ---- the keyword-led primaries typeof / nameof / sizeof (the shared `( … )` shape, Parser.cs :4700) ----
@@ -5597,22 +5611,25 @@ test "016 garbage: a non-identifier parameter name (`func f(5)`) reports the par
 
 // ---- garbage-type cascade: the named-tuple bad-name (`(x: 1, 5: 2)`) ----
 
-test "016 garbage: a named-tuple bad-name (`(x: 1, 5: 2)`) reports the element-name error then the leftover ':' and ')' cascade through the expression-terminal arm" {
-    // The named-element loop's ConsumeIdentifier reports NL102 @ the offender; the value ParseExpression
-    // consumes the offending `5`, the ')' Consume is suppressed under panic, and the leftover `:` and `)`
-    // surface as "Unexpected token '…' in expression" NL101 through the per-statement panic reset.
+test "016 garbage: a named-tuple bad-name (`(x: 1, 5: 2)`) closes the tuple at the `5` and reports the MISSING `)`, then the leftover ':' and ')' cascade through the expression-terminal arm" {
+    // Naming is decided per element (census wave 3), and `5` is not a name: the second element is the
+    // literal `5`, the tuple is complete after it, and the `:` is where the closing `)` should have
+    // been -- reported by the position-aware NL107 rather than by the NL102 "Expected identifier" the
+    // all-or-nothing named-element loop used to raise at the same column. The leftover `:` and `)`
+    // then surface as "Unexpected token '…' in expression" NL101 through the per-statement panic reset,
+    // exactly as before.
     errors := RunPreamble("func f() {\n    y := (x: 1, 5: 2)\n}\n")
     assert errors.Count == 3
 
     e0 := errors[0]
-    assert e0.Code == ErrorCode.ExpectedToken
-    assert e0.Message == "Expected identifier. Got '5'"
+    assert e0.Code == ErrorCode.MissingClosingParen
+    assert e0.Message == "Missing closing ')'"
     assert e0.Line == 2
-    assert e0.Column == 17
+    assert e0.Column == 18
     assert e0.Length == 1
     assert e0.SourceSnippet == "    y := (x: 1, 5: 2)"
-    assert e0.HumanExplanation == "I was expecting an identifier here, but I found '5' instead."
-    assert e0.ContextualHint == "An identifier is a name for a variable, function, or type."
+    assert e0.HumanExplanation == "I found ':' while looking for the closing ')' that matches an earlier '('."
+    assert e0.ContextualHint == "Every opening parenthesis '(' needs a matching closing parenthesis ')'."
 
     e1 := errors[1]
     assert e1.Code == ErrorCode.UnexpectedToken

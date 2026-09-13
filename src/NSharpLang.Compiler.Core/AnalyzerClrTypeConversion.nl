@@ -90,6 +90,11 @@ class AnalyzerClrTypeConversion {
             return TryConstructKnownGenericType(genericType)
         }
 
+        tupleType := resolvedType as TupleTypeInfo
+        if tupleType != null {
+            return TryConstructValueTupleType(tupleType.Elements, 0)
+        }
+
         functionType := resolvedType as FunctionTypeInfo
         if functionType != null {
             return TryConstructDelegateType(functionType)
@@ -330,6 +335,56 @@ class AnalyzerClrTypeConversion {
     // compiler-known table; a close the CLR refuses outright (a metadata definition over a foreign
     // argument throws instead of poisoning) or a mix the table cannot re-home is a null answer —
     // never a poisoned instantiation.
+    // A WRITTEN TUPLE'S CLR FORM: `System.ValueTuple`N` closed over the element types, with the
+    // eighth and later elements nested in a REST tuple exactly as the CLR spells them.
+    //
+    // ELEMENT NAMES ARE NOT PART OF THE CLR TYPE. They travel in `TupleElementNamesAttribute` on the
+    // declaring POSITION, so `(Item: string, Count: int)` and `(string, int)` convert to the same
+    // `ValueTuple<string, int>` -- which is what makes a written tuple usable as a type argument to a
+    // referenced assembly's generic method at all. Without this arm the funnel answered null for
+    // every tuple, and `Enumerable.Empty<(int, string)>()` was rejected before its arguments were
+    // ever scored.
+    func TryConstructValueTupleType(elements: List<TupleTypeElementInfo>, start: int): Type? {
+        remaining := elements.Count - start
+        if remaining <= 0 {
+            return null
+        }
+
+        arity := remaining
+        restType: Type? = null
+        if remaining > 7 {
+            arity = 8
+            restType = TryConstructValueTupleType(elements, start + 7)
+            if restType == null {
+                return null
+            }
+        }
+
+        openDefinition := typeof(object)
+        if !declarationContext.TryResolveKnownOpenGeneric("ValueTuple", arity, out openDefinition) {
+            return null
+        }
+
+        arguments := new Type[](arity)
+        index := 0
+        while index < arity {
+            if restType != null && index == 7 {
+                arguments[index] = restType
+            } else {
+                converted := TryConvertTypeInfoToClrType(elements[start + index].Type)
+                if converted == null {
+                    return null
+                }
+
+                arguments[index] = converted
+            }
+
+            index = index + 1
+        }
+
+        return CloseGenericDefinition(openDefinition, "ValueTuple", arguments)
+    }
+
     func CloseGenericDefinition(typeDefinition: Type, genericName: string, arguments: Type[]): Type? {
         closed: Type? = null
         try {

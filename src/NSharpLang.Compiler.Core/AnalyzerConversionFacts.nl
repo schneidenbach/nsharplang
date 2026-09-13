@@ -58,8 +58,15 @@ class AnalyzerConversionFacts {
     }
 
     // Returns true when the type is a reference type — that is, when `null` is one of its values.
-    // Numeric primitives, bool, char, structs, record structs, enums, byref types and closed generic
-    // instantiations are value types.
+    // Numeric primitives, bool, char, structs, record structs, enums and byref types are value types.
+    //
+    // A CONSTRUCTED GENERIC IS ASKED OF ITS DEFINITION, WHICH IS THE ONLY THING THAT KNOWS.
+    // `List<int>` is a class and `ValueTuple<int, int>` is a struct, and the constructed shape itself
+    // carries nothing that separates them; the arity-stripped definition does. Answering a blanket
+    // false here made `Task.FromResult<List<int>?>(null)` report NL402 "no overload accepts 1
+    // argument with these types" — `null` was not assignable to ANY constructed generic — while the
+    // same call with `string?` or `int[]` bound without complaint. A constructed generic whose
+    // definition is unknown stays false, because this predicate is the one callers REPORT on.
     static func IsReferenceType(candidate: TypeInfo): bool {
         simple := candidate as SimpleTypeInfo
         if simple != null {
@@ -95,7 +102,12 @@ class AnalyzerConversionFacts {
 
         genericType := candidate as GenericTypeInfo
         if genericType != null {
-            return false
+            definition := genericType.GenericDefinition
+            if definition == null {
+                return false
+            }
+
+            return IsReferenceType(definition)
         }
 
         reflectionType := candidate as ReflectionTypeInfo
@@ -104,6 +116,18 @@ class AnalyzerConversionFacts {
         }
 
         return false
+    }
+
+    // IS `null` ONE OF THIS TYPE'S VALUES? A nullable annotation says so outright, and every reference
+    // type says so by construction. This is the rule the null arm of `IsAssignable` applies, named so
+    // that a position which has to decide the same thing without an assignability owner in hand —
+    // target-typing a `null` tuple element, say — asks the same question rather than a similar one.
+    static func AcceptsNull(candidate: TypeInfo): bool {
+        if (candidate as NullableTypeInfo) != null {
+            return true
+        }
+
+        return IsReferenceType(candidate)
     }
 
     // DEFINITELY A NON-NULLABLE VALUE TYPE — a POSITIVE test, and that is the whole point of it.

@@ -547,10 +547,11 @@ test "compile-time bench: the skipped source directories are exactly the twelve 
 // tests/native/qualified-names; 91 since the faithful N# translations of `Result<TOk, TErr>` and
 // `Union<T0, T1>` added tests/native/runtime-acceptance; 93 since generic methods declared by an
 // EXTERNAL type added tests/native/external-generic-methods; 94 since the converter census's flow
-// and signature rules added tests/native/census-flow-rules.
-test "compile-time bench: the corpus is the 94 project.yml projects under examples, tests and templates" {
+// and signature rules added tests/native/census-flow-rules; 95 since the census's type-argument scan
+// and per-element tuple naming added tests/native/census-parse-shapes.
+test "compile-time bench: the corpus is the 95 project.yml projects under examples, tests and templates" {
     projects := BenchCollectCorpusProjects(BenchRepositoryRoot())
-    assert projects.Count == 94
+    assert projects.Count == 95
     assert BenchListContains(projects, "examples/01-hello-world")
     assert BenchListContains(projects, "tests/native/qualified-names")
     assert BenchListContains(projects, "tests/native/methodimpl-attributes")
@@ -570,6 +571,7 @@ test "compile-time bench: the corpus is the 94 project.yml projects under exampl
     assert BenchListContains(projects, "tests/native/runtime-acceptance")
     assert BenchListContains(projects, "tests/native/type-arity")
     assert BenchListContains(projects, "tests/native/census-flow-rules")
+    assert BenchListContains(projects, "tests/native/census-parse-shapes")
 }
 
 test "compile-time bench: the large-project case is NOT in the corpus, and neither is this harness's own project" {

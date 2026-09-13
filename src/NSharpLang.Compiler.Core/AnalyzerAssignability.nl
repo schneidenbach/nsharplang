@@ -159,6 +159,87 @@ class AnalyzerAssignability {
         return ConstantConversionFacts.TryGetInRangeIntegralConstant(clrTarget, constant.LiteralText, constant.IsNegative, out constantValue)
     }
 
+    // A TUPLE CONVERTS TO A TUPLE ELEMENT BY ELEMENT, THROUGH CONVERSIONS THE CLR SPELLS AS IDENTITY.
+    // Element NAMES are not part of tuple identity, so a `(Min: int, Max: int)` value fits an
+    // `(int, int)` slot and the other way round; a nullable ANNOTATION over a reference type is not a
+    // CLR type either, so `(string, string)` fits `(string?, string)` and a `null` element fits any
+    // slot that accepts null. Those two are exactly what `return (null, last, IsConstructor: true)`
+    // needs against a declared `(string?, string, IsConstructor: bool)`, and without this arm the whole
+    // tuple was compared by identity and reported NL202 against a literal the writer spelled correctly.
+    //
+    // A REPRESENTATION-CHANGING element conversion is deliberately NOT admitted. C# converts
+    // `(string, string)` to `(object, object)` and `(int, int)` to `(long, long)` by taking the tuple
+    // apart and building a new one; N# emits no such per-element conversion, so accepting it here would
+    // hand the emitter a shape it can only decline. A `Nullable<int>` is a real CLR type and stays a
+    // difference from `int` for the same reason.
+    func AreTupleElementsAssignable(target: TupleTypeInfo, source: TupleTypeInfo): bool {
+        if target.Elements.Count != source.Elements.Count {
+            return false
+        }
+
+        index := 0
+        while index < target.Elements.Count {
+            if !IsTupleElementCompatible(target.Elements[index].Type, source.Elements[index].Type) {
+                return false
+            }
+
+            index = index + 1
+        }
+
+        return true
+    }
+
+    func IsTupleElementCompatible(target: TypeInfo, source: TypeInfo): bool {
+        resolvedTarget := declarationContext.ResolveDeclaredAlias(target)
+        resolvedSource := declarationContext.ResolveDeclaredAlias(source)
+        if TypeInfoIdentityFacts.AreEqual(resolvedTarget, resolvedSource) {
+            return true
+        }
+
+        if BuiltInTypes.Is(resolvedSource, BuiltInTypes.Null) {
+            return AnalyzerConversionFacts.AcceptsNull(resolvedTarget)
+        }
+
+        // Nested tuples compare the same way, at any depth.
+        nestedTarget := resolvedTarget as TupleTypeInfo
+        nestedSource := resolvedSource as TupleTypeInfo
+        if nestedTarget != null && nestedSource != null {
+            return AreTupleElementsAssignable(nestedTarget, nestedSource)
+        }
+
+        targetInner := ReferenceNullableInnerType(resolvedTarget)
+        sourceInner := ReferenceNullableInnerType(resolvedSource)
+        if targetInner == null && sourceInner == null {
+            return false
+        }
+
+        if targetInner == null {
+            return IsTupleElementCompatible(resolvedTarget, sourceInner)
+        }
+
+        if sourceInner == null {
+            return IsTupleElementCompatible(targetInner, resolvedSource)
+        }
+
+        return IsTupleElementCompatible(targetInner, sourceInner)
+    }
+
+    // The inner type of a nullable annotation over a REFERENCE type — the one nullable spelling that is
+    // not a CLR type of its own. `int?` IS `Nullable<int>` and answers null here.
+    func ReferenceNullableInnerType(candidate: TypeInfo): TypeInfo? {
+        nullable := candidate as NullableTypeInfo
+        if nullable == null {
+            return null
+        }
+
+        inner := declarationContext.ResolveDeclaredAlias(nullable.InnerType)
+        if !AnalyzerConversionFacts.IsReferenceType(inner) {
+            return null
+        }
+
+        return inner
+    }
+
     func IsAssignableCore(target: TypeInfo, source: TypeInfo): bool {
         resolvedTarget := declarationContext.ResolveDeclaredAlias(target)
         resolvedSource := declarationContext.ResolveDeclaredAlias(source)
@@ -167,17 +248,10 @@ class AnalyzerAssignability {
             return true
         }
 
-        if BuiltInTypes.Is(resolvedSource, BuiltInTypes.Null) {
-            nullTarget := resolvedTarget as NullableTypeInfo
-            if nullTarget != null {
-                return true
-            }
-
-            // null is assignable to any reference type: string, classes, interfaces, arrays,
-            // delegates.
-            if AnalyzerConversionFacts.IsReferenceType(resolvedTarget) {
-                return true
-            }
+        // null is assignable to a nullable annotation and to any reference type: string, classes,
+        // interfaces, arrays, delegates.
+        if BuiltInTypes.Is(resolvedSource, BuiltInTypes.Null) && AnalyzerConversionFacts.AcceptsNull(resolvedTarget) {
+            return true
         }
 
         if BuiltInTypes.Is(resolvedSource, BuiltInTypes.Never) {
@@ -213,6 +287,12 @@ class AnalyzerAssignability {
 
         if sourceUnion != null {
             return EveryArmAssignableTo(resolvedTarget, sourceUnion)
+        }
+
+        sourceTuple := resolvedSource as TupleTypeInfo
+        targetTuple := resolvedTarget as TupleTypeInfo
+        if sourceTuple != null && targetTuple != null {
+            return AreTupleElementsAssignable(targetTuple, sourceTuple)
         }
 
         sourceFunction := resolvedSource as FunctionTypeInfo

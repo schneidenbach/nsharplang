@@ -175,6 +175,22 @@ func ConversionGenericType(): GenericTypeInfo {
     return new GenericTypeInfo("List", arguments, new ReflectionTypeInfo(typeof(List<int>)))
 }
 
+// A constructed generic over a VALUE-type definition: `KeyValuePair<int, int>` is a struct, and the
+// constructed shape alone carries nothing that separates it from `List<int>`.
+func ConversionValueGenericType(): GenericTypeInfo {
+    arguments := new List<TypeInfo>()
+    arguments.Add(BuiltInTypes.Int)
+    arguments.Add(BuiltInTypes.Int)
+    return new GenericTypeInfo("KeyValuePair", arguments, new ReflectionTypeInfo(typeof(KeyValuePair<int, int>)))
+}
+
+// A constructed generic the analyzer never resolved a definition for.
+func ConversionDefinitionlessGenericType(): GenericTypeInfo {
+    arguments := new List<TypeInfo>()
+    arguments.Add(BuiltInTypes.Int)
+    return new GenericTypeInfo("List", arguments)
+}
+
 func ConversionFunctionType(): FunctionTypeInfo {
     result := new FunctionTypeInfo()
     result.ParameterTypes = new List<TypeInfo>()
@@ -367,8 +383,13 @@ test "reference-type classification covers every type-info family" {
     assert !AnalyzerConversionFacts.IsReferenceType(ConversionEnumType())
     assert !AnalyzerConversionFacts.IsReferenceType(new ByRefTypeInfo(BuiltInTypes.Int))
 
-    // Closed generic instantiations are NOT treated as reference types here.
-    assert !AnalyzerConversionFacts.IsReferenceType(ConversionGenericType())
+    // A CLOSED GENERIC IS ASKED OF ITS DEFINITION, which is the only thing that knows whether the
+    // instantiation is a class or a struct. `List<int>` is a reference type and `KeyValuePair<int,
+    // int>` is not; a constructed generic carrying NO definition keeps the old blanket false,
+    // because this predicate is the one callers report on.
+    assert AnalyzerConversionFacts.IsReferenceType(ConversionGenericType())
+    assert !AnalyzerConversionFacts.IsReferenceType(ConversionValueGenericType())
+    assert !AnalyzerConversionFacts.IsReferenceType(ConversionDefinitionlessGenericType())
 
     // Reflection types defer to the CLR value-type flag.
     assert AnalyzerConversionFacts.IsReferenceType(new ReflectionTypeInfo(typeof(string)))
