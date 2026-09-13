@@ -127,3 +127,40 @@ class Counter {
         }
     }
 }
+
+// AN `async` LOCAL FUNCTION. It declares its INNER type exactly as a top-level `async func` does —
+// `async func inner(): int` is a method returning `ValueTask<int>` — and its body is wrapped and
+// guarded the same way, so an exception it raises lands on the task it returns.
+func localAsyncDoubling(x: int): int {
+    async func inner(value: int): int {
+        await Task.Delay(1)
+        return value * 2
+    }
+
+    return await inner(x)
+}
+
+// A CAPTURING one: the closure lowering is the ordinary local-function display, so the counter it
+// mutates is shared with the enclosing body.
+func localAsyncCounting(): int {
+    total := 0
+    async func bump() {
+        await Task.Delay(1)
+        total = total + 1
+    }
+
+    await bump()
+    await bump()
+    await bump()
+    return total
+}
+
+// The fault contract, from a local function: the exception is on the returned task.
+func localAsyncFaulting(): ValueTask<int> {
+    async func inner(): int {
+        await Task.Delay(1)
+        throw new InvalidOperationException("local async boom")
+    }
+
+    return inner()
+}

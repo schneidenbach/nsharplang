@@ -2,6 +2,7 @@ namespace NSharpLang.CensusAsyncLambdas.Tests
 
 import System
 import System.Collections.Generic
+import System.Reflection
 import System.Threading.Tasks
 
 
@@ -141,4 +142,39 @@ test "a capturing async lambda is an instance method on a closure display" {
     declaring := captured.Method.DeclaringType
     assert declaring != null
     assert declaring.Name.StartsWith("<>c__DisplayClass", StringComparison.Ordinal)
+}
+
+test "an async local function declares its inner type and returns the wrap" {
+    assert localAsyncDoubling(21) == 42
+    assert localAsyncCounting() == 3
+}
+
+test "an async local function's exception lands on the task it returns" {
+    task := localAsyncFaulting()
+    let caught: Exception? = null
+    try {
+        value := await task
+        print value
+    } catch e: Exception {
+        caught = e
+    }
+
+    assert caught != null
+    assert caught.Message == "local async boom"
+}
+
+test "an async local function's CLR method returns the wrapped task" {
+    // The declared return is `int`; the emitted method's is `ValueTask<int>`, which is what every
+    // call site sees. The method is found by the local-function naming convention.
+    program := typeof(Counter).Assembly.GetType("NSharpLang.CensusAsyncLambdas.Tests.Program")
+    assert program != null
+    let found: MethodInfo? = null
+    for method in program.GetMethods(BindingFlags.NonPublic | BindingFlags.Static) {
+        if method.Name.StartsWith("<localAsyncDoubling>g__", StringComparison.Ordinal) {
+            found = method
+        }
+    }
+
+    assert found != null
+    assert found.ReturnType == typeof(ValueTask<int>)
 }

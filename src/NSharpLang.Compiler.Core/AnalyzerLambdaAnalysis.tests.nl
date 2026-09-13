@@ -885,7 +885,6 @@ test "an event whose declaring type is unknown is not measured for value-type-ne
     assert harness.Errors.Count == 0
 }
 
-
 // ── the `async` LAMBDA (NL334) ────────────────────────────────────────────────
 //
 // `async` moves the boundary between what the BODY answers and what the LAMBDA converts to: the body

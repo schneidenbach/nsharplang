@@ -3210,6 +3210,11 @@ parameter list, the contextual typing, the display class — is unchanged.
   `Task.Run(Action)` and silently discard what the body awaited. The emitter agrees through
   `IsContextualLambdaTarget`, and its `Task.Run` arm picks `Action` or `Func<Task>` by the argument's
   own shape rather than by a fixed table row.
+- **An `async` LOCAL FUNCTION is the same shape in a local function's method.** It declares its INNER
+  type and the emitted method returns the wrap (`TryComputeAsyncReturnShape`, the same owner a
+  top-level `async func` asks), so every call site sees `ValueTask<T>`; the body sub-emitter is given
+  the inner type plus the async return shape. `emit.local-function.async` — the decline that said "its
+  body is not routed through the async return planner" — is gone.
 - **Emission is the async function's shape, in a lambda's method.** `TryEmitLambdaLiteral` keeps the
   DELEGATE's signature on the synthesized method and hands the sub-emitter the unwrapped type plus
   `asyncReturnType`, so `EmitBody`'s async fault guard runs for a block body and

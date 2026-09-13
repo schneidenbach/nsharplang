@@ -750,6 +750,24 @@ task := failing()        // returns normally; the task is faulted
 print task.IsFaulted     // True
 ```
 
+A **local function** can be `async` too. Like a top-level `async func` it declares its *inner* type,
+and the method it compiles to returns the wrap — so `async func inner(): int` is called with `await`:
+
+```n#
+func loadAll(paths: string[]): int {
+    async func lengthOf(path: string): int {
+        contents := await readAllTextAsync(path)
+        return contents.Length
+    }
+
+    total := 0
+    for path in paths {
+        total = total + await lengthOf(path)
+    }
+    return total
+}
+```
+
 There is **no `async void`**: a lambda whose target returns `void` (an `Action`) has nowhere to put
 its task, so N# reports [`NL334`](./errors/NL334.md) and asks you to drop the keyword or give the
 target a task-like return. That page explains why N# departs from C# here, and what it buys.

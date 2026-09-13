@@ -5840,17 +5840,21 @@ sealed class ColumnarIlEmitter {
         }
         for localFunction in fn.LocalFunctions {
             localFn := localFunction.Function
-            // AN ASYNC LOCAL FUNCTION IS NOT HOSTED, capture or no capture. The async body planner
-            // wraps returns and builds its fault guard from a DECLARED function or member's return
-            // type, and a local function's body is not routed to it, so its returns would be checked
-            // against `Task<T>` with an unwrapped value on the stack. Declining by name beats the
-            // return-type mismatch that shape used to report. (`func*` never reaches here: a
-            // generator local function is refused by the parser.)
-            if (localFn.IsAsync) {
-                return DeclineStatic("emit.local-function.async", "an async local function is not modeled: its body is not routed through the async return planner", fn.Name + "." + localFn.Name, -1, 0)
-            }
+            // AN ASYNC LOCAL FUNCTION DECLARES ITS INNER TYPE AND ITS METHOD RETURNS THE WRAP, exactly
+            // as a top-level `async func` does: `async func inner(): int` is a method returning
+            // `ValueTask<int>`, and every call site sees that. The body is routed through the async
+            // return planner below (`TryEmitLocalFunctionBodies` recomputes the same shape), which is
+            // what the decline that used to stand here was waiting for. (`func*` never reaches here:
+            // a generator local function is refused by the parser.)
             let localReturn: System.Type = null
-            if (localFn.ReturnCanonical == "void") {
+            if (localFn.IsAsync) {
+                let localAsyncInner: System.Type? = null
+                let localAsyncWrapped: System.Type? = null
+                if (!ColumnarInterfaceRealization.TryComputeAsyncReturnShape(localFn.Name, localFn.ReturnCanonical, typeResolution.Enums, typeResolution.Structs, typeResolution.Unions, out localAsyncInner, out localAsyncWrapped)) {
+                    return DeclineStatic("emit.local-function.async-return", "async local function return type '" + localFn.ReturnCanonical + "' could not be resolved for '" + localFn.Name + "'", fn.Name + "." + localFn.Name, -1, 0)
+                }
+                localReturn = localAsyncWrapped
+            } else if (localFn.ReturnCanonical == "void") {
                 localReturn = ColumnarTypeOfPlanner.RequiredVoidType()
             } else {
                 if (!ColumnarCanonicalTypeResolver.TryResolveType(localFn.ReturnCanonical, typeResolution.Enums, typeResolution.Structs, typeResolution.Unions, out localReturn) || !ColumnarTypeOfPlanner.IsSupportedType(localReturn)) {
@@ -5971,12 +5975,28 @@ sealed class ColumnarIlEmitter {
                 localClosureView = closure
             }
             localFunctionSource := program.GetSourceForFileId(localFn.SourceFileId)
+            // AN ASYNC LOCAL FUNCTION'S BODY IS CHECKED AGAINST THE INNER TYPE, and the async return
+            // shape it is emitted with wraps every return and guards the whole body — the same two
+            // facts a top-level `async func`'s body is given. The declaration pass already put the
+            // WRAPPED type on the method (and therefore on every call site), so the shape is
+            // recomputed here rather than carried: one owner answers it, twice.
+            localBodyReturn := target.Item3
+            let localAsyncReturn: System.Type? = null
+            if (localFn.IsAsync) {
+                let localAsyncInner: System.Type? = null
+                let localAsyncWrapped: System.Type? = null
+                if (!ColumnarInterfaceRealization.TryComputeAsyncReturnShape(localFn.Name, localFn.ReturnCanonical, typeResolution.Enums, typeResolution.Structs, typeResolution.Unions, out localAsyncInner, out localAsyncWrapped)) {
+                    return DeclineStatic("emit.local-function.async-return", "async local function return type '" + localFn.ReturnCanonical + "' could not be resolved for '" + localFn.Name + "'", fn.Name + "." + localFn.Name, -1, 0)
+                }
+                localBodyReturn = localAsyncInner
+                localAsyncReturn = localAsyncWrapped
+            }
             localEmitter := new ColumnarIlEmitter(
                 localFn.BodyNodes,
                 localFunctionSource,
                 localOrdinals,
                 localParamTypes,
-                target.Item3,
+                localBodyReturn,
                 localIl,
                 siblings,
                 enumRegistry,
@@ -5997,8 +6017,12 @@ sealed class ColumnarIlEmitter {
                 null,
                 null,
                 declaringScopeBindings,
-                null,
-                false,
+                localAsyncReturn,
+                match localFn.ReturnCanonical {
+                    "Task" => true,
+                    "ValueTask" => true,
+                    _ => false
+                },
                 referenceAssemblyPaths,
                 null,
                 null,
@@ -6009,7 +6033,7 @@ sealed class ColumnarIlEmitter {
             )
             ColumnarDeclineTrace.SetSourceFileId(localFn.SourceFileId)
             try {
-                if (!localEmitter.EmitBody(localFn.BodyRoot, target.Item3 == ColumnarTypeOfPlanner.RequiredVoidType())) {
+                if (!localEmitter.EmitBody(localFn.BodyRoot, localBodyReturn == ColumnarTypeOfPlanner.RequiredVoidType())) {
                     return DeclineStatic("emit.body", "local function body emission declined", fn.Name + "." + localFn.Name, -1, 0)
                 }
             } finally {
