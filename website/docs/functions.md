@@ -797,6 +797,24 @@ of a referenced assembly. A `List<TextEdit>` reaches a `Func<T, IEnumerable<TRes
 allEdits := actions.SelectMany(action => action.Edits).ToList()
 ```
 
+**A lambda with a BLOCK body takes part in phase two the same way**: its result is the type its
+`return` statements give, so a block is never a reason to write the type argument out.
+
+```n#
+// `TResult` is `Span`, and the call is a `List<Span>` — the `return` inside the block is what
+// says so.
+spans := names.Select(name => {
+    line0 := name.Length
+    return new Span(line0, line0 + 1)
+}).ToList()
+```
+
+Every `return` the block itself executes counts, wherever it is written — inside an `if`, a loop or a
+`try` — and the result is the type they all reach: an identical type, the base one when a derived and
+a base arm meet, and the others' type when one arm is `null`. A `return` written inside a **nested**
+lambda or local function belongs to that body, not to this one. Two arms that share nothing report
+the disagreement rather than picking one.
+
 The two phases repeat until nothing changes, so one lambda may fix a type parameter that a later
 lambda's parameters depend on. Each lambda folds into **its own** position — two lambdas fix two
 different type parameters:
@@ -892,6 +910,19 @@ A group whose name is overloaded still picks the single applicable overload — 
 `Func<string, int>` is `Parse(string)` — and a generic method (`Array.Empty<T>`) or one with a
 `ref`/`out` parameter (`Int32.TryParse`) is not a method group a delegate position can take.
 
+A method group may also be named through a **value**, and then the delegate is bound to that value:
+the receiver is the delegate's target, so two receivers give two delegates, and a `virtual` method
+binds the one the receiver actually has.
+
+```n#
+greeter := new Greeter("hi ")
+greet: Func<string, string> = greeter.Greet    // bound to `greeter`
+assert greet("bob") == "hi bob"
+
+// Wherever a lambda is accepted, so is a receiver-bound group.
+decorated := names.Select(greeter.Greet).ToList()
+```
+
 ### When two arguments disagree only about `?`
 
 A type parameter met by both `X` and `X?` is fixed to `X?`. The two are not a contradiction: `X`
@@ -937,6 +968,53 @@ first := words.Find(longEnough)
 A method group converts at exactly the same positions, by the same rule. N# has no `delegate`
 declaration of its own: write `Func<...>` / `Action<...>` for a signature you name yourself, and use a
 referenced assembly's delegate types where they are part of an API you are calling.
+
+The type the delegate is closed over may be **one of your own**, including in a `void`-returning
+position. A delegate's shape comes from its own definition, so an instantiation over a class or
+struct this compilation is still writing names exactly the signature it says it does:
+
+```n#
+class PriceArgs {
+    Symbol: string
+    Price: int
+    constructor(symbol: string, price: int) { Symbol = symbol  Price = price }
+}
+
+sink: Action<PriceArgs> = args => {
+    print args.Symbol
+}
+
+expensive: Predicate<PriceArgs> = args => args.Price > 100
+byPrice: Comparison<PriceArgs> = (left, right) => right.Price - left.Price
+onChange: EventHandler<PriceArgs> = (sender, args) => {
+    print args.Price
+}
+```
+
+### Calling a delegate held in a member
+
+A delegate stored in a field or a property is called through its owner exactly as a method is — the
+name resolves to the delegate's value and the call is that delegate's `Invoke`:
+
+```n#
+class Handlers {
+    Load: Func<int>
+    Map: Func<int, int>
+    Doubled: Func<int, int> => Map
+
+    constructor(load: Func<int>, map: Func<int, int>) {
+        Load = load
+        Map = map
+    }
+}
+
+func TotalThrough(handlers: Handlers): int {
+    return handlers.Load() + handlers.Map(4) + handlers.Doubled(2)
+}
+```
+
+A method of the same name wins over a field of that name, which is C#'s own member lookup. The value
+read is the CURRENT one, so a handler replaced after the object was built is the handler that runs.
 
 **A member that cannot be called does not hide a method of the same name.** `List<T>.Count` is an
 `int` property and `Enumerable.Count<TSource>` is an extension method; only the second is
@@ -1077,6 +1155,16 @@ All three parameter spellings take it — `async () => …`, `async x => …`, `
 either an expression body or a block body, and the target may be any delegate returning `Task`,
 `Task<T>`, `ValueTask` or `ValueTask<T>`. An async lambda captures like any other lambda: enclosing
 locals, `this`, and a fresh copy of each loop iteration's own locals.
+
+Its type is the **target's task family over the body's result**, so an `async` lambda decides an open
+result position exactly as a plain one does:
+
+```n#
+// The body answers `int`; the lambda is a `Func<Task<int>>`, and the call is a `Task<int>`.
+running := Task.Run(async () => {
+    return 11
+})
+```
 
 **An exception raised inside the body lands on the returned task**, not on the caller that invoked
 the delegate:

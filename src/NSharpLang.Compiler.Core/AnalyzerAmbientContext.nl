@@ -44,6 +44,22 @@ class AmbientContextFrame {
     }
 }
 
+// ONE NESTED BODY'S RETURN-TYPE INFERENCE, SAVED WHILE ANOTHER ONE RUNS INSIDE IT.
+//
+// It is its own value rather than two more slots on `AmbientContextFrame` because the STAGE-0
+// compiler that builds this project declines a constructor of more than twelve parameters, and that
+// frame already has twelve. The pair is pushed and popped by the nested-body boundary alone, which a
+// list used as a stack states exactly.
+class AmbientReturnInferenceFrame {
+    Inferring: bool
+    Inferred: TypeInfo?
+
+    constructor(inferring: bool, inferred: TypeInfo?) {
+        Inferring = inferring
+        Inferred = inferred
+    }
+}
+
 // THE THREE CALLEE-POSITION SUPPRESSIONS, SAVED AS ONE VALUE. They are opened together and closed
 // together — a callee is a callee for all three questions at once — so a caller holds one local
 // instead of three, and cannot restore two of them and forget the third.
@@ -199,6 +215,17 @@ class AnalyzerAmbientContext {
     // inside a handler of the SAME method.
     catchHandlerDepthValue: int
     rethrowTargetFinallyDepthValue: int
+    // WHETHER THIS BODY IS WORKING OUT ITS OWN RETURN TYPE, and the join of what its `return`
+    // statements have given so far. A LAMBDA'S BLOCK BODY written where the target's return position
+    // is not yet decided — a generic method's `TResult` before the call has bound it — has no type to
+    // check its returns against, so the returns are COLLECTED instead and their best common type
+    // becomes the lambda's own (C# §12.6.3.13's inferred return type). `lastInferredReturnTypeValue`
+    // is how the collected answer leaves: it is the most recently EXITED nested body's, because the
+    // walk that asked for the body is resumed after the boundary has already closed.
+    inferringReturnTypeValue: bool
+    inferredReturnTypeValue: TypeInfo?
+    lastInferredReturnTypeValue: TypeInfo?
+    returnInferenceStackValue: List<AmbientReturnInferenceFrame>
     // The enclosing function's `ref`/`out`/`in` parameter names, live only while a LOCAL FUNCTION's
     // body is being walked. A managed pointer cannot be stored in a closure's storage, so a local
     // function that reads one has no way to be lowered — C# reports that as CS1628 and so does NL331.
@@ -393,6 +420,10 @@ class AnalyzerAmbientContext {
         isAsyncValue = false
         inLoopValue = false
         finallyDepthValue = 0
+        inferringReturnTypeValue = false
+        inferredReturnTypeValue = null
+        lastInferredReturnTypeValue = null
+        returnInferenceStackValue = new List<AmbientReturnInferenceFrame>()
         yieldForbiddenPlacementsValue = new List<string>()
         breakTargetFinallyDepthValue = 0
         continueTargetFinallyDepthValue = 0
@@ -426,6 +457,10 @@ class AnalyzerAmbientContext {
         isAsyncValue = false
         inLoopValue = false
         finallyDepthValue = 0
+        inferringReturnTypeValue = false
+        inferredReturnTypeValue = null
+        lastInferredReturnTypeValue = null
+        returnInferenceStackValue.Clear()
         yieldForbiddenPlacementsValue.Clear()
         breakTargetFinallyDepthValue = 0
         continueTargetFinallyDepthValue = 0
@@ -700,6 +735,12 @@ class AnalyzerAmbientContext {
     // Roslyn says `CS0191` for both shapes. The flag was a plain sticky bool that survived into the
     // nested body, and the constructor exemption it grants was therefore handed to code the
     // constructor does not contain.
+    // AND IT DECIDES WHETHER THIS BODY INFERS ITS OWN RETURN TYPE. A LAMBDA (a nested body with no
+    // declaration) entered with an `unknown` return type has no target to measure its returns
+    // against — the position it is written at is a type parameter the enclosing call has not bound —
+    // so its `return` statements are collected here and joined, and the lambda walk takes the join
+    // for the lambda's own return type. A LOCAL FUNCTION never infers: its return type is written or
+    // it is `void`.
     func EnterNestedBody(declaration: FunctionDeclaration?, returnType: TypeInfo?): AmbientContextFrame {
         saved := Snapshot()
         currentReturnTypeValue = returnType
@@ -713,11 +754,22 @@ class AnalyzerAmbientContext {
         catchHandlerDepthValue = 0
         rethrowTargetFinallyDepthValue = 0
         inConstructorValue = false
+        returnInferenceStackValue.Add(new AmbientReturnInferenceFrame(inferringReturnTypeValue, inferredReturnTypeValue))
+        inferringReturnTypeValue = declaration == null && returnType != null && BuiltInTypes.IsUnknown(returnType)
+        inferredReturnTypeValue = null
         return saved
     }
 
-    // Restores ALL ELEVEN. A nested body is the only boundary that saved all of them.
+    // Restores ALL ELEVEN, plus the inference pair its own stack saved. A nested body is the only
+    // boundary that saves all of them — and the one
+    // that PUBLISHES something on the way out: the return type the body inferred for itself, which
+    // the walk that asked for the body reads once the boundary has closed.
     func ExitNestedBody(saved: AmbientContextFrame) {
+        lastInferredReturnTypeValue = null
+        if inferringReturnTypeValue {
+            lastInferredReturnTypeValue = inferredReturnTypeValue
+        }
+
         currentReturnTypeValue = saved.ReturnType
         currentFunctionValue = saved.Function
         returnTypeWasOmittedValue = saved.ReturnTypeWasOmitted
@@ -729,6 +781,65 @@ class AnalyzerAmbientContext {
         catchHandlerDepthValue = saved.CatchHandlerDepth
         rethrowTargetFinallyDepthValue = saved.RethrowTargetFinallyDepth
         inConstructorValue = saved.InConstructor
+
+        restoredIndex := returnInferenceStackValue.Count - 1
+        if restoredIndex >= 0 {
+            restored := returnInferenceStackValue[restoredIndex]
+            returnInferenceStackValue.RemoveAt(restoredIndex)
+            inferringReturnTypeValue = restored.Inferring
+            inferredReturnTypeValue = restored.Inferred
+        } else {
+            inferringReturnTypeValue = false
+            inferredReturnTypeValue = null
+        }
+    }
+
+    // THE RETURN TYPE THE NESTED BODY THAT JUST CLOSED WORKED OUT FOR ITSELF, or null when it was not
+    // inferring one or had no `return` with a value to work from.
+    func LastInferredNestedBodyReturnType(): TypeInfo? {
+        return lastInferredReturnTypeValue
+    }
+
+    // ONE MORE `return` FOLDED INTO THE BODY'S INFERRED TYPE — C#'s best common type, joined
+    // pairwise in the order the returns are written.
+    //
+    // A type both sides accept wins outright, which is what lets a `null` arm take the others' type
+    // and a derived arm widen to a base one already seen. Two unrelated reflected types fall back to
+    // the nearest shared interface or base the match-expression join already owns. When nothing at
+    // all is common the answer is `unknown` AND IT IS STICKY: a body whose returns disagree has no
+    // inferred return type, and the target's own return position is what the conversion is then
+    // judged on rather than whichever arm happened to come last.
+    func JoinInferredReturnType(candidate: TypeInfo, assignability: AnalyzerAssignability) {
+        if BuiltInTypes.IsUnknown(candidate) {
+            return
+        }
+
+        existing := inferredReturnTypeValue
+        if existing == null {
+            inferredReturnTypeValue = candidate
+            return
+        }
+
+        if BuiltInTypes.IsUnknown(existing) {
+            return
+        }
+
+        if assignability.IsAssignable(existing, candidate) {
+            return
+        }
+
+        if assignability.IsAssignable(candidate, existing) {
+            inferredReturnTypeValue = candidate
+            return
+        }
+
+        common := AnalyzerMatchExpression.FindCommonBaseType(existing, candidate)
+        if common != null {
+            inferredReturnTypeValue = common
+            return
+        }
+
+        inferredReturnTypeValue = BuiltInTypes.Unknown
     }
 
     // A LOOP BODY — `while`, `for`, `foreach` or `await foreach`. Opens the loop and records the
@@ -1089,8 +1200,18 @@ class AnalyzerAmbientContext {
             return
         }
 
-        expected := state.ExpectedReturnValueType
+        // A BODY WORKING OUT ITS OWN RETURN TYPE COLLECTS THIS VALUE INSTEAD OF MEASURING IT. There is
+        // nothing to measure against: the target's return position is a type parameter the enclosing
+        // call has not bound, and checking a `Range` against `TResult` is how a block-bodied lambda at
+        // a generic position used to be told it returned the wrong thing. The call's second pass
+        // analyses the same body against the CLOSED signature, which is where the real check happens.
         returnedType := state.ReturnedType
+        if inferringReturnTypeValue {
+            JoinInferredReturnType(returnedType, state.Assignability)
+            return
+        }
+
+        expected := state.ExpectedReturnValueType
         if !state.Assignability.IsAssignable(expected, returnedType) {
             // The classification is read from the STATE's oracle, which is the only place this owner
             // can reach one, and handed down rather than looked up again inside the report.
@@ -1104,6 +1225,13 @@ class AnalyzerAmbientContext {
     // The span is the `return` keyword — six characters — in both shapes.
     func ReportMissingReturnValueIfNeeded(statement: ReturnStatement, returnType: TypeInfo) {
         if BuiltInTypes.Is(returnType, BuiltInTypes.Void) {
+            return
+        }
+
+        // A BODY STILL WORKING OUT ITS RETURN TYPE OWES NOTHING YET. It has no declared type to name
+        // in the sentence — the target's return position is unbound — and the closed second pass is
+        // where a `return` that really owes a value is reported.
+        if inferringReturnTypeValue {
             return
         }
 

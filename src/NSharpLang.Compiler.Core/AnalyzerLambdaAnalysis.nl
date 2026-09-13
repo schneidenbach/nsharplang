@@ -17,8 +17,9 @@ import NSharpLang.Compiler.Ast
 // that the scope a lambda opens is a FUNCTION scope; that each parameter is declared at its own
 // position when it has one and at the lambda's otherwise; that an EXPRESSION body is analysed under
 // the signature's RETURN type and is then measured by both SoA escape rules; that a BLOCK body's
-// return type is the signature's regardless of what the block does, and that the block runs inside a
-// NESTED-BODY ambient boundary; that a lambda with NEITHER body answers `unknown`; and that the
+// return type is the signature's when the signature HAS one and the best common type of the block's
+// own `return` statements when it does not, and that the block runs inside a NESTED-BODY ambient
+// boundary; that a lambda with NEITHER body answers `unknown`; and that the
 // expression-tree rules apply to whichever body shape there is, with the block-body report firing
 // BEFORE the body is walked and the unsupported-expression report firing only when the body walk and
 // both escape rules left the diagnostic count untouched.
@@ -40,7 +41,9 @@ import NSharpLang.Compiler.Ast
 //   4  record that same parameter in the semantic model the IDE's hover and completion read.
 //   5  analyse the BLOCK body — ONE statement, the block itself, which opens its own block scope
 //      inside the function scope. `CarriedType` is the ambient NESTED-BODY return type the driver
-//      brackets the analysis with; see the note on that bracket below.
+//      brackets the analysis with; see the note on that bracket below. ANSWERS the return type the
+//      body worked out for itself, which is non-null only when `CarriedType` was `unknown` — the
+//      boundary collects the block's returns exactly then, and phase 7 decides whether to take it.
 //   6  close the scope kind 2 opened.
 //
 // KINDS 7 AND 8 ARE GONE, AND THAT IS THE MEASUREMENT THE VALIDATOR'S OWN SLICE TOOK. They were
@@ -114,6 +117,10 @@ class LambdaAnalysisState {
     Phase: int
     Pending: int
 
+    // THE RETURN TYPE THE BLOCK BODY WORKED OUT FOR ITSELF, and null when it worked out none. Only a
+    // block body at a target whose return position is not decided ever fills it in.
+    InferredBlockReturnType: TypeInfo?
+
     // The diagnostic count taken BEFORE the expression body is analysed. The unsupported-expression
     // report fires only when the body walk AND both escape rules left it untouched, so it is a
     // measurement of "nothing else already complained" rather than of the body walk alone.
@@ -136,6 +143,7 @@ class LambdaAnalysisState {
         Phase = 0
         Pending = 0
         ErrorsBeforeBody = 0
+        InferredBlockReturnType = null
         ReturnType = BuiltInTypes.Unknown
         Result = null
     }
@@ -273,6 +281,15 @@ class AnalyzerLambdaAnalysis {
     func SupplyLambdaStep(state: LambdaAnalysisState, answer: TypeInfo?) {
         pending := state.Pending
         state.Pending = 0
+
+        // KIND 5 NOW ANSWERS TOO, and what it answers is the block body's OWN return type — the join
+        // of its `return` statements, which only exists when the target offered no return type to
+        // check them against. It is recorded rather than applied: whether the lambda takes it is
+        // phase 7's decision, not the driver's.
+        if pending == 5 {
+            state.InferredBlockReturnType = answer
+            return
+        }
 
         if pending != 1 {
             return
@@ -490,16 +507,34 @@ class AnalyzerLambdaAnalysis {
     // one statement.
     func EnterBlockBody(state: LambdaAnalysisState): LambdaAnalysisRequest? {
         state.Phase = 7
+        state.Pending = 5
         request := new LambdaAnalysisRequest(5, BlockBodyReturnType(state))
         request.Body = state.Lambda.BlockBody
         return request
     }
 
-    // PHASE 7 — A BLOCK LAMBDA'S RETURN TYPE, WHICH IS THE SIGNATURE'S. What the block RETURNS is
-    // checked against this by the return-statement rules inside the boundary; the lambda's own type
-    // does not change to match it.
+    // PHASE 7 — A BLOCK LAMBDA'S RETURN TYPE, WHICH IS THE SIGNATURE'S WHEN THE SIGNATURE HAS ONE.
+    //
+    // What the block RETURNS is checked against the signature's return type by the return-statement
+    // rules inside the boundary, and the lambda's own type does not change to match it.
+    //
+    // A TARGET WHOSE RETURN POSITION IS NOT DECIDED HAS NO SUCH TYPE, and then the rule is the other
+    // way round: the block's `return` statements decide, and the lambda's return type is their best
+    // common type (C# §12.6.3.13's inferred return type). That is what closes `TResult` at
+    // `names.Select(name => { … return new Range(…) })`, which used to report that the lambda should
+    // return `TResult` and returned `Range`, and then that the CALL returned `List<TResult>` where
+    // `List<Range>` was expected — two diagnostics for a program with nothing wrong with it.
+    //
+    // A block that returns nothing, or whose returns agree on nothing, leaves the lambda at the
+    // target's own answer, which is what the conversion is then judged on.
     func CompleteBlockBody(state: LambdaAnalysisState): LambdaAnalysisRequest? {
-        state.ReturnType = BlockBodyReturnType(state)
+        declared := BlockBodyReturnType(state)
+        state.ReturnType = declared
+        inferred := state.InferredBlockReturnType
+        if BuiltInTypes.IsUnknown(declared) && inferred != null && !BuiltInTypes.IsUnknown(inferred) {
+            state.ReturnType = inferred
+        }
+
         state.Phase = 8
         return null
     }
@@ -539,13 +574,8 @@ class AnalyzerLambdaAnalysis {
     // any shape whose CLR type cannot be constructed — in each case the target's own return is the
     // truthful answer and the conversion is judged on it.
     func AsyncWrappedReturnType(signatureReturn: TypeInfo, bodyResult: TypeInfo): TypeInfo {
-        reflection := signatureReturn as ReflectionTypeInfo
-        if reflection == null {
-            return signatureReturn
-        }
-
-        reflectedTask := reflection.Type
-        if !reflectedTask.get_IsGenericType() {
+        taskDefinition := AsyncTaskFamilyDefinition(signatureReturn)
+        if taskDefinition == null {
             return signatureReturn
         }
 
@@ -560,8 +590,46 @@ class AnalyzerLambdaAnalysis {
 
         taskArguments := new Type[](1)
         taskArguments[0] = bodyClrType
-        constructedTask := reflectedTask.GetGenericTypeDefinition().MakeGenericType(taskArguments)
+        constructedTask := taskDefinition.MakeGenericType(taskArguments)
         return AnalyzerReflectionTypeConversion.ConvertReflectionType(constructedTask)
+    }
+
+    // THE TASK FAMILY A SIGNATURE'S RETURN NAMES, as the open definition the body's result is closed
+    // over — the `Task` or `ValueTask` definition — or nothing at all when the return is not a constructed
+    // generic.
+    //
+    // IT IS ASKED OF BOTH SPELLINGS, and that is the whole point. A constructed generic read out of
+    // metadata is a `GenericTypeInfo` over a reflected DEFINITION, not a `ReflectionTypeInfo` over
+    // the constructed type — `AnalyzerReflectionTypeConversion` builds it that way — so a read that
+    // recognised only the second answered nothing for `Task<TResult>` and left an `async` lambda's
+    // type as the target's own unbound `Task<TResult>`. `Task.Run(async () => { return 11 })` then
+    // reported `Task<TResult>` where `Task<int>` was expected, for a call that decides `TResult` from
+    // exactly that body.
+    static func AsyncTaskFamilyDefinition(signatureReturn: TypeInfo): Type? {
+        reflection := signatureReturn as ReflectionTypeInfo
+        if reflection != null {
+            if !reflection.Type.get_IsGenericType() {
+                return null
+            }
+
+            return reflection.Type.GetGenericTypeDefinition()
+        }
+
+        generic := signatureReturn as GenericTypeInfo
+        if generic == null {
+            return null
+        }
+
+        definition := generic.GenericDefinition as ReflectionTypeInfo
+        if definition == null {
+            return null
+        }
+
+        if !definition.Type.get_IsGenericTypeDefinition() {
+            return null
+        }
+
+        return definition.Type
     }
 
     // THE SIGNATURE'S RETURN TYPE AS AN EXPECTED TYPE — null when nothing names a signature, which is
@@ -580,10 +648,31 @@ class AnalyzerLambdaAnalysis {
         }
 
         if state.Lambda.IsAsync {
-            return AsyncBodyReturnType(signature.ReturnType)
+            return DecidedReturnTarget(AsyncBodyReturnType(signature.ReturnType))
         }
 
-        return signature.ReturnType
+        return DecidedReturnTarget(signature.ReturnType)
+    }
+
+    // A TARGET'S RETURN POSITION, OR NOTHING WHEN THAT POSITION IS STILL A TYPE PARAMETER.
+    //
+    // `names.Select(name => …)` hands the lambda `Func<string, TResult>` while `TResult` is exactly
+    // what the lambda is being asked to decide. Handing `TResult` on as an expected type asks the
+    // body to be something no program can write: an expression body was target-typed against it and a
+    // block body had its `return` statements CHECKED against it, which is the "should return TResult
+    // but returns Range" report. An undecided position offers no target at all, and `unknown` is this
+    // analyzer's word for that — the same word an absent signature already answered.
+    //
+    // ONLY A BARE, UNBOUND TYPE PARAMETER IS UNDECIDED. `Task<TResult>` still says the body's value
+    // travels in a task, which is a fact the `async` rules need, and the unwrap above reaches the
+    // bare `TResult` inside it before this is asked.
+    static func DecidedReturnTarget(candidate: TypeInfo?): TypeInfo? {
+        reflection := candidate as ReflectionTypeInfo
+        if reflection != null && reflection.Type.get_IsGenericParameter() {
+            return BuiltInTypes.Unknown
+        }
+
+        return candidate
     }
 
     // THE BLOCK BODY'S BOUNDARY AND RESULT TYPE, where an absent signature IS `unknown` — the ambient
@@ -600,7 +689,7 @@ class AnalyzerLambdaAnalysis {
         }
 
         if state.Lambda.IsAsync {
-            unwrapped := AsyncBodyReturnType(returnType)
+            unwrapped := DecidedReturnTarget(AsyncBodyReturnType(returnType))
             if unwrapped == null {
                 return BuiltInTypes.Unknown
             }
@@ -608,7 +697,12 @@ class AnalyzerLambdaAnalysis {
             return unwrapped
         }
 
-        return returnType
+        decided := DecidedReturnTarget(returnType)
+        if decided == null {
+            return BuiltInTypes.Unknown
+        }
+
+        return decided
     }
 
     // A TYPE AS THE READER WROTE IT, for a message. `TypeInfo.ToString` is the one rendering every
@@ -759,9 +853,42 @@ class AnalyzerLambdaAnalysis {
             if clrType != null && IsDelegateOrExpressionTreeTarget(clrType) {
                 return AnalyzerFunctionTypeFactory.CreateFromRuntimeDelegate(clrType)
             }
+
+            return UnreflectableGenericDelegateSignature(generic)
         }
 
         return null
+    }
+
+    // A DELEGATE CLOSED OVER A TYPE THIS COMPILATION IS STILL WRITING IS STILL THAT DELEGATE.
+    //
+    // `Action<PriceArgs>` where `PriceArgs` is a source class has no CLR instantiation to reflect —
+    // the class does not exist yet — so the reflected read above answers null, and reading the
+    // signature off nothing left EVERY parameter of a handler lambda uninferable: `handler:
+    // Action<PriceArgs> = a => …` reported `NL203` about `a` for a home that names its type exactly.
+    // `Func` was the one shape that escaped, and only because the PARSER spells `Func<…>` as N#'s own
+    // function type rather than as a generic name — which made the gap read as an `Action` problem
+    // when it was every generic delegate's: `Predicate<T>`, `Comparison<T>`, `Converter<T, R>`,
+    // `EventHandler<T>` and a referenced assembly's own all failed the same way.
+    //
+    // A generic delegate states its shape in the DEFINITION's `Invoke`, which exists whether or not
+    // the instantiation can be constructed, and this instantiation's arguments substitute into the
+    // positions that definition spells as bare type parameters — the same read
+    // `AnalyzerAssignability` already used to MEASURE such a lambda once it had one. The gate is that
+    // the definition is a delegate at all; a generic type that merely happens to declare an `Invoke`
+    // is not a lambda's home, and answering a signature for one would give its parameters types the
+    // conversion then has to refuse.
+    func UnreflectableGenericDelegateSignature(delegateType: GenericTypeInfo): FunctionTypeInfo? {
+        definition := delegateType.GenericDefinition as ReflectionTypeInfo
+        if definition == null {
+            return null
+        }
+
+        if !assignabilityFacts.IsDelegateType(definition.Type) {
+            return null
+        }
+
+        return AnalyzerFunctionTypeFactory.CreateFromDelegateDefinition(definition.Type, delegateType.TypeArguments)
     }
 
     func IsDelegateOrExpressionTreeTarget(candidate: Type): bool {

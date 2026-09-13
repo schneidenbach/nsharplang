@@ -4,6 +4,7 @@ import System
 import System.Collections.Generic
 import System.IO
 import System.Reflection
+import System.Threading.Tasks
 import NSharpLang.Compiler.Ast
 
 
@@ -27,9 +28,12 @@ import NSharpLang.Compiler.Ast
 // the NEXT parameter's inference index is that list's COUNT. Appending early shifts every remaining
 // parameter's inferred type by one — a bug that types a two-parameter lambda plausibly and wrongly.
 //
-// (4) A BLOCK BODY'S RETURN TYPE IS THE SIGNATURE'S, WHATEVER THE BLOCK DOES. The block's own
-// `return`s are measured against it by the nested-body boundary; they do not change the lambda's
-// type. An expression body's type IS its body's answer.
+// (4) A BLOCK BODY'S RETURN TYPE IS THE SIGNATURE'S WHEN THE SIGNATURE HAS ONE. The block's own
+// `return`s are measured against it by the nested-body boundary and do not change the lambda's type.
+// A target whose return position is NOT DECIDED — a type parameter the enclosing call has not bound
+// — has no such type, and then the block's own returns decide: the boundary answers the type it
+// worked out and the lambda takes it (census wave 9, LAMBDA4). An expression body's type IS its
+// body's answer either way.
 //
 // (5) THE EXPRESSION-TREE REPORTS ARE ORDERED AGAINST THE BODY AND AGAINST EACH OTHER. The block
 // report fires BEFORE the block is walked; the unsupported-expression report fires only when the
@@ -551,6 +555,92 @@ test "a BLOCK body's return type is the signature's whatever the block does" {
     // The nested-body boundary the driver brackets is entered with the SAME type the lambda answers.
     assert steps[1].CarriedType == "string"
     assert LambdaTypeText(state.Result.ReturnType) == "string"
+}
+
+// ── a target whose return position is not decided ─────────────────────────────
+
+// A type parameter nothing has bound, in the only spelling that reaches the lambda walk: the
+// reflected parameter of an open generic definition.
+func LambdaOpenTypeParameter(): TypeInfo {
+    definition := typeof(List<int>).GetGenericTypeDefinition()
+    return new ReflectionTypeInfo(definition.GetGenericArguments()[0])
+}
+
+// `Task<T>` with `T` still open, spelled the way metadata conversion spells a constructed generic:
+// a `GenericTypeInfo` over the reflected DEFINITION, not a `ReflectionTypeInfo` over the closed type.
+func LambdaOpenTaskReturn(): TypeInfo {
+    definition := typeof(Task<int>).GetGenericTypeDefinition()
+    arguments := new List<TypeInfo>()
+    arguments.Add(new ReflectionTypeInfo(definition.GetGenericArguments()[0]))
+    taskType: TypeInfo = new GenericTypeInfo("Task", arguments, new ReflectionTypeInfo(definition))
+    return taskType
+}
+
+// The same driver, answering the BLOCK step as well — which is the only way a contract can show what
+// the lambda does with a return type the boundary worked out for itself.
+func LambdaRunWithBlockAnswer(harness: LambdaHarness, state: LambdaAnalysisState, blockAnswer: TypeInfo?): List<LambdaStep> {
+    steps := new List<LambdaStep>()
+    step := harness.Owner.NextLambdaStep(state)
+    while step != null {
+        steps.Add(new LambdaStep(step.Kind, step.Name, LambdaTypeText(step.CarriedType), LambdaTypeText(step.ExpectedType), step.Line, step.Column, harness.Scopes.Count, harness.Errors.Count))
+
+        answer: TypeInfo? = null
+        if step.Kind == 5 {
+            answer = blockAnswer
+        }
+
+        harness.Owner.SupplyLambdaStep(state, answer)
+        step = harness.Owner.NextLambdaStep(state)
+    }
+
+    return steps
+}
+
+test "an UNBOUND type parameter in the return position offers no target, and the block decides" {
+    harness := LambdaHarnessOf()
+    signature := LambdaSignature(LambdaTypes(), LambdaOpenTypeParameter())
+    state := harness.Owner.BeginLambda(LambdaBlock(LambdaParams(), LambdaEmptyBlock()), signature, true, false)
+
+    steps := LambdaRunWithBlockAnswer(harness, state, BuiltInTypes.Int)
+
+    // The boundary is entered with `unknown` rather than with the type parameter, which is what stops
+    // the block's returns being measured against a type the call has not decided.
+    assert steps[1].CarriedType == "unknown"
+    assert LambdaTypeText(state.Result.ReturnType) == "int"
+}
+
+test "a DECIDED return position keeps its own answer whatever the block worked out" {
+    harness := LambdaHarnessOf()
+    signature := LambdaSignature(LambdaTypes(), BuiltInTypes.String)
+    state := harness.Owner.BeginLambda(LambdaBlock(LambdaParams(), LambdaEmptyBlock()), signature, true, false)
+
+    steps := LambdaRunWithBlockAnswer(harness, state, BuiltInTypes.Int)
+
+    assert steps[1].CarriedType == "string"
+    assert LambdaTypeText(state.Result.ReturnType) == "string"
+}
+
+test "a block that worked nothing out leaves the lambda at the target's own answer" {
+    harness := LambdaHarnessOf()
+    signature := LambdaSignature(LambdaTypes(), LambdaOpenTypeParameter())
+    state := harness.Owner.BeginLambda(LambdaBlock(LambdaParams(), LambdaEmptyBlock()), signature, true, false)
+
+    LambdaRunWithBlockAnswer(harness, state, null)
+
+    assert LambdaTypeText(state.Result.ReturnType) == "unknown"
+}
+
+// AN `async` LAMBDA'S TYPE IS THE TARGET'S TASK FAMILY OVER THE BODY'S RESULT, and the target may be
+// spelled either way a constructed generic is spelled. Reading only the `ReflectionTypeInfo` shape
+// left `Task.Run(async () => { return 11 })` typed as the target's own unbound `Task<TResult>`.
+test "an async lambda's type is the target's task family over its body's result" {
+    harness := LambdaHarnessOf()
+
+    wrapped := harness.Owner.AsyncWrappedReturnType(LambdaOpenTaskReturn(), BuiltInTypes.Int)
+    assert LambdaTypeText(wrapped) == "Task<int>"
+
+    // A body that answered nothing leaves the target's return exactly as it was.
+    assert LambdaTypeText(harness.Owner.AsyncWrappedReturnType(LambdaOpenTaskReturn(), BuiltInTypes.Unknown)) == "Task<TResult>"
 }
 
 test "a block body with no signature enters the boundary with unknown and answers unknown" {

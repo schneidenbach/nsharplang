@@ -68,12 +68,13 @@ import System.Collections
 //       for all three, on fixtures whose methods never mentioned diagnostics. The undefined-function
 //       fixture's single `NL412` is pinned whole as well.
 //   (c) A FUNCTION DOES NOT LOOK UP AS ITSELF. The `Functions` table holds a `FunctionTypeInfo`,
-//       whose `ToString()` is the CLR NAME `NSharpLang.Compiler.FunctionTypeInfo`; `LookupIdentifier`
+//       which renders as its SIGNATURE — `() -> void`, `(string, int) -> void`; `LookupIdentifier`
 //       routes it through `GetFunctionLookupType` and answers the RETURN type. Both are pinned.
 //   (d) THE FLAT TABLES COLLIDE ACROSS SCOPES, AND THAT IS WHY THE POSITION TABLES EXIST. Two
 //       functions with a parameter of the same name leave ONE row in `Variables`, the second; two
-//       overloads leave one row in `Functions`; and shadowing leaves the INNER type flat. Every one
-//       of those collisions is pinned beside the position-aware answer that resolves it.
+//       overloads leave one row in `Functions` — the LAST one, now visibly `Pick=(string) -> string`
+//       rather than the other overload's signature; and shadowing leaves the INNER type flat. Every
+//       one of those collisions is pinned beside the position-aware answer that resolves it.
 //   (e) EVERY SCOPE'S END COLUMN IS `int.MaxValue`, AND ITS END LINE IS THE LAST NON-BRACE LINE.
 //       No deleted assertion stated a scope bound at all; one asserted `Scopes.Count >= 2`, which a
 //       model with twenty scopes would satisfy. Every count here is exact and every bound is named.
@@ -83,7 +84,7 @@ import System.Collections
 //       scope that is never merged. Nothing measured this.
 //   (h) `GetVisibleVariablesAtPosition` ANSWERS FUNCTIONS TOO. The deleted method asserted six
 //       `ContainsKey`s over names it had declared as locals, so nothing said what else was in the
-//       answer; the census names `test=NSharpLang.Compiler.FunctionTypeInfo` at both positions. The
+//       answer; the census names `test=() -> void` at both positions. The
 //       perturbation panel found this: a control written against the expected variable-only census
 //       was REFUSED because its anchor occurred zero times.
 //   (g) THE TWO POSITION TABLES ARE DIFFERENT TABLES. `ExpressionTypes` and `TypeReferenceTypes`
@@ -1176,8 +1177,8 @@ func SmRow(analysis: object, index: int): string {
 
 // WHAT THIS ADDS: The deleted method asserted the model was non-null and that `x` looked up as `int`.
 // This adds the WHOLE model: the flat variable table, the function table (which holds a
-// `FunctionTypeInfo` whose `ToString()` is its CLR NAME, not a signature), the expression type
-// recorded at the literal's own column, and all THREE scopes.
+// `FunctionTypeInfo`, rendered as the signature `() -> void`), the expression type recorded at the
+// literal's own column, and all THREE scopes.
 test "020 s26 analyzer semantic model: an inferred `int` local is `int` in the flat table AND in the expression table at 3:10, and the analysis is silent (was AnalyzerSemanticModelTests.Analyzer_VariableDeclaration_PopulatesSemanticModel)" {
     source := "\nfunc test() {\n    x := 42\n}"
     assert source.Length == 28
@@ -1188,7 +1189,7 @@ test "020 s26 analyzer semantic model: an inferred `int` local is `int` in the f
     assert SmCensus(analysis) == ""
     assert SmHasErrors(analysis) == "False"
     assert SmTable(model, "Variables") == "x=int;"
-    assert SmTable(model, "Functions") == "test=NSharpLang.Compiler.FunctionTypeInfo;"
+    assert SmTable(model, "Functions") == "test=() -> void;"
     assert SmTable(model, "Properties") == ""
     assert SmTable(model, "Fields") == ""
     assert SmTable(model, "Types") == ""
@@ -1196,7 +1197,7 @@ test "020 s26 analyzer semantic model: an inferred `int` local is `int` in the f
     assert SmExpressionTypes(model) == "3:10=int;"
     assert SmTypeReferenceTypes(model) == ""
     assert SmScopeCount(model) == 3
-    assert SmScopes(model) == "0<-1|1:1-3:2147483647|v=|f=;1<0|2:1-3:2147483647|v=|f=test=NSharpLang.Compiler.FunctionTypeInfo;;2<1|2:13-3:2147483647|v=x=int;|f=;"
+    assert SmScopes(model) == "0<-1|1:1-3:2147483647|v=|f=;1<0|2:1-3:2147483647|v=|f=test=() -> void;;2<1|2:13-3:2147483647|v=x=int;|f=;"
     assert SmLookupIdentifier(model, "x") == "int"
 }
 
@@ -1213,7 +1214,7 @@ test "020 s26 analyzer semantic model: an explicitly typed `string` local record
     assert SmCensus(analysis) == ""
     assert SmHasErrors(analysis) == "False"
     assert SmTable(model, "Variables") == "name=string;"
-    assert SmTable(model, "Functions") == "test=NSharpLang.Compiler.FunctionTypeInfo;"
+    assert SmTable(model, "Functions") == "test=() -> void;"
     assert SmTable(model, "Properties") == ""
     assert SmTable(model, "Fields") == ""
     assert SmTable(model, "Types") == ""
@@ -1221,7 +1222,7 @@ test "020 s26 analyzer semantic model: an explicitly typed `string` local record
     assert SmExpressionTypes(model) == "3:20=string;"
     assert SmTypeReferenceTypes(model) == "3:11=string;"
     assert SmScopeCount(model) == 3
-    assert SmScopes(model) == "0<-1|1:1-3:2147483647|v=|f=;1<0|2:1-3:2147483647|v=|f=test=NSharpLang.Compiler.FunctionTypeInfo;;2<1|2:13-3:2147483647|v=name=string;|f=;"
+    assert SmScopes(model) == "0<-1|1:1-3:2147483647|v=|f=;1<0|2:1-3:2147483647|v=|f=test=() -> void;;2<1|2:13-3:2147483647|v=name=string;|f=;"
     assert SmLookupIdentifier(model, "name") == "string"
 }
 
@@ -1238,7 +1239,7 @@ test "020 s26 analyzer semantic model: both function parameters live in the FUNC
     assert SmCensus(analysis) == ""
     assert SmHasErrors(analysis) == "False"
     assert SmTable(model, "Variables") == "age=int;name=string;"
-    assert SmTable(model, "Functions") == "greet=NSharpLang.Compiler.FunctionTypeInfo;"
+    assert SmTable(model, "Functions") == "greet=(string, int) -> void;"
     assert SmTable(model, "Properties") == ""
     assert SmTable(model, "Fields") == ""
     assert SmTable(model, "Types") == ""
@@ -1246,15 +1247,15 @@ test "020 s26 analyzer semantic model: both function parameters live in the FUNC
     assert SmExpressionTypes(model) == "3:10=string;3:11=string;"
     assert SmTypeReferenceTypes(model) == "2:18=string;2:31=int;"
     assert SmScopeCount(model) == 3
-    assert SmScopes(model) == "0<-1|1:1-3:2147483647|v=|f=;1<0|2:1-3:2147483647|v=age=int;name=string;|f=greet=NSharpLang.Compiler.FunctionTypeInfo;;2<1|2:36-3:2147483647|v=|f=;"
+    assert SmScopes(model) == "0<-1|1:1-3:2147483647|v=|f=;1<0|2:1-3:2147483647|v=age=int;name=string;|f=greet=(string, int) -> void;;2<1|2:36-3:2147483647|v=|f=;"
     assert SmLookupIdentifier(model, "age") == "int"
     assert SmLookupIdentifier(model, "name") == "string"
 }
 
 // WHAT THIS ADDS: The deleted method asserted `LookupIdentifier("getNumber")` is `int` and stopped.
-// Both sides are pinned here: the `Functions` table row is the CLR name
-// `NSharpLang.Compiler.FunctionTypeInfo`, and the LOOKUP answers `int` — so the mapping through
-// `GetFunctionLookupType` is visible rather than implied.
+// Both sides are pinned here: the `Functions` table row is the whole signature `() -> int`, and the
+// LOOKUP answers `int` — so the mapping through `GetFunctionLookupType` is visible rather than
+// implied.
 test "020 s26 analyzer semantic model: a function name looks up as its RETURN type while the table it comes from holds a `FunctionTypeInfo` (was AnalyzerSemanticModelTests.Analyzer_FunctionReturnType_PopulatesSemanticModel)" {
     source := "\nfunc getNumber(): int {\n    return 42\n}"
     assert source.Length == 40
@@ -1265,7 +1266,7 @@ test "020 s26 analyzer semantic model: a function name looks up as its RETURN ty
     assert SmCensus(analysis) == ""
     assert SmHasErrors(analysis) == "False"
     assert SmTable(model, "Variables") == ""
-    assert SmTable(model, "Functions") == "getNumber=NSharpLang.Compiler.FunctionTypeInfo;"
+    assert SmTable(model, "Functions") == "getNumber=() -> int;"
     assert SmTable(model, "Properties") == ""
     assert SmTable(model, "Fields") == ""
     assert SmTable(model, "Types") == ""
@@ -1273,7 +1274,7 @@ test "020 s26 analyzer semantic model: a function name looks up as its RETURN ty
     assert SmExpressionTypes(model) == "3:12=int;"
     assert SmTypeReferenceTypes(model) == "2:19=int;"
     assert SmScopeCount(model) == 3
-    assert SmScopes(model) == "0<-1|1:1-3:2147483647|v=|f=;1<0|2:1-3:2147483647|v=|f=getNumber=NSharpLang.Compiler.FunctionTypeInfo;;2<1|2:23-3:2147483647|v=|f=;"
+    assert SmScopes(model) == "0<-1|1:1-3:2147483647|v=|f=;1<0|2:1-3:2147483647|v=|f=getNumber=() -> int;;2<1|2:23-3:2147483647|v=|f=;"
     assert SmLookupIdentifier(model, "getNumber") == "int"
 }
 
@@ -1292,15 +1293,15 @@ test "020 s26 analyzer semantic model: the overload chosen at the call site is r
     assert SmCensus(analysis) == ""
     assert SmHasErrors(analysis) == "False"
     assert SmTable(model, "Variables") == "result=int;value=string;"
-    assert SmTable(model, "Functions") == "Main=NSharpLang.Compiler.FunctionTypeInfo;Pick=NSharpLang.Compiler.FunctionTypeInfo;"
+    assert SmTable(model, "Functions") == "Main=() -> void;Pick=(string) -> string;"
     assert SmTable(model, "Properties") == ""
     assert SmTable(model, "Fields") == ""
     assert SmTable(model, "Types") == ""
     assert SmTypeMembers(model) == ""
-    assert SmExpressionTypes(model) == "3:12=int;6:12=string;9:15=NSharpLang.Compiler.FunctionTypeInfo;9:19=int;9:20=int;"
+    assert SmExpressionTypes(model) == "3:12=int;6:12=string;9:15=(int) -> int;9:19=int;9:20=int;"
     assert SmTypeReferenceTypes(model) == "2:18=int;2:24=int;5:18=string;5:27=string;"
     assert SmScopeCount(model) == 7
-    assert SmScopes(model) == "0<-1|1:1-9:2147483647|v=|f=;1<0|2:1-3:2147483647|v=value=int;|f=Pick=NSharpLang.Compiler.FunctionTypeInfo;;2<1|2:28-3:2147483647|v=|f=;3<0|5:1-6:2147483647|v=value=string;|f=Pick=NSharpLang.Compiler.FunctionTypeInfo;;4<3|5:34-6:2147483647|v=|f=;5<0|8:1-9:2147483647|v=|f=Main=NSharpLang.Compiler.FunctionTypeInfo;;6<5|8:13-9:2147483647|v=result=int;|f=;"
+    assert SmScopes(model) == "0<-1|1:1-9:2147483647|v=|f=;1<0|2:1-3:2147483647|v=value=int;|f=Pick=(int) -> int;;2<1|2:28-3:2147483647|v=|f=;3<0|5:1-6:2147483647|v=value=string;|f=Pick=(string) -> string;;4<3|5:34-6:2147483647|v=|f=;5<0|8:1-9:2147483647|v=|f=Main=() -> void;;6<5|8:13-9:2147483647|v=result=int;|f=;"
     assert SmFunctionTypeFacts(model, 9, 15) == "FunctionTypeInfo|Pick|int|value;|SimpleTypeReference:int;"
 }
 
@@ -1316,7 +1317,7 @@ test "020 s26 analyzer semantic model: three inferred locals of three different 
     assert SmCensus(analysis) == ""
     assert SmHasErrors(analysis) == "False"
     assert SmTable(model, "Variables") == "active=bool;name=string;x=int;"
-    assert SmTable(model, "Functions") == "test=NSharpLang.Compiler.FunctionTypeInfo;"
+    assert SmTable(model, "Functions") == "test=() -> void;"
     assert SmTable(model, "Properties") == ""
     assert SmTable(model, "Fields") == ""
     assert SmTable(model, "Types") == ""
@@ -1324,7 +1325,7 @@ test "020 s26 analyzer semantic model: three inferred locals of three different 
     assert SmExpressionTypes(model) == "3:10=int;4:13=string;5:15=bool;"
     assert SmTypeReferenceTypes(model) == ""
     assert SmScopeCount(model) == 3
-    assert SmScopes(model) == "0<-1|1:1-5:2147483647|v=|f=;1<0|2:1-5:2147483647|v=|f=test=NSharpLang.Compiler.FunctionTypeInfo;;2<1|2:13-5:2147483647|v=active=bool;name=string;x=int;|f=;"
+    assert SmScopes(model) == "0<-1|1:1-5:2147483647|v=|f=;1<0|2:1-5:2147483647|v=|f=test=() -> void;;2<1|2:13-5:2147483647|v=active=bool;name=string;x=int;|f=;"
     assert SmLookupIdentifier(model, "active") == "bool"
     assert SmLookupIdentifier(model, "name") == "string"
     assert SmLookupIdentifier(model, "x") == "int"
@@ -1343,7 +1344,7 @@ test "020 s26 analyzer semantic model: an explicit `int[]` annotation records th
     assert SmCensus(analysis) == ""
     assert SmHasErrors(analysis) == "False"
     assert SmTable(model, "Variables") == "numbers=int[];"
-    assert SmTable(model, "Functions") == "test=NSharpLang.Compiler.FunctionTypeInfo;"
+    assert SmTable(model, "Functions") == "test=() -> void;"
     assert SmTable(model, "Properties") == ""
     assert SmTable(model, "Fields") == ""
     assert SmTable(model, "Types") == ""
@@ -1351,7 +1352,7 @@ test "020 s26 analyzer semantic model: an explicit `int[]` annotation records th
     assert SmExpressionTypes(model) == "3:22=int[];3:23=int;3:26=int;3:29=int;"
     assert SmTypeReferenceTypes(model) == "3:14=int[];"
     assert SmScopeCount(model) == 3
-    assert SmScopes(model) == "0<-1|1:1-3:2147483647|v=|f=;1<0|2:1-3:2147483647|v=|f=test=NSharpLang.Compiler.FunctionTypeInfo;;2<1|2:13-3:2147483647|v=numbers=int[];|f=;"
+    assert SmScopes(model) == "0<-1|1:1-3:2147483647|v=|f=;1<0|2:1-3:2147483647|v=|f=test=() -> void;;2<1|2:13-3:2147483647|v=numbers=int[];|f=;"
     assert SmLookupIdentifier(model, "numbers") == "int[]"
 }
 
@@ -1367,7 +1368,7 @@ test "020 s26 analyzer semantic model: a nullable annotation keeps its `?` in ev
     assert SmCensus(analysis) == ""
     assert SmHasErrors(analysis) == "False"
     assert SmTable(model, "Variables") == "optionalName=string?;"
-    assert SmTable(model, "Functions") == "test=NSharpLang.Compiler.FunctionTypeInfo;"
+    assert SmTable(model, "Functions") == "test=() -> void;"
     assert SmTable(model, "Properties") == ""
     assert SmTable(model, "Fields") == ""
     assert SmTable(model, "Types") == ""
@@ -1375,7 +1376,7 @@ test "020 s26 analyzer semantic model: a nullable annotation keeps its `?` in ev
     assert SmExpressionTypes(model) == "3:29=null;"
     assert SmTypeReferenceTypes(model) == "3:19=string?;"
     assert SmScopeCount(model) == 3
-    assert SmScopes(model) == "0<-1|1:1-3:2147483647|v=|f=;1<0|2:1-3:2147483647|v=|f=test=NSharpLang.Compiler.FunctionTypeInfo;;2<1|2:13-3:2147483647|v=optionalName=string?;|f=;"
+    assert SmScopes(model) == "0<-1|1:1-3:2147483647|v=|f=;1<0|2:1-3:2147483647|v=|f=test=() -> void;;2<1|2:13-3:2147483647|v=optionalName=string?;|f=;"
     assert SmLookupIdentifier(model, "optionalName") == "string?"
 }
 
@@ -1392,7 +1393,7 @@ test "020 s26 analyzer semantic model: an inferred array gets the same `int[]` a
     assert SmCensus(analysis) == ""
     assert SmHasErrors(analysis) == "False"
     assert SmTable(model, "Variables") == "numbers=int[];"
-    assert SmTable(model, "Functions") == "test=NSharpLang.Compiler.FunctionTypeInfo;"
+    assert SmTable(model, "Functions") == "test=() -> void;"
     assert SmTable(model, "Properties") == ""
     assert SmTable(model, "Fields") == ""
     assert SmTable(model, "Types") == ""
@@ -1400,7 +1401,7 @@ test "020 s26 analyzer semantic model: an inferred array gets the same `int[]` a
     assert SmExpressionTypes(model) == "3:16=int[];3:17=int;3:20=int;3:23=int;"
     assert SmTypeReferenceTypes(model) == ""
     assert SmScopeCount(model) == 3
-    assert SmScopes(model) == "0<-1|1:1-3:2147483647|v=|f=;1<0|2:1-3:2147483647|v=|f=test=NSharpLang.Compiler.FunctionTypeInfo;;2<1|2:13-3:2147483647|v=numbers=int[];|f=;"
+    assert SmScopes(model) == "0<-1|1:1-3:2147483647|v=|f=;1<0|2:1-3:2147483647|v=|f=test=() -> void;;2<1|2:13-3:2147483647|v=numbers=int[];|f=;"
     assert SmLookupIdentifier(model, "numbers") == "int[]"
 }
 
@@ -1417,7 +1418,7 @@ test "020 s26 analyzer semantic model: a call to an undefined function still rec
     assert SmCensus(analysis) == "NL412:UndefinedFunction@3:10+15;"
     assert SmHasErrors(analysis) == "True"
     assert SmTable(model, "Variables") == "x=unknown;"
-    assert SmTable(model, "Functions") == "test=NSharpLang.Compiler.FunctionTypeInfo;"
+    assert SmTable(model, "Functions") == "test=() -> void;"
     assert SmTable(model, "Properties") == ""
     assert SmTable(model, "Fields") == ""
     assert SmTable(model, "Types") == ""
@@ -1425,7 +1426,7 @@ test "020 s26 analyzer semantic model: a call to an undefined function still rec
     assert SmExpressionTypes(model) == "3:10=unknown;3:25=unknown;"
     assert SmTypeReferenceTypes(model) == ""
     assert SmScopeCount(model) == 3
-    assert SmScopes(model) == "0<-1|1:1-3:2147483647|v=|f=;1<0|2:1-3:2147483647|v=|f=test=NSharpLang.Compiler.FunctionTypeInfo;;2<1|2:13-3:2147483647|v=x=unknown;|f=;"
+    assert SmScopes(model) == "0<-1|1:1-3:2147483647|v=|f=;1<0|2:1-3:2147483647|v=|f=test=() -> void;;2<1|2:13-3:2147483647|v=x=unknown;|f=;"
     assert SmLookupIdentifier(model, "x") == "unknown"
 }
 
@@ -1447,7 +1448,7 @@ test "020 s26 analyzer semantic model: a LINQ chain infers `List<int>` and opens
     assert SmCensus(analysis) == ""
     assert SmHasErrors(analysis) == "False"
     assert SmTable(model, "Variables") == "doubled=List<int>;numbers=int[];x=int;"
-    assert SmTable(model, "Functions") == "test=NSharpLang.Compiler.FunctionTypeInfo;"
+    assert SmTable(model, "Functions") == "test=() -> void;"
     assert SmTable(model, "Properties") == ""
     assert SmTable(model, "Fields") == ""
     assert SmTable(model, "Types") == ""
@@ -1455,7 +1456,7 @@ test "020 s26 analyzer semantic model: a LINQ chain infers `List<int>` and opens
     assert SmExpressionTypes(model) == "5:22=int[];5:23=int;5:26=int;5:29=int;5:32=int;5:35=int;6:16=int[];6:23=Where(...);6:29=IEnumerable<int>;6:35=int;6:37=bool;6:39=int;6:41=Select(...);6:48=IEnumerable<int>;6:54=int;6:56=int;6:58=int;6:60=ToList(...);6:67=List<int>;"
     assert SmTypeReferenceTypes(model) == "5:14=int[];"
     assert SmScopeCount(model) == 7
-    assert SmScopes(model) == "0<-1|1:1-6:2147483647|v=|f=;1<0|4:1-6:2147483647|v=|f=test=NSharpLang.Compiler.FunctionTypeInfo;;2<1|4:13-6:2147483647|v=doubled=List<int>;numbers=int[];|f=;3<2|6:30-6:2147483647|v=x=int;|f=;4<2|6:30-6:2147483647|v=x=int;|f=;5<2|6:49-6:2147483647|v=x=int;|f=;6<2|6:49-6:2147483647|v=x=int;|f=;"
+    assert SmScopes(model) == "0<-1|1:1-6:2147483647|v=|f=;1<0|4:1-6:2147483647|v=|f=test=() -> void;;2<1|4:13-6:2147483647|v=doubled=List<int>;numbers=int[];|f=;3<2|6:30-6:2147483647|v=x=int;|f=;4<2|6:30-6:2147483647|v=x=int;|f=;5<2|6:49-6:2147483647|v=x=int;|f=;6<2|6:49-6:2147483647|v=x=int;|f=;"
     assert SmLookupIdentifier(model, "doubled") == "List<int>"
 }
 
@@ -1472,7 +1473,7 @@ test "020 s26 analyzer semantic model: a two-parameter indexed `Select` infers `
     assert SmCensus(analysis) == ""
     assert SmHasErrors(analysis) == "False"
     assert SmTable(model, "Variables") == "index=int;indexed=List<int>;item=int;numbers=int[];"
-    assert SmTable(model, "Functions") == "test=NSharpLang.Compiler.FunctionTypeInfo;"
+    assert SmTable(model, "Functions") == "test=() -> void;"
     assert SmTable(model, "Properties") == ""
     assert SmTable(model, "Fields") == ""
     assert SmTable(model, "Types") == ""
@@ -1480,7 +1481,7 @@ test "020 s26 analyzer semantic model: a two-parameter indexed `Select` infers `
     assert SmExpressionTypes(model) == "5:22=int[];5:23=int;5:26=int;5:29=int;6:16=int[];6:23=Select(...);6:30=IEnumerable<int>;6:48=int;6:53=int;6:55=int;6:61=ToList(...);6:68=List<int>;"
     assert SmTypeReferenceTypes(model) == "5:14=int[];"
     assert SmScopeCount(model) == 5
-    assert SmScopes(model) == "0<-1|1:1-6:2147483647|v=|f=;1<0|4:1-6:2147483647|v=|f=test=NSharpLang.Compiler.FunctionTypeInfo;;2<1|4:13-6:2147483647|v=indexed=List<int>;numbers=int[];|f=;3<2|6:31-6:2147483647|v=index=int;item=int;|f=;4<2|6:31-6:2147483647|v=index=int;item=int;|f=;"
+    assert SmScopes(model) == "0<-1|1:1-6:2147483647|v=|f=;1<0|4:1-6:2147483647|v=|f=test=() -> void;;2<1|4:13-6:2147483647|v=indexed=List<int>;numbers=int[];|f=;3<2|6:31-6:2147483647|v=index=int;item=int;|f=;4<2|6:31-6:2147483647|v=index=int;item=int;|f=;"
     assert SmLookupIdentifier(model, "indexed") == "List<int>"
 }
 
@@ -1497,7 +1498,7 @@ test "020 s26 analyzer semantic model: an identifier READ has its own expression
     assert SmCensus(analysis) == ""
     assert SmHasErrors(analysis) == "False"
     assert SmTable(model, "Variables") == "x=int;y=int;"
-    assert SmTable(model, "Functions") == "test=NSharpLang.Compiler.FunctionTypeInfo;"
+    assert SmTable(model, "Functions") == "test=() -> void;"
     assert SmTable(model, "Properties") == ""
     assert SmTable(model, "Fields") == ""
     assert SmTable(model, "Types") == ""
@@ -1505,7 +1506,7 @@ test "020 s26 analyzer semantic model: an identifier READ has its own expression
     assert SmExpressionTypes(model) == "3:10=int;4:10=int;4:12=int;4:14=int;"
     assert SmTypeReferenceTypes(model) == ""
     assert SmScopeCount(model) == 3
-    assert SmScopes(model) == "0<-1|1:1-4:2147483647|v=|f=;1<0|2:1-4:2147483647|v=|f=test=NSharpLang.Compiler.FunctionTypeInfo;;2<1|2:13-4:2147483647|v=x=int;y=int;|f=;"
+    assert SmScopes(model) == "0<-1|1:1-4:2147483647|v=|f=;1<0|2:1-4:2147483647|v=|f=test=() -> void;;2<1|2:13-4:2147483647|v=x=int;y=int;|f=;"
     assert SmLookupTypeAtPosition(model, 4, 10) == "int"
 }
 
@@ -1522,7 +1523,7 @@ test "020 s26 analyzer semantic model: `sizeof(int)` is `int` at the KEYWORD, an
     assert SmCensus(analysis) == ""
     assert SmHasErrors(analysis) == "False"
     assert SmTable(model, "Variables") == "size=int;"
-    assert SmTable(model, "Functions") == "test=NSharpLang.Compiler.FunctionTypeInfo;"
+    assert SmTable(model, "Functions") == "test=() -> void;"
     assert SmTable(model, "Properties") == ""
     assert SmTable(model, "Fields") == ""
     assert SmTable(model, "Types") == ""
@@ -1530,7 +1531,7 @@ test "020 s26 analyzer semantic model: `sizeof(int)` is `int` at the KEYWORD, an
     assert SmExpressionTypes(model) == "3:13=int;3:25=int;3:27=int;"
     assert SmTypeReferenceTypes(model) == "3:20=int;"
     assert SmScopeCount(model) == 3
-    assert SmScopes(model) == "0<-1|1:1-3:2147483647|v=|f=;1<0|2:1-3:2147483647|v=|f=test=NSharpLang.Compiler.FunctionTypeInfo;;2<1|2:13-3:2147483647|v=size=int;|f=;"
+    assert SmScopes(model) == "0<-1|1:1-3:2147483647|v=|f=;1<0|2:1-3:2147483647|v=|f=test=() -> void;;2<1|2:13-3:2147483647|v=size=int;|f=;"
     assert SmLookupIdentifier(model, "size") == "int"
     assert SmLookupTypeAtPosition(model, 3, 13) == "int"
 }
@@ -1548,15 +1549,15 @@ test "020 s26 analyzer semantic model: bare `base` and `base` as a receiver both
     assert SmCensus(analysis) == ""
     assert SmHasErrors(analysis) == "False"
     assert SmTable(model, "Variables") == ""
-    assert SmTable(model, "Functions") == "baseValue=NSharpLang.Compiler.FunctionTypeInfo;selfAsBase=NSharpLang.Compiler.FunctionTypeInfo;value=NSharpLang.Compiler.FunctionTypeInfo;"
+    assert SmTable(model, "Functions") == "baseValue=() -> int;selfAsBase=() -> Base;value=() -> int;"
     assert SmTable(model, "Properties") == ""
     assert SmTable(model, "Fields") == ""
     assert SmTable(model, "Types") == "Base=Base;Derived=Derived;"
     assert SmTypeMembers(model) == ""
-    assert SmExpressionTypes(model) == "4:16=int;9:20=unknown;13:16=Base;17:16=Base;17:20=NSharpLang.Compiler.FunctionTypeInfo;17:26=int;"
+    assert SmExpressionTypes(model) == "4:16=int;9:20=unknown;13:16=Base;17:16=Base;17:20=() -> int;17:26=int;"
     assert SmTypeReferenceTypes(model) == "3:19=int;8:16=Base;12:24=Base;16:23=int;"
     assert SmScopeCount(model) == 11
-    assert SmScopes(model) == "0<-1|1:1-17:2147483647|v=|f=;1<0|2:1-4:2147483647|v=|f=;2<1|3:5-4:2147483647|v=|f=value=NSharpLang.Compiler.FunctionTypeInfo;;3<2|3:23-4:2147483647|v=|f=;4<0|8:1-17:2147483647|v=|f=;5<4|9:5-9:2147483647|v=|f=;6<5|9:27-9:2147483647|v=|f=;7<4|12:5-13:2147483647|v=|f=selfAsBase=NSharpLang.Compiler.FunctionTypeInfo;;8<7|12:29-13:2147483647|v=|f=;9<4|16:5-17:2147483647|v=|f=baseValue=NSharpLang.Compiler.FunctionTypeInfo;;10<9|16:27-17:2147483647|v=|f=;"
+    assert SmScopes(model) == "0<-1|1:1-17:2147483647|v=|f=;1<0|2:1-4:2147483647|v=|f=;2<1|3:5-4:2147483647|v=|f=value=() -> int;;3<2|3:23-4:2147483647|v=|f=;4<0|8:1-17:2147483647|v=|f=;5<4|9:5-9:2147483647|v=|f=;6<5|9:27-9:2147483647|v=|f=;7<4|12:5-13:2147483647|v=|f=selfAsBase=() -> Base;;8<7|12:29-13:2147483647|v=|f=;9<4|16:5-17:2147483647|v=|f=baseValue=() -> int;;10<9|16:27-17:2147483647|v=|f=;"
     assert SmLookupTypeAtPosition(model, 13, 16) == "Base"
     assert SmLookupTypeAtPosition(model, 17, 16) == "Base"
 }
@@ -1803,7 +1804,7 @@ test "020 s26 analyzer semantic model: the scope count of the simplest possible 
     assert SmCensus(analysis) == ""
     assert SmHasErrors(analysis) == "False"
     assert SmTable(model, "Variables") == "x=int;"
-    assert SmTable(model, "Functions") == "test=NSharpLang.Compiler.FunctionTypeInfo;"
+    assert SmTable(model, "Functions") == "test=() -> void;"
     assert SmTable(model, "Properties") == ""
     assert SmTable(model, "Fields") == ""
     assert SmTable(model, "Types") == ""
@@ -1811,7 +1812,7 @@ test "020 s26 analyzer semantic model: the scope count of the simplest possible 
     assert SmExpressionTypes(model) == "3:10=int;"
     assert SmTypeReferenceTypes(model) == ""
     assert SmScopeCount(model) == 3
-    assert SmScopes(model) == "0<-1|1:1-3:2147483647|v=|f=;1<0|2:1-3:2147483647|v=|f=test=NSharpLang.Compiler.FunctionTypeInfo;;2<1|2:13-3:2147483647|v=x=int;|f=;"
+    assert SmScopes(model) == "0<-1|1:1-3:2147483647|v=|f=;1<0|2:1-3:2147483647|v=|f=test=() -> void;;2<1|2:13-3:2147483647|v=x=int;|f=;"
 }
 
 // WHAT THIS ADDS: The deleted method asserted the two position-aware answers and that the flat answer
@@ -1828,7 +1829,7 @@ test "020 s26 analyzer semantic model: shadowing keeps the OUTER type at the out
     assert SmCensus(analysis) == "NL316:ShadowedDeclaration@5:9+1;"
     assert SmHasErrors(analysis) == "True"
     assert SmTable(model, "Variables") == "x=string;"
-    assert SmTable(model, "Functions") == "test=NSharpLang.Compiler.FunctionTypeInfo;"
+    assert SmTable(model, "Functions") == "test=() -> void;"
     assert SmTable(model, "Properties") == ""
     assert SmTable(model, "Fields") == ""
     assert SmTable(model, "Types") == ""
@@ -1836,7 +1837,7 @@ test "020 s26 analyzer semantic model: shadowing keeps the OUTER type at the out
     assert SmExpressionTypes(model) == "3:10=int;4:8=bool;5:14=string;"
     assert SmTypeReferenceTypes(model) == ""
     assert SmScopeCount(model) == 4
-    assert SmScopes(model) == "0<-1|1:1-5:2147483647|v=|f=;1<0|2:1-5:2147483647|v=|f=test=NSharpLang.Compiler.FunctionTypeInfo;;2<1|2:13-5:2147483647|v=x=int;|f=;3<2|4:13-5:2147483647|v=x=string;|f=;"
+    assert SmScopes(model) == "0<-1|1:1-5:2147483647|v=|f=;1<0|2:1-5:2147483647|v=|f=test=() -> void;;2<1|2:13-5:2147483647|v=x=int;|f=;3<2|4:13-5:2147483647|v=x=string;|f=;"
     assert SmLookupIdentifier(model, "x") == "string"
     assert SmLookupIdentifierAtPosition(model, "x", 3, 5) == "int"
     assert SmLookupIdentifierAtPosition(model, "x", 5, 9) == "string"
@@ -1855,7 +1856,7 @@ test "020 s26 analyzer semantic model: a name declared in an outer scope answers
     assert SmCensus(analysis) == ""
     assert SmHasErrors(analysis) == "False"
     assert SmTable(model, "Variables") == "a=int;b=int;c=int;"
-    assert SmTable(model, "Functions") == "outer=NSharpLang.Compiler.FunctionTypeInfo;"
+    assert SmTable(model, "Functions") == "outer=() -> void;"
     assert SmTable(model, "Properties") == ""
     assert SmTable(model, "Fields") == ""
     assert SmTable(model, "Types") == ""
@@ -1863,7 +1864,7 @@ test "020 s26 analyzer semantic model: a name declared in an outer scope answers
     assert SmExpressionTypes(model) == "3:10=int;4:8=bool;5:14=int;6:12=bool;7:18=int;"
     assert SmTypeReferenceTypes(model) == ""
     assert SmScopeCount(model) == 5
-    assert SmScopes(model) == "0<-1|1:1-7:2147483647|v=|f=;1<0|2:1-7:2147483647|v=|f=outer=NSharpLang.Compiler.FunctionTypeInfo;;2<1|2:14-7:2147483647|v=a=int;|f=;3<2|4:13-7:2147483647|v=b=int;|f=;4<3|6:17-7:2147483647|v=c=int;|f=;"
+    assert SmScopes(model) == "0<-1|1:1-7:2147483647|v=|f=;1<0|2:1-7:2147483647|v=|f=outer=() -> void;;2<1|2:14-7:2147483647|v=a=int;|f=;3<2|4:13-7:2147483647|v=b=int;|f=;4<3|6:17-7:2147483647|v=c=int;|f=;"
     assert SmLookupIdentifierAtPosition(model, "a", 3, 5) == "int"
     assert SmLookupIdentifierAtPosition(model, "a", 5, 9) == "int"
     assert SmLookupIdentifierAtPosition(model, "a", 7, 13) == "int"
@@ -1885,7 +1886,7 @@ test "020 s26 analyzer semantic model: the visible-variable set at a position is
     assert SmCensus(analysis) == ""
     assert SmHasErrors(analysis) == "False"
     assert SmTable(model, "Variables") == "x=int;y=string;z=bool;"
-    assert SmTable(model, "Functions") == "test=NSharpLang.Compiler.FunctionTypeInfo;"
+    assert SmTable(model, "Functions") == "test=() -> void;"
     assert SmTable(model, "Properties") == ""
     assert SmTable(model, "Fields") == ""
     assert SmTable(model, "Types") == ""
@@ -1893,9 +1894,9 @@ test "020 s26 analyzer semantic model: the visible-variable set at a position is
     assert SmExpressionTypes(model) == "3:10=int;4:10=string;5:8=bool;6:14=bool;"
     assert SmTypeReferenceTypes(model) == ""
     assert SmScopeCount(model) == 4
-    assert SmScopes(model) == "0<-1|1:1-6:2147483647|v=|f=;1<0|2:1-6:2147483647|v=|f=test=NSharpLang.Compiler.FunctionTypeInfo;;2<1|2:13-6:2147483647|v=x=int;y=string;|f=;3<2|5:13-6:2147483647|v=z=bool;|f=;"
-    assert SmVisibleVariablesAtPosition(model, 4, 5) == "test=NSharpLang.Compiler.FunctionTypeInfo;x=int;y=string;"
-    assert SmVisibleVariablesAtPosition(model, 6, 9) == "test=NSharpLang.Compiler.FunctionTypeInfo;x=int;y=string;z=bool;"
+    assert SmScopes(model) == "0<-1|1:1-6:2147483647|v=|f=;1<0|2:1-6:2147483647|v=|f=test=() -> void;;2<1|2:13-6:2147483647|v=x=int;y=string;|f=;3<2|5:13-6:2147483647|v=z=bool;|f=;"
+    assert SmVisibleVariablesAtPosition(model, 4, 5) == "test=() -> void;x=int;y=string;"
+    assert SmVisibleVariablesAtPosition(model, 6, 9) == "test=() -> void;x=int;y=string;z=bool;"
 }
 
 // WHAT THIS ADDS: The deleted method asserted both position-aware answers. The scope census explains
@@ -1910,7 +1911,7 @@ test "020 s26 analyzer semantic model: the parameters are visible in the body al
     assert SmCensus(analysis) == ""
     assert SmHasErrors(analysis) == "False"
     assert SmTable(model, "Variables") == "age=int;message=string;name=string;"
-    assert SmTable(model, "Functions") == "greet=NSharpLang.Compiler.FunctionTypeInfo;"
+    assert SmTable(model, "Functions") == "greet=(string, int) -> void;"
     assert SmTable(model, "Properties") == ""
     assert SmTable(model, "Fields") == ""
     assert SmTable(model, "Types") == ""
@@ -1918,7 +1919,7 @@ test "020 s26 analyzer semantic model: the parameters are visible in the body al
     assert SmExpressionTypes(model) == "3:16=string;"
     assert SmTypeReferenceTypes(model) == "2:18=string;2:31=int;"
     assert SmScopeCount(model) == 3
-    assert SmScopes(model) == "0<-1|1:1-3:2147483647|v=|f=;1<0|2:1-3:2147483647|v=age=int;name=string;|f=greet=NSharpLang.Compiler.FunctionTypeInfo;;2<1|2:36-3:2147483647|v=message=string;|f=;"
+    assert SmScopes(model) == "0<-1|1:1-3:2147483647|v=|f=;1<0|2:1-3:2147483647|v=age=int;name=string;|f=greet=(string, int) -> void;;2<1|2:36-3:2147483647|v=message=string;|f=;"
     assert SmLookupIdentifierAtPosition(model, "age", 3, 5) == "int"
     assert SmLookupIdentifierAtPosition(model, "name", 3, 5) == "string"
 }
@@ -1935,7 +1936,7 @@ test "020 s26 analyzer semantic model: the loop variable lives in the FOREACH sc
     assert SmCensus(analysis) == ""
     assert SmHasErrors(analysis) == "False"
     assert SmTable(model, "Variables") == "item=int;items=int[];"
-    assert SmTable(model, "Functions") == "test=NSharpLang.Compiler.FunctionTypeInfo;"
+    assert SmTable(model, "Functions") == "test=() -> void;"
     assert SmTable(model, "Properties") == ""
     assert SmTable(model, "Fields") == ""
     assert SmTable(model, "Types") == ""
@@ -1943,7 +1944,7 @@ test "020 s26 analyzer semantic model: the loop variable lives in the FOREACH sc
     assert SmExpressionTypes(model) == "3:20=int[];3:21=int;3:24=int;3:27=int;4:21=int[];5:14=int;5:15=int;"
     assert SmTypeReferenceTypes(model) == "3:12=int[];"
     assert SmScopeCount(model) == 5
-    assert SmScopes(model) == "0<-1|1:1-5:2147483647|v=|f=;1<0|2:1-5:2147483647|v=|f=test=NSharpLang.Compiler.FunctionTypeInfo;;2<1|2:13-5:2147483647|v=items=int[];|f=;3<2|4:5-5:2147483647|v=item=int;|f=;4<3|4:27-5:2147483647|v=|f=;"
+    assert SmScopes(model) == "0<-1|1:1-5:2147483647|v=|f=;1<0|2:1-5:2147483647|v=|f=test=() -> void;;2<1|2:13-5:2147483647|v=items=int[];|f=;3<2|4:5-5:2147483647|v=item=int;|f=;4<3|4:27-5:2147483647|v=|f=;"
     assert SmLookupIdentifierAtPosition(model, "item", 5, 9) == "int"
 }
 
@@ -1960,7 +1961,7 @@ test "020 s26 analyzer semantic model: two functions with the same parameter nam
     assert SmCensus(analysis) == ""
     assert SmHasErrors(analysis) == "False"
     assert SmTable(model, "Variables") == "x=string;"
-    assert SmTable(model, "Functions") == "first=NSharpLang.Compiler.FunctionTypeInfo;second=NSharpLang.Compiler.FunctionTypeInfo;"
+    assert SmTable(model, "Functions") == "first=(int) -> void;second=(string) -> void;"
     assert SmTable(model, "Properties") == ""
     assert SmTable(model, "Fields") == ""
     assert SmTable(model, "Types") == ""
@@ -1968,7 +1969,7 @@ test "020 s26 analyzer semantic model: two functions with the same parameter nam
     assert SmExpressionTypes(model) == "3:10=int;3:11=int;7:10=string;7:11=string;"
     assert SmTypeReferenceTypes(model) == "2:15=int;6:16=string;"
     assert SmScopeCount(model) == 5
-    assert SmScopes(model) == "0<-1|1:1-7:2147483647|v=|f=;1<0|2:1-3:2147483647|v=x=int;|f=first=NSharpLang.Compiler.FunctionTypeInfo;;2<1|2:20-3:2147483647|v=|f=;3<0|6:1-7:2147483647|v=x=string;|f=second=NSharpLang.Compiler.FunctionTypeInfo;;4<3|6:24-7:2147483647|v=|f=;"
+    assert SmScopes(model) == "0<-1|1:1-7:2147483647|v=|f=;1<0|2:1-3:2147483647|v=x=int;|f=first=(int) -> void;;2<1|2:20-3:2147483647|v=|f=;3<0|6:1-7:2147483647|v=x=string;|f=second=(string) -> void;;4<3|6:24-7:2147483647|v=|f=;"
     assert SmLookupIdentifierAtPosition(model, "x", 3, 5) == "int"
     assert SmLookupIdentifierAtPosition(model, "x", 7, 5) == "string"
 }
@@ -1986,7 +1987,7 @@ test "020 s26 analyzer semantic model: a constructed generic type reference and 
     assert SmCensus(analysis) == ""
     assert SmHasErrors(analysis) == "False"
     assert SmTable(model, "Variables") == "box=Box<Person>;"
-    assert SmTable(model, "Functions") == "use=NSharpLang.Compiler.FunctionTypeInfo;"
+    assert SmTable(model, "Functions") == "use=(Box<Person>) -> void;"
     assert SmTable(model, "Properties") == ""
     assert SmTable(model, "Fields") == "Name=string;Value=T;"
     assert SmTable(model, "Types") == "Box=Box;Person=Person;"
@@ -1994,7 +1995,7 @@ test "020 s26 analyzer semantic model: a constructed generic type reference and 
     assert SmExpressionTypes(model) == ""
     assert SmTypeReferenceTypes(model) == "3:11=string;7:12=T;10:15=Box<Person>;10:19=Person;"
     assert SmScopeCount(model) == 5
-    assert SmScopes(model) == "0<-1|1:1-10:2147483647|v=|f=;1<0|2:1-2:2147483647|v=|f=;2<0|6:1-6:2147483647|v=|f=;3<0|10:1-10:2147483647|v=box=Box<Person>;|f=use=NSharpLang.Compiler.FunctionTypeInfo;;4<3|10:28-10:2147483647|v=|f=;"
+    assert SmScopes(model) == "0<-1|1:1-10:2147483647|v=|f=;1<0|2:1-2:2147483647|v=|f=;2<0|6:1-6:2147483647|v=|f=;3<0|10:1-10:2147483647|v=box=Box<Person>;|f=use=(Box<Person>) -> void;;4<3|10:28-10:2147483647|v=|f=;"
     assert SmLookupTypeReferenceAtPosition(model, 10, 15) == "Box<Person>"
     assert SmLookupTypeReferenceAtPosition(model, 10, 19) == "Person"
 }
@@ -2011,7 +2012,7 @@ test "020 s26 analyzer semantic model: a wrapped `int?[]` annotation records ONE
     assert SmCensus(analysis) == ""
     assert SmHasErrors(analysis) == "False"
     assert SmTable(model, "Variables") == "items=int?[];"
-    assert SmTable(model, "Functions") == "use=NSharpLang.Compiler.FunctionTypeInfo;"
+    assert SmTable(model, "Functions") == "use=(int?[]) -> void;"
     assert SmTable(model, "Properties") == ""
     assert SmTable(model, "Fields") == ""
     assert SmTable(model, "Types") == ""
@@ -2019,7 +2020,7 @@ test "020 s26 analyzer semantic model: a wrapped `int?[]` annotation records ONE
     assert SmExpressionTypes(model) == ""
     assert SmTypeReferenceTypes(model) == "2:17=int?[];"
     assert SmScopeCount(model) == 3
-    assert SmScopes(model) == "0<-1|1:1-2:2147483647|v=|f=;1<0|2:1-2:2147483647|v=items=int?[];|f=use=NSharpLang.Compiler.FunctionTypeInfo;;2<1|2:25-2:2147483647|v=|f=;"
+    assert SmScopes(model) == "0<-1|1:1-2:2147483647|v=|f=;1<0|2:1-2:2147483647|v=items=int?[];|f=use=(int?[]) -> void;;2<1|2:25-2:2147483647|v=|f=;"
     assert SmLookupTypeReferenceAtPosition(model, 2, 17) == "int?[]"
 }
 
@@ -2077,7 +2078,7 @@ test "020 s27 analyzer semantic model: the nominal source facts of TWENTY types,
     assert SmModelIsNull(analysis) == "no"
     model := SmModel(analysis)
     assert SmTable(model, "Variables") == "age=int;child=ChildMarker;implemented=ImplementedDerived;label=string;marked=MarkedRecord;marker=Marker;name=string;suffix=string;value=T;values=int[];x=double;y=double;"
-    assert SmTable(model, "Functions") == "BuildToken=NSharpLang.Compiler.FunctionTypeInfo;Compute=NSharpLang.Compiler.FunctionTypeInfo;Convert=NSharpLang.Compiler.FunctionTypeInfo;Format=NSharpLang.Compiler.FunctionTypeInfo;FormatDefault=NSharpLang.Compiler.FunctionTypeInfo;Identity=NSharpLang.Compiler.FunctionTypeInfo;Name=NSharpLang.Compiler.FunctionTypeInfo;Read=NSharpLang.Compiler.FunctionTypeInfo;RequireClass=NSharpLang.Compiler.FunctionTypeInfo;Sum=NSharpLang.Compiler.FunctionTypeInfo;UseChildMarkerAsMarker=NSharpLang.Compiler.FunctionTypeInfo;UseImplementedAsMarker=NSharpLang.Compiler.FunctionTypeInfo;UseRecordAsMarker=NSharpLang.Compiler.FunctionTypeInfo;UseStructAsMarker=NSharpLang.Compiler.FunctionTypeInfo;"
+    assert SmTable(model, "Functions") == "BuildToken=() -> int;Compute=() -> int;Convert=(string) -> string;Format=(string, int) -> string;FormatDefault=(string, string) -> string;Identity=(T) -> T;Name=() -> string;Read=() -> string;RequireClass=(T) -> T;Sum=(int[]) -> int;UseChildMarkerAsMarker=(ChildMarker) -> void;UseImplementedAsMarker=() -> void;UseRecordAsMarker=() -> void;UseStructAsMarker=() -> void;"
     assert SmTable(model, "Properties") == "Name=string;"
     assert SmTable(model, "Fields") == "Value=int;"
     assert SmTable(model, "Types") == "Base=Base;ChildMarker=ChildMarker;Closed=Closed;Derived=Derived;FunctionMemberBox=FunctionMemberBox;GenericBox=GenericBox;GenericInterface=GenericInterface;GenericRecord=GenericRecord;GenericStruct=GenericStruct;ImplementedDerived=ImplementedDerived;MarkedRecord=MarkedRecord;MarkedStruct=MarkedStruct;Marker=Marker;MemberBox=MemberBox;Named=Named;Open=Open;PrimaryBox=PrimaryBox;PrimaryPerson=PrimaryPerson;PrimaryPoint=PrimaryPoint;Reader=Reader;"
@@ -2085,7 +2086,7 @@ test "020 s27 analyzer semantic model: the nominal source facts of TWENTY types,
     assert SmExpressionTypes(model) == "31:21=string;33:16=int;39:16=string;43:16=string;43:22=string;43:24=string;48:16=int;52:16=int;56:16=string;60:16=string;64:16=T;68:16=T;94:20=ImplementedDerived;95:22=ImplementedDerived;99:15=MarkedStruct;100:22=MarkedStruct;104:15=MarkedRecord;105:22=MarkedRecord;109:22=ChildMarker;"
     assert SmTypeReferenceTypes(model) == "11:16=Base;17:24=Marker;20:27=Base;20:33=Marker;26:25=int;30:12=int;31:11=string;32:21=int;38:24=string;38:43=int;38:49=string;42:31=string;42:47=string;42:62=string;47:24=int;51:29=int[];51:37=int;55:25=int;55:31=string;59:25=string;59:34=string;63:29=T;63:33=T;67:33=T;67:37=T;72:22=Marker;78:24=double;78:35=double;81:22=Marker;87:28=string;87:41=int;94:24=ImplementedDerived;95:13=Marker;99:19=MarkedStruct;100:13=Marker;104:19=MarkedRecord;105:13=Marker;108:36=ChildMarker;109:13=Marker;113:18=string;117:18=string;"
     assert SmScopeCount(model) == 49
-    assert SmScopes(model) == "0<-1|1:1-116:2147483647|v=|f=;1<0|2:8-2:2147483647|v=|f=;2<0|5:1-5:2147483647|v=|f=;3<0|8:1-8:2147483647|v=|f=;4<0|11:1-11:2147483647|v=|f=;5<0|14:1-14:2147483647|v=|f=;6<0|17:1-17:2147483647|v=|f=;7<0|20:1-20:2147483647|v=|f=;8<0|23:1-23:2147483647|v=|f=;9<0|26:1-26:2147483647|v=value=int;|f=;10<0|29:1-33:2147483647|v=|f=;11<10|32:5-33:2147483647|v=|f=Compute=NSharpLang.Compiler.FunctionTypeInfo;;12<11|32:25-33:2147483647|v=|f=;13<0|37:1-68:2147483647|v=|f=;14<13|38:5-39:2147483647|v=label=string;value=int;|f=Format=NSharpLang.Compiler.FunctionTypeInfo;;15<14|38:56-39:2147483647|v=|f=;16<13|42:5-43:2147483647|v=label=string;suffix=string;|f=FormatDefault=NSharpLang.Compiler.FunctionTypeInfo;;17<16|42:69-43:2147483647|v=|f=;18<13|47:5-48:2147483647|v=|f=BuildToken=NSharpLang.Compiler.FunctionTypeInfo;;19<18|47:28-48:2147483647|v=|f=;20<13|51:5-52:2147483647|v=values=int[];|f=Sum=NSharpLang.Compiler.FunctionTypeInfo;;21<20|51:41-52:2147483647|v=|f=;22<13|55:5-56:2147483647|v=value=int;|f=Convert=NSharpLang.Compiler.FunctionTypeInfo;;23<22|55:38-56:2147483647|v=|f=;24<13|59:5-60:2147483647|v=value=string;|f=Convert=NSharpLang.Compiler.FunctionTypeInfo;;25<24|59:41-60:2147483647|v=|f=;26<13|63:5-64:2147483647|v=value=T;|f=Identity=NSharpLang.Compiler.FunctionTypeInfo;;27<26|63:35-64:2147483647|v=|f=;28<13|67:5-68:2147483647|v=value=T;|f=RequireClass=NSharpLang.Compiler.FunctionTypeInfo;;29<28|67:55-68:2147483647|v=|f=;30<0|72:1-72:2147483647|v=|f=;31<0|75:1-75:2147483647|v=|f=;32<0|78:1-78:2147483647|v=x=double;y=double;|f=;33<0|81:1-81:2147483647|v=|f=;34<0|84:1-84:2147483647|v=|f=;35<0|87:1-87:2147483647|v=age=int;name=string;|f=;36<0|90:1-90:2147483647|v=|f=;37<0|93:1-95:2147483647|v=|f=UseImplementedAsMarker=NSharpLang.Compiler.FunctionTypeInfo;;38<37|93:31-95:2147483647|v=implemented=ImplementedDerived;marker=Marker;|f=;39<0|98:1-100:2147483647|v=|f=UseStructAsMarker=NSharpLang.Compiler.FunctionTypeInfo;;40<39|98:26-100:2147483647|v=marked=MarkedStruct;marker=Marker;|f=;41<0|103:1-105:2147483647|v=|f=UseRecordAsMarker=NSharpLang.Compiler.FunctionTypeInfo;;42<41|103:26-105:2147483647|v=marked=MarkedRecord;marker=Marker;|f=;43<0|108:1-109:2147483647|v=child=ChildMarker;|f=UseChildMarkerAsMarker=NSharpLang.Compiler.FunctionTypeInfo;;44<43|108:49-109:2147483647|v=marker=Marker;|f=;45<0|112:1-112:2147483647|v=|f=;46<45|113:5-112:2147483647|v=|f=Read=NSharpLang.Compiler.FunctionTypeInfo;;47<0|116:1-116:2147483647|v=|f=;48<47|117:5-116:2147483647|v=|f=Name=NSharpLang.Compiler.FunctionTypeInfo;;"
+    assert SmScopes(model) == "0<-1|1:1-116:2147483647|v=|f=;1<0|2:8-2:2147483647|v=|f=;2<0|5:1-5:2147483647|v=|f=;3<0|8:1-8:2147483647|v=|f=;4<0|11:1-11:2147483647|v=|f=;5<0|14:1-14:2147483647|v=|f=;6<0|17:1-17:2147483647|v=|f=;7<0|20:1-20:2147483647|v=|f=;8<0|23:1-23:2147483647|v=|f=;9<0|26:1-26:2147483647|v=value=int;|f=;10<0|29:1-33:2147483647|v=|f=;11<10|32:5-33:2147483647|v=|f=Compute=() -> int;;12<11|32:25-33:2147483647|v=|f=;13<0|37:1-68:2147483647|v=|f=;14<13|38:5-39:2147483647|v=label=string;value=int;|f=Format=(string, int) -> string;;15<14|38:56-39:2147483647|v=|f=;16<13|42:5-43:2147483647|v=label=string;suffix=string;|f=FormatDefault=(string, string) -> string;;17<16|42:69-43:2147483647|v=|f=;18<13|47:5-48:2147483647|v=|f=BuildToken=() -> int;;19<18|47:28-48:2147483647|v=|f=;20<13|51:5-52:2147483647|v=values=int[];|f=Sum=(int[]) -> int;;21<20|51:41-52:2147483647|v=|f=;22<13|55:5-56:2147483647|v=value=int;|f=Convert=(int) -> string;;23<22|55:38-56:2147483647|v=|f=;24<13|59:5-60:2147483647|v=value=string;|f=Convert=(string) -> string;;25<24|59:41-60:2147483647|v=|f=;26<13|63:5-64:2147483647|v=value=T;|f=Identity=(T) -> T;;27<26|63:35-64:2147483647|v=|f=;28<13|67:5-68:2147483647|v=value=T;|f=RequireClass=(T) -> T;;29<28|67:55-68:2147483647|v=|f=;30<0|72:1-72:2147483647|v=|f=;31<0|75:1-75:2147483647|v=|f=;32<0|78:1-78:2147483647|v=x=double;y=double;|f=;33<0|81:1-81:2147483647|v=|f=;34<0|84:1-84:2147483647|v=|f=;35<0|87:1-87:2147483647|v=age=int;name=string;|f=;36<0|90:1-90:2147483647|v=|f=;37<0|93:1-95:2147483647|v=|f=UseImplementedAsMarker=() -> void;;38<37|93:31-95:2147483647|v=implemented=ImplementedDerived;marker=Marker;|f=;39<0|98:1-100:2147483647|v=|f=UseStructAsMarker=() -> void;;40<39|98:26-100:2147483647|v=marked=MarkedStruct;marker=Marker;|f=;41<0|103:1-105:2147483647|v=|f=UseRecordAsMarker=() -> void;;42<41|103:26-105:2147483647|v=marked=MarkedRecord;marker=Marker;|f=;43<0|108:1-109:2147483647|v=child=ChildMarker;|f=UseChildMarkerAsMarker=(ChildMarker) -> void;;44<43|108:49-109:2147483647|v=marker=Marker;|f=;45<0|112:1-112:2147483647|v=|f=;46<45|113:5-112:2147483647|v=|f=Read=() -> string;;47<0|116:1-116:2147483647|v=|f=;48<47|117:5-116:2147483647|v=|f=Name=() -> string;;"
     assert SmTypeRuntimes(model) == "Base=ClassTypeInfo;ChildMarker=InterfaceTypeInfo;Closed=ClassTypeInfo;Derived=ClassTypeInfo;FunctionMemberBox=ClassTypeInfo;GenericBox=ClassTypeInfo;GenericInterface=InterfaceTypeInfo;GenericRecord=RecordTypeInfo;GenericStruct=StructTypeInfo;ImplementedDerived=ClassTypeInfo;MarkedRecord=RecordTypeInfo;MarkedStruct=StructTypeInfo;Marker=InterfaceTypeInfo;MemberBox=ClassTypeInfo;Named=InterfaceTypeInfo;Open=ClassTypeInfo;PrimaryBox=ClassTypeInfo;PrimaryPerson=RecordTypeInfo;PrimaryPoint=StructTypeInfo;Reader=InterfaceTypeInfo;"
     assert SmTypeFacts(model, "Base") == "runtime=ClassTypeInfo;Name=Base;Line=8;Column=1;IsSealed=False;IsStruct=<absent>;IsDuckInterface=<absent>;BaseClass=<null>;Interfaces=[];BaseInterfaces=<absent>;TypeParameters=[];PrimaryConstructorParameters=[];NestedTypes=[];HasParameterlessConstructor=True;Members=0;"
     assert SmTypeMemberNames(model, "Base") == ""

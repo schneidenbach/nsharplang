@@ -338,7 +338,7 @@ class AnalyzerSyntheticCallFacts {
     // type the program never wrote and every comparison against it is an accusation.
     static func NarrowOpenExpectedArgumentType(expectedType: TypeInfo, typeParameters: List<TypeParameter>?): TypeInfo? {
         if AnalyzerCallableReferenceFacts.IsInvocableMemberType(expectedType) {
-            return expectedType
+            return NarrowOpenDelegateReturnPosition(expectedType, typeParameters)
         }
 
         if MentionsTypeParameter(expectedType, typeParameters) {
@@ -346,6 +346,29 @@ class AnalyzerSyntheticCallFacts {
         }
 
         return expectedType
+    }
+
+    // A DELEGATE POSITION KEEPS ITS CLOSED HALVES AND LOSES ITS OPEN RETURN.
+    //
+    // `Map(names, name => { … return new Range(…) })` for `func Map<T, R>(items: List<T>, selector:
+    // Func<T, R>)` hands the lambda `Func<string, R>`: `T` is fixed by the first argument and `R` is
+    // exactly what this lambda is being asked to decide. The parameter half must survive — it is what
+    // gives `name` its type — and the RETURN half is not a target at all, so a block body whose
+    // `return` statements were checked against `R` was told it should return `R` and returned
+    // `Range`. Replacing the open return with `unknown` says "nothing is expected here", which is
+    // what lets the lambda walk infer the block's own return type and hand it back as the bound.
+    static func NarrowOpenDelegateReturnPosition(expectedType: TypeInfo, typeParameters: List<TypeParameter>?): TypeInfo {
+        signature := expectedType as FunctionTypeInfo
+        if signature == null {
+            return expectedType
+        }
+
+        returnType := signature.ReturnType
+        if returnType == null || !MentionsTypeParameter(returnType, typeParameters) {
+            return expectedType
+        }
+
+        return signature.WithSignatureTypes(signature.ParameterTypes, BuiltInTypes.Unknown)
     }
 
     // Whether a type STILL NAMES one of this signature's own type parameters after substitution —
