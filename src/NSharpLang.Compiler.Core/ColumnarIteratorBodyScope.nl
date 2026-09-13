@@ -166,6 +166,7 @@ class ColumnarIteratorBodyScope {
             facts.StructDefinitions,
             facts.UnionDefinitions,
             new Dictionary<string, string[]>(StringComparer.Ordinal),
+            new Dictionary<string, string>(StringComparer.Ordinal),
             emptyNames,
             facts.SiblingNames,
             emptyNames,
