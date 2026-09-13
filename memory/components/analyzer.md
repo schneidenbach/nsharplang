@@ -1521,6 +1521,13 @@ The target is the DECLARATION's, and a property offers both `Property` and `Meth
 attribute position inside accessor braces. `[MethodImpl]`'s placement is exempt from `NL933`: `NL930`
 already says the same thing better, and reporting both would report one mistake twice.
 
+Attachment reaches types, methods and free functions, constructors, properties (the PROPERTY row —
+which is where `PropertyInfo.GetCustomAttributes` and every framework that reads it looks) and
+parameters. A FIELD's attributes are validated and then dropped: the struct field scan in
+`ColumnarParserKernels.ParseColumnarStructInfoInto` yields field NAME and TYPE texts, not the field's
+declaration token index, so there is no position for `ColumnarSourceAttributes.Read` to scan back
+from. Closing it means adding a field-token-index column to that scan and its output table.
+
 Not supported, and stated as such in `website/docs/basics.md`: `[assembly: ...]`, `[return: ...]`, an
 attribute on an enum member, and generic attributes.
 

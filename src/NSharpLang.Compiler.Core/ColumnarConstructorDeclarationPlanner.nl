@@ -89,7 +89,8 @@ class ColumnarConstructorDeclarationPlanner {
         structs: IReadOnlyList<ColumnarStructInput>,
         structDefinitions: ColumnarStructDef[],
         typeResolutions: ColumnarSemanticTypeResolution[],
-        structDepths: int[]
+        structDepths: int[],
+        sourceAttributeQueue: ColumnarSourceAttributeQueue
     ): ColumnarConstructorDeclarationResult {
         objectConstructor := typeof(object).GetConstructor(Type.EmptyTypes)
         constructorJobs := new List<ColumnarConstructorBodyJob>()
@@ -216,6 +217,7 @@ class ColumnarConstructorDeclarationPlanner {
                             }
 
                             builder := definition.DefineUserConstructor(parameterTypes, ctor.ParamDefaultKinds, canonicalDefaultTexts, ctor.VisibilityModifierFlags)
+                            sourceAttributeQueue.QueueConstructor(builder, ctor.Body.SourceAttributes, typeResolution)
                             if !ColumnarMethodImplAttributes.TryApplyToConstructor(builder, ctor.Body.SourceAttributes, typeResolution) {
                                 return Declined(
                                     "emit.methodimpl.options",

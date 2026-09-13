@@ -203,6 +203,17 @@ class Target {
     }
 }
 
+// A PROPERTY'S AND A CONSTRUCTOR'S ATTRIBUTES. A property's go on the PROPERTY row, which is where
+// every framework that reads them looks; a constructor's go on the constructor.
+class Carrier {
+    [Mark("on the property")]
+    Described: int => 1
+
+    [Mark("on the constructor")]
+    constructor() {
+    }
+}
+
 // `inherit: true` FINDS AN ATTRIBUTE ON THE OVERRIDDEN METHOD. The attribute is written once, on the
 // virtual member, and the override carries none of its own.
 class BaseCarrier {

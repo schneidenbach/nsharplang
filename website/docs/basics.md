@@ -345,7 +345,9 @@ func Create([FromBody] [Required] user: CreateUserRequest): IActionResult {
 
 Attribute names resolve in the declaring file's scope, with or without the `Attribute` suffix —
 `[Mark]` and `[MarkAttribute]` name the same type. Attributes are emitted on classes, structs,
-records, functions, methods, and parameters.
+records, interfaces, functions, methods, constructors, properties, and parameters. A property's
+attributes go on the **property** itself, which is where `PropertyInfo.GetCustomAttributes` — and so
+every model-binding, serialization and validation framework — looks for them.
 
 Parameter attributes are emitted as real CLR parameter metadata, so ASP.NET model-binding attributes
 such as `[FromBody]` and `[FromRoute]`, plus xUnit-style parameter attributes from referenced
@@ -419,7 +421,8 @@ Because N# has no attribute position inside accessor braces, a **property** offe
 and it reaches the property's accessors.
 
 N# has no `[assembly: ...]` or `[return: ...]` attribute position, and no attribute position on an
-enum member. Generic attributes (`class Mark<T>: Attribute`) are not supported.
+enum member. Generic attributes (`class Mark<T>: Attribute`) are not supported. An attribute written
+on a **field** is checked but not yet emitted.
 
 ### `[MethodImpl]` — the attribute that is not stored as an attribute
 

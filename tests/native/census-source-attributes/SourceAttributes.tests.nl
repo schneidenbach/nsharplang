@@ -130,6 +130,20 @@ test "an external attribute with only a named argument is emitted" {
     assert found.DiagnosticId == "NL9999"
 }
 
+test "a property's attribute is emitted on the property row" {
+    declared: PropertyInfo? = typeof(Carrier).GetProperty("Described")
+    property := must declared
+    found := property.GetCustomAttribute(typeof(MarkAttribute), false) as MarkAttribute
+    assert found.Tag == "on the property"
+}
+
+test "a constructor's attribute is emitted on the constructor" {
+    constructors := typeof(Carrier).GetConstructors()
+    assert constructors.Length == 1
+    found := constructors[0].GetCustomAttribute(typeof(MarkAttribute), false) as MarkAttribute
+    assert found.Tag == "on the constructor"
+}
+
 test "inherit true finds an attribute written on the overridden method" {
     declared: MethodInfo? = typeof(DerivedCarrier).GetMethod("Describe")
     overriding := must declared

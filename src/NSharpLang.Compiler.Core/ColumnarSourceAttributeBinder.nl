@@ -287,19 +287,25 @@ class ColumnarSourceAttributeBinder {
     }
 }
 
-// ONE QUEUED ATTACHMENT. Exactly one of the three targets is set; the kind is the target that is not
+// ONE QUEUED ATTACHMENT. Exactly one of the six targets is set; the kind is the target that is not
 // null rather than a separate tag, so a row cannot claim to be a method and carry a type.
 class ColumnarSourceAttributeApplication {
     TypeTarget: TypeBuilder?
     MethodTarget: MethodBuilder?
     ParameterTarget: ParameterBuilder?
+    FieldTarget: FieldBuilder?
+    PropertyTarget: PropertyBuilder?
+    ConstructorTarget: ConstructorBuilder?
     Attributes: ColumnarSourceAttributeInput[]
     Resolution: ColumnarSemanticTypeResolution
 
-    constructor(typeTarget: TypeBuilder?, methodTarget: MethodBuilder?, parameterTarget: ParameterBuilder?, attributes: ColumnarSourceAttributeInput[], resolution: ColumnarSemanticTypeResolution) {
-        TypeTarget = typeTarget
-        MethodTarget = methodTarget
-        ParameterTarget = parameterTarget
+    constructor(attributes: ColumnarSourceAttributeInput[], resolution: ColumnarSemanticTypeResolution) {
+        TypeTarget = null
+        MethodTarget = null
+        ParameterTarget = null
+        FieldTarget = null
+        PropertyTarget = null
+        ConstructorTarget = null
         Attributes = attributes
         Resolution = resolution
     }
@@ -324,28 +330,62 @@ class ColumnarSourceAttributeQueue {
         applications = new List<ColumnarSourceAttributeApplication>()
     }
 
-    func QueueType(target: TypeBuilder, attributes: ColumnarSourceAttributeInput[]?, resolution: ColumnarSemanticTypeResolution) {
+    func TryQueue(attributes: ColumnarSourceAttributeInput[]?, resolution: ColumnarSemanticTypeResolution, out application: ColumnarSourceAttributeApplication): bool {
+        application = null
         if attributes == null || attributes.Length == 0 {
-            return
+            return false
         }
 
-        applications.Add(new ColumnarSourceAttributeApplication(target, null, null, attributes, resolution))
+        application = new ColumnarSourceAttributeApplication(attributes, resolution)
+        applications.Add(application)
+        return true
+    }
+
+    func QueueType(target: TypeBuilder, attributes: ColumnarSourceAttributeInput[]?, resolution: ColumnarSemanticTypeResolution) {
+        application: ColumnarSourceAttributeApplication = null
+        if TryQueue(attributes, resolution, out application) {
+            application.TypeTarget = target
+        }
     }
 
     func QueueMethod(target: MethodBuilder, attributes: ColumnarSourceAttributeInput[]?, resolution: ColumnarSemanticTypeResolution) {
-        if attributes == null || attributes.Length == 0 {
-            return
+        application: ColumnarSourceAttributeApplication = null
+        if TryQueue(attributes, resolution, out application) {
+            application.MethodTarget = target
         }
-
-        applications.Add(new ColumnarSourceAttributeApplication(null, target, null, attributes, resolution))
     }
 
     func QueueParameter(target: ParameterBuilder, attributes: ColumnarSourceAttributeInput[]?, resolution: ColumnarSemanticTypeResolution) {
-        if attributes == null || attributes.Length == 0 {
-            return
+        application: ColumnarSourceAttributeApplication = null
+        if TryQueue(attributes, resolution, out application) {
+            application.ParameterTarget = target
         }
+    }
 
-        applications.Add(new ColumnarSourceAttributeApplication(null, null, target, attributes, resolution))
+    func QueueField(target: FieldBuilder, attributes: ColumnarSourceAttributeInput[]?, resolution: ColumnarSemanticTypeResolution) {
+        application: ColumnarSourceAttributeApplication = null
+        if TryQueue(attributes, resolution, out application) {
+            application.FieldTarget = target
+        }
+    }
+
+    // A PROPERTY'S ATTRIBUTES GO ON THE PROPERTY ROW, not on its accessors, because that is where
+    // every framework that reads them looks — `PropertyInfo.GetCustomAttributes` is what model
+    // binding, serialization and validation ask. `[MethodImpl]` is the one exception and it is not
+    // this owner's: a property row has no implementation flags, so it is routed to the accessors by
+    // `ColumnarMethodImplAttributes` and refused a blob here.
+    func QueueProperty(target: PropertyBuilder, attributes: ColumnarSourceAttributeInput[]?, resolution: ColumnarSemanticTypeResolution) {
+        application: ColumnarSourceAttributeApplication = null
+        if TryQueue(attributes, resolution, out application) {
+            application.PropertyTarget = target
+        }
+    }
+
+    func QueueConstructor(target: ConstructorBuilder, attributes: ColumnarSourceAttributeInput[]?, resolution: ColumnarSemanticTypeResolution) {
+        application: ColumnarSourceAttributeApplication = null
+        if TryQueue(attributes, resolution, out application) {
+            application.ConstructorTarget = target
+        }
     }
 
     // AN ATTRIBUTE THAT CANNOT BE BOUND IS NOT WRITTEN, AND THAT IS NOT A SILENT LOSS: the analyzer
@@ -376,6 +416,24 @@ class ColumnarSourceAttributeQueue {
                 parameterTarget := application.ParameterTarget
                 if parameterTarget != null {
                     parameterTarget.SetCustomAttribute(plan.Constructor, plan.Blob)
+                    continue
+                }
+
+                fieldTarget := application.FieldTarget
+                if fieldTarget != null {
+                    fieldTarget.SetCustomAttribute(plan.Constructor, plan.Blob)
+                    continue
+                }
+
+                propertyTarget := application.PropertyTarget
+                if propertyTarget != null {
+                    propertyTarget.SetCustomAttribute(plan.Constructor, plan.Blob)
+                    continue
+                }
+
+                constructorTarget := application.ConstructorTarget
+                if constructorTarget != null {
+                    constructorTarget.SetCustomAttribute(plan.Constructor, plan.Blob)
                 }
             }
         }

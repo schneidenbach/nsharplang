@@ -3835,6 +3835,7 @@ sealed class ColumnarIlEmitter {
                     }
                     structMethodJobs.Add(new ValueTuple<ColumnarStructDef, ColumnarFunctionInput, MethodBuilder, Type, Type, Type, Dictionary<string, int>, ValueTuple<Dictionary<string, Type>, bool>>(def, prop.Getter, staticGetter, propType, propType, null, new Dictionary<string, int>(StringComparer.Ordinal), new ValueTuple<Dictionary<string, Type>, bool>(new Dictionary<string, Type>(StringComparer.Ordinal), true)))
                     staticProperty := def.Builder.DefineProperty(prop.Name, PropertyAttributes.None, propType, Type.EmptyTypes)
+                    sourceAttributeQueue.QueueProperty(staticProperty, prop.Getter.SourceAttributes, typeResolution)
                     if declarationPlan.Properties.HasMsBuildRequiredAttribute[s][pi] {
                         requiredConstructor := typeof(Microsoft.Build.Framework.RequiredAttribute).GetConstructor(Type.EmptyTypes)
                         if requiredConstructor == null {
@@ -3897,6 +3898,7 @@ sealed class ColumnarIlEmitter {
                 }
                 structMethodJobs.Add(new ValueTuple<ColumnarStructDef, ColumnarFunctionInput, MethodBuilder, Type, Type, Type, Dictionary<string, int>, ValueTuple<Dictionary<string, Type>, bool>>(def, prop.Getter, getter, propType, propType, null, new Dictionary<string, int>(StringComparer.Ordinal), new ValueTuple<Dictionary<string, Type>, bool>(new Dictionary<string, Type>(StringComparer.Ordinal), false)))
                 property := def.Builder.DefineProperty(prop.Name, PropertyAttributes.None, propType, Type.EmptyTypes)
+                sourceAttributeQueue.QueueProperty(property, prop.Getter.SourceAttributes, typeResolution)
                 if declarationPlan.Properties.HasMsBuildRequiredAttribute[s][pi] {
                     requiredConstructor := typeof(Microsoft.Build.Framework.RequiredAttribute).GetConstructor(Type.EmptyTypes)
                     if requiredConstructor == null {
@@ -4119,7 +4121,8 @@ sealed class ColumnarIlEmitter {
             structs,
             structDefsInOrder,
             structTypeResolutions,
-            structDepths
+            structDepths,
+            sourceAttributeQueue
         )
         if (!constructorDeclaration.Succeeded) {
             return false
