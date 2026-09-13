@@ -39,3 +39,24 @@ test "one namespace declaring a function name twice across files is refused at e
     }
     assert declinedAtDuplicate
 }
+
+test "one namespace declaring a type twice across files is refused at emit, never silently halved" {
+    program := DeclarationPlanMultiFileProgram(
+        ["X", "X"],
+        [
+            "class Widget {\n    Tag: string = \"first\"\n}\n",
+            "class Widget {\n    Tag: string = \"second\"\n}\n"
+        ]
+    )
+    ColumnarDeclineTrace.Reset()
+    bytes: byte[] = null
+    assert !ColumnarIlEmitter.TryEmitColumnarAssembly("DeclarationPlanTwin" + Guid.NewGuid().ToString("N"), "Program", program, false, out bytes, null, null)
+
+    declinedAtDuplicate := false
+    for reason in ColumnarDeclineTrace.Snapshot() {
+        if reason.SiteId == "emit.declaration.duplicate" && reason.Message.Contains("type 'Widget'") && reason.Message.Contains("namespace 'X'") {
+            declinedAtDuplicate = true
+        }
+    }
+    assert declinedAtDuplicate
+}

@@ -1407,3 +1407,61 @@ test "the inheritance words each add exactly the method attributes the CLR reads
     // Visibility still composes: a camelCase name is package-private (Assembly == 3) throughout.
     assert ColumnarDeclarationPlanner.StructInstanceMethodAttributes("hidden", ColumnarFunctionInput.AbstractModifierFlag()) == 1475
 }
+
+// A TYPE IDENTITY DECLARED TWICE IS REFUSED AT EMIT, NEVER SILENTLY HALVED (census 2026-09-13).
+//
+// Measured before the ledger: two files of `X` each declaring `class Widget` passed the emitter —
+// `PersistedAssemblyBuilder` accepts a second `DefineType` of one exact name, the module carried two
+// TypeDef rows, and every registry kept the last. The analyzer reports the pair as NL339 at the later
+// declaration; the planner's ledger below is the emitter's own word, for the paths that reach it
+// without the analyzer — exactly `ColumnarFreeFunctionScope.Declare` for a free function.
+func DeclarationPlanMultiFileProgram(namespaces: string[], sources: string[]): ColumnarProgramInput {
+    texts := new List<string>()
+    names := new List<string>()
+    index := 0
+    while index < sources.Length {
+        prefix := ""
+        if namespaces[index].Length > 0 {
+            prefix = "namespace " + namespaces[index] + "\n\n"
+        }
+        texts.Add(prefix + sources[index])
+        names.Add("/tmp/DeclarationPlanTwin" + index.ToString() + ".nl")
+        index = index + 1
+    }
+    program: ColumnarProgramInput = null
+    assert ColumnarProgramInputBuilder.TryBuildMultiFile(texts, names, "/tmp", out program)
+    return program
+}
+
+test "the planner finds the first CLR type identity a program declares twice, across the four families" {
+    typeName := ""
+    namespaceName := ""
+
+    // One identity, two keywords, two files: the CLR has one type table. (The struct carries a
+    // field because the program builder declines an empty struct at `parse.struct`.)
+    twice := DeclarationPlanMultiFileProgram(["X", "X"], ["class Widget {\n}\n", "struct Widget {\n    Count: int\n}\n"])
+    assert ColumnarDeclarationPlanner.TryFindDuplicateTypeDeclaration(twice, out typeName, out namespaceName)
+    assert typeName == "Widget"
+    assert namespaceName == "X"
+
+    // An enum and a class of one name share that table too.
+    mixed := DeclarationPlanMultiFileProgram(["X", "X"], ["enum Widget {\n    One\n}\n", "class Widget {\n}\n"])
+    assert ColumnarDeclarationPlanner.TryFindDuplicateTypeDeclaration(mixed, out typeName, out namespaceName)
+    assert typeName == "Widget"
+
+    // `Box` and `Box<T>` are two identities; two `Box<T>` are one, and it is named as it is written.
+    distinct := DeclarationPlanMultiFileProgram(["X", "X"], ["class Box {\n}\n", "class Box<T> {\n}\n"])
+    assert !ColumnarDeclarationPlanner.TryFindDuplicateTypeDeclaration(distinct, out typeName, out namespaceName)
+    assert typeName == ""
+    generic := DeclarationPlanMultiFileProgram(["X", "X"], ["class Box<T> {\n}\n", "class Box<T> {\n}\n"])
+    assert ColumnarDeclarationPlanner.TryFindDuplicateTypeDeclaration(generic, out typeName, out namespaceName)
+    assert typeName == "Box<T>"
+
+    // Two namespaces are two types; the global namespace is one namespace, spelled empty.
+    apart := DeclarationPlanMultiFileProgram(["X", "Y"], ["class Widget {\n}\n", "class Widget {\n}\n"])
+    assert !ColumnarDeclarationPlanner.TryFindDuplicateTypeDeclaration(apart, out typeName, out namespaceName)
+    global := DeclarationPlanMultiFileProgram(["", ""], ["class Widget {\n}\n", "class Widget {\n}\n"])
+    assert ColumnarDeclarationPlanner.TryFindDuplicateTypeDeclaration(global, out typeName, out namespaceName)
+    assert typeName == "Widget"
+    assert namespaceName == ""
+}

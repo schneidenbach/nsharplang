@@ -1621,31 +1621,44 @@ class AnalyzerDeclarationContext {
         return false
     }
 
+    // ONE NAMESPACE, IN FILE ORDER: THE FIRST FILE THAT DECLARES THE IDENTITY ANSWERS. A second file
+    // of the same namespace declaring the same (name, arity) is a DUPLICATE, and the duplicate is
+    // reported where it is — NL339 at the later declaration, by
+    // `AnalyzerDeclarationPolicy.ReportTypeDeclaredInAnotherFile` through `TryFindFirstDeclaringFile`
+    // — not here. This walk used to refuse the pair instead, and the refusal surfaced at every USE as
+    // NL201 "not found" on top of the NL339: a true statement about nothing, since the type existed
+    // twice and the declaration already carried the report. Picking the first file is what the
+    // function channel and `SelectionForNamedDeclaration` already do, so a use site now resolves
+    // consistently with the declaration the go-to-definition span lands on. A file that CLAIMS the
+    // name but cannot resolve it (an unresolvable base, a broken alias) still answers false: that is
+    // a miss, not a tie.
     func TryResolveDeclarationInNamespace(name: string, namespaceName: string?, requireExported: bool, activeAliases: HashSet<string>, out typeInfo: TypeInfo, out claimed: bool): bool {
-        matchedType: TypeInfo? = null
         claimed = false
         for facts in files {
-            if string.Equals(facts.NamespaceName, namespaceName, StringComparison.Ordinal) {
-                candidate := BuiltInTypes.Unknown as TypeInfo
-                declaration: object? = null
-                unitClaimed := false
-                resolved := TryResolveDeclarationInFile(facts, name, requireExported, activeAliases, out candidate, out declaration, out unitClaimed)
-                if unitClaimed {
-                    claimed = true
-                    if !resolved || matchedType != null {
-                        typeInfo = BuiltInTypes.Unknown
-                        return false
-                    }
-                    matchedType = candidate
-                }
+            if !string.Equals(facts.NamespaceName, namespaceName, StringComparison.Ordinal) {
+                continue
             }
+
+            candidate := BuiltInTypes.Unknown as TypeInfo
+            declaration: object? = null
+            unitClaimed := false
+            resolved := TryResolveDeclarationInFile(facts, name, requireExported, activeAliases, out candidate, out declaration, out unitClaimed)
+            if !unitClaimed {
+                continue
+            }
+
+            claimed = true
+            if !resolved {
+                typeInfo = BuiltInTypes.Unknown
+                return false
+            }
+
+            typeInfo = candidate
+            return true
         }
-        if matchedType == null {
-            typeInfo = BuiltInTypes.Unknown
-            return false
-        }
-        typeInfo = matchedType
-        return true
+
+        typeInfo = BuiltInTypes.Unknown
+        return false
     }
 
     // The namespace an alias names, credited to the file being analysed and to no other. This owner
@@ -1690,20 +1703,29 @@ class AnalyzerDeclarationContext {
         return true
     }
 
+    // "UNIQUE" COUNTS NAMESPACES, NOT FILES. The fallback exists for a name exactly one namespace
+    // exports; two files of ONE namespace exporting it are that namespace's duplicate (NL339 at the
+    // later declaration, see `TryResolveDeclarationInNamespace`), and the first of them answers here
+    // just as it does in the namespace walk — the fallback must not turn a reported duplicate back
+    // into a "not found" at every cross-namespace use. Two DIFFERENT namespaces exporting the name
+    // remain the tie this fallback refuses to break.
     func TryResolveUniqueExported(name: string, activeAliases: HashSet<string>, out typeInfo: TypeInfo, out claimed: bool): bool {
         matchedType: TypeInfo? = null
+        matchedNamespace: string? = null
         claimed = false
-        for fileItem in files {
+        for candidateFacts in files {
             candidate := BuiltInTypes.Unknown as TypeInfo
             declaration: object? = null
             unitClaimed := false
-            if TryResolveDeclarationInFile(fileItem, name, true, activeAliases, out candidate, out declaration, out unitClaimed) {
+            if TryResolveDeclarationInFile(candidateFacts, name, true, activeAliases, out candidate, out declaration, out unitClaimed) {
                 claimed = true
-                if matchedType != null {
+                if matchedType == null {
+                    matchedType = candidate
+                    matchedNamespace = candidateFacts.NamespaceName
+                } else if !string.Equals(candidateFacts.NamespaceName, matchedNamespace, StringComparison.Ordinal) {
                     typeInfo = BuiltInTypes.Unknown
                     return false
                 }
-                matchedType = candidate
             } else if unitClaimed && declaration != null && DeclarationFacts.IsExportedDeclaration(declaration, name) {
                 claimed = true
                 typeInfo = BuiltInTypes.Unknown

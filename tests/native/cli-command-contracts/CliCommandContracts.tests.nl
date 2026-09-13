@@ -4349,9 +4349,9 @@ test "nlc test refuses coverage collection on both output routes and exits 1" {
     }
 }
 
-// ONE FREE-FUNCTION NAME PER NAMESPACE, ACROSS FILES, at the product surface. Measured on a755caeea:
-// this project passed `nlc check`, built, and printed the second file's `Helper`. Now each file
-// reports NL306 naming the other, so the JSON carries two results — one per declaration.
+// ONE FREE-FUNCTION NAME PER NAMESPACE, ACROSS FILES, at the product surface. Measured on 353fb69f7:
+// this project passed `nlc check`, built, and printed whichever `Helper` the emitter kept. Now each
+// file reports NL306 naming the other, so the JSON carries two results — one per declaration.
 test "nlc check reports NL306 in each file when two files of one namespace declare the same free function" {
     directory := NewTempDirectory("nlc-check-function-twin")
     try {
@@ -4391,6 +4391,43 @@ test "nlc check reports NL306 in each file when two files of one namespace decla
         }
         assert sawA
         assert sawB
+        document.Dispose()
+    } finally {
+        Directory.Delete(directory, true)
+    }
+}
+
+// ONE TYPE IDENTITY PER NAMESPACE, ACROSS FILES, at the product surface — and the use site. NL339
+// owns the duplicate: one result, at the later declaration, naming the first. Measured on 353fb69f7:
+// the same project ALSO reported NL201 "Type 'Widget' not found" at the use in Main.nl, because the
+// namespace walk refused the second claim instead of picking one. Now the use resolves to the first
+// declaration, so the JSON carries exactly the one NL339 and nothing names Main.nl.
+test "nlc check reports one NL339 for a type declared in two files of one namespace, and its use resolves" {
+    directory := NewTempDirectory("nlc-check-type-twin")
+    try {
+        WriteProjectYml(directory, "name: TypeTwin\nversion: 0.1.0\noutputType: exe\ntargetFramework: net10.0\n")
+        File.WriteAllText(Path.Combine(directory, "A.nl"), "namespace X\n\nclass Widget {\n    Tag: string = \"A\"\n}\n")
+        File.WriteAllText(Path.Combine(directory, "B.nl"), "namespace X\n\nclass Widget {\n    Tag: string = \"B\"\n}\n")
+        File.WriteAllText(Path.Combine(directory, "Main.nl"), "namespace X\n\nfunc main() {\n    w := new Widget()\n    print w.Tag\n}\n")
+
+        run := NlcIn(directory, "check")
+
+        assert run.ExitCode == 1
+        assert run.Stderr.Trim().Length == 0
+        document := JsonDocument.Parse(run.Stdout)
+        root := document.RootElement
+        assert !root.GetProperty("ok").GetBoolean()
+        assert root.GetProperty("summary").GetProperty("errors").GetInt32() == 1, run.Stdout
+        results := root.GetProperty("results")
+        assert results.GetArrayLength() == 1, run.Stdout
+        resultEnumerator := results.EnumerateArray()
+        assert resultEnumerator.MoveNext()
+        result := resultEnumerator.Current
+        assert TextOf(result.GetProperty("code")) == "NL339", run.Stdout
+        assert TextOf(result.GetProperty("file")) == "B.nl", run.Stdout
+        assert result.GetProperty("line").GetInt32() == 3
+        assert result.GetProperty("column").GetInt32() == 7
+        assert TextOf(result.GetProperty("message")).Contains("A type named 'Widget' is already declared in this namespace, at A.nl:3"), run.Stdout
         document.Dispose()
     } finally {
         Directory.Delete(directory, true)

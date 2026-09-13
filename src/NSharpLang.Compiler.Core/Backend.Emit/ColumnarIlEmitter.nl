@@ -4497,6 +4497,14 @@ sealed class ColumnarIlEmitter {
         // them; the resolved exact name and the composed TypeAttributes word moved to ColumnarDeclarationPlanner,
         // since a second executor would otherwise recompute them. Row ORDER now carries what position used to.
         declarationPlan := ColumnarDeclarationPlanner.BuildAssemblyAndEnums(program, assemblyName)
+        // A type identity declared twice is refused before any type is defined: the module would
+        // otherwise carry two TypeDef rows of one name and every registry would keep the last.
+        duplicateTypeName := ""
+        duplicateTypeNamespace := ""
+        if (ColumnarDeclarationPlanner.TryFindDuplicateTypeDeclaration(program, out duplicateTypeName, out duplicateTypeNamespace)) {
+            duplicateTypeWhere := duplicateTypeNamespace.Length == 0 ? "the global namespace" : "namespace '" + duplicateTypeNamespace + "'"
+            return DeclineStatic("emit.declaration.duplicate", "type '" + duplicateTypeName + "' is declared more than once in " + duplicateTypeWhere, duplicateTypeName, -1, 0)
+        }
         assemblyIdentity := new AssemblyName(declarationPlan.AssemblyName)
         if (assemblyVersion != null) {
             assemblyIdentity.set_Version(assemblyVersion)

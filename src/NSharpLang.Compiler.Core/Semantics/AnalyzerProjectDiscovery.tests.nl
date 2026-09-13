@@ -498,10 +498,13 @@ test "the inaccessible probe names the FIRST file that hides the name" {
     assert Path.GetFileName(inaccessible) == "zzz.nl"
 }
 
-test "two files declaring the SAME type name in one namespace is ambiguous, not first-wins" {
-    // The type channel differs from the function channel here, and deliberately: a duplicate type
-    // name inside one namespace refuses to resolve rather than picking one. That refusal is what
-    // makes the enumeration order irrelevant for THIS channel and decisive for the other two.
+test "two files declaring the SAME type name in one namespace resolve to the first, and NL339 owns the duplicate" {
+    // The type channel used to REFUSE this pair rather than pick one, and the refusal surfaced at
+    // every use as NL201 "not found" — a true statement about nothing, since the type existed twice,
+    // and one that sat beside the NL339 the later declaration already carried. The duplicate is
+    // reported where it is (NL339, `AnalyzerDeclarationPolicy.ReportTypeDeclaredInAnotherFile`), and
+    // a use resolves to the FIRST file in enumeration order, which makes the order decisive for this
+    // channel exactly as it is for the other two.
     provider := ProjectProviderOf(
         ["/p/aaa.nl", "/p/zzz.nl"],
         [
@@ -514,9 +517,59 @@ test "two files declaring the SAME type name in one namespace is ambiguous, not 
     resolved := BuiltInTypes.Unknown as TypeInfo
     declaration: SymbolDeclaration? = null
     inaccessible: string? = null
-    assert !discovery.ResolveVisibleProjectType(
+    assert discovery.ResolveVisibleProjectType(
         "Twice",
         "Same",
+        true,
+        out resolved,
+        out declaration,
+        out inaccessible
+    )
+    assert Path.GetFileName((must declaration).File) == "aaa.nl"
+    assert inaccessible == null
+
+    // The SAME two files in the opposite order give the other answer: insertion order, not a sort.
+    reversed := ProjectProviderOf(
+        ["/p/zzz.nl", "/p/aaa.nl"],
+        [
+            ProjectSourceOf("Same", "public class Twice {\n}\n"),
+            ProjectSourceOf("Same", "public class Twice {\n}\n")
+        ]
+    )
+    assert ProjectDiscoveryOf(reversed, []).ResolveVisibleProjectType(
+        "Twice",
+        "Same",
+        true,
+        out resolved,
+        out declaration,
+        out inaccessible
+    )
+    assert Path.GetFileName((must declaration).File) == "zzz.nl"
+
+    // From a THIRD namespace with no import, the unique-exported fallback counts NAMESPACES, not
+    // files: one namespace exports `Twice`, so the reference resolves to its first file rather than
+    // turning the reported duplicate back into "not found".
+    assert discovery.ResolveVisibleProjectType(
+        "Twice",
+        "Elsewhere",
+        true,
+        out resolved,
+        out declaration,
+        out inaccessible
+    )
+    assert Path.GetFileName((must declaration).File) == "aaa.nl"
+
+    // Two DIFFERENT namespaces exporting the name remain the tie the fallback refuses to break.
+    twoNamespaces := ProjectProviderOf(
+        ["/p/aaa.nl", "/p/zzz.nl"],
+        [
+            ProjectSourceOf("Same", "public class Twice {\n}\n"),
+            ProjectSourceOf("Other", "public class Twice {\n}\n")
+        ]
+    )
+    assert !ProjectDiscoveryOf(twoNamespaces, []).ResolveVisibleProjectType(
+        "Twice",
+        "Elsewhere",
         true,
         out resolved,
         out declaration,
@@ -524,21 +577,6 @@ test "two files declaring the SAME type name in one namespace is ambiguous, not 
     )
     assert declaration == null
     assert inaccessible == null
-
-    // One declaration of the name resolves; the duplicate is what refuses.
-    single := ProjectProviderOf(
-        ["/p/aaa.nl"],
-        [ProjectSourceOf("Same", "public class Twice {\n}\n")]
-    )
-    assert ProjectDiscoveryOf(single, []).ResolveVisibleProjectType(
-        "Twice",
-        "Same",
-        true,
-        out resolved,
-        out declaration,
-        out inaccessible
-    )
-    assert Path.GetFileName(declaration.File) == "aaa.nl"
 }
 
 test "the visible-namespace order decides between two namespaces that both declare the name" {
@@ -1333,12 +1371,15 @@ test "the global namespace is one namespace for the twin index, whether spelled 
     assert fromEmpty.Count == 1
 }
 
-// THE SAME RULE END TO END, through `Analyzer.Analyze` over a project on disk: the report is NL306,
-// it lands in EACH file naming the other, and a third namespace's same-named function reports
-// nothing. Measured on a755caeea before this rule: the pair passed analysis, built, and the program
-// printed the second file's answer. The `project.yml` is what makes the files one program; without
-// it they are standalone scripts and the rule is not asked — see the test after this one.
-func TopLevelFunctionTwinReports(filePath: string, source: string, projectRoot: string): List<string> {
+// THE FUNCTION RULE END TO END, through `Analyzer.Analyze` over a project on disk: the report is
+// NL306, it lands in EACH file naming the other, and a third namespace's same-named declaration
+// reports nothing. Measured on 353fb69f7 before the rule: the pair passed `check`, built, and the
+// program printed whichever `Helper` the emitter's declaration order kept.
+//
+// `onlyDuplicates` narrows the answer to the two cross-file duplicate reports — NL306 for a function,
+// NL339 for a type; every error otherwise, so a USE site can be shown to resolve cleanly once the
+// declarations carry the diagnostic.
+func NamespaceTwinReports(filePath: string, source: string, projectRoot: string, onlyDuplicates: bool): List<string> {
     parsed := ColumnarParserRecovery.ParseFileAst(source, filePath)
     assert parsed.Errors.Count == 0
     unit := parsed.CompilationUnit
@@ -1348,7 +1389,7 @@ func TopLevelFunctionTwinReports(filePath: string, source: string, projectRoot: 
     try {
         result := analyzer.Analyze(unit, filePath, projectRoot, source)
         for error in result.Errors {
-            if error.Code == ErrorCode.DuplicateDeclaration {
+            if !onlyDuplicates || error.Code == ErrorCode.DuplicateDeclaration || error.Code == ErrorCode.TypeDeclaredInAnotherFile {
                 messages.Add(error.Message + " @" + error.Line.ToString() + ":" + error.Column.ToString())
             }
         }
@@ -1374,17 +1415,53 @@ test "two files of one namespace that declare the same free function each report
         File.WriteAllText(cPath, cSource)
         File.WriteAllText(Path.Combine(projectRoot, "project.yml"), "name: FunctionTwin\nversion: 0.1.0\noutputType: exe\ntargetFramework: net10.0\n")
 
-        fromA := TopLevelFunctionTwinReports(aPath, aSource, projectRoot)
+        fromA := NamespaceTwinReports(aPath, aSource, projectRoot, true)
         assert fromA.Count == 1
         assert fromA[0] == "'Helper' is already declared in namespace 'X' by B.nl:3 — a free function name must be unique across every file of its namespace @3:6"
 
         // The other file reports too, naming THIS one: neither file is "second".
-        fromB := TopLevelFunctionTwinReports(bPath, bSource, projectRoot)
+        fromB := NamespaceTwinReports(bPath, bSource, projectRoot, true)
         assert fromB.Count == 1
         assert fromB[0].Contains("by A.nl:3")
 
         // A different namespace is a different function.
-        assert TopLevelFunctionTwinReports(cPath, cSource, projectRoot).Count == 0
+        assert NamespaceTwinReports(cPath, cSource, projectRoot, true).Count == 0
+    } finally {
+        Directory.Delete(projectRoot, true)
+    }
+}
+
+// THE TYPE CHANNEL'S USE SITE, end to end. The duplicate itself is NL339's — reported once, at the
+// later declaration, naming the first — and a use in a third file resolves to the first file's type
+// rather than reporting it missing. Measured on 353fb69f7: this project reported the NL339 AND an
+// NL201 "Type 'Widget' not found" at `new Widget()`, because the namespace walk refused a second claim
+// of one (name, arity) instead of picking one.
+test "a type declared in two files of one namespace is one NL339, and a use in a third file resolves" {
+    projectRoot := Path.Combine(Path.GetTempPath(), "nsharp-type-twin-" + Guid.NewGuid().ToString("N"))
+    Directory.CreateDirectory(projectRoot)
+    try {
+        aPath := Path.Combine(projectRoot, "A.nl")
+        aSource := "namespace X\n\nclass Widget {\n    Tag: string = \"A\"\n}\n"
+        bPath := Path.Combine(projectRoot, "B.nl")
+        bSource := "namespace X\n\nclass Widget {\n    Tag: string = \"B\"\n}\n"
+        mainPath := Path.Combine(projectRoot, "Main.nl")
+        mainSource := "namespace X\n\nfunc main() {\n    w := new Widget()\n    print w.Tag\n}\n"
+        File.WriteAllText(Path.Combine(projectRoot, "project.yml"), "name: TypeTwin\nversion: 0.1.0\noutputType: exe\ntargetFramework: net10.0\n")
+        File.WriteAllText(aPath, aSource)
+        File.WriteAllText(bPath, bSource)
+        File.WriteAllText(mainPath, mainSource)
+
+        // The first declaration carries nothing; the later one carries the one report, and no
+        // function-channel NL306 joins it.
+        assert NamespaceTwinReports(aPath, aSource, projectRoot, true).Count == 0
+        fromB := NamespaceTwinReports(bPath, bSource, projectRoot, true)
+        assert fromB.Count == 1
+        assert fromB[0].StartsWith("A type named 'Widget' is already declared in this namespace, at A.nl:3"), fromB[0]
+        assert fromB[0].EndsWith("@3:7"), fromB[0]
+
+        // THE USE SITE RESOLVES: no NL201, no report of any code.
+        fromMain := NamespaceTwinReports(mainPath, mainSource, projectRoot, false)
+        assert fromMain.Count == 0, string.Join(" | ", fromMain)
     } finally {
         Directory.Delete(projectRoot, true)
     }
@@ -1405,12 +1482,12 @@ test "a folder of standalone scripts with no project.yml is not one program, so 
         File.WriteAllText(firstPath, firstSource)
         File.WriteAllText(secondPath, secondSource)
 
-        assert TopLevelFunctionTwinReports(firstPath, firstSource, projectRoot).Count == 0
-        assert TopLevelFunctionTwinReports(secondPath, secondSource, projectRoot).Count == 0
+        assert NamespaceTwinReports(firstPath, firstSource, projectRoot, true).Count == 0
+        assert NamespaceTwinReports(secondPath, secondSource, projectRoot, true).Count == 0
 
         // The same two files under a `project.yml` ARE one program, and then they collide.
         File.WriteAllText(Path.Combine(projectRoot, "project.yml"), "name: ScriptFolder\nversion: 0.1.0\noutputType: exe\ntargetFramework: net10.0\n")
-        reports := TopLevelFunctionTwinReports(firstPath, firstSource, projectRoot)
+        reports := NamespaceTwinReports(firstPath, firstSource, projectRoot, true)
         assert reports.Count == 2
         assert reports[0].Contains("'Sum' is already declared in the global namespace by Second.nl:1")
         assert reports[1].Contains("'Main' is already declared in the global namespace by Second.nl:5")

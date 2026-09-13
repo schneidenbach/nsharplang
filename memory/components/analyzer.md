@@ -1303,7 +1303,11 @@ Every walk over it takes the FIRST file that matches, and duplicate names across
 rather than pathological — measured over this repository's own root project (440 files) there are 47
 distinct (namespace, name) pairs declared by more than one file, `Person` by 14 files and `Main` by
 42. So the order is behaviour. `AnalyzerDeclarationContext` depends on the same order, which is why
-`AddProjectUnitsTo` hands it the units in it.
+`AddProjectUnitsTo` hands it the units in it. (Those 47 are the ROOT `project.yml`'s umbrella over
+every example, fixture and template in the repository — single-file example directories with no
+`project.yml` of their own, `examples/17-issue-tracker` beside its `tests/fixtures` copy — and within
+that umbrella they are reported as they would be in any one project: NL306 for a free function,
+NL339 for a type. The order still decides what a USE binds to; it no longer decides silently.)
 
 The two namespace questions read from DISK rather than from the snapshot, because they ask about the
 project as it exists on the filesystem: `ProjectNamespaceExists` (which `NamespaceExists` consults
@@ -1607,22 +1611,48 @@ Two consequences the analyzer owns:
   makes that metadata single-valued as well. (An earlier revision of this slice reported NL306 here
   instead; it broke three shipped examples and was withdrawn.)
 - **A free-function name is declared ONCE per namespace, across files (NL306).** Measured on
-  a755caeea: two files of `X` each declaring `func Helper()` passed `check`, built, and the program
-  printed the second file's answer — the analyzer's file scan and the emitter's declaration order
-  had each picked a winner. `AnalyzerProjectTypeDiscovery.SameNamespaceFunctionTwins` builds, once
-  per analysis, the top-level function names the OTHER files of the current namespace declare (first
-  other file wins, own file excluded), and `AnalyzerDeclarationPolicy.DeclareTopLevelFunction`
+  353fb69f7: two files of `X` each declaring `func Helper()` passed `check`, built, and the program
+  printed whichever `Helper` the emitter's declaration order kept — the analyzer's file scan and the
+  emitter had each picked a winner. `AnalyzerProjectTypeDiscovery.SameNamespaceFunctionTwins` builds,
+  once per analysis, the top-level function names the OTHER files of the current namespace declare
+  (first other file wins, own file excluded), and `AnalyzerDeclarationPolicy.DeclareTopLevelFunction`
   reports at each file's declaration naming the other — neither file is "second". The parameter
   lists play no part: the identity is (namespace, name); cross-file overloads of one name never
-  worked (the view is name-keyed, and a call at the other arity reported NL401 against whichever
-  file discovery happened to reach), and in-file free-function overloads decline at
-  `parse.declaration-scan`. The emitter's own word is `ColumnarFreeFunctionScope.Declare` answering
-  `false` for a second (namespace, name) row, declined at `emit.declaration.duplicate`. The report
-  is asked only when `AnalyzerProjectSourceProvider.CompilesAsOneProgram()` — the analysis root has
-  a `project.yml`. The first cut asked it everywhere and the product gate's Step 10 failed on six
-  example folders: `examples/03-functions` and its siblings are standalone single-file programs
-  (seven `Main`s, repeated helpers) that the gate checks as ONE directory and the LSP opens with
-  the directory as its fallback root; nothing compiles them together, so they cannot collide.
+  worked (the view is name-keyed), and in-file free-function overloads decline at
+  `parse.declaration-scan` (re-measured on 353fb69f7). The emitter's own word is
+  `ColumnarFreeFunctionScope.Declare` answering `false` for a second (namespace, name) row, declined
+  at `emit.declaration.duplicate`. The report is asked only when
+  `AnalyzerProjectSourceProvider.CompilesAsOneProgram()` — the analysis root has a `project.yml`:
+  `examples/03-functions` and its siblings are standalone single-file programs (five `Main`s, two
+  `Sum`s in the global namespace) that the gate's Step 10 checks as ONE directory and the LSP opens
+  with the directory as its fallback root; nothing compiles them together, so they cannot collide.
+- **A type declared in two files of one namespace is NL339's, and its USE resolves.** NL339
+  (`AnalyzerDeclarationPolicy.ReportTypeDeclaredInAnotherFile`) owns the duplicate: one report, at the
+  later declaration, naming the first. Measured on 353fb69f7, the same project ALSO reported NL201
+  "Type 'Widget' not found" at `new Widget()` in a third file, because
+  `AnalyzerDeclarationContext.TryResolveDeclarationInNamespace` REFUSED a second same-namespace claim
+  of one (name, arity) instead of picking one. It now answers the FIRST file of the namespace (and
+  `TryResolveUniqueExported` counts namespaces, not files), so the use binds like the function
+  channel and go-to-definition. `ColumnarDeclarationPlanner.TryFindDuplicateTypeDeclaration` is the
+  emitter's own refusal at `emit.declaration.duplicate`, over one ledger of enum, interface,
+  struct/class/record and union exact names (`PersistedAssemblyBuilder` accepts a second `DefineType`
+  of one name silently). Unlike NL306's function rule, NL339 is not gated on a `project.yml` — the
+  playground pins it in a project-less root.
+- **The rule is per COMPILATION, so two assemblies may each declare the name — and the SDK's own
+  slices are held to a stricter rule elsewhere.** NL306 and NL339 ask about one project, one
+  assembly. Across assemblies the lookup rule (`SimpleNamePrecedence`) keeps a same (namespace,
+  name) unambiguous: a bare call reaches only the compilation's OWN free functions (a referenced
+  assembly's is NL412 as a bare call), a type at one namespace resolves source over metadata
+  (CS0436's resolution), and two imported namespaces supplying one name are NL209. Probed on this
+  port with a library and an app both declaring `X.Helper` and `X.Widget`: check clean, the app's own
+  `Helper` and `Widget` win. So a user project may legitimately reuse a referenced library's names.
+  The per-slice assemblies this compiler SHIPS side by side (Compiler.Model, Compiler.Core, the
+  Syntax carve) are stricter, and not because of NL306: any free function puts a `<namespace>.Program`
+  holder in its assembly, and two shipped assemblies holding one namespace's `Program` is CS0433 for
+  every C# consumer that references both — `tests/native/census-free-function-identity`'s
+  `ShippedHolders.tests.nl` refuses that for the committed seed and for the next pack's payload,
+  whatever the function names are. Measured at 353fb69f7 the src projects share NO free-function or
+  type identity across assemblies (294 function identities, 1,520 type identities).
 
 **EXPORT IS REQUIRED ONLY ACROSS NAMESPACES, AND ONE OWNER SAYS SO.**
 `SimpleNamePrecedence.RequiresExport(currentNamespace, candidateNamespace)` is that half of the rule:

@@ -1825,6 +1825,73 @@ class ColumnarDeclarationPlanner {
         return new ColumnarFieldRows(count, names, words, statics, threadStatics, nullables, literals)
     }
 
+    // THE EMITTER'S OWN WORD ON A TYPE DECLARED TWICE. Every enum, interface, struct/class/record and
+    // union becomes one `DefineType` of its exact CLR name — namespace, name and arity suffix — and
+    // `PersistedAssemblyBuilder` accepts a second `DefineType` of the same name without complaint:
+    // the module carries two TypeDef rows of one identity and every registry keeps whichever was
+    // defined last. Measured before this walk existed: two files of `X` each declaring
+    // `class Widget` passed the emitter, built, and ran. The analyzer reports the pair as NL339 at
+    // the later declaration; this is the refusal for the paths that reach the emitter without it,
+    // exactly as `ColumnarFreeFunctionScope.Declare` refuses a second (namespace, name) free function.
+    //
+    // The four declaration families are one CLR type table, so they share one ledger, in the order
+    // the emitter defines them (enums, interfaces, structs, unions); the FIRST repeated identity is
+    // the answer, reported by its written name and its namespace.
+    static func TryFindDuplicateTypeDeclaration(program: ColumnarProgramInput, out typeName: string, out namespaceName: string): bool {
+        seen := new HashSet<string>(StringComparer.Ordinal)
+        enums := program.Enums
+        index := 0
+        while index < enums.Count {
+            input := enums[index]
+            index = index + 1
+            if !seen.Add(program.ExactTypeNameForFile(input.Name, input.SourceFileId)) {
+                typeName = input.Name
+                namespaceName = program.NamespaceNameForFile(input.SourceFileId)
+                return true
+            }
+        }
+
+        interfaces := program.Interfaces
+        index = 0
+        while index < interfaces.Count {
+            iface := interfaces[index]
+            index = index + 1
+            if !seen.Add(program.ExactInterfaceTypeName(iface)) {
+                typeName = TypeArityNames.WrittenForm(iface.Name, iface.TypeParamNames.Length)
+                namespaceName = program.NamespaceNameForFile(iface.SourceFileId)
+                return true
+            }
+        }
+
+        structs := program.Structs
+        index = 0
+        while index < structs.Count {
+            st := structs[index]
+            index = index + 1
+            if !seen.Add(program.ExactStructTypeName(st)) {
+                typeName = TypeArityNames.WrittenForm(st.Name, st.TypeParamNames.Length)
+                namespaceName = program.NamespaceNameForFile(st.SourceFileId)
+                return true
+            }
+        }
+
+        unions := program.Unions
+        index = 0
+        while index < unions.Count {
+            un := unions[index]
+            index = index + 1
+            if !seen.Add(program.ExactUnionTypeName(un)) {
+                typeName = TypeArityNames.WrittenForm(un.Name, un.TypeParamNames.Length)
+                namespaceName = program.NamespaceNameForFile(un.SourceFileId)
+                return true
+            }
+        }
+
+        typeName = ""
+        namespaceName = ""
+        return false
+    }
+
     static func BuildTypeDefs(program: ColumnarProgramInput): ColumnarTypeDefRows {
         interfaces := program.Interfaces
         interfaceCount := interfaces.Count

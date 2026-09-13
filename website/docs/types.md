@@ -276,6 +276,15 @@ class Person {
 }
 ```
 
+### A type name is declared once per namespace
+
+A type is identified by its namespace, its name and its type-parameter count, and a namespace spans
+every file that declares it. Two files of `namespace Reporting` that both declare a `Widget` — with
+any of the type keywords — is [NL339](./errors/NL339.md), reported at the later declaration and
+naming the first; a use of `Widget` in a third file resolves to the first declaration rather than
+reporting it missing, so the one report points at the declarations. `Box` and `Box<T>` are two types
+and may live in two files, and the same two declarations in two different namespaces are two types.
+
 ### Primary Constructors
 
 ```n#
