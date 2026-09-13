@@ -11145,7 +11145,12 @@ sealed class ColumnarIlEmitter {
                         columnarResolvedType = staticPropRead.PropertyType
                         return true
                     }
-                    return false
+                    // THE STATIC SURFACE OF AN EXTERNAL BASE IS INHERITED TOO. `SharedRandom.Shared` on
+                    // `class SharedRandom: Random` names a static `Random` declares; the chain walk above
+                    // sees only source declarations, so the read had nothing to bind. A static member
+                    // belongs to the type that DECLARES it — naming the derived type does not give it a
+                    // second copy — so the instruction is the base's own `ldsfld`/`call`.
+                    return TryEmitInheritedExternalStaticMember(staticOwner, staticFieldName, out columnarResolvedType)
                 }
             }
             // Instance member access: `.Length` (array/string/StringBuilder -> int) or `.ItemN` (a tuple
@@ -19176,9 +19181,82 @@ sealed class ColumnarIlEmitter {
                     columnarResolvedType = staticProperty.PropertyType
                     return true
                 }
+                // The preflight twin of the inherited-static read: the same question, answered before
+                // anything is emitted, so a chain over the value types with the emission.
+                inheritedStatic := InheritedExternalStaticMemberType(staticOwner, ColumnarNodeTextFacts.Text(_nodes, _source, node))
+                if (inheritedStatic != null) {
+                    columnarResolvedType = inheritedStatic
+                    return true
+                }
             }
         }
         return false
+    }
+
+    // A PUBLIC STATIC FIELD OR PROPERTY OF THE BASE THIS COMPILATION DID NOT WRITE, named through a
+    // derived type. The base comes from the one inherited-base walk; the member is chosen by ordinary
+    // reflection on it and must be DECLARED there, so a name the base itself inherits from further up
+    // is answered by that base's own metadata rather than re-derived here.
+    private func TryResolveInheritedExternalStaticMember(staticOwner: ColumnarStructDef, memberName: string, out field: FieldInfo, out getter: MethodInfo, out memberType: Type): bool {
+        field = null
+        getter = null
+        memberType = null
+        if (memberName.Length == 0) {
+            return false
+        }
+        externalBase := ColumnarInheritedExternalBase.Resolve(staticOwner, null)
+        if (externalBase == null) {
+            return false
+        }
+        staticFlags := BindingFlags.Public | BindingFlags.Static | BindingFlags.FlattenHierarchy
+        externalField := externalBase.GetField(memberName, staticFlags)
+        if (externalField != null && externalField.get_IsPublic() && externalField.get_IsStatic() && !externalField.get_IsLiteral()) {
+            field = externalField
+            memberType = externalField.get_FieldType()
+            return true
+        }
+        externalProperty := externalBase.GetProperty(memberName, staticFlags)
+        if (externalProperty == null) {
+            return false
+        }
+        externalGetter := externalProperty.GetGetMethod()
+        if (externalGetter == null || !externalGetter.get_IsPublic() || !externalGetter.get_IsStatic() || externalGetter.GetParameters().Length != 0) {
+            return false
+        }
+        getter = externalGetter
+        memberType = externalGetter.get_ReturnType()
+        return true
+    }
+
+    private func InheritedExternalStaticMemberType(staticOwner: ColumnarStructDef, memberName: string): Type? {
+        let inheritedField: System.Reflection.FieldInfo = null
+        let inheritedGetter: System.Reflection.MethodInfo = null
+        let inheritedType: System.Type = null
+        if (!TryResolveInheritedExternalStaticMember(staticOwner, memberName, out inheritedField, out inheritedGetter, out inheritedType)) {
+            return null
+        }
+        return inheritedType
+    }
+
+    private func TryEmitInheritedExternalStaticMember(staticOwner: ColumnarStructDef, memberName: string, out columnarResolvedType: Type): bool {
+        columnarResolvedType = null
+        let inheritedField: System.Reflection.FieldInfo = null
+        let inheritedGetter: System.Reflection.MethodInfo = null
+        let inheritedType: System.Type = null
+        if (!TryResolveInheritedExternalStaticMember(staticOwner, memberName, out inheritedField, out inheritedGetter, out inheritedType)) {
+            return false
+        }
+        if (inheritedField != null) {
+            _il.Emit(OpCodes.Ldsfld, inheritedField)
+            columnarResolvedType = inheritedType
+            return true
+        }
+        if (inheritedGetter == null) {
+            return false
+        }
+        _il.Emit(OpCodes.Call, inheritedGetter)
+        columnarResolvedType = inheritedType
+        return true
     }
 
     private func CanAdoptIntLiteralAsType(node: int, target: Type): bool {

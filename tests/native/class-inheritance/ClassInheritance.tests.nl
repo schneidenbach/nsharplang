@@ -376,3 +376,12 @@ test "the emitted parent of a derived type is the external base it wrote" {
     assert (must namesType.GetMethod("Add")).DeclaringType == typeof(List<string>)
     assert (must namesType.GetProperty("Count")).DeclaringType == typeof(List<string>)
 }
+
+test "a static member of an external base is read through the derived type" {
+    shared := SharedRandom.Shared
+    assert shared != null
+
+    // It IS the base's one shared instance, not a new one: a static member belongs to the type that
+    // declares it, and naming a derived type does not give it a second copy.
+    assert Object.ReferenceEquals(shared, Random.Shared)
+}

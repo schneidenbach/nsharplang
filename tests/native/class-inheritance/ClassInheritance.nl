@@ -374,3 +374,15 @@ class TaggedError: System.Exception {
         return Tag + ":" + Message
     }
 }
+
+// A STATIC MEMBER READ THROUGH THE DERIVED TYPE. It is not an instance member, so it does not go
+// through the receiver walk above; it is here because a rule about inheritance that covers only
+// instance members is not a rule about inheritance.
+//
+// An EVENT the external base declares is NOT covered here, and deliberately: `on`/`off` do not parse
+// into columnar input for ANY receiver — a direct `ObservableCollection<string>` declines at
+// `parse.function` exactly as a derived one does — so there is nothing inheritance-specific to
+// assert at runtime. Analysis of `on derived.SomeBaseEvent (...)` is clean, which is the half this
+// slice owns.
+class SharedRandom: System.Random {
+}
