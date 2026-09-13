@@ -169,7 +169,7 @@ comparable programs; it retires when the playground runs emitted IL in the brows
 `Playground/PlaygroundCompiler.cs` carries the hosted playground's own presentation copy — 24
 sentences and 7 ordering sites — and retires with the same Playground task.
 
-The ratchet at `tests/native/ownership-audit/non-nsharp-growth-ratchet.v1.json` enforces this
+The ratchet at `tests/native/ownership-audit/non-nsharp-growth-ratchet.v2.json` enforces this
 allowlist mechanically: no listed file may grow past its epoch ceiling (`OWN004`), and a new non-N#
 file is refused outright (`OWN003` — *"new unclassified non-N# file; implement this behavior in N#
 or remove the file"*). `tasks/README.md` is the ordered vertical ownership queue and

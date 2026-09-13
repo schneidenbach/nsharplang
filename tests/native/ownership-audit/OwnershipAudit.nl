@@ -124,18 +124,18 @@ class OwnershipManifestEntry {
 class OwnershipManifest {
     SchemaVersion: int
     Phase: string
-    EpochFileCount: int
-    EpochPathFingerprint: string
-    EpochFactFingerprint: string
+    CodeEpochFileCount: int
+    CodeEpochPathFingerprint: string
+    CodeEpochFactFingerprint: string
     ReviewedHeadFingerprint: string
     Files: List<OwnershipManifestEntry>
 
     constructor() {
         SchemaVersion = 0
         Phase = ""
-        EpochFileCount = 0
-        EpochPathFingerprint = ""
-        EpochFactFingerprint = ""
+        CodeEpochFileCount = 0
+        CodeEpochPathFingerprint = ""
+        CodeEpochFactFingerprint = ""
         ReviewedHeadFingerprint = ""
         Files = new List<OwnershipManifestEntry>()
     }
@@ -231,15 +231,34 @@ class OwnershipAuditResult {
     }
 }
 
+// The manifest holds two row classes with one honest rule each.
+//
+// CODE rows are the languages a product can be implemented in (C#, TypeScript, JavaScript,
+// Python, Java, Rust, Go, native, and the rest). They carry the growth ratchet: immutable epoch
+// ceilings that may never be raised, current ceilings that may only shrink or be removed, an
+// exact-match fingerprint, and a frozen path set. A code file with no row is refused (OWN003);
+// admitting one takes a new epoch, not a repin.
+//
+// DELIVERY rows are the config, MSBuild, shell and binary surfaces the product ships through
+// (product-config, yaml-config, json-config, msbuild, shell, powershell, policy-data,
+// gradle-config, and every binary language). They carry no ceiling, because a delivery change is
+// judged by review rather than by size: the row records an exact-match fingerprint plus the line
+// counts the audit reports, and any drift is always reported (OWN005). A NEW delivery file is
+// admitted by adding its row in a reviewed repin -- never implicitly, so a new delivery file with
+// no row is still refused (OWN003).
+//
+// E1 is the epoch taken at the bootstrap seed boundary: the code epoch triple (file count, path
+// set, epoch facts) is computed over CODE rows only, so admitting or repinning a delivery row can
+// never move it, while the reviewed-head fingerprint covers every row of both classes. Both keys
+// live here and in the manifest header, so a manifest-only rebaseline can never pass the live gate.
 class OwnershipPolicy {
-    static ManifestFileName: string => "non-nsharp-growth-ratchet.v1.json"
+    static ManifestFileName: string => "non-nsharp-growth-ratchet.v2.json"
+    static SchemaVersion: int => 2
 
-    // The path and epoch constants define E0. The reviewed-head constant ratchets every
-    // accepted shrink or removal, so a manifest-only rebaseline can never pass the live gate.
-    static EpochFileCount: int => 381
-    static EpochPathFingerprint: string => "pathset-v1:9b857d8cc99f9e02"
-    static EpochFactFingerprint: string => "epochfacts-v1:6c91c4146f5ab460"
-    static ReviewedHeadFingerprint: string => "head-v1:0b0be48aec998a0d"
+    static CodeEpochFileCount: int => 223
+    static CodeEpochPathFingerprint: string => "pathset-v2:fbda7fc3d5053525"
+    static CodeEpochFactFingerprint: string => "epochfacts-v2:05f608333cab8ef7"
+    static ReviewedHeadFingerprint: string => "head-v2:1b4771b7b5425f11"
 
     static func Classify(path: string): OwnershipClassification {
         normalized := NormalizeRelativePath(path)
@@ -407,6 +426,33 @@ class OwnershipPolicy {
         return language == "wasm-binary" || language == "managed-binary" || language == "native-binary" || language == "package-binary" || language == "opaque-binary" || language == "automation-binary" || language == "platform-config-binary"
     }
 
+    // Config, build and packaging surfaces: reviewed by fingerprint, never by ceiling.
+    static func IsDeliveryLanguage(language: string): bool {
+        if language == "msbuild" || language == "shell" || language == "powershell" {
+            return true
+        }
+        if language == "product-config" || language == "yaml-config" || language == "json-config" {
+            return true
+        }
+        if language == "policy-data" || language == "gradle-config" {
+            return true
+        }
+        return IsBinaryLanguage(language)
+    }
+
+    // Every other audited language is code, and code keeps the growth ratchet.
+    static func IsCodeLanguage(language: string): bool {
+        return !IsDeliveryLanguage(language)
+    }
+
+    static func IsDeliveryPath(path: string): bool {
+        classification := Classify(path)
+        if !classification.Included {
+            return false
+        }
+        return IsDeliveryLanguage(classification.Language)
+    }
+
     static func Included(language: string, surface: string, campaignScope: string): OwnershipClassification {
         return new OwnershipClassification(true, false, language, surface, campaignScope)
     }
@@ -421,7 +467,7 @@ class OwnershipPolicy {
 
     static func IsAuditedJson(path: string): bool {
         lower := path.ToLowerInvariant()
-        if lower == "tests/native/ownership-audit/non-nsharp-growth-ratchet.v1.json" {
+        if lower == "tests/native/ownership-audit/non-nsharp-growth-ratchet.v2.json" {
             return false
         }
         if lower.StartsWith("tests/fixtures/", StringComparison.Ordinal) && lower.EndsWith(".golden.json", StringComparison.Ordinal) {
@@ -459,7 +505,7 @@ class OwnershipPolicy {
         if lower == ".claude/launch.json" || lower == "examples/14-minimal-api/minimalapi.g.csproj" || lower == "examples/17-issue-tracker/backend/issuetracker.g.csproj" {
             return true
         }
-        if name == "project.yml" || lower == "tests/native/ownership-audit/non-nsharp-growth-ratchet.v1.json" {
+        if name == "project.yml" || lower == "tests/native/ownership-audit/non-nsharp-growth-ratchet.v2.json" {
             return true
         }
         if lower.StartsWith("tests/fixtures/", StringComparison.Ordinal) && lower.EndsWith(".golden.json", StringComparison.Ordinal) {
@@ -567,14 +613,39 @@ class OwnershipFacts {
             i = i + 1
         }
         SortStrings(ordered)
-        return "pathset-v1:" + Fingerprint(string.Join("\n", ordered)).Substring("text-v1:".Length)
+        return "pathset-v2:" + Fingerprint(string.Join("\n", ordered)).Substring("text-v1:".Length)
     }
 
-    static func EpochFactFingerprint(entries: List<OwnershipManifestEntry>): string {
-        builder := new StringBuilder()
+    // The epoch covers code rows only, so a reviewed delivery row can never move it.
+    static func CodeRows(entries: List<OwnershipManifestEntry>): List<OwnershipManifestEntry> {
+        rows := new List<OwnershipManifestEntry>()
         i := 0
         while i < entries.Count {
-            entry := entries[i]
+            if OwnershipPolicy.IsCodeLanguage(entries[i].Language) {
+                rows.Add(entries[i])
+            }
+            i = i + 1
+        }
+        return rows
+    }
+
+    static func CodeEpochPathFingerprint(entries: List<OwnershipManifestEntry>): string {
+        rows := CodeRows(entries)
+        paths := new List<string>()
+        i := 0
+        while i < rows.Count {
+            paths.Add(rows[i].Path)
+            i = i + 1
+        }
+        return PathSetFingerprint(paths)
+    }
+
+    static func CodeEpochFactFingerprint(entries: List<OwnershipManifestEntry>): string {
+        rows := CodeRows(entries)
+        builder := new StringBuilder()
+        i := 0
+        while i < rows.Count {
+            entry := rows[i]
             AppendFactString(builder, entry.Path)
             AppendFactString(builder, entry.Language)
             AppendFactString(builder, entry.Surface)
@@ -586,9 +657,10 @@ class OwnershipFacts {
             builder.Append('\n')
             i = i + 1
         }
-        return "epochfacts-v1:" + Fingerprint(builder.ToString()).Substring("text-v1:".Length)
+        return "epochfacts-v2:" + Fingerprint(builder.ToString()).Substring("text-v1:".Length)
     }
 
+    // The reviewed head covers every row of both classes, so a delivery repin is reviewed too.
     static func ReviewedHeadFingerprint(entries: List<OwnershipManifestEntry>): string {
         builder := new StringBuilder()
         i := 0
@@ -604,7 +676,7 @@ class OwnershipFacts {
             builder.Append('\n')
             i = i + 1
         }
-        return "head-v1:" + Fingerprint(builder.ToString()).Substring("text-v1:".Length)
+        return "head-v2:" + Fingerprint(builder.ToString()).Substring("text-v1:".Length)
     }
 
     static func Observe(path: string, classification: OwnershipClassification, text: string): OwnershipObservedFile {
@@ -765,7 +837,6 @@ class OwnershipAudit {
 
         try {
             observed := ScanRepository(root, result)
-            DeliveryOwnershipPolicy.ValidatePresence(observed, result)
             if result.Diagnostics.Count > 0 {
                 result.Sort()
                 return result
@@ -774,9 +845,9 @@ class OwnershipAudit {
             return AuditSnapshotAgainstPolicy(
                 File.ReadAllText(manifestPath),
                 observed,
-                OwnershipPolicy.EpochFileCount,
-                OwnershipPolicy.EpochPathFingerprint,
-                OwnershipPolicy.EpochFactFingerprint,
+                OwnershipPolicy.CodeEpochFileCount,
+                OwnershipPolicy.CodeEpochPathFingerprint,
+                OwnershipPolicy.CodeEpochFactFingerprint,
                 OwnershipPolicy.ReviewedHeadFingerprint
             )
         } catch ex: Exception {
@@ -795,9 +866,9 @@ class OwnershipAudit {
             return AuditSnapshotAgainstPolicy(
                 manifestText,
                 observed,
-                OwnershipPolicy.EpochFileCount,
-                OwnershipPolicy.EpochPathFingerprint,
-                OwnershipPolicy.EpochFactFingerprint,
+                OwnershipPolicy.CodeEpochFileCount,
+                OwnershipPolicy.CodeEpochPathFingerprint,
+                OwnershipPolicy.CodeEpochFactFingerprint,
                 OwnershipPolicy.ReviewedHeadFingerprint
             )
         }
@@ -817,9 +888,9 @@ class OwnershipAudit {
     static func AuditSnapshotAgainstPolicy(
         manifestText: string,
         observed: List<OwnershipObservedFile>,
-        expectedEpochFileCount: int,
+        expectedCodeEpochFileCount: int,
         expectedPathFingerprint: string,
-        expectedEpochFactFingerprint: string,
+        expectedCodeEpochFactFingerprint: string,
         expectedReviewedHeadFingerprint: string
     ): OwnershipAuditResult {
         result := AuditSnapshot(manifestText, observed, false)
@@ -828,14 +899,14 @@ class OwnershipAudit {
         if manifest == null {
             return result
         }
-        if manifest.EpochFileCount != expectedEpochFileCount {
-            result.Add("OWN008", "", "policy epoch file count changed; expected " + Number(expectedEpochFileCount))
+        if manifest.CodeEpochFileCount != expectedCodeEpochFileCount {
+            result.Add("OWN008", "", "policy code epoch file count changed; expected " + Number(expectedCodeEpochFileCount))
         }
-        if manifest.EpochPathFingerprint != expectedPathFingerprint {
-            result.Add("OWN008", "", "policy path fingerprint changed; expected " + expectedPathFingerprint)
+        if manifest.CodeEpochPathFingerprint != expectedPathFingerprint {
+            result.Add("OWN008", "", "policy code path fingerprint changed; expected " + expectedPathFingerprint)
         }
-        if manifest.EpochFactFingerprint != expectedEpochFactFingerprint {
-            result.Add("OWN008", "", "policy epoch facts changed; expected " + expectedEpochFactFingerprint)
+        if manifest.CodeEpochFactFingerprint != expectedCodeEpochFactFingerprint {
+            result.Add("OWN008", "", "policy code epoch facts changed; expected " + expectedCodeEpochFactFingerprint)
         }
         if manifest.ReviewedHeadFingerprint != expectedReviewedHeadFingerprint {
             result.Add("OWN008", "", "policy reviewed head changed; expected " + expectedReviewedHeadFingerprint)
@@ -930,6 +1001,13 @@ class OwnershipAudit {
                 return null
             }
 
+            declaredVersion := ReadSchemaVersion(root)
+            if declaredVersion != OwnershipPolicy.SchemaVersion {
+                result.Add("OWN001", "", SchemaRejection(declaredVersion))
+                document.Dispose()
+                return null
+            }
+
             manifest := new OwnershipManifest()
             rootFields := new HashSet<string>(StringComparer.Ordinal)
             rootEnumerator := root.EnumerateObject()
@@ -945,16 +1023,16 @@ class OwnershipAudit {
                     }
                 } else if property.Name == "phase" {
                     manifest.Phase = RequireString(property.Value, "phase", "", result)
-                } else if property.Name == "epochFileCount" {
+                } else if property.Name == "codeEpochFileCount" {
                     if property.Value.ValueKind == JsonValueKind.Number {
-                        manifest.EpochFileCount = property.Value.GetInt32()
+                        manifest.CodeEpochFileCount = property.Value.GetInt32()
                     } else {
                         result.Add("OWN001", "", "epochFileCount must be an integer")
                     }
-                } else if property.Name == "epochPathFingerprint" {
-                    manifest.EpochPathFingerprint = RequireString(property.Value, "epochPathFingerprint", "", result)
-                } else if property.Name == "epochFactFingerprint" {
-                    manifest.EpochFactFingerprint = RequireString(property.Value, "epochFactFingerprint", "", result)
+                } else if property.Name == "codeEpochPathFingerprint" {
+                    manifest.CodeEpochPathFingerprint = RequireString(property.Value, "codeEpochPathFingerprint", "", result)
+                } else if property.Name == "codeEpochFactFingerprint" {
+                    manifest.CodeEpochFactFingerprint = RequireString(property.Value, "codeEpochFactFingerprint", "", result)
                 } else if property.Name == "reviewedHeadFingerprint" {
                     manifest.ReviewedHeadFingerprint = RequireString(property.Value, "reviewedHeadFingerprint", "", result)
                 } else if property.Name == "files" {
@@ -966,9 +1044,9 @@ class OwnershipAudit {
 
             RequireRootField(rootFields, "schemaVersion", result)
             RequireRootField(rootFields, "phase", result)
-            RequireRootField(rootFields, "epochFileCount", result)
-            RequireRootField(rootFields, "epochPathFingerprint", result)
-            RequireRootField(rootFields, "epochFactFingerprint", result)
+            RequireRootField(rootFields, "codeEpochFileCount", result)
+            RequireRootField(rootFields, "codeEpochPathFingerprint", result)
+            RequireRootField(rootFields, "codeEpochFactFingerprint", result)
             RequireRootField(rootFields, "reviewedHeadFingerprint", result)
             RequireRootField(rootFields, "files", result)
             document.Dispose()
@@ -977,6 +1055,28 @@ class OwnershipAudit {
             result.Add("OWN001", "", "manifest is not valid strict JSON: " + ex.Message)
             return null
         }
+    }
+
+    static func ReadSchemaVersion(root: JsonElement): int {
+        version := 0
+        enumerator := root.EnumerateObject()
+        while enumerator.MoveNext() {
+            property := enumerator.Current
+            if property.Name == "schemaVersion" && property.Value.ValueKind == JsonValueKind.Number {
+                version = property.Value.GetInt32()
+            }
+        }
+        return version
+    }
+
+    static func SchemaRejection(declaredVersion: int): string {
+        if declaredVersion == 1 {
+            return "schemaVersion 1 is the pre-E1 growth ratchet and is no longer accepted: it gave every row a ceiling and froze the file set against config and delivery changes. Regenerate the manifest at schemaVersion 2, where code rows keep their epoch ceilings under codeEpochFileCount, codeEpochPathFingerprint and codeEpochFactFingerprint, and config, MSBuild, shell and binary rows become reviewed delivery rows carrying a fingerprint and line counts but no ceiling"
+        }
+        if declaredVersion == 0 {
+            return "manifest declares no integer schemaVersion; expected " + Number(OwnershipPolicy.SchemaVersion)
+        }
+        return "unsupported schemaVersion " + Number(declaredVersion) + "; expected " + Number(OwnershipPolicy.SchemaVersion)
     }
 
     static func ParseEntries(element: JsonElement, entries: List<OwnershipManifestEntry>, result: OwnershipAuditResult) {
@@ -1042,15 +1142,24 @@ class OwnershipAudit {
         RequireEntryField(fields, "surface", entry.Path, result)
         RequireEntryField(fields, "campaignScope", entry.Path, result)
         RequireEntryField(fields, "state", entry.Path, result)
-        RequireEntryField(fields, "epochLines", entry.Path, result)
         RequireEntryField(fields, "currentLines", entry.Path, result)
-        RequireEntryField(fields, "epochNonBlankLines", entry.Path, result)
         RequireEntryField(fields, "currentNonBlankLines", entry.Path, result)
-        RequireEntryField(fields, "epochAssertionMarkers", entry.Path, result)
-        RequireEntryField(fields, "currentAssertionMarkers", entry.Path, result)
-        RequireEntryField(fields, "epochBytes", entry.Path, result)
         RequireEntryField(fields, "currentBytes", entry.Path, result)
         RequireEntryField(fields, "currentFingerprint", entry.Path, result)
+        // The row class is derived from the path, so a row cannot declare itself out of its shape.
+        if OwnershipPolicy.IsDeliveryPath(entry.Path) {
+            RejectEntryField(fields, "epochLines", entry.Path, result)
+            RejectEntryField(fields, "epochNonBlankLines", entry.Path, result)
+            RejectEntryField(fields, "epochAssertionMarkers", entry.Path, result)
+            RejectEntryField(fields, "epochBytes", entry.Path, result)
+            RejectEntryField(fields, "currentAssertionMarkers", entry.Path, result)
+        } else {
+            RequireEntryField(fields, "epochLines", entry.Path, result)
+            RequireEntryField(fields, "epochNonBlankLines", entry.Path, result)
+            RequireEntryField(fields, "epochAssertionMarkers", entry.Path, result)
+            RequireEntryField(fields, "epochBytes", entry.Path, result)
+            RequireEntryField(fields, "currentAssertionMarkers", entry.Path, result)
+        }
         return entry
     }
 
@@ -1058,24 +1167,20 @@ class OwnershipAudit {
         manifest: OwnershipManifest,
         result: OwnershipAuditResult
     ) {
-        if manifest.SchemaVersion != 1 {
-            result.Add("OWN001", "", "unsupported schemaVersion " + Number(manifest.SchemaVersion) + "; expected 1")
-        }
         if manifest.Phase != "growth-ratchet" {
             result.Add("OWN001", "", "phase must be exactly 'growth-ratchet'")
         }
-        if manifest.EpochFileCount != manifest.Files.Count {
-            result.Add("OWN008", "", "epochFileCount " + Number(manifest.EpochFileCount) + " does not match files count " + Number(manifest.Files.Count))
+        codeRowCount := OwnershipFacts.CodeRows(manifest.Files).Count
+        if manifest.CodeEpochFileCount != codeRowCount {
+            result.Add("OWN008", "", "codeEpochFileCount " + Number(manifest.CodeEpochFileCount) + " does not match the code row count " + Number(codeRowCount))
         }
 
-        paths := new List<string>()
         exactPaths := new HashSet<string>(StringComparer.Ordinal)
         casePaths := new HashSet<string>(StringComparer.OrdinalIgnoreCase)
         previous := ""
         i := 0
         while i < manifest.Files.Count {
             entry := manifest.Files[i]
-            paths.Add(entry.Path)
             if !OwnershipPolicy.IsCanonicalManifestPath(entry.Path) {
                 result.Add("OWN002", entry.Path, "manifest path is not canonical; use a repository-relative '/' path with no traversal or wildcards")
             }
@@ -1104,24 +1209,28 @@ class OwnershipAudit {
                 }
             }
 
-            if entry.State != "existing-debt" && entry.State != "removed" {
-                result.Add("OWN001", entry.Path, "schema v1 state must be 'existing-debt' or 'removed'; survivor verdicts are forbidden before H8")
+            if OwnershipPolicy.IsDeliveryLanguage(entry.Language) {
+                if entry.State != "reviewed" && entry.State != "removed" {
+                    result.Add("OWN001", entry.Path, "a delivery row state must be 'reviewed' or 'removed'")
+                }
+            } else if entry.State != "existing-debt" && entry.State != "removed" {
+                result.Add("OWN001", entry.Path, "a code row state must be 'existing-debt' or 'removed'; survivor verdicts are forbidden before H8")
             }
             ValidateMetrics(entry, result)
             i = i + 1
         }
 
-        pathFingerprint := OwnershipFacts.PathSetFingerprint(paths)
-        if manifest.EpochPathFingerprint != pathFingerprint {
-            result.Add("OWN008", "", "epochPathFingerprint does not match the sorted manifest path set; observed " + pathFingerprint)
+        pathFingerprint := OwnershipFacts.CodeEpochPathFingerprint(manifest.Files)
+        if manifest.CodeEpochPathFingerprint != pathFingerprint {
+            result.Add("OWN008", "", "codeEpochPathFingerprint does not match the sorted code row path set; observed " + pathFingerprint)
         }
-        epochFactFingerprint := OwnershipFacts.EpochFactFingerprint(manifest.Files)
-        if manifest.EpochFactFingerprint != epochFactFingerprint {
-            result.Add("OWN008", "", "epochFactFingerprint does not match canonical path, classification, and epoch ceilings; observed " + epochFactFingerprint)
+        epochFactFingerprint := OwnershipFacts.CodeEpochFactFingerprint(manifest.Files)
+        if manifest.CodeEpochFactFingerprint != epochFactFingerprint {
+            result.Add("OWN008", "", "codeEpochFactFingerprint does not match canonical code row paths, classifications, and epoch ceilings; observed " + epochFactFingerprint)
         }
         reviewedHeadFingerprint := OwnershipFacts.ReviewedHeadFingerprint(manifest.Files)
         if manifest.ReviewedHeadFingerprint != reviewedHeadFingerprint {
-            result.Add("OWN008", "", "reviewedHeadFingerprint does not match canonical current ceilings and states; observed " + reviewedHeadFingerprint)
+            result.Add("OWN008", "", "reviewedHeadFingerprint does not match the canonical current facts and states of every row; observed " + reviewedHeadFingerprint)
         }
     }
 
@@ -1129,16 +1238,36 @@ class OwnershipAudit {
         if entry.EpochLines < 0 || entry.CurrentLines < 0 || entry.EpochNonBlankLines < 0 || entry.CurrentNonBlankLines < 0 || entry.EpochAssertionMarkers < 0 || entry.CurrentAssertionMarkers < 0 || entry.EpochBytes < 0 || entry.CurrentBytes < 0 {
             result.Add("OWN001", entry.Path, "ownership metrics cannot be negative")
         }
-        if OwnershipPolicy.IsBinaryLanguage(entry.Language) {
-            if entry.EpochLines != 0 || entry.CurrentLines != 0 || entry.EpochNonBlankLines != 0 || entry.CurrentNonBlankLines != 0 || entry.EpochAssertionMarkers != 0 || entry.CurrentAssertionMarkers != 0 {
-                result.Add("OWN001", entry.Path, "binary ownership uses byte ceilings only; text metrics must be zero")
-            }
-        } else if entry.EpochBytes != 0 || entry.CurrentBytes != 0 {
-            result.Add("OWN001", entry.Path, "text ownership uses line and assertion ceilings; byte metrics must be zero")
+        if OwnershipPolicy.IsDeliveryLanguage(entry.Language) {
+            ValidateDeliveryMetrics(entry, result)
+        } else {
+            ValidateCodeMetrics(entry, result)
         }
-        if entry.CurrentLines > entry.EpochLines || entry.CurrentNonBlankLines > entry.EpochNonBlankLines || entry.CurrentAssertionMarkers > entry.EpochAssertionMarkers || entry.CurrentBytes > entry.EpochBytes {
+        ValidateRecordedFingerprint(entry, result)
+    }
+
+    // A delivery row records what review accepted. It has no ceiling to compare against; the
+    // recorded counts exist so the audit and the repin can quote the reviewed size.
+    static func ValidateDeliveryMetrics(entry: OwnershipManifestEntry, result: OwnershipAuditResult) {
+        if OwnershipPolicy.IsBinaryLanguage(entry.Language) {
+            if entry.CurrentLines != 0 || entry.CurrentNonBlankLines != 0 {
+                result.Add("OWN001", entry.Path, "a binary delivery row records bytes only; line counts must be zero")
+            }
+        } else if entry.CurrentBytes != 0 {
+            result.Add("OWN001", entry.Path, "a text delivery row records line counts only; byte counts must be zero")
+        }
+    }
+
+    static func ValidateCodeMetrics(entry: OwnershipManifestEntry, result: OwnershipAuditResult) {
+        if entry.EpochBytes != 0 || entry.CurrentBytes != 0 {
+            result.Add("OWN001", entry.Path, "code ownership uses line and assertion ceilings; byte metrics must be zero")
+        }
+        if entry.CurrentLines > entry.EpochLines || entry.CurrentNonBlankLines > entry.EpochNonBlankLines || entry.CurrentAssertionMarkers > entry.EpochAssertionMarkers {
             result.Add("OWN004", entry.Path, "current ceilings cannot exceed immutable epoch ceilings")
         }
+    }
+
+    static func ValidateRecordedFingerprint(entry: OwnershipManifestEntry, result: OwnershipAuditResult) {
         if entry.State == "removed" {
             if entry.CurrentLines != 0 || entry.CurrentNonBlankLines != 0 || entry.CurrentAssertionMarkers != 0 || entry.CurrentBytes != 0 || entry.CurrentFingerprint != "text-v1:removed" {
                 result.Add("OWN001", entry.Path, "removed entries require zero current metrics and fingerprint 'text-v1:removed'")
@@ -1187,16 +1316,15 @@ class OwnershipAudit {
 
             entry := new OwnershipManifestEntry()
             hasEntry := entries.TryGetValue(observedFile.Path, out entry)
-            deliveryFingerprint := DeliveryOwnershipPolicy.Fingerprint(observedFile.Path)
-            if deliveryFingerprint != "" && (!hasEntry || entry.State != "removed") {
-                if observedFile.Fingerprint != deliveryFingerprint {
-                    result.Add("OWN005", observedFile.Path, "reviewed delivery snapshot drift; expected " + deliveryFingerprint + "; observed " + observedFile.Fingerprint)
-                }
-                i = i + 1
-                continue
-            }
+            // The class comes from the observed file, never from what a row claims, so a
+            // mislabelled row can never move a code file out of the ratchet.
+            isDelivery := OwnershipPolicy.IsDeliveryLanguage(observedFile.Language)
             if !hasEntry {
-                result.Add("OWN003", observedFile.Path, "new unclassified non-N# file; implement this behavior in N# or remove the file. Do not add it to the E0 debt epoch")
+                if isDelivery {
+                    result.Add("OWN003", observedFile.Path, "new delivery file with no reviewed row; a config, MSBuild, shell or binary file is admitted only by adding its row in a reviewed repin, never implicitly")
+                } else {
+                    result.Add("OWN003", observedFile.Path, "new unclassified non-N# file; implement this behavior in N# or remove the file. Do not add it to the E1 code epoch")
+                }
                 i = i + 1
                 continue
             }
@@ -1209,22 +1337,10 @@ class OwnershipAudit {
             if observedFile.Language != entry.Language || observedFile.Surface != entry.Surface || observedFile.CampaignScope != entry.CampaignScope {
                 result.Add("OWN002", observedFile.Path, "observed classification does not match the manifest classification")
             }
-            if observedFile.Lines != entry.CurrentLines || observedFile.NonBlankLines != entry.CurrentNonBlankLines || observedFile.AssertionMarkers != entry.CurrentAssertionMarkers || observedFile.Bytes != entry.CurrentBytes {
-                result.Add(
-                    "OWN004",
-                    observedFile.Path,
-                    "observed metrics lines=" + Number(observedFile.Lines) + ", nonblank=" + Number(observedFile.NonBlankLines) + ", assertions=" + Number(observedFile.AssertionMarkers) + ", bytes=" + Number(observedFile.Bytes) + "; allowed current lines=" + Number(entry.CurrentLines) + ", nonblank=" + Number(entry.CurrentNonBlankLines) + ", assertions=" + Number(entry.CurrentAssertionMarkers) + ", bytes=" + Number(entry.CurrentBytes) + ". Never raise a ceiling"
-                )
-            }
-            if observedFile.Lines > entry.EpochLines || observedFile.NonBlankLines > entry.EpochNonBlankLines || observedFile.AssertionMarkers > entry.EpochAssertionMarkers || observedFile.Bytes > entry.EpochBytes {
-                result.Add("OWN004", observedFile.Path, "observed ownership exceeds the immutable E0 epoch ceiling")
-            }
-            if observedFile.Fingerprint != entry.CurrentFingerprint {
-                result.Add(
-                    "OWN005",
-                    observedFile.Path,
-                    "fingerprint drift; observed " + observedFile.Fingerprint + ". For an approved shrink, review the same-commit N# owner, lower current ceilings, and update the fingerprint. Never raise a ceiling"
-                )
+            if isDelivery {
+                CompareDeliveryRow(observedFile, entry, result)
+            } else {
+                CompareCodeRow(observedFile, entry, result)
             }
             i = i + 1
         }
@@ -1232,10 +1348,62 @@ class OwnershipAudit {
         i = 0
         while i < manifest.Files.Count {
             entry := manifest.Files[i]
-            if entry.State == "existing-debt" && !observedPaths.Contains(entry.Path) {
-                result.Add("OWN006", entry.Path, "active debt entry disappeared; mark it removed in the same deletion commit")
+            if entry.State != "removed" && !observedPaths.Contains(entry.Path) {
+                if OwnershipPolicy.IsDeliveryLanguage(entry.Language) {
+                    result.Add("OWN006", entry.Path, "reviewed delivery file disappeared; review its retirement explicitly and mark the row removed in the same deletion commit")
+                } else {
+                    result.Add("OWN006", entry.Path, "active debt entry disappeared; mark it removed in the same deletion commit")
+                }
             }
             i = i + 1
+        }
+    }
+
+    // A delivery row has no ceiling: drift is always reported, and the repin is the review.
+    static func CompareDeliveryRow(
+        observedFile: OwnershipObservedFile,
+        entry: OwnershipManifestEntry,
+        result: OwnershipAuditResult
+    ) {
+        if observedFile.Fingerprint != entry.CurrentFingerprint {
+            result.Add(
+                "OWN005",
+                observedFile.Path,
+                "reviewed delivery snapshot drift; expected " + entry.CurrentFingerprint + "; observed " + observedFile.Fingerprint + " at lines=" + Number(observedFile.Lines) + ", nonblank=" + Number(observedFile.NonBlankLines) + ", bytes=" + Number(observedFile.Bytes) + ". A delivery row carries no ceiling: review the change and repin this row"
+            )
+            return
+        }
+        if observedFile.Lines != entry.CurrentLines || observedFile.NonBlankLines != entry.CurrentNonBlankLines || observedFile.Bytes != entry.CurrentBytes {
+            result.Add(
+                "OWN001",
+                observedFile.Path,
+                "reviewed delivery row records stale counts for its reviewed fingerprint; observed lines=" + Number(observedFile.Lines) + ", nonblank=" + Number(observedFile.NonBlankLines) + ", bytes=" + Number(observedFile.Bytes)
+            )
+        }
+    }
+
+    // A code row keeps the growth ratchet exactly: exact current facts under an immutable ceiling.
+    static func CompareCodeRow(
+        observedFile: OwnershipObservedFile,
+        entry: OwnershipManifestEntry,
+        result: OwnershipAuditResult
+    ) {
+        if observedFile.Lines != entry.CurrentLines || observedFile.NonBlankLines != entry.CurrentNonBlankLines || observedFile.AssertionMarkers != entry.CurrentAssertionMarkers || observedFile.Bytes != entry.CurrentBytes {
+            result.Add(
+                "OWN004",
+                observedFile.Path,
+                "observed metrics lines=" + Number(observedFile.Lines) + ", nonblank=" + Number(observedFile.NonBlankLines) + ", assertions=" + Number(observedFile.AssertionMarkers) + ", bytes=" + Number(observedFile.Bytes) + "; allowed current lines=" + Number(entry.CurrentLines) + ", nonblank=" + Number(entry.CurrentNonBlankLines) + ", assertions=" + Number(entry.CurrentAssertionMarkers) + ", bytes=" + Number(entry.CurrentBytes) + ". Never raise a ceiling"
+            )
+        }
+        if observedFile.Lines > entry.EpochLines || observedFile.NonBlankLines > entry.EpochNonBlankLines || observedFile.AssertionMarkers > entry.EpochAssertionMarkers {
+            result.Add("OWN004", observedFile.Path, "observed ownership exceeds the immutable E1 epoch ceiling")
+        }
+        if observedFile.Fingerprint != entry.CurrentFingerprint {
+            result.Add(
+                "OWN005",
+                observedFile.Path,
+                "fingerprint drift; observed " + observedFile.Fingerprint + ". For an approved shrink, review the same-commit N# owner, lower current ceilings, and update the fingerprint. Never raise a ceiling"
+            )
         }
     }
 
@@ -1253,6 +1421,17 @@ class OwnershipAudit {
     ) {
         if !fields.Contains(name) {
             result.Add("OWN001", path, "manifest entry is missing required field '" + name + "'")
+        }
+    }
+
+    static func RejectEntryField(
+        fields: HashSet<string>,
+        name: string,
+        path: string,
+        result: OwnershipAuditResult
+    ) {
+        if fields.Contains(name) {
+            result.Add("OWN001", path, "a reviewed delivery row carries no ceiling; remove field '" + name + "'")
         }
     }
 
