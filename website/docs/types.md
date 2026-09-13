@@ -330,6 +330,60 @@ class Dog : Animal {
 }
 ```
 
+### A base from a referenced assembly
+
+The `:` clause may name a type the CLR already holds. It states a fact about your type: a `Names`
+IS a `List<string>`, so every member `List<string>` declares is a member `Names` has, with the
+base's type arguments already substituted.
+
+```n#
+class Names: List<string> {
+    // The inherited members are in scope without a receiver, exactly as your own are.
+    func Summary(): string {
+        return Count.ToString() + " names"
+    }
+}
+
+func use() {
+    names := new Names()
+    names.Add("alpha")           // Add(string), not Add(T)
+    names[0] = "beta"            // the base's indexer
+    print names.Count.ToString() // the base's property
+    print names.Exists(name => name.Length == 4).ToString()
+    lengths := names.ConvertAll<int>(name => name.Length)
+
+    sequence: IEnumerable<string> = names   // the base's interfaces are yours too
+    for name in sequence {
+        print name
+    }
+}
+```
+
+Everything a member access can name is reached this way: properties, fields, methods (including
+overloads, methods taking a lambda, and generic methods), indexers, events, and static members read
+through the derived type. `base.Member` reaches the base's own implementation non-virtually;
+`this.Member` and the bare name dispatch virtually. The chain is followed as written, so
+`class Deeper: Names` reaches `List<string>`'s members through `Names` as well.
+
+`: base(...)` chains to the external base's constructor, chosen by the arguments you wrote:
+
+```n#
+class TaggedError: Exception {
+    Tag: string
+
+    constructor(tag: string, message: string): base(message) {
+        Tag = tag
+    }
+
+    override func ToString(): string {
+        return Tag + ":" + Message      // an inherited member, named without a receiver
+    }
+}
+```
+
+Only `public` inherited members are in scope. A `protected` member of an external base is not
+reachable yet — hold an instance of the base, or expose what you need from a type you declare.
+
 ### Abstract Classes
 
 ```n#

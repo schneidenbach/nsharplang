@@ -2351,3 +2351,75 @@ test "census 2026-09-12 query integration: a two-lambda call types its result on
 
     QueryDeleteTemp(projectRoot)
 }
+
+// ─── INHERIT: WHAT THE IDE SEES OF AN EXTERNAL BASE ───────────────────────────────────────────
+//
+// A `:` clause naming a referenced type states a fact about the derived type, and the three
+// commands an editor leans on have to agree about it: `query type` at an inherited member answers
+// the member's own type, hover reconstructs the same three facts, and completions offer the base's
+// whole surface next to the derived type's own. Before this slice the first two answered and the
+// third returned an EMPTY list, so the editor showed nothing after the dot on a receiver whose
+// members the compiler could already resolve.
+func InheritedBaseProject(): object {
+    projectRoot := QueryTempRoot()
+    QueryWriteProjectYaml(projectRoot, QueryDefaultProjectYaml())
+    QueryWriteSource(
+        projectRoot,
+        "Program.nl",
+        "namespace QueryTemp\n\nimport System.Collections.Generic\n\nclass Names: List<string> {\n    Tag: string\n\n    constructor() {\n        Tag = \"\"\n    }\n}\n\nclass Deeper: Names {\n}\n\nfunc Main() {\n    names := new Names()\n    names.Add(\"alpha\")\n    total := names.Count\n    deeper := new Deeper()\n    print total.ToString() + deeper.Count.ToString()\n}\n"
+    )
+    return QueryLoadProject(projectRoot)
+}
+
+test "INHERIT: `query type` answers an inherited external member through the derived type" {
+    snapshot := InheritedBaseProject()
+    projectRoot := QueryText(snapshot, "ProjectRoot")
+    programPath := Path.Combine(projectRoot, "Program.nl")
+
+    countLine := FindLineInFile(programPath, "total := names.Count")
+    countColumn := FindColumnInFile(programPath, countLine, "Count")
+    countType := QueryGetTypeAtPosition(snapshot, "Program.nl", countLine, countColumn)
+    if countType == null {
+        throw new InvalidOperationException("The production type query answered nothing for the inherited 'Count'.")
+    }
+
+    assert QueryText(countType, "Name") == "Count"
+    assert QueryText(countType, "ResolvedType") == "int"
+
+    // THE SAME ANSWER TWO SOURCE LINKS DOWN. `Deeper` names no base of its own that the CLR holds;
+    // the walk crosses `Names` first.
+    deeperLine := FindLineInFile(programPath, "print total.ToString() + deeper.Count")
+    deeperColumn := FindColumnInFile(programPath, deeperLine, "deeper.Count") + 7
+    deeperType := QueryGetTypeAtPosition(snapshot, "Program.nl", deeperLine, deeperColumn)
+    if deeperType == null {
+        throw new InvalidOperationException("The production type query answered nothing for the depth-2 inherited 'Count'.")
+    }
+
+    assert QueryText(deeperType, "ResolvedType") == "int"
+
+    QueryDeleteTemp(projectRoot)
+}
+
+test "INHERIT: completions offer the external base's members beside the derived type's own" {
+    snapshot := InheritedBaseProject()
+    projectRoot := QueryText(snapshot, "ProjectRoot")
+    programPath := Path.Combine(projectRoot, "Program.nl")
+
+    addLine := FindLineInFile(programPath, "names.Add(")
+    addColumn := FindColumnInFile(programPath, addLine, "Add")
+    answer := QueryGetCompletions(snapshot, "Program.nl", addLine, addColumn, false)
+
+    methods := QueryCompletionNames(answer, "methods")
+    assert methods.Contains("Add")
+    assert methods.Contains("Contains")
+    assert methods.Contains("IndexOf")
+
+    properties := QueryCompletionNames(answer, "properties")
+    assert properties.Contains("Count")
+    assert properties.Contains("Capacity")
+
+    // The derived type's OWN member is still offered, and it is offered once.
+    assert properties.Contains("Tag")
+
+    QueryDeleteTemp(projectRoot)
+}
