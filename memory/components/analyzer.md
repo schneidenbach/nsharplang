@@ -3382,8 +3382,13 @@ A source receiver is a `TypeBuilder`, which answers no member query, and `Column
 reports the implicit `System.Object` base as NO answer (it contributes nothing beyond object's own) —
 so `thing.GetType().Name` declined while `(thing as object).GetType().Name` emitted. `TryEmitInstanceCall`
 now asks ordinary scoped resolution of `typeof(object)` after the source and external-base tiers, and
-boxes a source VALUE-type receiver first. Bare `GetType()` with no receiver at all is still NL412: the
-analyzer's bare-name resolution has the same hole on its own side.
+boxes a source VALUE-type receiver first. `ColumnarDirectCallPlanner`'s inherited-external tier makes
+the same correction on the implicit-/explicit-`this` side, where `ResolveExternalRuntimeBase` answered
+null for a class with no `:` clause and the call was claimed and rejected — `this.GetType()` declined
+while `(this as object).GetType()` emitted. A REFERENCE `this` is `ldarg.0` either way; a value `this`
+is a managed pointer whose inherited dispatch needs a box, so a struct keeps the older answer. Bare
+`GetType()` with no receiver at all is still NL412: the analyzer's bare-name resolution has the same
+hole on its own side.
 
 **Reachability attributes are read from both sides of the fence at EMIT too.** The diagnostics pass
 already read a referenced assembly's `[DoesNotReturn]`/`[DoesNotReturnIf]`, so a statement after

@@ -605,6 +605,16 @@ class ColumnarDirectCallPlanner {
         // shape (excluded generic/params/by-ref, arity mismatch, or ambiguous set) is not claimed.
         if currentDefinition != null && (explicitThis || !bindings.IsValueBinding(memberName)) && !ColumnarSourceDirectCallResolver.HasInstanceDeclaration(currentDefinition, memberName) {
             externalBase := ResolveExternalRuntimeBase(currentDefinition)
+            // A SOURCE CLASS WITH NO `:` CLAUSE STILL HAS A BASE, AND IT IS `System.Object`. The walk
+            // above reports the implicit base as NO answer because it contributes nothing BEYOND
+            // object's own surface — but object's own surface is exactly what `this.GetType()` asks
+            // for, and with nothing here to answer it the whole call was claimed and rejected, while
+            // `(this as object).GetType()` emitted. A reference receiver is `ldarg.0` either way; a
+            // value `this` is a managed pointer whose inherited dispatch needs a box, so a struct
+            // keeps the existing answer.
+            if externalBase == null && current.IsReference {
+                externalBase = typeof(object)
+            }
             if externalBase != null {
                 inherited := ColumnarOrdinaryRuntimeDirectCallResolver.ResolveWithFacts(externalBase, memberName, argumentTypes, argumentFacts, false)
 

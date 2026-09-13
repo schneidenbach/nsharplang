@@ -1676,11 +1676,11 @@ Two rules the compiler enforces about the type-argument list itself:
   (`Sink.Accept([1, "b", null])` where `Accept` takes both `int[]` and `object[]`). The emitter picks
   a same-arity candidate before it looks at the argument. A single candidate of that arity, and an
   overload set reached with a literal whose elements DO have a common type, are both unaffected.
-- **`this.` as a receiver** reaches only the members your own type declares. `this.Name` and
-  `this.Compare(other)` work; `this.GetType()` — a member `object` declares and your type inherits —
-  does not, and neither does a bare `GetType()` with no receiver at all (that one reports
-  [NL412](./errors/NL412.md)). Name the receiver instead: `other.GetType()` on a parameter or a local
-  of your type works, and so does `(this as object).GetType()`.
+- A **bare `GetType()`** with no receiver at all reports [NL412](./errors/NL412.md): the members
+  `object` declares and your type inherits are reached through a receiver, not through the bare name.
+  `this.GetType()`, `other.GetType()` on a parameter or a local, and `(this as object).GetType()` all
+  work, on a `class` and on a `record`. Inside a **`struct`**'s own method the `this.` spelling is not
+  available for an inherited member either — take the value through a parameter or a local first.
 - **Tuple element NAMES do not survive an `IGrouping.Key` hop.** `xs.GroupBy(x => (x.Code, x.Line))`
   emits and `group.Key.Item1` reads the element, but `group.Key.Code` does not: the names are
   metadata the grouping's key type does not carry, and nothing at the call site writes them down.

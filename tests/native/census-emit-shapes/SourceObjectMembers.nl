@@ -12,11 +12,24 @@ namespace NSharpLang.CensusEmitShapes.Tests
 class Thing {
     Name: string
 
-    // The same question asked from INSIDE the type, through a binding rather than through `this`:
-    // `this.GetType()` is a separate gap (the explicit-`this` receiver is claimed and rejected by
-    // the bound-identifier tier before any member resolution runs).
+    // The same question asked from INSIDE the type, through a binding and through `this`. A source
+    // class with no `:` clause still HAS a base, and it is `System.Object`: the inherited-external
+    // walk reported the implicit base as no answer, so `this.GetType()` was claimed and rejected
+    // before any member resolution ran while `(this as object).GetType()` emitted.
     func Describe(other: Thing): string {
         return other.GetType().Name + ":" + other.Name
+    }
+
+    func OwnTypeName(): string {
+        return this.GetType().Name
+    }
+
+    func OwnHash(): int {
+        return this.GetHashCode()
+    }
+
+    func IsSelf(other: object): bool {
+        return this.Equals(other)
     }
 }
 
