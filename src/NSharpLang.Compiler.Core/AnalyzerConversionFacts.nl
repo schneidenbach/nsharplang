@@ -258,6 +258,39 @@ class AnalyzerConversionFacts {
         return name == "Span" || name == "ReadOnlySpan" || name == "System.Span" || name == "System.ReadOnlySpan"
     }
 
+    // TWO INFERENCE BOUNDS FOR ONE TYPE PARAMETER THAT DIFFER ONLY BY THE NULLABLE LIFT.
+    //
+    // C# fixes a method type parameter to the one bound every other bound converts to, and `X` and
+    // `X?` are exactly that pair: `X` converts to `X?` and `X?` does not convert back. So
+    // `Assert.Equal(severity, maybeSeverity)` infers `T = X?` rather than refusing the call because
+    // its two arguments disagreed. The relation is stated over `Nullable<T>`'s METADATA name, for
+    // the same reason `NullableUnderlyingTypeOrNull` is: the analyzer's types come from a
+    // MetadataLoadContext whose `System.Nullable´1` is not the runtime's.
+    //
+    // This is the CLR half of the rule; `TypeInfo` bounds answer the same question in their own
+    // spelling, so the two maps that record one inference widen together.
+    static func IsNullableLiftOf(candidate: Type, inner: Type): bool {
+        underlying := ExternalUserDefinedConversions.NullableUnderlyingTypeOrNull(candidate)
+        if underlying == null {
+            return false
+        }
+
+        return TypeInfoIdentityFacts.HaveSameReflectionTypeIdentity(underlying, inner)
+    }
+
+    // The same pair in the N# spelling. `X?` over a value type is `Nullable<X>` and over a reference
+    // type is the annotation, and both are one `NullableTypeInfo` here — which is why this half of
+    // the rule also lifts `string`/`string?` to `string?`, where the CLR half has nothing to widen
+    // because the two are one CLR type.
+    static func IsNullableLiftOfTypeInfo(candidate: TypeInfo, inner: TypeInfo): bool {
+        lifted := candidate as NullableTypeInfo
+        if lifted == null || inner as NullableTypeInfo != null {
+            return false
+        }
+
+        return TypeInfoIdentityFacts.AreEqual(lifted.InnerType, inner)
+    }
+
     // Assignability between two reflection types. `Type.IsAssignableFrom` alone is not sufficient
     // inside the analyzer's MetadataLoadContext: types loaded from different assembly identities are
     // not reference-equal, so the exact-identity comparison is applied to the source's interface list

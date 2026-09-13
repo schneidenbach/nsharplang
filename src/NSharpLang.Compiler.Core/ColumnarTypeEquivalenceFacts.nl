@@ -119,6 +119,37 @@ class ColumnarTypeEquivalenceFacts {
 
     // `IsByRef` is answerable for every baked type and throws for some unbaked emit-time shapes. A throw
     // means "not known to be by-ref", which is the same answer the caller needs.
+    // TWO INFERENCE BOUNDS THAT DIFFER ONLY BY THE NULLABLE LIFT. `X` converts to `X?` and `X?` does
+    // not convert back, so a type parameter met by both is fixed to `X?` — C#'s rule that a type
+    // parameter takes the one bound every other bound converts to. The analyzer states the identical
+    // relation over its own type shapes (`AnalyzerConversionFacts.IsNullableLiftOf`), so a call the
+    // analyzer admitted on the lifted bound is the call this backend closes.
+    //
+    // The read is guarded like every other read in this owner: an unbaked `TypeBuilder` or a bare
+    // generic parameter throws out of `IsGenericType`, and "cannot tell" must mean "not a lift".
+    static func IsNullableLiftOf(candidate: Type, inner: Type): bool {
+        if candidate == null || inner == null {
+            return false
+        }
+
+        arguments: Type[]? = null
+        try {
+            if !candidate.get_IsGenericType() || candidate.get_IsGenericTypeDefinition() || candidate.GetGenericTypeDefinition() != ColumnarNullableArgumentLowering.RequiredNullableDefinition() {
+                return false
+            }
+
+            arguments = candidate.GetGenericArguments()
+        } catch {
+            return false
+        }
+
+        if arguments == null || arguments.Length != 1 {
+            return false
+        }
+
+        return TypesEquivalent(arguments[0], inner)
+    }
+
     static func IsByRefType(candidate: Type): bool {
         try {
             return candidate.get_IsByRef()

@@ -106,6 +106,16 @@ class AnalyzerOverloadFacts {
                     return true
                 }
 
+                // A LATER BOUND THAT IS THE EARLIER ONE'S NULLABLE LIFT WIDENS THE BINDING. Every
+                // other agreement here is absorbed into the bound already recorded, because the
+                // argument converts to it; this is the one pair where the conversion runs the other
+                // way, so keeping the first bound would refuse a call C# accepts. See
+                // `AnalyzerConversionFacts.IsNullableLiftOf`.
+                if AnalyzerConversionFacts.IsNullableLiftOf(argumentType, existingBinding) {
+                    bindings[effectiveParameterType] = argumentType
+                    return true
+                }
+
                 if AnalyzerConversionFacts.IsReflectionAssignableFrom(existingBinding, argumentType) {
                     return true
                 }

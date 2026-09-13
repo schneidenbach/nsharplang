@@ -923,6 +923,23 @@ class AnalyzerReflectionArgumentBinder {
         return true
     }
 
+    // ONE TYPE PARAMETER'S N# BOUND, RECORDED. First binding wins, matching the CLR walk beside it,
+    // EXCEPT where the later bound is the earlier one's nullable lift: `X` converts to `X?` and `X?`
+    // does not convert back, so `X?` is the bound both arguments reach and the binding widens to it.
+    // The CLR walk widens on exactly the same relation (`AnalyzerOverloadScoring`), so the two maps
+    // that record one inference never disagree about which type was inferred.
+    func RecordTypeInfoBinding(typeParameter: Type, bound: TypeInfo, typeInfoBindings: Dictionary<Type, TypeInfo>) {
+        existing: TypeInfo? = null
+        if !typeInfoBindings.TryGetValue(typeParameter, out existing) || existing == null {
+            typeInfoBindings[typeParameter] = bound
+            return
+        }
+
+        if AnalyzerConversionFacts.IsNullableLiftOfTypeInfo(bound, existing) {
+            typeInfoBindings[typeParameter] = bound
+        }
+    }
+
     // The N# half of generic inference: which `TypeInfo` a method's open type parameter took.
     //
     // This runs ALONGSIDE the CLR binding walk rather than instead of it, because a source type has
@@ -936,10 +953,7 @@ class AnalyzerReflectionArgumentBinder {
     // by mapping the interface's type arguments back to the argument definition's own.
     func PopulateTypeInfoBindingsFromType(openParameterType: Type, argumentTypeInfo: TypeInfo, typeInfoBindings: Dictionary<Type, TypeInfo>) {
         if openParameterType.get_IsGenericParameter() {
-            if !typeInfoBindings.ContainsKey(openParameterType) {
-                typeInfoBindings[openParameterType] = argumentTypeInfo
-            }
-
+            RecordTypeInfoBinding(openParameterType, argumentTypeInfo, typeInfoBindings)
             return
         }
 
@@ -1025,10 +1039,7 @@ class AnalyzerReflectionArgumentBinder {
         }
 
         if effectiveOpenType.get_IsGenericParameter() {
-            if !typeInfoBindings.ContainsKey(effectiveOpenType) {
-                typeInfoBindings[effectiveOpenType] = sourceType
-            }
-
+            RecordTypeInfoBinding(effectiveOpenType, sourceType, typeInfoBindings)
             if !bindings.ContainsKey(effectiveOpenType) {
                 clrType := clrTypeConversion.TryConvertTypeInfoToClrType(sourceType)
                 if clrType == null {

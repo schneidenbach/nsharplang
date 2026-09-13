@@ -1561,6 +1561,19 @@ delegate's RETURN position, repeating while anything moves.
   the delegate it obviously implements (NL402) and a lambda written there was told its parameter was
   maybe-null (NL905). `Func` and `Action` never had the problem because they read their type
   arguments directly; the two readings must agree.
+- TWO BOUNDS FOR ONE TYPE PARAMETER THAT DIFFER ONLY BY THE NULLABLE LIFT FIX IT TO THE LIFTED ONE
+  (census wave 7, LAMBDA3 item 3). `X` converts to `X?` and `X?` does not convert back, so C# fixes
+  the parameter to `X?`; the walks recorded the FIRST bound and then refused the second, which is why
+  `Assert.Equal(expected, lspDiagnostic.Severity)` over a reflected `Equal<T>(T, T)` reported NL402
+  at seven converted sites. The relation is one fact stated on each side of the boundary —
+  `AnalyzerConversionFacts.IsNullableLiftOf` (CLR bounds) and `IsNullableLiftOfTypeInfo` (N# bounds),
+  applied by `AnalyzerOverloadScoring.TryMatchReflectionParameter` and the binder's
+  `RecordTypeInfoBinding`; `ColumnarTypeEquivalenceFacts.IsNullableLiftOf`, applied by
+  `ColumnarRuntimeGenericMethodResolver.Unify` and `ColumnarContextualExtensionInference.TryUnifySlot`.
+  Both analyzer maps widen together, so the type the analyzer reports is the instantiation the
+  backend closes. NO OTHER widening is admitted here: a later bound that merely converts to the
+  earlier one is still absorbed, and a reference-widening pair (`Derived`/`Base`) still declines, so
+  the two maps cannot drift apart.
 - `unknown` contributes NO binding (`PopulateReflectionBindingsFromTypeInfo` returns immediately).
   It is the analyzer's answer for an expression it could not type, and recording it closed the method
   over a type the program never wrote.

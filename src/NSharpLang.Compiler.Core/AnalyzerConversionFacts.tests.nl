@@ -622,3 +622,24 @@ test "a CONSTRUCTED GENERIC is answered by its DEFINITION" {
     assert !AnalyzerConversionFacts.IsDefinitelyReferenceType(valueGeneric)
     assert !AnalyzerConversionFacts.IsDefinitelyReferenceType(unknownGeneric)
 }
+
+// ── the nullable lift between two inference bounds ────────────────────────────────────────────
+test "the CLR half of the lift relation holds exactly one way" {
+    assert AnalyzerConversionFacts.IsNullableLiftOf(typeof(int?), typeof(int))
+    assert !AnalyzerConversionFacts.IsNullableLiftOf(typeof(int), typeof(int?))
+    assert !AnalyzerConversionFacts.IsNullableLiftOf(typeof(long?), typeof(int))
+    assert !AnalyzerConversionFacts.IsNullableLiftOf(typeof(string), typeof(string))
+}
+
+test "the N# half lifts a reference annotation the CLR cannot see" {
+    // `string` and `string?` are one CLR type, so only this half has anything to widen.
+    assert AnalyzerConversionFacts.IsNullableLiftOfTypeInfo(new NullableTypeInfo(BuiltInTypes.String), BuiltInTypes.String)
+    assert !AnalyzerConversionFacts.IsNullableLiftOfTypeInfo(BuiltInTypes.String, new NullableTypeInfo(BuiltInTypes.String))
+}
+
+test "two bounds that are already the same, or that differ by more than the lift, are not a lift" {
+    assert !AnalyzerConversionFacts.IsNullableLiftOfTypeInfo(BuiltInTypes.Int, BuiltInTypes.Int)
+    assert !AnalyzerConversionFacts.IsNullableLiftOfTypeInfo(new NullableTypeInfo(BuiltInTypes.Int), new NullableTypeInfo(BuiltInTypes.Int))
+    assert !AnalyzerConversionFacts.IsNullableLiftOfTypeInfo(new NullableTypeInfo(BuiltInTypes.Long), BuiltInTypes.Int)
+    assert !AnalyzerConversionFacts.IsNullableLiftOfTypeInfo(new NullableTypeInfo(BuiltInTypes.String), new SimpleTypeInfo("Widgetry"))
+}

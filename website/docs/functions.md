@@ -769,6 +769,25 @@ applicable method converts, and two is an ambiguity rather than a choice. A grou
 admits more than the delegate's does still converts — a `func Format(name: string?)` is a
 `Func<string, string?>`, because a parameter that admits null admits everything a non-null one does.
 
+### When two arguments disagree only about `?`
+
+A type parameter met by both `X` and `X?` is fixed to `X?`. The two are not a contradiction: `X`
+converts to `X?` and `X?` does not convert back, so the nullable one is the type both arguments
+reach — the same rule `flag ? value : null` uses to decide a conditional's type.
+
+```n#
+func AssertSame<T>(expected: T, actual: T) { /* ... */ }
+
+severity: Level = Level.Error
+reported: Level? = ReadSeverity()
+
+AssertSame(severity, reported)     // T is `Level?`, and `severity` lifts into it
+```
+
+This applies wherever the type parameter is inferred, including generic methods declared in a
+referenced assembly. It does not weaken the result: the position that was already nullable keeps its
+nullability, and the one that was not is the one that widens.
+
 ### Any delegate type, not only `Func` and `Action`
 
 A lambda converts to **whatever delegate type the position names**, and its `Invoke` is where that
