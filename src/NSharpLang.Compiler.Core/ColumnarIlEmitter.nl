@@ -7317,7 +7317,7 @@ sealed class ColumnarIlEmitter {
                 }
             }
             return true
-        } else if columnarSwitchValue0 == 29 {
+        } else if columnarSwitchValue0 == 29 || columnarSwitchValue0 == 76 {
             // Foreach [collection, body] — the C# `foreach` shape, decided by
             // `ColumnarForeachLoopPlanner` and lowered here. An array and a `string` become index
             // loops; everything else becomes an enumerator loop over whatever the collection's own
@@ -7326,9 +7326,27 @@ sealed class ColumnarIlEmitter {
             // `Dictionary<K,V>.KeyCollection`, a `Span<T>`, a `JsonElement.ArrayEnumerator` and a
             // user type with a struct enumerator all arrive here as the same three handles. The var
             // name is in the value span.
+            // KIND 76 IS THE SAME LOOP WITH AN ANNOTATED VARIABLE. The annotation's source span is
+            // in the value slot (kind 40's discipline — a type TREE cannot share this table), so the
+            // name moves into a leading child and the element is converted to the written type once
+            // per iteration.
+            typedLoopVariable := columnarSwitchValue0 == 76
             collectionNode := Child(idx, 0)
             body := Child(idx, 1)
             varName := ColumnarNodeTextFacts.Text(_nodes, _source, idx)
+            let declaredElementType: System.Type? = null
+            if (typedLoopVariable) {
+                if (_nodes.ChildCount(idx) != 3 || _nodes.Kind(Child(idx, 0)) != 6) {
+                    return Decline("emit.foreach.typed-variable-shape", "typed foreach loop variable has an unsupported shape", idx)
+                }
+                varName = ColumnarNodeTextFacts.Text(_nodes, _source, Child(idx, 0))
+                collectionNode = Child(idx, 1)
+                body = Child(idx, 2)
+                declaredCanonical := ColumnarTypeCanonicalizer.RemoveWhitespace(ColumnarNodeTextFacts.Text(_nodes, _source, idx))
+                if ((!ColumnarCanonicalTypeResolver.TryResolveBuiltin(declaredCanonical, out declaredElementType) && !TryResolveBodyType(declaredCanonical, out declaredElementType)) || !ColumnarTypeOfPlanner.IsSupportedElementType(declaredElementType)) {
+                    return Decline("emit.foreach.typed-variable-unsupported-type", "foreach loop variable type is not supported: " + declaredCanonical, idx)
+                }
+            }
 
             // A body that always transfers on every path makes the increment unreachable -> decline (as for/while).
             if (AlwaysReturns(body)) {
@@ -7353,7 +7371,7 @@ sealed class ColumnarIlEmitter {
                 return Decline("emit.foreach.not-enumerable", "foreach collection type '" + ForeachCollectionTypeName(collectionType) + "' has no GetEnumerator() pattern and is not a sequence", collectionNode)
             }
 
-            if (!EmitForeachLoopBody(foreachPlan, collectionType, varName, body)) {
+            if (!EmitForeachLoopBody(foreachPlan, collectionType, varName, body, declaredElementType)) {
                 return false
             }
 
@@ -11121,182 +11139,8 @@ sealed class ColumnarIlEmitter {
             if (!EmitExpression(Child(idx, 1), out sourceType)) {
                 return false
             }
-            if (TypesEquivalent(sourceType, targetType)) {
-                columnarResolvedType = targetType
-                return true
-            }
-            if (TryEmitUserDefinedConversion(sourceType, targetType, true)) {
-                columnarResolvedType = targetType
-                return true
-            }
-            if (IsKnownEnumType(targetType)) {
-                if (IsKnownEnumType(sourceType)) {
-                    sourceType = typeof(int)
-                }
-                if (!ColumnarNumericFacts.IsIntPromotable(sourceType)) {
-                    return false
-                }
-                columnarResolvedType = targetType
-                return true
-            }
-            if (ColumnarReferenceCoercionPlanner.TryEmitExternalInterfaceUpcast(sourceType, targetType, _structRegistry, _il)) {
-                columnarResolvedType = targetType
-                return true
-            }
-            if (!ColumnarNumericFacts.IsCastableScalar(targetType)) {
-                if (sourceType == typeof(object)) {
-                    targetBuilder := targetType as TypeBuilder
-                    if (targetBuilder != null) {
-                        targetDef := ColumnarSourceDefinitionResolver.FindByBuilderIdentity(_structRegistry.get_Values(), targetBuilder)
-                        if (targetDef != null) {
-                            targetConversionEmitter := _il
-                            targetConversionOpcode := targetDef.IsReference ? OpCodes.Castclass : OpCodes.Unbox_Any
-                            targetConversionEmitter.Emit(targetConversionOpcode, targetBuilder)
-                            columnarResolvedType = targetType
-                            return true
-                        }
-                    }
-                }
-                // A TYPE PARAMETER TARGET IS `unbox.any`, NEVER `castclass`. `(T0)value` has to be
-                // correct for BOTH instantiations of an unconstrained parameter, and only `unbox.any`
-                // is: it unwraps a boxed value type and behaves exactly as `castclass` for a reference
-                // one — which is why C# emits it here. `castclass !T0` over a value instantiation is not
-                // a wrong answer but INVALID IL, and it reached the runtime as "Common Language Runtime
-                // detected an invalid program" because a generic parameter reports `IsValueType` false
-                // and fell into the reference arm below.
-                if (sourceType == typeof(object) && targetType.get_IsGenericParameter()) {
-                    _il.Emit(OpCodes.Unbox_Any, targetType)
-                    columnarResolvedType = targetType
-                    return true
-                }
-                if (sourceType == typeof(object) && !targetType.get_IsValueType()) {
-                    _il.Emit(OpCodes.Castclass, targetType)
-                    columnarResolvedType = targetType
-                    return true
-                }
-                // AN EXPLICIT CAST PERMITS EVERY IMPLICIT CONVERSION (C# §10.3: the set of explicit
-                // conversions includes the implicit ones), so a cast that is really an UPCAST routes
-                // through the same funnel an assignment and an argument already use rather than
-                // through a second, narrower list. `(object)name` is the shape converted C# writes
-                // whenever it builds an `object[]`, and it declined here while the identical widening
-                // at a call site was free.
-                //
-                // IT IS THE LAST ARM, AND THAT IS LOAD-BEARING. The arms above own the DOWNCASTS out
-                // of `object`, and one of them — `unbox.any` for a type-parameter target — is the
-                // only correct answer for a shape the funnel's reference-conversion reader would
-                // accept with no opcode at all. A type-parameter or value-type target is excluded
-                // here for the same reason: this funnel only ever widens a reference.
-                if (!targetType.get_IsGenericParameter() && !targetType.get_IsValueType() && (ColumnarReferenceCoercionPlanner.TryEmitInterfaceUpcast(sourceType, targetType, _structRegistry, _il) || ColumnarReferenceConversionFacts.TryEmitReferenceConversion(sourceType, targetType) || ColumnarReferenceCoercionPlanner.TryEmitObjectConversion(sourceType, targetType, _structRegistry, _il))) {
-                    columnarResolvedType = targetType
-                    return true
-                }
+            if (!TryEmitCastConversion(sourceType, targetType)) {
                 return false
-            }
-            // UNBOXING TO A SCALAR is the mirror of the boxing conversion above, and it has the same
-            // three legal sources C# gives it: `object`, `System.ValueType`, and an interface the
-            // boxed type implements. `unbox.any` is the opcode for all three, and it is the same one
-            // the non-scalar target arm already emits for a source-defined struct.
-            if (targetType.get_IsValueType() && !sourceType.get_IsValueType() && !sourceType.get_IsGenericParameter() && (sourceType == typeof(object) || sourceType == typeof(ValueType) || sourceType.get_IsInterface())) {
-                _il.Emit(OpCodes.Unbox_Any, targetType)
-                columnarResolvedType = targetType
-                return true
-            }
-            // An i4-underlying enum operand is its int on the stack, so `enum as <numeric>` is a cast FROM int:
-            // enum->int is identity (no opcode), enum->long/double/etc. widens exactly like int->long/double. The
-            // N# backend path emits the same (the underlying-int value, then the same numeric conversion).
-            if (ColumnarTypeOfPlanner.IsEnumType(sourceType)) {
-                sourceType = typeof(int)
-            }
-            if (!ColumnarNumericFacts.IsCastableScalar(sourceType)) {
-                return false
-            }
-            // Emit the conversion only when the stack representation differs (char->int and same-type casts
-            // are no-ops). The opcode is TARGET-driven, matching the N# backend path (TryGetNumericConversionOpcode):
-            // -> double = conv.r8, -> float = conv.r4, -> long = conv.i8, -> char = conv.u2, -> int = conv.i4.
-            // float/double->int truncates toward zero exactly as the N# backend path's conv.i4 does (same opcode).
-            if (sourceType != targetType) {
-                // DECIMAL casts route through System.Decimal's conversion operators (not conv opcodes):
-                // TO decimal = op_Implicit(int/long/...)/op_Explicit(double/float); FROM decimal =
-                // op_Explicit(decimal)->target — the exact IL emit.
-                if (targetType == typeof(decimal) || sourceType == typeof(decimal)) {
-                    conversionName := targetType == typeof(decimal) && sourceType != typeof(double) && sourceType != typeof(float) ? "op_Implicit" : "op_Explicit"
-                    fromType := targetType == typeof(decimal) ? (ColumnarNumericFacts.IsIntPromotable(sourceType) && sourceType != typeof(char) ? typeof(int) : sourceType) : typeof(decimal)
-                    // (small-int sources are already extended i4 — fromType above maps them to the
-                    // int operator; char keeps its own op_Implicit(char).)
-                    decimalConversion: MethodInfo? = null
-                    for m in typeof(decimal).GetMethods(BindingFlags.Public | BindingFlags.Static) {
-                        if (m.get_Name() != conversionName) {
-                            continue
-                        }
-                        ps := m.GetParameters()
-                        if (ps.Length == 1 && ps[0].get_ParameterType() == fromType && m.get_ReturnType() == (targetType == typeof(decimal) ? typeof(decimal) : targetType)) {
-                            decimalConversion = m
-                            break
-                        }
-                    }
-                    if (decimalConversion == null) {
-                        return false
-                    }
-                    _il.Emit(OpCodes.Call, decimalConversion)
-                    columnarResolvedType = targetType
-                    return true
-                }
-                if (targetType == typeof(double)) {
-                    _il.Emit(OpCodes.Conv_R8)
-                } else {
-                    // any numeric -> double (widen)
-                    if (targetType == typeof(float)) {
-                        _il.Emit(OpCodes.Conv_R4)
-                    } else {
-                        // any numeric -> float
-                        if (targetType == typeof(long)) {
-                            _il.Emit(OpCodes.Conv_I8)
-                        } else {
-                            // i4-slot/double/float -> long (sign-extend)
-                            if (targetType == typeof(ulong)) {
-                                uncheckedUInt64Emitter := _il
-                                uncheckedUInt64Opcode := sourceType == typeof(uint) ? OpCodes.Conv_U8 : OpCodes.Conv_I8
-                                uncheckedUInt64Emitter.Emit(uncheckedUInt64Opcode)
-                            } else {
-                                // N# unchecked: int sign-extends, uint zero-extends
-                                if (targetType == typeof(char)) {
-                                    _il.Emit(OpCodes.Conv_U2)
-                                } else {
-                                    // -> char (truncate)
-                                    if (targetType == typeof(byte)) {
-                                        _il.Emit(OpCodes.Conv_U1)
-                                    } else {
-                                        // -> byte (truncate)
-                                        if (targetType == typeof(sbyte)) {
-                                            _il.Emit(OpCodes.Conv_I1)
-                                        } else {
-                                            // -> sbyte (truncate)
-                                            if (targetType == typeof(short)) {
-                                                _il.Emit(OpCodes.Conv_I2)
-                                            } else {
-                                                // -> short (truncate)
-                                                if (targetType == typeof(ushort)) {
-                                                    _il.Emit(OpCodes.Conv_U2)
-                                                } else {
-                                                    // -> ushort (truncate)
-                                                    if (targetType == typeof(uint) || targetType == typeof(int)) {
-                                                        // -> int/uint: i8/r8/r4 sources truncate to the i4 slot; i4-slot sources are identity
-                                                        // (N# unchecked emits nothing for int<->uint<->small-int slot-mates).
-                                                        if (sourceType == typeof(long) || sourceType == typeof(ulong) || sourceType == typeof(double) || sourceType == typeof(float)) {
-                                                            uncheckedInt32Emitter := _il
-                                                            uncheckedInt32Opcode := targetType == typeof(uint) ? OpCodes.Conv_U4 : OpCodes.Conv_I4
-                                                            uncheckedInt32Emitter.Emit(uncheckedInt32Opcode)
-                                                        }
-                                                    }
-                                                }
-                                            }
-                                        }
-                                    }
-                                }
-                            }
-                        }
-                    }
-                }
             }
             columnarResolvedType = targetType
             return true
@@ -20227,26 +20071,220 @@ sealed class ColumnarIlEmitter {
         return false
     }
 
+    // THE WHOLE OF WHAT A WRITTEN CAST DOES, ONCE, over two types the caller has already resolved.
+    //
+    // The source value is on the stack on entry; on a `true` return the value on the stack is a
+    // `targetType`. Extracted from the kind-16 arm unchanged so that every position which converts a
+    // value the way `(T)x` converts it — the cast expression itself, and an annotated `foreach`
+    // variable, which C# defines as exactly that conversion applied once per element — shares ONE
+    // definition of the explicit conversions rather than growing a second, divergent list beside it.
+    private func TryEmitCastConversion(castSourceType: Type, targetType: Type): bool {
+        let sourceType: System.Type? = castSourceType
+        if (TypesEquivalent(sourceType, targetType)) {
+            return true
+        }
+        if (TryEmitUserDefinedConversion(sourceType, targetType, true)) {
+            return true
+        }
+        if (IsKnownEnumType(targetType)) {
+            if (IsKnownEnumType(sourceType)) {
+                sourceType = typeof(int)
+            }
+            if (!ColumnarNumericFacts.IsIntPromotable(sourceType)) {
+                return false
+            }
+            return true
+        }
+        if (ColumnarReferenceCoercionPlanner.TryEmitExternalInterfaceUpcast(sourceType, targetType, _structRegistry, _il)) {
+            return true
+        }
+        if (!ColumnarNumericFacts.IsCastableScalar(targetType)) {
+            if (sourceType == typeof(object)) {
+                targetBuilder := targetType as TypeBuilder
+                if (targetBuilder != null) {
+                    targetDef := ColumnarSourceDefinitionResolver.FindByBuilderIdentity(_structRegistry.get_Values(), targetBuilder)
+                    if (targetDef != null) {
+                        targetConversionEmitter := _il
+                        targetConversionOpcode := targetDef.IsReference ? OpCodes.Castclass : OpCodes.Unbox_Any
+                        targetConversionEmitter.Emit(targetConversionOpcode, targetBuilder)
+                        return true
+                    }
+                }
+            }
+            // A TYPE PARAMETER TARGET IS `unbox.any`, NEVER `castclass`. `(T0)value` has to be
+            // correct for BOTH instantiations of an unconstrained parameter, and only `unbox.any`
+            // is: it unwraps a boxed value type and behaves exactly as `castclass` for a reference
+            // one — which is why C# emits it here. `castclass !T0` over a value instantiation is not
+            // a wrong answer but INVALID IL, and it reached the runtime as "Common Language Runtime
+            // detected an invalid program" because a generic parameter reports `IsValueType` false
+            // and fell into the reference arm below.
+            if (sourceType == typeof(object) && targetType.get_IsGenericParameter()) {
+                _il.Emit(OpCodes.Unbox_Any, targetType)
+                return true
+            }
+            if (sourceType == typeof(object) && !targetType.get_IsValueType()) {
+                _il.Emit(OpCodes.Castclass, targetType)
+                return true
+            }
+            // AN EXPLICIT CAST PERMITS EVERY IMPLICIT CONVERSION (C# §10.3: the set of explicit
+            // conversions includes the implicit ones), so a cast that is really an UPCAST routes
+            // through the same funnel an assignment and an argument already use rather than
+            // through a second, narrower list. `(object)name` is the shape converted C# writes
+            // whenever it builds an `object[]`, and it declined here while the identical widening
+            // at a call site was free.
+            //
+            // IT IS THE LAST ARM, AND THAT IS LOAD-BEARING. The arms above own the DOWNCASTS out
+            // of `object`, and one of them — `unbox.any` for a type-parameter target — is the
+            // only correct answer for a shape the funnel's reference-conversion reader would
+            // accept with no opcode at all. A type-parameter or value-type target is excluded
+            // here for the same reason: this funnel only ever widens a reference.
+            if (!targetType.get_IsGenericParameter() && !targetType.get_IsValueType() && (ColumnarReferenceCoercionPlanner.TryEmitInterfaceUpcast(sourceType, targetType, _structRegistry, _il) || ColumnarReferenceConversionFacts.TryEmitReferenceConversion(sourceType, targetType) || ColumnarReferenceCoercionPlanner.TryEmitObjectConversion(sourceType, targetType, _structRegistry, _il))) {
+                return true
+            }
+            return false
+        }
+        // UNBOXING TO A SCALAR is the mirror of the boxing conversion above, and it has the same
+        // three legal sources C# gives it: `object`, `System.ValueType`, and an interface the
+        // boxed type implements. `unbox.any` is the opcode for all three, and it is the same one
+        // the non-scalar target arm already emits for a source-defined struct.
+        if (targetType.get_IsValueType() && !sourceType.get_IsValueType() && !sourceType.get_IsGenericParameter() && (sourceType == typeof(object) || sourceType == typeof(ValueType) || sourceType.get_IsInterface())) {
+            _il.Emit(OpCodes.Unbox_Any, targetType)
+            return true
+        }
+        // An i4-underlying enum operand is its int on the stack, so `enum as <numeric>` is a cast FROM int:
+        // enum->int is identity (no opcode), enum->long/double/etc. widens exactly like int->long/double. The
+        // N# backend path emits the same (the underlying-int value, then the same numeric conversion).
+        if (ColumnarTypeOfPlanner.IsEnumType(sourceType)) {
+            sourceType = typeof(int)
+        }
+        if (!ColumnarNumericFacts.IsCastableScalar(sourceType)) {
+            return false
+        }
+        // Emit the conversion only when the stack representation differs (char->int and same-type casts
+        // are no-ops). The opcode is TARGET-driven, matching the N# backend path (TryGetNumericConversionOpcode):
+        // -> double = conv.r8, -> float = conv.r4, -> long = conv.i8, -> char = conv.u2, -> int = conv.i4.
+        // float/double->int truncates toward zero exactly as the N# backend path's conv.i4 does (same opcode).
+        if (sourceType != targetType) {
+            // DECIMAL casts route through System.Decimal's conversion operators (not conv opcodes):
+            // TO decimal = op_Implicit(int/long/...)/op_Explicit(double/float); FROM decimal =
+            // op_Explicit(decimal)->target — the exact IL emit.
+            if (targetType == typeof(decimal) || sourceType == typeof(decimal)) {
+                conversionName := targetType == typeof(decimal) && sourceType != typeof(double) && sourceType != typeof(float) ? "op_Implicit" : "op_Explicit"
+                fromType := targetType == typeof(decimal) ? (ColumnarNumericFacts.IsIntPromotable(sourceType) && sourceType != typeof(char) ? typeof(int) : sourceType) : typeof(decimal)
+                // (small-int sources are already extended i4 — fromType above maps them to the
+                // int operator; char keeps its own op_Implicit(char).)
+                decimalConversion: MethodInfo? = null
+                for m in typeof(decimal).GetMethods(BindingFlags.Public | BindingFlags.Static) {
+                    if (m.get_Name() != conversionName) {
+                        continue
+                    }
+                    ps := m.GetParameters()
+                    if (ps.Length == 1 && ps[0].get_ParameterType() == fromType && m.get_ReturnType() == (targetType == typeof(decimal) ? typeof(decimal) : targetType)) {
+                        decimalConversion = m
+                        break
+                    }
+                }
+                if (decimalConversion == null) {
+                    return false
+                }
+                _il.Emit(OpCodes.Call, decimalConversion)
+                return true
+            }
+            if (targetType == typeof(double)) {
+                _il.Emit(OpCodes.Conv_R8)
+            } else {
+                // any numeric -> double (widen)
+                if (targetType == typeof(float)) {
+                    _il.Emit(OpCodes.Conv_R4)
+                } else {
+                    // any numeric -> float
+                    if (targetType == typeof(long)) {
+                        _il.Emit(OpCodes.Conv_I8)
+                    } else {
+                        // i4-slot/double/float -> long (sign-extend)
+                        if (targetType == typeof(ulong)) {
+                            uncheckedUInt64Emitter := _il
+                            uncheckedUInt64Opcode := sourceType == typeof(uint) ? OpCodes.Conv_U8 : OpCodes.Conv_I8
+                            uncheckedUInt64Emitter.Emit(uncheckedUInt64Opcode)
+                        } else {
+                            // N# unchecked: int sign-extends, uint zero-extends
+                            if (targetType == typeof(char)) {
+                                _il.Emit(OpCodes.Conv_U2)
+                            } else {
+                                // -> char (truncate)
+                                if (targetType == typeof(byte)) {
+                                    _il.Emit(OpCodes.Conv_U1)
+                                } else {
+                                    // -> byte (truncate)
+                                    if (targetType == typeof(sbyte)) {
+                                        _il.Emit(OpCodes.Conv_I1)
+                                    } else {
+                                        // -> sbyte (truncate)
+                                        if (targetType == typeof(short)) {
+                                            _il.Emit(OpCodes.Conv_I2)
+                                        } else {
+                                            // -> short (truncate)
+                                            if (targetType == typeof(ushort)) {
+                                                _il.Emit(OpCodes.Conv_U2)
+                                            } else {
+                                                // -> ushort (truncate)
+                                                if (targetType == typeof(uint) || targetType == typeof(int)) {
+                                                    // -> int/uint: i8/r8/r4 sources truncate to the i4 slot; i4-slot sources are identity
+                                                    // (N# unchecked emits nothing for int<->uint<->small-int slot-mates).
+                                                    if (sourceType == typeof(long) || sourceType == typeof(ulong) || sourceType == typeof(double) || sourceType == typeof(float)) {
+                                                        uncheckedInt32Emitter := _il
+                                                        uncheckedInt32Opcode := targetType == typeof(uint) ? OpCodes.Conv_U4 : OpCodes.Conv_I4
+                                                        uncheckedInt32Emitter.Emit(uncheckedInt32Opcode)
+                                                    }
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        return true
+    }
+
     // ---- the `foreach` lowerings -----------------------------------------------------------------
 
     // THE THREE SHAPES A PLANNED `foreach` CAN TAKE. The plan has already decided which; this only
     // emits it. The collection's value is on the stack on entry, and nothing is left on it on exit.
-    private func EmitForeachLoopBody(plan: ColumnarForeachPlan, collectionType: Type, varName: string, body: int): bool {
+    private func EmitForeachLoopBody(plan: ColumnarForeachPlan, collectionType: Type, varName: string, body: int, declaredElementType: Type?): bool {
         if (plan.Kind == 1) {
-            return EmitForeachOverArray(plan, collectionType, varName, body)
+            return EmitForeachOverArray(plan, collectionType, varName, body, declaredElementType)
         }
         if (plan.Kind == 2) {
-            return EmitForeachOverString(plan, varName, body)
+            return EmitForeachOverString(plan, varName, body, declaredElementType)
         }
         if (plan.Kind == 4) {
-            return EmitForeachOverIndexedCollection(plan, collectionType, varName, body)
+            return EmitForeachOverIndexedCollection(plan, collectionType, varName, body, declaredElementType)
         }
-        return EmitForeachOverEnumerator(plan, collectionType, varName, body)
+        return EmitForeachOverEnumerator(plan, collectionType, varName, body, declaredElementType)
+    }
+
+    // THE ANNOTATED LOOP VARIABLE'S CONVERSION, APPLIED ONCE PER ELEMENT. The element value is on the
+    // stack on entry; the answer is the type the hidden loop local must have, or null when no
+    // conversion reaches the annotation. All four loop shapes run it at the same point — after the
+    // element is loaded and before it is stored — and it is the CAST conversion, byte for byte,
+    // because that is what C# defines `foreach (T x in e)` to perform.
+    private func TryConvertForeachElement(elementType: Type, declaredElementType: Type?): Type? {
+        if (declaredElementType == null || TypesEquivalent(elementType, declaredElementType)) {
+            return elementType
+        }
+        if (!TryEmitCastConversion(elementType, declaredElementType)) {
+            return null
+        }
+        return declaredElementType
     }
 
     // An ARRAY is an index loop: no enumerator, no disposal, no protected region. `continue` lands on
     // the increment, `break` on the exit.
-    private func EmitForeachOverArray(plan: ColumnarForeachPlan, collectionType: Type, varName: string, body: int): bool {
+    private func EmitForeachOverArray(plan: ColumnarForeachPlan, collectionType: Type, varName: string, body: int, declaredElementType: Type?): bool {
         elementType := plan.ElementType
         if (!ColumnarTypeOfPlanner.IsSupportedElementType(elementType)) {
             return false
@@ -20270,7 +20308,11 @@ sealed class ColumnarIlEmitter {
         _il.Emit(OpCodes.Ldloc, arrayLocal)
         _il.Emit(OpCodes.Ldloc, indexLocal)
         EmitArrayElementLoad(elementType)
-        loopVar := _il.DeclareLocal(elementType)
+        arrayLoopVarType := TryConvertForeachElement(elementType, declaredElementType)
+        if (arrayLoopVarType == null) {
+            return Decline("emit.foreach.element-conversion", "no conversion from array element type '" + elementType.FullName + "' to the loop variable's declared type", body)
+        }
+        loopVar := _il.DeclareLocal(arrayLoopVarType)
         _il.Emit(OpCodes.Stloc, loopVar)
         _locals[varName] = loopVar
 
@@ -20293,7 +20335,7 @@ sealed class ColumnarIlEmitter {
 
     // A `string` is an index loop over `Length`/`Chars`, which is what C# emits and why iterating a
     // string allocates nothing — its `CharEnumerator` is a heap object the language declines to use.
-    private func EmitForeachOverString(plan: ColumnarForeachPlan, varName: string, body: int): bool {
+    private func EmitForeachOverString(plan: ColumnarForeachPlan, varName: string, body: int, declaredElementType: Type?): bool {
         stringLocal := _il.DeclareLocal(typeof(string))
         _il.Emit(OpCodes.Stloc, stringLocal)
         indexLocal := _il.DeclareLocal(typeof(int))
@@ -20312,7 +20354,11 @@ sealed class ColumnarIlEmitter {
         _il.Emit(OpCodes.Ldloc, stringLocal)
         _il.Emit(OpCodes.Ldloc, indexLocal)
         _il.Emit(OpCodes.Callvirt, RequiredStringCharGetter())
-        loopVar := _il.DeclareLocal(typeof(char))
+        stringLoopVarType := TryConvertForeachElement(typeof(char), declaredElementType)
+        if (stringLoopVarType == null) {
+            return Decline("emit.foreach.element-conversion", "no conversion from 'System.Char' to the loop variable's declared type", body)
+        }
+        loopVar := _il.DeclareLocal(stringLoopVarType)
         _il.Emit(OpCodes.Stloc, loopVar)
         _locals[varName] = loopVar
 
@@ -20337,7 +20383,7 @@ sealed class ColumnarIlEmitter {
     // bounds the loop and the element is read through the one owner that knows how to read a
     // `ref readonly` element without calling its indexer. There is no enumerator and therefore no
     // disposal and no protected region, which is also what C# emits for a span.
-    private func EmitForeachOverIndexedCollection(plan: ColumnarForeachPlan, collectionType: Type, varName: string, body: int): bool {
+    private func EmitForeachOverIndexedCollection(plan: ColumnarForeachPlan, collectionType: Type, varName: string, body: int, declaredElementType: Type?): bool {
         lengthGetter := plan.LengthGetter
         elementRead := plan.ElementRead
         if (lengthGetter == null || elementRead == null) {
@@ -20365,7 +20411,11 @@ sealed class ColumnarIlEmitter {
         _il.Emit(OpCodes.Call, elementRead.SliceMethod)
         _il.Emit(OpCodes.Call, elementRead.AsBytesMethod)
         _il.Emit(OpCodes.Call, elementRead.ReadMethod)
-        loopVar := _il.DeclareLocal(plan.ElementType)
+        indexedLoopVarType := TryConvertForeachElement(plan.ElementType, declaredElementType)
+        if (indexedLoopVarType == null) {
+            return Decline("emit.foreach.element-conversion", "no conversion from element type '" + plan.ElementType.FullName + "' to the loop variable's declared type", body)
+        }
+        loopVar := _il.DeclareLocal(indexedLoopVarType)
         _il.Emit(OpCodes.Stloc, loopVar)
         _locals[varName] = loopVar
 
@@ -20395,7 +20445,7 @@ sealed class ColumnarIlEmitter {
     // `MoveNext` both land on a label INSIDE the `try`, so the implicit leave at the finally runs the
     // disposal once for every way out; a `return` from the body leaves through the body-level tail
     // that every protected region shares.
-    private func EmitForeachOverEnumerator(plan: ColumnarForeachPlan, collectionType: Type, varName: string, body: int): bool {
+    private func EmitForeachOverEnumerator(plan: ColumnarForeachPlan, collectionType: Type, varName: string, body: int, declaredElementType: Type?): bool {
         enumeratorType := plan.EnumeratorType
         getEnumerator := plan.GetEnumeratorMethod
         if (enumeratorType == null || getEnumerator == null || plan.MoveNextMethod == null || plan.CurrentGetter == null) {
@@ -20445,7 +20495,11 @@ sealed class ColumnarIlEmitter {
         if (plan.CurrentIsByRef) {
             EmitLoadByRefElement(plan.ElementType)
         }
-        loopVar := _il.DeclareLocal(plan.ElementType)
+        enumeratorLoopVarType := TryConvertForeachElement(plan.ElementType, declaredElementType)
+        if (enumeratorLoopVarType == null) {
+            return Decline("emit.foreach.element-conversion", "no conversion from element type '" + plan.ElementType.FullName + "' to the loop variable's declared type", body)
+        }
+        loopVar := _il.DeclareLocal(enumeratorLoopVarType)
         _il.Emit(OpCodes.Stloc, loopVar)
         _locals[varName] = loopVar
 

@@ -235,6 +235,10 @@ class LinterWalk {
 
         foreachStatement := statement as ForeachStatement
         if foreachStatement != null {
+            // NL010/NL002: an annotated loop variable names a TYPE, and a `TypeReference` is not an
+            // `Expression`, so the structural walk would never see it and the import it needs would
+            // read as dead.
+            state.TrackTypeReference(foreachStatement.VariableType)
             // The collection is read in the OUTER scope, before the loop variable exists.
             VisitExpression(foreachStatement.Collection)
             state.PushScope()

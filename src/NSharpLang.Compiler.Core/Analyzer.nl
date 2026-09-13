@@ -1045,7 +1045,7 @@ class Analyzer: IDisposable {
 
         foreachStatement := statement as ForeachStatement
         if foreachStatement != null {
-            DriveLoopStatement(LoopSequence.BeginForeach(foreachStatement))
+            DriveLoopStatement(LoopSequence.BeginForeach(foreachStatement, Assignability))
             return
         }
 

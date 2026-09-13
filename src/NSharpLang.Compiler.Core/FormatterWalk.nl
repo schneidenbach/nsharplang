@@ -1399,6 +1399,14 @@ class FormatterWalk {
     func FormatForeachBody(foreachStatement: ForeachStatement, builder: StringBuilder) {
         builder.Append("for ")
         builder.Append(foreachStatement.VariableName)
+        // The OPTIONAL annotation on the loop variable prints in the declaration's own spelling,
+        // `name: Type`, so the formatted source re-parses to the same tree.
+        loopVariableType := foreachStatement.VariableType
+        if loopVariableType != null {
+            builder.Append(": ")
+            builder.Append(FormatterSyntaxText.FormatTypeReference(loopVariableType))
+        }
+
         builder.Append(" in ")
         FormatExpression(foreachStatement.Collection, builder)
         builder.AppendLine(" {")

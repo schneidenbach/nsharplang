@@ -825,6 +825,10 @@ class ColumnarIteratorPlanner {
             }
             return false
         }
+        if kind == 76 {
+            state.Decline("emit.iterator.for-in-unsupported", "a `for..in` with an annotated loop variable is not yet lowered in an iterator body")
+            return false
+        }
         state.Decline("emit.iterator.unsupported-shape", "an iterator body statement (node kind " + kind.ToString() + ") is not yet lowered")
         return false
     }

@@ -205,6 +205,8 @@ class LoopStatementState {
     columnValue: int
     isAsyncValue: bool
     narrowingValue: AnalyzerFlowNarrowing?
+    variableTypeValue: TypeReference?
+    assignabilityValue: AnalyzerAssignability?
 
     Form: int => formValue
     VariableName: string? => variableNameValue
@@ -219,6 +221,11 @@ class LoopStatementState {
     IsAsync: bool => isAsyncValue
     Narrowing: AnalyzerFlowNarrowing? => narrowingValue
 
+    // The loop variable's WRITTEN annotation (`for m: Match in …`), null for the inferred spelling,
+    // and the oracle the conversion rule consults. Only the `foreach` form ever carries either.
+    VariableType: TypeReference? => variableTypeValue
+    Assignability: AnalyzerAssignability? => assignabilityValue
+
     Phase: int
     Pending: int
     CollectionType: TypeInfo
@@ -228,7 +235,9 @@ class LoopStatementState {
     ElseNarrowings: List<FlowNarrowing>?
     LoopFrame: AmbientContextFrame?
 
-    constructor(form: int, variableName: string?, collection: Expression?, condition: Expression?, initializer: Statement?, iterator: Expression?, body: Statement, elseBody: Statement?, line: int, column: int, isAsync: bool, narrowing: AnalyzerFlowNarrowing?) {
+    constructor(form: int, variableName: string?, collection: Expression?, condition: Expression?, initializer: Statement?, iterator: Expression?, body: Statement, elseBody: Statement?, line: int, column: int, isAsync: bool, narrowing: AnalyzerFlowNarrowing?, variableType: TypeReference? = null, assignability: AnalyzerAssignability? = null) {
+        variableTypeValue = variableType
+        assignabilityValue = assignability
         formValue = form
         variableNameValue = variableName
         collectionValue = collection
@@ -960,8 +969,8 @@ class AnalyzerLoopSequence {
 
     // THE `foreach` STATEMENT'S ENTRY. The operands are read off the node here, so the walk never
     // holds an AST node whose type is one of four unrelated classes.
-    func BeginForeach(statement: ForeachStatement): LoopStatementState {
-        return new LoopStatementState(0, statement.VariableName, statement.Collection, null, null, null, statement.Body, null, statement.Line, statement.Column, false, null)
+    func BeginForeach(statement: ForeachStatement, assignability: AnalyzerAssignability): LoopStatementState {
+        return new LoopStatementState(0, statement.VariableName, statement.Collection, null, null, null, statement.Body, null, statement.Line, statement.Column, false, null, statement.VariableType, assignability)
     }
 
     // THE `await foreach` STATEMENT'S ENTRY — the same walk with `IsAsync` set, which is the whole
@@ -1118,11 +1127,57 @@ class AnalyzerLoopSequence {
             state.ElementType = ResolveForeachElementType(collection, state.CollectionType)
         }
 
+        // THE WRITTEN ANNOTATION REPLACES THE INFERRED ELEMENT TYPE — after it is checked, and
+        // whether or not it passes. `for m: Match in matches` declares `m` as a `Match` for every
+        // reader downstream: the scope, the semantic model the IDE hovers, the binding map, and the
+        // body's own type checking. Taking the declared type even when the conversion was refused is
+        // what keeps ONE diagnostic about one mistake — the body then type-checks against the type
+        // the author wrote instead of cascading against the one they did not.
+        ApplyForeachVariableAnnotation(state)
+
         state.Phase = 2
         request := new LoopStatementRequest(2, BuiltInTypes.Unknown)
         request.Line = state.Line
         request.Column = state.Column
         return request
+    }
+
+    // THE ANNOTATION, RESOLVED AND CHECKED — NL330.
+    //
+    // The report is SILENT for a conversion `ForeachElementConversionFacts` cannot measure, which is
+    // every case where a type is `unknown` or is held only by name; those are already-reported or
+    // unknowable, and a sentence about them would name types the author cannot act on. The span is
+    // the ANNOTATION's, not the loop keyword's, because the annotation is the thing that is wrong.
+    func ApplyForeachVariableAnnotation(state: LoopStatementState) {
+        typeReference := state.VariableType
+        if typeReference == null {
+            return
+        }
+
+        declaredType := typeResolverValue.ResolveDeclaredType(typeReference)
+        elementType := state.ElementType
+        state.ElementType = declaredType
+
+        assignability := state.Assignability
+        if assignability == null || ForeachElementConversionFacts.IsConvertible(elementType, declaredType, assignability) {
+            return
+        }
+
+        span := TypeReferenceFacts.GetStartSpan(typeReference)
+        variableName := state.VariableName ?? ""
+        elementText := TypeText(elementType)
+        declaredText := TypeText(declaredType)
+        reportLine := span.StartLine
+        reportColumn := span.StartColumn
+        reportLength := span.Length
+        sourceSnippet := diagnosticsValue.SourceSnippet(reportLine)
+        currentFilePath := diagnosticsValue.CurrentFilePath
+        if sourceSnippet == null || currentFilePath == null {
+            diagnosticsValue.Report(ErrorCode.ForeachElementConversion, "A '" + elementText + "' cannot be read as a '" + declaredText + "'", reportLine, reportColumn, "Annotate '" + variableName + "' with '" + elementText + "' or a type it converts to, or drop the annotation.", reportLength)
+            return
+        }
+
+        diagnosticsValue.ReportBuilt(ErrorMessageBuilder.ForeachElementConversion(currentFilePath ?? "", reportLine, reportColumn, sourceSnippet ?? "", reportLength, variableName, elementText, declaredText))
     }
 
     // PHASE 2 — the loop variable, declared at the STATEMENT's position rather than the variable's,

@@ -708,6 +708,11 @@ class ParserExpressionNodeTable {
 //   ForStatement                 -> kind 28  ( for <init>; <cond>; <incr> <body>; children [init, cond, incr, body] )
 //   ForeachStatement             -> kind 29  ( `foreach <var> in <coll>` or `for <var> in <coll>`; var in the value span,
 //                                             children [coll, body] )
+//   TypedForeachStatement        -> kind 76  ( `for <var>: <Type> in <coll>` / `foreach <var>: <Type> in <coll>` — the
+//                                             ANNOTATED loop variable. Type trees cannot share this table (kind spaces
+//                                             collide), so the TYPE's source span rides in the VALUE slot exactly as
+//                                             kind 40's does, and children are [name Identifier (kind 6), coll, body].
+//                                             The element is converted to the annotation once per iteration. )
 //   TupleDeconstructionStatement -> kind 30  ( n0, n1, ... := <tuple>; children [name0..nameN-1 (Identifier kind 6), value] )
 //   TypedLocalDeclaration        -> kind 40  ( [let] name: Type = init; the TYPE's source span in the VALUE slot
 //                                             (type trees cannot share this table — kind spaces collide), children
@@ -6507,6 +6512,14 @@ func ParseStatementCoreNode(tokens: ParserTokenTable, count: int, st: ParserStat
         forStart := tokens.Starts[start]
         st.Pos = start + 1
 
+        // `for <var>: <Type> in <collection> { body }` — the ANNOTATED loop variable, TypedForeach
+        // kind 76. The `Identifier :` prefix is shared with a C-style header whose initializer is
+        // annotated, so the type span is scanned STRUCTURALLY to a depth-0 `in` (28) and the arm is
+        // taken only when one is found; anything else falls through to the C-style parse below.
+        if st.Pos + 1 < count && tokens.Kinds[st.Pos] == 0 && tokens.Kinds[st.Pos + 1] == 122 && ParserTypedForeachInIndex(tokens, count, st.Pos + 2) >= 0 {
+            return ParseTypedForeachTailNode(tokens, count, st, argStack, nodes, children, depth, forStart, st.Pos)
+        }
+
         // Production accepts Go-style `for <var> in <collection> { body }` as a foreach spelling. Reuse
         // the existing ForeachStatement node shape so lowering stays shared with the `foreach` keyword.
         if st.Pos + 1 < count && tokens.Kinds[st.Pos] == 0 && tokens.Kinds[st.Pos + 1] == 28 {
@@ -6585,6 +6598,11 @@ func ParseStatementCoreNode(tokens: ParserTokenTable, count: int, st: ParserStat
         // A parenthesised `foreach (x in y)` or a missing var/`in`/body refuses with -1 -> declines.
         if st.Pos >= count || tokens.Kinds[st.Pos] != 0 {
             return -1
+        }
+
+        // `foreach <var>: <Type> in <collection>` — the same annotated form the `for` arm reads.
+        if st.Pos + 1 < count && tokens.Kinds[st.Pos + 1] == 122 {
+            return ParseTypedForeachTailNode(tokens, count, st, argStack, nodes, children, depth, foreachStart, st.Pos)
         }
 
         foreachVarStart := tokens.Starts[st.Pos]
@@ -6693,6 +6711,87 @@ func ParseStatementCoreNode(tokens: ParserTokenTable, count: int, st: ParserStat
     }
 
     return ParseSimpleStatementNode(tokens, count, st, argStack, nodes, children)
+}
+
+// THE INDEX OF THE `in` (28) THAT CLOSES AN ANNOTATED LOOP VARIABLE'S TYPE, or -1 when the tokens
+// from `typeFirst` are not a type followed by one. Balanced angles (`>>` 112 closes two) and ()/[]
+// groups are tracked so a `Dictionary<string, int>` or a `(int, int)` annotation is crossed whole;
+// a `{` (129), a `;` (133) or end-of-file (135) at depth 0 means the header is not an annotated
+// loop variable at all — which is how a C-style `for` whose initializer merely happens to be
+// annotated refuses here and reaches its own arm intact, with no tokens consumed and no node built.
+func ParserTypedForeachInIndex(tokens: ParserTokenTable, count: int, typeFirst: int): int {
+    typedForeachScan := typeFirst
+    typedForeachAngles := 0
+    typedForeachGroups := 0
+    while typedForeachScan < count {
+        typedForeachToken := tokens.Kinds[typedForeachScan]
+        if typedForeachToken == 28 && typedForeachAngles == 0 && typedForeachGroups == 0 {
+            if typedForeachScan == typeFirst {
+                return -1
+            }
+
+            return typedForeachScan
+        }
+
+        if typedForeachToken == 100 {
+            typedForeachAngles = typedForeachAngles + 1
+        } else if typedForeachToken == 102 {
+            typedForeachAngles = typedForeachAngles - 1
+        } else if typedForeachToken == 112 {
+            typedForeachAngles = typedForeachAngles - 2
+        } else if typedForeachToken == 127 || typedForeachToken == 131 {
+            typedForeachGroups = typedForeachGroups + 1
+        } else if typedForeachToken == 128 || typedForeachToken == 132 {
+            typedForeachGroups = typedForeachGroups - 1
+        } else if typedForeachAngles == 0 && typedForeachGroups == 0 && (typedForeachToken == 129 || typedForeachToken == 133 || typedForeachToken == 135) {
+            return -1
+        }
+
+        if typedForeachAngles < 0 || typedForeachGroups < 0 {
+            return -1
+        }
+
+        typedForeachScan = typedForeachScan + 1
+    }
+
+    return -1
+}
+
+// THE ANNOTATED LOOP VARIABLE'S TAIL, shared by `for` and `foreach`. `nameIndex` is the loop
+// variable's token (a `:` follows it), and `keywordStart` is the loop keyword's byte offset, which
+// anchors the statement's span. The TYPE rides as a SOURCE SPAN in the value slot, delimited
+// structurally (balanced angles — `>>` 112 closes two — and ()/[] groups) and ending at the first
+// depth-0 `in` (28), exactly as kind 40 delimits a typed local's annotation at its depth-0 `=`.
+// Returns the TypedForeach node id (kind 76), or -1 when the shape is not one.
+func ParseTypedForeachTailNode(tokens: ParserTokenTable, count: int, st: ParserState, argStack: ParserArgumentStack, nodes: ParserExpressionNodeTable, children: ParserChildIndexTable, depth: int, keywordStart: int, nameIndex: int): int {
+    typedLoopNameStart := tokens.Starts[nameIndex]
+    typedLoopNameLength := tokens.ValueLengths[nameIndex]
+    typedLoopTypeFirst := nameIndex + 2
+    typedLoopScan := ParserTypedForeachInIndex(tokens, count, typedLoopTypeFirst)
+    if typedLoopScan < 0 {
+        return -1
+    }
+
+    typedLoopTypeStart := tokens.Starts[typedLoopTypeFirst]
+    typedLoopTypeEnd := tokens.Starts[typedLoopScan - 1] + tokens.ValueLengths[typedLoopScan - 1]
+    st.Pos = typedLoopScan + 1
+    typedLoopCollection := ParseAssignmentExpressionNode(tokens, count, st, argStack, nodes, children, 0)
+    if typedLoopCollection < 0 {
+        return -1
+    }
+
+    typedLoopBody := ParseStatementCoreNode(tokens, count, st, argStack, nodes, children, depth + 1)
+    if typedLoopBody < 0 {
+        return -1
+    }
+
+    typedLoopNameNode := EmitExpressionNode(st, nodes, 6, typedLoopNameStart, typedLoopNameLength, -1, 0, typedLoopNameStart, typedLoopNameLength)
+    typedLoopBodyEnd := nodes.SpanStarts[typedLoopBody] + nodes.SpanLengths[typedLoopBody]
+    typedLoopChildRunStart := st.ChildCursor
+    AppendExpressionChild(st, children, typedLoopNameNode)
+    AppendExpressionChild(st, children, typedLoopCollection)
+    AppendExpressionChild(st, children, typedLoopBody)
+    return EmitExpressionNode(st, nodes, 76, typedLoopTypeStart, typedLoopTypeEnd - typedLoopTypeStart, typedLoopChildRunStart, 3, keywordStart, typedLoopBodyEnd - keywordStart)
 }
 
 func ParseSimpleStatementNode(tokens: ParserTokenTable, count: int, st: ParserState, argStack: ParserArgumentStack, nodes: ParserExpressionNodeTable, children: ParserChildIndexTable): int {
