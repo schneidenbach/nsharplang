@@ -6112,3 +6112,71 @@ test "the preprocessor declaration SWALLOWS every diagnostic after it in the sam
     assert ColumnarParserRecovery.ParseFileAst("!! %%", "test.nl").Errors.Count == 4
     assert ColumnarParserRecovery.ParseFileAst("## !! %%", "test.nl").Errors.Count == 0
 }
+
+// AN ATTRIBUTE TARGET PREFIX IS A POSITION N# HAS NO ATTRIBUTE FOR, and the point of reporting it at
+// the prefix is that nothing after it cascades: `[return: Mark]` was read as an attribute NAMED
+// `return` and produced four diagnostics, none of which named the real problem.
+test "016 attributes: a target prefix reports NL935 once and the declaration still parses" {
+    errors := RunPreamble("[return: Mark]\nfunc g() {\n}\n")
+    assert errors.Count == 1
+
+    e0 := errors[0]
+    assert e0.Code == ErrorCode.AttributePositionUnsupported
+    assert e0.Message == "N# has no 'return:' attribute position — an attribute is written on the declaration it belongs to"
+    assert e0.Line == 1
+    assert e0.Column == 2
+    assert e0.Length == 6
+    assert e0.ContextualHint == "Remove the 'return:' prefix, or move the attribute onto a declaration that can carry one."
+}
+
+test "016 attributes: every target prefix spelling is named in its own sentence" {
+    assemblyErrors := RunPreamble("[assembly: Mark]\nfunc g() {\n}\n")
+    assert assemblyErrors.Count == 1
+    assert assemblyErrors[0].Message == "N# has no 'assembly:' attribute position — an attribute is written on the declaration it belongs to"
+
+    fieldErrors := RunPreamble("[field: Mark]\nfunc g() {\n}\n")
+    assert fieldErrors.Count == 1
+    assert fieldErrors[0].Code == ErrorCode.AttributePositionUnsupported
+    assert fieldErrors[0].Message == "N# has no 'field:' attribute position — an attribute is written on the declaration it belongs to"
+}
+
+test "016 attributes: an ordinary attribute is untouched by the target-prefix rule" {
+    assert RunPreamble("[Mark]\nfunc g() {\n}\n").Count == 0
+    assert RunPreamble("[Mark(\"tag\")]\nfunc g() {\n}\n").Count == 0
+    // A NAMED ARGUMENT'S OWN `name:` IS INSIDE THE PARENTHESES and never at the prefix position.
+    assert RunPreamble("[Mark(tag: \"x\")]\nfunc g() {\n}\n").Count == 0
+    assert RunPreamble("[Outer.Mark]\nfunc g() {\n}\n").Count == 0
+}
+
+test "016 attributes: an unclosed target-prefixed attribute reports once and stops" {
+    errors := RunPreamble("[return: Mark\nfunc g() {\n}\n")
+    assert errors.Count == 1
+    assert errors[0].Code == ErrorCode.AttributePositionUnsupported
+}
+
+// AN ENUM MEMBER HAS NO ATTRIBUTE POSITION EITHER, and the member itself keeps parsing: this used to
+// report nine diagnostics, starting with "Expected enum member name. Got '['".
+test "016 enums: an attribute on an enum member reports NL935 once and the member still parses" {
+    errors := RunPreamble("enum Level {\n    [Mark]\n    Low = 1,\n    High = 2\n}\n")
+    assert errors.Count == 1
+
+    e0 := errors[0]
+    assert e0.Code == ErrorCode.AttributePositionUnsupported
+    assert e0.Message == "N# has no attribute position on an enum member"
+    assert e0.Line == 2
+    assert e0.Column == 5
+    assert e0.Length == 1
+    assert e0.ContextualHint == "Write the attribute on the enum declaration itself, or model the per-member data as a lookup the program owns."
+}
+
+// THE FIRST ONE IS THE ONLY ONE, and that is the recovery design rather than a missed member: the
+// shared panic mode suppresses every further diagnostic until the parser resynchronizes, so a file
+// that writes the mistake on four members reads as one mistake, not four.
+test "016 enums: several attributed members report once, and the enum's own attribute is legal" {
+    errors := RunPreamble("[Mark]\nenum Level {\n    [Mark]\n    [Mark]\n    Low = 1,\n    [Mark]\n    High = 2\n}\n")
+    assert errors.Count == 1
+    assert errors[0].Code == ErrorCode.AttributePositionUnsupported
+    assert errors[0].Line == 3
+
+    assert RunPreamble("[Mark]\nenum Level {\n    Low = 1,\n    High = 2\n}\n").Count == 0
+}

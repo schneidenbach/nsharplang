@@ -545,8 +545,13 @@ Because N# has no attribute position inside accessor braces, a **property** offe
 `Property` and the `Method` target: an attribute declared for either may be written on a property,
 and it reaches the property's accessors.
 
-N# has no `[assembly: ...]` or `[return: ...]` attribute position, and no attribute position on an
-enum member. Generic attributes (`class Mark<T>: Attribute`) are not supported.
+### Positions N# has no attribute for
+
+N# has no attribute **target** prefix — `[assembly: ...]`, `[return: ...]`, `[field: ...]` — and no
+attribute position on an **enum member**. Writing one reports [`NL935`](./errors/NL935.md), which
+names the position and stops there: the rest of the declaration still parses, so one refused attribute
+does not cascade into a page of syntax errors. Generic attributes (`class Mark<T>: Attribute`) are not
+supported either.
 
 ### `[MethodImpl]` — the attribute that is not stored as an attribute
 
