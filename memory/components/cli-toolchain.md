@@ -263,11 +263,11 @@ N# is near-zero-warnings: every active linter rule is a build-blocking **error**
 | Code | Severity | Name | Description |
 |------|----------|------|-------------|
 | NL001 | Error | `unused-variable` | Local variable declared but never read |
-| NL002 | Error | `missing-import` | Type used without the required `import` |
+| NL002 | Error | `missing-import` | A name used without the import that provides it — the OTHER reading of NL010's fact, from the same `ImportUsageFacts` ledger. If the supplying namespace is imported the import is used (NL010 quiet); if it is not, this fires. No whitelist: any name whose supplying namespace is missing is reported. Silent for a source type from another namespace of the same project (which needs no import), for a name the project itself declares, for a member of the enclosing type, and for a file that was not analysed. |
 | NL003 | Error | `unnecessary-null-check` | Null check on a value-type literal |
 | NL004 | Error | `async-without-await` | `async` function never uses `await` |
 | NL006 | Error | `unreachable-code` | Statements after `return` or `throw` |
-| NL010 | Error | `unused-import` | `import` statement for a namespace/file whose symbols are never used in the file. Conservative: only fires for known namespaces (e.g. `System.Collections.Generic`); unknown namespaces are never flagged. An ALIASED import (`import System.Text as Txt`) is used by EITHER spelling — N#'s alias adds a name to the import rather than replacing it the way C#'s `using Txt = System.Text;` does, so the bare `new StringBuilder()` keeps it alive as well as `Txt.StringBuilder`. A FULLY QUALIFIED spelling is not a use (the C# rule): `System.Text.StringBuilder` resolves with no import, so an import only ever written out in full really is dead. |
+| NL010 | Error | `unused-import` | `import` statement nothing in the file BOUND through. Answered from `ImportUsageFacts`, the per-file ledger the analyzer stamps on a `CompilationUnit`: when a simple name resolves, the namespace that supplied it is the prefix its resolved identity leaves over, and an import is used when it appears among those. There is NO table of namespace names any more — a dead import of a project's own namespace is reported exactly as a dead `import System` is. An ALIASED import (`import System.Text as Txt`) is one import with two spellings and both credit the same namespace; a FULLY QUALIFIED spelling credits nothing, so an import only ever written out in full really is dead. A file that was NOT analysed reports no namespace import at all (the file-import arm still answers). |
 | NL011 | Error | `empty-catch` | Catch block with no statements (silently swallows exceptions) |
 | NL012 | Error | `unused-parameter` | Function parameter never referenced in the body (underscore-prefixed names are exempt) |
 | NL016 | Error | `redundant-null-check` | Null-equality check on an expression that is always non-null (`new`, array literal, numeric/bool literal) |
@@ -296,7 +296,7 @@ Compiler diagnostics also include error `NL905` for possible null dereference/in
 | NL001 | Remove unused variable declaration line | `ReviewNeeded` | Uses string matching (may match inside comments/strings) |
 | NL002 | Add missing `import` statement | `Safe` | |
 | NL003 | Remove unnecessary `== null` / `!= null` clause | `Safe` | |
-| NL010 | Remove unused import line | `ReviewNeeded` | Known false positives in NL010 analysis |
+| NL010 | Remove unused import line | `ReviewNeeded` | Answered from binding facts, so `nlc fix` loads and analyses the project before it lints |
 | NL011 | Insert `// TODO: handle exception` in empty catch | `Safe` | |
 | NL905 | Use null-conditional member/index access | `ReviewNeeded` | Changes result nullability; guard/fallback/assertion alternatives are exposed as suggestion-only actions. |
 
@@ -1056,7 +1056,8 @@ nlc query <cmd>
 | `src/NSharpLang.Compiler.Core/AssemblyVersionUtilities.tests.nl` | Package version → four-part assembly version, and the component kernel as a pinned table |
 | `src/NSharpLang.Compiler.Core/ExampleProjectCorpus.tests.nl` | All nineteen shipped `examples/` projects walked through the compiler's own discovery, parser and linter — directories REQUIRED, file counts pinned |
 | `src/NSharpLang.Compiler.Core/LinterFileImportUsage.tests.nl` | NL010 on a file import: resolved against the disk, spans over the quoted path, two imports tracked separately |
-| `src/NSharpLang.Compiler.Core/LinterNamespaceImportUsage.tests.nl` | NL010 on a namespace import: the known-name tables row by row, the unknown-namespace silence, and the ALIASED import answered from the alias OR the namespace |
+| `src/NSharpLang.Compiler.Core/LinterNamespaceImportUsage.tests.nl` | NL010 on a namespace import: the credited/uncredited decision, the unanalysed and incomplete-analysis gates, and the arithmetic that turns a written spelling plus a resolved identity into the supplying namespace |
+| `tests/native/census-import-usage` | NL010 and NL002 end to end through the shipped `nlc`: every channel a name can reach an import through (type position, static receiver, attribute, extension method, declared member type, type argument, alias, inaccessible name), each paired with a removal control that builds |
 | `tests/native/language-server-diagnostics/RecoveryAndLinterDiagnostics.tests.nl` | The converted-language-server census: NL010 on aliased and fully qualified imports, NL020 across an initializer boundary, NL012 through a lambda capture and NL002 for a name an implicit C# using used to supply — all through `DocumentManager`, the surface the editor shows |
 
 ---

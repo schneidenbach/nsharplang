@@ -1,6 +1,6 @@
 namespace NSharpLang.CensusEmitShapes.Tests
 
-import System.Reflection
+import System
 
 test "an array widens to its nullable-element view, and the view is the same array object" {
     values: string[] = ["a", "b"]

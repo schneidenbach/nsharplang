@@ -603,6 +603,14 @@ class AnalyzerProjectTypeDiscovery {
                             filePath = candidatePath
                             functionDeclaration = candidate as FunctionDeclaration
                             declaration = CreateTopLevelSymbolDeclaration(name, candidatePath, sources.ProjectSourceText(candidatePath), candidate)
+                            // NL010: A FREE FUNCTION IS WHAT ITS NAMESPACE'S IMPORT IS FOR, and the
+                            // call writes no type name at all. A file whose whole use of
+                            // `import Census.Holder` was `Hold(1)` had that import reported dead.
+                            functionCredit := importUsageCredit
+                            if functionCredit != null {
+                                functionCredit.CreditNamespaceSupplier(visibleNamespace)
+                            }
+
                             return true
                         }
 

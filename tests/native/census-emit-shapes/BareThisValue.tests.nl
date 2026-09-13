@@ -1,5 +1,7 @@
 namespace NSharpLang.CensusEmitShapes.Tests
 
+import System
+
 test "a bare `this` returned from a reference type is the receiver itself" {
     node := new Node("root")
     assert Object.ReferenceEquals(node.Self(), node)

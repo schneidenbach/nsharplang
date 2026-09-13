@@ -1,6 +1,7 @@
 namespace NSharpLang.CensusEmitShapes.Tests
 
 import System.Collections.Generic
+import System
 
 
 // THE INSTANCE SURFACE A SOURCE ENUM INHERITS IS `System.Enum`, not `object`. Every member below is

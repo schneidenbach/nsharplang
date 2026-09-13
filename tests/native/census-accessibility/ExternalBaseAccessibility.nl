@@ -1,6 +1,7 @@
 namespace NSharpLang.CensusAccessibility.Tests
 
 import System.Collections.ObjectModel
+import System.IO
 
 
 // WHAT A SOURCE TYPE INHERITS FROM AN EXTERNAL BASE INCLUDES ITS `protected` SURFACE.
