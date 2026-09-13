@@ -1436,6 +1436,58 @@ test "struct parser preserves generic parameters alongside a constructed base" {
     assert probe.StructNameTexts[0] == "Derived"
 }
 
+// THE MEMBER SECTIONS ARE GONE: a type's body is read twice, and a member may be written anywhere.
+//
+// The field scan used to STOP at the first `func`, conversion operator or constructor, and the member
+// scan behind it refused anything that was not one of those, so `field, func, field` declined the
+// whole declaration at `parse.struct`. Result[2] is the method count, Result[3] the constructor
+// count, Result[4] the property count; a `-1` FieldCount is the decline these contracts used to pin.
+test "struct parser reads a field written after a method" {
+    probe := new ColumnarStructDeclarationParseProbe(
+        "class Counter {\n    First: int = 1\n\n    func Sum(): int {\n        return First + Second\n    }\n\n    Second: int = 2\n}"
+    )
+
+    assert probe.FieldCount == 2
+    assert probe.FieldNameTexts[0] == "First"
+    assert probe.FieldNameTexts[1] == "Second"
+    assert probe.Result[2] == 1
+    assert probe.StructNameTexts[0] == "Counter"
+}
+
+test "struct parser reads a property, an event and a field written after a method" {
+    probe := new ColumnarStructDeclarationParseProbe(
+        "class Signals {\n    func Arm(): int {\n        return 1\n    }\n\n    event Changed: Action\n\n    Armed: int = 0\n\n    Label: string => \"s\"\n\n    func Raise() {\n    }\n}"
+    )
+
+    // Two field rows: the event's synthesized storage and `Armed`. `Label` is the property row.
+    assert probe.FieldCount == 2
+    assert probe.FieldNameTexts[0] == "Changed"
+    assert probe.FieldNameTexts[1] == "Armed"
+    assert probe.Result[2] == 2
+    assert probe.Result[4] == 1
+}
+
+test "struct parser reads a field written after a constructor" {
+    probe := new ColumnarStructDeclarationParseProbe(
+        "class Held {\n    constructor(seed: int) {\n        Value = seed\n    }\n\n    func Doubled(): int {\n        return Value * 2\n    }\n\n    Value: int\n}"
+    )
+
+    assert probe.FieldCount == 1
+    assert probe.FieldNameTexts[0] == "Value"
+    assert probe.Result[2] == 1
+    assert probe.Result[3] == 1
+}
+
+test "struct parser keeps declaration order for fields split across methods" {
+    probe := new ColumnarStructDeclarationParseProbe(
+        "struct Point {\n    X: int\n\n    func Sum(): int {\n        return X + Y\n    }\n\n    Y: int\n}"
+    )
+
+    assert probe.FieldCount == 2
+    assert probe.FieldNameTexts[0] == "X"
+    assert probe.FieldNameTexts[1] == "Y"
+}
+
 test "struct parser leaves namespace ownership with the file binding scope" {
     probe := new ColumnarStructDeclarationParseProbe(
         "namespace Scope\nclass Widget {}"

@@ -271,3 +271,27 @@ func main() {
     )
     assert result.Succeeded, result.Diagnostics
 }
+
+test "a := lambda with no delegate target reads the enclosing instance" {
+    seven := new Holder(7)
+    eleven := new Holder(11)
+
+    assert seven.InferredThroughThis() == 7
+    assert eleven.InferredThroughThis() == 11
+    assert seven.InferredBare() == 8
+}
+
+test "a := lambda that reads the instance is bound to that instance, not to a static method" {
+    assert (new Holder(7)).InspectInferredPlacement() == "False|Holder|7"
+    assert (new Holder(11)).InspectInferredPlacement() == "False|Holder|11"
+}
+
+test "a lambda argument reads its own parameter and the enclosing instance together" {
+    holder := new Holder(3)
+    values := new List<int>()
+    values.Add(1)
+    values.Add(3)
+    values.Add(3)
+
+    assert holder.CountMatching(values) == 2
+}

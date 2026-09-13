@@ -123,6 +123,69 @@ test "the completion flags deliberately omit DeclaredOnly, NonPublic and Flatten
     assert (all & BindingFlags.Public) == BindingFlags.Public
 }
 
+// THE ONE WALK THAT ASKS FOR MORE THAN `Public`: the base a SOURCE TYPE DERIVES FROM.
+//
+// A caret after `this.` inside a `class Bag: Collection<string>` used to list `Add` and `Count` and
+// not `SetItem`, `ClearItems` or `Items` — the very members that type exists to have overridden, and
+// which the compiler accepts. `NonPublic` is added for that walk alone, and the level filter beside
+// it still refuses everything a derived type in another assembly cannot reach.
+test "the inherited-base walk asks for NonPublic, and only that walk" {
+    ordinary := CompletionReflectionFacts.GetReflectionBindingFlags(CompletionMemberFilter.InstanceOnly, false)
+    inherited := CompletionReflectionFacts.GetReflectionBindingFlags(CompletionMemberFilter.InstanceOnly, true)
+
+    assert (ordinary & BindingFlags.NonPublic) == BindingFlags.Default
+    assert (inherited & BindingFlags.NonPublic) == BindingFlags.NonPublic
+    assert (inherited & BindingFlags.Instance) == BindingFlags.Instance
+    assert (inherited & BindingFlags.Public) == BindingFlags.Public
+}
+
+test "an inherited base offers its protected members and still hides its private ones" {
+    collectionOfString := typeof(System.Collections.ObjectModel.Collection<string>)
+    inheritedFlags := CompletionReflectionFacts.GetReflectionBindingFlags(CompletionMemberFilter.InstanceOnly, true)
+    items := CompletionReflectionFacts.BuildReflectionMemberItems(collectionOfString, inheritedFlags, true)
+
+    // `protected virtual` — the extension points.
+    assert CrfFind(items, "SetItem") != null
+    assert CrfFind(items, "ClearItems") != null
+    assert CrfFind(items, "InsertItem") != null
+    assert CrfFind(items, "RemoveItem") != null
+
+    // `protected` — the backing list.
+    assert CrfFind(items, "Items") != null
+
+    // ...and the public surface is still there.
+    assert CrfFind(items, "Add") != null
+    assert CrfFind(items, "Count") != null
+
+    // `Collection<T>.items` is the PRIVATE backing field, and a derived type may not reach it.
+    assert CrfFind(items, "items") == null
+}
+
+test "an ordinary receiver offers nothing a caller could not write" {
+    collectionOfString := typeof(System.Collections.ObjectModel.Collection<string>)
+    items := CompletionReflectionFacts.BuildReflectionMemberItems(collectionOfString, CrfInstanceFlags(), false)
+
+    assert CrfFind(items, "Add") != null
+    assert CrfFind(items, "SetItem") == null
+    assert CrfFind(items, "Items") == null
+}
+
+test "a property is reachable through the more visible of its two accessors" {
+    // `Collection<T>.Items` is a `protected` READ-ONLY property: its getter carries the level and
+    // there is no setter to widen it.
+    itemsProperty := must typeof(System.Collections.ObjectModel.Collection<string>).GetProperty("Items", BindingFlags.Instance | BindingFlags.NonPublic)
+    assert CompletionReflectionFacts.PropertyAccessibilityLevel(itemsProperty) == MemberAccessibility.Family
+
+    countProperty := must typeof(System.Collections.ObjectModel.Collection<string>).GetProperty("Count")
+    assert CompletionReflectionFacts.PropertyAccessibilityLevel(countProperty) == MemberAccessibility.Public
+
+    assert CompletionReflectionFacts.IsReachableInheritedMember(MemberAccessibility.Family, true)
+    assert !CompletionReflectionFacts.IsReachableInheritedMember(MemberAccessibility.Family, false)
+    assert !CompletionReflectionFacts.IsReachableInheritedMember(MemberAccessibility.Assembly, true)
+    assert !CompletionReflectionFacts.IsReachableInheritedMember(MemberAccessibility.Private, true)
+    assert CompletionReflectionFacts.IsReachableInheritedMember(MemberAccessibility.FamilyOrAssembly, true)
+}
+
 test "no DeclaredOnly means INHERITED INSTANCE members are offered, and GetType proves it" {
     items := CompletionReflectionFacts.BuildReflectionMemberItems(typeof(string), CrfInstanceFlags())
 

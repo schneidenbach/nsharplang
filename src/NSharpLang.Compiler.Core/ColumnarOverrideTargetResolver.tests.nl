@@ -119,6 +119,17 @@ func OverrideResolverBakedCandidateOwner(): Type {
     plainCandidate := builder.DefineMethod("PlainCandidate", (MethodAttributes)6, typeof(int), noParameters)
     OverrideResolverEmitIntBody(plainCandidate)
 
+    // The other three declared levels, so the accessibility relation is exercised across all six
+    // rather than at its two ends. Virtual|HideBySig is 192; the low three bits are the level.
+    internalCandidate := builder.DefineMethod("InternalCandidate", (MethodAttributes)195, typeof(int), noParameters)
+    OverrideResolverEmitIntBody(internalCandidate)
+
+    protectedInternalCandidate := builder.DefineMethod("ProtectedInternalCandidate", (MethodAttributes)197, typeof(int), noParameters)
+    OverrideResolverEmitIntBody(protectedInternalCandidate)
+
+    privateProtectedCandidate := builder.DefineMethod("PrivateProtectedCandidate", (MethodAttributes)194, typeof(int), noParameters)
+    OverrideResolverEmitIntBody(privateProtectedCandidate)
+
     firstRoute := builder.DefineMethod("Route", (MethodAttributes)454, typeof(int), oneInt)
     OverrideResolverEmitIntBody(firstRoute)
     secondRoute := builder.DefineMethod("Route", (MethodAttributes)454, typeof(int), oneString)
@@ -243,26 +254,46 @@ test "override targets take the current declared level before retaining the actu
     assert ancestor.get_DeclaringType() == typeof(Exception)
 }
 
-test "override targets admit only public nonfinal nongeneric virtual instance candidates" {
+func OverrideResolverAssertFound(owner: Type, name: string) {
+    found: MethodInfo? = null
+    if !ColumnarOverrideTargetResolver.TryFindOverrideTarget(
+        owner,
+        name,
+        typeof(int),
+        OverrideResolverNoParameters(),
+        out found
+    ) {
+        throw new InvalidOperationException("The '" + name + "' virtual candidate was not selected.")
+    }
+
+    if found == null || found.get_DeclaringType() != owner {
+        throw new InvalidOperationException("The '" + name + "' virtual candidate did not retain its declared owner.")
+    }
+}
+
+// WHICH VIRTUAL MEMBERS OF A BASE A DERIVED TYPE MAY TAKE THE SLOT OF.
+//
+// The accessibility half of this test used to read `public and nothing else`, and that refused
+// exactly the members a type like `Collection<T>` exists to have overridden: `SetItem`,
+// `ClearItems` and `InsertItem` are all `protected virtual`, and an `override` of any of them
+// reported "no overridable base member matches". The rule is the ordinary declared-accessibility
+// relation asked as a derived type in ANOTHER assembly asks it, so the three levels whose reach
+// depends on being in the same assembly stay refused — N# models no `InternalsVisibleTo`, so a
+// friend claim it cannot see is one it must not act on.
+//
+// The other four halves of the test are unchanged: static, final, generic and non-virtual
+// candidates are refused whatever their accessibility.
+test "override targets admit every virtual instance candidate a derived type can reach" {
     owner := OverrideResolverBakedCandidateOwner()
     noParameters := OverrideResolverNoParameters()
 
-    publicTarget: MethodInfo? = null
-    if !ColumnarOverrideTargetResolver.TryFindOverrideTarget(
-        owner,
-        "PublicCandidate",
-        typeof(int),
-        noParameters,
-        out publicTarget
-    ) {
-        throw new InvalidOperationException("The public virtual candidate was not selected.")
-    }
-    if publicTarget == null || publicTarget.get_DeclaringType() != owner {
-        throw new InvalidOperationException("The public virtual candidate did not retain its declared owner.")
-    }
+    OverrideResolverAssertFound(owner, "PublicCandidate")
+    OverrideResolverAssertFound(owner, "ProtectedCandidate")
+    OverrideResolverAssertFound(owner, "ProtectedInternalCandidate")
 
     OverrideResolverAssertMissing(owner, "PrivateCandidate", typeof(int), noParameters)
-    OverrideResolverAssertMissing(owner, "ProtectedCandidate", typeof(int), noParameters)
+    OverrideResolverAssertMissing(owner, "InternalCandidate", typeof(int), noParameters)
+    OverrideResolverAssertMissing(owner, "PrivateProtectedCandidate", typeof(int), noParameters)
     OverrideResolverAssertMissing(owner, "StaticCandidate", typeof(int), noParameters)
     OverrideResolverAssertMissing(owner, "FinalCandidate", typeof(int), noParameters)
     OverrideResolverAssertMissing(owner, "GenericCandidate", typeof(int), noParameters)

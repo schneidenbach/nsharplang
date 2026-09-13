@@ -33,6 +33,68 @@ func BaseBindingInvokeNoArguments(owner: Type, name: string): object? {
     return method.Invoke(instance, new object[](0))
 }
 
+// A `protected virtual` MEMBER IS AN OVERRIDABLE TARGET, and the whole reason a type like
+// `Collection<T>` is designed to be derived from. The candidate enumeration already asked metadata
+// for the non-public members and then threw every one of them away with an `IsPublic` test, so
+// `override func SetItem(...)` reported "no overridable base member matches". Which levels a derived
+// type in ANOTHER assembly may reach is `MemberAccessibility`'s question: `public`, `protected` and
+// `protected internal`, never the three assembly-bound ones.
+test "an external base's protected virtual member is an overridable target" {
+    collectionOfString := ExternalMemberCloseOne(
+        ExternalMemberRequiredType("System.Collections.ObjectModel.Collection`1, System.Private.CoreLib"),
+        typeof(string)
+    )
+    parameters := new Type[](2)
+    parameters[0] = typeof(int)
+    parameters[1] = typeof(string)
+
+    matchedBase := new ColumnarBaseMethodMatch(
+        collectionOfString,
+        "SetItem",
+        ColumnarTypeOfPlanner.RequiredVoidType(),
+        parameters
+    )
+    assert matchedBase.Matched
+
+    target := matchedBase.RequiredTarget()
+    assert target.get_IsFamily()
+    assert target.get_IsVirtual()
+
+    // ...and its metadata accessibility is what an `override` writing no word of its own adopts:
+    // MethodAttributes.Family is 4.
+    assert ColumnarBaseMethodMatch.AccessibilityAttributesOf(target) == 4
+    assert ColumnarBaseMethodMatch.AccessibilityAttributesOf(null) == -1
+}
+
+test "an inaccessible base member is not an overridable target" {
+    // `object.MemberwiseClone` is `protected` and FINAL, and `object.Finalize` is `protected` and
+    // virtual — the accessibility relation admits the second and the sealed/final test refuses the
+    // first, so the two rules are shown to be independent.
+    memberwiseClone := must typeof(object).GetMethod("MemberwiseClone", BindingFlags.Instance | BindingFlags.NonPublic)
+    assert !ColumnarBaseMethodMatch.IsOverridableTarget(memberwiseClone, "MemberwiseClone")
+
+    finalize := must typeof(object).GetMethod("Finalize", BindingFlags.Instance | BindingFlags.NonPublic)
+    assert ColumnarBaseMethodMatch.IsOverridableTarget(finalize, "Finalize")
+
+    // A name that does not match is never a target, whatever its accessibility.
+    assert !ColumnarBaseMethodMatch.IsOverridableTarget(finalize, "SetItem")
+}
+
+// WHETHER THE SOURCE WROTE AN ACCESSIBILITY WORD, which is not the same question as what the
+// accessibility IS: with no word, the casing convention answers for an ordinary member and the base
+// slot answers for an `override`.
+test "the written accessibility word is told apart from the casing default" {
+    assert ColumnarDeclarationPlanner.DeclaresAccessibilityWord(0) == false
+    assert ColumnarDeclarationPlanner.DeclaresAccessibilityWord(1)
+    assert ColumnarDeclarationPlanner.DeclaresAccessibilityWord(2)
+    assert ColumnarDeclarationPlanner.DeclaresAccessibilityWord(4)
+    assert ColumnarDeclarationPlanner.DeclaresAccessibilityWord(8)
+    assert ColumnarDeclarationPlanner.DeclaresAccessibilityWord(32768)
+
+    // `override`, `virtual`, `abstract` and `sealed` are not accessibility words.
+    assert ColumnarDeclarationPlanner.DeclaresAccessibilityWord(16) == false
+}
+
 test "a closed external generic base match retains its actual owner and open signature" {
     comparerDefinition := ExternalMemberRequiredType(
         "System.Collections.Generic.Comparer`1, System.Private.CoreLib"

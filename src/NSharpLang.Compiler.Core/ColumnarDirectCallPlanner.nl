@@ -682,34 +682,24 @@ class ColumnarDirectCallPlanner {
     }
 
     // A loose existence check for the entry-gate only: does the recorded external base (or its own
-    // inherited chain) declare any public instance method of this name and arity? Exact overload
-    // selection, accessibility, and the excluded-shape fence run in the inherited-external arm; this
-    // just keeps a plausible inherited call from bailing out with the other unknown bare names.
+    // inherited chain) declare any instance method of this name and arity that a derived type here
+    // may reach? Exact overload selection and the excluded-shape fence run in the inherited-external
+    // arm; this just keeps a plausible inherited call from bailing out with the other unknown bare
+    // names.
+    //
+    // IT ASKS THE SAME CANDIDATE SET THE ARM BEHIND IT RESOLVES OVER, which it did not: the gate
+    // enumerated PUBLIC methods only, so `SetItem(0, value)` inside a `Collection<T>` subclass — a
+    // `protected virtual` member the arm behind this gate selects perfectly well — bailed out here
+    // and declined as an unresolvable bare call, while `this.SetItem(0, value)` emitted. The two
+    // spellings name the same member of the same receiver; a gate narrower than its own arm is a gap,
+    // not a rule.
     static func HasInheritedExternalInstanceMethod(definition: ColumnarStructDef, memberName: string, argumentCount: int): bool {
         externalBase := ResolveExternalRuntimeBase(definition)
         if externalBase == null {
             return false
         }
 
-        candidates := externalBase.GetMethods()
-        if candidates == null {
-            return false
-        }
-
-        index := 0
-        while index < candidates.Length {
-            candidate := candidates[index]
-            if candidate != null && !candidate.get_IsStatic() && candidate.get_Name() == memberName {
-                parameters := candidate.GetParameters()
-                if parameters != null && parameters.Length == argumentCount {
-                    return true
-                }
-            }
-
-            index += 1
-        }
-
-        return false
+        return ColumnarOrdinaryRuntimeDirectCallResolver.HasInstanceMethodAtArity(externalBase, memberName, argumentCount, true)
     }
 
     // Emit a bare implicit-`this` call to an inherited external-base instance method: load the

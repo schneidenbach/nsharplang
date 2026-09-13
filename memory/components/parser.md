@@ -280,6 +280,40 @@ node's value span, because which one was written is meaning rather than style;
 `TupleDeconstructionStatement.IsAssignment` is the same fact on the AST side, and `FormatterWalk`
 prints the operator the source wrote.
 
+### A type's body is read TWICE, and a member may be written anywhere in it
+
+`ParseStructDeclarationCore` used to read a type's body once with a section boundary in the middle:
+the field scan STOPPED at the first `func`, conversion operator or constructor, and the member scan
+behind it refused anything that was not one of those. `field, func, field` therefore declined the
+WHOLE declaration at `parse.struct`, reported at the class header with nothing said about the member
+that caused it, and an `event` written after a method hit the same rule (stream EVENTS2 met it too).
+
+There are two passes now over the same token range, and `bodyStart` is what the second one rewinds
+to:
+
+1. **storage** — fields, properties and field-like events are recorded; methods, constructors and
+   nested types are stepped over.
+2. **methods and constructors** — recorded; the storage members are stepped over.
+
+TWO passes rather than one merged pass, because the synthesized instance constructor must be recorded
+BEFORE any written one and whether it is needed at all is not known until every field initializer has
+been seen (`hasInstanceInitializer`). Field order is declaration order in both readings, which is what
+a sequential-layout struct depends on.
+
+`ParseDeclarationMemberBodyEndCore` is the one answer to "where does this member END": scan to the
+first `{`, `=>` or `}`, then take the expression body's end or the balanced block's close. Both passes
+use it, which is what keeps their idea of a member's extent identical — a skip that disagreed with the
+record would silently shift every member after it.
+
+`ParseColumnarPrimaryConstructorInfoCore` (the synthesized instance-initializer body) carries the SAME
+walk, for the same reason: it used to stop at the first `func` too, so a field written after a method
+kept its declaration but silently lost its INITIALIZER — `N: int = 7` below a method left `N` at zero,
+with no diagnostic anywhere. Its header parse also read the base list as bare Identifiers, so
+`class Catalogue: Collection<Item>` left the scan on the `<` and the whole kernel answered -1: a type
+with a GENERIC base and any instance field initializer was refused outright. It reads the base list
+with `ParseDeclarationTypeSpanCore` and skips `where` clauses with `ParseDeclarationWhereClausesCore`
+now, exactly as the declaration parser does.
+
 ### Field initializers, and the two synthesized bodies they become
 
 A field initializer is read by the ordinary expression parser, never as a literal token. The struct

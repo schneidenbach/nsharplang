@@ -567,10 +567,17 @@ class ColumnarExternalMethodDescriptor {
         return true
     }
 
+    // THE OPEN `MethodDef` BEHIND A CLOSED HANDLE, matched by metadata token and module identity.
+    //
+    // The enumeration asks for the NON-PUBLIC members too, because the member being recovered is not
+    // always a public one: a `protected virtual` extension point like `Collection<T>.SetItem` is
+    // exactly what a derived type overrides, and a public-only sweep could not find its own target
+    // again — "The external method's open MethodDef could not be recovered from its declaring type"
+    // was the whole answer a program overriding one received.
     static func RecoverOpenMethod(target: MethodInfo, openDeclaringType: Type): MethodInfo {
         targetToken := target.get_MetadataToken()
         targetModuleVersionId := ReadModuleVersionId(target)
-        for candidate in openDeclaringType.GetMethods() {
+        for candidate in openDeclaringType.GetMethods(BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance | BindingFlags.Static) {
             if candidate.get_MetadataToken() == targetToken && ReadModuleVersionId(candidate) == targetModuleVersionId {
                 return candidate
             }

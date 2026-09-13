@@ -11449,32 +11449,63 @@ func ParseStructDeclarationCore(source: string, tokens: ParserDeclarationTokenTa
 
     pos = pos + 1
 
-    // Fields first (`Name : Type`), stopping at the type close `}` (130), the first method `func` (7), a
-    // conversion-operator member (`implicit` 85 / `explicit` 86), or a
-    // CONSTRUCTOR member — an Identifier (0) immediately followed by `(` (127). A field is `id : type` (a `:` after
-    // the name), so an `id (` is unambiguously a constructor, not a field, and ends the field section. A PROPERTY
-    // `id : type { get {…} [set {…}] }` — an `id : type` followed by `{` (129) — is recorded (its name token index in
-    // outPropIndices) and its `{ … }` block skipped; the host parses the accessor bodies. (A field is just `id :
-    // type`; the trailing `{` disambiguates a property from a field.) Single-token property types only (a composed
-    // type would not present `{` at pos+3, so it falls to the field path and declines).
+    // THE BODY IS READ TWICE, AND A MEMBER MAY BE WRITTEN ANYWHERE IN IT.
+    //
+    // The first pass records the STORAGE members — fields, properties and field-like events — and
+    // skips over everything else; the second records the METHODS and CONSTRUCTORS and skips over the
+    // storage. It used to be one pass with a section boundary: the field scan STOPPED at the first
+    // `func` / conversion operator / constructor, and the member scan behind it refused anything that
+    // was not one of those. So `field, func, field` — an entirely ordinary way to group a type's
+    // members around the method that uses them — declined the WHOLE declaration at `parse.struct`,
+    // reported at the class header with nothing said about the member that caused it, and the same
+    // rule refused an `event` written after a method.
+    //
+    // TWO PASSES RATHER THAN ONE, because the synthesized instance constructor has to be recorded
+    // BEFORE any written one and whether it is needed is not known until every field initializer has
+    // been seen. Field order is declaration order in both readings, which is what a sequential-layout
+    // struct depends on.
+    //
+    // A field is `id : type` (a `:` after the name), so an `id (` is unambiguously a constructor. A
+    // PROPERTY `id : type { get {…} [set {…}] }` — an `id : type` followed by `{` (129) — is recorded
+    // (its name token index in outPropIndices) and its `{ … }` block skipped; the host parses the
+    // accessor bodies. (A field is just `id : type`; the trailing `{` disambiguates a property from a
+    // field.)
+    bodyStart := pos
     fieldCount := 0
     propCount := 0
-    fieldsDone := 0
     memberModifierValues := new int[](6)
     memberModifiers := new ParserDeclarationResultTable(memberModifierValues)
     fieldTypeResult := new ParserDeclarationResultTable(new int[](2))
     initializerTypeResult := new ParserDeclarationResultTable(new int[](2))
     hasInstanceInitializer := 0
-    while fieldsDone == 0 && pos < count && tokens.Kinds[pos] != 130 && tokens.Kinds[pos] != 7 && tokens.Kinds[pos] != 85 && tokens.Kinds[pos] != 86 {
+    while pos < count && tokens.Kinds[pos] != 130 {
         memberStart := ParseMemberModifierPrefixCore(source, tokens, count, pos, memberModifiers)
         if memberStart < 0 || memberStart >= count {
             return -1
         }
 
         if tokens.Kinds[memberStart] == 7 || tokens.Kinds[memberStart] == 85 || tokens.Kinds[memberStart] == 86 {
-            fieldsDone = 1
+            // A METHOD OR CONVERSION OPERATOR, SKIPPED. The second pass records it and decides
+            // whether a body-less signature is a legal `abstract` or native-import declaration; this
+            // pass only has to step past it.
+            methodSignatureEnd := ParseDeclarationFunctionSignatureEndCore(source, tokens, count, memberStart)
+            if methodSignatureEnd < 0 || methodSignatureEnd >= count {
+                return -1
+            }
+
+            if tokens.Kinds[methodSignatureEnd] != 129 && tokens.Kinds[methodSignatureEnd] != 120 {
+                pos = methodSignatureEnd
+            } else {
+                pos = ParseDeclarationMemberBodyEndCore(source, tokens, count, methodSignatureEnd)
+                if pos < 0 {
+                    return -1
+                }
+            }
         } else if tokens.Kinds[memberStart] == 0 && memberStart + 1 < count && tokens.Kinds[memberStart + 1] == 127 {
-            fieldsDone = 1
+            pos = ParseDeclarationMemberBodyEndCore(source, tokens, count, memberStart + 1)
+            if pos < 0 {
+                return -1
+            }
         } else if ParseDeclarationNestedTypeDeclarationKind(tokens.Kinds[memberStart]) {
             pos = ParseDeclarationSkipDeclarationBlockCore(tokens, count, memberStart)
             if pos < 0 {
@@ -11674,7 +11705,7 @@ func ParseStructDeclarationCore(source: string, tokens: ParserDeclarationTokenTa
         }
     }
 
-    // Members next, in any order: METHODS (`func name(...): ret { body }`) and CONSTRUCTORS (`constructor(...) {
+    // THE SECOND PASS: METHODS (`func name(...): ret { body }`) and CONSTRUCTORS (`constructor(...) {
     // body }` — lexed as an Identifier followed by `(`). DELIMIT each: record its keyword/identifier token index
     // (outMethodFuncIndices for a method, outCtorIndices for a constructor), then skip its signature to the body `{`
     // and scan to the matching `}` (balanced). The host parses the signatures/bodies via the existing function
@@ -11684,6 +11715,9 @@ func ParseStructDeclarationCore(source: string, tokens: ParserDeclarationTokenTa
     // via ParseConstructorChainInfoCore, with the composed constructor core verifying the identifier text.
     // A member with no `{` body declines unless it is a static LibraryImport method; those carry a native-import
     // modifier bit and materialize as P/Invoke methods without managed bodies.
+    //
+    // It reads the body from the start again, because a method may be written before, between or
+    // after the storage members the first pass recorded, and skips whatever that pass owns.
     methodCount := 0
     ctorCount := 0
     syntheticCtorNeeded := primaryCtorParamCount > 0 || hasInstanceInitializer == 1
@@ -11692,6 +11726,7 @@ func ParseStructDeclarationCore(source: string, tokens: ParserDeclarationTokenTa
         ctorCount = ctorCount + 1
     }
 
+    pos = bodyStart
     while pos < count && tokens.Kinds[pos] != 130 {
         memberStart := ParseMemberModifierPrefixCore(source, tokens, count, pos, memberModifiers)
         if memberStart < 0 || memberStart >= count {
@@ -11772,28 +11807,35 @@ func ParseStructDeclarationCore(source: string, tokens: ParserDeclarationTokenTa
 
             continue
         } else if tokens.Kinds[memberStart] == 0 {
-            propTypePos := memberStart + 1
-            if propTypePos >= count || tokens.Kinds[propTypePos] != 122 {
+            // A FIELD, A PROPERTY OR A FIELD-LIKE EVENT — the first pass recorded it, so this one
+            // only steps past it. `event <Name>: <Type>` puts an extra NAME token before the `:`.
+            storageTypePos := memberStart + 1
+            if storageTypePos < count && tokens.Kinds[storageTypePos] == 0 && storageTypePos + 1 < count && tokens.Kinds[storageTypePos + 1] == 122 && ParserDeclarationTokenTextEquals(source, tokens.Starts[memberStart], tokens.ValueLengths[memberStart], "event") {
+                storageTypePos = storageTypePos + 1
+            }
+
+            if storageTypePos >= count || tokens.Kinds[storageTypePos] != 122 {
                 return -1
             }
 
-            propTypePos = propTypePos + 1
+            storageTypePos = storageTypePos + 1
 
-            propBodyPos := ParseDeclarationTypeSpanCore(tokens, count, propTypePos, fieldTypeResult)
-            if propBodyPos < 0 || propBodyPos >= count {
+            storageBodyPos := ParseDeclarationTypeSpanCore(tokens, count, storageTypePos, fieldTypeResult)
+            if storageBodyPos < 0 {
                 return -1
             }
 
-            if tokens.Kinds[propBodyPos] != 129 && tokens.Kinds[propBodyPos] != 120 {
-                return -1
+            pos = storageBodyPos
+            if pos < count && tokens.Kinds[pos] == 129 {
+                pos = ParseDeclarationMemberBodyEndCore(source, tokens, count, pos)
+                if pos < 0 {
+                    return -1
+                }
+
+                continue
             }
 
-            decl.PropIndices[propCount] = memberStart
-            decl.PropStaticFlags[propCount] = memberModifiers.Values[0] | (memberModifiers.Values[4] * 2) | (memberModifiers.Values[5] * 4)
-            propCount = propCount + 1
-            pos = propBodyPos
-
-            if tokens.Kinds[pos] == 120 {
+            if pos < count && tokens.Kinds[pos] == 120 {
                 pos = ParseDeclarationExpressionBodyEndCore(source, tokens, count, pos)
                 if pos < 0 {
                     return -1
@@ -11801,43 +11843,23 @@ func ParseStructDeclarationCore(source: string, tokens: ParserDeclarationTokenTa
 
                 continue
             }
+
+            if pos < count && tokens.Kinds[pos] == 93 {
+                initializerEnd := ParseDeclarationInitializerExpressionEndCore(source, tokens, count, pos + 1)
+                if initializerEnd < 0 {
+                    return -1
+                }
+
+                pos = initializerEnd
+            }
+
+            continue
         } else {
             return -1
         }
 
-        while pos < count && tokens.Kinds[pos] != 129 && tokens.Kinds[pos] != 130 && tokens.Kinds[pos] != 120 {
-            pos = pos + 1
-        }
-
-        if pos < count && tokens.Kinds[pos] == 120 {
-            pos = ParseDeclarationExpressionBodyEndCore(source, tokens, count, pos)
-            if pos < 0 {
-                return -1
-            }
-
-            continue
-        }
-
-        if pos >= count || tokens.Kinds[pos] != 129 {
-            return -1
-        }
-
-        depth := 0
-        bodyDone := 0
-        while pos < count && bodyDone == 0 {
-            if tokens.Kinds[pos] == 129 {
-                depth = depth + 1
-            } else if tokens.Kinds[pos] == 130 {
-                depth = depth - 1
-                if depth == 0 {
-                    bodyDone = 1
-                }
-            }
-
-            pos = pos + 1
-        }
-
-        if bodyDone == 0 {
+        pos = ParseDeclarationMemberBodyEndCore(source, tokens, count, pos)
+        if pos < 0 {
             return -1
         }
     }
@@ -11850,6 +11872,47 @@ func ParseStructDeclarationCore(source: string, tokens: ParserDeclarationTokenTa
     result.Values[3] = ctorCount
     result.Values[4] = propCount
     return fieldCount
+}
+
+// ONE MEMBER'S BODY, FROM WHEREVER ITS SIGNATURE ENDED TO JUST PAST ITS CLOSING BRACE. Scans forward
+// to the first `{` (129), `=>` (120) or `}` (130): an expression body ends where its expression does,
+// a block body ends at its balanced close, and anything else is malformed. Both readings of a type's
+// body step over members this way, which is what keeps their two idea of where a member ENDS
+// identical — a skip that disagreed with the record would silently shift every member after it.
+func ParseDeclarationMemberBodyEndCore(source: string, tokens: ParserDeclarationTokenTable, count: int, start: int): int {
+    pos := start
+    while pos < count && tokens.Kinds[pos] != 129 && tokens.Kinds[pos] != 130 && tokens.Kinds[pos] != 120 {
+        pos = pos + 1
+    }
+
+    if pos < count && tokens.Kinds[pos] == 120 {
+        return ParseDeclarationExpressionBodyEndCore(source, tokens, count, pos)
+    }
+
+    if pos >= count || tokens.Kinds[pos] != 129 {
+        return -1
+    }
+
+    depth := 0
+    done := 0
+    while pos < count && done == 0 {
+        if tokens.Kinds[pos] == 129 {
+            depth = depth + 1
+        } else if tokens.Kinds[pos] == 130 {
+            depth = depth - 1
+            if depth == 0 {
+                done = 1
+            }
+        }
+
+        pos = pos + 1
+    }
+
+    if done == 0 {
+        return -1
+    }
+
+    return pos
 }
 
 func ParseDeclarationExpressionBodyEndCore(source: string, tokens: ParserDeclarationTokenTable, count: int, arrowIndex: int): int {
@@ -14147,15 +14210,22 @@ func ParseColumnarPrimaryConstructorInfoCore(source: string, tokens: ColumnarCon
         p = p + 1
     }
 
+    // THE BASE / INTERFACE LIST, READ AS THE TYPE REFERENCES IT HOLDS. Each entry used to be assumed
+    // to be a single Identifier, so `class Catalogue: Collection<Item>` left the scan sitting on the
+    // `<` and this whole kernel answered -1 — which the caller reports as `parse.struct` on the class
+    // header. A type with a GENERIC base and any instance field initializer was refused outright, and
+    // the same naive reading had no answer for a `where` clause either. The declaration parser's own
+    // type-span and constraint kernels answer both.
     pos = primaryResult.Values[0]
+    baseTypeResult := new ParserDeclarationResultTable(new int[](2))
     if pos < tokens.Count && tokens.Kinds[pos] == 122 {
         pos = pos + 1
         while true {
-            if pos >= tokens.Count || tokens.Kinds[pos] != 0 {
+            pos = ParseDeclarationTypeSpanCore(declarationTokens, tokens.Count, pos, baseTypeResult)
+            if pos < 0 {
                 return -1
             }
 
-            pos = pos + 1
             if pos < tokens.Count && tokens.Kinds[pos] == 134 {
                 pos = pos + 1
                 continue
@@ -14164,6 +14234,14 @@ func ParseColumnarPrimaryConstructorInfoCore(source: string, tokens: ColumnarCon
             break
         }
     }
+
+    whereScratch := new ParserDeclarationWhereTable(new int[](tokens.Count + 1), new int[](tokens.Count + 1), new int[](tokens.Count + 1), new int[](tokens.Count + 1), new int[](tokens.Count + 1))
+    whereNext := pos
+    if ParseDeclarationWhereClausesCore(declarationTokens, tokens.Count, pos, whereScratch, out whereNext) < 0 {
+        return -1
+    }
+
+    pos = whereNext
 
     bodyBrace := pos
     if bodyBrace < 0 || bodyBrace >= tokens.Count || tokens.Kinds[bodyBrace] != 129 {
@@ -14184,16 +14262,48 @@ func ParseColumnarPrimaryConstructorInfoCore(source: string, tokens: ColumnarCon
     expressionChildren := new ParserChildIndexTable(body.ChildIndices)
     expressionStack := new ParserArgumentStack(new int[](tokens.Count + 1))
 
+    // THE WHOLE BODY, NOT THE RUN OF FIELDS AT THE TOP OF IT. This scan used to stop at the first
+    // `func` or constructor, exactly as the member scan did, so a field written AFTER a method kept
+    // its declaration but silently lost its INITIALIZER: `N: int = 7` below a method left `N` at
+    // zero, with no diagnostic anywhere. Methods, constructors, nested types and events are stepped
+    // over now and the fields between them are all read, in declaration order.
     scan := bodyBrace + 1
-    scanDone := 0
-    while scanDone == 0 && scan < tokens.Count && tokens.Kinds[scan] != 130 && tokens.Kinds[scan] != 7 {
+    while scan < tokens.Count && tokens.Kinds[scan] != 130 {
         memberStart := ParseMemberModifierPrefixCore(source, declarationTokens, tokens.Count, scan, memberModifiers)
         if memberStart < 0 || memberStart >= tokens.Count {
             return -1
         }
 
-        if tokens.Kinds[memberStart] == 7 || (tokens.Kinds[memberStart] == 0 && memberStart + 1 < tokens.Count && tokens.Kinds[memberStart + 1] == 127) {
-            scanDone = 1
+        if tokens.Kinds[memberStart] == 7 || tokens.Kinds[memberStart] == 85 || tokens.Kinds[memberStart] == 86 {
+            methodSignatureEnd := ParseDeclarationFunctionSignatureEndCore(source, declarationTokens, tokens.Count, memberStart)
+            if methodSignatureEnd < 0 || methodSignatureEnd >= tokens.Count {
+                return -1
+            }
+
+            if tokens.Kinds[methodSignatureEnd] != 129 && tokens.Kinds[methodSignatureEnd] != 120 {
+                scan = methodSignatureEnd
+            } else {
+                scan = ParseDeclarationMemberBodyEndCore(source, declarationTokens, tokens.Count, methodSignatureEnd)
+                if scan < 0 {
+                    return -1
+                }
+            }
+        } else if tokens.Kinds[memberStart] == 0 && memberStart + 1 < tokens.Count && tokens.Kinds[memberStart + 1] == 127 {
+            scan = ParseDeclarationMemberBodyEndCore(source, declarationTokens, tokens.Count, memberStart + 1)
+            if scan < 0 {
+                return -1
+            }
+        } else if ParseDeclarationNestedTypeDeclarationKind(tokens.Kinds[memberStart]) {
+            scan = ParseDeclarationSkipDeclarationBlockCore(declarationTokens, tokens.Count, memberStart)
+            if scan < 0 {
+                return -1
+            }
+        } else if tokens.Kinds[memberStart] == 0 && memberStart + 2 < tokens.Count && tokens.Kinds[memberStart + 1] == 0 && tokens.Kinds[memberStart + 2] == 122 && ParserDeclarationTokenTextEquals(source, tokens.Starts[memberStart], tokens.ValueLengths[memberStart], "event") {
+            // A field-like EVENT declares its storage but never carries a written initializer.
+            scan = ParseDeclarationTypeSpanCore(declarationTokens, tokens.Count, memberStart + 3, typeResult)
+            if scan < 0 {
+                return -1
+            }
         } else if tokens.Kinds[memberStart] == 0 && memberStart + 1 < tokens.Count && tokens.Kinds[memberStart + 1] == 122 {
             fieldNameStart := tokens.Starts[memberStart]
             fieldNameLength := tokens.ValueLengths[memberStart]

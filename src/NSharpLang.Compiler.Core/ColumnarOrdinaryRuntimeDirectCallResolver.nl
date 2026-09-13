@@ -192,6 +192,61 @@ class ColumnarOrdinaryRuntimeDirectCallResolver {
         }
     }
 
+    // DOES THIS RECEIVER DECLARE ANY REACHABLE INSTANCE METHOD OF THIS NAME AND ARITY?
+    //
+    // A loose existence question, for an entry gate that has to decide whether a bare name is worth
+    // resolving at all. It answers over the SAME candidate set the resolution above uses — including
+    // the `protected` surface of an inherited base, and including a base closed over a type this
+    // compilation is writing, which answers no member query of its own and is asked through its
+    // generic definition instead. A gate that asked a narrower question than the resolution behind it
+    // is how `SetItem(0, value)` inside a `Collection<T>` subclass declined as an unresolvable bare
+    // call while `this.SetItem(0, value)` — the same member, the same receiver — emitted.
+    static func HasInstanceMethodAtArity(lookupType: Type, memberName: string, argumentCount: int, allowInheritedProtected: bool): bool {
+        if lookupType == null || memberName == null || memberName.Length == 0 || argumentCount < 0 {
+            return false
+        }
+
+        genericDefinition := typeof(object)
+        closedArguments := new Type[](0)
+        candidateLookupType := lookupType
+        if TryGetBuilderBoundRuntimeDefinition(lookupType, out genericDefinition, out closedArguments) {
+            candidateLookupType = genericDefinition
+        }
+
+        candidates: MethodInfo[]? = null
+        try {
+            candidates = CandidateMethods(candidateLookupType, allowInheritedProtected)
+        } catch ex: NotSupportedException {
+            return false
+        } catch ex: NotImplementedException {
+            return false
+        } catch ex: InvalidOperationException {
+            return false
+        } catch ex: ArgumentException {
+            return false
+        }
+
+        if candidates == null {
+            return false
+        }
+
+        index := 0
+        while index < candidates.Length {
+            candidate := candidates[index]
+            index = index + 1
+            if candidate == null || !IsPublicCandidateForLookup(candidate, candidateLookupType, memberName, false, allowInheritedProtected) {
+                continue
+            }
+
+            parameters := candidate.GetParameters()
+            if parameters != null && parameters.Length == argumentCount {
+                return true
+            }
+        }
+
+        return false
+    }
+
     // EVERY METHOD A RECEIVER CAN ANSWER. For a class that is `GetMethods()`, which already walks the
     // base chain. For an INTERFACE it is not: reflection does not include inherited interface members,
     // so `IList<T>.get_Count` — declared on `ICollection<T>` — was invisible and the call declined as

@@ -1787,15 +1787,36 @@ sealed class ColumnarIlEmitter {
         if (_programType == null || _lambdaCounter == null || _nodes.ChildCount(lambdaIdx) != 1) {
             return false
         }
-        lambdaCounterForMethod := _lambdaCounter
-        lambdaMethodOrdinal := lambdaCounterForMethod[0]
-        lambdaCounterForMethod[0] = lambdaMethodOrdinal + 1
-        lambdaMethodOrdinalText := lambdaMethodOrdinal.ToString()
-        lambdaMethodName := "<Lambda>_" + lambdaMethodOrdinalText
-        lambdaMethod := _programType.DefineMethod(
-            lambdaMethodName,
-            MethodAttributes.Assembly | MethodAttributes.Static
+        // WHERE THE SYNTHESIZED METHOD GOES IS THE SAME QUESTION A TARGETED LAMBDA ASKS. A body that
+        // reads the enclosing instance — `this.Value`, or the bare `Value` that means the same thing —
+        // becomes a private INSTANCE method on the enclosing reference type and the delegate binds to
+        // the current instance; every other body stays an assembly-static method on the program type.
+        // Only the targeted path used to ask, so `f := () => this.Value` declined at `emit.body` while
+        // `f: Func<int> = () => this.Value` emitted the same lambda without complaint.
+        inferredBodyNode := Child(lambdaIdx, 0)
+        inferredThisCapture := _currentStruct != null && ColumnarClosureBindingPlanner.BodyReferencesEnclosingChain(
+            _nodes,
+            _source,
+            inferredBodyNode,
+            new HashSet<string>(StringComparer.Ordinal),
+            _currentStruct,
+            _locals,
+            _liftedLocals,
+            _paramOrdinals,
+            _siblings
         )
+        placement := ColumnarLambdaPlacementPlanner.PlanInferredZeroParameterPlacement(
+            _programType,
+            _currentStruct,
+            _lambdaCounter,
+            _isConstructorBody,
+            _typeParameters,
+            inferredThisCapture
+        )
+        if (placement == null) {
+            return false
+        }
+        lambdaMethod := placement.Method
         lambdaIl := lambdaMethod.GetILGenerator()
         subEmitter := new ColumnarIlEmitter(
             _nodes,
@@ -1809,7 +1830,7 @@ sealed class ColumnarIlEmitter {
             _structRegistry,
             _unionRegistry,
             _unionCaseRegistry,
-            null,
+            placement.CurrentStructForBody,
             null,
             false,
             false,
@@ -1827,14 +1848,14 @@ sealed class ColumnarIlEmitter {
             false,
             _referenceAssemblyPaths,
             _genericInterfaceConstraints,
-            null,
-            _typeResolutionEnums.ForSynthesizedMethod(_programType),
-            _typeResolutionStructs.ForSynthesizedMethod(_programType),
-            _typeResolutionUnions.ForSynthesizedMethod(_programType)
+            placement.TypeParametersForBody,
+            _typeResolutionEnums.ForSynthesizedMethod(placement.OwnerTypeForBody),
+            _typeResolutionStructs.ForSynthesizedMethod(placement.OwnerTypeForBody),
+            _typeResolutionUnions.ForSynthesizedMethod(placement.OwnerTypeForBody)
         )
         let bodyType: System.Type? = null
-        if (!subEmitter.EmitExpression(Child(lambdaIdx, 0), out bodyType)) {
-            return DeclineMember("emit.body", "inferred zero-parameter lambda body emission declined", Child(lambdaIdx, 0), "lambda")
+        if (!subEmitter.EmitExpression(inferredBodyNode, out bodyType)) {
+            return DeclineMember("emit.body", "inferred zero-parameter lambda body emission declined", inferredBodyNode, "lambda")
         }
         if (!ColumnarSemanticTypeRegistryBridge.IsValidSynthesizedMethodSignatureType(bodyType, _programType)) {
             return false
@@ -1852,8 +1873,19 @@ sealed class ColumnarIlEmitter {
         if (delegateCtor == null) {
             return false
         }
-        _il.Emit(OpCodes.Ldnull)
-        _il.Emit(OpCodes.Ldftn, lambdaMethod)
+        if (placement.Mode == ColumnarLambdaPlacementMode.InstanceThis) {
+            _il.Emit(OpCodes.Ldarg_0)
+            _il.Emit(
+                OpCodes.Ldftn,
+                ColumnarSemanticTypeRegistryBridge.BindMethodToDeclaringTypeGenericContext(
+                    placement.OwnerTypeForBody,
+                    lambdaMethod
+                )
+            )
+        } else {
+            _il.Emit(OpCodes.Ldnull)
+            _il.Emit(OpCodes.Ldftn, lambdaMethod)
+        }
         _il.Emit(OpCodes.Newobj, delegateCtor)
         return true
     }
@@ -15234,7 +15266,7 @@ sealed class ColumnarIlEmitter {
             return false
         }
         inheritedSelection := ColumnarRuntimeInstanceMemberSelection.Empty()
-        return ColumnarRuntimeInstanceMemberResolver.TrySelectAdmittedProperty(inheritedBase, inheritedBase, name, out inheritedSelection)
+        return ColumnarRuntimeInstanceMemberResolver.TrySelect(inheritedBase, name, true, out inheritedSelection)
     }
 
     // A WRITE THROUGH `this` ONTO A MEMBER THIS COMPILATION DID NOT DECLARE.
@@ -21258,10 +21290,25 @@ sealed class ColumnarIlEmitter {
         if (signature == null) {
             return false
         }
+        // ARGUMENT ZERO OF AN INSTANCE BODY IS `this`, AND THE LAMBDA'S OWN PARAMETERS CANNOT SIT ON
+        // TOP OF IT. This inference runs inside the ENCLOSING method's frame, so a body that reads
+        // both its own parameter and the enclosing instance — `items.FindAll(x => x == this.Value)` —
+        // planned `x` at ordinal 0 as an `int` and `this` at ordinal 0 as the enclosing type, and the
+        // plan refused the contradiction by throwing: "One argument ordinal cannot carry conflicting
+        // bound-identifier facts" escaped `nlc check` as an unhandled exception. The real lowering
+        // already shifts a lambda's ordinals by one when its method has a receiver; this inference
+        // shifts them for the same reason, and only the TYPE it computes outlives the plan.
+        inferenceOrdinals := signature.Ordinals
+        if (_currentStruct != null) {
+            inferenceOrdinals = new Dictionary<string, int>(StringComparer.Ordinal)
+            for pair in signature.Ordinals {
+                inferenceOrdinals[pair.Key] = pair.Value + 1
+            }
+        }
         subEmitter := new ColumnarIlEmitter(
             _nodes,
             _source,
-            signature.Ordinals,
+            inferenceOrdinals,
             signature.ParameterTypesByName,
             ColumnarTypeOfPlanner.RequiredVoidType(),
             _il,
@@ -26632,17 +26679,17 @@ sealed class ColumnarIlEmitter {
         }
 
         argCount := ctor.ChainArgNodes.Length
-        candidates := new List<ConstructorInfo>()
-        for candidate in ColumnarConstructorDeclarationPlanner.ResolveAccessibleExternalConstructors(baseType) {
-            parameters := candidate.GetParameters()
-            if parameters.Length < argCount {
+        candidates := new List<ColumnarExternalBaseConstructor>()
+        for candidate in ColumnarExternalBaseConstructors.Resolve(baseType) {
+            parameterTypes := candidate.ParameterTypes
+            if parameterTypes.Length < argCount {
                 continue
             }
 
             usable := true
             defaultIndex := argCount
-            while defaultIndex < parameters.Length {
-                if !ColumnarParameterDefaultEmitter.CanUseMetadataDefaultAs(parameters[defaultIndex], parameters[defaultIndex].get_ParameterType()) {
+            while defaultIndex < parameterTypes.Length {
+                if !ColumnarParameterDefaultEmitter.CanUseMetadataDefaultAs(candidate.Parameters[defaultIndex], parameterTypes[defaultIndex]) {
                     usable = false
                     break
                 }
@@ -26659,9 +26706,9 @@ sealed class ColumnarIlEmitter {
             return false
         }
 
-        exactCandidates := new List<ConstructorInfo>()
+        exactCandidates := new List<ColumnarExternalBaseConstructor>()
         for candidate in candidates {
-            if candidate.GetParameters().Length == argCount {
+            if candidate.ParameterTypes.Length == argCount {
                 exactCandidates.Add(candidate)
             }
         }
@@ -26670,16 +26717,16 @@ sealed class ColumnarIlEmitter {
             candidates = exactCandidates
         }
 
-        selected: ConstructorInfo = null
+        selected: ColumnarExternalBaseConstructor? = null
         if candidates.Count == 1 {
             selected = candidates[0]
         } else {
             for candidate in candidates {
-                candidateParameters := candidate.GetParameters()
+                candidateParameterTypes := candidate.ParameterTypes
                 matches := true
                 argumentIndex := 0
                 while argumentIndex < argCount {
-                    if !CanEmitConstructorChainArgumentAs(ctor, argumentIndex, candidateParameters[argumentIndex].get_ParameterType()) {
+                    if (!CanEmitConstructorChainArgumentAs(ctor, argumentIndex, candidateParameterTypes[argumentIndex])) {
                         matches = false
                         break
                     }
@@ -26688,7 +26735,7 @@ sealed class ColumnarIlEmitter {
                 }
 
                 if matches {
-                    if selected != null {
+                    if (selected != null) {
                         return false
                     }
 
@@ -26697,21 +26744,13 @@ sealed class ColumnarIlEmitter {
             }
         }
 
-        if selected == null {
+        if (selected == null) {
             return false
         }
 
-        selectedParameters := selected.GetParameters()
-        parameterTypes := new Type[](selectedParameters.Length)
-        parameterIndex := 0
-        while parameterIndex < selectedParameters.Length {
-            parameterTypes[parameterIndex] = selectedParameters[parameterIndex].get_ParameterType()
-            parameterIndex = parameterIndex + 1
-        }
-
-        chosenCtor = selected
-        chosenParamTypes = parameterTypes
-        chosenMetadataParameters = selectedParameters
+        chosenCtor = selected.Handle
+        chosenParamTypes = selected.ParameterTypes
+        chosenMetadataParameters = selected.Parameters
         return true
     }
 

@@ -98,15 +98,52 @@ class CompletionReflectionFacts {
     // NOT set either, so INHERITED STATICS are NOT offered, and the two arms of the filter are
     // therefore not mirror images. That asymmetry is the platform's and it is preserved exactly.
     static func GetReflectionBindingFlags(filter: CompletionMemberFilter): BindingFlags {
+        return GetReflectionBindingFlags(filter, false)
+    }
+
+    // `inheritedProtected` IS THE INHERITED-BASE CASE AND NOTHING ELSE. A source type that derives
+    // from a type in a referenced assembly owns what that type declares `protected`, and the editor
+    // offered none of it: a caret after `this.` inside a `class Bag: Collection<string>` listed
+    // `Add` and `Count` but not `SetItem`, `ClearItems` or `Items` — the very members that type
+    // exists to have overridden, and which the compiler accepts. `NonPublic` is added only for that
+    // walk; `IsReachableInheritedMember` below then decides what of it is actually reachable, so a
+    // `private` or `internal` member of the base is still never offered.
+    static func GetReflectionBindingFlags(filter: CompletionMemberFilter, inheritedProtected: bool): BindingFlags {
+        flags := BindingFlags.Public
+        if inheritedProtected {
+            flags = flags | BindingFlags.NonPublic
+        }
+
         if filter == CompletionMemberFilter.StaticOnly {
-            return BindingFlags.Public | BindingFlags.Static
+            return flags | BindingFlags.Static
         }
 
         if filter == CompletionMemberFilter.InstanceOnly {
-            return BindingFlags.Public | BindingFlags.Instance
+            return flags | BindingFlags.Instance
         }
 
-        return BindingFlags.Public | BindingFlags.Static | BindingFlags.Instance
+        return flags | BindingFlags.Static | BindingFlags.Instance
+    }
+
+    // WHICH LEVELS A DERIVED TYPE IN THIS ASSEMBLY MAY REACH ON A REFERENCED BASE. The same relation
+    // the analyzer's member resolution and the emitter's candidate enumeration ask, with the same
+    // answer: `public`, `protected` and `protected internal`, never the three whose reach depends on
+    // being in the same assembly — the base is in a REFERENCED one and N# models no
+    // `InternalsVisibleTo`.
+    static func IsReachableInheritedMember(level: int, inheritedProtected: bool): bool {
+        return MemberAccessibility.IsAccessible(level, false, inheritedProtected, inheritedProtected, false)
+    }
+
+    // A property has no accessibility of its own: its accessors do, and the more visible of the two
+    // is what a reader may reach it through.
+    static func PropertyAccessibilityLevel(property: PropertyInfo): int {
+        getterLevel := MemberAccessibility.LevelOfMethod(property.GetGetMethod(true))
+        setterLevel := MemberAccessibility.LevelOfMethod(property.GetSetMethod(true))
+        if setterLevel > getterLevel {
+            return setterLevel
+        }
+
+        return getterLevel
     }
 
     // The CLR type a receiver's `TypeInfo` should be reflected over, or null when there is none.
@@ -415,6 +452,10 @@ class CompletionReflectionFacts {
     // declares is dropped, a METHOD is not. That is why `GetType` appears in a `string` receiver's
     // methods; dropping it would silently narrow what the completion offers.
     static func BuildReflectionMemberItems(clrType: Type, flags: BindingFlags): List<CompletionItem> {
+        return BuildReflectionMemberItems(clrType, flags, false)
+    }
+
+    static func BuildReflectionMemberItems(clrType: Type, flags: BindingFlags, inheritedProtected: bool): List<CompletionItem> {
         names := new List<string>()
         kinds := new List<string>()
         typeTexts := new List<string>()
@@ -432,7 +473,7 @@ class CompletionReflectionFacts {
         indexByName := new Dictionary<string, int>(StringComparer.Ordinal)
         methods := clrType.GetMethods(flags)
         for method in methods {
-            if IsOfferableMethod(method) {
+            if IsOfferableMethod(method) && IsReachableInheritedMember(MemberAccessibility.LevelOfMethod(method), inheritedProtected) {
                 methodName := method.get_Name()
                 existingIndex := 0
                 if indexByName.TryGetValue(methodName, out existingIndex) {
@@ -450,7 +491,7 @@ class CompletionReflectionFacts {
 
         properties := clrType.GetProperties(flags)
         for property in properties {
-            if !DeclaredBySystemObject(property.get_DeclaringType()) {
+            if !DeclaredBySystemObject(property.get_DeclaringType()) && IsReachableInheritedMember(PropertyAccessibilityLevel(property), inheritedProtected) {
                 names.Add(property.get_Name())
                 kinds.Add("property")
                 typeTexts.Add(CompletionTypeTextFacts.FormatClrTypeText(property.get_PropertyType()))
@@ -461,7 +502,7 @@ class CompletionReflectionFacts {
 
         fields := clrType.GetFields(flags)
         for field in fields {
-            if !DeclaredBySystemObject(field.get_DeclaringType()) {
+            if !DeclaredBySystemObject(field.get_DeclaringType()) && IsReachableInheritedMember(MemberAccessibility.LevelOfField(field), inheritedProtected) {
                 names.Add(field.get_Name())
                 kinds.Add("field")
                 typeTexts.Add(CompletionTypeTextFacts.FormatClrTypeText(field.get_FieldType()))
