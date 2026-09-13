@@ -459,18 +459,19 @@ test "known-generic arity must agree and the covariant targets hand back their a
     )) == "decided:false"
 }
 
-test "known generic interop treats an oblivious argument as the same underlying type" {
+// An oblivious argument is the SAME type as its underlying type, and identity says so on either
+// side; so the known-generic owner, which is only reached once identity has declined, refuses the
+// pair rather than owning a second answer for it.
+test "known generic interop leaves an oblivious argument to identity" {
     owner := AssignabilityOwner("/tmp/assign-oblivious-generic.nl")
     listOpen := AssignabilityListOpen()
+    obliviousList := AssignabilityKnownGeneric("List", listOpen, new ObliviousTypeInfo(BuiltInTypes.String))
+    plainList := AssignabilityKnownGeneric("List", listOpen, BuiltInTypes.String)
 
-    assert AssignabilityDecisionShape(owner.ClassifyKnownGenericAssignability(
-        AssignabilityKnownGeneric("List", listOpen, new ObliviousTypeInfo(BuiltInTypes.String)),
-        AssignabilityKnownGeneric("List", listOpen, BuiltInTypes.String)
-    )) == "decided:true"
-    assert AssignabilityDecisionShape(owner.ClassifyKnownGenericAssignability(
-        AssignabilityKnownGeneric("List", listOpen, BuiltInTypes.String),
-        AssignabilityKnownGeneric("List", listOpen, new ObliviousTypeInfo(BuiltInTypes.String))
-    )) == "decided:true"
+    assert TypeInfoIdentityFacts.AreEqual(obliviousList, plainList)
+    assert TypeInfoIdentityFacts.AreEqual(plainList, obliviousList)
+    assert AssignabilityDecisionShape(owner.ClassifyKnownGenericAssignability(obliviousList, plainList)) == "decided:false"
+    assert AssignabilityDecisionShape(owner.ClassifyKnownGenericAssignability(plainList, obliviousList)) == "decided:false"
 }
 
 test "known generic interop keeps nullable, invariant and nominal identity boundaries" {

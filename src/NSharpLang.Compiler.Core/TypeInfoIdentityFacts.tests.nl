@@ -242,6 +242,25 @@ test "type info identity compares recursive structural shapes exactly" {
     )
 }
 
+// AN OBLIVIOUS SHELL IS TRANSPARENT ON EITHER SIDE. An assembly compiled without the nullable
+// context reads back every reference as oblivious — an N#-emitted `string[]` parameter is
+// `string![]!` — and that is the same type as source `string[]`, one level down as well as at the
+// top. A `?` is still not an `!`: the explicit annotation is information, the shell is its absence.
+test "type info identity sees through an oblivious shell on either side and keeps a nullable one" {
+    obliviousStrings := new ObliviousTypeInfo(new ArrayTypeInfo(new ObliviousTypeInfo(new SimpleTypeInfo("string"))))
+    plainStrings := new ArrayTypeInfo(new SimpleTypeInfo("string"))
+    nullableStrings := new ArrayTypeInfo(new NullableTypeInfo(new SimpleTypeInfo("string")))
+
+    assert TypeInfoIdentityFacts.AreEqual(obliviousStrings, plainStrings)
+    assert TypeInfoIdentityFacts.AreEqual(plainStrings, obliviousStrings)
+    assert !TypeInfoIdentityFacts.AreEqual(obliviousStrings, nullableStrings)
+    assert !TypeInfoIdentityFacts.AreEqual(nullableStrings, obliviousStrings)
+    assert !TypeInfoIdentityFacts.AreEqual(
+        new ObliviousTypeInfo(new SimpleTypeInfo("string")),
+        new SimpleTypeInfo("int")
+    )
+}
+
 test "type info identity recognizes only exact admitted runtime generic definitions" {
     assert TypeInfoIdentityFacts.HasKnownRuntimeGenericDefinition(
         IdentityRuntimeGeneric(

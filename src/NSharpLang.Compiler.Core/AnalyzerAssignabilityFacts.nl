@@ -95,11 +95,12 @@ class AnalyzerAssignabilityFacts {
             if TypeInfoIdentityFacts.AreEqual(targetGeneric, sourceGeneric) {
                 return AnalyzerAssignabilityDecision.Answer(false)
             }
-            // Identity-shaped generic values normally succeed through TypeInfoIdentityFacts before
-            // this owner is reached. An imported oblivious argument makes that exact identity
-            // comparison fail, though, so admit the same generic head here only when both sides
-            // carry the SAME validated runtime definition. A same-spelled source declaration never
-            // acquires this compatibility path.
+            // Identity-shaped generic values succeed through TypeInfoIdentityFacts before this owner
+            // is reached (an oblivious shell is transparent there too), so what arrives here under
+            // the same head has DIFFERENT arguments — `List<object>` against `List<string>` — and
+            // the per-argument walk below answers it, but only when both sides carry the SAME
+            // validated runtime definition. A same-spelled source declaration never acquires this
+            // compatibility path.
             targetDefinition := targetGeneric.GenericDefinition
             sourceDefinition := sourceGeneric.GenericDefinition
             if targetGeneric.Name != sourceGeneric.Name || targetDefinition == null || sourceDefinition == null || !TypeInfoIdentityFacts.TypeDefinitionsEqual(targetDefinition, sourceDefinition) {
@@ -129,23 +130,11 @@ class AnalyzerAssignabilityFacts {
         return AnalyzerAssignabilityDecision.Pending(pendingTargets, pendingSources)
     }
 
-    // A generic signature read from an external CLR assembly may carry an oblivious shell around a
-    // type argument. That shell means the assembly supplied no nullability fact; it is compatible
-    // with the same underlying type from source, while a nullable shell remains a distinct type.
-    // Keep this at the known-generic conversion boundary instead of weakening TypeInfoIdentityFacts,
-    // whose exact identity answers are used by nominal and structural callers elsewhere.
+    // Two type arguments are compatible when they are the SAME type. Identity already sees through
+    // an oblivious shell on either side (an external signature's `string!` is source `string`) and
+    // keeps a nullable shell distinct, so there is exactly one answer to ask for.
     static func AreKnownGenericArgumentsCompatible(target: TypeInfo, source: TypeInfo): bool {
-        if TypeInfoIdentityFacts.AreEqual(target, source) {
-            return true
-        }
-
-        targetOblivious := UnwrapOblivious(target)
-        sourceOblivious := UnwrapOblivious(source)
-        if Object.ReferenceEquals(targetOblivious, target) && Object.ReferenceEquals(sourceOblivious, source) {
-            return false
-        }
-
-        return TypeInfoIdentityFacts.AreEqual(targetOblivious, sourceOblivious)
+        return TypeInfoIdentityFacts.AreEqual(target, source)
     }
 
     static func UnwrapOblivious(candidate: TypeInfo): TypeInfo {
