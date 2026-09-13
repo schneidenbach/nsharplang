@@ -1,6 +1,8 @@
 namespace NSharpLang.Compiler
 
+import System
 import System.Collections.Generic
+import System.IO
 
 
 // THE THREE DECISIONS THAT CARRIED NO LITERAL.
@@ -303,4 +305,41 @@ test "a web SDK appends its framework assemblies by name, last, and a plain SDK 
         assert web[1 + index].RecordedPackageName == null
         index = index + 1
     }
+}
+
+// ── WHICH DIRECTORY IS EVEN ASKED ────────────────────────────────────────────
+
+test "only a directory that holds a project.yml is walked for test sources" {
+    root := Path.Combine(Path.GetTempPath(), "nsharp-testrefs-" + Guid.NewGuid().ToString())
+    Directory.CreateDirectory(root)
+
+    // A DIRECTORY THAT IS NOT A PROJECT ROOT IS NOT WALKED, and the guard is load-bearing rather
+    // than tidy: the language server hands this walk the directory of whatever file is open, and for
+    // a synthetic buffer — `file:///test.nl` — that is the FILESYSTEM ROOT. Recursing from there
+    // enumerates the machine and throws on the first unreadable directory, which ended the analysis
+    // of files that had nothing to do with tests (measured: 80 of 91 language-server diagnostic
+    // contracts reported zero diagnostics).
+    File.WriteAllText(Path.Combine(root, "Suite.tests.nl"), "namespace Probe\n")
+    assert !AnalyzerReferenceLoadOrchestration.HasTestSources(root)
+
+    File.WriteAllText(Path.Combine(root, "project.yml"), "name: Probe\n")
+    assert AnalyzerReferenceLoadOrchestration.HasTestSources(root)
+
+    // The walk reaches subdirectories, because a converted solution keeps its integration tests in
+    // one — and it answers false for a project root that has no test source at all.
+    plain := Path.Combine(Path.GetTempPath(), "nsharp-testrefs-plain-" + Guid.NewGuid().ToString())
+    Directory.CreateDirectory(plain)
+    File.WriteAllText(Path.Combine(plain, "project.yml"), "name: Probe\n")
+    assert !AnalyzerReferenceLoadOrchestration.HasTestSources(plain)
+
+    nested := Path.Combine(plain, "Integration")
+    Directory.CreateDirectory(nested)
+    File.WriteAllText(Path.Combine(nested, "Toolchain.tests.nl"), "namespace Probe\n")
+    assert AnalyzerReferenceLoadOrchestration.HasTestSources(plain)
+
+    // A directory that does not exist is not a project either.
+    assert !AnalyzerReferenceLoadOrchestration.HasTestSources(Path.Combine(root, "missing"))
+
+    Directory.Delete(root, true)
+    Directory.Delete(plain, true)
 }

@@ -2956,20 +2956,35 @@ test "no published N# example spells a skip clause the runner refuses" {
     }
 }
 
-test "the docs say what the runner does, and the cli-reference no longer scores skip as shipped" {
+// UPDATED: the CLAUSE is still refused and the CAPABILITY now exists. `skip "reason"` written after a
+// test's description is still parsed for forward compatibility and still reported as `NL323` — no
+// backend emits it. What changed is that a skipped test is now expressible and runnable: an attribute
+// deriving from `FactAttribute` whose constructor sets `Skip`, written above the `test` block. So the
+// pages must say BOTH, and the comparison row may no longer score the feature absent.
+test "the docs refuse the skip CLAUSE and publish the attribute that skips a test" {
     tour := DocPageText("language-tour.md")
     reference := DocPageText("cli-reference.md")
     goGuide := DocPageText("for-go-developers.md")
 
-    // The tour explains the refusal and quotes the code the runner actually reports.
+    // The tour explains the clause's refusal and quotes the code the runner actually reports.
     assert tour.Contains("There is no runnable skip.")
     assert tour.Contains("NL323")
 
-    // The Go/Rust comparison row is the one that scored the form `5`.
-    assert reference.Contains("| Test skip | `t.Skip()` | `#[ignore]` | None |")
-    assert !reference.Contains("| Test skip | `t.Skip()` | `#[ignore]` | `5` |")
+    // And it publishes the form that DOES skip a test, with the property xunit reads.
+    assert tour.Contains("FactAttribute")
+    assert tour.Contains("Skip = ")
 
-    assert goGuide.Contains("no equivalent of `t.Skip()`")
+    // The Go/Rust comparison row no longer scores the capability absent, and still does not claim the
+    // clause ships.
+    assert !reference.Contains("| Test skip | `t.Skip()` | `#[ignore]` | None |")
+    assert !reference.Contains("| Test skip | `t.Skip()` | `#[ignore]` | `5` |")
+    assert reference.Contains("| Test skip | `t.Skip()` | `#[ignore]` | `4` |")
+    assert reference.Contains("NL323")
+
+    // The Go guide names the clause as the wrong door and the attribute as the right one.
+    assert !goGuide.Contains("no equivalent of `t.Skip()`")
+    assert goGuide.Contains("NL323")
+    assert goGuide.Contains("FactAttribute")
 }
 
 // ─── THE EMITTED TEST NAME IS ASCII ON EVERY MACHINE ──────────────────────────────────────────

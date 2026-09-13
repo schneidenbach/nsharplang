@@ -298,8 +298,20 @@ class AnalyzerReferenceLoadOrchestration {
     // the implicit test dependency already added to the config; the language server reaches it with a
     // config parsed straight from `project.yml`. Asking the directory here is what makes the three
     // products plan the same set.
+    //
+    // A DIRECTORY WITH NO `project.yml` IS NOT A PROJECT ROOT AND IS NOT WALKED, and that guard is
+    // load-bearing rather than tidy. The language server hands this walk the directory of whatever
+    // file is open, and for an unsaved or synthetic buffer — `file:///test.nl` — that is the
+    // FILESYSTEM ROOT. Recursing from there enumerates the machine and throws on the first directory
+    // the process may not read, which would end the analysis of a file that had nothing to do with
+    // tests. Inside a real project root this is the same walk `AddImplicitTestDependencies` performs
+    // to decide the same question on the build side.
     static func HasTestSources(projectDirectory: string): bool {
         if !Directory.Exists(projectDirectory) {
+            return false
+        }
+
+        if !File.Exists(CompilationReferenceResolverKernels.GetProjectYmlPath(projectDirectory)) {
             return false
         }
 
