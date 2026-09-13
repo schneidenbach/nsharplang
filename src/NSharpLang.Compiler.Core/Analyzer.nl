@@ -1558,6 +1558,12 @@ class Analyzer: IDisposable {
             if kind == 2 {
                 answer = AnalyzeExpressionWithExpectedType(step.Node, step.ExpectedType, false)
             }
+            if kind == 3 {
+                PushScope(new Scope(ScopeKind.Block), step.Line, step.Column)
+            }
+            if kind == 4 {
+                PopScope()
+            }
             TargetTypedOperands.Supply(state, answer)
             step = TargetTypedOperands.NextStep(state)
         }
@@ -1670,7 +1676,7 @@ class Analyzer: IDisposable {
                         if lambda != null {
                             result = DriveLambda(LambdaAnalysis.BeginLambda(lambda, Ambient.CurrentExpectedType, true, false))
                         } else if expression as CastExpression != null || expression as CheckedExpression != null || expression as UncheckedExpression != null || expression as TernaryExpression != null {
-                            result = DriveTargetTypedOperand(TargetTypedOperands.Begin(expression, PatternReachability))
+                            result = DriveTargetTypedOperand(TargetTypedOperands.Begin(expression, PatternReachability, FlowNarrowing))
                         } else if expression as ArrayLiteralExpression != null {
                             result = DriveArrayLiteral(ArrayLiteral.Begin(expression))
                         } else if expression as NewExpression != null {

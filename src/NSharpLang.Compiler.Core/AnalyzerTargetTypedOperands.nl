@@ -1,5 +1,6 @@
 namespace NSharpLang.Compiler
 
+import System.Collections.Generic
 import NSharpLang.Compiler.Ast
 
 
@@ -17,10 +18,19 @@ import NSharpLang.Compiler.Ast
 //      `x => …` — so this kind cannot be simulated by the owner writing the slot itself around a
 //      kind 1.
 //
+//   3  OPEN a block scope at the step's position, and
+//   4  CLOSE it. A ternary's two arms are two BRANCHES — `s != null ? s.Length : -1` proves `s`
+//      not-null in the first arm and says nothing about it in the second, exactly as the matching
+//      `if`/`else` does — so each arm that has facts to install runs inside a scope of its own, and
+//      the facts die with it. The scope stack belongs to the driver, which is why these are steps
+//      rather than calls; they carry no node and no expected type, only the position the scope opens
+//      at.
+//
 // THERE WAS A THIRD KIND AND IT IS GONE. A ternary's answer is the COMMON TYPE of its two arms, and
 // while numeric widening lived in the host that common type had to be asked for as a step. The
 // operator arms and their promotion tables are N#-owned now, so the ternary calls
-// `AnalyzerOperatorExpressions.CommonType` directly and the driver lost a kind.
+// `AnalyzerOperatorExpressions.CommonType` directly and the driver lost that kind; the two scope
+// kinds above are new ones and are numbered after the two doors.
 //
 // `ExpectedType` is the operand of kind 2 and is null for kind 1. The numbering is this walk's own
 // protocol with its own driver and starts at 1; the other walks' numbers mean different operations.
@@ -74,7 +84,16 @@ class TargetTypedOperandState {
     ThenType: TypeInfo
     ElseType: TypeInfo
 
+    // WHAT THE TERNARY'S CONDITION PROVED, and whether an arm is running inside a scope that holds
+    // it. Both lists are extracted once, from the condition, before either arm is walked — the same
+    // order the `if` walk uses, and for the same reason: the extractor reads the scope stack.
+    ThenNarrowings: List<FlowNarrowing>?
+    ElseNarrowings: List<FlowNarrowing>?
+    ThenScopeOpen: bool
+    ElseScopeOpen: bool
+
     reachabilityValue: AnalyzerPatternReachability?
+    narrowingValue: AnalyzerFlowNarrowing?
 
     // THE CONVERSION ORACLE, CARRIED RATHER THAN HELD, for the same reason `AnalyzerPassThroughOperands`
     // carries it: `Analyzer.cs` REBUILDS `_patternReachability` whenever the metadata load context
@@ -83,10 +102,16 @@ class TargetTypedOperandState {
     // question about types; only the conversion REPORT needs an oracle.
     Reachability: AnalyzerPatternReachability? => reachabilityValue
 
-    constructor(form: int, node: Expression?, reachability: AnalyzerPatternReachability?) {
+    // THE NARROWING WRITER, CARRIED RATHER THAN HELD, for the reason the reachability oracle is: the
+    // `if` walk takes it at `Begin` too, and a walk driven without one still answers every question
+    // about types — only the two arms' flow facts need it.
+    Narrowing: AnalyzerFlowNarrowing? => narrowingValue
+
+    constructor(form: int, node: Expression?, reachability: AnalyzerPatternReachability?, narrowing: AnalyzerFlowNarrowing?) {
         formValue = form
         nodeValue = node
         reachabilityValue = reachability
+        narrowingValue = narrowing
         Phase = 0
         Pending = 0
         OperandType = BuiltInTypes.Unknown
@@ -95,6 +120,10 @@ class TargetTypedOperandState {
         ExpectedResultType = null
         ThenType = BuiltInTypes.Unknown
         ElseType = BuiltInTypes.Unknown
+        ThenNarrowings = null
+        ElseNarrowings = null
+        ThenScopeOpen = false
+        ElseScopeOpen = false
     }
 }
 
@@ -146,8 +175,20 @@ class AnalyzerTargetTypedOperands {
     // THE ENTRY, AND IT DECIDES NOTHING. No form in this family can answer or report before its first
     // operand has been walked, so `Begin` names the form and stops. A node that is none of the four
     // answers `unknown` and takes no steps.
-    func Begin(expression: Expression, patternReachability: AnalyzerPatternReachability? = null): TargetTypedOperandState {
-        return new TargetTypedOperandState(FormOf(expression), expression, patternReachability)
+    //
+    // THE THREE ARITIES ARE WRITTEN OUT rather than defaulted, which is the columnar backend's
+    // standing rule for a call that omits a defaulted parameter: the estate's own contracts call
+    // this with one argument and with two, and a defaulted third would decline their emission.
+    func Begin(expression: Expression): TargetTypedOperandState {
+        return new TargetTypedOperandState(FormOf(expression), expression, null, null)
+    }
+
+    func Begin(expression: Expression, patternReachability: AnalyzerPatternReachability?): TargetTypedOperandState {
+        return new TargetTypedOperandState(FormOf(expression), expression, patternReachability, null)
+    }
+
+    func Begin(expression: Expression, patternReachability: AnalyzerPatternReachability?, flowNarrowing: AnalyzerFlowNarrowing?): TargetTypedOperandState {
+        return new TargetTypedOperandState(FormOf(expression), expression, patternReachability, flowNarrowing)
     }
 
     // WHICH OF THE FOUR THIS NODE IS, derived from the NODE rather than from anything carried, which
@@ -232,6 +273,22 @@ class AnalyzerTargetTypedOperands {
 
         if phase == 4 {
             return AdvanceTernaryElse(state)
+        }
+
+        if phase == 5 {
+            return AdvanceTernaryThenNarrowedArm(state)
+        }
+
+        if phase == 6 {
+            return AdvanceTernaryThenNarrowedClose(state)
+        }
+
+        if phase == 7 {
+            return AdvanceTernaryElseNarrowedArm(state)
+        }
+
+        if phase == 8 {
+            return AdvanceTernaryElseNarrowedClose(state)
         }
 
         state.Phase = 99
@@ -395,6 +452,45 @@ class AnalyzerTargetTypedOperands {
         }
 
         conditionsValue.ReportConditionTypeMismatchIfNeeded(ternaryNode.Condition, "a ternary expression", "used as a ternary condition", state.OperandType)
+
+        // WHAT THE CONDITION PROVES, EXTRACTED BEFORE EITHER ARM RUNS. Both lists at once, the `if`
+        // walk's order and the `if` walk's writer: a ternary's arms are branches and each of them
+        // gets the facts of its own side.
+        narrowing := state.Narrowing
+        if narrowing != null {
+            split := narrowing.ExtractFlowNarrowings(ternaryNode.Condition)
+            state.ThenNarrowings = split.Then
+            state.ElseNarrowings = split.Else
+        }
+
+        return StartTernaryThen(state, ternaryNode)
+    }
+
+    // THE THEN ARM, inside its proved facts when it has any. The scope is opened at the ARM's own
+    // position, exactly as the `if` walk opens the then-branch's scope at the branch's position.
+    func StartTernaryThen(state: TargetTypedOperandState, ternaryNode: TernaryExpression): TargetTypedOperandRequest? {
+        thenExpression := ternaryNode.ThenExpression
+        if NarrowingCount(state.ThenNarrowings) > 0 {
+            state.ThenScopeOpen = true
+            state.Phase = 5
+            return new TargetTypedOperandRequest(3, null, null, thenExpression.Line, thenExpression.Column)
+        }
+
+        state.Pending = 1
+        state.Phase = 3
+        return new TargetTypedOperandRequest(2, thenExpression, state.ExpectedResultType, thenExpression.Line, thenExpression.Column)
+    }
+
+    // PHASE 5 — the true-branch facts are installed in the scope phase 2 just opened, and the arm
+    // runs inside them.
+    func AdvanceTernaryThenNarrowedArm(state: TargetTypedOperandState): TargetTypedOperandRequest? {
+        ternaryNode := state.Node as TernaryExpression
+        if ternaryNode == null {
+            state.Phase = 99
+            return null
+        }
+
+        ApplyNarrowings(state, state.ThenNarrowings)
         state.Pending = 1
         state.Phase = 3
         thenExpression := ternaryNode.ThenExpression
@@ -412,16 +508,59 @@ class AnalyzerTargetTypedOperands {
         }
 
         state.ThenType = state.OperandType
+        if state.ThenScopeOpen {
+            state.ThenScopeOpen = false
+            state.Phase = 6
+            thenExpression := ternaryNode.ThenExpression
+            return new TargetTypedOperandRequest(4, null, null, thenExpression.Line, thenExpression.Column)
+        }
+
+        return StartTernaryElse(state, ternaryNode)
+    }
+
+    // PHASE 6 — the then arm's narrowing scope has closed and the else arm begins.
+    func AdvanceTernaryThenNarrowedClose(state: TargetTypedOperandState): TargetTypedOperandRequest? {
+        ternaryNode := state.Node as TernaryExpression
+        if ternaryNode == null {
+            state.Phase = 99
+            return null
+        }
+
+        return StartTernaryElse(state, ternaryNode)
+    }
+
+    // THE ELSE ARM, inside what the condition proved when it was FALSE.
+    func StartTernaryElse(state: TargetTypedOperandState, ternaryNode: TernaryExpression): TargetTypedOperandRequest? {
+        elseExpression := ternaryNode.ElseExpression
+        if NarrowingCount(state.ElseNarrowings) > 0 {
+            state.ElseScopeOpen = true
+            state.Phase = 7
+            return new TargetTypedOperandRequest(3, null, null, elseExpression.Line, elseExpression.Column)
+        }
+
+        state.Pending = 1
+        state.Phase = 4
+        return new TargetTypedOperandRequest(2, elseExpression, state.ExpectedResultType, elseExpression.Line, elseExpression.Column)
+    }
+
+    // PHASE 7 — the false-branch facts are installed and the else arm runs inside them.
+    func AdvanceTernaryElseNarrowedArm(state: TargetTypedOperandState): TargetTypedOperandRequest? {
+        ternaryNode := state.Node as TernaryExpression
+        if ternaryNode == null {
+            state.Phase = 99
+            return null
+        }
+
+        ApplyNarrowings(state, state.ElseNarrowings)
         state.Pending = 1
         state.Phase = 4
         elseExpression := ternaryNode.ElseExpression
         return new TargetTypedOperandRequest(2, elseExpression, state.ExpectedResultType, elseExpression.Line, elseExpression.Column)
     }
 
-    // BOTH ARMS HAVE ANSWERED, AND ALL FOUR REPORTS RUN. None of them stops another: a ternary whose
-    // arms are both row views is told about both, because both of them really are trying to leave.
-    // Any of the four firing makes the whole expression `unknown` and the common type is not even
-    // asked for — there is nothing left to take a common type OF.
+    // BOTH ARMS HAVE ANSWERED. The else arm's scope, if it opened one, closes before the four reports
+    // run — they read the arms' TYPES, which are already folded in, and nothing after this point
+    // consults the scope stack.
     func AdvanceTernaryElse(state: TargetTypedOperandState): TargetTypedOperandRequest? {
         ternaryNode := state.Node as TernaryExpression
         if ternaryNode == null {
@@ -430,6 +569,32 @@ class AnalyzerTargetTypedOperands {
         }
 
         state.ElseType = state.OperandType
+        if state.ElseScopeOpen {
+            state.ElseScopeOpen = false
+            state.Phase = 8
+            elseExpression := ternaryNode.ElseExpression
+            return new TargetTypedOperandRequest(4, null, null, elseExpression.Line, elseExpression.Column)
+        }
+
+        return FinishTernary(state, ternaryNode)
+    }
+
+    // PHASE 8 — the else arm's narrowing scope has closed.
+    func AdvanceTernaryElseNarrowedClose(state: TargetTypedOperandState): TargetTypedOperandRequest? {
+        ternaryNode := state.Node as TernaryExpression
+        if ternaryNode == null {
+            state.Phase = 99
+            return null
+        }
+
+        return FinishTernary(state, ternaryNode)
+    }
+
+    // ALL FOUR REPORTS RUN. None of them stops another: a ternary whose arms are both row views is
+    // told about both, because both of them really are trying to leave. Any of the four firing makes
+    // the whole expression `unknown` and the common type is not even asked for — there is nothing
+    // left to take a common type OF.
+    func FinishTernary(state: TargetTypedOperandState, ternaryNode: TernaryExpression): TargetTypedOperandRequest? {
         thenEscaped := soaEscapeValue.ReportSoaRowEscapeIfNeeded(ternaryNode.ThenExpression, state.ThenType, "used as a ternary result")
         elseEscaped := soaEscapeValue.ReportSoaRowEscapeIfNeeded(ternaryNode.ElseExpression, state.ElseType, "used as a ternary result")
         thenColumnEscaped := soaEscapeValue.ReportUnsupportedSoaDirectColumnValueEscapeIfNeeded(ternaryNode.ThenExpression, "used as a ternary result")
@@ -446,5 +611,22 @@ class AnalyzerTargetTypedOperands {
         state.ResultType = AnalyzerOperatorExpressions.CommonType(state.ThenType, state.ElseType)
         state.Phase = 99
         return null
+    }
+
+    // HOW MANY FACTS AN ARM HAS TO INSTALL. Zero when the condition proved none and zero when there
+    // was no narrowing writer to ask, which is the same answer for the walk's purposes: no scope.
+    static func NarrowingCount(narrowings: List<FlowNarrowing>?): int {
+        if narrowings == null {
+            return 0
+        }
+
+        return narrowings.Count
+    }
+
+    func ApplyNarrowings(state: TargetTypedOperandState, narrowings: List<FlowNarrowing>?) {
+        narrowing := state.Narrowing
+        if narrowings != null && narrowing != null {
+            narrowing.ApplyNarrowingsToScope(narrowings)
+        }
     }
 }
