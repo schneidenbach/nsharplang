@@ -416,16 +416,25 @@ class ColumnarInterfaceInput {
 
 // One PLAIN top-level test declaration (`test "<description>" { body }`). The body reuses the
 // function-input shape so node tables, source-file stamping, and body emission share machinery.
+//
+// THE ATTRIBUTES A TEST CARRIES ARE THE ONES ITS AUTHOR WROTE. A `test` block lowers to a method, so
+// an attribute written above it is an attribute on that method — including one deriving from
+// `FactAttribute`, which is how xunit is told a test is conditional (`Skip`) or categorised. They
+// travel in the shape every other declaration's source attributes travel in, so the binder and the
+// blob writer that already exist are the ones that write them.
 class ColumnarTestInput {
     descriptionValue: string
     bodyValue: ColumnarFunctionInput
+    sourceAttributesValue: ColumnarSourceAttributeInput[]
 
     Description: string => descriptionValue
     Body: ColumnarFunctionInput => bodyValue
+    SourceAttributes: ColumnarSourceAttributeInput[] => sourceAttributesValue
 
-    constructor(description: string, body: ColumnarFunctionInput) {
+    constructor(description: string, body: ColumnarFunctionInput, sourceAttributes: ColumnarSourceAttributeInput[]? = null) {
         descriptionValue = description
         bodyValue = body
+        sourceAttributesValue = sourceAttributes ?? System.Array.Empty<ColumnarSourceAttributeInput>()
     }
 }
 

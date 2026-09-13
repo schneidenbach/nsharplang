@@ -662,6 +662,53 @@ nlc test --verbose
 - `--verbose` shows individual test results without changing the test pipeline
 - Native coverage is not available in `nlc test` yet. `--coverage` and `--coverage-report` are accepted only to fail honestly: exit code 1, a clear text error by default, and the same message in the schemaVersion 1 JSON `error` field when `--json` is present.
 - **The runner's vocabulary is N#-owned (`TestCommandKernels`), not the C# runner's.** `results[].outcome` is exactly `passed`, `skipped` or `failed`; a word outside that set ranks unknown and fails the run. `results[].duration` is three decimal places and an `s`, formatted with `CultureInfo.InvariantCulture`, so the envelope never carries a comma decimal regardless of the machine's locale. `results[].displayName` and `nsharpDescription` prefer the `test "…"` sentence over the framework's method name. The per-test lifecycle is `InitializeAsync` → `Setup` → the test → `Teardown` → `DisposeAsync` → `IDisposable.Dispose`, in that order, and every one of those names is excluded from discovery.
+- **A `test` block may carry attributes.** A `test "…"` block lowers to a method, so an attribute
+  written above it is an attribute on that method — including one the project declares itself. An
+  attribute deriving from `Xunit.FactAttribute` is what makes a test conditional, and the compiler
+  attaches its own `[Fact]` **only when the test does not already carry one**: a method with two
+  `[Fact]`-derived attributes is a discovery error in xunit ("has multiple [Fact]-derived
+  attributes"), so the author's wins and the synthesized one is withheld. The `[Trait]` row carrying
+  the test's sentence is attached either way, which is why `displayName` is unaffected. A derived
+  attribute whose constructor sets `Skip` produces a `skipped` result with its reason in
+  `results[].errorMessage`.
+
+  ```nsharp
+  sealed class DockerFactAttribute: FactAttribute {
+      public constructor() {
+          if !DockerAvailable() {
+              Skip = "Docker is not running"
+          }
+      }
+  }
+
+  [DockerFact]
+  test "the container starts" { … }
+  ```
+
+### The test-framework reference set
+
+One owner — `TestFrameworkReferenceSet` — answers what a test framework's references ARE, and
+`nlc test`, `nlc check` and the language server all read it. It distinguishes four things that are
+not the same string:
+
+| Question | xunit | nunit |
+|---|---|---|
+| The package a project that writes tests restores | `xunit` 2.9.2 | `NUnit` 4.3.2 |
+| The assemblies a `test` block's lowering binds at COMPILE time | `xunit.core` (ships in `xunit.extensibility.core`), `xunit.assert`, `xunit.abstractions` | `nunit.framework` (ships in `NUnit`) |
+| What the runner needs at RUN time, beyond the compile set | `xunit.execution.dotnet` (ships in `xunit.extensibility.execution`) | — |
+| The emit host's last-ditch `Assembly.Load` probe | `xunit.core`, `xunit.v3.core` | `nunit.framework` |
+
+- **A metapackage is never reported as an unreadable assembly.** `xunit` ships no dll at all (nor
+  does `xunit.core`, which is also a metapackage — the *assembly* of that name lives in
+  `xunit.extensibility.core`), so asking the analyzer's load context for an assembly called `xunit`
+  could only ever fail. It used to, as `NL923 Reference assembly 'xunit' could not be loaded or fully
+  inspected`. The rows above are planned instead, and every load failure is recorded under the
+  ASSEMBLY name.
+- **A project that has `*.tests.nl` sources depends on a test framework whether or not it says so.**
+  `nlc check` and `nlc build` add the implicit package before analysis begins; the language server
+  parses `project.yml` and does not, which is why a `.tests.nl` file used to bind in a build and not
+  in the editor. `AnalyzerReferenceLoadOrchestration` plans the framework rows for any project with
+  test sources, so all three products answer the same way.
 
 ### `nlc build` — Release Builds and Verbose Output
 

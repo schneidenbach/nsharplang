@@ -5512,8 +5512,9 @@ sealed class ColumnarIlEmitter {
             let factAttributeType: System.Type = null
             let traitAttributeType: System.Type = null
             try {
-                factAttributeType = ColumnarCompilerReferenceResolver.ResolveTestFrameworkType("Xunit.FactAttribute", referenceAssemblyPaths, ["xunit.core", "xunit.v3.core"])
-                traitAttributeType = ColumnarCompilerReferenceResolver.ResolveTestFrameworkType("Xunit.TraitAttribute", referenceAssemblyPaths, ["xunit.core", "xunit.v3.core"])
+                hostProbeNames := TestFrameworkReferenceSet.HostProbeAssemblyNames(TestFrameworkReferenceSet.XunitFrameworkName())
+                factAttributeType = ColumnarCompilerReferenceResolver.ResolveTestFrameworkType("Xunit.FactAttribute", referenceAssemblyPaths, hostProbeNames)
+                traitAttributeType = ColumnarCompilerReferenceResolver.ResolveTestFrameworkType("Xunit.TraitAttribute", referenceAssemblyPaths, hostProbeNames)
             } catch ignoredTestFrameworkResolution: InvalidOperationException {
                 return DeclineStatic("emit.tests.framework", "xunit attribute types were not resolvable in this emit host", "NSharpTests", -1, 0)
             }
@@ -5544,12 +5545,23 @@ sealed class ColumnarIlEmitter {
                 }
 
                 testMethod := testType.DefineMethod(methodName, MethodAttributes.Public | MethodAttributes.HideBySig, ColumnarTypeOfPlanner.RequiredVoidType(), Type.EmptyTypes)
-                ColumnarAttributeBlobs.ApplyToTestMethod(testMethod, traitCtor, factCtor, declarationPlan.CustomAttributes.TestConstructorSlots, declarationPlan.CustomAttributes.TestBlobs[testIndex])
 
                 testBody := testInput.Body
                 testIl := testMethod.GetILGenerator()
                 testSource := program.GetSourceForFileId(testBody.SourceFileId)
                 testTypeResolution := typeResolutionCatalog.For(testBody.SourceFileId, null, null)
+
+                // THE ATTRIBUTES THE AUTHOR WROTE ON THE TEST, on the method the test became. One of
+                // them may BE the fact — `class SlowFactAttribute: FactAttribute` is how xunit is told
+                // a test is conditional — in which case the synthesized `[Fact]` is not attached, or
+                // the method would carry two and xunit would refuse to run it.
+                writesOwnFact := ColumnarSourceAttributeBinder.DeclaresFactAttribute(
+                    testInput.SourceAttributes,
+                    testTypeResolution,
+                    factAttributeType.get_FullName() ?? ""
+                )
+                ColumnarAttributeBlobs.ApplyToTestMethod(testMethod, traitCtor, factCtor, declarationPlan.CustomAttributes.TestConstructorSlots, declarationPlan.CustomAttributes.TestBlobs[testIndex], !writesOwnFact)
+                sourceAttributeQueue.QueueMethod(testMethod, testInput.SourceAttributes, testTypeResolution)
                 testEmitter := new ColumnarIlEmitter(
                     testBody.BodyNodes,
                     testSource,
@@ -5595,6 +5607,10 @@ sealed class ColumnarIlEmitter {
                 }
             }
 
+            // The test methods' own attributes bind LAST, because their types are the ones this
+            // program just finished building: the queue is flushed a second time here, after every
+            // test method exists and before the type that holds them is baked.
+            sourceAttributeQueue.Flush()
             testType.CreateType()
         }
 
@@ -7515,7 +7531,7 @@ sealed class ColumnarIlEmitter {
                     _il.Emit(OpCodes.Callvirt, ColumnarSourceSelfInstantiation.Bind(explicitThisPropertyTarget.Setter))
                     return true
                 }
-                return false
+                return TryEmitInheritedExternalInstanceWrite(targetName, Child(expr, 1))
             }
             // L3b: writes to a BOXED capture (closure body) or a LIFTED local/param store through the
             // shared StrongBox's Value — checked before every other tier.
@@ -7736,7 +7752,7 @@ sealed class ColumnarIlEmitter {
                 _il.Emit(OpCodes.Stsfld, bareStaticTarget)
                 return true
             }
-            return false
+            return TryEmitInheritedExternalInstanceWrite(targetName, Child(expr, 1))
         } else if columnarSwitchValue0 == 26 {
             // While [condition, body] — emit `check: cond; brfalse end; body; [br check]; end:`. The
             // stack is empty at both merge labels (cond pushes a bool, brfalse pops it; the body is
@@ -14568,6 +14584,53 @@ sealed class ColumnarIlEmitter {
         }
         inheritedSelection := ColumnarRuntimeInstanceMemberSelection.Empty()
         return ColumnarRuntimeInstanceMemberResolver.TrySelectAdmittedProperty(inheritedBase, inheritedBase, name, out inheritedSelection)
+    }
+
+    // A WRITE THROUGH `this` ONTO A MEMBER THIS COMPILATION DID NOT DECLARE.
+    //
+    // `class SlowFactAttribute: FactAttribute { constructor() { Skip = "..." } }` writes a property
+    // its base declares in a referenced assembly. The source chain walkers can only see definitions
+    // this compilation is building, so once they declined there was nothing left and the whole
+    // statement declined — while the READ of the same inherited member already resolved through
+    // `ColumnarInheritedExternalBase`. This is the write half of that same answer, and it is the same
+    // rule the member-write CHAIN already applies to a reflected owner: nothing about a member's
+    // provenance changes which instruction an assignment to it is.
+    //
+    // A VALUE-TYPE `this` IS NOT ELIGIBLE, because a struct cannot inherit; the receiver here is
+    // always `ldarg.0` as an object reference.
+    private func TryEmitInheritedExternalInstanceWrite(memberName: string, valueNode: int): bool {
+        if (_currentStruct == null || !_currentStruct.IsReference) {
+            return false
+        }
+        inheritedBase := ColumnarInheritedExternalBase.Resolve(_currentStruct, null)
+        if (inheritedBase == null) {
+            return false
+        }
+        inheritedField := inheritedBase.GetField(memberName)
+        if (inheritedField != null && !inheritedField.get_IsStatic() && !inheritedField.get_IsInitOnly() && !inheritedField.get_IsLiteral()) {
+            _il.Emit(OpCodes.Ldarg_0)
+            let inheritedFieldValue: System.Type = null
+            if (!TryEmitAssignableValue(valueNode, inheritedField.get_FieldType(), out inheritedFieldValue)) {
+                return false
+            }
+            _il.Emit(OpCodes.Stfld, inheritedField)
+            return true
+        }
+        inheritedProperty := inheritedBase.GetProperty(memberName)
+        if (inheritedProperty == null) {
+            return false
+        }
+        inheritedSetter := inheritedProperty.get_SetMethod()
+        if (inheritedSetter == null || inheritedSetter.get_IsStatic() || inheritedSetter.GetParameters().Length != 1) {
+            return false
+        }
+        _il.Emit(OpCodes.Ldarg_0)
+        let inheritedPropertyValue: System.Type = null
+        if (!TryEmitAssignableValue(valueNode, inheritedProperty.get_PropertyType(), out inheritedPropertyValue)) {
+            return false
+        }
+        _il.Emit(inheritedSetter.get_IsVirtual() ? OpCodes.Callvirt : OpCodes.Call, inheritedSetter)
+        return true
     }
 
     private func TryEmitJsonSerializerSerializeGenericCall(callIdx: int, callee: int, out resolvedClrType: Type): bool {

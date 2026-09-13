@@ -31,7 +31,7 @@ class ColumnarCompilerReferenceResolver {
                 while referenceMovement.MoveNext() {
                     referencePath := referenceEnumerator.get_Current()
                     fileName := Path.GetFileNameWithoutExtension(referencePath)
-                    if !fileName.StartsWith("xunit", StringComparison.OrdinalIgnoreCase) && !fileName.StartsWith("nunit", StringComparison.OrdinalIgnoreCase) {
+                    if !TestFrameworkReferenceSet.IsFrameworkAssemblyName(fileName) {
                         continue
                     }
                     loadedType: Type = null

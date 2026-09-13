@@ -2956,20 +2956,35 @@ test "no published N# example spells a skip clause the runner refuses" {
     }
 }
 
-test "the docs say what the runner does, and the cli-reference no longer scores skip as shipped" {
+// UPDATED: the CLAUSE is still refused and the CAPABILITY now exists. `skip "reason"` written after a
+// test's description is still parsed for forward compatibility and still reported as `NL323` — no
+// backend emits it. What changed is that a skipped test is now expressible and runnable: an attribute
+// deriving from `FactAttribute` whose constructor sets `Skip`, written above the `test` block. So the
+// pages must say BOTH, and the comparison row may no longer score the feature absent.
+test "the docs refuse the skip CLAUSE and publish the attribute that skips a test" {
     tour := DocPageText("language-tour.md")
     reference := DocPageText("cli-reference.md")
     goGuide := DocPageText("for-go-developers.md")
 
-    // The tour explains the refusal and quotes the code the runner actually reports.
+    // The tour explains the clause's refusal and quotes the code the runner actually reports.
     assert tour.Contains("There is no runnable skip.")
     assert tour.Contains("NL323")
 
-    // The Go/Rust comparison row is the one that scored the form `5`.
-    assert reference.Contains("| Test skip | `t.Skip()` | `#[ignore]` | None |")
-    assert !reference.Contains("| Test skip | `t.Skip()` | `#[ignore]` | `5` |")
+    // And it publishes the form that DOES skip a test, with the property xunit reads.
+    assert tour.Contains("FactAttribute")
+    assert tour.Contains("Skip = ")
 
-    assert goGuide.Contains("no equivalent of `t.Skip()`")
+    // The Go/Rust comparison row no longer scores the capability absent, and still does not claim the
+    // clause ships.
+    assert !reference.Contains("| Test skip | `t.Skip()` | `#[ignore]` | None |")
+    assert !reference.Contains("| Test skip | `t.Skip()` | `#[ignore]` | `5` |")
+    assert reference.Contains("| Test skip | `t.Skip()` | `#[ignore]` | `4` |")
+    assert reference.Contains("NL323")
+
+    // The Go guide names the clause as the wrong door and the attribute as the right one.
+    assert !goGuide.Contains("no equivalent of `t.Skip()`")
+    assert goGuide.Contains("NL323")
+    assert goGuide.Contains("FactAttribute")
 }
 
 // ─── THE EMITTED TEST NAME IS ASCII ON EVERY MACHINE ──────────────────────────────────────────
@@ -3531,4 +3546,102 @@ test "the NL111 page publishes the limit and the sentence the compiler prints" {
     text := File.ReadAllText(page)
     assert text.Contains("**" + NestingLimit().ToString() + " levels deep**"), text
     assert text.Contains(NestingMessage()), text
+}
+
+// ═══ THE TEST-FRAMEWORK REFERENCE SET, AS THE SHIPPED COMMANDS SEE IT ══════════════════════════
+//
+// Two census findings meet in one fixture, and both are about a project that WRITES TESTS:
+//
+//   * `nlc check` warned NL923 "Reference assembly 'xunit' could not be loaded or fully inspected"
+//     at the first line of a `.tests.nl` file. `xunit` is a METAPACKAGE that ships no dll, so the
+//     by-name load could only ever fail — and the sentence named a package as an unreadable
+//     assembly, which is a thing it could never have been.
+//   * A source attribute deriving from `Xunit.FactAttribute`, declared in one `.tests.nl` file and
+//     written in another, reported NL201 "Attribute type 'SlowFact' not found".
+//
+// These are proved through the shipped binary because the reference set is resolved by the COMMAND:
+// an in-process call would inherit whatever the estate's own host already had loaded.
+
+func TestRefsProjectYml(): string {
+    return "name: CliTestRefsFixture\n" + "version: 1.0.0\n" + "backend: il\n" + "outputType: library\n" + "targetFramework: net10.0\n"
+}
+
+// The attribute family, declared in its OWN file — which is what makes the cross-file rule the thing
+// under test rather than an accident of ordering.
+func TestRefsAttributeSource(): string {
+    return "namespace CliTestRefsFixture\n" + "\n" + "import Xunit\n" + "\n" + "sealed class SlowFactAttribute: FactAttribute {\n" + "    public constructor() {\n" + "    }\n" + "}\n" + "\n" + "sealed class UnavailableFactAttribute: FactAttribute {\n" + "    public constructor() {\n" + "        Skip = \"prerequisite unavailable\"\n" + "    }\n" + "}\n"
+}
+
+func TestRefsTestSource(): string {
+    return "namespace CliTestRefsFixture\n" + "\n" + "test \"a plain test runs\" {\n" + "    assert 1 == 1\n" + "}\n" + "\n" + "[SlowFact]\n" + "test \"a derived fact runs\" {\n" + "    assert 2 == 2\n" + "}\n" + "\n" + "[UnavailableFact]\n" + "test \"a derived fact with a skip reason is skipped\" {\n" + "    assert 3 == 4\n" + "}\n"
+}
+
+func WriteTestRefsFixture(directory: string) {
+    WriteProjectYml(directory, TestRefsProjectYml())
+    File.WriteAllText(Path.Combine(directory, "FactAttributes.tests.nl"), TestRefsAttributeSource())
+    File.WriteAllText(Path.Combine(directory, "Suite.tests.nl"), TestRefsTestSource())
+}
+
+test "nlc check on a project that writes tests reports neither a metapackage nor an unbound attribute" {
+    directory := NewTempDirectory("nlc-testrefs-check")
+    try {
+        WriteTestRefsFixture(directory)
+
+        run := NlcIn(directory, "check --text")
+
+        assert run.ExitCode == 0, run.Stdout + run.Stderr
+
+        // NEITHER SENTENCE MAY APPEAR. `xunit` is a package, not an assembly, so nothing may report
+        // it as one; and `SlowFact` is declared one file away, which is a place the attribute door
+        // could not previously look.
+        assert !run.Stdout.Contains("NL923"), run.Stdout
+        assert !run.Stdout.Contains("'xunit'"), run.Stdout
+        assert !run.Stdout.Contains("NL201"), run.Stdout
+    } finally {
+        Directory.Delete(directory, true)
+    }
+}
+
+test "nlc test discovers a test carrying a derived fact attribute and honours its Skip" {
+    directory := NewTempDirectory("nlc-testrefs-test")
+    try {
+        WriteTestRefsFixture(directory)
+
+        run := NlcIn(directory, "test --no-cache --json")
+
+        assert run.ExitCode == 0, run.Stdout + run.Stderr
+        document := JsonDocument.Parse(run.Stdout)
+        root := document.RootElement
+        summary := root.GetProperty("summary")
+
+        // THREE TESTS, NOT TWO. A method carrying BOTH a synthesized `[Fact]` and an author's
+        // fact-derived attribute is a discovery error in xunit ("has multiple [Fact]-derived
+        // attributes"), which would drop the derived row from the run rather than fail it — so the
+        // total is what proves the synthesized one was withheld.
+        assert summary.GetProperty("total").GetInt32() == 3, run.Stdout
+        assert summary.GetProperty("passed").GetInt32() == 2, run.Stdout
+        assert summary.GetProperty("failed").GetInt32() == 0, run.Stdout
+
+        // xunit reads `Skip` off the FactAttribute the method carries, and the one it carries here is
+        // the attribute the fixture declared — whose constructor wrote a property its EXTERNAL base
+        // declares.
+        assert summary.GetProperty("skipped").GetInt32() == 1, run.Stdout
+
+        results := root.GetProperty("results")
+        skippedSeen := false
+        resultEnumerator := results.EnumerateArray()
+        while resultEnumerator.MoveNext() {
+            row := resultEnumerator.Current
+            if TextOf(row.GetProperty("outcome")) == "skipped" {
+                skippedSeen = true
+                assert TextOf(row.GetProperty("displayName")) == "a derived fact with a skip reason is skipped", run.Stdout
+                assert TextOf(row.GetProperty("errorMessage")) == "prerequisite unavailable", run.Stdout
+            }
+        }
+
+        assert skippedSeen, run.Stdout
+        document.Dispose()
+    } finally {
+        Directory.Delete(directory, true)
+    }
 }
