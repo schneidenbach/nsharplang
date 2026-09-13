@@ -6,7 +6,7 @@ namespace NSharpLang.CensusAccessibility.Tests
 class AccessBase {
     protected Seed: int = 3
     private secretCount: int = 9
-    protected internal Shared: int = 5
+    internal protected Shared: int = 5
     Open: int = 7
 
     // The one legal reader of a `private` member is the declaring type itself.
@@ -26,7 +26,7 @@ class AccessBase {
         return PrivateTriple(value)
     }
 
-    protected func Describe(): string {
+    protected virtual func Describe(): string {
         return "base"
     }
 }
@@ -78,6 +78,27 @@ class AccessDerived: AccessBase {
 class AccessOtherDerived: AccessBase {
     func SeedThroughThis(): int {
         return this.Seed + 100
+    }
+}
+
+// `base.` IS A NON-VIRTUAL CALL, and an override that would otherwise win is how that is OBSERVED
+// rather than asserted. `Counted.Describe` overrides the base's and appends to a log; `base.Describe()`
+// must run the BASE body — if `base.` emitted `callvirt`, the override would re-enter and the count
+// would climb.
+class Counted: AccessBase {
+    Calls: int = 0
+
+    protected override func Describe(): string {
+        Calls = Calls + 1
+        return "counted"
+    }
+
+    func DescribeVirtually(): string {
+        return Describe()
+    }
+
+    func DescribeThroughBase(): string {
+        return base.Describe()
     }
 }
 

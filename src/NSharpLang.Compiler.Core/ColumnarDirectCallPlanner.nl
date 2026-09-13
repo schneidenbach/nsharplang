@@ -433,7 +433,9 @@ class ColumnarDirectCallPlanner {
         exactBaseType := currentDefinition.ExactBaseType
         if sourceBase != null && exactBaseType != null {
             closedBase := ColumnarSourceDirectCallResolver.ExactSourceTypeMatch(sourceBase, exactBaseType)
-            sourceSelection := ColumnarSourceDirectCallResolver.ResolveKnownInstance(sourceBase, exactBaseType, closedBase, memberName, argumentTypes, argumentFacts, currentDefinition, true)
+            // The last argument says what `base.` means to the family-receiver rule: the written
+            // receiver is the base, but argument zero is `this`, so the receiver IS the accessing type.
+            sourceSelection := ColumnarSourceDirectCallResolver.ResolveKnownInstance(sourceBase, exactBaseType, closedBase, memberName, argumentTypes, argumentFacts, currentDefinition, true, true)
 
             if sourceSelection.IsSelected && !sourceSelection.IsAbstract {
                 if !AppendSourceSelection(nodes, source, callNode, -1, true, bindings, handles, plan, callFragment, depth, argumentTypes, argumentFacts, NonVirtualBaseSelection(sourceSelection, current.ExactType), out resultType) {

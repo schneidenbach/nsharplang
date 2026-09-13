@@ -544,18 +544,41 @@ class ColumnarInstanceMemberPlanner {
         }
 
         if source != null {
-            return TrySelectSourceDefinition(receiverType, memberName, source, classification, out selection)
+            return TrySelectSourceDefinition(receiverType, memberName, source, classification, bindings, out selection)
         }
 
         facts := bindings.CurrentInstance
         if facts != null && facts.ExactType == receiverType {
-            return TrySelectExactFacts(receiverType, memberName, facts, classification, out selection)
+            return TrySelectExactFacts(receiverType, memberName, facts, classification, bindings, out selection)
         }
 
         throw new InvalidOperationException("Classified source instance facts disappeared during member selection.")
     }
 
-    static func TrySelectSourceDefinition(receiverType: Type, memberName: string, root: ColumnarStructDef, classification: ColumnarInstanceMemberSelection, out selection: ColumnarInstanceMemberSelection): bool {
+    // WHETHER EMISSION MAY REACH A SOURCE MEMBER THE DECLARED RULE NARROWED.
+    //
+    // A member of the assembly being emitted used to have to be `public` here, which was the ONLY
+    // thing keeping a `private` field out of another type's IL — and it also kept out `protected`,
+    // `internal` and `protected internal`, none of which the CLR would have objected to. The analyzer
+    // now applies the whole relation (`MemberAccessibility`, reported as NL308) with the receiver rule
+    // included, so what is left for emission is the narrower question the CLR itself would refuse:
+    // a `private` member is IL only the DECLARING type may contain. Everything wider is one assembly
+    // away and verifies.
+    static func IsEmittableSourceMember(level: int, declaringType: Type, bindings: ColumnarFragmentBindings): bool {
+        if level != MemberAccessibility.Private {
+            return true
+        }
+
+        enclosing := bindings.EnclosingTypeDefinition
+        if enclosing == null {
+            return false
+        }
+
+        enclosingType: Type = enclosing.Builder
+        return enclosingType == declaringType
+    }
+
+    static func TrySelectSourceDefinition(receiverType: Type, memberName: string, root: ColumnarStructDef, classification: ColumnarInstanceMemberSelection, bindings: ColumnarFragmentBindings, out selection: ColumnarInstanceMemberSelection): bool {
         selection = EmptySelection()
         if memberName.Length == 0 {
             return false
@@ -640,7 +663,7 @@ class ColumnarInstanceMemberPlanner {
                 throw new InvalidOperationException("Source instance field facts do not identify exact storage.")
             }
 
-            if !field.get_IsPublic() {
+            if !IsEmittableSourceMember(MemberAccessibility.LevelOfField(field), foundDeclaring, bindings) {
                 return false
             }
 
@@ -675,7 +698,7 @@ class ColumnarInstanceMemberPlanner {
             throw new InvalidOperationException("Source instance property facts do not identify an exact zero-arity getter.")
         }
 
-        if !getter.get_IsPublic() {
+        if !IsEmittableSourceMember(MemberAccessibility.LevelOfMethod(getter), foundDeclaring, bindings) {
             return false
         }
 
@@ -716,7 +739,7 @@ class ColumnarInstanceMemberPlanner {
         return true
     }
 
-    static func TrySelectExactFacts(_receiverType: Type, memberName: string, root: ColumnarCurrentInstanceFacts, classification: ColumnarInstanceMemberSelection, out selection: ColumnarInstanceMemberSelection): bool {
+    static func TrySelectExactFacts(_receiverType: Type, memberName: string, root: ColumnarCurrentInstanceFacts, classification: ColumnarInstanceMemberSelection, bindings: ColumnarFragmentBindings, out selection: ColumnarInstanceMemberSelection): bool {
         selection = EmptySelection()
         ValidateExactHierarchy(root)
         current: ColumnarCurrentInstanceFacts? = root
@@ -759,7 +782,7 @@ class ColumnarInstanceMemberPlanner {
                 throw new InvalidOperationException("Exact instance field facts do not identify exact storage.")
             }
 
-            if !field.get_IsPublic() || !IsStorableResult(field.get_FieldType()) {
+            if !IsEmittableSourceMember(MemberAccessibility.LevelOfField(field), foundDeclaring, bindings) || !IsStorableResult(field.get_FieldType()) {
                 return false
             }
 
@@ -778,7 +801,7 @@ class ColumnarInstanceMemberPlanner {
             throw new InvalidOperationException("Exact instance property facts do not identify an exact zero-arity getter.")
         }
 
-        if !getter.get_IsPublic() || !IsStorableResult(property.PropertyType) {
+        if !IsEmittableSourceMember(MemberAccessibility.LevelOfMethod(getter), foundDeclaring, bindings) || !IsStorableResult(property.PropertyType) {
             return false
         }
 

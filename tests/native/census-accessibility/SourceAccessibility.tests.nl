@@ -3,7 +3,6 @@ namespace NSharpLang.CensusAccessibility.Tests
 import System
 import System.Reflection
 
-
 func AccessibilityInstanceFlags(): BindingFlags {
     return BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.DeclaredOnly
 }
@@ -100,4 +99,17 @@ test "protected internal and an unmarked member are readable from outside every 
 test "a second derived type has its own protected state, reached through its own this" {
     other := new AccessOtherDerived()
     assert other.SeedThroughThis() == 103
+}
+
+test "base. is a non-virtual call to the base body, observed through an override that counts" {
+    counted := new Counted()
+    assert counted.Calls == 0
+
+    // Virtual dispatch reaches the override.
+    assert counted.DescribeVirtually() == "counted"
+    assert counted.Calls == 1
+
+    // `base.` must NOT reach it: the base body runs and the counter does not move.
+    assert counted.DescribeThroughBase() == "base"
+    assert counted.Calls == 1
 }
