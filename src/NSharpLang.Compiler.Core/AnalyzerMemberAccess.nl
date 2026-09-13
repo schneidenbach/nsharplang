@@ -830,14 +830,17 @@ class AnalyzerMemberAccess {
     // still RESOLVES — the objection is visibility, not existence, and the developer must be told
     // which of the two it is.
     func ValidateDeclaredMemberVisibility(objectType: TypeInfo, member: MemberAccessExpression) {
-        isExported := false
-        filePath: string? = null
-        if TryFindMemberExportVisibility(objectType, member.MemberName, out isExported, out filePath) && IsCrossPackageFile(filePath) && !isExported {
-            diagnosticsValue.ReportInaccessibleMember(member.MemberName, filePath, member.Line, spansValue.GetMemberNameColumn(member))
+        selection := new AnalyzerMemberSelection()
+        if !declarationContextValue.TryFindMember(declarationContextValue.ResolveDeclaredAlias(objectType), member.MemberName, out selection) {
             return
         }
 
-        ValidateDeclaredMemberAccessibility(objectType, member)
+        if IsCrossPackageFile(selection.FilePath) && !selection.IsExported {
+            diagnosticsValue.ReportInaccessibleMember(member.MemberName, selection.FilePath, member.Line, spansValue.GetMemberNameColumn(member))
+            return
+        }
+
+        ValidateDeclaredMemberAccessibility(objectType, member, selection)
     }
 
     // THE DECLARED-ACCESSIBILITY HALF OF NL308, for a member reached through a written receiver.
@@ -851,12 +854,7 @@ class AnalyzerMemberAccess {
     // rule asks whether the receiver's type derives from the accessing type, and `base` is typed as
     // the BASE — the one receiver that never does. C# spells this out separately (§7.6.8) and so
     // does this: inside a derived type, `base.` reaches exactly what the base declares protected.
-    func ValidateDeclaredMemberAccessibility(objectType: TypeInfo, member: MemberAccessExpression) {
-        selection := new AnalyzerMemberSelection()
-        if !declarationContextValue.TryFindMember(declarationContextValue.ResolveDeclaredAlias(objectType), member.MemberName, out selection) {
-            return
-        }
-
+    func ValidateDeclaredMemberAccessibility(objectType: TypeInfo, member: MemberAccessExpression, selection: AnalyzerMemberSelection) {
         declaredMember := selection.Member
         if declaredMember == null {
             return
@@ -908,7 +906,7 @@ class AnalyzerMemberAccess {
         return ambientValue.CurrentTypeName
     }
 
-    // THE NAME A REFUSAL QUOTES for the declaring type. `TypeInfo.ToString()` is what every other
+    // THE NAME A REFUSAL QUOTES for the declaring type. `FormatTypeInfo` is what the undefined-member
     // report in this file renders a type with, so a generic owner reads the same way here as it does
     // everywhere else the developer has already seen it.
     func DeclaredTypeDisplayName(owner: TypeInfo?): string {
@@ -916,7 +914,7 @@ class AnalyzerMemberAccess {
             return "the declaring type"
         }
 
-        return owner.ToString()
+        return NullabilityMetadataReflection.FormatTypeInfo(owner)
     }
 
     // WHETHER TWO TYPE SHAPES ARE THE SAME SOURCE DECLARATION. A closed generic is the same
@@ -981,20 +979,6 @@ class AnalyzerMemberAccess {
             current = shape.BaseType
         }
 
-        return false
-    }
-
-    func TryFindMemberExportVisibility(objectType: TypeInfo, memberName: string, out isExported: bool, out filePath: string?): bool {
-        resolvedOwner := declarationContextValue.ResolveDeclaredAlias(objectType)
-        selection := new AnalyzerMemberSelection()
-        if declarationContextValue.TryFindMember(resolvedOwner, memberName, out selection) {
-            isExported = selection.IsExported
-            filePath = selection.FilePath
-            return true
-        }
-
-        isExported = false
-        filePath = null
         return false
     }
 

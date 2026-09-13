@@ -54,29 +54,31 @@ targetFramework: net10.0
     )
 }
 
+// The fixture root is deleted before the answer is returned rather than in a `finally`: every block
+// below asserts on the LIST, so nothing between here and the assertion can throw and leave the
+// directory behind.
 func AccessDiagErrors(source: string): List<CompilerError> {
     root := AccessDiagTempRoot("diag")
-    try {
-        AccessDiagProject(root)
-        AccessDiagWrite(root, "Program.nl", source)
-        config := ProjectFileParser.Parse(Path.Combine(root, "project.yml"))
-        compiler := new MultiFileCompiler(root, config)
-        compiler.CompileForAnalysis()
-        reported := new List<CompilerError>()
-        all := compiler.AllErrors
-        index := 0
-        while index < all.Count {
-            if all[index].Severity == ErrorSeverity.Error {
-                reported.Add(all[index])
-            }
-            index = index + 1
+    AccessDiagProject(root)
+    AccessDiagWrite(root, "Program.nl", source)
+    config := ProjectFileParser.Parse(Path.Combine(root, "project.yml"))
+    compiler := new MultiFileCompiler(root, config)
+    compiler.CompileForAnalysis()
+    reported := new List<CompilerError>()
+    all := compiler.AllErrors
+    index := 0
+    while index < all.Count {
+        if all[index].Severity == ErrorSeverity.Error {
+            reported.Add(all[index])
         }
-        return reported
-    } finally {
-        if Directory.Exists(root) {
-            Directory.Delete(root, true)
-        }
+        index = index + 1
     }
+
+    if Directory.Exists(root) {
+        Directory.Delete(root, true)
+    }
+
+    return reported
 }
 
 func AccessDiagCodes(errors: List<CompilerError>): string {
@@ -180,7 +182,7 @@ class Grower: Seeded {
 
     diagnostic := AccessDiagSingle(errors, "NL308")
     assert diagnostic.Message == "'Seed' is declared 'protected' on 'Seeded', so only 'Seeded' and the types that derive from it can reach it, through a receiver of the deriving type — this reads it from 'Grower'"
-    assert diagnostic.Line == 14
+    assert diagnostic.Line == 13
     assert diagnostic.Suggestion == "Write the access inside a type that derives from 'Seeded' and read it through 'this' or a receiver of that derived type, or drop 'protected' from 'Seed'."
 }
 

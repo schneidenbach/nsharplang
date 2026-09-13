@@ -278,6 +278,10 @@ class ColumnarStructInput {
     FieldStaticFlags: bool[]
     FieldReadonlyFlags: bool[]
     FieldPrivateFlags: bool[]
+    // The accessibility words written on each field, in the `Modifiers` bit space. `FieldPrivateFlags`
+    // is the `private` bit of this same word and is kept because the storage decisions beside it read
+    // a boolean; every ACCESSIBILITY decision reads this column.
+    FieldVisibilityFlags: int[]
     FieldThreadStaticFlags: bool[]
     FieldConstFlags: bool[]
     FieldInitKinds: int[]
@@ -297,7 +301,7 @@ class ColumnarStructInput {
     EnclosingTypeName: string
     NestedVisibilityAttributes: int
 
-    constructor(name: string, fieldNames: string[], fieldTypeCanonicals: string[], methods: IReadOnlyList<ColumnarFunctionInput>, constructors: IReadOnlyList<ColumnarConstructorInput>, properties: IReadOnlyList<ColumnarPropertyInput>, isReference: bool, baseNames: string[]? = null, fieldStaticFlags: bool[]? = null, fieldInitKinds: int[]? = null, fieldInitTexts: string[]? = null, isRecord: bool = false, typeParamNames: string[]? = null, fieldReadonlyFlags: bool[]? = null, sourceFileId: int = 0, isNewtype: bool = false, isRefStruct: bool = false, enclosingTypeName: string? = null, visibilityModifierFlags: int = 0, typeParamSpecialConstraints: int[]? = null, typeParamTypeConstraints: string[][]? = null, fieldPrivateFlags: bool[]? = null, fieldThreadStaticFlags: bool[]? = null, fieldConstFlags: bool[]? = null) {
+    constructor(name: string, fieldNames: string[], fieldTypeCanonicals: string[], methods: IReadOnlyList<ColumnarFunctionInput>, constructors: IReadOnlyList<ColumnarConstructorInput>, properties: IReadOnlyList<ColumnarPropertyInput>, isReference: bool, baseNames: string[]? = null, fieldStaticFlags: bool[]? = null, fieldInitKinds: int[]? = null, fieldInitTexts: string[]? = null, isRecord: bool = false, typeParamNames: string[]? = null, fieldReadonlyFlags: bool[]? = null, sourceFileId: int = 0, isNewtype: bool = false, isRefStruct: bool = false, enclosingTypeName: string? = null, visibilityModifierFlags: int = 0, typeParamSpecialConstraints: int[]? = null, typeParamTypeConstraints: string[][]? = null, fieldPrivateFlags: bool[]? = null, fieldThreadStaticFlags: bool[]? = null, fieldConstFlags: bool[]? = null, fieldVisibilityFlags: int[]? = null) {
         Name = name
         FieldNames = fieldNames
         FieldTypeCanonicals = fieldTypeCanonicals
@@ -332,6 +336,7 @@ class ColumnarStructInput {
         EnclosingTypeName = enclosingTypeName ?? ""
         NestedVisibilityAttributes = NestedVisibilityFor(name, visibilityModifierFlags)
         FieldPrivateFlags = fieldPrivateFlags ?? new bool[](fieldNames.Length)
+        FieldVisibilityFlags = fieldVisibilityFlags ?? new int[](fieldNames.Length)
         FieldThreadStaticFlags = fieldThreadStaticFlags ?? new bool[](fieldNames.Length)
         FieldConstFlags = fieldConstFlags ?? new bool[](fieldNames.Length)
     }

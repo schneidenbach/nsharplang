@@ -10,14 +10,21 @@ import System.Reflection
 // alike, so these contracts exercise it from both ends: the levels a written modifier word produces,
 // the levels a `MethodInfo`/`FieldInfo` produces, and the six answers the relation gives for the
 // four facts a caller supplies.
+// WHAT THIS FILE CAN AND CANNOT READ OFF REAL METADATA. The compiler's own source is compiled by the
+// PINNED stage-0 SDK, which predates this slice: it refuses `protected internal` outright and emits a
+// `protected` FIELD as public. So the metadata half pinned here is limited to the two words that seed
+// already got right, and `tests/native/census-accessibility` — built by the tip CLI — owns the whole
+// six-level metadata table.
 class AccessibilityLevelProbe {
-    protected Guarded: int = 1
     private hidden: int = 2
-    protected internal Shared: int = 3
     Open: int = 4
 
+    private func Hide(): int {
+        return hidden
+    }
+
     func Touch(): int {
-        return Guarded + hidden + Shared + Open
+        return Hide() + Open
     }
 }
 
@@ -53,12 +60,11 @@ test "the word a refusal quotes is the word that was written" {
     assert MemberAccessibility.LevelWord(MemberAccessibility.Public) == "public"
 }
 
-test "a reflected member reports the same six levels the written words do" {
+test "a reflected member reports the level its written word named" {
     probe := typeof(AccessibilityLevelProbe)
-    assert MemberAccessibility.LevelOfField(probe.GetField("Guarded", AccessibilityProbeFlags())) == MemberAccessibility.Family
     assert MemberAccessibility.LevelOfField(probe.GetField("hidden", AccessibilityProbeFlags())) == MemberAccessibility.Private
-    assert MemberAccessibility.LevelOfField(probe.GetField("Shared", AccessibilityProbeFlags())) == MemberAccessibility.FamilyOrAssembly
     assert MemberAccessibility.LevelOfField(probe.GetField("Open", AccessibilityProbeFlags())) == MemberAccessibility.Public
+    assert MemberAccessibility.LevelOfMethod(probe.GetMethod("Hide", AccessibilityProbeFlags())) == MemberAccessibility.Private
     assert MemberAccessibility.LevelOfMethod(probe.GetMethod("Touch", AccessibilityProbeFlags())) == MemberAccessibility.Public
 
     // A member the reflection lookup cannot produce is treated as the most restricted level rather

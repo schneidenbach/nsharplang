@@ -10038,6 +10038,18 @@ func ParserDeclarationCanonicalDottedNameText(source: string, start: int, length
     return builder.ToString()
 }
 
+// WHICH SETS OF VISIBILITY WORDS A DECLARATION MAY SPELL. One word is always legal; the only legal
+// PAIRS are `protected internal` (8|4) and `private protected` (8|2), both of which name an
+// accessibility the CLR has a single word for. Every other pair contradicts itself — `public private`
+// says two different things about the same member — and is refused.
+func ParserDeclarationVisibilityWordsAreLegal(flags: int): bool {
+    if flags == 0 || flags == 1 || flags == 2 || flags == 4 || flags == 8 {
+        return true
+    }
+
+    return flags == 12 || flags == 10
+}
+
 func ParserDeclarationMemberModifierKind(kind: int): int {
     if kind == 63 {
         return 2
@@ -10215,8 +10227,13 @@ func ParseMemberModifierPrefixCore(source: string, tokens: ParserDeclarationToke
 
             result.Values[0] = 1
         } else if modifierKind == 1 {
-            result.Values[1] = result.Values[1] + 1
-            if result.Values[1] > 1 {
+            // THE VISIBILITY WORDS ACCUMULATE INTO A SET, NOT A COUNT. Two of them are a legal
+            // spelling — `protected internal` and `private protected`, in either order — and the
+            // rest are contradictions. Counting refused all pairs alike, which is why
+            // `protected internal Shared: int` declined at parse while the metadata planner beside
+            // it already knew what word to emit for it.
+            result.Values[1] = result.Values[1] | ParserDeclarationMemberModifierFlag(tokens.Kinds[pos])
+            if !ParserDeclarationVisibilityWordsAreLegal(result.Values[1]) {
                 return -1
             }
         }
@@ -11109,6 +11126,19 @@ func ParseStructDeclarationCore(source: string, tokens: ParserDeclarationTokenTa
             }
             if (memberModifiers.Values[2] & 1024) != 0 {
                 fieldModifierFlags = fieldModifierFlags + 16
+            }
+            // THE OTHER THREE VISIBILITY WORDS. `private` had a bit of its own from the start and the
+            // rest had none, so `protected Seed: int` reached the field planner indistinguishable
+            // from an unmarked field and was emitted PUBLIC while `protected func` beside it was
+            // emitted `family`. Each word gets a bit and the planner reads the set.
+            if (memberModifiers.Values[2] & 8) != 0 {
+                fieldModifierFlags = fieldModifierFlags + 32
+            }
+            if (memberModifiers.Values[2] & 4) != 0 {
+                fieldModifierFlags = fieldModifierFlags + 64
+            }
+            if (memberModifiers.Values[2] & 1) != 0 {
+                fieldModifierFlags = fieldModifierFlags + 128
             }
 
             decl.FieldStaticFlags[fieldCount] = fieldModifierFlags
@@ -14236,16 +14266,36 @@ func ColumnarStructFieldFlagIsStatic(flags: int): bool {
     return (flags & 1) != 0
 }
 
-// The field word packs five independent facts: bit 0 `static`, bit 1 `readonly`, bit 2 `private`,
-// bit 3 the exact System.ThreadStatic intrinsic, and bit 4 `const`. The columnar input builder
-// used to decode the first two itself; every bit's meaning belongs to the kernel that writes the
-// word.
+// The field word packs eight independent facts: bit 0 `static`, bit 1 `readonly`, bit 2 `private`,
+// bit 3 the exact System.ThreadStatic intrinsic, bit 4 `const`, bit 5 `protected`, bit 6 `internal`
+// and bit 7 `public`. The columnar input builder used to decode the first two itself; every bit's
+// meaning belongs to the kernel that writes the word.
 func ColumnarStructFieldFlagIsReadonly(flags: int): bool {
     return (flags & 2) != 0
 }
 
 func ColumnarStructFieldFlagIsPrivate(flags: int): bool {
     return (flags & 4) != 0
+}
+
+// The field word's visibility bits, translated back into the ONE modifier bit space `Modifiers`
+// (DeclarationEnums.nl) uses: Public 1, Private 2, Internal 4, Protected 8. The packed word keeps
+// its own layout because its other four bits are storage facts, not accessibility.
+func ColumnarStructFieldVisibilityModifiers(flags: int): int {
+    modifiers := 0
+    if (flags & 128) != 0 {
+        modifiers = modifiers | 1
+    }
+    if (flags & 4) != 0 {
+        modifiers = modifiers | 2
+    }
+    if (flags & 64) != 0 {
+        modifiers = modifiers | 4
+    }
+    if (flags & 32) != 0 {
+        modifiers = modifiers | 8
+    }
+    return modifiers
 }
 
 func ColumnarStructFieldFlagIsThreadStatic(flags: int): bool {
