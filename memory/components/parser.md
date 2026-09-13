@@ -122,10 +122,27 @@ Order matters:
 
 ### The `<` disambiguation: comparison, generic call, or constructed generic type receiver
 
-A `<` after a name is ambiguous, and the parser resolves it with TWO bounded pure lookaheads that
-differ only in their CLOSE TOKEN. Both scan a candidate type-argument list from the `<` — identifiers,
-dots, commas, array brackets, nullable suffixes, tuple parentheses, and nested `<` / `>` / `>>` with
-the `>>` split spending two levels of depth — and neither mutates the cursor or reports a diagnostic.
+A `<` after a name is ambiguous, and the parser resolves it with ONE bounded pure lookahead whose two
+callers differ only in their CLOSE TOKEN. `ColumnarParserRecovery.ScanTypeArgumentListClose` walks a
+candidate type-argument list from the `<` and answers the index of the token AFTER the matching close
+(or -1): identifiers, dots, commas, array brackets, nullable suffixes, tuple parentheses with their
+element-name colons, and nested `<` / `>` / `>>` with the `>>` split spending two levels of depth. It
+does not mutate the cursor and reports no diagnostic.
+
+Two admissions are deliberately narrow, both to keep ambiguous comparisons comparisons. A `(` group
+is admitted only as a TUPLE type, which needs a comma at its own paren depth, so
+`Method<(int, string)>(x)` is a call while `a < (b) > (c)` stays a comparison (Roslyn's
+`ScanTupleType` refuses a one-element group for the same reason). A `:` is admitted only INSIDE such
+a group, so `a < b ? c : d > (e)` stays a conditional.
+
+**THE SCAN USED TO HAVE NO DEPTH COUNTING ON THE CALL SIDE, AND THAT WAS THE LARGEST SINGLE
+DIAGNOSTIC SOURCE THE 2026-09-12 CENSUS FOUND.** `IsGenericMethodCall` returned at the FIRST `>` it
+met, so `Task.FromResult<List<int>?>(null)` — whose first `>` closes the inner `List<int` — was read
+as a comparison and reported `Unexpected token '?' in expression`, then NL411 "Method 'FromResult'
+must be called", NL301 "Variable 'List' not found", NL305 and every null-narrowing after it. In the
+converted LanguageServer that one shape produced roughly 270 of ~340 diagnostics. The `.`-closed twin
+already counted depth, which is why a constructed generic receiver did not have the bug; folding both
+onto one scan is what makes that impossible to reintroduce on one side only.
 
 | Close followed by | Reading | Node |
 |---|---|---|
@@ -133,12 +150,15 @@ the `>>` split spending two levels of depth — and neither mutates the cursor o
 | `.` | constructed generic type receiver | `GenericTypeExpression` |
 | anything else | comparison | `BinaryExpression` |
 
-`ColumnarParserRecovery.IsGenericTypeArgumentListBeforeDot` is the `.` half and
-`IsGenericMethodCall` (the Parser.cs-faithful one) is the `(` half. **The `.` half is tried FIRST in
-`ParsePostfix`**, because `IsGenericMethodCall` answers true at the first `,` and would otherwise
-take `Dictionary<string, int>.Something` for a `Method<T>(` it then has to report as missing its
-parentheses. The receiver must also spell a plain dotted NAME, so `f(x)<int>.Y` and `a?.B<int>.Y`
-stay comparisons.
+`ColumnarParserRecovery.IsGenericTypeArgumentListBeforeDot` is the `.` half and `IsGenericMethodCall`
+is the `(` half; each is two lines over the shared scan. They are MUTUALLY EXCLUSIVE by their close
+token, so the order they are tried in is a reading convenience rather than a correctness requirement
+(the `.` half is still tried first in `ParsePostfix`). The receiver must also spell a plain dotted
+NAME, so `f(x)<int>.Y` and `a?.B<int>.Y` stay comparisons.
+
+One shape ON the boundary is a CALL and has always been one: `a < b > (c)` has its close followed
+directly by `(`, so it reads as `a<b>(c)` — which is also how C# reads it. Widening the scan did not
+move it, and `ColumnarParserTypeArgumentScan.tests.nl` pins it alongside the comparisons.
 
 `GenericTypeExpression` carries the `GenericTypeReference` that `ParseCallTypeArguments` /
 `ParseMaterializedTypeReference` build, so it is byte-identical to the reference an annotation in the
@@ -148,12 +168,40 @@ call, assignment target, `?.`, index). It is a LEAF in `AstChildrenCore` — its
 explicitly, exactly as it does for `typeof`.
 
 **The columnar backend re-parses source with its own kernels, so the rule exists twice.**
-`CompilerServices/ColumnarParserKernels.nl` carries `IsGenericTypeReceiverArgs`, the `.`-closed twin
-of `IsGenericCallTypeArgs`, and commits node kind **70** — byte-identical in shape to the kind-38
+`CompilerServices/ColumnarParserKernels.nl` carries `ScanTypeArgsClose` and the same two two-line
+predicates over it — `IsGenericTypeReceiverArgs`, the `.`-closed twin of `IsGenericCallTypeArgs` —
+and commits node kind **70** — byte-identical in shape to the kind-38
 generic callee: the full dotted head name in the value span, the TYPE-kernel type-argument roots as
 children. `ColumnarGenericTypeReceiverFacts` is the single owner that turns that node into a closed
 `System.Type`, reusing `ColumnarTypeOfPlanner.TryBuildTypeCanonical` and
 `ColumnarBindingScopeFacts.TryResolveExactExplicitTypeInContext`.
+
+### Tuple element naming is decided PER ELEMENT
+
+A tuple element's name is `Identifier :` in front of the element, and every element decides for
+itself — in a LITERAL (`ColumnarParserRecovery.ParseTupleOrParenthesizedExpression` /
+`TryParseTupleElementName`, and the columnar kernel's kind-17 arm with its kind-43 `NamedTupleElement`
+wrappers) and in a TYPE (`ParseParenthesizedOrTupleTypeReferenceRecovery`, and the kernel's kind-6 arm
+with its kind-7 wrappers) alike. `(null, last, IsConstructor: true)` and
+`(string?, string, IsConstructor: bool)` are ordinary three-element tuples whose third element is
+named.
+
+**Both parsers used to run in one of TWO MODES chosen by the first element**, and they disagreed about
+what to do when a later element broke the mode: the literal reported NL101 "Unexpected token ':' in
+expression" plus an NL301 for the name, while the tuple TYPE declined the whole enclosing declaration
+at `parse.function`. The name is looked for only AFTER the element expression is complete, so a
+conditional element keeps its own colon (`(a, c ? x : y)`).
+
+`TypeReferenceTupleElementNamesCore` answers one slot per element with the EMPTY string for a
+positional one — the same "no name here" that `ColumnarTupleElementNames` turns into the metadata null
+slot `TupleElementNamesAttribute` carries — and zero when nothing in the tuple is named. No shape is an
+error there any more.
+
+A bare typed local may be annotated with a tuple type (`pair: (Item: string, Count: int) = …`): the
+typed-declaration lookahead in `ParseExpressionStatement` admits a type starting with an identifier OR
+with the `(` of a tuple. A FIELD or property still may not be declared with a tuple type — that limit
+is in the columnar struct kernel, applies to unnamed tuples too, and is recorded in
+`website/docs/functions.md`.
 
 ### Nested Type Support
 `ParseMemberDeclaration` handles nested types (classes, structs, records inside other types).
