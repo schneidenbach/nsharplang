@@ -10746,6 +10746,14 @@ sealed class ColumnarIlEmitter {
             return false
         }
         columnarSwitchValue2 := _nodes.Kind(idx)
+        if columnarSwitchValue2 == 82 {
+            // A BARE `this` — the current instance AS A VALUE. Argument zero of an instance body IS the
+            // instance, so a reference type loads it directly; a value type's argument zero is a MANAGED
+            // POINTER to it, and a value is what the position asked for, so the pointer is dereferenced.
+            // A static body has no instance at all and declines: the analyzer has already reported NL327
+            // there, and emitting `ldarg.0` would silently hand out the first parameter.
+            return TryEmitThisExpression(idx, out columnarResolvedType)
+        }
         if columnarSwitchValue2 == 79 {
             // `on <receiver>.<Event> <handler>` — the subscription VALUE. It sits ahead of the chain
             // because its own owner reads the target and handler itself; nothing below can see an event.
@@ -25805,6 +25813,41 @@ sealed class ColumnarIlEmitter {
             walk = walk.get_BaseType()
         }
         return null
+    }
+
+    // A BARE `this` (node kind 82). `this.Member` never reaches here — the parser collapses it into a
+    // bare identifier — so this is the keyword standing alone as a value: `Raise(this)`, `me := this`,
+    // `return this`, `Changed?.Invoke(this, EventArgs.Empty)`.
+    private func TryEmitThisExpression(idx: int, out columnarResolvedType: Type): bool {
+        columnarResolvedType = null
+        if (_currentStruct == null) {
+            return Decline("emit.this.no-instance", "`this` needs an enclosing instance body", idx)
+        }
+
+        // INSIDE A LAMBDA, `this` IS THE LEXICAL OWNER'S INSTANCE, NOT THE DISPLAY'S. A mixed-capture
+        // lambda runs as an instance method on a synthesized display class, and that display keeps the
+        // outer receiver in `<>4__this` — the same field a bare call on the lexical owner loads. Reading
+        // argument zero here instead would hand out the display object, which is not a type the program
+        // can name at all.
+        if (_currentStruct.IsClosureDisplay) {
+            let capturedEnclosingThis: FieldBuilder? = null
+            if (_enclosingType == null || !_currentStruct.Fields.TryGetValue("<>4__this", out capturedEnclosingThis)) {
+                return Decline("emit.this.captured", "`this` inside this lambda has no captured enclosing instance", idx)
+            }
+            _il.Emit(OpCodes.Ldarg_0)
+            _il.Emit(OpCodes.Ldfld, capturedEnclosingThis)
+            columnarResolvedType = capturedEnclosingThis.get_FieldType()
+            return true
+        }
+
+        instanceType := ColumnarSourceSelfInstantiation.Of(_currentStruct.Builder)
+        _il.Emit(OpCodes.Ldarg_0)
+        if (!_currentStruct.IsReference) {
+            // ARGUMENT ZERO OF A STRUCT BODY IS `ref T`, and the position asked for `T`.
+            _il.Emit(OpCodes.Ldobj, instanceType)
+        }
+        columnarResolvedType = instanceType
+        return true
     }
 
     private func TryEmitOnSubscription(idx: int, out columnarResolvedType: Type): bool {

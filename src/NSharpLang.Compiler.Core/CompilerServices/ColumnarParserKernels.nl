@@ -438,6 +438,10 @@ class TypeReferenceTupleNameTable {
 //                                         [receiver], no value span, the receiver's own span. The access
 //                                         itself stays a kind-8 MemberAccess over it (and a kind-9 Call over
 //                                         that for `a?.M(x)`), so only the SHORT CIRCUIT is new. )
+//   ThisExpression          -> kind 82  ( a bare `this` (This 42) -- the CURRENT INSTANCE as a value. NO
+//                                         children and NO value span; the enclosing declaration supplies the
+//                                         type. `this.Member` is collapsed to a bare identifier before this
+//                                         kind is reached, so only a `this` that stands alone is one. )
 //   DefaultExpression       -> kind 74  ( `default` (Default 34) -- the target-typed zero value; NO children
 //                                         and NO value span, exactly like the null literal (kind 5). The
 //                                         written-type form is spelled as an annotation in N# (`x: T = default`),
@@ -450,8 +454,8 @@ class TypeReferenceTupleNameTable {
 // product handoff, and the emitter only needs the concrete expression shape.
 // Deferred (refused with -1, or the chain simply STOPS at them): `?[` null-conditional INDEXING, generic
 //   method calls (callee<T>(...)), named (`name:`) call arguments outside constructor argument lists,
-//   `is`/`as` type tests; every other unlisted primary (this/... ; `base.Member` is kind 71 and
-//   `default` is kind 74).
+//   `is`/`as` type tests; every other unlisted primary (`base.Member` is kind 71, `default` is kind 74
+//   and a bare `this` is kind 82).
 //   (Tuples `(a, b)` AND named tuples `(x: 1, y: 2)` PARSE — kinds 17/43; match,
 //   new-expressions, object initializers, bare-new and block-bodied lambdas have their own kinds above.)
 //   Literal VALUE materialization (unescaping strings/chars) is the host's job; this kernel records the
@@ -596,6 +600,16 @@ class ColumnarExpressionNodeKind {
     // and every consumer reads the target type from the position the expression sits in.
     static func DefaultExpression(): int {
         return 74
+    }
+
+    // `this` written on its own — the CURRENT INSTANCE as a value, not as the `this.Member` prefix the
+    // postfix parser collapses into a bare identifier. It has NO children and NO value span (the
+    // keyword IS the node, exactly as `null` and `default` are), and its type is the enclosing
+    // declaration's, which only the emitter knows. A `this.Member` / `this[i]` chain still takes the
+    // collapsing arm first, so this kind is reached only where the keyword really stands alone:
+    // `Raise(this)`, `me := this`, `return this`, `Changed?.Invoke(this, EventArgs.Empty)`.
+    static func ThisExpression(): int {
+        return 82
     }
 
     // `on <receiver>.<Event> <handler>` — the event SUBSCRIPTION, and the VALUE it produces: a
@@ -4648,6 +4662,14 @@ func ParsePrimaryExpressionNode(tokens: ParserTokenTable, count: int, st: Parser
     if kind == 34 {
         st.Pos = pos + 1
         return EmitExpressionNode(st, nodes, ColumnarExpressionNodeKind.DefaultExpression(), -1, 0, -1, 0, tokenStart, tokenLength)
+    }
+
+    // A BARE `this` (This 42). The `this.Member` and `this[...]` prefixes never reach here — the postfix
+    // parser collapses the member form one level up — so this arm sees only the keyword standing on its
+    // own as a value, and it records the keyword's own span with no value text, like `null` and `default`.
+    if kind == 42 {
+        st.Pos = pos + 1
+        return EmitExpressionNode(st, nodes, ColumnarExpressionNodeKind.ThisExpression(), -1, 0, -1, 0, tokenStart, tokenLength)
     }
 
     if kind == 131 {

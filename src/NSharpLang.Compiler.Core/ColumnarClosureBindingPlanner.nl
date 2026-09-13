@@ -109,6 +109,12 @@ class ColumnarClosureBindingPlanner {
         if kind == 38 || kind == 42 || kind == 55 {
             return false
         }
+        // A BARE `this` IS THE ENCLOSING INSTANCE, SPELLED OUT. It needs the same captured receiver a
+        // bare call on the lexical owner needs, and it needs it whether or not the body also names a
+        // member — `() => Describe(this)` captures nothing else at all.
+        if kind == ColumnarExpressionNodeKind.ThisExpression() && currentDefinition != null {
+            return true
+        }
         if kind == 39 {
             nestedBound := new HashSet<string>(bound, StringComparer.Ordinal)
             nestedBound.UnionWith(BoundParamsOf(nodes, source, node))
@@ -167,6 +173,10 @@ class ColumnarClosureBindingPlanner {
         kind := nodes.Kind(node)
         if kind == 38 || kind == 42 || kind == 55 {
             return false
+        }
+        // A BARE `this` NEEDS THE ENCLOSING INSTANCE, exactly as a bare call on the lexical owner does.
+        if kind == ColumnarExpressionNodeKind.ThisExpression() && currentDefinition != null {
+            return true
         }
         if kind == 39 {
             nestedBound := new HashSet<string>(bound, StringComparer.Ordinal)

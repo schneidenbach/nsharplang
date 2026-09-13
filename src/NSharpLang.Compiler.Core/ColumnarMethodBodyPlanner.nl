@@ -1134,7 +1134,10 @@ class ColumnarMethodBodyPlanner {
         // 79 ON-SUBSCRIPTION is declined for the same reason 39 Lambda is: its handler is a lambda site,
         // and the rows a lambda needs — a synthesized method, a display class, a capture set — are the
         // host emitter's, not this door's.
-        return kind == 46 || kind == 47 || kind == 52 || kind == 53 || kind == 59 || kind == 64 || kind == ColumnarExpressionNodeKind.DefaultExpression() || kind == ColumnarExpressionNodeKind.NullGuardExpression() || kind == ColumnarExpressionNodeKind.OnSubscriptionExpression()
+        // 82 `this` is declined because the instance's own type is the HOST's fact: argument zero is the
+        // instance for a reference type and a managed pointer to it for a value type, and which of those
+        // two the body is in is decided by the enclosing declaration this door never sees.
+        return kind == 46 || kind == 47 || kind == 52 || kind == 53 || kind == 59 || kind == 64 || kind == ColumnarExpressionNodeKind.DefaultExpression() || kind == ColumnarExpressionNodeKind.NullGuardExpression() || kind == ColumnarExpressionNodeKind.OnSubscriptionExpression() || kind == ColumnarExpressionNodeKind.ThisExpression()
     }
 
     // THE LEDGER THE DOOR PARTITIONS — every node kind the parser can produce in a return-VALUE
@@ -1143,7 +1146,7 @@ class ColumnarMethodBodyPlanner {
     // totality property is a fact something can assert, not a promise a comment makes: for every kind
     // here, exactly one of `IsClaimedExpressionKind` and `IsDeclinedExpressionKind` holds.
     static func ExpressionKindLedger(): int[] {
-        return [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 15, 16, 17, 18, 36, 39, 42, 44, 45, 46, 47, 52, 53, 55, 57, 58, 59, 62, 64, 69, 74, 75, 79]
+        return [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 15, 16, 17, 18, 36, 39, 42, 44, 45, 46, 47, 52, 53, 55, 57, 58, 59, 62, 64, 69, 74, 75, 79, 82]
     }
 
     // THE IDENTIFIER CLASSES. `ColumnarBoundIdentifierPlanner` is the SOLE owner of lexical
