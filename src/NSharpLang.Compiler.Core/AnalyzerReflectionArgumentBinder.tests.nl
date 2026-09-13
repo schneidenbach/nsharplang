@@ -2554,3 +2554,113 @@ test "an array literal is applicable to an array parameter element by element, a
     assert !binder.TryScoreCollectionExpressionArgument(literal, typeof(object), intArray, out score)
     assert !binder.TryScoreCollectionExpressionArgument(literal, typeof(object[]).MakeByRefType(), intArray, out score)
 }
+
+// ── §CONV/3 — THE CONVERSIONS A REFLECTED POSITION PERFORMS ──────────────────────────────────────
+// Applicability is where these belong: a candidate whose parameter takes the constant IS a
+// candidate (§12.6.4.2), and asking afterwards would have rejected the call before anything could
+// convert it. The three blocks below pin the arm, its guards, and the rung it scores on.
+
+func BinderIntLiteral(text: string): Expression {
+    return new IntLiteralExpression(text, 1, 1)
+}
+
+func BinderNegatedLiteral(text: string): Expression {
+    return new UnaryExpression(UnaryOperator.Negate, new IntLiteralExpression(text, 1, 2), 1, 1)
+}
+
+func BinderConstantArrayLiteral(elements: List<Expression>): Expression {
+    return new ArrayLiteralExpression(elements, false, 1, 1)
+}
+
+func BinderExpressionList(values: string[]): List<Expression> {
+    list := new List<Expression>()
+    index := 0
+    while index < values.Length {
+        list.Add(BinderIntLiteral(values[index]))
+        index = index + 1
+    }
+
+    return list
+}
+
+test "an integer constant converts at a narrower reflected parameter, on the implicit-numeric rung" {
+    binder := BinderDefault()
+    bindings := new Dictionary<Type, Type>()
+    score := 0
+
+    assert binder.TryScoreConstantExpressionArgument(BinderIntLiteral("0"), typeof(byte), bindings, false, out score)
+    assert score == AnalyzerReflectionArgumentBinder.ConstantExpressionConversionScore()
+
+    // 6 is the implicit-numeric rung: strictly below an identity (8) so `f(int)` still wins for `0`,
+    // and strictly above a plain assignable conversion (4).
+    assert AnalyzerReflectionArgumentBinder.ConstantExpressionConversionScore() == 6
+
+    assert binder.TryScoreConstantExpressionArgument(BinderIntLiteral("255"), typeof(byte), bindings, false, out score)
+    assert binder.TryScoreConstantExpressionArgument(BinderNegatedLiteral("1"), typeof(short), bindings, false, out score)
+
+    // OUT OF RANGE IS STILL A NON-BINDING, which is what keeps the report for a call that really
+    // cannot be made.
+    assert !binder.TryScoreConstantExpressionArgument(BinderIntLiteral("256"), typeof(byte), bindings, false, out score)
+    assert !binder.TryScoreConstantExpressionArgument(BinderNegatedLiteral("1"), typeof(byte), bindings, false, out score)
+
+    // A NON-CONSTANT carries nothing to measure.
+    assert !binder.TryScoreConstantExpressionArgument(BinderIdentifier("n"), typeof(byte), bindings, false, out score)
+
+    // A BY-REF position names storage, and a constant is not a variable.
+    assert !binder.TryScoreConstantExpressionArgument(BinderIntLiteral("0"), typeof(byte), bindings, true, out score)
+}
+
+test "the constant is measured against the BOUND parameter type, never against an open one" {
+    binder := BinderDefault()
+    score := 0
+
+    // `ConcurrentDictionary<string, byte>.TryAdd`'s value parameter is the TYPE's own `TValue`; the
+    // receiver binds it to `byte`, and the constant has to be measured against that.
+    definition := BinderRuntimeType("System.Collections.Generic.Dictionary`2, System.Private.CoreLib")
+    openValue := definition.GetGenericArguments()[1]
+
+    // Unbound, the parameter is still open and a constant drives no inference.
+    assert !binder.TryScoreConstantExpressionArgument(BinderIntLiteral("0"), openValue, new Dictionary<Type, Type>(), false, out score)
+
+    bound := new Dictionary<Type, Type>()
+    bound[openValue] = typeof(byte)
+    assert binder.TryScoreConstantExpressionArgument(BinderIntLiteral("0"), openValue, bound, false, out score)
+    assert score == 6
+    assert !binder.TryScoreConstantExpressionArgument(BinderIntLiteral("256"), openValue, bound, false, out score)
+}
+
+test "an array literal is applicable element by element when its elements are constants" {
+    binder := BinderDefault()
+
+    assert binder.AllElementsAreInRangeConstants(BinderConstantArrayLiteral(BinderExpressionList(["0"])), typeof(byte))
+    assert binder.AllElementsAreInRangeConstants(BinderConstantArrayLiteral(BinderExpressionList(["0", "255"])), typeof(byte))
+
+    // ONE element that does not fit is the whole answer.
+    assert !binder.AllElementsAreInRangeConstants(BinderConstantArrayLiteral(BinderExpressionList(["0", "300"])), typeof(byte))
+
+    // A non-constant element carries nothing to measure.
+    mixed := new List<Expression>()
+    mixed.Add(BinderIntLiteral("0"))
+    mixed.Add(BinderIdentifier("n"))
+    assert !binder.AllElementsAreInRangeConstants(BinderConstantArrayLiteral(mixed), typeof(byte))
+
+    // AN EMPTY LITERAL ANSWERS FALSE: it has no constant to carry, so the ordinary element relation
+    // — already asked and already answered — is what decides it.
+    assert !binder.AllElementsAreInRangeConstants(BinderConstantArrayLiteral(new List<Expression>()), typeof(byte))
+
+    // And a literal that is not an array literal at all is not this question.
+    assert !binder.AllElementsAreInRangeConstants(BinderIntLiteral("0"), typeof(byte))
+}
+
+test "a written type argument that is a type parameter binds on the N# side, and an unknown one does not" {
+    // The analyzer spells a type parameter in scope as a bare `SimpleTypeInfo`, which converts to no
+    // CLR type — so the candidate is kept OPEN rather than refused, exactly as the argument side
+    // already keeps one for `HashCode.Combine(state, ok)`.
+    assert AnalyzerReflectionArgumentBinder.IsOpenWrittenTypeArgument(new SimpleTypeInfo("T"))
+
+    // A name that resolves to nothing is still a non-binding, which is what keeps
+    // `Deserialize<Nonsense>(…)` a report rather than a silently open call.
+    assert !AnalyzerReflectionArgumentBinder.IsOpenWrittenTypeArgument(BuiltInTypes.Unknown)
+    assert !AnalyzerReflectionArgumentBinder.IsOpenWrittenTypeArgument(new ArrayTypeInfo(new SimpleTypeInfo("T")))
+    assert !AnalyzerReflectionArgumentBinder.IsOpenWrittenTypeArgument(new GenericTypeInfo("List", new List<TypeInfo>(), null))
+}

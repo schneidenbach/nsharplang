@@ -186,11 +186,11 @@ test "both constant conversions are one question when a CLR target is in hand" {
 // typeof(byte)` — reference equality over `Type` — was false for the CLR's own `System.Byte`.
 test "a primitive target is recognised through a load context that did not produce typeof(byte)" {
     resolver := new PathAssemblyResolver(Directory.GetFiles(RuntimeEnvironment.GetRuntimeDirectory(), "*.dll"))
-    loadContext := new MetadataLoadContext(resolver)
+    loadContext := new MetadataLoadContext(resolver, "System.Private.CoreLib")
     try {
-        core := loadContext.LoadFromAssemblyName("System.Runtime")
-        loadedByte := core.GetType("System.Byte")
-        assert loadedByte != null
+        core := loadContext.get_CoreAssembly()
+        assert core != null
+        loadedByte := must core.GetType("System.Byte")
 
         // The two are the same type by NAME and a different instance, which is exactly the state the
         // old `==` test could not see through.
@@ -200,8 +200,7 @@ test "a primitive target is recognised through a load context that did not produ
         assert ConstantConversionFacts.AcceptsIntegerConstant(loadedByte, "200", false)
         assert !ConstantConversionFacts.AcceptsIntegerConstant(loadedByte, "256", false)
 
-        loadedLong := core.GetType("System.Int64")
-        assert loadedLong != null
+        loadedLong := must core.GetType("System.Int64")
         assert ConstantConversionFacts.IsInt64ConstantTarget(loadedLong)
     } finally {
         loadContext.Dispose()

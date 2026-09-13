@@ -1463,3 +1463,55 @@ test "source direct-call resolver selection is repeatable and does not mutate de
     assert owner.MethodOverloads["Stable"].Count == originalOverloadCount
     assert method.ParamTypes[0] == originalParameter
 }
+
+// ── §CONV/3 — AN ARRAY LITERAL ADOPTS THE PARAMETER'S ELEMENT TYPE ───────────────────────────────
+// `[0]` is provisionally `int[]` and has no element a TYPE-to-TYPE score can look at, so the only
+// overload of `HashAlgorithm.TransformBlock` was rejected for a call C# compiles. The literal now
+// travels with the widest constant it wrote in each direction, and the ENDPOINTS are the whole test:
+// every integral target is an interval, so a literal converts at every element exactly when its
+// largest and smallest constants both convert.
+func SourceCallArrayLiteralFacts(minimumValue: long, maximumValue: long): ColumnarDirectCallArgumentFacts {
+    facts := ColumnarDirectCallArgumentFacts.Empty(1)
+    facts.IsIntegerConstantArrayLiteral[0] = true
+    facts.ArrayLiteralMinimumValues[0] = minimumValue
+    facts.ArrayLiteralMaximumValues[0] = maximumValue
+    return facts
+}
+
+func SourceCallOneType(value: Type): Type[] {
+    types := new Type[](1)
+    types[0] = value
+    return types
+}
+
+test "an array literal of constants adopts an array parameter's element type" {
+    assert ColumnarSourceDirectCallResolver.CanAdoptIntegerConstantArrayLiteral(typeof(byte[]), 0, 0)
+    assert ColumnarSourceDirectCallResolver.CanAdoptIntegerConstantArrayLiteral(typeof(byte[]), 0, 255)
+    assert ColumnarSourceDirectCallResolver.CanAdoptIntegerConstantArrayLiteral(typeof(short[]), -1, 32767)
+
+    // EITHER endpoint outside the element's range is the whole answer.
+    assert !ColumnarSourceDirectCallResolver.CanAdoptIntegerConstantArrayLiteral(typeof(byte[]), 0, 256)
+    assert !ColumnarSourceDirectCallResolver.CanAdoptIntegerConstantArrayLiteral(typeof(byte[]), -1, 0)
+
+    // A parameter that is not an SZ array of an adoptable element is not an adoption target.
+    assert !ColumnarSourceDirectCallResolver.CanAdoptIntegerConstantArrayLiteral(typeof(int[]), 0, 0)
+    assert !ColumnarSourceDirectCallResolver.CanAdoptIntegerConstantArrayLiteral(typeof(string[]), 0, 0)
+    assert !ColumnarSourceDirectCallResolver.CanAdoptIntegerConstantArrayLiteral(typeof(byte), 0, 0)
+    assert !ColumnarSourceDirectCallResolver.CanAdoptIntegerConstantArrayLiteral(typeof(byte[]).MakeByRefType(), 0, 0)
+}
+
+test "the literal's score ranks with constant adoption, below the identity a raw int array keeps" {
+    facts := SourceCallArrayLiteralFacts(0, 255)
+    actual := SourceCallOneType(typeof(int[]))
+
+    // Without the fact the position scores nothing at all, which is the rejection this closes.
+    assert ColumnarSourceDirectCallResolver.ArgumentsScore(SourceCallOneType(typeof(byte[])), actual) < 0
+
+    assert ColumnarSourceDirectCallResolver.ArgumentsScoreWithFacts(SourceCallOneType(typeof(byte[])), actual, facts) == 2
+
+    // The parameter that takes the literal's OWN type still wins on identity.
+    assert ColumnarSourceDirectCallResolver.ArgumentsScoreWithFacts(SourceCallOneType(typeof(int[])), actual, facts) == 8
+
+    // An element the constants do not fit is still a non-binding.
+    assert ColumnarSourceDirectCallResolver.ArgumentsScoreWithFacts(SourceCallOneType(typeof(byte[])), actual, SourceCallArrayLiteralFacts(0, 256)) < 0
+}

@@ -1842,6 +1842,17 @@ a LONE declaration bound, because a lone declaration is never scored.
   against a type the program never wrote; the finalised signature and return type read from the N#
   bindings. Emission of that call is a separate, still-open question (it needs a MethodSpec over an
   emitted type's generic parameter).
+- A WRITTEN type argument that is the enclosing METHOD's type parameter takes the same road (census
+  2026-09-13, §CONV3). `JsonSerializer.Deserialize<T>(json, options)` inside
+  `func Read<T>(json: string, options: JsonSerializerOptions): T?` reported NL402 "No overload of
+  'Deserialize' accepts 2 arguments with these types", because `PreBindReflectionMethod` required
+  every written type argument to convert to a CLR type and `T` converts to none.
+  `IsOpenWrittenTypeArgument` now recognises that shape — the analyzer spells a type parameter in
+  scope as a bare `SimpleTypeInfo`, and every BUILT-IN spelled that way converts and never reaches
+  it — records the binding in `typeInfoBindings` only, and `CloseGenericRuntimeMethod` leaves the
+  method open. A name that resolves to nothing is `UnknownTypeInfo` and is still a non-binding, so
+  `Deserialize<Nonsense>(…)` is still a report. This one DOES emit for a generic free function:
+  `tests/native/census-conversions/ReflectedParameterTargets` runs four instantiations of it.
 
 ### Argument conversions in overload resolution (census 2026-09-13, CONV2/3 and CONV2/4)
 
@@ -1850,13 +1861,37 @@ as an argument has no type of its own until a parameter names one. Both live in
 `AnalyzerReflectionArgumentBinder.TryScoreReflectionSuppliedArgument`, asked in this order after the
 standard match has declined:
 
+- `TryScoreConstantExpressionArgument` (census 2026-09-13, §CONV3) — the two implicit CONSTANT
+  conversions, ECMA-334 §10.2.11 (an in-range `int` constant to a narrower integral) and §10.2.4
+  (the literal zero to any enum). Both are implicit conversions, so both belong to APPLICABILITY
+  (§12.6.4.2); without this `roots.TryAdd(root, 0)` on a `ConcurrentDictionary<string, byte>`,
+  `map.Add("a", 0)` on a `Dictionary<string, byte>` and `stream.WriteByte(0)` all reported NL402.
+  The constant is measured against the parameter type with the candidate's BINDINGS APPLIED, so a
+  `TValue` the receiver fixed to `byte` is a real target and one still open is refused (a constant
+  drives no method type inference). `ConstantExpressionConversionScore()` is 6, the implicit-numeric
+  rung: `f(int)` still wins for `0` on identity, and `f(byte)` versus `f(long)` ties here and is
+  separated by `AnalyzerOverloadSpecificity`'s better-conversion-target rule, which answers `byte`
+  exactly as C# does. The FINALISING walk asks the same question again through
+  `ReflectionCallFinalizeState.PendingConstant` / `IsAcceptedReflectionArgument`, because a literal
+  analysed against a narrower target still answers `int` (so does `b: byte = 0`) and validation
+  would otherwise refuse what applicability admitted.
+  `ConstantConversionFacts.AcceptsIntegerConstant` is the single owner of the pair, shared with
+  `AnalyzerAssignability.IsConstantConvertible`; its target tests compare `FullName` rather than
+  `== typeof(byte)`, because a reflected parameter type comes from a MetadataLoadContext and
+  reference equality over `Type` was false for the CLR's own `System.Byte`.
 - `TryScoreCollectionExpressionArgument` — an array literal is applicable to an SZ-array parameter
   when the literal's PROVISIONAL element type (what the pre-pass inferred with nothing in the
   target-typing slot) is assignable to the parameter's, and the score is that element's: 8 for an
   identical element type, 4 for one that converts. This is what ranks `f(int[])` above `f(object[])`
   for `[1, 2]` and what makes `method.Invoke(null, [args])` bind at all. It is an APPLICABILITY
   answer only: the chosen candidate's finalising walk analyses the same literal again with the
-  parameter's real element type in the slot, and that is the conversion.
+  parameter's real element type in the slot, and that is the conversion. When the provisional element
+  type does not convert, `AllElementsAreInRangeConstants` asks the ELEMENTS (census 2026-09-13,
+  §CONV3): `[0]` is an `int[]` that is not a `byte[]`, but the element written there is the constant
+  `0`, which §10.2.11 converts — which is why the same literal was accepted at
+  `one: byte[] = [0]` and refused at `sha.TransformBlock([0], 0, 1, null, 0)`. An EMPTY literal
+  answers false (it carries no constant, so the ordinary element relation decides it), and a written
+  `[]` at a reflected array parameter remains a NOT-YET.
 - `HasUserDefinedArgumentConversion` — an operator declared by the argument's type or the
   parameter's, selected by `ExternalUserDefinedConversions`, the same owner the emitter asks for the
   handle to call. `result.Attribute("outcome")` reaches `XName::op_Implicit(string)` this way. It is

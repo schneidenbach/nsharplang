@@ -89,6 +89,33 @@ signed target.
 A non-constant operand is refused, and that is the same rule read from the other side: the compiler
 cannot know a variable's value, so the conversion has to be written.
 
+The same rule applies at an **argument**, including an argument to a referenced assembly's method,
+and it applies before the overload is chosen rather than after — a candidate whose parameter takes
+the constant is a candidate:
+
+```n#
+import System.Collections.Concurrent
+import System.Collections.Generic
+import System.IO
+
+func Track(roots: ConcurrentDictionary<string, byte>, root: string): bool {
+    return roots.TryAdd(root, 0)      // TValue is `byte`; the constant converts
+}
+
+func Note(levels: Dictionary<string, byte>) {
+    levels.Add("warning", 200)
+}
+
+func Pad(stream: Stream) {
+    stream.WriteByte(0)
+}
+```
+
+A constant does **not** decide a generic method's type arguments — `T` is bound by the standard rules
+or not at all — and an overload that takes the constant's own type still wins on identity, so `f(0)`
+prefers an `int` parameter to a `byte` one. Between a `byte` parameter and a `long` one, the more
+specific `byte` wins, exactly as in C#.
+
 ### Shifts
 
 `<<` and `>>` are the one binary pair whose operands are not symmetric. The **count** on the right is
@@ -200,6 +227,25 @@ Sink.Accept([1, 2, 3])     // "ints"   — an exact element type wins
 Sink.Accept(["a", "b"])    // "objects" — `string` reaches `object` and reaches `int` not at all
 method.Invoke(null, [args])  // object?[]? — the literal takes the parameter's element type
 ```
+
+A referenced assembly's parameter is a target like any other, and its element type reaches the
+literal's **elements**, so an integer constant adopts it there too:
+
+```n#
+import System
+import System.Security.Cryptography
+import System.Text
+
+func Decoded(): string => Encoding.UTF8.GetString([72, 105], 0, 2)   // a byte[]
+
+func Edges(): string => Convert.ToBase64String([0, 255])             // both ends of `byte`
+
+func Block(sha: SHA256, output: byte[]): int {
+    return sha.TransformBlock([0], 0, 1, output, 0)
+}
+```
+
+Every element has to convert: `[0, 300]` is not a `byte[]`, because 300 is not a `byte`.
 
 Where no target exists, the FIRST element decides the element type and every later one must fit it:
 
@@ -1382,6 +1428,24 @@ func Wrap(value: int): Result<int, string> {
     return ResultFactory.Ok<int, string>(value)   // a generic STATIC on an external type
 }
 ```
+
+**A written type argument may be a type parameter of the method you are writing it in.** The call
+is then left open in the same way the declaration is, and the CLR resolves it once per instantiation:
+
+```n#
+import System.Text.Json
+
+func Read<T>(json: string, options: JsonSerializerOptions): T? {
+    return JsonSerializer.Deserialize<T>(json, options)
+}
+
+func ReadFirst<T>(json: string, options: JsonSerializerOptions): T? {
+    return Read<T>(json, options)          // and it travels through your own generics
+}
+```
+
+The result is the external method's own return type over your parameter, so `Deserialize<T>`'s
+`TValue?` is a `T?` here. Writing it into a `T` return needs the usual null handling.
 
 **A written type argument is a whole TYPE**, not just a name: a nullable annotation, an array, a
 tuple, a nested generic and a fully qualified name all belong in the list, and so does any
