@@ -86,7 +86,11 @@ class AnalyzerExternalTypeProbe {
         assemblyIndex := 0
         while assemblyIndex < assemblies.Count {
             candidate := assemblies[assemblyIndex].GetType(fullName)
-            if candidate != null {
+            // `Assembly.GetType` answers for INTERNAL types too (`System.TokenType` lives in
+            // System.Private.CoreLib); only a visible type is a name this program can spell, so an
+            // invisible one is no rival for NL209 and no answer for a qualified spelling — the rule
+            // C# lookup applies to every metadata type.
+            if candidate != null && candidate.IsVisible {
                 typeCache[fullName] = candidate
                 resolved = candidate
                 return true

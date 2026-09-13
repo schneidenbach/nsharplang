@@ -153,6 +153,16 @@ test "the assembly list is live: an assembly loaded after construction is visibl
     assert probe.ResolveExternalType("TimeSpan") == null
 }
 
+test "an INVISIBLE metadata type is no answer: System.TokenType is internal to CoreLib" {
+    // `Assembly.GetType` answers for internal types too. A program cannot spell one, so it must
+    // not resolve a qualified spelling and must not make a source `TokenType` ambiguous (NL209).
+    probe := new AnalyzerExternalTypeProbe(ProbeAssemblies(), ProbeNamespaces(["System"]))
+    assert probe.ResolveExactExternalType("System.TokenType") == null
+    assert probe.ImportedNamespaceDeclares("System", "TokenType") == false
+    assert probe.ImportedNamespaceDeclares("System", "TimeSpan") == true
+    assert ProbeExactName(probe.ResolveExactExternalType("System.TimeSpan")) == "System.TimeSpan"
+}
+
 test "the exact probe requires a qualified spelling and shares the ordered probe's cache" {
     probe := new AnalyzerExternalTypeProbe(ProbeAssemblies(), ProbeNamespaces(["System"]))
 
