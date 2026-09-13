@@ -1493,6 +1493,76 @@ test "an array argument contributes its ELEMENT type to every read-only sequence
     assert dictionaryBindings.Count == 0
 }
 
+// CENSUS §FLOW5 — A NULLABILITY ANNOTATION IS NOT A SHAPE.
+//
+// A receiver read out of an assembly compiled WITHOUT a nullable context converts to an
+// `ObliviousTypeInfo` shell, and a `?.` receiver arrives as a nullable REFERENCE annotation. Both
+// used to answer "not a generic" to the structural walk, so the receiver contributed NO bindings and
+// the method's own type parameters were left to whichever ARGUMENT came next — on
+// `dict.TryGetValue(k, out v)` that is the `out` variable, which bound `TValue` to its own
+// `List<string>?` and made the call's postcondition say the TRUE branch leaves a maybe-null value.
+//
+// A VALUE nullable is NOT stripped: `int?` IS `Nullable<int>`, and a parameter spelled `T?` matches
+// it as the construction it is.
+test "an oblivious or nullable-reference shell is transparent to the structural binding walk" {
+    binder := BinderDefault()
+    openFunc := BinderRuntimeType("System.Func`2, System.Private.CoreLib")
+    openParameter := openFunc.GetGenericArguments()[0]
+    dictionaryDefinition := BinderRuntimeType(
+        "System.Collections.Generic.Dictionary`2, System.Private.CoreLib"
+    )
+    dictionaryArguments := new Type[](2)
+    dictionaryArguments[0] = typeof(string)
+    dictionaryArguments[1] = openParameter
+    openDictionary := dictionaryDefinition.MakeGenericType(dictionaryArguments)
+
+    plainReceiver: TypeInfo = new GenericTypeInfo(
+        "Dictionary",
+        BinderTypeArguments2(BuiltInTypes.String, BuiltInTypes.Int)
+    )
+    plainBindings := new Dictionary<Type, TypeInfo>()
+    binder.PopulateTypeInfoBindingsFromType(openDictionary, plainReceiver, plainBindings)
+    assert BinderTypeName(plainBindings[openParameter]) == "int"
+
+    obliviousReceiver: TypeInfo = new ObliviousTypeInfo(plainReceiver)
+    obliviousBindings := new Dictionary<Type, TypeInfo>()
+    binder.PopulateTypeInfoBindingsFromType(openDictionary, obliviousReceiver, obliviousBindings)
+    assert BinderTypeName(obliviousBindings[openParameter]) == "int"
+
+    // The nullable shell is stripped only when the annotation is a REFERENCE one, which the generic
+    // DEFINITION is what decides — `List<T>` is a class and `Nullable<T>` is a struct.
+    definedReceiver: TypeInfo = new GenericTypeInfo(
+        "Dictionary",
+        BinderTypeArguments2(BuiltInTypes.String, BuiltInTypes.Int),
+        new ReflectionTypeInfo(dictionaryDefinition)
+    )
+    nullableReceiver: TypeInfo = new NullableTypeInfo(definedReceiver)
+    nullableBindings := new Dictionary<Type, TypeInfo>()
+    binder.PopulateTypeInfoBindingsFromType(openDictionary, nullableReceiver, nullableBindings)
+    assert BinderTypeName(nullableBindings[openParameter]) == "int"
+
+    // A VALUE nullable is left ALONE. `int?` IS `Nullable<int>` — a construction, not an annotation —
+    // so the walk reads it as the shape it is rather than as its element, and a `Dictionary<string, T>`
+    // parameter takes nothing from an `int?` argument.
+    valueNullableBindings := new Dictionary<Type, TypeInfo>()
+    binder.PopulateTypeInfoBindingsFromType(
+        openDictionary,
+        new NullableTypeInfo(BuiltInTypes.Int),
+        valueNullableBindings
+    )
+    assert valueNullableBindings.Count == 0
+
+    // Whereas the REFERENCE annotation over the very same shape is transparent, which is the whole
+    // difference between the two.
+    nullableElementBindings := new Dictionary<Type, TypeInfo>()
+    binder.PopulateTypeInfoBindingsFromType(
+        openDictionary,
+        new NullableTypeInfo(new ObliviousTypeInfo(definedReceiver)),
+        nullableElementBindings
+    )
+    assert BinderTypeName(nullableElementBindings[openParameter]) == "int"
+}
+
 test "a generic argument that does not match the parameter's definition is traced through the hierarchy" {
     scan := ExternalAssemblyScan.OpenWithReferences(null)
     try {
@@ -1532,6 +1602,13 @@ test "a generic argument that does not match the parameter's definition is trace
     } finally {
         scan.Dispose()
     }
+}
+
+func BinderTypeArguments2(first: TypeInfo, second: TypeInfo): List<TypeInfo> {
+    arguments := new List<TypeInfo>()
+    arguments.Add(first)
+    arguments.Add(second)
+    return arguments
 }
 
 func BinderTypeArguments(first: TypeInfo): List<TypeInfo> {
