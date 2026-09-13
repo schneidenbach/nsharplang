@@ -377,3 +377,32 @@ func ResolvingHandlerTypeName(): string {
 
     return handlerType.Name
 }
+
+// THE FIRE-AND-FORGET HANDLER, WHICH IS WHAT `async void` WOULD HAVE BEEN.
+//
+// An event's delegate returns `void`, and N# has no `async void` — NL334 says so and names this
+// idiom. What it pins is that the discarded task really RUNS: `_ =` means "do not await HERE", not
+// "drop". The awaited value completes synchronously, so the count is deterministic with no timer and
+// no join.
+class AsyncTally {
+    Completed: int
+
+    constructor() {
+        Completed = 0
+    }
+
+    async func BumpAsync(): Task {
+        step := await Task.FromResult(1)
+        Completed = Completed + step
+    }
+}
+
+func CountThroughDiscardedTaskHandler(list: ObservableCollection<string>, tally: AsyncTally): int {
+    sub := on list.CollectionChanged (sender, args) => {
+        _ = tally.BumpAsync()
+    }
+    list.Add("async one")
+    off sub
+    list.Add("async two")
+    return tally.Completed
+}

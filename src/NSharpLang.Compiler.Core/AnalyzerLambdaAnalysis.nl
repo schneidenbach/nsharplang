@@ -97,6 +97,13 @@ class LambdaAnalysisState {
     TargetsExpressionTree: bool
     ReportInferenceFailure: bool
 
+    // WHETHER THIS LAMBDA IS AN `on` HANDLER, which changes ONE sentence and nothing else. NL334's
+    // ordinary fix is "change the target to return a task"; an EVENT's delegate is the BCL's and the
+    // reader cannot change it, so the handler position names the idiom that works instead. The flag is
+    // about where the lambda was WRITTEN, exactly as `ReportInferenceFailure` is about whether this
+    // pass is the reporting one — no rule is decided by it, only the wording of the fix.
+    TargetsEventHandler: bool
+
     // The parameter-inference failure is reported ONCE PER LAMBDA, not once per parameter: a lambda
     // whose delegate type nothing names has EVERY parameter uninferable, and one sentence about the
     // lambda is the report the user needs.
@@ -128,6 +135,7 @@ class LambdaAnalysisState {
         ExpectedSignature = null
         TargetsExpressionTree = false
         ReportInferenceFailure = reportInferenceFailure
+        TargetsEventHandler = false
         ReportedInferenceFailure = false
         ReportedAsyncTarget = false
         ReportedMissingAsync = false
@@ -715,6 +723,15 @@ class AnalyzerLambdaAnalysis {
         }
 
         if AsyncBodyReturnType(signature.ReturnType) != null {
+            return
+        }
+
+        // AN EVENT HANDLER CANNOT CHANGE ITS TARGET, so it is told the idiom instead. Nearly every .NET
+        // event's delegate returns `void`, and the reader does not own that declaration — telling them
+        // to "change the target" names a fix that does not exist. Starting the work and not awaiting it
+        // is what `async void` would have done anyway, spelled so that the discard is visible.
+        if state.TargetsEventHandler {
+            diagnostics.Report(ErrorCode.AsyncLambdaTargetNotTaskLike, "An 'async' lambda produces a task, but this event's handler returns '" + LambdaTypeText(signature.ReturnType) + "'", lambda.Line, lambda.Column, "An event's delegate is the one that declared it, so there is no `async` handler to write. Start the work inside an ordinary handler and discard the task — `on x.E (sender, args) => { _ = RunAsync() }` — or call a `void` method that does the awaiting.", 5)
             return
         }
 

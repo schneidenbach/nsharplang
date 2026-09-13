@@ -107,3 +107,8 @@ test "an inline lambda against the same event infers its parameters and its resu
 test "the delegate handed to `add_` is the event's own handler type" {
     assert ResolvingHandlerTypeName() == "Func`3"
 }
+
+test "a handler that starts async work and does not await it still runs that work to completion" {
+    tally := new AsyncTally()
+    assert CountThroughDiscardedTaskHandler(NewList(), tally) == 1
+}

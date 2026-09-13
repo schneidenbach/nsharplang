@@ -991,6 +991,22 @@ test "a void-returning delegate is NOT an async lambda's target — N# has no as
     assert AnalyzerLambdaAnalysis.IsAsyncLambdaTarget(LambdaReflectedTaskOfInt())
 }
 
+test "an async handler in an `on` position is told the idiom, not to change the event's delegate" {
+    harness := LambdaHarnessOf()
+    signature := LambdaSignature(LambdaTypes(), BuiltInTypes.Void)
+    state := harness.Owner.BeginLambda(AsyncLambdaExpr(LambdaParams(), LambdaBody()), signature, true, false)
+    state.TargetsEventHandler = true
+
+    LambdaRun(harness, state, BuiltInTypes.Void)
+
+    assert harness.Errors.Count == 1
+    assert harness.Errors[0].Code == ErrorCode.AsyncLambdaTargetNotTaskLike
+    assert harness.Errors[0].Message == "An 'async' lambda produces a task, but this event's handler returns 'void'"
+    // The ordinary fix — change the target — is not one the reader owns here, so it is not offered.
+    assert !harness.Errors[0].Suggestion.Contains("Change the target")
+    assert harness.Errors[0].Suggestion.Contains("_ = RunAsync()")
+}
+
 test "an async lambda with no target at all names the missing delegate type, not the parameters" {
     harness := LambdaHarnessOf()
     state := harness.Owner.BeginLambda(AsyncLambdaExpr(LambdaParams(), LambdaBody()), null, true, false)
