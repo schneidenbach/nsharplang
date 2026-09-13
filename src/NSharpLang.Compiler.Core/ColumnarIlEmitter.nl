@@ -12033,9 +12033,11 @@ sealed class ColumnarIlEmitter {
                 columnarResolvedType = mustType
                 return true
             }
-            // a plain VALUE type: the pipeline REJECTS redundant `must` (NL907 — the analyzer
-            // gates it before the emitter's no-op would run) — decline so the N# backend path reports it.
-            return false
+            // A PLAIN VALUE TYPE: THE UNWRAP IS AN IDENTITY, and the value is already on the stack.
+            // NL907 has told the author the keyword does no work — as a WARNING, because the program
+            // is correct — so the emitter has to produce that correct program rather than decline.
+            columnarResolvedType = mustType
+            return true
         } else if columnarSwitchValue2 == 13 {
             // Ternary [cond, then, else] — a branch/merge with ONE result; both arms must be the SAME
             // type (TypesEquivalent — the match-arm unification rule).

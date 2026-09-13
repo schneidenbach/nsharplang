@@ -394,7 +394,7 @@ func EdcPagesWithoutRepro(): string {
     i := 0
     while i < pageCodes.Count {
         text := File.ReadAllText(EdcPaths.PageFor(pageCodes[i]))
-        if !text.Contains("// ERROR " + pageCodes[i]) && !EdcHasOutputExample(pageCodes[i]) {
+        if !text.Contains("// ERROR " + pageCodes[i]) && !text.Contains("// WARNING " + pageCodes[i]) && !EdcHasOutputExample(pageCodes[i]) {
             missing.Add(pageCodes[i])
         }
 
@@ -754,9 +754,18 @@ func EdbExamplesOnPage(pageCode: string, examples: List<EdbExample>) {
                 marks := ""
                 j := 0
                 while j < block.Count {
+                    // A MARKER NAMES A SEVERITY AS WELL AS A CODE, because not every published code
+                    // is an error: NL907 is advice about a keyword that does no work, and its page's
+                    // examples say `// WARNING NL907` because that is what the compiler prints.
                     at := block[j].IndexOf("// ERROR ", StringComparison.Ordinal)
+                    markerLength := 9
+                    if at < 0 {
+                        at = block[j].IndexOf("// WARNING ", StringComparison.Ordinal)
+                        markerLength = 11
+                    }
+
                     if at >= 0 {
-                        codes := EdbMarkedCodes(block[j].Substring(at + 9))
+                        codes := EdbMarkedCodes(block[j].Substring(at + markerLength))
                         k := 0
                         while k < codes.Count {
                             if marks.Length > 0 {

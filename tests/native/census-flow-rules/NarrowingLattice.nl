@@ -138,3 +138,15 @@ func NarrowedLengthUnwrappedPlusOne(text: string?): int {
     unwrapped := must parsed
     return unwrapped + 1
 }
+
+// A REDUNDANT `must` IS AN IDENTITY, AND IT RUNS. NL907 says the keyword does no work, as a WARNING
+// — the program is correct — so the emitter has to produce that correct program rather than refuse
+// it. This is the shape a mechanical translation leaves behind and the one a human leaves behind
+// after tightening a guard.
+func RedundantUnwrap(value: int): int {
+    return must value
+}
+
+func RedundantUnwrapOfReference(value: string): int {
+    return (must value).Length
+}
