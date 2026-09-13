@@ -351,12 +351,17 @@ test "an ENUM member read off the enum TYPE is the enum type" {
     )
 
     // And a member name read off a VALUE is not the enum type either — an enum value's surface is
-    // the inherited `object` one.
+    // the inherited `System.Enum` one, which is what the CLR gives every enum as its base type.
     assert BuiltInTypes.IsUnknown(
         harness.Resolution.ResolveMember(enumType, "Red", false, null)
     )
     toStringAnswer := harness.Resolution.ResolveMember(enumType, "ToString", false, null)
-    assert (toStringAnswer as ReflectionMethodInfo) != null
+    assert (toStringAnswer as ReflectionMethodInfo) != null || (toStringAnswer as ReflectionMethodGroupInfo) != null
+
+    // `HasFlag` is `System.Enum`'s and nothing else's — resolving an enum value against `object`
+    // reported it as not found on the type.
+    hasFlagAnswer := harness.Resolution.ResolveMember(enumType, "HasFlag", false, null)
+    assert (hasFlagAnswer as ReflectionMethodInfo) != null
 }
 
 test "an ANONYMOUS UNION answers its discriminator pair and nothing else" {

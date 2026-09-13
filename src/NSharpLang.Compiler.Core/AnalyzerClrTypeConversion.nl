@@ -124,6 +124,17 @@ class AnalyzerClrTypeConversion {
 
         resolvedType := declarationContext.ResolveDeclaredAlias(typeInfo)
 
+        // A SOURCE ENUM'S SURROGATE IS `System.Enum`, NOT `object`. Every other N#-declared type has
+        // no CLR base the compiler can name before it is emitted, so `object` is all a surrogate can
+        // say about it — but an enum's base type is fixed by the CLR, and naming it is what lets
+        // `flags.HasFlag(other)` bind the `System.Enum` parameter the runtime declares. `object` is
+        // still satisfied, because `System.Enum` is one; the surrogate simply stopped throwing away
+        // the one thing every enum is known to be.
+        surrogateEnum := resolvedType as EnumTypeInfo
+        if surrogateEnum != null {
+            return facts.Enum
+        }
+
         if IsSurrogateUserDefinedType(resolvedType) {
             return facts.Object
         }

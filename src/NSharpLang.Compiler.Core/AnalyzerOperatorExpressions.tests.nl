@@ -1081,23 +1081,31 @@ test "THE COMPOUND-ASSIGNMENT DOOR IS THE ARITHMETIC RULE AND ONLY FOR FOUR OPER
     assert harness.Errors.Count == 0
 }
 
-test "THE COMMON TYPE — SLICE 52'S RETIRED STEP — IS THE PROMOTION TABLE AND NOTHING MORE" {
-    // The identity shortcut is REFERENCE identity, exactly as the host's `==` on a class that
-    // overrides `Equals` but not `operator ==` was: ONE reference passed twice takes it.
+test "THE COMMON TYPE IS THE PROMOTION TABLE, SEMANTIC IDENTITY, AND THE NULLABLE LIFT" {
+    // The identity shortcut is REFERENCE identity first: ONE reference passed twice takes it.
     text: TypeInfo = BuiltInTypes.String
     identical := AnalyzerOperatorExpressions.CommonType(text, text)
 
     assert OperatorTypeText(identical) == "string"
 
-    // TWO separately constructed `string`s do NOT take it, and there is no numeric promotion for
-    // them either — which is the behaviour that moved, not a behaviour that was tidied.
+    // TWO SEPARATELY CONSTRUCTED ANSWERS FOR ONE TYPE ARE ONE TYPE. Reference identity alone was the
+    // whole non-numeric rule, and a numeric pair survived it only because the promotion table
+    // answered anyway — so a conditional over an interpolated string and a `string` came back
+    // `unknown` and every use of the result reported against a type it plainly had.
     separate := AnalyzerOperatorExpressions.CommonType(BuiltInTypes.String, BuiltInTypes.String)
 
-    assert OperatorTypeText(separate) == "unknown"
+    assert OperatorTypeText(separate) == "string"
 
     widened := AnalyzerOperatorExpressions.CommonType(BuiltInTypes.Int, BuiltInTypes.Long)
 
     assert OperatorTypeText(widened) == "long"
+
+    // NULLABILITY LIFTS TO THE WIDER ARM, in both orders: the non-null arm converts to the nullable
+    // one and the reverse does not.
+    nullableText: TypeInfo = new NullableTypeInfo(BuiltInTypes.String)
+
+    assert OperatorTypeText(AnalyzerOperatorExpressions.CommonType(nullableText, BuiltInTypes.String)) == "string?"
+    assert OperatorTypeText(AnalyzerOperatorExpressions.CommonType(BuiltInTypes.String, nullableText)) == "string?"
 
     // Two numerics with no common type, and two unrelated types, both answer `unknown`.
     impossible := AnalyzerOperatorExpressions.CommonType(BuiltInTypes.ULong, BuiltInTypes.Long)

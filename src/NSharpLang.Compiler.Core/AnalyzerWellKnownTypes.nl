@@ -40,6 +40,7 @@ class AnalyzerWellKnownTypes {
     String: Type
     Void: Type
     Object: Type
+    Enum: Type
 
     SystemType: Type
     Delegate: Type
@@ -106,6 +107,7 @@ class AnalyzerWellKnownTypes {
         String = ResolveRequired("System.String")
         Void = ResolveRequired("System.Void")
         Object = ResolveRequired("System.Object")
+        Enum = ResolveRequired("System.Enum")
         Delegate = ResolveRequired("System.Delegate")
         SystemType = ResolveRequired("System.Type")
 

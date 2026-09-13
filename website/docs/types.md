@@ -156,6 +156,21 @@ view[0] = 42               // throws ArrayTypeMismatchException
 
 Reads through the wider view never throw, and covariance composes: `string[][]` is an `object[][]`.
 
+**Nullability is covariant the same way, and in one direction.** A reference nullable annotation is
+not a CLR type — `string?` and `string` are one runtime type — so a `T[]` IS a `T?[]`, the view costs
+nothing, and every element read out of it is honestly typed `T?`. This is what lets an `object[]`
+reach a parameter declared `object?[]?`, such as `MethodInfo.Invoke`'s second one:
+
+```n#
+names: string[] = ["Alice"]
+view: string?[] = names    // string[] -> string?[]
+```
+
+The reverse is refused: a `T?[]` may already hold a null, so reading it back as a `T[]` would promise
+something the array does not have. Writing `null` through the widened view is the one hazard the rule
+accepts — it is the same one the element-type covariance above accepts, and C# accepts it too (with a
+warning).
+
 ### Target-typed array literals
 
 When the surrounding code names an element type, each element of a literal converts to it — boxing a
@@ -469,6 +484,34 @@ p1 := new Point(0, 0)
 p2 := new Point(3, 4)
 distance := p1.distanceFrom(p2)  // 5.0
 ```
+
+### A struct method may write its own fields
+
+A struct's method receives `this` as a pointer to the RECEIVER'S OWN storage whenever the receiver
+has storage — a local, a parameter, or a field of either — so a field it assigns is the caller's:
+
+```n#
+struct Counter {
+    value: int
+
+    func Bump(): bool {
+        value = value + 1
+        return value < 3
+    }
+}
+
+counter := new Counter()
+counter.Bump()
+counter.Bump()
+print counter.value       // 2 — the caller's own variable moved
+```
+
+A receiver with no storage of its own — the result of a call, a literal, a property read — is a
+temporary, and mutating it changes only that temporary. That is the same rule C# applies, and it is
+the reason to bind such a value to a name before calling a method that mutates it.
+
+Value semantics still apply everywhere else: passing a struct copies it, so a method that bumps a
+struct PARAMETER moves that frame's copy and not the caller's variable.
 
 ### Readonly Structs
 
@@ -813,6 +856,30 @@ public enum Priority
     High = 2
 }
 ```
+
+### What a numeric enum inherits
+
+A numeric enum's base type is `System.Enum`, exactly as the CLR gives it, so an enum VALUE carries
+that type's instance members without your declaring anything:
+
+```n#
+func Describe(priority: Priority): string {
+    name := priority.ToString()             // System.Enum.ToString() — a NON-null string
+    return name.ToLower()
+}
+
+func Includes(flags: Access, flag: Access): bool => flags.HasFlag(flag)
+```
+
+`ToString()` is `System.Enum`'s override and returns a non-nullable `string`, so chaining off it needs
+no null check. `HasFlag`, `CompareTo`, `GetTypeCode` and `Equals` are inherited the same way, and an
+enum value satisfies a parameter typed `System.Enum`, `System.ValueType` or `object`.
+
+The bitwise operators work over two values of one enum type and keep that type — `flags & flag`,
+`flags | flag`, `flags ^ flag` — so `(flags & flag) == flag` is the operator spelling of `HasFlag`.
+
+`(int)value` converts an enum to its underlying value, and `(Priority)underlying` converts back — `as`
+is the null-propagating reference test, not a numeric conversion, so it is not the operator for this.
 
 ## Interfaces
 
@@ -1550,12 +1617,6 @@ Two rules the compiler enforces about the type-argument list itself:
   (`summary := Kernels.Summarize(args)` then `summary.ShowHelp`). The same member read works off a
   parameter of that type and off a local initialised with `new`, so binding the value differently is
   the workaround.
-- An array of NON-nullable elements does not convert to one of nullable elements: `object[]` is
-  refused where `object?[]` is expected, because the callee could store a null the caller's type says
-  cannot be there. This differs from C#, which allows it with a warning. It reaches external
-  signatures too — `MethodInfo.Invoke`'s second parameter is `object?[]?` — so declare the variable
-  `object?[]` when you are passing it on. An array literal written in place is unaffected: it takes
-  the target's element type.
 - A collection expression whose elements have **no common type**, written against an overload set of
   the same arity declared in the SAME project, type-checks and then declines at emission
   (`Sink.Accept([1, "b", null])` where `Accept` takes both `int[]` and `object[]`). The emitter picks

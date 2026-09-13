@@ -2606,6 +2606,24 @@ sealed class ColumnarIlEmitter {
         return EmitOrdinaryRuntimeCallArgumentsAndDispatch(callIdx, selection, out columnarResolvedType)
     }
 
+    // One argument of an INHERITED `System.Enum` call. A parameter that takes a reference to any value
+    // (`Enum`, `ValueType`, `object`) receives the argument boxed — the same widening the receiver
+    // itself gets one arm above — and every other parameter position is the ordinary declared-argument
+    // emission.
+    private func EmitEnumInheritedArgument(argumentNode: int, parameterType: Type): bool {
+        if (parameterType != typeof(Enum) && parameterType != typeof(ValueType) && parameterType != typeof(object)) {
+            return EmitDeclaredCallArgument(argumentNode, parameterType, true)
+        }
+        let enumArgumentType: System.Type? = null
+        if (!EmitExpression(argumentNode, out enumArgumentType) || enumArgumentType == null) {
+            return false
+        }
+        if (enumArgumentType.get_IsValueType() || IsKnownEnumType(enumArgumentType)) {
+            _il.Emit(OpCodes.Box, enumArgumentType)
+        }
+        return true
+    }
+
     // EVERY ARGUMENT IS CHECKED BEFORE THE FIRST ONE IS EMITTED. This tier runs ahead of the emitter's
     // remaining per-API residuals, so a selection it abandoned halfway would leave the arguments it had
     // already written on the stack in front of whichever arm answered next. The check is the same
@@ -7429,7 +7447,7 @@ sealed class ColumnarIlEmitter {
             }
             targetName := ColumnarNodeTextFacts.Text(_nodes, _source, target)
             if (ColumnarExpressionSyntaxFacts.IsExplicitThisIdentifier(_nodes, _source, target)) {
-                if (_currentStruct == null || (!_currentStruct.IsReference && !_isConstructorBody)) {
+                if (_currentStruct == null) {
                     return false
                 }
                 let explicitThisFieldTarget: System.Reflection.Emit.FieldBuilder? = null
@@ -7624,18 +7642,23 @@ sealed class ColumnarIlEmitter {
                 ColumnarArgumentInstructionEmitter.EmitStore(_il, paramOrdinal)
                 return true
             }
-            // `field = expr` inside a REFERENCE-type instance method/constructor body: a bare name that is neither
-            // a local nor a param falls back to a FIELD of the current type (`this.field = expr`). `this` is arg 0
-            // (the object ref), so emit `ldarg.0; <value>; stfld <FieldBuilder>`. (Checked AFTER locals/params so a
-            // local/param shadows a field — matching the bare-field READ in EmitExpression's identifier case.)
-            // GATED to reference types: a VALUE-type (struct) instance call spills the receiver to a TEMP COPY
-            // (TryEmitInstanceCall), so a struct method's field mutation would write the copy, not the caller's
-            // variable — diverging from N#'s in-place value semantics. Struct field-mutation-in-method therefore
-            // DECLINES until the call site addresses the receiver's own storage (a later slice). A class/record
-            // ref is shared through the temp, so the mutation persists correctly. Resolution walks the BASE
-            // chain (nearest first) so a derived member may assign an INHERITED field.
+            // `field = expr` inside an instance method/constructor body: a bare name that is neither a
+            // local nor a param falls back to a FIELD of the current type (`this.field = expr`). `this`
+            // is arg 0 — an object ref for a class, a managed pointer for a struct — so the write is
+            // `ldarg.0; <value>; stfld <FieldBuilder>` in both cases. (Checked AFTER locals/params so a
+            // local/param shadows a field — matching the bare-field READ in EmitExpression's identifier
+            // case.) Resolution walks the BASE chain (nearest first) so a derived member may assign an
+            // INHERITED field.
+            //
+            // A STRUCT METHOD MAY WRITE ITS OWN FIELDS, AND IT IS THE CALL SITE THAT MAKES THAT TRUE.
+            // The write itself was never wrong — the receiver was: every call on a struct used to spill
+            // the receiver's VALUE to a temp and call through the temp's address, so the mutation landed
+            // on a copy. `TryEmitBclMethodCall` now loads an ADDRESSABLE receiver by address, so `this`
+            // is the caller's own storage and the write persists, exactly as in C#. A receiver with no
+            // storage of its own is still a copy there, and mutating it is a no-op there too — the same
+            // answer C# gives.
             let thisFieldTarget: System.Reflection.Emit.FieldBuilder? = null
-            if (_currentStruct != null && (_currentStruct.IsReference || _isConstructorBody) && ColumnarSourceMemberChainResolver.TryFindFieldOnChain(_currentStruct, targetName, out thisFieldTarget)) {
+            if (_currentStruct != null && ColumnarSourceMemberChainResolver.TryFindFieldOnChain(_currentStruct, targetName, out thisFieldTarget)) {
                 _il.Emit(OpCodes.Ldarg_0)
                 let columnarDiscard20: System.Type = null
                 if (!TryEmitAssignableValue(Child(expr, 1), thisFieldTarget.get_FieldType(), out columnarDiscard20)) {
@@ -11011,7 +11034,7 @@ sealed class ColumnarIlEmitter {
                 // MemberAccess callee -> a BCL instance/static method call.
                 return TryEmitBclMethodCall(idx, callee, legacyWholeSubtreePlanning, out columnarResolvedType)
             }
-            return false
+            return Decline("emit.call.callee-kind", "call callee (node kind " + _nodes.Kind(callee).ToString() + ") is not a name, a generic name or a member access", callee)
         } else if columnarSwitchValue2 == 8 {
             // MemberAccess [receiver] — an ENUM CONSTANT (e.g. StringComparison.Ordinal), or `.Length` on
             // an array/string/StringBuilder (-> int). The member name is the value span.
@@ -14420,13 +14443,53 @@ sealed class ColumnarIlEmitter {
             return true
         }
 
+        // A CALL ON A VALUE-TYPE VARIABLE ACTS ON THE VARIABLE, NOT ON A COPY. A struct's instance
+        // method takes `this` as a managed pointer, and that pointer has to be the RECEIVER'S OWN
+        // storage. The instance-call arm below spills the receiver VALUE to a temp and calls through
+        // the TEMP's address, which is a call on a copy — so a method that assigned one of its own
+        // fields wrote the copy and the caller never saw it. That is the whole reason a bare field
+        // WRITE inside a struct method declined: the write was correct, the receiver was not.
+        //
+        // An ADDRESSABLE receiver — a local, a parameter, or a field chain rooted at one — is loaded
+        // BY ADDRESS here (`ldloca` / `ldarga` / `ldflda`, which `EmitAddressOfByRefTarget` already
+        // composes), which is exactly the IL C# emits for the same call. A receiver with no storage of
+        // its own — a call result, a literal, a property read — is not addressable, keeps the spill
+        // below, and therefore mutates a copy, which is also what C# does with it.
+        addressableStructReceiverType: System.Type? = null
+        if (TryGetAddressableTargetType(receiver, out addressableStructReceiverType) && addressableStructReceiverType != null) {
+            addressableStructBuilder := addressableStructReceiverType as TypeBuilder
+            if (addressableStructBuilder != null) {
+                addressableStructDef := ColumnarSourceDefinitionResolver.FindByBuilderIdentity(_structRegistry.get_Values(), addressableStructBuilder)
+                if (addressableStructDef != null && !addressableStructDef.IsReference) {
+                    let addressableStructMethod: NSharpLang.Compiler.Columnar.ColumnarInstanceMethodDef? = null
+                    if (TrySelectInstanceMethodOnChain(addressableStructDef, memberName, callIdx, out addressableStructMethod) && addressableStructMethod != null && addressableStructMethod.Generics == null) {
+                        if (!EmitAddressOfByRefTarget(receiver, addressableStructReceiverType)) {
+                            return false
+                        }
+                        for addressableArgument := 0; addressableArgument < argCount; addressableArgument++ {
+                            if (!EmitDeclaredCallArgument(Child(callIdx, 1 + addressableArgument), addressableStructMethod.ParamTypes[addressableArgument], true)) {
+                                return false
+                            }
+                        }
+                        _il.Emit(OpCodes.Call, addressableStructMethod.Builder)
+                        resolvedClrType = addressableStructMethod.ReturnType
+                        return true
+                    }
+                }
+            }
+        }
+
+        // THE TWO HALVES OF AN INSTANCE CALL ARE REPORTED APART. A call that declines here is either a
+        // receiver this body cannot put on the stack or a member this emitter cannot dispatch, and the
+        // reader's next move is different for each; one shared "call could not be emitted" made every
+        // such decline look the same from the outside.
         receiverType: System.Type? = null
         if (!EmitExpression(receiver, out receiverType)) {
             // instance: receiver value goes on the stack first.
-            return false
+            return Decline("emit.call.receiver", "call receiver could not be emitted for '" + memberName + "'", receiver)
         }
         if (!TryEmitInstanceCall(callIdx, receiverType, memberName, argCount, legacyWholeSubtreePlanning, out resolvedClrType)) {
-            return false
+            return Decline("emit.call.instance-member", "instance call '" + memberName + "' with " + argCount.ToString() + " argument(s) on '" + (receiverType.Name ?? "?") + "' could not be emitted", callIdx)
         }
         return true
     }
@@ -20038,6 +20101,31 @@ sealed class ColumnarIlEmitter {
             return true
         }
 
+        // A SOURCE ENUM'S INSTANCE MEMBERS ARE `System.Enum`'S, AND THIS IS THAT DISPATCH. The CLR
+        // gives every enum `System.Enum` as its base type, so `value.ToString()`, `value.HasFlag(other)`
+        // and `value.GetTypeCode()` are ordinary INHERITED calls — the member is chosen by the same
+        // scoped CLR resolution every other runtime call goes through, asked of `System.Enum`, so
+        // there is no per-member table here. The receiver is an i4 on the stack and the callee takes
+        // a reference, so it is boxed, which is what a `constrained.` callvirt on an enum amounts to;
+        // an enum ARGUMENT to an `Enum`, `ValueType` or `object` parameter is boxed the same way.
+        // A REFLECTED enum already resolves through its own type one tier below; this arm answers for
+        // an enum of THIS compilation, whose `EnumBuilder` reflection cannot be queried for members.
+        if (IsKnownEnumType(receiverType)) {
+            enumInheritedSelection := ColumnarOrdinaryRuntimeDirectCallResolver.ResolveUniqueAtArity(typeof(Enum), member, argCount, false)
+            if (enumInheritedSelection.IsSelected && enumInheritedSelection.Method != null) {
+                _il.Emit(OpCodes.Box, receiverType)
+                enumInheritedParameters := enumInheritedSelection.ParameterTypes
+                for enumArgument := 0; enumArgument < enumInheritedParameters.Length; enumArgument++ {
+                    if (!EmitEnumInheritedArgument(Child(callIdx, enumArgument + 1), enumInheritedParameters[enumArgument])) {
+                        return false
+                    }
+                }
+                _il.Emit(OpCodes.Callvirt, enumInheritedSelection.Method)
+                columnarResolvedType = enumInheritedSelection.ReturnType
+                return true
+            }
+        }
+
         // ORDINARY CLR MEMBER RESOLUTION over the receiver's own type, ahead of the per-API residuals
         // below. The direct-call planner owns every external instance call whose arguments it can
         // type; what reaches here is the rest, and a lambda argument is why there is a rest.
@@ -22039,7 +22127,7 @@ sealed class ColumnarIlEmitter {
         // An i4-underlying enum operand is its int on the stack, so `enum as <numeric>` is a cast FROM int:
         // enum->int is identity (no opcode), enum->long/double/etc. widens exactly like int->long/double. The
         // N# backend path emits the same (the underlying-int value, then the same numeric conversion).
-        if (ColumnarTypeOfPlanner.IsEnumType(sourceType)) {
+        if (IsKnownEnumType(sourceType)) {
             sourceType = typeof(int)
         }
         if (!ColumnarNumericFacts.IsCastableScalar(sourceType)) {

@@ -189,9 +189,15 @@ func ResolverWriteAotProjectFixture(projectRoot: string, rootOutputType: string)
         Path.Combine(sharedDir, "project.yml"),
         "name: SharedLib\noutputType: library\ntargetFramework: net10.0"
     )
+    // THE SHARED SOURCE MUST BE A SHAPE THE COLUMNAR BACKEND DECLINES, because the failure this
+    // fixture exists to produce is the AOT path's "requires successful N# columnar emission". It used
+    // to be assigning to a struct's own field from its own method, which emits since the call site
+    // loads an addressable receiver by address; a bare STATIC FIELD as a call receiver is the shape
+    // that declines today. When that one lands, replace it with another declining shape rather than
+    // deleting this fixture.
     ResolverWrite(
         Path.Combine(sharedDir, "Shared.nl"),
-        "struct Counter {\n    value: int\n\n    func Bump(): bool {\n        value = value + 1\n        return value < 3\n    }\n}"
+        "import System.Collections.Generic\n\nclass Registry {\n    static readonly Entries: List<string> = new List<string>()\n\n    static func Record(name: string) {\n        Entries.Add(name)\n    }\n}"
     )
     ResolverWrite(
         Path.Combine(projectRoot, "project.yml"),
