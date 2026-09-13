@@ -26,13 +26,13 @@ import NSharpLang.Compiler.Ast
 // Lambda parameters shadow: `items: Func<int,int> = x => x` names no member even in a type with a
 // field called `x`, so every lambda parameter written anywhere in the initializer is collected
 // before the walk reports.
-// AND A STRUCT TAKES NO INSTANCE FIELD INITIALIZER AT ALL — NL329.
+// AND A STRUCT'S INSTANCE FIELD INITIALIZER NEEDS A CONSTRUCTOR TO RUN IN — NL329.
 //
-// A struct value can always be produced without running any constructor: `default(Point)`, an array
-// element, an uninitialized field, a `new T()` behind an unconstrained type parameter. An instance
-// initializer on a struct would therefore run for some of the values that exist and not for the
-// rest, which is a rule that holds only sometimes — so N# refuses the initializer instead of
-// emitting one. A struct's STATIC field initializers are unaffected: they run in the type
+// A struct's initializers run at the start of each of its DECLARED constructors, exactly as a
+// class's do; the values that reach no constructor — `default(Point)`, an array element, an
+// uninitialized field — keep the CLR zero, which is the C# 11 rule. A struct that declares no
+// constructor at all therefore has initializers nothing would ever run, and that is the shape this
+// rule refuses. A struct's STATIC field initializers are unaffected: they run in the type
 // initializer, which every use of the type reaches.
 class AnalyzerFieldInitializerRules {
     static func ReportStructInitializerIfNeeded(field: FieldDeclaration, initializer: Expression, scopes: AnalyzerScopeStack, spans: AnalyzerDiagnosticSpans, diagnostics: AnalyzerDiagnosticSink) {
@@ -42,13 +42,13 @@ class AnalyzerFieldInitializerRules {
 
         declaringType := scopes.CurrentTypeScope()
         typeName := StructTypeNameOrEmpty(declaringType)
-        if typeName.Length == 0 {
+        if typeName.Length == 0 || StructDeclaresConstructor(declaringType) {
             return
         }
 
         span := spans.GetExpressionDiagnosticSpan(initializer)
-        message := "'" + typeName + "' is a struct, so the initializer of '" + field.Name + "' cannot run for every value of it"
-        suggestion := "Assign '" + field.Name + "' in a constructor of '" + typeName + "'."
+        message := "'" + typeName + "' declares no constructor, so the initializer of '" + field.Name + "' has nothing to run in"
+        suggestion := "Give '" + typeName + "' a constructor for the initializer to run in, or assign '" + field.Name + "' in one instead."
         sourceSnippet := diagnostics.SourceSnippet(span.Line)
         currentFilePath := diagnostics.CurrentFilePath
         if sourceSnippet != null && currentFilePath != null {
@@ -57,6 +57,35 @@ class AnalyzerFieldInitializerRules {
         }
 
         diagnostics.Report(ErrorCode.StructFieldInitializer, message, span.Line, span.Column, suggestion, span.Length)
+    }
+
+    // WHETHER THE VALUE TYPE DECLARES A CONSTRUCTOR AT ALL — a primary one or a written one. That is
+    // the whole of the exemption: when a constructor exists, every value built through it runs the
+    // initializers, and the values that skip them (`default(S)`, an array element) are exactly the
+    // ones that skip the constructor too, which is the C# rule. With NO constructor there is nothing
+    // left that would ever run the initializer, so it is refused.
+    static func StructDeclaresConstructor(declaringType: TypeInfo?): bool {
+        structType := declaringType as StructTypeInfo
+        if structType != null {
+            return structType.PrimaryConstructorParameters.Length > 0 || DeclaresConstructorMember(structType.DeclaredMembers)
+        }
+
+        recordType := declaringType as RecordTypeInfo
+        if recordType != null {
+            return recordType.PrimaryConstructorParameters.Length > 0 || DeclaresConstructorMember(recordType.DeclaredMembers)
+        }
+
+        return false
+    }
+
+    static func DeclaresConstructorMember(members: DeclaredMemberInfo[]): bool {
+        for member in members {
+            if member.Kind == DeclaredMemberKind.Constructor {
+                return true
+            }
+        }
+
+        return false
     }
 
     // A value type's written name, or "" when the enclosing scope is not one. A `record struct` is a

@@ -537,9 +537,9 @@ class ErrorMessageBuilder {
             FileName: fileName,
             SourceSnippet: sourceSnippet,
             Length: length,
-            HumanExplanation: "`" + typeName + "` is a struct, and a struct value can be produced without running any constructor — `default(" + typeName + ")`, an array element, an uninitialized field — so the initializer of `" + fieldName + "` would run for some values of `" + typeName + "` and not for the rest:",
-            ContextualHint: "A class always runs a constructor, so its field initializers always run. A struct does not, which is why N# refuses an initializer here rather than emitting a rule that holds only sometimes.",
-            Suggestion: "Assign `" + fieldName + "` in a constructor of `" + typeName + "`, or make it `static` if the value belongs to the type rather than to each value.",
+            HumanExplanation: "A struct's field initializers run at the start of each of its declared constructors, and `" + typeName + "` declares none — so the initializer of `" + fieldName + "` is code nothing would ever run:",
+            ContextualHint: "A class always runs a constructor, so its field initializers always run. A struct value can be produced without one — `default(" + typeName + ")`, an array element, an uninitialized field — and those values keep the CLR zero.",
+            Suggestion: "Give `" + typeName + "` a constructor for the initializer to run in, assign `" + fieldName + "` in one instead, or make the field `static` if the value belongs to the type rather than to each value.",
             DocsUrl: DiagnosticDocs.UrlFor("NL329")
         }
     }

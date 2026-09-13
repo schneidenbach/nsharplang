@@ -1318,10 +1318,12 @@ lands whether the field's type is written or inferred.
   the enclosing `ClassTypeInfo.DeclaredMembers` (`IsStatic == false`); lambda parameters written
   anywhere in the initializer are collected first and shadow a member of the same name. Static field
   initializers are exempt — they run in the type initializer, where there is no instance at all.
-- **NL329 — a struct takes no instance field initializer.** A value type's `default` reaches no
-  constructor, so an initializer there would run for some values and not others. The check reads the
-  enclosing scope's `StructTypeInfo` (or `RecordTypeInfo.IsStruct`). A struct's *static* field
-  initializers are unaffected.
+- **NL329 — a struct field initializer needs a constructor to run in.** A value type's `default`
+  reaches no constructor, so the initializers run for the values built through one and the CLR zero
+  stands for the rest; a struct that declares NO constructor (primary or written) would never run
+  them at all, and that is what the rule refuses. The check reads the enclosing scope's
+  `StructTypeInfo` (or `RecordTypeInfo.IsStruct`) plus its `PrimaryConstructorParameters` and its
+  `DeclaredMemberKind.Constructor` members. A struct's *static* field initializers are unaffected.
 
 Static field initializers themselves are not an analyzer rule: the parser reads them into a
 synthesized `<StaticInitialize>$` body (`BuildColumnarStaticInitializerBodyCore`) and the emitter

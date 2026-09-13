@@ -259,11 +259,24 @@ instead, or make what it needs `static`.
 A `readonly` field with an initializer is `initonly` in metadata and assignable only from its
 initializer or a constructor.
 
-**Structs do not take instance field initializers.** A `struct` value can always be produced without
-running any constructor — `default(Point)`, an array element, an uninitialized field — so an
-initializer there would silently not run for most of the values that exist. Assign the fields in a
-constructor instead; N# reports the initializer rather than emitting a rule that holds only
-sometimes. Static field initializers on a struct are unaffected and behave exactly as a class's do.
+**A struct's instance field initializers need a constructor.** A `struct` value can be produced
+without running one — `default(Point)`, an array element, an uninitialized field — so the
+initializers run for the values built through a constructor and the CLR zero stands for the rest. A
+struct that declares no constructor at all (primary or written) would therefore never run its
+initializers, and that shape is [NL329](./errors/NL329.md).
+
+```n#
+struct Point {
+    X: double = 1.0
+
+    constructor(x: double) {
+        X = x
+    }
+}
+// new Point(3.0).X is 3.0; new Point() is not a thing; default(Point).X is 0.0
+```
+
+Static field initializers on a struct are unaffected and behave exactly as a class's do.
 
 ### Literal constant fields
 

@@ -11072,10 +11072,6 @@ func ParseStructDeclarationCore(source: string, tokens: ParserDeclarationTokenTa
                 return -1
             }
 
-            if syntheticCtorNeeded && tokens.Kinds[structIndex] == 9 {
-                return -1
-            }
-
             decl.CtorIndices[ctorCount] = memberStart
             ctorCount = ctorCount + 1
             pos = memberStart + 1
@@ -14203,7 +14199,16 @@ func ColumnarStructConstructorUnsupportedStatus(source: string, tokens: Columnar
         nextCtorParamType = nextCtorParamType + paramCount
 
         if isReference == 0 {
-            if result.Values[0] != 0 || paramCount == 0 {
+            if currentIsInitializerMethod {
+                // A VALUE TYPE TAKES THE SYNTHESIZED FIELD-INITIALIZER CONSTRUCTOR, but only when the
+                // type declares a constructor of its own for those stores to run in: with none, every
+                // value of the type would skip them. NL329 says exactly that at `check`; refusing the
+                // shape here too keeps any other path from emitting a type whose initializers can
+                // never run. A WRITTEN parameterless struct constructor stays refused below.
+                if ctorCount <= 1 {
+                    return 1
+                }
+            } else if result.Values[0] != 0 || paramCount == 0 {
                 return 1
             }
         }
@@ -14223,12 +14228,15 @@ func ColumnarStructConstructorUnsupportedStatus(source: string, tokens: Columnar
     return 0
 }
 
+// The synthesized field-initializer constructor is the one recorded at the TYPE's own keyword token,
+// and it carries no parameters. Class (8), struct (9) and record (13) all produce one: a struct's is
+// what carries its field initializers into each of its declared constructors.
 func ColumnarStructCtorIndexIsZeroParamSynthesizedInitializer(tokens: ColumnarStructTokenTable, ctorIndex: int, paramCount: int): bool {
     if paramCount != 0 || ctorIndex < 0 || ctorIndex >= tokens.Count {
         return false
     }
 
-    return tokens.Kinds[ctorIndex] == 8 || tokens.Kinds[ctorIndex] == 13
+    return tokens.Kinds[ctorIndex] == 8 || tokens.Kinds[ctorIndex] == 9 || tokens.Kinds[ctorIndex] == 13
 }
 
 func ColumnarStructNameMatchesTypeParam(source: string, scratch: ColumnarStructScratchTable, typeParamCount: int, nameStart: int, nameLength: int): bool {

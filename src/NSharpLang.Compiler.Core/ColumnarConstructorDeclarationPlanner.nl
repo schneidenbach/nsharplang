@@ -93,17 +93,11 @@ class ColumnarConstructorDeclarationPlanner {
                     while constructorMovement.MoveNext() {
                         ctor := constructorEnumerator.get_Current()
                         if IsZeroParamSynthesizedInitializer(ctor) {
-                            if !definition.IsReference {
-                                return Declined(
-                                    "emit.ctor.instance-initializer-value-type",
-                                    "instance field initializer constructor is only modeled for reference types",
-                                    BuilderName(definition),
-                                    objectConstructor,
-                                    constructorJobs,
-                                    defaultConstructorJobs
-                                )
-                            }
-
+                            // A VALUE TYPE TAKES THE SAME PLAN. Its declared constructors each run the
+                            // stores inline; the values that never reach a constructor (`default(S)`,
+                            // an array element) never run them, which is the language rule the
+                            // analyzer already enforces (NL329 refuses a struct initializer when the
+                            // type declares no constructor at all).
                             ctorSource := program.GetSourceForFileId(ctor.Body.SourceFileId)
                             initPlan := ColumnarFieldInitPlanner.PlanFieldInitialization(ctor.Body, ctorSource, definition)
                             definition.InstanceInitializerPlan = initPlan

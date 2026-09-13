@@ -5281,6 +5281,15 @@ sealed class ColumnarIlEmitter {
                         if (ColumnarMethodBodyPlanner.ContainsReturnStatement(job.Ctor.Body.BodyNodes, job.Ctor.Body.BodyRoot)) {
                             return false
                         }
+                        // A struct's field initializers run at the start of each declared constructor,
+                        // the same placement a class's take — there is simply no base call to precede.
+                        if (!EmitInlineInstanceInitializers(cil, job.Struct, program, typeResolutionCatalog, siblings, enumRegistry, structRegistry, unionRegistry, unionCaseRegistry, columnarResolvedType, lambdaCounter, displayClasses, referenceAssemblyPaths)) {
+                            valueCtorDeclineStruct := job.Struct
+                            valueCtorDeclineBuilder := valueCtorDeclineStruct.Builder
+                            valueCtorDeclineBuilderName := valueCtorDeclineBuilder.get_Name()
+                            valueCtorDeclineMember := valueCtorDeclineBuilderName + ".constructor"
+                            return DeclineStatic("emit.body", "constructor inline field initializer emission declined", valueCtorDeclineMember, -1, 0)
+                        }
                     }
                 }
                 // A synthesized NEWTYPE ctor has an empty body; it assigns its single parameter

@@ -56,10 +56,12 @@ test "an instance field initializer that names a bare instance field is NL328 at
         "namespace Probe\n" + "\n" + "class Dog {\n" + "    Name: string = \"rex\"\n" + "    Greeting: string = Name\n" + "}\n"
     )
 
-    assert FieldInitializerErrorCodes(errors) == "328"
+    assert FieldInitializerErrorCodes(errors) == "328", FieldInitializerErrorCodes(errors)
     assert errors[0].Line == 5
+    // The rich shape's headline names the REFERENCE and its explanation names the field whose
+    // initializer made it, so a reader is told both which word is refused and where it was written.
     assert errors[0].Message.Contains("Name")
-    assert errors[0].Message.Contains("Greeting")
+    assert (errors[0].HumanExplanation ?? "").Contains("Greeting")
 }
 
 test "an instance field initializer that uses this is NL328" {
@@ -67,7 +69,7 @@ test "an instance field initializer that uses this is NL328" {
         "namespace Probe\n" + "\n" + "class Dog {\n" + "    Legs: int = 4\n" + "    Tag: int = this.Legs\n" + "}\n"
     )
 
-    assert FieldInitializerErrorCodes(errors) == "328"
+    assert FieldInitializerErrorCodes(errors) == "328", FieldInitializerErrorCodes(errors)
     assert errors[0].Message.Contains("this")
 }
 
@@ -76,7 +78,7 @@ test "an instance field initializer that calls an instance method is NL328 at th
         "namespace Probe\n" + "\n" + "class Dog {\n" + "    Size: int = Measure()\n" + "\n" + "    func Measure(): int => 2\n" + "}\n"
     )
 
-    assert FieldInitializerErrorCodes(errors) == "328"
+    assert FieldInitializerErrorCodes(errors) == "328", FieldInitializerErrorCodes(errors)
     assert errors[0].Message.Contains("Measure")
 }
 
@@ -85,7 +87,7 @@ test "a static field initializer may name the type's static members and reports 
         "namespace Probe\n" + "\n" + "class Dog {\n" + "    static Base: int = 2\n" + "    static Doubled: int = Base * 2\n" + "    static Measured: int = Measure()\n" + "\n" + "    static func Measure(): int => 3\n" + "}\n"
     )
 
-    assert FieldInitializerErrorCodes(errors) == ""
+    assert FieldInitializerErrorCodes(errors) == "", FieldInitializerErrorCodes(errors)
 }
 
 test "an instance field initializer may name the type's static members" {
@@ -93,7 +95,7 @@ test "an instance field initializer may name the type's static members" {
         "namespace Probe\n" + "\n" + "class Dog {\n" + "    static DefaultName: string = \"rex\"\n" + "    Greeting: string = DefaultName\n" + "}\n"
     )
 
-    assert FieldInitializerErrorCodes(errors) == ""
+    assert FieldInitializerErrorCodes(errors) == "", FieldInitializerErrorCodes(errors)
 }
 
 test "a primary constructor parameter is not a member, so an initializer over one reports nothing" {
@@ -101,15 +103,18 @@ test "a primary constructor parameter is not a member, so an initializer over on
         "namespace Probe\n" + "\n" + "class Box(value: int) {\n" + "    Value: int = value\n" + "    Doubled: int = value * 2\n" + "}\n"
     )
 
-    assert FieldInitializerErrorCodes(errors) == ""
+    assert FieldInitializerErrorCodes(errors) == "", FieldInitializerErrorCodes(errors)
 }
 
+// The import rule reports `import System` as unused here (a field TYPE is not a use it counts), so
+// this control asserts the ABSENCE of NL328 rather than an empty report: the question is whether the
+// lambda's `x` was mistaken for the field called `x`, not what the import rule thinks.
 test "a lambda parameter shadows a member of the same name inside an initializer" {
     errors := FieldInitializerAnalysisErrors(
         "namespace Probe\n" + "\n" + "import System\n" + "\n" + "class Dog {\n" + "    x: int = 1\n" + "    Pick: Func<int, int> = x => x + 1\n" + "}\n"
     )
 
-    assert FieldInitializerErrorCodes(errors) == ""
+    assert !FieldInitializerErrorCodes(errors).Contains("328"), FieldInitializerErrorCodes(errors)
 }
 
 test "an instance field initializer on a struct is NL329 and names the struct" {
@@ -117,9 +122,9 @@ test "an instance field initializer on a struct is NL329 and names the struct" {
         "namespace Probe\n" + "\n" + "struct Point {\n" + "    X: double = 1.0\n" + "    Y: double\n" + "}\n"
     )
 
-    assert FieldInitializerErrorCodes(errors) == "329"
-    assert errors[0].Message.Contains("Point")
-    assert errors[0].Message.Contains("X")
+    assert FieldInitializerErrorCodes(errors) == "329", FieldInitializerErrorCodes(errors)
+    assert (errors[0].HumanExplanation ?? "").Contains("Point")
+    assert (errors[0].HumanExplanation ?? "").Contains("X")
 }
 
 test "a static field initializer on a struct is accepted" {
@@ -127,7 +132,7 @@ test "a static field initializer on a struct is accepted" {
         "namespace Probe\n" + "\n" + "struct Point {\n" + "    static Count: int = 3\n" + "    X: double\n" + "}\n"
     )
 
-    assert FieldInitializerErrorCodes(errors) == ""
+    assert FieldInitializerErrorCodes(errors) == "", FieldInitializerErrorCodes(errors)
 }
 
 test "an instance field initializer on a record struct is NL329 too" {
@@ -135,6 +140,22 @@ test "an instance field initializer on a record struct is NL329 too" {
         "namespace Probe\n" + "\n" + "record struct Pair {\n" + "    Left: int = 1\n" + "    Right: int\n" + "}\n"
     )
 
-    assert FieldInitializerErrorCodes(errors) == "329"
-    assert errors[0].Message.Contains("Pair")
+    assert FieldInitializerErrorCodes(errors) == "329", FieldInitializerErrorCodes(errors)
+    assert (errors[0].HumanExplanation ?? "").Contains("Pair")
+}
+
+test "a struct that declares a constructor may carry instance field initializers" {
+    errors := FieldInitializerAnalysisErrors(
+        "namespace Probe\n" + "\n" + "struct Point {\n" + "    X: double = 1.0\n" + "    Y: double\n" + "\n" + "    constructor(y: double) {\n" + "        Y = y\n" + "    }\n" + "}\n"
+    )
+
+    assert FieldInitializerErrorCodes(errors) == "", FieldInitializerErrorCodes(errors)
+}
+
+test "a struct with a primary constructor may carry instance field initializers" {
+    errors := FieldInitializerAnalysisErrors(
+        "namespace Probe\n" + "\n" + "struct Point(x: double, y: double) {\n" + "    X: double = x\n" + "    Scale: double = 2.0\n" + "}\n"
+    )
+
+    assert FieldInitializerErrorCodes(errors) == "", FieldInitializerErrorCodes(errors)
 }
