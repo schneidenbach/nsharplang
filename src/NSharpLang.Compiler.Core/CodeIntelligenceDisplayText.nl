@@ -219,6 +219,14 @@ class CodeIntelligenceDisplayText {
             return "method"
         }
 
+        // A .NET EVENT NAMES ITS OWN KIND. Hovering the event in `on list.CollectionChanged …` fell to
+        // the terminal `"unknown"` below, which is the answer for a type nothing recognised — and an
+        // event is recognised: `ReflectionEventInfo` is what the `on` target resolves to, and it is a
+        // sibling of the method and method-group rows above.
+        if typeInfo as ReflectionEventInfo != null {
+            return "event"
+        }
+
         if typeInfo as ReflectionMethodGroupInfo != null {
             return "method"
         }

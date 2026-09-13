@@ -1263,6 +1263,10 @@ class FormatterWalk {
         usingStatement := statement as UsingStatement
         if usingStatement != null {
             state.Indent(builder)
+            if usingStatement.IsAsync {
+                builder.Append("await ")
+            }
+
             builder.Append("using ")
             usingDeclaration := usingStatement.Declaration
             if usingDeclaration != null {
@@ -1272,10 +1276,18 @@ class FormatterWalk {
                     builder.Append(FormatterSyntaxText.FormatTypeReference(usingDeclaration.Type))
                 }
 
-                // A `using` declaration always writes `=`, never `:=`, even with no type — which is
-                // the C# exactly and is not the variable-declaration rule above.
+                // A `using` BINDS its resource, and it is spelled the way EVERY other binding in the
+                // language is spelled: `:=` when the type is inferred, `=` when it is written. That is
+                // the variable rule above, applied here rather than replaced. (It used to write `=`
+                // unconditionally, which was C#'s spelling transcribed into a language that does not
+                // have it: reformatting a valid `using` produced source the parser then rejected.)
                 if usingDeclaration.Initializer != null {
-                    builder.Append(" = ")
+                    if usingDeclaration.Type != null {
+                        builder.Append(" = ")
+                    } else {
+                        builder.Append(" := ")
+                    }
+
                     FormatExpression(usingDeclaration.Initializer, builder)
                 }
             } else if usingStatement.Expression != null {

@@ -305,3 +305,60 @@ test "selected source type resolution inspects enum and union definitions withou
         unionSource.Builder
     )
 }
+
+// A STATIC MEMBER OF THE ENCLOSING TYPE IS A VALUE BINDING, which is what the static-syntax test in
+// the direct-call owner reads to decide whether a bare name in front of a `.` is a value or a type
+// name. Until this answer existed, `Entries.Add(name)` inside the type declaring
+// `static Entries: List<string>` was read as a call on a TYPE named `Entries` and declined, while
+// the bare `Entries` read emitted. The chain walk is the same one the bare static read uses, so a
+// static member the BASE declares answers in the derived type's bodies too.
+test "a static member of the enclosing type is a value binding, through the whole base chain" {
+    baseDefinition := BindingSourceDefinition(
+        "Bindings.StaticBase",
+        "Bindings.StaticBase",
+        0
+    )
+    derivedDefinition := BindingSourceDefinition(
+        "Bindings.StaticDerived",
+        "Bindings.StaticDerived",
+        0
+    )
+    derivedDefinition.BaseDef = baseDefinition
+
+    ownStaticField := ConstructionDefineField(
+        derivedDefinition.Builder,
+        "Entries",
+        typeof(int),
+        22
+    )
+    derivedDefinition.StaticFields["Entries"] = ownStaticField
+    inheritedStaticField := ConstructionDefineField(
+        baseDefinition.Builder,
+        "Seen",
+        typeof(int),
+        22
+    )
+    baseDefinition.StaticFields["Seen"] = inheritedStaticField
+    derivedDefinition.StaticProperties["Spelled"] = ColumnarPropertyDef.Define(
+        derivedDefinition.Builder,
+        "get_Spelled",
+        (MethodAttributes)22,
+        typeof(int),
+        "set_Spelled",
+        (MethodAttributes)22
+    )
+
+    bindings := BindingEmpty()
+    assert !bindings.HasEnclosingStaticValue("Entries")
+    assert !bindings.IsValueBinding("Entries")
+
+    bindings.SetEnclosingTypeDefinition(derivedDefinition)
+    assert bindings.HasEnclosingStaticValue("Entries")
+    assert bindings.IsValueBinding("Entries")
+    assert bindings.HasEnclosingStaticValue("Seen")
+    assert bindings.IsValueBinding("Seen")
+    assert bindings.HasEnclosingStaticValue("Spelled")
+    assert bindings.IsValueBinding("Spelled")
+    assert !bindings.HasEnclosingStaticValue("Absent")
+    assert !bindings.IsValueBinding("Absent")
+}

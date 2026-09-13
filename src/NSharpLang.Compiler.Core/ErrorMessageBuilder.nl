@@ -252,6 +252,20 @@ class ErrorMessageBuilder {
         }
     }
 
+    // NL414 — TWO OVERLOADS MATCH AND NEITHER IS BETTER. The sentence and the two signatures come
+    // from `AnalyzerOverloadSpecificity`, which is also the owner that decided they were tied, so the
+    // reflected and the source worlds say the same thing about the same mistake.
+    static func AmbiguousCall(fileName: string, line: int, column: int, sourceSnippet: string, length: int, functionName: string, leftSignature: string, rightSignature: string): CompilerError {
+        return new CompilerError(ErrorCode.AmbiguousCall, AnalyzerOverloadSpecificity.AmbiguousCallSummary(functionName), line, column, ErrorSeverity.Error) {
+            FileName: fileName,
+            SourceSnippet: sourceSnippet,
+            Length: length,
+            HumanExplanation: AnalyzerOverloadSpecificity.AmbiguousCallExplanation(functionName),
+            ContextualHint: AnalyzerOverloadSpecificity.AmbiguousCallHint(leftSignature, rightSignature),
+            DocsUrl: DiagnosticDocs.UrlFor("NL414")
+        }
+    }
+
     static func MethodGroupUsedAsValue(fileName: string, line: int, column: int, sourceSnippet: string, length: int, methodName: string): CompilerError {
         humanExplanation := "`" + methodName + "` names a method, not a value:"
         contextualHint := "Methods need a call site like `name()` before they produce a value.\n" + "A bare method name is only valid when the surrounding API expects a delegate."
@@ -575,6 +589,22 @@ class ErrorMessageBuilder {
             ContextualHint: "An annotated loop variable converts each element the way a cast does — a downcast, an unboxing, or a numeric conversion. There is no conversion between `" + elementText + "` and `" + declaredText + "` in either direction, so no element could ever take that type.",
             Suggestion: "Annotate `" + variableName + "` with `" + elementText + "` or a type it converts to, drop the annotation and let the element type be inferred, or iterate a collection whose elements are `" + declaredText + "`.",
             DocsUrl: DiagnosticDocs.UrlFor("NL330")
+        }
+    }
+
+    // NL333 — a `using` resource nothing can release. The sentence names the TYPE and the INTERFACE
+    // because the author can see only one of them: the type is written on the line, the contract is
+    // the one the keyword silently requires. `await using` asks for `IAsyncDisposable`, so the same
+    // builder says which keyword was written rather than assuming the synchronous one.
+    static func ResourceNotDisposable(fileName: string, line: int, column: int, sourceSnippet: string, length: int, typeText: string, interfaceName: string, memberName: string, keyword: string): CompilerError {
+        return new CompilerError(ErrorCode.ResourceNotDisposable, "A '" + typeText + "' is not a resource '" + keyword + "' can release", line, column, ErrorSeverity.Error) {
+            FileName: fileName,
+            SourceSnippet: sourceSnippet,
+            Length: length,
+            HumanExplanation: "`" + keyword + "` releases its resource by calling `" + memberName + "()` on it when the block ends, and a `" + typeText + "` has no such member:",
+            ContextualHint: "A resource qualifies either nominally — it implements `" + interfaceName + "` — or structurally: it declares a parameterless `" + memberName + "` of its own. A `" + typeText + "` does neither, so there would be nothing to run in the `finally`.",
+            Suggestion: "Make `" + typeText + "` implement `" + interfaceName + "`, give it a parameterless `" + memberName + "` member, or drop the `" + keyword + "` and let the value fall out of scope like any other.",
+            DocsUrl: DiagnosticDocs.UrlFor("NL333")
         }
     }
 

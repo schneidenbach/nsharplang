@@ -279,6 +279,30 @@ class AnalyzerScopeStack {
         return null
     }
 
+    // A `using` RESOURCE IS READ-ONLY FOR AS LONG AS IT IS VISIBLE. The mark goes into the innermost
+    // open scope, which is the statement's own scope for the block form and the enclosing block for a
+    // using DECLARATION — the two regions the two forms actually guard.
+    func MarkSymbolReadOnly(name: string) {
+        Peek().MarkReadOnly(name)
+    }
+
+    // Innermost first, and the first scope that BINDS the name answers — a name rebound in an inner
+    // scope is a different binding and is not read-only because an outer one was.
+    func IsReadOnlySymbol(name: string): bool {
+        index := scopes.Count - 1
+        while index >= 0 {
+            scope := scopes[index]
+            candidate := new TypeInfo()
+            if scope.Symbols.TryGetValue(name, out candidate) {
+                return scope.IsReadOnly(name)
+            }
+
+            index = index - 1
+        }
+
+        return false
+    }
+
     // The innermost scope ONLY — no walk. Used where a declaration asks "is this name already mine?"
     // rather than "is it visible?".
     func CurrentScopeSymbol(name: string): TypeInfo? {

@@ -1237,6 +1237,19 @@ stops enumerating part-way and disposes the enumerator — which is what `for..i
 `break`s or throws. It does **not** run when the generator merely suspends at a `yield`. Nested
 regions unwind innermost first, exactly as they do in a plain function.
 
+A resource that is only being *released* needs none of that ceremony: write
+[`using`](./language-tour.md), which is this `try`/`finally` and releases on exactly the same three
+paths.
+
+```n#
+func* firstTwoLines(path: string): IEnumerable<string?> {
+    using reader := new StreamReader(path) {
+        yield reader.ReadLine()
+        yield reader.ReadLine()
+    }
+}
+```
+
 `catch` and `finally` handlers that contain no `yield` are ordinary protected regions and may be
 written anywhere in a generator body.
 
@@ -1247,6 +1260,12 @@ written anywhere in a generator body.
   ([NL332](./errors/NL332.md)) — a suspension has to be resumable, and only a `finally` can be
   re-entered that way.
 - a BLOCK-bodied lambda (`x => { ... }`); write it as a single expression.
+- a `using` whose resource is a **struct**. Releasing a value in a state machine would have to reach
+  through the machine's own field, which the generator's instruction plan cannot spell, and releasing
+  a copy of it would run `Dispose` on something nobody can observe. Hold the resource in a class, or
+  put the `using` outside the generator.
+- `await using` — releasing asynchronously needs an `await` inside a handler, where a suspension has
+  no resume point to come back to. This is the same wall `await foreach` meets in a generator body.
 - a lambda that captures a variable declared INSIDE a loop — a generator holds one field per local,
   so every iteration would share it rather than getting the fresh binding the language promises.
 - `await` outside an `async func*`, and — inside one — an `await` NESTED in a larger expression;
@@ -1673,6 +1692,46 @@ func create(name: string, age: int): User {
     return new User { Name: name, Age: age }
 }
 ```
+
+### Which overload a call means
+
+When more than one overload accepts a call, N# picks between them with the same rule C# uses
+(ECMA-334 §12.6.4.3, "better function member"), and it applies to overloads you declared and to
+overloads read out of a referenced assembly alike:
+
+> A candidate is **better** than another when, for **every** argument, its parameter is at least as
+> good a conversion target, and for **at least one** argument it is strictly better.
+
+A parameter is the better conversion target when:
+
+1. **It is the argument's own type.** `print(value: string)` beats `print(value: object)` for a
+   `string`, and a generic `T` bound to the argument's type beats a declared `object`.
+2. **It is the more specific of the two.** With neither parameter being the argument's own type, the
+   one that converts to the other — and not back — wins. `Shape` beats `object` for a `Square`;
+   `IEnumerable<Task<int>>` beats `IEnumerable<Task>` for a `List<Task<int>>`; `int` beats `long` for
+   a `short`.
+
+Only when the conversions cannot separate two candidates do the remaining rules run, in this order: a
+**non-generic** signature beats a generic one whose parameters are the same types after
+substitution, a call in **normal form** beats one that had to expand a `params` tail, and a signature
+that fills **fewer defaults** beats one that fills more.
+
+```n#
+import System.Collections.Generic
+import System.Threading.Tasks
+
+func awaitAll(work: List<Task<int>>): int[] {
+    // `WhenAll(IEnumerable<Task>): Task` and `WhenAll<TResult>(IEnumerable<Task<TResult>>): Task<TResult[]>`
+    // both accept this argument. The generic one's parameter is the more specific type, so the call
+    // is `Task<int[]>` and `.Result` is an `int[]`.
+    return Task.WhenAll(work).Result
+}
+```
+
+Declaration order is **not** a tiebreak, and neither is the order a referenced assembly's metadata
+happens to list its methods in. When two candidates are still tied after every rule above, the call
+is ambiguous and N# reports [NL414](./errors/NL414.md) rather than choosing for you — see that page
+for the three ways to say which overload you meant.
 
 ## Extension Methods
 

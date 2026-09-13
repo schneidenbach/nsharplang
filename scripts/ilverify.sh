@@ -260,6 +260,8 @@ if [ "$BUILD_NATIVE_TESTS" = "1" ]; then
     build_native_test "pattern foreach" "$REPO_ROOT/tests/native/census-pattern-foreach" "$REPO_ROOT/tests/native/census-pattern-foreach/bin/Debug/net10.0/tests/NSharpLang.PatternForeach.Tests.dll" || BUILD_FAILED=1
     build_native_test "local function closures" "$REPO_ROOT/tests/native/census-local-functions" "$REPO_ROOT/tests/native/census-local-functions/bin/Debug/net10.0/tests/NSharpLang.CensusLocalFunctions.Tests.dll" || BUILD_FAILED=1
     build_native_test "census iterator" "$REPO_ROOT/tests/native/census-iterators" "$REPO_ROOT/tests/native/census-iterators/bin/Debug/net10.0/tests/NSharpLang.CensusIterators.Tests.dll" || BUILD_FAILED=1
+    build_native_test "lifted operators" "$REPO_ROOT/tests/native/census-lifted-operators" "$REPO_ROOT/tests/native/census-lifted-operators/bin/Debug/net10.0/tests/NSharpLang.CensusLiftedOperators.Tests.dll" || BUILD_FAILED=1
+    build_native_test "census events" "$REPO_ROOT/tests/native/census-events" "$REPO_ROOT/tests/native/census-events/bin/Debug/net10.0/tests/NSharpLang.CensusEvents.Tests.dll" || BUILD_FAILED=1
 fi
 if [ "$BUILD_FAILED" = "1" ]; then
     fail "One or more nlc builds failed; cannot run IL verification."

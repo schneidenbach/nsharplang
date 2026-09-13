@@ -533,7 +533,7 @@ class AstEq {
             return Names("ExceptionType VariableName Block")
         }
         if typeName == "UsingStatement" {
-            return Names("Declaration Expression Body Line Column")
+            return Names("Declaration Expression Body IsAsync Line Column")
         }
         if typeName == "LockStatement" {
             return Names("LockObject Body Line Column")
@@ -1448,6 +1448,10 @@ class Golden {
         return new UsingStatement(declaration, expression, body, line, column)
     }
 
+    static func AwaitUsing(declaration: VariableDeclarationStatement?, expression: Expression?, body: Statement?, line: int, column: int): Statement {
+        return new UsingStatement(declaration, expression, body, line, column, true)
+    }
+
     static func Lock(lockObject: Expression, body: BlockStatement, line: int, column: int): Statement {
         return new LockStatement(lockObject, body, line, column)
     }
@@ -1488,7 +1492,7 @@ class Golden {
         return new LambdaExpression(parameters, null, body, line, column)
     }
 
-    static func OnSub(target: Expression, handler: LambdaExpression, line: int, column: int): Expression {
+    static func OnSub(target: Expression, handler: Expression, line: int, column: int): Expression {
         return new OnSubscriptionExpression(target, handler, line, column)
     }
 
@@ -5118,6 +5122,45 @@ test "016 N+1c tranche 10: `using r := open()` synthesizes the declaration on th
     assert AstEq.Diff(expected, actual, "unit") == ""
 }
 
+test "an ANNOTATED using binding materializes the declaration's TYPE, with either operator" {
+    colonAssign := RunBody("using r: Stream := open() { a() }")
+    colonAssignDecl := Golden.VarDecl("r", Golden.SimpleT("Stream", 2, 26, 32), Golden.Call(Golden.Ident("open", 2, 36), Golden.NoArgs(), Golden.NoTypeArgs(), 2, 40), VariableKind.Let, 2, 17)
+    colonAssignExpected := BodyUnit1(Golden.Using(colonAssignDecl, null, Golden.Block1(CallStmt("a", 2, 45), 2, 43), 2, 17))
+    assert AstEq.Diff(colonAssignExpected, colonAssign, "unit") == ""
+
+    // `=` is the ordinary annotated-declaration operator, and it produces the identical node.
+    equals := RunBody("using r: Stream = open() { a() }")
+    equalsDecl := Golden.VarDecl("r", Golden.SimpleT("Stream", 2, 26, 32), Golden.Call(Golden.Ident("open", 2, 35), Golden.NoArgs(), Golden.NoTypeArgs(), 2, 39), VariableKind.Let, 2, 17)
+    equalsExpected := BodyUnit1(Golden.Using(equalsDecl, null, Golden.Block1(CallStmt("a", 2, 44), 2, 42), 2, 17))
+    assert AstEq.Diff(equalsExpected, equals, "unit") == ""
+}
+
+test "a using DECLARATION carries a NULL body — the region it guards is the enclosing block" {
+    actual := RunBody("using r := open() a()")
+    declaration := Golden.VarDecl("r", null, Golden.Call(Golden.Ident("open", 2, 28), Golden.NoArgs(), Golden.NoTypeArgs(), 2, 32), VariableKind.Let, 2, 17)
+    statements := Golden.NoStmts()
+    Golden.Add(statements, Golden.Using(declaration, null, null, 2, 17))
+    Golden.Add(statements, CallStmt("a", 2, 35))
+    expected := BodyUnit(statements)
+    assert AstEq.Diff(expected, actual, "unit") == ""
+}
+
+test "`await using` materializes the SAME node with IsAsync set, anchored on the await keyword" {
+    actual := RunBody("await using r := open() { a() }")
+    declaration := Golden.VarDecl("r", null, Golden.Call(Golden.Ident("open", 2, 34), Golden.NoArgs(), Golden.NoTypeArgs(), 2, 38), VariableKind.Let, 2, 23)
+    expected := BodyUnit1(Golden.AwaitUsing(declaration, null, Golden.Block1(CallStmt("a", 2, 43), 2, 41), 2, 17))
+    assert AstEq.Diff(expected, actual, "unit") == ""
+}
+
+test "the using BODY brace is not an object initializer, and a parenthesised one still is" {
+    // `new Res() { … }` is also a legal object initializer. The first `{` at paren/bracket depth zero
+    // after the resource belongs to the STATEMENT, so the resource stops at `new Res()`.
+    actual := RunBody("using r := new Res() { a() }")
+    declaration := Golden.VarDecl("r", null, Golden.NewE(Golden.SimpleT("Res", 2, 32, 35), Golden.NoArgs(), null, null, 2, 28), VariableKind.Let, 2, 17)
+    expected := BodyUnit1(Golden.Using(declaration, null, Golden.Block1(CallStmt("a", 2, 40), 2, 38), 2, 17))
+    assert AstEq.Diff(expected, actual, "unit") == ""
+}
+
 test "016 N+1c tranche 10: `lock m { }` materializes LockStatement (Parser.cs :3178)" {
     actual := RunBody("lock m { a() }")
     expected := BodyUnit1(Golden.Lock(Golden.Ident("m", 2, 22), Golden.Block1(CallStmt("a", 2, 26), 2, 24), 2, 17))
@@ -5261,10 +5304,9 @@ test "016 N+1c tranche 10: AstEq surfaces a wrong allow REASON string" {
 // byte-exact instead of declining, so a consumer (the LSP on a file being edited) sees exactly the tree
 // Parser.cs produces today. Both goldens are transcribed from the LIVE Parser.cs AstToJson oracle.
 
-test "016 N+1c tranche 11: `using r { }` (missing ':=') materializes the synthetic <error> initializer (Parser.cs :3895/:3121)" {
+test "`using r { }` is the UNBOUND resource form — an already-bound name disposed at the end of the block" {
     actual := RunBody("using r { a() }")
-    declaration := Golden.VarDecl("r", null, Golden.Ident("<error>", 2, 26), VariableKind.Let, 2, 17)
-    expected := BodyUnit1(Golden.Using(declaration, null, Golden.Block1(CallStmt("a", 2, 27), 2, 25), 2, 17))
+    expected := BodyUnit1(Golden.Using(null, Golden.Ident("r", 2, 23), Golden.Block1(CallStmt("a", 2, 27), 2, 25), 2, 17))
     assert AstEq.Diff(expected, actual, "unit") == ""
 }
 
@@ -6048,10 +6090,13 @@ test "016 N+1c tranche 11: a body-less LOCAL FUNCTION gets Parser.cs's synthetic
     assert AstEq.Diff(expected, actual, "unit") == ""
 }
 
-test "016 N+1c tranche 11: a non-lambda `on` handler gets the synthetic empty-parameter lambda (:2930)" {
+// THE SYNTHETIC EMPTY-PARAMETER LAMBDA IS GONE, and so is the report it stood in for. A non-lambda
+// handler is not a syntax error: a DELEGATE VALUE in handler position is the shape C#'s
+// `x.E += handler` maps onto. The handler slot holds the expression the user wrote, and whether it
+// FITS the event is the analyzer's question, asked of its type.
+test "016 events: a non-lambda `on` handler is the expression it names, not a synthetic lambda" {
     actual := RunFn("on w.C foo")
-    handler := Golden.BlockLambda(Golden.NoParams(), Golden.Block(Golden.NoStmts(), 1, 19), 1, 19)
-    subscription := Golden.OnSub(Golden.Member(Golden.Ident("w", 1, 15), "C", false, 1, 16), handler, 1, 12)
+    subscription := Golden.OnSub(Golden.Member(Golden.Ident("w", 1, 15), "C", false, 1, 16), Golden.Ident("foo", 1, 19), 1, 12)
     expected := FnUnit1(Golden.ExprStmt(subscription, 1, 12))
     assert AstEq.Diff(expected, actual, "unit") == ""
 }

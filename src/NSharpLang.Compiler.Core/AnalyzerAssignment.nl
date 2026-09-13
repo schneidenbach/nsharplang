@@ -370,6 +370,11 @@ class AnalyzerAssignment {
             return new AssignmentRequest(1, assignment.Value)
         }
 
+        if writeTargetsValue.ReportUsingResourceWriteIfNeeded(assignment.Target, "assigned with '" + OperatorFacts.GetAssignmentText(assignment.Operator) + "'") {
+            state.Phase = 6
+            return new AssignmentRequest(1, assignment.Value)
+        }
+
         CheckNullCoalesceAssignmentTarget(assignment, targetType)
 
         memberWriteTarget := assignment.Target as MemberAccessExpression
@@ -443,9 +448,15 @@ class AnalyzerAssignment {
         span := spansValue.GetExpressionDiagnosticSpan(assignment.Value)
         sourceSnippet := diagnosticsValue.SourceSnippet(span.Line)
         currentFilePath := diagnosticsValue.CurrentFilePath
-        message := "Type mismatch in assignment — expected '" + TypeText(targetType) + "' but got '" + TypeText(valueType) + "'"
+        // The two names are rendered as a PAIR (`TypeMismatchDisplay`), so two different types that
+        // share a simple name are both spelled in full rather than producing "expected 'X' but got
+        // 'X'". Rendering them separately is what made that sentence possible.
+        valueText := ""
+        targetText := ""
+        TypeMismatchDisplay.Pair(declarationContextValue, valueType, targetType, out valueText, out targetText)
+        message := "Type mismatch in assignment — expected '" + targetText + "' but got '" + valueText + "'"
         if sourceSnippet != null && currentFilePath != null {
-            diagnosticsValue.ReportBuilt(ErrorMessageBuilder.TypeMismatch(currentFilePath, span.Line, span.Column, sourceSnippet, span.Length, TypeText(valueType), TypeText(targetType), message))
+            diagnosticsValue.ReportBuilt(ErrorMessageBuilder.TypeMismatch(currentFilePath, span.Line, span.Column, sourceSnippet, span.Length, valueText, targetText, message))
             return
         }
 

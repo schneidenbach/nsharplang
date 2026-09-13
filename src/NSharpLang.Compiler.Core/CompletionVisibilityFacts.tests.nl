@@ -198,3 +198,122 @@ test "the offered member list drops what the analyzer would refuse, and only tha
     unknown := CompletionDeclarationFacts.GetTypeMemberItems(owner, CvfNoModels(), null, "A.Bar")
     assert unknown.Count == 2
 }
+
+// THE DECLARED RULE, IN THE EDITOR. The package rule above is about a NAME; these blocks are about a
+// written `private`/`protected`, which the analyzer began enforcing on 2026-09-13. Offering one is
+// the same defect as offering a camelCase member across packages: the editor writes it, and the very
+// next diagnostic pass answers NL308.
+func CvfModifiedMember(name: string, declaredModifiers: int): DeclaredMemberInfo {
+    return new DeclaredMemberInfo(
+        name,
+        "Owner",
+        DeclaredMemberKind.Property,
+        "member",
+        null,
+        false,
+        false,
+        false,
+        true,
+        0,
+        new string[](0),
+        new TypeReference[](0),
+        new ParameterModifier[](0),
+        0,
+        false,
+        false,
+        null,
+        0,
+        CvfNoTypeParameters(),
+        CvfNoConstraints(),
+        0,
+        false,
+        false,
+        false,
+        false,
+        "",
+        false,
+        false,
+        1,
+        1,
+        declaredModifiers
+    )
+}
+
+func CvfDerivedUnit(namespaceName: string?, derivedName: string, baseName: string, line: int): CompilationUnit {
+    declarations := new List<Declaration>()
+    baseReference: TypeReference = new SimpleTypeReference(baseName, line, 1)
+    declarations.Add(new ClassDeclaration(derivedName, null, baseReference, new List<TypeReference>(), new List<Declaration>(), null, Modifiers.None, new List<AttributeNode>(), line, 1, null))
+
+    namespaceDeclaration: NamespaceDeclaration? = null
+    if namespaceName != null {
+        namespaceDeclaration = new NamespaceDeclaration(namespaceName ?? "", 1, 1)
+    }
+
+    return new CompilationUnit(namespaceDeclaration, new List<ImportDirective>(), new List<Statement>(), null, declarations, 1, 1)
+}
+
+test "a written private or protected member is offered only where the analyzer would admit it" {
+    // Outside every type: neither is offerable.
+    assert !CompletionVisibilityFacts.IsOfferableByDeclaredAccessibility(2, false, false)
+    assert !CompletionVisibilityFacts.IsOfferableByDeclaredAccessibility(8, false, false)
+
+    // Inside the declaring type: both are.
+    assert CompletionVisibilityFacts.IsOfferableByDeclaredAccessibility(2, true, true)
+    assert CompletionVisibilityFacts.IsOfferableByDeclaredAccessibility(8, true, true)
+
+    // Inside a DERIVED type: `protected` yes, `private` no.
+    assert CompletionVisibilityFacts.IsOfferableByDeclaredAccessibility(8, true, false)
+    assert !CompletionVisibilityFacts.IsOfferableByDeclaredAccessibility(2, true, false)
+
+    // `internal`, `protected internal` and an unmarked member are one project away and always offered.
+    assert CompletionVisibilityFacts.IsOfferableByDeclaredAccessibility(4, false, false)
+    assert CompletionVisibilityFacts.IsOfferableByDeclaredAccessibility(12, false, false)
+    assert CompletionVisibilityFacts.IsOfferableByDeclaredAccessibility(0, false, false)
+    assert CompletionVisibilityFacts.IsOfferableByDeclaredAccessibility(1, false, false)
+}
+
+test "the caret's enclosing type is the last declaration that begins at or above it" {
+    unit := CvfUnit("A.Foo", "Sensor", 3, 1)
+    assert CompletionVisibilityFacts.EnclosingTypeName(unit, 5) == "Sensor"
+    assert CompletionVisibilityFacts.EnclosingTypeName(unit, 3) == "Sensor"
+
+    // Above every declaration there is no enclosing type, and neither is there in an empty unit.
+    assert CompletionVisibilityFacts.EnclosingTypeName(unit, 1) == null
+    assert CompletionVisibilityFacts.EnclosingTypeName(null, 5) == null
+}
+
+test "the derivation walk follows the declared base chain and stops at a base the project did not write" {
+    derived := CvfDerivedUnit("A.Foo", "Grower", "Seeded", 7)
+    seeded := CvfUnit("A.Foo", "Seeded", 3, 1)
+    units := CvfUnits([derived, seeded])
+
+    assert CompletionVisibilityFacts.IsTypeOrDerived("Grower", "Grower", units)
+    assert CompletionVisibilityFacts.IsTypeOrDerived("Grower", "Seeded", units)
+    assert !CompletionVisibilityFacts.IsTypeOrDerived("Seeded", "Grower", units)
+    assert !CompletionVisibilityFacts.IsTypeOrDerived(null, "Seeded", units)
+    assert !CompletionVisibilityFacts.IsTypeOrDerived("Grower", null, units)
+
+    // An external base ends the walk rather than answering wrongly.
+    assert CompletionVisibilityFacts.DeclaredBaseName("Seeded", units) == null
+    assert CompletionVisibilityFacts.DeclaredBaseName("Grower", units) == "Seeded"
+}
+
+test "the offered member list drops a protected member for a caret outside the family" {
+    members := new DeclaredMemberInfo[](3)
+    members[0] = CvfModifiedMember("Open", 0)
+    members[1] = CvfModifiedMember("Guarded", 8)
+    members[2] = CvfModifiedMember("Secret", 2)
+    owner := CvfClassType("Seeded", 3, 1, members)
+
+    outside := CompletionDeclarationFacts.GetTypeMemberItems(owner, CvfNoModels(), "A.Foo", "A.Foo", false, false)
+    assert outside.Count == 1
+    assert outside[0].Name == "Open"
+
+    derived := CompletionDeclarationFacts.GetTypeMemberItems(owner, CvfNoModels(), "A.Foo", "A.Foo", true, false)
+    assert derived.Count == 2
+    assert derived[0].Name == "Open"
+    assert derived[1].Name == "Guarded"
+
+    inside := CompletionDeclarationFacts.GetTypeMemberItems(owner, CvfNoModels(), "A.Foo", "A.Foo", true, true)
+    assert inside.Count == 3
+}

@@ -404,7 +404,32 @@ class ColumnarFragmentBindings {
     }
 
     func IsValueBinding(name: string): bool {
-        return Locals.ContainsKey(name) || PlanLocals.ContainsKey(name) || ParameterOrdinals.ContainsKey(name) || ParameterTypes.ContainsKey(name) || IsBlocked(name) || HasCurrentInstanceValue(name)
+        return Locals.ContainsKey(name) || PlanLocals.ContainsKey(name) || ParameterOrdinals.ContainsKey(name) || ParameterTypes.ContainsKey(name) || IsBlocked(name) || HasCurrentInstanceValue(name) || HasEnclosingStaticValue(name)
+    }
+
+    // A STATIC MEMBER OF THE ENCLOSING TYPE IS A VALUE, EXACTLY AS AN INSTANCE MEMBER IS.
+    //
+    // `HasCurrentInstanceValue` above answers the same question for an instance member, and its
+    // absence for statics is what made `Entries.Add(name)` — inside the type that declares
+    // `static Entries: List<string>` — read as a call on a TYPE named `Entries`: the static-syntax
+    // test found no value binding, no type of that name existed, and the whole statement declined,
+    // while the bare `Entries` read and `local := Entries` then `local.Add(name)` both emitted.
+    //
+    // The anchor is `EnclosingTypeDefinition` rather than `CurrentInstance` for the reason that field
+    // exists: a static member belongs to the TYPE, so it is a value in every body the type owns —
+    // static methods, instance methods and accessors alike.
+    func HasEnclosingStaticValue(name: string): bool {
+        if EnclosingTypeDefinition == null {
+            return false
+        }
+
+        staticField: FieldBuilder? = null
+        if ColumnarSourceMemberChainResolver.TryFindStaticFieldOnChain(EnclosingTypeDefinition, name, out staticField) {
+            return true
+        }
+
+        staticProperty: ColumnarPropertyDef? = null
+        return ColumnarSourceMemberChainResolver.TryFindStaticPropertyOnChain(EnclosingTypeDefinition, name, out staticProperty)
     }
 
     func HasCurrentInstanceValue(name: string): bool {

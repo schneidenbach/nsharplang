@@ -170,6 +170,20 @@ class AnalyzerStatementTermination {
             return Walk(lockStatement.Body, breakLeaves, continueLeaves, terminatingCalls)
         }
 
+        // A `using` BLOCK ends the function when its body does — the release in the `finally` runs on
+        // the way out and changes nothing about whether control leaves. A using DECLARATION carries no
+        // body at all and terminates nothing; the statements it guards are its SIBLINGS, and the block
+        // walk measures those on its own.
+        usingTerminationStatement := statement as UsingStatement
+        if usingTerminationStatement != null {
+            usingTerminationBody := usingTerminationStatement.Body
+            if usingTerminationBody == null {
+                return false
+            }
+
+            return Walk(usingTerminationBody, breakLeaves, continueLeaves, terminatingCalls)
+        }
+
         whileStatement := statement as WhileStatement
         if whileStatement != null {
             return EndlessLoopLeaves(whileStatement.Condition, whileStatement.Body)

@@ -1104,6 +1104,31 @@ func main() {
 }
 ```
 
+A static member belongs to the TYPE, so it is in scope in every body the type owns — a static
+method, an instance method and a static accessor alike — and it is a **receiver** there like any
+other value:
+
+```n#
+import System.Collections.Generic
+
+class Registry {
+    static Entries: List<string> = new List<string>()
+
+    static func Add(name: string) {
+        Entries.Add(name)                 // the static field IS the receiver
+    }
+
+    func AddFromInstance(name: string) {
+        Entries.Add(name)                 // the same member, from an instance body
+    }
+
+    static func Total(): int => Entries.Count
+}
+```
+
+A static member the BASE declares is reached the same way from a derived type's bodies. Writing the
+type name (`Registry.Entries.Add(name)`) names the same storage.
+
 A static method may name the type's parameters in its signature and call the type's own
 constructor — including a private one, which is how a factory-only type is written:
 
@@ -1419,9 +1444,89 @@ func main() {
 }
 ```
 
+### Any receiver, anywhere a call goes
+
+`on <receiver>.<Event> <handler>` is an expression wherever a call is, and the receiver is any
+expression whose value (or type) owns the event — a static type, a local, a parameter, a field
+with or without `this.`, a property chain, an indexed element, `base.`:
+
+```n#
+import System
+import System.Collections.ObjectModel
+
+class Watcher {
+    items: ObservableCollection<string>
+
+    constructor(source: ObservableCollection<string>) {
+        items = source
+    }
+
+    func Watch(other: ObservableCollection<string>, all: ObservableCollection<string>[]) {
+        a := on items.CollectionChanged (sender, args) => { print "field" }
+        b := on this.items.CollectionChanged (sender, args) => { print "this.field" }
+        c := on other.CollectionChanged (sender, args) => { print "parameter" }
+        d := on all[0].CollectionChanged (sender, args) => { print "indexed" }
+        e := on Console.CancelKeyPress (sender, args) => { args.Cancel = true }
+        off a
+        off b
+        off c
+        off d
+        off e
+    }
+}
+```
+
+The handle is an ordinary local, so it is captured by a lambda or a local function like any other
+name, and `off` inside one of those detaches the subscription the enclosing body made.
+
+### Handlers: a lambda, a delegate value, or a method
+
+The handler is any expression of the event's delegate type. An inline lambda is the common
+spelling — its parameter types are inferred from the event — but a delegate you already hold works
+too, which is what C#'s `x.E += handler` maps onto, and so does naming a function directly:
+
+```n#
+import System.Collections.ObjectModel
+import System.Collections.Specialized
+
+func Log(_sender: object?, _args: NotifyCollectionChangedEventArgs) {
+    print "changed"
+}
+
+func main() {
+    items := new ObservableCollection<string>()
+
+    inline := on items.CollectionChanged (sender, args) => { print "inline" }
+    named: NotifyCollectionChangedEventHandler = (sender, args) => { print "named" }
+    held := on items.CollectionChanged named
+    group := on items.CollectionChanged Log
+
+    off inline
+    off held
+    off group
+}
+```
+
+The handler must begin **on the event's own line**; a handler on the next line is reported as a
+missing one rather than silently swallowing the next statement.
+
+### Detaching
+
+`off <handle>` detaches exactly the handler that handle attached — including an inline lambda,
+which .NET's own `-=` cannot do without you keeping the delegate. Two subscriptions to one event
+detach independently, and **`off` twice is a no-op**: the handle claims its remove accessor once,
+so the second call does nothing (and never detaches somebody else's handler).
+
+A bare `on …` statement discards the handle, which is how you subscribe for the life of the
+object.
+
 `+=`/`-=` on an event is a compile error that points you to `on`/`off` (it used to compile and
 then crash at runtime). On a real `Func`/`Action` field, `+=`/`-=` still combine/remove
 delegates.
+
+**Current limits.** N# has no syntax for declaring an event on your own type yet — `on`/`off`
+subscribe to events declared by .NET types and by libraries you reference. Expose a
+`Func`/`Action` field, or an `Add…`/`Remove…` method pair, until it does.
 
 ## Working With Nullable Values
 
@@ -1535,6 +1640,95 @@ guard should not have their build broken by a keyword that is merely no longer n
 `must` when the warning appears.
 
 ## Resource Management and Locking
+
+### `using`
+
+`using` releases a resource when its region ends — on the way out of the block, whether the block
+finished, returned, or threw. It is the statement a `try`/`finally` around a `Dispose()` call would
+be, written once.
+
+```n#
+import System.IO
+
+func ReadAll(path: string): string {
+    using reader := new StreamReader(path) {
+        return reader.ReadToEnd()
+    }
+}
+```
+
+There are four ways to write it, and they differ only in what they bind and where the region ends.
+
+**Bind and scope to a block.** `using name := resource { … }` binds the resource, makes it visible
+inside the block, and releases it when the block ends. Add an annotation when the inferred type is
+not the one you want — `using reader: TextReader = new StreamReader(path) { … }` — following the
+ordinary variable rule: `:=` infers the type, `=` names it. (`using reader: TextReader := …` is
+accepted too, and `nlc format` rewrites it to `=`.) A redundant `let` is accepted —
+`using let reader := …` — and means the same thing (`nlc format` drops it).
+
+**Bind to the rest of the enclosing block.** Leave the block off and the resource is released at the
+end of the **enclosing** block, in reverse declaration order. It is the shape that keeps deeply
+nested cleanup flat:
+
+```n#
+func Copy(from: string, to: string) {
+    using source := new StreamReader(from)
+    using target := new StreamWriter(to)
+    target.Write(source.ReadToEnd())
+}
+// target is released first, then source.
+```
+
+**Release something already named.** `using resource { … }` takes an expression instead of a binding,
+for a resource that already has a name — or none at all, when the expression is the whole story. A
+block is required here: a resource nobody named and nobody scoped would be released at a point the
+reader cannot see.
+
+**Release asynchronously.** `await using` releases through `IAsyncDisposable.DisposeAsync()` instead
+of `IDisposable.Dispose()`, and is written wherever `await` is legal.
+
+```n#
+async func Send(): Task {
+    await using client := new HttpClient() {
+        await client.GetStringAsync("https://example.com")
+    }
+}
+```
+
+#### The rules
+
+- **The resource must be releasable.** Its type either implements `IDisposable` (`IAsyncDisposable`
+  for `await using`) or declares a parameterless `Dispose` (`DisposeAsync`) of its own. Anything else
+  is [NL333](https://schneidenbach.github.io/nsharplang/docs/errors/NL333).
+- **The resource is read-only for as long as it is visible.** Rebinding the name is
+  [NL309](https://schneidenbach.github.io/nsharplang/docs/errors/NL309) — the statement has to still be holding
+  what it promised to release. Writing *through* the resource is ordinary mutation and stays legal.
+- **A null resource is skipped, not crashed on.** `using x := MightReturnNull() { … }` runs its body
+  and releases nothing.
+- **A struct resource is released through its own address**, never through a box, so a `Dispose` that
+  mutates the value mutates the value the statement is holding. (As in C#, the unbound
+  `using someStructLocal { … }` holds a COPY of that local — the statement captures its resource when
+  it begins — so bind the resource with `using r := …` when the release has to be observable
+  afterwards.)
+- **An exception from the release propagates.** A `finally` is not a `catch`.
+- `using` works inside generators, async functions, lambdas and local functions. Inside a generator,
+  the release runs when the enumeration ends — by completion, by an exception, or because the
+  consumer stopped early — and never when the generator merely suspends at a `yield`. A generator
+  body is the one place two shapes are refused: a STRUCT resource and `await using`
+  ([why](./functions.md)).
+
+#### One thing to watch: object initializers
+
+A `{` immediately after the resource opens the **body**, so an object initializer in that position
+has to be parenthesised:
+
+```n#
+using widget := (new Widget { Name: "a" }) {
+    widget.Run()
+}
+```
+
+### `lock`
 
 `lock` takes a mutual-exclusion lock for a critical section (parentheses optional). Use it
 to guard shared state across threads.
@@ -2014,7 +2208,11 @@ A bare name is resolved in this order, and the first channel that answers wins:
    `import System` in scope.
 3. **Your imports, in the order you wrote them** — a source namespace and a .NET namespace count
    equally here. If two imports supply the same name, that is [NL209](errors/NL209.md): neither is
-   closer, so the compiler asks you to say which one you mean.
+   closer, so the compiler asks you to say which one you mean. "Equally" is literal: two *referenced
+   assembly* namespaces that both declare `Range` tie exactly as two of your own namespaces would,
+   and so does one of yours against one of theirs. The tie is reported wherever the name is written —
+   an annotation, a `new`, a type argument, a `typeof`, an `is`/`as`, a static receiver, or an
+   attribute's brackets.
 4. **Project-wide auto-discovery.** An exported type anywhere in your project is usable by its bare
    name without an import, as long as exactly one declaration has that name. This is a convenience,
    so it ranks *below* anything you imported explicitly — a `class Version` of your own in a
@@ -2028,6 +2226,11 @@ through an import and competes at step 3 like any other.
 
 When two declarations tie, or when auto-discovery picks up a name you did not mean, write the
 qualified name. It is never ambiguous.
+
+Diagnostics follow the same rule in reverse: when a type mismatch is between two different types that
+share a simple name, both are printed with their namespaces — "expected `System.Range` but got
+`OmniSharp.Extensions.LanguageServer.Protocol.Models.Range`" — rather than the contradiction that
+printing the simple name twice would produce.
 
 ## Visibility
 
@@ -2083,6 +2286,8 @@ In CLR metadata a `camelCase` top-level function is emitted `assembly` (internal
 `PascalCase` one `public`. The namespace boundary is a *language* rule enforced by the compiler, in
 the same way C#'s `private` is a language rule inside one assembly.
 
+### Explicit accessibility words
+
 Explicit modifiers are narrow .NET interop escape hatches, not the normal way to express visibility. When they override casing, the formatter preserves them because dropping them would change the exported API:
 
 ```n#
@@ -2093,6 +2298,54 @@ class Service {
     protected BaseUrl: string
 }
 ```
+
+A written word is enforced, not decoration. On a **type member** it means what it means everywhere
+else on .NET, and it reaches CLR metadata unchanged:
+
+| Written on a member | Reachable from | Emitted as |
+|---|---|---|
+| `public` | anywhere | `public` |
+| `internal` | the assembly being compiled | `assembly` |
+| `protected` | the declaring type and the types that derive from it | `family` |
+| `protected internal` | either of the two above | `famorassem` |
+| `private protected` | a deriving type in the same project | `famandassem` |
+| `private` | the declaring type only | `private` |
+
+`protected` carries C#'s receiver rule as well (§7.5.4): inside a deriving type you may read
+`this.Member`, a bare `Member`, `base.Member` and `other.Member` where `other` is of *your* type —
+but not through a receiver typed as the base, because at run time that value could belong to some
+other type in the family. Reaching past any of these is [NL308](errors/NL308.md).
+
+```n#
+class Seeded {
+    protected Seed: int = 3
+}
+
+class Grower: Seeded {
+    func Mine(): int { return this.Seed + Seed + base.Seed }   // all three fine
+    func Sibling(other: Grower): int { return other.Seed }     // fine
+    func Theirs(other: Seeded): int { return other.Seed }      // NL308
+}
+```
+
+### A free function's visibility
+
+A top-level `func` has no containing user type, so `private` on one cannot mean "this type only".
+At namespace scope there are exactly **two** answers, and a written word overrides the casing:
+
+| Written on a `func` | Meaning | Emitted as |
+|---|---|---|
+| `public` | exported from the package | `public` |
+| *(PascalCase name, no word)* | exported from the package | `public` |
+| `internal` | package-private | `assembly` |
+| `private` | package-private | `assembly` |
+| *(camelCase name, no word)* | package-private | `assembly` |
+
+`assembly` rather than `private` is deliberate: a class of the same package, a lambda's display
+class and a local function's closure are each a *different* CLR type, and every one of them may
+legally call a package-private function. The package boundary itself is enforced by the compiler,
+which reports [NL308](errors/NL308.md) when another namespace names a function its own package
+never exported.
 
 Enum cases are part of the containing enum's value set. Export is controlled by the enum itself, so lowercase enum cases remain visible when the enum is exported; use casing diagnostics as style guidance, not as API hiding.
 

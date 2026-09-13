@@ -230,7 +230,7 @@ class ColumnarSourceDirectCallResolver {
             return NotSource()
         }
 
-        return ResolveKnownInstance(definition, receiverType, closed, memberName, argumentTypes, facts, null, false)
+        return ResolveKnownInstance(definition, receiverType, closed, memberName, argumentTypes, facts, null, false, false)
     }
 
     // Direct planning inside the assembly carries the accessing source declaration separately
@@ -249,7 +249,7 @@ class ColumnarSourceDirectCallResolver {
             return NotSource()
         }
 
-        return ResolveKnownInstance(definition, receiverType, closed, memberName, argumentTypes, facts, accessingDefinition, true)
+        return ResolveKnownInstance(definition, receiverType, closed, memberName, argumentTypes, facts, accessingDefinition, true, false)
     }
 
     static func ResolveImplicitInstance(currentDefinition: ColumnarStructDef?, receiverType: Type, memberName: string, argumentTypes: Type[]): ColumnarSourceDirectCallSelection {
@@ -271,7 +271,7 @@ class ColumnarSourceDirectCallResolver {
             }
         }
 
-        return ResolveKnownInstance(currentDefinition, receiverType, closed, memberName, argumentTypes, facts, currentDefinition, true)
+        return ResolveKnownInstance(currentDefinition, receiverType, closed, memberName, argumentTypes, facts, currentDefinition, true, false)
     }
 
     static func ResolveExplicitStatic(ownerType: Type, memberName: string, argumentTypes: Type[], sourceDefinitions: IEnumerable<ColumnarStructDef>): ColumnarSourceDirectCallSelection {
@@ -346,14 +346,14 @@ class ColumnarSourceDirectCallResolver {
         return ResolveClassifiedStaticInCompilation(enclosingDefinition, ownerType, memberName, argumentTypes, argumentFacts, enclosingDefinition)
     }
 
-    static func ResolveKnownInstance(root: ColumnarStructDef, receiverType: Type, closed: bool, memberName: string, argumentTypes: Type[], argumentFacts: ColumnarDirectCallArgumentFacts, accessingDefinition: ColumnarStructDef?, sameAssembly: bool): ColumnarSourceDirectCallSelection {
+    static func ResolveKnownInstance(root: ColumnarStructDef, receiverType: Type, closed: bool, memberName: string, argumentTypes: Type[], argumentFacts: ColumnarDirectCallArgumentFacts, accessingDefinition: ColumnarStructDef?, sameAssembly: bool, receiverIsAccessingInstance: bool): ColumnarSourceDirectCallSelection {
         ValidateDefinitionGraph(root)
         ValidateReceiverShape(root, receiverType)
         if memberName.Length == 0 {
             return Rejected(root, receiverType, false)
         }
 
-        selected := closed ? SelectLocalInstance(root, root, receiverType, true, memberName, argumentTypes, argumentFacts, accessingDefinition, sameAssembly) : SelectInstanceChain(root, root, receiverType, memberName, argumentTypes, argumentFacts, accessingDefinition, sameAssembly)
+        selected := closed ? SelectLocalInstance(root, root, receiverType, true, memberName, argumentTypes, argumentFacts, accessingDefinition, sameAssembly, receiverIsAccessingInstance) : SelectInstanceChain(root, root, receiverType, memberName, argumentTypes, argumentFacts, accessingDefinition, sameAssembly, receiverIsAccessingInstance)
 
         if selected.Status == ColumnarSourceDirectCallStatus.NotSourceType {
             return Rejected(root, receiverType, false)
@@ -381,8 +381,8 @@ class ColumnarSourceDirectCallResolver {
     // Instance declarations hide by invocation arity. Once a definition has a same-arity fixed
     // declaration, or an excluded params/varargs shape that can accept this argument count, an
     // inaccessible, excluded, type-incompatible, or ambiguous local set blocks every base match.
-    static func SelectInstanceChain(root: ColumnarStructDef, current: ColumnarStructDef, receiverType: Type, memberName: string, argumentTypes: Type[], argumentFacts: ColumnarDirectCallArgumentFacts, accessingDefinition: ColumnarStructDef?, sameAssembly: bool): ColumnarSourceDirectCallSelection {
-        local := SelectLocalInstance(root, current, receiverType, false, memberName, argumentTypes, argumentFacts, accessingDefinition, sameAssembly)
+    static func SelectInstanceChain(root: ColumnarStructDef, current: ColumnarStructDef, receiverType: Type, memberName: string, argumentTypes: Type[], argumentFacts: ColumnarDirectCallArgumentFacts, accessingDefinition: ColumnarStructDef?, sameAssembly: bool, receiverIsAccessingInstance: bool): ColumnarSourceDirectCallSelection {
+        local := SelectLocalInstance(root, current, receiverType, false, memberName, argumentTypes, argumentFacts, accessingDefinition, sameAssembly, receiverIsAccessingInstance)
 
         if local.Status != ColumnarSourceDirectCallStatus.NotSourceType {
             return local
@@ -391,7 +391,7 @@ class ColumnarSourceDirectCallResolver {
         if current.IsInterface {
             baseIndex := 0
             while baseIndex < current.InterfaceBases.Count {
-                inherited := SelectInstanceChain(root, current.InterfaceBases[baseIndex], receiverType, memberName, argumentTypes, argumentFacts, accessingDefinition, sameAssembly)
+                inherited := SelectInstanceChain(root, current.InterfaceBases[baseIndex], receiverType, memberName, argumentTypes, argumentFacts, accessingDefinition, sameAssembly, receiverIsAccessingInstance)
 
                 if inherited.Status != ColumnarSourceDirectCallStatus.NotSourceType {
                     return inherited
@@ -403,13 +403,13 @@ class ColumnarSourceDirectCallResolver {
 
         baseDefinition := current.BaseDef
         if baseDefinition != null {
-            return SelectInstanceChain(root, baseDefinition, receiverType, memberName, argumentTypes, argumentFacts, accessingDefinition, sameAssembly)
+            return SelectInstanceChain(root, baseDefinition, receiverType, memberName, argumentTypes, argumentFacts, accessingDefinition, sameAssembly, receiverIsAccessingInstance)
         }
 
         return NoDeclaration()
     }
 
-    static func SelectLocalInstance(root: ColumnarStructDef, owner: ColumnarStructDef, receiverType: Type, closed: bool, memberName: string, argumentTypes: Type[], argumentFacts: ColumnarDirectCallArgumentFacts, accessingDefinition: ColumnarStructDef?, sameAssembly: bool): ColumnarSourceDirectCallSelection {
+    static func SelectLocalInstance(root: ColumnarStructDef, owner: ColumnarStructDef, receiverType: Type, closed: bool, memberName: string, argumentTypes: Type[], argumentFacts: ColumnarDirectCallArgumentFacts, accessingDefinition: ColumnarStructDef?, sameAssembly: bool, receiverIsAccessingInstance: bool): ColumnarSourceDirectCallSelection {
         overloads := new List<ColumnarInstanceMethodDef>()
         if !owner.MethodOverloads.TryGetValue(memberName, out overloads) {
             return NoDeclaration()
@@ -425,6 +425,8 @@ class ColumnarSourceDirectCallResolver {
         bestScore := -1
         selected: ColumnarInstanceMethodDef? = null
         selectedParameters := new Type[](0)
+        tiedInstanceCandidates := new List<ColumnarInstanceMethodDef>()
+        tiedParameters := new List<Type[]>()
         index := 0
         while index < overloads.Count {
             candidate := overloads[index]
@@ -435,7 +437,7 @@ class ColumnarSourceDirectCallResolver {
 
             if candidate.ParamTypes.Length == argumentTypes.Length {
                 hadArityMatch = true
-                if IsCallableInstanceMethod(root, owner, accessingDefinition, sameAssembly, candidate) {
+                if IsCallableInstanceMethod(root, owner, accessingDefinition, sameAssembly, candidate, receiverIsAccessingInstance) {
                     parameters := ResolveParameterTypes(candidate.ParamTypes, receiverType, closed)
 
                     score := ArgumentsScoreWithFacts(parameters, argumentTypes, argumentFacts)
@@ -444,13 +446,31 @@ class ColumnarSourceDirectCallResolver {
                         compatibleCount = 1
                         selected = candidate
                         selectedParameters = parameters
+                        tiedInstanceCandidates.Clear()
+                        tiedInstanceCandidates.Add(candidate)
+                        tiedParameters.Clear()
+                        tiedParameters.Add(parameters)
                     } else if score >= 0 && score == bestScore {
                         compatibleCount += 1
+                        tiedInstanceCandidates.Add(candidate)
+                        tiedParameters.Add(parameters)
                     }
                 }
             }
 
             index += 1
+        }
+
+        // THE SCORE LADDER RATES TWO CANDIDATES THE SAME WHENEVER NEITHER IS THE ARGUMENT'S OWN TYPE,
+        // and the language has one more rule for exactly that case: the more SPECIFIC parameter wins
+        // (ECMA-334 §12.6.4.3, `AnalyzerOverloadSpecificity`). `Accept(object)` and `Accept(Shape)` both
+        // score 4 for a `Square`, and declining the call there would refuse a program the analyzer
+        // accepts. Asked only on a tie, so nothing the ladder already separated is revisited.
+        mostSpecific := SelectMostSpecificParameters(tiedParameters, argumentTypes, argumentFacts)
+        if compatibleCount > 1 && mostSpecific >= 0 {
+            compatibleCount = 1
+            selected = tiedInstanceCandidates[mostSpecific]
+            selectedParameters = tiedParameters[mostSpecific]
         }
 
         // Params expansion and varargs can own this invocation even though their raw CLR
@@ -508,6 +528,8 @@ class ColumnarSourceDirectCallResolver {
         bestScore := -1
         selected: ColumnarStaticMethodDef? = null
         selectedParameters := new Type[](0)
+        tiedStaticCandidates := new List<ColumnarStaticMethodDef>()
+        tiedParameters := new List<Type[]>()
         index := 0
         while index < overloads.Count {
             candidate := overloads[index]
@@ -527,13 +549,27 @@ class ColumnarSourceDirectCallResolver {
                         compatibleCount = 1
                         selected = candidate
                         selectedParameters = parameters
+                        tiedStaticCandidates.Clear()
+                        tiedStaticCandidates.Add(candidate)
+                        tiedParameters.Clear()
+                        tiedParameters.Add(parameters)
                     } else if score >= 0 && score == bestScore {
                         compatibleCount += 1
+                        tiedStaticCandidates.Add(candidate)
+                        tiedParameters.Add(parameters)
                     }
                 }
             }
 
             index += 1
+        }
+
+        // The same specificity tie-break the instance selector applies, for the same reason.
+        mostSpecific := SelectMostSpecificParameters(tiedParameters, argumentTypes, argumentFacts)
+        if compatibleCount > 1 && mostSpecific >= 0 {
+            compatibleCount = 1
+            selected = tiedStaticCandidates[mostSpecific]
+            selectedParameters = tiedParameters[mostSpecific]
         }
 
         // Params expansion and varargs can own this invocation even though their raw CLR
@@ -604,10 +640,10 @@ class ColumnarSourceDirectCallResolver {
         return new ColumnarSourceDirectCallSelection(ColumnarSourceDirectCallStatus.Selected, ColumnarSourceDirectCallDispatch.Call, owner, ownerType, declaringType, method, parameterTypes, returnType, root.IsReference, true, false)
     }
 
-    static func IsCallableInstanceMethod(receiverDefinition: ColumnarStructDef, declaringDefinition: ColumnarStructDef, accessingDefinition: ColumnarStructDef?, sameAssembly: bool, definition: ColumnarInstanceMethodDef): bool {
+    static func IsCallableInstanceMethod(receiverDefinition: ColumnarStructDef, declaringDefinition: ColumnarStructDef, accessingDefinition: ColumnarStructDef?, sameAssembly: bool, definition: ColumnarInstanceMethodDef, receiverIsAccessingInstance: bool): bool {
         method: MethodInfo = definition.Builder
         accessAttributes := (int)method.get_Attributes() & 7
-        if !CanAccessSourceInstanceMethod(receiverDefinition, declaringDefinition, accessingDefinition, sameAssembly, accessAttributes) || method.get_IsGenericMethod() || IsVarArgs(method) || method.get_IsAbstract() && !receiverDefinition.IsReference || HasUnsupportedModifiers(definition.ParamModifierKinds) || !HasSupportedSignature(definition.ParamTypes, definition.ReturnType) {
+        if !CanAccessSourceInstanceMethod(receiverDefinition, declaringDefinition, accessingDefinition, sameAssembly, accessAttributes, receiverIsAccessingInstance) || method.get_IsGenericMethod() || IsVarArgs(method) || method.get_IsAbstract() && !receiverDefinition.IsReference || HasUnsupportedModifiers(definition.ParamModifierKinds) || !HasSupportedSignature(definition.ParamTypes, definition.ReturnType) {
             return false
         }
 
@@ -619,7 +655,7 @@ class ColumnarSourceDirectCallResolver {
     // one of its derived types. Assembly access is an independent alternative for FamORAssem, so a
     // same-assembly call through a base-typed receiver remains valid. Static methods have no
     // receiver and continue through CanAccessSourceMethod directly.
-    static func CanAccessSourceInstanceMethod(receiverDefinition: ColumnarStructDef, declaringDefinition: ColumnarStructDef, accessingDefinition: ColumnarStructDef?, sameAssembly: bool, accessAttributes: int): bool {
+    static func CanAccessSourceInstanceMethod(receiverDefinition: ColumnarStructDef, declaringDefinition: ColumnarStructDef, accessingDefinition: ColumnarStructDef?, sameAssembly: bool, accessAttributes: int, receiverIsAccessingInstance: bool): bool {
         if !CanAccessSourceMethod(declaringDefinition, accessingDefinition, sameAssembly, accessAttributes) {
             return false
         }
@@ -631,6 +667,16 @@ class ColumnarSourceDirectCallResolver {
         if accessingDefinition == null {
             return false
         }
+
+        // `base.M()` SATISFIES THE FAMILY-RECEIVER CONSTRAINT BY CONSTRUCTION. The written receiver is
+        // the BASE — the one receiver type that is never the accessing type or derived from it — but
+        // the value passed as argument zero is `this`, so the constraint the rule actually states
+        // ("the receiver is an instance of the accessing type") holds. C# spells this out as its own
+        // case (§7.6.8) and so does this; without it `base.ProtectedMember()` was unreachable.
+        if receiverIsAccessingInstance {
+            return true
+        }
+
         return IsSameOrDerivedSourceType(receiverDefinition, accessingDefinition)
     }
 
@@ -933,6 +979,63 @@ class ColumnarSourceDirectCallResolver {
         }
 
         return false
+    }
+
+    // WHICH OF SEVERAL EQUALLY-SCORED PARAMETER LISTS IS THE MOST SPECIFIC, or -1 when the language
+    // cannot say. The rule and the fold are `AnalyzerOverloadSpecificity`'s — the same owner the
+    // analyzer's two worlds use — and only the conversion oracle is this world's: identity is
+    // `ExactTypeShapeMatches` and "an implicit conversion exists" is `ArgumentFlowScore` answering at
+    // all, so the emitter agrees with the analyzer about which overload a call means.
+    //
+    // -1 covers BOTH "several are maximal" and "none is" (a cycle in the verdicts). Either way the
+    // caller keeps its tie and declines, which is the answer it had before this rule existed.
+    static func SelectMostSpecificParameters(tiedParameters: List<Type[]>, actual: Type[], argumentFacts: ColumnarDirectCallArgumentFacts): int {
+        count := tiedParameters.Count
+        if count < 2 {
+            return -1
+        }
+
+        comparisons := new int[count * count]
+        row := 0
+        while row < count {
+            column := 0
+            while column < count {
+                if row != column {
+                    comparisons[row * count + column] = CompareParameterSpecificity(tiedParameters[row], tiedParameters[column], actual, argumentFacts)
+                }
+
+                column += 1
+            }
+
+            row += 1
+        }
+
+        maximal := AnalyzerOverloadSpecificity.FindMaximalIndexes(comparisons, count)
+        if maximal.Count != 1 {
+            return -1
+        }
+
+        return maximal[0]
+    }
+
+    static func CompareParameterSpecificity(left: Type[], right: Type[], actual: Type[], argumentFacts: ColumnarDirectCallArgumentFacts): int {
+        verdicts := new List<int>()
+        index := 0
+        while index < left.Length && index < right.Length && index < actual.Length {
+            leftType := left[index]
+            rightType := right[index]
+            actualType := actual[index]
+            index += 1
+
+            verdicts.Add(AnalyzerOverloadSpecificity.CompareConversionTargets(
+                ExactTypeShapeMatches(leftType, actualType),
+                ExactTypeShapeMatches(rightType, actualType),
+                ArgumentFlowScore(rightType, leftType, argumentFacts.SourceTypeDefinitions) >= 0,
+                ArgumentFlowScore(leftType, rightType, argumentFacts.SourceTypeDefinitions) >= 0
+            ))
+        }
+
+        return AnalyzerOverloadSpecificity.FoldArgumentVerdicts(verdicts)
     }
 
     static func ArgumentsScore(expected: Type[], actual: Type[]): int {

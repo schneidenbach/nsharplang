@@ -8089,7 +8089,7 @@ test "020 s31 analyzer error codes: `!` on an int is `NL202` naming the operator
 }
 
 test "020 s31 analyzer error codes: five relational comparisons over incompatible operand pairs report FIVE separate `NL202` rows in ONE fixture, and the census pins all five with their anchors in order — the deleted method filtered the list and asserted a count and two substrings, and could not say which row was which (was AnalyzerTests.RelationalOperator_InvalidOperands_ReportTypeMismatch)" {
-    source := "\nfunc BadString(): bool {\n    return \"a\" < \"b\"\n}\n\nfunc BadObject(value: object): bool {\n    return value > 0\n}\n\nfunc BadBool(left: bool, right: bool): bool {\n    return left <= right\n}\n\nfunc BadNullable(value: int?): bool {\n    return value >= 0\n}\n\nfunc BadMixed(left: ulong, right: long): bool {\n    return left < right\n}\n"
+    source := "\nfunc BadString(): bool {\n    return \"a\" < \"b\"\n}\n\nfunc BadObject(value: object): bool {\n    return value > 0\n}\n\nfunc BadBool(left: bool, right: bool): bool {\n    return left <= right\n}\n\nfunc BadNullable(value: string?): bool {\n    return value >= 0\n}\n\nfunc BadMixed(left: ulong, right: long): bool {\n    return left < right\n}\n"
     assert AcParseCensus(source) == ""
     assert AcParseSuccess(source) == "True"
     analysis := AcAnalyze(source)
@@ -8105,7 +8105,7 @@ test "020 s31 analyzer error codes: five relational comparisons over incompatibl
     assert AcRow(analysis, 2) == "TypeMismatch|The '<=' operator doesn't work with 'bool' and 'bool' — both sides need primitive numeric values or a comparison operator overload, but I found 'bool' and 'bool'|Use primitive numeric operands, convert the non-numeric value, or define an operator overload for this type.|Error"
     assert AcHint(analysis, 2) == "<null>"
     assert AcSuggestions(analysis, 2) == "<null>"
-    assert AcRow(analysis, 3) == "TypeMismatch|The '>=' operator doesn't work with 'int?' and 'int' — both sides need primitive numeric values or a comparison operator overload, but the left side is 'int?'|Use primitive numeric operands, convert the non-numeric value, or define an operator overload for this type.|Error"
+    assert AcRow(analysis, 3) == "TypeMismatch|The '>=' operator doesn't work with 'string?' and 'int' — both sides need primitive numeric values or a comparison operator overload, but the left side is 'string?'|Use primitive numeric operands, convert the non-numeric value, or define an operator overload for this type.|Error"
     assert AcHint(analysis, 3) == "<null>"
     assert AcSuggestions(analysis, 3) == "<null>"
     assert AcRow(analysis, 4) == "TypeMismatch|The '<' operator doesn't work with 'ulong' and 'long' — no single integral type holds every value of both, so there is no common type to compute in. A constant whose value fits converts on its own; a variable needs a cast|Cast the 'long' side to 'ulong', or make both sides signed.|Error"
@@ -8129,7 +8129,7 @@ test "020 s31 analyzer error codes: five relational comparisons over incompatibl
     assert AcRow(rich, 2) == "TypeMismatch|The '<=' operator doesn't work with 'bool' and 'bool' — both sides need primitive numeric values or a comparison operator overload, but I found 'bool' and 'bool'|Use primitive numeric operands, convert the non-numeric value, or define an operator overload for this type.|Error"
     assert AcHint(rich, 2) == "<null>"
     assert AcSuggestions(rich, 2) == "<null>"
-    assert AcRow(rich, 3) == "TypeMismatch|The '>=' operator doesn't work with 'int?' and 'int' — both sides need primitive numeric values or a comparison operator overload, but the left side is 'int?'|Use primitive numeric operands, convert the non-numeric value, or define an operator overload for this type.|Error"
+    assert AcRow(rich, 3) == "TypeMismatch|The '>=' operator doesn't work with 'string?' and 'int' — both sides need primitive numeric values or a comparison operator overload, but the left side is 'string?'|Use primitive numeric operands, convert the non-numeric value, or define an operator overload for this type.|Error"
     assert AcHint(rich, 3) == "<null>"
     assert AcSuggestions(rich, 3) == "<null>"
     assert AcRow(rich, 4) == "TypeMismatch|The '<' operator doesn't work with 'ulong' and 'long' — no single integral type holds every value of both, so there is no common type to compute in. A constant whose value fits converts on its own; a variable needs a cast|Cast the 'long' side to 'ulong', or make both sides signed.|Error"
@@ -8584,10 +8584,10 @@ test "020 s31 analyzer error codes: an unknown `assert throws` type is `NL201` o
     assert AcCodeRow(rich, "TypeMismatch") == "<no-such-code>"
 }
 
-test "020 s31 analyzer error codes: a non-disposable `using` resource is `NL103` naming the type and both halves of the requirement, three rows, one of which widens from one column to six between the routes (was AnalyzerTests.UsingStatement_NonDisposableResource_Error, all 3 [InlineData] rows)" with (statement: string, typeName: string, census: string, row0: string, codeAnchorInvalidSyntax: string, richCensus: string, richCodeAnchorInvalidSyntax: string) [
-    ("using value := 1 { }", "int", "NL103:InvalidSyntax@2:9+5;", "InvalidSyntax|Using resource of type 'int' must implement IDisposable or provide Dispose(): void|Use a resource type with a parameterless void Dispose method, or remove the using statement.|Error", "NL103@2:9+5", "NL103:InvalidSyntax@2:9+5;", "NL103@2:9+5"),
-    ("using let text: string = \"test\" { }", "string", "NL103:InvalidSyntax@2:19+4;", "InvalidSyntax|Using resource of type 'string' must implement IDisposable or provide Dispose(): void|Use a resource type with a parameterless void Dispose method, or remove the using statement.|Error", "NL103@2:19+4", "NL103:InvalidSyntax@2:19+4;", "NL103@2:19+4"),
-    ("using \"test\" { }", "string", "NL103:InvalidSyntax@2:15+1;", "InvalidSyntax|Using resource of type 'string' must implement IDisposable or provide Dispose(): void|Use a resource type with a parameterless void Dispose method, or remove the using statement.|Error", "NL103@2:15+1", "NL103:InvalidSyntax@2:15+6;", "NL103@2:15+6")
+test "020 s31 analyzer error codes: a non-disposable `using` resource is `NL333` on the RESOURCE, naming the type and the interface, three rows, one of which widens from one column to six between the routes (was AnalyzerTests.UsingStatement_NonDisposableResource_Error, all 3 [InlineData] rows)" with (statement: string, typeName: string, census: string, row0: string, codeAnchor: string, richCensus: string, richRow0: string, richHint: string, richCodeAnchor: string) [
+    ("using value := 1 { }", "int", "NL333:ResourceNotDisposable@2:24+1;", "ResourceNotDisposable|A 'int' is not a resource 'using' can release|Give 'int' a parameterless 'Dispose' member, or drop the 'using'.|Error", "NL333@2:24+1", "NL333:ResourceNotDisposable@2:24+1;", "ResourceNotDisposable|A 'int' is not a resource 'using' can release|Make `int` implement `IDisposable`, give it a parameterless `Dispose` member, or drop the `using` and let the value fall out of scope like any other.|Error", "A resource qualifies either nominally — it implements `IDisposable` — or structurally: it declares a parameterless `Dispose` of its own. A `int` does neither, so there would be nothing to run in the `finally`.", "NL333@2:24+1"),
+    ("using let text: string = \"test\" { }", "string", "NL333:ResourceNotDisposable@2:34+1;", "ResourceNotDisposable|A 'string' is not a resource 'using' can release|Give 'string' a parameterless 'Dispose' member, or drop the 'using'.|Error", "NL333@2:34+1", "NL333:ResourceNotDisposable@2:34+6;", "ResourceNotDisposable|A 'string' is not a resource 'using' can release|Make `string` implement `IDisposable`, give it a parameterless `Dispose` member, or drop the `using` and let the value fall out of scope like any other.|Error", "A resource qualifies either nominally — it implements `IDisposable` — or structurally: it declares a parameterless `Dispose` of its own. A `string` does neither, so there would be nothing to run in the `finally`.", "NL333@2:34+6"),
+    ("using \"test\" { }", "string", "NL333:ResourceNotDisposable@2:15+1;", "ResourceNotDisposable|A 'string' is not a resource 'using' can release|Give 'string' a parameterless 'Dispose' member, or drop the 'using'.|Error", "NL333@2:15+1", "NL333:ResourceNotDisposable@2:15+6;", "ResourceNotDisposable|A 'string' is not a resource 'using' can release|Make `string` implement `IDisposable`, give it a parameterless `Dispose` member, or drop the `using` and let the value fall out of scope like any other.|Error", "A resource qualifies either nominally — it implements `IDisposable` — or structurally: it declares a parameterless `Dispose` of its own. A `string` does neither, so there would be nothing to run in the `finally`.", "NL333@2:15+6")
 ] {
     source := "    func Main() {\n        " + statement + "\n    }"
     assert AcParseCensus(source) == ""
@@ -8597,29 +8597,30 @@ test "020 s31 analyzer error codes: a non-disposable `using` resource is `NL103`
     assert AcHasErrors(analysis) == "True"
     assert AcErrorCount(analysis) == 1
     assert AcRow(analysis, 0) == row0
+    // With no source to read, the rich sentence cannot be built and the short one is reported instead.
     assert AcHint(analysis, 0) == "<null>"
     assert AcSuggestions(analysis, 0) == "<null>"
     assert AcRow(analysis, 1) == "<no-such-error>"
-    assert AcCodeCount(analysis, "InvalidSyntax") == 1
-    assert AcCodeErrorCount(analysis, "InvalidSyntax") == 1
-    assert AcCodeRow(analysis, "InvalidSyntax") == row0
-    assert AcCodeAnchor(analysis, "InvalidSyntax") == codeAnchorInvalidSyntax
+    assert AcCodeCount(analysis, "ResourceNotDisposable") == 1
+    assert AcCodeErrorCount(analysis, "ResourceNotDisposable") == 1
+    assert AcCodeRow(analysis, "ResourceNotDisposable") == row0
+    assert AcCodeAnchor(analysis, "ResourceNotDisposable") == codeAnchor
     rich := AcAnalyzeWithSource(source)
     assert AcCensus(rich) == richCensus
     assert AcHasErrors(rich) == "True"
     assert AcErrorCount(rich) == 1
-    assert AcRow(rich, 0) == row0
-    assert AcHint(rich, 0) == "<null>"
+    assert AcRow(rich, 0) == richRow0
+    assert AcHint(rich, 0) == richHint
     assert AcSuggestions(rich, 0) == "<null>"
     assert AcRow(rich, 1) == "<no-such-error>"
-    assert AcCodeCount(rich, "InvalidSyntax") == 1
-    assert AcCodeErrorCount(rich, "InvalidSyntax") == 1
-    assert AcCodeRow(rich, "InvalidSyntax") == row0
-    assert AcCodeAnchor(rich, "InvalidSyntax") == richCodeAnchorInvalidSyntax
-    assert AcRow(rich, 0).Contains("Using resource of type '" + typeName + "' must implement IDisposable")
+    assert AcCodeCount(rich, "ResourceNotDisposable") == 1
+    assert AcCodeErrorCount(rich, "ResourceNotDisposable") == 1
+    assert AcCodeRow(rich, "ResourceNotDisposable") == richRow0
+    assert AcCodeAnchor(rich, "ResourceNotDisposable") == richCodeAnchor
+    assert AcRow(rich, 0).Contains("A '" + typeName + "' is not a resource 'using' can release")
 }
 
-test "020 s31 analyzer error codes: a resource whose `Dispose` has the wrong shape fails the same rule as one with no `Dispose` at all — three rows, all `NL103` (was AnalyzerTests.UsingStatement_InvalidDisposePattern_Error, all 3 [InlineData] rows)" with (disposeMember: string) [
+test "020 s31 analyzer error codes: a resource whose `Dispose` has the wrong shape fails the same rule as one with no `Dispose` at all — three rows, all `NL333` (was AnalyzerTests.UsingStatement_InvalidDisposePattern_Error, all 3 [InlineData] rows)" with (disposeMember: string) [
     ("func Dispose(value: int): void { }"),
     ("func Dispose(): int { return 0 }"),
     ("static func Dispose(): void { }")
@@ -8628,29 +8629,30 @@ test "020 s31 analyzer error codes: a resource whose `Dispose` has the wrong sha
     assert AcParseCensus(source) == ""
     assert AcParseSuccess(source) == "True"
     analysis := AcAnalyze(source)
-    assert AcCensus(analysis) == "NL103:InvalidSyntax@6:9+8;"
+    // Column 27 is the `new` keyword, not column 9 where the `using` is: the squiggle goes under the
+    // RESOURCE, because the statement and the name it binds are both correct. The LENGTH widens from
+    // one to three between the routes — a `new` keyword's width is a fact only the source carries.
+    assert AcCensus(analysis) == "NL333:ResourceNotDisposable@6:27+1;"
     assert AcHasErrors(analysis) == "True"
     assert AcErrorCount(analysis) == 1
-    assert AcRow(analysis, 0) == "InvalidSyntax|Using resource of type 'Resource' must implement IDisposable or provide Dispose(): void|Use a resource type with a parameterless void Dispose method, or remove the using statement.|Error"
+    assert AcRow(analysis, 0) == "ResourceNotDisposable|A 'Resource' is not a resource 'using' can release|Give 'Resource' a parameterless 'Dispose' member, or drop the 'using'.|Error"
     assert AcHint(analysis, 0) == "<null>"
     assert AcSuggestions(analysis, 0) == "<null>"
     assert AcRow(analysis, 1) == "<no-such-error>"
-    assert AcCodeCount(analysis, "InvalidSyntax") == 1
-    assert AcCodeErrorCount(analysis, "InvalidSyntax") == 1
-    assert AcCodeRow(analysis, "InvalidSyntax") == "InvalidSyntax|Using resource of type 'Resource' must implement IDisposable or provide Dispose(): void|Use a resource type with a parameterless void Dispose method, or remove the using statement.|Error"
-    assert AcCodeAnchor(analysis, "InvalidSyntax") == "NL103@6:9+8"
+    assert AcCodeCount(analysis, "ResourceNotDisposable") == 1
+    assert AcCodeErrorCount(analysis, "ResourceNotDisposable") == 1
+    assert AcCodeAnchor(analysis, "ResourceNotDisposable") == "NL333@6:27+1"
     rich := AcAnalyzeWithSource(source)
-    assert AcCensus(rich) == "NL103:InvalidSyntax@6:9+8;"
+    assert AcCensus(rich) == "NL333:ResourceNotDisposable@6:27+3;"
     assert AcHasErrors(rich) == "True"
     assert AcErrorCount(rich) == 1
-    assert AcRow(rich, 0) == "InvalidSyntax|Using resource of type 'Resource' must implement IDisposable or provide Dispose(): void|Use a resource type with a parameterless void Dispose method, or remove the using statement.|Error"
-    assert AcHint(rich, 0) == "<null>"
+    assert AcRow(rich, 0) == "ResourceNotDisposable|A 'Resource' is not a resource 'using' can release|Make `Resource` implement `IDisposable`, give it a parameterless `Dispose` member, or drop the `using` and let the value fall out of scope like any other.|Error"
+    assert AcHint(rich, 0) == "A resource qualifies either nominally — it implements `IDisposable` — or structurally: it declares a parameterless `Dispose` of its own. A `Resource` does neither, so there would be nothing to run in the `finally`."
     assert AcSuggestions(rich, 0) == "<null>"
     assert AcRow(rich, 1) == "<no-such-error>"
-    assert AcCodeCount(rich, "InvalidSyntax") == 1
-    assert AcCodeErrorCount(rich, "InvalidSyntax") == 1
-    assert AcCodeRow(rich, "InvalidSyntax") == "InvalidSyntax|Using resource of type 'Resource' must implement IDisposable or provide Dispose(): void|Use a resource type with a parameterless void Dispose method, or remove the using statement.|Error"
-    assert AcCodeAnchor(rich, "InvalidSyntax") == "NL103@6:9+8"
+    assert AcCodeCount(rich, "ResourceNotDisposable") == 1
+    assert AcCodeErrorCount(rich, "ResourceNotDisposable") == 1
+    assert AcCodeAnchor(rich, "ResourceNotDisposable") == "NL333@6:27+3"
 }
 
 test "020 s31 analyzer error codes: deconstructing a non-tuple initializer is `NL103` naming the initializer type, three rows, two of which split one column against two between the routes (was AnalyzerTests.TupleDeconstruction_InvalidInitializer_Error, all 3 [InlineData] rows)" with (statement: string, message: string, census: string, row0: string, codeAnchorInvalidSyntax: string, richCensus: string, richCodeAnchorInvalidSyntax: string) [
@@ -12211,7 +12213,11 @@ test "020 s32 analyzer diagnostics: the fixture reports 2 rows, `NL103` `NL306` 
     assert AcParseCensus(source) == ""
     assert AcParseSuccess(source) == "True"
     analysis := AcAnalyze(source)
-    assert AcCensus(analysis) == "NL306:DuplicateDeclaration@6:17+2;NL103:InvalidSyntax@12:21+1;"
+    // THE TIE IS NOW NL414, AND IT ANCHORS ON THE CALLED NAME. The source world used to report an
+    // unbreakable tie as a free-text NL103 at the call's own column; it is now the same code, the same
+    // sentence and the same two signatures the REFLECTED world reports, spanning the name the reader
+    // wrote.
+    assert AcCensus(analysis) == "NL306:DuplicateDeclaration@6:17+2;NL414:AmbiguousCall@12:19+2;"
     assert AcHasErrors(analysis) == "True"
     assert AcErrorCount(analysis) == 2
     assert AcRow(analysis, 0) == "DuplicateDeclaration|'Do' is already declared in this scope — each name must be unique within the same scope|<null>|Error"
@@ -12220,7 +12226,7 @@ test "020 s32 analyzer diagnostics: the fixture reports 2 rows, `NL103` `NL306` 
     assert AcSnippet(analysis, 0) == "<null>"
     assert AcTypes(analysis, 0) == "<null>|<null>"
     assert AcExplanation(analysis, 0) == "<null>"
-    assert AcRow(analysis, 1) == "InvalidSyntax|Ambiguous call to 'Do': multiple overloads match with equal specificity|<null>|Error"
+    assert AcRow(analysis, 1) == "AmbiguousCall|The call to 'Do' is ambiguous|Both of these match the arguments you wrote:\n  - Do(x: int, y: int): int\n  - Do(a: int, b: int): int\n\nNeither is more specific than the other, so I will not choose one for you.\nSay which you meant: cast an argument to the parameter type that overload declares, annotate a lambda's parameter types, or write the call's type arguments explicitly.|Error"
     assert AcHint(analysis, 1) == "<null>"
     assert AcSuggestions(analysis, 1) == "<null>"
     assert AcSnippet(analysis, 1) == "<null>"
@@ -12231,12 +12237,12 @@ test "020 s32 analyzer diagnostics: the fixture reports 2 rows, `NL103` `NL306` 
     assert AcCodeErrorCount(analysis, "DuplicateDeclaration") == 1
     assert AcCodeRow(analysis, "DuplicateDeclaration") == "DuplicateDeclaration|'Do' is already declared in this scope — each name must be unique within the same scope|<null>|Error"
     assert AcCodeAnchor(analysis, "DuplicateDeclaration") == "NL306@6:17+2"
-    assert AcCodeCount(analysis, "InvalidSyntax") == 1
-    assert AcCodeErrorCount(analysis, "InvalidSyntax") == 1
-    assert AcCodeRow(analysis, "InvalidSyntax") == "InvalidSyntax|Ambiguous call to 'Do': multiple overloads match with equal specificity|<null>|Error"
-    assert AcCodeAnchor(analysis, "InvalidSyntax") == "NL103@12:21+1"
+    assert AcCodeCount(analysis, "AmbiguousCall") == 1
+    assert AcCodeErrorCount(analysis, "AmbiguousCall") == 1
+    assert AcCodeRow(analysis, "AmbiguousCall") == "AmbiguousCall|The call to 'Do' is ambiguous|Both of these match the arguments you wrote:\n  - Do(x: int, y: int): int\n  - Do(a: int, b: int): int\n\nNeither is more specific than the other, so I will not choose one for you.\nSay which you meant: cast an argument to the parameter type that overload declares, annotate a lambda's parameter types, or write the call's type arguments explicitly.|Error"
+    assert AcCodeAnchor(analysis, "AmbiguousCall") == "NL414@12:19+2"
     rich := AcAnalyzeWithSource(source)
-    assert AcCensus(rich) == "NL306:DuplicateDeclaration@6:22+2;NL103:InvalidSyntax@12:21+1;"
+    assert AcCensus(rich) == "NL306:DuplicateDeclaration@6:22+2;NL414:AmbiguousCall@12:19+2;"
     assert AcHasErrors(rich) == "True"
     assert AcErrorCount(rich) == 2
     assert AcRow(rich, 0) == "DuplicateDeclaration|'Do' is already declared in this scope — each name must be unique within the same scope|<null>|Error"
@@ -12245,21 +12251,23 @@ test "020 s32 analyzer diagnostics: the fixture reports 2 rows, `NL103` `NL306` 
     assert AcSnippet(rich, 0) == "                func Do(a: int, b: int): int {"
     assert AcTypes(rich, 0) == "<null>|<null>"
     assert AcExplanation(rich, 0) == "<null>"
-    assert AcRow(rich, 1) == "InvalidSyntax|Ambiguous call to 'Do': multiple overloads match with equal specificity|<null>|Error"
-    assert AcHint(rich, 1) == "<null>"
+    // THE RICH ROUTE CARRIES THE SAME SENTENCE IN THE BUILT SHAPE: the two signatures move from the
+    // plain suggestion into the contextual hint, under an explanation line.
+    assert AcRow(rich, 1) == "AmbiguousCall|The call to 'Do' is ambiguous|<null>|Error"
+    assert AcHint(rich, 1) == "Both of these match the arguments you wrote:\n  - Do(x: int, y: int): int\n  - Do(a: int, b: int): int\n\nNeither is more specific than the other, so I will not choose one for you.\nSay which you meant: cast an argument to the parameter type that overload declares, annotate a lambda's parameter types, or write the call's type arguments explicitly."
     assert AcSuggestions(rich, 1) == "<null>"
     assert AcSnippet(rich, 1) == "                p.Do(1, 2)"
     assert AcTypes(rich, 1) == "<null>|<null>"
-    assert AcExplanation(rich, 1) == "<null>"
+    assert AcExplanation(rich, 1) == "The call to `Do` is ambiguous — two overloads match it equally well:"
     assert AcRow(rich, 2) == "<no-such-error>"
     assert AcCodeCount(rich, "DuplicateDeclaration") == 1
     assert AcCodeErrorCount(rich, "DuplicateDeclaration") == 1
     assert AcCodeRow(rich, "DuplicateDeclaration") == "DuplicateDeclaration|'Do' is already declared in this scope — each name must be unique within the same scope|<null>|Error"
     assert AcCodeAnchor(rich, "DuplicateDeclaration") == "NL306@6:22+2"
-    assert AcCodeCount(rich, "InvalidSyntax") == 1
-    assert AcCodeErrorCount(rich, "InvalidSyntax") == 1
-    assert AcCodeRow(rich, "InvalidSyntax") == "InvalidSyntax|Ambiguous call to 'Do': multiple overloads match with equal specificity|<null>|Error"
-    assert AcCodeAnchor(rich, "InvalidSyntax") == "NL103@12:21+1"
+    assert AcCodeCount(rich, "AmbiguousCall") == 1
+    assert AcCodeErrorCount(rich, "AmbiguousCall") == 1
+    assert AcCodeRow(rich, "AmbiguousCall") == "AmbiguousCall|The call to 'Do' is ambiguous|<null>|Error"
+    assert AcCodeAnchor(rich, "AmbiguousCall") == "NL414@12:19+2"
 }
 
 test "020 s32 analyzer diagnostics: the fixture reports `NL402` at 5:17+7; the two routes give two different SENTENCES, and two different suggestions, production carries a `ContextualHint` the plain route leaves null — the deleted method drove the ONE-ARGUMENT route through `AssertHasError` (was AnalyzerTests.OverloadResolution_SameArity_BoolVsInt_Error)" {

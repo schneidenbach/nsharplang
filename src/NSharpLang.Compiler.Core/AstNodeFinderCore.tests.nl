@@ -194,11 +194,61 @@ test "020 s23 finder: `print(count)` holds NO CallExpression — the open paren 
     assert AnfAt(source, 3, 11) == "Identifier@4:11|Name=count"
 }
 
+// AN `on` SUBSCRIPTION IS NOT A LEAF, AND AN `off` STATEMENT IS NOT ONE EITHER. Both were, which is
+// the D1/D2 defect this file's own comment describes, in the two nodes whose children are a whole
+// member chain and a whole lambda body: every cursor inside `on widget.Clicked (s, a) => { … }`
+// answered from the `on` node, so hover reported the SUBSCRIPTION HANDLE's type for the receiver, for
+// the event name and for every name in the handler body, and `off sub` answered nothing at all.
+test "events: the finder descends into an `on` subscription's receiver, event name and handler body, and into an `off` statement's handle" {
+    source := "func main() {\n    sub := on widget.Clicked (sender, args) => { print sender }\n    off sub\n}"
+    assert PsCensus(source) == ""
+
+    // The receiver, inside `widget`.
+    assert AnfAt(source, 1, 16) == "Identifier@2:15|Name=widget"
+    // The EVENT NAME: the member access carries its DOT's position, so the chain's last link answers.
+    assert AnfAt(source, 1, 24) == "MemberAccess@2:21|Member=Clicked|Object=Identifier@2:15|Name=widget"
+    // A name inside the HANDLER's block body.
+    assert AnfAt(source, 1, 57) == "Identifier@2:56|Name=sender"
+    // The `off` operand.
+    assert AnfAt(source, 2, 9) == "Identifier@3:9|Name=sub"
+}
+
 // THE LINE CONTROL. Every contract above sweeps ONE line, so each is consistent with a finder that
 // ignored the line entirely and answered by column alone. These four sweeps are over the OTHER
 // lines of two of the fixtures — the signature and the closing brace of the first, and the
 // signature and the closing brace of the class-body one — and every column of all four answers
 // nothing. Nothing in the deleted file asked a second position of any fixture.
+// A `using` HAS AN EXPRESSION IN TWO PLACES AND A BODY IN A THIRD, and until the statement had an
+// arm here every one of them answered `<none>` — hover and completion inside a `using` block would
+// have found nothing at all, on a statement whose whole point is to name a resource and use it.
+test "finder: a using statement answers its RESOURCE on its own line and its body's expressions inside the block" {
+    source := "func main() {\n    using reader := open() {\n        print reader.Name\n    }\n}"
+    assert PsCensus(source) == ""
+
+    // The resource: the bound form's expression is its declaration's initializer. The callee alone
+    // answers at its own column, the call from the open paren on.
+    assert AnfAt(source, 1, 20) == "Identifier@2:21|Name=open"
+    assert AnfAt(source, 1, 24) == "Call@2:25|Callee=Identifier@2:21|Name=open"
+
+    // The body: the receiver alone left of the dot, the member access from the dot on.
+    assert AnfAt(source, 2, 14) == "Identifier@3:15|Name=reader"
+    assert AnfAt(source, 2, 20) == "MemberAccess@3:21|Member=Name|Object=Identifier@3:15|Name=reader"
+}
+
+test "finder: an UNBOUND using answers its resource, and a using DECLARATION answers the statements after it" {
+    unbound := "func main(reader: Reader) {\n    using reader {\n        print reader.Name\n    }\n}"
+    assert PsCensus(unbound) == ""
+    assert AnfAt(unbound, 1, 10) == "Identifier@2:11|Name=reader"
+    assert AnfAt(unbound, 2, 20) == "MemberAccess@3:21|Member=Name|Object=Identifier@3:15|Name=reader"
+
+    // The DECLARATION form carries no body: the statements it guards are its SIBLINGS, and the block
+    // walk reaches them without this arm descending anywhere.
+    declaration := "func main() {\n    using reader := open()\n    print reader.Name\n}"
+    assert PsCensus(declaration) == ""
+    assert AnfAt(declaration, 1, 24) == "Call@2:25|Callee=Identifier@2:21|Name=open"
+    assert AnfAt(declaration, 2, 16) == "MemberAccess@3:17|Member=Name|Object=Identifier@3:11|Name=reader"
+}
+
 test "020 s23 finder: the answer is LINE-SCOPED — every column of the signature line and of the closing-brace line of both the member-access fixture and the class-body fixture answers nothing at all" {
     memberAccessSource := "func main() {\n    value := user.Name\n}"
     classBodySource := "class Person {\n    func Speak(): string {\n        return Name\n    }\n}"

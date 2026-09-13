@@ -246,16 +246,27 @@ class CatchClause {
     }
 }
 
-// Using statement
+// Using statement / using declaration.
+//
+// FOUR written forms collapse into THREE fields. `Declaration` carries the bound resource of
+// `using x := e`, `using x: T := e` and `using let x := e`; `Expression` carries the resource of the
+// unbound `using e { … }`; exactly one of the two is ever set. `Body` is the block form's body and is
+// NULL for a using DECLARATION, whose guarded region is the remainder of the ENCLOSING block —
+// the distinction a consumer reads off `Body == null`, never off the declaration.
+//
+// `IsAsync` is the `await using` spelling: the resource is released through
+// `IAsyncDisposable.DisposeAsync()` rather than `IDisposable.Dispose()`.
 class UsingStatement: Statement {
     Declaration: VariableDeclarationStatement?
     Expression: Expression?
     Body: Statement?
+    IsAsync: bool
 
-    constructor(Declaration: VariableDeclarationStatement?, Expression: Expression?, Body: Statement?, Line: int, Column: int): base(Line, Column) {
+    constructor(Declaration: VariableDeclarationStatement?, Expression: Expression?, Body: Statement?, Line: int, Column: int, IsAsync: bool = false): base(Line, Column) {
         this.Declaration = Declaration
         this.Expression = Expression
         this.Body = Body
+        this.IsAsync = IsAsync
     }
 }
 

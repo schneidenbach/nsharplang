@@ -266,6 +266,11 @@ class CompletionReceiverFacts {
 
     static func GetMemberAccessCompletions(unit: CompilationUnit, semanticModel: SemanticModel?, precomputedReceiver: string?, line: int, column: int, semanticModels: IEnumerable<SemanticModel>, compilationUnits: IEnumerable<CompilationUnit>): CompletionResult {
         requestingNamespace := CompletionVisibilityFacts.UnitNamespaceName(unit)
+
+        // THE TYPE THE CARET IS WRITTEN INSIDE decides what a written `private` or `protected` lets
+        // this list offer. A caret at namespace scope answers null, which offers exactly the public
+        // and package surface — the same list this produced before the declared rule existed.
+        accessingTypeName := CompletionVisibilityFacts.EnclosingTypeName(unit, line)
         memberAccess := FindMemberAccessAtPosition(unit, line, column)
         receiver := precomputedReceiver
         if receiver == null && memberAccess != null {
@@ -288,7 +293,7 @@ class CompletionReceiverFacts {
                     filter = CompletionMemberFilter.StaticOnly
                 }
 
-                expressionResult := ResolveMemberCompletions(receiverType, displayReceiver, semanticModels, completions, filter, compilationUnits, requestingNamespace)
+                expressionResult := ResolveMemberCompletions(receiverType, displayReceiver, semanticModels, completions, filter, compilationUnits, requestingNamespace, accessingTypeName)
                 if expressionResult != null {
                     return expressionResult
                 }
@@ -307,7 +312,7 @@ class CompletionReceiverFacts {
 
             if typeInfo != null {
                 filter := CompletionReflectionFacts.GetMemberFilter(receiver, typeInfo)
-                identifierResult := ResolveMemberCompletions(typeInfo, receiver, semanticModels, completions, filter, compilationUnits, requestingNamespace)
+                identifierResult := ResolveMemberCompletions(typeInfo, receiver, semanticModels, completions, filter, compilationUnits, requestingNamespace, accessingTypeName)
                 if identifierResult != null {
                     return identifierResult
                 }
@@ -316,7 +321,7 @@ class CompletionReceiverFacts {
 
         literalTypeInfo := CompletionReflectionFacts.ResolveLiteralReceiverType(receiver)
         if literalTypeInfo != null {
-            literalResult := ResolveMemberCompletions(literalTypeInfo, receiver, semanticModels, completions, CompletionMemberFilter.InstanceOnly, compilationUnits, requestingNamespace)
+            literalResult := ResolveMemberCompletions(literalTypeInfo, receiver, semanticModels, completions, CompletionMemberFilter.InstanceOnly, compilationUnits, requestingNamespace, accessingTypeName)
             if literalResult != null {
                 return literalResult
             }
@@ -337,11 +342,20 @@ class CompletionReceiverFacts {
     // metadata did. Null means BOTH doors were silent, which is what tells the caller to try the
     // next way of typing the receiver.
     static func ResolveMemberCompletions(typeInfo: TypeInfo, receiver: string, semanticModels: IEnumerable<SemanticModel>, completions: Dictionary<string, List<CompletionItem>>, filter: CompletionMemberFilter, compilationUnits: IEnumerable<CompilationUnit>, requestingNamespace: string): CompletionResult? {
+        return ResolveMemberCompletions(typeInfo, receiver, semanticModels, completions, filter, compilationUnits, requestingNamespace, null)
+    }
+
+    static func ResolveMemberCompletions(typeInfo: TypeInfo, receiver: string, semanticModels: IEnumerable<SemanticModel>, completions: Dictionary<string, List<CompletionItem>>, filter: CompletionMemberFilter, compilationUnits: IEnumerable<CompilationUnit>, requestingNamespace: string, accessingTypeName: string?): CompletionResult? {
         typeName := CompletionTypeTextFacts.FormatTypeText(typeInfo)
 
+        // The RECEIVER rule: `protected` is offerable only when the caret's type IS the receiver's
+        // type or derives from it. `private` needs the narrower answer, so it is asked separately.
+        canReachProtected := CompletionVisibilityFacts.IsTypeOrDerived(accessingTypeName, typeName, compilationUnits)
+        isInsideDeclaringType := canReachProtected && CompletionVisibilityFacts.SimpleTypeName(typeName) == CompletionVisibilityFacts.SimpleTypeName(accessingTypeName ?? "")
+
         declaringNamespace := CompletionVisibilityFacts.DeclaringNamespaceOfReceiverType(typeInfo, typeName, compilationUnits)
-        declaredMembers := CompletionDeclarationFacts.GetTypeMemberItems(typeInfo, semanticModels, declaringNamespace, requestingNamespace)
-        AppendInheritedMemberItems(typeInfo, semanticModels, filter, compilationUnits, requestingNamespace, declaredMembers)
+        declaredMembers := CompletionDeclarationFacts.GetTypeMemberItems(typeInfo, semanticModels, declaringNamespace, requestingNamespace, canReachProtected, isInsideDeclaringType)
+        AppendInheritedMemberItems(typeInfo, semanticModels, filter, compilationUnits, requestingNamespace, accessingTypeName, canReachProtected, declaredMembers)
         if declaredMembers.Count > 0 {
             CompletionEngineKernels.AddGroupedCompletionItemsByKind(declaredMembers, completions)
             return new CompletionResult(CompletionContext.MemberAccess, receiver, typeName, completions)
@@ -382,6 +396,13 @@ class CompletionReceiverFacts {
     // A NAME THE DERIVED TYPE ALREADY OFFERS IS NOT OFFERED TWICE. The first list wins, which is the
     // order the language resolves in.
     static func AppendInheritedMemberItems(typeInfo: TypeInfo, semanticModels: IEnumerable<SemanticModel>, filter: CompletionMemberFilter, compilationUnits: IEnumerable<CompilationUnit>, requestingNamespace: string, items: List<CompletionItem>) {
+        AppendInheritedMemberItems(typeInfo, semanticModels, filter, compilationUnits, requestingNamespace, null, false, items)
+    }
+
+    // A BASE'S `protected` MEMBER IS INHERITED SURFACE, not foreign surface: the same receiver rule
+    // that admits it on the derived type admits it here, so the flag the caller already computed is
+    // carried down the chain rather than recomputed against each base.
+    static func AppendInheritedMemberItems(typeInfo: TypeInfo, semanticModels: IEnumerable<SemanticModel>, filter: CompletionMemberFilter, compilationUnits: IEnumerable<CompilationUnit>, requestingNamespace: string, accessingTypeName: string?, canReachProtected: bool, items: List<CompletionItem>) {
         current := typeInfo
         depth := 0
         while depth < 64 {
@@ -397,7 +418,9 @@ class CompletionReceiverFacts {
 
             if CompletionDeclarationFacts.DeclaredMembersOfType(baseTypeInfo) != null {
                 baseNamespace := CompletionVisibilityFacts.DeclaringNamespaceOfReceiverType(baseTypeInfo, CompletionTypeTextFacts.FormatTypeText(baseTypeInfo), compilationUnits)
-                AppendNewMemberItems(items, CompletionDeclarationFacts.GetTypeMemberItems(baseTypeInfo, semanticModels, baseNamespace, requestingNamespace))
+                baseTypeName := CompletionTypeTextFacts.FormatTypeText(baseTypeInfo)
+                insideBase := accessingTypeName != null && CompletionVisibilityFacts.SimpleTypeName(baseTypeName) == CompletionVisibilityFacts.SimpleTypeName(accessingTypeName)
+                AppendNewMemberItems(items, CompletionDeclarationFacts.GetTypeMemberItems(baseTypeInfo, semanticModels, baseNamespace, requestingNamespace, canReachProtected, insideBase))
                 current = baseTypeInfo
                 depth = depth + 1
                 continue

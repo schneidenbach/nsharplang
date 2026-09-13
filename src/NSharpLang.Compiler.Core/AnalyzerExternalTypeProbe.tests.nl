@@ -254,18 +254,34 @@ test "the imported half answers only for an imported namespace, and never by exp
     assert ProbeTypeName(probe.ResolveExternalType("Version")) == "System.Version"
 }
 
-test "the imported-namespace sweep names the namespace, and skips the one already claimed" {
+test "one imported namespace is asked at a time, so the caller owns the order and the exclusions" {
     probe := new AnalyzerExternalTypeProbe(ProbeAssemblies(), ProbeNamespaces(["System.Text", "System"]))
 
-    // `StringBuilder` is declared by exactly one of the two imported namespaces.
-    namespaceName := ""
-    assert probe.TryFindImportedExternalNamespace("StringBuilder", null, out namespaceName)
-    assert namespaceName == "System.Text"
+    // `StringBuilder` is declared by exactly one of the two imported namespaces, and the question is
+    // asked of each namespace on its own: that is what lets NL209's owner skip an import that merely
+    // names a lexical namespace, or the one a source declaration already claimed, and still walk the
+    // rest in import order.
+    assert probe.ImportedNamespaceDeclares("System.Text", "StringBuilder")
+    assert !probe.ImportedNamespaceDeclares("System", "StringBuilder")
 
-    // Skipping the namespace another channel already claimed is what makes a SECOND hit a genuine
-    // tie rather than the same answer twice.
-    assert !probe.TryFindImportedExternalNamespace("StringBuilder", "System.Text", out namespaceName)
+    // A name no imported namespace declares answers nothing, whatever the assemblies export — the
+    // exported-name scan is `ResolveExternalType`'s last step and is not behind this question.
+    assert !probe.ImportedNamespaceDeclares("System.Text", "XDocument")
+    assert !probe.ImportedNamespaceDeclares("System", "XDocument")
+}
 
-    // A name neither imported namespace declares answers nothing, whatever the assemblies export.
-    assert !probe.TryFindImportedExternalNamespace("XDocument", null, out namespaceName)
+test "a remembered miss is retried once another assembly is loaded" {
+    // The miss memo is what makes the NL209 sweep affordable, and its invalidation is the assembly
+    // COUNT: the analyzer's list only grows while a file's imports are processed, so a miss proved
+    // against a shorter list must not stand once a longer one could answer.
+    assemblies := new List<Assembly>()
+    probe := new AnalyzerExternalTypeProbe(assemblies, ProbeNamespaces(["System.Text"]))
+
+    assert !probe.ImportedNamespaceDeclares("System.Text", "StringBuilder")
+
+    for loaded in ProbeAssemblies() {
+        assemblies.Add(loaded)
+    }
+
+    assert probe.ImportedNamespaceDeclares("System.Text", "StringBuilder")
 }

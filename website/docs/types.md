@@ -381,8 +381,16 @@ class TaggedError: Exception {
 }
 ```
 
-Only `public` inherited members are in scope. A `protected` member of an external base is not
-reachable yet — hold an instance of the base, or expose what you need from a type you declare.
+A `protected` member of an external base is in scope too, which is what makes the extension points
+of types like `Collection<T>` usable: `this.SetItem(0, item)` and `base.ClearItems()` inside a
+`class Bag: Collection<string>` both compile, and `base.` emits a non-virtual call to the base
+implementation. The rule is C#'s (§7.5.4) — the receiver has to be your type or one derived from it,
+and `base.` is always allowed inside the deriving type.
+
+Two spellings of that surface are not compiled yet: a protected member named with **no receiver at
+all** (write `this.SetItem(...)` rather than a bare `SetItem(...)`), and a protected **field or
+property** READ (`this.Items`) — the inherited-member read path admits a narrower set of result
+types than the call path does, independently of accessibility. Both report NL103.
 
 ### Abstract Classes
 
@@ -1629,6 +1637,13 @@ Two rules the compiler enforces about the type-argument list itself:
   lambda's body) but does not EMIT yet. A generic FREE function with a delegate parameter is
   unaffected, and so is every generic method on an external type; write the type argument out
   (`Match<string>(...)`) or move the call into a free function.
+- A **nullable over a value type outside the modelled set** does not resolve at any declared
+  position. `T?` works for the integral and floating scalars, `bool`, `char`, `decimal`, `TimeSpan`,
+  an enum and a tuple; `DateTime?`, `Guid?` and a `T?` over **your own struct** report
+  [NL103](./errors/NL103.md) on the parameter, return or local that spells them. The lifted operators
+  above follow that set — the rule itself is general (it lifts any user-defined operator on a
+  non-nullable value type), so those types gain it as soon as the nullable itself resolves. Use the
+  non-nullable type with a separate presence flag, or a reference wrapper, until then.
 - **Null-conditional INDEXING** (`items?[0]`) is not compiled yet; `?.` on a member or a method is
   unaffected, and an explicit null check reads the element.
 - An argument that must be **boxed into an `object` parameter of a GENERIC function**
@@ -1676,6 +1691,16 @@ Two rules the compiler enforces about the type-argument list itself:
   (`Sink.Accept([1, "b", null])` where `Accept` takes both `int[]` and `object[]`). The emitter picks
   a same-arity candidate before it looks at the argument. A single candidate of that arity, and an
   overload set reached with a literal whose elements DO have a common type, are both unaffected.
+- A **bare `GetType()`** with no receiver at all reports [NL412](./errors/NL412.md): the members
+  `object` declares and your type inherits are reached through a receiver, not through the bare name.
+  `this.GetType()`, `other.GetType()` on a parameter or a local, and `(this as object).GetType()` all
+  work, on a `class` and on a `record`. Inside a **`struct`**'s own method the `this.` spelling is not
+  available for an inherited member either — take the value through a parameter or a local first.
+- **Tuple element NAMES do not survive an `IGrouping.Key` hop.** `xs.GroupBy(x => (x.Code, x.Line))`
+  emits and `group.Key.Item1` reads the element, but `group.Key.Code` does not: the names are
+  metadata the grouping's key type does not carry, and nothing at the call site writes them down.
+  Names DO survive a declared return type — `func Pairs(): List<(Code: string, Line: int)>` then
+  `pair.Code` — so hand the grouped keys to a function that declares them.
 - Overloaded **free functions** are not emitted: two `func Accept(...)` declarations at file scope
   with different parameter types stop the columnar backend at its declaration scan. Declare the
   overload set on a type instead. Two same-named free functions in DIFFERENT namespaces are not an
@@ -1753,8 +1778,78 @@ spellings swap the branches. When the operand crosses a `?.`, only the branch th
 non-null **and** the call answered true, so that branch narrows both `map` and `value`, while its
 other branch is a disjunction and proves neither.
 
-No other operator is lifted: `age + 1` on an `int?` is an error, and `must age + 1` or `(age ?? 0) + 1`
-is how it is written.
+### Lifted Operators
+
+The arithmetic (`+ - * / %`), bitwise (`& | ^`), shift (`<< >>`), comparison (`< > <= >=`) and unary
+(`- ~ !`, `++`, `--`) operators are all **lifted** over a nullable value type, following C# §12.4.8.
+Wherever the operator exists for `T`, it exists for `T?`, and one side may be the plain `T`.
+
+```n#
+age: int? = LoadAge()
+
+next := age + 1            // int?  — absent when `age` is absent
+doubled := age * 2         // int?
+mask := flags & 0xFF       // int?  — the bitwise family lifts too
+inverted := -age           // int?  — absent in, absent out
+```
+
+Two result shapes, because C# has two:
+
+- **Arithmetic, bitwise, shift and unary** answer the **lifted** type. `int? + int` is an `int?`, and
+  it is absent exactly when an operand was absent.
+- **An ordering comparison answers a plain `bool`.** `a < b` is **false** when either side is
+  absent — not absent — so the comparison is always decided. That also means `!(a < b)` is *not*
+  `a >= b` once either side can be absent: with an absent operand **both** are false.
+
+Only the *presence test* is lifted, never the arithmetic. Both operands are always evaluated, left
+before right — a lifted operator does not short-circuit — division by a **present** zero still throws
+`DivideByZeroException`, and a lifted `+` inside `checked(...)` still throws `OverflowException` on a
+present overflow. An absent operand answers before the arithmetic runs, so neither throws then.
+
+`++`, `--` and the compound forms read and write back the same `T?` storage: stepping an absent
+`int?` leaves it absent rather than making it `1`.
+
+```n#
+count: int? = LoadCount()
+count++                    // still absent if it was absent
+count += 5                 // int? — absent stays absent
+```
+
+User-defined operators lift the same way. `decimal?`, `TimeSpan?` and any other value type that
+declares `op_Addition`, `op_LessThan` or `op_Equality` gets the lifted form of each; a nullable enum
+lifts its bitwise operators through the underlying type and keeps the enum as the result.
+
+```n#
+elapsed: TimeSpan? = Measure()
+total := elapsed + TimeSpan.FromSeconds(1)   // TimeSpan?
+access: Access? = LoadAccess()
+combined := access | Access.Write            // Access?
+```
+
+#### Three-valued `bool?` logic
+
+`&` and `|` over `bool?` follow C# §12.14's three-valued table rather than the ordinary lift: an
+absent operand does **not** make the answer absent when the other operand already decides it.
+
+| `a` | `b` | `a & b` | `a \| b` |
+| --- | --- | --- | --- |
+| `true` | `true` | `true` | `true` |
+| `true` | `false` | `false` | `true` |
+| `true` | `null` | `null` | `true` |
+| `false` | `null` | `false` | `null` |
+| `null` | `null` | `null` | `null` |
+
+`^` has no such shortcut — an exclusive-or needs both values — so it is the ordinary lift.
+
+`&&` and `||` are **not** lifted, and C# refuses them over `bool?` for the same reason: a
+short-circuiting operator has to decide whether to evaluate its right side from the left side alone,
+and an absent left side cannot answer that. Say what an absent value means first — `ready == true`,
+`ready != false` or `ready ?? false` — or use the non-short-circuiting `&` and `|`, which evaluate
+both sides and answer from the table above.
+
+A bare `null` operand is **not** a lift: `null + 1` needs a `T?` *type*, and the null literal has
+none, so it stays an error. Nothing in the lifted family is constant-folded — `(age ?? 0) + 1`
+remains the way to say "treat absent as zero".
 
 ### Null-conditional Operator
 

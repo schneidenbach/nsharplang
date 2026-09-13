@@ -195,7 +195,7 @@ class Analyzer: IDisposable {
             Throwability,
             TerminatingCalls
         )
-        Ambient = new AnalyzerAmbientContext(Diagnostics, Spans, SoaEscape)
+        Ambient = new AnalyzerAmbientContext(Diagnostics, Spans, SoaEscape, DeclarationContext)
         LoopSequence = new AnalyzerLoopSequence(
             Diagnostics,
             Spans,
@@ -237,7 +237,8 @@ class Analyzer: IDisposable {
             Spans,
             TypeResolver,
             Ambient,
-            SoaEscape
+            SoaEscape,
+            DeclarationContext
         )
         TypeDeclarations = new AnalyzerTypeDeclarations(
             Diagnostics,
@@ -1923,7 +1924,22 @@ class Analyzer: IDisposable {
                 }
             }
             if kind == 2 {
-                DriveLambda(LambdaAnalysis.BeginLambda(step.Lambda, step.ExpectedType, step.ReportInferenceFailure, false))
+                // A LAMBDA HANDLER re-enters the lambda walk with the event's delegate type as its
+                // contextual target. ANY OTHER HANDLER is a delegate VALUE — `on widget.Clicked handler`
+                // — and is analysed as an ordinary expression against the same expected type; the
+                // assignability verdict is computed here, where its owner is, and the sentence is
+                // written by the `on` walk, where the other three things `on` can say are.
+                handlerLambda := step.Handler as LambdaExpression
+                if handlerLambda != null {
+                    DriveLambda(LambdaAnalysis.BeginLambda(handlerLambda, step.ExpectedType, step.ReportInferenceFailure, false))
+                } else {
+                    // The handler is analysed with the event's delegate type as its expected type and
+                    // NOTHING relaxed: the slot is an ordinary delegate position, so a bare method name
+                    // in it gets the same NL411 a delegate-typed parameter and a declared delegate local
+                    // give it, rather than a sentence only `on` knows how to say.
+                    handlerType := AnalyzeExpressionWithExpectedType(step.Handler, step.ExpectedType, false)
+                    LambdaAnalysis.ReportHandlerValueMismatch(step, handlerType, step.ExpectedType != null && Assignability.IsAssignable(step.ExpectedType, handlerType))
+                }
             }
             LambdaAnalysis.SupplyOnStep(state, answer)
             step = LambdaAnalysis.NextOnStep(state)

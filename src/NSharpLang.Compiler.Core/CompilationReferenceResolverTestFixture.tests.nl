@@ -126,14 +126,17 @@ func ResolverWriteAotProjectFixture(projectRoot: string, rootOutputType: string)
     )
     // THE SHARED SOURCE MUST BE A SHAPE THE COLUMNAR BACKEND DECLINES, because the failure this
     // fixture exists to produce is the AOT path's "requires successful N# columnar emission". It used
-    // to be a `foreach` over a `string`, which the backend now emits as an index loop, and then
-    // assigning to a struct's own field from its own method, which emits since the call site loads an
-    // addressable receiver by address; a bare STATIC FIELD as a call receiver is the shape that
-    // declines today. When that one lands, replace it with another declining shape rather than
+    // to be a `foreach` over a `string`, which the backend now emits as an index loop, then assigning
+    // to a struct's own field from its own method, which emits since the call site loads an
+    // addressable receiver by address, and then a bare STATIC FIELD as a call receiver, which emits
+    // since a static member of the enclosing type is a value binding; an `await foreach` INSIDE a
+    // generator body is the shape that declines today, because releasing the inner enumerator on the
+    // exception and abandon paths needs an `await` in a handler position that the async rewriter does
+    // not lower yet. When that one lands, replace it with another declining shape rather than
     // deleting this fixture.
     ResolverWrite(
         Path.Combine(sharedDir, "Shared.nl"),
-        "import System.Collections.Generic\n\nclass Registry {\n    static readonly Entries: List<string> = new List<string>()\n\n    static func Record(name: string) {\n        Entries.Add(name)\n    }\n}"
+        "import System.Collections.Generic\n\nasync func* Relay(source: IAsyncEnumerable<string>): IAsyncEnumerable<string> {\n    await foreach name in source {\n        yield name\n    }\n}"
     )
     ResolverWrite(
         Path.Combine(projectRoot, "project.yml"),

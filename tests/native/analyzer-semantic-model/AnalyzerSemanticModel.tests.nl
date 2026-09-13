@@ -2255,32 +2255,32 @@ test "020 s27 analyzer semantic model: a `using` over a type with a parameterles
 }
 
 // WHAT THIS ADDS: The deleted method matched a 47-character prefix of the message. The whole row is pinned instead — and pinning it beside the next contract's row is what shows the two are the SAME SENTENCE, which no substring match could state.
-test "020 s27 analyzer semantic model: a `using` over a type whose three `Dispose`-ish members all fail the pattern is ONE `NL103` at 15:5, and its message is the SAME SENTENCE the non-void case reports (was AnalyzerSemanticModelTests.Analyzer_NominalTypes_InvalidUsingDisposePatternUsesTypeInfoDeclaredMembers)" {
+test "020 s27 analyzer semantic model: a `using` over a type whose three `Dispose`-ish members all fail the pattern is ONE `NL333` on the RESOURCE at 15:23, and its message is the SAME SENTENCE the non-void case reports (was AnalyzerSemanticModelTests.Analyzer_NominalTypes_InvalidUsingDisposePatternUsesTypeInfoDeclaredMembers)" {
     source := "\nclass Resource {\n    static func Dispose(): void {\n    }\n\n    func Dispose(value: int): void {\n    }\n\n    func DisposeText(): string {\n        return \"no\"\n    }\n}\n\nfunc Main() {\n    using resource := new Resource() {\n    }\n}"
     assert source.Length == 225
     assert SmParseCensus(source) == ""
     analysis := SmAnalyze(source)
-    assert SmCensus(analysis) == "NL103:InvalidSyntax@15:5+8;"
+    assert SmCensus(analysis) == "NL333:ResourceNotDisposable@15:23+3;"
     assert SmHasErrors(analysis) == "True"
     assert SmErrorCount(analysis) == 1
-    assert SmRow(analysis, 0) == "InvalidSyntax|Using resource of type 'Resource' must implement IDisposable or provide Dispose(): void|Use a resource type with a parameterless void Dispose method, or remove the using statement.|Error"
-    assert SmCodeCount(analysis, "InvalidSyntax") == 1
+    assert SmRow(analysis, 0) == "ResourceNotDisposable|A 'Resource' is not a resource 'using' can release|Make `Resource` implement `IDisposable`, give it a parameterless `Dispose` member, or drop the `using` and let the value fall out of scope like any other.|Error"
+    assert SmCodeCount(analysis, "ResourceNotDisposable") == 1
     assert SmModelIsNull(analysis) == "no"
     model := SmModel(analysis)
     assert SmTypeRuntimes(model) == "Resource=ClassTypeInfo;"
 }
 
 // WHAT THIS ADDS: The pair with the previous contract is the content: a type with three wrong `Dispose` members and a type with one wrong `Dispose` member get a message that is equal byte for byte, including the suggestion. Only the position differs.
-test "020 s27 analyzer semantic model: a `using` over a type whose `Dispose` returns `int` reports that same `NL103` sentence BYTE FOR BYTE, at 9:5 — the two rejections are indistinguishable except by position (was AnalyzerSemanticModelTests.Analyzer_NominalTypes_NonVoidUsingDisposePatternUsesTypeInfoDeclaredMembers)" {
+test "020 s27 analyzer semantic model: a `using` over a type whose `Dispose` returns `int` reports that same `NL333` sentence BYTE FOR BYTE, at 9:23 — the two rejections are indistinguishable except by position (was AnalyzerSemanticModelTests.Analyzer_NominalTypes_NonVoidUsingDisposePatternUsesTypeInfoDeclaredMembers)" {
     source := "\nclass Resource {\n    func Dispose(): int {\n        return 0\n    }\n}\n\nfunc Main() {\n    using resource := new Resource() {\n    }\n}"
     assert source.Length == 130
     assert SmParseCensus(source) == ""
     analysis := SmAnalyze(source)
-    assert SmCensus(analysis) == "NL103:InvalidSyntax@9:5+8;"
+    assert SmCensus(analysis) == "NL333:ResourceNotDisposable@9:23+3;"
     assert SmHasErrors(analysis) == "True"
     assert SmErrorCount(analysis) == 1
-    assert SmRow(analysis, 0) == "InvalidSyntax|Using resource of type 'Resource' must implement IDisposable or provide Dispose(): void|Use a resource type with a parameterless void Dispose method, or remove the using statement.|Error"
-    assert SmCodeCount(analysis, "InvalidSyntax") == 1
+    assert SmRow(analysis, 0) == "ResourceNotDisposable|A 'Resource' is not a resource 'using' can release|Make `Resource` implement `IDisposable`, give it a parameterless `Dispose` member, or drop the `using` and let the value fall out of scope like any other.|Error"
+    assert SmCodeCount(analysis, "ResourceNotDisposable") == 1
     assert SmModelIsNull(analysis) == "no"
     model := SmModel(analysis)
     assert SmTypeRuntimes(model) == "Resource=ClassTypeInfo;"

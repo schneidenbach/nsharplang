@@ -290,6 +290,16 @@ class ColumnarParserRecovery {
     // counts and why the compiler refuses to go past it.
     ExpressionNestingDepth: int
 
+    // THE ONE TOKEN A `{` MAY NOT BE READ AS AN OBJECT INITIALIZER AT — the index of the brace that
+    // opens a `using` statement's BODY. `using r := new Res() { … }` is the shape the ambiguity lives
+    // in: `new Res() { … }` is also a legal object initializer, so the same `{` could close the
+    // resource or open the body. The rule is the one Go and C# reach for — the first `{` at
+    // paren/bracket depth zero after the resource belongs to the STATEMENT, and an initializer in that
+    // position must be parenthesised — and it is enforced by TOKEN INDEX rather than by a mode flag so
+    // that nesting needs no bookkeeping: a `{` anywhere inside the expression sits at a different
+    // index and is therefore untouched by construction. -1 when no `using` header is being parsed.
+    UsingBodyBraceIndex: int
+
     constructor(source: string, fileName: string?) {
         Source = source
         FileName = fileName
@@ -301,6 +311,7 @@ class ColumnarParserRecovery {
         ScanPosition = 0
         ScanSplit = 0
         ExpressionNestingDepth = 0
+        UsingBodyBraceIndex = -1
         Errors = new List<CompilerError>()
         NamespaceNode = null
         ImportNodes = new List<ImportDirective>()
@@ -4568,6 +4579,10 @@ class ColumnarParserRecovery {
         if Check(TokenType.Await) && LookAhead(1).Type == TokenType.Foreach {
             return ParseAwaitForeachStatement()
         }
+        // `await using` — the asynchronous resource release, dispatched on the same two-token shape.
+        if Check(TokenType.Await) && LookAhead(1).Type == TokenType.Using {
+            return ParseUsingStatement(true)
+        }
         if Check(TokenType.While) {
             return ParseWhileStatement()
         }
@@ -4590,7 +4605,7 @@ class ColumnarParserRecovery {
             return ParseTryStatement()
         }
         if Check(TokenType.Using) {
-            return ParseUsingStatement()
+            return ParseUsingStatement(false)
         }
         if Check(TokenType.Lock) {
             return ParseLockStatement()
@@ -5385,9 +5400,20 @@ class ColumnarParserRecovery {
         return new TryStatement(tryBlock, catchClauses, finallyBlock, line, column)
     }
 
-    // ---- using (Parser.cs ParseUsingStatement :3048) ----
-    // `using let x := e { … }` / `using x := e { … }` / `using (e) { … }` / `using e { … }`. A
-    // `using let (a, b) := …` tuple-deconstruction gets the InvalidSyntax NL103 anchored on the
+    // ---- using / await using (Parser.cs ParseUsingStatement :3048) ----
+    // FIVE written forms, one node. `using x := e { … }`, `using x: T := e { … }` and
+    // `using let x := e { … }` BIND the resource; `using e { … }` does not; and every BINDING form may
+    // omit the block, which is the using DECLARATION (C# 8's `using var x = e;`): its guarded region
+    // is the remainder of the ENCLOSING block, in reverse declaration order, and the node records it
+    // by carrying a null `Body`. `await using` (the Await 69 + Using 16 two-token dispatch, dispatched
+    // like `await foreach`) releases through `IAsyncDisposable.DisposeAsync()` instead.
+    //
+    // WHICH FORM IS WRITTEN IS DECIDED BEFORE ANY OF IT IS PARSED, from two tokens — see
+    // `IsUsingDeclarationForm`. The unbound form's block is REQUIRED, exactly as C# requires one
+    // around `using (e)`: a resource nobody named and nobody scoped would be disposed at a point the
+    // reader cannot see.
+    //
+    // A `using let (a, b) := …` tuple-deconstruction gets the InvalidSyntax NL103 anchored on the
     // single-line `(…)` pattern span.
     // Stage N+1c tranche 10: `new UsingStatement(decl, null, body, line, column)` (Parser.cs :3121) for the
     // declaration forms, `new UsingStatement(null, invalidUsingExpression, body, …)` (:3119) for the
@@ -5395,13 +5421,29 @@ class ColumnarParserRecovery {
     // `new UsingStatement(null, expr, usingBody, …)` (:3136) for the bare-resource form. The `let` arm's
     // `stmt as VariableDeclarationStatement` decision is reproduced through VariableDeclarationWasTuple
     // (read IMMEDIATELY after the call) so it stays correct even when the node itself declines.
-    func ParseUsingStatement(): Statement? {
+    func ParseUsingStatement(isAsync: bool): Statement? {
+        anchorToken := Current()
+        line := anchorToken.Line
+        column := anchorToken.Column
+        if isAsync {
+            Advance()
+        }
+        // consume 'await'
+
         usingToken := Current()
-        line := usingToken.Line
-        column := usingToken.Column
         Advance()
         // consume 'using'
-        if Check(TokenType.Identifier) || Check(TokenType.Let) {
+        // The body brace is located BEFORE the resource is parsed, because suppressing the object
+        // initializer is a decision about ONE token and the expression parser has to be told which.
+        previousBodyBrace := UsingBodyBraceIndex
+        UsingBodyBraceIndex = IndexOfUsingBodyBrace()
+        statement := ParseUsingResource(usingToken, line, column, isAsync)
+        UsingBodyBraceIndex = previousBodyBrace
+        return statement
+    }
+
+    func ParseUsingResource(usingToken: Token, line: int, column: int, isAsync: bool): Statement? {
+        if IsUsingDeclarationForm() {
             declaration: VariableDeclarationStatement? = null
             invalidUsingExpression: Expression? = null
             declined := false
@@ -5432,14 +5474,34 @@ class ColumnarParserRecovery {
                 }
             } else {
                 variableName := ConsumeIdentifier("Expected variable name")
-                initializerToken := ConsumeToken(TokenType.ColonAssign, "Expected ':='", "colonassign")
+                // The optional annotation `using x: T := e`. It is parsed HERE rather than deferred to
+                // the variable-declaration parser because this arm never consumed a `let` keyword and so
+                // never entered that parser at all.
+                declaredType: TypeReference? = null
+                if Check(TokenType.Colon) {
+                    Advance()
+                    declaredType = ParseMaterializedTypeReference()
+                    if declaredType == null {
+                        declined = true
+                    }
+                }
+                // AN ANNOTATED BINDING ACCEPTS EITHER OPERATOR, exactly as an ordinary annotated
+                // declaration does: `x: T = e` is how N# spells a written type, and `x: T := e` is
+                // the spelling the `using` form was introduced with. The UNANNOTATED form still
+                // requires `:=`, so the missing-operator diagnostic that names it stays put.
+                initializerToken := Current()
+                if declaredType != null && Check(TokenType.Assign) {
+                    Advance()
+                } else {
+                    initializerToken = ConsumeToken(TokenType.ColonAssign, "Expected ':='", "colonassign")
+                }
                 initializer := ParseRequiredExpressionAfter(initializerToken, "an initializer expression", "This using declaration", null)
                 // Parser.cs :3109 anchors this synthesized declaration on the USING keyword's line/column.
                 // Parser.cs :3109 keeps an `<error>` variable name verbatim.
                 if initializer == null {
                     declined = true
-                } else {
-                    declaration = new VariableDeclarationStatement(variableName, null, initializer, VariableKind.Let, line, column)
+                } else if !declined {
+                    declaration = new VariableDeclarationStatement(variableName, declaredType, initializer, VariableKind.Let, usingToken.Line, usingToken.Column)
                 }
             }
             declarationBody: Statement? = null
@@ -5453,9 +5515,9 @@ class ColumnarParserRecovery {
                 return null
             }
             if wasTupleForm {
-                return new UsingStatement(null, invalidUsingExpression, declarationBody, line, column)
+                return new UsingStatement(null, invalidUsingExpression, declarationBody, line, column, isAsync)
             }
-            return new UsingStatement(declaration, null, declarationBody, line, column)
+            return new UsingStatement(declaration, null, declarationBody, line, column, isAsync)
         }
         resource := ParseRequiredExpressionAfter(usingToken, "a resource expression", "This using statement", null)
         usingBody: Statement? = null
@@ -5463,11 +5525,81 @@ class ColumnarParserRecovery {
         if Check(TokenType.LeftBrace) {
             usingBody = ParseBlock(SpanFromToken(usingToken))
             bodyDeclined = usingBody == null
+        } else {
+            ReportUnboundUsingRequiresBlock(usingToken)
+            bodyDeclined = true
         }
         if resource == null || bodyDeclined {
             return null
         }
-        return new UsingStatement(null, resource, usingBody, line, column)
+        return new UsingStatement(null, resource, usingBody, line, column, isAsync)
+    }
+
+    // WHICH `using` FORM IS WRITTEN, from two tokens and nothing else. `let` is unambiguous. A bare
+    // identifier BINDS when the next token declares (`:=`) or annotates (`:`) — and also when it is
+    // another identifier, which is the `using r open()` slip: taking the declaration arm there is what
+    // makes the parser say "Expected ':='" at the offending token instead of inventing a resource
+    // expression the author never wrote. Every other continuation (`.`, `(`, `[`, an operator, `{`) is
+    // a resource EXPRESSION, so `using r { … }`, `using a.B() { … }` and `using Open(path) { … }` all
+    // reach the unbound arm.
+    func IsUsingDeclarationForm(): bool {
+        if Check(TokenType.Let) {
+            return true
+        }
+        if !Check(TokenType.Identifier) {
+            return false
+        }
+        next := LookAhead(1).Type
+        return next == TokenType.ColonAssign || next == TokenType.Colon || next == TokenType.Identifier
+    }
+
+    // THE INDEX OF THE `{` THAT OPENS A `using` BODY, or -1 when the statement has none (the using
+    // DECLARATION form). Braces nest INTO the depth count, so only a brace the resource expression
+    // could actually have swallowed is ever returned; a `)`, `]` or `}` that closes something this
+    // statement never opened ends the scan, because the statement cannot reach past its own enclosing
+    // block.
+    func IndexOfUsingBodyBrace(): int {
+        depth := 0
+        index := Position
+        while index < Tokens.Count {
+            tokenType := Tokens[index].Type
+            if tokenType == TokenType.LeftParen || tokenType == TokenType.LeftBracket {
+                depth = depth + 1
+            } else if tokenType == TokenType.LeftBrace {
+                if depth == 0 {
+                    return index
+                }
+                depth = depth + 1
+            } else if tokenType == TokenType.RightParen || tokenType == TokenType.RightBracket || tokenType == TokenType.RightBrace {
+                if depth == 0 {
+                    return -1
+                }
+                depth = depth - 1
+            } else if tokenType == TokenType.Eof {
+                return -1
+            }
+            index = index + 1
+        }
+        return -1
+    }
+
+    // Whether the `{` under the cursor opens an object / collection initializer. It always does,
+    // except at the one token `UsingBodyBraceIndex` names.
+    func BraceOpensInitializer(): bool {
+        if !Check(TokenType.LeftBrace) {
+            return false
+        }
+        return Position != UsingBodyBraceIndex
+    }
+
+    // NL102 ON A `using e` THAT NEVER OPENED A BLOCK. The unbound form is the only one whose block is
+    // mandatory, so the suggestions name both ways out: give the resource a name, or give it a body.
+    func ReportUnboundUsingRequiresBlock(usingToken: Token) {
+        suggestions := new List<string>()
+        suggestions.Add("Add a block: using <resource> { ... }")
+        suggestions.Add("Or bind the resource: using r := <resource>")
+        span := SpanFromToken(usingToken)
+        Report(ErrorCode.ExpectedToken, "Expected '{' after the using resource. Got '" + Current().Value + "'", span.Line, span.Column, "A 'using' that does not name its resource disposes it at the end of a block, so it needs one.", "Write `using <resource> { ... }`, or bind the resource with `using r := <resource>` to dispose it at the end of the enclosing block.", suggestions, span.Length)
     }
 
     func ReportUsingRequiresVariableDeclaration(span: RecoverySpan) {
@@ -5996,7 +6128,7 @@ class ColumnarParserRecovery {
     // `on target.Event (sender, args) => { … }`. Reached as the highest-precedence expression prefix
     // (ParseExprValue), so it works both as a bare statement and composed with `:=`. The event target
     // is a member/index chain that deliberately STOPS before a `(` (so the handler's parameter list is
-    // not swallowed as a call); the handler must be a lambda, else the InvalidSyntax NL103 fires.
+    // not swallowed as a call); the handler is any expression of the event's delegate type.
     func IsOnSubscriptionStart(): bool {
         if Current().Type != TokenType.Identifier || Current().Value != "on" {
             return false
@@ -6005,10 +6137,18 @@ class ColumnarParserRecovery {
         return next == TokenType.Identifier || next == TokenType.This || next == TokenType.Base
     }
 
-    // Stage N+1c tranche 10: `new OnSubscriptionExpression(target, handler, line, column)` (Parser.cs
-    // :2917) — reachable now that the BLOCK-bodied lambda materializes. Tranche 11 adds the RECOVERY arm
-    // (:2930): when the handler is not a lambda, Parser.cs substitutes a SYNTHETIC empty-parameter lambda
-    // over an EMPTY BlockStatement, both anchored on the PARSED handler expression's own Line/Column.
+    // `on <target> <handler>` -> `new OnSubscriptionExpression(target, handler, line, column)`.
+    //
+    // THE HANDLER IS ANY EXPRESSION OF THE EVENT'S DELEGATE TYPE. It was once required to be a LAMBDA
+    // at parse time, which made `on widget.Clicked handler` — the shape C#'s `x.E += handler` maps
+    // onto — a syntax error over a program that is perfectly well typed. Whether the handler FITS the
+    // event is a question about types, and the analyzer answers it at the handler's own position with
+    // the delegate type named.
+    //
+    // WHAT THE PARSER STILL OWNS IS THE HANDLER'S PRESENCE, and the rule is the one the rest of the
+    // language uses: a statement ends at a newline, so the handler must BEGIN ON THE EVENT'S OWN LINE.
+    // Without it `on widget.Clicked` followed by any statement would silently swallow that statement
+    // as the handler instead of reporting the missing one.
     func ParseOnSubscription(): ExprResult {
         onLine := Current().Line
         onColumn := Current().Column
@@ -6016,35 +6156,24 @@ class ColumnarParserRecovery {
         // consume contextual 'on'
         target := ParseEventTarget()
 
-        // The handler position + whether it is a lambda (Parser.cs parses then checks
-        // `is LambdaExpression`; a lambda is exactly one of the two ParseExprValue lambda prefixes).
+        onResult := new ExprResult(new RecoverySpan(onLine, onColumn, 1), false)
+        if Current().Line != Previous().Line {
+            ReportExpectedEventHandler(Current().Line, Current().Column)
+            return onResult
+        }
+
         handlerLine := Current().Line
         handlerColumn := Current().Column
-        handlerIsLambda := IsLambdaExpression() || (Check(TokenType.Identifier) && LookAhead(1).Type == TokenType.Arrow)
         handlerNode := ParseExprValue().Node
-        // the handler (ParseLambdaOrAssignmentExpression)
-        if !handlerIsLambda {
-            // Parser.cs anchors this report on the PARSED handler expression's OWN Line/Column
-            // (:2926-2929), which is not the handler's first token for every node shape — a binary
-            // expression, for instance, anchors on its OPERATOR. Fall back to the pre-parse token
-            // position only when nothing materialized.
-            if handlerNode != null {
-                ReportExpectedEventHandlerLambda(handlerNode.Line, handlerNode.Column)
-            } else {
-                ReportExpectedEventHandlerLambda(handlerLine, handlerColumn)
-            }
+        if handlerNode == null {
+            ReportExpectedEventHandler(handlerLine, handlerColumn)
+            return onResult
         }
-        onResult := new ExprResult(new RecoverySpan(onLine, onColumn, 1), false)
-        handlerLambda := handlerNode as LambdaExpression
-        if handlerIsLambda && target != null && handlerLambda != null {
-            onResult.Node = new OnSubscriptionExpression(target, handlerLambda, onLine, onColumn)
-        } else {
-            if !handlerIsLambda && target != null && handlerNode != null {
-                recoveryBody := new BlockStatement(new List<Statement>(), handlerNode.Line, handlerNode.Column)
-                recoveryHandler := new LambdaExpression(new List<Parameter>(), null, recoveryBody, handlerNode.Line, handlerNode.Column)
-                onResult.Node = new OnSubscriptionExpression(target, recoveryHandler, onLine, onColumn)
-            }
+
+        if target != null {
+            onResult.Node = new OnSubscriptionExpression(target, handlerNode, onLine, onColumn)
         }
+
         return onResult
     }
 
@@ -6088,8 +6217,11 @@ class ColumnarParserRecovery {
         return target
     }
 
-    func ReportExpectedEventHandlerLambda(handlerLine: int, handlerColumn: int) {
-        Report(ErrorCode.InvalidSyntax, "Expected an event handler lambda after the event", handlerLine, handlerColumn, "`on` subscribes a handler to a .NET event, so it needs a lambda to run when the event fires.", "Write the handler inline, e.g. `on widget.Clicked (sender, args) => { ... }`.", null, 1)
+    func ReportExpectedEventHandler(handlerLine: int, handlerColumn: int) {
+        suggestions := new List<string>()
+        suggestions.Add("Write the handler inline: on widget.Clicked (sender, args) => { ... }")
+        suggestions.Add("Pass a delegate you already hold: on widget.Clicked handler")
+        Report(ErrorCode.InvalidSyntax, "Expected an event handler after the event", handlerLine, handlerColumn, "`on` subscribes a handler to a .NET event, so it needs something to run when the event fires - a lambda, or any expression of the event's delegate type.", "Write the handler on the same line as the event, either inline or as a delegate value.", suggestions, 1)
     }
 
     // ---- expression statement (Parser.cs ParseExpressionStatement :3498) ----
@@ -8523,7 +8655,7 @@ class ColumnarParserRecovery {
                 constructorArguments = targetTypedArguments
             }
         } else {
-            if Check(TokenType.LeftBrace) {
+            if BraceOpensInitializer() {
             } else {
                 // Target-typed new with initializer only: `new { … }` (Parser.cs :5226) — parsed below.
 
@@ -8565,7 +8697,7 @@ class ColumnarParserRecovery {
                     sizedBraceLine := line
                     sizedBraceColumn := column
                     sizedBraceEndLine := line
-                    if Check(TokenType.LeftBrace) {
+                    if BraceOpensInitializer() {
                         hasSizedInitializer = true
                         sizedBraceToken := Current()
                         sizedBraceLine = sizedBraceToken.Line
@@ -8623,7 +8755,7 @@ class ColumnarParserRecovery {
         initializerBraceLine := line
         initializerBraceColumn := column
         initializerBraceEndLine := line
-        if Check(TokenType.LeftBrace) {
+        if BraceOpensInitializer() {
             hasInitializer = true
             // Anchored on the `{`, not on `new` — see the sized-array note above.
             initializerBraceToken := Current()

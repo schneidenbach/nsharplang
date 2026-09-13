@@ -487,6 +487,11 @@ class AnalyzerOperatorExpressions {
 
     func PlainOperatorResult(left: TypeInfo, right: TypeInfo, binaryNode: BinaryExpression): TypeInfo {
         op := binaryNode.Operator
+        liftedResult: TypeInfo = BuiltInTypes.Unknown
+        if TryLiftedBinaryResult(op, left, right, out liftedResult) {
+            return liftedResult
+        }
+
         if IsArithmetic(op) {
             return ArithmeticResult(left, right, binaryNode)
         }
@@ -521,6 +526,11 @@ class AnalyzerOperatorExpressions {
     // moved yet.
     func CompoundAssignmentOperatorResult(binaryOperator: BinaryOperator, targetType: TypeInfo, valueType: TypeInfo, operatorExpression: BinaryExpression): TypeInfo {
         if binaryOperator == BinaryOperator.Add || binaryOperator == BinaryOperator.Subtract || binaryOperator == BinaryOperator.Multiply || binaryOperator == BinaryOperator.Divide {
+            liftedCompound: TypeInfo = BuiltInTypes.Unknown
+            if TryLiftedBinaryResult(binaryOperator, targetType, valueType, out liftedCompound) {
+                return liftedCompound
+            }
+
             return ArithmeticResult(targetType, valueType, operatorExpression)
         }
 
@@ -878,10 +888,33 @@ class AnalyzerOperatorExpressions {
             span := spansValue.GetBinaryOperandDiagnosticSpan(expression, leftIsWrong, rightIsWrong)
             opText := OperatorFacts.GetBinaryText(expression.Operator)
             sideText := SideText(left, right, leftIsWrong, rightIsWrong)
-            diagnosticsValue.Report(ErrorCode.TypeMismatch, "Both sides of '" + opText + "' must be booleans, but " + sideText, span.Line, span.Column, "Use boolean expressions on both sides of the operator.", span.Length)
+            if IsLiftedBoolOperand(left) || IsLiftedBoolOperand(right) {
+                diagnosticsValue.Report(ErrorCode.TypeMismatch, "Both sides of '" + opText + "' must be booleans, but " + sideText + " — a 'bool?' can be absent, and '" + opText + "' has to decide whether to evaluate its right side before it knows", span.Line, span.Column, "Say what an absent value means first: 'x == true' is true only when the value is present and true, 'x != false' also accepts an absent one, and 'x ?? false' supplies a default. The non-short-circuiting '" + BitwiseCounterpartText(expression.Operator) + "' does work on 'bool?' and answers the three-valued result.", span.Length)
+            } else {
+                diagnosticsValue.Report(ErrorCode.TypeMismatch, "Both sides of '" + opText + "' must be booleans, but " + sideText, span.Line, span.Column, "Use boolean expressions on both sides of the operator.", span.Length)
+            }
         }
 
         return BuiltInTypes.Bool
+    }
+
+    // `bool? && bool?` IS REFUSED, AND IT IS REFUSED FOR A REASON THAT CAN BE SAID OUT LOUD. C#
+    // refuses it too (§12.14 defines `&` and `|` over `bool?` and NOT the conditional forms): a
+    // short-circuiting operator has to decide whether to evaluate its right side from the LEFT side
+    // alone, and an absent left side cannot answer that question. The non-short-circuiting `&` and
+    // `|` can, because they evaluate both sides and then consult the three-valued table, so the
+    // suggestion names them alongside the three ways to say what an absent value means.
+    func IsLiftedBoolOperand(candidate: TypeInfo): bool {
+        unwrapped := UnwrapLiftedValueOperand(candidate)
+        return unwrapped != null && IsBoolLikeType(unwrapped)
+    }
+
+    static func BitwiseCounterpartText(op: BinaryOperator): string {
+        if op == BinaryOperator.Or {
+            return "|"
+        }
+
+        return "&"
     }
 
     // THE MUTATING UNARY'S ENTRY, AND IT ASKS SIX QUESTIONS BEFORE THE OPERAND IS WALKED AT ALL.
@@ -980,12 +1013,21 @@ class AnalyzerOperatorExpressions {
             return null
         }
 
+        if writeTargetsValue.ReportUsingResourceWriteIfNeeded(operand, "changed with '" + UnarySymbolText(unaryNode.Operator) + "'") {
+            return null
+        }
+
         state.ResultType = UnaryOperatorResult(state.OperandType, unaryNode)
         return null
     }
 
     func UnaryOperatorResult(operandType: TypeInfo, unaryNode: UnaryExpression): TypeInfo {
         op := unaryNode.Operator
+        liftedResult: TypeInfo = BuiltInTypes.Unknown
+        if TryLiftedUnaryResult(op, operandType, out liftedResult) {
+            return liftedResult
+        }
+
         if op == UnaryOperator.Negate {
             return NegationResult(operandType, unaryNode)
         }
@@ -1954,6 +1996,231 @@ class AnalyzerOperatorExpressions {
         return inner
     }
 
+    // C# §12.4.8'S LIFTED FORM OF EVERY BINARY OPERATOR THIS OWNER ALREADY ADMITS, and it is ONE
+    // rule rather than one per family: unwrap whichever operands are a `T?` over a non-nullable VALUE
+    // type, ask the UNLIFTED question of what is left, and wrap the answer back up.
+    //
+    // TWO RESULT SHAPES, BECAUSE C# HAS TWO. An ARITHMETIC, BITWISE or SHIFT answer is lifted --
+    // `int? + int` is `int?`, absent exactly when an operand was absent -- while a COMPARISON is a
+    // plain `bool`. The two comparison families reach that `bool` differently and both are right:
+    // `x < y` is FALSE when either side is absent, so an ordering is always decided and nothing
+    // downstream may narrow out of it, while two ABSENT values are EQUAL. EQUALITY's primitive,
+    // enum and record-struct half is `CanCompareLiftedEquality`'s and is answered after this rule
+    // declines; what this rule answers for equality is only its USER-DEFINED half, the `op_Equality`
+    // an element type declares (`decimal? == decimal`), which that rule cannot see.
+    //
+    // IT CAN NEVER ADMIT A PAIR THE UNLIFTED RULE REFUSES, because the unlifted question is asked by
+    // a PURE reader that reports nothing and answers null for every pair its reporting twin would
+    // have complained about. A refusal therefore falls through to the ordinary arm, which states the
+    // problem in the types the programmer WROTE -- `int? + string` is still about `'int?'`.
+    //
+    // BOTH OPERANDS MUST BE DEFINITELY NON-NULLABLE VALUE TYPES ONCE UNWRAPPED, which is C#'s own
+    // requirement on a lifted form. A bare type parameter, a constructed generic and a reference
+    // annotation all answer false to that question and are left to the rules that own them.
+    func TryLiftedBinaryResult(op: BinaryOperator, left: TypeInfo, right: TypeInfo, out result: TypeInfo): bool {
+        result = BuiltInTypes.Unknown
+        if !IsArithmetic(op) && !IsBitwise(op) && !IsShift(op) && !IsRelational(op) && !IsEquality(op) {
+            return false
+        }
+
+        unwrappedLeft := UnwrapLiftedValueOperand(left)
+        unwrappedRight := UnwrapLiftedValueOperand(right)
+        if unwrappedLeft == null && unwrappedRight == null {
+            return false
+        }
+
+        liftedLeft := unwrappedLeft ?? declarationsValue.ResolveDeclaredAlias(left)
+        liftedRight := unwrappedRight ?? declarationsValue.ResolveDeclaredAlias(right)
+        if !AnalyzerConversionFacts.IsDefinitelyNonNullableValueType(liftedLeft) || !AnalyzerConversionFacts.IsDefinitelyNonNullableValueType(liftedRight) {
+            return false
+        }
+
+        elementResult := UnliftedBinaryResultOrNull(op, liftedLeft, liftedRight)
+        if elementResult == null {
+            return false
+        }
+
+        if IsRelational(op) || IsEquality(op) {
+            return LiftedComparisonResult(elementResult, out result)
+        }
+
+        if !AnalyzerConversionFacts.IsDefinitelyNonNullableValueType(elementResult) {
+            return false
+        }
+
+        result = new NullableTypeInfo(elementResult)
+        return true
+    }
+
+    // A LIFTED COMPARISON IS A `bool`, AND ONLY A `bool`. An operator overload that answered
+    // something else was already refused by the unlifted reader, so the only answer that reaches
+    // here is the one the comparison families produce.
+    func LiftedComparisonResult(elementResult: TypeInfo, out result: TypeInfo): bool {
+        result = BuiltInTypes.Unknown
+        if !BuiltInTypes.Is(elementResult, BuiltInTypes.Bool) {
+            return false
+        }
+
+        result = BuiltInTypes.Bool
+        return true
+    }
+
+    // THE UNLIFTED QUESTION, ASKED WITHOUT REPORTING ANYTHING. Each arm is the DECIDING half of the
+    // matching `*Result` rule with its diagnostics removed and in the same order: arithmetic promotes
+    // and only then looks for an overload, bitwise reads its three domains (two booleans, the same
+    // flags enum, two integrals), a shift is the UNARY promotion of its left operand alone, and a
+    // comparison consults its overload FIRST and falls back to the primitive relational domain.
+    //
+    // IT IS A READER, NOT A SECOND RULE. Anything it answers null for is reported by the reporting
+    // twin in terms of the written types, so the two can never disagree about what is legal.
+    func UnliftedBinaryResultOrNull(op: BinaryOperator, left: TypeInfo, right: TypeInfo): TypeInfo? {
+        overloadResult: TypeInfo = BuiltInTypes.Unknown
+
+        if IsArithmetic(op) {
+            if IsNumericType(left) && IsNumericType(right) {
+                return WiderType(left, right)
+            }
+
+            if TryResolveBinaryOperatorOverload(op, left, right, out overloadResult) {
+                return overloadResult
+            }
+
+            return null
+        }
+
+        if IsBitwise(op) {
+            if BuiltInTypes.Is(left, BuiltInTypes.Bool) && BuiltInTypes.Is(right, BuiltInTypes.Bool) {
+                return BuiltInTypes.Bool
+            }
+
+            if IsSameBitwiseEnumType(left, right) {
+                return left
+            }
+
+            if IsIntegralType(left) && IsIntegralType(right) {
+                return WiderType(left, right)
+            }
+
+            if TryResolveBinaryOperatorOverload(op, left, right, out overloadResult) {
+                return overloadResult
+            }
+
+            return null
+        }
+
+        if IsShift(op) {
+            if IsIntegralType(left) && IsIntegralType(right) {
+                return UnaryNumericPromotionType(left)
+            }
+
+            if TryResolveBinaryOperatorOverload(op, left, right, out overloadResult) {
+                return overloadResult
+            }
+
+            return null
+        }
+
+        // EQUALITY'S LIFTED FORM IS ONLY ITS OPERATOR-OVERLOAD HALF. The PRIMITIVE, enum and
+        // record-struct halves are `CanCompareLiftedEquality`'s, and it answers them before this
+        // reader is ever asked; what it cannot answer is a user-defined `op_Equality` on an
+        // element type -- which is why `decimal? == decimal` and `TimeSpan? == TimeSpan` needed a
+        // door of their own. Anything with no overload declines and falls back to that rule.
+        if IsEquality(op) {
+            if TryResolveBinaryOperatorOverload(op, left, right, out overloadResult) && assignabilityValue.IsAssignable(BuiltInTypes.Bool, overloadResult) {
+                return BuiltInTypes.Bool
+            }
+
+            return null
+        }
+
+        if TryResolveBinaryOperatorOverload(op, left, right, out overloadResult) {
+            if assignabilityValue.IsAssignable(BuiltInTypes.Bool, overloadResult) {
+                return BuiltInTypes.Bool
+            }
+
+            return null
+        }
+
+        if IsPrimitiveRelationalType(left) && IsPrimitiveRelationalType(right) && WiderType(left, right) != null {
+            return BuiltInTypes.Bool
+        }
+
+        return null
+    }
+
+    // THE UNARY TWIN OF THE SAME LIFT. `-x`, `~x` and `!x` over a `T?` answer `R?` -- absent in,
+    // absent out -- and `++`/`--` answer the OPERAND'S OWN type, exactly as they do unlifted:
+    // the value is written back into the storage it came from, so `count: int?` stays an `int?`.
+    func TryLiftedUnaryResult(op: UnaryOperator, operandType: TypeInfo, out result: TypeInfo): bool {
+        result = BuiltInTypes.Unknown
+        if op == UnaryOperator.IndexFromEnd {
+            return false
+        }
+
+        unwrapped := UnwrapLiftedValueOperand(operandType)
+        if unwrapped == null || !AnalyzerConversionFacts.IsDefinitelyNonNullableValueType(unwrapped) {
+            return false
+        }
+
+        elementResult := UnliftedUnaryResultOrNull(op, unwrapped)
+        if elementResult == null || !AnalyzerConversionFacts.IsDefinitelyNonNullableValueType(elementResult) {
+            return false
+        }
+
+        if IsIncrementOrDecrement(op) {
+            result = operandType
+            return true
+        }
+
+        result = new NullableTypeInfo(elementResult)
+        return true
+    }
+
+    // The unary reader, and the same discipline: the deciding half of `NegationResult`,
+    // `LogicalNotResult`, `BitwiseNotResult` and `IncrementOrDecrementResult` with every report
+    // removed. The negated-literal door is deliberately absent -- a literal is never a `T?`.
+    func UnliftedUnaryResultOrNull(op: UnaryOperator, operand: TypeInfo): TypeInfo? {
+        overloadResult: TypeInfo = BuiltInTypes.Unknown
+        if TryResolveUnaryOperatorOverload(op, operand, out overloadResult) {
+            return overloadResult
+        }
+
+        if op == UnaryOperator.Negate {
+            return UnaryNegationType(operand)
+        }
+
+        if op == UnaryOperator.Not {
+            if BuiltInTypes.Is(operand, BuiltInTypes.Bool) {
+                return BuiltInTypes.Bool
+            }
+
+            return null
+        }
+
+        if op == UnaryOperator.BitwiseNot {
+            if IsBitwiseEnumType(operand) {
+                return operand
+            }
+
+            promoted := UnaryNumericPromotionType(operand)
+            if promoted != null && IsIntegralType(promoted) {
+                return promoted
+            }
+
+            return null
+        }
+
+        if IsIncrementOrDecrement(op) {
+            if IsIntegralType(operand) || IsBitwiseEnumType(operand) {
+                return operand
+            }
+
+            return null
+        }
+
+        return null
+    }
+
     // BOOLEANS COMPARE ONLY WITH BOOLEANS. The test is asymmetric on purpose: one boolean side makes
     // the whole question a boolean one, so `true == 1` is refused here rather than falling through
     // to the numeric rule.
@@ -2051,6 +2318,14 @@ class AnalyzerOperatorExpressions {
 
     static func IsShortCircuit(op: BinaryOperator): bool {
         return op == BinaryOperator.And || op == BinaryOperator.Or
+    }
+
+    static func IsEquality(op: BinaryOperator): bool {
+        return op == BinaryOperator.Equal || op == BinaryOperator.NotEqual
+    }
+
+    static func IsBitwise(op: BinaryOperator): bool {
+        return op == BinaryOperator.BitwiseAnd || op == BinaryOperator.BitwiseOr || op == BinaryOperator.BitwiseXor
     }
 
     static func IsArithmetic(op: BinaryOperator): bool {

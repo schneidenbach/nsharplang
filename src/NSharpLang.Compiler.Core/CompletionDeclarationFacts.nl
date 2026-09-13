@@ -316,6 +316,15 @@ class CompletionDeclarationFacts {
     // is not exported and does not share the caret's package is dropped, because offering it means
     // offering an NL308. `CompletionVisibilityFacts` owns the predicate and its fail-open rule.
     static func GetTypeMemberItems(typeInfo: TypeInfo, semanticModels: IEnumerable<SemanticModel>, declaringNamespace: string?, requestingNamespace: string): List<CompletionItem> {
+        return GetTypeMemberItems(typeInfo, semanticModels, declaringNamespace, requestingNamespace, false, false)
+    }
+
+    // THE SAME LIST AGAIN, MINUS WHAT A WRITTEN ACCESSIBILITY WORD REFUSES. `canReachProtected` says
+    // the caret sits inside a type that is, or derives from, the receiver's type — the receiver rule
+    // the analyzer enforces — and `isInsideDeclaringType` says it sits inside the very type that
+    // declared the member, which is the narrower question `private` asks. A caller that knows
+    // neither passes both false, which offers exactly the public and package surface.
+    static func GetTypeMemberItems(typeInfo: TypeInfo, semanticModels: IEnumerable<SemanticModel>, declaringNamespace: string?, requestingNamespace: string, canReachProtected: bool, isInsideDeclaringType: bool): List<CompletionItem> {
         items := new List<CompletionItem>()
         members := ResolveDeclaredMembers(typeInfo, semanticModels)
         if members == null {
@@ -325,7 +334,7 @@ class CompletionDeclarationFacts {
         index := 0
         while index < members.Length {
             member := members[index]
-            if CompletionVisibilityFacts.IsOfferableAcrossPackages(member.IsExported, declaringNamespace, requestingNamespace) {
+            if CompletionVisibilityFacts.IsOfferableAcrossPackages(member.IsExported, declaringNamespace, requestingNamespace) && CompletionVisibilityFacts.IsOfferableByDeclaredAccessibility(member.DeclaredModifiers, canReachProtected, isInsideDeclaringType) {
                 item := DeclaredMemberToCompletionItem(member, true)
                 if item != null {
                     items.Add(item)

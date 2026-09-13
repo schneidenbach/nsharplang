@@ -94,7 +94,7 @@ These are not style rules; style is `nlc format`'s job and produces no diagnosti
 | [`NL305`](./NL305.md) | A path out of a value-returning function with no `return`. |
 | [`NL306`](./NL306.md) | Two declarations of the same name in one scope. |
 | `NL307` | A dependency that closes a cycle. |
-| [`NL308`](./NL308.md) | A member the calling code is not allowed to see. |
+| [`NL308`](./NL308.md) | A member the calling code is not allowed to see — not exported from its package, or kept in by a written `private`/`protected`/`internal`. |
 | [`NL309`](./NL309.md) | A write to a `readonly` field outside its constructor. |
 | [`NL310`](./NL310.md) | An expression that must be a compile-time constant and is not. |
 | [`NL311`](./NL311.md) | A modifier that is not legal on this declaration. |
@@ -119,6 +119,7 @@ These are not style rules; style is `nlc format`'s job and produces no diagnosti
 | [`NL330`](./NL330.md) | A loop variable annotated with a type its elements cannot become. |
 | [`NL331`](./NL331.md) | A local function reading the enclosing function's `ref`, `out` or `in` parameter. |
 | [`NL332`](./NL332.md) | A `yield` inside a protected region that cannot resume. |
+| [`NL333`](./NL333.md) | A `using` resource with no way to be released. |
 | [`NL334`](./NL334.md) | An `async` lambda whose target delegate returns no task. |
 | [`NL335`](./NL335.md) | A lambda whose body is missing the `async` keyword. |
 | [`NL336`](./NL336.md) | A bare `throw` with no `catch` handler to re-throw from. |
@@ -136,6 +137,7 @@ These are not style rules; style is `nlc format`'s job and produces no diagnosti
 | [`NL411`](./NL411.md) | A method named but not called, where a value is required. |
 | [`NL412`](./NL412.md) | A call target that is not a function, method or callable value. |
 | [`NL413`](./NL413.md) | A member named before `(` whose value is not a delegate. |
+| [`NL414`](./NL414.md) | A call that two overloads match equally well. |
 
 ## Patterns — `NL5xx`
 

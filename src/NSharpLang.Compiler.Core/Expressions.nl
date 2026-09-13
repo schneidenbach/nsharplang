@@ -268,12 +268,18 @@ class LambdaExpression: Expression {
     }
 }
 
-// Event subscription: `on target.Event (sender, args) => { ... }`
+// Event subscription: `on target.Event (sender, args) => { ... }`.
+//
+// THE HANDLER IS AN ORDINARY EXPRESSION, not a lambda node. An inline lambda is the common spelling,
+// but C#'s `x.E += handler` has to map onto something, and the thing it maps onto is a DELEGATE VALUE
+// in handler position — a local, a field, a call result, a method group. Typing this slot as
+// `LambdaExpression` made every one of those a parse error, so the slot is as wide as the rule: any
+// expression of the event's delegate type. The analyzer checks the type; the parser does not guess.
 class OnSubscriptionExpression: Expression {
     Target: Expression
-    Handler: LambdaExpression
+    Handler: Expression
 
-    constructor(Target: Expression, Handler: LambdaExpression, Line: int, Column: int): base(Line, Column) {
+    constructor(Target: Expression, Handler: Expression, Line: int, Column: int): base(Line, Column) {
         this.Target = Target
         this.Handler = Handler
     }

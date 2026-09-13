@@ -121,7 +121,8 @@ yielded; this exists because late-added children (`NewExpression.ArrayLengthExpr
 - **ReturnStatement**: `return expr`
 - **YieldStatement**: `yield value`, `yield break`
 - **TryCatchStatement**: `try { } catch e { }`
-- **UsingStatement**: `using resource { }`
+- **UsingStatement**: `using resource { }`, `using x := e { }`, `using x: T = e { }`, `using x := e`
+  (no block — the using DECLARATION), and `await using` (`IsAsync`)
 - **LockStatement**: `lock obj { }`
 
 ### Declarations (`Declarations.nl`)
@@ -233,6 +234,39 @@ its own paren depth, the rule Roslyn's `ScanTupleType` applies for the same reas
 into the shared `[]`/`?` suffix walk. `ParserDeclarationCanonicalTypeText` strips whitespace for a
 `(` head as well as a `<` one, because a canonical never contains a space.
 
+### The `using` statement, and the one `{` that is not an object initializer
+
+FIVE written forms reach ONE `UsingStatement` node. `using x := e { … }`, `using x: T = e { … }` (the
+annotated form also accepts `:=`) and `using let x := e { … }` fill `Declaration`; `using e { … }`
+fills `Expression`; and every BINDING form may omit the block, which is the using DECLARATION whose
+guarded region is the remainder of the ENCLOSING block. The node records which it is by carrying a
+null `Body`; `IsAsync` is the `await using` spelling, dispatched on the Await+Using token pair
+beside `await foreach`.
+
+**WHICH FORM IS WRITTEN IS DECIDED BEFORE ANY OF IT IS PARSED**, from two tokens
+(`IsUsingDeclarationForm`): a bare identifier followed by `:=` or `:` BINDS, and one followed by
+another identifier binds too — that is the `using r open()` slip, and taking the declaration arm
+there is what makes the parser say "Expected ':='" at the offending token instead of inventing a
+resource expression nobody wrote. Every other continuation is a resource EXPRESSION, whose block is
+REQUIRED: a resource nobody named and nobody scoped would be released where the reader cannot see it.
+
+**THE `{` AMBIGUITY IS SETTLED BY TOKEN INDEX, NOT BY A MODE FLAG.** `using r := new Res() { … }` is
+the shape it lives in: `new Res() { … }` is also a legal object initializer, so the same brace could
+close the resource or open the body. The rule is the one Go and C# reach for — the FIRST `{` at
+paren/bracket depth zero after the resource belongs to the statement, and an initializer in that
+position must be parenthesised (`using r := (new Res { A: 1 }) { … }`). Both parsers enforce it the
+same way: `ColumnarParserRecovery.UsingBodyBraceIndex` and `ParserState.UsingBodyBrace` name ONE
+token, and only the initializer gate standing at exactly that cursor yields. Nesting therefore needs
+no bookkeeping — a brace anywhere inside the expression sits at a different index and is untouched by
+construction.
+
+The columnar kernel takes node kind **77** (`using`) and **79** (`await using`); kind 78 is
+unassigned. Children are `[resource]` for the declaration form and `[resource, body]` for the block
+form, where the resource is a kind-24 or kind-40 local DECLARATION when the statement binds it and an
+ordinary expression when it does not — the two shapes the lowering already declares, reused rather
+than re-encoded, and told apart from an expression by node kind. The typed-local annotation scan now
+terminates at `:=` as well as `=`, which is what lets `x: T := e` reach the backend at all.
+
 ### Tuple deconstruction has two spellings, and two operators
 
 `(a, b) := e` and the bare `a, b := e` are ONE statement, and `=` in place of `:=` makes it an
@@ -267,6 +301,22 @@ both shaped as a block of `Name = <expression>` statements in textual order:
 Both bodies are stamped with their file's binding scope like every other body
 (`ColumnarProgramInput.StampBindingContexts`); without that stamp an external type name inside an
 initializer cannot resolve and the type declines at emit.
+
+### A type ANNOTATION is delimited structurally, and `?[` is one token
+
+A typed local (`name: Type = init`) and an annotated loop variable (`for name: Type in xs`) carry
+their type as a SOURCE SPAN in the columnar node's value slot rather than as a type tree: type trees
+cannot share the statement node table, because the type kernel's kind space collides with the
+expression kinds. Each span is found by a delimiter walk in `ColumnarParserKernels` — balanced angles
+(`>>` closes two) and `()`/`[]` groups, ending at the first depth-0 `=` for a local and at the first
+depth-0 `in` for a loop variable.
+
+The walk must therefore agree with the LEXER about what opens a group. `string?[]` lexes as
+`string` + `?[` (one `QuestionBracket` token, the null-conditional indexer's spelling) + `]`, so a
+walk that counted only `[` saw the closing `]` with nothing open, drove its depth negative and
+refused the whole FUNCTION — while the same spelling in a parameter or a return type, which the type
+kernel scans rather than this walk, parsed. Any future multi-character token that contains a bracket
+or a paren has to be added to both walks.
 
 ### Nested Type Support
 `ParseMemberDeclaration` handles nested types (classes, structs, records inside other types).
@@ -337,7 +387,14 @@ ONE layer, as of task 020 slice 22: the parser's assertion layer is entirely N#.
   the `on` / `off` EVENT-SUBSCRIPTION corpus — the subscription as a bare expression statement, as a
   `:=` initializer and over a `this` receiver, the `off` statement, `on` / `off` used as ordinary
   identifiers, and a context control in which a local named `on` does not stop the next line parsing
-  a subscription (task 020 slice 24, migrated from `tests/EventSubscriptionTests.cs`); and
+  a subscription (task 020 slice 24, migrated from `tests/EventSubscriptionTests.cs`). The EVENTS
+  census slice widened the handler slot from `LambdaExpression` to `Expression` — a delegate VALUE in
+  handler position is the shape C#'s `x.E += handler` maps onto, and rejecting it at parse made a
+  well-typed program unspellable — so what the parser still owns there is the handler's PRESENCE, under
+  the language's own statement rule: the handler must begin on the event's own line. The same slice
+  gave the COLUMNAR kernels their own `on` (expression kind 79, children [target, handler]) and `off`
+  (statement kind 80, one child), committed on exactly the contextual shapes the recovery parser
+  commits on; before it, every function containing either declined at `parse.function`. And
   `ColumnarParserErrorHandling.tests.nl` pins whole trees over the ERROR-HANDLING corpus — 24
   fixtures of malformed and C#-shaped source, 13 of which report a diagnostic and 11 of which report
   NONE, each with its census and every diagnostic pinned WHOLE through `PeRow` (task 020 slice 25,

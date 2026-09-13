@@ -544,6 +544,16 @@ class AnalyzerAttributeValidator {
                 argumentInfos.Add(argumentInfo)
             }
 
+            // NL209 BEFORE ANY CHANNEL ANSWERS. An attribute's bracket spelling is a type reference,
+            // so two imports that both supply it tie exactly as they do at an annotation — and the
+            // resolution chain below would otherwise take whichever import came first and validate
+            // the arguments against a type the author never chose. Reporting the tie ENDS this
+            // attribute: naming a second, different mistake against one of the two candidates would
+            // be a guess about which one was meant.
+            if ReportAmbiguousAttributeTypeIfNeeded(attribute) {
+                continue
+            }
+
             attributeType: Type = typeof(object)
             if TryResolveClrAttributeType(attribute.Name, out attributeType) {
                 if allConstantsValid {
@@ -1240,6 +1250,27 @@ class AnalyzerAttributeValidator {
         }
 
         return SourceTypeDerivesFromAttributeCore(baseType, seenClasses)
+    }
+
+    // THE TIE AT AN ATTRIBUTE, ASKED OF THE ONE PRECEDENCE OWNER EVERY OTHER POSITION ASKS.
+    //
+    // `[Tag]` may legally mean `Tag` or `TagAttribute`, so BOTH spellings are asked, in
+    // `GetClrAttributeNameCandidates`' order, and the first that ties is reported — an attribute
+    // names one type, so one report is the whole answer. A DOTTED spelling is skipped: it has already
+    // named its namespace, and a qualified reference is never ambiguous.
+    func ReportAmbiguousAttributeTypeIfNeeded(attribute: AttributeNode): bool {
+        if attribute.Name.Contains(".") {
+            return false
+        }
+
+        span := AnalyzerDiagnosticSpanFacts.GetAttributeTypeDiagnosticSpan(attribute)
+        for candidate in GetClrAttributeNameCandidates(attribute.Name) {
+            if typeResolver.ReportAmbiguousImportedTypeIfNeeded(candidate, attribute.Name, span.Line, span.Column) {
+                return true
+            }
+        }
+
+        return false
     }
 
     func ReportAttributeTypeNotFound(attribute: AttributeNode) {

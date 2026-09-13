@@ -167,6 +167,14 @@ class ParserState {
     // never need token text may leave it empty, in which case contextual forms simply do not
     // match (safe under-accept -> decline).
     Source: string
+    // THE ONE TOKEN A `{` MAY NOT OPEN AN OBJECT INITIALIZER AT: the brace that opens a `using`
+    // statement's BODY. `using r := new Res() { … }` is the shape the ambiguity lives in — the same
+    // brace could close the resource or open the body — and the rule is the one Go and C# reach for:
+    // the first `{` at paren/bracket depth zero after the resource belongs to the STATEMENT. It is
+    // carried as a token INDEX rather than as a mode flag so nesting needs no bookkeeping: a brace
+    // anywhere inside the expression sits at a different index and is untouched by construction.
+    // -1 whenever no `using` header is being parsed.
+    UsingBodyBrace: int
     constructor(pos: int, nodeCursor: int, childCursor: int, argStackTop: int, splitGreaterDepth: int, owedGreaterByteEnd: int, sourceText: string = "") {
         Pos = pos
         NodeCursor = nodeCursor
@@ -175,6 +183,7 @@ class ParserState {
         SplitGreaterDepth = splitGreaterDepth
         OwedGreaterByteEnd = owedGreaterByteEnd
         Source = sourceText
+        UsingBodyBrace = -1
     }
 }
 
@@ -593,6 +602,16 @@ class ColumnarExpressionNodeKind {
     static func DefaultExpression(): int {
         return 74
     }
+
+    // `on <receiver>.<Event> <handler>` — the event SUBSCRIPTION, and the VALUE it produces: a
+    // `NSharpLang.Runtime.NSharpEventSubscription` handle that `off` (statement kind 80) detaches.
+    // Children are [target, handler]: the target is the member chain ENDING in the event name (a
+    // kind-8 MemberAccess, or a kind-71 `base.Event`), the handler any expression of the event's
+    // delegate type — a lambda (kind 39), a delegate-typed local, a field, a call result. The `on`
+    // keyword's own byte span is the value span.
+    static func OnSubscriptionExpression(): int {
+        return 79
+    }
 }
 
 class ParserExpressionNodeTable {
@@ -761,6 +780,20 @@ class ParserExpressionNodeTable {
 //                                             token in the value span, ONE child [body block]. Kind 63 belongs
 //                                             to the expression kernel (TargetTypedNewExpression); kind 64 belongs
 //                                             to the expression kernel (SpreadArgumentExpression). )
+//   UsingStatement               -> kind 77  ( `using <resource> { body }` / `using x := e { body }` /
+//                                             `using x: T := e { body }` / `using x := e` with NO body (the
+//                                             using DECLARATION, disposed at the end of the ENCLOSING block).
+//                                             Children [resource] or [resource, body]: the resource is a
+//                                             kind-24 or kind-40 local DECLARATION when the statement binds
+//                                             it and an ordinary expression when it does not, so the two
+//                                             forms are told apart by the child's KIND. Kind 81 is the
+//                                             `await using` twin -- same shape, released through
+//                                             `IAsyncDisposable.DisposeAsync()`. )
+//   OffStatement                 -> kind 80  ( `off <handle>` -- the UNSUBSCRIBE, ONE child [the handle
+//                                             expression]. The contextual `off` is committed only when an
+//                                             IDENTIFIER follows it (ColumnarParserRecovery.IsOffStatementStart's
+//                                             rule), so a local named `off` keeps every other spelling.
+//                                             Detaching an already-detached handle is a no-op at runtime. )
 //   AwaitForeachStatement        -> kind 73  ( `await foreach <var> in <coll> { body }` -- the Await 69 +
 //                                             Foreach 26 two-token dispatch (Parser.cs:2249). Same shape as
 //                                             kind 29: var name in the value span, children [coll, body];
@@ -774,7 +807,7 @@ class ParserExpressionNodeTable {
 // if/while body is ANY statement (commonly a `{ }` block, but a single statement is also valid), so the
 // bodies recurse through the statement dispatcher; `else if` chains as a nested if.
 //
-// Deferred: parenthesised `foreach (x in y)` / `await foreach (x in y)`, const/readonly declarations, using/switch,
+// Deferred: parenthesised `foreach (x in y)` / `await foreach (x in y)`, const/readonly declarations, switch,
 // and statements whose expression parts use a not-yet-supported form. Block statement-list gathers child
 // node ids on the LIFO `argStack` (recursion is LIFO) and appends the contiguous child run after `}`,
 // exactly as calls/generics do.
@@ -4989,7 +5022,7 @@ func ParsePrimaryExpressionNode(tokens: ParserTokenTable, count: int, st: Parser
         // [typeRoot, name0, value0, name1, value1, ...] where each nameN is an Identifier node (kind 6, the field
         // name in its value span) and valueN is the field's value expression. Used to construct a fields-only
         // struct (the emitter zero-inits the value then assigns each named field). A `:` after the name is required.
-        if st.Pos < count && tokens.Kinds[st.Pos] == 129 {
+        if st.Pos < count && tokens.Kinds[st.Pos] == 129 && st.Pos != st.UsingBodyBrace {
             st.Pos = st.Pos + 1
             objArgBase := st.ArgStackTop
             argStack.Values[st.ArgStackTop] = typeRoot
@@ -5114,7 +5147,7 @@ func ParsePrimaryExpressionNode(tokens: ParserTokenTable, count: int, st: Parser
         st.ArgStackTop = argBase
         newCall := EmitExpressionNode(st, nodes, 15, -1, 0, newChildRunStart, newChildCount, newStart, newRightParenEnd - newStart)
 
-        if st.Pos < count && tokens.Kinds[st.Pos] == 129 {
+        if st.Pos < count && tokens.Kinds[st.Pos] == 129 && st.Pos != st.UsingBodyBrace {
             st.Pos = st.Pos + 1
             initArgBase := st.ArgStackTop
             argStack.Values[st.ArgStackTop] = newCall
@@ -6098,9 +6131,138 @@ func ParseAssignmentExpressionNode(tokens: ParserTokenTable, count: int, st: Par
     return target
 }
 
+// `on` is a CONTEXTUAL keyword, committed on exactly the shape ColumnarParserRecovery.IsOnSubscriptionStart
+// commits on: the identifier `on` followed by an identifier, `this` or `base`. Every other spelling — a local
+// named `on`, `on = 1`, `on.Length` — stays an ordinary expression. An entry with no source text cannot compare
+// the token, so the contextual form simply does not match there (safe under-accept -> decline).
+func ParserTokenIsOnKeyword(tokens: ParserTokenTable, count: int, st: ParserState, pos: int): bool {
+    if pos + 1 >= count || tokens.Kinds[pos] != 0 || st.Source.Length == 0 || !ParserDeclarationTokenTextEquals(st.Source, tokens.Starts[pos], tokens.ValueLengths[pos], "on") {
+        return false
+    }
+
+    next := tokens.Kinds[pos + 1]
+    return next == 0 || next == 42 || next == 43
+}
+
+// `off <handle>`, the same contextual rule (ColumnarParserRecovery.IsOffStatementStart): the identifier
+// `off` followed by an IDENTIFIER.
+func ParserTokenIsOffKeyword(tokens: ParserTokenTable, count: int, st: ParserState, pos: int): bool {
+    return pos + 1 < count && tokens.Kinds[pos] == 0 && st.Source.Length > 0 && ParserDeclarationTokenTextEquals(st.Source, tokens.Starts[pos], tokens.ValueLengths[pos], "off") && tokens.Kinds[pos + 1] == 0
+}
+
+// THE EVENT TARGET (ColumnarParserRecovery.ParseEventTarget's mirror): a primary plus a `.member` /
+// `[index]` chain that deliberately STOPS before a `(`, so the handler lambda's own parameter list is
+// never swallowed as a call argument list. `this.Member` collapses to the bare member read exactly as
+// the postfix parser collapses it, and `base.Member` keeps its kind-71 identity so the emitter binds
+// non-virtually. A NULL-CONDITIONAL link (`?.` 118 / `?[` 119) is refused: a subscription that may not
+// happen has no handle to answer with, and the analyzer reports that shape at its own position.
+// Returns the chain root, or -1.
+func ParseEventTargetNode(tokens: ParserTokenTable, count: int, st: ParserState, argStack: ParserArgumentStack, nodes: ParserExpressionNodeTable, children: ParserChildIndexTable, depth: int): int {
+    if depth > 200 {
+        return -1
+    }
+
+    target := -1
+    if st.Pos + 2 < count && tokens.Kinds[st.Pos] == 42 && tokens.Kinds[st.Pos + 1] == 124 && tokens.Kinds[st.Pos + 2] == 0 {
+        thisStart := tokens.Starts[st.Pos]
+        thisMemberStart := tokens.Starts[st.Pos + 2]
+        thisMemberLength := tokens.ValueLengths[st.Pos + 2]
+        target = EmitExpressionNode(st, nodes, ColumnarExpressionNodeKind.IdentifierExpression(), thisMemberStart, thisMemberLength, -1, 0, thisStart, thisMemberStart + thisMemberLength - thisStart)
+        st.Pos = st.Pos + 3
+    } else if st.Pos + 2 < count && tokens.Kinds[st.Pos] == 43 && tokens.Kinds[st.Pos + 1] == 124 && tokens.Kinds[st.Pos + 2] == 0 {
+        baseStart := tokens.Starts[st.Pos]
+        baseMemberStart := tokens.Starts[st.Pos + 2]
+        baseMemberLength := tokens.ValueLengths[st.Pos + 2]
+        target = EmitExpressionNode(st, nodes, ColumnarExpressionNodeKind.BaseMemberExpression(), baseMemberStart, baseMemberLength, -1, 0, baseStart, baseMemberStart + baseMemberLength - baseStart)
+        st.Pos = st.Pos + 3
+    } else {
+        if st.Pos >= count || tokens.Kinds[st.Pos] != 0 {
+            return -1
+        }
+
+        rootStart := tokens.Starts[st.Pos]
+        rootLength := tokens.ValueLengths[st.Pos]
+        target = EmitExpressionNode(st, nodes, ColumnarExpressionNodeKind.IdentifierExpression(), rootStart, rootLength, -1, 0, rootStart, rootLength)
+        st.Pos = st.Pos + 1
+    }
+
+    scanning := true
+    while scanning {
+        pos := st.Pos
+        if pos + 1 < count && tokens.Kinds[pos] == 124 && tokens.Kinds[pos + 1] == 0 {
+            targetSpanStart := nodes.SpanStarts[target]
+            memberStart := tokens.Starts[pos + 1]
+            memberLength := tokens.ValueLengths[pos + 1]
+            memberChildRun := st.ChildCursor
+            AppendExpressionChild(st, children, target)
+            target = EmitExpressionNode(st, nodes, ColumnarExpressionNodeKind.MemberAccessExpression(), memberStart, memberLength, memberChildRun, 1, targetSpanStart, memberStart + memberLength - targetSpanStart)
+            st.Pos = pos + 2
+        } else if pos < count && tokens.Kinds[pos] == 131 {
+            targetSpanStart := nodes.SpanStarts[target]
+            st.Pos = pos + 1
+            indexRoot := ParseAssignmentExpressionNode(tokens, count, st, argStack, nodes, children, depth + 1)
+            if indexRoot < 0 || st.Pos >= count || tokens.Kinds[st.Pos] != 132 {
+                return -1
+            }
+
+            closeEnd := tokens.Starts[st.Pos] + tokens.ValueLengths[st.Pos]
+            st.Pos = st.Pos + 1
+            indexChildRun := st.ChildCursor
+            AppendExpressionChild(st, children, target)
+            AppendExpressionChild(st, children, indexRoot)
+            target = EmitExpressionNode(st, nodes, ColumnarExpressionNodeKind.IndexAccessExpression(), -1, 0, indexChildRun, 2, targetSpanStart, closeEnd - targetSpanStart)
+        } else {
+            scanning = false
+        }
+    }
+
+    return target
+}
+
+// `on <target> <handler>` -> OnSubscriptionExpression kind 79, children [target, handler]. The handler
+// parses at the FULL-EXPRESSION level, so a block-bodied lambda, an expression-bodied lambda, a
+// delegate-typed name and a call that returns a delegate all reach the same node slot. A target that
+// never took a `.`/`[` link names no member and cannot be an event, so it refuses here rather than
+// reaching the emitter as a bare name.
+func ParseOnSubscriptionNode(tokens: ParserTokenTable, count: int, st: ParserState, argStack: ParserArgumentStack, nodes: ParserExpressionNodeTable, children: ParserChildIndexTable, depth: int): int {
+    if depth > 200 {
+        return -1
+    }
+
+    onStart := tokens.Starts[st.Pos]
+    onLength := tokens.ValueLengths[st.Pos]
+    st.Pos = st.Pos + 1
+    target := ParseEventTargetNode(tokens, count, st, argStack, nodes, children, depth + 1)
+    if target < 0 {
+        return -1
+    }
+
+    targetKind := nodes.Kinds[target]
+    if targetKind != ColumnarExpressionNodeKind.MemberAccessExpression() && targetKind != ColumnarExpressionNodeKind.BaseMemberExpression() {
+        return -1
+    }
+
+    handler := ParseLambdaOrAssignmentExpressionNode(tokens, count, st, argStack, nodes, children, depth + 1)
+    if handler < 0 {
+        return -1
+    }
+
+    handlerEnd := nodes.SpanStarts[handler] + nodes.SpanLengths[handler]
+    childRunStart := st.ChildCursor
+    AppendExpressionChild(st, children, target)
+    AppendExpressionChild(st, children, handler)
+    return EmitExpressionNode(st, nodes, ColumnarExpressionNodeKind.OnSubscriptionExpression(), onStart, onLength, childRunStart, 2, onStart, handlerEnd - onStart)
+}
+
 func ParseLambdaOrAssignmentExpressionNode(tokens: ParserTokenTable, count: int, st: ParserState, argStack: ParserArgumentStack, nodes: ParserExpressionNodeTable, children: ParserChildIndexTable, depth: int): int {
     if depth > 200 {
         return -1
+    }
+
+    // `on target.Event (…) => …` is a keyword-led form of its own and is answered before anything
+    // else at this level.
+    if ParserTokenIsOnKeyword(tokens, count, st, st.Pos) {
+        return ParseOnSubscriptionNode(tokens, count, st, argStack, nodes, children, depth)
     }
 
     // `async` (68) BEFORE a lambda makes it an ASYNC lambda — the same three parameter shapes, a
@@ -6287,6 +6449,53 @@ func ParseSystemsPolicyBlockStatementNode(tokens: ParserTokenTable, count: int, 
     return ParseBlockStatementNodeCore(tokens, count, st, argStack, nodes, children, depth + 1)
 }
 
+// WHICH `using` FORM THE TOKENS SPELL, from two of them. A bare identifier followed by `:=` (121)
+// binds with an inferred type and one followed by `:` (122) binds with an annotation; every other
+// continuation — `.`, `(`, `[`, an operator, `{` — is a resource EXPRESSION, so `using r { … }`,
+// `using a.B() { … }` and `using Open(path) { … }` all reach the unbound arm. The optional `let` is
+// consumed by the caller before this is asked.
+func IsUsingDeclarationAt(tokens: ParserTokenTable, count: int, pos: int): bool {
+    if pos + 1 >= count || tokens.Kinds[pos] != 0 {
+        return false
+    }
+
+    next := tokens.Kinds[pos + 1]
+    return next == 121 || next == 122
+}
+
+// THE INDEX OF THE `{` THAT OPENS A `using` BODY, or -1 when the statement has none. Braces nest INTO
+// the depth count, so only a brace the resource expression could actually have swallowed is ever
+// returned; a `)`, `]` or `}` that closes something this statement never opened ends the scan,
+// because the statement cannot reach past its own enclosing block.
+func UsingBodyBraceIndexAt(tokens: ParserTokenTable, count: int, pos: int): int {
+    depth := 0
+    index := pos
+    while index < count {
+        k := tokens.Kinds[index]
+        if k == 127 || k == 131 {
+            depth = depth + 1
+        } else if k == 129 {
+            if depth == 0 {
+                return index
+            }
+
+            depth = depth + 1
+        } else if k == 128 || k == 130 || k == 132 {
+            if depth == 0 {
+                return -1
+            }
+
+            depth = depth - 1
+        } else if k == 135 {
+            return -1
+        }
+
+        index = index + 1
+    }
+
+    return -1
+}
+
 func ParseStatementCoreNode(tokens: ParserTokenTable, count: int, st: ParserState, argStack: ParserArgumentStack, nodes: ParserExpressionNodeTable, children: ParserChildIndexTable, depth: int): int {
     if depth > 200 {
         return -1
@@ -6459,8 +6668,7 @@ func ParseStatementCoreNode(tokens: ParserTokenTable, count: int, st: ParserStat
     }
 
     // `lock <expr> { }` (Lock 80) -- LockStatement kind 51, children [lockee, body]. The lockee parses
-    // as a full expression; the body must be a `{ }` block. `using` (16) stays deferred — the columnar
-    // type surface has no IDisposable values to model.
+    // as a full expression; the body must be a `{ }` block.
     if kind == 80 {
         lockStart := tokens.Starts[start]
         st.Pos = start + 1
@@ -6483,6 +6691,77 @@ func ParseStatementCoreNode(tokens: ParserTokenTable, count: int, st: ParserStat
         AppendExpressionChild(st, children, lockee)
         AppendExpressionChild(st, children, lockBody)
         return EmitExpressionNode(st, nodes, 51, -1, 0, lockChildRun, 2, lockStart, lockEnd - lockStart)
+    }
+
+    // `using` (16) and `await using` (Await 69 + Using 16) -- UsingStatement kind 77, or kind 81 for
+    // the asynchronous release. Children are [resource] for a using DECLARATION and [resource, body]
+    // for the block form, where `resource` is a kind-24 (`x := e`) or kind-40 (`x: T := e`) local
+    // DECLARATION when the statement binds its resource and an ordinary EXPRESSION when it does not.
+    // Reusing the two declaration shapes rather than inventing a third is what lets the lowering
+    // declare the resource local with the machinery every other local already uses; the resource is
+    // told apart from the unbound form by its node KIND, which no expression can collide with.
+    //
+    // A block body is REQUIRED for the unbound form and optional for the bound one: an unnamed
+    // resource with no block would be released at a point the reader cannot see, which is exactly why
+    // C# has no such spelling either.
+    //
+    // The body's `{` is located BEFORE the resource parses and parked on `st.UsingBodyBrace` — see
+    // that field for why the ambiguity has to be settled by token index.
+    if kind == 16 || (kind == 69 && start + 1 < count && tokens.Kinds[start + 1] == 16) {
+        usingStart := tokens.Starts[start]
+        usingKind := 77
+        usingKeyword := start
+        if kind == 69 {
+            usingKind = 81
+            usingKeyword = start + 1
+        }
+
+        st.Pos = usingKeyword + 1
+        // `let` is the optional, redundant spelling of the same binding — `using let r := e` and
+        // `using r := e` are one form — so it is consumed and then forgotten.
+        if st.Pos < count && tokens.Kinds[st.Pos] == 19 {
+            st.Pos = st.Pos + 1
+        }
+
+        savedUsingBrace := st.UsingBodyBrace
+        st.UsingBodyBrace = UsingBodyBraceIndexAt(tokens, count, st.Pos)
+        usingResource := -1
+        if IsUsingDeclarationAt(tokens, count, st.Pos) {
+            usingResource = ParseStatementCoreNode(tokens, count, st, argStack, nodes, children, depth + 1)
+        } else {
+            usingResource = ParseAssignmentExpressionNode(tokens, count, st, argStack, nodes, children, depth + 1)
+        }
+
+        st.UsingBodyBrace = savedUsingBrace
+        if usingResource < 0 {
+            return -1
+        }
+
+        usingBound := nodes.Kinds[usingResource] == 24 || nodes.Kinds[usingResource] == 40
+        usingBody := -1
+        if st.Pos < count && tokens.Kinds[st.Pos] == 129 {
+            usingBody = ParseBlockStatementNodeCore(tokens, count, st, argStack, nodes, children, depth + 1)
+            if usingBody < 0 {
+                return -1
+            }
+        } else if !usingBound {
+            return -1
+        }
+
+        usingEnd := nodes.SpanStarts[usingResource] + nodes.SpanLengths[usingResource]
+        usingChildCount := 1
+        if usingBody >= 0 {
+            usingChildCount = 2
+            usingEnd = nodes.SpanStarts[usingBody] + nodes.SpanLengths[usingBody]
+        }
+
+        usingChildRun := st.ChildCursor
+        AppendExpressionChild(st, children, usingResource)
+        if usingBody >= 0 {
+            AppendExpressionChild(st, children, usingBody)
+        }
+
+        return EmitExpressionNode(st, nodes, usingKind, -1, 0, usingChildRun, usingChildCount, usingStart, usingEnd - usingStart)
     }
 
     // `allow(...) { }` (Allow 144) -- AllowStatement kind 60, children [body]. The systems analyzer owns the
@@ -6777,7 +7056,9 @@ func ParserTypedForeachInIndex(tokens: ParserTokenTable, count: int, typeFirst: 
             typedForeachAngles = typedForeachAngles - 1
         } else if typedForeachToken == 112 {
             typedForeachAngles = typedForeachAngles - 2
-        } else if typedForeachToken == 127 || typedForeachToken == 131 {
+        } else if typedForeachToken == 119 || typedForeachToken == 127 || typedForeachToken == 131 {
+            // `?[` (119) is one token and still opens a bracket group — the same reading the typed
+            // local's annotation scan uses, for the same `string?[]` spelling.
             typedForeachGroups = typedForeachGroups + 1
         } else if typedForeachToken == 128 || typedForeachToken == 132 {
             typedForeachGroups = typedForeachGroups - 1
@@ -6868,6 +7149,38 @@ func ScanTupleDeconstructionTargetList(tokens: ParserTokenTable, count: int, ope
 func ParseSimpleStatementNode(tokens: ParserTokenTable, count: int, st: ParserState, argStack: ParserArgumentStack, nodes: ParserExpressionNodeTable, children: ParserChildIndexTable): int {
     start := st.Pos
     kind := tokens.Kinds[start]
+
+    // `off <handle>` -- OffStatement kind 80, ONE child [handle]. The handle parses at the assignment
+    // level, so `off subs[0]` and `off this.sub` reach the same slot as a bare name.
+    if ParserTokenIsOffKeyword(tokens, count, st, start) {
+        offStart := tokens.Starts[start]
+        st.Pos = start + 1
+        offHandle := ParseAssignmentExpressionNode(tokens, count, st, argStack, nodes, children, 0)
+        if offHandle < 0 {
+            return -1
+        }
+
+        offEnd := nodes.SpanStarts[offHandle] + nodes.SpanLengths[offHandle]
+        offChildRun := st.ChildCursor
+        AppendExpressionChild(st, children, offHandle)
+        return EmitExpressionNode(st, nodes, 80, -1, 0, offChildRun, 1, offStart, offEnd - offStart)
+    }
+
+    // A BARE `on <target> <handler>` STATEMENT -- the subscription whose handle is discarded. It reaches
+    // the statement door ahead of the expression fall-through below because that one parses at the
+    // ASSIGNMENT level, one rung under the lambda level `on` needs for its handler.
+    if ParserTokenIsOnKeyword(tokens, count, st, start) {
+        onRoot := ParseOnSubscriptionNode(tokens, count, st, argStack, nodes, children, 0)
+        if onRoot < 0 {
+            return -1
+        }
+
+        onSpanStart := nodes.SpanStarts[onRoot]
+        onSpanEnd := onSpanStart + nodes.SpanLengths[onRoot]
+        onChildRun := st.ChildCursor
+        AppendExpressionChild(st, children, onRoot)
+        return EmitExpressionNode(st, nodes, 23, -1, 0, onChildRun, 1, onSpanStart, onSpanEnd - onSpanStart)
+    }
 
     if kind == 29 {
         returnStart := tokens.Starts[start]
@@ -7200,7 +7513,10 @@ func ParseSimpleStatementNode(tokens: ParserTokenTable, count: int, st: ParserSt
             }
 
             k := tokens.Kinds[scanPos]
-            if k == 93 && angleDepth == 0 && groupDepth == 0 {
+            // `=` (93) and `:=` (121) both end an annotation: the production parser accepts either
+            // after a written type (`let x: int = 5` and `let x: int := 5` are one declaration), and a
+            // type can contain neither, so both are unambiguous terminators.
+            if (k == 93 || k == 121) && angleDepth == 0 && groupDepth == 0 {
                 scanning = false
             } else {
                 if k == 100 {
@@ -7209,7 +7525,14 @@ func ParseSimpleStatementNode(tokens: ParserTokenTable, count: int, st: ParserSt
                     angleDepth = angleDepth - 1
                 } else if k == 112 {
                     angleDepth = angleDepth - 2
-                } else if k == 127 || k == 131 {
+                } else if k == 119 || k == 127 || k == 131 {
+                    // `?[` (119) IS ONE TOKEN AND STILL OPENS A BRACKET GROUP. The lexer folds the
+                    // `?` and `[` of `string?[]` into a single QuestionBracket, so a scan that counted
+                    // only `[` (131) saw the closing `]` with nothing open, drove the depth negative
+                    // and refused the whole function — while the same spelling in a PARAMETER or a
+                    // RETURN type, which are scanned by the type kernel rather than by this delimiter
+                    // walk, parsed. The element-may-be-null array annotation is one of the two
+                    // spellings the nullability rules give, and a local wears it like any other.
                     groupDepth = groupDepth + 1
                 } else if k == 128 || k == 132 {
                     groupDepth = groupDepth - 1
@@ -10069,6 +10392,18 @@ func ParserDeclarationCanonicalDottedNameText(source: string, start: int, length
     return builder.ToString()
 }
 
+// WHICH SETS OF VISIBILITY WORDS A DECLARATION MAY SPELL. One word is always legal; the only legal
+// PAIRS are `protected internal` (8|4) and `private protected` (8|2), both of which name an
+// accessibility the CLR has a single word for. Every other pair contradicts itself — `public private`
+// says two different things about the same member — and is refused.
+func ParserDeclarationVisibilityWordsAreLegal(flags: int): bool {
+    if flags == 0 || flags == 1 || flags == 2 || flags == 4 || flags == 8 {
+        return true
+    }
+
+    return flags == 12 || flags == 10
+}
+
 func ParserDeclarationMemberModifierKind(kind: int): int {
     if kind == 63 {
         return 2
@@ -10246,8 +10581,13 @@ func ParseMemberModifierPrefixCore(source: string, tokens: ParserDeclarationToke
 
             result.Values[0] = 1
         } else if modifierKind == 1 {
-            result.Values[1] = result.Values[1] + 1
-            if result.Values[1] > 1 {
+            // THE VISIBILITY WORDS ACCUMULATE INTO A SET, NOT A COUNT. Two of them are a legal
+            // spelling — `protected internal` and `private protected`, in either order — and the
+            // rest are contradictions. Counting refused all pairs alike, which is why
+            // `protected internal Shared: int` declined at parse while the metadata planner beside
+            // it already knew what word to emit for it.
+            result.Values[1] = result.Values[1] | ParserDeclarationMemberModifierFlag(tokens.Kinds[pos])
+            if !ParserDeclarationVisibilityWordsAreLegal(result.Values[1]) {
                 return -1
             }
         }
@@ -11140,6 +11480,19 @@ func ParseStructDeclarationCore(source: string, tokens: ParserDeclarationTokenTa
             }
             if (memberModifiers.Values[2] & 1024) != 0 {
                 fieldModifierFlags = fieldModifierFlags + 16
+            }
+            // THE OTHER THREE VISIBILITY WORDS. `private` had a bit of its own from the start and the
+            // rest had none, so `protected Seed: int` reached the field planner indistinguishable
+            // from an unmarked field and was emitted PUBLIC while `protected func` beside it was
+            // emitted `family`. Each word gets a bit and the planner reads the set.
+            if (memberModifiers.Values[2] & 8) != 0 {
+                fieldModifierFlags = fieldModifierFlags + 32
+            }
+            if (memberModifiers.Values[2] & 4) != 0 {
+                fieldModifierFlags = fieldModifierFlags + 64
+            }
+            if (memberModifiers.Values[2] & 1) != 0 {
+                fieldModifierFlags = fieldModifierFlags + 128
             }
 
             decl.FieldStaticFlags[fieldCount] = fieldModifierFlags
@@ -14267,16 +14620,36 @@ func ColumnarStructFieldFlagIsStatic(flags: int): bool {
     return (flags & 1) != 0
 }
 
-// The field word packs five independent facts: bit 0 `static`, bit 1 `readonly`, bit 2 `private`,
-// bit 3 the exact System.ThreadStatic intrinsic, and bit 4 `const`. The columnar input builder
-// used to decode the first two itself; every bit's meaning belongs to the kernel that writes the
-// word.
+// The field word packs eight independent facts: bit 0 `static`, bit 1 `readonly`, bit 2 `private`,
+// bit 3 the exact System.ThreadStatic intrinsic, bit 4 `const`, bit 5 `protected`, bit 6 `internal`
+// and bit 7 `public`. The columnar input builder used to decode the first two itself; every bit's
+// meaning belongs to the kernel that writes the word.
 func ColumnarStructFieldFlagIsReadonly(flags: int): bool {
     return (flags & 2) != 0
 }
 
 func ColumnarStructFieldFlagIsPrivate(flags: int): bool {
     return (flags & 4) != 0
+}
+
+// The field word's visibility bits, translated back into the ONE modifier bit space `Modifiers`
+// (DeclarationEnums.nl) uses: Public 1, Private 2, Internal 4, Protected 8. The packed word keeps
+// its own layout because its other four bits are storage facts, not accessibility.
+func ColumnarStructFieldVisibilityModifiers(flags: int): int {
+    modifiers := 0
+    if (flags & 128) != 0 {
+        modifiers = modifiers | 1
+    }
+    if (flags & 4) != 0 {
+        modifiers = modifiers | 2
+    }
+    if (flags & 64) != 0 {
+        modifiers = modifiers | 4
+    }
+    if (flags & 32) != 0 {
+        modifiers = modifiers | 8
+    }
+    return modifiers
 }
 
 func ColumnarStructFieldFlagIsThreadStatic(flags: int): bool {

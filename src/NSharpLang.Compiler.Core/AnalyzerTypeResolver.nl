@@ -599,18 +599,8 @@ class AnalyzerTypeResolver {
 
         // NL209, at a TYPE position. The channels above all answer from ONE place, so a name that
         // reached here is about to be resolved from an import — and an import is where two
-        // declarations can supply one spelling. The report is not gated on the unresolved-type
-        // opt-in: an ambiguity is an error about a name that DOES resolve, twice, so the leniency
-        // that exists for names which resolve through another channel does not apply to it.
-        if line > 0 {
-            ambiguousFirst := ""
-            ambiguousSecond := ""
-            if projectDiscoveryValue.TryFindAmbiguousImportedType(lookupName, AnalyzerProjectSourceProvider.UnitNamespace(compilationUnitValue), out ambiguousFirst, out ambiguousSecond) {
-                if MarkUnresolvedTypeReported(writtenName, line, column) {
-                    diagnosticsValue.ReportAmbiguousTypeReference(writtenName, ambiguousFirst, ambiguousSecond, line, column)
-                }
-            }
-        }
+        // declarations can supply one spelling.
+        ReportAmbiguousImportedTypeIfNeeded(lookupName, writtenName, line, column)
 
         projectType: TypeInfo = BuiltInTypes.Unknown
         projectDeclaration: SymbolDeclaration? = null
@@ -660,6 +650,38 @@ class AnalyzerTypeResolver {
         }
 
         return new ExternalTypeInfo(writtenName)
+    }
+
+    // THE AMBIGUITY GATE, AS A CALLABLE OWNER RATHER THAN AN INLINE BLOCK.
+    //
+    // The walk above reaches it on its way past the import tier, and a POSITION THE WALK DOES NOT
+    // REACH needs it too: an attribute's bracket spelling is looked up through
+    // `ResolveSimpleType(candidate, 0, 0)` — deliberately positionless, so the validator can own its
+    // own "not found" wording — and that silence used to swallow the tie as well. `[Tag]` is an
+    // ordinary type reference wearing brackets; two imports that both supply `Tag` are the same tie
+    // an annotation reports, and it is reported with the same words.
+    //
+    // The report is NOT gated on the unresolved-type opt-in: an ambiguity is an error about a name
+    // that DOES resolve, twice, so the leniency that exists for names which resolve through another
+    // channel does not apply to it. `lookupName` carries the arity the metadata probe needs;
+    // `writtenName` is what the reader is shown and what the dedupe set is keyed on.
+    func ReportAmbiguousImportedTypeIfNeeded(lookupName: string, writtenName: string, line: int, column: int): bool {
+        if line <= 0 {
+            return false
+        }
+
+        ambiguousFirst := ""
+        ambiguousSecond := ""
+        if !projectDiscoveryValue.TryFindAmbiguousImportedType(lookupName, AnalyzerProjectSourceProvider.UnitNamespace(compilationUnitValue), out ambiguousFirst, out ambiguousSecond) {
+            return false
+        }
+
+        if !MarkUnresolvedTypeReported(writtenName, line, column) {
+            return false
+        }
+
+        diagnosticsValue.ReportAmbiguousTypeReference(writtenName, ambiguousFirst, ambiguousSecond, line, column)
+        return true
     }
 
     // `Example.Handle` AND `Handle` ARE ONE IDENTITY.

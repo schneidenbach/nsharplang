@@ -138,12 +138,12 @@ func main(): int {
             var sourcePath = Path.Combine(tempDir, "Program.nl");
             File.WriteAllText(sourcePath, """
 import System.Collections.Generic
-class Registry {
-    static readonly Entries: List<string> = new List<string>()
-    static func Record(name: string) {
-        Entries.Add(name)
+async func* Relay(source: IAsyncEnumerable<string>): IAsyncEnumerable<string> {
+    await foreach name in source {
+        yield name
     }
 }
+
 
 func main() {
     print "counted"
@@ -388,12 +388,12 @@ func main() {
             var sourcePath = Path.Combine(tempDir, "Program.nl");
             File.WriteAllText(sourcePath, """
 import System.Collections.Generic
-class Registry {
-    static readonly Entries: List<string> = new List<string>()
-    static func Record(name: string) {
-        Entries.Add(name)
+async func* Relay(source: IAsyncEnumerable<string>): IAsyncEnumerable<string> {
+    await foreach name in source {
+        yield name
     }
 }
+
 
 func main() {
     print "counted"
@@ -590,12 +590,12 @@ targetFramework: net10.0
 """);
             File.WriteAllText(Path.Combine(sharedDir, "Shared.nl"), """
 import System.Collections.Generic
-class Registry {
-    static readonly Entries: List<string> = new List<string>()
-    static func Record(name: string) {
-        Entries.Add(name)
+async func* Relay(source: IAsyncEnumerable<string>): IAsyncEnumerable<string> {
+    await foreach name in source {
+        yield name
     }
 }
+
 """);
 
             File.WriteAllText(Path.Combine(tempDir, "project.yml"), """

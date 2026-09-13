@@ -595,9 +595,10 @@ already admits, and the result is `bool` rather than `bool?`: two absent values 
 absent one differs from every present one, so the comparison is always decided (C# §12.12.7). It
 recurses at most once, because an unwrapped operand is not a nullable.
 
-`==` and `!=` are the ONLY operators N# lifts. `int? + 1` is still NL202, and that is a deliberate
-line rather than an oversight: `== true` is the spelling a lifted boolean is tested with and the one
-the census corpus needs, while lifted arithmetic has `must` and `??` as its spellings.
+That line was later CLOSED: every operator family lifts now — see "Lifted operators over a nullable
+value type" below — and `CanCompareLiftedEquality` remains the primitive/enum/record-struct half of
+equality's lift, with the USER-DEFINED half (`decimal? == decimal`, `TimeSpan? == TimeSpan`) answered
+by `TryLiftedBinaryResult`'s equality arm ahead of it.
 
 EMIT MIRRORS IT IN `ColumnarIlEmitter.TryEmitLiftedNullableEquality`:
 `a.GetValueOrDefault() == b.GetValueOrDefault() & a.HasValue == b.HasValue` when both sides are
@@ -610,6 +611,60 @@ chain root the preflight could not answer for — the other operand's known `ceq
 that safe — and then reads the real types off what it emitted. `TryGetPreflightExpressionType` now
 answers for a `?.` chain (`TryGetPreflightNullConditionalChainType` applies the chain's lift, and the
 guard node itself is transparent to the type), which it previously could not do at all.
+
+### Lifted operators over a nullable value type (census 2026-09-13, §LIFT)
+
+C# §12.4.8, and ONE rule rather than one per operator family.
+`AnalyzerOperatorExpressions.TryLiftedBinaryResult` runs AHEAD of every `*Result` arm in
+`PlainOperatorResult`: it unwraps whichever operands are a `T?` over a non-nullable VALUE type
+(`UnwrapLiftedValueOperand`, plus `AnalyzerConversionFacts.IsDefinitelyNonNullableValueType` on what
+is left, which is C#'s own requirement), asks the UNLIFTED question of the elements, and wraps the
+answer back up. `TryLiftedUnaryResult` is the same rule for `-`, `~`, `!`, `++` and `--`.
+
+The unlifted question is asked by `UnliftedBinaryResultOrNull` / `UnliftedUnaryResultOrNull` --
+PURE readers that REPORT NOTHING and are each the deciding half of the matching `*Result` rule with
+its diagnostics removed. That is what makes the lift unable to admit a pair the unlifted rule
+refuses, and what makes a refusal fall through to the ordinary arm, which states the problem in the
+types the programmer WROTE (`int? + bool` still says `'int?' and 'bool'`).
+
+TWO RESULT SHAPES. Arithmetic, bitwise and shift answer `R?`; an ORDERING comparison answers a plain
+`bool`, FALSE when either operand is absent -- so the comparison is always decided and nothing may
+narrow out of it. `++`/`--` answer the OPERAND'S OWN type, because the value is written back into the
+storage it came from.
+
+`&&` and `||` are NOT lifted (C# §12.14 defines only `&` and `|` over `bool?`): a short-circuiting
+operator decides whether to evaluate its right side from the LEFT side alone, and an absent left
+side cannot answer that. `LogicalOperatorResult` says exactly that, and its suggestion names
+`== true`, `!= false`, `?? false` and the non-short-circuiting counterpart.
+
+A bare `null` operand is NOT a lift (the lift needs a `T?` TYPE and the literal has none), a
+REFERENCE annotation is not a lift (unwrapping `string?` would hand `string` to the primitive arm),
+and nothing in the family is constant-folded.
+
+EMIT IS `ColumnarIlEmitter.TryEmitLiftedNullableBinary` / `TryEmitLiftedNullableUnary` /
+`TryEmitLiftedCompoundOperation`, plus the `Nullable<T>` arm of `EmitPostfixStep`. Both operands are
+evaluated in source order into locals (a lifted operator does NOT short-circuit), every lifted side's
+`HasValue` is tested, and the unlifted operation runs on the values; the absent path answers
+`default(R?)` for a value result and `ldc.i4.0` for a comparison. There is NO per-operator table: the
+operation is whatever `TrySelectLiftedElementBinary` selects, which is the SAME source-declared
+`op_*` lookup, runtime `op_*` lookup and predefined promotion the unlifted arm performs, asked of the
+element types. Only the PRESENCE test is lifted, so `checked` still throws and a present divide by
+zero still throws.
+
+`LiftedOperandArrivalType` is what keeps the lift out of a NARROWED read: a bare name flow has proved
+present is read as its element type, so `if x != null { x + 1 }` is an ordinary `int + int` and is
+not lifted a second time.
+
+`bool? & bool?` and `bool? | bool?` are C# §12.14's THREE-VALUED table, not an ordinary lift --
+`false & null` is FALSE and `true | null` is TRUE. `TryEmitThreeValuedBooleanLogical` writes it
+branch-free as the two facts the table states: `value = a.v op b.v`, and
+`present = (a.h & b.h) | (a.h & <a decides>) | (b.h & <b decides>)` where "decides" is `!a.v` under
+`&` and `a.v` under `|`. A plain `bool` operand is wrapped into a `bool?` first, so one lowering
+serves all three operand shapes. `^` has no such shortcut and is the ordinary lift.
+
+Equality's USER-DEFINED half rides the same selection: `EmitLiftedEqualityElementComparison` uses
+`ceq` for the elements the instruction answers for and the element's own `op_Equality` for the rest,
+which is what makes `decimal? == decimal` and `TimeSpan? == TimeSpan` compile.
 
 A `null` TERNARY ARM TAKES THE OTHER ARM'S TYPE. `flag ? name : null` used to decline with
 "unsupported expression (node kind 5)" because a bare `null` has no self-type; the residual ternary
@@ -830,11 +885,49 @@ namespace) stand the gate down, and an `import` that merely names one of them is
 rather than counted as a rival — and the project-wide unique-exported FALLBACK is never a candidate,
 because it is the channel that runs when no import supplies the name.
 
-ONE MEASURED LIMIT. The metadata half of the tie check is asked only once the SOURCE half has
-matched: an assembly sweep is imports × assemblies of `Assembly.GetType`, a miss is deliberately not
-cached, and running it for every name that reaches the gate would put that cost on `Console`, `List`
-and every other ordinary CLR spelling. So two IMPORTED CLR namespaces that declare the same spelling
-still resolve first-import-wins. That limit is written down on `website/docs/errors/NL209.md`.
+THE METADATA HALF IS NO LONGER A HALF (census 2026-09-13, §AMBIG). The tie check used to ask the
+assemblies only once the SOURCE sweep had already matched, because a miss was re-swept over every
+loaded assembly on every call and putting that on `Console`, `List` and every other ordinary CLR
+spelling was not affordable — so two IMPORTED CLR namespaces declaring one spelling resolved
+first-import-wins with NO diagnostic, and `import System` beside a library that declares its own
+`Range` silently meant a type its author never chose. That was a cost, never a rule: C# reports
+CS0104 for that shape too. `AnalyzerExternalTypeProbe.TryResolveFullName` now remembers a miss
+against the ASSEMBLY COUNT that proved it — the analyzer's assembly list only grows while a file's
+imports are processed, so the count is an exact invalidation — and the sweep the resolver was going
+to take a step later is what answers the gate. The tie is reported wherever it occurs: source against
+source, source against metadata, metadata against metadata. The probe name carries its ARITY (`List`1`
+and `List` are different metadata identities); the two candidates a reader is shown are spelled the
+way the file spells them.
+
+THE NAMESPACE WALK LIVES IN THE DISCOVERY OWNER, not in the probe: only discovery knows the file's
+namespace, so only it can skip an import that merely names a LEXICAL namespace, or the namespace a
+source declaration already claimed. `AnalyzerExternalTypeProbe.ImportedNamespaceDeclares` is the
+single step it walks with.
+
+EVERY POSITION REACHES THE GATE. `AnalyzerTypeResolver.ReportAmbiguousImportedTypeIfNeeded` is the
+callable owner (the inline block it replaced could only be reached by the type walk). An ATTRIBUTE's
+bracket spelling is looked up through a deliberately positionless probe — `ResolveSimpleType(name, 0, 0)`,
+so `AnalyzerAttributeValidator` can own its own "not found" wording — and that silence used to swallow
+the tie as well; the validator now asks the gate first, for both of `[Tag]`'s legal spellings
+(`Tag`, `TagAttribute`), and reporting ends that attribute.
+
+A CROSS-FILE MEMBER'S TYPE REFERENCE IS READ IN THE FILE THAT DECLARES IT. `DeclaredMemberInfo`
+carries raw `TypeReference`s out of another file's syntax tree: their spelling is scoped by THAT
+file's imports and their line/column are positions in THAT file.
+`AnalyzerConstruction.DelegateConstructorParameterType` handed them to the current file's resolver,
+which produced a false NL209 decided by the CONSUMER's imports and stamped at the declaring file's
+coordinates against the consumer's path — a caret pointing into the middle of a line that never
+spells the name (census 2026-09-13, §AMBIG, finding 4). It now reads them through
+`AnalyzerDeclarationContext.TryResolveTypeForOwner`, the owner-scoped door the rest of the
+declared-member family already uses. Any new site that resolves a `TypeReference` it did not read out
+of the file being analysed must use that door.
+
+**THE GENERIC HALF OF THAT GUARD WAS UNREACHABLE** (census 2026-09-13, §AMBIG). The
+imported-CLR-type probe below was asked for `TypeArityNames.Display(name)` — the identity with its
+arity suffix stripped — and no assembly declares a type called `List`, so a source `class List<T>` in
+a namespace a file never imported took the name back from the `System.Collections.Generic.List` that
+file's own `import` brought in, and `items.Add(1)` reported NL303. The probe is asked at the LOOKUP
+name now. `tests/native/census-imports/ShadowingGeneric.tests.nl` executes it.
 
 **AN EXPLICIT IMPORT OUTRANKS PROJECT-WIDE AUTO-DISCOVERY, and that ordering is a correctness fix.**
 `ResolveVisibleProjectType`'s third outcome — the unique-exported fallback — matches by unqualified
@@ -1005,6 +1098,76 @@ PascalCase one `public`; the ruling changed the LANGUAGE rule, not one metadata 
 `AnalyzerProjectDiscovery.tests.nl` (both channels, from inside and outside the namespace) and
 `tests/native/census-visibility` (runtime, CLR metadata, `FindDefinition`/`FindReferences`,
 completion and the NL308 negative, over files on disk).
+
+**THE DECLARED ACCESSIBILITY RULE IS A SECOND, INDEPENDENT SYSTEM** (2026-09-13, stream ACCESS), and
+`MemberAccessibility` is its one owner. The package rule above is about a NAME's casing;
+`private` / `protected` / `protected internal` / `private protected` / `internal` are about a TYPE,
+mean what the CLR means, and until this slice N# parsed them, emitted them into metadata, and
+enforced NONE of them — `d.Seed` on a `protected` field from a free function checked clean and
+emitted.
+
+`MemberAccessibility` publishes the CLR's six levels as an ORDERING (`Private` 0 …`Public` 5), reads
+a level off written modifier bits (`LevelOfDeclaredModifiers`) or off a reflected
+`MethodBase`/`FieldInfo` (`LevelOfMethod` / `LevelOfField` / `LevelOfClrFlags`), and answers ONE
+relation for both:
+
+```
+IsAccessible(level, isDeclaringType, derivesFromDeclaringType, receiverIsAccessingTypeOrDerived, sameAssembly)
+```
+
+The receiver argument is C# §7.5.4 and is not optional: inside a derived type, `this.Seed`,
+`Seed`, `base.Seed` and `other.Seed` where `other` is of the DERIVED type are legal, and
+`other.Seed` where `other` is typed as the BASE is not. `base.` is its own arm at the call site
+rather than a receiver judgement, because `base` is typed as the base and so never satisfies the
+receiver test.
+
+`LevelOfDeclaredModifiers` deliberately answers `Public` for a member with NO written word,
+including a camelCase one. Folding casing in here would refuse `widget.count` inside the package
+that declared it — casing is the other rule, with the other owner and the other sentence.
+
+`AnalyzerMemberAccess.ValidateDeclaredMemberAccessibility` is the call site, and it runs only when
+the package rule did NOT report: one wrong thing gets one underline.
+`AnalyzerDiagnosticSink.ReportInaccessibleDeclaredMember` renders it, naming the word, the declaring
+type, and the type the access was written from ("from outside every type" at namespace scope).
+`CompletionVisibilityFacts.IsOfferableByDeclaredAccessibility` keeps the editor from offering what
+the analyzer will refuse, driven by `EnclosingTypeName(unit, line)` and the name-based base-chain
+walk `IsTypeOrDerived`; a caret outside every type offers exactly the public and package surface.
+Contracts: `MemberAccessibility.tests.nl` (the relation as a table, source and reflected levels),
+`SourceAccessibilityDiagnostics.tests.nl` (the refusals and their exact text, plus a fixture of
+every access the rule ADMITS so a false refusal fails) and `tests/native/census-accessibility`
+(runtime reads through `this`/bare/`base`/sibling receivers and the emitted metadata word).
+
+**A SOURCE TYPE REACHES ITS EXTERNAL BASE'S `protected` METHODS** (2026-09-13, stream ACCESS,
+PARTIAL). `Collection<T>` is designed to be extended through `SetItem`/`ClearItems`/`InsertItem`, all
+`protected virtual`, and a `class Bag: Collection<string>` could not NAME any of them: the analyzer's
+metadata arm asked `BindingFlags.Public` only (NL303/NL412) and the emitter's candidate enumeration
+did the same. `AnalyzerMemberResolution.ResolveMember` now carries `inheritedProtectedAccess` — the
+receiver half of the rule, answered by the caller (`AnalyzerMemberAccess.InheritsProtectedThrough`
+for a written receiver, unconditionally true for a bare name, `base.`/`this.` as their own cases) —
+and `IsReachableReflectedLevel` decides what that admits: the family surface and nothing else,
+because the base is in a REFERENCED assembly and `assembly`-level members are never reachable.
+`ColumnarOrdinaryRuntimeDirectCallResolver.ResolveInheritedWithFacts` is the emitter's twin, used by
+the three inherited-base call sites only.
+
+WHAT STILL DECLINES (NL103), for whoever picks this up:
+* a protected method named with NO receiver (`SetItem(0, v)`): `ColumnarDirectCallPlanner`'s bare-call
+  branch does not claim it, while the identical `this.SetItem(0, v)` does — the difference is the
+  `explicitThis || !bindings.IsValueBinding(name)` guard ahead of the inherited-base branch;
+* a protected FIELD or PROPERTY read (`this.Items`, `this.CoreNewLine`): the `this.`-receiver READ
+  path for inherited external members is `TrySelectAdmittedProperty`, which handles properties only
+  and requires `IsAdmittedValueType` — `IList<string>` and `char[]` fail that test for PUBLIC members
+  too, so this is a result-type gap sitting behind the accessibility one, not an accessibility gap.
+
+**A FREE FUNCTION'S VISIBILITY WORD NOW REACHES METADATA** (2026-09-13, stream ACCESS). The word was
+parsed into `ColumnarFunctionInput.VisibilityModifierFlags` and read by free-function identity, but
+`ColumnarDeclarationPlan.BuildMethods` passed only `ModifierFlags` — which carries
+`async`/`generator`/`native import` and never the visibility word — so `public func helper()` emitted
+non-public and `private func Helper()` emitted PUBLIC. Both columns are now read.
+`FreeFunctionVisibilityAttributes` is the rule and it has only TWO answers: `public` (written, or
+implied by a PascalCase name) is `Public|Static` (22), and EVERY other spelling — a written
+`private` or `internal`, and the camelCase default — is `Assembly|Static` (19). `Private` would be
+wrong: a class of the same package, a lambda's display class and a local function's closure are each
+a different CLR type and may all legally call a package-private function.
 
 A resolved declaration's LINE is the declaration's own and its COLUMN is where the NAME starts on
 that line (`CodeIntelligenceTextUtilities.FindIdentifierNameColumn`), which is what a
@@ -1566,6 +1729,109 @@ For external methods with multiple overloads:
   as ambiguous rather than selected by declaration or reflection order.
 - N# overload groups use the same principle: argument types and conversion specificity decide the
   unique best candidate; incompatible candidates and equal-best ties are diagnostics.
+
+#### `AnalyzerOverloadSpecificity` — "better function member", one owner, three callers (census 2026-09-13, OVERLOAD)
+
+The score ladder rates two candidates the same whenever neither parameter is the argument's own type,
+and until this owner existed the tie was broken by ORDER: declaration order in the source world,
+metadata order in the reflected one. `Assert.Single(x.EnumerateArray())` bound the non-generic
+`Single(IEnumerable): object?` over `Single<T>(IEnumerable<T>): T`, and the call's type silently
+became `object?` (24 of the converted census's 29 `this value` NL905s).
+
+`AnalyzerOverloadSpecificity` is ECMA-334 §12.6.4.3 stated once. It takes BOOLEANS, not types, so the
+three worlds supply their own conversion oracle and share only the decision:
+
+- `CompareConversionTargets(leftIsIdentity, rightIsIdentity, leftToRight, rightToLeft)` — one
+  argument position's verdict. Identity first (the argument's own type wins the position), then the
+  more specific type (the one that converts to the other and not back).
+- `FoldArgumentVerdicts` — ALL-OR-NOTHING. A candidate that wins one position and loses another is
+  not better, it is INCOMPARABLE, and incomparable is what NL414 reports.
+- `CompareTieBreaks(parameterTypesIdentical, …)` — non-generic over generic (gated on the substituted
+  parameter types being IDENTICAL), normal form over an expanded `params` tail, fewer defaults.
+- `FindMaximalIndexes(comparisons, count)` — SELECTION IS A MAXIMAL-SET SEARCH, NOT A SORT. "Better"
+  is a PARTIAL order, so a sort has no defined answer and would make the chosen overload depend on the
+  candidate order. One maximal candidate is the call's overload; two or more is NL414; NONE (a cycle
+  in the verdicts) leaves the caller's existing order alone.
+
+The three callers:
+
+- `AnalyzerCallAnalysis.PromoteBestReflectionCandidate` — runs after `SortReflectionCandidates` (which
+  still owns the RETRY order) and moves the unique maximal candidate to the front. Oracle:
+  `TypeInfoIdentityFacts.HaveSameReflectionTypeIdentity` and `HasImplicitReflectionConversion`
+  (`IsReflectionAssignableFrom` plus the numeric widening table) over each candidate's SUBSTITUTED
+  parameter type per position. A member declared on a MORE DERIVED type wins an otherwise-identical
+  pair (§12.6.4.4 hiding), asked before the generic rule. Three rules the positions themselves need:
+  - **THE EXTENSION RECEIVER IS POSITION 0.** `values.AsQueryable()` writes no arguments at all and
+    chooses between `AsQueryable(IEnumerable)` and `AsQueryable<T>(IEnumerable<T>)` entirely on the
+    receiver; a comparison that read only the written list saw nothing to tell them apart, fell through
+    to "non-generic beats generic" and typed the result as the bare `IQueryable`, after which
+    `query.Where(x => x > 1)` had no element type to give the lambda (NL203).
+  - **A POSITION NEITHER CANDIDATE FILLS IS NOT A DIFFERENCE.** Slot 0 is null for every non-extension
+    call; treating that as "the parameter lists differ" switches off the non-generic tie-break for
+    every ordinary static call.
+  - **AN ARGUMENT WITH NO CLR FORM FALLS BACK TO THE N# RELATION** (`assignability.IsAssignable` over
+    the parameter's `ConvertReflectionType`): a parameter that accepts the argument is a better target
+    than one that does not, which is applicability stated as betterness for the case where
+    applicability had no CLR type to reject either candidate with.
+- `ReflectionComparisonIsFullyInformed` GATES THE REPORT, not the choice. NL414 accuses the reader of
+  writing a call the LANGUAGE cannot resolve, and that is only honest when the comparison had something
+  to compare. A position where the two parameter types DIFFER and the argument has no type at all — an
+  anonymous object, which types as `unknown` and is therefore assignable to every parameter, or a lambda
+  phase 32 deliberately left unanalysed — means the tie is the compiler's, not the program's, so the
+  candidate is still chosen but nothing is reported. `BadRequest(new { errors: errors })` is that case
+  (`BadRequest(object?)` vs `BadRequest(ModelStateDictionary)`); a METHOD GROUP has a type and is not
+  exempt, which is the `Enumerable.Select` case NL414 exists for.
+- `AnalyzerSyntheticCallWalk.BindNSharpCall` — collects the applicable candidates first and compares
+  them afterwards, for the same partial-order reason. Oracle: `TypeInfoIdentityFacts.AreEqual` and
+  `AnalyzerAssignability.IsAssignable` over the same `GetArgumentComparisonTypes` the SCORER reads, so
+  the types the rule compares are the types the score came from. The two candidates must be asked
+  about the SAME argument type (a `params` tail can make one compare a spread's element).
+- `ColumnarSourceDirectCallResolver.SelectMostSpecificParameters` — the EMITTER resolves source calls
+  independently, so it needs the rule too or it declines (NL103) a call the analyzer accepted. Oracle:
+  `ExactTypeShapeMatches` and `ArgumentFlowScore(...) >= 0`. Asked only on a tie.
+
+`AnalyzerOverloadFacts.LambdaBodyProducesValue` scores BOTH directions of the lambda-return rule. An
+expression-bodied lambda has a value to give and prefers a delegate that keeps it (`Task.Run(() => 42)`
+picks `Run<TResult>(Func<TResult>)`); a STATEMENT-bodied one with no `return <expr>` has none and
+prefers a delegate that expects none (`Task.Run(() => { work() })` picks `Run(Action)`). Rewarding only
+the first direction left the second pair tied on every key, which became an ambiguity report for a call
+C# resolves without hesitating. The walk descends every statement the lambda's own body executes and
+stops at a nested LOCAL FUNCTION; nested lambdas are never reached, because they live in expressions.
+
+`AnalyzerOverloadFacts.MethodGroupConversionScore()` is 6, a CONSTANT. The inner walk that picks which
+overload of a method GROUP to use still adds one ladder value per delegate parameter plus one for the
+return — right there, because every survivor matched the same expected signature — but that sum may
+not reach the enclosing candidate's score: `Enumerable.Select` declares a one-parameter and a
+two-parameter selector, and the longer signature used to win purely for having one more position to
+add up. C# does not rank a method-group conversion at all; it ranks the delegate PARAMETER TYPES.
+
+**NL414** (`ErrorCode.AmbiguousCall`) is reported by `AnalyzerReflectionCallReporter.ReportAmbiguousCall`
+and `AnalyzerSyntheticCallReporter.ReportAmbiguousCall`, both rendering
+`AnalyzerOverloadSpecificity.AmbiguousCallSummary/Explanation/Hint`. The reflected arm dedupes through
+the analyzer-lifetime `AnalyzerCallableReferenceReportLog` (key prefix `NL414 `), because a method
+group is pre-bound several times for one written occurrence. A SURROGATE method group is exempt: its
+candidates are read off an instantiation closed over `object`, so two of them looking alike is the
+surrogate failing to represent the call. Both arms still BIND the first maximal candidate, so the
+call keeps a type and the IDE keeps its semantic-model row.
+
+MEASURED, tip against `census/merge` 17d626dca, over the converted census at
+`/Users/spencer/repos/nsharp-cs2nl/out` (`nlc check --json`, five projects): `cli` 22 -> 15 rows
+(NL402 8 -> 1: the `compileProjectWithIlBackend(..., out ignored3, ...)` family, fixed by the by-ref
+shell below), `tests` 53 -> 29 (NL905 29 -> 5: the 24 `this value` rows an `object?`-returning overload
+produced), `languageserver` 36 -> 36, `playground-wasm` 23 -> 23, `runtime` 0 -> 0. No code appears that
+did not appear before, and NL414 appears in NONE of them.
+
+The same measurement over the COMPILER'S OWN 819 `.nl` files (`nlc check --json` in
+`src/NSharpLang.Compiler.Core`) moves 1588 rows -> 1313: NL402 195 -> 3, NL905 540 -> 469, NL202 406 ->
+394, every other code identical, and again no NL414. The NL402 collapse is the `ref`/`out` shell; the
+NL905 collapse is the calls that used to bind an `object?`-returning overload.
+
+A source `ref`/`out` position is scored through its BY-REF SHELL:
+`AnalyzerSyntheticCallBinder.GetArgumentComparisonTypes` applies
+`AnalyzerOverloadFacts.ApplySyntheticParameterModifier` exactly as the validator does. Without it a
+`Facts` parameter did not accept the `&Facts` an `out` argument carries, so an overload set containing
+an `out` signature reported NL402 for the very call that signature exists for — while the same call to
+a LONE declaration bound, because a lone declaration is never scored.
 - Exact type identity is decided on the `TypeInfo` values, not only by reference or by CLR type. A
   CONSTRUCTED SOURCE GENERIC converts to no CLR type at all, so without that rule
   `Equals(Outcome<TOk, TErr>)` and `Equals(object?)` score the same and tie.
@@ -2391,6 +2657,15 @@ Analyzer coverage is split deliberately across:
   have that runs the real analyzer over real reflection: `EventRequiresOnOff` appears in NO estate
   contract, and `InvalidEventSubscription` appears in exactly one — `AnalyzerLambdaAnalysis.tests.nl`,
   over a kernel harness with a stand-in subscription root, for the `on`-target-is-not-an-event arm.
+- `tests/native/census-events` for what `on` / `off` DO at runtime, which is the half the analyzer
+  contracts cannot see: subscribe / raise / unsubscribe counts for every receiver shape (a static
+  type, a local, a parameter, a bare field, `this.`-qualified, a property chain, an indexed element),
+  for all three handler shapes (inline lambda, delegate value, method group), for a handle captured by
+  a local function and for `on` written inside a lambda or a local-function body, plus `off`
+  idempotence and two subscriptions to one event detaching independently. Before the EVENTS census
+  slice every one of those functions declined the WHOLE enclosing declaration at `parse.function` /
+  `parse.struct` — the columnar pipeline had no `on` at all — so the file COMPILING is half of each
+  contract and the COUNT is the other half.
 - `tests/native/analyzer-binding-map` for what `AnalysisResult.Bindings` answers — `GetBindingAt`
   over interpolation holes, member accesses, and type annotations in every composite position
   (nullable, array, generic argument, delegate argument), and `FindAllReferences` with its WHOLE
@@ -3367,6 +3642,36 @@ Not yet lowered inside a generator body, each with its own decline: `return <val
 (`emit.iterator.async-unsupported`), `lock`, an `await` nested in a larger expression, and
 `await foreach`. (`using` is not a statement this language parses at all.)
 
+## The `using` Resource: NL333 and a Read-Only Binding
+
+`AnalyzerResourceStatements` is the driver for `try`, `using` and `lock`, and the `using` walk asks
+TWO questions the other two do not.
+
+**Is the resource releasable?** Either nominally — the type implements `IDisposable` — or
+structurally: it declares a parameterless `Dispose` returning `void`. Neither is NL333, whose sentence
+names both the TYPE and the INTERFACE, because the author can see only one of them on the line. An
+`await using` asks the SAME shape about a DIFFERENT contract (`IAsyncDisposable` / `DisposeAsync`), so
+the walk reads which contract to ask about off `UsingStatement.IsAsync` rather than threading it
+through the recursion: every arm — the wrappers, the redirects, the structural test and the nominal
+test — is one shape asked twice. The squiggle goes under the RESOURCE, not under the bound name: the
+name is not the mistake, and for the `using x := e` spelling the declaration is anchored on the
+`using` keyword anyway, so a caret at the name would underline the one token that is certainly right.
+
+**Is the name still holding what the statement promised to release?** The resource binding is
+READ-ONLY for as long as it is visible, and rebinding it reports NL309. The mark lives on the SCOPE
+(`Scope.MarkReadOnly` / `AnalyzerScopeStack.IsReadOnlySymbol`) rather than in a walk-lifetime set,
+because the region and the scope are the same thing: the block form marks the name in the scope the
+statement opened, and a using DECLARATION marks it in the ENCLOSING block — so the mark expires
+exactly when the guarantee does, with nothing to unwind. Writing THROUGH the resource is ordinary
+mutation and is none of the rule's business.
+
+**A using DECLARATION opens no scope.** Its guarded region is the rest of the enclosing block, which
+is also where its binding belongs; a scope of its own would end at the statement and hide the name
+from every line the declaration is supposed to cover. `AnalyzerStatementTermination` treats a `using`
+BLOCK as terminating when its body terminates (the release runs on the way out and changes nothing
+about whether control leaves) and a using DECLARATION as terminating nothing, because the statements
+it guards are its siblings and the block walk measures those.
+
 ## One Exception-Resolution Path
 
 `ColumnarCanonicalTypeResolver.TryResolveBclExceptionType` resolves a catch/throw type by ORDINARY CLR
@@ -3436,3 +3741,62 @@ postcondition owner were in the same tree:
   `T?[]` (the annotation is not a CLR type; the view is a no-op and every element read out of it is
   honestly typed `T?`) and `T?[]` still does not convert to `T[]`. This is the relation an `object[]`
   needs to reach `MethodInfo.Invoke`'s `object?[]?`.
+
+## A Bare Identifier in Receiver Position, and Reachability From a Referenced Assembly (census 2026-09-13, EMIT4)
+
+**Value or type name — one question, three owners.** A bare identifier in front of a `.` is either a
+VALUE whose members are read or the TYPE NAME of a static member access, and three owners decide it:
+`ColumnarFragmentBindings.IsValueBinding` (which `ColumnarDirectCallPlanner`'s `staticSyntax` test
+reads), the emitter's own receiver arm in `ColumnarIlEmitter.TryEmitBclMethodCall`, and the preflight
+type walk. Each of the three had a hole of its own:
+
+- A **STATIC member of the enclosing type** answered no to all of them. `Entries.Add(name)`, inside
+  the type declaring `static Entries: List<string>`, was read as a call on a TYPE named `Entries` and
+  declined at `emit.expression-statement.call`, while the bare `Entries` read and
+  `local := Entries` then `local.Add(name)` both emitted. `HasEnclosingStaticValue` is the static
+  twin of `HasCurrentInstanceValue`, anchored on `EnclosingTypeDefinition` because a static member is
+  in scope in every body the type owns, and both walk the declared base chain.
+- **`this`** is the one bare identifier that can never be a type name, and it is in no binding map,
+  so the emitter's receiver arm read `this.GetType()` as a static call on a type named `this`. It is
+  excluded explicitly now. (A bare `this` is still claimed and rejected one tier earlier by
+  `ColumnarBoundIdentifierPlanner`, which has no selection kind for the current instance, so
+  `this.<member>` still declines where the member is not declared on the source chain.)
+
+**Object's own members are every receiver's members.** `GetType`, `ToString`, `GetHashCode` and
+`Equals(object)` are inherited by every type, including the ones the compilation is still building.
+A source receiver is a `TypeBuilder`, which answers no member query, and `ColumnarInheritedExternalBase`
+reports the implicit `System.Object` base as NO answer (it contributes nothing beyond object's own) —
+so `thing.GetType().Name` declined while `(thing as object).GetType().Name` emitted. `TryEmitInstanceCall`
+now asks ordinary scoped resolution of `typeof(object)` after the source and external-base tiers, and
+boxes a source VALUE-type receiver first. `ColumnarDirectCallPlanner`'s inherited-external tier makes
+the same correction on the implicit-/explicit-`this` side, where `ResolveExternalRuntimeBase` answered
+null for a class with no `:` clause and the call was claimed and rejected — `this.GetType()` declined
+while `(this as object).GetType()` emitted. A REFERENCE `this` is `ldarg.0` either way; a value `this`
+is a managed pointer whose inherited dispatch needs a box, so a struct keeps the older answer. Bare
+`GetType()` with no receiver at all is still NL412: the analyzer's bare-name resolution has the same
+hole on its own side.
+
+**Reachability attributes are read from both sides of the fence at EMIT too.** The diagnostics pass
+already read a referenced assembly's `[DoesNotReturn]`/`[DoesNotReturnIf]`, so a statement after
+`Environment.FailFast(...)` was NL312 unreachable — while `ColumnarIlEmitter`'s two readers
+(`CallStatementNeverReturns`, `CallStatementParameterReachabilityFacts`) saw only source declarations.
+A value function whose last statement was such a call therefore declined at `emit.body` for not
+always-returning. `TryResolveExternalCallStatementMethod` resolves the reflected callee through the
+same scoped resolution every other external call uses, and `ReachabilityFlowAttributeReflection` reads
+the bits off it.
+
+**Ordinary static resolution is the rule; the per-API table is a residual.** `TryEmitStaticCall` ends
+in an ordinary-resolution arm over the owner the call named, so a static whose single declaration at
+that arity accepts the written arguments needs no table entry (`Debug.Assert(x != null)` was
+`emit.call.static-member-unmodeled`). The argument side needed one more fact: preflight could not type
+a NULL COMPARISON, because typing both operands first fails on the null literal, so `x != null` could
+not be scored as a `bool` argument while `x.Length > 0` could.
+
+**A tuple literal has a preflight type, and a tuple over a source type has a constructor.** A closed
+`ValueTuple` over a source type is a `TypeBuilderInstantiation` whose `GetConstructor` throws — the
+same wall the tuple's FIELD read already walks around with `TypeBuilder.GetField` — so the literal arm
+refused a builder-bound element outright and the typed-local arm reached the throw. Both go through
+one `TryResolveValueTupleConstructor` now. Separately, a tuple literal had no preflight type at all,
+so a lambda whose body is one had no inferable return type and `xs.Select(d => (d.Code, d.Line))`
+declined at the extension call. Element NAMES still do not survive an `IGrouping.Key` hop
+(`group.Key.Code` declines; `group.Key.Item1` emits) — that is the labelled-context gap, not this one.
