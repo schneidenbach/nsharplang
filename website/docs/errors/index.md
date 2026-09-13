@@ -126,6 +126,7 @@ These are not style rules; style is `nlc format`'s job and produces no diagnosti
 | [`NL410`](./NL410.md) | A default value that is not legal for the parameter. |
 | [`NL411`](./NL411.md) | A method named but not called, where a value is required. |
 | [`NL412`](./NL412.md) | A call target that is not a function, method or callable value. |
+| [`NL413`](./NL413.md) | A member named before `(` whose value is not a delegate. |
 
 ## Patterns — `NL5xx`
 

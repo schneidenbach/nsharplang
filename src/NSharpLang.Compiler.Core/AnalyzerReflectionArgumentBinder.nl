@@ -1320,43 +1320,42 @@ class AnalyzerReflectionArgumentBinder {
         return true
     }
 
+    // THE LAMBDA'S OWN SIGNATURE, FOLDED BACK INTO THE INFERENCE — C#'s phase-two OUTPUT TYPE
+    // INFERENCE, and nothing weaker.
+    //
+    // The lambda has just been analysed under the delegate's input types, so what came back is a
+    // COMPLETE signature, and the relation that folds a selected method group's signature into the
+    // bindings folds this one unchanged: each delegate parameter position against the lambda's, then
+    // the delegate's RETURN position against the lambda's return type. Both halves respect bindings
+    // that are already there, so an inference an earlier argument made is never overwritten, and a
+    // `void`-returning delegate contributes nothing from its return.
+    //
+    // A LAMBDA AND A METHOD GROUP ARE THE SAME ARGUMENT HERE, deliberately: both are values whose
+    // type is a signature, and the type parameters a signature can fix do not depend on how the
+    // signature was written.
+    //
+    // THE WALK THIS REPLACES GUESSED. It took the lambda's return type for "the one type parameter
+    // still unbound", which is not a POSITION at all: in `ToDictionary(n => n, n => n.Length)` the
+    // first lambda fixed `TKey` by shape and was then handed that same `string` for `TElement`
+    // because `TElement` happened to be the only one left, so every call whose lambdas fix two type
+    // parameters answered with the first lambda's type twice.
     func FoldLambdaInference(state: ReflectionCallFinalizeState, lambdaType: FunctionTypeInfo) {
         openParameterType := state.PendingOpenParameterType
+        if openParameterType == null {
+            return
+        }
+
+        openDelegateType := AnalyzerOverloadFacts.GetDelegateParameterTypeForLambdaTarget(openParameterType)
+        if TryPopulateReflectionBindingsFromMethodGroupDelegate(openDelegateType, lambdaType, state.WorkingBindings, state.WorkingTypeInfoBindings) {
+            return
+        }
+
+        // No `Invoke` to read positions off, or an arity that disagrees with the lambda's. The
+        // lambda's own constructed delegate type is then the only shape there is to match against,
+        // and the structural match carries the same information when the two definitions agree.
         lambdaDelegateType := clrTypeConversion.TryConstructDelegateType(lambdaType)
-        if lambdaDelegateType != null && openParameterType != null {
-            AnalyzerOverloadFacts.TryMatchReflectionParameter(AnalyzerOverloadFacts.GetDelegateParameterTypeForLambdaTarget(openParameterType), lambdaDelegateType, state.WorkingBindings)
-        }
-
-        lambdaReturnType := lambdaType.ReturnType
-        if lambdaReturnType == null {
-            return
-        }
-
-        lambdaReturnClrType := clrTypeConversion.TryConvertTypeInfoToClrType(lambdaReturnType)
-        if lambdaReturnClrType == null {
-            lambdaReturnClrType = clrTypeConversion.TryConvertTypeInfoToClrTypeForBinding(lambdaReturnType)
-        }
-
-        if lambdaReturnClrType == null || !state.RuntimeMethod.get_IsGenericMethodDefinition() {
-            return
-        }
-
-        remaining := new List<Type>()
-        genericArguments := state.RuntimeMethod.GetGenericArguments()
-        index := 0
-        while index < genericArguments.Length {
-            if !state.WorkingBindings.ContainsKey(genericArguments[index]) {
-                remaining.Add(genericArguments[index])
-            }
-
-            index = index + 1
-        }
-
-        // ONE remaining type parameter and one lambda return type is an inference; two of either is
-        // an ambiguity the walk refuses to resolve.
-        if remaining.Count == 1 {
-            state.WorkingBindings[remaining[0]] = lambdaReturnClrType
-            state.WorkingTypeInfoBindings[remaining[0]] = lambdaReturnType
+        if lambdaDelegateType != null {
+            AnalyzerOverloadFacts.TryMatchReflectionParameter(openDelegateType, lambdaDelegateType, state.WorkingBindings)
         }
     }
 

@@ -47,11 +47,13 @@ class AmbientCallCalleeFrame {
     AllowUnboundCallableReference: bool
     AllowSyntheticSoaOperationReference: bool
     AnalyzingCallCallee: bool
+    CallCalleeNode: Expression?
 
-    constructor(allowUnboundCallableReference: bool, allowSyntheticSoaOperationReference: bool, analyzingCallCallee: bool) {
+    constructor(allowUnboundCallableReference: bool, allowSyntheticSoaOperationReference: bool, analyzingCallCallee: bool, callCalleeNode: Expression?) {
         AllowUnboundCallableReference = allowUnboundCallableReference
         AllowSyntheticSoaOperationReference = allowSyntheticSoaOperationReference
         AnalyzingCallCallee = analyzingCallCallee
+        CallCalleeNode = callCalleeNode
     }
 }
 
@@ -189,6 +191,7 @@ class AnalyzerAmbientContext {
     allowUnboundCallableReferenceValue: bool
     allowSyntheticSoaOperationReferenceValue: bool
     analyzingCallCalleeValue: bool
+    callCalleeNodeValue: Expression?
     writeTargetExpressionTypesValue: Dictionary<object, TypeInfo>?
 
     // THE ENCLOSING FUNCTION'S RETURN TYPE, and `null` when there is no enclosing function at all —
@@ -319,6 +322,14 @@ class AnalyzerAmbientContext {
 
     AnalyzingCallCallee: bool => analyzingCallCalleeValue
 
+    // THE EXACT NODE A CALL NAMES, and it is a different value from the position flag above on
+    // purpose. `AnalyzingCallCallee` is true for the whole callee SUBTREE — the receiver `a.b` of
+    // `a.b.Count(x)` is analysed inside the same bracket — while only the OUTERMOST link is the
+    // thing being called. The rule that a member which cannot be called does not hide a method of
+    // the same name applies to that one link and to nothing under it, so the node itself crosses
+    // and the reader compares by identity.
+    CallCalleeNode: Expression? => callCalleeNodeValue
+
     // THE SUB-EXPRESSION TYPES OF THE WRITE TARGET CURRENTLY BEING ANALYSED, or `null` when no write
     // target is open. Keyed by NODE IDENTITY rather than by position, because the semantic model's
     // line/column keys collide for nested chains that share a start column — `a.b.c` has three nodes
@@ -362,6 +373,7 @@ class AnalyzerAmbientContext {
         allowUnboundCallableReferenceValue = false
         allowSyntheticSoaOperationReferenceValue = false
         analyzingCallCalleeValue = false
+        callCalleeNodeValue = null
         writeTargetExpressionTypesValue = null
     }
 
@@ -434,11 +446,12 @@ class AnalyzerAmbientContext {
     // being analysed is the thing a call NAMES, not a value the program holds. Nothing opens any of
     // the three on its own except the method-group suppression above, so there is no reason to make
     // a caller spell three save/restore pairs and no way for it to get two of the three right.
-    func EnterCallCallee(): AmbientCallCalleeFrame {
-        saved := new AmbientCallCalleeFrame(allowUnboundCallableReferenceValue, allowSyntheticSoaOperationReferenceValue, analyzingCallCalleeValue)
+    func EnterCallCallee(calleeNode: Expression?): AmbientCallCalleeFrame {
+        saved := new AmbientCallCalleeFrame(allowUnboundCallableReferenceValue, allowSyntheticSoaOperationReferenceValue, analyzingCallCalleeValue, callCalleeNodeValue)
         allowUnboundCallableReferenceValue = true
         allowSyntheticSoaOperationReferenceValue = true
         analyzingCallCalleeValue = true
+        callCalleeNodeValue = calleeNode
         return saved
     }
 
@@ -446,6 +459,7 @@ class AnalyzerAmbientContext {
     // method group — which is the reverse of the order they were set in and is preserved verbatim
     // because a restore is not commutative when a nested walk reads one of them in between.
     func ExitCallCallee(saved: AmbientCallCalleeFrame) {
+        callCalleeNodeValue = saved.CallCalleeNode
         analyzingCallCalleeValue = saved.AnalyzingCallCallee
         allowSyntheticSoaOperationReferenceValue = saved.AllowSyntheticSoaOperationReference
         allowUnboundCallableReferenceValue = saved.AllowUnboundCallableReference

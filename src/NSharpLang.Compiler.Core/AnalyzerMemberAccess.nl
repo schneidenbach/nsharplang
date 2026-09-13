@@ -407,7 +407,13 @@ class AnalyzerMemberAccess {
         TryRecordMemberBinding(receiverType, member)
 
         includeStaticMembers := IsStaticMemberAccessTarget(member.Object)
-        memberType := memberResolutionValue.ResolveMember(receiverType, member.MemberName, includeStaticMembers, ambientValue.CurrentTypeName)
+        invocationPosition := IsCallCalleePosition(member)
+        memberType := memberResolutionValue.ResolveMember(receiverType, member.MemberName, includeStaticMembers, ambientValue.CurrentTypeName, invocationPosition)
+        if invocationPosition && BuiltInTypes.IsUnknown(memberType) && ReportMemberNotCallableIfNeeded(receiverType, member, includeStaticMembers) {
+            state.ResultType = BuiltInTypes.Unknown
+            return
+        }
+
         if BuiltInTypes.IsUnknown(memberType) && ShouldReportUndefinedMember(receiverType, member.MemberName, includeStaticMembers) {
             // The report is RENDERED HERE. It used to be a step the driver performed, because building
             // the did-you-mean list reads `PropertyInfo.Name` and `FieldInfo.Name` off the receiver's
@@ -805,6 +811,35 @@ class AnalyzerMemberAccess {
     //
     // PUBLISHED because the object-initializer and SoA-table-initializer paths ask the same question
     // about a name they could not resolve either.
+    // Whether THIS member access is the exact node the enclosing call names. The ambient position
+    // flag is true for the whole callee subtree, so identity against the recorded node is what
+    // separates `a.b.Count(x)`'s outermost link from the `a.b` beneath it.
+    func IsCallCalleePosition(member: MemberAccessExpression): bool {
+        calleeNode := ambientValue.CallCalleeNode
+        if calleeNode == null {
+            return false
+        }
+
+        return Object.ReferenceEquals(calleeNode, member)
+    }
+
+    // THE MEMBER IS THERE, BUT A CALL CANNOT NAME IT.
+    //
+    // Invocation-position resolution has just answered `unknown`, which has two causes that read
+    // identically from here: there is no such member at all, or there is one and its value cannot be
+    // called. Only the second one is worth a sentence of its own, so the same name is resolved AGAIN
+    // as a value and the report is made only when that answers. Silence otherwise — the
+    // undefined-member report is the right one and it follows.
+    func ReportMemberNotCallableIfNeeded(receiverType: TypeInfo, member: MemberAccessExpression, includeStaticMembers: bool): bool {
+        valueMemberType := memberResolutionValue.ResolveMember(receiverType, member.MemberName, includeStaticMembers, ambientValue.CurrentTypeName, false)
+        if BuiltInTypes.IsUnknown(valueMemberType) {
+            return false
+        }
+
+        diagnosticsValue.Report(ErrorCode.MemberNotCallable, "`" + member.MemberName + "` is a value of type `" + NullabilityMetadataReflection.FormatTypeInfo(valueMemberType) + "`, not something you can call", member.Line, spansValue.GetMemberNameColumn(member), "Drop the parentheses to read `" + member.MemberName + "`, or call a method or extension of that name — only a delegate value can be called.", Math.Max(1, member.MemberName.Length))
+        return true
+    }
+
     func ShouldReportUndefinedMember(receiverType: TypeInfo, memberName: string, includeStaticMembers: bool): bool {
         if string.IsNullOrWhiteSpace(memberName) || memberName == "<error>" {
             return false
