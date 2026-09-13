@@ -264,6 +264,39 @@ class ColumnarLambdaPlacementPlanner {
     }
 
     // Define the assembly-static program method that hosts a non-capturing lambda body.
+    // THE SAME PLACEMENT DECISION FOR A LAMBDA WHOSE RETURN TYPE ITS OWN BODY DECIDES.
+    //
+    // `f := () => this.Value` has no delegate target to take a signature from, so the synthesized
+    // method is defined SIGNATURE-LESS and gets `SetReturnType`/`SetParameters` after its body has
+    // been emitted. That is the only difference: WHERE the method goes is the same question, with the
+    // same answer — a body that needs the enclosing instance becomes a private instance method on the
+    // enclosing reference type, and every other one an assembly-static method on the program type.
+    // Asking it only for a lambda with a delegate target is why `f := () => this.Value` declined at
+    // `emit.body` while `f: Func<int> = () => this.Value` emitted.
+    static func PlanInferredZeroParameterPlacement(programType: TypeBuilder, enclosing: ColumnarStructDef?, lambdaCounter: int[], isConstructorBody: bool, visibleTypeParameters: Dictionary<string, Type>, hasThisCapture: bool): ColumnarLambdaPlacement? {
+        if programType == null || lambdaCounter == null || visibleTypeParameters == null {
+            throw new InvalidOperationException("Lambda placement planning requires non-null placement facts.")
+        }
+
+        if hasThisCapture {
+            if enclosing == null || !enclosing.IsReference || isConstructorBody {
+                return null
+            }
+
+            instanceMethod := enclosing.Builder.DefineMethod(NextLambdaMethodName(lambdaCounter), (MethodAttributes)129)
+            placement := new ColumnarLambdaPlacement(ColumnarLambdaPlacementMode.InstanceThis, instanceMethod, enclosing.Builder)
+            placement.CurrentStructForBody = enclosing
+            placement.OrdinalShift = 1
+            placement.TypeParametersForBody = ColumnarSemanticTypeRegistryBridge.TypeParametersOwnedByType(visibleTypeParameters, enclosing.Builder)
+
+            return placement
+        }
+
+        staticMethod := programType.DefineMethod(NextLambdaMethodName(lambdaCounter), StaticLambdaAttributes())
+
+        return new ColumnarLambdaPlacement(ColumnarLambdaPlacementMode.StaticProgram, staticMethod, programType)
+    }
+
     static func DefineProgramStaticLambda(programType: TypeBuilder, lambdaCounter: int[], returnType: Type, parameterTypes: Type[]): MethodBuilder {
         if programType == null || lambdaCounter == null || returnType == null || parameterTypes == null {
             throw new InvalidOperationException("Static lambda definition requires a program type and signature.")

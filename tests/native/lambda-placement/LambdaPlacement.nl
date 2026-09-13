@@ -62,3 +62,49 @@ class Filter {
         return values.Where(v => v >= threshold).ToList()
     }
 }
+
+// A LAMBDA THAT READS THE ENCLOSING INSTANCE'S STORAGE, in the three spellings that reach it.
+//
+// The placement question — static program method, or private instance method bound to `this`? — used
+// to be asked only for a lambda with a DELEGATE TARGET to take its signature from. A `:=` declaration
+// names no target, so its zero-parameter lambda took a signature-less static method with no receiver
+// at all and any read of the enclosing instance declined at `emit.body`; `f: Func<int> = () => Value`
+// emitted the very same lambda without complaint. And a lambda ARGUMENT whose body read both its own
+// parameter and `this` crashed the compiler outright: the contextual return-type inference ran in the
+// enclosing method's frame, where argument zero is `this`, and put the lambda's own parameter on top
+// of it.
+class Holder {
+    Value: int
+
+    constructor(value: int) {
+        Value = value
+    }
+
+    // `:=` with no delegate target, reading the instance through `this`.
+    func InferredThroughThis(): int {
+        read := () => this.Value
+
+        return read()
+    }
+
+    // ...and the same read written with no receiver at all.
+    func InferredBare(): int {
+        read := () => Value + 1
+
+        return read()
+    }
+
+    // A lambda ARGUMENT whose body reads its own parameter AND the enclosing instance.
+    func CountMatching(values: List<int>): int {
+        return values.FindAll(v => v == this.Value).Count
+    }
+
+    // The placement of the `:=` lambda, for a test to reflect on:
+    // "IsStatic|DeclaringType|Invoke()".
+    func InspectInferredPlacement(): string {
+        read := () => this.Value
+        method := read.get_Method()
+
+        return method.get_IsStatic().ToString() + "|" + method.get_DeclaringType().get_Name() + "|" + read().ToString()
+    }
+}
