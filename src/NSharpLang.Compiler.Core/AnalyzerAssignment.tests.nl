@@ -420,6 +420,33 @@ test "the three event operators get three different sentences and the value is s
     assert AssignmentCodes(harness.Errors) == "317,317,317"
 }
 
+// A SOURCE-DECLARED EVENT IS THE SAME GATE WITH A DIFFERENT SENTENCE, and the difference is the one
+// that matters: it names the type that DECLARED the event, because a reader who watched
+// `Changed = null` compile inside `Widget` needs to know why it does not compile here. It also has to
+// be caught by THIS gate rather than by the compound-assignment rule below, which deliberately lets
+// `+=` through on a delegate-like target — an event's type IS a delegate, so reaching that rule would
+// mean no diagnostic at all and then a write to somebody else's private field.
+test "a source-declared event gets the three sentences too, each naming the declaring type" {
+    harness := AssignmentDefault()
+    eventType: TypeInfo = new SourceEventInfo("Changed", "Widget", BuiltInTypes.Unknown, false)
+    target := AssignmentMember(AssignmentName("widget"), "Changed", false)
+
+    assignSteps := AssignmentRun(harness, AssignmentOf(AssignmentOperator.Assign, target, AssignmentName("handler")), AssignmentAnswers(eventType, BuiltInTypes.Int))
+    assert assignSteps.Count == 2
+    assert harness.Errors[0].Message == "'Changed' is an event declared by 'Widget' — it can't be assigned with '='"
+    assert harness.Errors[0].Suggestion == "Subscribe with `on widget.Changed (sender, args) => { ... }` and unsubscribe with `off`. Only 'Widget''s own code may assign 'Changed'."
+    assert harness.LastResult == "unknown"
+
+    AssignmentRun(harness, AssignmentOf(AssignmentOperator.AddAssign, target, AssignmentName("handler")), AssignmentAnswers(eventType, BuiltInTypes.Int))
+    assert harness.Errors[1].Message == "'Changed' is an event declared by 'Widget' — it can't be subscribed to with '+='"
+    assert harness.Errors[1].Suggestion == "Subscribe with `on widget.Changed (sender, args) => { ... }`; it returns a subscription you can later pass to `off`."
+
+    AssignmentRun(harness, AssignmentOf(AssignmentOperator.SubtractAssign, target, AssignmentName("handler")), AssignmentAnswers(eventType, BuiltInTypes.Int))
+    assert harness.Errors[2].Message == "'Changed' is an event declared by 'Widget' — it can't be unsubscribed with '-='"
+    assert harness.Errors[2].Suggestion == "Capture the subscription when you subscribe (`sub := on widget.Changed handler`), then detach it with `off sub`."
+    assert AssignmentCodes(harness.Errors) == "337,337,337"
+}
+
 test "the event target is rendered from the AST, through every transparent wrapper" {
     inner := AssignmentMember(AssignmentName("a"), "b", false)
     assert AnalyzerAssignment.RenderEventTarget(inner) == "a.b"

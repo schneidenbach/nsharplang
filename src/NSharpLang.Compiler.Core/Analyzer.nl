@@ -976,6 +976,12 @@ class Analyzer: IDisposable {
             return
         }
 
+        eventDeclaration := declaration as EventDeclaration
+        if eventDeclaration != null {
+            AnalyzeEventDeclaration(eventDeclaration)
+            return
+        }
+
         propertyDeclaration := declaration as PropertyDeclaration
         if propertyDeclaration != null {
 
@@ -1000,6 +1006,22 @@ class Analyzer: IDisposable {
             DriveAccessorBody(AccessorBodies.BeginIndexer(indexerDeclaration, Ambient.CurrentTypeName, Assignability))
             Ambient.ExitMemberIsStatic(savedIndexerReceiver)
         }
+    }
+
+    // AN EVENT'S TYPE NAMES THE HANDLER A SUBSCRIBER ATTACHES, so it has to BE a delegate: an event
+    // over anything else has no `Invoke` signature to give a handler lambda, no accessor signature to
+    // emit, and no `EventInfo` the CLR would accept. Reported at the event's NAME, because the name is
+    // what the reader is looking at when they ask what went wrong. An UNRESOLVED type stays silent:
+    // resolution has already reported it, and a second sentence about the same word is noise.
+    private func AnalyzeEventDeclaration(eventDeclaration: EventDeclaration) {
+        handlerType := TypeResolver.ResolveDeclaredType(eventDeclaration.Type)
+        if BuiltInTypes.IsUnknown(handlerType) || AssignabilityFacts.CanBindCallableReferenceToExpectedType(handlerType) {
+            return
+        }
+
+        span := Spans.GetTypeNameDiagnosticSpan(eventDeclaration.Name, eventDeclaration.Line, eventDeclaration.Column)
+        written := TypeReferenceFacts.GetDisplayNameOrVoid(eventDeclaration.Type)
+        Diagnostics.Report(ErrorCode.EventRequiresDelegateType, "'" + eventDeclaration.Name + "' is declared as an event, but '" + written + "' is not a delegate type", span.Line, span.Column, "An event's type is the handler a subscriber attaches, so it must be a delegate — `EventHandler`, `EventHandler<T>`, or an `Action`/`Func` shape. Drop the `event` word if you meant an ordinary field.", span.Length)
     }
 
     private func AnalyzeStatement(statement: Statement) {

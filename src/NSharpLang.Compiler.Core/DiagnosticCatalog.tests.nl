@@ -171,10 +171,11 @@ test "EVERY code is distinct, and the catalog is exactly its two builders" {
     // NL331 (a local function reading the enclosing function's `ref`, `out` or `in` parameter), NL332
     // (a `yield` inside a protected region that cannot resume), NL333 (a `using` resource with no way
     // to be released), NL337 (an event a source type declared, touched from outside that type),
+    // NL338 (an event declared over a type that is not a delegate),
     // NL933 (an attribute outside its AttributeUsage targets), NL934 (an attribute repeated without
     // AllowMultiple) and NL935 (an attribute at a position N# has none — a target prefix, or an enum
     // member).
-    assert codes.Count == 98
+    assert codes.Count == 99
 
     duplicates := 0
     outer := 0
@@ -194,7 +195,7 @@ test "EVERY code is distinct, and the catalog is exactly its two builders" {
     assert duplicates == 0
 
     // The builders, counted where they are OBSERVABLE: the linter rows are the ones sourced to the
-    // linter, the rest are the compiler's. 88 + 10 = 98, so nothing is uncounted or double-counted.
+    // linter, the rest are the compiler's. 89 + 10 = 99, so nothing is uncounted or double-counted.
     //
     // The performance and AOT categories are asserted at ZERO, not omitted. A row in either one is
     // a row for a rule this compiler does not produce - that is exactly how NL950-954 and NL960-963
@@ -206,7 +207,7 @@ test "EVERY code is distinct, and the catalog is exactly its two builders" {
     assert linterRows == 10
     assert performanceRows == 0
     assert aotRows == 0
-    assert compilerRows == 88
+    assert compilerRows == 89
     assert compilerRows + linterRows == codes.Count
 }
 

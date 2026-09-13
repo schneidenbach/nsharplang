@@ -121,6 +121,7 @@ These are not style rules; style is `nlc format`'s job and produces no diagnosti
 | [`NL332`](./NL332.md) | A `yield` inside a protected region that cannot resume. |
 | [`NL333`](./NL333.md) | A `using` resource with no way to be released. |
 | [`NL337`](./NL337.md) | An event a type declared, read, raised or assigned from outside that type. |
+| [`NL338`](./NL338.md) | An event declared over a type that is not a delegate. |
 
 ## Calls — `NL4xx`
 
