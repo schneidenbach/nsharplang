@@ -138,10 +138,13 @@ class ColumnarAttributeBlobWriter {
         return TryWritePrimitiveValue(bytes, node, targetType)
     }
 
-    // AN `object` PARAMETER CARRIES THE VALUE'S OWN TYPE IN FRONT OF THE VALUE, so the value has to be
-    // classified before it can be written. A `null` has no type and is written as a null STRING,
-    // which is what the C# compiler writes and what every `CustomAttributeData` reader decodes as
-    // `null`.
+    // AN `object` PARAMETER CARRIES THE VALUE'S OWN TYPE IN FRONT OF THE VALUE (II.23.3: "if the
+    // parameter kind is System.Object, the value is preceded by the FieldOrPropType of its actual
+    // type"), so the value has to be classified before it can be written. THE `ELEMENT_TYPE_BOXED`
+    // BYTE IS NOT WRITTEN HERE — 0x51 is a FieldOrPropType, the answer to "what type is this NAMED
+    // member", not a prefix on the value; writing it made every reader raise
+    // `CustomAttributeFormatException`. A `null` has no type and is written as a null STRING, which is
+    // what the C# compiler writes and what every `CustomAttributeData` reader decodes as `null`.
     func TryWriteBoxedValue(bytes: List<byte>, node: ColumnarAttributeArgumentNode): bool {
         if node.Kind == ColumnarAttributeArgumentKind.NullLiteral {
             ColumnarAttributeBlobs.Append(bytes, ColumnarAttributeBlobWriter.StringCode)
@@ -154,7 +157,6 @@ class ColumnarAttributeBlobWriter {
             return false
         }
 
-        ColumnarAttributeBlobs.Append(bytes, ColumnarAttributeBlobWriter.BoxedCode)
         if !TryWriteMemberTypeCode(bytes, naturalType) {
             return false
         }

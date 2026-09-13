@@ -23,6 +23,9 @@ class AttributeArgumentValidationInfo {
     valueExpression: Expression
     clrTypeValue: Type?
     isNullValue: bool
+    hasIntegerConstantValue: bool
+    constantMagnitudeValue: ulong
+    constantIsNegativeValue: bool
 
     Argument: Argument => argumentValue
     Name: string? => nameValue
@@ -30,12 +33,31 @@ class AttributeArgumentValidationInfo {
     ClrType: Type? => clrTypeValue
     IsNull: bool => isNullValue
 
+    // THE ARGUMENT'S VALUE, WHEN IT IS AN INTEGER CONSTANT, because the NARROWING question cannot be
+    // answered by types. `5` fills a `byte` parameter and `300` does not, and they have the same type;
+    // C# decides that by the value, and so does this. Absent for every other argument shape.
+    //
+    // IT IS CARRIED AS A MAGNITUDE AND A SIGN, not as one signed number, because `ulong`'s top half has
+    // no signed representation and a flags constant is exactly where that half is used.
+    HasIntegerConstant: bool => hasIntegerConstantValue
+    ConstantMagnitude: ulong => constantMagnitudeValue
+    ConstantIsNegative: bool => constantIsNegativeValue
+
     constructor(argument: Argument, name: string?, value: Expression, clrType: Type?, isNull: bool) {
         argumentValue = argument
         nameValue = name
         valueExpression = value
         clrTypeValue = clrType
         isNullValue = isNull
+        hasIntegerConstantValue = false
+        constantMagnitudeValue = 0UL
+        constantIsNegativeValue = false
+    }
+
+    func RecordIntegerConstant(magnitude: ulong, isNegative: bool) {
+        hasIntegerConstantValue = true
+        constantMagnitudeValue = magnitude
+        constantIsNegativeValue = isNegative
     }
 }
 
@@ -493,7 +515,14 @@ class AnalyzerAttributeValidator {
                     recordedType = inferredType
                 }
 
-                argumentInfos.Add(new AttributeArgumentValidationInfo(argument, argumentName, valueExpression, recordedType, isNull))
+                argumentInfo := new AttributeArgumentValidationInfo(argument, argumentName, valueExpression, recordedType, isNull)
+                constantMagnitude := 0UL
+                constantIsNegative := false
+                if TryEvaluateAttributeIntegerConstant(valueExpression, out constantMagnitude, out constantIsNegative) {
+                    argumentInfo.RecordIntegerConstant(constantMagnitude, constantIsNegative)
+                }
+
+                argumentInfos.Add(argumentInfo)
             }
 
             attributeType: Type = typeof(object)
@@ -1269,8 +1298,7 @@ class AnalyzerAttributeValidator {
             return
         }
 
-        argumentClrType := argumentInfo.ClrType
-        if argumentClrType != null && !IsAttributeArgumentCompatible(memberType, argumentClrType, argumentInfo.IsNull) {
+        if argumentInfo.ClrType != null && !IsAttributeArgumentCompatibleValue(memberType, argumentInfo) {
             ReportAttributeNamedArgumentTypeMismatchOn(displayName, argumentInfo, memberType)
         }
     }
@@ -1402,9 +1430,7 @@ class AnalyzerAttributeValidator {
                 return AnalyzerAttributeValidator.SourceMemberUndecidable
             }
 
-            argumentInfo := positionalArguments[index]
-            argumentClrType := argumentInfo.ClrType
-            if argumentClrType == null || !IsAttributeArgumentCompatible(parameterClrType, argumentClrType, argumentInfo.IsNull) {
+            if !IsAttributeArgumentCompatibleValue(parameterClrType, positionalArguments[index]) {
                 return AnalyzerAttributeValidator.SourceMemberNotFound
             }
 
@@ -1479,8 +1505,7 @@ class AnalyzerAttributeValidator {
             return
         }
 
-        argumentClrType := argumentInfo.ClrType
-        if argumentClrType != null && !IsAttributeArgumentCompatible(memberType, argumentClrType, argumentInfo.IsNull) {
+        if argumentInfo.ClrType != null && !IsAttributeArgumentCompatibleValue(memberType, argumentInfo) {
             ReportAttributeNamedArgumentTypeMismatch(attributeType, argumentInfo, memberType)
         }
     }
@@ -1527,13 +1552,7 @@ class AnalyzerAttributeValidator {
             while index < parameters.Length {
                 parameter := parameters[index]
                 argumentInfo := positionalArguments[index]
-                argumentClrType := argumentInfo.ClrType
-                compatible := false
-                if argumentClrType != null {
-                    compatible = IsAttributeArgumentCompatible(parameter.get_ParameterType(), argumentClrType, argumentInfo.IsNull)
-                }
-
-                if !compatible {
+                if !IsAttributeArgumentCompatibleValue(parameter.get_ParameterType(), argumentInfo) {
                     matches = false
                     break
                 }
@@ -1554,6 +1573,114 @@ class AnalyzerAttributeValidator {
     // parameter also takes its own underlying integer, which is how `[Attr(1)]` fills a flags
     // parameter. Arrays are compared element-wise under the same three rules, one level deep, which
     // is as deep as attribute metadata goes.
+    // THE COMPATIBILITY QUESTION AS THE CALLERS ASK IT: the type rule first, then the CONSTANT rule
+    // for the one case types cannot decide. An integer constant fills any integral or floating
+    // parameter whose range CONTAINS IT — `[Attr(5)]` into a `byte`, `[Attr(300)]` not — which is the
+    // C# constant-expression conversion and the only way a narrow numeric attribute parameter is
+    // writable at all.
+    static func IsAttributeArgumentCompatibleValue(parameterType: Type, argumentInfo: AttributeArgumentValidationInfo): bool {
+        argumentClrType := argumentInfo.ClrType
+        if argumentClrType == null {
+            return false
+        }
+
+        knownArgumentType: Type = argumentClrType
+        if IsAttributeArgumentCompatible(parameterType, knownArgumentType, argumentInfo.IsNull) {
+            return true
+        }
+
+        if !argumentInfo.HasIntegerConstant || !IsIntegralClrType(knownArgumentType) {
+            return false
+        }
+
+        return ConstantFitsNumericType(parameterType, argumentInfo.ConstantMagnitude, argumentInfo.ConstantIsNegative)
+    }
+
+    static func IsIntegralClrType(clrType: Type): bool {
+        fullName := clrType.get_FullName()
+        return fullName == "System.SByte" || fullName == "System.Byte" || fullName == "System.Int16" || fullName == "System.UInt16" || fullName == "System.Int32" || fullName == "System.UInt32" || fullName == "System.Int64" || fullName == "System.UInt64" || fullName == "System.Char"
+    }
+
+    // THE RANGES, WRITTEN OUT, over a magnitude and a sign. A negative constant is out of range for
+    // every unsigned parameter whatever its magnitude, which is why the sign is asked first.
+    static func ConstantFitsNumericType(parameterType: Type, magnitude: ulong, isNegative: bool): bool {
+        fullName := parameterType.get_FullName()
+        if fullName == "System.Single" || fullName == "System.Double" {
+            return true
+        }
+
+        if isNegative {
+            if fullName == "System.SByte" {
+                return magnitude <= 128UL
+            }
+            if fullName == "System.Int16" {
+                return magnitude <= 32768UL
+            }
+            if fullName == "System.Int32" {
+                return magnitude <= 2147483648UL
+            }
+            if fullName == "System.Int64" {
+                return magnitude <= 9223372036854775808UL
+            }
+
+            return false
+        }
+
+        if fullName == "System.SByte" {
+            return magnitude <= 127UL
+        }
+        if fullName == "System.Byte" {
+            return magnitude <= 255UL
+        }
+        if fullName == "System.Int16" {
+            return magnitude <= 32767UL
+        }
+        if fullName == "System.UInt16" || fullName == "System.Char" {
+            return magnitude <= 65535UL
+        }
+        if fullName == "System.Int32" {
+            return magnitude <= 2147483647UL
+        }
+        if fullName == "System.UInt32" {
+            return magnitude <= 4294967295UL
+        }
+        if fullName == "System.Int64" {
+            return magnitude <= 9223372036854775807UL
+        }
+        if fullName == "System.UInt64" {
+            return true
+        }
+
+        return false
+    }
+
+    // THE VALUE OF AN INTEGER CONSTANT EXPRESSION, over exactly the shapes that can spell one: a
+    // literal, and the two unary operators that keep it an integer. Anything else has no value here —
+    // an enum member's value is the ENUM's, and the enum rule already accepts it by type.
+    func TryEvaluateAttributeIntegerConstant(expression: Expression, out magnitude: ulong, out isNegative: bool): bool {
+        magnitude = 0UL
+        isNegative = false
+        intLiteral := expression as IntLiteralExpression
+        if intLiteral != null {
+            return NumericLiteralFacts.TryParseUnsignedIntegerMagnitude(intLiteral.Value, out magnitude)
+        }
+
+        unary := expression as UnaryExpression
+        if unary == null || unary.Operator != UnaryOperator.Negate {
+            return false
+        }
+
+        operandMagnitude := 0UL
+        operandIsNegative := false
+        if !TryEvaluateAttributeIntegerConstant(unary.Operand, out operandMagnitude, out operandIsNegative) || operandIsNegative {
+            return false
+        }
+
+        magnitude = operandMagnitude
+        isNegative = operandMagnitude != 0UL
+        return true
+    }
+
     static func IsAttributeArgumentCompatible(parameterType: Type, argumentType: Type, isNull: bool): bool {
         if isNull {
             if !parameterType.get_IsValueType() {
