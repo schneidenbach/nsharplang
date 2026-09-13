@@ -474,6 +474,16 @@ class ColumnarConstructionPlanner {
                 }
                 elementType = currentType
             } else if !ColumnarSourceDirectCallResolver.ExactTypeShapeMatches(elementType, currentType) {
+                // THIS OWNER INFERS; IT IS NOT THE ONE THAT KNOWS THE TARGET. A literal whose
+                // elements do not all have the same type is not ill-formed — analysis accepted it
+                // because the POSITION named an element type each element converts to, which is how
+                // `take(["a", 1])` and `yield ["a", ["b", "c"]]` are written — but nothing here can
+                // see that type, so the first element is the only element type this plan could
+                // choose and it would be the wrong one. Hand the whole subtree to the owner that
+                // does have the target, exactly as a `null` element already does above: rejecting
+                // here instead would kill the enclosing call.
+                ownership = ColumnarDirectCallOwnership.NotOwned
+                legacyWholeSubtreePlanning = true
                 return false
             }
             index += 1

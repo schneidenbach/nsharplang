@@ -552,7 +552,7 @@ test "a params tail compares ELEMENT to ELEMENT" {
     assert errors.Count == 0
 }
 
-test "the expected type of a params position is its ELEMENT, and NOTHING for a lone array literal" {
+test "the expected type of a params position is its ELEMENT, and the ARRAY for a lone array literal" {
     errors := ValidatorErrors()
     owner := ValidatorOwner(errors)
     signature := VParamsSignature()
@@ -560,10 +560,12 @@ test "the expected type of a params position is its ELEMENT, and NOTHING for a l
     plain := VCall(VArgs1(VIdentifier("a")))
     assert VTypeText(owner.GetExpectedArgumentType(signature, plain, 0, 0, null)) == "int"
 
-    // A SINGLE trailing array literal is ambiguous — the params array itself, or one element — so
-    // the position deliberately answers nothing and lets validation see the value.
+    // A SINGLE trailing array literal IS the params array — the normal form, which is C#'s rule for
+    // a collection expression in a params position and the reading the emitter already picks. This
+    // used to answer nothing, and a literal with no target infers from its first element, so a
+    // heterogeneous one reported an element mismatch before validation could decide anything.
     literal := VCall(VArgs1(new ArrayLiteralExpression(new List<Expression>(), false, 1, 1)))
-    assert owner.GetExpectedArgumentType(signature, literal, 0, 0, null) == null
+    assert VTypeText(owner.GetExpectedArgumentType(signature, literal, 0, 0, null)) == "int[]"
 }
 
 test "an out-of-range parameter index has no expected type" {

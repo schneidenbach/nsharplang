@@ -215,6 +215,58 @@ test "oblivious array metadata is compatible while nullable array elements remai
     assert !assignability.IsAssignable(source, nullableElement)
 }
 
+test "array covariance crosses reference elements and nothing else" {
+    assignability := AssignabilityDefault()
+    stringArray: TypeInfo = new ArrayTypeInfo(BuiltInTypes.String)
+    objectArray: TypeInfo = new ArrayTypeInfo(BuiltInTypes.Object)
+    intArray: TypeInfo = new ArrayTypeInfo(BuiltInTypes.Int)
+    objectArrayOfArrays: TypeInfo = new ArrayTypeInfo(objectArray)
+    stringArrayOfArrays: TypeInfo = new ArrayTypeInfo(stringArray)
+
+    // ECMA-335: `S[]` converts to `T[]` when `S` converts to `T` by a REFERENCE conversion.
+    assert assignability.IsAssignable(objectArray, stringArray)
+    // One-directional — `object[]` is not a `string[]`.
+    assert !assignability.IsAssignable(stringArray, objectArray)
+    // Covariance composes.
+    assert assignability.IsAssignable(objectArrayOfArrays, stringArrayOfArrays)
+    assert !assignability.IsAssignable(stringArrayOfArrays, objectArrayOfArrays)
+
+    // VALUE ELEMENTS NEVER: the conversion is a no-op on the array object, and an `int` is storage
+    // rather than a pointer, so the elements would have to be boxed into a different representation.
+    assert !assignability.IsAssignable(objectArray, intArray)
+    assert !assignability.IsAssignable(intArray, objectArray)
+
+    // A reflected element reaches a reflected base the same way, and an oblivious shell — metadata
+    // written without a nullable context — is transparent on either side.
+    reflectedStringArray: TypeInfo = new ArrayTypeInfo(new ReflectionTypeInfo(typeof(string)))
+    obliviousStringArray: TypeInfo = new ObliviousTypeInfo(new ArrayTypeInfo(new ObliviousTypeInfo(BuiltInTypes.String)))
+    assert assignability.IsAssignable(objectArray, reflectedStringArray)
+    assert assignability.IsAssignable(objectArray, obliviousStringArray)
+}
+
+test "an implicit reference conversion is narrower than assignability" {
+    assignability := AssignabilityDefault()
+
+    // The relation array covariance is stated over. It is NOT `IsAssignable`: numeric widening is an
+    // assignability rule and is not a reference conversion, which is what keeps `long[]` from
+    // accepting an `int[]`.
+    assert assignability.IsAssignable(BuiltInTypes.Long, BuiltInTypes.Int)
+    assert !assignability.IsImplicitReferenceConversion(BuiltInTypes.Long, BuiltInTypes.Int)
+    longArray: TypeInfo = new ArrayTypeInfo(BuiltInTypes.Long)
+    intArray: TypeInfo = new ArrayTypeInfo(BuiltInTypes.Int)
+    assert !assignability.IsAssignable(longArray, intArray)
+
+    // Boxing is an assignability rule too, and likewise does not cross an array.
+    assert assignability.IsAssignable(BuiltInTypes.Object, BuiltInTypes.Int)
+    assert !assignability.IsImplicitReferenceConversion(BuiltInTypes.Object, BuiltInTypes.Int)
+
+    // What it DOES admit: identity, `object`, and a reflected base chain.
+    assert assignability.IsImplicitReferenceConversion(BuiltInTypes.String, BuiltInTypes.String)
+    assert assignability.IsImplicitReferenceConversion(BuiltInTypes.Object, BuiltInTypes.String)
+    assert assignability.IsImplicitReferenceConversion(new ReflectionTypeInfo(typeof(Exception)), new ReflectionTypeInfo(typeof(InvalidOperationException)))
+    assert !assignability.IsImplicitReferenceConversion(new ReflectionTypeInfo(typeof(InvalidOperationException)), new ReflectionTypeInfo(typeof(Exception)))
+}
+
 test "the known-generic relation is covariant only where the interface is read-only" {
     assignability := AssignabilityDefault()
     listDefinitionType := AssignabilityRuntimeType("System.Collections.Generic.List`1, System.Private.CoreLib")

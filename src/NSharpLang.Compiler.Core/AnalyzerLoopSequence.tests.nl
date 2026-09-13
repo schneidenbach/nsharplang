@@ -650,6 +650,50 @@ test "A yield WITH A VALUE ASKS FOR THE WALK AND NOTHING ELSE" {
     assert harness.Errors.Count == 0
 }
 
+// The expected-type slot as the value step is HANDED OUT — the only moment it is open — because the
+// walk closes it again in `Supply`.
+func LoopYieldExpectedTypeDuringValueStep(harness: LoopHarness, statement: YieldStatement): string {
+    state := harness.Sequence.BeginYield(statement, harness.Assignability)
+    step := harness.Sequence.NextStep(state)
+    observed := "<no step>"
+    while step != null {
+        if step.Kind == 1 {
+            observed = LoopTypeText(harness.Ambient.CurrentExpectedType)
+        }
+
+        harness.Sequence.Supply(state, BuiltInTypes.Int)
+        step = harness.Sequence.NextStep(state)
+    }
+
+    return observed
+}
+
+test "A YIELDED VALUE IS TARGET-TYPED BY THE SEQUENCE IT JOINS" {
+    // Without this the value was walked with NO expected type, so an array literal in a `yield`
+    // inferred from its FIRST element — `yield ["a", ["b", "c"]]` in an `IEnumerable<object[]>`
+    // generator reported "All elements in an array must be the same type" — while the identical
+    // literal in a `return`, an argument or an annotated assignment took the target's element type.
+    generator := LoopDefault()
+    generator.Ambient.EnterFunctionDeclaration(LoopFunction("g", null, Modifiers.Generator), LoopGeneric("IEnumerable", BuiltInTypes.Int))
+    assert LoopYieldExpectedTypeDuringValueStep(generator, LoopYield(LoopValue())) == "int"
+
+    // The slot is CLOSED again once the value is answered, so nothing downstream inherits it.
+    assert LoopTypeText(generator.Ambient.CurrentExpectedType) == "<null>"
+
+    // A `yield` in a function that is not a generator has no sequence to impose, and the slot is
+    // LEFT ALONE rather than cleared — whatever target surrounds the statement is still the truth.
+    ordinary := LoopDefault()
+    ordinary.Ambient.EnterFunctionDeclaration(LoopFunction("f", null, Modifiers.None), BuiltInTypes.Int)
+    saved := ordinary.Ambient.EnterExpectedType(BuiltInTypes.String)
+    assert LoopYieldExpectedTypeDuringValueStep(ordinary, LoopYield(LoopValue())) == "string"
+    ordinary.Ambient.ExitExpectedType(saved)
+
+    // A generator whose declared return type names no sequence likewise imposes nothing.
+    unnameable := LoopDefault()
+    unnameable.Ambient.EnterFunctionDeclaration(LoopFunction("g", null, Modifiers.Generator), BuiltInTypes.Int)
+    assert LoopYieldExpectedTypeDuringValueStep(unnameable, LoopYield(LoopValue())) == "<null>"
+}
+
 test "A yield OUTSIDE A GENERATOR IS REPORTED AT THE KEYWORD, AND THE VALUE IS STILL WALKED" {
     harness := LoopDefault()
     harness.Ambient.EnterFunctionDeclaration(LoopFunction("f", null, Modifiers.None), BuiltInTypes.Int)

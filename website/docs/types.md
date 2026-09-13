@@ -10,6 +10,7 @@ This guide covers the type system in N#, including classes, structs, records, di
 ## Table of Contents
 
 - [Basic Types](#basic-types)
+- [Arrays](#arrays)
 - [Classes](#classes)
 - [Structs](#structs)
 - [Records](#records)
@@ -43,6 +44,71 @@ message: string? = null  // Nullable string
 // Arrays
 numbers: int[] = [1, 2, 3, 4, 5]
 names: string[] = ["Alice", "Bob", "Charlie"]
+```
+
+## Arrays
+
+An array is written `T[]`, indexed from zero, and sized by `.Length`. A literal `[a, b, c]` builds
+one; `new T[](n)` builds an empty one of a given size.
+
+```n#
+names: string[] = ["Alice", "Bob"]
+empty := new int[](3)
+first := names[0]
+```
+
+### Array covariance
+
+An array of a reference type IS an array of any type its elements convert to by a reference
+conversion — `string[]` is an `object[]`, and `Dog[]` is an `Animal[]`. This holds in every position:
+a return value, an argument, an assignment, a `yield` value and an element of another array.
+
+```n#
+func Count(values: object[]): int => values.Length
+
+func Names(): object[] {
+    names: string[] = ["Alice", "Bob"]
+    return names            // string[] -> object[]
+}
+```
+
+Two rules come with it, and both are the CLR's:
+
+- **Only reference elements.** `int[]` is not an `object[]`. The conversion is a no-op — one array
+  object viewed two ways — and a value-typed element would have to be boxed into a different
+  representation, which would mean copying the array. Boxing, numeric widening and your own
+  `implicit` conversion operators are likewise never carried across an array: `Celsius[]` is not a
+  `Fahrenheit[]` however many conversions connect the two element types.
+- **Stores through the wider view are checked at run time.** Because the two names refer to the same
+  object, writing through the wider one can violate the narrower one. The CLR checks every such
+  store and throws `ArrayTypeMismatchException`:
+
+```n#
+names: string[] = ["Alice"]
+view: object[] = names
+view[0] = "Bob"            // fine — still a string
+view[0] = 42               // throws ArrayTypeMismatchException
+```
+
+Reads through the wider view never throw, and covariance composes: `string[][]` is an `object[][]`.
+
+### Target-typed array literals
+
+When the surrounding code names an element type, each element of a literal converts to it — boxing a
+value type, widening a reference, and accepting `null` — and the literal's type is the target's,
+whatever the elements happen to be:
+
+```n#
+mixed: object[] = ["a", 1, ["b", "c"], null]
+```
+
+Targets include an annotated local or field, a return value, an argument (a `params` array
+included), a `yield` value, and an element of an enclosing literal that is itself a literal. Where no
+target exists, the FIRST element decides the element type and every later one must fit it:
+
+```n#
+inferred := [1, 2, 3]      // int[]
+bad := [1, "a"]            // NL202: elements must be the same type
 ```
 
 ## Classes

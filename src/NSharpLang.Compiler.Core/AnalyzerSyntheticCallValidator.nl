@@ -219,10 +219,14 @@ class AnalyzerSyntheticCallValidator {
     // THE TYPE AN ARGUMENT IS ANALYSED AGAINST, or null when the position gives no useful shape.
     //
     // The params tail is the interesting arm. Normally it contributes its ELEMENT type, so
-    // `params xs: int[]` called as `f(1, 2)` analyses each argument against `int`. But a SINGLE
-    // trailing array literal is ambiguous — it can be the params array itself or one expanded
-    // element of it — so the position deliberately answers null and lets validation decide once it
-    // has seen the value.
+    // `params xs: int[]` called as `f(1, 2)` analyses each argument against `int`. A SINGLE trailing
+    // ARRAY LITERAL reads as the params ARRAY ITSELF — the normal form — which is C#'s own rule for a
+    // collection expression in a params position and is the reading the emitter already chooses.
+    // This position used to answer NOTHING there, on the grounds that the literal could also be one
+    // expanded element; but a literal with no target infers from its FIRST element, so
+    // `f(["a", 1])` reported "All elements in an array must be the same type" before the validation
+    // that was supposed to decide ever ran. Answering the array type makes the two readings agree and
+    // gives each element the conversion it is owed.
     func GetExpectedArgumentType(functionType: FunctionTypeInfo, call: CallExpression, argumentIndex: int, parameterIndex: int, genericBindings: Dictionary<string, TypeInfo>?): TypeInfo? {
         parameterTypes := functionType.ParameterTypes
         if parameterTypes == null || parameterIndex < 0 || parameterIndex >= parameterTypes.Count {
@@ -237,7 +241,7 @@ class AnalyzerSyntheticCallValidator {
             if call.Arguments.Count == paramsParameterIndex + 1 {
                 arrayLiteral := call.Arguments[argumentIndex].Value as ArrayLiteralExpression
                 if arrayLiteral != null {
-                    return null
+                    return parameterType
                 }
             }
 

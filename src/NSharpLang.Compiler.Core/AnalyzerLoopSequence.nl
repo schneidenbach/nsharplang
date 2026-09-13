@@ -58,6 +58,7 @@ class YieldStatementState {
     YieldedType: TypeInfo
     EscapedAsRow: bool
     EscapedAsDirectColumn: bool
+    SavedExpectedType: TypeInfo?
 
     constructor(statement: YieldStatement, assignability: AnalyzerAssignability) {
         statementValue = statement
@@ -68,6 +69,7 @@ class YieldStatementState {
         YieldedType = BuiltInTypes.Unknown
         EscapedAsRow = false
         EscapedAsDirectColumn = false
+        SavedExpectedType = null
     }
 }
 
@@ -697,6 +699,8 @@ class AnalyzerLoopSequence {
         state.Pending = 0
 
         if pending == 1 {
+            ambientValue.ExitExpectedType(state.SavedExpectedType)
+            state.SavedExpectedType = null
             if answer != null {
                 state.YieldedType = answer
             }
@@ -743,9 +747,41 @@ class AnalyzerLoopSequence {
 
         state.Phase = 1
         state.Pending = 1
+        // A YIELDED VALUE IS TARGET-TYPED BY THE SEQUENCE IT JOINS, exactly as a returned value is
+        // target-typed by the return type. Without this the value was walked with NO expected type,
+        // so `yield ["a", ["b", "c"]]` in an `IEnumerable<object[]>` generator inferred its array
+        // literal from the FIRST element and reported "All elements in an array must be the same
+        // type", while the identical literal in a `return`, an argument or an annotated assignment
+        // took the target's element type and converted each element to it. A `yield` in a function
+        // that is not a generator, or whose return type names no sequence, leaves the slot ALONE
+        // rather than clearing it — there is no target to impose, and the surrounding one is still
+        // the truth.
+        state.SavedExpectedType = ambientValue.EnterExpectedTypeIfProvided(YieldValueTargetType(state))
         request := new YieldStatementRequest(1)
         request.Node = value
         return request
+    }
+
+    // WHAT THE YIELDED EXPRESSION IS ASKED FOR: the sequence's ELEMENT type, and only when this
+    // function really is a generator whose declared return type names a sequence. `unknown` is not a
+    // target — imposing it would silence the inference the element walk would otherwise do — so it
+    // answers null and the slot is left untouched.
+    func YieldValueTargetType(state: YieldStatementState): TypeInfo? {
+        if !state.DeclaresGenerator {
+            return null
+        }
+
+        returnType := ambientValue.CurrentReturnType
+        if returnType == null {
+            return null
+        }
+
+        elementType := GetGeneratorYieldElementType(returnType)
+        if elementType == null || BuiltInTypes.IsUnknown(elementType) {
+            return null
+        }
+
+        return elementType
     }
 
     func AdvanceRowEscape(state: YieldStatementState): YieldStatementRequest? {

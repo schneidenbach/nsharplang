@@ -157,6 +157,20 @@ class TypeConversionSuggester {
             return "You're trying to use a nullable value where a non-nullable is expected.\n" + "You need to handle the null case, perhaps with 'if (x != null)' or the\n" + "null-coalescing operator 'x ?? defaultValue'."
         }
 
+        // ARRAY COVARIANCE IS A REFERENCE RULE, AND THIS IS THE SENTENCE THAT SAYS SO. `string[]`
+        // converts to `object[]` and `int[]` does not, and a developer who has just seen the first
+        // work will read the second as a compiler defect unless told why. The conversion is a no-op
+        // on the array object — one array viewed two ways — so a value-typed element, which is
+        // storage rather than a pointer, would have to be boxed into a different representation,
+        // which means copying.
+        if fromType.EndsWith("[]") && toType.EndsWith("[]") && fromType != toType {
+            fromElement := fromType.Substring(0, fromType.Length - 2)
+            toElement := toType.Substring(0, toType.Length - 2)
+            if IsValueTypeName(fromElement) || IsValueTypeName(toElement) {
+                return "Arrays convert to arrays of a base type only when the ELEMENTS are reference types:\n" + "'" + fromType + "' does not convert to '" + toType + "', because '" + ValueElementName(fromElement, toElement) + "' is a value type.\n" + "Build a new '" + toType + "' and copy the elements across if you need one."
+            }
+        }
+
         if fromType.EndsWith("[]") && toType.StartsWith("List<") {
             return "Use .ToList() to convert an array to a List, or use 'new List<T>(array)'."
         }
@@ -175,6 +189,23 @@ class TypeConversionSuggester {
     static func InterpolatedStringExample(name: string): string {
         quote := ((char)34).ToString()
         return "$" + quote + "{" + name + "}" + quote
+    }
+
+    // The element the caller should be told about: the value-typed half of the pair, and the SOURCE's
+    // when both are value types.
+    static func ValueElementName(fromElement: string, toElement: string): string {
+        if IsValueTypeName(fromElement) {
+            return fromElement
+        }
+
+        return toElement
+    }
+
+    // The built-in VALUE-type spellings. This is `IsNumericType` plus `bool`: the suggester reads
+    // type NAMES rather than types, so a user-declared struct's name cannot be recognised here and
+    // the pair falls through to the general sentence rather than to a wrong one.
+    static func IsValueTypeName(typeName: string): bool {
+        return IsNumericType(typeName) || typeName == "bool"
     }
 
     static func IsNumericType(typeName: string): bool {
