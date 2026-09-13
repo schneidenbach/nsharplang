@@ -11,6 +11,7 @@ import NSharpLang.Compiler
 // record every call site already consults. That is the same reason every other signature fact on
 // those records is carried rather than reflected.
 class ColumnarReachabilityAttributeFacts {
+
     // THE `[DoesNotReturnIf(b)]` EACH PARAMETER CARRIES, as `ReachabilityFlowFacts` bits and in
     // declaration order. An argument this reader cannot see as the literal `true` or `false`
     // contributes nothing, which is the diagnostics pass's rule for the same attribute.
