@@ -322,6 +322,21 @@ class AnalyzerMemberResolution {
         // a base class's own extension fall-through does NOT apply to a derived receiver.
         sourceShape := new AnalyzerSourceMemberShape()
         if declarationContext.TryGetSourceMemberShape(current, sourceGenericSubstitution, out sourceShape) {
+            // AN EVENT ANSWERS TWO DIFFERENT THINGS DEPENDING ON WHO IS ASKING, and it is asked before
+            // the value members because the backing delegate carries the same name. Inside the
+            // declaring type the name IS that delegate — which is what makes `Changed?.Invoke(...)`
+            // and `Changed == null` ordinary reads there. Everywhere else it is the EVENT, a shape
+            // with no value at all, so `on`/`off` bind it and every other use is reported rather than
+            // silently reaching a private field.
+            declaredEventHandler: TypeInfo = BuiltInTypes.Unknown
+            if declarationContext.TryResolveDeclaredEventMember(sourceShape.Owner, sourceShape.DeclaredMembers, memberName, sourceGenericSubstitution, out declaredEventHandler) {
+                if SourceEventFacts.IsInsideDeclaringType(sourceShape.Owner, currentTypeName) {
+                    return declaredEventHandler
+                }
+
+                return new SourceEventInfo(memberName, SourceEventFacts.DeclaringTypeName(sourceShape.Owner), declaredEventHandler, SourceEventFacts.DeclaringTypeIsValueType(sourceShape.Owner))
+            }
+
             declaredValueMember: TypeInfo = BuiltInTypes.Unknown
             if declarationContext.TryResolveDeclaredValueMember(sourceShape.Owner, sourceShape.DeclaredMembers, memberName, sourceGenericSubstitution, out declaredValueMember) && AnswersInPosition(declaredValueMember, invocationPosition) {
                 return declaredValueMember

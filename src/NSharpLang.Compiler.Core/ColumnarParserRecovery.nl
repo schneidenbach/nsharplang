@@ -2090,6 +2090,16 @@ class ColumnarParserRecovery {
             return
         }
 
+        // Event member: `event Name: DelegateType`. `event` is CONTEXTUAL, like `constructor` above —
+        // it is an ordinary identifier everywhere else, so a field, a local or a parameter spelled
+        // `event` keeps working. What commits is the three-token shape `event <name> :`, which no
+        // field declaration can be: a field named `event` is `event: Type` or `event := value`, and
+        // both put a `:` where this arm requires a NAME.
+        if IsEventMemberStart() {
+            ParseEventMember(modifiers, attributes, attrsOk)
+            return
+        }
+
         // Indexer (Parser.cs :1469): `func this[...]`, checked before the general method.
         if Check(TokenType.Func) && LookAhead(1).Type == TokenType.This {
             ParseIndexerMember(modifiers, attributes, attrsOk)
@@ -2107,6 +2117,31 @@ class ColumnarParserRecovery {
 
         // Field / property (Parser.cs :1481).
         ParseFieldMember(modifiers, attributes, attrsOk)
+    }
+
+    // `event <Name> :` — the whole commitment. An `event` followed by anything else is an ordinary
+    // identifier and falls through to the field/property path exactly as it did before events existed.
+    func IsEventMemberStart(): bool {
+        return Check(TokenType.Identifier) && Current().Value == "event" && LookAhead(1).Type == TokenType.Identifier && LookAhead(2).Type == TokenType.Colon
+    }
+
+    // `event Name: DelegateType` as a member. The shape is deliberately the narrowest one that reads:
+    // no initializer, no accessor block, no `:=` inference — an event's storage is synthesized and an
+    // author never writes into it, so there is nothing for an initializer to mean, and the handler
+    // type is what makes the accessors' signature, so it cannot be inferred from an absent value.
+    func ParseEventMember(modifiers: Modifiers, attributes: List<AttributeNode>, attrsOk: bool) {
+        line := Current().Line
+        column := Current().Column
+        Advance()
+        // consume the contextual `event` identifier
+        name := ConsumeIdentifier("Expected event name")
+        eventColonToken := ConsumeFieldColon(name, line, column)
+        handlerType := ParseFieldTypeReference(name, line, column, eventColonToken)
+        if !attrsOk || handlerType == null {
+            return
+        }
+
+        AddDeclaration(new EventDeclaration(name, handlerType, modifiers, attributes, line, column))
     }
 
     // Parser.cs ParseConstructorDeclaration (:1484): `constructor(params) [: this(args) | : base(args)] { body }`.

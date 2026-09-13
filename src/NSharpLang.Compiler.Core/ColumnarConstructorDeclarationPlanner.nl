@@ -442,7 +442,11 @@ class ColumnarConstructorDeclarationPlanner {
                 // of `AnalyzerDefiniteAssignment.CheckConstructorFields`. Every value type's `default` is a
                 // valid value the CLR has already written, so a `bool`, an `int`, an enum, a struct and a
                 // type-parameter field are all definitely assigned before the body runs.
-                if !assigned.Contains(fieldName) && !currentStruct.NullableFields.Contains(fieldName) && IsReferenceTypedField(currentStruct, fieldName) {
+                // AN EVENT'S BACKING DELEGATE OWES NOTHING EITHER. An event with no subscribers IS
+                // null — that is the whole reason `Changed?.Invoke(...)` is the raise idiom — and the
+                // storage is written only by the synthesized `add_`/`remove_` accessors, so a
+                // constructor that assigned it would be assigning somebody else's private field.
+                if !assigned.Contains(fieldName) && !currentStruct.NullableFields.Contains(fieldName) && !currentStruct.Events.ContainsKey(fieldName) && IsReferenceTypedField(currentStruct, fieldName) {
                     return false
                 }
             }

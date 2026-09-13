@@ -1494,6 +1494,10 @@ class OutputFormatterJsonKernels {
             return "test"
         }
 
+        if kind == SymbolKind.Event {
+            return "event"
+        }
+
         return "unknown"
     }
 

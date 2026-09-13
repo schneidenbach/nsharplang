@@ -185,6 +185,15 @@ class LinterDeclarationWalk {
             return
         }
 
+        // An event names exactly one type — its handler delegate — and carries no body at all, so the
+        // import that supplies that delegate is USED by the declaration alone.
+        eventDeclaration := declaration as EventDeclaration
+        if eventDeclaration != null {
+            TrackAttributes(eventDeclaration.Attributes)
+            state.TrackTypeReference(eventDeclaration.Type)
+            return
+        }
+
         // A property's three bodies are independent: an expression body, a getter and a setter may all
         // be present, and each is walked on its own terms rather than as alternatives.
         propertyDeclaration := declaration as PropertyDeclaration

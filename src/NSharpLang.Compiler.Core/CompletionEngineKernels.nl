@@ -62,7 +62,7 @@ class CompletionEngineKernels {
         if kind == "function" || kind == "method" {
             return 2
         }
-        if kind == "property" || kind == "field" {
+        if kind == "property" || kind == "field" || kind == "event" {
             return 3
         }
         if kind == "class" || kind == "record" || kind == "struct" || kind == "interface" || kind == "enum" || kind == "union" || kind == "type" {

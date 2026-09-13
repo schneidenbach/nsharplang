@@ -94,6 +94,9 @@ class DeclarationFacts {
         if typeName == "PropertyDeclaration" {
             return "property"
         }
+        if typeName == "EventDeclaration" {
+            return "event"
+        }
         if typeName == "ClassDeclaration" {
             return "class"
         }

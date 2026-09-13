@@ -227,6 +227,12 @@ class CodeIntelligenceDisplayText {
             return "event"
         }
 
+        // An event a source type declared answers the same word: hover, completion and `nlc query`
+        // must not call it a property, because `on`/`off` is all a caller may write against it.
+        if typeInfo as SourceEventInfo != null {
+            return "event"
+        }
+
         if typeInfo as ReflectionMethodGroupInfo != null {
             return "method"
         }

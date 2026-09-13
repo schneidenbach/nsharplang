@@ -155,6 +155,7 @@ class DiagnosticCatalog {
         AddCompiler(descriptors, ErrorCode.ByRefParameterCapturedByLocalFunction)
         AddCompiler(descriptors, ErrorCode.YieldInProtectedRegion)
         AddCompiler(descriptors, ErrorCode.ResourceNotDisposable)
+        AddCompiler(descriptors, ErrorCode.SourceEventRequiresOnOff)
 
         AddCompiler(descriptors, ErrorCode.WrongArgumentCount)
         AddCompiler(descriptors, ErrorCode.NoMatchingOverload)

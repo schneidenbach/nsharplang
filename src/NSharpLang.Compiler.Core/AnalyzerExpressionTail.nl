@@ -102,11 +102,19 @@ class AnalyzerExpressionTail {
             return BuiltInTypes.Unknown
         }
 
-        // GUARD 4 — a .NET event used as anything but an `on` / `off` target.
+        // GUARD 4 — an event used as anything but an `on` / `off` target. A .NET event and a
+        // source-declared one are the same mistake with two different sentences: the source one can
+        // name the type that declared it, and can say where the name DOES read as a delegate.
         if !ambient.AllowEventReference {
             bareEvent := flowType as ReflectionEventInfo
             if bareEvent != null {
                 ReportEventUsedAsValue(expr, bareEvent)
+                return BuiltInTypes.Unknown
+            }
+
+            bareSourceEvent := flowType as SourceEventInfo
+            if bareSourceEvent != null {
+                ReportSourceEventUsedAsValue(expr, bareSourceEvent)
                 return BuiltInTypes.Unknown
             }
         }
@@ -179,6 +187,15 @@ class AnalyzerExpressionTail {
         }
 
         return fallbackName
+    }
+
+    // AN EVENT THIS COMPILATION DECLARED, read from outside the type that declared it. The sentence
+    // names that type, because the reader's real question is "why does this work in one file and not
+    // in another" — and the answer is the declaring type, exactly as C#'s rule has it.
+    func ReportSourceEventUsedAsValue(expr: Expression, eventRef: SourceEventInfo) {
+        span := spans.GetExpressionDiagnosticSpan(expr)
+        target := AnalyzerAssignment.RenderEventTarget(expr)
+        diagnostics.Report(ErrorCode.SourceEventRequiresOnOff, "'" + eventRef.Name + "' is an event declared by '" + eventRef.DeclaringTypeName + "' — outside '" + eventRef.DeclaringTypeName + "' it can only be subscribed to", span.Line, span.Column, "Subscribe with `on " + target + " (sender, args) => { ... }`; the result is a subscription you can later pass to `off`. Reading or raising '" + eventRef.Name + "' is '" + eventRef.DeclaringTypeName + "''s own business, so write a method there if callers need to trigger it.", span.Length)
     }
 
     // A .NET event may only be touched with `on` / `off`. The suggestion is a WORKING subscription

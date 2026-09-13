@@ -11244,6 +11244,42 @@ func ParseDeclarationSkipDeclarationBlockCore(tokens: ParserDeclarationTokenTabl
     return pos
 }
 
+// THE FIELD WORD, PACKED FROM ONE MEMBER'S MODIFIER PREFIX. Bit 0 `static`, bit 1 `readonly`,
+// bit 2 `private`, bit 3 the exact System.ThreadStatic intrinsic, bit 4 `const`, bit 5 `protected`,
+// bit 6 `internal`, bit 7 `public`. (Bit 8 is set by the EVENT arm, which is the one member that is a
+// field without having been written as one; it is not a modifier and so is not packed here.)
+//
+// `private` had a bit of its own from the start and the other three visibility words had none, so
+// `protected Seed: int` reached the field planner indistinguishable from an unmarked field and was
+// emitted PUBLIC while `protected func` beside it was emitted `family`. Each word has a bit now and
+// the planner reads the set.
+func ParseDeclarationMemberFieldModifierWord(memberModifiers: ParserDeclarationResultTable): int {
+    fieldModifierFlags := memberModifiers.Values[0]
+    if ParserDeclarationModifierFlagsIncludeReadonly(memberModifiers.Values[2]) {
+        fieldModifierFlags = fieldModifierFlags + 2
+    }
+    if (memberModifiers.Values[2] & 2) != 0 {
+        fieldModifierFlags = fieldModifierFlags + 4
+    }
+    if memberModifiers.Values[3] == 1 {
+        fieldModifierFlags = fieldModifierFlags + 8
+    }
+    if (memberModifiers.Values[2] & 1024) != 0 {
+        fieldModifierFlags = fieldModifierFlags + 16
+    }
+    if (memberModifiers.Values[2] & 8) != 0 {
+        fieldModifierFlags = fieldModifierFlags + 32
+    }
+    if (memberModifiers.Values[2] & 4) != 0 {
+        fieldModifierFlags = fieldModifierFlags + 64
+    }
+    if (memberModifiers.Values[2] & 1) != 0 {
+        fieldModifierFlags = fieldModifierFlags + 128
+    }
+
+    return fieldModifierFlags
+}
+
 func ParseStructDeclarationCore(source: string, tokens: ParserDeclarationTokenTable, count: int, structIndex: int, decl: StructDeclarationTable, result: ParserDeclarationResultTable): int {
     pos := structIndex
     if pos >= count || (tokens.Kinds[pos] != 9 && tokens.Kinds[pos] != 13 && tokens.Kinds[pos] != 8) {
@@ -11435,6 +11471,35 @@ func ParseStructDeclarationCore(source: string, tokens: ParserDeclarationTokenTa
             if pdone == 0 {
                 return -1
             }
+        } else if tokens.Kinds[memberStart] == 0 && memberStart + 2 < count && tokens.Kinds[memberStart + 1] == 0 && tokens.Kinds[memberStart + 2] == 122 && ParserDeclarationTokenTextEquals(source, tokens.Starts[memberStart], tokens.ValueLengths[memberStart], "event") {
+
+            // `event <Name>: <DelegateType>` — C#'s FIELD-LIKE event, recorded as the FIELD it is.
+            // The declaration synthesizes one private delegate field carrying the event's own name
+            // plus two accessors, so the row that reaches the emitter is a field row with the event
+            // bit set; the accessors, the `EventInfo` and the private storage are all decided from
+            // that one bit and the visibility word beside it.
+            //
+            // `event` IS CONTEXTUAL. A field spelled `event` is `event: Type` — a `:` where this arm
+            // requires a NAME — so the two shapes cannot be confused, and `event` keeps working as an
+            // ordinary identifier everywhere else in the language.
+            decl.FieldNameStarts[fieldCount] = tokens.Starts[memberStart + 1]
+            decl.FieldNameLengths[fieldCount] = tokens.ValueLengths[memberStart + 1]
+            pos = memberStart + 3
+
+            pos = ParseDeclarationTypeSpanCore(tokens, count, pos, fieldTypeResult)
+            if pos < 0 {
+                return -1
+            }
+
+            decl.FieldTypeStarts[fieldCount] = fieldTypeResult.Values[0]
+            decl.FieldTypeLengths[fieldCount] = fieldTypeResult.Values[1]
+            decl.FieldStaticFlags[fieldCount] = ParseDeclarationMemberFieldModifierWord(memberModifiers) | 256
+            decl.FieldInitKinds[fieldCount] = -1
+            decl.FieldInitStarts[fieldCount] = -1
+            decl.FieldInitLengths[fieldCount] = 0
+            decl.FieldInitTokens[fieldCount] = -1
+            decl.FieldDeclTokens[fieldCount] = memberStart + 1
+            fieldCount = fieldCount + 1
         } else {
             if tokens.Kinds[memberStart] != 0 {
                 return -1
@@ -11457,34 +11522,7 @@ func ParseStructDeclarationCore(source: string, tokens: ParserDeclarationTokenTa
 
             decl.FieldTypeStarts[fieldCount] = fieldTypeResult.Values[0]
             decl.FieldTypeLengths[fieldCount] = fieldTypeResult.Values[1]
-            fieldModifierFlags := memberModifiers.Values[0]
-            if ParserDeclarationModifierFlagsIncludeReadonly(memberModifiers.Values[2]) {
-                fieldModifierFlags = fieldModifierFlags + 2
-            }
-            if (memberModifiers.Values[2] & 2) != 0 {
-                fieldModifierFlags = fieldModifierFlags + 4
-            }
-            if memberModifiers.Values[3] == 1 {
-                fieldModifierFlags = fieldModifierFlags + 8
-            }
-            if (memberModifiers.Values[2] & 1024) != 0 {
-                fieldModifierFlags = fieldModifierFlags + 16
-            }
-            // THE OTHER THREE VISIBILITY WORDS. `private` had a bit of its own from the start and the
-            // rest had none, so `protected Seed: int` reached the field planner indistinguishable
-            // from an unmarked field and was emitted PUBLIC while `protected func` beside it was
-            // emitted `family`. Each word gets a bit and the planner reads the set.
-            if (memberModifiers.Values[2] & 8) != 0 {
-                fieldModifierFlags = fieldModifierFlags + 32
-            }
-            if (memberModifiers.Values[2] & 4) != 0 {
-                fieldModifierFlags = fieldModifierFlags + 64
-            }
-            if (memberModifiers.Values[2] & 1) != 0 {
-                fieldModifierFlags = fieldModifierFlags + 128
-            }
-
-            decl.FieldStaticFlags[fieldCount] = fieldModifierFlags
+            decl.FieldStaticFlags[fieldCount] = ParseDeclarationMemberFieldModifierWord(memberModifiers)
             decl.FieldInitKinds[fieldCount] = -1
             decl.FieldInitStarts[fieldCount] = -1
             decl.FieldInitLengths[fieldCount] = 0
@@ -14647,6 +14685,14 @@ func ColumnarStructFieldFlagIsThreadStatic(flags: int): bool {
 
 func ColumnarStructFieldFlagIsConst(flags: int): bool {
     return (flags & 16) != 0
+}
+
+// Bit 8: the field is a source-declared EVENT's backing storage. It is not a modifier anyone writes —
+// it records that the member was spelled `event Name: DelegateType`, which is the one declaration that
+// produces a field the author never named. The emitter reads it to force private storage and to define
+// the `add_`/`remove_` accessors and the `EventInfo` row beside the field.
+func ColumnarStructFieldFlagIsEvent(flags: int): bool {
+    return (flags & 256) != 0
 }
 
 // Property prefix flags share the existing integer output column: bit 0 is static, bit 1 is the

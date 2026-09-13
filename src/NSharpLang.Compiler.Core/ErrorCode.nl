@@ -51,6 +51,7 @@ enum ErrorCode {
     ByRefParameterCapturedByLocalFunction = 331,
     YieldInProtectedRegion = 332,
     ResourceNotDisposable = 333,
+    SourceEventRequiresOnOff = 337,
     WrongArgumentCount = 401,
     NoMatchingOverload = 402,
     InvalidParameter = 405,

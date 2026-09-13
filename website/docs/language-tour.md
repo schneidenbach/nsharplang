@@ -1431,9 +1431,102 @@ object.
 then crash at runtime). On a real `Func`/`Action` field, `+=`/`-=` still combine/remove
 delegates.
 
-**Current limits.** N# has no syntax for declaring an event on your own type yet — `on`/`off`
-subscribe to events declared by .NET types and by libraries you reference. Expose a
-`Func`/`Action` field, or an `Add…`/`Remove…` method pair, until it does.
+## Declaring Events
+
+Write `event Name: DelegateType` as a member of a class, struct or record. It is C#'s **field-like
+event**, and it emits exactly what C# emits: private storage carrying the event's own name,
+`add_Name` / `remove_Name` accessors that combine and remove handlers with
+`Interlocked.CompareExchange`, and CLR `EventInfo` metadata wiring the two together — so a C# caller
+can write `widget.Changed += handler` against your assembly.
+
+```n#
+import System
+
+class Widget {
+    event Changed: EventHandler
+
+    func Rename(name: string) {
+        Changed?.Invoke(this, EventArgs.Empty)
+    }
+}
+
+func main() {
+    widget := new Widget()
+    subscription := on widget.Changed (sender, args) => { print "changed" }
+    widget.Rename("new")
+    off subscription
+}
+```
+
+Visibility follows the same rule as every other member: `Changed` is exported, `changed` is
+package-private, and a written `private` / `protected` / `internal` word wins over the casing. The
+accessors take the event's visibility; the backing storage is **always private**.
+
+`static event` works too, and is subscribed to through the declaring type's name:
+
+```n#
+class Registry {
+    static event Registered: EventHandler
+
+    static func Announce() {
+        Registry.Registered?.Invoke(null, EventArgs.Empty)
+    }
+}
+
+func watch() {
+    subscription := on Registry.Registered (sender, args) => { print "registered" }
+    Registry.Announce()
+    off subscription
+}
+```
+
+### Raising, inside the declaring type
+
+Inside the type that declared it, the event's name **is** the backing delegate. All three of these
+read:
+
+```n#
+class Widget {
+    event Changed: EventHandler
+
+    func Raise() {
+        Changed?.Invoke(this, EventArgs.Empty)   // the usual raise: a no-op with no subscribers
+    }
+
+    func RaiseUnguarded() {
+        Changed(this, EventArgs.Empty)           // C#'s rule: throws when nothing is subscribed
+    }
+
+    func HasSubscribers(): bool {
+        return Changed != null
+    }
+}
+```
+
+`Changed?.Invoke(...)` is the one to reach for. `Changed(...)` is the same call without the guard,
+and — exactly as in C# — it throws `NullReferenceException` when no handler is attached, because an
+event with no subscribers is null.
+
+### Outside the declaring type it is only an event
+
+Everywhere else the name may be subscribed to with `on` and detached with `off`, and nothing more.
+Reading it, invoking it, assigning to it and `+=` / `-=` all report
+[NL337](./errors/NL337.md), which names the type that declared it. A **derived** class is outside
+too, which is C#'s rule as well: it subscribes like any other caller, and raises through a method the
+base declared for that purpose.
+
+```n#
+func watch(widget: Widget) {
+    widget.Changed?.Invoke(null, EventArgs.Empty)   // NL337
+    widget.Changed += handler                       // NL337 — use `on`
+}
+```
+
+**Current limits.** An event declared inside an `interface` is not compiled yet. An event's storage
+is synthesized, so it takes no initializer and no accessor block, and an event must be written among
+the type's fields — before its first `func` — like every other field-shaped member. An instance
+event declared by a **struct** emits and is raised by the struct's own code, but `on` refuses to
+subscribe through a struct receiver, because that receiver is a copy.
 
 ## Working With Nullable Values
 

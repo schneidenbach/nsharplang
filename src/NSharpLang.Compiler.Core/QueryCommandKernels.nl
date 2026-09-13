@@ -678,6 +678,11 @@ class QueryCommandKernels {
             return true
         }
 
+        if TextSegmentEqualsIgnoreCase(kind, start, end, "Event") {
+            result = 16
+            return true
+        }
+
         return false
     }
 

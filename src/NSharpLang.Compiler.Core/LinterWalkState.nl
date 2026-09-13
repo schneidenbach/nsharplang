@@ -461,6 +461,11 @@ class LinterWalkState {
             if function != null {
                 names.Add(function.Name)
             }
+
+            eventMember := member as EventDeclaration
+            if eventMember != null {
+                names.Add(eventMember.Name)
+            }
         }
 
         if primaryConstructorParameters != null {

@@ -66,6 +66,11 @@ class EditorCompletionFacts {
             return 13
         }
 
+        // LSP CompletionItemKind.Event.
+        if kind == "event" {
+            return 23
+        }
+
         return 1
     }
 

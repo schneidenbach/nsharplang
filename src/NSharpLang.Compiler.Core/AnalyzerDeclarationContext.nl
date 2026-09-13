@@ -614,6 +614,29 @@ class AnalyzerDeclarationContext {
         return CreateSourceGenericSubstitution(definition, arguments)
     }
 
+    // AN EVENT THE OWNER DECLARED, and the delegate type it was declared with. The caller decides
+    // which of the two readings the position gets — the handler type inside the declaring type, the
+    // event itself everywhere else — because only the caller knows where the name was written.
+    func TryResolveDeclaredEventMember(owner: TypeInfo, members: DeclaredMemberInfo[], name: string, substitution: Dictionary<string, TypeInfo>?, out handlerType: TypeInfo): bool {
+        index := 0
+        while index < members.Length {
+            member := members[index]
+            if member.Name == name && member.Kind == DeclaredMemberKind.Event {
+                declaredType := member.Type
+                if declaredType == null || !TryResolveTypeForOwner(declaredType, owner, substitution, out handlerType) {
+                    handlerType = BuiltInTypes.Unknown
+                }
+
+                return true
+            }
+
+            index = index + 1
+        }
+
+        handlerType = BuiltInTypes.Unknown
+        return false
+    }
+
     func TryResolveDeclaredValueMember(owner: TypeInfo, members: DeclaredMemberInfo[], name: string, substitution: Dictionary<string, TypeInfo>?, out memberType: TypeInfo): bool {
         index := 0
         while index < members.Length {

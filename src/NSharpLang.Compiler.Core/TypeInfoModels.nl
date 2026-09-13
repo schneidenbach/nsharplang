@@ -19,7 +19,8 @@ enum DeclaredMemberKind {
     Union,
     TypeAlias,
     Newtype,
-    Constructor
+    Constructor,
+    Event
 }
 
 class DeclaredMemberInfo {
@@ -201,6 +202,34 @@ class NestedTypeInfo {
 }
 
 class TypeInfo {
+}
+
+// AN EVENT A SOURCE TYPE DECLARES, as every reader outside that type sees it.
+//
+// This is deliberately NOT the delegate type. Outside the declaring type an event is not a value at
+// all — it can be subscribed to with `on` and detached with `off`, and nothing else — so answering the
+// delegate would make `widget.Changed(args)` and `widget.Changed = null` type-check and then emit a
+// write to somebody else's private field. Inside the declaring type the SAME name answers the handler
+// type instead, which is what makes `Changed?.Invoke(this, args)` an ordinary read there.
+//
+// `HandlerType` rides along because `on` needs it twice: it is the contextual target that gives a
+// handler lambda its parameter types, and it is what a delegate-valued handler is measured against.
+class SourceEventInfo: TypeInfo {
+    Name: string
+    DeclaringTypeName: string
+    HandlerType: TypeInfo
+    DeclaringTypeIsValueType: bool
+
+    constructor(name: string, declaringTypeName: string, handlerType: TypeInfo, declaringTypeIsValueType: bool) {
+        Name = name
+        DeclaringTypeName = declaringTypeName
+        HandlerType = handlerType
+        DeclaringTypeIsValueType = declaringTypeIsValueType
+    }
+
+    override func ToString(): string {
+        return "event " + Name
+    }
 }
 
 class ClassTypeInfo: TypeInfo {

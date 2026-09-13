@@ -394,7 +394,16 @@ ONE layer, as of task 020 slice 22: the parser's assertion layer is entirely N#.
   the language's own statement rule: the handler must begin on the event's own line. The same slice
   gave the COLUMNAR kernels their own `on` (expression kind 79, children [target, handler]) and `off`
   (statement kind 80, one child), committed on exactly the contextual shapes the recovery parser
-  commits on; before it, every function containing either declined at `parse.function`. And
+  commits on; before it, every function containing either declined at `parse.function`. The EVENTS2
+  slice then gave the language a way to DECLARE one: `event Name: DelegateType` is a member in both
+  parsers, contextual on the three-token shape `event <name> :` — a field spelled `event` puts a `:`
+  where that arm requires a NAME, so `event` stays an ordinary identifier everywhere else. The
+  recovery parser builds an `EventDeclaration` (its own AST node, because outside the declaring type
+  the name is not a value at all); the columnar kernel records the member as a FIELD row with bit 8
+  of the field modifier word set, which is what C# emits for a field-like event and what lets the
+  declaring type's own body read the backing delegate. That slice also gave the kernels a bare `this`
+  (expression kind 82, no children and no value span) — `this.Member` is still collapsed into a bare
+  identifier one level up, so kind 82 means the keyword stood alone. And
   `ColumnarParserErrorHandling.tests.nl` pins whole trees over the ERROR-HANDLING corpus — 24
   fixtures of malformed and C#-shaped source, 13 of which report a diagnostic and 11 of which report
   NONE, each with its census and every diagnostic pinned WHOLE through `PeRow` (task 020 slice 25,

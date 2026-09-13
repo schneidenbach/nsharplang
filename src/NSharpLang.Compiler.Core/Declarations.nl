@@ -269,6 +269,29 @@ class FieldDeclaration: Declaration {
     }
 }
 
+// Event declaration: `event Name: DelegateType`, C#'s FIELD-LIKE event.
+//
+// It is its own declaration rather than a field with a bit set, because outside the declaring type it
+// is not a field at all: the name may only be subscribed to with `on` and detached with `off`, and
+// reading or invoking it is an error that names the type that declared it. Inside the declaring type
+// the same name IS the backing delegate, which is the one place the two readings meet.
+//
+// `Type` is the delegate type as written; `Modifiers` carries `static` and any accessibility word,
+// and the accessors take that word while the synthesized backing field stays private.
+class EventDeclaration: Declaration {
+    Name: string
+    Type: TypeReference
+    Modifiers: Modifiers
+    Attributes: List<AttributeNode>
+
+    constructor(Name: string, Type: TypeReference, Modifiers: Modifiers, Attributes: List<AttributeNode>, Line: int, Column: int): base(Line, Column) {
+        this.Name = Name
+        this.Type = Type
+        this.Modifiers = Modifiers
+        this.Attributes = Attributes
+    }
+}
+
 // Property declaration with custom get/set
 class PropertyDeclaration: Declaration {
     Name: string
