@@ -183,6 +183,15 @@ class ColumnarBaseMethodMatch {
         }
     }
 
+    // WHICH OF A BASE'S VIRTUAL MEMBERS A DERIVED TYPE MAY TAKE THE SLOT OF.
+    //
+    // The enumeration above already asks metadata for the non-public ones, and this test then threw
+    // every one of them away: `IsPublic`. So `Collection<T>.SetItem` — `protected virtual`, and the
+    // whole reason that type is designed to be derived from — reported "no overridable base member
+    // matches 'SetItem'", with or without a written `protected`. The rule is the ordinary
+    // accessibility relation, asked as a derived type in another assembly asks it: `public`,
+    // `protected` and `protected internal` yes, the three assembly-bound levels no, because the base
+    // is in a REFERENCED assembly and N# models no `InternalsVisibleTo`.
     static func IsOverridableTarget(candidate: MethodInfo, name: string): bool {
         if candidate == null || candidate.get_Name() != name {
             return false
@@ -193,7 +202,17 @@ class ColumnarBaseMethodMatch {
         if candidate.get_IsGenericMethod() || candidate.get_IsGenericMethodDefinition() {
             return false
         }
-        return candidate.get_IsPublic()
+        return MemberAccessibility.IsAccessible(MemberAccessibility.LevelOfMethod(candidate), false, true, true, false)
+    }
+
+    // The metadata accessibility bits of a matched target, which an `override` that wrote no
+    // accessibility word of its own adopts.
+    static func AccessibilityAttributesOf(target: MethodBase?): int {
+        if target == null {
+            return -1
+        }
+
+        return (int)target.get_Attributes() & 7
     }
 
     static func SameTypeIdentity(left: Type, right: Type): bool {

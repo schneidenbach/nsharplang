@@ -1,6 +1,7 @@
 namespace NSharpLang.CensusAccessibility.Tests
 
 import System
+import System.Reflection
 
 test "a source type calls its generic external base's protected methods through this and base" {
     collection := new GuardedCollection()
@@ -66,4 +67,45 @@ test "a protected field of a non-generic external base is read at its own array 
     writer.UseBangTerminator()
     assert writer.NewLineLengthThroughThis() == 1
     assert writer.NewLineFirst() == '!'
+}
+
+// THE OVERRIDE REALLY TAKES THE BASE'S SLOT, which is the half a build cannot prove: a member emitted
+// into a NEW slot would compile and simply never run. Every call below goes through the base's own
+// PUBLIC surface — `Add`, the indexer, `Clear` — so the only way the counters move is if the base
+// dispatched to the override.
+test "an override of an external base's protected virtual takes its slot" {
+    observed := new ObservedCollection()
+
+    observed.Add("a")
+    observed.Add("b")
+    assert observed.Inserts == 2
+
+    observed[0] = "z"
+    assert observed[0] == "z"
+    assert observed.Replacements == 1
+
+    observed.Clear()
+    assert observed.Clears == 1
+    assert observed.Count == 0
+}
+
+// THE EMITTED ACCESSIBILITY: the slot's, unless the source said otherwise in so many words.
+test "an override takes the accessibility of the member it overrides" {
+    declared := BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.DeclaredOnly
+    observedType := typeof(ObservedCollection)
+
+    // No accessibility word written, and a PascalCase name — `protected`, because the base said so.
+    setItem := must observedType.GetMethod("SetItem", declared)
+    assert setItem.IsFamily
+    assert setItem.IsVirtual
+    assert !setItem.IsPublic
+
+    // Written `protected`: the same answer, said out loud.
+    clearItems := must observedType.GetMethod("ClearItems", declared)
+    assert clearItems.IsFamily
+
+    // Written `public`: a widening the CLR permits, and a statement the compiler honours.
+    insertItem := must observedType.GetMethod("InsertItem", declared)
+    assert insertItem.IsPublic
+    assert insertItem.IsVirtual
 }

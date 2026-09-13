@@ -442,6 +442,12 @@ class ColumnarMethodOverrideCompletion {
 class ColumnarMethodOverrideDeclaration {
     BaseMethodAttributes: int
     RequestsBaseOverride: bool
+
+    // Whether the source WROTE an accessibility word on this member. It is not the same question as
+    // "what is its accessibility": the casing convention supplies an answer when nothing is written,
+    // and an `override` takes the accessibility of the slot it reuses instead — a slot's
+    // accessibility belongs to the type that opened it.
+    DeclaresAccessibilityWord: bool
     DeclineOwnerName: string
     MemberName: string
     ReturnCanonical: string
@@ -464,6 +470,7 @@ class ColumnarMethodOverrideDeclaration {
 
         BaseMethodAttributes = baseMethodAttributes
         RequestsBaseOverride = requestsBaseOverride
+        DeclaresAccessibilityWord = false
         DeclineOwnerName = declineOwnerName
         MemberName = memberName
         ReturnCanonical = returnCanonical
@@ -633,10 +640,12 @@ class ColumnarMethodOverrideDeclaration {
     ): ColumnarMethodOverrideCompletion {
         baseTarget: MethodInfo? = null
         baseBinding: ColumnarBaseMethodBinding? = null
+        baseAccessibility := -1
         if RequestsBaseOverride {
             matchedBase := new ColumnarBaseMethodMatch(baseType, MemberName, returnType, parameterTypes)
             if matchedBase.Matched {
                 baseTarget = matchedBase.RequiredTarget()
+                baseAccessibility = ColumnarBaseMethodMatch.AccessibilityAttributesOf(baseTarget)
                 if table != null {
                     baseBinding = new ColumnarBaseMethodBinding(matchedBase, table)
                 }
@@ -645,6 +654,9 @@ class ColumnarMethodOverrideDeclaration {
                 // and is open; the CLR then binds the override by name and signature, so no
                 // MethodImpl row is written and no target is carried.
                 matchedSourceBase := new ColumnarSourceBaseMethodMatch(sourceBaseDefinition, MemberName, returnType, parameterTypes)
+                if matchedSourceBase.Matched {
+                    baseAccessibility = ColumnarBaseMethodMatch.AccessibilityAttributesOf(matchedSourceBase.RequiredTarget())
+                }
                 if !matchedSourceBase.Matched {
                     message := "no overridable base member matches '" + MemberName + "' for '" + DeclineOwnerName + "'"
                     return new ColumnarMethodOverrideCompletion(
@@ -665,6 +677,17 @@ class ColumnarMethodOverrideDeclaration {
         }
         if RequestsBaseOverride {
             attributes = (attributes | 64) & ~256
+
+            // AN `override` TAKES THE ACCESSIBILITY OF THE SLOT IT REUSES, unless the source said
+            // otherwise in so many words. A slot's accessibility belongs to the type that OPENED it:
+            // `override func SetItem(...)` over `Collection<T>`'s `protected virtual SetItem` is a
+            // replacement of that member, not a decision to publish it, and the PascalCase spelling
+            // that would otherwise make it public is a default rather than a statement. A written
+            // word is still a statement and is honoured — the CLR permits an override to widen, and
+            // refuses only one that narrows.
+            if !DeclaresAccessibilityWord && baseAccessibility >= 0 {
+                attributes = (attributes & ~7) | baseAccessibility
+            }
         }
 
         targetCount := sourceTargets.Count + externalTargets.Count
@@ -1541,7 +1564,7 @@ class ColumnarDeclarationPlanner {
             while member < methods.Count {
                 method := methods[member]
                 if !method.IsStatic {
-                    declarations[member] = new ColumnarMethodOverrideDeclaration(
+                    declaration := new ColumnarMethodOverrideDeclaration(
                         methodRows.StructMethodAttributeWords[index][member],
                         ColumnarFunctionInput.HasOverrideModifier(method.ModifierFlags),
                         owner.Name,
@@ -1549,6 +1572,8 @@ class ColumnarDeclarationPlanner {
                         method.ReturnCanonical,
                         method.ParamCanonicals
                     )
+                    declaration.DeclaresAccessibilityWord = DeclaresAccessibilityWord(method.ModifierFlags)
+                    declarations[member] = declaration
                 }
                 member = member + 1
             }
@@ -1556,6 +1581,13 @@ class ColumnarDeclarationPlanner {
             index = index + 1
         }
         return new ColumnarMethodOverrideRows(rows)
+    }
+
+    // The modifier bits `MethodVisibilityAttributes` reads: `public` 1, `private` 2, `internal` 4,
+    // `protected` 8, and the package-private marker 32768. Any one of them is a written statement
+    // about accessibility; none of them means the casing convention decides.
+    static func DeclaresAccessibilityWord(modifierFlags: int): bool {
+        return (modifierFlags & 32783) != 0
     }
 
     static func PublicFieldAttribute(): int {

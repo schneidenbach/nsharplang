@@ -300,11 +300,29 @@ class FormatterSyntaxText {
             return false
         }
 
+        // ON AN `override`, THE WORD ITSELF IS THE MEANING. An override with no accessibility word
+        // takes the accessibility of the slot it reuses, so dropping `public` from
+        // `public override func InsertItem(...)` turns a deliberate widening back into the base's
+        // `protected`. A formatter may not change what a program means.
+        if HasModifier(bits, 65536) {
+            return true
+        }
+
         if string.IsNullOrEmpty(identifierName) {
             return true
         }
 
         withoutPublicPrivate := bits & ~1 & ~2
+
+        // ...AND DROPPING A WORD MAY NOT CHANGE THE DECLARED CLR LEVEL EITHER. The package-export
+        // answer is only half the question. `private protected Guarded` is the pair that showed it:
+        // its export answer is the same with and without the `private`, so the keyword was dropped
+        // and the member was reprinted as the strictly WIDER `protected`. `MemberAccessibility` owns
+        // the other half, and the two are asked together.
+        if MemberAccessibility.LevelOfDeclaredModifiers(bits) != MemberAccessibility.LevelOfDeclaredModifiers(withoutPublicPrivate) {
+            return true
+        }
+
         asWritten := VisibilityConventions.IsExportedIdentifier(identifierName, bits)
         withoutKeywords := VisibilityConventions.IsExportedIdentifier(identifierName, withoutPublicPrivate)
         return asWritten != withoutKeywords

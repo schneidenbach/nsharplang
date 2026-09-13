@@ -93,3 +93,39 @@ class ReadingWriter: StringWriter {
         this.NewLine = "!"
     }
 }
+
+// OVERRIDING AN EXTERNAL BASE'S `protected virtual` MEMBER.
+//
+// Naming one already worked; TAKING ITS SLOT did not. The override-target walk enumerated the base's
+// non-public members and then threw every one of them away with an `IsPublic` test, so
+// `override func SetItem(...)` reported "no overridable base member matches 'SetItem'" — with or
+// without a written `protected`. Behind that, the walk that recovers a closed handle's open
+// `MethodDef` was public-only too, and answered "The external method's open MethodDef could not be
+// recovered from its declaring type".
+//
+// THE ACCESSIBILITY OF THE SLOT BELONGS TO THE TYPE THAT OPENED IT. `SetItem` below writes no
+// accessibility word, and its PascalCase name would otherwise make it public — but an `override` is a
+// replacement of the base's member, not a decision to publish it, so it is emitted `family` like the
+// member it replaces. A WRITTEN word is a statement and is honoured: `ClearItems` says `protected`
+// and gets it, `InsertItem` says `public` and widens, which the CLR permits (only NARROWING an
+// override is refused).
+class ObservedCollection: Collection<string> {
+    Replacements: int = 0
+    Clears: int = 0
+    Inserts: int = 0
+
+    override func SetItem(index: int, item: string) {
+        Replacements = Replacements + 1
+        base.SetItem(index, item)
+    }
+
+    protected override func ClearItems() {
+        Clears = Clears + 1
+        base.ClearItems()
+    }
+
+    public override func InsertItem(index: int, item: string) {
+        Inserts = Inserts + 1
+        base.InsertItem(index, item)
+    }
+}

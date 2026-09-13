@@ -141,9 +141,15 @@ test "an unexported name KEEPS an explicit public, because dropping it would cha
     assert FormatterSyntaxText.FormatModifiers(FstMods(1), "draw", true) == "public"
 }
 
-test "an exported name KEEPS an explicit private for the same reason, mirrored" {
+test "a written private is kept whatever the name's casing" {
     assert FormatterSyntaxText.FormatModifiers(FstMods(2), "Draw", true) == "private"
-    assert FormatterSyntaxText.FormatModifiers(FstMods(2), "draw", true) == ""
+
+    // THIS ROW USED TO READ `== ""`. The export answer for `private draw` is the same with and
+    // without the keyword — unexported either way — so the old rule called the word redundant and
+    // dropped it. The DECLARED level is not the same: `private` means the declaring type and nothing
+    // else, while a camelCase member with no word is reachable from every file of its own package.
+    // Dropping the word therefore WIDENED the member, which a formatter may not do.
+    assert FormatterSyntaxText.FormatModifiers(FstMods(2), "draw", true) == "private"
 }
 
 test "field modifiers preserve explicit private for every identifier shape" {
@@ -155,6 +161,33 @@ test "field modifiers preserve explicit private for every identifier shape" {
     // Public field formatting still follows the established casing rule.
     assert FormatterSyntaxText.FormatFieldModifiers(FstMods(1), "Value") == ""
     assert FormatterSyntaxText.FormatFieldModifiers(FstMods(1), "value") == "public"
+}
+
+// DROPPING A KEYWORD MAY NOT CHANGE WHAT THE DECLARATION MEANS, and the export answer is only half
+// of what it means. These two pairs are the halves the old rule could not tell apart.
+test "an exported name KEEPS private protected, because dropping private widens it" {
+    // `private protected` is bits 2|8. Its EXPORT answer is the same with and without the `private`
+    // — an exported name either way — so the keyword used to be dropped and the member was reprinted
+    // as the strictly wider `protected`. The DECLARED CLR level is what changes, and it is asked now.
+    assert FormatterSyntaxText.FormatModifiers(FstMods(10), "Guarded", true) == "private protected"
+    assert FormatterSyntaxText.FormatModifiers(FstMods(10), "guarded", true) == "private protected"
+
+    // `protected internal` (4|8) writes neither keyword, so it was never at risk and is unchanged.
+    assert FormatterSyntaxText.FormatModifiers(FstMods(12), "Guarded", true) == "internal protected"
+}
+
+test "an override KEEPS an explicit public, because an override with no word takes the base's" {
+    // 65537 is `public override`. An override that writes no accessibility word takes the
+    // accessibility of the slot it reuses, so dropping the word here turns a deliberate widening of
+    // a `protected virtual` base member back into `protected` — a change in what the program means.
+    assert FormatterSyntaxText.FormatModifiers(FstMods(65537), "InsertItem", true) == "public override"
+
+    // ...and an override that wrote nothing still prints nothing.
+    assert FormatterSyntaxText.FormatModifiers(FstMods(65536), "SetItem", true) == "override"
+
+    // A `private override` is preserved for the same reason, from either casing.
+    assert FormatterSyntaxText.FormatModifiers(FstMods(65538), "SetItem", true) == "private override"
+    assert FormatterSyntaxText.FormatModifiers(FstMods(65538), "setItem", true) == "private override"
 }
 
 test "a declaration with no name keeps whatever visibility it was given" {
