@@ -962,6 +962,45 @@ filtered := items.Where(x => x > 10)
 mapped := names.Select(name => name.ToUpper())
 ```
 
+### A lambda inside a method may read the object it is written in
+
+A lambda written inside an instance method closes over that instance, so the enclosing type's fields,
+properties and methods are in scope inside it — with `this.` or without, and however the lambda's own
+type came to be known:
+
+```n#
+class Holder {
+    Value: int
+
+    constructor(value: int) {
+        Value = value
+    }
+
+    func Reader(): Func<int> {
+        return () => this.Value      // a delegate target names the shape
+    }
+
+    func Inferred(): int {
+        read := () => Value + 1      // ...and so does the lambda's own body
+        return read()
+    }
+
+    func CountMatching(values: List<int>): int {
+        return values.FindAll(v => v == this.Value).Count
+    }
+}
+```
+
+Each delegate binds to **that instance**: two `Holder`s hand out two readers that answer their own
+`Value`, and a later write to `Value` is seen by a reader made before it. The compiler emits such a
+lambda as a private instance method on the enclosing type and binds the delegate straight to the
+receiver, so reading the object costs no closure allocation at all; a lambda that reads nothing
+outside itself stays a static method, as before.
+
+A lambda inside a **constructor body**, or inside a `struct`'s method, cannot bind the instance this
+way — a delegate over either would carry a copy with different mutation semantics — and reports
+[`NL103`](./errors/NL103.md). Read what you need into a local first and capture that.
+
 ## Async Functions
 
 ### Basic Async Functions

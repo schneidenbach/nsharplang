@@ -305,6 +305,27 @@ user := new User {
 }
 ```
 
+### Members in any order
+
+A type's members may be written in whatever order reads best — a field beside the method that uses
+it, a property between two methods, an event after the code that raises it. Declaration order is
+preserved where it is observable (a `[StructLayout(LayoutKind.Sequential)]` struct lays its fields
+out in the order you wrote them), and means nothing where it is not:
+
+```n#
+class Counter {
+    Seed: int = 3
+
+    func Bump(): int {
+        Steps = Steps + 1
+        return Seed + Steps
+    }
+
+    Steps: int = 0                  // a field after the method that uses it
+    Label: string => "counter"      // ...and a property after both
+}
+```
+
 ### Inheritance
 
 ```n#
@@ -409,6 +430,27 @@ The rule is C#'s (§7.5.4) — the receiver has to be your type or one derived f
 always allowed inside the deriving type. `internal`, `private protected` and `private` members of a
 referenced base stay out of reach: the assembly half of those levels is unsatisfiable across a
 reference, and N# models no `InternalsVisibleTo`.
+
+Those `protected virtual` members are extension points, so you may **override** them, and the same
+three levels are the ones you may take the slot of:
+
+```n#
+class ObservedBag: Collection<string> {
+    Replacements: int = 0
+
+    override func SetItem(index: int, item: string) {
+        Replacements = Replacements + 1
+        base.SetItem(index, item)
+    }
+}
+```
+
+**An `override` takes the accessibility of the member it overrides** when you write no accessibility
+word of your own. `SetItem` above is PascalCase, which would otherwise export it — but the slot
+belongs to the type that opened it, and replacing a member is not a decision to publish it, so the
+override is emitted `protected` like the base member. Write a word and it is honoured:
+`protected override func SetItem(...)` says the same thing out loud, and `public override func
+SetItem(...)` deliberately widens, which the CLR permits (only NARROWING an override is refused).
 
 The base may also be a generic closed over a type **you** are declaring:
 

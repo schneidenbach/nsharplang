@@ -1175,6 +1175,71 @@ Two spellings still declined at NL103 after ACCESS, and neither was an accessibi
 Do not reintroduce a result-type list on this path, and do not let a gate ask a narrower question
 than the resolution behind it.
 
+**...AND TAKES THE SLOT OF ONE** (2026-09-13, stream INHERIT2). `override func SetItem(...)` over
+`Collection<T>`'s `protected virtual SetItem` reported "no overridable base member matches", with or
+without a written `protected`: `ColumnarBaseMethodMatch.IsOverridableTarget` enumerated the base's
+non-public members and then threw every one of them away with `IsPublic`. It asks
+`MemberAccessibility.IsAccessible` as a derived type in another assembly now, so `public`, `protected`
+and `protected internal` are targets and the three assembly-bound levels are not. Behind it,
+`ColumnarExternalMethodDescriptor.RecoverOpenMethod` was public-only too and answered
+"The external method's open MethodDef could not be recovered from its declaring type" on the closed
+handle's way back to its open `MethodDef`.
+
+AN `override` TAKES THE ACCESSIBILITY OF THE SLOT IT REUSES when the source wrote no accessibility
+word. A slot's accessibility belongs to the type that OPENED it, and the PascalCase spelling that
+would otherwise make a member public is a default rather than a statement — emitting a `public`
+override of a `protected` extension point would publish an API the base deliberately did not.
+`ColumnarMethodOverrideDeclaration.DeclaresAccessibilityWord` carries whether a word was written and
+`CompleteCore` swaps the metadata access bits for the matched target's when it was not. A written word
+is still honoured, including a deliberate widening; the CLR refuses only a NARROWING override.
+
+**COMPLETION OFFERS WHAT THE DERIVED TYPE INHERITS, INCLUDING `protected`** (2026-09-13, stream
+INHERIT2, LSP-VISIBLE). A caret after `this.` inside a `class Bag: Collection<string>` listed `Add`
+and `Count` and not `SetItem`, `ClearItems`, `InsertItem`, `RemoveItem` or `Items` — the members that
+type exists to have overridden, and which the compiler accepts.
+`CompletionReceiverFacts.AppendInheritedMemberItems` already carried `canReachProtected` down the
+SOURCE links of the chain and then dropped it at the reflected base, where
+`CompletionReflectionFacts.GetReflectionBindingFlags` asked for `Public` only. That walk asks for
+`NonPublic` too now, and `CompletionReflectionFacts.IsReachableInheritedMember` (the same
+`MemberAccessibility` relation the analyzer and the emitter ask) decides what of it is offered —
+`private` and `internal` members of the base are still never listed. Every other receiver keeps the
+public-only flags. `System.Object`'s own `protected` methods (`MemberwiseClone`, `Finalize`) are now
+listed on such a receiver, which is honest — they ARE reachable — and is what a name-based filter
+would have to be invented to suppress. A VS Code visual pass over this list is OWED.
+
+**THE FORMATTER STOPPED WIDENING MEMBERS** (2026-09-13, stream INHERIT2, LSP-VISIBLE — format on
+save). `FormatterSyntaxText.ShouldPreserveExplicitCasingVisibility` dropped a written `public`/
+`private` whenever the PACKAGE-export answer was unchanged, which is only half of what a word means:
+
+* `private protected Guarded` was reprinted as the strictly wider `protected` — the export answer is
+  the same either way and the DECLARED level is not;
+* `private draw` was reprinted as bare `draw`, turning a declaring-type-only member into a
+  package-visible one (the contract in `FormatterSyntaxText.tests.nl` encoded the old answer and was
+  updated);
+* `public override func InsertItem(...)` was reprinted as `override func InsertItem(...)`, which
+  after the override-accessibility rule above turns a deliberate widening back into `protected`.
+
+A word is dropped now only when `MemberAccessibility.LevelOfDeclaredModifiers` AND
+`VisibilityConventions.IsExportedIdentifier` both answer the same with and without it, and never on
+an `override`. `public Draw` is still dropped, which is the only case that was ever redundant.
+
+**A LAMBDA READS THE ENCLOSING INSTANCE IN EVERY SPELLING** (2026-09-13, stream INHERIT2). Two lambda
+shapes could not, and neither was about capture analysis:
+
+* `f := () => this.Value` declined at `emit.body` while `f: Func<int> = () => this.Value` emitted the
+  same lambda. The PLACEMENT question — static program method, or private instance method bound to
+  `this`? — was asked only on the path that has a delegate target; the `:=` path defined a
+  signature-less STATIC method with no receiver at all.
+  `ColumnarLambdaPlacementPlanner.PlanInferredZeroParameterPlacement` asks it for the inferred shape
+  too, and differs from `PlanNonCapturingPlacement` only in defining the method signature-less so
+  `SetReturnType`/`SetParameters` can run after the body decides the return type.
+* `items.FindAll(x => x == this.Value)` CRASHED: "One argument ordinal cannot carry conflicting
+  bound-identifier facts". Contextual return-type inference
+  (`ColumnarIlEmitter.TryPreflightContextualLambdaReturnType`) runs in the ENCLOSING method's frame,
+  where argument zero is `this`, and put the lambda's own parameter on ordinal 0 on top of it. The
+  inference shifts the lambda's ordinals by one inside an instance body, which is what the real
+  lowering already does; only the TYPE it computes outlives the plan.
+
 **A FREE FUNCTION'S VISIBILITY WORD NOW REACHES METADATA** (2026-09-13, stream ACCESS). The word was
 parsed into `ColumnarFunctionInput.VisibilityModifierFlags` and read by free-function identity, but
 `ColumnarDeclarationPlan.BuildMethods` passed only `ModifierFlags` — which carries
