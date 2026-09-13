@@ -96,6 +96,7 @@ func CallWalkHarnessOf(errors: List<CompilerError>): CallWalkHarness {
         sink
     )
     constants := new AnalyzerConstantExpressionFacts(scopes, context)
+    postconditions := new AnalyzerNullabilityPostconditions(scopes, context)
     validator := new AnalyzerSyntheticCallValidator(
         context,
         resolver,
@@ -105,7 +106,8 @@ func CallWalkHarnessOf(errors: List<CompilerError>): CallWalkHarness {
         reporter,
         spans,
         sink,
-        constants
+        constants,
+        postconditions
     )
     reflectionReporter := new AnalyzerReflectionCallReporter(
         scopes,
@@ -126,7 +128,7 @@ func CallWalkHarnessOf(errors: List<CompilerError>): CallWalkHarness {
     memberAccess := new AnalyzerMemberAccess(sink, spans, scopes, context, nullFlow, soaEscape, ambient, provider, discovery, probe, substitution, identifierResolution, extensions, namespaces, usingAliases, importedSymbols, importedDeclarations, assemblies, members, clrConversion, extensionResolution, bindings)
     indexAccess := new AnalyzerIndexAccess(sink, spans, context, ambient, nullFlow, soaEscape, memberAccess, constants)
     writeTargets := new AnalyzerWriteTargets(sink, spans, scopes, context, substitution, clrConversion, ambient, soaEscape, memberAccess, indexAccess)
-    argumentBinder := new AnalyzerReflectionArgumentBinder(clrConversion, assignability, facts, scoring, resolver)
+    argumentBinder := new AnalyzerReflectionArgumentBinder(clrConversion, assignability, facts, scoring, resolver, postconditions)
     owner := new AnalyzerCallAnalysis(
         reporter,
         walk,
@@ -142,7 +144,8 @@ func CallWalkHarnessOf(errors: List<CompilerError>): CallWalkHarness {
         ambient,
         writeTargets,
         identifierResolution,
-        context
+        context,
+        postconditions
     )
     return new CallWalkHarness(owner, errors, scopes, ambient)
 }

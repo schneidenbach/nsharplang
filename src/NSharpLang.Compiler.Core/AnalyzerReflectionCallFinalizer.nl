@@ -92,6 +92,17 @@ class ReflectionCallFinalizeState {
     // The finalised call type, or null while the walk is unfinished and forever if it failed.
     Result: FunctionTypeInfo?
 
+    // What this candidate's signature proves about the arguments it was handed, computed with the
+    // signature in hand and held until the CALL's walk accepts the candidate. A candidate that is
+    // tried, reported and rolled back must leave no fact behind, which is why these are not written
+    // into the flow here.
+    Postconditions: List<NullabilityPostcondition>?
+
+    // The WRITTEN argument index a `[NotNullIfNotNull("p")]` on this signature's RETURN points at, or
+    // -1 when the return carries none. The call's own walk turns it into an answer, because whether
+    // that argument was non-null is a question about the flow rather than about the signature.
+    NotNullIfNotNullArgumentIndex: int
+
     constructor(runtimeMethod: MethodInfo, openMethod: MethodInfo, openParameters: ParameterInfo[], boundArguments: List<ReflectionBoundArgument>, suppliedArguments: List<SuppliedReflectionBoundArgument>, methodGroupArguments: Dictionary<int, FunctionTypeInfo>, workingBindings: Dictionary<Type, Type>, workingTypeInfoBindings: Dictionary<Type, TypeInfo>) {
         runtimeMethodValue = runtimeMethod
         openMethodValue = openMethod
@@ -112,6 +123,8 @@ class ReflectionCallFinalizeState {
         PendingOpenParameterType = null
         PendingExpectedType = null
         Result = null
+        Postconditions = null
+        NotNullIfNotNullArgumentIndex = -1
     }
 
     // The runtime method is REPLACED by its closed construction, exactly as the walk this replaces

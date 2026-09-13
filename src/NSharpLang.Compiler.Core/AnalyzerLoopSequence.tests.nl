@@ -131,7 +131,8 @@ func LoopHarnessWith(sourceText: string?): LoopHarness {
     escape := new AnalyzerSoaEscape(diagnostics, spans, scopes, context)
     ambient := new AnalyzerAmbientContext(diagnostics, spans, escape)
     conditions := new AnalyzerBooleanConditions(diagnostics, spans, escape)
-    narrowing := new AnalyzerFlowNarrowing(scopes, resolver, assignability)
+    postconditions := new AnalyzerNullabilityPostconditions(scopes, context)
+    narrowing := new AnalyzerFlowNarrowing(scopes, resolver, assignability, postconditions)
     sequence := new AnalyzerLoopSequence(diagnostics, spans, scopes, context, resolver, ambient, escape, conditions, new AnalyzerTypeSubstitution(scopes, context, resolver))
     return new LoopHarness(sequence, ambient, scopes, errors, assignability, model, narrowing)
 }

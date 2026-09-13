@@ -476,9 +476,11 @@ that hover, completion and every diagnostic that prints a CLR member signature r
   one over `object` is on it, so the N# owner takes `object` and casts once. The C# call sites keep
   their own `TypeInfo`-returning lambdas verbatim; the conversion is the C# compiler's own implicit
   reference conversion.
-- FOUR FLOW ATTRIBUTES are recognised and no others: `MaybeNull`, `NotNull`, `NotNullWhen` and
-  `ParamArray`. `MaybeNullWhen`, in particular, contributes nothing — an out parameter annotated
-  with it renders as a plain `out string? value`.
+- FOUR FLOW ATTRIBUTES are recognised by the TYPE reader and no others: `MaybeNull`, `NotNull`,
+  `NotNullWhen` and `ParamArray`. `MaybeNullWhen`, in particular, contributes nothing to the rendered
+  TYPE — an out parameter annotated with it renders as a plain `out string? value`. The FLOW reader
+  beside it (`AnalyzerNullabilityPostconditions.nl`, below) reads a wider set, because a postcondition
+  is a fact about the caller's variable rather than about the parameter's type.
 - **THE ATTRIBUTE ARGUMENT MUST BE TESTED BY VALUE, NEVER BY `ArgumentType`.** Under a
   MetadataLoadContext — which is how the analyzer sees every external assembly —
   `CustomAttributeTypedArgument.ArgumentType` is a PROJECTED `System.Boolean` that is not
@@ -500,6 +502,75 @@ Three shape rules the port keeps, each one found by a decline and pinned by the 
   non-generic `IList.Count`.
 - A boxed `CustomAttributeTypedArgument.Value` cannot be unboxed by a cast, an `as`, or an `is` test;
   compare it against a boxed constant with `Equals`.
+
+### Nullability postconditions — what a call leaves behind (census 2026-09-13, §FLOW3)
+
+`AnalyzerNullabilityPostconditions.nl` owns what a call proves about the arguments it was handed once
+it has returned. `NullabilityFlowFacts` is the bit vocabulary and the SOURCE reader (over the parser's
+`AttributeNode`s); `NullabilityFlowAttributeReflection` is the metadata reader (over
+`CustomAttributeData`, with the same boxed-value comparison the type reader needs under an MLC).
+`NullabilityPostcondition` is one fact: a stable path, a condition (0 unconditional, 1 when the call
+returned true, 2 when false) and a `NullState`.
+
+Three rules, composed in this order:
+
+- An `out` or `ref` argument's variable holds whatever the PARAMETER's declared nullability says once
+  the call returns. `out string` leaves a non-null string; `out string?` leaves a maybe-null one; an
+  OBLIVIOUS parameter read out of un-annotated metadata says nothing and leaves the variable's own
+  state alone.
+- `[NotNull]` on ANY parameter overrides that and holds unconditionally — that is the whole of
+  `Assert.NotNull(value)`. `[MaybeNull]` is asymmetric on purpose: on an `out`/`ref` parameter it is a
+  postcondition, and on an INPUT parameter it is a statement about what the callee does with the
+  value and proves nothing about the caller's variable.
+- `[NotNullWhen(b)]` / `[MaybeNullWhen(b)]` make the fact CONDITIONAL on the call's own boolean
+  result. The named branch gets the attribute's state; the branch it did not name keeps what the
+  declaration alone already said (which is only owed for a by-ref position).
+
+CONDITIONAL FACTS ARE FILED AGAINST THE CALL NODE RATHER THAN APPLIED, because a call in a condition
+is analysed BEFORE the `if` walk asks what the condition proves; `AnalyzerFlowNarrowing`'s call arm
+reads them back when it meets the same node, so `&&`, `||`, `!` and the ternary compose for free.
+Unconditional facts are written into the flow immediately, INCLUDING the invalidation an assignment
+performs — an `out` argument IS an assignment, so every fact derived from that path is stale.
+
+A REFLECTED CANDIDATE THAT LOSES LEAVES NOTHING BEHIND: the facts are computed in
+`AnalyzerReflectionArgumentBinder`'s finalise, held on `ReflectionCallFinalizeState.Postconditions`,
+and committed by `AnalyzerCallAnalysis` only when the call's walk accepts the candidate. The SOURCE
+half is recorded by `AnalyzerSyntheticCallValidator.RecordCallPostconditions`, a second pass over the
+same binding the argument checks used (a second pass because the first `continue`s past positions it
+has nothing to report about, and those positions still owe a postcondition).
+
+NOT READ YET: `[DoesNotReturn]` and `[DoesNotReturnIf]`. Both are reachability facts, and
+`AnalyzerStatementTermination` is a PURE AST judgement asked at three points that must agree, mirrored
+by `ColumnarMethodBodyPlanner` on the emit side; making it semantic is its own slice.
+
+### `out` nullability, and the by-ref relaxation that carries it
+
+`ByRefTypeInfo.IsOutArgument` is a fact about the CALL SITE, set in `AnalyzerCallAnalysis.CompleteArgument`
+when the argument was written `out`, and read in exactly one place: the by-ref arm of
+`AnalyzerAssignability.IsAssignableCore`. C#'s rule is asymmetric — an `out` argument's variable may
+have ANY nullability because the callee assigns it and never reads it, while a `ref` argument's must
+match in both directions — and assignability is the only place the two sides of a by-ref position
+meet. Putting the flag on the argument's type is what makes overload scoring, the argument validator
+and the reflected binder agree without three copies of the rule.
+
+ONLY A REFERENCE ANNOTATION IS DROPPED (`WithoutReferenceNullability`): `int?` is `Nullable<int>` and
+`int` is not, so an `int?` variable is still not an `out int` argument. N# has no `in` modifier, so
+that third C# case does not arise.
+
+### A `?.` chain and its continuation
+
+`AnalyzerNullConditionalChainFacts.nl` answers where a chain begins and how far right it reaches, and
+three owners ask it: `AnalyzerMemberAccess.Finish`, `AnalyzerIndexAccess`, and
+`AnalyzerCallAnalysis.IsNullConditionalInvocationTarget` (which is now just a spelling of
+`SpineReachesNullGuard`). A link written after a `?.` in the same receiver spine is a CONTINUATION: it
+reports no null dereference, and its result is lifted. An INVOCATION whose callee spine crosses a `?.`
+is lifted at the call — `.Trim` resolves to a method group, which has no nullable form, so the lift
+waits for the value (`AnalyzerCallAnalysis.LiftNullConditionalChainResult`, at the walk's one exit).
+
+A PARENTHESIS ENDS THE CHAIN and the walk does not step through one, which is the same node
+`ColumnarIlEmitter.IsNullConditionalChainRoot` stops at. The emitter has always read chains this way;
+before this slice the ANALYZER did not, so `s?.Trim()` typed as `string` while the emitter returned a
+null reference for a null receiver.
 
 ### Substitution-aware resolution
 
@@ -1368,6 +1439,16 @@ produced them:
 - `TryGetSupportedDelegateSignature` read a delegate's signature from its NAME — an Action/Func table
   — so `Predicate<T>`, `Comparison<T>` and every user-written delegate had no lambda form. Any other
   delegate now reads its signature from its own `Invoke`.
+
+A METHOD ON A CONSTRUCTED EXTERNAL GENERIC CLOSED OVER A SOURCE TYPE now resolves through the
+SURROGATE binding type (`AnalyzerMemberResolution.TryResolveReflectionMethodGroup`). The objection
+recorded beside the property/field arm — reading `Comparer<Item>.Default` off `Comparer<object>` would
+answer `Comparer<object?>` — is about the ANSWER's type, and a method group is not an answer: it is a
+set of candidates the reflected binder then closes, and that binder already rebuilds every signature
+position from the SPELLED receiver via `TryPopulateReceiverGenericTypeBindings`. Without this arm the
+callee typed as `unknown` and the call was not checked at ALL — no arity, no argument conversions, and
+(the census site) no `[MaybeNullWhen(false)]`, so `if map.TryGetValue(k, out v)` left `v` maybe-null in
+the branch where the BCL guarantees it is present.
 
 NOT YET: a written type-argument list directly on a call's RESULT (`Make().As<int>()`). The parser's
 kind-38 node keeps only the callee's TEXT, so the receiver subtree is gone by the time the emitter

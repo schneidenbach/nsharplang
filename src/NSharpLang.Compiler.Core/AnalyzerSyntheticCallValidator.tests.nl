@@ -100,6 +100,7 @@ func ValidatorOwnerWithText(
         sink
     )
     constants := new AnalyzerConstantExpressionFacts(scopes, context)
+    postconditions := new AnalyzerNullabilityPostconditions(scopes, context)
     if sourceText != null {
         sink.BeginAnalysis("probe.nl", sourceText)
     }
@@ -113,7 +114,8 @@ func ValidatorOwnerWithText(
         reporter,
         spans,
         sink,
-        constants
+        constants,
+        postconditions
     )
 }
 

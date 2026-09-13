@@ -504,6 +504,12 @@ class CodeIntelligenceNavigation {
     // set the analyzer could NOT narrow, and the call site is asked to narrow what it could not.
     // Neither carries a type override: the analyzer resolved these against its own closed types, so
     // their signatures are already written in real types.
+    //
+    // A SURROGATE GROUP IS THE ONE THAT IS NOT. Its candidates were read off an instantiation closed
+    // over `object` because the real type argument has no CLR handle yet, so rendering one would say
+    // `object?[] ToArray()` where the program means `Reading[] ToArray()`. It is a binding device for
+    // the CALL and never an answer for the reader, so it declines here and the caller falls back to
+    // the definition-plus-arguments path that substitutes the spelled type back in.
     static func RecordedReflectedMethod(semanticModel: SemanticModel?, memberAccess: MemberAccessExpression, argumentTypes: TypeInfo?[]?): ReflectedMemberHandle? {
         if semanticModel == null {
             return null
@@ -521,7 +527,7 @@ class CodeIntelligenceNavigation {
         }
 
         group := recordedType as ReflectionMethodGroupInfo
-        if group != null {
+        if group != null && !group.IsSurrogateBinding {
             methods := group.Methods
             if methods.Length > 0 {
                 chosen := CodeIntelligenceTypeResolution.ChooseReflectedOverload(methods, argumentTypes)

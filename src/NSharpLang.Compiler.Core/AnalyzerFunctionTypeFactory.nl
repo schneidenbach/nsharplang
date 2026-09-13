@@ -193,6 +193,8 @@ class AnalyzerFunctionTypeFactory {
         parameterTypes := new List<TypeInfo>()
         sourceParameterTypes := new List<TypeReference>()
         parameterModifiers := new List<Ast.ParameterModifier>()
+        parameterFlowFacts := new List<int>()
+        declaresFlowFacts := false
         requiredParameterCount := 0
         index := 0
         while index < parameters.Count {
@@ -201,6 +203,12 @@ class AnalyzerFunctionTypeFactory {
             parameterTypes.Add(ResolveDeclarationReference(parameter.Type, methodSubstitution, declarationFile))
             sourceParameterTypes.Add(parameter.Type)
             parameterModifiers.Add(parameter.Modifier)
+            flowFacts := NullabilityFlowFacts.FromSourceAttributes(parameter.Attributes)
+            parameterFlowFacts.Add(flowFacts)
+            if flowFacts != NullabilityFlowFacts.None() {
+                declaresFlowFacts = true
+            }
+
             if parameter.Modifier != Ast.ParameterModifier.Params && parameter.DefaultValue == null {
                 requiredParameterCount = requiredParameterCount + 1
             }
@@ -238,6 +246,10 @@ class AnalyzerFunctionTypeFactory {
         signature.SourceParameterTypes = sourceParameterTypes
         signature.SourceReturnType = declaredReturnType
         signature.ParameterModifiers = parameterModifiers
+        if declaresFlowFacts {
+            signature.ParameterFlowFacts = parameterFlowFacts
+        }
+
         signature.RequiredParameterCount = requiredCount
         signature.HasParamsParameter = hasParamsParameter
         signature.TypeParameters = declaration.TypeParameters

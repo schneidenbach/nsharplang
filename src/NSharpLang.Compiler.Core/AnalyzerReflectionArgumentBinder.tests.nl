@@ -109,7 +109,8 @@ func BinderFor(wellKnown: AnalyzerWellKnownTypes?): AnalyzerReflectionArgumentBi
         resolver,
         wellKnown
     )
-    return new AnalyzerReflectionArgumentBinder(clrConversion, assignability, facts, scoring, resolver)
+    postconditions := new AnalyzerNullabilityPostconditions(scopes, context)
+    return new AnalyzerReflectionArgumentBinder(clrConversion, assignability, facts, scoring, resolver, postconditions)
 }
 
 func BinderWellKnown(loadContext: MetadataLoadContext): AnalyzerWellKnownTypes {

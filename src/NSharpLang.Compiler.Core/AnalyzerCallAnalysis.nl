@@ -152,6 +152,9 @@ class CallAnalysisState {
     // recognise, so it is the honest starting value rather than a null placeholder.
     Result: TypeInfo
 
+    // The written argument a `[NotNullIfNotNull(...)]` on the chosen signature's return names, or -1.
+    NotNullIfNotNullArgumentIndex: int
+
     constructor(call: CallExpression) {
         callValue = call
         argTypesValue = new List<TypeInfo>()
@@ -190,6 +193,7 @@ class CallAnalysisState {
         ReflectionErrorsBefore = 0
         FinalizeState = null
         Result = BuiltInTypes.Unknown
+        NotNullIfNotNullArgumentIndex = -1
     }
 }
 
@@ -236,8 +240,9 @@ class AnalyzerCallAnalysis {
     writeTargets: AnalyzerWriteTargets
     identifierResolution: AnalyzerIdentifierResolution
     declarationContext: AnalyzerDeclarationContext
+    postconditions: AnalyzerNullabilityPostconditions
 
-    constructor(callReporter: AnalyzerSyntheticCallReporter, callWalk: AnalyzerSyntheticCallWalk, callValidator: AnalyzerSyntheticCallValidator, reflectionReporter: AnalyzerReflectionCallReporter, argumentBinder: AnalyzerReflectionArgumentBinder, conversion: AnalyzerClrTypeConversion, substitution: AnalyzerTypeSubstitution, assignabilityOwner: AnalyzerAssignability, diagnosticSink: AnalyzerDiagnosticSink, spansOwner: AnalyzerDiagnosticSpans, scopeStack: AnalyzerScopeStack, ambientContext: AnalyzerAmbientContext, writeTargetsOwner: AnalyzerWriteTargets, identifierResolutionOwner: AnalyzerIdentifierResolution, declarationContextOwner: AnalyzerDeclarationContext) {
+    constructor(callReporter: AnalyzerSyntheticCallReporter, callWalk: AnalyzerSyntheticCallWalk, callValidator: AnalyzerSyntheticCallValidator, reflectionReporter: AnalyzerReflectionCallReporter, argumentBinder: AnalyzerReflectionArgumentBinder, conversion: AnalyzerClrTypeConversion, substitution: AnalyzerTypeSubstitution, assignabilityOwner: AnalyzerAssignability, diagnosticSink: AnalyzerDiagnosticSink, spansOwner: AnalyzerDiagnosticSpans, scopeStack: AnalyzerScopeStack, ambientContext: AnalyzerAmbientContext, writeTargetsOwner: AnalyzerWriteTargets, identifierResolutionOwner: AnalyzerIdentifierResolution, declarationContextOwner: AnalyzerDeclarationContext, postconditionOwner: AnalyzerNullabilityPostconditions) {
         syntheticCallReporter = callReporter
         syntheticCallWalk = callWalk
         syntheticCallValidator = callValidator
@@ -253,6 +258,7 @@ class AnalyzerCallAnalysis {
         writeTargets = writeTargetsOwner
         identifierResolution = identifierResolutionOwner
         declarationContext = declarationContextOwner
+        postconditions = postconditionOwner
     }
 
     func BeginCall(call: CallExpression): CallAnalysisState {
@@ -274,16 +280,39 @@ class AnalyzerCallAnalysis {
         // INVOCATION rather than the member access: `.Trim` resolves to a method group, which has no
         // nullable form, so the lift has to wait until the call has produced a value. The walk's own
         // exit is the one place every arm of it passes through.
-        state.Result = LiftNullConditionalChainResult(state)
+        state.Result = LiftNullConditionalChainResult(state, ApplyNotNullIfNotNullResult(state))
         return null
+    }
+
+    // `Path.GetFileName(path)` IS AS NULL AS `path` WAS. Its return is declared `string?` and carries
+    // `[NotNullIfNotNull("path")]`, which is the signature's way of saying the nullable annotation is
+    // there for ONE argument's sake. The argument's analysed type is the answer: the flow has already
+    // collapsed a narrowed nullable to its inner type by the time it reaches here, so a non-nullable
+    // argument type IS the proof that the argument was not null.
+    func ApplyNotNullIfNotNullResult(state: CallAnalysisState): TypeInfo {
+        result := state.Result
+        argumentIndex := state.NotNullIfNotNullArgumentIndex
+        if argumentIndex < 0 || argumentIndex >= state.ArgTypes.Count {
+            return result
+        }
+
+        if declarationContext.ResolveDeclaredAlias(state.ArgTypes[argumentIndex]) as NullableTypeInfo != null {
+            return result
+        }
+
+        nullableResult := declarationContext.ResolveDeclaredAlias(result) as NullableTypeInfo
+        if nullableResult == null {
+            return result
+        }
+
+        return nullableResult.InnerType
     }
 
     // `s?.Trim()` IS `string?`, AND SO IS EVERY OTHER INVOCATION A `?.` GUARDS. The emitter already
     // reads the chain this way — it short-circuits to a null reference or an empty `Nullable<T>` —
     // so an analyzer that reported the unlifted type was describing a value the program cannot
     // produce, and a `string` local could be assigned a null the flow never admitted.
-    func LiftNullConditionalChainResult(state: CallAnalysisState): TypeInfo {
-        result := state.Result
+    func LiftNullConditionalChainResult(state: CallAnalysisState, result: TypeInfo): TypeInfo {
         if !IsNullConditionalInvocationTarget(state.Call.Callee) {
             return result
         }
@@ -738,8 +767,16 @@ class AnalyzerCallAnalysis {
         }
 
         bound := finalizeState.Result
+        acceptedPostconditions := finalizeState.Postconditions
         state.FinalizeState = null
         if bound != null {
+            // The candidate is the call's now, so its postconditions become the flow's. A candidate
+            // that failed has already had its diagnostics withdrawn and leaves nothing behind.
+            if acceptedPostconditions != null {
+                postconditions.Commit(state.Call, acceptedPostconditions)
+            }
+
+            state.NotNullIfNotNullArgumentIndex = finalizeState.NotNullIfNotNullArgumentIndex
             return CompleteReflectionBind(state, bound)
         }
 
@@ -773,6 +810,17 @@ class AnalyzerCallAnalysis {
     // NO CANDIDATE BOUND. The report names every method that was considered and the argument types
     // that were offered, which is one sentence about the CALL rather than one per rejected overload.
     func FailReflectionBind(state: CallAnalysisState): CallAnalysisRequest? {
+        // A SURROGATE GROUP THAT BINDS NOTHING SAYS NOTHING. Its candidates are read off an
+        // instantiation closed over `object` because the real type argument has no CLR handle yet, so
+        // a refusal is the SURROGATE failing to represent the argument and not the program failing to
+        // type-check. This is the answer the callee had before the group was resolved at all.
+        group := state.ReflectionMethodGroup
+        if group != null && group.IsSurrogateBinding {
+            state.Result = BuiltInTypes.Unknown
+            state.Phase = 99
+            return null
+        }
+
         state.Result = reflectionCallReporter.ReportUnboundCall(state.Call, state.CandidateMethods, state.ArgTypes)
         state.Phase = 99
         return null
@@ -1182,7 +1230,11 @@ class AnalyzerCallAnalysis {
         if answer != null {
             resolved = answer
             if !BuiltInTypes.IsUnknown(resolved) {
-                resolved = new ByRefTypeInfo(resolved)
+                // The `out` SPELLING TRAVELS WITH THE ARGUMENT'S TYPE, because assignability is where
+                // the two sides of a by-ref position meet and it has no other way to learn which of
+                // `ref` and `out` was written. An `out` variable's incoming nullability is the
+                // callee's to replace; a `ref` one's is part of the contract.
+                resolved = new ByRefTypeInfo(resolved, argument.Modifier == ArgumentModifier.Out)
             }
         }
 

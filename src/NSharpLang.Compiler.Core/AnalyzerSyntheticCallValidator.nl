@@ -203,8 +203,9 @@ class AnalyzerSyntheticCallValidator {
     spans: AnalyzerDiagnosticSpans
     diagnostics: AnalyzerDiagnosticSink
     constants: AnalyzerConstantExpressionFacts
+    postconditions: AnalyzerNullabilityPostconditions
 
-    constructor(declarations: AnalyzerDeclarationContext, resolver: AnalyzerTypeResolver, assignabilityOwner: AnalyzerAssignability, scoring: AnalyzerOverloadScoring, callWalk: AnalyzerSyntheticCallWalk, callReporter: AnalyzerSyntheticCallReporter, spanResolver: AnalyzerDiagnosticSpans, diagnosticSink: AnalyzerDiagnosticSink, constantFacts: AnalyzerConstantExpressionFacts) {
+    constructor(declarations: AnalyzerDeclarationContext, resolver: AnalyzerTypeResolver, assignabilityOwner: AnalyzerAssignability, scoring: AnalyzerOverloadScoring, callWalk: AnalyzerSyntheticCallWalk, callReporter: AnalyzerSyntheticCallReporter, spanResolver: AnalyzerDiagnosticSpans, diagnosticSink: AnalyzerDiagnosticSink, constantFacts: AnalyzerConstantExpressionFacts, postconditionOwner: AnalyzerNullabilityPostconditions) {
         declarationContext = declarations
         typeResolver = resolver
         assignability = assignabilityOwner
@@ -214,6 +215,7 @@ class AnalyzerSyntheticCallValidator {
         spans = spanResolver
         diagnostics = diagnosticSink
         constants = constantFacts
+        postconditions = postconditionOwner
     }
 
     // THE TYPE AN ARGUMENT IS ANALYSED AGAINST, or null when the position gives no useful shape.
@@ -352,6 +354,53 @@ class AnalyzerSyntheticCallValidator {
         }
 
         ValidateSoaCall(functionType, functionName, call, argTypes, parameterIndexByArgument)
+        RecordCallPostconditions(functionType, call, parameterIndexByArgument, genericBindings, expectedCount)
+    }
+
+    // WHAT THIS CALL LEAVES BEHIND, read off the same binding the argument checks just used.
+    //
+    // It is a SECOND pass rather than a line inside the first, because the first `continue`s past
+    // every position it has nothing to report about — a params tail, an unresolved type, an SoA row —
+    // and a postcondition is owed for those positions too. Nothing here reports; the facts are the
+    // call's, and the flow decides where they land.
+    func RecordCallPostconditions(functionType: FunctionTypeInfo, call: CallExpression, parameterIndexByArgument: int[], genericBindings: Dictionary<string, TypeInfo>?, expectedCount: int) {
+        parameterTypes := functionType.ParameterTypes
+        modifiers := functionType.ParameterModifiers
+        flowFactsByParameter := functionType.ParameterFlowFacts
+        if parameterTypes == null {
+            return
+        }
+
+        facts := new List<NullabilityPostcondition>()
+        argumentIndex := 0
+        while argumentIndex < call.Arguments.Count {
+            currentArgument := argumentIndex
+            argumentIndex = argumentIndex + 1
+            parameterIndex := parameterIndexByArgument[currentArgument]
+            if parameterIndex < 0 || parameterIndex >= expectedCount {
+                continue
+            }
+
+            isByRefParameter := false
+            if modifiers != null && parameterIndex < modifiers.Count {
+                modifier := modifiers[parameterIndex]
+                isByRefParameter = modifier == Ast.ParameterModifier.Ref || modifier == Ast.ParameterModifier.Out
+            }
+
+            parameterFlowFacts := NullabilityFlowFacts.None()
+            if flowFactsByParameter != null && parameterIndex < flowFactsByParameter.Count {
+                parameterFlowFacts = flowFactsByParameter[parameterIndex]
+            }
+
+            if !isByRefParameter && parameterFlowFacts == NullabilityFlowFacts.None() {
+                continue
+            }
+
+            parameterType := declarationContext.ResolveDeclaredAlias(AnalyzerSyntheticCallFacts.ApplyGenericBindings(parameterTypes[parameterIndex], genericBindings))
+            postconditions.AddArgumentFacts(facts, call.Arguments[currentArgument], parameterType, isByRefParameter, parameterFlowFacts)
+        }
+
+        postconditions.Commit(call, facts)
     }
 
     // NL401. The rich form names the count it wanted; the fallback names the whole BAND, because

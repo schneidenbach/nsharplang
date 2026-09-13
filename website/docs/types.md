@@ -1477,8 +1477,20 @@ length := user?.Name?.Length      // int?, not int
 count := (user?.Name?.Length) ?? 0
 ```
 
+The lift belongs to the **whole chain**, not to the link that carries the `?`. Everything written to
+the right of a `?` is a continuation of the same expression: it never runs with a null receiver, so
+it is not a null dereference, and it is the chain's own result that ends up lifted.
+
+```n#
+count := snapshot?.Units.Count    // int?  — `.Count` is part of the chain, not a dereference of it
+total := snapshot?.Units.Count ?? 0
+first := snapshot?.Units[0]       // int?  — an index continues the chain too
+trimmed := snapshot?.Name.Trim()  // string? — an invocation the `?` guards is lifted as well
+```
+
 Parentheses end a chain, exactly as they read: in `(user?.Address).City` the `?` guards only the
-first access, and the second one runs on whatever that produced.
+first access, and the second one runs on whatever that produced — so the member after the
+parenthesis IS an ordinary dereference of a maybe-null value, and has to be guarded on its own.
 
 `?.` also works on a nullable value (`when?.Year` on a `DateTime?` reads `Year` off the value when
 there is one) and on an unconstrained type parameter, where it means the same thing for both kinds of
