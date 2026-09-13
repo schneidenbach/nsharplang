@@ -1226,3 +1226,46 @@ test "the exception VARIABLE is still exempt from NL001, and the clause type doe
     // not how you use a value, and tracking the TYPE must not change that either way.
     assert LnieCensus("\nimport System.Text\n\nfunc F() {\n    try {\n        print(\"body\")\n    } catch (error: StringBuilder) {\n        print(\"caught\")\n    }\n}\n") == ""
 }
+
+// ── a declaration is not in scope inside its own initializer ─────────────────────────────────────
+//
+// N#'s scope rule is measurable from the analyzer: `x := x + 1` is NL301, an UNDEFINED name, so the
+// binding a declaration makes does not exist yet while its initializer is being read. The walk bound
+// the name FIRST, so a lambda parameter written in the initializer was measured shadowing a variable
+// that is not in scope at that point — NL020, an ERROR — while the analyzer's own shadowing rule
+// (NL316) stayed correctly silent on the same line. The two disagreed, and the linter was the one
+// that was wrong.
+//
+// The census that found it: the converted `NSharpLang.LanguageServer`'s `Program.nl`, whose
+// `server := await LanguageServer.From(… .OnInitialize((server, request, cancellationToken) => …))`
+// is exactly this shape and is exactly what the C# source it came from writes.
+//
+// THE RULE IS NOT C#'s. C# 8.0 relaxed CS0136 so a nested function's parameters and locals may shadow
+// an enclosing local freely (measured: the same source is CS0136 under `-langversion:7.3` and clean
+// under 8.0). N# does NOT take that relaxation — NL316/NL020 report a lambda parameter that shadows a
+// local already in scope — so the ONLY thing that changed here is WHEN a local comes into scope, and
+// the control below holds the report that must survive.
+
+test "a lambda parameter in a declaration's OWN initializer shadows nothing" {
+    assert LnieCensus("\nfunc F(): int {\n    server := Compute(server => server + 1)\n    return server\n}\n") == ""
+
+    // CONTROL: move the outer binding one statement earlier and it IS in scope at the lambda, so the
+    // same parameter name is reported. The fix is about scope order, not about lambda parameters.
+    assert LnieCensus("\nfunc F(): int {\n    server := 1\n    total := Compute(server => server + 1)\n    return total + server\n}\n") == "NL020@4:22+6;"
+}
+
+test "a tuple deconstruction's names are not in scope inside the initializer that produces them" {
+    assert LnieCensus("\nfunc F(): int {\n    total, rest := Pair(total => total + 1)\n    return total + rest\n}\n") == ""
+
+    // CONTROL: the same deconstruction with the name already bound above it.
+    assert LnieCensus("\nfunc F(): int {\n    total := 1\n    first, rest := Pair(total => total + 1)\n    return first + rest + total\n}\n") == "NL020@4:25+5;"
+}
+
+test "reading the initializer in the OUTER scope does not lose NL001 or a capture" {
+    // The declaration is still bound, so an unread one is still NL001 — the binding moved later in the
+    // walk, it did not stop happening.
+    assert LnieCensus("\nfunc F() {\n    dead := Compute(x => x + 1)\n}\n") == "NL001@3:5+4;"
+
+    // And a local READ from inside a lambda in a LATER declaration's initializer still counts as read.
+    assert LnieCensus("\nfunc F(): int {\n    outer := 1\n    inner := Compute(y => y + outer)\n    return inner\n}\n") == ""
+}

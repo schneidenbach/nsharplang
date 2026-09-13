@@ -534,3 +534,53 @@ test "a STATIC METHOD BODY is walked, which is the task-cli formatter shape" {
     // REMOVAL CONTROL: the same class with the StringBuilder gone from the static body.
     assert LnieCensus("\nimport System.Text\n\nclass Formatter {\n    static func FormatHeader(): string {\n        return \"ID\".PadRight(5)\n    }\n}\n\nfunc main() {\n    header := Formatter.FormatHeader()\n    print header\n}") == "NL010@2:8+11;"
 }
+
+// ── an aliased import does BOTH things, so NL010 asks BOTH questions ──────────────────────────
+//
+// C#'s `using Txt = System.Text;` binds the alias and NOTHING ELSE: `new StringBuilder()` under it is
+// CS0246. N#'s `import System.Text as Txt` binds `Txt` AND brings the namespace's names into scope
+// unqualified — measured on the tip CLI, a file whose only import is the aliased one BUILDS
+// `new StringBuilder()`, and the same file with the import removed is told by NL002 that nothing
+// supplies `StringBuilder`. Asking the alias arm ALONE therefore reported an import the build needs as
+// dead, at ERROR severity, with a `nlc fix` that deletes it.
+//
+// The census that found it: the converted `NSharpLang.LanguageServer`'s `CompletionHandler.nl`, whose
+// only unqualified use of `import NSharpLang.Compiler.CodeIntelligence as CodeIntel` is a
+// `new CompletionEngine()` in a field initializer, every other use being fully qualified.
+
+test "IsImportUsed answers for an ALIASED import from the alias OR the namespace, and an unaliased one from the namespace alone" {
+    // The alias is written: used, whatever the namespace's own names do.
+    assert LinterNamespaceImportUsage.IsImportUsed("System.Text", "Txt", LniuOne("Txt"), LniuNone())
+
+    // The alias is NOT written and the namespace's own name is: still used, because the import is
+    // what supplies that bare name.
+    assert LinterNamespaceImportUsage.IsImportUsed("System.Text", "Txt", LniuOne("StringBuilder"), LniuNone())
+
+    // NEITHER: unused, which is the report that must survive the union.
+    assert !LinterNamespaceImportUsage.IsImportUsed("System.Text", "Txt", LniuOne("Encoder"), LniuNone())
+
+    // The member half answers for an aliased import too — `System.Linq as L` used only as `.Select()`.
+    assert LinterNamespaceImportUsage.IsImportUsed("System.Linq", "L", LniuNone(), LniuOne("Select"))
+
+    // An unaliased import takes the namespace arm unchanged: an empty alias must not make every
+    // import answer "used" by matching nothing.
+    assert LinterNamespaceImportUsage.IsImportUsed("System.Text", null, LniuOne("StringBuilder"), LniuNone())
+    assert !LinterNamespaceImportUsage.IsImportUsed("System.Text", null, LniuOne("Encoder"), LniuNone())
+    assert !LinterNamespaceImportUsage.IsImportUsed("System.Text", "", LniuOne("Encoder"), LniuNone())
+
+    // The unknown-namespace rule is the namespace arm's, and the union inherits it rather than
+    // overriding it: an aliased import of a namespace the table has never heard of stays quiet.
+    assert LinterNamespaceImportUsage.IsImportUsed("MyCustom.Namespace", "M", LniuNone(), LniuNone())
+}
+
+test "an ALIASED import used only through the namespace's own bare name is NOT reported" {
+    assert LnieCensus("\nimport System.Text as Txt\n\nfunc main() {\n    sb := new StringBuilder()\n    print sb.ToString()\n}") == ""
+
+    // SIBLING CONTROL: the alias-qualified spelling was already silent and stays silent, so the
+    // answer above is the new arm and not a walk that stopped reporting.
+    assert LnieCensus("\nimport System.Text as Txt\n\nfunc main() {\n    sb := new Txt.StringBuilder()\n    print sb.ToString()\n}") == ""
+
+    // REMOVAL CONTROL: neither spelling. The import really is dead and NL010 still says so, at the
+    // NAMESPACE's span rather than the alias's.
+    assert LnieCensus("\nimport System.Text as Txt\n\nfunc main() {\n    print \"no builder here\"\n}") == "NL010@2:8+11;"
+}

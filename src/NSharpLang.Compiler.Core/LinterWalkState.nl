@@ -254,7 +254,9 @@ class LinterWalkState {
     }
 
     // NL010, once per file after the whole walk. A file import resolves to a file's exported symbols;
-    // a namespace import resolves to the known-namespace table. Both arms are N#.
+    // a namespace import resolves to its alias and to the known-namespace table TOGETHER, because an
+    // N# alias does not replace the plain import the way C#'s `using X = N;` does — it adds a name to
+    // it. Both arms are N#.
     func CheckUnusedImports() {
         if !config.RuleSeverities.ContainsKey("NL010") {
             return
@@ -267,12 +269,7 @@ class LinterWalkState {
                 used = LinterFileImportUsage.IsUsed(imported.Namespace, imported.FilePath, filePath, allCodeIdentifiers)
                 label = "import \"" + (imported.FilePath ?? imported.Namespace) + "\""
             } else {
-                aliasName := imported.Alias
-                if aliasName != null && aliasName.Length > 0 {
-                    used = LinterNamespaceImportUsage.IsAliasUsed(aliasName, allCodeIdentifiers, allMemberAccessNames)
-                } else {
-                    used = LinterNamespaceImportUsage.IsUsed(imported.Namespace, allCodeIdentifiers, allMemberAccessNames)
-                }
+                used = LinterNamespaceImportUsage.IsImportUsed(imported.Namespace, imported.Alias, allCodeIdentifiers, allMemberAccessNames)
             }
 
             if !used {

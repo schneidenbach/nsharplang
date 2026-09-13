@@ -411,9 +411,17 @@ class LinterWalk {
         return (statement as NamespaceImport) != null
     }
 
-    // A declaration binds its name and then walks its initializer — unless the initializer carries a
+    // A declaration walks its initializer and THEN binds its name — unless the initializer carries a
     // parser-error placeholder, in which case NEITHER happens: a name the parser could not read must
     // not be reported as unused, and a broken subtree must not cascade further diagnostics.
+    //
+    // THE ORDER IS N#'s OWN SCOPE RULE, NOT A WALK CONVENIENCE. A local is not in scope inside its own
+    // initializer — `x := x + 1` is NL301, an undefined name, not a self-read — so nothing written in
+    // the initializer can shadow the name being declared. Binding FIRST made NL020 report
+    // `server := items.Select(server => server + 1)` as a lambda parameter shadowing an outer
+    // `server` that does not exist yet, while the analyzer's own shadowing rule (NL316) stayed
+    // correctly silent on the same line. The `foreach` arm above already reads its collection in the
+    // outer scope for this reason; a declaration reads its initializer there for the same one.
     func VisitVariableDeclaration(declaration: VariableDeclarationStatement) {
         state.TrackTypeReference(declaration.Type)
 
@@ -423,15 +431,17 @@ class LinterWalk {
             initializerHasParserError = AnalyzerParserErrorPlaceholders.ContainsInExpression(initializer)
         }
 
-        if !initializerHasParserError {
-            // The statement's own column is the IDENTIFIER's location, including for a shorthand
-            // declaration like `name := value`.
-            state.DeclareVariable(declaration.Name, declaration.Line, declaration.Column)
+        if initializerHasParserError {
+            return
         }
 
-        if initializer != null && !initializerHasParserError {
+        if initializer != null {
             VisitExpression(initializer)
         }
+
+        // The statement's own column is the IDENTIFIER's location, including for a shorthand
+        // declaration like `name := value`.
+        state.DeclareVariable(declaration.Name, declaration.Line, declaration.Column)
     }
 
     // A block opens a scope and closes it. NL006 is reported ONCE per block, at the first statement the
@@ -704,21 +714,25 @@ class LinterWalk {
         }
     }
 
-    // A deconstruction binds every name but the discard. A parser-error placeholder in the initializer
-    // suppresses the whole statement, bindings included, for the same reason a broken declaration is
-    // suppressed.
+    // A deconstruction walks its initializer and then binds every name but the discard. A parser-error
+    // placeholder in the initializer suppresses the whole statement, bindings included, for the same
+    // reason a broken declaration is suppressed.
+    //
+    // THE ORDER IS THE ONE `VisitVariableDeclaration` GIVES ITS REASONS FOR: none of these names is in
+    // scope inside the initializer that produces them, so a lambda parameter written there shadows
+    // nothing and NL020 must not say it does.
     func VisitTupleDeconstruction(statement: TupleDeconstructionStatement) {
         if AnalyzerParserErrorPlaceholders.ContainsInExpression(statement.Initializer) {
             return
         }
+
+        VisitExpression(statement.Initializer)
 
         for name in statement.Names {
             if name != "_" {
                 state.DeclareVariable(name, statement.Line, statement.Column)
             }
         }
-
-        VisitExpression(statement.Initializer)
     }
 
     // ---- the expression arm -----------------------------------------------------------------------
