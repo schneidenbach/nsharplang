@@ -453,9 +453,14 @@ class AnalyzerMemberAccess {
         // type takes them back from it -- see `AnalyzerTupleElementNames.GraftFromReceiver`.
         memberType = AnalyzerTupleElementNames.GraftFromReceiver(memberType, receiverType)
 
-        // The LIFT SKIPS A CALLEE. `snapshot?.Name.Trim()` resolves `.Trim` to a method group, and a
-        // method group has no nullable form; the INVOCATION is the chain's result and lifts there.
-        if member.IsNullConditional || (isChainContinuation && !invocationPosition) {
+        // THE LIFT SKIPS A CALLEE — every callee, including the `?.` link itself. `s?.Trim()` resolves
+        // `.Trim` to a method group, and a method group has no nullable form; the INVOCATION is the
+        // chain's result and lifts there. Lifting the guard link too wrapped the method group in a
+        // `NullableTypeInfo`, which the call's own dispatch matches NOTHING against — so every
+        // `x?.M(...)` silently answered `unknown`: no overload resolution, no argument diagnostics,
+        // and no postconditions, which is why `map?.TryGetValue(k, out v) == true` proved nothing
+        // about `v` and `h?.M("a", "b", "c")` reported no arity error at all.
+        if (member.IsNullConditional || isChainContinuation) && !invocationPosition {
             state.ResultType = MakeNullableResult(memberType)
         } else {
             state.ResultType = memberType
@@ -495,6 +500,16 @@ class AnalyzerMemberAccess {
         }
 
         if nullableType == null {
+            return false
+        }
+
+        // `Nullable<T>` IS A VALUE-TYPE CONSTRUCT, AND A REFERENCE `T?` IS NOT ONE. The `?` on a class
+        // is an ANNOTATION on the same CLR type — `MarkupContent?` IS `MarkupContent` — so `.Value`
+        // and `.HasValue` there are whatever the class itself declares, and a class that declares
+        // neither has no such member at all. Answering them from here read
+        // `documentation.MarkupContent?.Value` as the unwrap and typed it `MarkupContent`, when the
+        // class's own `Value: string` is what the reader wrote.
+        if AnalyzerConversionFacts.IsReferenceType(nullableType.InnerType) {
             return false
         }
 

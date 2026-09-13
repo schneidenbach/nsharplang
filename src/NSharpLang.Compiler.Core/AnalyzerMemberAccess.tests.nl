@@ -433,6 +433,47 @@ test "a NON-primitive receiver never reaches the narrowed-origin path" {
     assert trace.Answer == "unknown"
 }
 
+// CENSUS §FLOW5 — `Nullable<T>`'s SURFACE IS A VALUE-TYPE SURFACE.
+//
+// A reference `T?` is an ANNOTATION on one CLR type, not a `System.Nullable<T>`: `MarkupContent?` IS
+// `MarkupContent`, and `.Value` there is whatever the CLASS declares. Answering it from the nullable
+// fork typed `documentation.MarkupContent?.Value` as `MarkupContent` and warned NL907 about an
+// unwrap the program never wrote — and then refused the `string?` the function actually returned.
+test "`Value` on a reference nullable is NOT the unwrap and is not warned about" {
+    harness := MemberArmOf()
+    content := new NullableTypeInfo(MemberSampleClass("MarkupContent"))
+    MemberDeclare(harness, "content", content)
+
+    trace := MemberDriveWith(harness, MemberAccessOf("content", "Value", false), content)
+
+    // The class declares no members in this harness, so ordinary resolution is what answers — and
+    // what it answers is the point: the fork did not.
+    assert trace.Answer == "unknown"
+    assert !MemberCodes(harness.Errors).Contains("907")
+}
+
+test "`HasValue` on a reference nullable is the class's own name, not the nullable's" {
+    harness := MemberArmOf()
+    content := new NullableTypeInfo(MemberSampleClass("MarkupContent"))
+    MemberDeclare(harness, "content", content)
+
+    trace := MemberDriveWith(harness, MemberAccessOf("content", "HasValue", false), content)
+
+    assert trace.Answer != "simple:bool"
+    assert trace.Answer == "unknown"
+}
+
+test "the same two names on a VALUE nullable still take the fork" {
+    harness := MemberArmOf()
+    MemberDeclare(harness, "count", new NullableTypeInfo(BuiltInTypes.Int))
+
+    hasValue := MemberDriveWith(harness, MemberAccessOf("count", "HasValue", false), new NullableTypeInfo(BuiltInTypes.Int))
+    assert hasValue.Answer == "simple:bool"
+
+    value := MemberDriveWith(harness, MemberAccessOf("count", "Value", false), new NullableTypeInfo(BuiltInTypes.Int))
+    assert value.Answer == "simple:int"
+}
+
 test "a THIRD name on a nullable falls through to ordinary resolution" {
     harness := MemberArmOf()
     MemberDeclare(harness, "count", new NullableTypeInfo(BuiltInTypes.Int))
