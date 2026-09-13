@@ -10,6 +10,7 @@ This guide covers the type system in N#, including classes, structs, records, di
 ## Table of Contents
 
 - [Basic Types](#basic-types)
+- [Numeric Operators](#numeric-operators)
 - [Arrays](#arrays)
 - [Classes](#classes)
 - [Structs](#structs)
@@ -45,6 +46,69 @@ message: string? = null  // Nullable string
 numbers: int[] = [1, 2, 3, 4, 5]
 names: string[] = ["Alice", "Bob", "Charlie"]
 ```
+
+## Numeric Operators
+
+### Binary numeric promotion
+
+An arithmetic, bitwise or comparison operator runs in ONE type, and which one is decided by the two
+operands rather than by what the result is assigned to. Everything narrower than `int` promotes to
+`int`, so `byteValue + byteValue` is an `int`; the wider types promote to the wider of the pair.
+
+Exactly two pairs have no common type at all: `decimal` with a floating-point type, and `ulong` with
+a signed integral type. No single type holds every value of either pair, so there is nothing to
+compute in:
+
+```n#
+func Refused(mask: ulong, flags: int): ulong {
+    return mask & flags          // NL202 — cast the signed side: mask & (ulong)flags
+}
+```
+
+### Integer constants adopt the type they are written against
+
+A CONSTANT is not subject to that refusal. An integer constant whose value fits the other operand's
+type converts to it, so the ordinary bit-manipulation idioms need no ceremony:
+
+```n#
+func Masked(value: ulong): ulong {
+    return value & 0xFF          // the constant is a ulong here
+}
+
+func Compared(value: ulong): bool {
+    return value > 5 && value != 0
+}
+```
+
+The rule is the value's, not the position's: the constant may be written on either side, in any of
+`&`, `|`, `^`, the arithmetic operators, the comparisons and the compound assignments, and in any
+spelling (`255`, `0xFF`, `0b1111_1111`). A **suffixed** literal carries its own type and adopts
+nothing — `mask & 1L` is still a `ulong` against a `long` — and a **negative** constant adopts only a
+signed target.
+
+A non-constant operand is refused, and that is the same rule read from the other side: the compiler
+cannot know a variable's value, so the conversion has to be written.
+
+### Shifts
+
+`<<` and `>>` are the one binary pair whose operands are not symmetric. The **count** on the right is
+always an `int`, whatever the expression is being written into, and the **result** is the promoted
+type of the left operand alone:
+
+```n#
+func SetBit(words: ulong[], index: int) {
+    words[index >> 6] = words[index >> 6] | (1UL << (index & 63))
+}
+```
+
+`index & 63` here is an `int` because it is a shift count, not a `ulong` because the assignment
+target is one. A `>>` over an unsigned left operand is the unsigned shift — the high bit zero-fills
+— and over a signed one it keeps the sign.
+
+NEITHER operand takes the surrounding target, so a suffixless literal on the left of a shift is an
+`int` like any other: `value: ulong = 1 << 40` is an `int` shift, and writing it into a `ulong`
+reports a type mismatch rather than silently truncating. Write the suffix — `1UL << 40` — when the
+shift is meant to run in 64 bits.
 
 ## Arrays
 
@@ -103,8 +167,26 @@ mixed: object[] = ["a", 1, ["b", "c"], null]
 ```
 
 Targets include an annotated local or field, a return value, an argument (a `params` array
-included), a `yield` value, and an element of an enclosing literal that is itself a literal. Where no
-target exists, the FIRST element decides the element type and every later one must fit it:
+included), a `yield` value, and an element of an enclosing literal that is itself a literal. A target
+that may itself be null is still a target, so `object?[]?` names `object?` as its element type the
+same way `object[]` names `object`.
+
+A literal written as an argument is measured against every candidate of an **overload set** before
+one is chosen, element by element, and the candidate that takes it is the one whose element type fits
+best:
+
+```n#
+class Sink {
+    static func Accept(values: int[]): string => "ints"
+    static func Accept(values: object[]): string => "objects"
+}
+
+Sink.Accept([1, 2, 3])     // "ints"   — an exact element type wins
+Sink.Accept(["a", "b"])    // "objects" — `string` reaches `object` and reaches `int` not at all
+method.Invoke(null, [args])  // object?[]? — the literal takes the parameter's element type
+```
+
+Where no target exists, the FIRST element decides the element type and every later one must fit it:
 
 ```n#
 inferred := [1, 2, 3]      // int[]
@@ -983,7 +1065,21 @@ IL instruction, not a method call.
 ### Conversion operators
 
 A conversion operator is a member like any other, so the ones a referenced assembly's type declares
-are the ones you get — in an annotated local, an argument, a return, and a written cast:
+are the ones you get — in an annotated local, an argument, a return, and a written cast. An argument
+is the case that also decides **which overload** is called: a candidate is applicable when every
+argument has an implicit conversion to its parameter, and an operator a type declares about itself is
+one of those:
+
+```n#
+func Outcome(result: XElement): string? {
+    attribute := result.Attribute("outcome")   // implicit operator XName(string)
+    return (string?)attribute                  // explicit operator string?(XAttribute)
+}
+```
+
+A user-defined conversion is ranked BELOW every conversion the language defines, so an overload
+reachable without one always wins, and it never takes part in inferring a generic method's type
+arguments.
 
 ```n#
 import System
@@ -1421,6 +1517,20 @@ Two rules the compiler enforces about the type-argument list itself:
   (`summary := Kernels.Summarize(args)` then `summary.ShowHelp`). The same member read works off a
   parameter of that type and off a local initialised with `new`, so binding the value differently is
   the workaround.
+- An array of NON-nullable elements does not convert to one of nullable elements: `object[]` is
+  refused where `object?[]` is expected, because the callee could store a null the caller's type says
+  cannot be there. This differs from C#, which allows it with a warning. It reaches external
+  signatures too — `MethodInfo.Invoke`'s second parameter is `object?[]?` — so declare the variable
+  `object?[]` when you are passing it on. An array literal written in place is unaffected: it takes
+  the target's element type.
+- A collection expression whose elements have **no common type**, written against an overload set of
+  the same arity declared in the SAME project, type-checks and then declines at emission
+  (`Sink.Accept([1, "b", null])` where `Accept` takes both `int[]` and `object[]`). The emitter picks
+  a same-arity candidate before it looks at the argument. A single candidate of that arity, and an
+  overload set reached with a literal whose elements DO have a common type, are both unaffected.
+- Overloaded **free functions** are not emitted: two `func Accept(...)` declarations at file scope
+  with different parameter types stop the columnar backend at its declaration scan. Declare the
+  overload set on a type instead.
 
 ## Nullable Types
 
