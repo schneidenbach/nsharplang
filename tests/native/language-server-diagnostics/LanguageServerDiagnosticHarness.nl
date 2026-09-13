@@ -533,6 +533,29 @@ func LsdSingleLinter(
     return found
 }
 
+func LsdLinterContains(diagnostics: IReadOnlyList<Diagnostic>, code: string): bool {
+    index := 0
+    while index < diagnostics.Count {
+        if LsdRequiredField(diagnostics[index], "Code").ToString() == code {
+            return true
+        }
+        index = index + 1
+    }
+    return false
+}
+
+func LsdLinterCensus(diagnostics: IReadOnlyList<Diagnostic>): string {
+    census := ""
+    index := 0
+    while index < diagnostics.Count {
+        diagnostic := diagnostics[index]
+        location := LsdRequiredField(diagnostic, "Location")
+        census = census + LsdRequiredField(diagnostic, "Code").ToString() + "@" + Convert.ToInt32(LsdRequiredField(location, "Line")).ToString() + ":" + Convert.ToInt32(LsdRequiredField(location, "Column")).ToString() + "+" + Convert.ToInt32(LsdRequiredField(diagnostic, "Length")).ToString() + ";"
+        index = index + 1
+    }
+    return census
+}
+
 func LsdAssertLinterSpan(diagnostic: Diagnostic, line: int, column: int, length: int) {
     location := LsdRequiredField(diagnostic, "Location")
     assert Convert.ToInt32(LsdRequiredField(location, "Line")) == line

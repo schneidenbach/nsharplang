@@ -633,6 +633,33 @@ class AnalyzerTypeResolver {
             }
         }
 
+        // `Txt.StringBuilder` AND `StringBuilder` ARE ONE IDENTITY, for the same reason
+        // `TryResolveNamespaceQualifiedType` above gives for `Example.Handle` and `Handle`. An
+        // ALIAS-qualified external reference matched nothing here — the table above is keyed by the
+        // alias alone — so it fell out of the bottom as an `ExternalTypeInfo` placeholder, a SECOND
+        // instance beside the one the bare spelling resolves to. Nothing was assignable across the
+        // two, in either direction: `builder: Txt.StringBuilder = new StringBuilder()` and
+        // `builder: StringBuilder = new Txt.StringBuilder()` both reported NL202 against themselves,
+        // while `import System.Text as Txt` is exactly the import that makes both spellings legal.
+        //
+        // The root is expanded and the REST of the reference is handed to the same external probe the
+        // bare name reaches, so this returns that probe's own answer rather than inventing a type. The
+        // two sibling owners that already read an alias root this way — `AnalyzerDeclarationPolicy`
+        // for a declared type and `AnalyzerMemberAccess` for a qualified receiver — are where the
+        // shape comes from; this resolver was the one channel that did not have it.
+        aliasRoot := ExternalQualifiedTypeResolver.RootName(lookupName)
+        if aliasRoot.Length > 0 && aliasRoot.Length < lookupName.Length {
+            aliasedRootNamespace := ""
+            if usingAliasesValue.TryGetValue(aliasRoot, out aliasedRootNamespace) {
+                expandedName := aliasedRootNamespace + lookupName.Substring(aliasRoot.Length)
+                expandedType := externalTypeProbeValue.ResolveExternalType(expandedName)
+                if expandedType != null {
+                    semanticModelValue.RecordType(lookupName, expandedType)
+                    return expandedType
+                }
+            }
+        }
+
         externalType := externalTypeProbeValue.ResolveExternalType(lookupName)
         if externalType != null {
             return externalType

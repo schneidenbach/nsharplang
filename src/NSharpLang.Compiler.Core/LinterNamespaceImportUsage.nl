@@ -53,6 +53,29 @@ class LinterNamespaceImportUsage {
     // AN ALIASED IMPORT IS USED WHEN ITS ALIAS IS WRITTEN, and it is the ONLY spelling that can use
     // it: an alias-qualified reference never writes one of the namespace's own type names, so the
     // known-name tables above cannot answer for one and every aliased import was reported unused.
+    // WHETHER AN IMPORT IS USED AT ALL, ALIASED OR NOT. This is the one door `CheckUnusedImports`
+    // asks, and the union it takes is the whole point: an aliased import in N# does BOTH things at
+    // once. `import System.Text as Txt` binds the name `Txt` AND brings `StringBuilder` into scope
+    // unqualified — a file carrying only that import compiles `new StringBuilder()`, and a file
+    // carrying no import at all is told by NL002 that `StringBuilder` has nothing to supply it.
+    // C#'s `using Txt = System.Text;` binds only the alias, which is the rule the alias arm was
+    // asked ALONE under: a converted file whose only use of an aliased namespace was a bare
+    // `new CompletionEngine()` was told to delete the import its build needs.
+    //
+    // AN UNALIASED IMPORT ANSWERS FROM THE NAMESPACE ARM ONLY, because it has no alias to write, and
+    // asking the alias arm with an empty name would answer for every import at once.
+    static func IsImportUsed(namespaceName: string, aliasName: string?, codeIdentifiers: HashSet<string>, memberAccessNames: HashSet<string>): bool {
+        if aliasName != null && aliasName.Length > 0 && IsAliasUsed(aliasName, codeIdentifiers, memberAccessNames) {
+            return true
+        }
+
+        return IsUsed(namespaceName, codeIdentifiers, memberAccessNames)
+    }
+
+    // AN ALIASED IMPORT IS USED WHEN ITS ALIAS IS WRITTEN. It is not the only spelling that can use
+    // one — `IsImportUsed` above says why — but it is the only spelling the known-name tables cannot
+    // answer for, because an alias-qualified reference never writes one of the namespace's own type
+    // names.
     //
     // THE ALIAS APPEARS IN TWO SHAPES and both count. In expression position `Txt.Encoding` records
     // the receiver identifier `Txt`; at a type position `new Txt.StringBuilder()` records the WHOLE

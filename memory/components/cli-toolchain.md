@@ -267,11 +267,11 @@ N# is near-zero-warnings: every active linter rule is a build-blocking **error**
 | NL003 | Error | `unnecessary-null-check` | Null check on a value-type literal |
 | NL004 | Error | `async-without-await` | `async` function never uses `await` |
 | NL006 | Error | `unreachable-code` | Statements after `return` or `throw` |
-| NL010 | Error | `unused-import` | `import` statement for a namespace/file whose symbols are never used in the file. Conservative: only fires for known namespaces (e.g. `System.Collections.Generic`); unknown namespaces are never flagged. |
+| NL010 | Error | `unused-import` | `import` statement for a namespace/file whose symbols are never used in the file. Conservative: only fires for known namespaces (e.g. `System.Collections.Generic`); unknown namespaces are never flagged. An ALIASED import (`import System.Text as Txt`) is used by EITHER spelling — N#'s alias adds a name to the import rather than replacing it the way C#'s `using Txt = System.Text;` does, so the bare `new StringBuilder()` keeps it alive as well as `Txt.StringBuilder`. A FULLY QUALIFIED spelling is not a use (the C# rule): `System.Text.StringBuilder` resolves with no import, so an import only ever written out in full really is dead. |
 | NL011 | Error | `empty-catch` | Catch block with no statements (silently swallows exceptions) |
 | NL012 | Error | `unused-parameter` | Function parameter never referenced in the body (underscore-prefixed names are exempt) |
 | NL016 | Error | `redundant-null-check` | Null-equality check on an expression that is always non-null (`new`, array literal, numeric/bool literal) |
-| NL020 | Error | `shadowed-variable` | Local variable declaration shadows a variable in an outer scope |
+| NL020 | Error | `shadowed-variable` | Local variable declaration shadows a variable in an outer scope. A declaration is NOT in scope inside its own initializer (`x := x + 1` is NL301), so a lambda parameter written there shadows nothing; one that reuses a name already in scope IS reported, because N# does not take C# 8.0's relaxation of CS0136 for nested functions. Most shadowing reaches the developer as the analyzer's NL316 instead, which suppresses NL020 for the same file. |
 
 **How deep an expression the linter walks.** `LinterWalk` refuses to descend past
 `MaxRecursionDepth()` = **1000 frames** and throws, which aborts the whole `check`/`lint` run rather
@@ -1056,6 +1056,8 @@ nlc query <cmd>
 | `src/NSharpLang.Compiler.Core/AssemblyVersionUtilities.tests.nl` | Package version → four-part assembly version, and the component kernel as a pinned table |
 | `src/NSharpLang.Compiler.Core/ExampleProjectCorpus.tests.nl` | All nineteen shipped `examples/` projects walked through the compiler's own discovery, parser and linter — directories REQUIRED, file counts pinned |
 | `src/NSharpLang.Compiler.Core/LinterFileImportUsage.tests.nl` | NL010 on a file import: resolved against the disk, spans over the quoted path, two imports tracked separately |
+| `src/NSharpLang.Compiler.Core/LinterNamespaceImportUsage.tests.nl` | NL010 on a namespace import: the known-name tables row by row, the unknown-namespace silence, and the ALIASED import answered from the alias OR the namespace |
+| `tests/native/language-server-diagnostics/RecoveryAndLinterDiagnostics.tests.nl` | The converted-language-server census: NL010 on aliased and fully qualified imports, NL020 across an initializer boundary, NL012 through a lambda capture and NL002 for a name an implicit C# using used to supply — all through `DocumentManager`, the surface the editor shows |
 
 ---
 

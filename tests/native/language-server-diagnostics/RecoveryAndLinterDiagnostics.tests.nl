@@ -276,3 +276,182 @@ func main() {
         index = index + 1
     }
 }
+
+// ── the census of the converted language server, run back through the editor path ────────────────
+//
+// Four NL0xx reports measured by `nlc check --text` over `nsharp-cs2nl/out/languageserver`, the N#
+// conversion of this repository's own C# language server. Two were the linter's fault and are fixed;
+// two were correct and are pinned here so a later change cannot quietly turn them into false
+// negatives. They run through `DocumentManager` rather than the CLI because that is the surface the
+// editor shows, and a rule that is right in `nlc check` and wrong in the editor is still wrong.
+
+test "an ALIASED import used only by the namespace's own bare name is not reported unused" {
+    // `Handlers/CompletionHandler.nl:15`. `import X as Y` in N# binds `Y` AND supplies X's names
+    // unqualified — unlike C#'s `using Y = X;` — so the bare `new StringBuilder()` below is what keeps
+    // this import alive. NL010 is an ERROR and its `nlc fix` deletes the line, so reporting it here
+    // broke a build that was green.
+    source := LsdDecodedSource(
+        """
+import System.Text as Txt
+
+class Report {
+    builder: System.Text.StringBuilder = new StringBuilder()
+
+    func Size(): int {
+        return builder.Length
+    }
+}
+"""
+    )
+    diagnostics := LsdLinterDiagnostics("file:///aliased-import-bare-use.nl", source)
+    assert !LsdLinterContains(diagnostics, "NL010")
+    assert LsdLinterCensus(diagnostics) == ""
+}
+
+test "an aliased import nothing uses is still reported, at the namespace's span" {
+    source := LsdDecodedSource(
+        """
+import System.Text as Txt
+
+class Report {
+    count: int = 1
+
+    func Size(): int {
+        return count
+    }
+}
+"""
+    )
+    diagnostics := LsdLinterDiagnostics("file:///aliased-import-unused.nl", source)
+    diagnostic := LsdSingleLinter(diagnostics, "NL010", "import System.Text")
+    LsdAssertLinterSpan(diagnostic, 1, 8, "System.Text".Length)
+}
+
+test "an import used only through fully qualified spellings is reported unused" {
+    // The C# rule, and safe here for the same reason: a fully qualified name resolves with no import
+    // at all, so deleting the line leaves the file compiling.
+    source := LsdDecodedSource(
+        """
+import System.Text
+
+class Report {
+    builder: System.Text.StringBuilder = new System.Text.StringBuilder()
+
+    func Size(): int {
+        return builder.Length
+    }
+}
+"""
+    )
+    diagnostics := LsdLinterDiagnostics("file:///import-only-qualified.nl", source)
+    diagnostic := LsdSingleLinter(diagnostics, "NL010", "import System.Text")
+    LsdAssertLinterSpan(diagnostic, 1, 8, "System.Text".Length)
+}
+
+test "a lambda parameter inside a declaration's own initializer shadows nothing" {
+    // `Program.nl:41`. The C# it was converted from writes
+    // `var server = await LanguageServer.From(… .OnInitialize((server, request, ct) => …))`, and N#'s
+    // own scope rule agrees that the outer `server` does not exist yet: `x := x + 1` is NL301.
+    source := LsdDecodedSource(
+        """
+func Start(): int {
+    server := Build(server => server + 1)
+    return server
+}
+"""
+    )
+    diagnostics := LsdLinterDiagnostics("file:///lambda-parameter-own-initializer.nl", source)
+    assert !LsdLinterContains(diagnostics, "NL020")
+    assert LsdLinterCensus(diagnostics) == ""
+}
+
+test "a lambda parameter that shadows a local already in scope is still reported" {
+    // N# does not take C# 8.0's relaxation of CS0136: crossing into a lambda does not license reuse
+    // of a name that is genuinely in scope.
+    source := LsdDecodedSource(
+        """
+func Start(): int {
+    server := 1
+    total := Build(server => server + 1)
+    return total + server
+}
+"""
+    )
+    diagnostics := LsdLinterDiagnostics("file:///lambda-parameter-real-shadow.nl", source)
+    diagnostic := LsdSingleLinter(diagnostics, "NL020", "'server' shadows another 'server'")
+    LsdAssertLinterSpan(diagnostic, 3, 20, "server".Length)
+}
+
+test "a tuple deconstruction's names are not in scope inside the initializer producing them" {
+    source := LsdDecodedSource(
+        """
+func Start(): int {
+    total, rest := Split(total => total + 1)
+    return total + rest
+}
+"""
+    )
+    diagnostics := LsdLinterDiagnostics("file:///deconstruction-own-initializer.nl", source)
+    assert LsdLinterCensus(diagnostics) == ""
+}
+
+test "a parameter read only from inside a lambda is NOT an unused parameter" {
+    // `Services/DocumentManager.nl:538` reported NL012 on a parameter whose body the converter could
+    // not map, so the report was correct — but only if a read through a CAPTURE still counts. This is
+    // the half that had to be true for that verdict to mean anything.
+    source := LsdDecodedSource(
+        """
+func Scale(values: int[], factor: int): int {
+    total := 0
+    Each(values, value => total = total + value * factor)
+    return total
+}
+"""
+    )
+    diagnostics := LsdLinterDiagnostics("file:///parameter-read-in-lambda.nl", source)
+    assert !LsdLinterContains(diagnostics, "NL012")
+}
+
+test "a parameter no body reads at all is reported, which is what the converted body produced" {
+    source := LsdDecodedSource(
+        """
+func Deduplicate(diagnostics: int[]): int {
+    return 0
+}
+"""
+    )
+    diagnostics := LsdLinterDiagnostics("file:///parameter-never-read.nl", source)
+    diagnostic := LsdSingleLinter(diagnostics, "NL012", "'diagnostics' in 'Deduplicate' is never read")
+    LsdAssertLinterSpan(diagnostic, 1, 18, "diagnostics".Length)
+}
+
+test "a generic type argument written inside a lambda still needs the import that supplies it" {
+    // `Handlers/TextDocumentHandler.nl:93` reported NL002 for `List` in a file with no
+    // `import System.Collections.Generic` — the C# it came from got that name from an IMPLICIT using,
+    // which the conversion does not materialise. The report is correct: the name needs the import.
+    source := LsdDecodedSource(
+        """
+func Collect(): int {
+    items := new List<int>()
+    Each(items, value => items.Add(value))
+    return items.Count
+}
+"""
+    )
+    diagnostics := LsdLinterDiagnostics("file:///missing-generic-import.nl", source)
+    diagnostic := LsdSingleLinter(diagnostics, "NL002", "'List' is used without the import")
+    LsdAssertLinterSpan(diagnostic, 2, 18, "List".Length)
+
+    withImport := LsdDecodedSource(
+        """
+import System.Collections.Generic
+
+func Collect(): int {
+    items := new List<int>()
+    Each(items, value => items.Add(value))
+    return items.Count
+}
+"""
+    )
+    assert LsdLinterCensus(LsdLinterDiagnostics("file:///present-generic-import.nl", withImport)) == ""
+}
