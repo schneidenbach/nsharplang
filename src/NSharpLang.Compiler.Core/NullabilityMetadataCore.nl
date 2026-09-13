@@ -275,6 +275,14 @@ class NullabilityMetadataCore {
             return false
         }
 
+        // A TUPLE IS A `ValueTuple`, AND A `ValueTuple` IS A STRUCT. `(string, int)?` names the
+        // lifted VALUE type, so the reference annotation this answers about has nothing to attach
+        // to — the same answer the struct, enum and struct-record arms above give.
+        tupleType := typeInfo as TupleTypeInfo
+        if tupleType != null {
+            return false
+        }
+
         recordType := typeInfo as RecordTypeInfo
         if recordType != null {
             return !recordType.IsStruct

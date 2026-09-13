@@ -2,6 +2,7 @@ namespace NSharpLang.CensusFlowRules.Tests
 
 import System
 import System.Collections.Generic
+import System.Linq
 import System.Threading.Tasks
 
 
@@ -17,10 +18,11 @@ import System.Threading.Tasks
 //
 // The other half is below: a position the member annotated `T?` stays maybe-null after the
 // substitution, so it has to be guarded. `FindOrEmpty` does the guarding, and would not compile
-// without it. (The LINQ half of that rule — `FirstOrDefault`/`LastOrDefault`, whose `?` is written
-// as a `NullableContextAttribute(2)` on the METHOD rather than on the position — is pinned in the
-// estate instead: the columnar backend does not yet emit those calls, so there is no runtime to
-// assert against here.)
+// without it.
+//
+// AND THE THIRD HALF, at the bottom of this file: `T?` ON AN UNCONSTRAINED PARAMETER IS A REFERENCE
+// ANNOTATION, so a VALUE argument erases it. `List<DateTime>.Find` answers a `DateTime`, not a
+// `DateTime?`, and needs no guard at all — while `List<string>.Find` still does.
 func LazyValueLength(box: Lazy<string>): int {
     return box.Value.Length
 }
@@ -86,4 +88,107 @@ func NullabilityCompletedText(text: string): Task<string> {
 
 func NullabilityPair(text: string, value: int): Tuple<string, int> {
     return new Tuple<string, int>(text, value)
+}
+
+// ── `T?` ON AN UNCONSTRAINED PARAMETER ERASES FOR A VALUE ARGUMENT ──────────────────────────────
+//
+// C#'s `T?` on an unconstrained type parameter says "may be the default" and has no runtime form:
+// for `T = string` it is a maybe-null `string`, and for `T = DateTime` it is a plain `DateTime`
+// whose absent value is `default`. `Enumerable.FirstOrDefault` writes that `?` as a
+// `NullableContextAttribute(2)` on the METHOD, `List<T>.Find` as a `NullableAttribute(2)` on the
+// return position, and `Dictionary<K, V>.TryGetValue` as a `[MaybeNullWhen(false)]` postcondition;
+// all three erase the same way.
+//
+// The census site was `times.OrderBy(kvp => kvp.Value).FirstOrDefault()` over a
+// `Dictionary<string, DateTime>`: the result read as `KeyValuePair<string, DateTime>?`, so
+// `.Value` bound as the NULLABLE UNWRAP instead of as the pair's own `Value` property, and the
+// function reported NL202 "should return DateTime but returns KeyValuePair<string, DateTime>" plus
+// NL907. Every function below would need a guard it should not need if the erasure were missing,
+// so compiling is half the contract and the answers are the other half.
+
+func EarliestEntryYear(times: Dictionary<string, DateTime>): int {
+    ordered := times.OrderBy(kvp => kvp.Value).FirstOrDefault()
+    return ordered.Value.Year
+}
+
+func FirstMomentYear(moments: List<DateTime>): int {
+    return moments.FirstOrDefault().Year
+}
+
+func LastMomentYear(moments: List<DateTime>): int {
+    return moments.LastOrDefault().Year
+}
+
+func OnlyMomentYear(moments: List<DateTime>): int {
+    return moments.SingleOrDefault().Year
+}
+
+func FoundMomentYear(moments: List<DateTime>): int {
+    return moments.Find(moment => moment.Year > 2000).Year
+}
+
+// `CollectionExtensions.GetValueOrDefault` and `Dictionary<K, V>.TryGetValue`'s `out` write the same
+// `?` two other ways — a `NullableAttribute(2)` on the return, and a `[MaybeNullWhen(false)]`
+// postcondition — and both erase for a value element, INCLUDING a struct this compilation declares.
+//
+// (`tallies.Find(t => t.Count > 1)` over a `List<Tally>` would say the same thing and declines at
+// `emit.call.instance-member`: an external generic closed over a SOURCE type, called with a lambda.
+// That is an emit gap of its own and nothing to do with the erasure, which the ANALYSIS contract in
+// `tests/native/analyzer-clean-source` covers for the source-struct element.)
+struct Tally {
+    Count: int
+}
+func LookupYear(times: Dictionary<string, DateTime>, key: string): int {
+    return times.GetValueOrDefault(key).Year
+}
+
+func LookupTallyCount(tallies: Dictionary<string, Tally>, key: string): int {
+    found := new Tally { Count: 0 }
+    if tallies.TryGetValue(key, out found) {
+        return found.Count
+    }
+
+    return -1
+}
+
+// A REFERENCE argument keeps the annotation, which is what makes this the same rule rather than
+// "value types are never maybe-null".
+func FirstWordOrEmpty(words: List<string>): string {
+    found := words.FirstOrDefault()
+    if found == null {
+        return ""
+    }
+
+    return found
+}
+
+// A SOURCE GENERIC WRITES THE SAME `T?` AND MEANS THE SAME THING.
+func FirstOrDefaultOf<T>(items: T[]): T? {
+    if items.Length > 0 {
+        return items[0]
+    }
+
+    return default
+}
+
+// A `struct` CONSTRAINT SPELLS A REAL `Nullable<T>`, and the CLR writes that one as `Nullable<T>`
+// in metadata — it is not the same type as the annotation above and does not erase. That half is
+// pinned by ANALYSIS rather than here: calling a generic source function whose return is a
+// `Nullable` over its own type parameter declines at `emit.if.condition` /
+// `emit.return.expression`, a generic-CALL emit gap that is nothing to do with the erasure rule
+// (the same declaration EMITS; only a call that reads its lifted result does not). The contracts
+// are `AnalyzerSyntheticCallBinder.tests.nl`'s lifted-set assertions and the clean-source pair in
+// `tests/native/analyzer-clean-source`.
+
+func FirstNumber(values: int[]): int {
+    return FirstOrDefaultOf(values)
+}
+
+func FirstWord(words: string[]): string {
+    found := FirstOrDefaultOf(words)
+    if found == null {
+        return "<none>"
+    }
+
+    return found
 }

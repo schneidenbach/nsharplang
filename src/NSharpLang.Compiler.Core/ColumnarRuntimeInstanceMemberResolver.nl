@@ -938,8 +938,10 @@ class ColumnarRuntimeInstanceMemberResolver {
         return IsLiftableNullableElement(valueType.GetGenericArguments()[0])
     }
 
+    // ONE OWNER ANSWERS WHAT A `Nullable<T>`'s ARGUMENT MAY BE — see
+    // `ColumnarTypeOfPlanner.IsLiftableNullableElement`. This was a second copy of the same list.
     static func IsLiftableNullableElement(valueType: Type): bool {
-        return ColumnarTypeOfPlanner.IsSourceStructNullableElement(valueType) || valueType == typeof(int) || valueType == typeof(long) || valueType == typeof(ulong) || valueType == typeof(uint) || valueType == typeof(short) || valueType == typeof(ushort) || valueType == typeof(byte) || valueType == typeof(sbyte) || valueType == typeof(bool) || valueType == typeof(char) || valueType == typeof(double) || valueType == typeof(float) || valueType == typeof(decimal) || valueType == typeof(TimeSpan) || ColumnarTypeOfPlanner.IsEnumType(valueType) || IsSupportedValueTupleReceiver(valueType)
+        return ColumnarTypeOfPlanner.IsLiftableNullableElement(valueType)
     }
 
     static func IsSupportedResultReceiver(valueType: Type): bool {

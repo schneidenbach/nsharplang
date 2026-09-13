@@ -630,10 +630,15 @@ test "substitution rebuilds every composite shell above the leaf" {
         AnalyzerSyntheticCallFacts.ApplyGenericBindings(arrayOfT, bindings)
     ) == "int[]"
 
+    // `T?` IS THE ONE SHELL THE SUBSTITUTION CAN REMOVE. C#'s `?` on an unconstrained type
+    // parameter is a reference annotation, so an `int` argument erases it — this assertion read
+    // `"int?"` until the erasure rule landed, and the shape it described (`func First<T>(): T?`
+    // answering `int?` for an `int[]`) is not what C# means. A `string` argument keeps it, and a
+    // parameter the declaration constrained to `struct` is named in the lifted set below.
     nullableOfT: TypeInfo = new NullableTypeInfo(leaf)
     assert SyntheticTypeName(
         AnalyzerSyntheticCallFacts.ApplyGenericBindings(nullableOfT, bindings)
-    ) == "int?"
+    ) == "int"
 
     obliviousOfT: TypeInfo = new ObliviousTypeInfo(leaf)
     assert SyntheticTypeName(
@@ -646,6 +651,44 @@ test "substitution rebuilds every composite shell above the leaf" {
     assert SyntheticTypeName(
         AnalyzerSyntheticCallFacts.ApplyGenericBindings(listOfT, bindings)
     ) == "List<int>"
+}
+
+test "a `?` on a type parameter erases for a value argument, survives for a reference one" {
+    valueBindings := new Dictionary<string, TypeInfo>(StringComparer.Ordinal)
+    valueBindings["T"] = BuiltInTypes.Int
+    referenceBindings := new Dictionary<string, TypeInfo>(StringComparer.Ordinal)
+    referenceBindings["T"] = BuiltInTypes.String
+    liftedBindings := new Dictionary<string, TypeInfo>(StringComparer.Ordinal)
+    liftedBindings["T"] = BuiltInTypes.Int
+
+    nullableOfT: TypeInfo = new NullableTypeInfo(new SimpleTypeInfo("T"))
+    assert SyntheticTypeName(AnalyzerSyntheticCallFacts.ApplyGenericBindings(nullableOfT, valueBindings)) == "int"
+    assert SyntheticTypeName(AnalyzerSyntheticCallFacts.ApplyGenericBindings(nullableOfT, referenceBindings)) == "string?"
+
+    // A `struct` CONSTRAINT MAKES THE `?` A REAL `Nullable<T>`, so it survives.
+    structConstraints := new List<GenericConstraint>()
+    structConstraints.Add(new GenericConstraint("T", new List<TypeReference>(), SpecialConstraintKind.Struct))
+    lifted := NullabilityGenericSubstitution.LiftedTypeParameterNames(structConstraints)
+    assert SyntheticTypeName(AnalyzerSyntheticCallFacts.ApplyGenericBindings(nullableOfT, liftedBindings, lifted)) == "int?"
+
+    // A `?` ON ANYTHING THE SUBSTITUTION DID NOT BIND is the ordinary annotation and is untouched,
+    // and so is a `?` written on a bound name's ARRAY rather than on the name.
+    nullableOfU: TypeInfo = new NullableTypeInfo(new SimpleTypeInfo("U"))
+    assert SyntheticTypeName(AnalyzerSyntheticCallFacts.ApplyGenericBindings(nullableOfU, valueBindings)) == "U?"
+    nullableArrayOfT: TypeInfo = new NullableTypeInfo(new ArrayTypeInfo(new SimpleTypeInfo("T")))
+    assert SyntheticTypeName(AnalyzerSyntheticCallFacts.ApplyGenericBindings(nullableArrayOfT, valueBindings)) == "int[]?"
+
+    // AN ARGUMENT THAT IS ITSELF NULLABLE ERASES TOO — C# reads `T?` with `T = int?` as `int?`,
+    // never as a nullable of a nullable.
+    alreadyNullable := new Dictionary<string, TypeInfo>(StringComparer.Ordinal)
+    alreadyNullable["T"] = new NullableTypeInfo(BuiltInTypes.Int)
+    assert SyntheticTypeName(AnalyzerSyntheticCallFacts.ApplyGenericBindings(nullableOfT, alreadyNullable)) == "int?"
+
+    // AN UNRESOLVED ARGUMENT KEEPS THE WRITTEN SHAPE: a failed inference must not silently change
+    // the type.
+    unresolved := new Dictionary<string, TypeInfo>(StringComparer.Ordinal)
+    unresolved["T"] = BuiltInTypes.Unknown
+    assert SyntheticTypeName(AnalyzerSyntheticCallFacts.ApplyGenericBindings(nullableOfT, unresolved)).EndsWith("?")
 }
 
 test "no bindings leaves the type exactly as it was" {

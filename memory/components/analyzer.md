@@ -499,6 +499,27 @@ that hover, completion and every diagnostic that prints a CLR member signature r
   `Nullable<SymbolKind>` in the same sentence. `ExternalUserDefinedConversions.NullableUnderlyingTypeOrNull`
   is the one reader; `AnalyzerReflectionTypeConversion`'s plain and substitution-aware walks lift
   through it too, so there is ONE spelling of `T?` in the analyzer.
+- **A `T?` ON AN UNCONSTRAINED TYPE PARAMETER IS A REFERENCE ANNOTATION, AND A VALUE ARGUMENT ERASES
+  IT** (census NULLABLE2). C#'s `T?` there says "may be the default" and has no runtime form: only
+  `where T : struct` spells a real `Nullable<T>`, and the CLR writes THAT one as `Nullable<T>` in
+  metadata, so the two are different types with one spelling. `NullabilityGenericSubstitution`
+  owns both halves of the decision — `ErasesNullableAnnotation` (a bound type that cannot carry a
+  reference annotation erases it; `unknown` never does, so a failed inference is not a silent type
+  change) and `LiftedTypeParameterNames` (the declaration's `struct`-constrained parameters) — and
+  THREE walks ask it: the reflection reader's substituted-parameter arm,
+  `AnalyzerSyntheticCallFacts.ApplyGenericBindings` for a generic FUNCTION's own parameters, and
+  `AnalyzerDeclarationContext.ResolveTypeReferenceCore` for a member read through an instantiation of
+  the declaring TYPE. The census site was
+  `times.OrderBy(kvp => kvp.Value).FirstOrDefault()` over a `Dictionary<string, DateTime>`: the
+  result read as `KeyValuePair<string, DateTime>?`, so `.Value` bound as the nullable UNWRAP instead
+  of as the pair's own property.
+- **A CONSTRUCTED GENERIC'S VALUE/REFERENCE KIND LIVES ON ITS DEFINITION.**
+  `CanConvertedTypeCarryReferenceNullability` answered from the outer shape, so a non-generic
+  external struct (a `ReflectionTypeInfo`) was read correctly and a constructed one (a
+  `GenericTypeInfo`) was not — which is the whole reason `DateTime` worked and
+  `KeyValuePair<K, V>` did not. It asks the DEFINITION now, the same way
+  `AnalyzerConversionFacts.IsReferenceType` does, so the two owners cannot disagree; a
+  `TupleTypeInfo` is a `ValueTuple` and answers the same as any other struct.
 - **AN OBLIVIOUS SHELL IS TRANSPARENT TO IDENTITY ON EITHER SIDE.** `TypeInfoIdentityFacts.AreEqual`
   used to unwrap one only when BOTH sides had it, and `ResolveDeclaredAlias` already strips it at the
   top of a comparison — so it was transparent for `string` and opaque one level down, and the
@@ -1510,6 +1531,22 @@ typed as `MarkupContent`, warned NL907 about an unwrap the program never wrote, 
 `TryResolveNullableValueTypeOwnMember`, was already value-type-gated through the CLR handle). A
 reference `T?` therefore falls through to ordinary resolution, and its maybe-null dereference rules
 apply exactly as they do to every other member read.
+
+AND FOR EVERY VALUE `T`, NOT ONLY THE ONES WITH A CLR HANDLE (census 2026-09-13, §NULLABLE2).
+`TryResolveNullableValueTypeOwnMember` read the surface off the CLOSED CLR construction, and there is
+no closed construction while `T` is a struct or an enum THIS COMPILATION is emitting — so
+`money.GetValueOrDefault()` on a `Money?` reported NL303 "Member 'GetValueOrDefault' not found on
+type 'Money'" (the name fell through to the UNWRAPPED receiver, the one type that certainly does not
+declare it) plus NL905, while the identical spelling over an `int?` bound. Two rules replace that:
+`IsLiftedValueReceiver` asks whether `T` is a VALUE type — of the CLR where it has a handle, of the
+DECLARATION where it does not (a struct, an enum, a struct record and a tuple are values; `unknown`
+is not one) — and `TryResolveOpenNullableDefinitionMember` reads the members off the `Nullable<>`
+DEFINITION under the element substitution, the same `AnalyzerReflectionTypeOverride` every other
+external generic closed over a source type goes through. Whatever `Nullable<T>` declares is what a
+`T?` receiver has: both `GetValueOrDefault` overloads come back because the definition declares both,
+and no name list decides anything. The definition is reached through the analyzer's own conversion
+funnel rather than `typeof(Nullable<>)`, because under a MetadataLoadContext the projected definition
+is a different object. The T-FIRST ORDER is unchanged: a name `T` itself declares still binds on `T`.
 
 DECONSTRUCTION IS NOT ONLY FOR TUPLES. `AnalyzerVariableDeclaration.TryGetDeconstructMethodElements`
 asks a non-tuple source for an accessible instance `Deconstruct(out ...)` whose out-parameter count

@@ -564,17 +564,8 @@ class AnalyzerMemberAccess {
             nullableType = origin
         }
 
-        // `T?` over a REFERENCE type is the same CLR type as `T` and has no surface of its own. The
-        // question is asked of the INNER type's CLR handle rather than of the constructed one, because
-        // `Nullable.GetUnderlyingType` compares against the RUNTIME `Nullable<>` and answers null for
-        // every type the metadata load context produced.
-        clrInnerType := clrTypeConversionValue.TryConvertTypeInfoToClrType(nullableType.InnerType)
-        if clrInnerType == null || !clrInnerType.get_IsValueType() {
-            return false
-        }
-
-        clrNullableType := clrTypeConversionValue.TryConvertTypeInfoToClrType(nullableType)
-        if clrNullableType == null {
+        // `T?` over a REFERENCE type is the same CLR type as `T` and has no surface of its own.
+        if !IsLiftedValueReceiver(nullableType.InnerType) {
             return false
         }
 
@@ -582,13 +573,138 @@ class AnalyzerMemberAccess {
             return false
         }
 
-        resolved := memberResolutionValue.ResolveMember(new ReflectionTypeInfo(clrNullableType), member.MemberName, false, ambientValue.CurrentTypeName)
-        if BuiltInTypes.IsUnknown(resolved) {
+        clrNullableType := clrTypeConversionValue.TryConvertTypeInfoToClrType(nullableType)
+        if clrNullableType != null {
+            resolved := memberResolutionValue.ResolveMember(new ReflectionTypeInfo(clrNullableType), member.MemberName, false, ambientValue.CurrentTypeName)
+            if BuiltInTypes.IsUnknown(resolved) {
+                return false
+            }
+
+            memberType = resolved
+            return true
+        }
+
+        return TryResolveOpenNullableDefinitionMember(nullableType.InnerType, member.MemberName, out memberType)
+    }
+
+    // IS `T` IN THIS `T?` A VALUE TYPE? That is what decides whether `Nullable<T>` exists at all here.
+    //
+    // The CLR answers for every type it has a handle for, and it is asked of the INNER type rather
+    // than of the constructed one because `Nullable.GetUnderlyingType` compares against the RUNTIME
+    // `Nullable<>` and answers null for every type the metadata load context produced. A type THIS
+    // COMPILATION declares has no handle yet, so its DECLARATION answers — a struct, an enum, a
+    // struct record and a tuple are values, and nothing else is. `unknown` is not a value type and
+    // must not be read as one.
+    func IsLiftedValueReceiver(innerType: TypeInfo): bool {
+        clrInnerType := clrTypeConversionValue.TryConvertTypeInfoToClrType(innerType)
+        if clrInnerType != null {
+            return clrInnerType.get_IsValueType()
+        }
+
+        resolved := declarationContextValue.ResolveDeclaredAlias(innerType)
+        if resolved as StructTypeInfo != null || resolved as EnumTypeInfo != null || resolved as TupleTypeInfo != null {
+            return true
+        }
+
+        recordType := resolved as RecordTypeInfo
+        return recordType != null && recordType.IsStruct
+    }
+
+    // ONE SURFACE FOR EVERY `Nullable<T>`, WHATEVER `T` IS — read off the DEFINITION, with the
+    // element substituted.
+    //
+    // The arm above answers from the CLOSED construction, which is the exact reading whenever the
+    // CLR has one. It does NOT have one while `T` is a struct or an enum this compilation is
+    // emitting, and the whole surface vanished there: `money.GetValueOrDefault()` on a `Money?`
+    // reported NL303 "Member 'GetValueOrDefault' not found on type 'Money'" — the name resolved
+    // against the UNWRAPPED receiver, which is the one type that certainly does not declare it —
+    // while the identical spelling over an `int?` bound.
+    //
+    // `Nullable<T>` is one declaration, so its members are one list, and the only thing an element
+    // changes is what `T` means in them. That is exactly the substitution
+    // `AnalyzerReflectionTypeOverride.ForGenericArguments` performs for every other external generic
+    // closed over a source type, so the members are read off the definition under it rather than
+    // enumerated by name here. No name list, no per-element table: whatever `Nullable<T>` declares
+    // is what a `T?` receiver has.
+    func TryResolveOpenNullableDefinitionMember(innerType: TypeInfo, memberName: string, out memberType: TypeInfo): bool {
+        memberType = BuiltInTypes.Unknown
+        definition: Type = typeof(object)
+        if !TryGetNullableDefinition(out definition) {
             return false
         }
 
-        memberType = resolved
+        parameters := definition.GetGenericArguments()
+        if parameters.Length != 1 {
+            return false
+        }
+
+        overrides := new Dictionary<Type, TypeInfo>()
+        overrides[parameters[0]] = innerType
+        answering := AnalyzerReflectionTypeOverride.Direct(overrides, null)
+        memberFlags := BindingFlags.Public | BindingFlags.Instance
+
+        property := definition.GetProperty(memberName, memberFlags)
+        if property != null {
+            memberType = NullabilityMetadataReflection.ConvertPropertyWithOverride(property, answering)
+            return true
+        }
+
+        methods := definition.GetMethods(memberFlags)
+        functions := new List<FunctionTypeInfo>()
+        index := 0
+        while index < methods.Length {
+            method := methods[index]
+            if method.get_Name() == memberName {
+                functions.Add(CreateSubstitutedNullableSignature(method, answering))
+            }
+
+            index = index + 1
+        }
+
+        if functions.Count == 0 {
+            return false
+        }
+
+        memberType = new NSharpMethodGroupInfo(functions)
         return true
+    }
+
+    // THE `Nullable<>` DEFINITION IN THE ANALYZER'S OWN UNIVERSE, reached through the conversion
+    // funnel that already builds an `int?` rather than through `typeof(Nullable<>)`: under a
+    // MetadataLoadContext the projected definition is a different object from this process's, and a
+    // member read off the wrong one belongs to the wrong universe.
+    func TryGetNullableDefinition(out definition: Type): bool {
+        definition = typeof(object)
+        probe: TypeInfo = new NullableTypeInfo(BuiltInTypes.Int)
+        closed := clrTypeConversionValue.TryConvertTypeInfoToClrType(probe)
+        if closed == null || !closed.get_IsGenericType() || closed.get_IsGenericTypeDefinition() {
+            return false
+        }
+
+        definition = closed.GetGenericTypeDefinition()
+        return true
+    }
+
+    // One of the definition's methods as a signature the source call binder can resolve, with every
+    // position converted under the element substitution.
+    static func CreateSubstitutedNullableSignature(method: MethodInfo, answering: AnalyzerReflectionTypeOverride): FunctionTypeInfo {
+        signature := new FunctionTypeInfo()
+        signature.SyntheticName = method.get_Name()
+        parameterNames := new List<string>()
+        parameterTypes := new List<TypeInfo>()
+        parameters := method.GetParameters()
+        index := 0
+        while index < parameters.Length {
+            parameter := parameters[index]
+            parameterNames.Add(parameter.get_Name() ?? "")
+            parameterTypes.Add(NullabilityMetadataReflection.ConvertParameterWithOverride(parameter, answering))
+            index = index + 1
+        }
+
+        signature.ParameterNames = parameterNames
+        signature.ParameterTypes = parameterTypes
+        signature.ReturnType = NullabilityMetadataReflection.ConvertReturnWithOverride(method, answering)
+        return signature
     }
 
     // WHETHER THE RECEIVER NAMES A TYPE RATHER THAN A VALUE, which is what decides whether STATIC

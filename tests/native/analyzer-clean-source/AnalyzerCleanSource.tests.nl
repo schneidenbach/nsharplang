@@ -18421,21 +18421,32 @@ test "020 s35 analyzer clean source: `GenericInference_ExtensionMethod_ReturnTyp
     assert AcRow(rich, 0) == "<no-such-error>"
 }
 
-test "020 s35 analyzer clean source: `GenericInference_NullableParam` parses to 2 functions and BOTH routes report an EMPTY census — the deleted claim was `HasErrors == false` and nothing else (was AnalyzerTests.GenericInference_NullableParam)" {
+// THIS CONTRACT'S SOURCE IS AN ERROR NOW, AND IT IS AN ERROR IN C# TOO — census NULLABLE2.
+//
+// `ValueOrDefault<T>(fallback: T, x: T?)` has an UNCONSTRAINED `T`, so its `x: T?` is C#'s reference
+// annotation and not a `Nullable<T>`: `ValueOrDefault(42, null)` infers `T = int` from the first
+// argument, the second parameter is then a plain `int`, and `null` is not one. C# reports CS1503 for
+// the identical program; this reports NL202 naming the parameter, its type and the argument
+// position. The fixture's original claim (`HasErrors == false`, and nothing else) was the old
+// reading, in which every unconstrained `T?` became a `Nullable<T>` whatever the argument was.
+//
+// The spelling that still means "absent" for a value type is `where T : struct`, which the two
+// STREAM NULLABLE2 rows at the end of this file pin on both sides.
+test "020 s35 analyzer clean source: `GenericInference_NullableParam` parses to 2 functions and the analysis reports ONE `NL202` on the `null` argument — an unconstrained `T?` erased by an `int` argument is an `int` (was AnalyzerTests.GenericInference_NullableParam)" {
     source := "\n            func ValueOrDefault<T>(fallback: T, x: T?): T {\n                return fallback\n            }\n            func Main() {\n                result := ValueOrDefault(42, null)\n            }\n        "
     assert AcParseCensus(source) == ""
     assert AcParseSuccess(source) == "True"
     assert AcUnitShape(source) == "imports=0;FunctionDeclaration:ValueOrDefault;FunctionDeclaration:Main;"
     analysis := AcAnalyze(source)
-    assert AcCensus(analysis) == ""
-    assert AcHasErrors(analysis) == "False"
-    assert AcErrorCount(analysis) == 0
-    assert AcRow(analysis, 0) == "<no-such-error>"
+    assert AcCensus(analysis) == "NL202:TypeMismatch@6:46+4;"
+    assert AcHasErrors(analysis) == "True"
+    assert AcErrorCount(analysis) == 1
+    assert AcRow(analysis, 0) == "TypeMismatch|Argument 2 to 'ValueOrDefault' is 'null', but parameter 'x' expects 'int'|Pass a value with the expected type, or update the function signature.|Error"
     rich := AcAnalyzeWithSource(source)
-    assert AcCensus(rich) == ""
-    assert AcHasErrors(rich) == "False"
-    assert AcErrorCount(rich) == 0
-    assert AcRow(rich, 0) == "<no-such-error>"
+    assert AcCensus(rich) == "NL202:TypeMismatch@6:46+4;"
+    assert AcHasErrors(rich) == "True"
+    assert AcErrorCount(rich) == 1
+    assert AcCodeAnchor(rich, "TypeMismatch") == "NL202@6:46+4"
 }
 
 test "020 s35 analyzer clean source: `GenericInference_ParamsCollection` parses to 2 functions and BOTH routes report an EMPTY census — the deleted claim was `HasErrors == false` and nothing else (was AnalyzerTests.GenericInference_ParamsCollection)" {
@@ -22578,6 +22589,77 @@ test "a generic declaration may pass its own type parameter to an inferred exter
 
 test "a self-typed overload beats the object overload inside a generic declaration" {
     source := "import System\n\nstruct Outcome<TOk, TErr> {\n    readonly ok: TOk\n    readonly err: TErr\n    readonly state: byte\n\n    constructor(ok: TOk, err: TErr, state: byte) {\n        this.ok = ok\n        this.err = err\n        this.state = state\n    }\n\n    public func Equals(other: Outcome<TOk, TErr>): bool {\n        return state == other.state\n    }\n\n    public override func Equals(obj: object?): bool {\n        return obj is Outcome<TOk, TErr> other && Equals(other)\n    }\n}\n"
+    assert AcParseCensus(source) == ""
+    assert AcParseSuccess(source) == "True"
+    analysis := AcAnalyze(source)
+    assert AcCensus(analysis) == ""
+    assert AcHasErrors(analysis) == "False"
+    assert AcErrorCount(analysis) == 0
+}
+
+// ── STREAM NULLABLE2: `T?` ON A TYPE PARAMETER, AND THE ONE `Nullable<T>` SURFACE ────────────────
+//
+// C#'s `?` on an UNCONSTRAINED type parameter is a REFERENCE annotation with no runtime form: it
+// says "may be the default" and it erases the moment a value type substitutes the parameter. Only
+// `where T : struct` spells a real `Nullable<T>`, and the CLR writes that one as `Nullable<T>` in
+// metadata — the two were never the same type, only the same spelling. Both halves are below, and
+// the pair that DISCRIMINATES them is the third row: the same call, the same `int[]`, and one of
+// them is an `int` while the other is an `int?`.
+//
+// The fourth row is the surface. `Nullable<T>` is one declaration, so its members are one list, and
+// the only thing the element changes is what `T` means in them — but the analyzer read that list off
+// the CLOSED CLR construction, which does not exist while `T` is a struct or an enum THIS
+// COMPILATION is emitting. `money.GetValueOrDefault()` on a `Money?` therefore reported NL303
+// "Member 'GetValueOrDefault' not found on type 'Money'" — the name fell through to the UNWRAPPED
+// receiver, which is the one type that certainly does not declare it — plus NL905 on the receiver,
+// while `count.GetValueOrDefault()` on an `int?` bound.
+test "an unconstrained `T?` return erases for a value argument and survives for a reference one" {
+    source := "func First<T>(items: T[]): T? {\n    if items.Length > 0 {\n        return items[0]\n    }\n\n    return default\n}\n\nfunc UseValue(values: int[]): int {\n    return First(values)\n}\n\nfunc UseReference(words: string[]): string? {\n    return First(words)\n}\n"
+    assert AcParseCensus(source) == ""
+    assert AcParseSuccess(source) == "True"
+    analysis := AcAnalyze(source)
+    assert AcCensus(analysis) == ""
+    assert AcHasErrors(analysis) == "False"
+    assert AcErrorCount(analysis) == 0
+}
+
+test "a `where T : struct` parameter's `T?` return is a real Nullable and does not erase" {
+    source := "func FirstOrAbsent<T>(items: T[]): T? where T : struct {\n    if items.Length > 0 {\n        return items[0]\n    }\n\n    return null\n}\n\nfunc Use(values: int[]): int? {\n    return FirstOrAbsent(values)\n}\n"
+    assert AcParseCensus(source) == ""
+    assert AcParseSuccess(source) == "True"
+    analysis := AcAnalyze(source)
+    assert AcCensus(analysis) == ""
+    assert AcHasErrors(analysis) == "False"
+    assert AcErrorCount(analysis) == 0
+}
+
+test "the constraint is what separates the two readings of the same spelling" {
+    // The ONLY difference between this source and the previous one is the declared return of `Use`,
+    // and it is an error here because `FirstOrAbsent`'s answer really is a `Nullable<int>`. The
+    // unconstrained twin's answer is a plain `int` and needs no conversion at all.
+    source := "func FirstOrAbsent<T>(items: T[]): T? where T : struct {\n    if items.Length > 0 {\n        return items[0]\n    }\n\n    return null\n}\n\nfunc Use(values: int[]): int {\n    return FirstOrAbsent(values)\n}\n"
+    assert AcParseCensus(source) == ""
+    assert AcParseSuccess(source) == "True"
+    analysis := AcAnalyze(source)
+    assert AcErrorCount(analysis) == 1
+    assert AcCodeCount(analysis, "TypeMismatch") == 1
+}
+
+test "a `T?` return over a struct this compilation declares erases like any other value element" {
+    // `List<T>.Find` annotates its return `T?`; with `T` a source struct the answer is that struct,
+    // so the `.Count` read needs no guard. (This shape declines at EMIT — an external generic closed
+    // over a source type, called with a lambda — so the contract is the analysis.)
+    source := "import System.Collections.Generic\n\nstruct Tally {\n    Count: int\n}\n\nfunc FoundCount(tallies: List<Tally>): int {\n    return tallies.Find(tally => tally.Count > 1).Count\n}\n"
+    assert AcParseCensus(source) == ""
+    assert AcParseSuccess(source) == "True"
+    analysis := AcAnalyze(source)
+    assert AcCensus(analysis) == ""
+    assert AcHasErrors(analysis) == "False"
+    assert AcErrorCount(analysis) == 0
+}
+
+test "`Nullable<T>`'s own surface answers for a struct and an enum this compilation declares" {
+    source := "struct Money {\n    Amount: int\n}\n\nenum Grade {\n    Low = 1,\n    High = 2\n}\n\nfunc AmountOrZero(m: Money?): int {\n    return m.GetValueOrDefault().Amount\n}\n\nfunc AmountOrFallback(m: Money?, fallback: Money): int {\n    return m.GetValueOrDefault(fallback).Amount\n}\n\nfunc GradeOrDefault(g: Grade?): Grade {\n    return g.GetValueOrDefault()\n}\n\nfunc Presence(m: Money?): bool {\n    return m.HasValue\n}\n"
     assert AcParseCensus(source) == ""
     assert AcParseSuccess(source) == "True"
     analysis := AcAnalyze(source)

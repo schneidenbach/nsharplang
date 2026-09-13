@@ -572,3 +572,50 @@ test "the display form and the metadata stripper agree with the N#-owned half" {
     assert NullabilityTypeDisplay.TryFormatTypeInfo(userId) == null
     assert NullabilityMetadataReflection.FormatTypeInfo(userId) == "UserId"
 }
+
+// A CONSTRUCTED GENERIC TAKES ITS DEFINITION'S KIND, AND A `KeyValuePair` IS A STRUCT.
+//
+// `List<T>.Find` annotates its return `T?`, and that annotation is a REFERENCE one: C#'s `T?` on an
+// unconstrained type parameter means "may be the default" and erases to `T` the moment a VALUE type
+// substitutes it. Reading only the outer shape of the substituted answer said a `KeyValuePair<string,
+// DateTime>` could carry the annotation, which is how
+// `times.OrderBy(kvp => kvp.Value).FirstOrDefault()` came back maybe-null while the same call over
+// `IEnumerable<DateTime>` did not: a non-generic struct converts to a `ReflectionTypeInfo`, and a
+// constructed one to a `GenericTypeInfo` whose kind lives on its definition.
+test "a member's `T?` annotation erases when a value type substitutes the parameter" {
+    listDefinition := Type.GetType("System.Collections.Generic.List`1, System.Private.CoreLib")
+    if listDefinition == null {
+        throw new InvalidOperationException("List`1 was not found.")
+    }
+
+    find := listDefinition.GetMethod("Find")
+    if find == null {
+        throw new InvalidOperationException("List<T>.Find was not found.")
+    }
+
+    genericParameter := listDefinition.GetGenericArguments()[0]
+
+    // A CONSTRUCTED VALUE type argument: the annotation has nothing to attach to.
+    valueOverrides := new Dictionary<Type, TypeInfo>()
+    valueOverrides[genericParameter] = NullabilityMetadataReflection.ConvertType(typeof(KeyValuePair<string, DateTime>))
+    valueAnswer := AnalyzerReflectionTypeOverride.Direct(valueOverrides, null)
+    assert !NullabilityRenderTypeInfo(NullabilityMetadataReflection.ConvertReturnWithOverride(find, valueAnswer)).StartsWith("Nullable(")
+
+    // A CONSTRUCTED REFERENCE type argument keeps it — the annotation is the member's own and the
+    // erasure is about value types only.
+    referenceOverrides := new Dictionary<Type, TypeInfo>()
+    referenceOverrides[genericParameter] = NullabilityMetadataReflection.ConvertType(typeof(List<string>))
+    referenceAnswer := AnalyzerReflectionTypeOverride.Direct(referenceOverrides, null)
+    assert NullabilityRenderTypeInfo(NullabilityMetadataReflection.ConvertReturnWithOverride(find, referenceAnswer)).StartsWith("Nullable(")
+
+    // A TUPLE is a `ValueTuple`, so it erases the annotation like every other struct.
+    tupleOverrides := new Dictionary<Type, TypeInfo>()
+    tupleOverrides[genericParameter] = NullabilityMetadataReflection.ConvertType(typeof(ValueTuple<string, int>))
+    tupleAnswer := AnalyzerReflectionTypeOverride.Direct(tupleOverrides, null)
+    assert !NullabilityRenderTypeInfo(NullabilityMetadataReflection.ConvertReturnWithOverride(find, tupleAnswer)).StartsWith("Nullable(")
+
+    // The two facts the answer rests on, asked directly.
+    assert !NullabilityMetadataReflection.CanConvertedTypeCarryReferenceNullability(NullabilityMetadataReflection.ConvertType(typeof(KeyValuePair<string, DateTime>)))
+    assert NullabilityMetadataReflection.CanConvertedTypeCarryReferenceNullability(NullabilityMetadataReflection.ConvertType(typeof(List<string>)))
+    assert !NullabilityMetadataCore.CanCarryReferenceNullability(NullabilityMetadataReflection.ConvertType(typeof(ValueTuple<string, int>)))
+}

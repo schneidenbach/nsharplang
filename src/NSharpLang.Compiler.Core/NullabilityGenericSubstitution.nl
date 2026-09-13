@@ -34,6 +34,79 @@ import System.Reflection
 // distinguish two members with that name. A lookup that finds nothing answers with the CLOSED type,
 // which is exactly the old behaviour.
 class NullabilityGenericSubstitution {
+
+    // A `?` WRITTEN ON A TYPE PARAMETER IS TWO DIFFERENT THINGS, AND THE SUBSTITUTION IS WHAT TELLS
+    // THEM APART.
+    //
+    // On an UNCONSTRAINED parameter C#'s `T?` is a REFERENCE annotation with no runtime form at all:
+    // `T? Find<T>(...)` returns a `string?` for `T = string` and a plain `DateTime` — the struct's
+    // own `default` — for `T = DateTime`. It is NOT `Nullable<T>`, and a value type substituting the
+    // parameter erases it. Only a parameter the declaration constrained to `struct` spells a real
+    // `Nullable<T>`, and that one the CLR writes as `Nullable<T>` in metadata, so the question never
+    // reaches here for it.
+    //
+    // The test is the reader's own: a type that cannot carry a reference annotation erases it. That
+    // takes `Nullable<U>` with it — `T?` where the argument is already `int?` is `int?` in C#, not a
+    // nullable of a nullable — and leaves every reference argument annotated. An argument inference
+    // could not resolve keeps the written shape, because erasing on `unknown` would turn a failed
+    // inference into a silent type change.
+    static func ErasesNullableAnnotation(boundType: TypeInfo): bool {
+        if BuiltInTypes.IsUnknown(boundType) {
+            return false
+        }
+
+        return !NullabilityMetadataReflection.CanConvertedTypeCarryReferenceNullability(boundType)
+    }
+
+    // The type parameters whose `?` IS a `Nullable<T>` — the ones the declaration constrained to
+    // `struct` — so the erasure above skips them. A declaration reaches this either as the list a
+    // FUNCTION signature carries or as the array a TYPE declaration does; both spellings answer the
+    // same question, so both are asked here rather than each caller flattening its own.
+    static func LiftedTypeParameterNames(constraints: List<GenericConstraint>?): HashSet<string>? {
+        if constraints == null {
+            return null
+        }
+
+        names: HashSet<string>? = null
+        index := 0
+        while index < constraints.Count {
+            names = AddLiftedTypeParameter(names, constraints[index])
+            index = index + 1
+        }
+
+        return names
+    }
+
+    static func LiftedTypeParameterNames(constraints: GenericConstraint[]?): HashSet<string>? {
+        if constraints == null {
+            return null
+        }
+
+        names: HashSet<string>? = null
+        index := 0
+        while index < constraints.Length {
+            names = AddLiftedTypeParameter(names, constraints[index])
+            index = index + 1
+        }
+
+        return names
+    }
+
+    static func AddLiftedTypeParameter(names: HashSet<string>?, constraint: GenericConstraint): HashSet<string>? {
+        structFlag := Convert.ToInt32(SpecialConstraintKind.Struct)
+        if (Convert.ToInt32(constraint.SpecialConstraints) & structFlag) != structFlag {
+            return names
+        }
+
+        collected := names
+        if collected == null {
+            collected = new HashSet<string>(StringComparer.Ordinal)
+        }
+
+        collected.Add(constraint.TypeParameter)
+        return collected
+    }
+
     static func MemberFlags(): BindingFlags {
         return BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance | BindingFlags.Static
     }

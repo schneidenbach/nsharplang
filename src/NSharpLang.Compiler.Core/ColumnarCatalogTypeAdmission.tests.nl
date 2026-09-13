@@ -42,7 +42,11 @@ test "external admission leaves structural shapes to their owners" {
     assert !ColumnarTypeOfPlanner.IsSupportedType(typeof(int).MakeArrayType(2))
     assert !ColumnarTypeOfPlanner.IsSupportedCatalogType(typeof(List<int>).GetGenericTypeDefinition())
     assert !ColumnarTypeOfPlanner.IsSupportedType(AdmissibilitySpan(typeof(string)))
-    assert !ColumnarTypeOfPlanner.IsSupportedType(AdmissibilityClosed1("System.Nullable`1", AdmissibilityRuntimeType("System.Guid")))
+
+    // `Guid?` IS ADMISSIBLE NOW. This assertion read `!IsSupportedType` while the liftable element
+    // set was a list that happened not to have a `Guid` row; `Nullable<T>`'s argument is decided by
+    // the CLR's rule — a non-nullable, non-by-ref-like value type — and a `Guid` is one.
+    assert ColumnarTypeOfPlanner.IsSupportedType(AdmissibilityClosed1("System.Nullable`1", AdmissibilityRuntimeType("System.Guid")))
     assert ColumnarTypeOfPlanner.IsSupportedType(AdmissibilityQueueOfInt())
     assert ColumnarTypeOfPlanner.IsSupportedCatalogType(AdmissibilityQueueOfInt())
     assert !ColumnarTypeOfPlanner.IsSupportedType(AdmissibilityRuntimeType("System.Void"))

@@ -237,7 +237,7 @@ class AnalyzerSyntheticCallValidator {
             return null
         }
 
-        parameterType := AnalyzerSyntheticCallFacts.ApplyGenericBindings(parameterTypes[parameterIndex], genericBindings)
+        parameterType := AnalyzerSyntheticCallFacts.ApplyGenericBindings(parameterTypes[parameterIndex], genericBindings, NullabilityGenericSubstitution.LiftedTypeParameterNames(functionType.GenericConstraints))
         paramsParameterIndex := AnalyzerOverloadFacts.GetSyntheticParamsParameterIndex(functionType, parameterTypes.Count)
         if paramsParameterIndex >= 0 && parameterIndex == paramsParameterIndex {
             paramsElementType := overloadScoring.GetNSharpParamsElementType(parameterType)
@@ -308,10 +308,10 @@ class AnalyzerSyntheticCallValidator {
                 continue
             }
 
-            expectedType := declarationContext.ResolveDeclaredAlias(AnalyzerOverloadFacts.ApplySyntheticParameterModifier(functionType, parameterIndex, AnalyzerSyntheticCallFacts.ApplyGenericBindings(parameterTypes[parameterIndex], genericBindings)))
+            expectedType := declarationContext.ResolveDeclaredAlias(AnalyzerOverloadFacts.ApplySyntheticParameterModifier(functionType, parameterIndex, AnalyzerSyntheticCallFacts.ApplyGenericBindings(parameterTypes[parameterIndex], genericBindings, NullabilityGenericSubstitution.LiftedTypeParameterNames(functionType.GenericConstraints))))
             argType := declarationContext.ResolveDeclaredAlias(argTypes[currentArgument])
             if hasParamsParameter && parameterIndex == paramsParameterIndex {
-                paramsType := declarationContext.ResolveDeclaredAlias(AnalyzerSyntheticCallFacts.ApplyGenericBindings(parameterTypes[paramsParameterIndex], genericBindings))
+                paramsType := declarationContext.ResolveDeclaredAlias(AnalyzerSyntheticCallFacts.ApplyGenericBindings(parameterTypes[paramsParameterIndex], genericBindings, NullabilityGenericSubstitution.LiftedTypeParameterNames(functionType.GenericConstraints)))
                 paramsArrayType := paramsType as ArrayTypeInfo
                 if paramsArrayType == null {
                     continue
@@ -398,7 +398,7 @@ class AnalyzerSyntheticCallValidator {
                 continue
             }
 
-            parameterType := declarationContext.ResolveDeclaredAlias(AnalyzerSyntheticCallFacts.ApplyGenericBindings(parameterTypes[parameterIndex], genericBindings))
+            parameterType := declarationContext.ResolveDeclaredAlias(AnalyzerSyntheticCallFacts.ApplyGenericBindings(parameterTypes[parameterIndex], genericBindings, NullabilityGenericSubstitution.LiftedTypeParameterNames(functionType.GenericConstraints)))
             postconditions.AddArgumentFacts(facts, call.Arguments[currentArgument], parameterType, isByRefParameter, parameterFlowFacts)
         }
 
@@ -647,7 +647,7 @@ class AnalyzerSyntheticCallValidator {
         }
 
         genericBindings := walk.InferGenericBindings(functionType, call, argTypes, receiverType)
-        return AnalyzerSyntheticCallFacts.ApplyGenericBindings(returnType, genericBindings)
+        return AnalyzerSyntheticCallFacts.ApplyGenericBindings(returnType, genericBindings, NullabilityGenericSubstitution.LiftedTypeParameterNames(functionType.GenericConstraints))
     }
 
     // NL402 — the walk considered every candidate and chose none.

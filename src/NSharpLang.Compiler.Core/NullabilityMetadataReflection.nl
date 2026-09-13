@@ -312,11 +312,30 @@ class NullabilityMetadataReflection {
         return NullabilityMetadataCore.CanReflectedTypeCarryReferenceNullability(clrType.get_IsGenericParameter(), clrType.get_IsValueType(), CanConvertedTypeCarryReferenceNullability(converted))
     }
 
+    // A CONSTRUCTED GENERIC IS WHATEVER ITS DEFINITION IS. `KeyValuePair<string, DateTime>` is a
+    // STRUCT, and asking only the outer shape said "a reference type, so it can be annotated `?`" —
+    // which is how `times.OrderBy(kvp => kvp.Value).FirstOrDefault()` came back as
+    // `KeyValuePair<string, DateTime>?` while the same call over `IEnumerable<DateTime>` came back
+    // as `DateTime`. The difference was never the language's: it was that a non-generic external
+    // struct converts to a `ReflectionTypeInfo` the arm above answers for, and a constructed one
+    // converts to a `GenericTypeInfo` whose kind lives on the DEFINITION it carries.
+    //
+    // This is the same question `AnalyzerConversionFacts.IsReferenceType` asks of a constructed
+    // generic, and it is answered the same way, so the two owners cannot disagree about a
+    // `KeyValuePair`.
     static func CanConvertedTypeCarryReferenceNullability(typeInfo: TypeInfo): bool {
         reflection := typeInfo as ReflectionTypeInfo
         if reflection != null {
             reflectedType := reflection.Type
             return !reflectedType.get_IsValueType()
+        }
+
+        generic := typeInfo as GenericTypeInfo
+        if generic != null {
+            genericDefinition := generic.GenericDefinition
+            if genericDefinition != null {
+                return CanConvertedTypeCarryReferenceNullability(genericDefinition)
+            }
         }
 
         return NullabilityMetadataCore.CanCarryReferenceNullability(typeInfo)

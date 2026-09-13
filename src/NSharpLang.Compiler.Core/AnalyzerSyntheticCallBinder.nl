@@ -417,6 +417,15 @@ class AnalyzerSyntheticCallFacts {
     }
 
     static func ApplyGenericBindings(candidate: TypeInfo, bindings: Dictionary<string, TypeInfo>?): TypeInfo {
+        return ApplyGenericBindings(candidate, bindings, null)
+    }
+
+    // `liftedTypeParameters` NAMES THE PARAMETERS WHOSE `?` IS A REAL `Nullable<T>` — the ones the
+    // declaration constrained to `struct`. Every other `T?` is C#'s reference annotation, which a
+    // value-type argument erases: `func First<T>(items: T[]): T?` answers `int` for an `int[]` and
+    // `string?` for a `string[]`. See `NullabilityGenericSubstitution.ErasesNullableAnnotation`,
+    // which the reflected half of the same rule also asks.
+    static func ApplyGenericBindings(candidate: TypeInfo, bindings: Dictionary<string, TypeInfo>?, liftedTypeParameters: HashSet<string>?): TypeInfo {
         if bindings == null || bindings.Count == 0 {
             return candidate
         }
@@ -438,7 +447,7 @@ class AnalyzerSyntheticCallFacts {
             index := 0
             while index < generic.TypeArguments.Count {
                 argument := generic.TypeArguments[index]
-                substituted.Add(ApplyGenericBindings(argument, bindings))
+                substituted.Add(ApplyGenericBindings(argument, bindings, liftedTypeParameters))
                 index = index + 1
             }
 
@@ -447,25 +456,29 @@ class AnalyzerSyntheticCallFacts {
 
         array := candidate as ArrayTypeInfo
         if array != null {
-            elementType := ApplyGenericBindings(array.ElementType, bindings)
+            elementType := ApplyGenericBindings(array.ElementType, bindings, liftedTypeParameters)
             return new ArrayTypeInfo(elementType)
         }
 
         nullable := candidate as NullableTypeInfo
         if nullable != null {
-            innerType := ApplyGenericBindings(nullable.InnerType, bindings)
+            innerType := ApplyGenericBindings(nullable.InnerType, bindings, liftedTypeParameters)
+            if ErasesTypeParameterAnnotation(nullable.InnerType, bindings, liftedTypeParameters, innerType) {
+                return innerType
+            }
+
             return new NullableTypeInfo(innerType)
         }
 
         oblivious := candidate as ObliviousTypeInfo
         if oblivious != null {
-            obliviousInner := ApplyGenericBindings(oblivious.InnerType, bindings)
+            obliviousInner := ApplyGenericBindings(oblivious.InnerType, bindings, liftedTypeParameters)
             return new ObliviousTypeInfo(obliviousInner)
         }
 
         byRef := candidate as ByRefTypeInfo
         if byRef != null {
-            byRefInner := ApplyGenericBindings(byRef.InnerType, bindings)
+            byRefInner := ApplyGenericBindings(byRef.InnerType, bindings, liftedTypeParameters)
             return new ByRefTypeInfo(byRefInner)
         }
 
@@ -479,7 +492,7 @@ class AnalyzerSyntheticCallFacts {
             elementIndex := 0
             while elementIndex < tupleCandidate.Elements.Count {
                 element := tupleCandidate.Elements[elementIndex]
-                substitutedElements.Add(new TupleTypeElementInfo(element.Name, ApplyGenericBindings(element.Type, bindings)))
+                substitutedElements.Add(new TupleTypeElementInfo(element.Name, ApplyGenericBindings(element.Type, bindings, liftedTypeParameters)))
                 elementIndex = elementIndex + 1
             }
 
@@ -496,7 +509,7 @@ class AnalyzerSyntheticCallFacts {
             substitutedArms := new List<TypeInfo>()
             armIndex := 0
             while armIndex < anonymousUnion.Arms.Count {
-                substitutedArms.Add(ApplyGenericBindings(anonymousUnion.Arms[armIndex], bindings))
+                substitutedArms.Add(ApplyGenericBindings(anonymousUnion.Arms[armIndex], bindings, liftedTypeParameters))
                 armIndex = armIndex + 1
             }
 
@@ -504,6 +517,23 @@ class AnalyzerSyntheticCallFacts {
         }
 
         return candidate
+    }
+
+    // WAS THIS `?` WRITTEN ON A TYPE PARAMETER THIS SUBSTITUTION CLOSED, AND DOES THE ARGUMENT ERASE
+    // IT? Both halves matter: a `?` on anything else — `string?`, `List<T>?` — is the ordinary
+    // annotation and is never erased, and a parameter the declaration constrained to `struct` spells
+    // a real `Nullable<T>` that stays.
+    static func ErasesTypeParameterAnnotation(writtenInnerType: TypeInfo, bindings: Dictionary<string, TypeInfo>, liftedTypeParameters: HashSet<string>?, boundInnerType: TypeInfo): bool {
+        simple := writtenInnerType as SimpleTypeInfo
+        if simple == null || !bindings.ContainsKey(simple.Name) {
+            return false
+        }
+
+        if liftedTypeParameters != null && liftedTypeParameters.Contains(simple.Name) {
+            return false
+        }
+
+        return NullabilityGenericSubstitution.ErasesNullableAnnotation(boundInnerType)
     }
 
     // A FUNCTION TYPE IS A COMPOSITE SHELL LIKE ANY OTHER. `Func<T, bool>` written as a parameter
@@ -518,6 +548,7 @@ class AnalyzerSyntheticCallFacts {
     // names, exactly as a nested generic declaration does.
     static func ApplyGenericBindingsToFunctionType(functionType: FunctionTypeInfo, bindings: Dictionary<string, TypeInfo>): FunctionTypeInfo {
         effectiveBindings := WithoutShadowedTypeParameters(functionType.TypeParameters, bindings)
+        lifted := NullabilityGenericSubstitution.LiftedTypeParameterNames(functionType.GenericConstraints)
 
         substitutedParameterTypes: List<TypeInfo>? = null
         parameterTypes := functionType.ParameterTypes
@@ -525,7 +556,7 @@ class AnalyzerSyntheticCallFacts {
             substitutedParameterTypes = new List<TypeInfo>()
             index := 0
             while index < parameterTypes.Count {
-                substitutedParameterTypes.Add(ApplyGenericBindings(parameterTypes[index], effectiveBindings))
+                substitutedParameterTypes.Add(ApplyGenericBindings(parameterTypes[index], effectiveBindings, lifted))
                 index = index + 1
             }
         }
@@ -533,7 +564,7 @@ class AnalyzerSyntheticCallFacts {
         substitutedReturnType: TypeInfo? = null
         returnType := functionType.ReturnType
         if returnType != null {
-            substitutedReturnType = ApplyGenericBindings(returnType, effectiveBindings)
+            substitutedReturnType = ApplyGenericBindings(returnType, effectiveBindings, lifted)
         }
 
         return functionType.WithSignatureTypes(substitutedParameterTypes, substitutedReturnType)
@@ -717,14 +748,14 @@ class AnalyzerSyntheticCallBinder {
             return new SyntheticArgumentComparison(false, null, null)
         }
 
-        boundParameterType := AnalyzerOverloadFacts.ApplySyntheticParameterModifier(functionType, parameterIndex, AnalyzerSyntheticCallFacts.ApplyGenericBindings(parameterTypes[parameterIndex], genericBindings))
+        boundParameterType := AnalyzerOverloadFacts.ApplySyntheticParameterModifier(functionType, parameterIndex, AnalyzerSyntheticCallFacts.ApplyGenericBindings(parameterTypes[parameterIndex], genericBindings, NullabilityGenericSubstitution.LiftedTypeParameterNames(functionType.GenericConstraints)))
         expectedType: TypeInfo? = declarationContext.ResolveDeclaredAlias(boundParameterType)
         argumentType: TypeInfo? = declarationContext.ResolveDeclaredAlias(argTypes[argumentIndex])
         if paramsParameterIndex < 0 || parameterIndex != paramsParameterIndex {
             return new SyntheticArgumentComparison(true, expectedType, argumentType)
         }
 
-        boundParamsType := AnalyzerSyntheticCallFacts.ApplyGenericBindings(parameterTypes[paramsParameterIndex], genericBindings)
+        boundParamsType := AnalyzerSyntheticCallFacts.ApplyGenericBindings(parameterTypes[paramsParameterIndex], genericBindings, NullabilityGenericSubstitution.LiftedTypeParameterNames(functionType.GenericConstraints))
         paramsType := declarationContext.ResolveDeclaredAlias(boundParamsType)
         paramsArrayType := paramsType as ArrayTypeInfo
         if paramsArrayType == null {
