@@ -13689,40 +13689,34 @@ test "020 s32 analyzer diagnostics: the fixture reports `NL202` at 4:2+5 — the
     assert AcCodeAnchor(rich, "TypeMismatch") == "NL202@4:2+5"
 }
 
-test "020 s32 analyzer diagnostics: the fixture reports `NL323` at 4:2+6 — the deleted method drove the production four-argument route (was AnalyzerTests.AttributeArguments_SourceDefinedAttribute_ReportBeforeEmission)" {
+// THE FIXTURE THAT USED TO REPORT `NL323 — Source-defined attribute 'Marker' is not supported by IL
+// emission yet`. An attribute a program declares for itself is an ordinary attribute now: the emitter
+// resolves the type it is still building, chooses one of its constructors and writes the blob, so the
+// analyzer has nothing to say about this source. The fixture stays byte-for-byte what it was, because
+// what has to be pinned is that the SAME program is now silent — `tests/native/census-source-attributes`
+// is where the attribute is then READ BACK out of the emitted metadata.
+test "020 s32 analyzer diagnostics: a SOURCE-DECLARED attribute analyses silently on either route, under the contract that replaced NL323 (was AnalyzerTests.AttributeArguments_SourceDefinedAttribute_ReportBeforeEmission)" {
     source := "class MarkerAttribute: System.Attribute {\n}\n\n[Marker]\nfunc Bad(): int {\n    return 0\n}"
     assert AcParseCensus(source) == ""
     assert AcParseSuccess(source) == "True"
     analysis := AcAnalyze(source)
-    assert AcCensus(analysis) == "NL323:FeatureNotImplemented@4:2+6;"
-    assert AcHasErrors(analysis) == "True"
-    assert AcErrorCount(analysis) == 1
-    assert AcRow(analysis, 0) == "FeatureNotImplemented|Source-defined attribute 'Marker' is not supported by IL emission yet|Use an attribute type from a referenced CLR assembly for now.|Error"
-    assert AcHint(analysis, 0) == "<null>"
-    assert AcSuggestions(analysis, 0) == "<null>"
-    assert AcSnippet(analysis, 0) == "<null>"
-    assert AcTypes(analysis, 0) == "<null>|<null>"
-    assert AcExplanation(analysis, 0) == "<null>"
-    assert AcRow(analysis, 1) == "<no-such-error>"
-    assert AcCodeCount(analysis, "FeatureNotImplemented") == 1
-    assert AcCodeErrorCount(analysis, "FeatureNotImplemented") == 1
-    assert AcCodeRow(analysis, "FeatureNotImplemented") == "FeatureNotImplemented|Source-defined attribute 'Marker' is not supported by IL emission yet|Use an attribute type from a referenced CLR assembly for now.|Error"
-    assert AcCodeAnchor(analysis, "FeatureNotImplemented") == "NL323@4:2+6"
+    assert AcCensus(analysis) == ""
+    assert AcHasErrors(analysis) == "False"
+    assert AcErrorCount(analysis) == 0
+    assert AcRow(analysis, 0) == "<no-such-error>"
+    assert AcCodeCount(analysis, "FeatureNotImplemented") == 0
+    assert AcCodeErrorCount(analysis, "FeatureNotImplemented") == 0
+    assert AcCodeRow(analysis, "FeatureNotImplemented") == "<no-such-code>"
+    assert AcCodeAnchor(analysis, "FeatureNotImplemented") == "<no-such-code>"
     rich := AcAnalyzeWithSource(source)
-    assert AcCensus(rich) == "NL323:FeatureNotImplemented@4:2+6;"
-    assert AcHasErrors(rich) == "True"
-    assert AcErrorCount(rich) == 1
-    assert AcRow(rich, 0) == "FeatureNotImplemented|Source-defined attribute 'Marker' is not supported by IL emission yet|Use an attribute type from a referenced CLR assembly for now.|Error"
-    assert AcHint(rich, 0) == "<null>"
-    assert AcSuggestions(rich, 0) == "<null>"
-    assert AcSnippet(rich, 0) == "[Marker]"
-    assert AcTypes(rich, 0) == "<null>|<null>"
-    assert AcExplanation(rich, 0) == "<null>"
-    assert AcRow(rich, 1) == "<no-such-error>"
-    assert AcCodeCount(rich, "FeatureNotImplemented") == 1
-    assert AcCodeErrorCount(rich, "FeatureNotImplemented") == 1
-    assert AcCodeRow(rich, "FeatureNotImplemented") == "FeatureNotImplemented|Source-defined attribute 'Marker' is not supported by IL emission yet|Use an attribute type from a referenced CLR assembly for now.|Error"
-    assert AcCodeAnchor(rich, "FeatureNotImplemented") == "NL323@4:2+6"
+    assert AcCensus(rich) == ""
+    assert AcHasErrors(rich) == "False"
+    assert AcErrorCount(rich) == 0
+    assert AcRow(rich, 0) == "<no-such-error>"
+    assert AcCodeCount(rich, "FeatureNotImplemented") == 0
+    assert AcCodeErrorCount(rich, "FeatureNotImplemented") == 0
+    assert AcCodeRow(rich, "FeatureNotImplemented") == "<no-such-code>"
+    assert AcCodeAnchor(rich, "FeatureNotImplemented") == "<no-such-code>"
 }
 
 test "020 s32 analyzer diagnostics: the fixture reports `NL310` at 6:6+5 — the deleted method drove the production four-argument route (was AnalyzerTests.TableDrivenTestCases_UnsupportedExpressions_ReportConstantRequired)" {
