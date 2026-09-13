@@ -113,6 +113,11 @@ class CodeIntelligenceDeclarationProjection {
             return new SymbolResult(propertyDeclaration.Name, SymbolKind.Property, fileValue, propertyDeclaration.Line, propertyDeclaration.Column, CodeIntelligenceDisplayText.FormatTypeReference(propertyDeclaration.Type), CodeIntelligenceDisplayText.FormatModifiers(propertyDeclaration.Modifiers), null, null)
         }
 
+        eventDeclaration := declaration as EventDeclaration
+        if eventDeclaration != null {
+            return new SymbolResult(eventDeclaration.Name, SymbolKind.Event, fileValue, eventDeclaration.Line, eventDeclaration.Column, CodeIntelligenceDisplayText.FormatTypeReference(eventDeclaration.Type), CodeIntelligenceDisplayText.FormatModifiers(eventDeclaration.Modifiers), null, null)
+        }
+
         constructorDeclaration := declaration as ConstructorDeclaration
         if constructorDeclaration != null {
             // A constructor's parameters never carry their default TEXT, only the flag. That is the
@@ -194,6 +199,11 @@ class CodeIntelligenceDeclarationProjection {
         propertyDeclaration := declaration as PropertyDeclaration
         if propertyDeclaration != null {
             return new OutlineEntry(propertyDeclaration.Name, SymbolKind.Property, propertyDeclaration.Line, propertyDeclaration.Line, null, CodeIntelligenceDisplayText.FormatTypeReference(propertyDeclaration.Type), null)
+        }
+
+        eventDeclaration := declaration as EventDeclaration
+        if eventDeclaration != null {
+            return new OutlineEntry(eventDeclaration.Name, SymbolKind.Event, eventDeclaration.Line, eventDeclaration.Line, null, CodeIntelligenceDisplayText.FormatTypeReference(eventDeclaration.Type), null)
         }
 
         testDeclaration := declaration as TestDeclaration

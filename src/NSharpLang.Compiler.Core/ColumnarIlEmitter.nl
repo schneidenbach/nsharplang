@@ -1910,7 +1910,31 @@ sealed class ColumnarIlEmitter {
                         delegateType = paramType
                         ColumnarArgumentInstructionEmitter.EmitLoad(_il, ordinal)
                     } else {
-                        return false
+                        // A DELEGATE-TYPED INSTANCE FIELD, INVOKED BY ITS BARE NAME. The N#-owned call
+                        // planner reaches this shape first and usually owns it; this tier is what the
+                        // enclosing type's own body falls back to when the planner declines the call for
+                        // some other reason — an argument whose kind the plan door does not claim, say.
+                        // Without it, `Changed(this, args)` — the raise a source-declared event is meant
+                        // to be written as — resolved nowhere at all.
+                        let instanceDelegateField: System.Reflection.Emit.FieldBuilder? = null
+                        let staticDelegateOwner: NSharpLang.Compiler.Columnar.ColumnarStructDef? = null
+                        let staticDelegateField: System.Reflection.Emit.FieldBuilder? = null
+                        if (_currentStruct != null && !_currentStruct.IsClosureDisplay && ColumnarSourceMemberChainResolver.TryFindFieldOnChain(_currentStruct, name, out instanceDelegateField)) {
+                            if (!IsInvocableDelegateType(instanceDelegateField.get_FieldType())) {
+                                return false
+                            }
+                            delegateType = instanceDelegateField.get_FieldType()
+                            _il.Emit(OpCodes.Ldarg_0)
+                            _il.Emit(OpCodes.Ldfld, instanceDelegateField)
+                        } else if (_enclosingType != null && ColumnarSourceMemberChainResolver.TryFindStaticFieldOnChain(_enclosingType, name, out staticDelegateOwner, out staticDelegateField)) {
+                            if (!IsInvocableDelegateType(staticDelegateField.get_FieldType())) {
+                                return false
+                            }
+                            delegateType = staticDelegateField.get_FieldType()
+                            _il.Emit(OpCodes.Ldsfld, staticDelegateField)
+                        } else {
+                            return false
+                        }
                     }
                 }
             }
@@ -1926,15 +1950,13 @@ sealed class ColumnarIlEmitter {
             return false
         }
         for a := 1; a <= argCount; a++ {
-            let argType: System.Type? = null
-            if (!EmitExpression(Child(callIdx, a), out argType)) {
-                return false
-            }
-            // BUILDER-AWARE EQUIVALENCE, not reference equality. `TypeBuilder.MakeArrayType()` hands
-            // back a FRESH handle every call, so the `Plain[]` a local was declared with and the
-            // `Plain[]` read out of this delegate's generic arguments are two objects for one type.
-            // Reference equality made `Func<Plain[], bool>` storable but not invocable.
-            if (!TypesEquivalent(argType, invokeParameterTypes[a - 1])) {
+            // THE SAME ARGUMENT DOOR EVERY OTHER CALL USES, which is builder-aware where reference
+            // equality is not — `TypeBuilder.MakeArrayType()` hands back a FRESH handle every call, so
+            // the `Plain[]` a local was declared with and the `Plain[]` read out of this delegate's
+            // generic arguments are two objects for one type — and which also performs the ordinary
+            // conversions a parameter position admits. Without them `Changed(this, args)` could not
+            // pass its own receiver to an `object` sender.
+            if (!EmitDeclaredCallArgument(Child(callIdx, a), invokeParameterTypes[a - 1], true)) {
                 return false
             }
         }
@@ -3885,6 +3907,27 @@ sealed class ColumnarIlEmitter {
                 }
                 fieldName := fieldRows.FieldNames[s][fi]
                 fieldAttributes := (FieldAttributes)fieldRows.FieldAttributeWords[s][fi]
+
+                // A SOURCE-DECLARED EVENT owns its whole row. `event Changed: EventHandler` is C#'s
+                // field-like event: the storage is a field (which is what lets the declaring type's own
+                // body write `Changed?.Invoke(...)`), but it is PRIVATE whatever the event's visibility
+                // says, it is `[CompilerGenerated]`, and it comes with the two accessors and the
+                // `EventInfo` row that make the member an event to every other language. The visibility
+                // WORD written on the declaration goes to the accessors, through the same rule a method
+                // uses — the written word, else the name's casing.
+                if (st.FieldEventFlags[fi]) {
+                    if (!ColumnarEventMemberEmitter.IsDelegateHandlerType(fieldType)) {
+                        return DeclineStatic("emit.declaration.event-handler-type", "event '" + st.Name + "." + fieldName + "' needs a delegate type; '" + st.FieldTypeCanonicals[fi] + "' is not one", st.Name, -1, 0)
+                    }
+                    eventVisibilityWord := ColumnarDeclarationPlanner.MethodVisibilityAttributes(fieldName, st.FieldVisibilityFlags[fi])
+                    eventDefinition := ColumnarEventMemberEmitter.Define(def, fieldName, fieldType, fieldRows.FieldIsStatic[s][fi], eventVisibilityWord)
+                    def.MemberLabeledCanonicals[fieldName] = st.FieldTypeCanonicals[fi]
+                    if (!eventDefinition.IsStatic) {
+                        instanceFieldNames.Add(fieldName)
+                    }
+                    continue
+                }
+
                 if (fieldRows.FieldIsStatic[s][fi]) {
                     isLiteral := fieldRows.FieldIsLiteral[s][fi]
                     literalValue := 0
@@ -10911,6 +10954,14 @@ sealed class ColumnarIlEmitter {
             return false
         }
         columnarSwitchValue2 := _nodes.Kind(idx)
+        if columnarSwitchValue2 == 82 {
+            // A BARE `this` — the current instance AS A VALUE. Argument zero of an instance body IS the
+            // instance, so a reference type loads it directly; a value type's argument zero is a MANAGED
+            // POINTER to it, and a value is what the position asked for, so the pointer is dereferenced.
+            // A static body has no instance at all and declines: the analyzer has already reported NL327
+            // there, and emitting `ldarg.0` would silently hand out the first parameter.
+            return TryEmitThisExpression(idx, out columnarResolvedType)
+        }
         if columnarSwitchValue2 == 79 {
             // `on <receiver>.<Event> <handler>` — the subscription VALUE. It sits ahead of the chain
             // because its own owner reads the target and handler itself; nothing below can see an event.
@@ -11560,6 +11611,13 @@ sealed class ColumnarIlEmitter {
                         newtypeConstructorEnumerator.Dispose()
                     }
                     return false
+                }
+                // A DELEGATE-TYPED FIELD, INVOKED BY ITS BARE NAME. Last of the bare-call tiers, because
+                // a same-named METHOD wins over a field holding a delegate — the tiers above have all
+                // declined by the time this one is asked. It is what makes `Changed(this, args)`, the
+                // raise C# writes for a field-like event, resolve at all.
+                if (TryEmitDelegateInvoke(idx, name, out columnarResolvedType)) {
+                    return true
                 }
                 return Decline("emit.call.bare-unresolved", "bare call '" + name + "' with " + (_nodes.ChildCount(idx) - 1).ToString() + " argument(s) could not be resolved", idx)
             }
@@ -25954,6 +26012,14 @@ sealed class ColumnarIlEmitter {
         if (_locals.ContainsKey(rootName) || _liftedLocals.ContainsKey(rootName) || _paramOrdinals.ContainsKey(rootName) || (_boxedCaptures != null && _boxedCaptures.ContainsKey(rootName)) || _siblings.ContainsKey(rootName) || _nodes.HasAdditionalRootBinding(rootName)) {
             return false
         }
+        // A SOURCE TYPE THIS COMPILATION IS BUILDING IS A STATIC OWNER TOO. `on Registry.Registered …`
+        // names a type, not a value, and that type has no metadata yet — so the source registry is
+        // asked before the external resolver, which can only answer for assemblies already on disk.
+        let sourceOwner: NSharpLang.Compiler.Columnar.ColumnarStructDef? = null
+        if (ownerName == rootName && _typeResolutionStructs.TryGetValue(rootName, out sourceOwner)) {
+            ownerType = sourceOwner.Builder
+            return true
+        }
         let resolved: System.Type? = null
         if (!scope.TryResolveExternalStaticOwnerType(_nodes.EnclosingTypeName, _nodes.VisibleTypeParameterNames, rootName, ownerName, out resolved)) {
             return false
@@ -25972,11 +26038,11 @@ sealed class ColumnarIlEmitter {
         walk := ownerType
         while (walk != null) {
             // A TYPE STILL BEING BUILT ANSWERS NO REFLECTION QUESTION — `TypeBuilder.GetEvent` throws
-            // rather than returning null — so a source rung is SKIPPED rather than asked. Nothing is
-            // lost by skipping it today: N# has no syntax for declaring an event on a source type, so a
-            // rung under construction declares none. The skip is what keeps a source type in the chain
-            // (a class whose base is external, or a receiver of a source type) from crashing the
-            // compiler instead of walking past itself to the external base that does declare the event.
+            // rather than returning null — so a source rung is SKIPPED rather than asked. A source rung
+            // that DOES declare the event is found by `FindSourceEventOnChain` instead, off the
+            // definition that created its accessors; this walk is metadata's half of the same search,
+            // and skipping the builder rungs is what lets a source class whose base is external reach
+            // the base's events without crashing the compiler.
             if (walk as TypeBuilder == null && walk as EnumBuilder == null) {
                 candidate := walk.GetEvent(eventName, flags)
                 if (candidate != null) {
@@ -25986,6 +26052,59 @@ sealed class ColumnarIlEmitter {
             walk = walk.get_BaseType()
         }
         return null
+    }
+
+    // THE SOURCE HALF OF THE SAME SEARCH. An event this compilation declares has no `EventInfo` while
+    // its type is still a `TypeBuilder`, so the accessors come from the definition that made them.
+    private func FindSourceEventOnChain(ownerType: Type, eventName: string, staticOnly: bool): ColumnarEventDef {
+        ownerBuilder := ownerType as TypeBuilder
+        if (ownerBuilder == null) {
+            return null
+        }
+        walk := ColumnarSourceDefinitionResolver.FindByBuilderIdentity(_structRegistry.get_Values(), ownerBuilder)
+        while (walk != null) {
+            let candidate: NSharpLang.Compiler.Columnar.ColumnarEventDef? = null
+            if (walk.Events.TryGetValue(eventName, out candidate) && candidate.IsStatic == staticOnly) {
+                return candidate
+            }
+            walk = walk.BaseDef
+        }
+        return null
+    }
+
+    // A BARE `this` (node kind 82). `this.Member` never reaches here — the parser collapses it into a
+    // bare identifier — so this is the keyword standing alone as a value: `Raise(this)`, `me := this`,
+    // `return this`, `Changed?.Invoke(this, EventArgs.Empty)`.
+    private func TryEmitThisExpression(idx: int, out columnarResolvedType: Type): bool {
+        columnarResolvedType = null
+        if (_currentStruct == null) {
+            return Decline("emit.this.no-instance", "`this` needs an enclosing instance body", idx)
+        }
+
+        // INSIDE A LAMBDA, `this` IS THE LEXICAL OWNER'S INSTANCE, NOT THE DISPLAY'S. A mixed-capture
+        // lambda runs as an instance method on a synthesized display class, and that display keeps the
+        // outer receiver in `<>4__this` — the same field a bare call on the lexical owner loads. Reading
+        // argument zero here instead would hand out the display object, which is not a type the program
+        // can name at all.
+        if (_currentStruct.IsClosureDisplay) {
+            let capturedEnclosingThis: FieldBuilder? = null
+            if (_enclosingType == null || !_currentStruct.Fields.TryGetValue("<>4__this", out capturedEnclosingThis)) {
+                return Decline("emit.this.captured", "`this` inside this lambda has no captured enclosing instance", idx)
+            }
+            _il.Emit(OpCodes.Ldarg_0)
+            _il.Emit(OpCodes.Ldfld, capturedEnclosingThis)
+            columnarResolvedType = capturedEnclosingThis.get_FieldType()
+            return true
+        }
+
+        instanceType := ColumnarSourceSelfInstantiation.Of(_currentStruct.Builder)
+        _il.Emit(OpCodes.Ldarg_0)
+        if (!_currentStruct.IsReference) {
+            // ARGUMENT ZERO OF A STRUCT BODY IS `ref T`, and the position asked for `T`.
+            _il.Emit(OpCodes.Ldobj, instanceType)
+        }
+        columnarResolvedType = instanceType
+        return true
     }
 
     private func TryEmitOnSubscription(idx: int, out columnarResolvedType: Type): bool {
@@ -26027,7 +26146,7 @@ sealed class ColumnarIlEmitter {
             }
             receiverNode := Child(targetNode, 0)
             let staticOwner: System.Type? = null
-            if (TryResolveEventOwnerTypeName(receiverNode, out staticOwner) && FindEventOnChain(staticOwner, eventName, true) != null) {
+            if (TryResolveEventOwnerTypeName(receiverNode, out staticOwner) && (FindEventOnChain(staticOwner, eventName, true) != null || FindSourceEventOnChain(staticOwner, eventName, true) != null)) {
                 ownerType = staticOwner
             } else {
                 let receiverType: System.Type? = null
@@ -26043,13 +26162,27 @@ sealed class ColumnarIlEmitter {
             }
         }
 
-        eventInfo := FindEventOnChain(ownerType, eventName, receiverLocal == null)
-        if (eventInfo == null) {
-            return Decline("emit.on.event-lookup", "no accessible event '" + eventName + "' on '" + ownerType.FullName + "'", targetNode)
+        // THE EVENT, FROM WHICHEVER HALF OF THE SEARCH ANSWERS. An external event arrives as an
+        // `EventInfo`; one this compilation declares arrives as its own definition, because a type
+        // still being built answers no reflection question. Everything below reads only the three
+        // facts both halves supply — the handler delegate type and the two accessors.
+        let handlerType: System.Type? = null
+        let addMethod: System.Reflection.MethodInfo? = null
+        let removeMethod: System.Reflection.MethodInfo? = null
+        sourceEvent := FindSourceEventOnChain(ownerType, eventName, receiverLocal == null)
+        if (sourceEvent != null) {
+            handlerType = sourceEvent.HandlerType
+            addMethod = ColumnarSourceSelfInstantiation.BindOn(ColumnarSourceSelfInstantiation.Of(ownerType), sourceEvent.Add)
+            removeMethod = ColumnarSourceSelfInstantiation.BindOn(ColumnarSourceSelfInstantiation.Of(ownerType), sourceEvent.Remove)
+        } else {
+            eventInfo := FindEventOnChain(ownerType, eventName, receiverLocal == null)
+            if (eventInfo == null) {
+                return Decline("emit.on.event-lookup", "no accessible event '" + eventName + "' on '" + ownerType.FullName + "'", targetNode)
+            }
+            handlerType = eventInfo.get_EventHandlerType()
+            addMethod = eventInfo.GetAddMethod(false)
+            removeMethod = eventInfo.GetRemoveMethod(false)
         }
-        handlerType := eventInfo.get_EventHandlerType()
-        addMethod := eventInfo.GetAddMethod(false)
-        removeMethod := eventInfo.GetRemoveMethod(false)
         if (handlerType == null || addMethod == null || removeMethod == null) {
             return Decline("emit.on.accessors", "event '" + eventName + "' has no accessible add/remove accessors", targetNode)
         }
@@ -26370,6 +26503,14 @@ sealed class ColumnarIlEmitter {
         // (`BaseMemberExpression`, a leaf carrying the member name), so the identifier arm below
         // cannot see it and neither can the child walk: a `base.M()` call node's callee IS this node.
         if kind == ColumnarExpressionNodeKind.BaseMemberExpression() {
+            return true
+        }
+        // A BARE `this` IS THE CURRENT INSTANCE, AND THAT IS THE WHOLE RULE. Before the chained
+        // constructor has run the object's storage has not been written, so handing the reference out
+        // hands out a half-built object — which is why C# refuses `this` in a constructor initializer
+        // outright (CS0027). Until the kernel had a node for a bare `this` this arm could not exist,
+        // and the shape declined one step earlier, at the parse.
+        if kind == ColumnarExpressionNodeKind.ThisExpression() {
             return true
         }
         if kind == ColumnarExpressionNodeKind.IdentifierExpression() {

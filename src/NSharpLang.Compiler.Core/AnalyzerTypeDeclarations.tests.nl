@@ -400,6 +400,61 @@ test "`this` IS DECLARED WITHOUT A BINDING DECLARATION, AND AN INTERFACE DECLARE
     assert interfaceSteps[0].ScopeKindName == "Interface"
 }
 
+// AN EVENT IS A MEMBER EVERYWHERE A MEMBER MAY BE WRITTEN — including an interface, where it binds
+// and then has nowhere to go: an interface's accessors are abstract slots an implementing type has
+// to fill, and nothing yet declares them, matches them or checks that a class supplied them. Saying
+// that AT THE MEMBER is the contract; the backend's own answer is `NL103 … parse.interface`, which
+// names the compiler's internals rather than what the reader wrote.
+test "AN INTERFACE EVENT IS REPORTED AT THE MEMBER, AND A CLASS EVENT IS NOT REPORTED AT ALL" {
+    interfaceMembers := new List<Declaration>()
+    interfaceMembers.Add(new EventDeclaration("Changed", TypeDeclInt(), Modifiers.None, TypeDeclNoAttributes(), 9, 5))
+    interfaceHarness := TypeDeclDefault()
+    TypeDeclRun(interfaceHarness, interfaceHarness.Declarations.BeginInterface(TypeDeclInterface("Shape", interfaceMembers, Modifiers.None), interfaceHarness.Assignability), null)
+    assert interfaceHarness.Errors.Count == 1
+    assert interfaceHarness.Errors[0].Code == ErrorCode.FeatureNotImplemented
+    assert interfaceHarness.Errors[0].Message == "an interface cannot declare the event 'Changed' yet"
+    assert interfaceHarness.Errors[0].Line == 9
+    assert interfaceHarness.Errors[0].Column == 5
+
+    classMembers := new List<Declaration>()
+    classMembers.Add(new EventDeclaration("Changed", TypeDeclInt(), Modifiers.None, TypeDeclNoAttributes(), 9, 5))
+    classHarness := TypeDeclDefault()
+    TypeDeclRun(classHarness, classHarness.Declarations.BeginClass(TypeDeclClass("Box", classMembers, null, null, Modifiers.None), classHarness.Assignability), null)
+    assert classHarness.Errors.Count == 0
+}
+
+// AN EVENT'S ACCESSORS ARE SYNTHESIZED AND NOT YET VIRTUAL SLOTS, so the three inheritance words
+// promise a dispatch that does not happen. They were accepted in SILENCE, which is worse than
+// refusing them: `override event` would HIDE the base's event while a subscriber through the base
+// reference still reached the base's storage.
+test "AN EVENT REFUSES THE THREE INHERITANCE WORDS, AT THE MEMBER NAME" {
+    for modifierName in ["override", "abstract", "virtual"] {
+        modifier := Modifiers.Override
+        if modifierName == "abstract" {
+            modifier = Modifiers.Abstract
+        } else if modifierName == "virtual" {
+            modifier = Modifiers.Virtual
+        }
+
+        members := new List<Declaration>()
+        members.Add(new EventDeclaration("Changed", TypeDeclInt(), modifier, TypeDeclNoAttributes(), 9, 5))
+        harness := TypeDeclDefault()
+        TypeDeclRun(harness, harness.Declarations.BeginClass(TypeDeclClass("Box", members, null, null, Modifiers.None), harness.Assignability), null)
+        assert harness.Errors.Count == 1
+        assert harness.Errors[0].Code == ErrorCode.InvalidModifier
+        assert harness.Errors[0].Message == "'Changed' is declared '" + modifierName + "', but an event's accessors are not virtual yet"
+        assert harness.Errors[0].Line == 9
+        assert harness.Errors[0].Column == 5
+    }
+
+    // A PLAIN event carries none of the three and is reported nowhere.
+    plainMembers := new List<Declaration>()
+    plainMembers.Add(new EventDeclaration("Changed", TypeDeclInt(), Modifiers.Static, TypeDeclNoAttributes(), 9, 5))
+    plainHarness := TypeDeclDefault()
+    TypeDeclRun(plainHarness, plainHarness.Declarations.BeginClass(TypeDeclClass("Box", plainMembers, null, null, Modifiers.None), plainHarness.Assignability), null)
+    assert plainHarness.Errors.Count == 0
+}
+
 test "EACH TYPE FORM OPENS THE SCOPE KIND NAMED FOR IT, AND A UNION OPENS A BLOCK" {
     classHarness := TypeDeclDefault()
     classSteps := TypeDeclRun(classHarness, classHarness.Declarations.BeginClass(TypeDeclClass("Box", TypeDeclNoMembers(), null, null, Modifiers.None), classHarness.Assignability), null)

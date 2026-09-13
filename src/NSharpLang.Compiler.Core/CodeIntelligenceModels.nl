@@ -16,8 +16,11 @@ enum SymbolKind {
     Constructor,
     EnumMember,
     TypeAlias,
-    Test
+    Test,
+    Event
 }
+// APPENDED, NEVER INSERTED. `nlc query --kind` parses these names into their ORDINALS, so a kind
+// added anywhere but the end would renumber every filter a caller has already written.
 
 class SymbolResult {
     nameValue: string

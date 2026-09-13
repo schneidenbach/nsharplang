@@ -352,6 +352,17 @@ class AnalyzerAssignment {
             return new AssignmentRequest(1, assignment.Value)
         }
 
+        // AN EVENT THIS COMPILATION DECLARED, ON THE LEFT OF AN ASSIGNMENT. It has to be caught HERE
+        // and not by the compound rule below: an event's type is a delegate, and the compound rule
+        // deliberately lets `+=` through on a delegate-like target, so a source event reaching it
+        // would pass with no diagnostic at all and then emit a write to somebody's private field.
+        sourceEventTarget := targetType as SourceEventInfo
+        if sourceEventTarget != null {
+            ReportSourceEventAssignment(assignment, sourceEventTarget)
+            state.Phase = 5
+            return new AssignmentRequest(1, assignment.Value)
+        }
+
         if writeTargetsValue.ReportSoaTableMemberMutationIfNeeded(assignment.Target, expressionTypes, "assigned directly") {
             return EnterRefusedValue(state, targetType)
         }
@@ -552,6 +563,28 @@ class AnalyzerAssignment {
         }
 
         diagnosticsValue.Report(ErrorCode.EventRequiresOnOff, message, span.Line, span.Column, hint, span.Length)
+    }
+
+    // THE SAME THREE BELIEFS ABOUT AN EVENT THIS COMPILATION DECLARED. The wording differs from the
+    // .NET-event pair above in exactly one way, and it is the one that matters: it names the declaring
+    // type, so a reader who saw `Changed = null` compile inside `Widget` learns why it does not here.
+    func ReportSourceEventAssignment(assignment: AssignmentExpression, eventTarget: SourceEventInfo) {
+        span := spansValue.GetExpressionDiagnosticSpan(assignment.Target)
+        target := RenderEventTarget(assignment.Target)
+        name := eventTarget.Name
+        owner := eventTarget.DeclaringTypeName
+
+        message := "'" + name + "' is an event declared by '" + owner + "' — it can't be assigned with '='"
+        hint := "Subscribe with `on " + target + " (sender, args) => { ... }` and unsubscribe with `off`. Only '" + owner + "''s own code may assign '" + name + "'."
+        if assignment.Operator == AssignmentOperator.SubtractAssign {
+            message = "'" + name + "' is an event declared by '" + owner + "' — it can't be unsubscribed with '-='"
+            hint = "Capture the subscription when you subscribe (`sub := on " + target + " handler`), then detach it with `off sub`."
+        } else if assignment.Operator == AssignmentOperator.AddAssign {
+            message = "'" + name + "' is an event declared by '" + owner + "' — it can't be subscribed to with '+='"
+            hint = "Subscribe with `on " + target + " (sender, args) => { ... }`; it returns a subscription you can later pass to `off`."
+        }
+
+        diagnosticsValue.Report(ErrorCode.SourceEventRequiresOnOff, message, span.Line, span.Column, hint, span.Length)
     }
 
     // THE TARGET AS THE DEVELOPER WROTE IT, rebuilt from the AST rather than from the source text so

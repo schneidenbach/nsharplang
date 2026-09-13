@@ -283,7 +283,7 @@ class Formatter {
         }
     }
 
-    // The nineteen-arm dispatch: every declaration the language has, at file scope or in a body.
+    // The twenty-arm dispatch: every declaration the language has, at file scope or in a body.
     //
     // THREE ARMS ARE INLINE BECAUSE THEY ARE ONE LINE OF TEXT EACH — a type alias, a newtype and a
     // preprocessor directive have no structure to walk. The function arm is the walk's, not this
@@ -346,6 +346,12 @@ class Formatter {
         propertyDeclaration := declaration as PropertyDeclaration
         if propertyDeclaration != null {
             FormatProperty(propertyDeclaration, builder)
+            return
+        }
+
+        eventDeclaration := declaration as EventDeclaration
+        if eventDeclaration != null {
+            FormatEvent(eventDeclaration, builder)
             return
         }
 
@@ -701,6 +707,20 @@ class Formatter {
             walk.FormatExpression(initializer, builder)
         }
 
+        builder.AppendLine()
+    }
+
+    // An event has exactly one shape — `event Name: DelegateType` — because its storage and both its
+    // accessors are synthesized, so there is nothing else an author could have written.
+    func FormatEvent(eventDeclaration: EventDeclaration, builder: StringBuilder) {
+        walk.FormatAttributes(eventDeclaration.Attributes, builder)
+        state.Indent(builder)
+        AppendFieldModifiers(eventDeclaration.Modifiers, eventDeclaration.Name, builder)
+
+        builder.Append("event ")
+        builder.Append(eventDeclaration.Name)
+        builder.Append(": ")
+        builder.Append(FormatterSyntaxText.FormatTypeReference(eventDeclaration.Type))
         builder.AppendLine()
     }
 

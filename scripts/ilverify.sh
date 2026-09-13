@@ -265,6 +265,7 @@ if [ "$BUILD_NATIVE_TESTS" = "1" ]; then
     build_native_test "using statement" "$REPO_ROOT/tests/native/census-using-statement" "$REPO_ROOT/tests/native/census-using-statement/bin/Debug/net10.0/tests/NSharpLang.CensusUsingStatement.Tests.dll" || BUILD_FAILED=1
     build_native_test "async lambdas" "$REPO_ROOT/tests/native/census-async-lambdas" "$REPO_ROOT/tests/native/census-async-lambdas/bin/Debug/net10.0/tests/NSharpLang.CensusAsyncLambdas.Tests.dll" || BUILD_FAILED=1
     build_native_test "accessibility" "$REPO_ROOT/tests/native/census-accessibility" "$REPO_ROOT/tests/native/census-accessibility/bin/Debug/net10.0/tests/NSharpLang.CensusAccessibility.Tests.dll" || BUILD_FAILED=1
+    build_native_test "census source events" "$REPO_ROOT/tests/native/census-source-events" "$REPO_ROOT/tests/native/census-source-events/bin/Debug/net10.0/tests/NSharpLang.CensusSourceEvents.Tests.dll" || BUILD_FAILED=1
 fi
 if [ "$BUILD_FAILED" = "1" ]; then
     fail "One or more nlc builds failed; cannot run IL verification."

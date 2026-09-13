@@ -1094,6 +1094,7 @@ test "literal node-kind ledger owns every primary literal ordinal" {
 
     assert ColumnarExpressionNodeKind.DefaultExpression() == 74
     assert ColumnarExpressionNodeKind.NullGuardExpression() == 75
+    assert ColumnarExpressionNodeKind.ThisExpression() == 82
 }
 
 // `default` IS A PRIMARY, AND IT IS THE NULL LITERAL'S TWIN. Both keywords name the target type's zero
@@ -1114,6 +1115,50 @@ test "the default keyword parses as a childless primary carrying only its own sp
     assert probe.NodeSpanStarts[0] == 0
     assert probe.NodeSpanLengths[0] == source.Length
     assert source.Substring(probe.NodeSpanStarts[0], probe.NodeSpanLengths[0]) == "default"
+}
+
+// A BARE `this` IS A PRIMARY WITH NO OPERAND, exactly as `default` and `null` are: the keyword IS the
+// node, so it records no value span and no children, and the type comes from the declaration it is
+// written inside. `this.Member` never reaches this kind — the postfix parser collapses that prefix into
+// a bare identifier one level up — so kind 82 means the keyword really stood alone.
+test "a bare this parses as a childless primary carrying only its own span" {
+    source := "this"
+    probe := new ColumnarNumericLiteralParseProbe(source)
+
+    assert probe.NodeCount == 1
+    assert probe.ParseResult[0] == 0
+    assert probe.NodeKinds[0] == ColumnarExpressionNodeKind.ThisExpression()
+    assert probe.NodeChildCounts[0] == 0
+    assert probe.NodeValueStarts[0] == -1
+    assert probe.NodeValueLengths[0] == 0
+    assert probe.NodeSpanStarts[0] == 0
+    assert probe.NodeSpanLengths[0] == source.Length
+}
+
+// THE COLLAPSING ARM STILL WINS. `this.Label` is the SAME node a bare `Label` produces, because the
+// member a body names through `this` and the member it names bare bind identically.
+test "this dot member stays a bare identifier rather than becoming a this node" {
+    source := "this.Label"
+    probe := new ColumnarNumericLiteralParseProbe(source)
+
+    root := probe.ParseResult[0]
+    assert probe.NodeKinds[root] == ColumnarExpressionNodeKind.IdentifierExpression()
+    assert probe.NodeChildCounts[root] == 0
+    assert source.Substring(probe.NodeValueStarts[root], probe.NodeValueLengths[root]) == "Label"
+}
+
+// `this` AS AN ARGUMENT — the shape the canonical .NET event raise is written in.
+test "a bare this reaches an argument position as its own node" {
+    source := "Changed.Invoke(this, empty)"
+    probe := new ColumnarNumericLiteralParseProbe(source)
+
+    root := probe.ParseResult[0]
+    assert probe.NodeKinds[root] == ColumnarExpressionNodeKind.CallExpression()
+    assert probe.NodeChildCounts[root] == 3
+
+    firstArgument := probe.NodeChildren[probe.NodeChildStarts[root] + 1]
+    assert probe.NodeKinds[firstArgument] == ColumnarExpressionNodeKind.ThisExpression()
+    assert probe.NodeChildCounts[firstArgument] == 0
 }
 
 // `?.` IS THE `.` ACCESS WITH A GUARDED RECEIVER. The access above it stays an ordinary kind-8

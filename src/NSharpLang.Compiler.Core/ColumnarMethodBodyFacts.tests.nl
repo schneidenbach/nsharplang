@@ -1036,10 +1036,10 @@ func MethodBodyFactsDoorPlan(name: string, bindings: ColumnarFragmentBindings, r
 // that satisfied both would mean the door claims and declines the same shape.
 test "the expression door partitions its whole kind ledger with no hole and no overlap" {
     ledger := ColumnarMethodBodyPlanner.ExpressionKindLedger()
-    // 38 since the `default` keyword (74), the `?.` null guard (75), the `async` lambda (78 — the
-    // kind-39 shape with the keyword in front, and declined for the same reason kind 39 is) and the
-    // `on` subscription (79) joined the parser's value surface.
-    assert ledger.Length == 38
+    // 39 since the `default` keyword (74), the `?.` null guard (75), the `async` lambda (78 — the
+    // kind-39 shape with the keyword in front, and declined for the same reason kind 39 is), the
+    // `on` subscription (79) and a bare `this` (82) joined the parser's value surface.
+    assert ledger.Length == 39
 
     claimed := 0
     i := 0

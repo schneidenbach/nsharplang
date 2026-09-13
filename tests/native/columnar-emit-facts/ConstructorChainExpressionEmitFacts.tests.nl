@@ -228,8 +228,14 @@ test "constructor chain emission rejects ambiguous targets and pre-chain current
     instanceCall := "class ChainCallBase { constructor(value: int) {} }\nclass ChainCallDerived: ChainCallBase {\n    constructor(): base(Read()) {}\n    private func Read(): int { return 1 }\n}\n"
     assert ConstructorChainExpressionEmitOutcome(instanceCall) == "emit.ctor.chain-instance|ChainCallDerived.constructor"
 
+    // A BARE `this` IN A CHAIN ARGUMENT USED TO BE A PARSE DECLINE, because a `this` standing alone
+    // reached no columnar node kind at all. It parses now (expression kind 82), and it is rejected for
+    // exactly the reason `base(this.Value)` above is: the object does not exist until the chained
+    // constructor has run, so handing it out beforehand hands out storage that has not been written.
+    // The outcome moves from `parse.struct` to the current-instance decline, which is the correct one
+    // and is what C# reports here too (CS0027, `this` is not available in the current context).
     bareThis := "class ChainBareThis {\n    constructor(value: object) {}\n    constructor(): this(this) {}\n}\n"
-    assert ConstructorChainExpressionParseOutcome(bareThis) == "parse.struct"
+    assert ConstructorChainExpressionEmitOutcome(bareThis) == "emit.ctor.chain-instance|ChainBareThis.constructor"
 
     bareBase := "class ChainBareBase { constructor(value: object) {} }\nclass ChainBareBaseDerived: ChainBareBase {\n    constructor(): base(base) {}\n}\n"
     assert ConstructorChainExpressionParseOutcome(bareBase) == "parse.struct"

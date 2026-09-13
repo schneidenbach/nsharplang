@@ -2666,6 +2666,20 @@ Analyzer coverage is split deliberately across:
   slice every one of those functions declined the WHOLE enclosing declaration at `parse.function` /
   `parse.struct` — the columnar pipeline had no `on` at all — so the file COMPILING is half of each
   contract and the COUNT is the other half.
+- `tests/native/census-source-events` for events a SOURCE type declares. `event Name: DelegateType`
+  resolves to TWO different things depending on who is asking, and that is the whole rule: inside the
+  declaring type the name IS the backing delegate (`AnalyzerDeclarationContext.TryResolveDeclaredEventMember`
+  answers the handler type, which is what makes `Changed?.Invoke(this, args)`, `Changed(this, args)`
+  and `Changed != null` ordinary expressions there), and everywhere else it is a `SourceEventInfo` —
+  a `TypeInfo` with no value at all, so reading it, invoking it, assigning to it and `+=`/`-=` each
+  report `NL337` naming the declaring type. `SourceEventFacts.IsInsideDeclaringType` is the single
+  owner of the where-am-I question; C#'s rule is kept exactly, so a DERIVED type is outside. `on`
+  admits a `SourceEventInfo` in `AnalyzerLambdaAnalysis.ClassifyOnTarget` with the declared handler
+  type as the lambda's contextual target, and the value-type arm reports the same sentence a .NET
+  instance event on a struct gets. The runtime half — subscribe / raise / detach counts, a static
+  event, a struct-declared one, an inherited one, a method-group handler — plus the CLR metadata half
+  (`GetEvent`, both accessors, the `[CompilerGenerated]` private backing field, and `EventInfo.AddEventHandler`
+  standing in for a C# caller's `+=`) is all in that project.
 - `tests/native/analyzer-binding-map` for what `AnalysisResult.Bindings` answers — `GetBindingAt`
   over interpolation holes, member accesses, and type annotations in every composite position
   (nullable, array, generic argument, delegate argument), and `FindAllReferences` with its WHOLE

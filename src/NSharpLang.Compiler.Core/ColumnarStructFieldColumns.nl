@@ -11,6 +11,10 @@ class ColumnarStructFieldColumns {
     FieldVisibilityFlags: int[]
     FieldThreadStaticFlags: bool[]
     FieldConstFlags: bool[]
+    // Whether the row was written as `event Name: DelegateType` rather than as a field. The storage is
+    // the same storage; what the bit adds is the pair of accessors and the `EventInfo` row beside it,
+    // and private storage whatever the event's own visibility says.
+    FieldEventFlags: bool[]
     FieldInitKinds: int[]
     FieldInitTexts: string[]
 
@@ -23,6 +27,7 @@ class ColumnarStructFieldColumns {
         fieldVisibilityFlags: int[],
         fieldThreadStaticFlags: bool[],
         fieldConstFlags: bool[],
+        fieldEventFlags: bool[],
         fieldInitKinds: int[],
         fieldInitTexts: string[]
     ) {
@@ -34,6 +39,7 @@ class ColumnarStructFieldColumns {
         FieldVisibilityFlags = fieldVisibilityFlags
         FieldThreadStaticFlags = fieldThreadStaticFlags
         FieldConstFlags = fieldConstFlags
+        FieldEventFlags = fieldEventFlags
         FieldInitKinds = fieldInitKinds
         FieldInitTexts = fieldInitTexts
     }
@@ -56,6 +62,7 @@ class ColumnarStructFieldColumns {
         fieldVisibilityFlags := new int[](count)
         fieldThreadStaticFlags := new bool[](count)
         fieldConstFlags := new bool[](count)
+        fieldEventFlags := new bool[](count)
 
         fieldIndex := 0
         while fieldIndex < count {
@@ -77,6 +84,7 @@ class ColumnarStructFieldColumns {
             fieldVisibilityFlags[fieldIndex] = ColumnarStructFieldVisibilityModifiers(fieldModifierFlags)
             fieldThreadStaticFlags[fieldIndex] = ColumnarStructFieldFlagIsThreadStatic(fieldModifierFlags)
             fieldConstFlags[fieldIndex] = ColumnarStructFieldFlagIsConst(fieldModifierFlags)
+            fieldEventFlags[fieldIndex] = ColumnarStructFieldFlagIsEvent(fieldModifierFlags)
             fieldIndex = fieldIndex + 1
         }
 
@@ -89,6 +97,7 @@ class ColumnarStructFieldColumns {
             fieldVisibilityFlags,
             fieldThreadStaticFlags,
             fieldConstFlags,
+            fieldEventFlags,
             fieldInitKinds,
             fieldInitTexts
         )

@@ -232,7 +232,7 @@ class NominalTypeInfoFactory {
     }
 
     static func GetDeclaredMemberTypeReference(member: object, kind: DeclaredMemberKind): TypeReference? {
-        if kind == DeclaredMemberKind.Field || kind == DeclaredMemberKind.Property || kind == DeclaredMemberKind.TypeAlias {
+        if kind == DeclaredMemberKind.Field || kind == DeclaredMemberKind.Property || kind == DeclaredMemberKind.TypeAlias || kind == DeclaredMemberKind.Event {
             return GetOptionalTypeReference(member, "Type")
         }
 
@@ -688,6 +688,9 @@ class NominalTypeInfoFactory {
         if typeName == "PropertyDeclaration" {
             return DeclaredMemberKind.Property
         }
+        if typeName == "EventDeclaration" {
+            return DeclaredMemberKind.Event
+        }
         if typeName == "FunctionDeclaration" {
             return DeclaredMemberKind.Function
         }
@@ -781,6 +784,9 @@ class NominalTypeInfoFactory {
         }
         if kind == DeclaredMemberKind.Property {
             return "property"
+        }
+        if kind == DeclaredMemberKind.Event {
+            return "event"
         }
         if kind == DeclaredMemberKind.Function {
             return "function"

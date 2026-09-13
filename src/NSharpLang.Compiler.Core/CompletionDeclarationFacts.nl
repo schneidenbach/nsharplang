@@ -40,6 +40,14 @@ class CompletionDeclarationFacts {
             return new CompletionItem(TypeInfoFactoryReflection.GetRequiredString(declaration, "Name"), "property", TypeReferenceFacts.GetDisplayNameOrVoid(memberType), null, null, false)
         }
 
+        // AN EVENT IS ITS OWN OFFER. It is the one member a completion must NOT call a property:
+        // what the author can write next is `on`/`off`, not a read or a write, and the icon is the
+        // only place the list can say so.
+        if typeName == "EventDeclaration" {
+            eventType := TypeInfoFactoryReflection.GetOptionalProperty(declaration, "Type") as TypeReference
+            return new CompletionItem(TypeInfoFactoryReflection.GetRequiredString(declaration, "Name"), "event", TypeReferenceFacts.GetDisplayNameOrVoid(eventType), null, null, false)
+        }
+
         return null
     }
 
@@ -125,6 +133,11 @@ class CompletionDeclarationFacts {
         // type. The completion says `"property"` for both.
         if kind == DeclaredMemberKind.Field || kind == DeclaredMemberKind.Property {
             return new CompletionItem(member.Name, "property", TypeReferenceFacts.GetDisplayNameOrVoid(member.Type), null, null, member.IsStatic)
+        }
+
+        // An event is NOT that same offer: `on`/`off` is all a caller may write against it.
+        if kind == DeclaredMemberKind.Event {
+            return new CompletionItem(member.Name, "event", TypeReferenceFacts.GetDisplayNameOrVoid(member.Type), null, null, member.IsStatic)
         }
 
         return null

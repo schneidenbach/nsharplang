@@ -123,6 +123,8 @@ These are not style rules; style is `nlc format`'s job and produces no diagnosti
 | [`NL334`](./NL334.md) | An `async` lambda whose target delegate returns no task. |
 | [`NL335`](./NL335.md) | A lambda whose body is missing the `async` keyword. |
 | [`NL336`](./NL336.md) | A bare `throw` with no `catch` handler to re-throw from. |
+| [`NL337`](./NL337.md) | An event a type declared, read, raised or assigned from outside that type. |
+| [`NL338`](./NL338.md) | An event declared over a type that is not a delegate. |
 
 ## Calls — `NL4xx`
 

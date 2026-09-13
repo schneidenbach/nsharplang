@@ -280,6 +280,31 @@ class ColumnarPropertyDef {
     }
 }
 
+// A SOURCE-DECLARED EVENT'S EMITTED PARTS, kept together because no consumer can use one without the
+// others: `on` needs the handler type and the `add_` accessor, the handle `off` detaches needs the
+// `remove_` accessor, and the declaring type's own body reads the backing field.
+class ColumnarEventDef {
+    Name: string
+    BackingField: FieldBuilder
+    Add: MethodBuilder
+    Remove: MethodBuilder
+    HandlerType: Type
+    IsStatic: bool
+
+    constructor(name: string, backingField: FieldBuilder, add: MethodBuilder, remove: MethodBuilder, handlerType: Type, isStatic: bool) {
+        if name == null || backingField == null || add == null || remove == null || handlerType == null {
+            throw new InvalidOperationException("Source event definition facts cannot be null.")
+        }
+
+        Name = name
+        BackingField = backingField
+        Add = add
+        Remove = remove
+        HandlerType = handlerType
+        IsStatic = isStatic
+    }
+}
+
 class ColumnarConstructorDef {
     Builder: ConstructorBuilder
     ParamTypes: Type[]
@@ -436,6 +461,10 @@ class ColumnarStructDef {
     InstanceInitializerPlan: ColumnarFieldInitPlan?
     InstanceInitializerCtor: ColumnarConstructorInput?
     Properties: Dictionary<string, ColumnarPropertyDef>
+    // The events this type DECLARES, keyed by the event's own name. `on`/`off` read it because a type
+    // still under construction answers no reflection question — `TypeBuilder.GetEvent` throws — so the
+    // accessors a subscription needs can only come from the definition that created them.
+    Events: Dictionary<string, ColumnarEventDef>
     // A MEMBER'S TYPE AS WRITTEN, tuple element labels included, keyed by member name. The CLR type a
     // field or property answers has no element names in it -- `(Item: string, Count: int)` IS
     // `ValueTuple<string, int>` -- so this is the only place a body can learn that `holder.Pair.Item`
@@ -476,6 +505,7 @@ class ColumnarStructDef {
         Constructors = new List<ColumnarConstructorDef>()
         InstanceInitializerFields = new HashSet<string>(StringComparer.Ordinal)
         Properties = new Dictionary<string, ColumnarPropertyDef>(StringComparer.Ordinal)
+        Events = new Dictionary<string, ColumnarEventDef>(StringComparer.Ordinal)
         MemberLabeledCanonicals = new Dictionary<string, string>(StringComparer.Ordinal)
         ExactBaseType = null
     }

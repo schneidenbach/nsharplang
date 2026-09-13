@@ -429,6 +429,7 @@ class AnalyzerTypeDeclarations {
     func AdvanceTypeHeader(state: TypeDeclarationState): TypeDeclarationRequest? {
         DeclareTypeParameters(state)
         ValidateReadonlyStructInstanceFields(state)
+        ValidateInterfaceEventMembers(state)
         ResolveDeclaredBases(state)
         ValidateNoInheritanceCycle(state)
         ValidateSingleBaseClass(state)
@@ -1059,6 +1060,33 @@ class AnalyzerTypeDeclarations {
     // construction — C# accepts an init-only auto-property inside a readonly struct for exactly that
     // reason. A PLAIN struct with readonly fields is untouched: it stays a MUTABLE struct, and saying
     // otherwise would flag the shape half the corpus is already written in.
+    // AN EVENT AN INTERFACE DECLARES IS UNDERSTOOD AND NOT YET EMITTED. `event Name: DelegateType`
+    // parses and binds wherever a member may be written, but an interface's accessors are abstract
+    // slots an implementing type has to fill, and nothing yet declares them, matches them or checks
+    // that a class supplied them. Saying so HERE — at the member, with the way to keep working —
+    // is the whole point: the columnar backend's own answer is `NL103 … parse.interface`, a sentence
+    // about the compiler's internals for a construct the reader wrote on purpose.
+    func ValidateInterfaceEventMembers(state: TypeDeclarationState) {
+        if state.Form != 3 {
+            return
+        }
+
+        members := TypeMembers(state)
+        if members == null {
+            return
+        }
+
+        for member in members {
+            eventMember := member as EventDeclaration
+            if eventMember == null {
+                continue
+            }
+
+            span := spansValue.GetTypeNameDiagnosticSpan(eventMember.Name, eventMember.Line, eventMember.Column)
+            diagnosticsValue.Report(ErrorCode.FeatureNotImplemented, "an interface cannot declare the event '" + eventMember.Name + "' yet", span.Line, span.Column, "Declare the event on each implementing class, struct or record instead — `event " + eventMember.Name + ": …` works there — or have the interface declare `Subscribe`/`Unsubscribe` methods the implementations route through.", span.Length)
+        }
+    }
+
     func ValidateReadonlyStructInstanceFields(state: TypeDeclarationState) {
         if !IsReadonlyStructDeclaration(state) {
             return
@@ -1221,8 +1249,46 @@ class AnalyzerTypeDeclarations {
             field := member as FieldDeclaration
             if field != null {
                 ValidateFieldInheritanceModifiers(field)
+                continue
+            }
+
+            eventMember := member as EventDeclaration
+            if eventMember != null {
+                ValidateEventInheritanceModifiers(eventMember)
             }
         }
+    }
+
+    // AN EVENT'S ACCESSORS ARE SYNTHESIZED, AND THEY ARE NOT YET VIRTUAL SLOTS.
+    //
+    // C# does let an event be `virtual`, `abstract` or `override`: the accessors become the virtual
+    // members and an override supplies its own pair without a field of its own. N# emits neither half
+    // of that yet — the accessors are non-virtual, so `virtual` would promise a dispatch the runtime
+    // does not perform, `override` would HIDE the base's event while a subscriber through the base
+    // reference still reached the base's storage, and `abstract` would emit a concrete event with
+    // storage nobody can reach. All three were accepted in SILENCE, which reads as a promise.
+    //
+    // `NL311` for the same reason a field's three words are: the fault is the MODIFIER, not the name.
+    func ValidateEventInheritanceModifiers(eventMember: EventDeclaration) {
+        modifierBits := Convert.ToInt32(eventMember.Modifiers)
+        if (modifierBits & Convert.ToInt32(Modifiers.Override)) != 0 {
+            ReportEventInheritanceModifierFault(eventMember, "override")
+            return
+        }
+
+        if (modifierBits & Convert.ToInt32(Modifiers.Abstract)) != 0 {
+            ReportEventInheritanceModifierFault(eventMember, "abstract")
+            return
+        }
+
+        if (modifierBits & Convert.ToInt32(Modifiers.Virtual)) != 0 {
+            ReportEventInheritanceModifierFault(eventMember, "virtual")
+        }
+    }
+
+    func ReportEventInheritanceModifierFault(eventMember: EventDeclaration, modifierName: string) {
+        span := spansValue.GetTypeNameDiagnosticSpan(eventMember.Name, eventMember.Line, eventMember.Column)
+        diagnosticsValue.Report(ErrorCode.InvalidModifier, "'" + eventMember.Name + "' is declared '" + modifierName + "', but an event's accessors are not virtual yet", span.Line, span.Column, "Drop '" + modifierName + "'. A derived type inherits the event as it is and subscribes to it with `on`; to let a derived type decide what raising means, give the base a `virtual func` the event's raise goes through.", span.Length)
     }
 
     // A FIELD CANNOT TAKE PART IN INHERITANCE AT ALL, AND N# LETS ONE BE WRITTEN AS IF IT COULD.

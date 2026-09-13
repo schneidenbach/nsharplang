@@ -832,6 +832,21 @@ class AnalyzerLambdaAnalysis {
     // parameters have no inferable type — that is one problem, reported once, at the target.
     func ClassifyOnTarget(state: OnSubscriptionState): OnSubscriptionRequest? {
         target := state.On.Target
+
+        // AN EVENT THIS COMPILATION DECLARED IS AN `on` TARGET LIKE ANY OTHER. Its accessors are
+        // synthesized, so there is no "no accessible add/remove" arm to run — the only rule left is
+        // the value-type one, which is the same rule for the same reason: an instance event reached
+        // through a struct receiver would attach the handler to a COPY.
+        sourceEventInfo := state.TargetType as SourceEventInfo
+        if sourceEventInfo != null {
+            if sourceEventInfo.DeclaringTypeIsValueType {
+                span := spans.GetExpressionDiagnosticSpan(target)
+                diagnostics.Report(ErrorCode.InvalidEventSubscription, "subscribing to '" + sourceEventInfo.Name + "' isn't supported — it's an instance event on a value type (struct)", span.Line, span.Column, "Events on struct receivers can't be bound safely. Subscribe through a reference-type instance instead.", span.Length)
+            }
+
+            return EmitHandler(state, sourceEventInfo.HandlerType, true)
+        }
+
         eventInfo := state.TargetType as ReflectionEventInfo
         if eventInfo == null {
             if soaEscape.ReportSoaRowEscapeIfNeeded(target, state.TargetType, "used as an event target") {

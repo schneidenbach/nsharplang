@@ -158,6 +158,8 @@ class DiagnosticCatalog {
         AddCompiler(descriptors, ErrorCode.AsyncLambdaTargetNotTaskLike)
         AddCompiler(descriptors, ErrorCode.LambdaBodyNeedsAsync)
         AddCompiler(descriptors, ErrorCode.RethrowOutsideCatch)
+        AddCompiler(descriptors, ErrorCode.SourceEventRequiresOnOff)
+        AddCompiler(descriptors, ErrorCode.EventRequiresDelegateType)
 
         AddCompiler(descriptors, ErrorCode.WrongArgumentCount)
         AddCompiler(descriptors, ErrorCode.NoMatchingOverload)
