@@ -744,16 +744,15 @@ func getStatus(code: int): string => match code {
 Define functions inside other functions:
 
 ```n#
-func processData(input: string): string {
-    // Local function
+func processData(input: string, label: string): string {
+    // A local function that captures nothing
     func validate(s: string): bool {
         return !string.IsNullOrEmpty(s)
     }
 
-    // Local function with closure
+    // A local function that CAPTURES `label` from the enclosing function
     func transform(s: string): string {
-        prefix := "Processed"  // Captures from outer scope
-        return $"{prefix}: {s}"
+        return $"{label}: {s}"
     }
 
     if !validate(input) {
@@ -868,6 +867,98 @@ func total(): int {
 Move the assignment above the call — or give `seed` a value where it is declared — and the call is
 fine. The rule follows calls between local functions too: if `outer` calls `inner` and `inner` reads
 `seed`, calling `outer` is what gets reported.
+
+### Capture: a local function and a lambda close over the same way
+
+A local function may read and write the parameters and locals of the function around it. The binding
+it captures is **one storage location**, not a copy: a write the local function makes is visible
+afterwards, and a write made between the declaration and the call is visible inside.
+
+```n#
+func walk(items: List<string>): int {
+    total := 0
+    seen := new List<string>()
+
+    func visit(value: string) {
+        if seen.Contains(value) {
+            return
+        }
+
+        seen.Add(value)
+        total = total + value.Length          // writes the enclosing `total`
+        if value.Length > 1 {
+            visit(value.Substring(1))
+        }
+    }
+
+    for item in items {
+        visit(item)
+    }
+
+    return total                              // sees every write `visit` made
+}
+```
+
+Two local functions that call each other share the same captures, so mutual recursion through
+captured state works the way ordinary recursion does.
+
+**What the compiler emits.** A local function that captures nothing stays a plain private method. A
+local function that captures becomes a method of one **closure object** created for the scope that
+declares it — the same object a capturing lambda in that scope would use — so the two forms have one
+cost model and one set of rules. Converting a capturing local function to a delegate (`let f:
+Func<int, int> = add`, `return add`, or passing it as an argument) binds the delegate to that same
+object, so the delegate keeps sharing the storage after the enclosing call returns.
+
+```n#
+func makeAdder(seed: int): Func<int, int> {
+    offset := seed
+
+    func add(value: int): int {
+        return value + offset
+    }
+
+    return add                                // the delegate carries `offset` with it
+}
+```
+
+**Capturing `this`.** Inside a method, a local function may use the enclosing object's members with
+no receiver, exactly as the method body does:
+
+```n#
+class Walker {
+    Count: int
+
+    func Run(items: List<string>) {
+        func bump(value: string) {
+            Count = Count + value.Length
+        }
+
+        for item in items {
+            bump(item)
+        }
+    }
+}
+```
+
+A local function in a **struct** that uses `this` receives the receiver **by reference**, which is
+C#'s rule: it is compiled as an instance method of the struct, so it reads the same value the caller
+holds rather than a copy.
+
+**A `ref`, `out` or `in` parameter cannot be captured.** Those are pointers into the caller's frame
+and the closure object outlives them, so a local function that reads one is reported as
+[`NL331`](./errors/NL331.md). Copy it into an ordinary local, capture that, and assign the result
+back after the call.
+
+**Per-iteration capture.** A binding declared inside a loop is a new binding on every iteration, so
+closures created in different iterations capture different storage:
+
+```n#
+adders := new List<Func<int>>()
+for i := 0; i < 3; i++ {
+    step := i * 10
+    adders.Add(() => step)                    // 0, 10, 20 — not 20, 20, 20
+}
+```
 
 ## Function Overloading
 

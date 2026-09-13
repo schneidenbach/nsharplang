@@ -117,6 +117,7 @@ These are not style rules; style is `nlc format`'s job and produces no diagnosti
 | [`NL328`](./NL328.md) | A field initializer that reaches the instance being built. |
 | [`NL329`](./NL329.md) | A struct field initializer with no constructor to run in. |
 | [`NL330`](./NL330.md) | A loop variable annotated with a type its elements cannot become. |
+| [`NL331`](./NL331.md) | A local function reading the enclosing function's `ref`, `out` or `in` parameter. |
 
 ## Calls — `NL4xx`
 

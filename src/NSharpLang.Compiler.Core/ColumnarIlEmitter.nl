@@ -5691,6 +5691,7 @@ sealed class ColumnarIlEmitter {
             if (closure != null && closure.IsDisplayMethod(localFn.Name)) {
                 localBoxedCaptures = closure.BoxFields
                 localClosureView = closure.ForDisplayMethodBody()
+                localCurrentStruct = closure.DisplayDefinitionOrNull()
             } else if (closure != null && closure.IsInstanceMethod(localFn.Name)) {
                 localCurrentStruct = enclosingDefinition
                 localClosureView = closure
@@ -5780,7 +5781,17 @@ sealed class ColumnarIlEmitter {
         displayCtor := display.DefineDefaultConstructor(MethodAttributes.Public)
         result := new ColumnarLocalFunctionDisplay(display, displayCtor, plan)
         if (plan.ReadsEnclosingInstance) {
-            result.BindEnclosingThisField(display.DefineField("<>4__this", enclosingDefinition.Builder, FieldAttributes.Public))
+            enclosingThisField := display.DefineField("<>4__this", enclosingDefinition.Builder, FieldAttributes.Public)
+            result.BindEnclosingThisField(enclosingThisField)
+            // The display is also a SOURCE type to the bodies that run on it, so a bare call on the
+            // lexical owner resolves through `<>4__this` exactly as it does from a mixed-capture
+            // lambda. Only that field is declared here: the captures ride boxes, which resolve
+            // through the boxed-capture map rather than as ordinary fields of this type.
+            displayFields := new Dictionary<string, FieldBuilder>(StringComparer.Ordinal)
+            displayFields["<>4__this"] = enclosingThisField
+            displayFieldOrder := new string[1]
+            displayFieldOrder[0] = "<>4__this"
+            result.BindDisplayDefinition(new ColumnarStructDef(display, displayFieldOrder, displayFields, true, false, true, displayTypeName))
         }
         return result
     }

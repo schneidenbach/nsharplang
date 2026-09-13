@@ -181,6 +181,10 @@ class AnalyzerAmbientContext {
     finallyDepthValue: int
     breakTargetFinallyDepthValue: int
     continueTargetFinallyDepthValue: int
+    // The enclosing function's `ref`/`out`/`in` parameter names, live only while a LOCAL FUNCTION's
+    // body is being walked. A managed pointer cannot be stored in a closure's storage, so a local
+    // function that reads one has no way to be lowered — C# reports that as CS1628 and so does NL331.
+    capturedByRefParameterNamesValue: HashSet<string>?
     currentExpectedTypeValue: TypeInfo?
     currentClassValue: ClassDeclaration?
     currentTypeMembersValue: List<Declaration>?
@@ -553,6 +557,39 @@ class AnalyzerAmbientContext {
     // at different points in the accessor walk — the member's staticness is known from the
     // declaration before either accessor is reached, while the return type differs between the getter
     // and the setter — and a single pair would have to be opened twice for one member.
+    // THE ENCLOSING FUNCTION'S BYREF PARAMETERS, ENTERED WITH A LOCAL FUNCTION'S BODY. Nested local
+    // functions accumulate rather than replace: the innermost one may not read the outermost one's
+    // `ref` parameter either. The previous set is handed back so the walk restores it on the way out.
+    func EnterLocalFunctionByRefParameters(enclosing: FunctionDeclaration?): HashSet<string>? {
+        saved := capturedByRefParameterNamesValue
+        names := new HashSet<string>(StringComparer.Ordinal)
+        if saved != null {
+            names.UnionWith(saved)
+        }
+
+        if enclosing != null {
+            for parameter in enclosing.Parameters {
+                if parameter.Modifier != ParameterModifier.None && !parameter.IsThis {
+                    names.Add(parameter.Name)
+                }
+            }
+        }
+
+        capturedByRefParameterNamesValue = names
+        return saved
+    }
+
+    func ExitLocalFunctionByRefParameters(saved: HashSet<string>?) {
+        capturedByRefParameterNamesValue = saved
+    }
+
+    // Whether a bare name read here would be a read of an enclosing function's byref parameter from
+    // inside a local function's body.
+    func IsCapturedByRefParameter(name: string): bool {
+        names := capturedByRefParameterNamesValue
+        return names != null && names.Contains(name)
+    }
+
     func EnterMemberIsStatic(memberIsStatic: bool): bool {
         saved := memberIsStaticValue
         memberIsStaticValue = memberIsStatic

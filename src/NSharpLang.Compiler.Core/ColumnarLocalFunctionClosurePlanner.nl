@@ -224,6 +224,9 @@ class ColumnarLocalFunctionDisplay {
     Plan: ColumnarLocalFunctionClosurePlan
     BoxFields: Dictionary<string, (BoxField: FieldInfo, ValueType: Type)>
     EnclosingThisField: FieldBuilder?
+    // The display AS A SOURCE TYPE, so a display method's body resolves `<>4__this` the way a
+    // capturing lambda's body does. Null unless some display method needs the enclosing instance.
+    DisplayDefinition: ColumnarStructDef?
     Instance: LocalBuilder?
     ReceiverIsArgument: bool
 
@@ -233,6 +236,7 @@ class ColumnarLocalFunctionDisplay {
         Plan = plan
         BoxFields = new Dictionary<string, (BoxField: FieldInfo, ValueType: Type)>(StringComparer.Ordinal)
         EnclosingThisField = null
+        DisplayDefinition = null
         Instance = null
         ReceiverIsArgument = false
     }
@@ -245,6 +249,7 @@ class ColumnarLocalFunctionDisplay {
         view := new ColumnarLocalFunctionDisplay(Builder, Constructor, Plan)
         view.BoxFields = BoxFields
         view.EnclosingThisField = EnclosingThisField
+        view.DisplayDefinition = DisplayDefinition
         view.ReceiverIsArgument = true
         return view
     }
@@ -258,6 +263,14 @@ class ColumnarLocalFunctionDisplay {
 
     func BindEnclosingThisField(field: FieldBuilder) {
         EnclosingThisField = field
+    }
+
+    func BindDisplayDefinition(definition: ColumnarStructDef) {
+        DisplayDefinition = definition
+    }
+
+    func DisplayDefinitionOrNull(): ColumnarStructDef? {
+        return DisplayDefinition
     }
 
     func AddCapture(name: string, boxField: FieldInfo, valueType: Type) {

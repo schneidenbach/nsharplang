@@ -1146,7 +1146,12 @@ class Analyzer: IDisposable {
 
         localFunction := statement as LocalFunctionStatement
         if localFunction != null {
+            // The enclosing function's byref parameters travel INTO the local function's walk, so a
+            // read of one inside the body is reported at the read (NL331) rather than declining the
+            // whole program at emission with nowhere to point.
+            savedByRefParameters := Ambient.EnterLocalFunctionByRefParameters(Ambient.CurrentFunction)
             DriveFunctionBody(FunctionBodies.BeginLocalFunction(localFunction, Ambient.CurrentTypeName, Assignability))
+            Ambient.ExitLocalFunctionByRefParameters(savedByRefParameters)
         }
     }
     private func DriveStatementSequence(state: StatementSequenceState) {
