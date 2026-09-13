@@ -400,6 +400,29 @@ test "`this` IS DECLARED WITHOUT A BINDING DECLARATION, AND AN INTERFACE DECLARE
     assert interfaceSteps[0].ScopeKindName == "Interface"
 }
 
+// AN EVENT IS A MEMBER EVERYWHERE A MEMBER MAY BE WRITTEN — including an interface, where it binds
+// and then has nowhere to go: an interface's accessors are abstract slots an implementing type has
+// to fill, and nothing yet declares them, matches them or checks that a class supplied them. Saying
+// that AT THE MEMBER is the contract; the backend's own answer is `NL103 … parse.interface`, which
+// names the compiler's internals rather than what the reader wrote.
+test "AN INTERFACE EVENT IS REPORTED AT THE MEMBER, AND A CLASS EVENT IS NOT REPORTED AT ALL" {
+    interfaceMembers := new List<Declaration>()
+    interfaceMembers.Add(new EventDeclaration("Changed", TypeDeclInt(), Modifiers.None, TypeDeclNoAttributes(), 9, 5))
+    interfaceHarness := TypeDeclDefault()
+    TypeDeclRun(interfaceHarness, interfaceHarness.Declarations.BeginInterface(TypeDeclInterface("Shape", interfaceMembers, Modifiers.None), interfaceHarness.Assignability), null)
+    assert interfaceHarness.Errors.Count == 1
+    assert interfaceHarness.Errors[0].Code == ErrorCode.FeatureNotImplemented
+    assert interfaceHarness.Errors[0].Message == "an interface cannot declare the event 'Changed' yet"
+    assert interfaceHarness.Errors[0].Line == 9
+    assert interfaceHarness.Errors[0].Column == 5
+
+    classMembers := new List<Declaration>()
+    classMembers.Add(new EventDeclaration("Changed", TypeDeclInt(), Modifiers.None, TypeDeclNoAttributes(), 9, 5))
+    classHarness := TypeDeclDefault()
+    TypeDeclRun(classHarness, classHarness.Declarations.BeginClass(TypeDeclClass("Box", classMembers, null, null, Modifiers.None), classHarness.Assignability), null)
+    assert classHarness.Errors.Count == 0
+}
+
 test "EACH TYPE FORM OPENS THE SCOPE KIND NAMED FOR IT, AND A UNION OPENS A BLOCK" {
     classHarness := TypeDeclDefault()
     classSteps := TypeDeclRun(classHarness, classHarness.Declarations.BeginClass(TypeDeclClass("Box", TypeDeclNoMembers(), null, null, Modifiers.None), classHarness.Assignability), null)

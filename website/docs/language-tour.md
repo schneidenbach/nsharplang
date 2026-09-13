@@ -1524,7 +1524,9 @@ func watch(widget: Widget) {
 
 An event's type must be a delegate; anything else reports [NL338](./errors/NL338.md).
 
-**Current limits.** An event declared inside an `interface` is not compiled yet. An event's storage
+**Current limits.** An event declared inside an `interface` reports
+[NL323](./errors/NL323.md): the syntax binds, but an interface's accessors are abstract slots
+nothing yet fills — declare the event on each implementing type instead. An event's storage
 is synthesized, so it takes no initializer and no accessor block, and an event must be written among
 the type's fields — before its first `func` — like every other field-shaped member. An instance
 event declared by a **struct** emits and is raised by the struct's own code, but `on` refuses to

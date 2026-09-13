@@ -429,6 +429,7 @@ class AnalyzerTypeDeclarations {
     func AdvanceTypeHeader(state: TypeDeclarationState): TypeDeclarationRequest? {
         DeclareTypeParameters(state)
         ValidateReadonlyStructInstanceFields(state)
+        ValidateInterfaceEventMembers(state)
         ResolveDeclaredBases(state)
         ValidateNoInheritanceCycle(state)
         ValidateSingleBaseClass(state)
@@ -1059,6 +1060,33 @@ class AnalyzerTypeDeclarations {
     // construction — C# accepts an init-only auto-property inside a readonly struct for exactly that
     // reason. A PLAIN struct with readonly fields is untouched: it stays a MUTABLE struct, and saying
     // otherwise would flag the shape half the corpus is already written in.
+    // AN EVENT AN INTERFACE DECLARES IS UNDERSTOOD AND NOT YET EMITTED. `event Name: DelegateType`
+    // parses and binds wherever a member may be written, but an interface's accessors are abstract
+    // slots an implementing type has to fill, and nothing yet declares them, matches them or checks
+    // that a class supplied them. Saying so HERE — at the member, with the way to keep working —
+    // is the whole point: the columnar backend's own answer is `NL103 … parse.interface`, a sentence
+    // about the compiler's internals for a construct the reader wrote on purpose.
+    func ValidateInterfaceEventMembers(state: TypeDeclarationState) {
+        if state.Form != 3 {
+            return
+        }
+
+        members := TypeMembers(state)
+        if members == null {
+            return
+        }
+
+        for member in members {
+            eventMember := member as EventDeclaration
+            if eventMember == null {
+                continue
+            }
+
+            span := spansValue.GetTypeNameDiagnosticSpan(eventMember.Name, eventMember.Line, eventMember.Column)
+            diagnosticsValue.Report(ErrorCode.FeatureNotImplemented, "an interface cannot declare the event '" + eventMember.Name + "' yet", span.Line, span.Column, "Declare the event on each implementing class, struct or record instead — `event " + eventMember.Name + ": …` works there — or have the interface declare `Subscribe`/`Unsubscribe` methods the implementations route through.", span.Length)
+        }
+    }
+
     func ValidateReadonlyStructInstanceFields(state: TypeDeclarationState) {
         if !IsReadonlyStructDeclaration(state) {
             return
