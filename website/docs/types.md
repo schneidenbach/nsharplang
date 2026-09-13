@@ -1733,6 +1733,59 @@ label := found.Label
 The assert's **message**, when it has one, is not narrowed: it is the expression evaluated when the
 assert fails, which is the path where the condition did not hold.
 
+### A call can be the guard
+
+`[DoesNotReturnIf(bool)]` on a parameter says the call returns only when that argument took the other
+value, which makes the call a guard clause the signature spells — `Debug.Assert(cond)` is
+`[DoesNotReturnIf(false)] bool condition`. The statement after the call is narrowed by exactly what
+the argument proved:
+
+```n#
+func require([DoesNotReturnIf(false)] condition: bool, message: string) {
+    if !condition {
+        throw new ArgumentException(message)
+    }
+}
+
+func lengthOf(text: string?): int {
+    require(text != null, "text is required")
+    return text.Length          // `text` is `string` from here on
+}
+```
+
+`[DoesNotReturn]` on the whole signature is the unconditional form: a call to such a member ends the
+path it is written on, so a value function may end in one and a statement after one is dead code.
+See [Functions](functions.md#a-signature-that-never-returns).
+
+### A narrowed `T?` is read as its `T`
+
+Narrowing is not only a type-check: the compiler emits `Nullable<T>.Value` at the narrowed read, so
+arithmetic, a return, an argument, an annotated local and a member of a `?`-lifted tuple all run on
+the unwrapped value.
+
+```n#
+func addOne(value: int?): int {
+    if value == null {
+        return 0
+    }
+
+    return value + 1                    // the narrowed read, as an `int`
+}
+
+func lineOf(found: (Uri: string, Line: int)?): int {
+    if found == null {
+        return -1
+    }
+
+    return found.Line                   // the tuple's own element, past the unwrap
+}
+```
+
+Writing to the name ends the narrowing, and so does a loop body that writes it — the next iteration
+sees whatever the last one left. The four shapes that lower the nullable *themselves* —
+`value == null`, `value ?? 0`, `value.HasValue`, `value.Value` — keep the `Nullable<T>` and stay
+legal on a narrowed name.
+
 ### A generic member's nullability follows its type argument
 
 When you read a member of a constructed generic whose declared type is a bare type parameter, the

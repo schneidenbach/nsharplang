@@ -296,6 +296,95 @@ func answer() {
 
 Write `func answer(): int` when the function should return `42`.
 
+### Where a body ends
+
+A non-void function must return on every path. A loop does **not** count as returning, because it may
+run zero times — so the `return` after the loop is the one that runs on the empty collection, and it is
+required:
+
+```n#
+func firstOrFallback(values: List<int>): int {
+    for value in values {
+        return value
+    }
+
+    return -1
+}
+```
+
+That shape emits: a loop body that never falls through is ordinary. So is the scan loop whose every
+path either returns or `continue`s, in all four spellings (`for x in xs`, `for x in array`,
+`for c in text`, and the counted `for i := 0; …`).
+
+The one loop whose **end point is unreachable** is the endless one — a `while` whose condition is the
+constant `true`, or a `for` with no condition — and only when no reachable `break` targets it. That
+loop needs no return after it:
+
+```n#
+func attemptsUntil(threshold: int): int {
+    attempt := 0
+    while true {
+        attempt = attempt + 1
+        if attempt >= threshold {
+            return attempt
+        }
+    }
+}
+```
+
+### A signature that never returns
+
+A function that always throws can say so with `[DoesNotReturn]`, and N# believes it: a call to such
+a function **ends the path it is written on**, exactly as a `throw` does. The caller below needs no
+`return` after the call, and a statement written after one is reported as unreachable (`NL312`).
+
+```n#
+import System
+import System.Diagnostics.CodeAnalysis
+
+[DoesNotReturn]
+func fail(message: string) {
+    throw new InvalidOperationException(message)
+}
+
+func pick(value: int): string {
+    if value > 0 {
+        return "positive"
+    }
+
+    fail("not positive")
+}
+```
+
+This is stronger than C#, which reads the attribute only for its nullable analysis and still demands
+a `return` after the call.
+
+`[DoesNotReturnIf(bool)]` says the same thing about **one branch**: the call returns only when the
+argument took the other value, so the code after it knows what the argument proved. It is a guard
+clause the signature spells, and it narrows exactly as `assert` does.
+
+```n#
+func require([DoesNotReturnIf(false)] condition: bool, message: string) {
+    if !condition {
+        throw new ArgumentException(message)
+    }
+}
+
+func lengthOf(text: string?): int {
+    require(text != null, "text is required")
+    return text.Length          // `text` is `string` from here on
+}
+```
+
+Both attributes are read from a signature you declare and from one in a referenced assembly, and both
+reach the emitted metadata. The annotation is a **contract**: a member that carries `[DoesNotReturn]`
+and returns anyway throws an `InvalidOperationException` naming it, rather than silently falling out
+of a function that promised a value.
+
+One limit: at emission the attribute is read for members the project itself declares. A body whose
+last statement is a `[DoesNotReturn]` call into a *referenced assembly* still type-checks and is
+refused at emission — write a `throw` after it until that surface lands.
+
 ### Nullable Return Types
 
 ```n#

@@ -15,6 +15,11 @@ class ColumnarSiblingMethodDefinition {
     SpecialConstraints: int[]
     BaseConstraints: Type?[]
     InterfaceConstraints: Type[][]
+    // Whether the declaration carried `[DoesNotReturn]`. A call to it ends the path it is written
+    // on, and the fact travels with the signature because a `MethodBuilder` cannot be asked for it.
+    DoesNotReturn: bool
+    // The `[DoesNotReturnIf(bool)]` each parameter carries, in declaration order.
+    ParameterDoesNotReturnIf: int[]
 
     constructor(
         method: MethodInfo,
@@ -26,6 +31,8 @@ class ColumnarSiblingMethodDefinition {
         baseConstraints: Type?[],
         interfaceConstraints: Type[][]
     ) {
+        DoesNotReturn = false
+        ParameterDoesNotReturnIf = new int[](0)
         Method = method
         ParamTypes = paramTypes
         ParamModifierKinds = paramModifierKinds

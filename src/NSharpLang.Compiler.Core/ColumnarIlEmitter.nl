@@ -41,6 +41,26 @@ sealed class ColumnarIlEmitter {
     // there, so this is the map an INDEX READ or a member hop walks. Both maps are seeded from the
     // same source at every site, so they cannot disagree about a name.
     private readonly _labeledTypeByVariable: Dictionary<string, string>
+    // THE NAMES FLOW HAS PROVED PRESENT AT THIS POINT IN THE BODY — the emit-side half of the
+    // analyzer's narrowing, and the only thing that lets a `Nullable<T>` binding be READ as its `T`.
+    // The analyzer rewrites the SYMBOL's type when a guard clause proves a name non-null, so from
+    // there on `value + 1`, `return value` and `found.Line` are type-checked against `T`; without
+    // the same fact here the emitter saw the DECLARED `Nullable<T>` and refused all three. The set is
+    // maintained by `ColumnarFlowNarrowingFacts`, which reads the same condition shapes the analyzer
+    // reads, and it is saved and restored around every block and branch exactly as a scope would be.
+    private _narrowedNonNull: HashSet<string>
+    // THE ONE NODE AN UNWRAP MUST NOT HAPPEN AT. Four expression shapes WANT the `Nullable<T>` and
+    // lower it themselves — `x == null`, `x ?? y`, `must x`, and `x.HasValue` / `x.Value` — and each
+    // of them is still legal (and still emitted) on a name flow has already proved present. Their
+    // operand is announced here so the read at THAT node alone keeps its declared type; anything
+    // nested inside the operand narrows normally.
+    private _preserveNullableNode: int
+    // THE EXPRESSION STATEMENTS WHOSE CALL NEVER RETURNS, recorded as each is emitted. A
+    // `[DoesNotReturn]` signature makes its call a `throw` the declaration spells, and only the
+    // resolution the emission itself performed knows which overload was chosen — so the fact is
+    // WRITTEN at the call and READ by the termination rule afterwards. Every rule that reads it asks
+    // AFTER the statements in question have been emitted, which is what makes the order sound.
+    private _neverReturningCallStatements: HashSet<int>
     // Each free function's return type AS WRITTEN, by name -- see ColumnarInstanceMethodDef.
     private readonly _siblingReturnLabeledCanonicals: IReadOnlyDictionary<string, string>?
     private _protectedResult: LocalBuilder?
@@ -251,6 +271,9 @@ sealed class ColumnarIlEmitter {
         _nullConditionalReceivers = null
         _tupleNamesByVariable = new Dictionary<string, string[]>(StringComparer.Ordinal)
         _labeledTypeByVariable = new Dictionary<string, string>(StringComparer.Ordinal)
+        _narrowedNonNull = new HashSet<string>(StringComparer.Ordinal)
+        _preserveNullableNode = -1
+        _neverReturningCallStatements = new HashSet<int>()
         _codePlan = new ColumnarCodePlan()
         _locals = new Dictionary<string, LocalBuilder>(StringComparer.Ordinal)
         _loopLabels = new Stack<(Break: Label, Continue: Label, ProtectedDepth: int, FinallyDepth: int)>()
@@ -3692,7 +3715,10 @@ sealed class ColumnarIlEmitter {
                             return false
                         }
                         ColumnarTupleElementNameEmitter.ApplyToReturn(pmb, m.ReturnLabeledCanonical)
-                        overloads.Add(new ColumnarStaticMethodDef(pmb, sParamTypes, m.ParamModifierKinds, sSignatureReturn, m.ReturnLabeledCanonical))
+                        overloadStaticDefinition := new ColumnarStaticMethodDef(pmb, sParamTypes, m.ParamModifierKinds, sSignatureReturn, m.ReturnLabeledCanonical)
+                        overloadStaticDefinition.DoesNotReturn = ColumnarReachabilityAttributeFacts.DeclaresDoesNotReturn(m.SourceAttributes)
+                        overloadStaticDefinition.ParameterDoesNotReturnIf = ColumnarReachabilityAttributeFacts.ParameterDoesNotReturnIf(m.ParameterSourceAttributes)
+                        overloads.Add(overloadStaticDefinition)
                         continue
                     }
 
@@ -3715,6 +3741,8 @@ sealed class ColumnarIlEmitter {
                     ColumnarTupleElementNameEmitter.ApplyToReturn(smb, m.ReturnLabeledCanonical)
                     staticDefinition := new ColumnarStaticMethodDef(smb, sParamTypes, m.ParamModifierKinds, sSignatureReturn, m.ReturnLabeledCanonical)
                     staticDefinition.Generics = sGenerics
+                    staticDefinition.DoesNotReturn = ColumnarReachabilityAttributeFacts.DeclaresDoesNotReturn(m.SourceAttributes)
+                    staticDefinition.ParameterDoesNotReturnIf = ColumnarReachabilityAttributeFacts.ParameterDoesNotReturnIf(m.ParameterSourceAttributes)
                     overloads.Add(staticDefinition)
                     structMethodJobs.Add(new ValueTuple<ColumnarStructDef, ColumnarFunctionInput, MethodBuilder, Type, Type, Type, Dictionary<string, int>, ValueTuple<Dictionary<string, Type>, bool>>(def, m, smb, sSignatureReturn, sReturn, sAsyncWrappedReturn, sOrdinals, new ValueTuple<Dictionary<string, Type>, bool>(sParamTypeMap, true)))
                     continue
@@ -3802,6 +3830,8 @@ sealed class ColumnarIlEmitter {
                     }
                     ColumnarTupleElementNameEmitter.ApplyToReturn(declaredGenericInstance, m.ReturnLabeledCanonical)
                     genericInstanceDefinition := new ColumnarInstanceMethodDef(declaredGenericInstance, mParamTypes, m.ParamModifierKinds, mSignatureReturn, m.ReturnLabeledCanonical)
+                    genericInstanceDefinition.DoesNotReturn = ColumnarReachabilityAttributeFacts.DeclaresDoesNotReturn(m.SourceAttributes)
+                    genericInstanceDefinition.ParameterDoesNotReturnIf = ColumnarReachabilityAttributeFacts.ParameterDoesNotReturnIf(m.ParameterSourceAttributes)
                     genericInstanceDefinition.Generics = mGenerics
                     AddInstanceMethod(def, m.Name, genericInstanceDefinition)
                     structMethodJobs.Add(new ValueTuple<ColumnarStructDef, ColumnarFunctionInput, MethodBuilder, Type, Type, Type, Dictionary<string, int>, ValueTuple<Dictionary<string, Type>, bool>>(def, m, declaredGenericInstance, mSignatureReturn, mReturn, mAsyncWrappedReturn, mOrdinals, new ValueTuple<Dictionary<string, Type>, bool>(mParamTypeMap, false)))
@@ -3863,10 +3893,13 @@ sealed class ColumnarIlEmitter {
                 }
                 ColumnarTupleElementNameEmitter.ApplyToReturn(mb, m.ReturnLabeledCanonical)
                 methodOverrideCompletion.Apply(def.Builder, mb, typeResolution.Structs.StructuralTypeReferences)
+                instanceDefinition := new ColumnarInstanceMethodDef(mb, mParamTypes, m.ParamModifierKinds, mSignatureReturn, m.ReturnLabeledCanonical)
+                instanceDefinition.DoesNotReturn = ColumnarReachabilityAttributeFacts.DeclaresDoesNotReturn(m.SourceAttributes)
+                instanceDefinition.ParameterDoesNotReturnIf = ColumnarReachabilityAttributeFacts.ParameterDoesNotReturnIf(m.ParameterSourceAttributes)
                 AddInstanceMethod(
                     def,
                     m.Name,
-                    new ColumnarInstanceMethodDef(mb, mParamTypes, m.ParamModifierKinds, mSignatureReturn, m.ReturnLabeledCanonical)
+                    instanceDefinition
                 )
                 // An `abstract` member IS its declaration. There is no body to schedule, and
                 // emitting one would make the CLR reject the type.
@@ -4727,6 +4760,8 @@ sealed class ColumnarIlEmitter {
                 fnBaseConstraints,
                 fnInterfaceConstraints
             )
+            siblingDefinition.DoesNotReturn = ColumnarReachabilityAttributeFacts.DeclaresDoesNotReturn(fn.SourceAttributes)
+            siblingDefinition.ParameterDoesNotReturnIf = ColumnarReachabilityAttributeFacts.ParameterDoesNotReturnIf(fn.ParameterSourceAttributes)
             siblings[siblingName] = siblingDefinition
         }
 
@@ -6058,20 +6093,27 @@ sealed class ColumnarIlEmitter {
             return true
         }
         if (!isVoid) {
-            if (!AlwaysReturns(bodyRoot)) {
+            // THE BODY IS EMITTED BEFORE THE TERMINATION QUESTION IS ASKED, and the order is the whole
+            // reason a `[DoesNotReturn]` call can end a value body. A call's own signature is resolved
+            // by the emission, so "does this statement end the path" has no answer until the statement
+            // has been emitted; asking afterwards is decline-safe, because a false return abandons the
+            // whole program and the IL written for it with it.
+            if (!EmitStatement(bodyRoot)) {
                 return false
             }
-            if (!EmitStatement(bodyRoot)) {
+            if (!AlwaysReturns(bodyRoot)) {
                 return false
             }
             EmitProtectedReturnTail(false)
             return true
         }
-        fallsThrough := !AlwaysReturns(bodyRoot)
         if (!EmitStatement(bodyRoot)) {
             return false
         }
-        if (fallsThrough) {
+        // Asked AFTER the emission for the reason the value arm asks after it: a call's own signature
+        // is resolved by the emission, so a `[DoesNotReturn]` call in tail position has no answer
+        // until the statement holding it has been written.
+        if (!AlwaysReturns(bodyRoot)) {
             _il.Emit(OpCodes.Ret)
         }
         EmitProtectedReturnTail(true)
@@ -6248,6 +6290,10 @@ sealed class ColumnarIlEmitter {
             // and declines, rather than reading a method-level slot that may be unassigned (invalid IL).
             outerLocals := new HashSet<string>(_locals.Keys, StringComparer.Ordinal)
             outerLifted := new HashSet<string>(_liftedLocals.Keys, StringComparer.Ordinal)
+            // A NARROWING IS SCOPED TO THE BLOCK THE GUARD CLAUSE THAT PROVED IT SITS IN, which is
+            // exactly how the analyzer scopes it: the fact is written into the current scope and the
+            // scope is popped with the block.
+            outerNarrowed := new HashSet<string>(_narrowedNonNull, StringComparer.Ordinal)
             for n := 0; n < _nodes.ChildCount(idx); n++ {
                 child := Child(idx, n)
                 if (!EmitStatement(child)) {
@@ -6265,6 +6311,10 @@ sealed class ColumnarIlEmitter {
                 // NL312 diagnostic). Decline rather than emit code after the transfer `ret`/`br`, keeping the
                 // analyzer-validated product path authoritative. (A break/continue nested inside an `if` is
                 // conditional, so only a DIRECT break/continue child counts here.)
+                // A WRITE ENDS THE NARROWING IT INVALIDATES. The statement just emitted may have
+                // assigned a name an earlier guard clause proved present, and from here on that name
+                // holds whatever the write put there.
+                DropNarrowingsAssignedIn(child)
                 transfers := AlwaysReturns(child) || _nodes.Kind(child) == 21 || _nodes.Kind(child) == 22
                 if (transfers) {
                     // A LOCAL FUNCTION DECLARATION (kind 41) EMITS NO IL AT ALL — the method was declared
@@ -6313,6 +6363,7 @@ sealed class ColumnarIlEmitter {
             for name in blockLifted {
                 _liftedLocals.Remove(name)
             }
+            _narrowedNonNull = outerNarrowed
             return true
         } else if columnarSwitchValue0 == 49 {
             // TryStatement [tryBlock, catch1..catchN] — each catch a kind-50 CatchClause (value
@@ -6779,6 +6830,11 @@ sealed class ColumnarIlEmitter {
             if (childCount != 2 && childCount != 3) {
                 return Decline("emit.if.shape", "if statement has an unsupported shape", idx)
             }
+            // WHAT THIS CONDITION PROVES, read before anything is emitted because the answer is needed
+            // in three places: the then-branch, the else-branch, and — when the branch that was taken
+            // LEAVES — the flow that survives the whole statement. The analyzer's flow-narrowing writer
+            // is asked the same three questions about the same condition.
+            narrowingSplit := ColumnarFlowNarrowingFacts.Extract(_nodes, _source, Child(idx, 0))
             if (!EmitCondition(Child(idx, 0))) {
                 return Decline("emit.if.condition", "if condition could not be emitted as a bool", Child(idx, 0))
             }
@@ -6791,7 +6847,10 @@ sealed class ColumnarIlEmitter {
             // then-branch. Scope its `:=` locals so a BRACELESS `:=` does not leak past the if (a Block
             // then-branch already self-scopes; this also covers the braceless single-statement form).
             beforeThen := new HashSet<string>(_locals.Keys, StringComparer.Ordinal)
-            if (!EmitStatement(thenStmt)) {
+            thenNarrowed := PushNarrowedNames(narrowingSplit.Then)
+            thenEmitted := EmitStatement(thenStmt)
+            PopNarrowedNames(thenNarrowed)
+            if (!thenEmitted) {
                 return Decline("emit.if.then", "if then-branch could not be emitted", thenStmt)
             }
             columnarStringKeySnapshot0 := new List<string>(_locals.Keys)
@@ -6806,6 +6865,13 @@ sealed class ColumnarIlEmitter {
                 // reach it with an empty stack (a fall-through then-branch is net-zero; a returning
                 // then-branch ends in `ret` and never reaches it).
                 _il.MarkLabel(elseLabel)
+                // THE GUARD CLAUSE. When the branch that was taken cannot fall out of the `if`, the
+                // only flow that reaches the merge is the one the condition was FALSE on, so the
+                // surviving code takes what the untaken branch proved — the analyzer's rule, asked of
+                // the same statement with the same walk.
+                if (AlwaysLeaves(thenStmt)) {
+                    PushNarrowedNames(narrowingSplit.Else)
+                }
                 return true
             }
 
@@ -6824,7 +6890,10 @@ sealed class ColumnarIlEmitter {
 
             elseStmt := Child(idx, 2)
             beforeElse := new HashSet<string>(_locals.Keys, StringComparer.Ordinal)
-            if (!EmitStatement(elseStmt)) {
+            elseNarrowed := PushNarrowedNames(narrowingSplit.Else)
+            elseEmitted := EmitStatement(elseStmt)
+            PopNarrowedNames(elseNarrowed)
+            if (!elseEmitted) {
                 return Decline("emit.if.else", "if else-branch could not be emitted", elseStmt)
             }
             columnarStringKeySnapshot1 := new List<string>(_locals.Keys)
@@ -6836,6 +6905,17 @@ sealed class ColumnarIlEmitter {
 
             if (thenFallsThrough) {
                 _il.MarkLabel(endLabel)
+            }
+            // ONE BRANCH LEAVING IS THE SAME GUARD CLAUSE WRITTEN THE OTHER WAY ROUND. If exactly one
+            // of the two branches can reach the merge, the surviving flow is that branch's, so it
+            // keeps what that branch's side of the condition proved — minus anything the branch itself
+            // wrote, which is no longer the value the condition spoke about.
+            if (AlwaysLeaves(thenStmt)) {
+                PushNarrowedNames(narrowingSplit.Else)
+                DropNarrowingsAssignedIn(elseStmt)
+            } else if (AlwaysLeaves(elseStmt)) {
+                PushNarrowedNames(narrowingSplit.Then)
+                DropNarrowingsAssignedIn(thenStmt)
             }
             return true
         } else if columnarSwitchValue0 == 23 {
@@ -6867,6 +6947,32 @@ sealed class ColumnarIlEmitter {
                 }
                 if (callType != ColumnarTypeOfPlanner.RequiredVoidType()) {
                     _il.Emit(OpCodes.Pop)
+                }
+                // A CALL THE SIGNATURE SAID NEVER RETURNS ENDS THIS PATH, and the statement is recorded
+                // so the termination rule reads the same answer the diagnostics pass read. The IL still
+                // needs a terminator, because at the IL level the call DOES return: what follows is the
+                // annotation's own contract, unreachable while the callee keeps it and a loud, precise
+                // failure the moment it does not.
+                // A `[DoesNotReturnIf(b)]` PARAMETER IS A GUARD CLAUSE THE SIGNATURE SPELLS. Reaching
+                // the statement after the call means the argument took the other branch, so the
+                // surviving flow is narrowed by exactly what that argument proved — the same reader an
+                // `if` and an `assert` use, on the argument instead of on a condition.
+                guardArgument := -1
+                guardSurvivesWhenTrue: bool = false
+                if (CallStatementGuardsArgument(expr, out guardArgument, out guardSurvivesWhenTrue)) {
+                    guardSplit := ColumnarFlowNarrowingFacts.Extract(_nodes, _source, guardArgument)
+                    if (guardSurvivesWhenTrue) {
+                        PushNarrowedNames(guardSplit.Then)
+                    } else {
+                        PushNarrowedNames(guardSplit.Else)
+                    }
+                }
+                let terminatingCallee: string = ""
+                if (CallStatementNeverReturns(expr, out terminatingCallee)) {
+                    _neverReturningCallStatements.Add(idx)
+                    _il.Emit(OpCodes.Ldstr, "'" + terminatingCallee + "' is annotated [DoesNotReturn] but returned.")
+                    _il.Emit(OpCodes.Newobj, typeof(InvalidOperationException).GetConstructor([typeof(string)]))
+                    _il.Emit(OpCodes.Throw)
                 }
                 return true
             }
@@ -7580,6 +7686,9 @@ sealed class ColumnarIlEmitter {
                 return true
             }
             body := Child(idx, 1)
+            // A LOOP BODY RUNS AN UNKNOWN NUMBER OF TIMES AND JUMPS BACKWARDS, so a name it writes is
+            // not the value an earlier guard clause proved by the time the body runs again.
+            DropNarrowingsAssignedIn(body)
             checkLabel := _il.DefineLabel()
             endLabel := _il.DefineLabel()
             _il.MarkLabel(checkLabel)
@@ -7649,13 +7758,17 @@ sealed class ColumnarIlEmitter {
             incr := Child(idx, 2)
             body := Child(idx, 3)
 
-            // A for-body that always transfers on every path (never falls through) would make the increment +
-            // back-edge unreachable (a `continue` aside) — a degenerate shape; decline it to the N# backend path. A
-            // normal counting loop falls through, and a `continue` body still falls through on its other path.
-            if (AlwaysReturns(body)) {
-                return false
-            }
+            // A LOOP BODY RUNS AN UNKNOWN NUMBER OF TIMES AND JUMPS BACKWARDS, so a name it writes is
+            // not the value an earlier guard clause proved by the time the body runs again.
+            DropNarrowingsAssignedIn(body)
 
+            // A FOR-BODY THAT NEVER FALLS THROUGH IS NOT DEGENERATE. `for i := 0; i < n; i++ { return i }`
+            // returns on its first iteration, and `for … { if c { return x } continue }` is the scan loop a
+            // converter writes constantly. Neither can reach the increment by FALLING into it — but a
+            // `continue` still branches straight at it, so the increment and its back edge are emitted
+            // unchanged and are simply unreached when no `continue` exists. The end point of the LOOP is
+            // reachable either way (the condition can be false on entry), which is why this shape needs no
+            // termination reasoning at all.
             outerLocals := new HashSet<string>(_locals.Keys, StringComparer.Ordinal)
             outerLifted := new HashSet<string>(_liftedLocals.Keys, StringComparer.Ordinal)
             if (!EmitStatement(columnarInitValue)) {
@@ -7786,6 +7899,9 @@ sealed class ColumnarIlEmitter {
             collectionNode := Child(idx, 0)
             body := Child(idx, 1)
             varName := ColumnarNodeTextFacts.Text(_nodes, _source, idx)
+            // A LOOP BODY RUNS AN UNKNOWN NUMBER OF TIMES AND JUMPS BACKWARDS, so a name it writes is
+            // not the value an earlier guard clause proved by the time the body runs again.
+            DropNarrowingsAssignedIn(body)
             let declaredElementType: System.Type? = null
             if (typedLoopVariable) {
                 if (_nodes.ChildCount(idx) != 3 || _nodes.Kind(Child(idx, 0)) != 6) {
@@ -7800,10 +7916,6 @@ sealed class ColumnarIlEmitter {
                 }
             }
 
-            // A body that always transfers on every path makes the increment unreachable -> decline (as for/while).
-            if (AlwaysReturns(body)) {
-                return false
-            }
             // The loop variable must not shadow an existing binding — own OR enclosing (NL316).
             if (ColumnarClosureBindingPlanner.IsVisibleBindingName(varName, _locals, _paramOrdinals, _liftedLocals, _boxedCaptures, _enclosingBindingNames)) {
                 return false
@@ -7867,7 +7979,8 @@ sealed class ColumnarIlEmitter {
             streamNode := Child(idx, 0)
             awaitBody := Child(idx, 1)
             awaitVarName := ColumnarNodeTextFacts.Text(_nodes, _source, idx)
-            if (AlwaysReturns(awaitBody) || ColumnarClosureBindingPlanner.IsVisibleBindingName(awaitVarName, _locals, _paramOrdinals, _liftedLocals, _boxedCaptures, _enclosingBindingNames)) {
+            DropNarrowingsAssignedIn(awaitBody)
+            if (ColumnarClosureBindingPlanner.IsVisibleBindingName(awaitVarName, _locals, _paramOrdinals, _liftedLocals, _boxedCaptures, _enclosingBindingNames)) {
                 return false
             }
             outerAwaitLocals := new HashSet<string>(_locals.Keys, StringComparer.Ordinal)
@@ -7912,7 +8025,11 @@ sealed class ColumnarIlEmitter {
             if (!awaitBodyEmitted) {
                 return false
             }
-            _il.Emit(OpCodes.Br, awaitLoopStart)
+            // The back edge is reached only by FALLING out of the body; a `continue` branches at the loop
+            // head itself. A body that always returns therefore leaves it dead, so it is not written.
+            if (!AlwaysReturns(awaitBody)) {
+                _il.Emit(OpCodes.Br, awaitLoopStart)
+            }
             _il.MarkLabel(awaitDisposeLabel)
             _il.Emit(OpCodes.Ldloc, asyncEnumeratorLocal)
             _il.Emit(OpCodes.Callvirt, typeof(IAsyncDisposable).GetMethod(nameof(IAsyncDisposable.DisposeAsync)))
@@ -8105,6 +8222,11 @@ sealed class ColumnarIlEmitter {
             if (assertChildCount != 1 && assertChildCount != 2) {
                 return false
             }
+            // AN `assert` NARROWS EVERYTHING AFTER IT, because an assert that fails throws: it is the
+            // guard clause `if !cond { throw }` written the other way round, so the statement after it
+            // is reached only on the path the condition held. The analyzer reads the condition with
+            // the same writer for the same reason.
+            assertNarrowing := ColumnarFlowNarrowingFacts.Extract(_nodes, _source, Child(idx, 0))
             let assertCondType: System.Type? = null
             if (!EmitExpression(Child(idx, 0), out assertCondType) || assertCondType != typeof(bool)) {
                 return false
@@ -8128,6 +8250,7 @@ sealed class ColumnarIlEmitter {
             _il.Emit(OpCodes.Newobj, typeof(InvalidOperationException).GetConstructor([typeof(string)]))
             _il.Emit(OpCodes.Throw)
             _il.MarkLabel(assertOk)
+            PushNarrowedNames(assertNarrowing.Then)
             return true
         } else if columnarSwitchValue0 == 62 {
             // AssertThrowsStatement [body] — legacy EmitAssertThrows: run the body in a try; a
@@ -9561,7 +9684,182 @@ sealed class ColumnarIlEmitter {
     /// (ColumnarMethodBodyPlanner.AlwaysReturns) — the columnar mirror of the diagnostics pass's
     /// AnalyzerStatementTermination.AlwaysReturns, which asks the same question of AST statements.
     /// </summary>
-    private func AlwaysReturns(idx: int): bool => ColumnarMethodBodyPlanner.AlwaysReturns(_nodes, _source, idx)
+    private func AlwaysReturns(idx: int): bool => ColumnarMethodBodyPlanner.AlwaysReturns(_nodes, _source, idx, _neverReturningCallStatements)
+
+    /// Whether every path through this statement leaves the block that contains it — the GUARD-CLAUSE
+    /// question, where a `break` and a `continue` are as final as a `return`. It is the same walk with
+    /// its two jumps turned on, and the analyzer's `AnalyzerStatementTermination.AlwaysLeaves` asks the
+    /// identical question of AST statements.
+    private func AlwaysLeaves(idx: int): bool => ColumnarMethodBodyPlanner.AlwaysLeaves(_nodes, _source, idx, _neverReturningCallStatements)
+
+    // Install the names a condition proved present, and hand back exactly the ones this install added
+    // so the restore cannot drop a fact an OUTER guard clause had already proved.
+    private func PushNarrowedNames(names: List<string>): List<string> {
+        added := new List<string>()
+        for name in names {
+            if (_narrowedNonNull.Add(name)) {
+                added.Add(name)
+            }
+        }
+        return added
+    }
+
+    private func PopNarrowedNames(added: List<string>): void {
+        for name in added {
+            _narrowedNonNull.Remove(name)
+        }
+    }
+
+    // EVERY NAME A SUBTREE WRITES STOPS BEING NARROWED. A narrowing is a statement about the value a
+    // name holds now, so a write anywhere in a region whose flow is not straight-line — a loop body,
+    // which runs an unknown number of times and jumps backwards, or a branch the reader is past —
+    // ends it. Reading nothing when the set is empty keeps the walk off the common path entirely.
+    // A MEMBER READ WHOSE RECEIVER IS A BARE NAME FLOW HAS PROVED PRESENT, AND WHOSE DECLARATION GAVE
+    // THAT NAME A `Nullable<T>`. The receiver must be unwrapped before the member is looked up at all,
+    // which only this emitter's own arm does; the recursive door would resolve the member against the
+    // declared `Nullable<T>` and find nothing.
+    private func IsNarrowedNullableMemberRead(idx: int): bool {
+        if (_narrowedNonNull.Count == 0 || idx < 0 || idx >= _nodes.Kinds.Length || _nodes.Kind(idx) != 8 || _nodes.ChildCount(idx) != 1) {
+            return false
+        }
+        receiver := UnwrapParenthesizedNode(Child(idx, 0))
+        if (receiver < 0 || _nodes.Kind(receiver) != 6 || _nodes.ChildCount(receiver) != 0) {
+            return false
+        }
+        member := ColumnarNodeTextFacts.Text(_nodes, _source, idx)
+        if (member == "HasValue" || member == "Value") {
+            return false
+        }
+        name := ColumnarNodeTextFacts.Text(_nodes, _source, receiver)
+        if (!_narrowedNonNull.Contains(name)) {
+            return false
+        }
+        let bindingType: System.Type? = null
+        return TryGetNamedValueBindingType(name, out bindingType) && ColumnarTypeOfPlanner.IsSupportedNullable(bindingType)
+    }
+
+    // DOES THIS CALL'S CALLEE CARRY `[DoesNotReturn]`? The question is asked AFTER the call has been
+    // emitted, so the shapes it reads are exactly the ones the emission resolved: a bare name that
+    // bound to a sibling free function or to a static member of the enclosing type, and a
+    // `Owner.Member` that bound to a static member of a type this program declares.
+    //
+    // A MEMBER OF A REFERENCED ASSEMBLY IS NOT READ HERE, and that is a decline rather than a wrong
+    // answer: the external call surface resolves through its own plan, and a body that ends in an
+    // external `[DoesNotReturn]` call is refused at emission exactly as it was before this owner
+    // existed. The diagnostics pass reads BOTH, so the source it accepts is a superset — never the
+    // other way round, which is the direction that would matter.
+    private func CallStatementNeverReturns(callNode: int, out calleeDescription: string): bool {
+        calleeDescription = ""
+        if (_nodes.Kind(callNode) != 9 || _nodes.ChildCount(callNode) < 1) {
+            return false
+        }
+        callee := UnwrapParenthesizedNode(Child(callNode, 0))
+        argCount := _nodes.ChildCount(callNode) - 1
+        if (_nodes.Kind(callee) == 6) {
+            bareName := ColumnarNodeTextFacts.Text(_nodes, _source, callee)
+            calleeDescription = bareName
+            let sibling: NSharpLang.Compiler.Columnar.ColumnarSiblingMethodDefinition? = null
+            if (_siblings.TryGetValue(bareName, out sibling)) {
+                return sibling.DoesNotReturn
+            }
+            let bareStatic: NSharpLang.Compiler.Columnar.ColumnarStaticMethodDef? = null
+            if (_enclosingType != null && TryFindStaticMethodOnChain(_enclosingType, bareName, argCount, out bareStatic)) {
+                return bareStatic.DoesNotReturn
+            }
+            return false
+        }
+        if (_nodes.Kind(callee) != 8 || _nodes.ChildCount(callee) != 1) {
+            return false
+        }
+        member := ColumnarNodeTextFacts.Text(_nodes, _source, callee)
+        receiver := UnwrapParenthesizedNode(Child(callee, 0))
+        if (_nodes.Kind(receiver) != 6) {
+            return false
+        }
+        ownerName := ColumnarNodeTextFacts.Text(_nodes, _source, receiver)
+        calleeDescription = ownerName + "." + member
+        let ownerType: NSharpLang.Compiler.Columnar.ColumnarStructDef? = null
+        if (!_typeResolutionStructs.TryGetValue(ownerName, out ownerType)) {
+            return false
+        }
+        let ownerStatic: NSharpLang.Compiler.Columnar.ColumnarStaticMethodDef? = null
+        return TryFindStaticMethodOnChain(ownerType, member, argCount, out ownerStatic) && ownerStatic.DoesNotReturn
+    }
+
+    // THE ARGUMENT A `[DoesNotReturnIf(b)]` NAMED, and the branch the surviving flow is on. The
+    // callee is resolved through the same three source shapes `CallStatementNeverReturns` reads, for
+    // the same reason: a member of a referenced assembly binds through its own plan and is not read.
+    private func CallStatementGuardsArgument(callNode: int, out guardArgument: int, out survivesWhenTrue: bool): bool {
+        guardArgument = -1
+        survivesWhenTrue = false
+        parameterFacts := CallStatementParameterReachabilityFacts(callNode)
+        if (parameterFacts == null) {
+            return false
+        }
+        argCount := _nodes.ChildCount(callNode) - 1
+        position := 0
+        while position < argCount && position < parameterFacts.Length {
+            facts := parameterFacts[position]
+            doesNotReturnIfTrue := ReachabilityFlowFacts.Has(facts, ReachabilityFlowFacts.DoesNotReturnIfTrue())
+            doesNotReturnIfFalse := ReachabilityFlowFacts.Has(facts, ReachabilityFlowFacts.DoesNotReturnIfFalse())
+            if (doesNotReturnIfTrue != doesNotReturnIfFalse) {
+                guardArgument = Child(callNode, position + 1)
+                survivesWhenTrue = doesNotReturnIfFalse
+                return true
+            }
+            position = position + 1
+        }
+        return false
+    }
+
+    private func CallStatementParameterReachabilityFacts(callNode: int): int[]? {
+        if (_nodes.Kind(callNode) != 9 || _nodes.ChildCount(callNode) < 1) {
+            return null
+        }
+        callee := UnwrapParenthesizedNode(Child(callNode, 0))
+        argCount := _nodes.ChildCount(callNode) - 1
+        if (_nodes.Kind(callee) == 6) {
+            bareName := ColumnarNodeTextFacts.Text(_nodes, _source, callee)
+            let sibling: NSharpLang.Compiler.Columnar.ColumnarSiblingMethodDefinition? = null
+            if (_siblings.TryGetValue(bareName, out sibling)) {
+                return sibling.ParameterDoesNotReturnIf
+            }
+            let bareStatic: NSharpLang.Compiler.Columnar.ColumnarStaticMethodDef? = null
+            if (_enclosingType != null && TryFindStaticMethodOnChain(_enclosingType, bareName, argCount, out bareStatic)) {
+                return bareStatic.ParameterDoesNotReturnIf
+            }
+            return null
+        }
+        if (_nodes.Kind(callee) != 8 || _nodes.ChildCount(callee) != 1) {
+            return null
+        }
+        member := ColumnarNodeTextFacts.Text(_nodes, _source, callee)
+        receiver := UnwrapParenthesizedNode(Child(callee, 0))
+        if (_nodes.Kind(receiver) != 6) {
+            return null
+        }
+        ownerName := ColumnarNodeTextFacts.Text(_nodes, _source, receiver)
+        let ownerType: NSharpLang.Compiler.Columnar.ColumnarStructDef? = null
+        if (!_typeResolutionStructs.TryGetValue(ownerName, out ownerType)) {
+            return null
+        }
+        let ownerStatic: NSharpLang.Compiler.Columnar.ColumnarStaticMethodDef? = null
+        if (!TryFindStaticMethodOnChain(ownerType, member, argCount, out ownerStatic)) {
+            return null
+        }
+        return ownerStatic.ParameterDoesNotReturnIf
+    }
+
+    private func DropNarrowingsAssignedIn(node: int): void {
+        if (_narrowedNonNull.Count == 0) {
+            return
+        }
+        assigned := new HashSet<string>(StringComparer.Ordinal)
+        ColumnarFlowNarrowingFacts.CollectAssignedNames(_nodes, _source, node, assigned)
+        for name in assigned {
+            _narrowedNonNull.Remove(name)
+        }
+    }
 
     private func FindDefByType(columnarResolvedType: Type): ColumnarStructDef? => ColumnarSourceDefinitionResolver.FindDirectType(_structRegistry, columnarResolvedType)
 
@@ -9712,7 +10010,63 @@ sealed class ColumnarIlEmitter {
     // function) on any unsupported form or a type mismatch the spike does not model. The reported type drives
     // correct opcode selection and prevents cross-type mixing (e.g. a bool leaking into int arithmetic) that
     // would diverge from N#'s type rules.
+    // THE ONE EXPRESSION DOOR, AND THE ONE PLACE A NARROWED NAME LOSES ITS `Nullable<T>` SHELL.
+    // Everything below emits the read exactly as it always did — whatever storage tier the name lives
+    // in, and whatever else the expression is — and the unwrap is appended AFTER it, over the value
+    // the ordinary path produced. That is why it needs no second copy of the binding resolution and
+    // why a lifted local, a boxed capture and a parameter all narrow the same way.
     private func EmitExpression(idx: int, out columnarResolvedType: Type): bool {
+        if (!EmitExpressionRaw(idx, out columnarResolvedType)) {
+            return false
+        }
+        narrowedElement := NarrowedNullableElement(idx, columnarResolvedType)
+        if (narrowedElement == null) {
+            return true
+        }
+        // `Nullable<T>.Value` needs the value's ADDRESS, so the read is parked in a temporary the
+        // same way every other nullable lowering in this emitter parks it. The property THROWS on an
+        // empty value, which is the same instruction C# emits for a narrowed `int?` and the same
+        // answer a lying narrowing would get from `must`.
+        narrowedTemp := _il.DeclareLocal(columnarResolvedType)
+        _il.Emit(OpCodes.Stloc, narrowedTemp)
+        _il.Emit(OpCodes.Ldloca, narrowedTemp)
+        _il.Emit(OpCodes.Call, ResolveNullableGetter(columnarResolvedType, "Value"))
+        columnarResolvedType = narrowedElement
+        return true
+    }
+
+    // WHEN A READ IS OF A NAME FLOW HAS PROVED PRESENT, AND THE ELEMENT TYPE IT BECOMES. Only a BARE
+    // name qualifies: a member path's storage is not this body's to re-type, and a parenthesised read
+    // reaches its identifier through this same door one level down.
+    private func NarrowedNullableElement(idx: int, resolvedType: Type): Type? {
+        if (_narrowedNonNull.Count == 0 || idx < 0 || idx == _preserveNullableNode || idx >= _nodes.Kinds.Length) {
+            return null
+        }
+        if (_nodes.Kind(idx) != 6 || _nodes.ChildCount(idx) != 0 || !ColumnarTypeOfPlanner.IsSupportedNullable(resolvedType)) {
+            return null
+        }
+        if (!_narrowedNonNull.Contains(ColumnarNodeTextFacts.Text(_nodes, _source, idx))) {
+            return null
+        }
+        return resolvedType.GetGenericArguments()[0]
+    }
+
+    // Emit ONE operand whose own shape lowers the `Nullable<T>` itself (`== null`, `??`, `.HasValue`,
+    // `.Value`), so the read at that node keeps its declared type while everything nested inside it
+    // narrows normally.
+    private func EmitExpressionPreservingNullable(idx: int, out columnarResolvedType: Type): bool {
+        previous := _preserveNullableNode
+        _preserveNullableNode = UnwrapParenthesizedNode(idx)
+        let emitted: bool = false
+        try {
+            emitted = EmitExpression(idx, out columnarResolvedType)
+        } finally {
+            _preserveNullableNode = previous
+        }
+        return emitted
+    }
+
+    private func EmitExpressionRaw(idx: int, out columnarResolvedType: Type): bool {
         // A NULL-CONDITIONAL CHAIN IS EMITTED FROM ITS ROOT, NOT FROM ITS GUARD. `a?.B.C` is ONE
         // expression that is null when `a` is: the guard tests, and everything to its right is skipped.
         // The node that owns that decision is the OUTERMOST access over the guard — the node the chain
@@ -9933,7 +10287,13 @@ sealed class ColumnarIlEmitter {
         }
         let nsharpOwned: bool = false
         let legacyWholeSubtreePlanning: bool = false
-        if (ColumnarRangeIndexPlanner.TryEmitFromFacts(
+        // A MEMBER READ OFF A NAME FLOW HAS PROVED PRESENT IS NOT THE DOOR'S. The recursive expression
+        // door resolves the receiver's binding from the raw maps, where the name still has the
+        // `Nullable<T>` its declaration gave it, so `found.Line` on a narrowed `(Uri: string, Line: int)?`
+        // reaches it as a member of `Nullable<…>` and no such member exists. The read belongs to the
+        // arm below, which emits its receiver through THIS door's caller — where the unwrap lives — and
+        // then reads the element off the tuple the unwrap produced.
+        if (!IsNarrowedNullableMemberRead(idx) && ColumnarRangeIndexPlanner.TryEmitFromFacts(
             _nodes,
             _source,
             idx,
@@ -10176,7 +10536,7 @@ sealed class ColumnarIlEmitter {
             if ((op == "==" || op == "!=") && (_nodes.Kind(Child(idx, 0)) == 5 || _nodes.Kind(Child(idx, 1)) == 5)) {
                 valueNode := _nodes.Kind(Child(idx, 0)) == 5 ? Child(idx, 1) : Child(idx, 0)
                 let nullCmpType: System.Type? = null
-                if (!EmitExpression(valueNode, out nullCmpType)) {
+                if (!EmitExpressionPreservingNullable(valueNode, out nullCmpType)) {
                     return false
                 }
                 if (ColumnarTypeOfPlanner.IsSupportedNullable(nullCmpType)) {
@@ -10228,7 +10588,7 @@ sealed class ColumnarIlEmitter {
                 // left (N2): `tmp = a; tmp.HasValue ? tmp.GetValueOrDefault() : <b as T>` — both the
                 // exact nullable lowerings. The Nullable form's RESULT is the ELEMENT type.
                 let coalesceLeft: System.Type? = null
-                if (!EmitExpression(Child(idx, 0), out coalesceLeft)) {
+                if (!EmitExpressionPreservingNullable(Child(idx, 0), out coalesceLeft)) {
                     return false
                 }
                 if (ColumnarTypeOfPlanner.IsSupportedNullable(coalesceLeft)) {
@@ -10792,7 +11152,13 @@ sealed class ColumnarIlEmitter {
                 // Other supported receivers fall back to the emitted-receiver path for BCL members,
                 // closed generics, and reference-type properties.
                 let structReceiverType: System.Type? = null
-                if (!EmitExpression(Child(idx, 0), out structReceiverType)) {
+                if (member == "HasValue" || member == "Value") {
+                    // The two members `Nullable<T>` declares are the receiver shapes that WANT the
+                    // shell, so the receiver keeps it even on a name flow has proved present.
+                    if (!EmitExpressionPreservingNullable(Child(idx, 0), out structReceiverType)) {
+                        return false
+                    }
+                } else if (!EmitExpression(Child(idx, 0), out structReceiverType)) {
                     return false
                 }
                 if (structReceiverType == typeof(Version) && (member == "Major" || member == "Minor" || member == "Build" || member == "Revision")) {
@@ -22028,7 +22394,11 @@ sealed class ColumnarIlEmitter {
         if (!enumeratorBodyEmitted) {
             return false
         }
-        _il.Emit(OpCodes.Br, loopStart)
+        // As in the `while` lowering: the bottom back edge is reached only by FALLING out of the body,
+        // and a `continue` branches at `loopStart` directly, so a body that always returns leaves it dead.
+        if (!AlwaysReturns(body)) {
+            _il.Emit(OpCodes.Br, loopStart)
+        }
         _il.MarkLabel(endLabel)
 
         if (foreachProtected) {

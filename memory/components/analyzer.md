@@ -565,9 +565,41 @@ half is recorded by `AnalyzerSyntheticCallValidator.RecordCallPostconditions`, a
 same binding the argument checks used (a second pass because the first `continue`s past positions it
 has nothing to report about, and those positions still owe a postcondition).
 
-NOT READ YET: `[DoesNotReturn]` and `[DoesNotReturnIf]`. Both are reachability facts, and
-`AnalyzerStatementTermination` is a PURE AST judgement asked at three points that must agree, mirrored
-by `ColumnarMethodBodyPlanner` on the emit side; making it semantic is its own slice.
+### Reachability attributes — where a call sends control (census 2026-09-13, §FLOW4)
+
+`AnalyzerReachabilityAttributes.nl` is the reachability companion of the nullability vocabulary
+above: `ReachabilityFlowFacts` holds the bits and the SOURCE reader, and
+`ReachabilityFlowAttributeReflection` the metadata one, with the same four name spellings and the
+same boxed-boolean comparison under an MLC. `AnalyzerTerminatingCalls.nl` is the one owner that files
+what each call proved, and both binders commit into it: the source path through
+`AnalyzerSyntheticCallValidator.RecordCallTermination`, and the reflection path through
+`ReflectionCallFinalizeState.TerminatingMethodFacts` / `TerminatingGuardArgumentIndex`, held until the
+call's walk accepts the candidate for the same reason the postconditions are.
+
+- `[DoesNotReturn]` on the callee ends the path the call is written on. `AnalyzerStatementTermination`
+  reads it through an ExpressionStatement arm, so the missing-return rule (NL305) and the
+  unreachable-statement rule (NL312) both get it. This is the ONE thing in that judgement that is not
+  pure syntax, which is why the fact-holder is a PARAMETER: all three askers ask AFTER the statements
+  in question have been analysed, and a caller that supplies none gets the pure-syntax answer.
+- `[DoesNotReturnIf(b)]` on a parameter makes the call a guard clause. The flow that survives it is
+  narrowed by what the argument proved on the branch the attribute did NOT name, through
+  `AnalyzerExpressionStatements`' discard phase 4 and request kinds 9 (narrow by TRUE) and 10 (by
+  FALSE) — the same step the `assert` statement uses.
+
+A MEMBER DECLARED ON A TYPE reaches its callers through `DeclaredMemberInfo`, not through its
+`FunctionDeclaration`, so that record carries `DoesNotReturn` and `ParameterReachabilityFacts` too;
+without them the attribute worked on a free function and on an unqualified call and nowhere else.
+(The nullability `ParameterFlowFacts` are still NOT carried there — a `[NotNullWhen]` on a method
+declared on a type is the parallel gap, and it is FLOW3's to close.)
+
+EMIT AGREES THROUGH ITS OWN MIRROR. `ColumnarMethodBodyPlanner.AlwaysReturns` takes the same fact as
+a set of statement-node indices, and `ColumnarIlEmitter` WRITES that set as it emits each bare call —
+where the callee is finally resolved — so the non-void body emits first and asks afterwards. The IL
+still gets a terminator, because at the IL level the call does return: an `InvalidOperationException`
+naming the callee, unreachable while the callee keeps the contract. At emission the fact is read for
+members THIS program declares; a `[DoesNotReturn]` member of a referenced assembly binds through the
+external call plan and is not read there, so such a body declines at emission — a decline, never a
+wrong answer, and the diagnostics pass reads both.
 
 ### `out` nullability, and the by-ref relaxation that carries it
 

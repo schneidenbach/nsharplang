@@ -128,7 +128,7 @@ func BodyHarnessWith(sourceText: string?): FunctionBodyHarness {
     factory := new AnalyzerFunctionTypeFactory(context, substitution)
     definite := new AnalyzerDefiniteAssignment(diagnostics, resolver)
     extensions := new List<FunctionDeclaration>()
-    bodies := new AnalyzerFunctionBodies(diagnostics, spans, scopes, context, resolver, factory, ambient, escape, definite, extensions)
+    bodies := new AnalyzerFunctionBodies(diagnostics, spans, scopes, context, resolver, factory, ambient, escape, definite, extensions, new AnalyzerTerminatingCalls())
     return new FunctionBodyHarness(bodies, ambient, scopes, errors, assignability, model, extensions, factory)
 }
 

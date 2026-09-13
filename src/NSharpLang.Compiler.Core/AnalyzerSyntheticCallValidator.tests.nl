@@ -115,7 +115,8 @@ func ValidatorOwnerWithText(
         spans,
         sink,
         constants,
-        postconditions
+        postconditions,
+        new AnalyzerTerminatingCalls()
     )
 }
 

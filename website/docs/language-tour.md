@@ -1413,6 +1413,21 @@ func main() {
 }
 ```
 
+A narrowed `int?` is not merely *type-checked* as an `int` — it is **read** as one. The compiler
+emits `Nullable<T>.Value` at the narrowed read, so `value + 1`, `return value` on an `int` function,
+and `found.Line` on a narrowed `(Uri: string, Line: int)?` all run on the unwrapped value. Assigning
+to the name ends the narrowing, and so does a loop body that writes it, because the next iteration
+sees whatever the last one left.
+
+The four shapes that lower the nullable *themselves* — `value == null`, `value ?? 0`,
+`value.HasValue` and `value.Value` — keep the `Nullable<T>` and stay legal on a narrowed name, which
+is why the example above still reads `value.Value` after the guard.
+
+Three more things narrow the surviving flow for the same reason a guard clause does: `assert cond`
+(an assert that fails throws), a call to a `[DoesNotReturnIf(bool)]` parameter, and a guard branch
+that ends in `break` or `continue` rather than `return` — see
+[Functions](functions.md#a-signature-that-never-returns).
+
 `must` on a value the flow already proved non-null is reported as **NL907**, a *warning* rather than
 an error. Flow state is not something a mechanical translation can know, and a human tightening a
 guard should not have their build broken by a keyword that is merely no longer needed. Remove the

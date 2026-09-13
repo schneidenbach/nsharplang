@@ -461,3 +461,55 @@ test "A `for` WITH NO CONDITION IS ENDLESS, AND A `for <name> in <collection>` I
     // condition alone must not be read as endless: a collection can be empty.
     assert !AnalyzerStatementTermination.AlwaysReturns(TerminationForIn(TerminationBlockOf(TerminationBareReturn())))
 }
+
+// (6) A BARE EXPRESSION STATEMENT IS THE ONE SHAPE THAT CAN ANSWER YES WITHOUT BEING A `return` OR A
+// `throw`, and only when the call it holds was bound to a `[DoesNotReturn]` signature. The fact is
+// handed IN, because the judgement cannot read a callee off the syntax — so the same statement
+// answers NO to a caller that supplies no facts, which is the pure-syntax judgement every shape
+// above is measured with.
+func TerminationCallStatement(name: string): ExpressionStatement {
+    call := new CallExpression(new IdentifierExpression(name, 1, 1), new List<Argument>(), null, 1, 1)
+    return new ExpressionStatement(call, 1, 1)
+}
+
+func TerminationFactsFor(statement: ExpressionStatement): AnalyzerTerminatingCalls {
+    facts := new AnalyzerTerminatingCalls()
+    call := statement.Expression as CallExpression
+    if call != null {
+        facts.Commit(call, ReachabilityFlowFacts.DoesNotReturn(), null, ReachabilityFlowFacts.None())
+    }
+
+    return facts
+}
+
+test "A CALL STATEMENT LEAVES ONLY WHEN THE FACTS SAY ITS CALLEE NEVER RETURNS" {
+    statement := TerminationCallStatement("Fail")
+
+    assert !AnalyzerStatementTermination.AlwaysReturns(statement)
+    assert AnalyzerStatementTermination.AlwaysReturns(statement, TerminationFactsFor(statement))
+    assert AnalyzerStatementTermination.AlwaysLeaves(statement, TerminationFactsFor(statement))
+    assert !AnalyzerStatementTermination.AlwaysReturns(statement, new AnalyzerTerminatingCalls())
+}
+
+test "THE FACT REACHES EVERY SHAPE THE WALK DESCENDS INTO" {
+    statement := TerminationCallStatement("Fail")
+    facts := TerminationFactsFor(statement)
+
+    block := TerminationBlock(TerminationOneOf(statement))
+
+    assert AnalyzerStatementTermination.AlwaysReturns(block, facts)
+    assert !AnalyzerStatementTermination.AlwaysReturns(block)
+
+    branch: Statement = new IfStatement(new IdentifierExpression("c", 1, 4), statement, TerminationBareReturn(), 1, 1)
+
+    assert AnalyzerStatementTermination.AlwaysReturns(branch, facts)
+    assert !AnalyzerStatementTermination.AlwaysReturns(branch)
+}
+
+test "A STATEMENT THAT IS NOT AN EXPRESSION STATEMENT IGNORES THE FACTS ENTIRELY" {
+    statement := TerminationCallStatement("Fail")
+    facts := TerminationFactsFor(statement)
+
+    assert !AnalyzerStatementTermination.AlwaysReturns(TerminationEmptyBlock(), facts)
+    assert AnalyzerStatementTermination.AlwaysReturns(TerminationBareReturn(), facts)
+}

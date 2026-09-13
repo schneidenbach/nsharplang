@@ -238,8 +238,9 @@ class AnalyzerFunctionBodies {
     soaEscapeValue: AnalyzerSoaEscape
     definiteAssignmentValue: AnalyzerDefiniteAssignment
     extensionMethodsValue: List<FunctionDeclaration>
+    terminatingCallsValue: AnalyzerTerminatingCalls
 
-    constructor(diagnostics: AnalyzerDiagnosticSink, spans: AnalyzerDiagnosticSpans, scopes: AnalyzerScopeStack, declarationContext: AnalyzerDeclarationContext, typeResolver: AnalyzerTypeResolver, functionTypeFactory: AnalyzerFunctionTypeFactory, ambient: AnalyzerAmbientContext, soaEscape: AnalyzerSoaEscape, definiteAssignment: AnalyzerDefiniteAssignment, extensionMethods: List<FunctionDeclaration>) {
+    constructor(diagnostics: AnalyzerDiagnosticSink, spans: AnalyzerDiagnosticSpans, scopes: AnalyzerScopeStack, declarationContext: AnalyzerDeclarationContext, typeResolver: AnalyzerTypeResolver, functionTypeFactory: AnalyzerFunctionTypeFactory, ambient: AnalyzerAmbientContext, soaEscape: AnalyzerSoaEscape, definiteAssignment: AnalyzerDefiniteAssignment, extensionMethods: List<FunctionDeclaration>, terminatingCalls: AnalyzerTerminatingCalls) {
         diagnosticsValue = diagnostics
         spansValue = spans
         scopesValue = scopes
@@ -250,6 +251,7 @@ class AnalyzerFunctionBodies {
         soaEscapeValue = soaEscape
         definiteAssignmentValue = definiteAssignment
         extensionMethodsValue = extensionMethods
+        terminatingCallsValue = terminatingCalls
     }
 
     // THE LOCAL FUNCTION STATEMENT'S ENTRY. The statement's OWN position — not the inner
@@ -867,7 +869,7 @@ class AnalyzerFunctionBodies {
             return null
         }
 
-        if AnalyzerStatementTermination.AlwaysReturns(body) {
+        if AnalyzerStatementTermination.AlwaysReturns(body, terminatingCallsValue) {
             return null
         }
 

@@ -113,7 +113,7 @@ func OperandHarnessWith(sourceText: string?): OperandHarness {
     escape := new AnalyzerSoaEscape(diagnostics, spans, scopes, context)
     ambient := new AnalyzerAmbientContext(diagnostics, spans, escape)
     conditions := new AnalyzerBooleanConditions(diagnostics, spans, escape)
-    sequence := new AnalyzerLoopSequence(diagnostics, spans, scopes, context, resolver, ambient, escape, conditions, new AnalyzerTypeSubstitution(scopes, context, resolver))
+    sequence := new AnalyzerLoopSequence(diagnostics, spans, scopes, context, resolver, ambient, escape, conditions, new AnalyzerTypeSubstitution(scopes, context, resolver), new AnalyzerTerminatingCalls())
     constantFacts := new AnalyzerConstantExpressionFacts(scopes, context)
     reachability := new AnalyzerPatternReachability(diagnostics, spans, context, assignability)
     operands := new AnalyzerPassThroughOperands(diagnostics, spans, escape, resolver, ambient, context, sequence, constantFacts)
