@@ -871,6 +871,9 @@ written anywhere in a generator body.
 - `await` outside an `async func*`, and — inside one — an `await` NESTED in a larger expression;
   bind it first (`value := await ...`).
 - a `try` statement inside an `async func*` body, and `lock` inside any generator body.
+- `await foreach` INSIDE a generator body: releasing the inner enumerator needs an `await` in a
+  handler. Consume the sequence outside the generator, or enumerate a synchronous sequence with
+  `for..in` inside it.
 - a COMPOUND assignment (`+=`, `-=`, …) whose target is an indexer or a member; write the plain form
   (`table[key] = table[key] + 1`).
 

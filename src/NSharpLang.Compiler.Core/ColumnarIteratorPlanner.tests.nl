@@ -2698,7 +2698,11 @@ test "async iterator planner hoists an enumerator for a sequence source" {
     assert enumerators == 1
 }
 
-test "async iterator planner declines await foreach inside an iterator body" {
+// `await foreach` INSIDE a generator body needs an AWAIT INSIDE A HANDLER: the inner
+// `IAsyncEnumerator<T>` is released by awaiting its `DisposeAsync()`, and two of the three paths that
+// must release it — an exception passing through the body, and a consumer abandoning the outer
+// enumeration — are handler positions where a suspension has no resume label to return to.
+test "async iterator planner declines await foreach inside a generator body" {
     probe := new ColumnarIteratorShapeProbe(
         "async func* Bad(xs: IAsyncEnumerable<int>): IAsyncEnumerable<int> { await foreach x in xs { yield x } }",
         "IAsyncEnumerable<int>",
@@ -2711,6 +2715,7 @@ test "async iterator planner declines await foreach inside an iterator body" {
 
     assert !probe.Shape.Supported
     assert probe.Shape.DeclineSite == "emit.iterator.async-await-unsupported"
+    assert probe.Shape.DeclineMessage == "`await foreach` inside a generator body is not yet lowered: releasing the inner enumerator needs an `await` inside a handler"
 }
 
 // ---- async state-machine executed proofs (plans realized onto a reflective probe host) ----

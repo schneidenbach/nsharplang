@@ -836,9 +836,14 @@ class ColumnarIteratorPlanner {
             return WalkForIn(nodes, source, node, nodes.Child(node, 0), nodes.Child(node, 1), nodes.Text(source, node), "", state)
         }
         if kind == 73 {
-            // AwaitForeachStatement: asynchronous enumeration INSIDE an async iterator body composes two
-            // machines and is a later slice (consumer-side await foreach lowering is separate).
-            state.Decline("emit.iterator.async-await-unsupported", "`await foreach` inside an iterator body is a later slice")
+            // `await foreach` INSIDE a generator body composes two machines, and what it needs that
+            // nothing here has is an AWAIT INSIDE A HANDLER. The inner `IAsyncEnumerator<T>` must be
+            // released by awaiting its `DisposeAsync()` on three paths — the loop's normal exit, an
+            // exception passing through the body, and a consumer that abandons the outer enumeration
+            // — and the last two are handler positions, where a suspension has no resume label to
+            // come back to. Consuming the sequence outside the generator, or enumerating a
+            // synchronous sequence inside it, both work today.
+            state.Decline("emit.iterator.async-await-unsupported", "`await foreach` inside a generator body is not yet lowered: releasing the inner enumerator needs an `await` inside a handler")
             return false
         }
         if kind == 48 {
