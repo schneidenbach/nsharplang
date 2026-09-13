@@ -192,6 +192,7 @@ func ConversionUnresolvedGenericType(): GenericTypeInfo {
     arguments := new List<TypeInfo>()
     arguments.Add(BuiltInTypes.Int)
     return new GenericTypeInfo("Box", arguments)
+}
 
 // A constructed generic over a VALUE-type definition: `KeyValuePair<int, int>` is a struct, and the
 // constructed shape alone carries nothing that separates it from `List<int>`.
