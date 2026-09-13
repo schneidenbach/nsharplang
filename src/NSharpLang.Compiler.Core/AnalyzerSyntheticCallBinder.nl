@@ -702,13 +702,22 @@ class AnalyzerSyntheticCallBinder {
     // A params parameter whose type is not an array at all describes nothing, so the position is
     // skipped rather than failed — a malformed signature must not eliminate a candidate that the
     // arity tables already admitted.
+    //
+    // THE `ref`/`out` SHELL IS PART OF THE EXPECTED TYPE HERE, exactly as it is in the validator. The
+    // two must agree: an argument written `out x` carries a `ByRefTypeInfo` and a bare `Facts`
+    // parameter type does not accept one, so a scorer that dropped the shell rejected the only
+    // candidate that fits — `Compile(root, out ignored, includeTests)` reported NL402 as soon as
+    // `Compile` had ANY sibling overload, while the same call to a lone declaration bound. By-ref
+    // matching is an EQUALITY (`AnalyzerAssignability` compares the inner types by identity, with the
+    // `out` nullability relaxation), so restoring the shell also makes the position match exactly
+    // rather than widen.
     func GetArgumentComparisonTypes(functionType: FunctionTypeInfo, call: CallExpression, argTypes: IReadOnlyList<TypeInfo>, argumentIndex: int, parameterIndex: int, paramsParameterIndex: int, parameterStartIndex: int, genericBindings: Dictionary<string, TypeInfo>?): SyntheticArgumentComparison {
         parameterTypes := functionType.ParameterTypes
         if parameterTypes == null || parameterIndex < 0 || parameterIndex >= parameterTypes.Count {
             return new SyntheticArgumentComparison(false, null, null)
         }
 
-        boundParameterType := AnalyzerSyntheticCallFacts.ApplyGenericBindings(parameterTypes[parameterIndex], genericBindings)
+        boundParameterType := AnalyzerOverloadFacts.ApplySyntheticParameterModifier(functionType, parameterIndex, AnalyzerSyntheticCallFacts.ApplyGenericBindings(parameterTypes[parameterIndex], genericBindings))
         expectedType: TypeInfo? = declarationContext.ResolveDeclaredAlias(boundParameterType)
         argumentType: TypeInfo? = declarationContext.ResolveDeclaredAlias(argTypes[argumentIndex])
         if paramsParameterIndex < 0 || parameterIndex != paramsParameterIndex {

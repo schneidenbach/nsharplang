@@ -733,6 +733,40 @@ test "an ordinary position compares the parameter's type against the argument's"
     assert SyntheticTypeName(comparison.ArgumentType) == "string"
 }
 
+test "A `ref`/`out` POSITION IS COMPARED THROUGH ITS BY-REF SHELL, THE SAME SHELL THE VALIDATOR USES" {
+    binder := SyntheticBinder()
+    names := SyntheticNames(2)
+    parameterTypes := SyntheticTypeList2(BuiltInTypes.String, BuiltInTypes.Int)
+    modifiers := new List<Ast.ParameterModifier>()
+    modifiers.Add(Ast.ParameterModifier.None)
+    modifiers.Add(Ast.ParameterModifier.Out)
+    signature := SyntheticSignature(names, parameterTypes, modifiers)
+
+    arguments := SyntheticArgs()
+    arguments.Add(SyntheticPositional("a"))
+    arguments.Add(new Argument(null, SyntheticIdentifier("b"), ArgumentModifier.Out))
+    outArgumentType: TypeInfo = new ByRefTypeInfo(BuiltInTypes.Int, true)
+    argTypes := SyntheticTypeList2(BuiltInTypes.String, outArgumentType)
+
+    comparison := binder.GetArgumentComparisonTypes(
+        signature,
+        SyntheticCall(arguments),
+        argTypes,
+        1,
+        1,
+        -1,
+        0,
+        null
+    )
+
+    assert comparison.Matched
+    // THE SHELL IS THE WHOLE POINT. `out x` carries `&int` and a bare `int` parameter type does not
+    // accept one, so a scorer that dropped the modifier rejected the only candidate that fits — an
+    // overload set containing an `out` signature reported NL402 while the same lone declaration bound.
+    assert SyntheticTypeName(comparison.ExpectedType) == "&int"
+    assert SyntheticTypeName(comparison.ArgumentType) == "&int"
+}
+
 test "a position outside the signature does not match at all" {
     binder := SyntheticBinder()
     argTypes := SyntheticTypeList(BuiltInTypes.Int)
