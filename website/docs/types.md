@@ -1393,6 +1393,11 @@ Two rules the compiler enforces about the type-argument list itself:
 - A generic method written with its type arguments **directly on a call's RESULT**
   (`Make().As<int>()`) does not resolve; bind the receiver to a name first (`made := Make()` then
   `made.As<int>()`). An ordinary member off a call result (`Make().Index`) is unaffected.
+- A **lambda or a method group as a CONSTRUCTOR argument** now compiles (`new Lazy<int>(() => 1)`),
+  including into an external generic closed over one of your own types (`new Lazy<Query>(() => new
+  Query())`). The constructor is chosen by the arity written; two overloads at that arity that both
+  admit the written arguments are refused rather than guessed, so write one of them out (a local of
+  the declared delegate type, then `new T(thatLocal)`) if you hit that.
 - A **fully qualified** external type reaches fewer positions than an imported one. Written out
   (`NSharpLang.Runtime.Result<int, string>`) it works in `typeof`, in a `:=` initializer, as a
   local's declared type and as the receiver of a generic or `out`-taking member, but not as a `type`

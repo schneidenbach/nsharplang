@@ -155,6 +155,31 @@ class ColumnarExternalTypeCatalog {
         return ColumnarContextualExtensionInference.Candidates(extensionIndex, memberName)
     }
 
+    // THE SELECTION FOR A SITE THAT WROTE ITS TYPE ARGUMENTS. Same index, same discovery rule; the
+    // type arguments come from the site instead of from inference, which is the only difference.
+    func TryResolveExplicitExtension(receiverType: Type, memberName: string, typeArguments: Type[], argumentTypes: Type[]?, argumentFacts: ColumnarDirectCallArgumentFacts?, argumentCount: int, out selection: ColumnarExtensionMethodSelection): bool {
+        selection = ColumnarExtensionMethodSelection.None()
+        if !IsPrepared {
+            return false
+        }
+        if !extensionIndexBuilt {
+            if preparedScan == null {
+                return false
+            }
+            extensionIndex = ColumnarExtensionMethodResolver.BuildIndex(preparedScan)
+            extensionIndexBuilt = true
+        }
+        if extensionIndex == null {
+            return false
+        }
+        if argumentTypes == null || argumentFacts == null {
+            selection = ColumnarExtensionMethodResolver.ResolveExplicitUnique(extensionIndex, receiverType, memberName, typeArguments, argumentCount)
+        } else {
+            selection = ColumnarExtensionMethodResolver.ResolveExplicit(extensionIndex, receiverType, memberName, typeArguments, argumentTypes, argumentFacts)
+        }
+        return selection.IsSelected
+    }
+
     func Prepare(referenceAssemblyPaths: IReadOnlyList<string>?, sourceFactsById: Dictionary<int, ColumnarSourceBindingFacts>) {
         resolvedOwners.Clear()
         fileFactsById = sourceFactsById
@@ -535,6 +560,15 @@ class ColumnarBindingScopeFacts {
     // Delegated to the shared catalog so the index is built once and reused across every file view.
     func ExtensionCandidates(memberName: string): List<ColumnarExtensionMethodCandidate> {
         return assemblyCatalog.ExtensionCandidates(memberName)
+    }
+
+    // The extension selected by a site that WROTE its type arguments, through the same shared index.
+    func TryResolveExplicitExtensionMethod(receiverType: Type, memberName: string, typeArguments: Type[], argumentTypes: Type[]?, argumentFacts: ColumnarDirectCallArgumentFacts?, argumentCount: int, out selection: ColumnarExtensionMethodSelection): bool {
+        selection = ColumnarExtensionMethodSelection.None()
+        if !assemblyCatalog.IsPrepared {
+            return false
+        }
+        return assemblyCatalog.TryResolveExplicitExtension(receiverType, memberName, typeArguments, argumentTypes, argumentFacts, argumentCount, out selection)
     }
 
     // Declared-type positions have their own exact binding rules. This resolver deliberately

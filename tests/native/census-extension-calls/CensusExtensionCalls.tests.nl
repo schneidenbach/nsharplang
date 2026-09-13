@@ -1,7 +1,9 @@
 namespace NSharpLang.CensusExtensionCalls.Tests
 
+import System.Collections
 import System.Collections.Generic
 import System.Linq
+import System.Text.Json
 
 
 // ── the receiver the census actually wrote: a sequence of a type THIS compilation declares ────
@@ -122,4 +124,97 @@ test "every LINQ answer matches the loop that computes it by hand" {
     assert items.Count() == manualCount
     assert items.Sum(item => item.Weight) == manualWeight
     assert items.First().Name == manualFirst
+}
+
+// ── a call that WROTE its type arguments: inference is skipped, arity must match ──────────────
+test "an extension call written with explicit type arguments binds the candidate of that arity" {
+    let values: IEnumerable = Words()
+
+    // `Cast<T>` and `OfType<T>` declare a NON-GENERIC `IEnumerable` receiver, which is the shape a
+    // per-member table used to hard-code. They resolve here out of the ordinary extension index.
+    cast := values.Cast<string>().ToList()
+    assert cast.Count == 3
+    assert cast[0] == "alpha"
+    assert RuntimeTypeOf(cast) == typeof(List<string>)
+
+    let mixed: IEnumerable = MixedValues()
+    strings := mixed.OfType<string>()
+    numbers := mixed.OfType<int>()
+    assert strings.Count() == 2
+    assert numbers.Count() == 1
+}
+
+test "an explicitly closed extension over a sequence of a source class carries that type" {
+    let values: IEnumerable = Queries()
+
+    typed := values.Cast<Query>().ToList()
+    assert RuntimeTypeOf(typed) == typeof(List<Query>)
+    assert typed[0].Name == "alpha"
+    assert typed.Count() == 3
+}
+
+test "an explicitly closed extension over a VALUE-type receiver loads the receiver by value" {
+    document := JsonDocument.Parse("{\"Name\":\"alpha\",\"Weight\":7}")
+
+    // `JsonSerializer.Deserialize<TValue>(this JsonElement, JsonSerializerOptions?)` is declared on a
+    // STRUCT receiver, and its type argument is only in the RETURN — nothing to infer it from, so the
+    // site has to write it.
+    element := document.RootElement
+    nameElement := element.GetProperty("Name")
+    assert nameElement.Deserialize<string>(NoOptions()) == "alpha"
+
+    // The trailing optional is filled from the callee's own metadata default when it is omitted.
+    weightElement := element.GetProperty("Weight")
+    assert weightElement.Deserialize<int>() == 7
+}
+
+// ── a lambda in every ARGUMENT position ───────────────────────────────────────────────────────
+test "a lambda is a constructor argument, including into a generic closed over a source class" {
+    number := new Lazy<int>(() => 1)
+    assert number.Value == 1
+
+    // A lambda whose BODY builds a class this project declares, captured into a constructor argument.
+    name := new Lazy<string>(() => new Query("alpha", 3).Name)
+    assert name.Value == "alpha"
+
+    // The type argument itself may be a class this project declares: `Lazy<Query>` is an
+    // instantiation whose constructor table reflection refuses to report, and the definition's own
+    // constructors answer instead. (Reading `.Value` back off such an instantiation is a separate
+    // limit — see website/docs/types.md — so the assertion is on the constructed object.)
+    made := new Lazy<Query>(() => new Query("alpha", 3))
+    assert made != null
+    assert RuntimeTypeOf(made) == typeof(Lazy<Query>)
+}
+
+test "a method group is a constructor argument wherever a lambda is" {
+    weight := new Lazy<int>(MakeWeight)
+    assert weight.Value == 9
+
+    // And through the same path when the delegate takes an argument.
+    lengths := new List<string>()
+    lengths.Add("alpha")
+    lengths.Add("be")
+    assert lengths.FindIndex(IsShort) == 1
+}
+
+test "a lambda reaches an indexer argument, an initializer value and a literal element" {
+    // An indexer argument.
+    map := new Dictionary<string, Func<int, int>>()
+    map["double"] = value => value * 2
+    doubler := map["double"]
+    assert doubler(21) == 42
+
+    // An object-initializer value — the member's declared type is what shapes the lambda, and a
+    // delegate FIELD is written `?` whenever it has no initializer.
+    holder := new Holder { Transform: value => value + 1 }
+    assert holder.Transform != null
+    transform := must holder.Transform
+    assert transform(41) == 42
+
+    // An array literal element.
+    transforms: Func<int, int>[] = [value => value * 3, value => value - 1]
+    triple := transforms[0]
+    decrement := transforms[1]
+    assert triple(14) == 42
+    assert decrement(43) == 42
 }

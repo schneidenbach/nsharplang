@@ -1,7 +1,9 @@
 namespace NSharpLang.CensusExtensionCalls.Tests
 
 import System
+import System.Collections
 import System.Collections.Generic
+import System.Text.Json
 
 
 // THE EXTENSION-CALL SHAPES THE 2026-09-12 CONVERTER CENSUS FOUND, AS RUNNING CODE.
@@ -81,4 +83,28 @@ func WeightsByName(): Dictionary<string, int> {
 
 func RuntimeTypeOf(value: object): Type {
     return value.GetType()
+}
+
+func MixedValues(): ArrayList {
+    values := new ArrayList()
+    values.Add("alpha")
+    values.Add(7)
+    values.Add("gamma")
+    return values
+}
+
+func NoOptions(): JsonSerializerOptions? {
+    return null
+}
+
+class Holder {
+    Transform: Func<int, int>?
+}
+
+func MakeWeight(): int {
+    return 9
+}
+
+func IsShort(value: string): bool {
+    return value.Length < 3
 }

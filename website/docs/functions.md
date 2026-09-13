@@ -766,6 +766,60 @@ text := "This is a long string"
 short := text.Truncate(10)  // "This is a..."
 ```
 
+### Calling an extension method
+
+An extension call is resolved the way C# resolves one. The receiver's static type is converted to
+the `this` parameter's type by the ordinary assignability relation, and the method's type arguments
+are then inferred from the receiver and from the arguments. That is one rule, and it is why the
+receiver can be almost anything:
+
+```n#
+import System.Collections.Generic
+import System.Linq
+
+class Query {
+    Name: string
+    constructor(name: string) {
+        Name = name
+    }
+}
+
+func examples(items: List<Query>, words: string[], text: string, map: Dictionary<string, int>) {
+    items.First().Name          // List<Query> is an IEnumerable<Query>
+    words.Count()               // an array is a sequence of its element
+    text.Count(c => c == 'a')   // a string is a sequence of its characters
+    map.Sum(pair => pair.Value) // a dictionary is a sequence of its pairs
+}
+```
+
+The element type may be a type your own project declares — `List<Query>` above is an
+`IEnumerable<Query>` exactly as `List<string>` is an `IEnumerable<string>`.
+
+A lambda argument is typed by the parameter it is passed to, so the compiler chooses the method
+first and types the lambda afterwards. A method group works wherever a lambda does.
+
+### Writing the type arguments out
+
+Some extensions declare a type argument that nothing in the call could infer — `Cast<T>` names the
+type you are casting TO, and `Deserialize<T>` names the type you are parsing INTO. Write it:
+
+```n#
+import System.Collections
+import System.Linq
+import System.Text.Json
+
+func typed(values: IEnumerable, element: JsonElement): int {
+    names := values.Cast<string>().ToList()
+    weight := element.Deserialize<int>()
+    return names.Count + weight
+}
+```
+
+Explicit type arguments SKIP inference: a candidate whose own type-parameter count differs from the
+number you wrote is not a candidate at all, so writing too many or too few reports "no such method"
+rather than closing the wrong one. The receiver may be a value type (`JsonElement` above) — an
+extension's receiver is its first argument, so the struct's value is passed, never its address.
+
 ## Best Practices
 
 ### 1. Use Expression-Bodied Members for Simple Functions

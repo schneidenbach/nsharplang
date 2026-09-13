@@ -1293,6 +1293,37 @@ delegate's RETURN position, repeating while anything moves.
 - `unknown` contributes NO binding (`PopulateReflectionBindingsFromTypeInfo` returns immediately).
   It is the analyzer's answer for an expression it could not type, and recording it closed the method
   over a type the program never wrote.
+- A TYPE CLOSED OVER A TYPE THE COMPILATION IS WRITING cannot be asked about itself, and three
+  separate readings had to learn that. `List<Query>` for a source class `Query` is a
+  `TypeBuilderInstantiation` whose `GetInterfaces` throws; `Query[]` is an array over a `TypeBuilder`
+  whose interface list is equally unreadable; and `Enumerable.First<Query>` is a
+  `MethodBuilderInstantiation` whose `GetParameters` reports the DEFINITION's `TSource`.
+  `ColumnarContextualExtensionInference.FindClosedImplementation` therefore falls back to the
+  receiver's own DEFINITION with its type arguments substituted, and to the CLR's own vector contract
+  for an array (the generic interfaces `typeof(object[])` implements, closed over the element — read
+  off the CLR, not written down). `TryClose` SUBSTITUTES the closed signature from the declaration
+  rather than reading it back, exactly as `ColumnarRuntimeGenericMethodResolver` already does. Before
+  this, `items.First()` emitted for `List<string>` and declined for `List<Query>`.
+- `ColumnarExtensionMethodResolver.ReferenceAssignableFrom` asks that same owner what closed shapes a
+  receiver HAS instead of `IsAssignableFrom`, which throws on exactly those receivers. One notion of
+  "what interface does this receiver have", not two.
+- EXPLICIT TYPE ARGUMENTS on an extension call are `ColumnarExtensionMethodResolver.CollectExplicit`
+  plus `ResolveExplicit` / `ResolveExplicitUnique`, reached from
+  `ColumnarIlEmitter.TryEmitExplicitGenericExtensionCall`. They replaced a two-member table that named
+  `Cast` and `OfType` and hard-coded `IEnumerable` as their receiver slot. C#'s rule (ECMA-334
+  §12.6.4.1) is that written type arguments SKIP inference: a candidate whose own arity differs is
+  excluded rather than an error. A VALUE-type receiver slot is now indexed
+  (`IsSupportedReceiverParameter` excludes only by-ref, pointer and BARE type-parameter slots), which
+  is what `JsonSerializer.Deserialize<TValue>(this JsonElement, ...)` needs; the receiver is pushed by
+  VALUE there, and boxed when the declared slot is a reference type.
+- A CONSTRUCTOR ARGUMENT WITH NO TYPE OF ITS OWN is `ColumnarIlEmitter.TryEmitContextualConstruction`:
+  the constructor is selected first (by the written arity, and among same-arity overloads by whether
+  each written argument CAN match the declared parameter), then each argument is emitted against its
+  declared parameter type, which is what gives a lambda its shape. Every tier below types its
+  arguments before it selects, so `new Lazy<int>(() => 1)` reached no owner at all. The columnar
+  PARSER reaches it because the lambda level now runs in every argument position — a call argument, a
+  constructor argument, an indexer argument, an object-, anonymous-object- or `with`-initializer
+  value, and an array or tuple literal element.
 
 ### Member lookup in CALLEE position
 

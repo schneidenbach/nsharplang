@@ -96,6 +96,15 @@ class ColumnarContextualExtensionInference {
             return false
         }
 
+        // A VALUE RECEIVER ARRIVES AT THIS TIER ALREADY PUSHED, and whether it was pushed as a value
+        // or as a managed pointer was decided by the member-access walk above, which asked the
+        // question about an INSTANCE call. A value-type receiver slot is therefore resolved where the
+        // receiver's own push is still in this owner's hands — the explicit-type-argument path — and
+        // not here.
+        if candidate.ReceiverParameterType.get_IsValueType() {
+            return false
+        }
+
         typeParameters := new Type[](0)
         if method.get_IsGenericMethodDefinition() {
             declared := method.GetGenericArguments()
@@ -523,7 +532,7 @@ class ColumnarContextualExtensionInference {
             index := 0
             while index < interfaces.Length {
                 implemented := interfaces[index]
-                if implemented.get_IsGenericType() && implemented.GetGenericTypeDefinition() == openDefinition {
+                if InterfaceMatchesDefinition(implemented, openDefinition) {
                     return implemented
                 }
 
@@ -641,7 +650,7 @@ class ColumnarContextualExtensionInference {
             index := 0
             while index < definitionInterfaces.Length {
                 implemented := definitionInterfaces[index]
-                if implemented.get_IsGenericType() && implemented.GetGenericTypeDefinition() == openDefinition {
+                if InterfaceMatchesDefinition(implemented, openDefinition) {
                     return ColumnarRuntimeInstanceMemberResolver.SubstituteClosedTypeArguments(implemented, arguments)
                 }
 
@@ -665,6 +674,17 @@ class ColumnarContextualExtensionInference {
         }
 
         return null
+    }
+
+    // A declared interface against the definition a receiver slot names. A generic declaration is
+    // matched by its DEFINITION; a non-generic one (`IEnumerable`, which is what `Cast<T>` and
+    // `OfType<T>` declare) is matched by identity.
+    static func InterfaceMatchesDefinition(implemented: Type, openDefinition: Type): bool {
+        if openDefinition.get_IsGenericType() {
+            return implemented.get_IsGenericType() && implemented.GetGenericTypeDefinition() == openDefinition
+        }
+
+        return implemented == openDefinition
     }
 
     // A base type a builder-bound instantiation may refuse to report at all.
