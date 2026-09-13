@@ -5577,6 +5577,15 @@ sealed class ColumnarIlEmitter {
         }
         for localFunction in fn.LocalFunctions {
             localFn := localFunction.Function
+            // AN ASYNC LOCAL FUNCTION IS NOT HOSTED, capture or no capture. The async body planner
+            // wraps returns and builds its fault guard from a DECLARED function or member's return
+            // type, and a local function's body is not routed to it, so its returns would be checked
+            // against `Task<T>` with an unwrapped value on the stack. Declining by name beats the
+            // return-type mismatch that shape used to report. (`func*` never reaches here: a
+            // generator local function is refused by the parser.)
+            if (localFn.IsAsync) {
+                return DeclineStatic("emit.local-function.async", "an async local function is not modeled: its body is not routed through the async return planner", fn.Name + "." + localFn.Name, -1, 0)
+            }
             let localReturn: System.Type = null
             if (localFn.ReturnCanonical == "void") {
                 localReturn = ColumnarTypeOfPlanner.RequiredVoidType()

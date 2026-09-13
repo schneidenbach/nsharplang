@@ -1322,6 +1322,10 @@ sealed class ColumnarProgramInputBuilder {
         lf := 0
         while lf < localFunctionCount {
             localFn: ColumnarFunctionInput = null
+            // `async func` before the local function's own `func` keyword (token kind 68). The body
+            // planner does not host an async local function, and recording the word is what lets the
+            // emitter decline by NAME instead of reporting the unwrapped return type it produces.
+            localFunctionIsAsync := localFunctionTokenIndices[lf] > 0 && ck[localFunctionTokenIndices[lf] - 1] == 68
             if !TryParseColumnarFunctionAt(
                 ck,
                 cs,
@@ -1331,7 +1335,7 @@ sealed class ColumnarProgramInputBuilder {
                 source,
                 out localFn,
                 false,
-                false,
+                localFunctionIsAsync,
                 true,
                 0,
                 false,
