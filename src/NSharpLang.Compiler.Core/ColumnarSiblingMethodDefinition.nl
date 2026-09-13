@@ -37,6 +37,25 @@ class ColumnarSiblingMethodDefinition {
     }
 }
 
+// ONE METHOD OF THE TYPE WHOSE BODY IS BEING EMITTED, offered as a method-group candidate. A name
+// written inside a type body may resolve to that type's own method, and naming one where a delegate
+// is expected makes it a method group — so the delegate builder needs the same three facts it needs
+// from a top-level `func`: the handle to take the address of, the parameter types and the return
+// type. Nothing else about the declaration matters to the conversion, which is why this is not the
+// full sibling record: generic and modified-parameter methods are filtered out before a candidate is
+// ever built, because neither has a fixed handle a delegate can be made over.
+class ColumnarEnclosingMethodGroupCandidate {
+    Method: MethodInfo
+    ParamTypes: Type[]
+    ReturnType: Type
+
+    constructor(method: MethodInfo, paramTypes: Type[], returnType: Type) {
+        Method = method
+        ParamTypes = paramTypes
+        ReturnType = returnType
+    }
+}
+
 // A generic extension method's receiver is written as a dotted chain of plain names. Only that
 // shape can be re-resolved name by name; a chain carrying a call or an index has already evaluated
 // something the re-resolution would evaluate twice.

@@ -344,9 +344,13 @@ class AnalyzerAssignabilityFacts {
             return true
         }
 
+        // A CONSTRUCTED GENERIC DELEGATE, BY WHAT IT IS RATHER THAN BY WHAT IT IS CALLED. This used to
+        // read `Name == "Func" || Name == "Action"`, so `Predicate<string>`, `Comparison<int>`,
+        // `Converter<T, R>` and `EventHandler<T>` were told a method group "must be called or passed
+        // to a delegate" while being exactly that. The definition's base type answers instead.
         genericType := resolvedExpected as GenericTypeInfo
         if genericType != null {
-            return genericType.Name == "Func" || genericType.Name == "Action"
+            return TypeInfoIdentityFacts.IsRuntimeDelegateDefinition(genericType)
         }
 
         reflectionType := resolvedExpected as ReflectionTypeInfo

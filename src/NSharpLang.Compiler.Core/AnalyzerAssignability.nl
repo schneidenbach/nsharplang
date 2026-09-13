@@ -2,7 +2,6 @@ namespace NSharpLang.Compiler
 
 import System
 import System.Collections.Generic
-import System.Threading
 
 
 // THE ANALYZER'S ASSIGNABILITY DECISION — the whole strongly-connected component, in one owner.
@@ -320,15 +319,20 @@ class AnalyzerAssignability {
             }
         }
 
-        // The compiler emission thread requires this exact reflected ThreadStart target. Lambdas
-        // already reach generic Action/Func targets through the generic-type arm below; keep this
-        // bridge exact so other custom delegates retain their existing rejection boundary. The
-        // identity comparison crosses the analyzer's MetadataLoadContext/runtime boundary.
+        // A LAMBDA REACHES ANY DELEGATE TYPE, not only `Func` and `Action`. C# converts an anonymous
+        // function to a delegate type whose `Invoke` the lambda's signature is compatible with, and
+        // the delegate's NAME is no part of that rule: `ConsoleCancelEventHandler`, `Predicate<T>`,
+        // `Comparison<T>`, `ThreadStart` and a user-declared `delegate` all carry their signature in
+        // exactly the same place. The signature is read out of `Invoke` (which is also where the
+        // lambda's own parameter types came from, in `AnalyzerLambdaAnalysis.FunctionSignature`) and
+        // compared by the ordinary function-type relation. `IsDelegateType` is the METADATA test, so
+        // a delegate loaded into the analyzer's MetadataLoadContext answers here too; the two
+        // abstract roots are excluded, because `Delegate` itself is not a conversion target.
         if sourceFunction != null && !sourceIsDeclaredFunction {
-            threadStartTarget := resolvedTarget as ReflectionTypeInfo
-            if threadStartTarget != null && TypeInfoIdentityFacts.HaveSameReflectionTypeIdentity(threadStartTarget.Type, typeof(ThreadStart)) {
-                threadStartSignature := AnalyzerFunctionTypeFactory.CreateFromRuntimeDelegate(threadStartTarget.Type)
-                return IsFunctionTypeAssignable(sourceFunction, threadStartSignature)
+            delegateTarget := resolvedTarget as ReflectionTypeInfo
+            if delegateTarget != null && assignabilityFacts.IsDelegateType(delegateTarget.Type) {
+                delegateSignature := AnalyzerFunctionTypeFactory.CreateFromRuntimeDelegate(delegateTarget.Type)
+                return IsFunctionTypeAssignable(sourceFunction, delegateSignature)
             }
         }
 
@@ -800,16 +804,28 @@ class AnalyzerAssignability {
         return false
     }
 
-    // A lambda's function type against a `Func<...>` / `Action<...>` instantiation. A function type
-    // that carries a SOURCE identity is a method group, not a lambda, and is scored as one instead.
-    // Note the parameter direction: a lambda parameter is checked as the TARGET of the delegate's
-    // argument, which is contravariance.
+    // A lambda's function type against a constructed GENERIC delegate. A function type that carries a
+    // SOURCE identity is a method group, not a lambda, and is scored as one instead.
+    //
+    // `Func` and `Action` state their shape in their TYPE ARGUMENTS, which is why they are read
+    // positionally and without reflection: those two instantiations routinely close over a type this
+    // compilation is still writing, and such an instantiation cannot be reflected at all. EVERY OTHER
+    // GENERIC DELEGATE — `Predicate<T>`, `Comparison<T>`, `EventHandler<T>`, `Converter<T, R>`, a
+    // referenced assembly's own — states its shape in its `Invoke`, which is read through the
+    // definition. Reading the shape from where the delegate actually carries it is the whole rule;
+    // the delegate's NAME is no part of it.
     func IsLambdaAssignableToDelegate(functionType: FunctionTypeInfo, delegateType: GenericTypeInfo): bool {
         if AnalyzerCallableReferenceFacts.HasSourceFunctionIdentity(functionType) {
             delegateSignature := AnalyzerCallableReferenceFacts.CreateFunctionTypeInfoFromGenericDelegate(delegateType)
+            if delegateSignature == null {
+                delegateSignature = GenericDelegateInvokeSignature(delegateType)
+            }
+
             if delegateSignature != null {
                 return IsFunctionTypeAssignableToRuntimeDelegateMethodGroup(functionType, delegateSignature)
             }
+
+            return false
         }
 
         parameterTypes := ParameterTypesOrEmpty(functionType)
@@ -845,6 +861,15 @@ class AnalyzerAssignability {
             return true
         }
 
+        if delegateType.Name != "Action" {
+            invokeSignature := GenericDelegateInvokeSignature(delegateType)
+            if invokeSignature == null {
+                return false
+            }
+
+            return IsLambdaAssignableToSignature(functionType, invokeSignature)
+        }
+
         if parameterTypes.Count != typeArguments.Count {
             return false
         }
@@ -862,6 +887,60 @@ class AnalyzerAssignability {
         }
 
         return true
+    }
+
+    // The `Invoke` a constructed generic delegate declares, in the instantiation's own vocabulary.
+    // The CLOSED type answers when the reference set can spell it; otherwise the DEFINITION does,
+    // with this instantiation's arguments substituted into the positions it spells as bare type
+    // parameters — which is how a delegate closed over a type this compilation is writing answers.
+    func GenericDelegateInvokeSignature(delegateType: GenericTypeInfo): FunctionTypeInfo? {
+        closedClrType := clrTypeConversion.TryConvertTypeInfoToClrType(delegateType)
+        if closedClrType != null && assignabilityFacts.IsDelegateType(closedClrType) {
+            return AnalyzerFunctionTypeFactory.CreateFromRuntimeDelegate(closedClrType)
+        }
+
+        definitionReflection := delegateType.GenericDefinition as ReflectionTypeInfo
+        if definitionReflection == null {
+            return null
+        }
+
+        return AnalyzerFunctionTypeFactory.CreateFromDelegateDefinition(definitionReflection.Type, delegateType.TypeArguments)
+    }
+
+    // A LAMBDA against a delegate signature that is already reified. The direction of each check is
+    // the conversion's own: a lambda parameter is the TARGET of the delegate's argument
+    // (contravariance) and the lambda's result is the SOURCE of the delegate's return (covariance).
+    // A position the lambda has not inferred yet contributes nothing rather than failing.
+    func IsLambdaAssignableToSignature(functionType: FunctionTypeInfo, delegateSignature: FunctionTypeInfo): bool {
+        lambdaParameters := ParameterTypesOrEmpty(functionType)
+        delegateParameters := ParameterTypesOrEmpty(delegateSignature)
+        if lambdaParameters.Count != delegateParameters.Count {
+            return false
+        }
+
+        index := 0
+        while index < delegateParameters.Count {
+            lambdaParameter := lambdaParameters[index]
+            if !BuiltInTypes.IsUnknown(lambdaParameter) {
+                if !IsAssignable(lambdaParameter, delegateParameters[index]) {
+                    return false
+                }
+            }
+
+            index = index + 1
+        }
+
+        lambdaReturn := functionType.ReturnType
+        delegateReturn := delegateSignature.ReturnType
+        if lambdaReturn == null || delegateReturn == null || BuiltInTypes.IsUnknown(lambdaReturn) {
+            return true
+        }
+
+        if BuiltInTypes.Is(delegateReturn, BuiltInTypes.Void) {
+            return true
+        }
+
+        return IsAssignable(delegateReturn, lambdaReturn)
     }
 
     // A user-defined implicit conversion operator whose parameter accepts the source and whose result
