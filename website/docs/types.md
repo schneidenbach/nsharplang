@@ -1629,6 +1629,13 @@ Two rules the compiler enforces about the type-argument list itself:
   lambda's body) but does not EMIT yet. A generic FREE function with a delegate parameter is
   unaffected, and so is every generic method on an external type; write the type argument out
   (`Match<string>(...)`) or move the call into a free function.
+- A **nullable over a value type outside the modelled set** does not resolve at any declared
+  position. `T?` works for the integral and floating scalars, `bool`, `char`, `decimal`, `TimeSpan`,
+  an enum and a tuple; `DateTime?`, `Guid?` and a `T?` over **your own struct** report
+  [NL103](./errors/NL103.md) on the parameter, return or local that spells them. The lifted operators
+  above follow that set — the rule itself is general (it lifts any user-defined operator on a
+  non-nullable value type), so those types gain it as soon as the nullable itself resolves. Use the
+  non-nullable type with a separate presence flag, or a reference wrapper, until then.
 - **Null-conditional INDEXING** (`items?[0]`) is not compiled yet; `?.` on a member or a method is
   unaffected, and an explicit null check reads the element.
 - An argument that must be **boxed into an `object` parameter of a GENERIC function**
