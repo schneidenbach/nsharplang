@@ -256,7 +256,7 @@ class OwnershipPolicy {
     static CodeEpochFileCount: int => 223
     static CodeEpochPathFingerprint: string => "pathset-v2:fbda7fc3d5053525"
     static CodeEpochFactFingerprint: string => "epochfacts-v2:05f608333cab8ef7"
-    static ReviewedHeadFingerprint: string => "head-v2:063a8c2fceb7e390"
+    static ReviewedHeadFingerprint: string => "head-v2:744f5e3a6d910cd3"
 
     static func Classify(path: string): OwnershipClassification {
         normalized := NormalizeRelativePath(path)
