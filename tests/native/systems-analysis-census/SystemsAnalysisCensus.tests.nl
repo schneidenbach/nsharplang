@@ -956,9 +956,13 @@ test "020 s41 systems analysis census: a clean hot path is NOT blamed for an unr
     assert trustedCount == 0
 }
 
-test "020 s41 systems analysis census: two file-private `helper` functions with the same name are TWO distinct summaries, and only the allocating one allocates (was SystemsNSharpTests.FilePrivateTopLevelDuplicates_ResolvePerFile)" {
+// A camelCase top-level function is NAMESPACE-private, not file-private (census 2026-09-13, §VIS),
+// and a free-function name is declared once per namespace across files (NL306) — so the two
+// `helper`s sit in two namespaces. They are two distinct summaries all the same, and only the one
+// the hot path actually reaches is flagged.
+test "020 s41 systems analysis census: two namespace-private `helper` functions with the same spelling in two namespaces are TWO distinct summaries, and only the allocating one allocates (was SystemsNSharpTests.FilePrivateTopLevelDuplicates_ResolvePerFile)" {
     directory := SacFixture("fileprivatetoplevelduplicates-resolveperfile", "name: SystemsTest\noutputType: library\ntargetFramework: net10.0\nlanguage:\n  profile: default\n  systems:\n    mode: strict\n")
-    SacWrite(directory, "a_other.nl", "func helper(): int {\n    return 2\n}\n")
+    SacWrite(directory, "a_other.nl", "namespace Other\n\nfunc helper(): int {\n    return 2\n}\n")
     SacWrite(directory, "z_hot.nl", "func helper(): int {\n    box := alloc new Box()\n    return box.Tag\n}\n\n[hot]\nfunc HotPath(): int {\n    return helper()\n}\n\nclass Box {\n    Tag: int\n}\n")
     check := SacCheck(directory)
     exitCode := check.ExitCode
@@ -980,7 +984,7 @@ test "020 s41 systems analysis census: two file-private `helper` functions with 
     assert finding0 == "code=NSYS010;severity=error;effect=allocation;message=callee 'helper' allocates on a hot/alloc(none) path;file=z_hot.nl;line=8;column=18;length=6;function=HotPath;policy=[hot];summarySource=sourceInferred;suggestion=Move the allocation behind a [boundary], pass caller-owned storage, or return Result<T,E> without formatting diagnostics.;callPath=[HotPath,helper]"
     assert findingPast == "<no-such-row>"
     assert functionCount == 3
-    assert function0 == "name=helper;file=a_other.nl;line=1;column=1;isHot=False;isBoundary=False;allocNone=False;summarySource=sourceInferred;effects={allocates=False,boxes=False,constructsDelegate=False,capturesClosure=False,usesRuntimeDispatch=False,usesReflection=False,usesDynamicCode=False,throws=False,hasImplicitTrapObligation=False,usesUnknownExternalCall=False,usesResource=False,usesPool=False,usesConcurrencyPrimitive=False,requiresWarmup=False,aotSafe=True};calls=[]"
+    assert function0 == "name=helper;file=a_other.nl;line=3;column=1;isHot=False;isBoundary=False;allocNone=False;summarySource=sourceInferred;effects={allocates=False,boxes=False,constructsDelegate=False,capturesClosure=False,usesRuntimeDispatch=False,usesReflection=False,usesDynamicCode=False,throws=False,hasImplicitTrapObligation=False,usesUnknownExternalCall=False,usesResource=False,usesPool=False,usesConcurrencyPrimitive=False,requiresWarmup=False,aotSafe=True};calls=[]"
     assert function1 == "name=helper;file=z_hot.nl;line=1;column=1;isHot=False;isBoundary=False;allocNone=False;summarySource=sourceInferred;effects={allocates=True,boxes=False,constructsDelegate=False,capturesClosure=False,usesRuntimeDispatch=False,usesReflection=False,usesDynamicCode=False,throws=False,hasImplicitTrapObligation=False,usesUnknownExternalCall=False,usesResource=False,usesPool=False,usesConcurrencyPrimitive=False,requiresWarmup=False,aotSafe=True};calls=[]"
     assert function2 == "name=HotPath;file=z_hot.nl;line=7;column=1;isHot=True;isBoundary=False;allocNone=False;summarySource=explicitHot;effects={allocates=True,boxes=False,constructsDelegate=False,capturesClosure=False,usesRuntimeDispatch=False,usesReflection=False,usesDynamicCode=False,throws=False,hasImplicitTrapObligation=False,usesUnknownExternalCall=False,usesResource=False,usesPool=False,usesConcurrencyPrimitive=False,requiresWarmup=False,aotSafe=True};calls=[helper]"
     assert trustedCount == 0
@@ -1126,10 +1130,14 @@ test "020 s41 systems analysis census: callee resolution crosses an `import`: th
     assert trustedCount == 0
 }
 
-test "020 s41 systems analysis census: with two files declaring `MakeBox`, the IMPORTED one is the one resolved, and nothing is reported unknown (was SystemsNSharpTests.HotCallee_ImportedDuplicateSourceSite_ResolvesImportedDeclaration)" {
+// The second `MakeBox` lives in ANOTHER namespace: a free-function name is declared once per
+// namespace across files (NL306), so two files of one namespace declaring it is no longer a program
+// this report can be asked about. Two namespaces are two functions, and the file import still picks
+// the imported one.
+test "020 s41 systems analysis census: with two files in two namespaces declaring `MakeBox`, the IMPORTED one is the one resolved, and nothing is reported unknown (was SystemsNSharpTests.HotCallee_ImportedDuplicateSourceSite_ResolvesImportedDeclaration)" {
     directory := SacFixture("hotcallee-importedduplicatesourcesite-resolvesimporteddeclar", "name: SystemsTest\noutputType: library\ntargetFramework: net10.0\nlanguage:\n  profile: default\n  systems:\n    mode: strict\n")
     SacWrite(directory, "libA.nl", "func MakeBox(): Box {\n    return alloc new Box()\n}\n\nclass Box {\n    Tag: int\n}\n")
-    SacWrite(directory, "libB.nl", "func MakeBox(): int {\n    return 1\n}\n")
+    SacWrite(directory, "libB.nl", "namespace Other\n\nfunc MakeBox(): int {\n    return 1\n}\n")
     SacWrite(directory, "main.nl", "import \"libA\"\n\n[hot]\nfunc Hot(): int {\n    value := MakeBox()\n    return value.Tag\n}\n")
     check := SacCheck(directory)
     exitCode := check.ExitCode
@@ -1152,7 +1160,7 @@ test "020 s41 systems analysis census: with two files declaring `MakeBox`, the I
     assert findingPast == "<no-such-row>"
     assert functionCount == 3
     assert function0 == "name=MakeBox;file=libA.nl;line=1;column=1;isHot=False;isBoundary=False;allocNone=False;summarySource=sourceInferred;effects={allocates=True,boxes=False,constructsDelegate=False,capturesClosure=False,usesRuntimeDispatch=False,usesReflection=False,usesDynamicCode=False,throws=False,hasImplicitTrapObligation=False,usesUnknownExternalCall=False,usesResource=False,usesPool=False,usesConcurrencyPrimitive=False,requiresWarmup=False,aotSafe=True};calls=[]"
-    assert function1 == "name=MakeBox;file=libB.nl;line=1;column=1;isHot=False;isBoundary=False;allocNone=False;summarySource=sourceInferred;effects={allocates=False,boxes=False,constructsDelegate=False,capturesClosure=False,usesRuntimeDispatch=False,usesReflection=False,usesDynamicCode=False,throws=False,hasImplicitTrapObligation=False,usesUnknownExternalCall=False,usesResource=False,usesPool=False,usesConcurrencyPrimitive=False,requiresWarmup=False,aotSafe=True};calls=[]"
+    assert function1 == "name=MakeBox;file=libB.nl;line=3;column=1;isHot=False;isBoundary=False;allocNone=False;summarySource=sourceInferred;effects={allocates=False,boxes=False,constructsDelegate=False,capturesClosure=False,usesRuntimeDispatch=False,usesReflection=False,usesDynamicCode=False,throws=False,hasImplicitTrapObligation=False,usesUnknownExternalCall=False,usesResource=False,usesPool=False,usesConcurrencyPrimitive=False,requiresWarmup=False,aotSafe=True};calls=[]"
     assert function2 == "name=Hot;file=main.nl;line=4;column=1;isHot=True;isBoundary=False;allocNone=False;summarySource=explicitHot;effects={allocates=True,boxes=False,constructsDelegate=False,capturesClosure=False,usesRuntimeDispatch=False,usesReflection=False,usesDynamicCode=False,throws=False,hasImplicitTrapObligation=False,usesUnknownExternalCall=False,usesResource=False,usesPool=False,usesConcurrencyPrimitive=False,requiresWarmup=False,aotSafe=True};calls=[MakeBox]"
     assert trustedCount == 0
 }
