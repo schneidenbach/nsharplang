@@ -1121,7 +1121,7 @@ test "add works" {
 
     private static int ExecuteProgram(params string[] args)
     {
-        var programType = typeof(CheckCommand).Assembly.GetType("NSharpLang.Cli.Program");
+        var programType = typeof(NSharpLang.Cli.Program).Assembly.GetType("NSharpLang.Cli.Program");
         Assert.NotNull(programType);
 
         var method = programType!.GetMethod("Execute", BindingFlags.Static | BindingFlags.NonPublic);
