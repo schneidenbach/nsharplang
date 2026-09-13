@@ -56,6 +56,67 @@ protected func ProtectedMethod() { }
 // Do not write public/private in ordinary N#; casing carries that meaning.
 ```
 
+### Which namespace a free function belongs to
+
+A top-level `func` belongs to the namespace its file declares, exactly as a `class` does. Two files
+in **different** namespaces may each declare a `Helper`, and neither hides the other:
+
+```n#
+// FILE reporting.nl
+namespace Reporting
+
+func Helper(): string {
+    return "reporting"
+}
+
+func Describe(): string {
+    return Helper()          // Reporting.Helper
+}
+```
+
+```n#
+// FILE dashboard.nl
+namespace Dashboard
+
+func Helper(): string {
+    return "dashboard"
+}
+
+func Describe(): string {
+    return Helper()          // Dashboard.Helper — a different function
+}
+```
+
+A bare call is looked up in exactly the order a bare **type** name is
+([NL209](./errors/NL209.md) describes the same order):
+
+1. the calling file's own declarations, whatever their casing;
+2. the file's own namespace, then each **enclosing** namespace outward, ending at the global
+   namespace — exported declarations only;
+3. the file's `import`s, in import order — exported declarations only. Two imports that both supply
+   the name is [NL209](./errors/NL209.md), and the file has to drop one of them.
+
+A camelCase top-level function is **file-private**: another file never reaches it, not even a file
+in the same namespace. A visibility word overrides the casing in both directions, as everywhere else
+in N# — `public func helper()` is reachable and `internal func Helper()` is not. Unlike types, a free
+function is *not* auto-discovered across namespaces — `import` the namespace that declares it.
+
+### What a free function looks like from .NET
+
+Free functions are emitted as **static methods on a `Program` class inside their own namespace**, so
+`func Helper()` in `namespace Reporting` is `Reporting.Program.Helper` and the same spelling in
+`namespace Dashboard` is `Dashboard.Program.Helper`. A file that declares no namespace puts its
+functions on the global `Program`. A C# consumer calls them the obvious way:
+
+```csharp
+var text = Reporting.Program.Helper();
+```
+
+Only namespaces that actually declare free functions (or whose bodies need a home for a lifted
+lambda) get a holder, so a library does not grow an empty global `Program`. `Program` is therefore
+a **reserved** type name in any namespace that declares free functions; name your own class
+something else there.
+
 ## Function Parameters
 
 ### Basic Parameters

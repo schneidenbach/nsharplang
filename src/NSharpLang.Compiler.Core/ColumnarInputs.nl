@@ -86,6 +86,14 @@ class ColumnarFunctionInput {
     TypeParamSpecialConstraints: int[]
     TypeParamTypeConstraints: string[][]
     ModifierFlags: int
+    // THE VISIBILITY WORD AS WRITTEN, SEPARATE FROM `ModifierFlags` ON PURPOSE. A top-level `func`'s
+    // `public`/`internal`/`protected`/`private` does not reach `ModifierFlags` (the declaration scan
+    // collects modifier words for structs only), and putting it there would change the CLR method
+    // attributes the declaration planner composes for every existing program. This column carries the
+    // word for the owners that must answer "is this function visible outside its own namespace?" —
+    // free-function identity above all — and changes no emitted metadata. Zero means "nothing
+    // written", which is the casing convention's cue.
+    VisibilityModifierFlags: int
     SourceFileId: int
     IsBodylessNativeImport: bool
     NativeImportLibraryName: string
@@ -149,6 +157,7 @@ class ColumnarFunctionInput {
         ReturnCanonical = returnCanonical
         IsAsync = isAsync
         ModifierFlags = modifierFlags
+        VisibilityModifierFlags = 0
         SourceFileId = sourceFileId
         IsBodylessNativeImport = isBodylessNativeImport
         NativeImportLibraryName = nativeImportLibraryName
@@ -503,6 +512,20 @@ class ColumnarProgramInput {
     // be reconstructed in C#.
     func ExactTypeNameForFile(name: string, sourceFileId: int): string {
         return bindingScope.ExactTypeNameForFile(name, sourceFileId)
+    }
+
+    // A FILE'S NAMESPACE AND ITS IMPORTS, for the owners that must key a declaration or resolve a
+    // bare name by namespace rather than by bare spelling — free-function identity above all.
+    func NamespaceNameForFile(sourceFileId: int): string {
+        return bindingScope.NamespaceNameForFile(sourceFileId)
+    }
+
+    func NamespaceImportsForFile(sourceFileId: int): List<string> {
+        return bindingScope.NamespaceImportsForFile(sourceFileId)
+    }
+
+    func FileImportSourceFileIdsForFile(sourceFileId: int): List<int> {
+        return bindingScope.FileImportSourceFileIdsForFile(sourceFileId)
     }
 
     func ExactStructTypeName(input: ColumnarStructInput): string {

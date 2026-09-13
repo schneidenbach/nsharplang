@@ -1563,7 +1563,9 @@ Two rules the compiler enforces about the type-argument list itself:
   overload set reached with a literal whose elements DO have a common type, are both unaffected.
 - Overloaded **free functions** are not emitted: two `func Accept(...)` declarations at file scope
   with different parameter types stop the columnar backend at its declaration scan. Declare the
-  overload set on a type instead.
+  overload set on a type instead. Two same-named free functions in DIFFERENT namespaces are not an
+  overload set and are unaffected — they are two functions, emitted onto their own namespaces'
+  `Program` holders (see [Functions](./functions.md#what-a-free-function-looks-like-from-net)).
 
 ## Nullable Types
 

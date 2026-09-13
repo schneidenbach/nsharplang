@@ -20,6 +20,11 @@ class ColumnarSourceBindingFacts {
     FileAliasSourceFileIds: Dictionary<string, int>
     UnaliasedNamespaceImports: List<string>
     UnaliasedFileImportPaths: List<string>
+    // The SOURCE FILE IDS those unaliased `import "./other.nl"` directives resolved to, in import
+    // order. A file import binds the imported file's exported declarations into THIS file's scope —
+    // nearer than any namespace — so an owner resolving a bare name has to know which files those
+    // are, not merely which names arrived. Aliased file imports are absent: they are qualifications.
+    UnaliasedFileImportSourceFileIds: List<int>
     ImportedNames: HashSet<string>
     ImportedSourceTypeNames: Dictionary<string, string>
     ImportedTypeSourceFileIds: Dictionary<string, int>
@@ -47,6 +52,7 @@ class ColumnarSourceBindingFacts {
         FileAliasSourceFileIds = new Dictionary<string, int>(StringComparer.Ordinal)
         UnaliasedNamespaceImports = new List<string>()
         UnaliasedFileImportPaths = new List<string>()
+        UnaliasedFileImportSourceFileIds = new List<int>()
         ImportedNames = new HashSet<string>(StringComparer.Ordinal)
         ImportedSourceTypeNames = new Dictionary<string, string>(StringComparer.Ordinal)
         ImportedTypeSourceFileIds = new Dictionary<string, int>(StringComparer.Ordinal)
@@ -1543,6 +1549,37 @@ class ColumnarBindingScopeFacts {
         return hasActiveFileFacts && name != null && name.Length > 0 && activeTypeAliasTargets.ContainsKey(name)
     }
 
+    // THE FILE'S OWN NAMESPACE, as the binding scope holds it: `""` is the global namespace. Free
+    // functions are declared on a per-namespace holder type, so their owner asks this rather than
+    // rebuilding the namespace off a compilation unit.
+    func NamespaceNameForFile(sourceFileId: int): string {
+        facts := new ColumnarSourceBindingFacts()
+        if fileFactsById.TryGetValue(sourceFileId, out facts) {
+            return facts.NamespaceName
+        }
+        return ""
+    }
+
+    // The file's unaliased `import` list, in IMPORT ORDER, which is what `SimpleNamePrecedence` rule
+    // 3 arbitrates between. Aliased imports are qualifications rather than bindings and never bring
+    // a bare name into scope, so they are deliberately absent.
+    func NamespaceImportsForFile(sourceFileId: int): List<string> {
+        facts := new ColumnarSourceBindingFacts()
+        if fileFactsById.TryGetValue(sourceFileId, out facts) {
+            return facts.UnaliasedNamespaceImports
+        }
+        return new List<string>()
+    }
+
+    // The files this one pulled in whole with `import "./other.nl"`, in import order.
+    func FileImportSourceFileIdsForFile(sourceFileId: int): List<int> {
+        facts := new ColumnarSourceBindingFacts()
+        if fileFactsById.TryGetValue(sourceFileId, out facts) {
+            return facts.UnaliasedFileImportSourceFileIds
+        }
+        return new List<int>()
+    }
+
     func ExactTypeNameForFile(name: string, sourceFileId: int): string {
         if name == null || name.Length == 0 || name.Contains(".") {
             return name
@@ -2631,6 +2668,7 @@ class ColumnarBindingScopeFacts {
                 importedFacts := new ColumnarSourceBindingFacts()
                 importedFileId := -1
                 if factsByPath.TryGetValue(importPath, out importedFacts) && fileIdsByPath.TryGetValue(importPath, out importedFileId) && importedFacts.ScanComplete {
+                    facts.UnaliasedFileImportSourceFileIds.Add(importedFileId)
                     for importedName in importedFacts.ExportedNames {
                         facts.ImportedNames.Add(importedName)
                         if importedFacts.DeclaredTypeNames.Contains(importedName) {

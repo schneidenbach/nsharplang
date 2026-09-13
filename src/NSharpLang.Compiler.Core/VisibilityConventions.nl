@@ -12,7 +12,13 @@ class VisibilityConventions {
     }
 
     static func IsExportedIdentifier(name: string?, modifiers: object): bool {
-        modifierValue := VisibilityModifierValue(modifiers)
+        return IsExportedIdentifierWithFlags(name, VisibilityModifierValue(modifiers))
+    }
+
+    // THE SAME RULE, TAKING THE WORD AS AN INT. Callers that already hold the modifier bits — the
+    // columnar owners, which carry them in an `int` column — read this one, so the decision has one
+    // owner and no caller has to box its word to ask.
+    static func IsExportedIdentifierWithFlags(name: string?, modifierValue: int): bool {
         if VisibilityHasFlag(modifierValue, 1) {
             return true
         }

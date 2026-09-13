@@ -10,23 +10,11 @@ import System.Reflection.Emit
 // synchronous wrapper the CLR entry-point slot requires. The caller owns assembly persistence; this
 // owner returns only the exact MethodBuilder that persistence must publish.
 class ColumnarEntryPointRealization {
-    static func TryEmit(
-        isExecutable: bool,
-        funcs: IReadOnlyList<ColumnarFunctionInput>,
-        methods: MethodBuilder[],
-        asyncWrappedByFunc: Type?[],
-        paramTypesByFunc: Dictionary<string, Type>[],
-        asyncInnerByFunc: Type[],
-        programType: TypeBuilder,
-        structRegistry: Dictionary<string, ColumnarStructDef>,
-        typeResolutionCatalog: ColumnarSemanticTypeResolutionCatalog,
-        out entryPointMethod: MethodBuilder?
-    ): bool {
-        entryPointMethod = null
-        if !isExecutable {
-            return true
-        }
 
+    // WHICH TOP-LEVEL FUNCTION IS THE ENTRY POINT: `main` anywhere in the program, else `Main`, else
+    // none. PUBLISHED because the assembly owner has to resolve the holder type the async wrapper is
+    // declared on out of the SAME selection, and two spellings of that walk could disagree.
+    static func SelectMainIndex(funcs: IReadOnlyList<ColumnarFunctionInput>): int {
         mainIndex := -1
         f := 0
         while f < funcs.Count && mainIndex < 0 {
@@ -42,12 +30,38 @@ class ColumnarEntryPointRealization {
             }
             f += 1
         }
+        return mainIndex
+    }
+
+    static func TryEmit(
+        isExecutable: bool,
+        funcs: IReadOnlyList<ColumnarFunctionInput>,
+        methods: MethodBuilder[],
+        asyncWrappedByFunc: Type?[],
+        paramTypesByFunc: Dictionary<string, Type>[],
+        asyncInnerByFunc: Type[],
+        programType: TypeBuilder?,
+        structRegistry: Dictionary<string, ColumnarStructDef>,
+        typeResolutionCatalog: ColumnarSemanticTypeResolutionCatalog,
+        out entryPointMethod: MethodBuilder?
+    ): bool {
+        entryPointMethod = null
+        if !isExecutable {
+            return true
+        }
+
+        mainIndex := SelectMainIndex(funcs)
 
         if mainIndex >= 0 {
             selectedMethod := methods[mainIndex]
             entryPointMethod = selectedMethod
             wrappedReturn := asyncWrappedByFunc[mainIndex]
             if wrappedReturn != null {
+                // TOTAL on this path: the caller resolves the holder from the SAME selection this
+                // owner makes, so an async `main` always arrives with the type its wrapper belongs on.
+                if programType == null {
+                    return false
+                }
                 if paramTypesByFunc[mainIndex].Count != 0 {
                     return false
                 }

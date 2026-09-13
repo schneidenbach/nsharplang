@@ -248,7 +248,11 @@ test "a generic synchronous iterator separates factory MVAR from machine VAR and
     assert IteratorBindingRequirement(machineVar.get_DeclaringType() == machineDefinition, "machine parameter declaring type")
     assert IteratorBindingRequirement(machineVar.get_DeclaringMethod() == null, "machine parameter has no declaring method")
 
-    host := machine.get_Assembly().GetType("Program")
+    // The factory is a free function of THIS file, so its holder is this file's namespace's
+    // `Program` — free functions are keyed by (namespace, name) and each namespace that declares one
+    // gets its own holder (census 2026-09-13, §EMIT3). This used to read the global `Program`, which
+    // was the only holder there was.
+    host := machine.get_Assembly().GetType("NSharpLang.ColumnarEmitFacts.Tests.Program")
     if host == null {
         throw new InvalidOperationException("Missing iterator factory host")
     }
