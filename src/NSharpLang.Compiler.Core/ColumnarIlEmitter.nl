@@ -9863,11 +9863,66 @@ sealed class ColumnarIlEmitter {
         ownerName := ColumnarNodeTextFacts.Text(_nodes, _source, receiver)
         calleeDescription = ownerName + "." + member
         let ownerType: NSharpLang.Compiler.Columnar.ColumnarStructDef? = null
-        if (!_typeResolutionStructs.TryGetValue(ownerName, out ownerType)) {
+        if (_typeResolutionStructs.TryGetValue(ownerName, out ownerType)) {
+            let ownerStatic: NSharpLang.Compiler.Columnar.ColumnarStaticMethodDef? = null
+            return TryFindStaticMethodOnChain(ownerType, member, argCount, out ownerStatic) && ownerStatic.DoesNotReturn
+        }
+        let externalCallee: System.Reflection.MethodInfo? = null
+        return TryResolveExternalCallStatementMethod(callNode, out externalCallee) && ReachabilityFlowFacts.Has(ReachabilityFlowAttributeReflection.FromMethodAttributes(externalCallee.GetCustomAttributesData()), ReachabilityFlowFacts.DoesNotReturn())
+    }
+
+    // THE REFLECTED METHOD A CALL STATEMENT NAMES, when the callee belongs to a type this
+    // compilation did not write.
+    //
+    // `[DoesNotReturn]` and `[DoesNotReturnIf]` are read from BOTH sides of the same fence — the
+    // diagnostics pass reads a referenced assembly's attributes through `CustomAttributeData` and a
+    // source declaration's through the parser's nodes — but the emitter's two readers above saw only
+    // the source side. So `Environment.FailFast("boom")` ended a body for the analyzer (a statement
+    // after it is NL312 unreachable) and ended nothing for the emitter, and a value function whose
+    // last statement was such a call declined at `emit.body` for not always-returning.
+    //
+    // The member is chosen by the same scoped resolution every other external call goes through, over
+    // the same owner the call spelled: a bare identifier that binds no value is the TYPE name of a
+    // static call, and anything else is a receiver whose preflight type answers for an instance one.
+    // Nothing about the member is written down.
+    private func TryResolveExternalCallStatementMethod(callNode: int, out externalMethod: MethodInfo): bool {
+        externalMethod = null
+        if (_nodes.Kind(callNode) != 9 || _nodes.ChildCount(callNode) < 1) {
             return false
         }
-        let ownerStatic: NSharpLang.Compiler.Columnar.ColumnarStaticMethodDef? = null
-        return TryFindStaticMethodOnChain(ownerType, member, argCount, out ownerStatic) && ownerStatic.DoesNotReturn
+        callee := UnwrapParenthesizedNode(Child(callNode, 0))
+        argCount := _nodes.ChildCount(callNode) - 1
+        if (_nodes.Kind(callee) != 8 || _nodes.ChildCount(callee) != 1) {
+            return false
+        }
+        member := ColumnarNodeTextFacts.Text(_nodes, _source, callee)
+        receiver := UnwrapParenthesizedNode(Child(callee, 0))
+        if (_nodes.Kind(receiver) == 6) {
+            ownerName := ColumnarNodeTextFacts.Text(_nodes, _source, receiver)
+            if (!_locals.ContainsKey(ownerName) && !_liftedLocals.ContainsKey(ownerName) && !_paramOrdinals.ContainsKey(ownerName) && !_siblings.ContainsKey(ownerName) && !IsCurrentInstanceMemberName(ownerName) && !IsCurrentStaticMemberName(ownerName)) {
+                let staticOwnerType: System.Type? = null
+                let staticOwnerClaimed: bool = false
+                if (!_typeResolutionStructs.Resolver.TryResolve(ownerName, out staticOwnerType, out staticOwnerClaimed) || staticOwnerType == null) {
+                    return false
+                }
+                staticSelection := ColumnarOrdinaryRuntimeDirectCallResolver.ResolveUniqueAtArity(staticOwnerType, member, argCount, true)
+                if (!staticSelection.IsSelected || staticSelection.Method == null) {
+                    return false
+                }
+                externalMethod = staticSelection.Method
+                return true
+            }
+        }
+        let instanceReceiverType: System.Type? = null
+        if (!TryGetPreflightExpressionType(receiver, out instanceReceiverType) || instanceReceiverType == null) {
+            return false
+        }
+        instanceSelection := ColumnarOrdinaryRuntimeDirectCallResolver.ResolveUniqueAtArity(instanceReceiverType, member, argCount, false)
+        if (!instanceSelection.IsSelected || instanceSelection.Method == null) {
+            return false
+        }
+        externalMethod = instanceSelection.Method
+        return true
     }
 
     // THE ARGUMENT A `[DoesNotReturnIf(b)]` NAMED, and the branch the surviving flow is on. The
@@ -9924,14 +9979,26 @@ sealed class ColumnarIlEmitter {
         }
         ownerName := ColumnarNodeTextFacts.Text(_nodes, _source, receiver)
         let ownerType: NSharpLang.Compiler.Columnar.ColumnarStructDef? = null
-        if (!_typeResolutionStructs.TryGetValue(ownerName, out ownerType)) {
+        if (_typeResolutionStructs.TryGetValue(ownerName, out ownerType)) {
+            let ownerStatic: NSharpLang.Compiler.Columnar.ColumnarStaticMethodDef? = null
+            if (!TryFindStaticMethodOnChain(ownerType, member, argCount, out ownerStatic)) {
+                return null
+            }
+            return ownerStatic.ParameterDoesNotReturnIf
+        }
+        // THE SAME GUARD CLAUSE, WRITTEN IN A REFERENCED ASSEMBLY. `Debug.Assert(condition)` is
+        // `[DoesNotReturnIf(false)]` on its parameter, which is the `if !condition { throw }` a
+        // caller would otherwise write — and the flow it narrows is the same flow an `if` narrows.
+        let externalCallee: System.Reflection.MethodInfo? = null
+        if (!TryResolveExternalCallStatementMethod(callNode, out externalCallee)) {
             return null
         }
-        let ownerStatic: NSharpLang.Compiler.Columnar.ColumnarStaticMethodDef? = null
-        if (!TryFindStaticMethodOnChain(ownerType, member, argCount, out ownerStatic)) {
-            return null
+        externalParameters := externalCallee.GetParameters()
+        externalFacts := new int[](externalParameters.Length)
+        for externalPosition := 0; externalPosition < externalParameters.Length; externalPosition++ {
+            externalFacts[externalPosition] = ReachabilityFlowAttributeReflection.FromParameter(externalParameters[externalPosition])
         }
-        return ownerStatic.ParameterDoesNotReturnIf
+        return externalFacts
     }
 
     private func DropNarrowingsAssignedIn(node: int): void {
@@ -12178,18 +12245,21 @@ sealed class ColumnarIlEmitter {
                 if (_nodes.Kind(elementNode) == 43) {
                     elementNode = Child(elementNode, 0)
                 }
-                // ContainsBuilderBoundType: a builder-bound element (a record, a List<Pt>) would make
-                // the closed ValueTuple a TypeBuilderInstantiation whose GetConstructor below throws —
-                // decline cleanly instead (the IsSupportedValueTuple element rule, applied at emission).
+                // A BUILDER-BOUND ELEMENT IS ADMITTED BY THE SAME RULE THE TUPLE'S FIELD READ USES.
+                // A closed `ValueTuple` over a source type is a `TypeBuilderInstantiation`, whose
+                // `GetConstructor` throws — which is why this arm used to refuse such an element
+                // outright, and why `(item, new List<int>())` at a `(Entry: Item, Ranges: List<int>)`
+                // local declined. The constructor is rebound instead; `IsSupportedValueTuple`, asked
+                // of the CLOSED tuple below, is the element fence, exactly as it is for the read.
                 let elemType: System.Type? = null
-                if (!EmitExpression(elementNode, out elemType) || !ColumnarTypeOfPlanner.IsSupportedType(elemType) || ColumnarTypeOfPlanner.ContainsBuilderBoundType(elemType)) {
+                if (!EmitExpression(elementNode, out elemType) || !ColumnarTypeOfPlanner.IsSupportedType(elemType)) {
                     return false
                 }
                 elementTypes[i] = elemType
             }
             tupleType := openTuple.MakeGenericType(elementTypes)
-            tupleCtor := tupleType.GetConstructor(elementTypes)
-            if (tupleCtor == null) {
+            let tupleCtor: System.Reflection.ConstructorInfo? = null
+            if (!TryResolveValueTupleConstructor(tupleType, elementTypes, out tupleCtor) || tupleCtor == null) {
                 return false
             }
             _il.Emit(OpCodes.Newobj, tupleCtor)
@@ -14479,7 +14549,11 @@ sealed class ColumnarIlEmitter {
         if (_nodes.Kind(receiver) == 6) {
             // a bare identifier receiver that is NOT a value (local/param/sibling) is a type name.
             receiverName := ColumnarNodeTextFacts.Text(_nodes, _source, receiver)
-            if (!_locals.ContainsKey(receiverName) && !_liftedLocals.ContainsKey(receiverName) && !_paramOrdinals.ContainsKey(receiverName) && !_siblings.ContainsKey(receiverName) && !IsCurrentInstanceMemberName(receiverName) && !IsCurrentStaticMemberName(receiverName)) {
+            // `this` IS THE ONE BARE IDENTIFIER THAT CAN NEVER BE A TYPE NAME. It is not in any
+            // binding map, so the value test below answered "no" for it and `this.GetType()` was
+            // read as a static call on a type named `this` — which is why that spelling declined
+            // while `(this as object).GetType()` emitted.
+            if (!ColumnarExpressionSyntaxFacts.IsExplicitThisIdentifier(_nodes, _source, receiver) && !_locals.ContainsKey(receiverName) && !_liftedLocals.ContainsKey(receiverName) && !_paramOrdinals.ContainsKey(receiverName) && !_siblings.ContainsKey(receiverName) && !IsCurrentInstanceMemberName(receiverName) && !IsCurrentStaticMemberName(receiverName)) {
                 // CALL-STYLE newtype construction through a file-import ALIAS (`Ids.UserId(42)`):
                 // the member names a synthesized newtype and the receiver is the alias qualifier.
                 aliasQualifiedTypeName := receiverName + "." + memberName
@@ -15969,6 +16043,20 @@ sealed class ColumnarIlEmitter {
         let contextualOwnerType: System.Type? = null
         let contextualOwnerClaimed: bool = false
         if (_typeResolutionStructs.Resolver.TryResolve(typeName, out contextualOwnerType, out contextualOwnerClaimed) && contextualOwnerType != null && TryEmitContextualStaticCall(callIdx, contextualOwnerType, member, argCount, out resolvedClrType)) {
+            return true
+        }
+
+        // ORDINARY STATIC RESOLUTION IS THE RULE; EVERYTHING ABOVE IS A RESIDUAL. Every arm between
+        // here and the top of this method is either a planned external binding or a hand-written
+        // per-API lowering, and a static call whose owner resolves and whose single declaration at
+        // this arity accepts the arguments as written needs neither: the member comes from the owner
+        // type's own metadata, the arguments are emitted against its declared parameter types, and
+        // the dispatch is the `call` any other external static gets. `Debug.Assert(x != null)` is
+        // exactly such a call — nothing about it is special, and "not modeled" was only ever a
+        // statement about the table above, not about the call.
+        let ordinaryOwnerType: System.Type? = null
+        let ordinaryOwnerClaimed: bool = false
+        if (_typeResolutionStructs.Resolver.TryResolve(typeName, out ordinaryOwnerType, out ordinaryOwnerClaimed) && ordinaryOwnerType != null && TryEmitOrdinaryRuntimeStaticCall(callIdx, ordinaryOwnerType, member, argCount, out resolvedClrType)) {
             return true
         }
 
@@ -17569,8 +17657,8 @@ sealed class ColumnarIlEmitter {
                 return false
             }
         }
-        tupleCtor := target.GetConstructor(elementTypes)
-        if (tupleCtor == null) {
+        let tupleCtor: System.Reflection.ConstructorInfo? = null
+        if (!TryResolveValueTupleConstructor(target, elementTypes, out tupleCtor) || tupleCtor == null) {
             return false
         }
         _il.Emit(OpCodes.Newobj, tupleCtor)
@@ -19011,6 +19099,14 @@ sealed class ColumnarIlEmitter {
             } else {
                 return false
             }
+        } else if columnarSwitchValue11 == 17 {
+            // A TUPLE LITERAL IS A `ValueTuple<…>` OVER ITS ELEMENTS' OWN TYPES, and it was the one
+            // composite literal preflight could not name. Everything that asks what an expression
+            // PRODUCES before emitting it therefore stopped at a tuple: a lambda whose body is a
+            // tuple has no inferable return type, so `xs.Select(d => (Code: d.Code, Line: d.Line))`
+            // declined at the extension call while `xs.Select(d => d.Code)` emitted. Element NAMES
+            // play no part — they are metadata the CLR tuple does not carry.
+            return TryGetPreflightTupleLiteralType(node, out columnarResolvedType)
         } else if columnarSwitchValue11 == 12 {
             return TryGetPreflightBinaryExpressionType(node, out columnarResolvedType)
         } else if columnarSwitchValue11 == 15 {
@@ -19142,12 +19238,90 @@ sealed class ColumnarIlEmitter {
         }
     }
 
+    // THE CLOSED `ValueTuple` A TUPLE LITERAL PRODUCES. The arity families and the element fence are
+    // the emission arm's own (`ColumnarTypeOfPlanner.IsSupportedValueTuple`), asked here before
+    // anything is written, so the type this answers is exactly the type that arm would produce.
+    private func TryGetPreflightTupleLiteralType(node: int, out columnarResolvedType: Type): bool {
+        columnarResolvedType = null
+        if (_nodes.Kind(node) != 17) {
+            return false
+        }
+        arity := _nodes.ChildCount(node)
+        openTuple := ColumnarTypeOfPlanner.OpenValueTupleType(arity)
+        if (openTuple == null || arity < 2 || arity > 7) {
+            return false
+        }
+        elementTypes := new Type[arity]
+        for i := 0; i < arity; i++ {
+            let elementType: System.Type? = null
+            if (!TryGetPreflightExpressionType(TupleLiteralElementValueNode(node, i), out elementType) || elementType == null) {
+                return false
+            }
+            elementTypes[i] = elementType
+        }
+        tupleType := openTuple.MakeGenericType(elementTypes)
+        if (!ColumnarTypeOfPlanner.IsSupportedValueTuple(tupleType)) {
+            return false
+        }
+        columnarResolvedType = tupleType
+        return true
+    }
+
+    // THE CONSTRUCTOR OF A CLOSED `ValueTuple`, INCLUDING ONE CLOSED OVER A TYPE THIS COMPILATION IS
+    // STILL BUILDING.
+    //
+    // `ValueTuple<Item, List<int>>` over a source `Item` is a `TypeBuilderInstantiation`, and a
+    // reflection member query on one throws outright — which is why the literal arms either declined
+    // a builder-bound element up front or reached `GetConstructor` and crashed the compiler. The
+    // tuple's FIELD read already walks around the same wall by rebinding the OPEN field with
+    // `TypeBuilder.GetField`; this is the construction half of that one answer.
+    private static func TryResolveValueTupleConstructor(tupleType: Type, elementTypes: Type[], out tupleConstructor: ConstructorInfo): bool {
+        tupleConstructor = null
+        if (!ColumnarTypeOfPlanner.IsSupportedValueTuple(tupleType)) {
+            return false
+        }
+        if (!ColumnarTypeOfPlanner.ContainsBuilderBoundType(tupleType)) {
+            tupleConstructor = tupleType.GetConstructor(elementTypes)
+            return tupleConstructor != null
+        }
+        openDefinition := tupleType.GetGenericTypeDefinition()
+        openConstructor := openDefinition.GetConstructor(openDefinition.GetGenericArguments())
+        if (openConstructor == null) {
+            return false
+        }
+        tupleConstructor = TypeBuilder.GetConstructor(tupleType, openConstructor)
+        return tupleConstructor != null
+    }
+
     private func TryGetPreflightBinaryExpressionType(node: int, out columnarResolvedType: Type): bool {
         columnarResolvedType = null
         if (_nodes.Kind(node) != 12 || _nodes.ChildCount(node) != 2) {
             return false
         }
         op := ColumnarNodeTextFacts.Text(_nodes, _source, node)
+        // A NULL COMPARISON IS A BOOLEAN WHATEVER THE OTHER SIDE IS, and it is answered before the
+        // matched-pair rule below because the null literal has no type of its own for that rule to
+        // match: typing both operands first is exactly what made `x != null` untypable. It is the
+        // guard clause the whole language is written in, and refusing to type it is why
+        // `Debug.Assert(x != null)` could not be scored as a `bool` argument while
+        // `Debug.Assert(x.Length > 0)` could. The comparison is admitted for the operands a null can
+        // be compared against at all: a reference, and a `Nullable<T>` whose lifting is modelled.
+        if (op == "==" || op == "!=") {
+            nullComparisonOperand := -1
+            if (_nodes.Kind(UnwrapParenthesizedNode(Child(node, 1))) == 5) {
+                nullComparisonOperand = Child(node, 0)
+            } else if (_nodes.Kind(UnwrapParenthesizedNode(Child(node, 0))) == 5) {
+                nullComparisonOperand = Child(node, 1)
+            }
+            if (nullComparisonOperand >= 0) {
+                let nullComparedType: System.Type? = null
+                if (!TryGetPreflightExpressionType(nullComparisonOperand, out nullComparedType) || nullComparedType == null || (nullComparedType.get_IsValueType() && !ColumnarTypeOfPlanner.IsSupportedNullable(nullComparedType))) {
+                    return false
+                }
+                columnarResolvedType = typeof(bool)
+                return true
+            }
+        }
         // Short-circuit `&&`/`||` has NO preflight residual (task 007): N# types every plannable `&&`/`||` at
         // the front door, and a residual one is only ever EMITTED (case-12 arm), never preflight-typed, so the
         // old `&&`/`||` sub-arm here was dead and is deleted, not fenced.
@@ -20745,6 +20919,38 @@ sealed class ColumnarIlEmitter {
         inheritedReceiverType := ColumnarInheritedExternalBase.ResolveForReceiver(receiverType, _structRegistry.get_Values())
         if (inheritedReceiverType != null && TryEmitOrdinaryRuntimeInstanceCall(callIdx, inheritedReceiverType, member, argCount, out columnarResolvedType)) {
             return true
+        }
+
+        // EVERY TYPE INHERITS `System.Object`'S OWN INSTANCE MEMBERS, INCLUDING THE ONES THIS
+        // COMPILATION IS STILL BUILDING. `GetType`, `ToString`, `GetHashCode` and `Equals(object)`
+        // are members of every receiver there is, and the two tiers above cannot see them on a source
+        // receiver: a `TypeBuilder` answers no member query, and the base walk reports the implicit
+        // `System.Object` base as no answer because it contributes no surface BEYOND object's own.
+        // That is the surface being asked for here, so `t.GetType().Name` on a source class declined
+        // while `(t as object).GetType().Name` emitted — the same call, through a cast that changed
+        // nothing about which method runs.
+        //
+        // The member is chosen by ordinary scoped resolution asked of `object`; the receiver is
+        // already on the stack, and a source VALUE type is boxed first, which is what a `constrained.`
+        // callvirt on a struct with no override of its own amounts to. A member the source chain
+        // DOES declare never reaches here: its own resolution answered tiers above.
+        let objectInheritedOwner: NSharpLang.Compiler.Columnar.ColumnarStructDef? = null
+        if (ColumnarTypeOfPlanner.ContainsBuilderBoundType(receiverType) && ColumnarSourceDefinitionResolver.TryResolveStruct(receiverType, _structRegistry.get_Values(), out objectInheritedOwner) && objectInheritedOwner != null) {
+            objectInheritedSelection := ColumnarOrdinaryRuntimeDirectCallResolver.ResolveUniqueAtArity(typeof(object), member, argCount, false)
+            if (objectInheritedSelection.IsSelected && objectInheritedSelection.Method != null && CanEmitOrdinaryRuntimeCallArguments(callIdx, objectInheritedSelection.ParameterTypes)) {
+                if (receiverType.get_IsValueType()) {
+                    _il.Emit(OpCodes.Box, receiverType)
+                }
+                objectInheritedParameters := objectInheritedSelection.ParameterTypes
+                for objectInheritedArgument := 0; objectInheritedArgument < objectInheritedParameters.Length; objectInheritedArgument++ {
+                    if (!EmitDeclaredCallArgument(Child(callIdx, objectInheritedArgument + 1), objectInheritedParameters[objectInheritedArgument], true)) {
+                        return false
+                    }
+                }
+                _il.Emit(OpCodes.Callvirt, objectInheritedSelection.Method)
+                columnarResolvedType = objectInheritedSelection.ReturnType
+                return true
+            }
         }
 
         if (!legacyWholeSubtreePlanning) {

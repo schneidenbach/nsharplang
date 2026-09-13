@@ -6752,7 +6752,9 @@ func ParserTypedForeachInIndex(tokens: ParserTokenTable, count: int, typeFirst: 
             typedForeachAngles = typedForeachAngles - 1
         } else if typedForeachToken == 112 {
             typedForeachAngles = typedForeachAngles - 2
-        } else if typedForeachToken == 127 || typedForeachToken == 131 {
+        } else if typedForeachToken == 119 || typedForeachToken == 127 || typedForeachToken == 131 {
+            // `?[` (119) is one token and still opens a bracket group — the same reading the typed
+            // local's annotation scan uses, for the same `string?[]` spelling.
             typedForeachGroups = typedForeachGroups + 1
         } else if typedForeachToken == 128 || typedForeachToken == 132 {
             typedForeachGroups = typedForeachGroups - 1
@@ -7178,7 +7180,14 @@ func ParseSimpleStatementNode(tokens: ParserTokenTable, count: int, st: ParserSt
                     angleDepth = angleDepth - 1
                 } else if k == 112 {
                     angleDepth = angleDepth - 2
-                } else if k == 127 || k == 131 {
+                } else if k == 119 || k == 127 || k == 131 {
+                    // `?[` (119) IS ONE TOKEN AND STILL OPENS A BRACKET GROUP. The lexer folds the
+                    // `?` and `[` of `string?[]` into a single QuestionBracket, so a scan that counted
+                    // only `[` (131) saw the closing `]` with nothing open, drove the depth negative
+                    // and refused the whole function — while the same spelling in a PARAMETER or a
+                    // RETURN type, which are scanned by the type kernel rather than by this delimiter
+                    // walk, parsed. The element-may-be-null array annotation is one of the two
+                    // spellings the nullability rules give, and a local wears it like any other.
                     groupDepth = groupDepth + 1
                 } else if k == 128 || k == 132 {
                     groupDepth = groupDepth - 1

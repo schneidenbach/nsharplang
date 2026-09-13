@@ -1676,6 +1676,16 @@ Two rules the compiler enforces about the type-argument list itself:
   (`Sink.Accept([1, "b", null])` where `Accept` takes both `int[]` and `object[]`). The emitter picks
   a same-arity candidate before it looks at the argument. A single candidate of that arity, and an
   overload set reached with a literal whose elements DO have a common type, are both unaffected.
+- **`this.` as a receiver** reaches only the members your own type declares. `this.Name` and
+  `this.Compare(other)` work; `this.GetType()` — a member `object` declares and your type inherits —
+  does not, and neither does a bare `GetType()` with no receiver at all (that one reports
+  [NL412](./errors/NL412.md)). Name the receiver instead: `other.GetType()` on a parameter or a local
+  of your type works, and so does `(this as object).GetType()`.
+- **Tuple element NAMES do not survive an `IGrouping.Key` hop.** `xs.GroupBy(x => (x.Code, x.Line))`
+  emits and `group.Key.Item1` reads the element, but `group.Key.Code` does not: the names are
+  metadata the grouping's key type does not carry, and nothing at the call site writes them down.
+  Names DO survive a declared return type — `func Pairs(): List<(Code: string, Line: int)>` then
+  `pair.Code` — so hand the grouped keys to a function that declares them.
 - Overloaded **free functions** are not emitted: two `func Accept(...)` declarations at file scope
   with different parameter types stop the columnar backend at its declaration scan. Declare the
   overload set on a type instead. Two same-named free functions in DIFFERENT namespaces are not an

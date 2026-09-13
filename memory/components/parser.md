@@ -268,6 +268,22 @@ Both bodies are stamped with their file's binding scope like every other body
 (`ColumnarProgramInput.StampBindingContexts`); without that stamp an external type name inside an
 initializer cannot resolve and the type declines at emit.
 
+### A type ANNOTATION is delimited structurally, and `?[` is one token
+
+A typed local (`name: Type = init`) and an annotated loop variable (`for name: Type in xs`) carry
+their type as a SOURCE SPAN in the columnar node's value slot rather than as a type tree: type trees
+cannot share the statement node table, because the type kernel's kind space collides with the
+expression kinds. Each span is found by a delimiter walk in `ColumnarParserKernels` — balanced angles
+(`>>` closes two) and `()`/`[]` groups, ending at the first depth-0 `=` for a local and at the first
+depth-0 `in` for a loop variable.
+
+The walk must therefore agree with the LEXER about what opens a group. `string?[]` lexes as
+`string` + `?[` (one `QuestionBracket` token, the null-conditional indexer's spelling) + `]`, so a
+walk that counted only `[` saw the closing `]` with nothing open, drove its depth negative and
+refused the whole FUNCTION — while the same spelling in a parameter or a return type, which the type
+kernel scans rather than this walk, parsed. Any future multi-character token that contains a bracket
+or a paren has to be added to both walks.
+
 ### Nested Type Support
 `ParseMemberDeclaration` handles nested types (classes, structs, records inside other types).
 

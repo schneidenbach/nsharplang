@@ -1011,6 +1011,31 @@ func main() {
 }
 ```
 
+A static member belongs to the TYPE, so it is in scope in every body the type owns — a static
+method, an instance method and a static accessor alike — and it is a **receiver** there like any
+other value:
+
+```n#
+import System.Collections.Generic
+
+class Registry {
+    static Entries: List<string> = new List<string>()
+
+    static func Add(name: string) {
+        Entries.Add(name)                 // the static field IS the receiver
+    }
+
+    func AddFromInstance(name: string) {
+        Entries.Add(name)                 // the same member, from an instance body
+    }
+
+    static func Total(): int => Entries.Count
+}
+```
+
+A static member the BASE declares is reached the same way from a derived type's bodies. Writing the
+type name (`Registry.Entries.Add(name)`) names the same storage.
+
 A static method may name the type's parameters in its signature and call the type's own
 constructor — including a private one, which is how a factory-only type is written:
 

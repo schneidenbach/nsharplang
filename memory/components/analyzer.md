@@ -3355,3 +3355,57 @@ postcondition owner were in the same tree:
   `T?[]` (the annotation is not a CLR type; the view is a no-op and every element read out of it is
   honestly typed `T?`) and `T?[]` still does not convert to `T[]`. This is the relation an `object[]`
   needs to reach `MethodInfo.Invoke`'s `object?[]?`.
+
+## A Bare Identifier in Receiver Position, and Reachability From a Referenced Assembly (census 2026-09-13, EMIT4)
+
+**Value or type name — one question, three owners.** A bare identifier in front of a `.` is either a
+VALUE whose members are read or the TYPE NAME of a static member access, and three owners decide it:
+`ColumnarFragmentBindings.IsValueBinding` (which `ColumnarDirectCallPlanner`'s `staticSyntax` test
+reads), the emitter's own receiver arm in `ColumnarIlEmitter.TryEmitBclMethodCall`, and the preflight
+type walk. Each of the three had a hole of its own:
+
+- A **STATIC member of the enclosing type** answered no to all of them. `Entries.Add(name)`, inside
+  the type declaring `static Entries: List<string>`, was read as a call on a TYPE named `Entries` and
+  declined at `emit.expression-statement.call`, while the bare `Entries` read and
+  `local := Entries` then `local.Add(name)` both emitted. `HasEnclosingStaticValue` is the static
+  twin of `HasCurrentInstanceValue`, anchored on `EnclosingTypeDefinition` because a static member is
+  in scope in every body the type owns, and both walk the declared base chain.
+- **`this`** is the one bare identifier that can never be a type name, and it is in no binding map,
+  so the emitter's receiver arm read `this.GetType()` as a static call on a type named `this`. It is
+  excluded explicitly now. (A bare `this` is still claimed and rejected one tier earlier by
+  `ColumnarBoundIdentifierPlanner`, which has no selection kind for the current instance, so
+  `this.<member>` still declines where the member is not declared on the source chain.)
+
+**Object's own members are every receiver's members.** `GetType`, `ToString`, `GetHashCode` and
+`Equals(object)` are inherited by every type, including the ones the compilation is still building.
+A source receiver is a `TypeBuilder`, which answers no member query, and `ColumnarInheritedExternalBase`
+reports the implicit `System.Object` base as NO answer (it contributes nothing beyond object's own) —
+so `thing.GetType().Name` declined while `(thing as object).GetType().Name` emitted. `TryEmitInstanceCall`
+now asks ordinary scoped resolution of `typeof(object)` after the source and external-base tiers, and
+boxes a source VALUE-type receiver first. Bare `GetType()` with no receiver at all is still NL412: the
+analyzer's bare-name resolution has the same hole on its own side.
+
+**Reachability attributes are read from both sides of the fence at EMIT too.** The diagnostics pass
+already read a referenced assembly's `[DoesNotReturn]`/`[DoesNotReturnIf]`, so a statement after
+`Environment.FailFast(...)` was NL312 unreachable — while `ColumnarIlEmitter`'s two readers
+(`CallStatementNeverReturns`, `CallStatementParameterReachabilityFacts`) saw only source declarations.
+A value function whose last statement was such a call therefore declined at `emit.body` for not
+always-returning. `TryResolveExternalCallStatementMethod` resolves the reflected callee through the
+same scoped resolution every other external call uses, and `ReachabilityFlowAttributeReflection` reads
+the bits off it.
+
+**Ordinary static resolution is the rule; the per-API table is a residual.** `TryEmitStaticCall` ends
+in an ordinary-resolution arm over the owner the call named, so a static whose single declaration at
+that arity accepts the written arguments needs no table entry (`Debug.Assert(x != null)` was
+`emit.call.static-member-unmodeled`). The argument side needed one more fact: preflight could not type
+a NULL COMPARISON, because typing both operands first fails on the null literal, so `x != null` could
+not be scored as a `bool` argument while `x.Length > 0` could.
+
+**A tuple literal has a preflight type, and a tuple over a source type has a constructor.** A closed
+`ValueTuple` over a source type is a `TypeBuilderInstantiation` whose `GetConstructor` throws — the
+same wall the tuple's FIELD read already walks around with `TypeBuilder.GetField` — so the literal arm
+refused a builder-bound element outright and the typed-local arm reached the throw. Both go through
+one `TryResolveValueTupleConstructor` now. Separately, a tuple literal had no preflight type at all,
+so a lambda whose body is one had no inferable return type and `xs.Select(d => (d.Code, d.Line))`
+declined at the extension call. Element NAMES still do not survive an `IGrouping.Key` hop
+(`group.Key.Code` declines; `group.Key.Item1` emits) — that is the labelled-context gap, not this one.
