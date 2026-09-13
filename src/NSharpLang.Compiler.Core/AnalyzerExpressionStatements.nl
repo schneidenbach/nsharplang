@@ -40,10 +40,16 @@ import NSharpLang.Compiler.Ast
 //      callee of a discarded call — or null when nothing was recorded. The call was already
 //      analysed by kind 1, so re-analysing the AST would double-record bindings and references and
 //      corrupt find-references; this reads the answer back instead.
-//   9  NARROW THE SURVIVING FLOW by `Node` having been TRUE. Only `assert` asks for it: an assert
+//   9  NARROW THE SURVIVING FLOW by `Node` having been TRUE. `assert` asks for it: an assert
 //      that fails throws, so the code after it is reached only when the condition held, which is the
 //      guard clause `if !cond { throw }` written the other way round. The facts go into the
-//      ENCLOSING scope, because there is no branch to put them in.
+//      ENCLOSING scope, because there is no branch to put them in. A DISCARDED CALL asks for it too,
+//      when the signature said so: `Debug.Assert(cond)` is `[DoesNotReturnIf(false)] bool`, which is
+//      the same statement about the same flow with the condition named by an argument instead of by a
+//      keyword.
+//  10  THE SAME NARROWING ON THE OTHER BRANCH — `Node` having been FALSE. Only a discarded call asks
+//      for it, and only for a `[DoesNotReturnIf(true)]` parameter: the call returned, so the argument
+//      was false.
 //
 // The numbering has GAPS at 2, 3 and 7 rather than closing up, because the kind number is a protocol
 // between this walk and one driver, and a renumber would silently re-point every contract that pins
@@ -225,14 +231,16 @@ class AnalyzerExpressionStatements {
     spansValue: AnalyzerDiagnosticSpans
     typeResolverValue: AnalyzerTypeResolver
     soaEscapeValue: AnalyzerSoaEscape
+    terminatingCallsValue: AnalyzerTerminatingCalls
     throwabilityValue: AnalyzerThrowability
 
-    constructor(diagnostics: AnalyzerDiagnosticSink, spans: AnalyzerDiagnosticSpans, typeResolver: AnalyzerTypeResolver, soaEscape: AnalyzerSoaEscape, throwability: AnalyzerThrowability) {
+    constructor(diagnostics: AnalyzerDiagnosticSink, spans: AnalyzerDiagnosticSpans, typeResolver: AnalyzerTypeResolver, soaEscape: AnalyzerSoaEscape, throwability: AnalyzerThrowability, terminatingCalls: AnalyzerTerminatingCalls) {
         diagnosticsValue = diagnostics
         spansValue = spans
         typeResolverValue = typeResolver
         soaEscapeValue = soaEscape
         throwabilityValue = throwability
+        terminatingCallsValue = terminatingCalls
     }
 
     // A BARE EXPRESSION USED AS A STATEMENT. The SoA reports call it "discarded" and an invalid one
@@ -536,8 +544,37 @@ class AnalyzerExpressionStatements {
             return AdvanceDiscardedMustUse(state)
         }
 
+        if phase == 4 {
+            return AdvanceDiscardedTerminationGuard(state, expression)
+        }
+
         state.Phase = 99
         return null
+    }
+
+    // PHASE 4 — WHAT A CALL THAT MIGHT NOT HAVE RETURNED PROVES. `Debug.Assert(x != null)` is
+    // `[DoesNotReturnIf(false)] bool condition`: reaching the statement after it means the condition
+    // held, which is `assert`'s own rule with the condition named by an argument. A call that guards
+    // nothing — nearly every call — asks for nothing and falls straight through.
+    //
+    // IT RUNS BEFORE THE VALIDITY AND MUST-USE PHASES, because those can end the walk, and the
+    // narrowing is owed whether or not the statement also earns a diagnostic.
+    func AdvanceDiscardedTerminationGuard(state: ExpressionStatementState, expression: Expression): ExpressionStatementRequest? {
+        state.Phase = 2
+        guardArgument: Expression? = null
+        survivesWhenTrue: bool = false
+        if !terminatingCallsValue.TryGetGuard(expression, out guardArgument, out survivesWhenTrue) {
+            return null
+        }
+
+        requestKind := 10
+        if survivesWhenTrue {
+            requestKind = 9
+        }
+
+        request := new ExpressionStatementRequest(requestKind, BuiltInTypes.Unknown)
+        request.Node = guardArgument
+        return request
     }
 
     // PHASE 0 — the guard and the one step everything else depends on. The error count is captured
@@ -575,11 +612,11 @@ class AnalyzerExpressionStatements {
         }
 
         if diagnosticsValue.ErrorCount != state.ErrorsBefore {
-            state.Phase = 2
+            state.Phase = 4
             return null
         }
 
-        state.Phase = 2
+        state.Phase = 4
         state.EscapeFired = soaEscapeValue.ReportUnsupportedSoaDirectColumnValueEscapeIfNeeded(expression, state.SoaUsage)
         return null
     }

@@ -131,10 +131,12 @@ class StatementSequenceState {
 class AnalyzerStatementSequence {
     diagnosticsValue: AnalyzerDiagnosticSink
     spansValue: AnalyzerDiagnosticSpans
+    terminatingCallsValue: AnalyzerTerminatingCalls
 
-    constructor(diagnostics: AnalyzerDiagnosticSink, spans: AnalyzerDiagnosticSpans) {
+    constructor(diagnostics: AnalyzerDiagnosticSink, spans: AnalyzerDiagnosticSpans, terminatingCalls: AnalyzerTerminatingCalls) {
         diagnosticsValue = diagnostics
         spansValue = spans
+        terminatingCallsValue = terminatingCalls
     }
 
     // A BARE STATEMENT LIST. The caller already owns whatever scope the list runs in — a test body
@@ -290,7 +292,7 @@ class AnalyzerStatementSequence {
     func FoldTermination(state: StatementSequenceState): StatementSequenceRequest? {
         statements := state.Statements
         if statements != null {
-            if AnalyzerStatementTermination.AlwaysReturns(statements[state.Index]) {
+            if AnalyzerStatementTermination.AlwaysReturns(statements[state.Index], terminatingCallsValue) {
                 state.Terminated = true
             }
         }

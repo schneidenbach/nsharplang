@@ -204,8 +204,9 @@ class AnalyzerSyntheticCallValidator {
     diagnostics: AnalyzerDiagnosticSink
     constants: AnalyzerConstantExpressionFacts
     postconditions: AnalyzerNullabilityPostconditions
+    terminatingCalls: AnalyzerTerminatingCalls
 
-    constructor(declarations: AnalyzerDeclarationContext, resolver: AnalyzerTypeResolver, assignabilityOwner: AnalyzerAssignability, scoring: AnalyzerOverloadScoring, callWalk: AnalyzerSyntheticCallWalk, callReporter: AnalyzerSyntheticCallReporter, spanResolver: AnalyzerDiagnosticSpans, diagnosticSink: AnalyzerDiagnosticSink, constantFacts: AnalyzerConstantExpressionFacts, postconditionOwner: AnalyzerNullabilityPostconditions) {
+    constructor(declarations: AnalyzerDeclarationContext, resolver: AnalyzerTypeResolver, assignabilityOwner: AnalyzerAssignability, scoring: AnalyzerOverloadScoring, callWalk: AnalyzerSyntheticCallWalk, callReporter: AnalyzerSyntheticCallReporter, spanResolver: AnalyzerDiagnosticSpans, diagnosticSink: AnalyzerDiagnosticSink, constantFacts: AnalyzerConstantExpressionFacts, postconditionOwner: AnalyzerNullabilityPostconditions, terminatingCallOwner: AnalyzerTerminatingCalls) {
         declarationContext = declarations
         typeResolver = resolver
         assignability = assignabilityOwner
@@ -216,6 +217,7 @@ class AnalyzerSyntheticCallValidator {
         diagnostics = diagnosticSink
         constants = constantFacts
         postconditions = postconditionOwner
+        terminatingCalls = terminatingCallOwner
     }
 
     // THE TYPE AN ARGUMENT IS ANALYSED AGAINST, or null when the position gives no useful shape.
@@ -401,6 +403,43 @@ class AnalyzerSyntheticCallValidator {
         }
 
         postconditions.Commit(call, facts)
+        RecordCallTermination(functionType, call, parameterIndexByArgument, expectedCount)
+    }
+
+    // WHETHER THIS CALL ENDS THE PATH IT IS WRITTEN ON, read off the same binding the argument checks
+    // used. `[DoesNotReturn]` on the declaration ends it outright; a `[DoesNotReturnIf(b)]` parameter
+    // ends it on one branch, and the argument that landed on that parameter is what the surviving
+    // flow is narrowed by.
+    func RecordCallTermination(functionType: FunctionTypeInfo, call: CallExpression, parameterIndexByArgument: int[], expectedCount: int) {
+        reachabilityByParameter := functionType.ParameterReachabilityFacts
+        guardArgument: Expression? = null
+        guardFacts := ReachabilityFlowFacts.None()
+        if reachabilityByParameter != null {
+            argumentIndex := 0
+            while argumentIndex < call.Arguments.Count && guardArgument == null {
+                currentArgument := argumentIndex
+                argumentIndex = argumentIndex + 1
+                parameterIndex := parameterIndexByArgument[currentArgument]
+                if parameterIndex < 0 || parameterIndex >= expectedCount || parameterIndex >= reachabilityByParameter.Count {
+                    continue
+                }
+
+                parameterFacts := reachabilityByParameter[parameterIndex]
+                if parameterFacts == ReachabilityFlowFacts.None() {
+                    continue
+                }
+
+                guardArgument = call.Arguments[currentArgument].Value
+                guardFacts = parameterFacts
+            }
+        }
+
+        methodFacts := ReachabilityFlowFacts.None()
+        if functionType.DoesNotReturn {
+            methodFacts = ReachabilityFlowFacts.DoesNotReturn()
+        }
+
+        terminatingCalls.Commit(call, methodFacts, guardArgument, guardFacts)
     }
 
     // NL401. The rich form names the count it wanted; the fallback names the whole BAND, because

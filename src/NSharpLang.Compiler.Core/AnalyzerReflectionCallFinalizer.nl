@@ -103,6 +103,15 @@ class ReflectionCallFinalizeState {
     // that argument was non-null is a question about the flow rather than about the signature.
     NotNullIfNotNullArgumentIndex: int
 
+    // WHETHER THIS CANDIDATE'S SIGNATURE ENDS THE PATH THE CALL IS WRITTEN ON — `ReachabilityFlowFacts`
+    // bits read off the method, and the WRITTEN argument index a `[DoesNotReturnIf(b)]` parameter
+    // landed on together with that parameter's own bits. Held until the call's walk accepts the
+    // candidate, for the reason `Postconditions` above is held: a candidate that was tried, reported
+    // and rolled back must leave nothing behind.
+    TerminatingMethodFacts: int
+    TerminatingGuardArgumentIndex: int
+    TerminatingGuardFacts: int
+
     constructor(runtimeMethod: MethodInfo, openMethod: MethodInfo, openParameters: ParameterInfo[], boundArguments: List<ReflectionBoundArgument>, suppliedArguments: List<SuppliedReflectionBoundArgument>, methodGroupArguments: Dictionary<int, FunctionTypeInfo>, workingBindings: Dictionary<Type, Type>, workingTypeInfoBindings: Dictionary<Type, TypeInfo>) {
         runtimeMethodValue = runtimeMethod
         openMethodValue = openMethod
@@ -125,6 +134,9 @@ class ReflectionCallFinalizeState {
         Result = null
         Postconditions = null
         NotNullIfNotNullArgumentIndex = -1
+        TerminatingMethodFacts = ReachabilityFlowFacts.None()
+        TerminatingGuardArgumentIndex = -1
+        TerminatingGuardFacts = ReachabilityFlowFacts.None()
     }
 
     // The runtime method is REPLACED by its closed construction, exactly as the walk this replaces

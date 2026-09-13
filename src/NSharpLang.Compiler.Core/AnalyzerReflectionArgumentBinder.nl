@@ -1318,6 +1318,7 @@ class AnalyzerReflectionArgumentBinder {
         finalized.ReturnType = AnalyzerReflectionTypeConversion.ConvertBoundReturn(state.OpenMethod, state.WorkingTypeInfoBindings, state.WorkingBindings, state.HasTypeInfoOverrides)
         state.Result = finalized
         state.Postconditions = CollectReflectionPostconditions(state)
+        CollectReflectionTerminationFacts(state)
         state.NotNullIfNotNullArgumentIndex = FindNotNullIfNotNullArgument(state)
         state.Phase = 2
         return null
@@ -1382,6 +1383,33 @@ class AnalyzerReflectionArgumentBinder {
         }
 
         return facts
+    }
+
+    // WHETHER THIS REFLECTED SIGNATURE ENDS THE PATH. `[DoesNotReturn]` is read off the OPEN method
+    // and `[DoesNotReturnIf(b)]` off the OPEN parameter, for the same reason the nullability
+    // postconditions are: the attribute is written on the definition, never on a construction of it.
+    func CollectReflectionTerminationFacts(state: ReflectionCallFinalizeState) {
+        state.TerminatingMethodFacts = ReachabilityFlowAttributeReflection.FromMethodAttributes(state.OpenMethod.GetCustomAttributesData())
+        state.TerminatingGuardArgumentIndex = -1
+        state.TerminatingGuardFacts = ReachabilityFlowFacts.None()
+        index := 0
+        while index < state.SuppliedArguments.Count {
+            supplied := state.SuppliedArguments[index]
+            index = index + 1
+            parameterIndex := supplied.ParameterIndex
+            if parameterIndex < 0 || parameterIndex >= state.OpenParameters.Length {
+                continue
+            }
+
+            parameterFacts := ReachabilityFlowAttributeReflection.FromParameter(state.OpenParameters[parameterIndex])
+            if parameterFacts == ReachabilityFlowFacts.None() {
+                continue
+            }
+
+            state.TerminatingGuardArgumentIndex = supplied.ArgumentIndex
+            state.TerminatingGuardFacts = parameterFacts
+            return
+        }
     }
 
     // Fold the answer to the outstanding request back in. A phase-one answer INFERS — it matches the

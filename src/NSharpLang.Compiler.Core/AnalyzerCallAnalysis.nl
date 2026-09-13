@@ -245,8 +245,9 @@ class AnalyzerCallAnalysis {
     identifierResolution: AnalyzerIdentifierResolution
     declarationContext: AnalyzerDeclarationContext
     postconditions: AnalyzerNullabilityPostconditions
+    terminatingCalls: AnalyzerTerminatingCalls
 
-    constructor(callReporter: AnalyzerSyntheticCallReporter, callWalk: AnalyzerSyntheticCallWalk, callValidator: AnalyzerSyntheticCallValidator, reflectionReporter: AnalyzerReflectionCallReporter, argumentBinder: AnalyzerReflectionArgumentBinder, conversion: AnalyzerClrTypeConversion, substitution: AnalyzerTypeSubstitution, assignabilityOwner: AnalyzerAssignability, diagnosticSink: AnalyzerDiagnosticSink, spansOwner: AnalyzerDiagnosticSpans, scopeStack: AnalyzerScopeStack, ambientContext: AnalyzerAmbientContext, writeTargetsOwner: AnalyzerWriteTargets, identifierResolutionOwner: AnalyzerIdentifierResolution, declarationContextOwner: AnalyzerDeclarationContext, postconditionOwner: AnalyzerNullabilityPostconditions) {
+    constructor(callReporter: AnalyzerSyntheticCallReporter, callWalk: AnalyzerSyntheticCallWalk, callValidator: AnalyzerSyntheticCallValidator, reflectionReporter: AnalyzerReflectionCallReporter, argumentBinder: AnalyzerReflectionArgumentBinder, conversion: AnalyzerClrTypeConversion, substitution: AnalyzerTypeSubstitution, assignabilityOwner: AnalyzerAssignability, diagnosticSink: AnalyzerDiagnosticSink, spansOwner: AnalyzerDiagnosticSpans, scopeStack: AnalyzerScopeStack, ambientContext: AnalyzerAmbientContext, writeTargetsOwner: AnalyzerWriteTargets, identifierResolutionOwner: AnalyzerIdentifierResolution, declarationContextOwner: AnalyzerDeclarationContext, postconditionOwner: AnalyzerNullabilityPostconditions, terminatingCallOwner: AnalyzerTerminatingCalls) {
         syntheticCallReporter = callReporter
         syntheticCallWalk = callWalk
         syntheticCallValidator = callValidator
@@ -263,6 +264,7 @@ class AnalyzerCallAnalysis {
         identifierResolution = identifierResolutionOwner
         declarationContext = declarationContextOwner
         postconditions = postconditionOwner
+        terminatingCalls = terminatingCallOwner
     }
 
     func BeginCall(call: CallExpression): CallAnalysisState {
@@ -792,6 +794,17 @@ class AnalyzerCallAnalysis {
             if acceptedPostconditions != null {
                 postconditions.Commit(state.Call, acceptedPostconditions)
             }
+
+            // And so do its reachability facts: a `[DoesNotReturn]` signature ends the path the call
+            // is written on, and a `[DoesNotReturnIf(b)]` parameter ends it on the branch its
+            // argument selected.
+            terminatingGuardArgument: Expression? = null
+            guardArgumentIndex := finalizeState.TerminatingGuardArgumentIndex
+            if guardArgumentIndex >= 0 && guardArgumentIndex < state.Call.Arguments.Count {
+                terminatingGuardArgument = state.Call.Arguments[guardArgumentIndex].Value
+            }
+
+            terminatingCalls.Commit(state.Call, finalizeState.TerminatingMethodFacts, terminatingGuardArgument, finalizeState.TerminatingGuardFacts)
 
             state.NotNullIfNotNullArgumentIndex = finalizeState.NotNullIfNotNullArgumentIndex
             return CompleteReflectionBind(state, bound)

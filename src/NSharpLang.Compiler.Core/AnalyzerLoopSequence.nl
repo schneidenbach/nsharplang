@@ -331,8 +331,9 @@ class AnalyzerLoopSequence {
     soaEscapeValue: AnalyzerSoaEscape
     conditionsValue: AnalyzerBooleanConditions
     typeSubstitutionValue: AnalyzerTypeSubstitution
+    terminatingCallsValue: AnalyzerTerminatingCalls
 
-    constructor(diagnostics: AnalyzerDiagnosticSink, spans: AnalyzerDiagnosticSpans, scopes: AnalyzerScopeStack, declarationContext: AnalyzerDeclarationContext, typeResolver: AnalyzerTypeResolver, ambient: AnalyzerAmbientContext, soaEscape: AnalyzerSoaEscape, conditions: AnalyzerBooleanConditions, typeSubstitution: AnalyzerTypeSubstitution) {
+    constructor(diagnostics: AnalyzerDiagnosticSink, spans: AnalyzerDiagnosticSpans, scopes: AnalyzerScopeStack, declarationContext: AnalyzerDeclarationContext, typeResolver: AnalyzerTypeResolver, ambient: AnalyzerAmbientContext, soaEscape: AnalyzerSoaEscape, conditions: AnalyzerBooleanConditions, typeSubstitution: AnalyzerTypeSubstitution, terminatingCalls: AnalyzerTerminatingCalls) {
         diagnosticsValue = diagnostics
         spansValue = spans
         scopesValue = scopes
@@ -342,6 +343,7 @@ class AnalyzerLoopSequence {
         soaEscapeValue = soaEscape
         conditionsValue = conditions
         typeSubstitutionValue = typeSubstitution
+        terminatingCallsValue = terminatingCalls
     }
 
     // THE `foreach` COLLECTION'S ELEMENT TYPE, plus the report when there is not one. The declared
@@ -1694,9 +1696,9 @@ class AnalyzerLoopSequence {
     // The missing-return rule cannot use this answer and does not ask for it.
     func AdvanceIfGuardClause(state: LoopStatementState): LoopStatementRequest? {
         state.Phase = 99
-        thenAlwaysLeaves := AnalyzerStatementTermination.AlwaysLeaves(state.Body)
+        thenAlwaysLeaves := AnalyzerStatementTermination.AlwaysLeaves(state.Body, terminatingCallsValue)
         elseBody := state.ElseBody
-        elseAlwaysLeaves := elseBody != null && AnalyzerStatementTermination.AlwaysLeaves(elseBody)
+        elseAlwaysLeaves := elseBody != null && AnalyzerStatementTermination.AlwaysLeaves(elseBody, terminatingCallsValue)
 
         if thenAlwaysLeaves && !elseAlwaysLeaves && ElseNarrowingCount(state) > 0 {
             ApplyElseNarrowings(state)

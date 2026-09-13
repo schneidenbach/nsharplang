@@ -102,6 +102,10 @@ class ColumnarInstanceMethodDef {
     ParamTypes: Type[]
     ParamModifierKinds: int[]
     ReturnType: Type
+    // Whether the declaration carried `[DoesNotReturn]` — see ColumnarStaticMethodDef.
+    DoesNotReturn: bool
+    // The `[DoesNotReturnIf(bool)]` each parameter carries, in declaration order — see DoesNotReturn.
+    ParameterDoesNotReturnIf: int[]
     // The return type AS WRITTEN, tuple element labels and all, or null. A `ValueTuple` erases the
     // labels at the IL level, so a caller that writes `pair.Min` needs the declaration's spelling to
     // rewrite the access onto `Item1`. Free functions have carried this since named tuples landed; a
@@ -123,6 +127,8 @@ class ColumnarInstanceMethodDef {
         ReturnType = returnType
         ReturnLabeledCanonical = null
         Generics = null
+        DoesNotReturn = false
+        ParameterDoesNotReturnIf = new int[](0)
     }
 
     constructor(builder: MethodBuilder, paramTypes: Type[], paramModifierKinds: int[], returnType: Type, returnLabeledCanonical: string? = null) {
@@ -140,6 +146,8 @@ class ColumnarInstanceMethodDef {
         ReturnType = returnType
         ReturnLabeledCanonical = returnLabeledCanonical
         Generics = null
+        DoesNotReturn = false
+        ParameterDoesNotReturnIf = new int[](0)
     }
 
     func Deconstruct(out builder: MethodBuilder, out paramTypes: Type[], out returnType: Type) {
@@ -161,6 +169,12 @@ class ColumnarStaticMethodDef {
     ParamTypes: Type[]
     ParamModifierKinds: int[]
     ReturnType: Type
+    // Whether the declaration carried `[DoesNotReturn]`. A `MethodBuilder` cannot be asked for its
+    // own attributes before its owner is baked, so the fact is carried from the declaration input —
+    // the same reason every other signature fact on this record is carried rather than reflected.
+    DoesNotReturn: bool
+    // The `[DoesNotReturnIf(bool)]` each parameter carries, in declaration order — see DoesNotReturn.
+    ParameterDoesNotReturnIf: int[]
     // The return type AS WRITTEN -- see ColumnarInstanceMethodDef.
     ReturnLabeledCanonical: string?
     Generics: ColumnarGenericMethodFacts?
@@ -172,6 +186,8 @@ class ColumnarStaticMethodDef {
         ReturnType = returnType
         ReturnLabeledCanonical = returnLabeledCanonical
         Generics = null
+        DoesNotReturn = false
+        ParameterDoesNotReturnIf = new int[](0)
     }
 
     func Deconstruct(out builder: MethodBuilder, out paramTypes: Type[], out paramModifierKinds: int[], out returnType: Type) {

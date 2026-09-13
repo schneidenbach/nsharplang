@@ -201,7 +201,7 @@ class NominalTypeInfoFactory {
         kind := GetDeclaredMemberKind(typeName)
         typeParameters := GetTypeParameterArray(member)
         genericConstraints := GetGenericConstraintArray(member)
-        return new DeclaredMemberInfo(name, containingType, kind, GetDeclaredMemberKindName(kind), GetDeclaredMemberTypeReference(member, kind), HasOptionalModifier(member, 16) || HasOptionalModifier(member, 1024), HasOptionalModifier(member, 512) || HasOptionalModifier(member, 1024), HasOptionalPropertyValue(member, "SetBody"), IsExportedMember(member, name), GetOptionalListCount(member, "Parameters"), GetParameterNameArray(member), GetParameterTypeArray(member), GetParameterModifierArray(member), GetRequiredParameterCount(member), HasParamsParameter(member), HasReceiverParameter(member), GetOptionalTypeReference(member, "ReturnType"), typeParameters.Length, typeParameters, genericConstraints, GetOptionalListCount(member, "Attributes"), HasMustUseAttribute(member), HasOptionalModifier(member, 2048), HasOptionalModifier(member, 4096), GetOptionalBool(member, "IsOperatorOverload"), GetOptionalString(member, "OperatorSymbol"), GetOptionalBool(member, "IsConversionOperator"), GetOptionalBool(member, "IsImplicitConversion"), TypeInfoFactoryReflection.GetRequiredInt(member, "Line"), TypeInfoFactoryReflection.GetRequiredInt(member, "Column"), GetModifierBits(member), HasMemberBody(member))
+        return new DeclaredMemberInfo(name, containingType, kind, GetDeclaredMemberKindName(kind), GetDeclaredMemberTypeReference(member, kind), HasOptionalModifier(member, 16) || HasOptionalModifier(member, 1024), HasOptionalModifier(member, 512) || HasOptionalModifier(member, 1024), HasOptionalPropertyValue(member, "SetBody"), IsExportedMember(member, name), GetOptionalListCount(member, "Parameters"), GetParameterNameArray(member), GetParameterTypeArray(member), GetParameterModifierArray(member), GetRequiredParameterCount(member), HasParamsParameter(member), HasReceiverParameter(member), GetOptionalTypeReference(member, "ReturnType"), typeParameters.Length, typeParameters, genericConstraints, GetOptionalListCount(member, "Attributes"), HasMustUseAttribute(member), HasOptionalModifier(member, 2048), HasOptionalModifier(member, 4096), GetOptionalBool(member, "IsOperatorOverload"), GetOptionalString(member, "OperatorSymbol"), GetOptionalBool(member, "IsConversionOperator"), GetOptionalBool(member, "IsImplicitConversion"), TypeInfoFactoryReflection.GetRequiredInt(member, "Line"), TypeInfoFactoryReflection.GetRequiredInt(member, "Column"), GetModifierBits(member), HasMemberBody(member), HasDoesNotReturnAttribute(member), GetParameterReachabilityFactArray(member))
     }
 
     static func GetGenericConstraintArray(owner: object): GenericConstraint[] {
@@ -509,6 +509,118 @@ class NominalTypeInfoFactory {
     // Public because the analyzer's function-type factory answers the same question for a
     // DECLARED attribute list and the analyzer's reflection arm for a CLR attribute name; the rule
     // is stated once, here.
+    // `[DoesNotReturn]` ON THE MEMBER, read off the same attribute list `[MustUse]` is read from.
+    static func HasDoesNotReturnAttribute(owner: object): bool {
+        return ReachabilityFlowFacts.Has(ReadReachabilityFacts(owner, true), ReachabilityFlowFacts.DoesNotReturn())
+    }
+
+    // `[DoesNotReturnIf(bool)]` ON EACH PARAMETER, in declaration order.
+    static func GetParameterReachabilityFactArray(owner: object): int[] {
+        value := TypeInfoFactoryReflection.GetOptionalProperty(owner, "Parameters")
+        if value == null {
+            return new int[](0)
+        }
+
+        source := value as IList
+        if source == null {
+            throw new InvalidOperationException("Expected '" + owner.GetType().Name + ".Parameters' to be a list.")
+        }
+
+        result := new int[](source.Count)
+        index := 0
+        while index < source.Count {
+            item := source[index]
+            if item == null {
+                throw new InvalidOperationException("Expected '" + owner.GetType().Name + ".Parameters' entries to be parameters.")
+            }
+
+            result[index] = ReadReachabilityFacts(item, false)
+            index = index + 1
+        }
+
+        return result
+    }
+
+    // One attribute list, read by NAME and by its single boolean literal. The list arrives as an
+    // untyped `IList` for the reason every other reader in this factory takes one: the model this
+    // factory builds cannot name the AST types it reads.
+    static func ReadReachabilityFacts(owner: object, methodPosition: bool): int {
+        value := TypeInfoFactoryReflection.GetOptionalProperty(owner, "Attributes")
+        if value == null {
+            return ReachabilityFlowFacts.None()
+        }
+
+        source := value as IList
+        if source == null {
+            throw new InvalidOperationException("Expected '" + owner.GetType().Name + ".Attributes' to be a list.")
+        }
+
+        facts := ReachabilityFlowFacts.None()
+        index := 0
+        while index < source.Count {
+            item := source[index]
+            index = index + 1
+            if item == null {
+                throw new InvalidOperationException("Expected '" + owner.GetType().Name + ".Attributes' entries to be attributes.")
+            }
+
+            name := TypeInfoFactoryReflection.GetRequiredString(item, "Name")
+            if methodPosition {
+                if ReachabilityFlowFacts.IsDoesNotReturnName(name) {
+                    return ReachabilityFlowFacts.DoesNotReturn()
+                }
+
+                continue
+            }
+
+            if !ReachabilityFlowFacts.IsDoesNotReturnIfName(name) {
+                continue
+            }
+
+            literal: bool = false
+            if TryReadAttributeBooleanArgument(item, out literal) {
+                facts = facts | ReachabilityFlowFacts.WhenBit(literal)
+            }
+        }
+
+        return facts
+    }
+
+    // The single `true`/`false` a `[DoesNotReturnIf(b)]` was written with. An argument this reader
+    // cannot see as a literal contributes nothing: a condition it cannot read is not one it may invent.
+    static func TryReadAttributeBooleanArgument(attribute: object, out value: bool): bool {
+        value = false
+        arguments := TypeInfoFactoryReflection.GetOptionalProperty(attribute, "Arguments") as IList
+        if arguments == null || arguments.Count != 1 {
+            return false
+        }
+
+        argument := arguments[0]
+        if argument == null {
+            return false
+        }
+
+        literal := TypeInfoFactoryReflection.GetOptionalProperty(argument, "Value")
+        if literal == null {
+            return false
+        }
+
+        literalValue := TypeInfoFactoryReflection.GetOptionalProperty(literal, "Value")
+        if literalValue == null {
+            return false
+        }
+
+        boxed: object = literalValue
+        trueValue: object = true
+        if boxed.Equals(trueValue) {
+            value = true
+            return true
+        }
+
+        falseValue: object = false
+        return boxed.Equals(falseValue)
+    }
+
     static func IsMustUseAttributeName(name: string): bool {
         return AttributeNameEquals(name, "MustUse") || AttributeNameEquals(name, "MustUseAttribute") || AttributeNameEndsWith(name, ".MustUse") || AttributeNameEndsWith(name, ".MustUseAttribute")
     }

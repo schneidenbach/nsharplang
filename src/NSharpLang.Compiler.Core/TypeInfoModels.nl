@@ -45,6 +45,8 @@ class DeclaredMemberInfo {
     genericConstraintsValue: GenericConstraint[]
     attributeCountValue: int
     hasMustUseAttributeValue: bool
+    doesNotReturnValue: bool
+    parameterReachabilityFactsValue: int[]
     isAsyncValue: bool
     isGeneratorValue: bool
     isOperatorOverloadValue: bool
@@ -78,6 +80,13 @@ class DeclaredMemberInfo {
     GenericConstraints: GenericConstraint[] => genericConstraintsValue
     AttributeCount: int => attributeCountValue
     HasMustUseAttribute: bool => hasMustUseAttributeValue
+
+    // Whether the member carries `[DoesNotReturn]`, and the `[DoesNotReturnIf(bool)]` each of its
+    // parameters carries as `ReachabilityFlowFacts` bits. A member declared on a TYPE reaches its
+    // callers through this record rather than through its `FunctionDeclaration`, so without these
+    // two the attribute meant nothing on anything but a free function.
+    DoesNotReturn: bool => doesNotReturnValue
+    ParameterReachabilityFacts: int[] => parameterReachabilityFactsValue
     IsAsync: bool => isAsyncValue
     IsGenerator: bool => isGeneratorValue
     IsOperatorOverload: bool => isOperatorOverloadValue
@@ -112,7 +121,9 @@ class DeclaredMemberInfo {
     // keeps its spelling; only the production factory that reads a real declaration supplies it.
     HasBody: bool => hasBodyValue
 
-    constructor(name: string, containingType: string, kind: DeclaredMemberKind, kindName: string, typeReference: TypeReference?, isStatic: bool, isReadonly: bool, hasSetter: bool, isExported: bool, parameterCount: int, parameterNames: string[], parameterTypes: TypeReference[], parameterModifiers: ParameterModifier[], requiredParameterCount: int, hasParamsParameter: bool, hasReceiverParameter: bool, returnType: TypeReference?, typeParameterCount: int, typeParameters: TypeParameter[], genericConstraints: GenericConstraint[], attributeCount: int, hasMustUseAttribute: bool, isAsync: bool, isGenerator: bool, isOperatorOverload: bool, operatorSymbol: string, isConversionOperator: bool, isImplicitConversion: bool, line: int, column: int, declaredModifiers: int = 0, hasBody: bool = false) {
+    constructor(name: string, containingType: string, kind: DeclaredMemberKind, kindName: string, typeReference: TypeReference?, isStatic: bool, isReadonly: bool, hasSetter: bool, isExported: bool, parameterCount: int, parameterNames: string[], parameterTypes: TypeReference[], parameterModifiers: ParameterModifier[], requiredParameterCount: int, hasParamsParameter: bool, hasReceiverParameter: bool, returnType: TypeReference?, typeParameterCount: int, typeParameters: TypeParameter[], genericConstraints: GenericConstraint[], attributeCount: int, hasMustUseAttribute: bool, isAsync: bool, isGenerator: bool, isOperatorOverload: bool, operatorSymbol: string, isConversionOperator: bool, isImplicitConversion: bool, line: int, column: int, declaredModifiers: int = 0, hasBody: bool = false, doesNotReturn: bool = false, parameterReachabilityFacts: int[]? = null) {
+        doesNotReturnValue = doesNotReturn
+        parameterReachabilityFactsValue = parameterReachabilityFacts ?? new int[](0)
         nameValue = name
         containingTypeValue = containingType
         kindValue = kind
@@ -714,6 +725,15 @@ class FunctionTypeInfo: TypeInfo {
     // bits and in the same order as `ParameterNames`. Null when the signature declares none, which is
     // almost every signature.
     ParameterFlowFacts: List<int>?
+
+    // Whether the declaration carries `[DoesNotReturn]`. A call to it ends the path it is written on,
+    // which is a fact about REACHABILITY rather than about nullability and therefore its own field.
+    DoesNotReturn: bool
+
+    // The `[DoesNotReturnIf(bool)]` each parameter carries, as `ReachabilityFlowFacts` bits and in
+    // the same order as `ParameterNames`. Null when the signature declares none, which is almost
+    // every signature.
+    ParameterReachabilityFacts: List<int>?
     RequiredParameterCount: int?
     HasParamsParameter: bool
     TypeParameters: List<TypeParameter>?
@@ -725,6 +745,7 @@ class FunctionTypeInfo: TypeInfo {
     constructor() {
         HasParamsParameter = false
         HasMustUseAttribute = false
+        DoesNotReturn = false
         SourceLine = 0
         SourceColumn = 0
         SourceParameterCount = -1
@@ -750,6 +771,8 @@ class FunctionTypeInfo: TypeInfo {
         substituted.SourceReturnType = SourceReturnType
         substituted.ParameterModifiers = ParameterModifiers
         substituted.ParameterFlowFacts = ParameterFlowFacts
+        substituted.DoesNotReturn = DoesNotReturn
+        substituted.ParameterReachabilityFacts = ParameterReachabilityFacts
         substituted.RequiredParameterCount = RequiredParameterCount
         substituted.HasParamsParameter = HasParamsParameter
         substituted.TypeParameters = TypeParameters

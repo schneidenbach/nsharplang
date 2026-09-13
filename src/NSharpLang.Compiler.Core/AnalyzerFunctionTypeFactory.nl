@@ -321,6 +321,8 @@ class AnalyzerFunctionTypeFactory {
         parameterModifiers := new List<Ast.ParameterModifier>()
         parameterFlowFacts := new List<int>()
         declaresFlowFacts := false
+        parameterReachabilityFacts := new List<int>()
+        declaresReachabilityFacts := false
         requiredParameterCount := 0
         index := 0
         while index < parameters.Count {
@@ -333,6 +335,12 @@ class AnalyzerFunctionTypeFactory {
             parameterFlowFacts.Add(flowFacts)
             if flowFacts != NullabilityFlowFacts.None() {
                 declaresFlowFacts = true
+            }
+
+            reachabilityFacts := ReachabilityFlowFacts.FromSourceParameterAttributes(parameter.Attributes)
+            parameterReachabilityFacts.Add(reachabilityFacts)
+            if reachabilityFacts != ReachabilityFlowFacts.None() {
+                declaresReachabilityFacts = true
             }
 
             if parameter.Modifier != Ast.ParameterModifier.Params && parameter.DefaultValue == null {
@@ -374,6 +382,11 @@ class AnalyzerFunctionTypeFactory {
         signature.ParameterModifiers = parameterModifiers
         if declaresFlowFacts {
             signature.ParameterFlowFacts = parameterFlowFacts
+        }
+
+        signature.DoesNotReturn = ReachabilityFlowFacts.Has(ReachabilityFlowFacts.FromSourceMethodAttributes(declaration.Attributes), ReachabilityFlowFacts.DoesNotReturn())
+        if declaresReachabilityFacts {
+            signature.ParameterReachabilityFacts = parameterReachabilityFacts
         }
 
         signature.RequiredParameterCount = requiredCount
@@ -443,8 +456,38 @@ class AnalyzerFunctionTypeFactory {
         signature.GenericConstraints = ToConstraintList(member.GenericConstraints)
         signature.ResolvedGenericConstraintTypes = ResolveMemberConstraints(member.GenericConstraints, declarationOwner, effectiveSubstitution)
         signature.HasMustUseAttribute = member.HasMustUseAttribute
+        signature.DoesNotReturn = member.DoesNotReturn
+        signature.ParameterReachabilityFacts = ToReachabilityFactList(member.ParameterReachabilityFacts)
         signature.ReturnType = ResolveFunctionCallReturnType(member.Name, member.IsAsync, member.IsGenerator, sourceReturnType)
         return signature
+    }
+
+    // The per-parameter reachability bits as the signature holds them, or null when no parameter
+    // declares any — the same "null means nothing to say" shape `ParameterFlowFacts` uses, so the
+    // call validator's cheap null test still skips every ordinary signature.
+    static func ToReachabilityFactList(facts: int[]): List<int>? {
+        declaresAny := false
+        index := 0
+        while index < facts.Length {
+            if facts[index] != ReachabilityFlowFacts.None() {
+                declaresAny = true
+            }
+
+            index = index + 1
+        }
+
+        if !declaresAny {
+            return null
+        }
+
+        result := new List<int>()
+        index = 0
+        while index < facts.Length {
+            result.Add(facts[index])
+            index = index + 1
+        }
+
+        return result
     }
 
     // The type a CALL to this function answers with. Only an async non-generator differs from its

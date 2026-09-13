@@ -62,6 +62,7 @@ class Analyzer: IDisposable {
     private readonly DefiniteAssignment: AnalyzerDefiniteAssignment
     private readonly NullFlow: AnalyzerNullFlow
     private readonly NullabilityPostconditions: AnalyzerNullabilityPostconditions
+    private readonly TerminatingCalls: AnalyzerTerminatingCalls
     private FlowNarrowing: AnalyzerFlowNarrowing
     private VariableDeclaration: AnalyzerVariableDeclaration
     private readonly ExpressionStatements: AnalyzerExpressionStatements
@@ -182,6 +183,7 @@ class Analyzer: IDisposable {
         DefiniteAssignment = new AnalyzerDefiniteAssignment(Diagnostics, TypeResolver)
         NullFlow = new AnalyzerNullFlow(Diagnostics, Spans, Scopes, DeclarationContext)
         NullabilityPostconditions = new AnalyzerNullabilityPostconditions(Scopes, DeclarationContext)
+        TerminatingCalls = new AnalyzerTerminatingCalls()
         SoaEscape = new AnalyzerSoaEscape(Diagnostics, Spans, Scopes, DeclarationContext)
         Conditions = new AnalyzerBooleanConditions(Diagnostics, Spans, SoaEscape)
         Throwability = new AnalyzerThrowability(Scopes, DeclarationContext, TypeSubstitution)
@@ -190,7 +192,8 @@ class Analyzer: IDisposable {
             Spans,
             TypeResolver,
             SoaEscape,
-            Throwability
+            Throwability,
+            TerminatingCalls
         )
         Ambient = new AnalyzerAmbientContext(Diagnostics, Spans, SoaEscape)
         LoopSequence = new AnalyzerLoopSequence(
@@ -202,7 +205,8 @@ class Analyzer: IDisposable {
             Ambient,
             SoaEscape,
             Conditions,
-            TypeSubstitution
+            TypeSubstitution,
+            TerminatingCalls
         )
         ResourceStatements = new AnalyzerResourceStatements(
             Diagnostics,
@@ -225,7 +229,8 @@ class Analyzer: IDisposable {
             Ambient,
             SoaEscape,
             DefiniteAssignment,
-            ExtensionMethods
+            ExtensionMethods,
+            TerminatingCalls
         )
         AccessorBodies = new AnalyzerAccessorBodies(
             Diagnostics,
@@ -252,7 +257,7 @@ class Analyzer: IDisposable {
             Ambient,
             DefiniteAssignment
         )
-        StatementSequence = new AnalyzerStatementSequence(Diagnostics, Spans)
+        StatementSequence = new AnalyzerStatementSequence(Diagnostics, Spans, TerminatingCalls)
         LiteralExpressions = new AnalyzerLiteralExpressions(Ambient, DeclarationContext, SoaEscape)
         CompileTimeConstants = new AnalyzerCompileTimeConstants(
             Diagnostics,
@@ -571,7 +576,8 @@ class Analyzer: IDisposable {
             WriteTargets,
             IdentifierResolution,
             DeclarationContext,
-            NullabilityPostconditions
+            NullabilityPostconditions,
+            TerminatingCalls
         )
     }
 
@@ -621,7 +627,8 @@ class Analyzer: IDisposable {
             Spans,
             Diagnostics,
             ConstantExpressionFacts,
-            NullabilityPostconditions
+            NullabilityPostconditions,
+            TerminatingCalls
         )
     }
 
@@ -762,6 +769,7 @@ class Analyzer: IDisposable {
         SoaEscape.BeginAnalysis()
         NullFlow.BeginAnalysis()
         NullabilityPostconditions.BeginAnalysis()
+        TerminatingCalls.BeginAnalysis()
         Ambient.BeginAnalysis()
         ProjectSources.BeginAnalysis(projectRoot)
         Diagnostics.BeginAnalysis(currentFilePath, sourceCode)
@@ -1188,6 +1196,22 @@ class Analyzer: IDisposable {
         FlowNarrowing.ApplyNarrowingsToScope(split.Then)
     }
 
+    // THE SAME NARROWING ON THE OTHER BRANCH. A `[DoesNotReturnIf(true)]` argument was FALSE on the
+    // path that reached the next statement, so the surviving flow takes what the condition proved
+    // when it was false.
+    private func NarrowSurvivingFlowWhenFalse(condition: Expression?) {
+        if condition == null {
+            return
+        }
+
+        split := FlowNarrowing.ExtractFlowNarrowings(condition)
+        if split.Else.Count == 0 {
+            return
+        }
+
+        FlowNarrowing.ApplyNarrowingsToScope(split.Else)
+    }
+
     // A BLOCK'S LOCAL FUNCTIONS, BOUND BEFORE ITS FIRST STATEMENT RUNS. The scope REMEMBERS that it
     // bound them, because the walk still reaches each declaration statement later and must not
     // declare the same name twice and report itself as a duplicate.
@@ -1229,6 +1253,9 @@ class Analyzer: IDisposable {
             }
             if kind == 9 {
                 NarrowSurvivingFlow(step.Node)
+            }
+            if kind == 10 {
+                NarrowSurvivingFlowWhenFalse(step.Node)
             }
             ExpressionStatements.Supply(state, answer)
             step = ExpressionStatements.NextStep(state)

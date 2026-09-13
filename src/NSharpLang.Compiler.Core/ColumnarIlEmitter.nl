@@ -55,6 +55,12 @@ sealed class ColumnarIlEmitter {
     // operand is announced here so the read at THAT node alone keeps its declared type; anything
     // nested inside the operand narrows normally.
     private _preserveNullableNode: int
+    // THE EXPRESSION STATEMENTS WHOSE CALL NEVER RETURNS, recorded as each is emitted. A
+    // `[DoesNotReturn]` signature makes its call a `throw` the declaration spells, and only the
+    // resolution the emission itself performed knows which overload was chosen — so the fact is
+    // WRITTEN at the call and READ by the termination rule afterwards. Every rule that reads it asks
+    // AFTER the statements in question have been emitted, which is what makes the order sound.
+    private _neverReturningCallStatements: HashSet<int>
     // Each free function's return type AS WRITTEN, by name -- see ColumnarInstanceMethodDef.
     private readonly _siblingReturnLabeledCanonicals: IReadOnlyDictionary<string, string>?
     private _protectedResult: LocalBuilder?
@@ -263,6 +269,7 @@ sealed class ColumnarIlEmitter {
         _labeledTypeByVariable = new Dictionary<string, string>(StringComparer.Ordinal)
         _narrowedNonNull = new HashSet<string>(StringComparer.Ordinal)
         _preserveNullableNode = -1
+        _neverReturningCallStatements = new HashSet<int>()
         _codePlan = new ColumnarCodePlan()
         _locals = new Dictionary<string, LocalBuilder>(StringComparer.Ordinal)
         _loopLabels = new Stack<(Break: Label, Continue: Label, ProtectedDepth: int, FinallyDepth: int)>()
@@ -3703,7 +3710,10 @@ sealed class ColumnarIlEmitter {
                             return false
                         }
                         ColumnarTupleElementNameEmitter.ApplyToReturn(pmb, m.ReturnLabeledCanonical)
-                        overloads.Add(new ColumnarStaticMethodDef(pmb, sParamTypes, m.ParamModifierKinds, sSignatureReturn, m.ReturnLabeledCanonical))
+                        overloadStaticDefinition := new ColumnarStaticMethodDef(pmb, sParamTypes, m.ParamModifierKinds, sSignatureReturn, m.ReturnLabeledCanonical)
+                        overloadStaticDefinition.DoesNotReturn = ColumnarReachabilityAttributeFacts.DeclaresDoesNotReturn(m.SourceAttributes)
+                        overloadStaticDefinition.ParameterDoesNotReturnIf = ColumnarReachabilityAttributeFacts.ParameterDoesNotReturnIf(m.ParameterSourceAttributes)
+                        overloads.Add(overloadStaticDefinition)
                         continue
                     }
 
@@ -3726,6 +3736,8 @@ sealed class ColumnarIlEmitter {
                     ColumnarTupleElementNameEmitter.ApplyToReturn(smb, m.ReturnLabeledCanonical)
                     staticDefinition := new ColumnarStaticMethodDef(smb, sParamTypes, m.ParamModifierKinds, sSignatureReturn, m.ReturnLabeledCanonical)
                     staticDefinition.Generics = sGenerics
+                    staticDefinition.DoesNotReturn = ColumnarReachabilityAttributeFacts.DeclaresDoesNotReturn(m.SourceAttributes)
+                    staticDefinition.ParameterDoesNotReturnIf = ColumnarReachabilityAttributeFacts.ParameterDoesNotReturnIf(m.ParameterSourceAttributes)
                     overloads.Add(staticDefinition)
                     structMethodJobs.Add(new ValueTuple<ColumnarStructDef, ColumnarFunctionInput, MethodBuilder, Type, Type, Type, Dictionary<string, int>, ValueTuple<Dictionary<string, Type>, bool>>(def, m, smb, sSignatureReturn, sReturn, sAsyncWrappedReturn, sOrdinals, new ValueTuple<Dictionary<string, Type>, bool>(sParamTypeMap, true)))
                     continue
@@ -3813,6 +3825,8 @@ sealed class ColumnarIlEmitter {
                     }
                     ColumnarTupleElementNameEmitter.ApplyToReturn(declaredGenericInstance, m.ReturnLabeledCanonical)
                     genericInstanceDefinition := new ColumnarInstanceMethodDef(declaredGenericInstance, mParamTypes, m.ParamModifierKinds, mSignatureReturn, m.ReturnLabeledCanonical)
+                    genericInstanceDefinition.DoesNotReturn = ColumnarReachabilityAttributeFacts.DeclaresDoesNotReturn(m.SourceAttributes)
+                    genericInstanceDefinition.ParameterDoesNotReturnIf = ColumnarReachabilityAttributeFacts.ParameterDoesNotReturnIf(m.ParameterSourceAttributes)
                     genericInstanceDefinition.Generics = mGenerics
                     AddInstanceMethod(def, m.Name, genericInstanceDefinition)
                     structMethodJobs.Add(new ValueTuple<ColumnarStructDef, ColumnarFunctionInput, MethodBuilder, Type, Type, Type, Dictionary<string, int>, ValueTuple<Dictionary<string, Type>, bool>>(def, m, declaredGenericInstance, mSignatureReturn, mReturn, mAsyncWrappedReturn, mOrdinals, new ValueTuple<Dictionary<string, Type>, bool>(mParamTypeMap, false)))
@@ -3874,10 +3888,13 @@ sealed class ColumnarIlEmitter {
                 }
                 ColumnarTupleElementNameEmitter.ApplyToReturn(mb, m.ReturnLabeledCanonical)
                 methodOverrideCompletion.Apply(def.Builder, mb, typeResolution.Structs.StructuralTypeReferences)
+                instanceDefinition := new ColumnarInstanceMethodDef(mb, mParamTypes, m.ParamModifierKinds, mSignatureReturn, m.ReturnLabeledCanonical)
+                instanceDefinition.DoesNotReturn = ColumnarReachabilityAttributeFacts.DeclaresDoesNotReturn(m.SourceAttributes)
+                instanceDefinition.ParameterDoesNotReturnIf = ColumnarReachabilityAttributeFacts.ParameterDoesNotReturnIf(m.ParameterSourceAttributes)
                 AddInstanceMethod(
                     def,
                     m.Name,
-                    new ColumnarInstanceMethodDef(mb, mParamTypes, m.ParamModifierKinds, mSignatureReturn, m.ReturnLabeledCanonical)
+                    instanceDefinition
                 )
                 // An `abstract` member IS its declaration. There is no body to schedule, and
                 // emitting one would make the CLR reject the type.
@@ -4738,6 +4755,8 @@ sealed class ColumnarIlEmitter {
                 fnBaseConstraints,
                 fnInterfaceConstraints
             )
+            siblingDefinition.DoesNotReturn = ColumnarReachabilityAttributeFacts.DeclaresDoesNotReturn(fn.SourceAttributes)
+            siblingDefinition.ParameterDoesNotReturnIf = ColumnarReachabilityAttributeFacts.ParameterDoesNotReturnIf(fn.ParameterSourceAttributes)
             siblings[siblingName] = siblingDefinition
         }
 
@@ -5756,20 +5775,27 @@ sealed class ColumnarIlEmitter {
             return true
         }
         if (!isVoid) {
-            if (!AlwaysReturns(bodyRoot)) {
+            // THE BODY IS EMITTED BEFORE THE TERMINATION QUESTION IS ASKED, and the order is the whole
+            // reason a `[DoesNotReturn]` call can end a value body. A call's own signature is resolved
+            // by the emission, so "does this statement end the path" has no answer until the statement
+            // has been emitted; asking afterwards is decline-safe, because a false return abandons the
+            // whole program and the IL written for it with it.
+            if (!EmitStatement(bodyRoot)) {
                 return false
             }
-            if (!EmitStatement(bodyRoot)) {
+            if (!AlwaysReturns(bodyRoot)) {
                 return false
             }
             EmitProtectedReturnTail(false)
             return true
         }
-        fallsThrough := !AlwaysReturns(bodyRoot)
         if (!EmitStatement(bodyRoot)) {
             return false
         }
-        if (fallsThrough) {
+        // Asked AFTER the emission for the reason the value arm asks after it: a call's own signature
+        // is resolved by the emission, so a `[DoesNotReturn]` call in tail position has no answer
+        // until the statement holding it has been written.
+        if (!AlwaysReturns(bodyRoot)) {
             _il.Emit(OpCodes.Ret)
         }
         EmitProtectedReturnTail(true)
@@ -6595,6 +6621,32 @@ sealed class ColumnarIlEmitter {
                 }
                 if (callType != ColumnarTypeOfPlanner.RequiredVoidType()) {
                     _il.Emit(OpCodes.Pop)
+                }
+                // A CALL THE SIGNATURE SAID NEVER RETURNS ENDS THIS PATH, and the statement is recorded
+                // so the termination rule reads the same answer the diagnostics pass read. The IL still
+                // needs a terminator, because at the IL level the call DOES return: what follows is the
+                // annotation's own contract, unreachable while the callee keeps it and a loud, precise
+                // failure the moment it does not.
+                // A `[DoesNotReturnIf(b)]` PARAMETER IS A GUARD CLAUSE THE SIGNATURE SPELLS. Reaching
+                // the statement after the call means the argument took the other branch, so the
+                // surviving flow is narrowed by exactly what that argument proved — the same reader an
+                // `if` and an `assert` use, on the argument instead of on a condition.
+                guardArgument := -1
+                guardSurvivesWhenTrue: bool = false
+                if (CallStatementGuardsArgument(expr, out guardArgument, out guardSurvivesWhenTrue)) {
+                    guardSplit := ColumnarFlowNarrowingFacts.Extract(_nodes, _source, guardArgument)
+                    if (guardSurvivesWhenTrue) {
+                        PushNarrowedNames(guardSplit.Then)
+                    } else {
+                        PushNarrowedNames(guardSplit.Else)
+                    }
+                }
+                let terminatingCallee: string = ""
+                if (CallStatementNeverReturns(expr, out terminatingCallee)) {
+                    _neverReturningCallStatements.Add(idx)
+                    _il.Emit(OpCodes.Ldstr, "'" + terminatingCallee + "' is annotated [DoesNotReturn] but returned.")
+                    _il.Emit(OpCodes.Newobj, typeof(InvalidOperationException).GetConstructor([typeof(string)]))
+                    _il.Emit(OpCodes.Throw)
                 }
                 return true
             }
@@ -9306,13 +9358,13 @@ sealed class ColumnarIlEmitter {
     /// (ColumnarMethodBodyPlanner.AlwaysReturns) — the columnar mirror of the diagnostics pass's
     /// AnalyzerStatementTermination.AlwaysReturns, which asks the same question of AST statements.
     /// </summary>
-    private func AlwaysReturns(idx: int): bool => ColumnarMethodBodyPlanner.AlwaysReturns(_nodes, _source, idx)
+    private func AlwaysReturns(idx: int): bool => ColumnarMethodBodyPlanner.AlwaysReturns(_nodes, _source, idx, _neverReturningCallStatements)
 
     /// Whether every path through this statement leaves the block that contains it — the GUARD-CLAUSE
     /// question, where a `break` and a `continue` are as final as a `return`. It is the same walk with
     /// its two jumps turned on, and the analyzer's `AnalyzerStatementTermination.AlwaysLeaves` asks the
     /// identical question of AST statements.
-    private func AlwaysLeaves(idx: int): bool => ColumnarMethodBodyPlanner.AlwaysLeaves(_nodes, _source, idx)
+    private func AlwaysLeaves(idx: int): bool => ColumnarMethodBodyPlanner.AlwaysLeaves(_nodes, _source, idx, _neverReturningCallStatements)
 
     // Install the names a condition proved present, and hand back exactly the ones this install added
     // so the restore cannot drop a fact an OUTER guard clause had already proved.
@@ -9358,6 +9410,118 @@ sealed class ColumnarIlEmitter {
         }
         let bindingType: System.Type? = null
         return TryGetNamedValueBindingType(name, out bindingType) && ColumnarTypeOfPlanner.IsSupportedNullable(bindingType)
+    }
+
+    // DOES THIS CALL'S CALLEE CARRY `[DoesNotReturn]`? The question is asked AFTER the call has been
+    // emitted, so the shapes it reads are exactly the ones the emission resolved: a bare name that
+    // bound to a sibling free function or to a static member of the enclosing type, and a
+    // `Owner.Member` that bound to a static member of a type this program declares.
+    //
+    // A MEMBER OF A REFERENCED ASSEMBLY IS NOT READ HERE, and that is a decline rather than a wrong
+    // answer: the external call surface resolves through its own plan, and a body that ends in an
+    // external `[DoesNotReturn]` call is refused at emission exactly as it was before this owner
+    // existed. The diagnostics pass reads BOTH, so the source it accepts is a superset — never the
+    // other way round, which is the direction that would matter.
+    private func CallStatementNeverReturns(callNode: int, out calleeDescription: string): bool {
+        calleeDescription = ""
+        if (_nodes.Kind(callNode) != 9 || _nodes.ChildCount(callNode) < 1) {
+            return false
+        }
+        callee := UnwrapParenthesizedNode(Child(callNode, 0))
+        argCount := _nodes.ChildCount(callNode) - 1
+        if (_nodes.Kind(callee) == 6) {
+            bareName := ColumnarNodeTextFacts.Text(_nodes, _source, callee)
+            calleeDescription = bareName
+            let sibling: NSharpLang.Compiler.Columnar.ColumnarSiblingMethodDefinition? = null
+            if (_siblings.TryGetValue(bareName, out sibling)) {
+                return sibling.DoesNotReturn
+            }
+            let bareStatic: NSharpLang.Compiler.Columnar.ColumnarStaticMethodDef? = null
+            if (_enclosingType != null && TryFindStaticMethodOnChain(_enclosingType, bareName, argCount, out bareStatic)) {
+                return bareStatic.DoesNotReturn
+            }
+            return false
+        }
+        if (_nodes.Kind(callee) != 8 || _nodes.ChildCount(callee) != 1) {
+            return false
+        }
+        member := ColumnarNodeTextFacts.Text(_nodes, _source, callee)
+        receiver := UnwrapParenthesizedNode(Child(callee, 0))
+        if (_nodes.Kind(receiver) != 6) {
+            return false
+        }
+        ownerName := ColumnarNodeTextFacts.Text(_nodes, _source, receiver)
+        calleeDescription = ownerName + "." + member
+        let ownerType: NSharpLang.Compiler.Columnar.ColumnarStructDef? = null
+        if (!_typeResolutionStructs.TryGetValue(ownerName, out ownerType)) {
+            return false
+        }
+        let ownerStatic: NSharpLang.Compiler.Columnar.ColumnarStaticMethodDef? = null
+        return TryFindStaticMethodOnChain(ownerType, member, argCount, out ownerStatic) && ownerStatic.DoesNotReturn
+    }
+
+    // THE ARGUMENT A `[DoesNotReturnIf(b)]` NAMED, and the branch the surviving flow is on. The
+    // callee is resolved through the same three source shapes `CallStatementNeverReturns` reads, for
+    // the same reason: a member of a referenced assembly binds through its own plan and is not read.
+    private func CallStatementGuardsArgument(callNode: int, out guardArgument: int, out survivesWhenTrue: bool): bool {
+        guardArgument = -1
+        survivesWhenTrue = false
+        parameterFacts := CallStatementParameterReachabilityFacts(callNode)
+        if (parameterFacts == null) {
+            return false
+        }
+        argCount := _nodes.ChildCount(callNode) - 1
+        position := 0
+        while position < argCount && position < parameterFacts.Length {
+            facts := parameterFacts[position]
+            doesNotReturnIfTrue := ReachabilityFlowFacts.Has(facts, ReachabilityFlowFacts.DoesNotReturnIfTrue())
+            doesNotReturnIfFalse := ReachabilityFlowFacts.Has(facts, ReachabilityFlowFacts.DoesNotReturnIfFalse())
+            if (doesNotReturnIfTrue != doesNotReturnIfFalse) {
+                guardArgument = Child(callNode, position + 1)
+                survivesWhenTrue = doesNotReturnIfFalse
+                return true
+            }
+            position = position + 1
+        }
+        return false
+    }
+
+    private func CallStatementParameterReachabilityFacts(callNode: int): int[]? {
+        if (_nodes.Kind(callNode) != 9 || _nodes.ChildCount(callNode) < 1) {
+            return null
+        }
+        callee := UnwrapParenthesizedNode(Child(callNode, 0))
+        argCount := _nodes.ChildCount(callNode) - 1
+        if (_nodes.Kind(callee) == 6) {
+            bareName := ColumnarNodeTextFacts.Text(_nodes, _source, callee)
+            let sibling: NSharpLang.Compiler.Columnar.ColumnarSiblingMethodDefinition? = null
+            if (_siblings.TryGetValue(bareName, out sibling)) {
+                return sibling.ParameterDoesNotReturnIf
+            }
+            let bareStatic: NSharpLang.Compiler.Columnar.ColumnarStaticMethodDef? = null
+            if (_enclosingType != null && TryFindStaticMethodOnChain(_enclosingType, bareName, argCount, out bareStatic)) {
+                return bareStatic.ParameterDoesNotReturnIf
+            }
+            return null
+        }
+        if (_nodes.Kind(callee) != 8 || _nodes.ChildCount(callee) != 1) {
+            return null
+        }
+        member := ColumnarNodeTextFacts.Text(_nodes, _source, callee)
+        receiver := UnwrapParenthesizedNode(Child(callee, 0))
+        if (_nodes.Kind(receiver) != 6) {
+            return null
+        }
+        ownerName := ColumnarNodeTextFacts.Text(_nodes, _source, receiver)
+        let ownerType: NSharpLang.Compiler.Columnar.ColumnarStructDef? = null
+        if (!_typeResolutionStructs.TryGetValue(ownerName, out ownerType)) {
+            return null
+        }
+        let ownerStatic: NSharpLang.Compiler.Columnar.ColumnarStaticMethodDef? = null
+        if (!TryFindStaticMethodOnChain(ownerType, member, argCount, out ownerStatic)) {
+            return null
+        }
+        return ownerStatic.ParameterDoesNotReturnIf
     }
 
     private func DropNarrowingsAssignedIn(node: int): void {

@@ -31,11 +31,17 @@ import NSharpLang.Compiler.Ast
 // one is not legal IL. And a loop body is never descended into at all, so the question never arises
 // there.
 //
-// IT IS PURE OVER THE AST AND THEREFORE STATIC. It declares no symbol, opens no scope, re-enters no
-// walk, reads no scope stack and reports no diagnostic. It is asked at points that are far apart in
-// the analysis — the `if` walk asks after both branches have run, the list walk asks after each
-// statement, the function rule asks after the whole body — and it must answer the same thing at all
-// three, which it does because nothing it reads is analysis state.
+// IT IS PURE OVER THE AST WITH ONE EXCEPTION, AND THE EXCEPTION IS WHY THE FACT IS A PARAMETER. It
+// declares no symbol, opens no scope, re-enters no walk, reads no scope stack and reports no
+// diagnostic. The one thing it cannot read off the syntax is whether a CALL returns: `ThrowHelper.Fail(m)`
+// is a `throw` its `[DoesNotReturn]` signature spells, and only the binder that chose the callee
+// knows that. So the answer is handed in — `AnalyzerTerminatingCalls`, filled by the call analysis —
+// and every rule that asks passes it. It is asked at points that are far apart in the analysis — the
+// `if` walk asks after both branches have run, the list walk asks after each statement, the function
+// rule asks after the whole body — and it must answer the same thing at all three, which it does
+// because all three ask AFTER the statements in question have been analysed and the facts filed.
+// Asked with no fact-holder at all it answers the pure-syntax judgement, which is the same judgement
+// for every shape that contains no call.
 //
 // A PARSER ERROR PLACEHOLDER IS NOT A RETURN. `return <error>` and `throw <error>` are text the
 // recovery parser could not read, and a SYNTAX diagnostic has already been reported about them. They
@@ -44,7 +50,9 @@ import NSharpLang.Compiler.Ast
 // text. This is the one thing in the judgement that is not structural.
 //
 // THE UNMODELLED ANSWER IS "NO", AND THAT IS THE SAFE DIRECTION. Every statement shape this walk does
-// not name — a `foreach`, a `using`, a bare expression, a local function — answers FALSE.
+// not name — a `foreach`, a `using`, a local function — answers FALSE. A bare EXPRESSION statement is
+// the one that can answer yes, and only when the call it holds was bound to a `[DoesNotReturn]`
+// signature.
 //
 // AN ENDLESS LOOP IS THE ONE LOOP SHAPE THAT ANSWERS YES, and it is C#'s rule rather than a
 // concession (§13.2 "End points and reachability"): the end point of a `while` whose condition is the
@@ -72,19 +80,31 @@ class AnalyzerStatementTermination {
     // and the unreachable-code rule ask this one, and neither of them may treat a `break` out of a
     // loop as a way out of the FUNCTION — so both jumps are off.
     static func AlwaysReturns(statement: Statement): bool {
-        return Walk(statement, false, false)
+        return Walk(statement, false, false, null)
+    }
+
+    static func AlwaysReturns(statement: Statement, terminatingCalls: AnalyzerTerminatingCalls?): bool {
+        return Walk(statement, false, false, terminatingCalls)
     }
 
     // DOES EVERY PATH THROUGH THIS STATEMENT LEAVE THE BLOCK THAT CONTAINS IT? The guard-clause rule
     // asks this one about an `if` branch, where a `break` and a `continue` are as final as a `return`.
     static func AlwaysLeaves(statement: Statement): bool {
-        return Walk(statement, true, true)
+        return Walk(statement, true, true, null)
+    }
+
+    static func AlwaysLeaves(statement: Statement, terminatingCalls: AnalyzerTerminatingCalls?): bool {
+        return Walk(statement, true, true, terminatingCalls)
     }
 
     // THE WALK. The shapes are tested in the order `Analyzer.cs` wrote them. That order is not
     // behaviour — every shape named here is a direct subclass of `Statement` and no two of them can
     // match the same node — but it is preserved so the two walks are readable against each other.
     static func Walk(statement: Statement, breakLeaves: bool, continueLeaves: bool): bool {
+        return Walk(statement, breakLeaves, continueLeaves, null)
+    }
+
+    static func Walk(statement: Statement, breakLeaves: bool, continueLeaves: bool, terminatingCalls: AnalyzerTerminatingCalls?): bool {
         returnStatement := statement as ReturnStatement
         if returnStatement != null {
             returnedValue := returnStatement.Value
@@ -112,22 +132,22 @@ class AnalyzerStatementTermination {
 
         block := statement as BlockStatement
         if block != null {
-            return AnyStatementLeaves(block.Statements, breakLeaves, continueLeaves)
+            return AnyStatementLeaves(block.Statements, breakLeaves, continueLeaves, terminatingCalls)
         }
 
         allocBlock := statement as AllocBlockStatement
         if allocBlock != null {
-            return Walk(allocBlock.Body, breakLeaves, continueLeaves)
+            return Walk(allocBlock.Body, breakLeaves, continueLeaves, terminatingCalls)
         }
 
         allowBlock := statement as AllowStatement
         if allowBlock != null {
-            return Walk(allowBlock.Body, breakLeaves, continueLeaves)
+            return Walk(allowBlock.Body, breakLeaves, continueLeaves, terminatingCalls)
         }
 
         unsafeBlock := statement as UnsafeBlockStatement
         if unsafeBlock != null {
-            return Walk(unsafeBlock.Body, breakLeaves, continueLeaves)
+            return Walk(unsafeBlock.Body, breakLeaves, continueLeaves, terminatingCalls)
         }
 
         ifStatement := statement as IfStatement
@@ -137,12 +157,12 @@ class AnalyzerStatementTermination {
                 return false
             }
 
-            return Walk(ifStatement.ThenStatement, breakLeaves, continueLeaves) && Walk(elseStatement, breakLeaves, continueLeaves)
+            return Walk(ifStatement.ThenStatement, breakLeaves, continueLeaves, terminatingCalls) && Walk(elseStatement, breakLeaves, continueLeaves, terminatingCalls)
         }
 
         lockStatement := statement as LockStatement
         if lockStatement != null {
-            return Walk(lockStatement.Body, breakLeaves, continueLeaves)
+            return Walk(lockStatement.Body, breakLeaves, continueLeaves, terminatingCalls)
         }
 
         whileStatement := statement as WhileStatement
@@ -168,12 +188,21 @@ class AnalyzerStatementTermination {
 
         switchStatement := statement as SwitchStatement
         if switchStatement != null {
-            return SwitchLeaves(switchStatement, continueLeaves)
+            return SwitchLeaves(switchStatement, continueLeaves, terminatingCalls)
         }
 
         tryStatement := statement as TryStatement
         if tryStatement != null {
-            return TryLeaves(tryStatement, breakLeaves, continueLeaves)
+            return TryLeaves(tryStatement, breakLeaves, continueLeaves, terminatingCalls)
+        }
+
+        // A CALL THE SIGNATURE SAID NEVER RETURNS. `ThrowHelper.Fail(message)` is a `throw` the
+        // signature spells, so the statement holding it leaves exactly as a `throw` statement does —
+        // the one arm of this walk that reads a fact rather than a shape, and the reason the judgement
+        // takes the fact-holder as a parameter.
+        expressionStatement := statement as ExpressionStatement
+        if expressionStatement != null {
+            return terminatingCalls != null && terminatingCalls.NeverReturns(expressionStatement.Expression)
         }
 
         return false
@@ -319,13 +348,17 @@ class AnalyzerStatementTermination {
     // unreachable — which is the same fact the list walk reports about. It is deliberately not "the
     // LAST statement leaves": `return x` followed by dead code still leaves.
     static func AnyStatementAlwaysReturns(statements: List<Statement>): bool {
-        return AnyStatementLeaves(statements, false, false)
+        return AnyStatementLeaves(statements, false, false, null)
     }
 
     static func AnyStatementLeaves(statements: List<Statement>, breakLeaves: bool, continueLeaves: bool): bool {
+        return AnyStatementLeaves(statements, breakLeaves, continueLeaves, null)
+    }
+
+    static func AnyStatementLeaves(statements: List<Statement>, breakLeaves: bool, continueLeaves: bool, terminatingCalls: AnalyzerTerminatingCalls?): bool {
         index := 0
         while index < statements.Count {
-            if Walk(statements[index], breakLeaves, continueLeaves) {
+            if Walk(statements[index], breakLeaves, continueLeaves, terminatingCalls) {
                 return true
             }
 
@@ -343,10 +376,14 @@ class AnalyzerStatementTermination {
     // `switch` whose every case ends in `break` falls out of its own end and leaves nothing. A
     // `continue` is unaffected: it still belongs to whatever loop encloses the switch.
     static func SwitchAlwaysReturns(switchStatement: SwitchStatement): bool {
-        return SwitchLeaves(switchStatement, false)
+        return SwitchLeaves(switchStatement, false, null)
     }
 
     static func SwitchLeaves(switchStatement: SwitchStatement, continueLeaves: bool): bool {
+        return SwitchLeaves(switchStatement, continueLeaves, null)
+    }
+
+    static func SwitchLeaves(switchStatement: SwitchStatement, continueLeaves: bool, terminatingCalls: AnalyzerTerminatingCalls?): bool {
         cases := switchStatement.Cases
         if !HasDefaultCase(cases) {
             return false
@@ -354,7 +391,7 @@ class AnalyzerStatementTermination {
 
         index := 0
         while index < cases.Count {
-            if !AnyStatementLeaves(cases[index].Statements, false, continueLeaves) {
+            if !AnyStatementLeaves(cases[index].Statements, false, continueLeaves, terminatingCalls) {
                 return false
             }
 
@@ -392,23 +429,27 @@ class AnalyzerStatementTermination {
     // not a way out of the FUNCTION that falls off its end; it unwinds past the caller, and a rule
     // about missing returns has nothing to say about it.
     static func TryAlwaysReturns(tryStatement: TryStatement): bool {
-        return TryLeaves(tryStatement, false, false)
+        return TryLeaves(tryStatement, false, false, null)
     }
 
     static func TryLeaves(tryStatement: TryStatement, breakLeaves: bool, continueLeaves: bool): bool {
+        return TryLeaves(tryStatement, breakLeaves, continueLeaves, null)
+    }
+
+    static func TryLeaves(tryStatement: TryStatement, breakLeaves: bool, continueLeaves: bool, terminatingCalls: AnalyzerTerminatingCalls?): bool {
         finallyBlock := tryStatement.FinallyBlock
-        if finallyBlock != null && Walk(finallyBlock, false, false) {
+        if finallyBlock != null && Walk(finallyBlock, false, false, terminatingCalls) {
             return true
         }
 
-        if !Walk(tryStatement.TryBlock, breakLeaves, continueLeaves) {
+        if !Walk(tryStatement.TryBlock, breakLeaves, continueLeaves, terminatingCalls) {
             return false
         }
 
         catchClauses := tryStatement.CatchClauses
         index := 0
         while index < catchClauses.Count {
-            if !Walk(catchClauses[index].Block, breakLeaves, continueLeaves) {
+            if !Walk(catchClauses[index].Block, breakLeaves, continueLeaves, terminatingCalls) {
                 return false
             }
 

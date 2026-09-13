@@ -46,7 +46,16 @@ class ColumnarMethodBodyPlanner {
     // condition is the constant `true`, and a node table carries a literal's value as a SPAN into the
     // source rather than as a value. Every other arm reads shapes alone.
     static func AlwaysReturns(nodes: ColumnarNodeTable, source: string, node: int): bool {
-        return Leaves(nodes, source, node, false, false)
+        return Leaves(nodes, source, node, false, false, null)
+    }
+
+    // The same question with the CALLS that never return handed in, as the statement-node indices of
+    // the expression statements holding them. `ThrowHelper.Fail(m)` is a `throw` its `[DoesNotReturn]`
+    // signature spells, and only the binder that chose the callee knows that — the emit-side mirror of
+    // `AnalyzerStatementTermination`'s `AnalyzerTerminatingCalls` parameter, for the same reason and
+    // with the same discipline: asked with no set at all it answers the pure-shape judgement.
+    static func AlwaysReturns(nodes: ColumnarNodeTable, source: string, node: int, terminatingCalls: HashSet<int>?): bool {
+        return Leaves(nodes, source, node, false, false, terminatingCalls)
     }
 
     // DOES EVERY PATH THROUGH THIS STATEMENT LEAVE THE BLOCK THAT CONTAINS IT? The guard-clause
@@ -54,13 +63,17 @@ class ColumnarMethodBodyPlanner {
     // entry point of `AnalyzerStatementTermination`, mirrored here so the emit-side narrowing reader
     // and the diagnostics pass cannot disagree about which guard clauses narrow the flow after them.
     static func AlwaysLeaves(nodes: ColumnarNodeTable, source: string, node: int): bool {
-        return Leaves(nodes, source, node, true, true)
+        return Leaves(nodes, source, node, true, true, null)
+    }
+
+    static func AlwaysLeaves(nodes: ColumnarNodeTable, source: string, node: int, terminatingCalls: HashSet<int>?): bool {
+        return Leaves(nodes, source, node, true, true, terminatingCalls)
     }
 
     // THE WALK, WITH THE TWO JUMPS TRAVELLING SEPARATELY BECAUSE THEY BIND TO DIFFERENT CONSTRUCTS:
     // a `break` inside a `finally` is not legal IL and a jump out of one counts as nothing, while a
     // loop body is never descended into at all, so the question never arises there.
-    static func Leaves(nodes: ColumnarNodeTable, source: string, node: int, breakLeaves: bool, continueLeaves: bool): bool {
+    static func Leaves(nodes: ColumnarNodeTable, source: string, node: int, breakLeaves: bool, continueLeaves: bool, terminatingCalls: HashSet<int>?): bool {
         if nodes == null {
             throw new InvalidOperationException("Columnar termination analysis requires a node table.")
         }
@@ -87,13 +100,13 @@ class ColumnarMethodBodyPlanner {
             return nodes.ChildCount(node) == 0
         }
         if kind == 49 {
-            return TryStatementLeaves(nodes, source, node, breakLeaves, continueLeaves)
+            return TryStatementLeaves(nodes, source, node, breakLeaves, continueLeaves, terminatingCalls)
         }
         // 25 Block.
         if kind == 25 {
             n := 0
             while n < nodes.ChildCount(node) {
-                if Leaves(nodes, source, nodes.Child(node, n), breakLeaves, continueLeaves) {
+                if Leaves(nodes, source, nodes.Child(node, n), breakLeaves, continueLeaves, terminatingCalls) {
                     return true
                 }
                 n = n + 1
@@ -105,12 +118,12 @@ class ColumnarMethodBodyPlanner {
             if nodes.ChildCount(node) != 3 {
                 return false
             }
-            return Leaves(nodes, source, nodes.Child(node, 1), breakLeaves, continueLeaves) && Leaves(nodes, source, nodes.Child(node, 2), breakLeaves, continueLeaves)
+            return Leaves(nodes, source, nodes.Child(node, 1), breakLeaves, continueLeaves, terminatingCalls) && Leaves(nodes, source, nodes.Child(node, 2), breakLeaves, continueLeaves, terminatingCalls)
         }
         // 51 Lock [lockee, body] — exits iff the body exits (probe-pinned: `lock s { return 1 }` with
         // no trailing return satisfies the analyzer).
         if kind == 51 {
-            return Leaves(nodes, source, nodes.Child(node, 1), breakLeaves, continueLeaves)
+            return Leaves(nodes, source, nodes.Child(node, 1), breakLeaves, continueLeaves, terminatingCalls)
         }
         // 26 While [cond, body] and 28 For [init, cond, incr, body] — the END POINT of an endless loop
         // is unreachable (C# §13.2), so a body that only leaves through a `return` or a `throw` needs
@@ -121,6 +134,12 @@ class ColumnarMethodBodyPlanner {
         }
         if kind == 28 {
             return EndlessLoopAlwaysReturns(nodes, source, nodes.Child(node, 1), nodes.Child(node, 3))
+        }
+        // 23 ExpressionStatement — a CALL the signature said never returns. The emitter records the
+        // statement when it emits the call, which is where the callee is finally resolved, so this is
+        // a lookup and never a second resolution.
+        if kind == 23 {
+            return terminatingCalls != null && terminatingCalls.Contains(node)
         }
         return false
     }
@@ -226,22 +245,22 @@ class ColumnarMethodBodyPlanner {
     // must exit. A zero-catch `try { return } finally { ... }` therefore DOES satisfy always-returns,
     // which is what C#'s end-point rule says and what every `using` that returns lowers to.
     static func TryStatementAlwaysReturns(nodes: ColumnarNodeTable, source: string, node: int): bool {
-        return TryStatementLeaves(nodes, source, node, false, false)
+        return TryStatementLeaves(nodes, source, node, false, false, null)
     }
 
-    static func TryStatementLeaves(nodes: ColumnarNodeTable, source: string, node: int, breakLeaves: bool, continueLeaves: bool): bool {
+    static func TryStatementLeaves(nodes: ColumnarNodeTable, source: string, node: int, breakLeaves: bool, continueLeaves: bool, terminatingCalls: HashSet<int>?): bool {
         n := 1
         while n < nodes.ChildCount(node) {
             clause := nodes.Child(node, n)
             // 50 CatchClause; anything else at this position is the finally block. A finally is
             // measured with BOTH jumps off: a `break` or a `continue` out of one is not legal IL.
-            if nodes.Kind(clause) != 50 && Leaves(nodes, source, clause, false, false) {
+            if nodes.Kind(clause) != 50 && Leaves(nodes, source, clause, false, false, terminatingCalls) {
                 return true
             }
             n = n + 1
         }
 
-        if !Leaves(nodes, source, nodes.Child(node, 0), breakLeaves, continueLeaves) {
+        if !Leaves(nodes, source, nodes.Child(node, 0), breakLeaves, continueLeaves, terminatingCalls) {
             return false
         }
 
@@ -249,7 +268,7 @@ class ColumnarMethodBodyPlanner {
         while n < nodes.ChildCount(node) {
             clause := nodes.Child(node, n)
             if nodes.Kind(clause) == 50 {
-                if !Leaves(nodes, source, nodes.Child(clause, nodes.ChildCount(clause) - 1), breakLeaves, continueLeaves) {
+                if !Leaves(nodes, source, nodes.Child(clause, nodes.ChildCount(clause) - 1), breakLeaves, continueLeaves, terminatingCalls) {
                     return false
                 }
             }
