@@ -338,6 +338,31 @@ test "a REFLECTED array annotation decomposes, and a non-sequence annotation doe
     assert targetKind == "array"
 }
 
+test "A TARGET THAT MAY BE NULL IS STILL A TARGET" {
+    harness := ArrayArmOf()
+    elementType: TypeInfo = BuiltInTypes.Unknown
+    targetKind := ""
+
+    // `values: object?[]? = ["a", 1]` and `MethodInfo.Invoke`'s `object?[]?` parameter both name an
+    // element type: the `?` says the ARRAY may be absent, not that its elements are unknown. Without
+    // the shell being looked through, the literal was inferred from its first element and then
+    // refused against the very slot it was written into.
+    nullableArray: TypeInfo = new NullableTypeInfo(new ArrayTypeInfo(BuiltInTypes.String))
+    assert harness.Arm.TryGetExpectedElementType(nullableArray, out elementType, out targetKind)
+    assert ArrayTypeName(elementType) == "simple:string"
+    assert targetKind == "array"
+
+    // A nullable COLLECTION answers the same way, and in collection words.
+    nullableList: TypeInfo = new NullableTypeInfo(new ReflectionTypeInfo(ArrayClosedOf("System.Collections.Generic.List`1", typeof(int))))
+    assert harness.Arm.TryGetExpectedElementType(nullableList, out elementType, out targetKind)
+    assert ArrayTypeName(elementType) == "reflection:Int32"
+    assert targetKind == "collection"
+
+    // The shell is looked through ONCE, and a nullable non-sequence is still not a target.
+    nullableInt: TypeInfo = new NullableTypeInfo(BuiltInTypes.Int)
+    assert !harness.Arm.TryGetExpectedElementType(nullableInt, out elementType, out targetKind)
+}
+
 // ---- the collection-target rule ------------------------------------------------------------------
 
 test "an IQueryable target is refused outright, by either shape" {

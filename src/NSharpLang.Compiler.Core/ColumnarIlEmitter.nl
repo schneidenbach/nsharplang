@@ -9761,8 +9761,16 @@ sealed class ColumnarIlEmitter {
                     _il.Emit(OpCodes.Ldnull)
                 } else {
                     let coalesceRight: System.Type? = null
-                    if (!EmitExpression(Child(idx, 1), out coalesceRight) || !TypesEquivalent(coalesceRight, coalesceLeft)) {
+                    if (!EmitExpression(Child(idx, 1), out coalesceRight)) {
                         return false
+                    }
+                    if (!TypesEquivalent(coalesceRight, coalesceLeft)) {
+                        if (coalesceRight == null) {
+                            return false
+                        }
+                        if (!TryEmitCoalesceFallbackConversion(coalesceRight, coalesceLeft)) {
+                            return false
+                        }
                     }
                 }
                 _il.MarkLabel(coalesceEnd)
@@ -15142,6 +15150,33 @@ sealed class ColumnarIlEmitter {
             return ColumnarTupleElementNameEmitter.TopLevelReturnNames(instanceSelection.Method)
         }
         return null
+    }
+
+    // THE FALLBACK OF A REFERENCE `??` IS CONVERTED TO THE LEFT'S TYPE RATHER THAN REQUIRED TO BE IT.
+    // `method.Invoke(null, args) ?? -1` is an `object?` with an `int` fallback, which is exactly what
+    // the analyzer types as `object` and what the emitter used to decline for want of a `box`.
+    //
+    // The conversion is admitted only into `object`, and deliberately: every value boxes to it and
+    // every reference already is one, so neither arm needs a cast this emitter would have to prove
+    // over types that may still be unbaked builders. Any other left type keeps the exact-match rule.
+    private func TryEmitCoalesceFallbackConversion(fallbackType: Type, leftType: Type): bool {
+        if (leftType != typeof(object)) {
+            return false
+        }
+        // `System.Void` is a value type and would otherwise be BOXED. It is spelled by name because
+        // `typeof(void)` is not a shape this emitter's own backend models.
+        if (fallbackType.get_FullName() == "System.Void") {
+            return false
+        }
+        if (fallbackType.get_IsByRef() || fallbackType.get_IsPointer()) {
+            return false
+        }
+        if (fallbackType.get_IsValueType() || fallbackType.get_IsGenericParameter()) {
+            _il.Emit(OpCodes.Box, fallbackType)
+            return true
+        }
+
+        return true
     }
 
     private func TryEmitStringCharConcat(leftType: Type, rightType: Type, out resolvedClrType: Type): bool {

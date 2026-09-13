@@ -278,6 +278,19 @@ class AnalyzerArrayLiteral {
         }
 
         resolvedExpectedType := declarationContextValue.ResolveDeclaredAlias(expectedType)
+
+        // A TARGET THAT MAY BE NULL IS STILL A TARGET. `values: object?[]? = ["a", 1]` and the
+        // `object?[]?` parameter of `MethodInfo.Invoke` name an element type just as plainly as the
+        // non-nullable spellings do; the `?` says the ARRAY may be absent, not that its elements are
+        // unknown. Without this the literal was inferred from its first element and then refused
+        // against the very slot it was written into. The shell is looked through ONCE and the inner
+        // type is resolved through aliases again, because `type Row = object[]` and `Row?` are both
+        // things an author writes.
+        nullableExpectedType := resolvedExpectedType as NullableTypeInfo
+        if nullableExpectedType != null {
+            resolvedExpectedType = declarationContextValue.ResolveDeclaredAlias(nullableExpectedType.InnerType)
+        }
+
         collectionElementType: TypeInfo = BuiltInTypes.Unknown
         if assignabilityFactsValue.TryGetCollectionElementType(resolvedExpectedType, out collectionElementType) {
             elementType = collectionElementType

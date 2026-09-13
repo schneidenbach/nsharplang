@@ -409,6 +409,36 @@ class AnalyzerReflectionArgumentBinder {
 
         if argumentClrType != null {
             if !AnalyzerOverloadFacts.TryMatchReflectionParameter(openParameterType, argumentClrType, bindings) {
+                // A COLLECTION EXPRESSION IS APPLICABLE ELEMENT BY ELEMENT, AND IT IS SCORED BEFORE A
+                // CANDIDATE IS CHOSEN RATHER THAN AFTER. `[args]` has no type of its own until a
+                // parameter names its element type; the pre-pass had to give it one anyway, and
+                // inferring `string[][]` from its single element made `Invoke(object?, object?[]?)`
+                // look inapplicable. What decides is the ELEMENT relation — `string[]` fits `object`,
+                // so the literal fits `object[]` — which is the same rule the finalising walk then
+                // applies for real with the parameter's element type in the slot.
+                collectionScore := 0
+                if TryScoreCollectionExpressionArgument(argumentValue, openParameterType, argumentType, out collectionScore) {
+                    PopulateTypeInfoBindingsFromType(openParameterType, argumentType, typeInfoBindings)
+                    score = collectionScore
+                    return true
+                }
+
+                // A USER-DEFINED IMPLICIT CONVERSION IS PART OF APPLICABILITY, NOT SOMETHING THAT
+                // HAPPENS AFTER IT. C# §12.6.4.2 admits a candidate when every argument has an
+                // implicit conversion to its parameter, and a conversion an operator declares is one
+                // of those: `result.Attribute("outcome")` passes a `string` to `Attribute(XName)`
+                // because `XName` declares `implicit operator XName(string)`, and a resolution that
+                // asked only about standard conversions reported that no overload of `Attribute`
+                // takes one argument. Asked here rather than inside `TryMatchReflectionParameter`
+                // because that predicate also answers for an extension RECEIVER, which C# converts
+                // only by identity, reference or boxing. It is asked LAST, because a conversion a
+                // type declares about itself is worse than every one the language defines.
+                if HasUserDefinedArgumentConversion(openParameterType, argumentClrType) {
+                    PopulateTypeInfoBindingsFromType(openParameterType, argumentType, typeInfoBindings)
+                    score = UserDefinedConversionScore()
+                    return true
+                }
+
                 // ConvertReflectionType deliberately represents every CLR array as the N# vector
                 // shape.  Keep the compatibility escape on that shape only: otherwise a reflected
                 // string[,] parameter would be mistaken for string[] after conversion and accept a
@@ -1433,6 +1463,78 @@ class AnalyzerReflectionArgumentBinder {
         state.PendingKind = 3
         state.PendingExpectedType = expectedType
         return new ReflectionAnalysisRequest(supplied.Argument.Value, null, expectedType, false)
+    }
+
+    // WHETHER AN ARRAY LITERAL WRITTEN HERE COULD BE THIS PARAMETER'S ARRAY, ELEMENT BY ELEMENT.
+    //
+    // The literal's PROVISIONAL type — what the pre-pass inferred with no target in the slot — is
+    // what its element relation is read from; the finalising walk analyses the same literal again
+    // with the parameter's real element type and is what actually decides. So this answer is an
+    // APPLICABILITY question and never the conversion itself.
+    //
+    // THE SCORE IS THE ELEMENT'S, which is what ranks `f(int[])` above `f(object[])` for `[1, 2]`:
+    // an identical element type keeps the top of the ladder and a converting one sits where every
+    // other assignable argument sits. A parameter whose element type is still open takes no part —
+    // a collection expression does not drive method type inference.
+    func TryScoreCollectionExpressionArgument(argumentValue: Expression, openParameterType: Type, argumentType: TypeInfo, out score: int): bool {
+        score = 0
+        if argumentValue as ArrayLiteralExpression == null {
+            return false
+        }
+
+        if openParameterType.get_IsByRef() || openParameterType.get_ContainsGenericParameters() || !ColumnarTypeEquivalenceFacts.IsSafeSzArrayType(openParameterType) {
+            return false
+        }
+
+        parameterElement := openParameterType.GetElementType()
+        if parameterElement == null {
+            return false
+        }
+
+        sourceArray := argumentType as ArrayTypeInfo
+        if sourceArray == null {
+            return false
+        }
+
+        parameterElementTypeInfo := AnalyzerReflectionTypeConversion.ConvertReflectionType(parameterElement)
+        if !assignability.IsAssignable(parameterElementTypeInfo, sourceArray.ElementType) {
+            return false
+        }
+
+        score = 4
+        if TypeInfoIdentityFacts.AreEqual(parameterElementTypeInfo, sourceArray.ElementType) {
+            score = 8
+        }
+
+        return true
+    }
+
+    // WHERE A USER-DEFINED CONVERSION RANKS, AND IT IS BELOW EVERYTHING THE LANGUAGE DEFINES.
+    // The reflection ladder is 8 identical, 6 implicit numeric, 4 assignable, 2 otherwise; a
+    // conversion a TYPE declares about itself is worse than any of those, so an overload reachable
+    // without one always wins. C# says the same thing the other way round (§12.6.4.4: a standard
+    // implicit conversion is better than a user-defined one); the ladder says it with a number.
+    static func UserDefinedConversionScore(): int {
+        return 1
+    }
+
+    // WHETHER AN OPERATOR DECLARED BY EITHER END SPANS THIS ARGUMENT AND THIS PARAMETER.
+    //
+    // An OPEN parameter is refused outright: a user-defined conversion takes no part in method type
+    // inference, so `T` must be bound by the standard rules or not at all. An AMBIGUOUS conversion is
+    // refused too, and deliberately — two operators that tie are not a conversion, and picking one
+    // would be the silent choice this compiler does not make. The candidate is simply inapplicable,
+    // which is the NL402 the reader can act on.
+    func HasUserDefinedArgumentConversion(openParameterType: Type, argumentClrType: Type): bool {
+        if openParameterType.get_IsByRef() || openParameterType.get_ContainsGenericParameters() {
+            return false
+        }
+
+        if !assignability.DeclaresExternalConversionOperators(argumentClrType) && !assignability.DeclaresExternalConversionOperators(openParameterType) {
+            return false
+        }
+
+        return ExternalUserDefinedConversions.ResolveImplicit(argumentClrType, openParameterType).IsSelected
     }
 
     static func CopyTypeInfoBindings(bindings: Dictionary<Type, TypeInfo>): Dictionary<Type, TypeInfo> {

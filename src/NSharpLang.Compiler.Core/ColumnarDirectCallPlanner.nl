@@ -1828,6 +1828,10 @@ class ColumnarDirectCallPlanner {
             return ColumnarSourceImplicitConversionResolver.TryAppendCall(plan, selection)
         }
 
+        if flow == ColumnarDirectCallArgumentFlow.ExternalImplicit {
+            return TryAppendExternalImplicitConversion(plan, actualType, parameterType)
+        }
+
         if flow != ColumnarDirectCallArgumentFlow.ImplicitNumeric {
             return false
         }
@@ -1857,6 +1861,34 @@ class ColumnarDirectCallPlanner {
         }
 
         return false
+    }
+
+    // THE `call op_Implicit` AN EXTERNAL TYPE'S OPERATOR NAMES. The selection is made by the SAME
+    // owner the analyzer consulted, over the same two CLR types, so the method emitted here is the
+    // one the front end accepted the call on. A selection that is no longer there is a decline and
+    // never a guess.
+    static func TryAppendExternalImplicitConversion(plan: ColumnarCodePlan, actualType: Type, parameterType: Type): bool {
+        if !ColumnarSourceDirectCallResolver.HasExternalImplicitConversion(actualType, parameterType) {
+            return false
+        }
+
+        selection := ExternalUserDefinedConversions.ResolveImplicit(actualType, parameterType)
+        method := selection.Method
+        if !selection.IsSelected || method == null {
+            return false
+        }
+
+        declaringType := method.get_DeclaringType()
+        parameters := method.GetParameters()
+        if declaringType == null || parameters.Length != 1 {
+            return false
+        }
+
+        parameterTypes := new Type[](1)
+        parameterTypes[0] = parameters[0].get_ParameterType()
+        methodIndex := plan.AddMethodWithSignature(method, declaringType, parameterTypes, method.get_ReturnType(), true, false)
+        plan.AppendMethodInstruction(ColumnarCodePlanContract.Call(), methodIndex)
+        return true
     }
 
     static func AppendDecimalImplicitConversion(plan: ColumnarCodePlan, actualType: Type): bool {
