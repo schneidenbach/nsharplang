@@ -1683,9 +1683,45 @@ What is still refused is what the CLR cannot carry, each with [NL311](./errors/N
 neither open a slot nor take one; `abstract` needs an abstract class and `virtual` a class that is
 not sealed; and `override` needs a base event of that name whose accessors are open.
 
-**Current limits.** An event declared inside an `interface` reports
-[NL323](./errors/NL323.md): the syntax binds, but an interface's accessors are abstract slots
-nothing yet fills — declare the event on each implementing type instead. An event's storage
+### Events in an interface
+
+An `interface` may declare an event. What it declares is a pair of **abstract accessor slots** plus
+the `EventInfo` row naming them; the implementing type fills both by declaring an event of the same
+name and delegate type, exactly as it fills a `func` slot by declaring that `func`:
+
+```n#
+import System
+
+interface INotifier {
+    event Changed: EventHandler
+
+    func Touch()
+}
+
+class Widget: INotifier {
+    event Changed: EventHandler
+
+    func Touch() {
+        Changed?.Invoke(this, EventArgs.Empty)
+    }
+}
+
+func watch(notifier: INotifier) {
+    sub := on notifier.Changed (sender, args) => { print "changed" }
+    notifier.Touch()
+    off sub
+}
+```
+
+A type that declares the interface and not the event reports [NL325](./errors/NL325.md), under the
+event's own name. The same holds for an interface a referenced assembly declares — `class Chatty:
+INotifyPropertyChanged` must declare `event PropertyChanged: PropertyChangedEventHandler`, and the
+accessors it emits fill that interface's slots.
+
+The three inheritance words are redundant on an interface event — every one of them is a slot already
+— and are reported with [NL311](./errors/NL311.md).
+
+**Current limits.** An event's storage
 is synthesized, so it takes no initializer and no accessor block, and an event must be written among
 the type's fields — before its first `func` — like every other field-shaped member. An instance
 event declared by a **struct** emits and is raised by the struct's own code, but `on` refuses to

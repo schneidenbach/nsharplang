@@ -244,3 +244,44 @@ test "an `abstract` event is a pair of abstract slots with no storage" {
 test "an abstract event's slot dispatches to whichever class filled it" {
     assert CountThroughAbstractEvent() == 1
 }
+
+test "an INTERFACE declares an event as a pair of abstract accessor slots" {
+    changed := must typeof(INotifier).GetEvent("Changed")
+    add := must changed.AddMethod
+    assert add.IsAbstract
+    assert add.IsVirtual
+    assert (must changed.RemoveMethod).IsAbstract
+    assert changed.EventHandlerType == typeof(EventHandler)
+    assert typeof(INotifier).GetEvent("Ticked") != null
+    // An interface has no storage of any kind.
+    assert typeof(INotifier).GetField("Changed", BindingFlags.NonPublic | BindingFlags.Instance) == null
+}
+
+test "the implementing type's accessors FILL the interface's slots" {
+    filled := must typeof(Notifier).GetEvent("Changed")
+    add := must filled.AddMethod
+    assert add.IsVirtual
+    assert add.IsFinal
+    assert !add.IsAbstract
+    assert typeof(INotifier).IsAssignableFrom(typeof(Notifier))
+
+    // The CLR's own interface map is what proves the slot is filled, rather than a same-named method.
+    map := typeof(Notifier).GetInterfaceMap(typeof(INotifier))
+    matched := 0
+    for index := 0; index < map.InterfaceMethods.Length; index++ {
+        if map.InterfaceMethods[index].Name == "add_Changed" && map.TargetMethods[index].DeclaringType == typeof(Notifier) {
+            matched = matched + 1
+        }
+    }
+
+    assert matched == 1
+}
+
+test "a subscription through the INTERFACE reaches the implementing type's storage" {
+    assert CountThroughInterfaceReceiver() == 1
+}
+
+test "an event fills a slot a REFERENCED assembly's interface declared" {
+    assert typeof(INotifyPropertyChanged).IsAssignableFrom(typeof(Observable))
+    assert CountThroughExternalInterfaceReceiver() == 1
+}

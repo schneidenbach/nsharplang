@@ -3867,6 +3867,20 @@ sealed class ColumnarIlEmitter {
                     interfaceMethodJobsForAdd.Add(new ValueTuple<ColumnarStructDef, ColumnarFunctionInput, MethodBuilder, Type, Dictionary<string, int>, Dictionary<string, Type>>(interfaceJobOwner, interfaceJobMethod, interfaceJobBuilder, interfaceJobReturnType, interfaceJobOrdinals, interfaceJobParamTypes))
                 }
             }
+
+            // AN EVENT AN INTERFACE DECLARES IS A PAIR OF ABSTRACT ACCESSOR SLOTS plus the `EventInfo`
+            // row that names them — the same three rows a class's event emits, minus the storage and
+            // minus the bodies. An implementing type supplies both accessors, which is what
+            // `implementsInterfaceSlot` widens its own pair to fill.
+            for ev := 0; ev < iface.EventNames.Length; ev++ {
+                let interfaceEventHandler: System.Type = null
+                interfaceEventHandlerResolved := interfaceDef.GenericParameters != null ? ColumnarCanonicalTypeResolver.TryResolveTypeWithTypeParams(iface.EventHandlerCanonicals[ev], interfaceDef.GenericParameters, typeResolution.Enums, typeResolution.Structs, typeResolution.Unions, out interfaceEventHandler) : ColumnarCanonicalTypeResolver.TryResolveType(iface.EventHandlerCanonicals[ev], typeResolution.Enums, typeResolution.Structs, typeResolution.Unions, out interfaceEventHandler)
+                if (!interfaceEventHandlerResolved || !ColumnarEventMemberEmitter.IsDelegateHandlerType(interfaceEventHandler)) {
+                    return DeclineStatic("emit.declaration.event-handler-type", "event '" + iface.Name + "." + iface.EventNames[ev] + "' needs a delegate type; '" + iface.EventHandlerCanonicals[ev] + "' is not one", iface.Name, -1, 0)
+                }
+                ColumnarEventMemberEmitter.Define(interfaceDef, iface.EventNames[ev], interfaceEventHandler, false, ColumnarDeclarationPlanner.PublicFieldAttribute(), ColumnarEventMemberEmitter.AbstractEvent(), false)
+                interfaceDef.MemberLabeledCanonicals[iface.EventNames[ev]] = iface.EventHandlerCanonicals[ev]
+            }
         }
         let interfaceDepths: int[]? = null
         if (!ColumnarInterfaceRealization.TryComputeInterfaceDepths(interfaceDefsInOrder, out interfaceDepths)) {
@@ -3921,7 +3935,13 @@ sealed class ColumnarIlEmitter {
                     }
                     eventVisibilityWord := ColumnarDeclarationPlanner.MethodVisibilityAttributes(fieldName, st.FieldVisibilityFlags[fi])
                     eventInheritanceKind := ColumnarEventMemberEmitter.InheritanceKindOf(st.FieldVirtualFlags[fi], st.FieldAbstractFlags[fi], st.FieldOverrideFlags[fi])
-                    eventDefinition := ColumnarEventMemberEmitter.Define(def, fieldName, fieldType, fieldRows.FieldIsStatic[s][fi], eventVisibilityWord, eventInheritanceKind, false)
+                    // A DECLARED INTERFACE THAT NAMES THIS EVENT MAKES THE ACCESSORS A SLOT FILL. The
+                    // question is asked of the declaration's OWN base list rather than of
+                    // `ImplementedInterfaces`, which the duck-interface pass has not computed yet at
+                    // this point; both read the same interface definitions, whose events were defined
+                    // in the interface pass above.
+                    implementsInterfaceEventSlot := !fieldRows.FieldIsStatic[s][fi] && DeclaredInterfaceDeclaresEvent(st.BaseNames, typeResolution, fieldName)
+                    eventDefinition := ColumnarEventMemberEmitter.Define(def, fieldName, fieldType, fieldRows.FieldIsStatic[s][fi], eventVisibilityWord, eventInheritanceKind, implementsInterfaceEventSlot)
                     def.MemberLabeledCanonicals[fieldName] = st.FieldTypeCanonicals[fi]
                     // AN ABSTRACT EVENT CONTRIBUTES NO INSTANCE FIELD, because it has no storage: the
                     // name is a pair of slots, and the list this feeds is the list of fields a
@@ -26083,6 +26103,44 @@ sealed class ColumnarIlEmitter {
             walk = walk.BaseDef
         }
         return null
+    }
+
+    // WHETHER ONE OF THE DECLARATION'S OWN BASE ENTRIES IS AN INTERFACE THAT DECLARES THIS EVENT.
+    // Inherited interfaces count, which is why the walk is the same closure enumeration the method
+    // side uses: `class Panel: IChatty` where `IChatty: INotifier` fills `INotifier`'s slots too.
+    private static func DeclaredInterfaceDeclaresEvent(baseNames: string[], typeResolution: ColumnarSemanticTypeResolution, eventName: string): bool {
+        for baseName in baseNames {
+            let baseDefinition: NSharpLang.Compiler.Columnar.ColumnarStructDef? = null
+            if (typeResolution.Structs.TryGetValue(baseName, out baseDefinition)) {
+                if (!baseDefinition.IsInterface) {
+                    continue
+                }
+                closure := new List<ColumnarStructDef>()
+                ColumnarBaseTypePlanner.EnumerateInterfaceAndBases(baseDefinition, closure)
+                for implemented in closure {
+                    if (implemented.Events.ContainsKey(eventName)) {
+                        return true
+                    }
+                }
+                continue
+            }
+            // AN EXTERNAL INTERFACE NAMES ITS EVENTS IN METADATA — `INotifyPropertyChanged` is the one
+            // every reader meets — and `GetInterfaces` flattens the whole inherited set, so one call
+            // settles the closure the source walk above has to enumerate.
+            let externalInterface: System.Type? = null
+            if (!ColumnarCanonicalTypeResolver.TryResolveType(baseName, typeResolution.Enums, typeResolution.Structs, typeResolution.Unions, out externalInterface) || externalInterface == null || !externalInterface.get_IsInterface()) {
+                continue
+            }
+            if (externalInterface.GetEvent(eventName) != null) {
+                return true
+            }
+            for inheritedInterface in externalInterface.GetInterfaces() {
+                if (inheritedInterface.GetEvent(eventName) != null) {
+                    return true
+                }
+            }
+        }
+        return false
     }
 
     // WHETHER THIS NAME IS AN `override` EVENT'S OWN STORAGE STANDING OVER THE BASE EVENT'S. Both

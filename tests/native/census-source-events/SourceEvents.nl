@@ -1,6 +1,7 @@
 namespace NSharpLang.CensusSourceEvents.Tests
 
 import System
+import System.ComponentModel
 
 // EVENTS A SOURCE TYPE DECLARES. `event Name: DelegateType` is C#'s field-like event: private backing
 // storage carrying the event's own name, `add_`/`remove_` accessors that combine and remove with
@@ -265,5 +266,66 @@ func CountThroughAbstractEvent(): int {
     asPump.Tick()
     off sub
     asPump.Tick()
+    return seen
+}
+
+// ── AN EVENT AN INTERFACE DECLARES ────────────────────────────────────────────────────────────
+//
+// An interface event is a pair of ABSTRACT accessor slots plus the `EventInfo` row naming them, and
+// the implementing type fills both by declaring an event of the same name and delegate type — the
+// same way it fills a `func` slot by declaring that `func`. The census reported NL323 ("an interface
+// cannot declare the event 'Changed' yet") for the declaration and `NL103 … parse.interface` for the
+// whole file behind it.
+interface INotifier {
+    event Changed: EventHandler
+
+    func Touch()
+
+    event Ticked: Action
+}
+
+class Notifier: INotifier {
+    event Changed: EventHandler
+    event Ticked: Action
+
+    func Touch() {
+        Changed?.Invoke(this, EventArgs.Empty)
+        Ticked?.Invoke()
+    }
+}
+
+func CountThroughInterfaceReceiver(): int {
+    seen := 0
+    notifier := new Notifier()
+    asInterface: INotifier = notifier
+    sub := on asInterface.Changed (sender, args) => {
+        seen = seen + 1
+    }
+    asInterface.Touch()
+    off sub
+    asInterface.Touch()
+    return seen
+}
+
+// AN INTERFACE A REFERENCED ASSEMBLY DECLARES. `INotifyPropertyChanged` is the one every reader
+// meets, and its slot is filled by exactly the same declaration.
+class Observable: INotifyPropertyChanged {
+    event PropertyChanged: PropertyChangedEventHandler
+
+    func Rename(name: string) {
+        PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(name))
+    }
+}
+
+func CountThroughExternalInterfaceReceiver(): int {
+    seen := 0
+    observable := new Observable()
+    asInterface: INotifyPropertyChanged = observable
+    sub := on asInterface.PropertyChanged (sender, args) => {
+        seen = seen + 1
+    }
+    observable.Rename("Label")
+    off sub
+    observable.Rename("Label")
     return seen
 }

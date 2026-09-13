@@ -429,7 +429,6 @@ class AnalyzerTypeDeclarations {
     func AdvanceTypeHeader(state: TypeDeclarationState): TypeDeclarationRequest? {
         DeclareTypeParameters(state)
         ValidateReadonlyStructInstanceFields(state)
-        ValidateInterfaceEventMembers(state)
         ResolveDeclaredBases(state)
         ValidateNoInheritanceCycle(state)
         ValidateSingleBaseClass(state)
@@ -1060,33 +1059,6 @@ class AnalyzerTypeDeclarations {
     // construction — C# accepts an init-only auto-property inside a readonly struct for exactly that
     // reason. A PLAIN struct with readonly fields is untouched: it stays a MUTABLE struct, and saying
     // otherwise would flag the shape half the corpus is already written in.
-    // AN EVENT AN INTERFACE DECLARES IS UNDERSTOOD AND NOT YET EMITTED. `event Name: DelegateType`
-    // parses and binds wherever a member may be written, but an interface's accessors are abstract
-    // slots an implementing type has to fill, and nothing yet declares them, matches them or checks
-    // that a class supplied them. Saying so HERE — at the member, with the way to keep working —
-    // is the whole point: the columnar backend's own answer is `NL103 … parse.interface`, a sentence
-    // about the compiler's internals for a construct the reader wrote on purpose.
-    func ValidateInterfaceEventMembers(state: TypeDeclarationState) {
-        if state.Form != 3 {
-            return
-        }
-
-        members := TypeMembers(state)
-        if members == null {
-            return
-        }
-
-        for member in members {
-            eventMember := member as EventDeclaration
-            if eventMember == null {
-                continue
-            }
-
-            span := spansValue.GetTypeNameDiagnosticSpan(eventMember.Name, eventMember.Line, eventMember.Column)
-            diagnosticsValue.Report(ErrorCode.FeatureNotImplemented, "an interface cannot declare the event '" + eventMember.Name + "' yet", span.Line, span.Column, "Declare the event on each implementing class, struct or record instead — `event " + eventMember.Name + ": …` works there — or have the interface declare `Subscribe`/`Unsubscribe` methods the implementations route through.", span.Length)
-        }
-    }
-
     func ValidateReadonlyStructInstanceFields(state: TypeDeclarationState) {
         if !IsReadonlyStructDeclaration(state) {
             return
@@ -1302,6 +1274,11 @@ class AnalyzerTypeDeclarations {
             return
         }
 
+        if state.Form == 3 {
+            ReportEventInheritanceModifierFault(eventMember, "'" + eventMember.Name + "' is declared '" + word + "', but an interface's event is already a slot", "Drop '" + word + "'. Every event an interface declares is a pair of abstract accessors that each implementing type fills.")
+            return
+        }
+
         if state.Form != 0 {
             ReportEventInheritanceModifierFault(eventMember, "'" + eventMember.Name + "' is declared '" + word + "', but " + FormWordForInheritance(state) + " cannot take part in inheritance", "Drop '" + word + "'. Move the event to a class if a derived type has to replace it, or expose a `virtual func` the raise goes through.")
             return
@@ -1332,18 +1309,14 @@ class AnalyzerTypeDeclarations {
         }
     }
 
-    // The word the report uses for a form that cannot inherit. Both value forms are sealed by the CLR,
-    // and an interface member is a slot already — its own rule is the implementation one, not this.
+    // The word the report uses for a form that cannot inherit. Both value forms are sealed by the CLR;
+    // an interface is answered before this is reached, because its members are slots already.
     static func FormWordForInheritance(state: TypeDeclarationState): string {
         if state.Form == 1 {
             return "a struct"
         }
 
-        if state.Form == 2 {
-            return "a record struct"
-        }
-
-        return "an interface"
+        return "a record struct"
     }
 
     static func IsAbstractClassDeclaration(state: TypeDeclarationState): bool {
@@ -2125,6 +2098,14 @@ class AnalyzerTypeDeclarations {
             field := member as FieldDeclaration
             if field != null {
                 suppliedValues.Add(field.Name)
+                continue
+            }
+
+            // AN EVENT SUPPLIES A NAME LIKE ANY OTHER VALUE MEMBER. It is what fills an interface's
+            // event slot, and it is not a `FieldDeclaration` in the model, so it needs its own arm.
+            eventMember := member as EventDeclaration
+            if eventMember != null {
+                suppliedValues.Add(eventMember.Name)
             }
         }
     }
@@ -2162,7 +2143,7 @@ class AnalyzerTypeDeclarations {
             if declared.Kind == DeclaredMemberKind.Function {
                 suppliedFunctions.Add(declared.Name)
             } else {
-                if declared.Kind == DeclaredMemberKind.Property || declared.Kind == DeclaredMemberKind.Field {
+                if declared.Kind == DeclaredMemberKind.Property || declared.Kind == DeclaredMemberKind.Field || declared.Kind == DeclaredMemberKind.Event {
                     suppliedValues.Add(declared.Name)
                 }
             }
@@ -2210,6 +2191,18 @@ class AnalyzerTypeDeclarations {
             }
 
             propertyIndex = propertyIndex + 1
+        }
+
+        // A CONCRETE base's events supply their names too, for the same reason its properties do.
+        events := clrType.GetEvents(flags)
+        eventIndex := 0
+        while eventIndex < events.Length {
+            eventMember := events[eventIndex]
+            if !IsAbstractPropertyAccessor(eventMember.GetAddMethod(true)) && !IsAbstractPropertyAccessor(eventMember.GetRemoveMethod(true)) {
+                suppliedValues.Add(eventMember.get_Name())
+            }
+
+            eventIndex = eventIndex + 1
         }
     }
 
@@ -2309,7 +2302,7 @@ class AnalyzerTypeDeclarations {
             return
         }
 
-        if declared.Kind == DeclaredMemberKind.Property || declared.Kind == DeclaredMemberKind.Field {
+        if declared.Kind == DeclaredMemberKind.Property || declared.Kind == DeclaredMemberKind.Field || declared.Kind == DeclaredMemberKind.Event {
             if suppliedValues.Add(declared.Name) {
                 missing.Add(declared.Name)
             }
@@ -2356,6 +2349,22 @@ class AnalyzerTypeDeclarations {
             }
 
             propertyIndex = propertyIndex + 1
+        }
+
+        // AN EVENT A CLR INTERFACE DECLARES — `INotifyPropertyChanged.PropertyChanged` is the one every
+        // reader meets. Its accessors are `SpecialName` and are skipped by the method walk on purpose,
+        // so the event is demanded once under its own name rather than twice as `add_`/`remove_`.
+        events := clrType.GetEvents(flags)
+        eventIndex := 0
+        while eventIndex < events.Length {
+            eventMember := events[eventIndex]
+            if IsAbstractPropertyAccessor(eventMember.GetAddMethod(true)) || IsAbstractPropertyAccessor(eventMember.GetRemoveMethod(true)) {
+                if suppliedValues.Add(eventMember.get_Name()) {
+                    missing.Add(eventMember.get_Name())
+                }
+            }
+
+            eventIndex = eventIndex + 1
         }
     }
 

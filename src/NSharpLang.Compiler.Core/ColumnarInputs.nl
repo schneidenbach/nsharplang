@@ -404,11 +404,16 @@ class ColumnarInterfaceInput {
     MethodParamCanonicals: string[][]
     MethodParamModifierKinds: int[][]
     MethodBodies: ColumnarFunctionInput?[]
+    // `event Name: DelegateType` members. An interface event is two ABSTRACT accessor slots plus an
+    // `EventInfo` row, so the only facts a row carries are the name and the handler delegate type —
+    // there is no body, no storage and no parameter list.
+    EventNames: string[]
+    EventHandlerCanonicals: string[]
     TypeParamSpecialConstraints: int[]
     TypeParamTypeConstraints: string[][]
     SourceFileId: int
 
-    constructor(name: string, baseInterfaceNames: string[], methodNames: string[], methodReturnCanonicals: string[], methodParamNames: string[][], methodParamCanonicals: string[][], methodBodies: ColumnarFunctionInput?[]? = null, typeParamNames: string[]? = null, sourceFileId: int = 0, methodParamModifierKinds: int[][]? = null, typeParamSpecialConstraints: int[]? = null, typeParamTypeConstraints: string[][]? = null) {
+    constructor(name: string, baseInterfaceNames: string[], methodNames: string[], methodReturnCanonicals: string[], methodParamNames: string[][], methodParamCanonicals: string[][], methodBodies: ColumnarFunctionInput?[]? = null, typeParamNames: string[]? = null, sourceFileId: int = 0, methodParamModifierKinds: int[][]? = null, typeParamSpecialConstraints: int[]? = null, typeParamTypeConstraints: string[][]? = null, eventNames: string[]? = null, eventHandlerCanonicals: string[]? = null) {
         Name = name
         BaseInterfaceNames = baseInterfaceNames
         TypeParamNames = typeParamNames ?? new string[](0)
@@ -418,6 +423,8 @@ class ColumnarInterfaceInput {
         MethodParamCanonicals = methodParamCanonicals
         MethodParamModifierKinds = methodParamModifierKinds ?? CreateMethodParamModifierKinds(methodNames, methodParamCanonicals)
         MethodBodies = methodBodies ?? new ColumnarFunctionInput?[](methodNames.Length)
+        EventNames = eventNames ?? new string[](0)
+        EventHandlerCanonicals = eventHandlerCanonicals ?? new string[](0)
         TypeParamSpecialConstraints = ColumnarConstraintColumns.SpecialsOrEmpty(typeParamSpecialConstraints, TypeParamNames.Length)
         TypeParamTypeConstraints = ColumnarConstraintColumns.TypesOrEmpty(typeParamTypeConstraints, TypeParamNames.Length)
         SourceFileId = sourceFileId

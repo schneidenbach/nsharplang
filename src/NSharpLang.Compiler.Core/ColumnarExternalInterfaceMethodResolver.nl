@@ -709,6 +709,36 @@ class ColumnarExternalInterfaceMethodResolver {
         return true
     }
 
+    // Whether `add_X` / `remove_X` on an external interface is answered by an event `X` the implementer
+    // declares over the same delegate. The accessor's own single parameter IS the handler type, so the
+    // two are compared without reading the `EventInfo` twice.
+    static func EventAccessorSatisfied(implementer: ColumnarStructDef, interfaceType: Type, externalMethod: MethodInfo, externalName: string): bool {
+        if !externalMethod.get_IsSpecialName() {
+            return false
+        }
+
+        eventName := ""
+        if externalName.StartsWith("add_", StringComparison.Ordinal) {
+            eventName = externalName.Substring(4)
+        } else if externalName.StartsWith("remove_", StringComparison.Ordinal) {
+            eventName = externalName.Substring(7)
+        } else {
+            return false
+        }
+
+        declaredEvent: ColumnarEventDef = null
+        if !implementer.Events.TryGetValue(eventName, out declaredEvent) || declaredEvent.IsStatic {
+            return false
+        }
+
+        interfaceEvent := interfaceType.GetEvent(eventName)
+        if interfaceEvent == null {
+            return false
+        }
+
+        return interfaceEvent.get_EventHandlerType() == declaredEvent.HandlerType
+    }
+
     static func InterfacesSatisfied(implementer: ColumnarStructDef, externalInterfaces: List<Type>): bool {
         for externalInterface in externalInterfaces {
             builderBound := ColumnarGenericTypeReceiverFacts.IsBuilderBoundConstruction(externalInterface)
@@ -718,6 +748,13 @@ class ColumnarExternalInterfaceMethodResolver {
                 implementation: ColumnarInstanceMethodDef = null
                 externalName := externalMethod.get_Name()
                 if !implementer.Methods.TryGetValue(externalName, out implementation) {
+                    // AN EVENT'S ACCESSORS ARE NOT IN THE METHOD TABLE, and they are exactly what an
+                    // interface event's `add_X`/`remove_X` ask for. The implementer supplies them by
+                    // DECLARING the event, which is the only way N# can write them; the handler type is
+                    // measured, because a same-named event over another delegate fills nothing.
+                    if EventAccessorSatisfied(implementer, lookupType, externalMethod, externalName) {
+                        continue
+                    }
                     return false
                 }
                 implementationObject: object? = implementation
