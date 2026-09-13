@@ -1507,12 +1507,17 @@ async func Send(): Task {
   what it promised to release. Writing *through* the resource is ordinary mutation and stays legal.
 - **A null resource is skipped, not crashed on.** `using x := MightReturnNull() { … }` runs its body
   and releases nothing.
-- **A struct resource is released without boxing**, so a `Dispose` that mutates the value is not
-  running on a copy the CLR made.
+- **A struct resource is released through its own address**, never through a box, so a `Dispose` that
+  mutates the value mutates the value the statement is holding. (As in C#, the unbound
+  `using someStructLocal { … }` holds a COPY of that local — the statement captures its resource when
+  it begins — so bind the resource with `using r := …` when the release has to be observable
+  afterwards.)
 - **An exception from the release propagates.** A `finally` is not a `catch`.
 - `using` works inside generators, async functions, lambdas and local functions. Inside a generator,
   the release runs when the enumeration ends — by completion, by an exception, or because the
-  consumer stopped early — and never when the generator merely suspends at a `yield`.
+  consumer stopped early — and never when the generator merely suspends at a `yield`. A generator
+  body is the one place two shapes are refused: a STRUCT resource and `await using`
+  ([why](./functions.md)).
 
 #### One thing to watch: object initializers
 

@@ -260,6 +260,35 @@ class AstPositionVisitor {
             }
 
             VisitStatement(GetRequiredProperty(statement, "Body"))
+            return
+        }
+
+        // A `using` carries an expression in TWO places and only ever one of them at a time: the
+        // BOUND form's resource is the initializer of its declaration, the unbound form's is the
+        // statement's own `Expression`. Its body is optional — a using DECLARATION has none, because
+        // the region it guards is the rest of the enclosing block, and the block walk above is
+        // already visiting those statements as siblings.
+        if typeName == "UsingStatement" {
+            declaration := GetOptionalProperty(statement, "Declaration")
+            if declaration != null {
+                VisitStatement(declaration)
+                if foundExpressionValue != null {
+                    return
+                }
+            }
+
+            resource := GetOptionalProperty(statement, "Expression")
+            if resource != null {
+                SetFoundExpression(FindExpression(resource))
+                if foundExpressionValue != null {
+                    return
+                }
+            }
+
+            body := GetOptionalProperty(statement, "Body")
+            if body != null {
+                VisitStatement(body)
+            }
         }
     }
 
