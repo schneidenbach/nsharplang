@@ -2098,3 +2098,55 @@ therefore analyzer-visible (`nlc check`) before that decline is reached, and is 
 still be right when closures land. A local function also does not SHADOW a same-named top-level
 function at the call site (both calls resolve to the top-level one) — a separate pre-existing gap in
 the call planner, unchanged by the block-scoping rule.
+
+### A substituted type parameter takes the type ARGUMENT's nullability
+
+`NullabilityGenericSubstitution.nl` is the N# owner for the two facts the nullability reader needs
+when a member position is a bare type parameter, and `NullabilityMetadataReflection.ConvertMemberType`
+is the one place that consults it.
+
+THE ROOT CAUSE IS `NullabilityInfoContext`. It answers `Nullable` for EVERY bare-parameter position —
+measured on the CLOSED instantiation as well as on the open definition, and it has to, because an
+unconstrained `T` may be instantiated with a nullable type. Taking that answer made
+`Lazy<string>.Value`, `Task<string>.Result`, `Tuple<string, int>.Item1` and a `Predicate<string>`
+lambda's parameter all maybe-null: the census's ten `docQuery.Value` NL905s and every
+`xs.Find(s => s.Length > 0)` whose `s` was reported inside the lambda.
+
+- `OpenPropertyType` / `OpenFieldType` / `OpenParameterType` answer the position's spelling AS ITS
+  DEFINITION WRITES IT. A member read off a constructed generic already has its type substituted by
+  the CLR, so the `T` survives only on the definition. TWO substitutions may have to be undone and
+  the order matters: the METHOD's own (`Enumerable.FirstOrDefault<string>` →
+  `FirstOrDefault<TSource>`) first because positions align exactly, then the DECLARING TYPE's
+  (`List<string>.Find` → `List<>.Find`). The declaring type is the member's, not the receiver's, so
+  an inherited member resolves against the base that declares it; an ambiguous overload name or a
+  lookup that finds nothing answers with the CLOSED type, which is the old behaviour.
+- `IsAnnotatedNullable` reads the annotation from THREE places, because C# writes it in three:
+  `NullableAttribute(2)` on the position (`List<T>.Find`'s return), the nearest
+  `NullableContextAttribute(2)` at or above the member (`Enumerable.FirstOrDefault` carries it on the
+  METHOD while `Enumerable` carries `(1)` — reading only the position makes `First` and
+  `FirstOrDefault` mean the same thing), and `[MaybeNullWhen(...)]`, which N# does not model
+  conditionally and therefore reads as plainly nullable (this is also what preserves
+  `Dictionary<K, V>.TryGetValue`'s `out string? value`). Nothing found at all is oblivious, which is
+  NOT annotated-nullable: the argument decides.
+- `ConvertSubstitutedParameterType` is the conversion that takes the read state as a VALUE instead of
+  reading it, and it is deliberately a sibling of `ConvertReflectedType` rather than a parameter on
+  it. Only the TOP-LEVEL position is overridden; everything nested keeps reading its own
+  `NullabilityInfo`, because a nested position is about a type ARGUMENT the member really did write.
+  Collapsing the two made `Array.ConvertAll`'s `TOutput[]` return read `string?[]`.
+  The override arm honours the supplied state too — `FirstOrDefault` is `TSource?` and the override
+  alone answers the argument verbatim, losing the `?`.
+- `AnalyzerMemberResolution.TryResolveSpelledTypeParameterMember` is the other half: `Lazy<string?>`
+  and `Lazy<string>` are the SAME CLR type, so the argument's `?` lives only in the SOURCE spelling.
+  A property or field whose definition position is a bare parameter is therefore read off the
+  DEFINITION with `AnalyzerReflectionTypeOverride.ForGenericArguments` — the exact-conversion twin of
+  the surrogate path beside it. It answers for nothing else: a member whose type does not mention a
+  parameter reads identically off the closed type, and an INHERITED one is spelled in its BASE's
+  parameters, which the receiver's arguments do not index.
+
+Two estate contracts encoded the OLD answer and were updated with the reason:
+`NullabilityMetadataReflection`'s `List<T>.Add` parameter (`Nullable(Simple(T))` → `Simple(T)`) and
+`AnalyzerReflectionArgumentBinder`'s bound `Converter<int, TOutput>` signature (`(int)->string?` →
+`(int)->string`).
+
+NOT YET: the columnar backend does not emit `Enumerable.FirstOrDefault`/`LastOrDefault` calls, so
+their `T?` contract is pinned in the estate rather than in `tests/native/census-flow-rules`.

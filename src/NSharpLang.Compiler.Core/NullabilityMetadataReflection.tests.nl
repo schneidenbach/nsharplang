@@ -503,9 +503,12 @@ test "a reflection type override answers for a generic parameter, by TypeInfo an
 
     parameter := add.GetParameters()[0]
 
-    // With no override at all the walk names the parameter itself, under the read state its
-    // metadata carries.
-    assert NullabilityRenderTypeInfo(NullabilityMetadataReflection.ConvertParameter(parameter)) == "Nullable(Simple(T))"
+    // With no override at all the walk names the parameter itself, and it is NOT nullable: a bare
+    // type parameter takes the nullability of whatever argument substitutes it, and `List<T>.Add`
+    // does not annotate its parameter `T?`. (`NullabilityInfoContext` answers `Nullable` for every
+    // bare parameter — it has to, not knowing the argument — and taking that answer is what made
+    // `Lazy<string>.Value` maybe-null.)
+    assert NullabilityRenderTypeInfo(NullabilityMetadataReflection.ConvertParameter(parameter)) == "Simple(T)"
 
     // A TypeInfo binding replaces the conversion outright — INCLUDING the wrapper, because the
     // generic-parameter override answers ahead of the read state rather than under it.

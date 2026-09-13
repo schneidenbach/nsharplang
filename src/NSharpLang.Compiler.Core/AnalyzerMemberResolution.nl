@@ -192,6 +192,17 @@ class AnalyzerMemberResolution {
             if genericCandidate != null || arrayCandidate != null {
                 convertedClrType := clrTypeConversion.TryConvertTypeInfoToClrType(current)
                 if convertedClrType != null {
+                    // A MEMBER DECLARED WITH ONE OF THE INSTANTIATION'S OWN TYPE PARAMETERS IS
+                    // ANSWERED FROM THE SPELLING, NOT FROM THE CLOSED CLR TYPE. `Lazy<string?>` and
+                    // `Lazy<string>` are the SAME CLR type — the argument's `?` lives in the source
+                    // spelling and nowhere in metadata — so reading `Value` off the closed type
+                    // answers `string` for both. Read it off the DEFINITION instead, where the
+                    // position is still `T`, and let the spelled arguments substitute.
+                    spelledMemberType: TypeInfo = BuiltInTypes.Unknown
+                    if genericCandidate != null && TryResolveSpelledTypeParameterMember(convertedClrType, genericCandidate, memberName, includeStaticMembers, out spelledMemberType) {
+                        return spelledMemberType
+                    }
+
                     current = new ReflectionTypeInfo(convertedClrType)
                 } else {
                     // Only a SURROGATE CLR type exists. Metadata may still answer for a property or
@@ -415,6 +426,42 @@ class AnalyzerMemberResolution {
         field := definition.GetField(memberName, memberFlags)
         if field != null {
             memberType = NullabilityMetadataReflection.ConvertFieldWithOverride(field, typeOverride)
+            return true
+        }
+
+        return false
+    }
+
+    // A PROPERTY OR FIELD OF A CONSTRUCTED GENERIC WHOSE DECLARED TYPE IS ONE OF THE DEFINITION'S OWN
+    // TYPE PARAMETERS. This is the EXACT-conversion twin of `TryResolveConstructedGenericPropertyOrField`
+    // above: that one exists because the arguments only bound as surrogates, this one because the
+    // arguments' NULLABILITY is in the spelling and not in the CLR type they convert to.
+    //
+    // It answers for nothing else. A member whose type does not mention a type parameter reads
+    // identically off the closed type, and an INHERITED one is spelled in its BASE's parameters,
+    // which the receiver's arguments do not index — so both fall through to the ordinary reflection
+    // arm, which is where they were answered before.
+    static func TryResolveSpelledTypeParameterMember(closedClrType: Type, genericType: GenericTypeInfo, memberName: string, includeStaticMembers: bool, out memberType: TypeInfo): bool {
+        memberType = BuiltInTypes.Unknown
+        if !closedClrType.get_IsGenericType() || closedClrType.get_IsGenericTypeDefinition() {
+            return false
+        }
+
+        definition := closedClrType.GetGenericTypeDefinition()
+        if definition.GetGenericArguments().Length != genericType.TypeArguments.Count {
+            return false
+        }
+
+        memberFlags := GetReflectionMemberFlags(includeStaticMembers)
+        property := definition.GetProperty(memberName, memberFlags)
+        if property != null && property.get_DeclaringType() == definition && NullabilityGenericSubstitution.IsTypeParameterPosition(property.get_PropertyType()) {
+            memberType = NullabilityMetadataReflection.ConvertPropertyWithOverride(property, AnalyzerReflectionTypeOverride.ForGenericArguments(definition, genericType))
+            return true
+        }
+
+        field := definition.GetField(memberName, memberFlags)
+        if field != null && field.get_DeclaringType() == definition && NullabilityGenericSubstitution.IsTypeParameterPosition(field.get_FieldType()) {
+            memberType = NullabilityMetadataReflection.ConvertFieldWithOverride(field, AnalyzerReflectionTypeOverride.ForGenericArguments(definition, genericType))
             return true
         }
 

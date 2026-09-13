@@ -41,7 +41,8 @@ class NullabilityMetadataReflection {
 
     static func ConvertPropertyWithOverride(property: PropertyInfo, typeOverride: AnalyzerReflectionTypeOverride?): TypeInfo {
         attributes := property.GetCustomAttributesData()
-        converted := AnalyzerTupleElementNames.ApplyDeclared(ConvertReflectedType(property.get_PropertyType(), CreateNullabilityInfoForProperty(property), typeOverride), attributes)
+        openType := NullabilityGenericSubstitution.OpenPropertyType(property)
+        converted := AnalyzerTupleElementNames.ApplyDeclared(ConvertMemberType(property.get_PropertyType(), CreateNullabilityInfoForProperty(property), typeOverride, openType, attributes, property), attributes)
         return ApplyFlowAttributes(converted, attributes)
     }
 
@@ -51,7 +52,8 @@ class NullabilityMetadataReflection {
 
     static func ConvertFieldWithOverride(field: FieldInfo, typeOverride: AnalyzerReflectionTypeOverride?): TypeInfo {
         attributes := field.GetCustomAttributesData()
-        converted := AnalyzerTupleElementNames.ApplyDeclared(ConvertReflectedType(field.get_FieldType(), CreateNullabilityInfoForField(field), typeOverride), attributes)
+        openType := NullabilityGenericSubstitution.OpenFieldType(field)
+        converted := AnalyzerTupleElementNames.ApplyDeclared(ConvertMemberType(field.get_FieldType(), CreateNullabilityInfoForField(field), typeOverride, openType, attributes, field), attributes)
         return ApplyFlowAttributes(converted, attributes)
     }
 
@@ -61,7 +63,8 @@ class NullabilityMetadataReflection {
 
     static func ConvertParameterWithOverride(parameter: ParameterInfo, typeOverride: AnalyzerReflectionTypeOverride?): TypeInfo {
         attributes := parameter.GetCustomAttributesData()
-        converted := AnalyzerTupleElementNames.ApplyDeclared(ConvertReflectedType(parameter.get_ParameterType(), CreateNullabilityInfoForParameter(parameter), typeOverride), attributes)
+        openType := NullabilityGenericSubstitution.OpenParameterType(parameter)
+        converted := AnalyzerTupleElementNames.ApplyDeclared(ConvertMemberType(parameter.get_ParameterType(), CreateNullabilityInfoForParameter(parameter), typeOverride, openType, attributes, parameter.get_Member()), attributes)
         return ApplyFlowAttributes(converted, attributes)
     }
 
@@ -72,7 +75,8 @@ class NullabilityMetadataReflection {
     static func ConvertReturnWithOverride(method: MethodInfo, typeOverride: AnalyzerReflectionTypeOverride?): TypeInfo {
         returnParameter := method.get_ReturnParameter()
         attributes := returnParameter.GetCustomAttributesData()
-        converted := AnalyzerTupleElementNames.ApplyDeclared(ConvertReflectedType(method.get_ReturnType(), CreateNullabilityInfoForParameter(returnParameter), typeOverride), attributes)
+        openType := NullabilityGenericSubstitution.OpenParameterType(returnParameter)
+        converted := AnalyzerTupleElementNames.ApplyDeclared(ConvertMemberType(method.get_ReturnType(), CreateNullabilityInfoForParameter(returnParameter), typeOverride, openType, attributes, method), attributes)
         return ApplyFlowAttributes(converted, attributes)
     }
 
@@ -112,22 +116,67 @@ class NullabilityMetadataReflection {
         return NullabilityMetadataCore.StripMetadata(typeInfo)
     }
 
-    static func ConvertReflectedType(clrType: Type, nullabilityInfo: NullabilityInfo?, typeOverride: AnalyzerReflectionTypeOverride?): TypeInfo {
-        effectiveType := clrType
-        if clrType.get_IsByRef() {
-            element := clrType.GetElementType()
-            if element != null {
-                effectiveType = element
-            }
+    // ONE MEMBER POSITION, WITH THE SUBSTITUTION'S SAY ON ITS READ STATE.
+    //
+    // `NullabilityInfoContext` answers `Nullable` for every position declared with a BARE type
+    // parameter — it must, because an unconstrained `T` may be instantiated with a nullable type —
+    // so taking its answer made `Lazy<string>.Value`, `Task<string>.Result`, `Tuple<string,int>.Item1`
+    // and a `Predicate<string>` lambda's parameter all maybe-null. The compiler KNOWS the argument:
+    // the substituted position's nullability is the type ARGUMENT's, and only an annotation the
+    // MEMBER wrote (`T?`, i.e. `NullableAttribute(2)`) overrides it. `[MaybeNull]` / `[NotNull]` are
+    // a separate pass and still apply on top. See `NullabilityGenericSubstitution`.
+    static func ConvertMemberType(clrType: Type, nullabilityInfo: NullabilityInfo?, typeOverride: AnalyzerReflectionTypeOverride?, openType: Type?, attributes: IList<CustomAttributeData>, member: MemberInfo?): TypeInfo {
+        if !NullabilityGenericSubstitution.IsTypeParameterPosition(openType) {
+            return ConvertReflectedType(clrType, nullabilityInfo, typeOverride)
         }
 
+        return ConvertSubstitutedParameterType(clrType, nullabilityInfo, typeOverride, NullabilityGenericSubstitution.IsAnnotatedNullable(attributes, member))
+    }
+
+    static func ConvertReflectedType(clrType: Type, nullabilityInfo: NullabilityInfo?, typeOverride: AnalyzerReflectionTypeOverride?): TypeInfo {
+        effectiveType := DereferenceByRef(clrType)
         if effectiveType.get_IsGenericParameter() && typeOverride != null {
             return typeOverride.Answer(effectiveType)
         }
 
-        converted := ConvertReflectedTypeCore(effectiveType, nullabilityInfo, typeOverride)
         readState := GetReadState(nullabilityInfo)
+        converted := ConvertReflectedTypeCore(effectiveType, nullabilityInfo, typeOverride)
         return NullabilityMetadataCore.ApplyReadState(converted, IsNullableValueType(effectiveType), CanReflectedTypeCarryReferenceNullability(effectiveType, converted), readState == NullabilityState.Nullable, readState == NullabilityState.Unknown)
+    }
+
+    // THE SUBSTITUTED-PARAMETER FORM. It differs from the one above in exactly one way: the TOP-LEVEL
+    // read state is SUPPLIED rather than read, because for a bare type parameter metadata's answer is
+    // not the language's. Everything nested inside is converted by the ordinary walk, which is right —
+    // a nested position is about a type ARGUMENT the member really did write.
+    //
+    // The override arm has to honour the supplied state too. `Enumerable.FirstOrDefault<TSource>`
+    // returns `TSource?`, and the override alone answers the ARGUMENT verbatim, which loses the `?`.
+    static func ConvertSubstitutedParameterType(clrType: Type, nullabilityInfo: NullabilityInfo?, typeOverride: AnalyzerReflectionTypeOverride?, isNullableReadState: bool): TypeInfo {
+        effectiveType := DereferenceByRef(clrType)
+        if effectiveType.get_IsGenericParameter() && typeOverride != null {
+            answered := typeOverride.Answer(effectiveType)
+            if !isNullableReadState {
+                return answered
+            }
+
+            return NullabilityMetadataCore.ApplyReadState(answered, false, CanConvertedTypeCarryReferenceNullability(answered), true, false)
+        }
+
+        converted := ConvertReflectedTypeCore(effectiveType, nullabilityInfo, typeOverride)
+        return NullabilityMetadataCore.ApplyReadState(converted, IsNullableValueType(effectiveType), CanReflectedTypeCarryReferenceNullability(effectiveType, converted), isNullableReadState, false)
+    }
+
+    static func DereferenceByRef(clrType: Type): Type {
+        if !clrType.get_IsByRef() {
+            return clrType
+        }
+
+        element := clrType.GetElementType()
+        if element == null {
+            return clrType
+        }
+
+        return element
     }
 
     static func ConvertReflectedTypeCore(clrType: Type, nullabilityInfo: NullabilityInfo?, typeOverride: AnalyzerReflectionTypeOverride?): TypeInfo {

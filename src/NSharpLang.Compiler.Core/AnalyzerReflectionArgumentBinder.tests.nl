@@ -2152,9 +2152,12 @@ test "a phase-one lambda answer binds the method's one remaining type parameter"
         third := binder.NextReflectionAnalysis(state)
         assert third != null
         assert third.Lambda != null
-        // The lambda's own answer closed `TOutput`; the nullability spelling rides along from the
-        // reflected delegate's metadata, which is why the second signature is not merely "(int)->string".
-        assert FinalizeSignatureText(third) == "(int)->string?"
+        // The lambda's own answer closed `TOutput`, and the bound signature says `string` — a bare
+        // type parameter takes the ARGUMENT's nullability, and `Converter<TInput, TOutput>.Invoke`
+        // does not annotate its return `TOutput?`. (This read `string?` while the reader took
+        // `NullabilityInfoContext`'s answer for a bare parameter, which is Nullable for every one of
+        // them.)
+        assert FinalizeSignatureText(third) == "(int)->string"
         binder.SupplyReflectionAnalysis(
             state,
             FinalizeLambdaAnswer(BuiltInTypes.Int, BuiltInTypes.String)
