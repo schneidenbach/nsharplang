@@ -269,6 +269,42 @@ func answer() {
 
 Write `func answer(): int` when the function should return `42`.
 
+### Where a body ends
+
+A non-void function must return on every path. A loop does **not** count as returning, because it may
+run zero times — so the `return` after the loop is the one that runs on the empty collection, and it is
+required:
+
+```n#
+func firstOrFallback(values: List<int>): int {
+    for value in values {
+        return value
+    }
+
+    return -1
+}
+```
+
+That shape emits: a loop body that never falls through is ordinary. So is the scan loop whose every
+path either returns or `continue`s, in all four spellings (`for x in xs`, `for x in array`,
+`for c in text`, and the counted `for i := 0; …`).
+
+The one loop whose **end point is unreachable** is the endless one — a `while` whose condition is the
+constant `true`, or a `for` with no condition — and only when no reachable `break` targets it. That
+loop needs no return after it:
+
+```n#
+func attemptsUntil(threshold: int): int {
+    attempt := 0
+    while true {
+        attempt = attempt + 1
+        if attempt >= threshold {
+            return attempt
+        }
+    }
+}
+```
+
 ### Nullable Return Types
 
 ```n#

@@ -7323,13 +7323,13 @@ sealed class ColumnarIlEmitter {
             incr := Child(idx, 2)
             body := Child(idx, 3)
 
-            // A for-body that always transfers on every path (never falls through) would make the increment +
-            // back-edge unreachable (a `continue` aside) — a degenerate shape; decline it to the N# backend path. A
-            // normal counting loop falls through, and a `continue` body still falls through on its other path.
-            if (AlwaysReturns(body)) {
-                return false
-            }
-
+            // A FOR-BODY THAT NEVER FALLS THROUGH IS NOT DEGENERATE. `for i := 0; i < n; i++ { return i }`
+            // returns on its first iteration, and `for … { if c { return x } continue }` is the scan loop a
+            // converter writes constantly. Neither can reach the increment by FALLING into it — but a
+            // `continue` still branches straight at it, so the increment and its back edge are emitted
+            // unchanged and are simply unreached when no `continue` exists. The end point of the LOOP is
+            // reachable either way (the condition can be false on entry), which is why this shape needs no
+            // termination reasoning at all.
             outerLocals := new HashSet<string>(_locals.Keys, StringComparer.Ordinal)
             outerLifted := new HashSet<string>(_liftedLocals.Keys, StringComparer.Ordinal)
             if (!EmitStatement(columnarInitValue)) {
@@ -7474,10 +7474,6 @@ sealed class ColumnarIlEmitter {
                 }
             }
 
-            // A body that always transfers on every path makes the increment unreachable -> decline (as for/while).
-            if (AlwaysReturns(body)) {
-                return false
-            }
             // The loop variable must not shadow an existing binding — own OR enclosing (NL316).
             if (ColumnarClosureBindingPlanner.IsVisibleBindingName(varName, _locals, _paramOrdinals, _liftedLocals, _boxedCaptures, _enclosingBindingNames)) {
                 return false
@@ -7541,7 +7537,7 @@ sealed class ColumnarIlEmitter {
             streamNode := Child(idx, 0)
             awaitBody := Child(idx, 1)
             awaitVarName := ColumnarNodeTextFacts.Text(_nodes, _source, idx)
-            if (AlwaysReturns(awaitBody) || ColumnarClosureBindingPlanner.IsVisibleBindingName(awaitVarName, _locals, _paramOrdinals, _liftedLocals, _boxedCaptures, _enclosingBindingNames)) {
+            if (ColumnarClosureBindingPlanner.IsVisibleBindingName(awaitVarName, _locals, _paramOrdinals, _liftedLocals, _boxedCaptures, _enclosingBindingNames)) {
                 return false
             }
             outerAwaitLocals := new HashSet<string>(_locals.Keys, StringComparer.Ordinal)
@@ -7586,7 +7582,11 @@ sealed class ColumnarIlEmitter {
             if (!awaitBodyEmitted) {
                 return false
             }
-            _il.Emit(OpCodes.Br, awaitLoopStart)
+            // The back edge is reached only by FALLING out of the body; a `continue` branches at the loop
+            // head itself. A body that always returns therefore leaves it dead, so it is not written.
+            if (!AlwaysReturns(awaitBody)) {
+                _il.Emit(OpCodes.Br, awaitLoopStart)
+            }
             _il.MarkLabel(awaitDisposeLabel)
             _il.Emit(OpCodes.Ldloc, asyncEnumeratorLocal)
             _il.Emit(OpCodes.Callvirt, typeof(IAsyncDisposable).GetMethod(nameof(IAsyncDisposable.DisposeAsync)))
@@ -21687,7 +21687,11 @@ sealed class ColumnarIlEmitter {
         if (!enumeratorBodyEmitted) {
             return false
         }
-        _il.Emit(OpCodes.Br, loopStart)
+        // As in the `while` lowering: the bottom back edge is reached only by FALLING out of the body,
+        // and a `continue` branches at `loopStart` directly, so a body that always returns leaves it dead.
+        if (!AlwaysReturns(body)) {
+            _il.Emit(OpCodes.Br, loopStart)
+        }
         _il.MarkLabel(endLabel)
 
         if (foreachProtected) {
