@@ -381,8 +381,10 @@ else
             echo
             echo "Testing native project: $native_dir"
             NATIVE_OUTPUT=$(mktemp)
+            NATIVE_STDERR=$(mktemp)
+            # --json is a stdout contract: warnings and progress go to stderr and must not reach the parser.
             if dotnet "$CLI_DLL" test --project "$native_dir" --no-cache --json \
-                    > "$NATIVE_OUTPUT" 2>&1 \
+                    > "$NATIVE_OUTPUT" 2> "$NATIVE_STDERR" \
                 && python3 - "$NATIVE_OUTPUT" <<'PY'
 import json
 import sys
@@ -431,10 +433,11 @@ PY
                 handle_success "Native N# tests: $native_dir"
             else
                 cat "$NATIVE_OUTPUT"
+                cat "$NATIVE_STDERR" >&2
                 handle_error "Native N# tests: $native_dir"
                 NATIVE_STEP_OK=0
             fi
-            rm -f "$NATIVE_OUTPUT"
+            rm -f "$NATIVE_OUTPUT" "$NATIVE_STDERR"
         done <<< "$NATIVE_PROJECTS"
     fi
 
