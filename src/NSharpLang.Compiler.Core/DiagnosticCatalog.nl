@@ -189,6 +189,8 @@ class DiagnosticCatalog {
         AddCompiler(descriptors, ErrorCode.MethodImplTargetInvalid)
         AddCompiler(descriptors, ErrorCode.MethodImplOptionUndefined)
         AddCompiler(descriptors, ErrorCode.MethodImplOptionRefusedByClr)
+        AddCompiler(descriptors, ErrorCode.AttributeTargetInvalid)
+        AddCompiler(descriptors, ErrorCode.AttributeNotRepeatable)
         AddCompiler(descriptors, ErrorCode.InternalCompilerError)
     }
 

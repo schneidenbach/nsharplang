@@ -192,6 +192,41 @@ func AttrClass(name: string, baseClass: TypeReference?): ClassTypeInfo {
     return new ClassTypeInfo(name, 1, 1, false, baseClass, AttrNoTypeReferences(), AttrNoTypeParameters(), AttrNoParameters(), AttrNoMembers(), AttrNoNestedTypes(), true)
 }
 
+func AttrClassWithMembers(name: string, baseClass: TypeReference?, members: DeclaredMemberInfo[]): ClassTypeInfo {
+    return new ClassTypeInfo(name, 1, 1, false, baseClass, AttrNoTypeReferences(), AttrNoTypeParameters(), AttrNoParameters(), members, AttrNoNestedTypes(), true)
+}
+
+func AttrNoModifiers(): ParameterModifier[] {
+    return new ParameterModifier[](0)
+}
+
+func AttrNoConstraints(): GenericConstraint[] {
+    return new GenericConstraint[](0)
+}
+
+// A DECLARED CONSTRUCTOR of the attribute class, named by its parameter types alone — every other
+// column a member carries is irrelevant to the attribute question and is given its empty value.
+func AttrSourceConstructor(owner: string, parameterTypes: TypeReference[]): DeclaredMemberInfo {
+    names := new string[](parameterTypes.Length)
+    index := 0
+    while index < parameterTypes.Length {
+        names[index] = "p" + index.ToString()
+        index = index + 1
+    }
+
+    return new DeclaredMemberInfo("constructor", owner, DeclaredMemberKind.Constructor, "constructor", null, false, false, false, true, parameterTypes.Length, names, parameterTypes, AttrNoModifiers(), parameterTypes.Length, false, false, null, 0, AttrNoTypeParameters(), AttrNoConstraints(), 0, false, false, false, false, "", false, false, 1, 1)
+}
+
+// A DECLARED FIELD. `isReadonly` is the one column the named-argument rule reads besides the name,
+// the kind and whether it is exported.
+func AttrSourceField(owner: string, name: string, fieldType: TypeReference, isReadonly: bool, isExported: bool): DeclaredMemberInfo {
+    return new DeclaredMemberInfo(name, owner, DeclaredMemberKind.Field, "field", fieldType, false, isReadonly, false, isExported, 0, AttrNoParameterNames(), AttrNoTypeReferences(), AttrNoModifiers(), 0, false, false, null, 0, AttrNoTypeParameters(), AttrNoConstraints(), 0, false, false, false, false, "", false, false, 1, 1)
+}
+
+func AttrNoParameterNames(): string[] {
+    return new string[](0)
+}
+
 func AttrInterface(name: string): InterfaceTypeInfo {
     return new InterfaceTypeInfo(name, 1, 1, false, AttrNoTypeReferences(), AttrNoTypeParameters(), AttrNoMembers(), AttrNoNestedTypes())
 }
@@ -232,6 +267,47 @@ func AttrTargets(): Type {
 func AttrRegisterFile(harness: AttributeHarness) {
     unit := new CompilationUnit(null, new List<ImportDirective>(), new List<Statement>(), null, new List<Declaration>(), 1, 1)
     harness.Context.AddCompilationUnit(AttributePath(), unit)
+}
+
+// A FILE THAT ACTUALLY DECLARES THE ATTRIBUTE CLASS. `[AttributeUsage(...)]` on a source attribute is
+// read from the DECLARATION — there is no metadata for a type the compiler is still building — so the
+// harness has to register a real `ClassDeclaration` rather than only a resolved `TypeInfo`.
+func AttrRegisterFileDeclaring(harness: AttributeHarness, name: string, attributes: List<AttributeNode>) {
+    declarations := new List<Declaration>()
+    declarations.Add(new ClassDeclaration(name, null, AttrSimple("Attribute"), new List<TypeReference>(), new List<Declaration>(), null, Modifiers.None, attributes, 1, 1))
+    unit := new CompilationUnit(null, new List<ImportDirective>(), new List<Statement>(), null, declarations, 1, 1)
+    harness.Context.AddCompilationUnit(AttributePath(), unit)
+}
+
+// `[AttributeUsage(<targets>, AllowMultiple = <allowMultiple>)]`, as an attribute node the usage
+// reader meets exactly as it would meet one the parser produced.
+func AttrUsageNode(targetsMember: string, allowMultiple: bool): AttributeNode {
+    arguments := AttrArgs()
+    AttrArg(arguments, AttrDotted("AttributeTargets", targetsMember), null)
+    AttrArg(arguments, AttrBool(allowMultiple), "AllowMultiple")
+    return AttrNode("AttributeUsage", arguments)
+}
+
+func AttrUsageAttributes(targetsMember: string, allowMultiple: bool): List<AttributeNode> {
+    return AttrNodes(AttrUsageNode(targetsMember, allowMultiple))
+}
+
+// A harness whose `MarkerAttribute` is DECLARED with the given usage, so the placement and repetition
+// rules read the source declaration rather than metadata.
+func AttrUsageHarness(targetsMember: string, allowMultiple: bool): AttributeHarness {
+    harness := AttributeHarnessNew()
+    AttrRegisterFileDeclaring(harness, "MarkerAttribute", AttrUsageAttributes(targetsMember, allowMultiple))
+    harness.Context.RegisterCanonicalType(AttributePath(), "Attribute", new ReflectionTypeInfo(AttrAttributeBase()))
+    declared := AttrClassWithMembers("MarkerAttribute", AttrSimple("Attribute"), AttrNoMembers())
+    harness.Context.RegisterCanonicalType(AttributePath(), "MarkerAttribute", declared)
+    AttrDeclare(harness, "MarkerAttribute", declared)
+    return harness
+}
+
+func AttrTwoMarkers(): List<AttributeNode> {
+    nodes := AttrNodes(AttrNode("Marker", AttrArgs()))
+    nodes.Add(AttrNode("Marker", AttrArgs()))
+    return nodes
 }
 
 func AttrObsolete(): Type {
@@ -861,19 +937,133 @@ test "a CLR type that is not an attribute is told to derive, and named by its CL
     assert harness.Errors[0].Message == "Attribute type 'string!' must derive from System.Attribute"
 }
 
-test "a SOURCE attribute is told IL emission does not support it yet" {
+// A SOURCE-DECLARED ATTRIBUTE IS AN ORDINARY ATTRIBUTE. It used to be refused outright with NL323
+// ("Source-defined attribute 'Marker' is not supported by IL emission yet"); the emitter now writes
+// it, so the analyzer measures it against its own declaration instead of rejecting it.
+func AttrSourceHarness(members: DeclaredMemberInfo[]): AttributeHarness {
     harness := AttributeHarnessNew()
     AttrRegisterFile(harness)
     harness.Context.RegisterCanonicalType(AttributePath(), "Attribute", new ReflectionTypeInfo(AttrAttributeBase()))
-    declared := AttrClass("MarkerAttribute", new SimpleTypeReference("Attribute", 1, 1))
+    declared := AttrClassWithMembers("MarkerAttribute", AttrSimple("Attribute"), members)
     harness.Context.RegisterCanonicalType(AttributePath(), "MarkerAttribute", declared)
     AttrDeclare(harness, "MarkerAttribute", declared)
+    return harness
+}
+
+test "a SOURCE attribute with no declared constructor accepts no arguments and reports nothing" {
+    harness := AttrSourceHarness(AttrNoMembers())
 
     harness.Validator.ValidateAttributeArguments(AttrNodes(AttrNode("Marker", AttrArgs())))
 
+    assert harness.Errors.Count == 0
+}
+
+test "a SOURCE attribute with no declared constructor refuses an argument" {
+    harness := AttrSourceHarness(AttrNoMembers())
+    arguments := AttrArgs()
+    AttrArg(arguments, AttrString("tag"), null)
+
+    harness.Validator.ValidateAttributeArguments(AttrNodes(AttrNode("Marker", arguments)))
+
     assert harness.Errors.Count == 1
-    assert harness.Errors[0].Code == ErrorCode.FeatureNotImplemented
-    assert harness.Errors[0].Message == "Source-defined attribute 'Marker' is not supported by IL emission yet"
+    assert harness.Errors[0].Code == ErrorCode.NoMatchingOverload
+    assert harness.Errors[0].Message == "No constructor of attribute 'MarkerAttribute' accepts 1 positional argument(s) with these types: string!"
+}
+
+test "a SOURCE attribute's declared constructor accepts a matching argument" {
+    parameterTypes := new TypeReference[](1)
+    parameterTypes[0] = AttrSimple("string")
+    members := new DeclaredMemberInfo[](1)
+    members[0] = AttrSourceConstructor("MarkerAttribute", parameterTypes)
+    harness := AttrSourceHarness(members)
+    arguments := AttrArgs()
+    AttrArg(arguments, AttrString("tag"), null)
+
+    harness.Validator.ValidateAttributeArguments(AttrNodes(AttrNode("Marker", arguments)))
+
+    assert harness.Errors.Count == 0
+}
+
+test "a SOURCE attribute's declared constructor refuses the wrong argument type" {
+    parameterTypes := new TypeReference[](1)
+    parameterTypes[0] = AttrSimple("string")
+    members := new DeclaredMemberInfo[](1)
+    members[0] = AttrSourceConstructor("MarkerAttribute", parameterTypes)
+    harness := AttrSourceHarness(members)
+    arguments := AttrArgs()
+    AttrArg(arguments, AttrInt("3"), null)
+
+    harness.Validator.ValidateAttributeArguments(AttrNodes(AttrNode("Marker", arguments)))
+
+    assert harness.Errors.Count == 1
+    assert harness.Errors[0].Code == ErrorCode.NoMatchingOverload
+}
+
+test "a SOURCE attribute's exported mutable field takes a named argument" {
+    members := new DeclaredMemberInfo[](1)
+    members[0] = AttrSourceField("MarkerAttribute", "Tag", AttrSimple("string"), false, true)
+    harness := AttrSourceHarness(members)
+    arguments := AttrArgs()
+    AttrArg(arguments, AttrString("value"), "Tag")
+
+    harness.Validator.ValidateAttributeArguments(AttrNodes(AttrNode("Marker", arguments)))
+
+    assert harness.Errors.Count == 0
+}
+
+test "a SOURCE attribute reports a named argument no member accepts" {
+    members := new DeclaredMemberInfo[](1)
+    members[0] = AttrSourceField("MarkerAttribute", "Tag", AttrSimple("string"), false, true)
+    harness := AttrSourceHarness(members)
+    arguments := AttrArgs()
+    AttrArg(arguments, AttrString("value"), "Missing")
+
+    harness.Validator.ValidateAttributeArguments(AttrNodes(AttrNode("Marker", arguments)))
+
+    assert harness.Errors.Count == 1
+    assert harness.Errors[0].Code == ErrorCode.UndefinedMember
+    assert harness.Errors[0].Message == "Attribute 'MarkerAttribute' has no public settable property or field named 'Missing'"
+}
+
+// A `readonly` FIELD AND AN UNEXPORTED ONE ARE BOTH UNSETTABLE IN METADATA, and both answer the same
+// sentence — the name exists in the declaration but is not a named argument.
+test "a SOURCE attribute refuses a readonly field as a named argument" {
+    members := new DeclaredMemberInfo[](1)
+    members[0] = AttrSourceField("MarkerAttribute", "Tag", AttrSimple("string"), true, true)
+    harness := AttrSourceHarness(members)
+    arguments := AttrArgs()
+    AttrArg(arguments, AttrString("value"), "Tag")
+
+    harness.Validator.ValidateAttributeArguments(AttrNodes(AttrNode("Marker", arguments)))
+
+    assert harness.Errors.Count == 1
+    assert harness.Errors[0].Code == ErrorCode.UndefinedMember
+}
+
+test "a SOURCE attribute refuses an unexported field as a named argument" {
+    members := new DeclaredMemberInfo[](1)
+    members[0] = AttrSourceField("MarkerAttribute", "tag", AttrSimple("string"), false, false)
+    harness := AttrSourceHarness(members)
+    arguments := AttrArgs()
+    AttrArg(arguments, AttrString("value"), "tag")
+
+    harness.Validator.ValidateAttributeArguments(AttrNodes(AttrNode("Marker", arguments)))
+
+    assert harness.Errors.Count == 1
+    assert harness.Errors[0].Code == ErrorCode.UndefinedMember
+}
+
+test "a SOURCE attribute reports a named argument whose type does not match the field" {
+    members := new DeclaredMemberInfo[](1)
+    members[0] = AttrSourceField("MarkerAttribute", "Count", AttrSimple("int"), false, true)
+    harness := AttrSourceHarness(members)
+    arguments := AttrArgs()
+    AttrArg(arguments, AttrString("value"), "Count")
+
+    harness.Validator.ValidateAttributeArguments(AttrNodes(AttrNode("Marker", arguments)))
+
+    assert harness.Errors.Count == 1
+    assert harness.Errors[0].Code == ErrorCode.TypeMismatch
 }
 
 test "a SOURCE class that is not an attribute is told to derive, and named by the TYPE" {
@@ -1590,4 +1780,91 @@ test "an ORDINARY attribute in any of those positions is not touched by the Meth
     harness.Validator.ValidateDeclarationAttributeArguments(declared)
 
     assert !AttrHasCode(harness.Errors, ErrorCode.MethodImplTargetInvalid)
+}
+
+// ─── where an attribute may be written, and how often ─────────────────────────────────────────
+
+test "an EXTERNAL attribute on a declaration its usage excludes is refused" {
+    harness := AttributeHarnessNew()
+
+    harness.Validator.ValidateAttributeArgumentsOn(AttrNodes(AttrNode("Obsolete", AttrArgs())), AnalyzerAttributeUsageFacts.ParameterTarget)
+
+    assert harness.Errors.Count == 1
+    assert harness.Errors[0].Code == ErrorCode.AttributeTargetInvalid
+    assert harness.Errors[0].Message.StartsWith("Attribute 'System.ObsoleteAttribute' cannot be applied to a parameter — it is declared for ")
+}
+
+test "an EXTERNAL attribute on a declaration its usage allows is accepted" {
+    harness := AttributeHarnessNew()
+
+    harness.Validator.ValidateAttributeArgumentsOn(AttrNodes(AttrNode("Obsolete", AttrArgs())), AnalyzerAttributeUsageFacts.MethodTarget)
+
+    assert harness.Errors.Count == 0
+}
+
+// NO TARGET KNOWN IS NOT A TARGET. The door that takes an attribute list without saying what carries
+// it asks every other rule and not this one.
+test "an attribute list with no declaration behind it is not measured for placement" {
+    harness := AttributeHarnessNew()
+
+    harness.Validator.ValidateAttributeArguments(AttrNodes(AttrNode("Obsolete", AttrArgs())))
+
+    assert harness.Errors.Count == 0
+}
+
+test "an EXTERNAL attribute written twice is refused once, on the SECOND one" {
+    harness := AttributeHarnessNew()
+    nodes := AttrNodes(AttrNode("Obsolete", AttrArgs()))
+    nodes.Add(AttrNode("Obsolete", AttrArgs()))
+
+    harness.Validator.ValidateAttributeArgumentsOn(nodes, AnalyzerAttributeUsageFacts.MethodTarget)
+
+    assert harness.Errors.Count == 1
+    assert harness.Errors[0].Code == ErrorCode.AttributeNotRepeatable
+    assert harness.Errors[0].Message == "Attribute 'System.ObsoleteAttribute' is already applied to this declaration and does not allow multiples"
+}
+
+test "a SOURCE attribute's own AttributeUsage decides where it may be written" {
+    harness := AttrUsageHarness("Class", false)
+
+    harness.Validator.ValidateAttributeArgumentsOn(AttrNodes(AttrNode("Marker", AttrArgs())), AnalyzerAttributeUsageFacts.MethodTarget)
+
+    assert harness.Errors.Count == 1
+    assert harness.Errors[0].Code == ErrorCode.AttributeTargetInvalid
+    assert harness.Errors[0].Message == "Attribute 'MarkerAttribute' cannot be applied to a function — it is declared for classes"
+}
+
+test "a SOURCE attribute written where its AttributeUsage allows is accepted" {
+    harness := AttrUsageHarness("Class", false)
+
+    harness.Validator.ValidateAttributeArgumentsOn(AttrNodes(AttrNode("Marker", AttrArgs())), AnalyzerAttributeUsageFacts.ClassTarget)
+
+    assert harness.Errors.Count == 0
+}
+
+test "a SOURCE attribute without AllowMultiple is refused the second time" {
+    harness := AttrUsageHarness("Method", false)
+
+    harness.Validator.ValidateAttributeArgumentsOn(AttrTwoMarkers(), AnalyzerAttributeUsageFacts.MethodTarget)
+
+    assert harness.Errors.Count == 1
+    assert harness.Errors[0].Code == ErrorCode.AttributeNotRepeatable
+}
+
+test "a SOURCE attribute with AllowMultiple admits the second one" {
+    harness := AttrUsageHarness("Method", true)
+
+    harness.Validator.ValidateAttributeArgumentsOn(AttrTwoMarkers(), AnalyzerAttributeUsageFacts.MethodTarget)
+
+    assert harness.Errors.Count == 0
+}
+
+// A PROPERTY OFFERS BOTH BITS because N# has no attribute position inside accessor braces, so an
+// attribute declared for methods is writable on a property and reaches its accessors.
+test "a property accepts an attribute declared for methods" {
+    harness := AttrUsageHarness("Method", false)
+
+    harness.Validator.ValidateAttributeArgumentsOn(AttrNodes(AttrNode("Marker", AttrArgs())), AnalyzerAttributeUsageFacts.PropertyDeclarationTargets())
+
+    assert harness.Errors.Count == 0
 }

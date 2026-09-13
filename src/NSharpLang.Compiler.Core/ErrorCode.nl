@@ -79,5 +79,7 @@ enum ErrorCode {
     InternalCompilerError = 924,
     MethodImplTargetInvalid = 930,
     MethodImplOptionUndefined = 931,
-    MethodImplOptionRefusedByClr = 932
+    MethodImplOptionRefusedByClr = 932,
+    AttributeTargetInvalid = 933,
+    AttributeNotRepeatable = 934
 }

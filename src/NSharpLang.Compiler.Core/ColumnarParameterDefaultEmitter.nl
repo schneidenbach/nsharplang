@@ -14,7 +14,7 @@ class ColumnarParameterDefaultEmitter {
     static MemberAccessKind: int => 1000
 
     static func DefineMethodParameterMetadata(method: MethodBuilder, parameterTypes: Type[], names: string[], modifierKinds: int[], defaultKinds: int[], defaultTexts: string?[], enumRegistry: ColumnarSemanticRegistry<ColumnarEnumDef>): bool {
-        return DefineMethodParameterMetadataWithAttributes(method, parameterTypes, names, modifierKinds, defaultKinds, defaultTexts, enumRegistry, null, null, null)
+        return DefineMethodParameterMetadataWithAttributes(method, parameterTypes, names, modifierKinds, defaultKinds, defaultTexts, enumRegistry, null, null, null, null)
     }
 
     // `labeledCanonicals` carries each parameter's type AS WRITTEN, tuple element labels included, so
@@ -32,7 +32,8 @@ class ColumnarParameterDefaultEmitter {
         enumRegistry: ColumnarSemanticRegistry<ColumnarEnumDef>,
         sourceAttributes: ColumnarSourceAttributeInput[][]?,
         sourceResolution: ColumnarSemanticTypeResolution?,
-        labeledCanonicals: string[]?
+        labeledCanonicals: string[]?,
+        sourceAttributeQueue: ColumnarSourceAttributeQueue?
     ): bool {
         index := 0
         while index < names.Length {
@@ -45,8 +46,8 @@ class ColumnarParameterDefaultEmitter {
                 attributes = attributes | ParameterAttributes.Optional | ParameterAttributes.HasDefault
             }
             parameter := method.DefineParameter(index + 1, attributes, names[index])
-            if sourceAttributes != null && sourceResolution != null && index < sourceAttributes.Length {
-                ColumnarSourceAttributes.ApplyParameter(parameter, sourceAttributes[index], sourceResolution)
+            if sourceAttributes != null && sourceResolution != null && sourceAttributeQueue != null && index < sourceAttributes.Length {
+                sourceAttributeQueue.QueueParameter(parameter, sourceAttributes[index], sourceResolution)
             }
             if labeledCanonicals != null && index < labeledCanonicals.Length {
                 ColumnarTupleElementNameEmitter.ApplyToParameter(parameter, labeledCanonicals[index])

@@ -19,7 +19,7 @@ import NSharpLang.Compiler
 // and mean nothing to the JIT.
 //
 // So the routing is exactly the C# compiler's: `MethodImpl` NEVER becomes a blob (the blob writer
-// refuses it by name-independent type identity, see `ColumnarSourceAttributes.Bind`) and ALWAYS
+// refuses it by name-independent type identity, see `ColumnarSourceAttributeBinder.TryPlan`) and ALWAYS
 // becomes flags. `GetCustomAttributesData()` on an N#-emitted method therefore answers the same
 // thing it answers for a C#-emitted one — the attribute is not there — while
 // `GetMethodImplementationFlags()` answers what was written.

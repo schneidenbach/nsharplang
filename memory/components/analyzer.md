@@ -1593,13 +1593,15 @@ only there, exactly as the C# compiler does. Two owners split the work:
   than looking either up by name, so the project's reference set decides what the enums are.
 - `ColumnarMethodImplAttributes.nl` (emit side) turns the attribute into
   `MethodBuilder.SetImplementationFlags` / `ConstructorBuilder.SetImplementationFlags`, and
-  `ColumnarSourceAttributes.Bind` REFUSES it so no blob is ever written. That refusal is the C#
-  parity: `GetCustomAttributesData()` on an N#-emitted member answers the same nothing.
+  `ColumnarSourceAttributeBinder.TryPlan` REFUSES it so no blob is ever written. That refusal is the
+  C# parity: `GetCustomAttributesData()` on an N#-emitted member answers the same nothing.
 
-`ColumnarSourceAttributeInput` therefore carries three things rather than one: the decoded
-`Arguments` (string literals only), `ArgumentTexts` (every argument exactly as written, whatever its
-shape) and `IsStringArgumentList` (whether a blob could be written at all). Before this, an attribute
-whose arguments were not all string literals was dropped by the reader without a word.
+`ColumnarSourceAttributeInput` therefore carries four things rather than one: the decoded `Arguments`
+(string literals only), `ArgumentTexts` (every argument exactly as written, whatever its shape),
+`IsStringArgumentList` (whether the string-only blob writer could write it) and `ArgumentSyntax` /
+`IsDecodable` (every argument as a constant SHAPE, which is what an ordinary attribute is encoded
+from). Before this, an attribute whose arguments were not all string literals was dropped by the
+reader without a word.
 
 Three diagnostics state what the attribute cannot do:
 
@@ -1619,6 +1621,78 @@ both the getter's and the setter's `ColumnarFunctionInput`. That is N#'s spellin
 `[MethodImpl]`. There is also no way to name a constant of enum type at type scope: `const` is a
 local-variable keyword, not a field modifier, so the `private const MethodImplOptions HotPathImpl`
 shape C# uses in `src/NSharpLang.Runtime/Result.cs` is written out at each member instead.
+
+## Attributes a program declares for itself
+
+An attribute type declared in the program being compiled is an ORDINARY attribute. It used to be
+refused outright (`NL323`, "Source-defined attribute 'X' is not supported by IL emission yet"), and
+an attribute from a referenced assembly was emitted only when every one of its arguments was a string
+literal and the chosen constructor took nothing but strings — so `[Obsolete("gone", true)]` and
+`[Obsolete(DiagnosticId = "ID1")]` were dropped from the assembly with no diagnostic at all.
+
+Four owners split the work, and the split is the same one the rest of the emitter uses — a shape
+reader, an encoder, a binder, and a phase:
+
+- `ColumnarAttributeArgumentSyntax.nl` reads one argument out of the declaration token table into a
+  constant SHAPE: the literals, `typeof`, `nameof`, a dotted member path, array literals, `- ~ !` and
+  `| & ^` with C# precedence. It is syntactic on purpose — `-1`'s bytes depend on a width nobody knows
+  until the constructor is chosen.
+- `ColumnarAttributeBlobWriter.nl` encodes that shape AGAINST THE TYPE IT FILLS (ECMA-335 II.23.3):
+  every primitive width, string, `Type` (as a name), an enum at its underlying width, SZARRAY, a
+  boxed `object` carrying its natural type in front of the value, and named field/property arguments.
+  A value it cannot encode refuses the WHOLE attribute rather than writing a blob the source did not
+  say. Two traps are written down there: an `object` fixed argument is `<FieldOrPropType> <value>`
+  with NO leading `ELEMENT_TYPE_BOXED` (0x51 is a FieldOrPropType, and writing it makes every reader
+  raise `CustomAttributeFormatException`), and a type still being built answers almost no reflection
+  question — `TypeBuilder`, and a persisted `EnumBuilder`'s CREATED type, both throw
+  `NotSupportedException: This non-CLS method is not implemented.` from `GetField`, `GetProperty`,
+  `GetConstructors` and `AssemblyQualifiedName`.
+- `ColumnarSourceAttributeBinder.nl` resolves the attribute type through the ordinary canonical
+  resolver (both the `Mark` and `MarkAttribute` spellings, written spelling first), collects the
+  constructor candidates from the emitter's own `ColumnarStructDef` for a source type and by
+  reflection for a metadata one, and selects the signature the arguments encode into — preferring the
+  least `object`-typed. Named arguments bind to a settable property or mutable field, walking the
+  declaration's base chain and crossing into metadata at the first external base.
+- `ColumnarSourceAttributeQueue` (same file) makes attachment a PHASE. A source attribute's
+  `ConstructorBuilder` does not exist when the attribute on another declaration is met, so every
+  attachment is queued in the order it is met and the queue is flushed once, after every type, method
+  and constructor is defined and before the first `CreateType`.
+
+On the analyzer side, `AnalyzerAttributeValidator` measures a source-declared attribute's arguments
+against its DECLARATION — constructors, primary parameters, exported settable fields and properties —
+and reports the same three sentences the metadata path reports. Where a declared parameter or member
+type cannot be named as a CLR type (a source-declared enum, say) the question is DROPPED rather than
+answered: a false "no constructor accepts these types" is worse than a missed one.
+
+An integer constant now fills any numeric parameter whose RANGE CONTAINS IT, decided by the value and
+not by the type, which is the C# constant-expression conversion and the only way `sbyte`, `byte`,
+`short` and `ushort` attribute parameters are writable in a language with no cast expression in an
+attribute argument. The constant is carried as a magnitude and a sign, because `ulong`'s top half has
+no signed representation and that is exactly where a flags constant lives.
+
+`AnalyzerAttributeUsageFacts.nl` answers `[AttributeUsage(...)]` — read from the declaration for a
+source attribute (`AnalyzerDeclarationContext.TryGetDeclaredClassAttributes`), from
+`GetCustomAttributesData()` for a metadata one, and inherited from the base in both worlds. Two
+diagnostics enforce it:
+
+| Code | Rule |
+|---|---|
+| `NL933` | The attribute is written on a declaration its `AttributeTargets` exclude. |
+| `NL934` | The attribute is written twice on one declaration without `AllowMultiple = true`. |
+
+The target is the DECLARATION's, and a property offers both `Property` and `Method` because N# has no
+attribute position inside accessor braces. `[MethodImpl]`'s placement is exempt from `NL933`: `NL930`
+already says the same thing better, and reporting both would report one mistake twice.
+
+Attachment reaches types, methods and free functions, constructors, properties (the PROPERTY row —
+which is where `PropertyInfo.GetCustomAttributes` and every framework that reads it looks) and
+parameters. A FIELD's attributes are validated and then dropped: the struct field scan in
+`ColumnarParserKernels.ParseColumnarStructInfoInto` yields field NAME and TYPE texts, not the field's
+declaration token index, so there is no position for `ColumnarSourceAttributes.Read` to scan back
+from. Closing it means adding a field-token-index column to that scan and its output table.
+
+Not supported, and stated as such in `website/docs/basics.md`: `[assembly: ...]`, `[return: ...]`, an
+attribute on an enum member, and generic attributes.
 
 ## Convention-Based Visibility
 

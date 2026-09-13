@@ -93,7 +93,8 @@ func ConstructorDeclineTraceControlsCatchesHostileDeclarationDispose(
             inputs,
             definitions,
             resolutions,
-            depths
+            depths,
+            new ColumnarSourceAttributeQueue()
         )
     } catch error: InvalidOperationException {
         return error.Message == "member iterator fixture disposal failed"

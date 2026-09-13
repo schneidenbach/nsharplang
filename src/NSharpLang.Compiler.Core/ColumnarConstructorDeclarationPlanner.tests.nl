@@ -439,7 +439,8 @@ test "constructor declaration owner retains source-order user jobs and depth-ord
         inputs,
         definitions,
         ConstructorDeclarationControlsResolutions(program, definitions),
-        depths
+        depths,
+        new ColumnarSourceAttributeQueue()
     )
 
     assert result.Succeeded
@@ -530,7 +531,8 @@ test "constructor declaration owner retains initialized state when a later base-
         inputs,
         definitions,
         ConstructorDeclarationControlsResolutions(program, definitions),
-        depths
+        depths,
+        new ColumnarSourceAttributeQueue()
     )
 
     assert !result.Succeeded
@@ -936,7 +938,8 @@ test "constructor declaration owner emits the exact external base call and decli
             explicitProgram,
             explicitDefinitions
         ),
-        new int[](1)
+        new int[](1),
+        new ColumnarSourceAttributeQueue()
     )
     assert !explicitResult.Succeeded
     assert explicitResult.DeclineSite == "emit.ctor.implicit-base-chain"
@@ -969,7 +972,8 @@ test "constructor declaration owner emits the exact external base call and decli
         defaultInputs,
         defaultDefinitions,
         ConstructorDeclarationControlsResolutions(defaultProgram, defaultDefinitions),
-        new int[](1)
+        new int[](1),
+        new ColumnarSourceAttributeQueue()
     )
     assert !defaultResult.Succeeded
     assert defaultResult.DeclineSite == "emit.ctor.default-base-chain"

@@ -164,10 +164,11 @@ test "NO descriptor stores a docs URL, so the deleted stored-URL arm cannot come
 
 test "EVERY code is distinct, and the catalog is exactly its two builders" {
     codes := DctCodes()
-    // 89 = 85, plus NL111 (an expression nested past what the toolchain reads), NL413 (a member that
-    // must be called or passed as a delegate), NL328 (a field initializer reaching the instance) and
-    // NL329 (a struct field initializer with no constructor to run in).
-    assert codes.Count == 89
+    // 91 = 85, plus NL111 (an expression nested past what the toolchain reads), NL413 (a member that
+    // must be called or passed as a delegate), NL328 (a field initializer reaching the instance), NL329
+    // (a struct field initializer with no constructor to run in), NL933 (an attribute outside its
+    // AttributeUsage targets) and NL934 (an attribute repeated without AllowMultiple).
+    assert codes.Count == 91
 
     duplicates := 0
     outer := 0
@@ -187,7 +188,7 @@ test "EVERY code is distinct, and the catalog is exactly its two builders" {
     assert duplicates == 0
 
     // The builders, counted where they are OBSERVABLE: the linter rows are the ones sourced to the
-    // linter, the rest are the compiler's. 79 + 10 = 89, so nothing is uncounted or double-counted.
+    // linter, the rest are the compiler's. 81 + 10 = 91, so nothing is uncounted or double-counted.
     //
     // The performance and AOT categories are asserted at ZERO, not omitted. A row in either one is
     // a row for a rule this compiler does not produce - that is exactly how NL950-954 and NL960-963
@@ -199,7 +200,7 @@ test "EVERY code is distinct, and the catalog is exactly its two builders" {
     assert linterRows == 10
     assert performanceRows == 0
     assert aotRows == 0
-    assert compilerRows == 79
+    assert compilerRows == 81
     assert compilerRows + linterRows == codes.Count
 }
 

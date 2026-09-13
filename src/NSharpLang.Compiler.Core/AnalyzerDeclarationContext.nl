@@ -375,6 +375,45 @@ class AnalyzerDeclarationContext {
         return null
     }
 
+    // THE ATTRIBUTES A SOURCE TYPE'S OWN DECLARATION CARRIES.
+    //
+    // `[AttributeUsage(...)]` on a source-declared attribute class cannot be read the way it is read
+    // for a referenced type — there is no metadata yet — so it is read from the DECLARATION, in the
+    // file that declares the type. Only a `class` is asked: an attribute type is always a class, and a
+    // struct or record named the same thing in the same file is not the type that resolved.
+    func TryGetDeclaredClassAttributes(typeInfo: TypeInfo, typeName: string, out attributes: List<AttributeNode>): bool {
+        attributes = new List<AttributeNode>()
+        declarationFile := GetDeclarationFile(typeInfo)
+        if declarationFile == null {
+            return false
+        }
+
+        facts := FindFile(declarationFile)
+        if facts == null {
+            return false
+        }
+
+        knownFacts: AnalyzerDeclarationFileFacts = facts
+        index := 0
+        while index < knownFacts.Declarations.Count {
+            classDeclaration := knownFacts.Declarations[index] as ClassDeclaration
+            index = index + 1
+            if classDeclaration == null || classDeclaration.Name != typeName {
+                continue
+            }
+
+            declaredAttributes := classDeclaration.Attributes
+            if declaredAttributes == null {
+                return false
+            }
+
+            attributes = declaredAttributes
+            return true
+        }
+
+        return false
+    }
+
     func GetContainingType(typeInfo: TypeInfo): TypeInfo? {
         containing := new TypeInfo()
         if containingTypes.TryGetValue(typeInfo, out containing) {

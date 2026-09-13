@@ -389,9 +389,86 @@ func Create([FromBody] [Required] user: CreateUserRequest): IActionResult {
 }
 ```
 
-The columnar backend preserves external attributes with no constructor arguments or positional string arguments on classes, structs, functions, methods, and parameters. Attribute names resolve in the declaring file's scope, including the optional `Attribute` suffix. Other argument and declaration shapes still have selective support during the compiler migration.
+Attribute names resolve in the declaring file's scope, with or without the `Attribute` suffix —
+`[Mark]` and `[MarkAttribute]` name the same type. Attributes are emitted on classes, structs,
+records, interfaces, functions, methods, constructors, properties, and parameters. A property's
+attributes go on the **property** itself, which is where `PropertyInfo.GetCustomAttributes` — and so
+every model-binding, serialization and validation framework — looks for them.
 
-Parameter attributes are emitted as real CLR parameter metadata, so ASP.NET model-binding attributes such as `[FromBody]` and `[FromRoute]`, plus xUnit-style parameter attributes from referenced packages, are visible to the framework at runtime.
+Parameter attributes are emitted as real CLR parameter metadata, so ASP.NET model-binding attributes
+such as `[FromBody]` and `[FromRoute]`, plus xUnit-style parameter attributes from referenced
+packages, are visible to the framework at runtime.
+
+### Attribute arguments
+
+An attribute argument must be a **compile-time constant**. Every shape the CLR can store in a
+custom-attribute blob is written:
+
+```n#
+[Mark("text", 42)]                                  // strings and numbers
+[Mark(true, 'x', 1.5f, 2.25)]                       // bool, char, float, double
+[Mark(Level.High)]                                  // an enum member
+[Mark(AttributeTargets.Method | AttributeTargets.Class)]   // a `|` combination of them
+[Mark(typeof(Order))]                               // a type
+[Mark(["a", "b"])]                                  // an array of constants
+[Mark(null)]                                        // a null reference
+[Mark("text", Count = 42, Note = "named")]          // named arguments
+```
+
+A named argument binds to a **public settable property** or a **public mutable field** of the
+attribute, declared by it or inherited. Named arguments come after the positional ones.
+
+An integer constant fills any numeric parameter whose range contains it, so a `byte` parameter takes
+`[Mark(5)]` and refuses `[Mark(300)]`. A `long` or `ulong` constant that does not fit in an `int`
+carries its suffix (`3L`, `18446744073709551615UL`), and a `float` argument carries `f`.
+
+Anything that is not a constant — a call, a variable, a `new` expression — is refused by
+[`NL310`](./errors/NL310.md) rather than silently dropped.
+
+### Declaring your own attribute
+
+An attribute is an ordinary class that derives from `System.Attribute`, and it may be applied
+anywhere in the same program that declares it:
+
+```n#
+import System
+
+[AttributeUsage(AttributeTargets.Method, AllowMultiple = true)]
+class RetryAttribute: Attribute {
+    Attempts: int
+    Reason: string
+
+    constructor(attempts: int) {
+        Attempts = attempts
+        Reason = ""
+    }
+}
+
+class Client {
+    [Retry(3)]
+    [Retry(5, Reason = "flaky endpoint")]
+    func Fetch() {
+    }
+}
+```
+
+The constructor is chosen by ordinary overload resolution over the constructors the class declares;
+named arguments bind to its own or its base's settable members. An attribute may derive from another
+attribute, in this program or in a referenced assembly.
+
+`[AttributeUsage(...)]` on the declaration is honored, and it is inherited by derived attributes:
+
+- applying the attribute to a declaration its targets exclude reports
+  [`NL933`](./errors/NL933.md);
+- applying it twice without `AllowMultiple = true` reports [`NL934`](./errors/NL934.md).
+
+Because N# has no attribute position inside accessor braces, a **property** offers both the
+`Property` and the `Method` target: an attribute declared for either may be written on a property,
+and it reaches the property's accessors.
+
+N# has no `[assembly: ...]` or `[return: ...]` attribute position, and no attribute position on an
+enum member. Generic attributes (`class Mark<T>: Attribute`) are not supported. An attribute written
+on a **field** is checked but not yet emitted.
 
 ### `[MethodImpl]` — the attribute that is not stored as an attribute
 

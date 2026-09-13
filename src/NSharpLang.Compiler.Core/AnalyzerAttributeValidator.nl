@@ -23,6 +23,9 @@ class AttributeArgumentValidationInfo {
     valueExpression: Expression
     clrTypeValue: Type?
     isNullValue: bool
+    hasIntegerConstantValue: bool
+    constantMagnitudeValue: ulong
+    constantIsNegativeValue: bool
 
     Argument: Argument => argumentValue
     Name: string? => nameValue
@@ -30,12 +33,31 @@ class AttributeArgumentValidationInfo {
     ClrType: Type? => clrTypeValue
     IsNull: bool => isNullValue
 
+    // THE ARGUMENT'S VALUE, WHEN IT IS AN INTEGER CONSTANT, because the NARROWING question cannot be
+    // answered by types. `5` fills a `byte` parameter and `300` does not, and they have the same type;
+    // C# decides that by the value, and so does this. Absent for every other argument shape.
+    //
+    // IT IS CARRIED AS A MAGNITUDE AND A SIGN, not as one signed number, because `ulong`'s top half has
+    // no signed representation and a flags constant is exactly where that half is used.
+    HasIntegerConstant: bool => hasIntegerConstantValue
+    ConstantMagnitude: ulong => constantMagnitudeValue
+    ConstantIsNegative: bool => constantIsNegativeValue
+
     constructor(argument: Argument, name: string?, value: Expression, clrType: Type?, isNull: bool) {
         argumentValue = argument
         nameValue = name
         valueExpression = value
         clrTypeValue = clrType
         isNullValue = isNull
+        hasIntegerConstantValue = false
+        constantMagnitudeValue = 0UL
+        constantIsNegativeValue = false
+    }
+
+    func RecordIntegerConstant(magnitude: ulong, isNegative: bool) {
+        hasIntegerConstantValue = true
+        constantMagnitudeValue = magnitude
+        constantIsNegativeValue = isNegative
     }
 }
 
@@ -58,12 +80,19 @@ class AttributeArgumentValidationInfo {
 // no driver kinds and no suspension points.
 //
 // THE FOUR-WAY ATTRIBUTE-TYPE DECISION IS ORDERED AND THE ORDER IS OBSERVABLE. A name resolves
-// first as a CLR type that derives from `System.Attribute` (the only admissible answer); then as a
-// CLR type that does NOT (told to derive from `Attribute`, named by its formatted CLR name); then as
-// a SOURCE-declared type, which is split again — one that derives from `Attribute` is told IL
-// emission does not support it yet, one that does not is told to derive from `Attribute`, named by
-// the type's own `ToString`; and only then is it not found. Reordering these changes which sentence
-// a developer reads for the same program.
+// first as a CLR type that derives from `System.Attribute`; then as a CLR type that does NOT (told to
+// derive from `Attribute`, named by its formatted CLR name); then as a SOURCE-declared type, which is
+// split again — one that derives from `Attribute` is an ordinary attribute and has its arguments
+// measured against its own DECLARATION, one that does not is told to derive from `Attribute`, named by
+// the type's own `ToString`; and only then is it not found. Reordering these changes which sentence a
+// developer reads for the same program.
+//
+// A SOURCE-DECLARED ATTRIBUTE IS NOT A LESSER ATTRIBUTE. Its constructors and its settable members are
+// read from the declaration rather than from metadata — the type does not exist yet, so there is no
+// metadata to read — but every question asked of it, and every sentence reported about it, is the one
+// a referenced attribute gets. Where a declared parameter or member type cannot be named as a CLR type,
+// the question is DROPPED rather than answered: a false "no constructor accepts these types" on a
+// program that is correct is worse than a missed one.
 //
 // BOTH CANDIDATE SPELLINGS ARE TRIED, ALWAYS IN THE SAME ORDER: the name as written, then the name
 // with `Attribute` appended when it does not already end that way. `[Obsolete]` and
@@ -105,7 +134,7 @@ class AnalyzerAttributeValidator {
 
         functionDecl := decl as FunctionDeclaration
         if functionDecl != null {
-            ValidateAttributeArguments(functionDecl.Attributes)
+            ValidateAttributeArgumentsOn(functionDecl.Attributes, AnalyzerAttributeUsageFacts.MethodTarget)
             ValidateParameterAttributeArguments(functionDecl.Parameters)
             ValidateNativeImportSignature(functionDecl)
             ValidateMethodImplCarrier(functionDecl.Attributes, functionDecl.Body != null || functionDecl.ExpressionBody != null)
@@ -114,7 +143,7 @@ class AnalyzerAttributeValidator {
 
         classDecl := decl as ClassDeclaration
         if classDecl != null {
-            ValidateAttributeArguments(classDecl.Attributes)
+            ValidateAttributeArgumentsOn(classDecl.Attributes, AnalyzerAttributeUsageFacts.ClassTarget)
             ValidateParameterAttributeArguments(classDecl.PrimaryConstructorParameters)
             ReportMethodImplOnNonCarrier(classDecl.Attributes, "a class")
             return
@@ -122,7 +151,7 @@ class AnalyzerAttributeValidator {
 
         structDecl := decl as StructDeclaration
         if structDecl != null {
-            ValidateAttributeArguments(structDecl.Attributes)
+            ValidateAttributeArgumentsOn(structDecl.Attributes, AnalyzerAttributeUsageFacts.StructTarget)
             ValidateParameterAttributeArguments(structDecl.PrimaryConstructorParameters)
             ReportMethodImplOnNonCarrier(structDecl.Attributes, "a struct")
             ValidateValueTypeMemberMethodImpl(structDecl.Members)
@@ -131,7 +160,12 @@ class AnalyzerAttributeValidator {
 
         recordDecl := decl as RecordDeclaration
         if recordDecl != null {
-            ValidateAttributeArguments(recordDecl.Attributes)
+            recordTarget := AnalyzerAttributeUsageFacts.ClassTarget
+            if recordDecl.IsStruct {
+                recordTarget = AnalyzerAttributeUsageFacts.StructTarget
+            }
+
+            ValidateAttributeArgumentsOn(recordDecl.Attributes, recordTarget)
             ValidateParameterAttributeArguments(recordDecl.PrimaryConstructorParameters)
             ReportMethodImplOnNonCarrier(recordDecl.Attributes, "a record")
             if recordDecl.IsStruct {
@@ -143,49 +177,49 @@ class AnalyzerAttributeValidator {
 
         soaRecordDecl := decl as SoaRecordDeclaration
         if soaRecordDecl != null {
-            ValidateAttributeArguments(soaRecordDecl.Attributes)
+            ValidateAttributeArgumentsOn(soaRecordDecl.Attributes, AnalyzerAttributeUsageFacts.StructTarget)
             ReportMethodImplOnNonCarrier(soaRecordDecl.Attributes, "a struct-of-arrays record")
             return
         }
 
         interfaceDecl := decl as InterfaceDeclaration
         if interfaceDecl != null {
-            ValidateAttributeArguments(interfaceDecl.Attributes)
+            ValidateAttributeArgumentsOn(interfaceDecl.Attributes, AnalyzerAttributeUsageFacts.InterfaceTarget)
             ReportMethodImplOnNonCarrier(interfaceDecl.Attributes, "an interface")
             return
         }
 
         unionDecl := decl as UnionDeclaration
         if unionDecl != null {
-            ValidateAttributeArguments(unionDecl.Attributes)
+            ValidateAttributeArgumentsOn(unionDecl.Attributes, AnalyzerAttributeUsageFacts.ClassTarget)
             ReportMethodImplOnNonCarrier(unionDecl.Attributes, "a union")
             return
         }
 
         enumDecl := decl as EnumDeclaration
         if enumDecl != null {
-            ValidateAttributeArguments(enumDecl.Attributes)
+            ValidateAttributeArgumentsOn(enumDecl.Attributes, AnalyzerAttributeUsageFacts.EnumTarget)
             ReportMethodImplOnNonCarrier(enumDecl.Attributes, "an enum")
             return
         }
 
         fieldDecl := decl as FieldDeclaration
         if fieldDecl != null {
-            ValidateAttributeArguments(fieldDecl.Attributes)
+            ValidateAttributeArgumentsOn(fieldDecl.Attributes, AnalyzerAttributeUsageFacts.FieldTarget)
             ReportMethodImplOnNonCarrier(fieldDecl.Attributes, "a field")
             return
         }
 
         propertyDecl := decl as PropertyDeclaration
         if propertyDecl != null {
-            ValidateAttributeArguments(propertyDecl.Attributes)
+            ValidateAttributeArgumentsOn(propertyDecl.Attributes, AnalyzerAttributeUsageFacts.PropertyDeclarationTargets())
             ValidateMethodImplCarrier(propertyDecl.Attributes, true)
             return
         }
 
         constructorDecl := decl as ConstructorDeclaration
         if constructorDecl != null {
-            ValidateAttributeArguments(constructorDecl.Attributes)
+            ValidateAttributeArgumentsOn(constructorDecl.Attributes, AnalyzerAttributeUsageFacts.ConstructorTarget)
             ValidateParameterAttributeArguments(constructorDecl.Parameters)
             ValidateMethodImplCarrier(constructorDecl.Attributes, true)
             return
@@ -193,7 +227,7 @@ class AnalyzerAttributeValidator {
 
         indexerDecl := decl as IndexerDeclaration
         if indexerDecl != null {
-            ValidateAttributeArguments(indexerDecl.Attributes)
+            ValidateAttributeArgumentsOn(indexerDecl.Attributes, AnalyzerAttributeUsageFacts.PropertyDeclarationTargets())
             ValidateParameterAttributeArguments(indexerDecl.Parameters)
             ValidateMethodImplCarrier(indexerDecl.Attributes, true)
         }
@@ -389,7 +423,7 @@ class AnalyzerAttributeValidator {
         }
 
         for parameter in parameters {
-            ValidateAttributeArguments(parameter.Attributes)
+            ValidateAttributeArgumentsOn(parameter.Attributes, AnalyzerAttributeUsageFacts.ParameterTarget)
             ReportMethodImplOnNonCarrier(parameter.Attributes, "a parameter")
         }
     }
@@ -455,11 +489,22 @@ class AnalyzerAttributeValidator {
     // THE CONSTRUCTOR AND NAMED-MEMBER QUESTIONS ARE ASKED ONLY WHEN EVERY ARGUMENT WAS CONSTANT.
     // One non-constant argument already produced the sentence the developer must act on; adding "no
     // constructor accepts these types" on top of it would name types that were never computed.
+    // THE PUBLIC DOOR THAT SAYS NOTHING ABOUT PLACEMENT. A caller with an attribute list and no
+    // declaration behind it asks this one; the `[AttributeUsage]` PLACEMENT rule is then not asked at
+    // all, while every other rule still is.
     func ValidateAttributeArguments(attributes: List<AttributeNode>?) {
+        ValidateAttributeArgumentsOn(attributes, AnalyzerAttributeUsageFacts.UnknownTarget)
+    }
+
+    func ValidateAttributeArgumentsOn(attributes: List<AttributeNode>?, target: int) {
         if attributes == null {
             return
         }
 
+        // HOW MANY TIMES EACH ATTRIBUTE TYPE HAS BEEN WRITTEN ON THIS ONE DECLARATION, keyed by the
+        // type's display name because that is the identity both the metadata and the source arms can
+        // produce. The count is reset per declaration, which is the scope `AllowMultiple` governs.
+        appliedCounts := new Dictionary<string, int>(StringComparer.Ordinal)
         for attribute in attributes {
             if IsSystemsPolicyAttribute(attribute) {
                 continue
@@ -486,7 +531,14 @@ class AnalyzerAttributeValidator {
                     recordedType = inferredType
                 }
 
-                argumentInfos.Add(new AttributeArgumentValidationInfo(argument, argumentName, valueExpression, recordedType, isNull))
+                argumentInfo := new AttributeArgumentValidationInfo(argument, argumentName, valueExpression, recordedType, isNull)
+                constantMagnitude := 0UL
+                constantIsNegative := false
+                if TryEvaluateAttributeIntegerConstant(valueExpression, out constantMagnitude, out constantIsNegative) {
+                    argumentInfo.RecordIntegerConstant(constantMagnitude, constantIsNegative)
+                }
+
+                argumentInfos.Add(argumentInfo)
             }
 
             attributeType: Type = typeof(object)
@@ -495,6 +547,16 @@ class AnalyzerAttributeValidator {
                     ValidateClrAttributeArguments(attribute, attributeType, argumentInfos)
                 }
 
+                // `[MethodImpl]`'s PLACEMENT IS OWNED BY ITS OWN RULE, which says the same thing
+                // better: NL930 names the missing implementation-flags column rather than quoting an
+                // `AttributeUsage` list. Asking both would report one mistake twice. Its REPETITION
+                // rule is still asked here — nothing else asks it.
+                placementTarget := target
+                if MethodImplAttributeFacts.IsMethodImplAttributeType(attributeType) {
+                    placementTarget = AnalyzerAttributeUsageFacts.UnknownTarget
+                }
+
+                EnforceAttributeUsage(attribute, GetAttributeDisplayName(attributeType), AnalyzerAttributeUsageFacts.ReadUsage(attributeType), placementTarget, appliedCounts)
                 continue
             }
 
@@ -507,7 +569,11 @@ class AnalyzerAttributeValidator {
             sourceType: TypeInfo = BuiltInTypes.Unknown
             if TryResolveSourceAttributeCandidate(attribute.Name, out sourceType) {
                 if SourceTypeDerivesFromAttribute(sourceType) {
-                    ReportSourceDefinedAttributeUnsupported(attribute)
+                    if allConstantsValid {
+                        ValidateSourceAttributeArguments(attribute, sourceType, argumentInfos)
+                    }
+
+                    EnforceAttributeUsage(attribute, GetSourceAttributeDisplayName(sourceType), ReadSourceAttributeUsage(sourceType), target, appliedCounts)
                 } else {
                     // The type's OWN display form, read through an `object`-typed local because
                     // `ToString` is declared by the base of the `TypeInfo` hierarchy rather than by
@@ -1183,14 +1249,410 @@ class AnalyzerAttributeValidator {
         diagnostics.Report(ErrorCode.TypeNotFound, "Attribute type '" + attribute.Name + "' not found", span.Line, span.Column, "Check the spelling, add the missing 'import', or define an attribute class named '" + suggestedAttributeName + "'.", span.Length)
     }
 
+    // ------------------------------------------------------------------------------------------
+    // WHERE AN ATTRIBUTE MAY BE WRITTEN, AND HOW OFTEN.
+    //
+    // `[AttributeUsage]` is the only attribute whose subject is another attribute, and the two things
+    // it decides are decided HERE rather than at the CLR's expense: an attribute written on a
+    // declaration its usage excludes would otherwise become a metadata row that loads fine and means
+    // nothing, and a repeated attribute on a type that does not allow it is a `TypeLoadException` the
+    // first time anyone reads it.
+    //
+    // THE TARGET IS THE DECLARATION'S, NOT THE ATTRIBUTE'S. A property in N# has no per-accessor
+    // attribute position — the attribute is written once and reaches both accessors — so a property
+    // offers BOTH `Property` and `Method`, and an attribute declared for either is accepted there.
+    // That is a language fact about where attributes can be written, not a relaxation of the rule.
+    // ------------------------------------------------------------------------------------------
+
+    func EnforceAttributeUsage(attribute: AttributeNode, displayName: string, usage: AnalyzerAttributeUsage, target: int, appliedCounts: Dictionary<string, int>) {
+        if target != AnalyzerAttributeUsageFacts.UnknownTarget && (usage.Targets & target) == 0 {
+            ReportAttributeTargetInvalid(attribute, displayName, usage, target)
+        }
+
+        applied := 0
+        appliedCounts.TryGetValue(displayName, out applied)
+        appliedCounts[displayName] = applied + 1
+        if applied > 0 && !usage.AllowMultiple {
+            ReportAttributeNotRepeatable(attribute, displayName)
+        }
+    }
+
+    func ReportAttributeTargetInvalid(attribute: AttributeNode, displayName: string, usage: AnalyzerAttributeUsage, target: int) {
+        span := AnalyzerDiagnosticSpanFacts.GetAttributeTypeDiagnosticSpan(attribute)
+        diagnostics.Report(ErrorCode.AttributeTargetInvalid, "Attribute '" + displayName + "' cannot be applied to " + AnalyzerAttributeUsageFacts.DescribeTarget(target) + " — it is declared for " + AnalyzerAttributeUsageFacts.DescribeTargets(usage.Targets), span.Line, span.Column, "Move it to one of those declarations, or widen the attribute's own '[AttributeUsage(...)]'.", span.Length)
+    }
+
+    func ReportAttributeNotRepeatable(attribute: AttributeNode, displayName: string) {
+        span := AnalyzerDiagnosticSpanFacts.GetAttributeTypeDiagnosticSpan(attribute)
+        diagnostics.Report(ErrorCode.AttributeNotRepeatable, "Attribute '" + displayName + "' is already applied to this declaration and does not allow multiples", span.Line, span.Column, "Delete the duplicate, or declare the attribute with '[AttributeUsage(..., AllowMultiple = true)]'.", span.Length)
+    }
+
+    // THE USAGE A SOURCE-DECLARED ATTRIBUTE ANNOUNCES, read from its own DECLARATION — the type does
+    // not exist as metadata while the program that declares it is being compiled. `[AttributeUsage]`
+    // is itself inherited, so a declaration that carries none asks its base, and the walk crosses into
+    // metadata at the first base that came from a referenced assembly.
+    func ReadSourceAttributeUsage(sourceType: TypeInfo): AnalyzerAttributeUsage {
+        current: TypeInfo = sourceType
+        depth := 0
+        while depth < 64 {
+            resolved := declarationContext.ResolveDeclaredAlias(current)
+            reflection := resolved as ReflectionTypeInfo
+            if reflection != null {
+                return AnalyzerAttributeUsageFacts.ReadUsage(reflection.Type)
+            }
+
+            classType := resolved as ClassTypeInfo
+            if classType == null {
+                return AnalyzerAttributeUsageFacts.DefaultUsage()
+            }
+
+            declaredAttributes := new List<AttributeNode>()
+            usage := AnalyzerAttributeUsageFacts.DefaultUsage()
+            if declarationContext.TryGetDeclaredClassAttributes(classType, classType.Name, out declaredAttributes) && TryReadDeclaredAttributeUsage(declaredAttributes, out usage) {
+                return usage
+            }
+
+            shape := new AnalyzerSourceMemberShape()
+            if !declarationContext.TryGetSourceMemberShape(classType, null, out shape) {
+                return AnalyzerAttributeUsageFacts.DefaultUsage()
+            }
+
+            declaredBase := shape.BaseType
+            if declaredBase == null {
+                return AnalyzerAttributeUsageFacts.DefaultUsage()
+            }
+
+            current = declaredBase
+            depth = depth + 1
+        }
+
+        return AnalyzerAttributeUsageFacts.DefaultUsage()
+    }
+
+    // ONE `[AttributeUsage(...)]` AS WRITTEN. The positional argument is an `AttributeTargets`
+    // expression — a member access or a `|` combination of them — and it is evaluated against the
+    // runtime enum through the same evaluator `[MethodImpl]`'s options use. An argument this compiler
+    // cannot reduce leaves the DEFAULT in place rather than inventing a narrower one, because a wrong
+    // narrowing would refuse correct programs.
+    func TryReadDeclaredAttributeUsage(declaredAttributes: List<AttributeNode>, out usage: AnalyzerAttributeUsage): bool {
+        usage = AnalyzerAttributeUsageFacts.DefaultUsage()
+        targetsType: Type = typeof(object)
+        attributeIndex := 0
+        while attributeIndex < declaredAttributes.Count {
+            declaredAttribute := declaredAttributes[attributeIndex]
+            attributeIndex = attributeIndex + 1
+            if !AnalyzerAttributeUsageFacts.IsAttributeUsageName(declaredAttribute.Name) {
+                continue
+            }
+
+            if !TryResolveAttributeTargetsType(out targetsType) {
+                return false
+            }
+
+            targets := AnalyzerAttributeUsageFacts.AllTargets
+            allowMultiple := false
+            inherited := true
+            declaredArguments := declaredAttribute.Arguments
+            argumentIndex := 0
+            while argumentIndex < declaredArguments.Count {
+                declaredArgument := declaredArguments[argumentIndex]
+                argumentIndex = argumentIndex + 1
+                argumentName: string? = null
+                valueExpression: Expression = declaredArgument.Value
+                NormalizeAttributeArgument(declaredArgument, out argumentName, out valueExpression)
+                if argumentName == null {
+                    evaluatedTargets := 0
+                    if MethodImplAttributeFacts.TryEvaluate(valueExpression, targetsType, out evaluatedTargets) {
+                        targets = evaluatedTargets
+                    }
+
+                    continue
+                }
+
+                booleanValue := false
+                if !TryReadBooleanAttributeArgument(valueExpression, out booleanValue) {
+                    continue
+                }
+
+                if argumentName == AnalyzerAttributeUsageFacts.AllowMultipleMemberName() {
+                    allowMultiple = booleanValue
+                }
+
+                if argumentName == AnalyzerAttributeUsageFacts.InheritedMemberName() {
+                    inherited = booleanValue
+                }
+            }
+
+            usage = new AnalyzerAttributeUsage(targets, allowMultiple, inherited)
+            return true
+        }
+
+        return false
+    }
+
+    func TryResolveAttributeTargetsType(out targetsType: Type): bool {
+        targetsType = typeof(object)
+        resolved := externalTypeProbe.ResolveExternalType("System.AttributeTargets")
+        if resolved == null {
+            return false
+        }
+
+        reflection := resolved as ReflectionTypeInfo
+        if reflection == null {
+            return false
+        }
+
+        targetsType = reflection.Type
+        return true
+    }
+
+    static func TryReadBooleanAttributeArgument(expression: Expression, out value: bool): bool {
+        value = false
+        boolLiteral := expression as BoolLiteralExpression
+        if boolLiteral == null {
+            return false
+        }
+
+        value = boolLiteral.Value
+        return true
+    }
+
     func ReportAttributeTypeMustDeriveFromAttribute(attribute: AttributeNode, typeName: string) {
         span := AnalyzerDiagnosticSpanFacts.GetAttributeTypeDiagnosticSpan(attribute)
         diagnostics.Report(ErrorCode.TypeMismatch, "Attribute type '" + typeName + "' must derive from System.Attribute", span.Line, span.Column, "Use a CLR attribute type or define a class that inherits System.Attribute.", span.Length)
     }
 
-    func ReportSourceDefinedAttributeUnsupported(attribute: AttributeNode) {
-        span := AnalyzerDiagnosticSpanFacts.GetAttributeTypeDiagnosticSpan(attribute)
-        diagnostics.Report(ErrorCode.FeatureNotImplemented, "Source-defined attribute '" + attribute.Name + "' is not supported by IL emission yet", span.Line, span.Column, "Use an attribute type from a referenced CLR assembly for now.", span.Length)
+    // ------------------------------------------------------------------------------------------
+    // THE SAME THREE QUESTIONS, ASKED OF A DECLARATION INSTEAD OF METADATA.
+    //
+    // A source-declared attribute type does not exist as a `Type` while the program that declares it
+    // is being compiled, so its constructors and its settable members are read from the DECLARATION.
+    // Everything else is shared with the metadata path: the same compatibility rule decides whether
+    // an argument fills a parameter, and the same three sentences are reported.
+    //
+    // WHERE A DECLARED TYPE CANNOT BE NAMED AS A CLR TYPE the question is dropped, and dropping it is
+    // the whole point of the `Undecidable` answer. An attribute constructor that takes a
+    // SOURCE-DECLARED enum is a correct attribute; refusing it because the analyzer could not turn the
+    // parameter into a `System.Type` would be a false error on a program the emitter goes on to
+    // compile.
+    // ------------------------------------------------------------------------------------------
+
+    static SourceMemberNotFound: int => 0
+    static SourceMemberMatched: int => 1
+    static SourceMemberUndecidable: int => 2
+
+    func ValidateSourceAttributeArguments(attribute: AttributeNode, sourceType: TypeInfo, argumentInfos: List<AttributeArgumentValidationInfo>) {
+        displayName := GetSourceAttributeDisplayName(sourceType)
+        for argumentInfo in argumentInfos {
+            declaredName := argumentInfo.Name
+            if declaredName != null {
+                ValidateSourceNamedAttributeArgument(sourceType, displayName, argumentInfo, declaredName)
+            }
+        }
+
+        positionalArguments := new List<AttributeArgumentValidationInfo>()
+        anyUntyped := false
+        for argumentInfo in argumentInfos {
+            if argumentInfo.Name == null {
+                positionalArguments.Add(argumentInfo)
+                if argumentInfo.ClrType == null {
+                    anyUntyped = true
+                }
+            }
+        }
+
+        if anyUntyped {
+            return
+        }
+
+        if MeasureSourceAttributeConstructors(sourceType, positionalArguments) == AnalyzerAttributeValidator.SourceMemberNotFound {
+            ReportNoMatchingAttributeConstructorOn(attribute, displayName, positionalArguments)
+        }
+    }
+
+    // THE TYPE'S OWN DISPLAY FORM, read through an `object`-typed local because `ToString` is declared
+    // by the base of the `TypeInfo` hierarchy rather than by the hierarchy itself.
+    static func GetSourceAttributeDisplayName(sourceType: TypeInfo): string {
+        boxedSourceType := sourceType as object
+        rendered := boxedSourceType.ToString()
+        if rendered != null {
+            return rendered
+        }
+
+        return "attribute"
+    }
+
+    func ValidateSourceNamedAttributeArgument(sourceType: TypeInfo, displayName: string, argumentInfo: AttributeArgumentValidationInfo, argumentName: string) {
+        memberType: Type = typeof(object)
+        outcome := ProbeSourceAttributeNamedMember(sourceType, argumentName, out memberType)
+        if outcome == AnalyzerAttributeValidator.SourceMemberNotFound {
+            ReportUnknownAttributeNamedArgumentOn(displayName, argumentInfo)
+            return
+        }
+
+        if outcome == AnalyzerAttributeValidator.SourceMemberUndecidable {
+            return
+        }
+
+        if argumentInfo.ClrType != null && !IsAttributeArgumentCompatibleValue(memberType, argumentInfo) {
+            ReportAttributeNamedArgumentTypeMismatchOn(displayName, argumentInfo, memberType)
+        }
+    }
+
+    // A NAMED ARGUMENT NAMES SOMETHING THE CLR CAN SET IN METADATA, and the declaration says which:
+    // an EXPORTED instance field that is not `readonly`, or an EXPORTED instance property that
+    // declares a setter. The chain crosses into metadata at the first base that came from a
+    // referenced assembly, where the metadata rule takes over unchanged.
+    func ProbeSourceAttributeNamedMember(candidate: TypeInfo, memberName: string, out memberType: Type): int {
+        memberType = typeof(object)
+        current: TypeInfo = candidate
+        depth := 0
+        while depth < 64 {
+            resolved := declarationContext.ResolveDeclaredAlias(current)
+            reflection := resolved as ReflectionTypeInfo
+            if reflection != null {
+                if TryGetSettableAttributeNamedMemberType(reflection.Type, memberName, out memberType) {
+                    return AnalyzerAttributeValidator.SourceMemberMatched
+                }
+
+                return AnalyzerAttributeValidator.SourceMemberNotFound
+            }
+
+            classType := resolved as ClassTypeInfo
+            if classType == null {
+                return AnalyzerAttributeValidator.SourceMemberUndecidable
+            }
+
+            shape := new AnalyzerSourceMemberShape()
+            if !declarationContext.TryGetSourceMemberShape(classType, null, out shape) {
+                return AnalyzerAttributeValidator.SourceMemberUndecidable
+            }
+
+            declaredMembers := shape.DeclaredMembers
+            memberIndex := 0
+            while memberIndex < declaredMembers.Length {
+                member := declaredMembers[memberIndex]
+                memberIndex = memberIndex + 1
+                if member.Name != memberName || member.IsStatic || !member.IsExported {
+                    continue
+                }
+
+                settableField := member.Kind == DeclaredMemberKind.Field && !member.IsReadonly
+                settableProperty := member.Kind == DeclaredMemberKind.Property && member.HasSetter
+                if !settableField && !settableProperty {
+                    continue
+                }
+
+                declaredClrType: Type = typeof(object)
+                if TryGetSourceDeclaredClrType(classType, member.Type, out declaredClrType) {
+                    memberType = declaredClrType
+                    return AnalyzerAttributeValidator.SourceMemberMatched
+                }
+
+                return AnalyzerAttributeValidator.SourceMemberUndecidable
+            }
+
+            declaredBase := shape.BaseType
+            if declaredBase == null {
+                return AnalyzerAttributeValidator.SourceMemberNotFound
+            }
+
+            current = declaredBase
+            depth = depth + 1
+        }
+
+        return AnalyzerAttributeValidator.SourceMemberUndecidable
+    }
+
+    // EVERY DECLARED CONSTRUCTOR OF THE RIGHT ARITY, and — for a type with primary parameters — the
+    // primary constructor beside them. A type that declares NONE has the parameterless one the CLR
+    // gives it, which accepts exactly zero arguments.
+    func MeasureSourceAttributeConstructors(sourceType: TypeInfo, positionalArguments: List<AttributeArgumentValidationInfo>): int {
+        resolved := declarationContext.ResolveDeclaredAlias(sourceType)
+        classType := resolved as ClassTypeInfo
+        if classType == null {
+            return AnalyzerAttributeValidator.SourceMemberUndecidable
+        }
+
+        shape := new AnalyzerSourceMemberShape()
+        if !declarationContext.TryGetSourceMemberShape(classType, null, out shape) {
+            return AnalyzerAttributeValidator.SourceMemberUndecidable
+        }
+
+        candidateCount := 0
+        for member in shape.DeclaredMembers {
+            if member.Kind != DeclaredMemberKind.Constructor {
+                continue
+            }
+
+            candidateCount = candidateCount + 1
+            outcome := MeasureSourceConstructorSignature(classType, member.ParameterTypes, positionalArguments)
+            if outcome != AnalyzerAttributeValidator.SourceMemberNotFound {
+                return outcome
+            }
+        }
+
+        if shape.SupportsPrimaryParameters && shape.PrimaryParameters.Length > 0 {
+            primaryTypes := new TypeReference[](shape.PrimaryParameters.Length)
+            index := 0
+            while index < shape.PrimaryParameters.Length {
+                primaryTypes[index] = shape.PrimaryParameters[index].Type
+                index = index + 1
+            }
+
+            candidateCount = candidateCount + 1
+            outcome := MeasureSourceConstructorSignature(classType, primaryTypes, positionalArguments)
+            if outcome != AnalyzerAttributeValidator.SourceMemberNotFound {
+                return outcome
+            }
+        }
+
+        if candidateCount == 0 && positionalArguments.Count == 0 {
+            return AnalyzerAttributeValidator.SourceMemberMatched
+        }
+
+        return AnalyzerAttributeValidator.SourceMemberNotFound
+    }
+
+    func MeasureSourceConstructorSignature(owner: TypeInfo, parameterTypes: TypeReference[], positionalArguments: List<AttributeArgumentValidationInfo>): int {
+        if parameterTypes.Length != positionalArguments.Count {
+            return AnalyzerAttributeValidator.SourceMemberNotFound
+        }
+
+        index := 0
+        while index < parameterTypes.Length {
+            parameterClrType: Type = typeof(object)
+            if !TryGetSourceDeclaredClrType(owner, parameterTypes[index], out parameterClrType) {
+                return AnalyzerAttributeValidator.SourceMemberUndecidable
+            }
+
+            if !IsAttributeArgumentCompatibleValue(parameterClrType, positionalArguments[index]) {
+                return AnalyzerAttributeValidator.SourceMemberNotFound
+            }
+
+            index = index + 1
+        }
+
+        return AnalyzerAttributeValidator.SourceMemberMatched
+    }
+
+    // A DECLARED TYPE AS A CLR TYPE, resolved AGAINST THE DECLARING FILE rather than against the file
+    // the attribute was written in — an attribute declared in one file and applied in another must
+    // read its own parameter types through its own imports. The resolution door is the silent one:
+    // asking the reporting resolver here would report a second time about a declaration that has
+    // already been walked.
+    func TryGetSourceDeclaredClrType(owner: TypeInfo, typeReference: TypeReference?, out clrType: Type): bool {
+        clrType = typeof(object)
+        if typeReference == null {
+            return false
+        }
+
+        resolvedInfo := BuiltInTypes.Unknown as TypeInfo
+        if !declarationContext.TryResolveTypeForOwner(typeReference, owner, null, out resolvedInfo) {
+            return false
+        }
+
+        return TryConvertLiteralTypeInfoToClrType(resolvedInfo, out clrType)
     }
 
     // ------------------------------------------------------------------------------------------
@@ -1239,8 +1701,7 @@ class AnalyzerAttributeValidator {
             return
         }
 
-        argumentClrType := argumentInfo.ClrType
-        if argumentClrType != null && !IsAttributeArgumentCompatible(memberType, argumentClrType, argumentInfo.IsNull) {
+        if argumentInfo.ClrType != null && !IsAttributeArgumentCompatibleValue(memberType, argumentInfo) {
             ReportAttributeNamedArgumentTypeMismatch(attributeType, argumentInfo, memberType)
         }
     }
@@ -1287,13 +1748,7 @@ class AnalyzerAttributeValidator {
             while index < parameters.Length {
                 parameter := parameters[index]
                 argumentInfo := positionalArguments[index]
-                argumentClrType := argumentInfo.ClrType
-                compatible := false
-                if argumentClrType != null {
-                    compatible = IsAttributeArgumentCompatible(parameter.get_ParameterType(), argumentClrType, argumentInfo.IsNull)
-                }
-
-                if !compatible {
+                if !IsAttributeArgumentCompatibleValue(parameter.get_ParameterType(), argumentInfo) {
                     matches = false
                     break
                 }
@@ -1314,6 +1769,114 @@ class AnalyzerAttributeValidator {
     // parameter also takes its own underlying integer, which is how `[Attr(1)]` fills a flags
     // parameter. Arrays are compared element-wise under the same three rules, one level deep, which
     // is as deep as attribute metadata goes.
+    // THE COMPATIBILITY QUESTION AS THE CALLERS ASK IT: the type rule first, then the CONSTANT rule
+    // for the one case types cannot decide. An integer constant fills any integral or floating
+    // parameter whose range CONTAINS IT — `[Attr(5)]` into a `byte`, `[Attr(300)]` not — which is the
+    // C# constant-expression conversion and the only way a narrow numeric attribute parameter is
+    // writable at all.
+    static func IsAttributeArgumentCompatibleValue(parameterType: Type, argumentInfo: AttributeArgumentValidationInfo): bool {
+        argumentClrType := argumentInfo.ClrType
+        if argumentClrType == null {
+            return false
+        }
+
+        knownArgumentType: Type = argumentClrType
+        if IsAttributeArgumentCompatible(parameterType, knownArgumentType, argumentInfo.IsNull) {
+            return true
+        }
+
+        if !argumentInfo.HasIntegerConstant || !IsIntegralClrType(knownArgumentType) {
+            return false
+        }
+
+        return ConstantFitsNumericType(parameterType, argumentInfo.ConstantMagnitude, argumentInfo.ConstantIsNegative)
+    }
+
+    static func IsIntegralClrType(clrType: Type): bool {
+        fullName := clrType.get_FullName()
+        return fullName == "System.SByte" || fullName == "System.Byte" || fullName == "System.Int16" || fullName == "System.UInt16" || fullName == "System.Int32" || fullName == "System.UInt32" || fullName == "System.Int64" || fullName == "System.UInt64" || fullName == "System.Char"
+    }
+
+    // THE RANGES, WRITTEN OUT, over a magnitude and a sign. A negative constant is out of range for
+    // every unsigned parameter whatever its magnitude, which is why the sign is asked first.
+    static func ConstantFitsNumericType(parameterType: Type, magnitude: ulong, isNegative: bool): bool {
+        fullName := parameterType.get_FullName()
+        if fullName == "System.Single" || fullName == "System.Double" {
+            return true
+        }
+
+        if isNegative {
+            if fullName == "System.SByte" {
+                return magnitude <= 128UL
+            }
+            if fullName == "System.Int16" {
+                return magnitude <= 32768UL
+            }
+            if fullName == "System.Int32" {
+                return magnitude <= 2147483648UL
+            }
+            if fullName == "System.Int64" {
+                return magnitude <= 9223372036854775808UL
+            }
+
+            return false
+        }
+
+        if fullName == "System.SByte" {
+            return magnitude <= 127UL
+        }
+        if fullName == "System.Byte" {
+            return magnitude <= 255UL
+        }
+        if fullName == "System.Int16" {
+            return magnitude <= 32767UL
+        }
+        if fullName == "System.UInt16" || fullName == "System.Char" {
+            return magnitude <= 65535UL
+        }
+        if fullName == "System.Int32" {
+            return magnitude <= 2147483647UL
+        }
+        if fullName == "System.UInt32" {
+            return magnitude <= 4294967295UL
+        }
+        if fullName == "System.Int64" {
+            return magnitude <= 9223372036854775807UL
+        }
+        if fullName == "System.UInt64" {
+            return true
+        }
+
+        return false
+    }
+
+    // THE VALUE OF AN INTEGER CONSTANT EXPRESSION, over exactly the shapes that can spell one: a
+    // literal, and the two unary operators that keep it an integer. Anything else has no value here —
+    // an enum member's value is the ENUM's, and the enum rule already accepts it by type.
+    func TryEvaluateAttributeIntegerConstant(expression: Expression, out magnitude: ulong, out isNegative: bool): bool {
+        magnitude = 0UL
+        isNegative = false
+        intLiteral := expression as IntLiteralExpression
+        if intLiteral != null {
+            return NumericLiteralFacts.TryParseUnsignedIntegerMagnitude(intLiteral.Value, out magnitude)
+        }
+
+        unary := expression as UnaryExpression
+        if unary == null || unary.Operator != UnaryOperator.Negate {
+            return false
+        }
+
+        operandMagnitude := 0UL
+        operandIsNegative := false
+        if !TryEvaluateAttributeIntegerConstant(unary.Operand, out operandMagnitude, out operandIsNegative) || operandIsNegative {
+            return false
+        }
+
+        magnitude = operandMagnitude
+        isNegative = operandMagnitude != 0UL
+        return true
+    }
+
     static func IsAttributeArgumentCompatible(parameterType: Type, argumentType: Type, isNull: bool): bool {
         if isNull {
             if !parameterType.get_IsValueType() {
@@ -1372,16 +1935,24 @@ class AnalyzerAttributeValidator {
     }
 
     func ReportUnknownAttributeNamedArgument(attributeType: Type, argumentInfo: AttributeArgumentValidationInfo) {
+        ReportUnknownAttributeNamedArgumentOn(GetAttributeDisplayName(attributeType), argumentInfo)
+    }
+
+    func ReportUnknownAttributeNamedArgumentOn(attributeDisplayName: string, argumentInfo: AttributeArgumentValidationInfo) {
         span := spans.GetAttributeArgumentDiagnosticSpan(argumentInfo.Argument, argumentInfo.Value)
         argumentName := argumentInfo.Name
         if argumentName == null {
             argumentName = ""
         }
 
-        diagnostics.Report(ErrorCode.UndefinedMember, "Attribute '" + GetAttributeDisplayName(attributeType) + "' has no public settable property or field named '" + argumentName + "'", span.Line, span.Column, "Use a named argument exposed by the attribute type.", span.Length)
+        diagnostics.Report(ErrorCode.UndefinedMember, "Attribute '" + attributeDisplayName + "' has no public settable property or field named '" + argumentName + "'", span.Line, span.Column, "Use a named argument exposed by the attribute type.", span.Length)
     }
 
     func ReportAttributeNamedArgumentTypeMismatch(attributeType: Type, argumentInfo: AttributeArgumentValidationInfo, memberType: Type) {
+        ReportAttributeNamedArgumentTypeMismatchOn(GetAttributeDisplayName(attributeType), argumentInfo, memberType)
+    }
+
+    func ReportAttributeNamedArgumentTypeMismatchOn(attributeDisplayName: string, argumentInfo: AttributeArgumentValidationInfo, memberType: Type) {
         span := spans.GetAttributeArgumentDiagnosticSpan(argumentInfo.Argument, argumentInfo.Value)
         argumentName := argumentInfo.Name
         if argumentName == null {
@@ -1395,13 +1966,17 @@ class AnalyzerAttributeValidator {
             actualText = NullabilityMetadataReflection.FormatType(actualType)
         }
 
-        diagnostics.Report(ErrorCode.TypeMismatch, "Attribute named argument '" + argumentName + "' on '" + GetAttributeDisplayName(attributeType) + "' expects '" + NullabilityMetadataReflection.FormatType(memberType) + "' but got '" + actualText + "'", span.Line, span.Column, "Use a value whose type matches the attribute property or field.", span.Length)
+        diagnostics.Report(ErrorCode.TypeMismatch, "Attribute named argument '" + argumentName + "' on '" + attributeDisplayName + "' expects '" + NullabilityMetadataReflection.FormatType(memberType) + "' but got '" + actualText + "'", span.Line, span.Column, "Use a value whose type matches the attribute property or field.", span.Length)
     }
 
     // THE CONSTRUCTOR REFUSAL ANCHORS ON THE FIRST POSITIONAL ARGUMENT when there is one, and on the
     // attribute itself when there is none — `[Attr]` on an attribute with no parameterless
     // constructor has no argument to point at.
     func ReportNoMatchingAttributeConstructor(attribute: AttributeNode, attributeType: Type, positionalArguments: List<AttributeArgumentValidationInfo>) {
+        ReportNoMatchingAttributeConstructorOn(attribute, GetAttributeDisplayName(attributeType), positionalArguments)
+    }
+
+    func ReportNoMatchingAttributeConstructorOn(attribute: AttributeNode, attributeDisplayName: string, positionalArguments: List<AttributeArgumentValidationInfo>) {
         span: DiagnosticSpan = AnalyzerDiagnosticSpanFacts.GetAttributeFallbackDiagnosticSpan(attribute)
         if positionalArguments.Count > 0 {
             firstArgument := positionalArguments[0]
@@ -1419,7 +1994,7 @@ class AnalyzerAttributeValidator {
             }
         }
 
-        diagnostics.Report(ErrorCode.NoMatchingOverload, "No constructor of attribute '" + GetAttributeDisplayName(attributeType) + "' accepts " + positionalArguments.Count.ToString() + " positional argument(s) with these types: " + string.Join(", ", argumentTypes), span.Line, span.Column, "Check the attribute constructor argument count and types.", span.Length)
+        diagnostics.Report(ErrorCode.NoMatchingOverload, "No constructor of attribute '" + attributeDisplayName + "' accepts " + positionalArguments.Count.ToString() + " positional argument(s) with these types: " + string.Join(", ", argumentTypes), span.Line, span.Column, "Check the attribute constructor argument count and types.", span.Length)
     }
 
     static func GetAttributeDisplayName(attributeType: Type): string {
