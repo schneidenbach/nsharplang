@@ -203,6 +203,41 @@ class Target {
     }
 }
 
+// A FIELD'S ATTRIBUTES, on every field shape a declaration can carry one on: an instance field, a
+// static field, a `const` field whose value is metadata rather than code, a field whose attribute
+// comes from a referenced assembly, and a field of a VALUE type. A field declares its attributes at
+// its own member position, which the member scan records, so the same backward scan that finds a
+// method's finds a field's.
+class FieldCarrier {
+    [Mark("on the instance field")]
+    Value: int
+
+    [Mark("on the static field")]
+    static Shared: int = 3
+
+    [Obsolete("field went away")]
+    Legacy: string = ""
+
+    [Mark("on the const")]
+    const Limit: int = 10
+
+    [Levelled(Level.High, AttributeTargets.Field, "field payload")]
+    Described: string = ""
+
+    Plain: int
+
+    constructor() {
+        Value = 1
+        Plain = 0
+    }
+}
+
+struct FieldPoint {
+    [Mark("on the struct field")]
+    X: int
+    Y: int
+}
+
 // A PROPERTY'S AND A CONSTRUCTOR'S ATTRIBUTES. A property's go on the PROPERTY row, which is where
 // every framework that reads them looks; a constructor's go on the constructor.
 class Carrier {

@@ -3468,6 +3468,7 @@ sealed class ColumnarIlEmitter {
                         return DeclineStatic("emit.declaration.const-initializer", "const field '" + st.Name + "." + fieldName + "' requires an unsuffixed int literal initializer", st.Name, -1, 0)
                     }
                     sfb := ColumnarFieldMetadataEmitter.Define(tb, fieldName, fieldType, (int)fieldAttributes, fieldRows.FieldIsThreadStatic[s][fi], isLiteral, literalValue)
+                    sourceAttributeQueue.QueueField(sfb, st.FieldSourceAttributesAt(fi), typeResolution)
                     // A named tuple's element names live on the DECLARING position, so a field that
                     // mentions one carries the same attribute a return or a parameter does.
                     ColumnarTupleElementNameEmitter.ApplyToField(sfb, st.FieldTypeCanonicals[fi])
@@ -3483,6 +3484,7 @@ sealed class ColumnarIlEmitter {
                     return DeclineStatic("emit.declaration.field-initializer", "instance field initializer is not modeled for '" + st.Name + "." + fieldName + "'", st.Name, -1, 0)
                 }
                 instanceField := ColumnarFieldMetadataEmitter.Define(tb, fieldName, fieldType, (int)fieldAttributes, fieldRows.FieldIsThreadStatic[s][fi], false, 0)
+                sourceAttributeQueue.QueueField(instanceField, st.FieldSourceAttributesAt(fi), typeResolution)
                 ColumnarTupleElementNameEmitter.ApplyToField(instanceField, st.FieldTypeCanonicals[fi])
                 def.MemberLabeledCanonicals[fieldName] = st.FieldTypeCanonicals[fi]
                 fields[fieldName] = instanceField

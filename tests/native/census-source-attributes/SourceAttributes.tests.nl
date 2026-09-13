@@ -1,5 +1,6 @@
 namespace NSharpLang.CensusSourceAttributes
 
+import System
 import System.Reflection
 
 // EVERY ASSERTION HERE READS THE EMITTED ASSEMBLY. The attribute types and the declarations they are
@@ -128,6 +129,58 @@ test "an external attribute with a non-string argument is emitted" {
 test "an external attribute with only a named argument is emitted" {
     found := RequiredMethod("ExternalNamedOnly").GetCustomAttribute(typeof(ObsoleteAttribute), false) as ObsoleteAttribute
     assert found.DiagnosticId == "NL9999"
+}
+
+// A FIELD'S ATTRIBUTES REACH THE FIELD ROW. Every one of these was validated by the analyzer and
+// then dropped from the assembly, because the struct member scan yielded a field's name and type as
+// TEXT with no declaration position for the attribute reader to scan back from.
+test "an instance field's attribute is emitted on the field row" {
+    field := must typeof(FieldCarrier).GetField("Value")
+    found := field.GetCustomAttribute(typeof(MarkAttribute), false) as MarkAttribute
+    assert found.Tag == "on the instance field"
+}
+
+test "a static field's attribute is emitted on the field row" {
+    field := must typeof(FieldCarrier).GetField("Shared", BindingFlags.Public | BindingFlags.Static)
+    found := field.GetCustomAttribute(typeof(MarkAttribute), false) as MarkAttribute
+    assert found.Tag == "on the static field"
+}
+
+test "a const field carries both its literal value and its attribute" {
+    field := must typeof(FieldCarrier).GetField("Limit", BindingFlags.Public | BindingFlags.Static)
+    assert field.IsLiteral
+    assert (must field.GetRawConstantValue()).ToString() == "10"
+    found := field.GetCustomAttribute(typeof(MarkAttribute), false) as MarkAttribute
+    assert found.Tag == "on the const"
+}
+
+test "an external attribute on a field is emitted" {
+    field := must typeof(FieldCarrier).GetField("Legacy")
+    found := field.GetCustomAttribute(typeof(ObsoleteAttribute), false) as ObsoleteAttribute
+    assert found.Message == "field went away"
+}
+
+test "a field's attribute carries enum, flags and boxed arguments like any other position" {
+    field := must typeof(FieldCarrier).GetField("Described")
+    found := field.GetCustomAttribute(typeof(LevelledAttribute), false) as LevelledAttribute
+    assert found.Level == Level.High
+    assert found.Targets == AttributeTargets.Field
+    payload := must found.Payload
+    assert payload.ToString() == "field payload"
+}
+
+test "a field the source wrote no attribute on carries none" {
+    field := must typeof(FieldCarrier).GetField("Plain")
+    assert field.GetCustomAttributes(false).Length == 0
+}
+
+test "a value type's field carries its attribute too" {
+    marked := must typeof(FieldPoint).GetField("X")
+    found := marked.GetCustomAttribute(typeof(MarkAttribute), false) as MarkAttribute
+    assert found.Tag == "on the struct field"
+
+    plain := must typeof(FieldPoint).GetField("Y")
+    assert plain.GetCustomAttributes(false).Length == 0
 }
 
 test "a property's attribute is emitted on the property row" {

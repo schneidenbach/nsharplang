@@ -164,6 +164,7 @@ class ColumnarStructDeclarationParseProbe {
     WhereTypeTexts: string[]
     ConstructorIndices: int[]
     ConstructorVisibilityFlags: int[]
+    FieldDeclTokens: int[]
     Result: int[]
 
     constructor(source: string) {
@@ -191,6 +192,7 @@ class ColumnarStructDeclarationParseProbe {
         FieldStaticFlags = new int[](capacity)
         FieldInitKinds = new int[](capacity)
         FieldInitTexts = new string[](capacity)
+        FieldDeclTokens = new int[](capacity)
         methodFuncIndices := new int[](capacity)
         methodStaticFlags := new int[](capacity)
         ConstructorIndices = new int[](capacity)
@@ -222,6 +224,7 @@ class ColumnarStructDeclarationParseProbe {
             FieldStaticFlags,
             FieldInitKinds,
             FieldInitTexts,
+            FieldDeclTokens,
             methodFuncIndices,
             methodStaticFlags,
             ConstructorIndices,

@@ -960,6 +960,11 @@ class StructDeclarationTable {
     // span above names the initializer for metadata and diagnostics; this column is what lets the
     // static-initializer body re-enter the ordinary expression parser at exactly that token.
     FieldInitTokens: int[]
+    // The TOKEN index of each field's NAME token (-1 for a field synthesized from a primary
+    // constructor parameter, which has no member position of its own). An attribute written on a
+    // field is read by scanning BACK from this token, exactly the way a method's, a property's and a
+    // constructor's are read from theirs, so a field's `[...]` needs no second reader.
+    FieldDeclTokens: int[]
     MethodFuncIndices: int[]
     MethodStaticFlags: int[]
     MethodModifierFlags: int[]
@@ -971,7 +976,7 @@ class StructDeclarationTable {
     BaseNameStarts: int[]
     BaseNameLengths: int[]
     Where: ParserDeclarationWhereTable
-    constructor(fieldNameStarts: int[], fieldNameLengths: int[], fieldTypeStarts: int[], fieldTypeLengths: int[], fieldStaticFlags: int[], fieldInitKinds: int[], fieldInitStarts: int[], fieldInitLengths: int[], fieldInitTokens: int[], methodFuncIndices: int[], methodStaticFlags: int[], methodModifierFlags: int[], ctorIndices: int[], propIndices: int[], propStaticFlags: int[], typeParamStarts: int[], typeParamLengths: int[], baseNameStarts: int[], baseNameLengths: int[], whereTable: ParserDeclarationWhereTable) {
+    constructor(fieldNameStarts: int[], fieldNameLengths: int[], fieldTypeStarts: int[], fieldTypeLengths: int[], fieldStaticFlags: int[], fieldInitKinds: int[], fieldInitStarts: int[], fieldInitLengths: int[], fieldInitTokens: int[], fieldDeclTokens: int[], methodFuncIndices: int[], methodStaticFlags: int[], methodModifierFlags: int[], ctorIndices: int[], propIndices: int[], propStaticFlags: int[], typeParamStarts: int[], typeParamLengths: int[], baseNameStarts: int[], baseNameLengths: int[], whereTable: ParserDeclarationWhereTable) {
         FieldNameStarts = fieldNameStarts
         FieldNameLengths = fieldNameLengths
         FieldTypeStarts = fieldTypeStarts
@@ -981,6 +986,7 @@ class StructDeclarationTable {
         FieldInitStarts = fieldInitStarts
         FieldInitLengths = fieldInitLengths
         FieldInitTokens = fieldInitTokens
+        FieldDeclTokens = fieldDeclTokens
         MethodFuncIndices = methodFuncIndices
         MethodStaticFlags = methodStaticFlags
         MethodModifierFlags = methodModifierFlags
@@ -1759,6 +1765,7 @@ class ColumnarStructOutputTable {
     FieldStaticFlags: int[]
     FieldInitKinds: int[]
     FieldInitTexts: string[]
+    FieldDeclTokens: int[]
     MethodFuncIndices: int[]
     MethodStaticFlags: int[]
     CtorIndices: int[]
@@ -1767,12 +1774,13 @@ class ColumnarStructOutputTable {
     TypeParamTexts: string[]
     BaseNameTexts: string[]
     StructNameTexts: string[]
-    constructor(fieldNameTexts: string[], fieldTypeTexts: string[], fieldStaticFlags: int[], fieldInitKinds: int[], fieldInitTexts: string[], methodFuncIndices: int[], methodStaticFlags: int[], ctorIndices: int[], propIndices: int[], propStaticFlags: int[], typeParamTexts: string[], baseNameTexts: string[], structNameTexts: string[], whereOwnerTexts: string[], whereItemCodes: int[], whereTypeTexts: string[]) {
+    constructor(fieldNameTexts: string[], fieldTypeTexts: string[], fieldStaticFlags: int[], fieldInitKinds: int[], fieldInitTexts: string[], fieldDeclTokens: int[], methodFuncIndices: int[], methodStaticFlags: int[], ctorIndices: int[], propIndices: int[], propStaticFlags: int[], typeParamTexts: string[], baseNameTexts: string[], structNameTexts: string[], whereOwnerTexts: string[], whereItemCodes: int[], whereTypeTexts: string[]) {
         FieldNameTexts = fieldNameTexts
         FieldTypeTexts = fieldTypeTexts
         FieldStaticFlags = fieldStaticFlags
         FieldInitKinds = fieldInitKinds
         FieldInitTexts = fieldInitTexts
+        FieldDeclTokens = fieldDeclTokens
         MethodFuncIndices = methodFuncIndices
         MethodStaticFlags = methodStaticFlags
         CtorIndices = ctorIndices
@@ -11108,6 +11116,7 @@ func ParseStructDeclarationCore(source: string, tokens: ParserDeclarationTokenTa
             decl.FieldInitStarts[fieldCount] = -1
             decl.FieldInitLengths[fieldCount] = 0
             decl.FieldInitTokens[fieldCount] = -1
+            decl.FieldDeclTokens[fieldCount] = memberStart
 
             if pos < count && tokens.Kinds[pos] == 129 {
                 decl.PropIndices[propCount] = memberStart
@@ -11213,6 +11222,7 @@ func ParseStructDeclarationCore(source: string, tokens: ParserDeclarationTokenTa
                 decl.FieldInitStarts[fieldCount] = -1
                 decl.FieldInitLengths[fieldCount] = 0
                 decl.FieldInitTokens[fieldCount] = -1
+                decl.FieldDeclTokens[fieldCount] = -1
                 fieldCount = fieldCount + 1
             }
 
@@ -13907,11 +13917,11 @@ func ParseColumnarConstructorBodyNodesCore(source: string, tokens: ColumnarConst
     return ParseStatementNodesCore(source, statementTokens, tokens.Count, bodyBrace, argStack, nodes, children, statementResult)
 }
 
-func ParseColumnarStructInfoInto(source: string, tokenKinds: int[], tokenStarts: int[], tokenValueLengths: int[], count: int, structIndex: int, isReference: int, isRecord: int, outFieldNameTexts: string[], outFieldTypeTexts: string[], outFieldStaticFlags: int[], outFieldInitKinds: int[], outFieldInitTexts: string[], outMethodFuncIndices: int[], outMethodStaticFlags: int[], outCtorIndices: int[], outPropIndices: int[], outPropStaticFlags: int[], outTypeParamTexts: string[], outBaseNameTexts: string[], outStructNameTexts: string[], outWhereOwnerTexts: string[], outWhereItemCodes: int[], outWhereTypeTexts: string[], outResult: int[], outStaticInitNodeKinds: int[], outStaticInitValueStarts: int[], outStaticInitValueLengths: int[], outStaticInitChildStart: int[], outStaticInitChildCount: int[], outStaticInitChildIndices: int[], outStaticInitSpanStarts: int[], outStaticInitSpanLengths: int[], outStaticInitResult: int[]): int {
+func ParseColumnarStructInfoInto(source: string, tokenKinds: int[], tokenStarts: int[], tokenValueLengths: int[], count: int, structIndex: int, isReference: int, isRecord: int, outFieldNameTexts: string[], outFieldTypeTexts: string[], outFieldStaticFlags: int[], outFieldInitKinds: int[], outFieldInitTexts: string[], outFieldDeclTokens: int[], outMethodFuncIndices: int[], outMethodStaticFlags: int[], outCtorIndices: int[], outPropIndices: int[], outPropStaticFlags: int[], outTypeParamTexts: string[], outBaseNameTexts: string[], outStructNameTexts: string[], outWhereOwnerTexts: string[], outWhereItemCodes: int[], outWhereTypeTexts: string[], outResult: int[], outStaticInitNodeKinds: int[], outStaticInitValueStarts: int[], outStaticInitValueLengths: int[], outStaticInitChildStart: int[], outStaticInitChildCount: int[], outStaticInitChildIndices: int[], outStaticInitSpanStarts: int[], outStaticInitSpanLengths: int[], outStaticInitResult: int[]): int {
     tokens := new ColumnarStructTokenTable(tokenKinds, tokenStarts, tokenValueLengths, count)
     whereScratch := new ParserDeclarationWhereTable(new int[](count + 1), new int[](count + 1), new int[](count + 1), new int[](count + 1), new int[](count + 1))
     scratch := new ColumnarStructScratchTable(new int[](count + 1), new int[](count + 1), new int[](count + 1), new int[](count + 1), new int[](count + 1), new int[](count + 1), new int[](count + 1), new int[](count + 1), new int[](count + 1), new int[](count + 1), new int[](count + 1), whereScratch)
-    outputs := new ColumnarStructOutputTable(outFieldNameTexts, outFieldTypeTexts, outFieldStaticFlags, outFieldInitKinds, outFieldInitTexts, outMethodFuncIndices, outMethodStaticFlags, outCtorIndices, outPropIndices, outPropStaticFlags, outTypeParamTexts, outBaseNameTexts, outStructNameTexts, outWhereOwnerTexts, outWhereItemCodes, outWhereTypeTexts)
+    outputs := new ColumnarStructOutputTable(outFieldNameTexts, outFieldTypeTexts, outFieldStaticFlags, outFieldInitKinds, outFieldInitTexts, outFieldDeclTokens, outMethodFuncIndices, outMethodStaticFlags, outCtorIndices, outPropIndices, outPropStaticFlags, outTypeParamTexts, outBaseNameTexts, outStructNameTexts, outWhereOwnerTexts, outWhereItemCodes, outWhereTypeTexts)
     result := new ColumnarStructResultTable(outResult)
     staticInitializerBody := new ColumnarConstructorBodyTable(outStaticInitNodeKinds, outStaticInitValueStarts, outStaticInitValueLengths, outStaticInitChildStart, outStaticInitChildCount, outStaticInitChildIndices, outStaticInitSpanStarts, outStaticInitSpanLengths)
     staticInitializerResult := new ColumnarConstructorResultTable(outStaticInitResult)
@@ -13920,7 +13930,7 @@ func ParseColumnarStructInfoInto(source: string, tokenKinds: int[], tokenStarts:
 
 func ParseColumnarStructInfoCore(source: string, tokens: ColumnarStructTokenTable, structIndex: int, isReference: int, _isRecord: int, scratch: ColumnarStructScratchTable, outputs: ColumnarStructOutputTable, result: ColumnarStructResultTable, staticInitializerBody: ColumnarConstructorBodyTable, staticInitializerResult: ColumnarConstructorResultTable): int {
     declarationTokens := new ParserDeclarationTokenTable(tokens.Kinds, tokens.Starts, tokens.ValueLengths)
-    decl := new StructDeclarationTable(scratch.FieldNameStarts, scratch.FieldNameLengths, scratch.FieldTypeStarts, scratch.FieldTypeLengths, outputs.FieldStaticFlags, outputs.FieldInitKinds, scratch.FieldInitStarts, scratch.FieldInitLengths, scratch.FieldInitTokens, outputs.MethodFuncIndices, outputs.MethodStaticFlags, outputs.MethodStaticFlags, outputs.CtorIndices, outputs.PropIndices, outputs.PropStaticFlags, scratch.TypeParamStarts, scratch.TypeParamLengths, scratch.BaseNameStarts, scratch.BaseNameLengths, scratch.Where)
+    decl := new StructDeclarationTable(scratch.FieldNameStarts, scratch.FieldNameLengths, scratch.FieldTypeStarts, scratch.FieldTypeLengths, outputs.FieldStaticFlags, outputs.FieldInitKinds, scratch.FieldInitStarts, scratch.FieldInitLengths, scratch.FieldInitTokens, outputs.FieldDeclTokens, outputs.MethodFuncIndices, outputs.MethodStaticFlags, outputs.MethodStaticFlags, outputs.CtorIndices, outputs.PropIndices, outputs.PropStaticFlags, scratch.TypeParamStarts, scratch.TypeParamLengths, scratch.BaseNameStarts, scratch.BaseNameLengths, scratch.Where)
     declarationResult := new ParserDeclarationResultTable(result.Values)
     fieldCount := ParseStructDeclarationCore(source, declarationTokens, tokens.Count, structIndex, decl, declarationResult)
     methodCount := result.Values[2]
