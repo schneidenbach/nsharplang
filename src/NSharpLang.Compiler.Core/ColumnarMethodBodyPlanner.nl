@@ -999,7 +999,12 @@ class ColumnarMethodBodyPlanner {
         return ColumnarBoundIdentifierPlanner.TryAppend(nodes, source, node, bindings, plan, out resultType)
     }
 
+    // SIX of the sole identifier owner's ten selection kinds. `CapturedInstanceField` joined the set
+    // with the iterator body door: a bare member name inside a body whose display captured the
+    // enclosing receiver is two `ldfld`s from argument zero, and it reaches a method-body plan only
+    // through a caller that published the capture — every other body arms an empty map, so the tier is
+    // inert in an ordinary function exactly as `BoxedCapture` and `LiftedLocal` are.
     static func IsClaimedIdentifierSelection(selectionKind: ColumnarBoundIdentifierKind): bool {
-        return selectionKind == ColumnarBoundIdentifierKind.Parameter || selectionKind == ColumnarBoundIdentifierKind.ByRefParameter || selectionKind == ColumnarBoundIdentifierKind.CurrentField || selectionKind == ColumnarBoundIdentifierKind.CurrentProperty || selectionKind == ColumnarBoundIdentifierKind.PlanLocal
+        return selectionKind == ColumnarBoundIdentifierKind.Parameter || selectionKind == ColumnarBoundIdentifierKind.ByRefParameter || selectionKind == ColumnarBoundIdentifierKind.CurrentField || selectionKind == ColumnarBoundIdentifierKind.CurrentProperty || selectionKind == ColumnarBoundIdentifierKind.PlanLocal || selectionKind == ColumnarBoundIdentifierKind.CapturedInstanceField
     }
 }

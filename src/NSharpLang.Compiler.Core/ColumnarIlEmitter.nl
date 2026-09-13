@@ -2851,7 +2851,7 @@ sealed class ColumnarIlEmitter {
 
     // Preserve the established host signature while N# owns the complete synchronous declaration and
     // body-realization sequence. Ambient decline tracing remains at this existing caller boundary.
-    private static func TryEmitIteratorStateMachine(module: ModuleBuilder, fn: ColumnarFunctionInput, funcOrdinal: int, functionSource: string, typeResolution: ColumnarSemanticTypeResolution, factoryIl: ILGenerator, synthesizedTypes: List<TypeBuilder>, methodTypeParams: Type[], precomputedShape: ColumnarIteratorShape? = null, memberLabel: string = "", enclosingType: Type? = null, enclosingFieldNames: string[]? = null, enclosingFields: FieldInfo[]? = null, enclosingFieldCanonicals: string[]? = null, enclosingMethodNames: string[]? = null, enclosingMethods: MethodInfo[]? = null): bool {
+    private static func TryEmitIteratorStateMachine(module: ModuleBuilder, fn: ColumnarFunctionInput, funcOrdinal: int, functionSource: string, typeResolution: ColumnarSemanticTypeResolution, factoryIl: ILGenerator, synthesizedTypes: List<TypeBuilder>, methodTypeParams: Type[], precomputedShape: ColumnarIteratorShape? = null, memberLabel: string = "", enclosingType: Type? = null, enclosingFieldNames: string[]? = null, enclosingFields: FieldInfo[]? = null, enclosingFieldCanonicals: string[]? = null, enclosingMethodNames: string[]? = null, enclosingMethods: MethodInfo[]? = null, bodyFacts: ColumnarIteratorBodyFacts? = null): bool {
         result := ColumnarIteratorRealization.EmitSync(
             module,
             fn,
@@ -2868,7 +2868,8 @@ sealed class ColumnarIlEmitter {
             enclosingFields,
             enclosingFieldCanonicals,
             enclosingMethodNames,
-            enclosingMethods
+            enclosingMethods,
+            bodyFacts
         )
         if (result.Succeeded) {
             return true
@@ -2877,7 +2878,7 @@ sealed class ColumnarIlEmitter {
     }
 
     // Preserve the established host signature while N# owns the complete asynchronous realization.
-    private static func TryEmitAsyncIteratorStateMachine(module: ModuleBuilder, fn: ColumnarFunctionInput, funcOrdinal: int, functionSource: string, typeResolution: ColumnarSemanticTypeResolution, factoryIl: ILGenerator, synthesizedTypes: List<TypeBuilder>): bool {
+    private static func TryEmitAsyncIteratorStateMachine(module: ModuleBuilder, fn: ColumnarFunctionInput, funcOrdinal: int, functionSource: string, typeResolution: ColumnarSemanticTypeResolution, factoryIl: ILGenerator, synthesizedTypes: List<TypeBuilder>, bodyFacts: ColumnarIteratorBodyFacts?): bool {
         result := ColumnarIteratorRealization.EmitAsync(
             module,
             fn,
@@ -2885,7 +2886,8 @@ sealed class ColumnarIlEmitter {
             functionSource,
             typeResolution,
             factoryIl,
-            synthesizedTypes
+            synthesizedTypes,
+            bodyFacts
         )
         if (result.Succeeded) {
             return true
@@ -2896,7 +2898,7 @@ sealed class ColumnarIlEmitter {
     // A type-member generator: a STATIC method rides the top-level host directly; an INSTANCE method
     // supplies the enclosing type's public member facts (exact canonicals from the struct INPUT, handles
     // from the def) so the planner hoists `<>__this` and resolves member reads / member-call sources.
-    private static func TryEmitMemberIterator(module: ModuleBuilder, structDef: ColumnarStructDef, method: ColumnarFunctionInput, builder: MethodBuilder, isStatic: bool, program: ColumnarProgramInput, typeResolution: ColumnarSemanticTypeResolution, methodSource: string, synthesizedTypes: List<TypeBuilder>, ordinalCounter: int[]): bool {
+    private static func TryEmitMemberIterator(module: ModuleBuilder, structDef: ColumnarStructDef, method: ColumnarFunctionInput, builder: MethodBuilder, isStatic: bool, program: ColumnarProgramInput, typeResolution: ColumnarSemanticTypeResolution, methodSource: string, synthesizedTypes: List<TypeBuilder>, ordinalCounter: int[], bodyFacts: ColumnarIteratorBodyFacts?): bool {
         result := ColumnarIteratorRealization.EmitMember(
             module,
             structDef,
@@ -2907,7 +2909,8 @@ sealed class ColumnarIlEmitter {
             typeResolution,
             methodSource,
             synthesizedTypes,
-            ordinalCounter
+            ordinalCounter,
+            bodyFacts
         )
         if (result.Succeeded) {
             return true
@@ -4649,6 +4652,15 @@ sealed class ColumnarIlEmitter {
             if ((fn.ModifierFlags & 4096) != 0) {
                 ColumnarDeclineTrace.SetSourceFileId(fn.SourceFileId)
                 try {
+                    generatorFacts := ColumnarIteratorBodyFacts.FromEmissionFacts(
+                        enumRegistry,
+                        structRegistry,
+                        unionRegistry,
+                        siblings,
+                        typeResolution.Structs.Resolver.ExactSourceTypes,
+                        null,
+                        typeResolution.StructuralTypeReferences
+                    )
                     if (fn.IsAsync ? !TryEmitAsyncIteratorStateMachine(
                         module,
                         fn,
@@ -4656,7 +4668,8 @@ sealed class ColumnarIlEmitter {
                         program.GetSourceForFileId(fn.SourceFileId),
                         typeResolution,
                         il,
-                        displayClasses
+                        displayClasses,
+                        generatorFacts
                     ) : !TryEmitIteratorStateMachine(
                         module,
                         fn,
@@ -4673,7 +4686,8 @@ sealed class ColumnarIlEmitter {
                         null,
                         null,
                         null,
-                        null
+                        null,
+                        generatorFacts
                     )) {
                         return false
                     }
@@ -5040,7 +5054,16 @@ sealed class ColumnarIlEmitter {
                         bodyTypeResolution2,
                         methodSource,
                         displayClasses,
-                        lambdaCounter
+                        lambdaCounter,
+                        ColumnarIteratorBodyFacts.FromEmissionFacts(
+                            enumRegistry,
+                            structRegistry,
+                            unionRegistry,
+                            siblings,
+                            bodyTypeResolution2.Structs.Resolver.ExactSourceTypes,
+                            job.Item1,
+                            bodyTypeResolution2.StructuralTypeReferences
+                        )
                     )) {
                         return false
                     }

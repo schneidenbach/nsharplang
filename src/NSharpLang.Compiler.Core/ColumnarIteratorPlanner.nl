@@ -572,23 +572,24 @@ class ColumnarIteratorPlanner {
             return true
         }
         if kind == 24 {
-            // VariableDeclaration (`:=`): value span = name, child 0 = initializer (type inferred).
+            // VariableDeclaration (`:=`): value span = name, child 0 = initializer. The local's TYPE is
+            // whatever the one expression owner says its initializer is, and that answer needs live CLR
+            // handles the classification pass does not have — so the hoisted field is declared with the
+            // UNRESOLVED canonical and realization defines it from the planned initializer. Classification
+            // still owns the field's NAME, ROLE and position, which is everything the state numbering and
+            // the guarded-layout decision depend on.
             name := nodes.Text(source, node)
-            inferred := "?"
             if nodes.ChildCount(node) >= 1 {
-                initNode := nodes.Child(node, 0)
-                WalkExpression(nodes, source, initNode, state)
-                inferred = InferCanonical(nodes, source, initNode, state)
+                WalkExpression(nodes, source, nodes.Child(node, 0), state)
             }
-            if inferred == "?" {
-                state.Decline("emit.iterator.unsupported-shape", "the initializer type of local '" + name + "' could not be inferred for hoisting")
-                return false
-            }
-            state.AddLocal(name, inferred)
+            state.AddLocal(name, UnresolvedCanonical())
             return true
         }
         if kind == 23 {
-            // ExpressionStatement: only a simple assignment (kind 14) to a bound identifier is lowered.
+            // ExpressionStatement: a unit `await` suspension, a postfix step, an assignment to a hoisted
+            // binding, or ANY ordinary value expression whose result is discarded (a call statement is
+            // the common one). The value forms are not classified here — the expression owner plans them
+            // at realization and declines precisely if it cannot.
             if nodes.ChildCount(node) != 1 {
                 state.Decline("emit.iterator.unsupported-shape", "unsupported expression statement in an iterator body")
                 return false
@@ -610,26 +611,30 @@ class ColumnarIteratorPlanner {
                 WalkPostfixStep(nodes, source, inner, state)
                 return !state.Declined
             }
-            if nodes.Kind(inner) != 14 || nodes.ChildCount(inner) != 2 {
-                state.Decline("emit.iterator.unsupported-shape", "only simple `=` assignments are lowered in an iterator body")
-                return false
-            }
-            target := nodes.Child(inner, 0)
-            if nodes.Kind(target) != 6 {
-                state.Decline("emit.iterator.unsupported-shape", "an iterator assignment target must be a bound identifier")
-                return false
-            }
-            name := nodes.Text(source, target)
-            if state.LookupCanonical(name) == "" {
-                if state.LookupMemberFieldCanonical(name) != "" {
-                    state.Decline("emit.iterator.unsupported-shape", "assignment to enclosing member '" + name + "' is not lowered in an iterator body (reads only)")
+            if nodes.Kind(inner) == 14 {
+                if nodes.ChildCount(inner) != 2 {
+                    state.Decline("emit.iterator.unsupported-shape", "unsupported assignment in an iterator body")
                     return false
                 }
-                state.Decline("emit.iterator.unsupported-shape", "assignment to an unbound identifier '" + name + "'")
-                return false
+                target := nodes.Child(inner, 0)
+                if nodes.Kind(target) != 6 {
+                    state.Decline("emit.iterator.unsupported-shape", "an iterator assignment target must be a bound identifier")
+                    return false
+                }
+                name := nodes.Text(source, target)
+                if state.LookupCanonical(name) == "" {
+                    if state.LookupMemberFieldCanonical(name) != "" {
+                        state.Decline("emit.iterator.unsupported-shape", "assignment to enclosing member '" + name + "' is not lowered in an iterator body (reads only)")
+                        return false
+                    }
+                    state.Decline("emit.iterator.unsupported-shape", "assignment to an unbound identifier '" + name + "'")
+                    return false
+                }
+                WalkExpression(nodes, source, nodes.Child(inner, 1), state)
+                return true
             }
-            WalkExpression(nodes, source, nodes.Child(inner, 1), state)
-            return true
+            WalkExpression(nodes, source, inner, state)
+            return !state.Declined
         }
         if kind == 26 {
             // While [condition, body]: the loop's false-condition exit edge always falls through,
@@ -702,81 +707,34 @@ class ColumnarIteratorPlanner {
         }
         if kind == 29 {
             // Foreach / `for..in` [source, body], loop-var name in the value span. A hoisted ARRAY
-            // identifier lowers as an index loop; a sequence source (an IEnumerable<X>/List<X>-typed
-            // binding, enclosing field, or argument-free member call) hoists its enumerator into a
-            // `<>__enum{k}` field inside MoveNext's fault region. Counters and synthetic names are
-            // assigned here in walk order, exactly mirrored by the emit walk.
+            // identifier lowers as an index loop over its own length; EVERY OTHER SOURCE lowers through
+            // the sequence's own enumerator, hoisted into a `<>__enum{k}` field inside MoveNext's fault
+            // region. The source is an ordinary expression — a call, a member read, an array literal —
+            // so its element type is resolved at realization from the planned value rather than guessed
+            // from a spelling here. Counters and synthetic names are assigned in walk order, exactly
+            // mirrored by the emit walk.
             if nodes.ChildCount(node) != 2 {
                 state.Decline("emit.iterator.for-in-unsupported", "unsupported for..in statement in an iterator body")
                 return false
             }
             sourceNode := nodes.Child(node, 0)
-            sourceKind := nodes.Kind(sourceNode)
-            sourceCanonical := ""
-            if sourceKind == 6 {
+            if nodes.Kind(sourceNode) == 6 {
                 sourceName := nodes.Text(source, sourceNode)
-                boundCanonical := state.LookupCanonical(sourceName)
-                if boundCanonical != "" {
-                    arrayElement := ArrayElementCanonicalOf(boundCanonical)
-                    if arrayElement != "" {
-                        if !IsLowerableArrayElementCanonical(arrayElement) {
-                            state.Decline("emit.iterator.for-in-unsupported", "array element type '" + arrayElement + "' is not yet lowered in an iterator for..in")
-                            return false
-                        }
-                        state.AddLocal("<>__index" + state.ForInCount.ToString(), "int")
-                        state.ForInCount = state.ForInCount + 1
-                        state.AddLocal(nodes.Text(source, node), arrayElement)
-                        if state.Declined {
-                            return false
-                        }
-                        // The empty-array exit edge always falls through; the body drives dead-code dropping.
-                        WalkStatement(nodes, source, nodes.Child(node, 1), state)
-                        return !state.Declined
-                    }
-                    sourceCanonical = boundCanonical
-                } else {
-                    memberCanonical := state.LookupMemberFieldCanonical(sourceName)
-                    if memberCanonical == "" {
-                        state.Decline("emit.iterator.unsupported-shape", "unbound identifier '" + sourceName + "' in an iterator body")
+                arrayElement := ArrayElementCanonicalOf(state.LookupCanonical(sourceName))
+                if arrayElement != "" && IsLowerableArrayElementCanonical(arrayElement) {
+                    state.AddLocal("<>__index" + state.ForInCount.ToString(), "int")
+                    state.ForInCount = state.ForInCount + 1
+                    state.AddLocal(nodes.Text(source, node), arrayElement)
+                    if state.Declined {
                         return false
                     }
-                    if ArrayElementCanonicalOf(memberCanonical) != "" {
-                        state.Decline("emit.iterator.for-in-unsupported", "`for..in` over a member array ('" + sourceName + "') is a later slice")
-                        return false
-                    }
-                    sourceCanonical = memberCanonical
+                    // The empty-array exit edge always falls through; the body drives dead-code dropping.
+                    WalkStatement(nodes, source, nodes.Child(node, 1), state)
+                    return !state.Declined
                 }
-            } else if sourceKind == 9 {
-                // Member-call source: `receiver.Method()` with no arguments, resolved against the
-                // enclosing type's method facts (recursion resolves against the method being classified).
-                if nodes.ChildCount(sourceNode) != 1 {
-                    state.Decline("emit.iterator.for-in-unsupported", "`for..in` over a call with arguments is a later slice")
-                    return false
-                }
-                callee := nodes.Child(sourceNode, 0)
-                if nodes.Kind(callee) != 8 || nodes.ChildCount(callee) != 1 {
-                    state.Decline("emit.iterator.for-in-unsupported", "`for..in` call sources must be a bound receiver's member call")
-                    return false
-                }
-                receiverNode := nodes.Child(callee, 0)
-                if nodes.Kind(receiverNode) != 6 || state.LookupReadCanonical(nodes.Text(source, receiverNode)) == "" {
-                    state.Decline("emit.iterator.for-in-unsupported", "`for..in` call sources must be a bound receiver's member call")
-                    return false
-                }
-                methodName := nodes.Text(source, callee)
-                returnCanonical := state.LookupMemberMethodReturnCanonical(methodName)
-                if returnCanonical == "" {
-                    state.Decline("emit.iterator.for-in-unsupported", "'" + methodName + "' is not a known enclosing member method for a for..in source")
-                    return false
-                }
-                sourceCanonical = returnCanonical
-            } else {
-                state.Decline("emit.iterator.for-in-unsupported", "`for..in` sources must be a bound identifier or a member call; other sources are a later slice")
-                return false
             }
-            enumerableElement := EnumerableElementCanonicalOf(sourceCanonical)
-            if enumerableElement == "" {
-                state.Decline("emit.iterator.for-in-unsupported", "`for..in` over a non-sequence value ('" + sourceCanonical + "') in an iterator body is a later slice")
+            WalkExpression(nodes, source, sourceNode, state)
+            if state.Declined {
                 return false
             }
             if state.IsAsync {
@@ -785,13 +743,9 @@ class ColumnarIteratorPlanner {
                 state.Decline("emit.iterator.for-in-unsupported", "`for..in` over a sequence source in an async iterator body is a later slice")
                 return false
             }
-            if state.NameIsTypeParameter(enumerableElement) {
-                state.Decline("emit.iterator.for-in-unsupported", "`for..in` over a type-parameter element sequence is a later slice")
-                return false
-            }
-            state.AddHoistedLocal("<>__enum" + state.EnumeratorCount.ToString(), "IEnumerator<" + enumerableElement + ">", HoistedEnumeratorFieldRole())
+            state.AddHoistedLocal("<>__enum" + state.EnumeratorCount.ToString(), UnresolvedCanonical(), HoistedEnumeratorFieldRole())
             state.EnumeratorCount = state.EnumeratorCount + 1
-            state.AddLocal(nodes.Text(source, node), enumerableElement)
+            state.AddLocal(nodes.Text(source, node), UnresolvedCanonical())
             if state.Declined {
                 return false
             }
@@ -806,79 +760,39 @@ class ColumnarIteratorPlanner {
             return false
         }
         if kind == 48 {
-            // Throw [exception]: only `throw new <BclException>("literal")` is lowered — the covered
-            // examples' guard-clause form (ldstr + newobj(string) + throw). A throw never falls through.
+            // Throw [exception]: the thrown value is an ordinary expression — `new T(...)` with any
+            // constructor arguments, a hoisted exception binding, a factory call. A throw never falls
+            // through.
             if nodes.ChildCount(node) != 1 {
                 state.Decline("emit.iterator.unsupported-shape", "unsupported throw statement in an iterator body")
                 return false
             }
-            creation := nodes.Child(node, 0)
-            if nodes.Kind(creation) != 15 || nodes.ChildCount(creation) != 2 {
-                state.Decline("emit.iterator.unsupported-shape", "only `throw new <BclException>(\"message\")` is lowered in an iterator body")
-                return false
-            }
-            typeNode := nodes.Child(creation, 0)
-            messageNode := nodes.Child(creation, 1)
-            if nodes.Kind(typeNode) != 0 || !IsLowerableExceptionName(nodes.Text(source, typeNode)) || nodes.Kind(messageNode) != 3 || !IsPlainMessageLiteral(nodes.Text(source, messageNode)) {
-                state.Decline("emit.iterator.unsupported-shape", "only `throw new <BclException>(\"message\")` with a plain string literal is lowered in an iterator body")
-                return false
-            }
+            WalkExpression(nodes, source, nodes.Child(node, 0), state)
+            return false
+        }
+        if kind == 20 {
+            state.Decline("emit.iterator.unsupported-shape", "a `return` statement cannot appear in an iterator body; use `yield` to produce a value and `yield break` to stop")
             return false
         }
         state.Decline("emit.iterator.unsupported-shape", "an iterator body statement (node kind " + kind.ToString() + ") is not yet lowered")
         return false
     }
 
+    // THE EXPRESSION WALK NO LONGER CLASSIFIES VALUES, AND THAT IS THE POINT OF THIS OWNER.
+    //
+    // An iterator body's expressions are ORDINARY expressions: a call, a `new`, an array literal, an
+    // indexer, a member access, a binary. Deciding which of those a body may contain is a question with
+    // exactly one owner — `ColumnarMethodBodyPlanner`'s expression door and the planners behind it —
+    // and that owner needs live CLR handles this pass does not have. So classification walks an
+    // expression only for the two things that are the STATE MACHINE'S own business and cannot be seen
+    // later: a suspension point (`await`) that consumes a resume state, and a postfix step whose target
+    // must be a writable hoisted binding. Everything else is admitted here and answered, precisely, by
+    // the expression owner at realization.
     static func WalkExpression(nodes: ColumnarNodeTable, source: string, node: int, state: ColumnarIteratorWalkState) {
         if state.Declined {
             return
         }
         kind := nodes.Kind(node)
-        if kind == 0 || kind == 4 {
-            // int / bool literal
-            return
-        }
-        if kind == 6 {
-            // identifier — a parameter, a hoisted local, or (instance mode) a readable enclosing field
-            name := nodes.Text(source, node)
-            if state.LookupReadCanonical(name) == "" {
-                state.Decline("emit.iterator.unsupported-shape", "unbound identifier '" + name + "' in an iterator body")
-            }
-            return
-        }
-        if kind == 7 {
-            // parenthesized
-            if nodes.ChildCount(node) == 1 {
-                WalkExpression(nodes, source, nodes.Child(node, 0), state)
-            }
-            return
-        }
-        if kind == 12 {
-            // binary
-            if nodes.ChildCount(node) != 2 {
-                state.Decline("emit.iterator.unsupported-shape", "unsupported binary expression in an iterator body")
-                return
-            }
-            op := nodes.Text(source, node)
-            if !IsSupportedBinaryOperator(op) {
-                state.Decline("emit.iterator.unsupported-shape", "binary operator '" + op + "' is not yet lowered in an iterator body")
-                return
-            }
-            WalkExpression(nodes, source, nodes.Child(node, 0), state)
-            WalkExpression(nodes, source, nodes.Child(node, 1), state)
-            if state.Declined {
-                return
-            }
-            // The emitted operators are the raw numeric opcodes, so both operands must be the SAME
-            // numeric canonical (bool is admitted for equality only). Strings, type parameters, and
-            // every other operand type decline rather than lower to a type-wrong opcode.
-            left := InferCanonical(nodes, source, nodes.Child(node, 0), state)
-            right := InferCanonical(nodes, source, nodes.Child(node, 1), state)
-            if !AreLowerableBinaryOperands(left, right, op) {
-                state.Decline("emit.iterator.unsupported-shape", "binary operator '" + op + "' over '" + left + "'/'" + right + "' operands is not yet lowered in an iterator body")
-            }
-            return
-        }
         if kind == 53 {
             // `await` reaches WalkExpression only in a VALUE position (initializer, yield value,
             // operand); suspension points are statement-position unit awaits handled by WalkStatement.
@@ -895,16 +809,20 @@ class ColumnarIteratorPlanner {
             WalkPostfixStep(nodes, source, node, state)
             return
         }
-        if kind == 9 {
-            // call — an argument-free string instance call (`s.ToUpper()` and family) is the one
-            // admitted shape; nested/recursive iterator calls and general calls are later slices
-            if IsAdmittedStringCall(nodes, source, node, state) {
-                return
-            }
-            state.Decline("emit.iterator.nested-unsupported", "method calls inside an iterator body are not yet lowered")
+        if kind == 39 {
+            // A lambda inside an iterator body captures the state machine's own `this`, which the
+            // closure-display planner has no route to synthesize from a synthesized type.
+            state.Decline("emit.iterator.lambda-unsupported", "a lambda inside an iterator body is not yet lowered")
             return
         }
-        state.Decline("emit.iterator.unsupported-shape", "an iterator body expression (node kind " + kind.ToString() + ") is not yet lowered")
+        c := 0
+        while c < nodes.ChildCount(node) {
+            WalkExpression(nodes, source, nodes.Child(node, c), state)
+            if state.Declined {
+                return
+            }
+            c = c + 1
+        }
     }
 
     // `<ident>++` / `<ident>--`: a step of a bound (writable) int binding — the only stepped canonical
@@ -927,32 +845,11 @@ class ColumnarIteratorPlanner {
             state.Decline("emit.iterator.unsupported-shape", "postfix step of an unbound or read-only identifier '" + name + "' in an iterator body")
             return
         }
-        if canonical != "int" {
+        // A binding whose type is resolved at realization is admitted here and type-checked there,
+        // against the field's exact CLR type rather than against a spelling.
+        if canonical != "int" && !IsUnresolvedCanonical(canonical) {
             state.Decline("emit.iterator.unsupported-shape", "postfix step over a non-int binding ('" + name + "': '" + canonical + "') is not yet lowered in an iterator body")
         }
-    }
-
-    // The admitted value-position call shape: `<string-binding>.<Method>()` with no arguments, where
-    // the method is a lowerable zero-argument string instance method. Reads resolve like identifiers
-    // (parameters and locals first, then enclosing-type fields).
-    static func IsAdmittedStringCall(nodes: ColumnarNodeTable, source: string, node: int, state: ColumnarIteratorWalkState): bool {
-        if nodes.ChildCount(node) != 1 {
-            return false
-        }
-        callee := nodes.Child(node, 0)
-        if nodes.Kind(callee) != 8 || nodes.ChildCount(callee) != 1 {
-            return false
-        }
-        receiver := nodes.Child(callee, 0)
-        if nodes.Kind(receiver) != 6 || state.LookupReadCanonical(nodes.Text(source, receiver)) != "string" {
-            return false
-        }
-        return IsLowerableStringInstanceMethod(nodes.Text(source, callee))
-    }
-
-    // Zero-argument string→string instance methods the emit walk resolves via GetMethod(name, none).
-    static func IsLowerableStringInstanceMethod(name: string): bool {
-        return name == "ToUpper" || name == "ToLower" || name == "Trim"
     }
 
     // A statement-position `await <operand>` (a unit await): a suspension point that resumes at its own
@@ -975,74 +872,19 @@ class ColumnarIteratorPlanner {
             state.Decline("emit.iterator.async-await-unsupported", "only `await Task.Delay(<int>)` awaited operands are lowered in an async iterator body")
             return
         }
-        argNode := nodes.Child(operand, 1)
-        WalkExpression(nodes, source, argNode, state)
-        if !state.Declined && InferCanonical(nodes, source, argNode, state) != "int" {
-            state.Decline("emit.iterator.async-await-unsupported", "the Task.Delay argument must be an int-typed expression in an async iterator body")
-        }
+        WalkExpression(nodes, source, nodes.Child(operand, 1), state)
     }
 
-    // Simple canonical-string type inference over the covered expression forms: int/bool literals,
-    // bound identifiers, parenthesized, and binaries (comparison => bool, otherwise the left operand's type).
-    static func InferCanonical(nodes: ColumnarNodeTable, source: string, node: int, state: ColumnarIteratorWalkState): string {
-        kind := nodes.Kind(node)
-        if kind == 0 {
-            return "int"
-        }
-        if kind == 4 {
-            return "bool"
-        }
-        if kind == 6 {
-            return state.LookupReadCanonical(nodes.Text(source, node))
-        }
-        if kind == 7 {
-            if nodes.ChildCount(node) == 1 {
-                return InferCanonical(nodes, source, nodes.Child(node, 0), state)
-            }
-            return "?"
-        }
-        if kind == 12 && nodes.ChildCount(node) == 2 {
-            op := nodes.Text(source, node)
-            if IsComparisonOperator(op) {
-                return "bool"
-            }
-            left := InferCanonical(nodes, source, nodes.Child(node, 0), state)
-            if left == "" {
-                return "?"
-            }
-            return left
-        }
-        if kind == 44 && nodes.ChildCount(node) == 1 {
-            // postfix step: the value IS the target's pre-step value.
-            stepped := state.LookupCanonical(nodes.Text(source, nodes.Child(node, 0)))
-            if stepped == "" {
-                return "?"
-            }
-            return stepped
-        }
-        if kind == 9 && IsAdmittedStringCall(nodes, source, node, state) {
-            return "string"
-        }
+    // THE MARKER FOR A HOISTED FIELD WHOSE TYPE REALIZATION RESOLVES. Classification owns a hoisted
+    // field's name, role and position; its CLR TYPE is whatever the one expression owner says the
+    // initializer (or the enumerated source) is, and that answer needs live handles. `?` is not a
+    // spelling any source type can have, so it never collides with a written canonical.
+    static func UnresolvedCanonical(): string {
         return "?"
     }
 
-    static func IsComparisonOperator(op: string): bool {
-        return op == "<" || op == ">" || op == "<=" || op == ">=" || op == "==" || op == "!="
-    }
-
-    static func IsNumericCanonical(canonical: string): bool {
-        return canonical == "int" || canonical == "long" || canonical == "float" || canonical == "double"
-    }
-
-    static func AreLowerableBinaryOperands(left: string, right: string, op: string): bool {
-        if left == right && IsNumericCanonical(left) {
-            return true
-        }
-        return left == "bool" && right == "bool" && (op == "==" || op == "!=")
-    }
-
-    static func IsSupportedBinaryOperator(op: string): bool {
-        return op == "+" || op == "-" || op == "*" || op == "/" || op == "%" || op == "<" || op == ">" || op == "<=" || op == ">=" || op == "==" || op == "!="
+    static func IsUnresolvedCanonical(canonical: string): bool {
+        return canonical == "?"
     }
 
     // ---- return-canonical parsing ----
@@ -1138,33 +980,6 @@ class ColumnarIteratorPlanner {
         return element == "int" || element == "long" || element == "float" || element == "double" || element == "bool" || element == "char" || element == "string"
     }
 
-    // The System-namespace exception constructions the throw lowering resolves (mirrors the C#
-    // emitter's BCL exception whitelist for the System namespace).
-    static func IsLowerableExceptionName(name: string): bool {
-        simple := SystemUnqualifiedExceptionName(name)
-        if simple == "" {
-            return false
-        }
-        return simple == "Exception" || simple == "InvalidOperationException" || simple == "ArgumentException" || simple == "ArgumentNullException" || simple == "ArgumentOutOfRangeException" || simple == "NotSupportedException" || simple == "NotImplementedException" || simple == "FormatException" || simple == "IndexOutOfRangeException" || simple == "InvalidCastException" || simple == "TimeoutException" || simple == "OverflowException" || simple == "DivideByZeroException" || simple == "ArithmeticException" || simple == "NullReferenceException"
-    }
-
-    // A bare exception name, or one qualified exactly by `System.`; "" for any other qualification.
-    static func SystemUnqualifiedExceptionName(name: string): string {
-        simple := name
-        if name.Length > 7 && name.Substring(0, 7) == "System." {
-            simple = name.Substring(7)
-        }
-        if IndexOfChar(simple, '.') >= 0 {
-            return ""
-        }
-        return simple
-    }
-
-    // A plain (non-interpolated) quoted string literal span, exactly what StringLiteralDecoder decodes.
-    static func IsPlainMessageLiteral(text: string): bool {
-        return text.Length >= 2 && text[0] == '"' && text[text.Length - 1] == '"'
-    }
-
     static func IndexOfChar(value: string, target: char): int {
         i := 0
         while i < value.Length {
@@ -1218,12 +1033,20 @@ class ColumnarIteratorEmitContext {
     EnclosingFieldCanonicals: string[]
     EnclosingMethodNames: string[]
     EnclosingMethods: MethodInfo[]
-    KnownTypeNames: string[]
-    KnownTypes: Type[]
     // Async-machine extra: the MoveNextCore handle MoveNextAsync's plan drives (null for sync machines).
     CoreMethod: MethodInfo?
+    // The body's ORDINARY-EXPRESSION scope: the state machine's name bindings expressed as the one
+    // fragment-binding contract, so every value in the body reaches the single expression owner.
+    Scope: ColumnarIteratorBodyScope?
+    // The live machine builder and — for a generic machine — the instantiation its member handles are
+    // taken on. A hoisted local's CLR type is known only once its initializer has been planned, so its
+    // field is DEFINED as the lowering reaches the declaration rather than ahead of the body.
+    Builder: TypeBuilder?
+    GenericMemberType: Type?
+    DeclineSite: string
+    DeclineMessage: string
 
-    constructor(nodes: ColumnarNodeTable, source: string, bodyRoot: int, shape: ColumnarIteratorShape, stateMachineType: Type, elementType: Type, fieldNames: string[], fields: FieldInfo[], structuralTypeReferences: ColumnarStructuralTypeReferenceTable, smConstructor: ConstructorInfo? = null, enclosingType: Type? = null, enclosingFieldNames: string[]? = null, enclosingFields: FieldInfo[]? = null, enclosingFieldCanonicals: string[]? = null, enclosingMethodNames: string[]? = null, enclosingMethods: MethodInfo[]? = null, knownTypeNames: string[]? = null, knownTypes: Type[]? = null, coreMethod: MethodInfo? = null) {
+    constructor(nodes: ColumnarNodeTable, source: string, bodyRoot: int, shape: ColumnarIteratorShape, stateMachineType: Type, elementType: Type, fieldNames: string[], fields: FieldInfo[], structuralTypeReferences: ColumnarStructuralTypeReferenceTable, smConstructor: ConstructorInfo? = null, enclosingType: Type? = null, enclosingFieldNames: string[]? = null, enclosingFields: FieldInfo[]? = null, enclosingFieldCanonicals: string[]? = null, enclosingMethodNames: string[]? = null, enclosingMethods: MethodInfo[]? = null, coreMethod: MethodInfo? = null, scope: ColumnarIteratorBodyScope? = null, builder: TypeBuilder? = null, genericMemberType: Type? = null) {
         Nodes = nodes
         Source = source
         BodyRoot = bodyRoot
@@ -1240,9 +1063,68 @@ class ColumnarIteratorEmitContext {
         EnclosingFieldCanonicals = enclosingFieldCanonicals ?? new string[](0)
         EnclosingMethodNames = enclosingMethodNames ?? new string[](0)
         EnclosingMethods = enclosingMethods ?? new MethodInfo[](0)
-        KnownTypeNames = knownTypeNames ?? new string[](0)
-        KnownTypes = knownTypes ?? new Type[](0)
         CoreMethod = coreMethod
+        Scope = scope
+        Builder = builder
+        GenericMemberType = genericMemberType
+        DeclineSite = ""
+        DeclineMessage = ""
+    }
+
+    Declined: bool => DeclineMessage.Length > 0
+
+    func Decline(site: string, message: string) {
+        if DeclineMessage.Length == 0 {
+            DeclineSite = site
+            DeclineMessage = message
+        }
+    }
+
+    func RequiredScope(): ColumnarIteratorBodyScope {
+        scope := Scope
+        if scope == null {
+            throw new InvalidOperationException("Iterator body lowering requires an expression scope.")
+        }
+        return scope
+    }
+
+    // Define — or reuse — the hoisted field a declaration binds, now that its value's exact CLR type is
+    // known. A re-declaration of the same name in disjoint scopes shares one slot exactly when the two
+    // declarations agree on the type; disagreeing declarations cannot share a CLR field and decline.
+    func TryEnsureHoistedField(name: string, fieldType: Type, out field: FieldInfo): bool {
+        field = null
+        if fieldType == null || fieldType.FullName == "System.Void" || fieldType.get_IsByRef() || fieldType.get_IsPointer() {
+            return false
+        }
+        index := 0
+        while index < FieldNames.Length {
+            if FieldNames[index] == name {
+                existing := Fields[index]
+                if existing != null {
+                    if existing.get_FieldType() != fieldType {
+                        return false
+                    }
+                    field = existing
+                    return true
+                }
+                builder := Builder
+                if builder == null {
+                    throw new InvalidOperationException("Iterator body lowering requires the state-machine builder to define a hoisted field.")
+                }
+                defined := builder.DefineField(name, fieldType, FieldAttributes.Public)
+                handle: FieldInfo = defined
+                instantiation := GenericMemberType
+                if instantiation != null {
+                    handle = TypeBuilder.GetField(instantiation, defined)
+                }
+                Fields[index] = handle
+                RequiredScope().PublishField(name, handle)
+                field = handle
+                return true
+            }
+            index = index + 1
+        }
+        return false
     }
 
     func RequiredCoreMethod(): MethodInfo {
@@ -1286,22 +1168,15 @@ class ColumnarIteratorEmitContext {
         throw new InvalidOperationException("Iterator emit context has no enclosing method named '" + name + "'.")
     }
 
-    func KnownTypeForCanonical(canonical: string): Type? {
-        i := 0
-        while i < KnownTypeNames.Length {
-            if KnownTypeNames[i] == canonical {
-                return KnownTypes[i]
-            }
-            i = i + 1
-        }
-        return null
-    }
-
     func FieldForName(name: string): FieldInfo {
         i := 0
         while i < FieldNames.Length {
             if FieldNames[i] == name {
-                return Fields[i]
+                handle := Fields[i]
+                if handle == null {
+                    throw new InvalidOperationException("Iterator state-machine field '" + name + "' is read before its declaration defines it.")
+                }
+                return handle
             }
             i = i + 1
         }
@@ -1889,21 +1764,58 @@ class ColumnarIteratorBodyPlanner {
         return emit.Plan.AddField(emit.Context.FieldForName(name))
     }
 
-    // Push an identifier's value: a hoisted field directly, or (instance mode) an enclosing-type field
-    // read through the captured receiver (`this.<>__this.Member`). Net stack effect +1 either way.
-    static func AppendIdentifierRead(emit: ColumnarMoveNextEmit, name: string) {
-        if emit.Context.HasHoistedField(name) {
-            LoadThis(emit)
-            emit.Plan.AppendFieldInstruction(ColumnarCodePlanContract.Ldfld(), FieldPool(emit, name))
-            return
+    // THE ONE EXPRESSION DOOR. A value inside a `func*` body is planned by the SAME owner that plans a
+    // value inside an ordinary function body — `ColumnarMethodBodyPlanner.TryAppendValue` — against
+    // bindings in which this body's names resolve to the machine's fields. Nothing about a call, a
+    // `new`, an array literal, an indexer or a binary is decided here.
+    //
+    // A decline rolls the plan back to the checkpoint so the rows this owner has already appended stay
+    // well-formed, and records the failing node so the CLI can name the construct rather than the
+    // sub-slice.
+    static func AppendValue(emit: ColumnarMoveNextEmit, node: int, out resultType: Type): bool {
+        resultType = typeof(int)
+        if emit.Context.Declined {
+            return false
         }
-        memberIndex := emit.Context.EnclosingFieldIndex(name)
-        if memberIndex < 0 {
-            throw new InvalidOperationException("Iterator MoveNext lowering reached an unbound identifier '" + name + "'.")
+        checkpoint := emit.Plan.CreateCheckpoint()
+        if emit.Context.RequiredScope().TryAppendValue(emit.Context.Nodes, emit.Context.Source, node, emit.Plan, out resultType) {
+            return true
         }
-        LoadThis(emit)
-        emit.Plan.AppendFieldInstruction(ColumnarCodePlanContract.Ldfld(), FieldPool(emit, "<>__this"))
-        emit.Plan.AppendFieldInstruction(ColumnarCodePlanContract.Ldfld(), emit.Plan.AddField(emit.Context.EnclosingFields[memberIndex]))
+        emit.Plan.Rollback(checkpoint)
+        emit.Context.Decline("emit.iterator.unsupported-shape", "an iterator body expression (node kind " + emit.Context.Nodes.Kind(node).ToString() + ") could not be lowered")
+        return false
+    }
+
+    // A value that must arrive at a storage location of `storageType` — a hoisted field, the current
+    // field a `yield` writes. The conversion is the call-argument conversion owner's, so boxing, a
+    // reference upcast, a nullable lift, a constructed-generic conversion and a user-defined implicit
+    // conversion all behave exactly as they do when the same value is passed to a parameter.
+    static func AppendStoredValue(emit: ColumnarMoveNextEmit, node: int, storageType: Type): bool {
+        valueType := typeof(int)
+        if !AppendValue(emit, node, out valueType) {
+            return false
+        }
+        if valueType == storageType {
+            return true
+        }
+        if !emit.Context.RequiredScope().TryAppendStorageConversion(emit.Plan, valueType, storageType) {
+            emit.Context.Decline("emit.iterator.unsupported-shape", "an iterator body value of type '" + valueType.Name + "' cannot be stored as '" + storageType.Name + "'")
+            return false
+        }
+        return true
+    }
+
+    // A condition: an ordinary value the branch rows consume as a Boolean.
+    static func AppendCondition(emit: ColumnarMoveNextEmit, node: int): bool {
+        conditionType := typeof(int)
+        if !AppendValue(emit, node, out conditionType) {
+            return false
+        }
+        if conditionType != typeof(bool) {
+            emit.Context.Decline("emit.iterator.unsupported-shape", "an iterator body condition must be a Boolean value, not '" + conditionType.Name + "'")
+            return false
+        }
+        return true
     }
 
     // Emits one statement and reports whether control can FALL THROUGH past it. The rules mirror
@@ -1913,6 +1825,9 @@ class ColumnarIteratorBodyPlanner {
     static func EmitStatement(emit: ColumnarMoveNextEmit, node: int): bool {
         nodes := emit.Context.Nodes
         source := emit.Context.Source
+        if emit.Context.Declined {
+            return false
+        }
         kind := nodes.Kind(node)
         if kind == 25 {
             n := 0
@@ -1925,41 +1840,65 @@ class ColumnarIteratorBodyPlanner {
             return true
         }
         if kind == 40 {
-            // typed local declaration: value span = type, child 0 = name, child 1 = init. A declaration
-            // without an initializer hoists to a default-valued field — nothing to store.
+            // typed local declaration: value span = type, child 0 = name, child 1 = init. The field's
+            // type came from the WRITTEN canonical, so it is already defined; a declaration without an
+            // initializer leaves the field at its default — nothing to store.
             if nodes.ChildCount(node) >= 2 {
                 name := nodes.Text(source, nodes.Child(node, 0))
+                fieldPool := FieldPool(emit, name)
                 LoadThis(emit)
-                EmitExpression(emit, nodes.Child(node, 1))
-                emit.Plan.AppendFieldInstruction(ColumnarCodePlanContract.Stfld(), FieldPool(emit, name))
+                if !AppendStoredValue(emit, nodes.Child(node, 1), emit.Context.FieldForName(name).get_FieldType()) {
+                    return false
+                }
+                emit.Plan.AppendFieldInstruction(ColumnarCodePlanContract.Stfld(), fieldPool)
             }
             return true
         }
         if kind == 24 {
-            // `:=` local declaration: value span = name, child 0 = init
+            // `:=` local declaration: value span = name, child 0 = init. The initializer's type IS the
+            // local's type, so it is discovered first (by planning the value into a plan nobody runs),
+            // the field is defined from it, and only then do the real rows go down in evaluation order.
             name := nodes.Text(source, node)
+            initializerType := typeof(int)
+            if !emit.Context.RequiredScope().TryDiscoverValueType(nodes, source, nodes.Child(node, 0), out initializerType) {
+                emit.Context.Decline("emit.iterator.unsupported-shape", "the initializer of local '" + name + "' could not be lowered in an iterator body")
+                return false
+            }
+            hoisted: FieldInfo? = null
+            if !emit.Context.TryEnsureHoistedField(name, initializerType, out hoisted) {
+                emit.Context.Decline("emit.iterator.unsupported-shape", "local '" + name + "' cannot be hoisted as '" + initializerType.Name + "' in an iterator body")
+                return false
+            }
+            fieldPool := FieldPool(emit, name)
             LoadThis(emit)
-            EmitExpression(emit, nodes.Child(node, 0))
-            emit.Plan.AppendFieldInstruction(ColumnarCodePlanContract.Stfld(), FieldPool(emit, name))
+            if !AppendStoredValue(emit, nodes.Child(node, 0), initializerType) {
+                return false
+            }
+            emit.Plan.AppendFieldInstruction(ColumnarCodePlanContract.Stfld(), fieldPool)
             return true
         }
         if kind == 23 {
             // expression statement: a unit await (async bodies), a bare postfix step (value dropped),
-            // or a simple `=` assignment (kind 14) to a bound identifier
-            assign := nodes.Child(node, 0)
-            if nodes.Kind(assign) == 53 {
-                EmitUnitAwait(emit, assign)
-                return true
+            // an assignment to a hoisted binding, or an ordinary value whose result is discarded.
+            inner := nodes.Child(node, 0)
+            if nodes.Kind(inner) == 53 {
+                EmitUnitAwait(emit, inner)
+                return !emit.Context.Declined
             }
-            if nodes.Kind(assign) == 44 {
-                EmitPostfixStep(emit, assign, false)
-                return true
+            if nodes.Kind(inner) == 44 {
+                EmitPostfixStep(emit, inner, false)
+                return !emit.Context.Declined
             }
-            target := nodes.Child(assign, 0)
-            name := nodes.Text(source, target)
-            LoadThis(emit)
-            EmitExpression(emit, nodes.Child(assign, 1))
-            emit.Plan.AppendFieldInstruction(ColumnarCodePlanContract.Stfld(), FieldPool(emit, name))
+            if nodes.Kind(inner) == 14 {
+                return EmitAssignment(emit, inner)
+            }
+            statementType := typeof(int)
+            if !AppendValue(emit, inner, out statementType) {
+                return false
+            }
+            if !ColumnarCodePlanExecutor.IsVoidType(statementType) {
+                emit.Plan.AppendInstructionWithoutOperand(ColumnarCodePlanContract.Pop())
+            }
             return true
         }
         if kind == 26 {
@@ -1967,21 +1906,28 @@ class ColumnarIteratorBodyPlanner {
             condLabel := emit.Plan.DefineLabel()
             afterLabel := emit.Plan.DefineLabel()
             emit.Plan.AppendMarkLabel(condLabel)
-            EmitExpression(emit, nodes.Child(node, 0))
+            if !AppendCondition(emit, nodes.Child(node, 0)) {
+                return false
+            }
             emit.Plan.AppendLabelInstruction(ColumnarCodePlanContract.Brfalse(), afterLabel)
             if EmitStatement(emit, nodes.Child(node, 1)) {
                 emit.Plan.AppendLabelInstruction(ColumnarCodePlanContract.Br(), condLabel)
             }
             emit.Plan.AppendMarkLabel(afterLabel)
-            return true
+            return !emit.Context.Declined
         }
         if kind == 27 {
             // if [condition, then, else?]: the join label is defined and jumped to only when the
             // then-branch falls through (otherwise the jump row would be unreachable).
             elseLabel := emit.Plan.DefineLabel()
-            EmitExpression(emit, nodes.Child(node, 0))
+            if !AppendCondition(emit, nodes.Child(node, 0)) {
+                return false
+            }
             emit.Plan.AppendLabelInstruction(ColumnarCodePlanContract.Brfalse(), elseLabel)
             thenFalls := EmitStatement(emit, nodes.Child(node, 1))
+            if emit.Context.Declined {
+                return false
+            }
             afterLabel := -1
             if thenFalls {
                 afterLabel = emit.Plan.DefineLabel()
@@ -1991,6 +1937,9 @@ class ColumnarIteratorBodyPlanner {
             elseFalls := true
             if nodes.ChildCount(node) == 3 {
                 elseFalls = EmitStatement(emit, nodes.Child(node, 2))
+                if emit.Context.Declined {
+                    return false
+                }
             }
             if afterLabel >= 0 {
                 emit.Plan.AppendMarkLabel(afterLabel)
@@ -2000,7 +1949,7 @@ class ColumnarIteratorBodyPlanner {
         if kind == 72 {
             if nodes.ChildCount(node) == 1 {
                 EmitYieldReturn(emit, nodes.Child(node, 0))
-                return true
+                return !emit.Context.Declined
             }
             emit.Plan.AppendLabelInstruction(ColumnarCodePlanContract.Br(), emit.EndLabel)
             return false
@@ -2010,21 +1959,32 @@ class ColumnarIteratorBodyPlanner {
             // while discipline with a trailing increment — the back edge (and the increment before it)
             // only exists when the body can complete.
             EmitStatement(emit, nodes.Child(node, 0))
+            if emit.Context.Declined {
+                return false
+            }
             condLabel := emit.Plan.DefineLabel()
             afterLabel := emit.Plan.DefineLabel()
             emit.Plan.AppendMarkLabel(condLabel)
-            EmitExpression(emit, nodes.Child(node, 1))
+            if !AppendCondition(emit, nodes.Child(node, 1)) {
+                return false
+            }
             emit.Plan.AppendLabelInstruction(ColumnarCodePlanContract.Brfalse(), afterLabel)
             if EmitStatement(emit, nodes.Child(node, 3)) {
                 EmitStatement(emit, nodes.Child(node, 2))
+                if emit.Context.Declined {
+                    return false
+                }
                 emit.Plan.AppendLabelInstruction(ColumnarCodePlanContract.Br(), condLabel)
+            }
+            if emit.Context.Declined {
+                return false
             }
             emit.Plan.AppendMarkLabel(afterLabel)
             return true
         }
         if kind == 29 {
-            // for..in [source, body]: hoisted array sources take the index loop; everything else
-            // (member/call/sequence sources) the hoisted-enumerator loop — mirroring the walk.
+            // for..in [source, body]: a hoisted ARRAY field takes the index loop; every other source
+            // takes the hoisted-enumerator loop — mirroring the walk.
             if nodes.Kind(nodes.Child(node, 0)) != 6 {
                 return EmitEnumerableForIn(emit, node)
             }
@@ -2036,85 +1996,159 @@ class ColumnarIteratorBodyPlanner {
             if ColumnarIteratorPlanner.ArrayElementCanonicalOf(sourceCanonical) == "" {
                 return EmitEnumerableForIn(emit, node)
             }
-            indexName := "<>__index" + emit.NextForIn.ToString()
-            emit.NextForIn = emit.NextForIn + 1
-            varName := nodes.Text(source, node)
-            arrayPool := FieldPool(emit, sourceName)
-            indexPool := FieldPool(emit, indexName)
-            varPool := FieldPool(emit, varName)
-            // index = 0
-            LoadThis(emit)
-            EmitInt(emit, 0)
-            emit.Plan.AppendFieldInstruction(ColumnarCodePlanContract.Stfld(), indexPool)
-            condLabel := emit.Plan.DefineLabel()
-            afterLabel := emit.Plan.DefineLabel()
-            emit.Plan.AppendMarkLabel(condLabel)
-            // index < array.Length
-            LoadThis(emit)
-            emit.Plan.AppendFieldInstruction(ColumnarCodePlanContract.Ldfld(), indexPool)
-            LoadThis(emit)
-            emit.Plan.AppendFieldInstruction(ColumnarCodePlanContract.Ldfld(), arrayPool)
-            emit.Plan.AppendInstructionWithoutOperand(ColumnarCodePlanContract.Ldlen())
-            emit.Plan.AppendInstructionWithoutOperand(ColumnarCodePlanContract.ConvI4())
-            emit.Plan.AppendInstructionWithoutOperand(ColumnarCodePlanContract.Clt())
-            emit.Plan.AppendLabelInstruction(ColumnarCodePlanContract.Brfalse(), afterLabel)
-            // var = array[index]
-            LoadThis(emit)
-            LoadThis(emit)
-            emit.Plan.AppendFieldInstruction(ColumnarCodePlanContract.Ldfld(), arrayPool)
-            LoadThis(emit)
-            emit.Plan.AppendFieldInstruction(ColumnarCodePlanContract.Ldfld(), indexPool)
-            AppendArrayElementLoad(emit, emit.Context.FieldCanonicalForName(varName))
-            emit.Plan.AppendFieldInstruction(ColumnarCodePlanContract.Stfld(), varPool)
-            if EmitStatement(emit, nodes.Child(node, 1)) {
-                // index = index + 1
-                LoadThis(emit)
-                LoadThis(emit)
-                emit.Plan.AppendFieldInstruction(ColumnarCodePlanContract.Ldfld(), indexPool)
-                EmitInt(emit, 1)
-                emit.Plan.AppendInstructionWithoutOperand(ColumnarCodePlanContract.Add())
-                emit.Plan.AppendFieldInstruction(ColumnarCodePlanContract.Stfld(), indexPool)
-                emit.Plan.AppendLabelInstruction(ColumnarCodePlanContract.Br(), condLabel)
-            }
-            emit.Plan.AppendMarkLabel(afterLabel)
-            return true
+            return EmitArrayForIn(emit, node, sourceName)
         }
         if kind == 48 {
-            // throw new <BclException>("literal"): ldstr the decoded message, newobj the exception's
-            // (string) constructor, throw. A throw never falls through.
-            creation := nodes.Child(node, 0)
-            exceptionName := nodes.Text(source, nodes.Child(creation, 0))
-            messageText := nodes.Text(source, nodes.Child(creation, 1))
-            messagePool := emit.Plan.AddString(StringLiteralDecoder.Decode(messageText, false))
-            emit.Plan.AppendStringInstruction(ColumnarCodePlanContract.Ldstr(), messagePool)
-            ctorPool := emit.Plan.AddConstructor(LowerableExceptionConstructor(exceptionName))
-            emit.Plan.AppendConstructorInstruction(ColumnarCodePlanContract.Newobj(), ctorPool)
+            // throw <expression>: the ordinary value owner builds the exception, then `throw`. A throw
+            // never falls through.
+            thrownType := typeof(int)
+            if !AppendValue(emit, nodes.Child(node, 0), out thrownType) {
+                return false
+            }
             emit.Plan.AppendInstructionWithoutOperand(ColumnarCodePlanContract.Throw())
             return false
         }
-        throw new InvalidOperationException("Iterator MoveNext lowering reached an unsupported statement kind " + kind.ToString() + ".")
+        emit.Context.Decline("emit.iterator.unsupported-shape", "an iterator body statement (node kind " + kind.ToString() + ") is not yet lowered")
+        return false
     }
 
-    // for..in over an IEnumerable<X>/List<X> source: hoisted-enumerator loop inside the guarded
-    // region. `this.enumK = source.GetEnumerator()`, then MoveNext/get_Current callvirts; the loop's
-    // normal exit disposes and nulls the enumerator inline (the fault handler and Dispose() cover the
-    // exceptional and suspended-abandonment paths).
+    // `target = value` / `target op= value` where the target is a hoisted binding. The plain form is a
+    // store; the compound form reads the field, applies the binary operator's own opcode selection for
+    // the field's exact type, and stores back — the single arithmetic owner chooses the instruction.
+    static func EmitAssignment(emit: ColumnarMoveNextEmit, node: int): bool {
+        nodes := emit.Context.Nodes
+        source := emit.Context.Source
+        name := nodes.Text(source, nodes.Child(node, 0))
+        fieldPool := FieldPool(emit, name)
+        fieldType := emit.Context.FieldForName(name).get_FieldType()
+        assignOperator := nodes.Text(source, node)
+        if assignOperator == "=" || assignOperator.Length == 0 {
+            LoadThis(emit)
+            if !AppendStoredValue(emit, nodes.Child(node, 1), fieldType) {
+                return false
+            }
+            emit.Plan.AppendFieldInstruction(ColumnarCodePlanContract.Stfld(), fieldPool)
+            return true
+        }
+        if assignOperator.Length != 2 || assignOperator[1] != '=' {
+            emit.Context.Decline("emit.iterator.unsupported-shape", "the assignment operator '" + assignOperator + "' is not yet lowered in an iterator body")
+            return false
+        }
+        binaryOperator := assignOperator.Substring(0, 1)
+        LoadThis(emit)
+        LoadThis(emit)
+        emit.Plan.AppendFieldInstruction(ColumnarCodePlanContract.Ldfld(), fieldPool)
+        if !AppendStoredValue(emit, nodes.Child(node, 1), fieldType) {
+            return false
+        }
+        resultType := typeof(int)
+        if !ColumnarPrimitiveBinaryPlanner.TryAppendArithmeticOperator(binaryOperator, fieldType, emit.Context.RequiredScope().Bindings, emit.Plan, out resultType) || resultType != fieldType {
+            emit.Context.Decline("emit.iterator.unsupported-shape", "a compound assignment of '" + fieldType.Name + "' with '" + assignOperator + "' is not yet lowered in an iterator body")
+            return false
+        }
+        emit.Plan.AppendFieldInstruction(ColumnarCodePlanContract.Stfld(), fieldPool)
+        return true
+    }
+
+    // for..in over a hoisted ARRAY field: the index loop over its own length, with the element load the
+    // ordinary indexer owner emits.
+    static func EmitArrayForIn(emit: ColumnarMoveNextEmit, node: int, sourceName: string): bool {
+        nodes := emit.Context.Nodes
+        source := emit.Context.Source
+        indexName := "<>__index" + emit.NextForIn.ToString()
+        emit.NextForIn = emit.NextForIn + 1
+        varName := nodes.Text(source, node)
+        arrayPool := FieldPool(emit, sourceName)
+        indexPool := FieldPool(emit, indexName)
+        varPool := FieldPool(emit, varName)
+        elementType := emit.Context.FieldForName(varName).get_FieldType()
+        // index = 0
+        LoadThis(emit)
+        EmitInt(emit, 0)
+        emit.Plan.AppendFieldInstruction(ColumnarCodePlanContract.Stfld(), indexPool)
+        condLabel := emit.Plan.DefineLabel()
+        afterLabel := emit.Plan.DefineLabel()
+        emit.Plan.AppendMarkLabel(condLabel)
+        // index < array.Length
+        LoadThis(emit)
+        emit.Plan.AppendFieldInstruction(ColumnarCodePlanContract.Ldfld(), indexPool)
+        LoadThis(emit)
+        emit.Plan.AppendFieldInstruction(ColumnarCodePlanContract.Ldfld(), arrayPool)
+        emit.Plan.AppendInstructionWithoutOperand(ColumnarCodePlanContract.Ldlen())
+        emit.Plan.AppendInstructionWithoutOperand(ColumnarCodePlanContract.ConvI4())
+        emit.Plan.AppendInstructionWithoutOperand(ColumnarCodePlanContract.Clt())
+        emit.Plan.AppendLabelInstruction(ColumnarCodePlanContract.Brfalse(), afterLabel)
+        // var = array[index]
+        LoadThis(emit)
+        LoadThis(emit)
+        emit.Plan.AppendFieldInstruction(ColumnarCodePlanContract.Ldfld(), arrayPool)
+        LoadThis(emit)
+        emit.Plan.AppendFieldInstruction(ColumnarCodePlanContract.Ldfld(), indexPool)
+        ColumnarRangeIndexPlanner.AppendArrayElementLoad(emit.Plan, elementType)
+        emit.Plan.AppendFieldInstruction(ColumnarCodePlanContract.Stfld(), varPool)
+        if EmitStatement(emit, nodes.Child(node, 1)) {
+            // index = index + 1
+            LoadThis(emit)
+            LoadThis(emit)
+            emit.Plan.AppendFieldInstruction(ColumnarCodePlanContract.Ldfld(), indexPool)
+            EmitInt(emit, 1)
+            emit.Plan.AppendInstructionWithoutOperand(ColumnarCodePlanContract.Add())
+            emit.Plan.AppendFieldInstruction(ColumnarCodePlanContract.Stfld(), indexPool)
+            emit.Plan.AppendLabelInstruction(ColumnarCodePlanContract.Br(), condLabel)
+        }
+        if emit.Context.Declined {
+            return false
+        }
+        emit.Plan.AppendMarkLabel(afterLabel)
+        return true
+    }
+
+    // for..in over ANY sequence source: the hoisted-enumerator loop inside the guarded region. The
+    // source is an ordinary expression planned by the one expression owner; its CLR type is what names
+    // the `IEnumerable<T>` the loop enumerates. `this.enumK = <source>.GetEnumerator()`, then
+    // MoveNext/get_Current callvirts; the loop's normal exit disposes and nulls the enumerator inline
+    // (the fault handler and Dispose() cover the exceptional and suspended-abandonment paths).
     static func EmitEnumerableForIn(emit: ColumnarMoveNextEmit, node: int): bool {
         nodes := emit.Context.Nodes
         source := emit.Context.Source
         enumName := "<>__enum" + emit.NextEnumerator.ToString()
         emit.NextEnumerator = emit.NextEnumerator + 1
         varName := nodes.Text(source, node)
+
+        sourceType := typeof(int)
+        if !emit.Context.RequiredScope().TryDiscoverValueType(nodes, source, nodes.Child(node, 0), out sourceType) {
+            emit.Context.Decline("emit.iterator.for-in-unsupported", "the `for..in` source could not be lowered in an iterator body")
+            return false
+        }
+        elementType: Type? = null
+        if !TryGetSequenceElementType(sourceType, out elementType) {
+            emit.Context.Decline("emit.iterator.for-in-unsupported", "`for..in` over '" + sourceType.Name + "' is not a sequence an iterator body can enumerate")
+            return false
+        }
+        enumeratorType := EnumeratorInterfaceTypeOf(elementType)
+        enumeratorField: FieldInfo? = null
+        if !emit.Context.TryEnsureHoistedField(enumName, enumeratorType, out enumeratorField) {
+            emit.Context.Decline("emit.iterator.for-in-unsupported", "the `for..in` enumerator over '" + elementType.Name + "' could not be hoisted")
+            return false
+        }
+        loopField: FieldInfo? = null
+        if !emit.Context.TryEnsureHoistedField(varName, elementType, out loopField) {
+            emit.Context.Decline("emit.iterator.for-in-unsupported", "the `for..in` element '" + varName + "' could not be hoisted as '" + elementType.Name + "'")
+            return false
+        }
+
         enumPool := FieldPool(emit, enumName)
         varPool := FieldPool(emit, varName)
-        element := emit.Context.FieldCanonicalForName(varName)
-        getEnumeratorPool := AddSequenceGetEnumerator(emit, element)
+        getEnumeratorPool := AddSequenceGetEnumerator(emit, elementType)
         moveNextPool := emit.Plan.AddMethod(EnumeratorMoveNextMethod())
-        currentPool := AddSequenceCurrentGetter(emit, element)
+        currentPool := AddSequenceCurrentGetter(emit, elementType)
         disposePool := emit.Plan.AddMethod(DisposableDisposeMethod())
         // this.enum = <source>.GetEnumerator()
         LoadThis(emit)
-        AppendSequenceSourceValue(emit, nodes.Child(node, 0), element)
+        sequenceType := typeof(int)
+        if !AppendValue(emit, nodes.Child(node, 0), out sequenceType) {
+            return false
+        }
         emit.Plan.AppendMethodInstruction(ColumnarCodePlanContract.Callvirt(), getEnumeratorPool)
         emit.Plan.AppendFieldInstruction(ColumnarCodePlanContract.Stfld(), enumPool)
         condLabel := emit.Plan.DefineLabel()
@@ -2134,6 +2168,9 @@ class ColumnarIteratorBodyPlanner {
         if EmitStatement(emit, nodes.Child(node, 1)) {
             emit.Plan.AppendLabelInstruction(ColumnarCodePlanContract.Br(), condLabel)
         }
+        if emit.Context.Declined {
+            return false
+        }
         emit.Plan.AppendMarkLabel(afterLabel)
         // Normal exit: dispose and null the enumerator (leave/fault handle the other paths).
         LoadThis(emit)
@@ -2145,66 +2182,50 @@ class ColumnarIteratorBodyPlanner {
         return true
     }
 
-    // Runtime interface handles for the enumerator loop; elements are the walk-admitted builtins, so
-    // every constructed interface is a runtime type with reflectable members.
-    static func RuntimeElementTypeOf(elementCanonical: string): Type {
-        if elementCanonical == "int" {
-            return typeof(int)
+    // THE ELEMENT OF AN ENUMERATED SOURCE, FROM THE SOURCE'S OWN CLR TYPE. A single-dimensional array
+    // enumerates its element (arrays implement `IEnumerable<T>` for their element type); a type that IS
+    // a constructed `IEnumerable<T>` enumerates `T`; a baked type that IMPLEMENTS exactly one
+    // `IEnumerable<T>` enumerates that one. A type with two different `IEnumerable<T>` implementations
+    // has no single answer and is refused rather than guessed.
+    static func TryGetSequenceElementType(sourceType: Type, out elementType: Type): bool {
+        elementType = null
+        if sourceType == null || sourceType.get_IsByRef() || sourceType.get_IsPointer() {
+            return false
         }
-        if elementCanonical == "long" {
-            return typeof(long)
+        if ColumnarTypeEquivalenceFacts.IsSafeSzArrayType(sourceType) {
+            elementType = sourceType.GetElementType()
+            return elementType != null
         }
-        if elementCanonical == "float" {
-            return typeof(float)
+        if IsConstructedEnumerable(sourceType) {
+            elementType = sourceType.GetGenericArguments()[0]
+            return true
         }
-        if elementCanonical == "double" {
-            return typeof(double)
+        if sourceType is TypeBuilder || sourceType.get_IsGenericParameter() {
+            return false
         }
-        if elementCanonical == "bool" {
-            return typeof(bool)
+        found: Type? = null
+        for candidate in sourceType.GetInterfaces() {
+            if IsConstructedEnumerable(candidate) {
+                argument := candidate.GetGenericArguments()[0]
+                if found != null && found != argument {
+                    return false
+                }
+                found = argument
+            }
         }
-        if elementCanonical == "char" {
-            return typeof(char)
+        if found == null {
+            return false
         }
-        if elementCanonical == "string" {
-            return typeof(string)
-        }
-        throw new InvalidOperationException("Iterator for..in lowering has no runtime element type for '" + elementCanonical + "'.")
+        elementType = found
+        return true
     }
 
-    // Push the sequence source value: a bound identifier/member read, or a member-call source
-    // (`receiver.Method()` — the receiver read plus a callvirt of the enclosing method's handle).
-    static func AppendSequenceSourceValue(emit: ColumnarMoveNextEmit, sourceNode: int, elementCanonical: string) {
-        nodes := emit.Context.Nodes
-        source := emit.Context.Source
-        if nodes.Kind(sourceNode) == 6 {
-            AppendIdentifierRead(emit, nodes.Text(source, sourceNode))
-            return
+    static func IsConstructedEnumerable(candidate: Type): bool {
+        if !candidate.get_IsGenericType() || candidate.get_IsGenericTypeDefinition() {
+            return false
         }
-        callee := nodes.Child(sourceNode, 0)
-        AppendIdentifierRead(emit, nodes.Text(source, nodes.Child(callee, 0)))
-        enclosing := emit.Context.EnclosingType
-        if enclosing == null {
-            throw new InvalidOperationException("Iterator for..in call source requires an enclosing type handle.")
-        }
-        handle := emit.Context.EnclosingMethodForName(nodes.Text(source, callee))
-        noParams := new Type[](0)
-        returnType := EnumerableInterfaceTypeOf(SequenceElementRuntimeType(emit.Context, elementCanonical))
-        methodPool := emit.Plan.AddMethodWithSignature(handle, enclosing, noParams, returnType, false, false)
-        emit.Plan.AppendMethodInstruction(ColumnarCodePlanContract.Callvirt(), methodPool)
-    }
-
-    // The runtime Type of a sequence element canonical: a builtin, or a host-supplied known type
-    // (an emitted user TypeBuilder).
-    static func SequenceElementRuntimeType(context: ColumnarIteratorEmitContext, canonical: string): Type {
-        if ColumnarIteratorPlanner.IsLowerableArrayElementCanonical(canonical) {
-            return RuntimeElementTypeOf(canonical)
-        }
-        known := context.KnownTypeForCanonical(canonical)
-        if known == null {
-            throw new InvalidOperationException("Iterator for..in lowering has no runtime type for element '" + canonical + "'.")
-        }
-        return known
+        definition := candidate.GetGenericTypeDefinition()
+        return definition.FullName == "System.Collections.Generic.IEnumerable`1"
     }
 
     static func IsBuilderBoundElement(elementType: Type): bool {
@@ -2213,8 +2234,7 @@ class ColumnarIteratorBodyPlanner {
 
     // GetEnumerator on IEnumerable<element>: a runtime handle for baked elements, a
     // TypeBuilder.GetMethod rebinding (with the declared signature) for builder-bound elements.
-    static func AddSequenceGetEnumerator(emit: ColumnarMoveNextEmit, elementCanonical: string): int {
-        elementType := SequenceElementRuntimeType(emit.Context, elementCanonical)
+    static func AddSequenceGetEnumerator(emit: ColumnarMoveNextEmit, elementType: Type): int {
         enumerableType := EnumerableInterfaceTypeOf(elementType)
         if IsBuilderBoundElement(elementType) {
             handle := TypeBuilder.GetMethod(enumerableType, OpenSequenceMethod("System.Collections.Generic.IEnumerable`1", "GetEnumerator"))
@@ -2223,24 +2243,23 @@ class ColumnarIteratorBodyPlanner {
         }
         method := enumerableType.GetMethod("GetEnumerator")
         if method == null {
-            throw new InvalidOperationException("IEnumerable<" + elementCanonical + ">.GetEnumerator was not found.")
+            throw new InvalidOperationException("IEnumerable<" + elementType.Name + ">.GetEnumerator was not found.")
         }
         return emit.Plan.AddMethod(method)
     }
 
-    static func AddSequenceCurrentGetter(emit: ColumnarMoveNextEmit, elementCanonical: string): int {
-        elementType := SequenceElementRuntimeType(emit.Context, elementCanonical)
+    static func AddSequenceCurrentGetter(emit: ColumnarMoveNextEmit, elementType: Type): int {
         enumeratorType := EnumeratorInterfaceTypeOf(elementType)
         if IsBuilderBoundElement(elementType) {
             handle := TypeBuilder.GetMethod(enumeratorType, OpenSequenceMethod("System.Collections.Generic.IEnumerator`1", "get_Current"))
             noParams := new Type[](0)
             return emit.Plan.AddMethodWithSignature(handle, enumeratorType, noParams, elementType, false, true)
         }
-        method := enumeratorType.GetMethod("get_Current")
-        if method == null {
-            throw new InvalidOperationException("IEnumerator<" + elementCanonical + ">.get_Current was not found.")
+        getter := enumeratorType.GetMethod("get_Current")
+        if getter == null {
+            throw new InvalidOperationException("IEnumerator<" + elementType.Name + ">.get_Current was not found.")
         }
-        return emit.Plan.AddMethod(method)
+        return emit.Plan.AddMethod(getter)
     }
 
     static func OpenSequenceMethod(definitionName: string, methodName: string): MethodInfo {
@@ -2403,46 +2422,6 @@ class ColumnarIteratorBodyPlanner {
         return 64
     }
 
-    // The typed ldelem for a lowerable array element canonical (the walk admitted exactly this set).
-    static func AppendArrayElementLoad(emit: ColumnarMoveNextEmit, elementCanonical: string) {
-        if elementCanonical == "int" {
-            emit.Plan.AppendInstructionWithoutOperand(ColumnarCodePlanContract.LdelemI4())
-        } else if elementCanonical == "long" {
-            emit.Plan.AppendInstructionWithoutOperand(ColumnarCodePlanContract.LdelemI8())
-        } else if elementCanonical == "float" {
-            emit.Plan.AppendInstructionWithoutOperand(ColumnarCodePlanContract.LdelemR4())
-        } else if elementCanonical == "double" {
-            emit.Plan.AppendInstructionWithoutOperand(ColumnarCodePlanContract.LdelemR8())
-        } else if elementCanonical == "bool" {
-            emit.Plan.AppendInstructionWithoutOperand(ColumnarCodePlanContract.LdelemU1())
-        } else if elementCanonical == "char" {
-            emit.Plan.AppendInstructionWithoutOperand(ColumnarCodePlanContract.LdelemU2())
-        } else if elementCanonical == "string" {
-            emit.Plan.AppendInstructionWithoutOperand(ColumnarCodePlanContract.LdelemRef())
-        } else {
-            throw new InvalidOperationException("Iterator for..in lowering has no element load for '" + elementCanonical + "'.")
-        }
-    }
-
-    // The (string) constructor of a walk-admitted System exception name.
-    static func LowerableExceptionConstructor(name: string): ConstructorInfo {
-        simple := ColumnarIteratorPlanner.SystemUnqualifiedExceptionName(name)
-        if simple == "" {
-            throw new InvalidOperationException("Iterator throw lowering reached a non-System exception name '" + name + "'.")
-        }
-        exceptionType := Type.GetType("System." + simple)
-        if exceptionType == null {
-            throw new InvalidOperationException("System." + simple + " was not found.")
-        }
-        ctorTypes := new Type[](1)
-        ctorTypes[0] = typeof(string)
-        ctor := exceptionType.GetConstructor(ctorTypes)
-        if ctor == null {
-            throw new InvalidOperationException("System." + simple + " has no (string) constructor.")
-        }
-        return ctor
-    }
-
     static func EmitYieldReturn(emit: ColumnarMoveNextEmit, valueNode: int) {
         if emit.IsAsync {
             EmitAsyncYieldReturn(emit, valueNode)
@@ -2450,9 +2429,12 @@ class ColumnarIteratorBodyPlanner {
         }
         emit.NextYield = emit.NextYield + 1
         resumeState := emit.NextYield
+        currentPool := FieldPool(emit, "<>__current")
         LoadThis(emit)
-        EmitExpression(emit, valueNode)
-        emit.Plan.AppendFieldInstruction(ColumnarCodePlanContract.Stfld(), FieldPool(emit, "<>__current"))
+        if !AppendStoredValue(emit, valueNode, emit.Context.ElementType) {
+            return
+        }
+        emit.Plan.AppendFieldInstruction(ColumnarCodePlanContract.Stfld(), currentPool)
         StoreState(emit, resumeState)
         EmitInt(emit, 1)
         if emit.RegionMode {
@@ -2472,9 +2454,12 @@ class ColumnarIteratorBodyPlanner {
     static func EmitAsyncYieldReturn(emit: ColumnarMoveNextEmit, valueNode: int) {
         emit.NextResume = emit.NextResume + 1
         resumeState := emit.NextResume
+        currentPool := FieldPool(emit, "<>__current")
         LoadThis(emit)
-        EmitExpression(emit, valueNode)
-        emit.Plan.AppendFieldInstruction(ColumnarCodePlanContract.Stfld(), FieldPool(emit, "<>__current"))
+        if !AppendStoredValue(emit, valueNode, emit.Context.ElementType) {
+            return
+        }
+        emit.Plan.AppendFieldInstruction(ColumnarCodePlanContract.Stfld(), currentPool)
         StoreState(emit, resumeState)
         EmitAsyncComplete(emit, 1)
         emit.Plan.AppendMarkLabel(emit.ResumeLabels[resumeState])
@@ -2517,7 +2502,9 @@ class ColumnarIteratorBodyPlanner {
         operand := emit.Context.Nodes.Child(awaitNode, 0)
         // this.<>__awaiterK = Task.Delay(<arg>).GetAwaiter()
         LoadThis(emit)
-        EmitExpression(emit, emit.Context.Nodes.Child(operand, 1))
+        if !AppendStoredValue(emit, emit.Context.Nodes.Child(operand, 1), typeof(int)) {
+            return
+        }
         emit.Plan.AppendMethodInstruction(ColumnarCodePlanContract.Call(), emit.Plan.AddMethod(TaskDelayMethod()))
         emit.Plan.AppendMethodInstruction(ColumnarCodePlanContract.Callvirt(), emit.Plan.AddMethod(TaskGetAwaiterMethod()))
         emit.Plan.AppendFieldInstruction(ColumnarCodePlanContract.Stfld(), awPool)
@@ -2554,56 +2541,19 @@ class ColumnarIteratorBodyPlanner {
         emit.Plan.AppendTypeInstruction(ColumnarCodePlanContract.Initobj(), awaiterTypeIdx)
     }
 
-    static func EmitExpression(emit: ColumnarMoveNextEmit, node: int) {
-        nodes := emit.Context.Nodes
-        source := emit.Context.Source
-        kind := nodes.Kind(node)
-        if kind == 0 {
-            EmitInt(emit, Int32.Parse(nodes.Text(source, node)))
-            return
-        }
-        if kind == 4 {
-            if nodes.Text(source, node) == "true" {
-                EmitInt(emit, 1)
-            } else {
-                EmitInt(emit, 0)
-            }
-            return
-        }
-        if kind == 6 {
-            AppendIdentifierRead(emit, nodes.Text(source, node))
-            return
-        }
-        if kind == 7 {
-            EmitExpression(emit, nodes.Child(node, 0))
-            return
-        }
-        if kind == 12 {
-            EmitExpression(emit, nodes.Child(node, 0))
-            EmitExpression(emit, nodes.Child(node, 1))
-            EmitBinaryOperator(emit, nodes.Text(source, node))
-            return
-        }
-        if kind == 44 {
-            EmitPostfixStep(emit, node, true)
-            return
-        }
-        if kind == 9 {
-            // The walk-admitted argument-free string instance call: read the receiver, callvirt.
-            callee := nodes.Child(node, 0)
-            AppendIdentifierRead(emit, nodes.Text(source, nodes.Child(callee, 0)))
-            emit.Plan.AppendMethodInstruction(ColumnarCodePlanContract.Callvirt(), emit.Plan.AddMethod(StringInstanceMethod(nodes.Text(source, callee))))
-            return
-        }
-        throw new InvalidOperationException("Iterator MoveNext lowering reached an unsupported expression kind " + kind.ToString() + ".")
-    }
-
-    // `<ident>++` / `<ident>--` on a hoisted int field. keepValue pushes the PRE-step value first
-    // (N# postfix semantics); the step itself is a load/add-or-sub/store through `this`.
+    // `<ident>++` / `<ident>--` on a hoisted numeric field. keepValue pushes the PRE-step value first
+    // (N# postfix semantics); the step itself is a load/add-or-sub/store through `this`, with the
+    // instruction chosen by the single arithmetic owner for the field's exact type.
     static func EmitPostfixStep(emit: ColumnarMoveNextEmit, node: int, keepValue: bool) {
         nodes := emit.Context.Nodes
         source := emit.Context.Source
-        fieldPool := FieldPool(emit, nodes.Text(source, nodes.Child(node, 0)))
+        name := nodes.Text(source, nodes.Child(node, 0))
+        fieldPool := FieldPool(emit, name)
+        fieldType := emit.Context.FieldForName(name).get_FieldType()
+        if fieldType != typeof(int) {
+            emit.Context.Decline("emit.iterator.unsupported-shape", "a postfix step over '" + name + "' of type '" + fieldType.Name + "' is not yet lowered in an iterator body")
+            return
+        }
         if keepValue {
             LoadThis(emit)
             emit.Plan.AppendFieldInstruction(ColumnarCodePlanContract.Ldfld(), fieldPool)
@@ -2618,49 +2568,5 @@ class ColumnarIteratorBodyPlanner {
             emit.Plan.AppendInstructionWithoutOperand(ColumnarCodePlanContract.Sub())
         }
         emit.Plan.AppendFieldInstruction(ColumnarCodePlanContract.Stfld(), fieldPool)
-    }
-
-    // The zero-argument string instance method handle for a walk-admitted call name.
-    static func StringInstanceMethod(name: string): MethodInfo {
-        method := typeof(string).GetMethod(name, new Type[](0))
-        if method == null {
-            throw new InvalidOperationException("string." + name + "() was not found.")
-        }
-        return method
-    }
-
-    static func EmitBinaryOperator(emit: ColumnarMoveNextEmit, op: string) {
-        if op == "+" {
-            emit.Plan.AppendInstructionWithoutOperand(ColumnarCodePlanContract.Add())
-        } else if op == "-" {
-            emit.Plan.AppendInstructionWithoutOperand(ColumnarCodePlanContract.Sub())
-        } else if op == "*" {
-            emit.Plan.AppendInstructionWithoutOperand(ColumnarCodePlanContract.Mul())
-        } else if op == "/" {
-            emit.Plan.AppendInstructionWithoutOperand(ColumnarCodePlanContract.Div())
-        } else if op == "%" {
-            emit.Plan.AppendInstructionWithoutOperand(ColumnarCodePlanContract.Rem())
-        } else if op == "<" {
-            emit.Plan.AppendInstructionWithoutOperand(ColumnarCodePlanContract.Clt())
-        } else if op == ">" {
-            emit.Plan.AppendInstructionWithoutOperand(ColumnarCodePlanContract.Cgt())
-        } else if op == "==" {
-            emit.Plan.AppendInstructionWithoutOperand(ColumnarCodePlanContract.Ceq())
-        } else if op == "<=" {
-            // a <= b  ==  !(a > b)
-            emit.Plan.AppendInstructionWithoutOperand(ColumnarCodePlanContract.Cgt())
-            EmitInt(emit, 0)
-            emit.Plan.AppendInstructionWithoutOperand(ColumnarCodePlanContract.Ceq())
-        } else if op == ">=" {
-            emit.Plan.AppendInstructionWithoutOperand(ColumnarCodePlanContract.Clt())
-            EmitInt(emit, 0)
-            emit.Plan.AppendInstructionWithoutOperand(ColumnarCodePlanContract.Ceq())
-        } else if op == "!=" {
-            emit.Plan.AppendInstructionWithoutOperand(ColumnarCodePlanContract.Ceq())
-            EmitInt(emit, 0)
-            emit.Plan.AppendInstructionWithoutOperand(ColumnarCodePlanContract.Ceq())
-        } else {
-            throw new InvalidOperationException("Iterator MoveNext lowering reached an unsupported operator '" + op + "'.")
-        }
     }
 }

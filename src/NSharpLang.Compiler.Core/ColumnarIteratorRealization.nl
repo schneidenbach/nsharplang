@@ -36,7 +36,8 @@ class ColumnarIteratorRealization {
         typeResolution: ColumnarSemanticTypeResolution,
         methodSource: string,
         synthesizedTypes: List<TypeBuilder>,
-        ordinalCounter: int[]
+        ordinalCounter: int[],
+        bodyFacts: ColumnarIteratorBodyFacts? = null
     ): ColumnarIteratorRealizationResult {
         enclosingBuilder: Type = structDef.Builder
         enclosingBuilderName := enclosingBuilder.get_Name()
@@ -69,7 +70,8 @@ class ColumnarIteratorRealization {
                 null,
                 null,
                 null,
-                null
+                null,
+                bodyFacts
             )
         }
         if structDef.GenericParameters != null || method.TypeParamNames.Length > 0 {
@@ -221,7 +223,8 @@ class ColumnarIteratorRealization {
             realizedFieldHandles,
             realizedFieldCanonicals,
             realizedMethodNames,
-            realizedMethodHandles
+            realizedMethodHandles,
+            bodyFacts
         )
     }
 
@@ -261,7 +264,8 @@ class ColumnarIteratorRealization {
         enclosingFields: FieldInfo[]? = null,
         enclosingFieldCanonicals: string[]? = null,
         enclosingMethodNames: string[]? = null,
-        enclosingMethods: MethodInfo[]? = null
+        enclosingMethods: MethodInfo[]? = null,
+        bodyFacts: ColumnarIteratorBodyFacts? = null
     ): ColumnarIteratorRealizationResult {
         declineLabel := memberLabel.Length == 0 ? fn.Name : memberLabel
         shape := SyncShape(fn, funcOrdinal, functionSource, precomputedShape)
@@ -308,39 +312,23 @@ class ColumnarIteratorRealization {
 
         fields := new FieldInfo[](shape.FieldCount)
         fieldBuilders := new FieldBuilder[](shape.FieldCount)
-        knownTypeNames := new List<string>()
-        knownTypes := new List<Type>()
         i := 0
         while i < shape.FieldCount {
+            // A hoisted field whose canonical is UNRESOLVED is defined by the body lowering, from the
+            // exact CLR type the one expression owner gives its initializer (or its enumerated source).
+            // Everything written in the signature — the state, the current value, every captured
+            // parameter and every explicitly typed local — resolves from its own spelling here.
+            if ColumnarIteratorPlanner.IsUnresolvedCanonical(shape.FieldCanonicals[i]) {
+                i = i + 1
+                continue
+            }
             fieldType: Type = null
-            if shape.FieldRoles[i] == ColumnarIteratorPlanner.HoistedEnumeratorFieldRole() {
-                enumeratorElement := ColumnarIteratorPlanner.EnumeratorElementCanonicalOf(shape.FieldCanonicals[i])
-                enumeratorElementType: Type = null
-                if enumeratorElement.Length == 0 || !ColumnarCanonicalTypeResolver.TryResolveType(
-                    enumeratorElement,
-                    typeResolution.Enums,
-                    typeResolution.Structs,
-                    typeResolution.Unions,
-                    out enumeratorElementType
-                ) || !ColumnarTypeOfPlanner.IsSupportedType(enumeratorElementType) {
-                    return Declined(
-                        "emit.iterator.field-type",
-                        "iterator hoisted enumerator type '" + shape.FieldCanonicals[i] + "' could not be resolved for '" + declineLabel + "'",
-                        declineLabel
-                    )
-                }
-                fieldType = ColumnarIteratorBodyPlanner.EnumeratorInterfaceTypeOf(enumeratorElementType)
-                knownTypeNames.Add(enumeratorElement)
-                knownTypes.Add(enumeratorElementType)
-            } else if !TryResolveIteratorCanonical(shape.FieldCanonicals[i], smTypeParamMap, typeResolution, out fieldType) {
+            if !TryResolveIteratorCanonical(shape.FieldCanonicals[i], smTypeParamMap, typeResolution, out fieldType) {
                 return Declined(
                     "emit.iterator.field-type",
                     "iterator hoisted field type '" + shape.FieldCanonicals[i] + "' could not be resolved for '" + declineLabel + "'",
                     declineLabel
                 )
-            } else {
-                knownTypeNames.Add(shape.FieldCanonicals[i])
-                knownTypes.Add(fieldType)
             }
             fieldBuilder := sm.DefineField(shape.FieldNames[i], fieldType, FieldAttributes.Public)
             fieldHandle: FieldInfo = fieldBuilder
@@ -365,7 +353,9 @@ class ColumnarIteratorRealization {
             memberFields = new FieldInfo[](fields.Length)
             i = 0
             while i < fields.Length {
-                memberFields[i] = TypeBuilder.GetField(memberSmType, fieldBuilders[i])
+                if fieldBuilders[i] != null {
+                    memberFields[i] = TypeBuilder.GetField(memberSmType, fieldBuilders[i])
+                }
                 i = i + 1
             }
             memberCtor = TypeBuilder.GetConstructor(memberSmType, ctor)
@@ -380,6 +370,12 @@ class ColumnarIteratorRealization {
         ctorIl.Emit(OpCodes.Stfld, memberFields[0])
         ctorIl.Emit(OpCodes.Ret)
 
+        genericMemberType: Type? = null
+        if smTypeParamMap != null {
+            genericMemberType = memberSmType
+        }
+        scope := ColumnarIteratorBodyScope.Create(memberSmType, bodyFacts ?? ColumnarIteratorBodyFacts.Empty(table), smTypeParamMap)
+        PublishMachineBindings(scope, shape, memberFields, enclosingFieldNames, enclosingFields)
         context := new ColumnarIteratorEmitContext(
             fn.BodyNodes,
             functionSource,
@@ -397,8 +393,10 @@ class ColumnarIteratorRealization {
             enclosingFieldCanonicals,
             enclosingMethodNames,
             enclosingMethods,
-            knownTypeNames.ToArray(),
-            knownTypes.ToArray()
+            null,
+            scope,
+            sm,
+            genericMemberType
         )
         overrideContext := ColumnarIteratorOverrideContext.ForSync(table, elementType, enumerableOfT, enumeratorOfT)
         publicImpl := MethodAttributes.Public | MethodAttributes.Virtual | MethodAttributes.Final | MethodAttributes.HideBySig | MethodAttributes.NewSlot
@@ -407,6 +405,9 @@ class ColumnarIteratorRealization {
         moveNext := sm.DefineMethod(shape.MemberNames[1], publicImpl, typeof(bool), System.Type.EmptyTypes)
         shape.MemberOverrideRows[1].Apply(overrideContext, sm, moveNext)
         moveNextPlan := ColumnarIteratorBodyPlanner.BuildMoveNextPlan(context)
+        if context.Declined {
+            return Declined(context.DeclineSite, context.DeclineMessage + " in '" + declineLabel + "'", declineLabel)
+        }
         moveNextIl := moveNext.GetILGenerator()
         ColumnarCodePlanExecutor.Execute(moveNextPlan, moveNextIl)
 
@@ -468,7 +469,9 @@ class ColumnarIteratorRealization {
             factoryFields := new FieldInfo[](fields.Length)
             i = 0
             while i < fields.Length {
-                factoryFields[i] = TypeBuilder.GetField(factorySmType, fieldBuilders[i])
+                if fieldBuilders[i] != null {
+                    factoryFields[i] = TypeBuilder.GetField(factorySmType, fieldBuilders[i])
+                }
                 i = i + 1
             }
             factoryCtor := TypeBuilder.GetConstructor(factorySmType, ctor)
@@ -484,6 +487,7 @@ class ColumnarIteratorRealization {
                 table,
                 factoryCtor
             )
+            factoryContext.Scope = ColumnarIteratorBodyScope.Create(factorySmType, bodyFacts ?? ColumnarIteratorBodyFacts.Empty(table), smTypeParamMap)
         }
         factoryPlan := ColumnarIteratorBodyPlanner.BuildFactoryPlan(factoryContext)
         ColumnarCodePlanExecutor.Execute(factoryPlan, factoryIl)
@@ -498,7 +502,8 @@ class ColumnarIteratorRealization {
         functionSource: string,
         typeResolution: ColumnarSemanticTypeResolution,
         factoryIl: ILGenerator,
-        synthesizedTypes: List<TypeBuilder>
+        synthesizedTypes: List<TypeBuilder>,
+        bodyFacts: ColumnarIteratorBodyFacts? = null
     ): ColumnarIteratorRealizationResult {
         shape := ColumnarIteratorPlanner.AnalyzeShape(
             fn.BodyNodes,
@@ -562,6 +567,11 @@ class ColumnarIteratorRealization {
                 fieldType = typeof(bool)
             } else if role == ColumnarIteratorPlanner.ContinuationFieldRole() {
                 fieldType = typeof(Action)
+            } else if ColumnarIteratorPlanner.IsUnresolvedCanonical(shape.FieldCanonicals[i]) {
+                // Defined by the body lowering from the initializer's exact CLR type, exactly as the
+                // synchronous machine does.
+                i = i + 1
+                continue
             } else if !ColumnarCanonicalTypeResolver.TryResolveType(
                 shape.FieldCanonicals[i],
                 typeResolution.Enums,
@@ -613,6 +623,9 @@ class ColumnarIteratorRealization {
         ctorIl.Emit(OpCodes.Ret)
 
         ctorHandle: ConstructorInfo = ctor
+        smType: Type = sm
+        scope := ColumnarIteratorBodyScope.Create(smType, bodyFacts ?? ColumnarIteratorBodyFacts.Empty(table), null)
+        PublishMachineBindings(scope, shape, fields, null, null)
         context := new ColumnarIteratorEmitContext(
             fn.BodyNodes,
             functionSource,
@@ -630,14 +643,18 @@ class ColumnarIteratorRealization {
             null,
             null,
             null,
-            null,
-            null,
-            coreHandle
+            coreHandle,
+            scope,
+            sm,
+            null
         )
         overrideContext := ColumnarIteratorOverrideContext.ForAsync(table, elementType, asyncEnumerable, asyncEnumerator)
         publicImpl := MethodAttributes.Public | MethodAttributes.Virtual | MethodAttributes.Final | MethodAttributes.HideBySig | MethodAttributes.NewSlot
 
         corePlan := ColumnarIteratorBodyPlanner.BuildAsyncMoveNextCorePlan(context)
+        if context.Declined {
+            return Declined(context.DeclineSite, context.DeclineMessage + " in '" + fn.Name + "'", fn.Name)
+        }
         coreIl := core.GetILGenerator()
         ColumnarCodePlanExecutor.Execute(corePlan, coreIl)
 
@@ -691,6 +708,31 @@ class ColumnarIteratorRealization {
         ColumnarCodePlanExecutor.Execute(factoryPlan, factoryIl)
         synthesizedTypes.Add(sm)
         return Completed()
+    }
+
+    // Publish the machine's own name bindings into the body scope: every field defined ahead of the
+    // body (the state, the current value, the captured parameters and the explicitly typed locals), and
+    // — for an instance machine — the enclosing type's readable members, which the body reads through
+    // the captured `<>__this` receiver.
+    static func PublishMachineBindings(scope: ColumnarIteratorBodyScope, shape: ColumnarIteratorShape, fields: FieldInfo[], enclosingFieldNames: string[]?, enclosingFields: FieldInfo[]?) {
+        index := 0
+        while index < shape.FieldCount {
+            if fields[index] != null {
+                scope.PublishField(shape.FieldNames[index], fields[index])
+            }
+            index = index + 1
+        }
+        names := enclosingFieldNames
+        handles := enclosingFields
+        if names == null || handles == null || !scope.HasField("<>__this") {
+            return
+        }
+        receiver := scope.FieldHandle("<>__this")
+        member := 0
+        while member < names.Length && member < handles.Length {
+            scope.PublishEnclosingMember(names[member], receiver, handles[member])
+            member = member + 1
+        }
     }
 
     static func Completed(): ColumnarIteratorRealizationResult {

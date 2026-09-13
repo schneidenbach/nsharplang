@@ -23,6 +23,13 @@ class ColumnarFragmentBindings {
     Enums: Dictionary<string, ColumnarEnumDef>
     LiftedLocals: Dictionary<string, (Box: LocalBuilder, ValueType: Type)>
     BoxedCaptures: Dictionary<string, (BoxField: FieldInfo, ValueType: Type)>
+    // A DISPLAY THAT CAPTURED ITS ENCLOSING `this`, AND THE MEMBERS THAT READ THROUGH IT. A closure
+    // display and an instance iterator's state machine both hold the enclosing receiver in one field
+    // of their own (`<>__this`); a bare member name written inside such a body means
+    // `this.<>__this.<member>` — two `ldfld`s from argument 0, the same shape a boxed capture takes
+    // and a different pair of handles. The receiver field is the FIRST hop and the member field is the
+    // second; both are exact live handles, so no name is resolved by reflection at emission.
+    CapturedInstanceFields: Dictionary<string, (ReceiverField: FieldInfo, MemberField: FieldInfo)>
     CurrentInstance: ColumnarCurrentInstanceFacts?
     // Exact live handles for every method/type generic parameter visible to this body. Method
     // parameters are installed first; an enclosing type parameter with the same name must never
@@ -68,6 +75,7 @@ class ColumnarFragmentBindings {
         Enums = enums
         LiftedLocals = new Dictionary<string, (Box: LocalBuilder, ValueType: Type)>(StringComparer.Ordinal)
         BoxedCaptures = new Dictionary<string, (BoxField: FieldInfo, ValueType: Type)>(StringComparer.Ordinal)
+        CapturedInstanceFields = new Dictionary<string, (ReceiverField: FieldInfo, MemberField: FieldInfo)>(StringComparer.Ordinal)
         CurrentInstance = null
         typeParameters = new Dictionary<string, Type>(StringComparer.Ordinal)
         SourceTypeDefinitions = new List<ColumnarStructDef>()
@@ -291,7 +299,7 @@ class ColumnarFragmentBindings {
     }
 
     func IsBlocked(name: string): bool {
-        return LiftedLocals.ContainsKey(name) || BoxedCaptures.ContainsKey(name) || ContainsName(liftedNames, name) || ContainsName(boxedNames, name) || ContainsName(enclosingNames, name)
+        return LiftedLocals.ContainsKey(name) || BoxedCaptures.ContainsKey(name) || CapturedInstanceFields.ContainsKey(name) || ContainsName(liftedNames, name) || ContainsName(boxedNames, name) || ContainsName(enclosingNames, name)
     }
 
     func IsCallable(name: string): bool {
