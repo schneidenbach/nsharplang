@@ -406,3 +406,96 @@ func CountThroughDiscardedTaskHandler(list: ObservableCollection<string>, tally:
     list.Add("async two")
     return tally.Completed
 }
+
+// ── `on` / `off` INSIDE A GENERATOR BODY ──────────────────────────────────────────────────────
+//
+// A subscription made before a `yield` and detached after one is the whole point: the handle is an
+// ordinary local, so the machine hoists it into a field like every other local, and the two halves of
+// the feature span a suspension without knowing they did. The census reported
+// `emit.iterator.unsupported-shape` for the `off` statement and
+// `emit.iterator.lambda-unsupported` for the block-bodied handler; both are lowered now.
+class GeneratorTally {
+    Hits: int
+
+    constructor() {
+        Hits = 0
+    }
+
+    func Bump() {
+        Hits = Hits + 1
+    }
+}
+
+// A BLOCK-BODIED handler lambda, assigning to a captured local AND calling through a captured
+// receiver — the two statement forms a handler is actually written with.
+func* WatchWhileYielding(list: ObservableCollection<string>, tally: GeneratorTally): IEnumerable<int> {
+    seen := 0
+    sub := on list.CollectionChanged (sender, args) => {
+        seen = seen + 1
+        tally.Bump()
+    }
+    yield 1
+    list.Add("during")
+    yield seen
+    off sub
+    list.Add("after off")
+    yield seen
+}
+
+func DrainWatchWhileYielding(tally: GeneratorTally): (Total: int, Hits: int) {
+    list := new ObservableCollection<string>()
+    total := 0
+    for value in WatchWhileYielding(list, tally) {
+        total = total + value
+    }
+
+    return (total, tally.Hits)
+}
+
+// A METHOD GROUP as the handler inside a generator: a top-level `func` emits as a static method, so
+// the delegate is built the way a static one is (`ldnull; ldftn; newobj`).
+func* WatchWithMethodGroupWhileYielding(list: ObservableCollection<string>): IEnumerable<int> {
+    sub := on list.CollectionChanged TallyHandler
+    yield 1
+    list.Add("group")
+    off sub
+    list.Add("after")
+    yield 2
+}
+
+func DrainWatchWithMethodGroupWhileYielding(): int {
+    StaticTally.Hits = 0
+    list := new ObservableCollection<string>()
+    total := 0
+    for value in WatchWithMethodGroupWhileYielding(list) {
+        total = total + value
+    }
+
+    return total * 10 + StaticTally.Hits
+}
+
+// THE HANDLE OUTLIVES A SUSPENSION AND IS STILL THE SAME HANDLE: `off` twice from inside the
+// generator is a no-op exactly as it is outside one.
+func* DoubleOffWhileYielding(list: ObservableCollection<string>): IEnumerable<int> {
+    seen := 0
+    sub := on list.CollectionChanged (sender, args) => {
+        seen = seen + 1
+    }
+    list.Add("one")
+    yield seen
+    off sub
+    yield seen
+    off sub
+    list.Add("two")
+    yield seen
+}
+
+func DrainDoubleOffWhileYielding(): int {
+    list := new ObservableCollection<string>()
+    total := 0
+    for value in DoubleOffWhileYielding(list) {
+        total = total + value
+    }
+
+    return total
+}

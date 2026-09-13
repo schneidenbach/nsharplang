@@ -112,3 +112,21 @@ test "a handler that starts async work and does not await it still runs that wor
     tally := new AsyncTally()
     assert CountThroughDiscardedTaskHandler(NewList(), tally) == 1
 }
+
+test "a subscription made inside a generator spans a `yield` and detaches after it" {
+    observed := DrainWatchWhileYielding(new GeneratorTally())
+    // 1 + 1 (after the raise the subscription saw) + 1 (the raise after `off` was not seen).
+    assert observed.Total == 3
+    assert observed.Hits == 1
+}
+
+test "a METHOD GROUP is a handler inside a generator too" {
+    // The generator yields 1 then 2; the handler saw the one raise made before `off` and not the one
+    // after it.
+    assert DrainWatchWithMethodGroupWhileYielding() == 31
+}
+
+test "`off` twice inside a generator is a no-op, across a suspension" {
+    // 1 + 1 + 1: the first raise was seen, and the two raises after `off` were not.
+    assert DrainDoubleOffWhileYielding() == 3
+}
