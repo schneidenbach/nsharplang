@@ -26322,6 +26322,14 @@ sealed class ColumnarIlEmitter {
         if kind == ColumnarExpressionNodeKind.BaseMemberExpression() {
             return true
         }
+        // A BARE `this` IS THE CURRENT INSTANCE, AND THAT IS THE WHOLE RULE. Before the chained
+        // constructor has run the object's storage has not been written, so handing the reference out
+        // hands out a half-built object — which is why C# refuses `this` in a constructor initializer
+        // outright (CS0027). Until the kernel had a node for a bare `this` this arm could not exist,
+        // and the shape declined one step earlier, at the parse.
+        if kind == ColumnarExpressionNodeKind.ThisExpression() {
+            return true
+        }
         if kind == ColumnarExpressionNodeKind.IdentifierExpression() {
             name := ColumnarNodeTextFacts.Text(_nodes, _source, node)
             spanStart := _nodes.SpanStart(node)

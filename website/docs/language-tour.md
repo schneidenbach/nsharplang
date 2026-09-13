@@ -1526,7 +1526,11 @@ An event's type must be a delegate; anything else reports [NL338](./errors/NL338
 
 **Current limits.** An event declared inside an `interface` reports
 [NL323](./errors/NL323.md): the syntax binds, but an interface's accessors are abstract slots
-nothing yet fills — declare the event on each implementing type instead. An event's storage
+nothing yet fills — declare the event on each implementing type instead. For the same reason, an
+event's accessors are not virtual slots yet, so `virtual`, `abstract` and `override` on an event
+report [NL311](./errors/NL311.md) rather than promising a dispatch that does not happen; a derived
+type inherits the event as it is, and a `virtual func` the base's raise goes through is the way to
+let it decide what raising means. An event's storage
 is synthesized, so it takes no initializer and no accessor block, and an event must be written among
 the type's fields — before its first `func` — like every other field-shaped member. An instance
 event declared by a **struct** emits and is raised by the struct's own code, but `on` refuses to
