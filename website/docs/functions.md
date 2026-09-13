@@ -318,11 +318,86 @@ process := items.Select(item => {
 
 ### Type Inference in Lambdas
 
-```n#
-// Type inferred from context
-numbers := [1, 2, 3, 4, 5]
-doubled := numbers.Select(x => x * 2).ToList()
+A lambda written without parameter types takes them from the delegate it is passed to. When the
+method being called is generic, that delegate is itself part of what the call is inferring, and N#
+resolves the two together the same way C# does — in two phases.
 
+**Phase one fixes what the other arguments fix.** The receiver counts, and so does every argument
+that already has a type of its own:
+
+```n#
+// `values` is a `List<string>`, so `Count<TSource>`'s `TSource` is `string`,
+// and the predicate's parameter is a `string` before its body is read.
+values.Count(value => value.Length > 0)
+```
+
+**Phase two reads each lambda whose parameter types are now known**, and that lambda's RESULT fixes
+whatever type parameter stands in the delegate's return position:
+
+```n#
+// `word.Length` is an `int`, so `Select<TSource, TResult>`'s `TResult` is `int`
+// and the call's own type is `IEnumerable<int>`.
+words.Select(word => word.Length)
+```
+
+The two phases repeat until nothing changes, so one lambda may fix a type parameter that a later
+lambda's parameters depend on. Each lambda folds into **its own** position — two lambdas fix two
+different type parameters:
+
+```n#
+// `TKey` comes from the first lambda, `TElement` from the second:
+// the result is a `Dictionary<string, int>`.
+names.ToDictionary(name => name, name => name.Length)
+```
+
+A lambda whose parameter types are still unknown when the phases stop is an error
+([`NL203`](./errors/NL203.md)) that names the parameter. Give it a typed home, or pass it where a
+delegate type is expected:
+
+```n#
+handler: Func<int, int> = value => value + 1    // fine
+stray := value => value + 1                     // ERROR NL203
+```
+
+The rules are not special to LINQ. Every generic method with a delegate parameter participates —
+your own functions included — and a `Func<...>`, an `Action<...>`, a user-written delegate and an
+`Expression<Func<...>>` all name the same signature:
+
+```n#
+func Apply<T, R>(items: List<T>, projection: Func<T, R>): List<R> {
+    mapped := new List<R>()
+    for item in items {
+        mapped.Add(projection(item))
+    }
+
+    return mapped
+}
+
+lengths := Apply(words, word => word.Length)    // List<int>
+```
+
+**A method group is a lambda with its signature already written.** It folds into exactly the same
+two positions, so anywhere a lambda is accepted a named function of the right shape is too:
+
+```n#
+func IsLong(value: string): bool => value.Length > 3
+
+longOnes := words.Where(IsLong)
+counted := words.Count(IsLong)
+```
+
+**A member that cannot be called does not hide a method of the same name.** `List<T>.Count` is an
+`int` property and `Enumerable.Count<TSource>` is an extension method; only the second is
+invocable, so both spellings mean what they say:
+
+```n#
+total := words.Count                        // the property
+nonEmpty := words.Count(w => w.Length > 0)  // the extension
+```
+
+Writing `()` after a member whose value is not a delegate is [`NL413`](./errors/NL413.md).
+
+```n#
 // Explicit types
 convert := items.Select((string s) => int.Parse(s))
 ```
