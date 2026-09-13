@@ -435,7 +435,14 @@ ONE layer, as of task 020 slice 22: the parser's assertion layer is entirely N#.
   recovery parser builds an `EventDeclaration` (its own AST node, because outside the declaring type
   the name is not a value at all); the columnar kernel records the member as a FIELD row with bit 8
   of the field modifier word set, which is what C# emits for a field-like event and what lets the
-  declaring type's own body read the backing delegate. That slice also gave the kernels a bare `this`
+  declaring type's own body read the backing delegate. EVENTS3 added bits 9, 10 and 11 to that word —
+  `virtual`, `abstract` and `override` as written — and taught the INTERFACE kernel its own event
+  member: `ParseInterfaceDeclarationCore` reads `event Name: DelegateType` beside `func` members in
+  either order, writing the row into `InterfaceDeclarationTable`'s four event columns and the count
+  into result slot 7. The contextual test is the same three-token shape the struct body uses
+  (`ParseInterfaceDeclarationMemberIsEvent`), and it is asked in THREE places: at the member loop's
+  head, in the scan that skips a method's tokens, and at the signature core's has-a-body test — that
+  last one because a bodiless `func` followed by an event otherwise read as a malformed declaration. That slice also gave the kernels a bare `this`
   (expression kind 82, no children and no value span) — `this.Member` is still collapsed into a bare
   identifier one level up, so kind 82 means the keyword stood alone. And
   `ColumnarParserErrorHandling.tests.nl` pins whole trees over the ERROR-HANDLING corpus — 24

@@ -4,6 +4,8 @@ import System
 import System.Collections.Generic
 import System.Collections.ObjectModel
 import System.Collections.Specialized
+import System.Reflection
+import System.Runtime.Loader
 import System.Threading.Tasks
 
 
@@ -293,4 +295,207 @@ func SubscribeAndDetachStaticChainEvent(): bool {
     }
     off sub
     return sub != null
+}
+
+// AN EVENT WHOSE HANDLER RETURNS A MAYBE-NULL REFERENCE, subscribed with a FREE FUNCTION.
+//
+// `AssemblyLoadContext.Resolving` is declared `event Func<AssemblyLoadContext, AssemblyName,
+// Assembly?>?`, and reference nullability is METADATA ON THE EVENT rather than part of the CLR type:
+// reflection answers a bare `Func`3[AssemblyLoadContext, AssemblyName, Assembly]`. Measuring a
+// handler that returns `Assembly?` against that unannotated spelling reported NL318 — "this handler
+// is 'FunctionTypeInfo', but the event expects 'Func`3'" — over exactly the delegate the BCL
+// declares. All three handler shapes are pinned here: the maybe-null free function, a non-null one
+// (the covariant direction), and an inline lambda.
+//
+// The event is RAISED by asking for an assembly that is not on disk, which is deterministic and
+// needs no process signal: the load fails either way, and what is counted is how many times the
+// resolver was consulted.
+class ResolveTally {
+    static Hits: int = 0
+}
+
+func tallyResolve(_context: AssemblyLoadContext, _name: AssemblyName): Assembly? {
+    ResolveTally.Hits = ResolveTally.Hits + 1
+    return null
+}
+
+func TryLoadMissingAssembly(name: string) {
+    try {
+        Assembly.Load(new AssemblyName(name))
+    } catch error: Exception {
+        Console.Out.Flush()
+    }
+}
+
+// THE MAYBE-NULL FREE FUNCTION as the handler, counted across the subscription's life.
+func CountResolveThroughFreeFunction(): int {
+    ResolveTally.Hits = 0
+    sub := on AssemblyLoadContext.Default.Resolving tallyResolve
+    TryLoadMissingAssembly("NSharpLang.CensusEvents.Missing.One")
+    off sub
+    TryLoadMissingAssembly("NSharpLang.CensusEvents.Missing.Two")
+    return ResolveTally.Hits
+}
+
+// A NON-NULL-RETURNING FREE FUNCTION reaches the same maybe-null delegate: the return position is
+// covariant, so a handler that promises MORE than the delegate asks for is a handler.
+func resolveNeverNull(_context: AssemblyLoadContext, _name: AssemblyName): Assembly {
+    ResolveTally.Hits = ResolveTally.Hits + 1
+    return typeof(ResolveTally).Assembly
+}
+
+func CountResolveThroughNonNullFreeFunction(): int {
+    ResolveTally.Hits = 0
+    sub := on AssemblyLoadContext.Default.Resolving resolveNeverNull
+    TryLoadMissingAssembly("NSharpLang.CensusEvents.Missing.Three")
+    off sub
+    return ResolveTally.Hits
+}
+
+// AN INLINE LAMBDA against the same event, whose parameters and result are inferred from it.
+func CountResolveThroughLambda(): int {
+    ResolveTally.Hits = 0
+    sub := on AssemblyLoadContext.Default.Resolving (context, name) => tallyResolve(context, name)
+    TryLoadMissingAssembly("NSharpLang.CensusEvents.Missing.Four")
+    off sub
+    return ResolveTally.Hits
+}
+
+// WHAT THE EMITTER ACTUALLY BUILT: the delegate the `add_` accessor received is the event's own
+// handler type, not a wrapper, which is what makes `off` able to hand the same instance back to
+// `remove_`.
+func ResolvingHandlerTypeName(): string {
+    resolving := typeof(AssemblyLoadContext).GetEvent("Resolving")
+    if resolving == null {
+        return "<no event>"
+    }
+
+    handlerType := resolving.get_EventHandlerType()
+    if handlerType == null {
+        return "<no handler type>"
+    }
+
+    return handlerType.Name
+}
+
+// THE FIRE-AND-FORGET HANDLER, WHICH IS WHAT `async void` WOULD HAVE BEEN.
+//
+// An event's delegate returns `void`, and N# has no `async void` — NL334 says so and names this
+// idiom. What it pins is that the discarded task really RUNS: `_ =` means "do not await HERE", not
+// "drop". The awaited value completes synchronously, so the count is deterministic with no timer and
+// no join.
+class AsyncTally {
+    Completed: int
+
+    constructor() {
+        Completed = 0
+    }
+
+    async func BumpAsync(): Task {
+        step := await Task.FromResult(1)
+        Completed = Completed + step
+    }
+}
+
+func CountThroughDiscardedTaskHandler(list: ObservableCollection<string>, tally: AsyncTally): int {
+    sub := on list.CollectionChanged (sender, args) => {
+        _ = tally.BumpAsync()
+    }
+    list.Add("async one")
+    off sub
+    list.Add("async two")
+    return tally.Completed
+}
+
+// ── `on` / `off` INSIDE A GENERATOR BODY ──────────────────────────────────────────────────────
+//
+// A subscription made before a `yield` and detached after one is the whole point: the handle is an
+// ordinary local, so the machine hoists it into a field like every other local, and the two halves of
+// the feature span a suspension without knowing they did. The census reported
+// `emit.iterator.unsupported-shape` for the `off` statement and
+// `emit.iterator.lambda-unsupported` for the block-bodied handler; both are lowered now.
+class GeneratorTally {
+    Hits: int
+
+    constructor() {
+        Hits = 0
+    }
+
+    func Bump() {
+        Hits = Hits + 1
+    }
+}
+
+// A BLOCK-BODIED handler lambda, assigning to a captured local AND calling through a captured
+// receiver — the two statement forms a handler is actually written with.
+func* WatchWhileYielding(list: ObservableCollection<string>, tally: GeneratorTally): IEnumerable<int> {
+    seen := 0
+    sub := on list.CollectionChanged (sender, args) => {
+        seen = seen + 1
+        tally.Bump()
+    }
+    yield 1
+    list.Add("during")
+    yield seen
+    off sub
+    list.Add("after off")
+    yield seen
+}
+
+func DrainWatchWhileYielding(tally: GeneratorTally): (Total: int, Hits: int) {
+    list := new ObservableCollection<string>()
+    total := 0
+    for value in WatchWhileYielding(list, tally) {
+        total = total + value
+    }
+
+    return (total, tally.Hits)
+}
+
+// A METHOD GROUP as the handler inside a generator: a top-level `func` emits as a static method, so
+// the delegate is built the way a static one is (`ldnull; ldftn; newobj`).
+func* WatchWithMethodGroupWhileYielding(list: ObservableCollection<string>): IEnumerable<int> {
+    sub := on list.CollectionChanged TallyHandler
+    yield 1
+    list.Add("group")
+    off sub
+    list.Add("after")
+    yield 2
+}
+
+func DrainWatchWithMethodGroupWhileYielding(): int {
+    StaticTally.Hits = 0
+    list := new ObservableCollection<string>()
+    total := 0
+    for value in WatchWithMethodGroupWhileYielding(list) {
+        total = total + value
+    }
+
+    return total * 10 + StaticTally.Hits
+}
+
+// THE HANDLE OUTLIVES A SUSPENSION AND IS STILL THE SAME HANDLE: `off` twice from inside the
+// generator is a no-op exactly as it is outside one.
+func* DoubleOffWhileYielding(list: ObservableCollection<string>): IEnumerable<int> {
+    seen := 0
+    sub := on list.CollectionChanged (sender, args) => {
+        seen = seen + 1
+    }
+    list.Add("one")
+    yield seen
+    off sub
+    yield seen
+    off sub
+    list.Add("two")
+    yield seen
+}
+
+func DrainDoubleOffWhileYielding(): int {
+    list := new ObservableCollection<string>()
+    total := 0
+    for value in DoubleOffWhileYielding(list) {
+        total = total + value
+    }
+
+    return total
 }

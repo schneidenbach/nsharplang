@@ -285,15 +285,26 @@ class ColumnarPropertyDef {
 // `remove_` accessor, and the declaring type's own body reads the backing field.
 class ColumnarEventDef {
     Name: string
-    BackingField: FieldBuilder
+    // An ABSTRACT event has NO storage: its accessors are slots an implementing type fills, and the
+    // declaring type has nothing to raise. Every other event owns a private field carrying its name.
+    BackingField: FieldBuilder?
     Add: MethodBuilder
     Remove: MethodBuilder
     HandlerType: Type
     IsStatic: bool
+    IsAbstract: bool
+    // 0 plain, 1 `virtual`, 2 `abstract`, 3 `override` — the word the declaration wrote, kept because
+    // the shadowing pass has to tell an OVERRIDE's own storage (which is expected to carry the base
+    // event's name) from a data member that really does hide an inherited one.
+    InheritanceKind: int
 
-    constructor(name: string, backingField: FieldBuilder, add: MethodBuilder, remove: MethodBuilder, handlerType: Type, isStatic: bool) {
-        if name == null || backingField == null || add == null || remove == null || handlerType == null {
+    constructor(name: string, backingField: FieldBuilder?, add: MethodBuilder, remove: MethodBuilder, handlerType: Type, isStatic: bool, isAbstract: bool, inheritanceKind: int) {
+        if name == null || add == null || remove == null || handlerType == null {
             throw new InvalidOperationException("Source event definition facts cannot be null.")
+        }
+
+        if backingField == null && !isAbstract {
+            throw new InvalidOperationException("Only an abstract source event may have no backing field.")
         }
 
         Name = name
@@ -302,6 +313,8 @@ class ColumnarEventDef {
         Remove = remove
         HandlerType = handlerType
         IsStatic = isStatic
+        IsAbstract = isAbstract
+        InheritanceKind = inheritanceKind
     }
 }
 

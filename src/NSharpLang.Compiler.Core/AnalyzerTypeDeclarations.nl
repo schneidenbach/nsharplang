@@ -429,7 +429,6 @@ class AnalyzerTypeDeclarations {
     func AdvanceTypeHeader(state: TypeDeclarationState): TypeDeclarationRequest? {
         DeclareTypeParameters(state)
         ValidateReadonlyStructInstanceFields(state)
-        ValidateInterfaceEventMembers(state)
         ResolveDeclaredBases(state)
         ValidateNoInheritanceCycle(state)
         ValidateSingleBaseClass(state)
@@ -1060,33 +1059,6 @@ class AnalyzerTypeDeclarations {
     // construction — C# accepts an init-only auto-property inside a readonly struct for exactly that
     // reason. A PLAIN struct with readonly fields is untouched: it stays a MUTABLE struct, and saying
     // otherwise would flag the shape half the corpus is already written in.
-    // AN EVENT AN INTERFACE DECLARES IS UNDERSTOOD AND NOT YET EMITTED. `event Name: DelegateType`
-    // parses and binds wherever a member may be written, but an interface's accessors are abstract
-    // slots an implementing type has to fill, and nothing yet declares them, matches them or checks
-    // that a class supplied them. Saying so HERE — at the member, with the way to keep working —
-    // is the whole point: the columnar backend's own answer is `NL103 … parse.interface`, a sentence
-    // about the compiler's internals for a construct the reader wrote on purpose.
-    func ValidateInterfaceEventMembers(state: TypeDeclarationState) {
-        if state.Form != 3 {
-            return
-        }
-
-        members := TypeMembers(state)
-        if members == null {
-            return
-        }
-
-        for member in members {
-            eventMember := member as EventDeclaration
-            if eventMember == null {
-                continue
-            }
-
-            span := spansValue.GetTypeNameDiagnosticSpan(eventMember.Name, eventMember.Line, eventMember.Column)
-            diagnosticsValue.Report(ErrorCode.FeatureNotImplemented, "an interface cannot declare the event '" + eventMember.Name + "' yet", span.Line, span.Column, "Declare the event on each implementing class, struct or record instead — `event " + eventMember.Name + ": …` works there — or have the interface declare `Subscribe`/`Unsubscribe` methods the implementations route through.", span.Length)
-        }
-    }
-
     func ValidateReadonlyStructInstanceFields(state: TypeDeclarationState) {
         if !IsReadonlyStructDeclaration(state) {
             return
@@ -1254,41 +1226,205 @@ class AnalyzerTypeDeclarations {
 
             eventMember := member as EventDeclaration
             if eventMember != null {
-                ValidateEventInheritanceModifiers(eventMember)
+                ValidateEventInheritanceModifiers(state, declaredBase, eventMember)
             }
         }
     }
 
-    // AN EVENT'S ACCESSORS ARE SYNTHESIZED, AND THEY ARE NOT YET VIRTUAL SLOTS.
+    // AN EVENT'S ACCESSORS ARE METHODS, SO THE THREE INHERITANCE WORDS MEAN ON AN EVENT WHAT THEY
+    // MEAN ON A `func`.
     //
-    // C# does let an event be `virtual`, `abstract` or `override`: the accessors become the virtual
-    // members and an override supplies its own pair without a field of its own. N# emits neither half
-    // of that yet — the accessors are non-virtual, so `virtual` would promise a dispatch the runtime
-    // does not perform, `override` would HIDE the base's event while a subscriber through the base
-    // reference still reached the base's storage, and `abstract` would emit a concrete event with
-    // storage nobody can reach. All three were accepted in SILENCE, which reads as a promise.
+    // `virtual` opens a slot for each accessor, `abstract` opens one and supplies no body, `override`
+    // reuses the base's. This is C#'s rule and it is now N#'s: an `override` field-like event keeps
+    // its OWN handler list, which is exactly why a subscriber reaching it through a base reference
+    // runs the override's accessors and therefore the override's storage.
     //
-    // `NL311` for the same reason a field's three words are: the fault is the MODIFIER, not the name.
-    func ValidateEventInheritanceModifiers(eventMember: EventDeclaration) {
+    // WHAT IS STILL REFUSED IS WHAT THE CLR CANNOT EXPRESS, and each refusal names the one thing the
+    // reader can change:
+    //
+    //   * A STATIC event has no slot at all — static members are not dispatched — so none of the three
+    //     words can mean anything on one.
+    //   * A STRUCT or RECORD STRUCT is sealed by the CLR, so it can neither open a slot nor take one.
+    //   * `abstract` needs an abstract class to live in, and a sealed class can open no slot; without
+    //     these two the type builder throws ("Type must be declared abstract…") with no line, no
+    //     column and no sentence.
+    //   * `override` needs a base event of that name whose accessors are open, measured by the same
+    //     walk the `func` and property families use.
+    //
+    // `NL311` throughout, for the same reason a field's three words are: the fault is the MODIFIER,
+    // not the name.
+    func ValidateEventInheritanceModifiers(state: TypeDeclarationState, declaredBase: TypeInfo?, eventMember: EventDeclaration) {
         modifierBits := Convert.ToInt32(eventMember.Modifiers)
-        if (modifierBits & Convert.ToInt32(Modifiers.Override)) != 0 {
-            ReportEventInheritanceModifierFault(eventMember, "override")
+        isOverride := (modifierBits & Convert.ToInt32(Modifiers.Override)) != 0
+        isAbstract := (modifierBits & Convert.ToInt32(Modifiers.Abstract)) != 0
+        isVirtual := (modifierBits & Convert.ToInt32(Modifiers.Virtual)) != 0
+        if !isOverride && !isAbstract && !isVirtual {
             return
         }
 
-        if (modifierBits & Convert.ToInt32(Modifiers.Abstract)) != 0 {
-            ReportEventInheritanceModifierFault(eventMember, "abstract")
+        word := "virtual"
+        if isAbstract {
+            word = "abstract"
+        } else if isOverride {
+            word = "override"
+        }
+
+        if (modifierBits & Convert.ToInt32(Modifiers.Static)) != 0 {
+            ReportEventInheritanceModifierFault(eventMember, "'" + eventMember.Name + "' is declared 'static " + word + "', but a static event has no slot to dispatch through", "Drop '" + word + "'. A static event belongs to the type itself, so there is no receiver whose runtime type could select another accessor.")
             return
         }
 
-        if (modifierBits & Convert.ToInt32(Modifiers.Virtual)) != 0 {
-            ReportEventInheritanceModifierFault(eventMember, "virtual")
+        if state.Form == 3 {
+            ReportEventInheritanceModifierFault(eventMember, "'" + eventMember.Name + "' is declared '" + word + "', but an interface's event is already a slot", "Drop '" + word + "'. Every event an interface declares is a pair of abstract accessors that each implementing type fills.")
+            return
+        }
+
+        if state.Form != 0 {
+            ReportEventInheritanceModifierFault(eventMember, "'" + eventMember.Name + "' is declared '" + word + "', but " + FormWordForInheritance(state) + " cannot take part in inheritance", "Drop '" + word + "'. Move the event to a class if a derived type has to replace it, or expose a `virtual func` the raise goes through.")
+            return
+        }
+
+        if isAbstract && !IsAbstractClassDeclaration(state) {
+            ReportEventInheritanceModifierFault(eventMember, "'" + eventMember.Name + "' is declared 'abstract', but '" + TypeName(state) + "' is not an abstract class", "An abstract event is a pair of slots with no storage, so only an abstract class may declare one. Write 'abstract class " + TypeName(state) + "', or give the event a body-bearing shape by dropping 'abstract'.")
+            return
+        }
+
+        if (isAbstract || isVirtual) && IsSealedClassDeclaration(state) {
+            ReportEventInheritanceModifierFault(eventMember, "'" + eventMember.Name + "' is declared '" + word + "', but '" + TypeName(state) + "' is sealed", "A sealed class has no derived type to open a slot for. Drop 'sealed' from the class, or drop '" + word + "' from the event.")
+            return
+        }
+
+        if !isOverride {
+            return
+        }
+
+        verdict := ClassifyOverrideEventTarget(declaredBase, eventMember.Name, 0)
+        if verdict == 2 {
+            ReportEventInheritanceModifierFault(eventMember, "'" + eventMember.Name + "' is declared 'override', but the base event is not marked 'virtual', 'abstract' or 'override'", "Mark the base event 'virtual', or drop 'override' to declare a new event.")
+            return
+        }
+
+        if verdict == 3 {
+            ReportEventInheritanceModifierFault(eventMember, "'" + eventMember.Name + "' is declared 'override', but the base type has no event of that name", "Check the spelling against the base type, or drop 'override' to declare a new event.")
         }
     }
 
-    func ReportEventInheritanceModifierFault(eventMember: EventDeclaration, modifierName: string) {
+    // The word the report uses for a form that cannot inherit. Both value forms are sealed by the CLR;
+    // an interface is answered before this is reached, because its members are slots already.
+    static func FormWordForInheritance(state: TypeDeclarationState): string {
+        if state.Form == 1 {
+            return "a struct"
+        }
+
+        return "a record struct"
+    }
+
+    static func IsAbstractClassDeclaration(state: TypeDeclarationState): bool {
+        classDeclaration := state.Declaration as ClassDeclaration
+        return classDeclaration != null && (Convert.ToInt32(classDeclaration.Modifiers) & Convert.ToInt32(Modifiers.Abstract)) != 0
+    }
+
+    static func IsSealedClassDeclaration(state: TypeDeclarationState): bool {
+        classDeclaration := state.Declaration as ClassDeclaration
+        return classDeclaration != null && (Convert.ToInt32(classDeclaration.Modifiers) & Convert.ToInt32(Modifiers.Sealed)) != 0
+    }
+
+    // 0 cannot tell · 1 an overridable base event · 2 a base event whose accessors are shut · 3 no base
+    // event of that name. The same shape the `func` and property walks answer in, so the three
+    // families report the same way about the same base chain.
+    func ClassifyOverrideEventTarget(candidate: TypeInfo?, name: string, depth: int): int {
+        if depth > 24 {
+            return 0
+        }
+
+        if candidate == null {
+            // `object` declares no events, so a source chain that names no further base has nothing an
+            // event can override. Asked through the reflection walk rather than answered here, so the
+            // two stay in step.
+            return ClassifyReflectionOverrideEventTarget(typeof(object), name)
+        }
+
+        if BuiltInTypes.IsUnknown(candidate) {
+            return 0
+        }
+
+        reflectionType := candidate as ReflectionTypeInfo
+        if reflectionType != null {
+            return ClassifyReflectionOverrideEventTarget(reflectionType.Type, name)
+        }
+
+        shape := new AnalyzerSourceMemberShape()
+        if !declarationContextValue.TryGetSourceMemberShape(candidate, null, out shape) {
+            return 0
+        }
+
+        declaredVerdict := ClassifyDeclaredOverrideEventTarget(shape.DeclaredMembers, name)
+        if declaredVerdict != 0 {
+            return declaredVerdict
+        }
+
+        if shape.BaseType == null && WritesUnresolvedBase(candidate) {
+            return 0
+        }
+
+        return ClassifyOverrideEventTarget(shape.BaseType, name, depth + 1)
+    }
+
+    // A SOURCE SHAPE'S OWN EVENT MEMBERS. Only events answer: a base FIELD or PROPERTY of the same
+    // name is not an event slot, and telling the reader it is would send them to the wrong member.
+    static func ClassifyDeclaredOverrideEventTarget(declaredMembers: DeclaredMemberInfo[], name: string): int {
+        index := 0
+        while index < declaredMembers.Length {
+            declared := declaredMembers[index]
+            if declared.Kind == DeclaredMemberKind.Event && declared.Name == name {
+                if declared.IsOverridable {
+                    return 1
+                }
+
+                return 2
+            }
+
+            index = index + 1
+        }
+
+        return 0
+    }
+
+    // METADATA'S ANSWER FOR AN EVENT. Virtual-ness lives on the ACCESSORS, exactly as it does for a
+    // property: an event is overridable when one of its two accessors is virtual and not final.
+    // `GetAddMethod(true)` / `GetRemoveMethod(true)` take the non-public ones, because `protected
+    // virtual` is the shape most worth catching.
+    static func ClassifyReflectionOverrideEventTarget(clrType: Type, name: string): int {
+        flags := BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance
+        events := clrType.GetEvents(flags)
+        found := false
+        index := 0
+        while index < events.Length {
+            candidate := events[index]
+            if candidate.get_Name() == name {
+                found = true
+                if IsOverridablePropertyAccessor(candidate.GetAddMethod(true)) {
+                    return 1
+                }
+
+                if IsOverridablePropertyAccessor(candidate.GetRemoveMethod(true)) {
+                    return 1
+                }
+            }
+
+            index = index + 1
+        }
+
+        if found {
+            return 2
+        }
+
+        return 3
+    }
+
+    func ReportEventInheritanceModifierFault(eventMember: EventDeclaration, message: string, suggestion: string) {
         span := spansValue.GetTypeNameDiagnosticSpan(eventMember.Name, eventMember.Line, eventMember.Column)
-        diagnosticsValue.Report(ErrorCode.InvalidModifier, "'" + eventMember.Name + "' is declared '" + modifierName + "', but an event's accessors are not virtual yet", span.Line, span.Column, "Drop '" + modifierName + "'. A derived type inherits the event as it is and subscribes to it with `on`; to let a derived type decide what raising means, give the base a `virtual func` the event's raise goes through.", span.Length)
+        diagnosticsValue.Report(ErrorCode.InvalidModifier, message, span.Line, span.Column, suggestion, span.Length)
     }
 
     // A FIELD CANNOT TAKE PART IN INHERITANCE AT ALL, AND N# LETS ONE BE WRITTEN AS IF IT COULD.
@@ -1962,6 +2098,14 @@ class AnalyzerTypeDeclarations {
             field := member as FieldDeclaration
             if field != null {
                 suppliedValues.Add(field.Name)
+                continue
+            }
+
+            // AN EVENT SUPPLIES A NAME LIKE ANY OTHER VALUE MEMBER. It is what fills an interface's
+            // event slot, and it is not a `FieldDeclaration` in the model, so it needs its own arm.
+            eventMember := member as EventDeclaration
+            if eventMember != null {
+                suppliedValues.Add(eventMember.Name)
             }
         }
     }
@@ -1999,7 +2143,7 @@ class AnalyzerTypeDeclarations {
             if declared.Kind == DeclaredMemberKind.Function {
                 suppliedFunctions.Add(declared.Name)
             } else {
-                if declared.Kind == DeclaredMemberKind.Property || declared.Kind == DeclaredMemberKind.Field {
+                if declared.Kind == DeclaredMemberKind.Property || declared.Kind == DeclaredMemberKind.Field || declared.Kind == DeclaredMemberKind.Event {
                     suppliedValues.Add(declared.Name)
                 }
             }
@@ -2047,6 +2191,18 @@ class AnalyzerTypeDeclarations {
             }
 
             propertyIndex = propertyIndex + 1
+        }
+
+        // A CONCRETE base's events supply their names too, for the same reason its properties do.
+        events := clrType.GetEvents(flags)
+        eventIndex := 0
+        while eventIndex < events.Length {
+            eventMember := events[eventIndex]
+            if !IsAbstractPropertyAccessor(eventMember.GetAddMethod(true)) && !IsAbstractPropertyAccessor(eventMember.GetRemoveMethod(true)) {
+                suppliedValues.Add(eventMember.get_Name())
+            }
+
+            eventIndex = eventIndex + 1
         }
     }
 
@@ -2146,7 +2302,7 @@ class AnalyzerTypeDeclarations {
             return
         }
 
-        if declared.Kind == DeclaredMemberKind.Property || declared.Kind == DeclaredMemberKind.Field {
+        if declared.Kind == DeclaredMemberKind.Property || declared.Kind == DeclaredMemberKind.Field || declared.Kind == DeclaredMemberKind.Event {
             if suppliedValues.Add(declared.Name) {
                 missing.Add(declared.Name)
             }
@@ -2193,6 +2349,22 @@ class AnalyzerTypeDeclarations {
             }
 
             propertyIndex = propertyIndex + 1
+        }
+
+        // AN EVENT A CLR INTERFACE DECLARES — `INotifyPropertyChanged.PropertyChanged` is the one every
+        // reader meets. Its accessors are `SpecialName` and are skipped by the method walk on purpose,
+        // so the event is demanded once under its own name rather than twice as `add_`/`remove_`.
+        events := clrType.GetEvents(flags)
+        eventIndex := 0
+        while eventIndex < events.Length {
+            eventMember := events[eventIndex]
+            if IsAbstractPropertyAccessor(eventMember.GetAddMethod(true)) || IsAbstractPropertyAccessor(eventMember.GetRemoveMethod(true)) {
+                if suppliedValues.Add(eventMember.get_Name()) {
+                    missing.Add(eventMember.get_Name())
+                }
+            }
+
+            eventIndex = eventIndex + 1
         }
     }
 
@@ -2295,10 +2467,11 @@ class AnalyzerTypeDeclarations {
 
         seenFunctions := new HashSet<string>(StringComparer.Ordinal)
         seenProperties := new HashSet<string>(StringComparer.Ordinal)
-        CollectDeclaredMemberNames(state, seenFunctions, seenProperties)
+        seenEvents := new HashSet<string>(StringComparer.Ordinal)
+        CollectDeclaredMemberNames(state, seenFunctions, seenProperties, seenEvents)
 
         missing := new List<string>()
-        if !CollectUnimplementedAbstractMembers(declaredBase, seenFunctions, seenProperties, missing, 0) {
+        if !CollectUnimplementedAbstractMembers(declaredBase, seenFunctions, seenProperties, seenEvents, missing, 0) {
             return
         }
 
@@ -2312,7 +2485,7 @@ class AnalyzerTypeDeclarations {
     // WHAT THIS TYPE ITSELF BRINGS. Every function and property it declares counts, with or without
     // `override`: a member that fills the slot fills it, and a missing `override` is the override
     // rule's business rather than this one's.
-    func CollectDeclaredMemberNames(state: TypeDeclarationState, seenFunctions: HashSet<string>, seenProperties: HashSet<string>) {
+    func CollectDeclaredMemberNames(state: TypeDeclarationState, seenFunctions: HashSet<string>, seenProperties: HashSet<string>, seenEvents: HashSet<string>) {
         members := TypeMembers(state)
         if members == null {
             return
@@ -2328,6 +2501,12 @@ class AnalyzerTypeDeclarations {
             property := member as PropertyDeclaration
             if property != null {
                 seenProperties.Add(property.Name)
+                continue
+            }
+
+            eventMember := member as EventDeclaration
+            if eventMember != null {
+                seenEvents.Add(eventMember.Name)
             }
         }
     }
@@ -2336,7 +2515,7 @@ class AnalyzerTypeDeclarations {
     // recorded the first time the walk meets it, and only an ABSTRACT first sighting is a missing
     // implementation — an intermediate class that already overrode it has discharged the obligation.
     // Returns false for "cannot tell", which abandons the whole report.
-    func CollectUnimplementedAbstractMembers(candidate: TypeInfo?, seenFunctions: HashSet<string>, seenProperties: HashSet<string>, missing: List<string>, depth: int): bool {
+    func CollectUnimplementedAbstractMembers(candidate: TypeInfo?, seenFunctions: HashSet<string>, seenProperties: HashSet<string>, seenEvents: HashSet<string>, missing: List<string>, depth: int): bool {
         if depth > 24 {
             return false
         }
@@ -2351,7 +2530,7 @@ class AnalyzerTypeDeclarations {
 
         reflectionType := candidate as ReflectionTypeInfo
         if reflectionType != null {
-            CollectReflectedAbstractMembers(reflectionType.Type, seenFunctions, seenProperties, missing)
+            CollectReflectedAbstractMembers(reflectionType.Type, seenFunctions, seenProperties, seenEvents, missing)
             return true
         }
 
@@ -2364,7 +2543,7 @@ class AnalyzerTypeDeclarations {
         index := 0
         while index < declaredMembers.Length {
             declared := declaredMembers[index]
-            RecordAbstractCandidate(declared, seenFunctions, seenProperties, missing)
+            RecordAbstractCandidate(declared, seenFunctions, seenProperties, seenEvents, missing)
             index = index + 1
         }
 
@@ -2372,10 +2551,10 @@ class AnalyzerTypeDeclarations {
             return false
         }
 
-        return CollectUnimplementedAbstractMembers(shape.BaseType, seenFunctions, seenProperties, missing, depth + 1)
+        return CollectUnimplementedAbstractMembers(shape.BaseType, seenFunctions, seenProperties, seenEvents, missing, depth + 1)
     }
 
-    static func RecordAbstractCandidate(declared: DeclaredMemberInfo, seenFunctions: HashSet<string>, seenProperties: HashSet<string>, missing: List<string>) {
+    static func RecordAbstractCandidate(declared: DeclaredMemberInfo, seenFunctions: HashSet<string>, seenProperties: HashSet<string>, seenEvents: HashSet<string>, missing: List<string>) {
         isAbstract := (declared.DeclaredModifiers & Convert.ToInt32(Modifiers.Abstract)) != 0
         if declared.Kind == DeclaredMemberKind.Function {
             if seenFunctions.Add(declared.Name) && isAbstract {
@@ -2389,6 +2568,17 @@ class AnalyzerTypeDeclarations {
             if seenProperties.Add(declared.Name) && isAbstract {
                 missing.Add(declared.Name)
             }
+
+            return
+        }
+
+        // AN EVENT IS A SLOT LIKE THE OTHER TWO. `abstract event Ping: EventHandler` left unfilled
+        // used to EMIT — a concrete type with two abstract accessors, which the CLR refuses the
+        // moment anything tries to instantiate it, with no line and no sentence from the compiler.
+        if declared.Kind == DeclaredMemberKind.Event {
+            if seenEvents.Add(declared.Name) && isAbstract {
+                missing.Add(declared.Name)
+            }
         }
     }
 
@@ -2396,7 +2586,7 @@ class AnalyzerTypeDeclarations {
     // already walk the CLR bases and already return the MOST DERIVED implementation of each virtual
     // slot, so a member that some intermediate CLR class overrode comes back non-abstract and is
     // correctly not required — the same property that lets the override rule ask them once.
-    static func CollectReflectedAbstractMembers(clrType: Type, seenFunctions: HashSet<string>, seenProperties: HashSet<string>, missing: List<string>) {
+    static func CollectReflectedAbstractMembers(clrType: Type, seenFunctions: HashSet<string>, seenProperties: HashSet<string>, seenEvents: HashSet<string>, missing: List<string>) {
         flags := BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance
         methods := clrType.GetMethods(flags)
         index := 0
@@ -2422,6 +2612,23 @@ class AnalyzerTypeDeclarations {
             }
 
             propertyIndex = propertyIndex + 1
+        }
+
+        // An EVENT's abstractness lives on its accessors, exactly as a property's does. The method
+        // walk above cannot see them: an accessor is `SpecialName` and is skipped there on purpose, so
+        // that a missing event is reported once, by its own name, rather than twice as `add_Ping` and
+        // `remove_Ping`.
+        events := clrType.GetEvents(flags)
+        eventIndex := 0
+        while eventIndex < events.Length {
+            eventMember := events[eventIndex]
+            if IsAbstractPropertyAccessor(eventMember.GetAddMethod(true)) || IsAbstractPropertyAccessor(eventMember.GetRemoveMethod(true)) {
+                if seenEvents.Add(eventMember.get_Name()) {
+                    missing.Add(eventMember.get_Name())
+                }
+            }
+
+            eventIndex = eventIndex + 1
         }
     }
 

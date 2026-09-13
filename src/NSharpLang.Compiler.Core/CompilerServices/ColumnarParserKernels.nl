@@ -969,13 +969,24 @@ class InterfaceDeclarationTable {
     BaseNameLengths: int[]
     TypeParamStarts: int[]
     TypeParamLengths: int[]
+    // `event Name: DelegateType` members, in written order. An interface event is TWO abstract
+    // accessor slots plus an `EventInfo` row, so the only facts the row carries are the name and the
+    // handler type — there is no body, no storage and no parameter list to record.
+    EventNameStarts: int[]
+    EventNameLengths: int[]
+    EventTypeStarts: int[]
+    EventTypeLengths: int[]
     Where: ParserDeclarationWhereTable
-    constructor(methodFuncIndices: int[], baseNameStarts: int[], baseNameLengths: int[], typeParamStarts: int[], typeParamLengths: int[], whereTable: ParserDeclarationWhereTable) {
+    constructor(methodFuncIndices: int[], baseNameStarts: int[], baseNameLengths: int[], typeParamStarts: int[], typeParamLengths: int[], whereTable: ParserDeclarationWhereTable, eventNameStarts: int[]? = null, eventNameLengths: int[]? = null, eventTypeStarts: int[]? = null, eventTypeLengths: int[]? = null) {
         MethodFuncIndices = methodFuncIndices
         BaseNameStarts = baseNameStarts
         BaseNameLengths = baseNameLengths
         TypeParamStarts = typeParamStarts
         TypeParamLengths = typeParamLengths
+        EventNameStarts = eventNameStarts ?? new int[](0)
+        EventNameLengths = eventNameLengths ?? new int[](0)
+        EventTypeStarts = eventTypeStarts ?? new int[](0)
+        EventTypeLengths = eventTypeLengths ?? new int[](0)
         Where = whereTable
     }
 }
@@ -1518,7 +1529,9 @@ class InterfaceSignatureBaseOutputTable {
     WhereOwnerTexts: string[]
     WhereItemCodes: int[]
     WhereTypeTexts: string[]
-    constructor(baseNameStarts: int[], baseNameLengths: int[], baseNameTexts: string[], interfaceNameTexts: string[], typeParamTexts: string[], whereOwnerTexts: string[], whereItemCodes: int[], whereTypeTexts: string[]) {
+    EventNameTexts: string[]
+    EventTypeTexts: string[]
+    constructor(baseNameStarts: int[], baseNameLengths: int[], baseNameTexts: string[], interfaceNameTexts: string[], typeParamTexts: string[], whereOwnerTexts: string[], whereItemCodes: int[], whereTypeTexts: string[], eventNameTexts: string[]? = null, eventTypeTexts: string[]? = null) {
         BaseNameStarts = baseNameStarts
         BaseNameLengths = baseNameLengths
         BaseNameTexts = baseNameTexts
@@ -1527,6 +1540,8 @@ class InterfaceSignatureBaseOutputTable {
         WhereOwnerTexts = whereOwnerTexts
         WhereItemCodes = whereItemCodes
         WhereTypeTexts = whereTypeTexts
+        EventNameTexts = eventNameTexts ?? new string[](0)
+        EventTypeTexts = eventTypeTexts ?? new string[](0)
     }
 }
 
@@ -2033,7 +2048,11 @@ class ColumnarInterfaceOutputTable {
     MethodParamTypeTexts: string[]
     MethodParamModifierKinds: int[]
     TypeParamTexts: string[]
-    constructor(methodFuncIndices: int[], baseNameTexts: string[], interfaceNameTexts: string[], methodNameTexts: string[], methodReturnTexts: string[], methodParamCounts: int[], methodBodyFlags: int[], methodParamNameTexts: string[], methodParamTypeTexts: string[], methodParamModifierKinds: int[], typeParamTexts: string[], whereOwnerTexts: string[], whereItemCodes: int[], whereTypeTexts: string[]) {
+    // `event Name: DelegateType` members, in written order: the name and the handler type's canonical
+    // text, which is everything an interface event is — two abstract accessor slots and an `EventInfo`.
+    EventNameTexts: string[]
+    EventTypeTexts: string[]
+    constructor(methodFuncIndices: int[], baseNameTexts: string[], interfaceNameTexts: string[], methodNameTexts: string[], methodReturnTexts: string[], methodParamCounts: int[], methodBodyFlags: int[], methodParamNameTexts: string[], methodParamTypeTexts: string[], methodParamModifierKinds: int[], typeParamTexts: string[], whereOwnerTexts: string[], whereItemCodes: int[], whereTypeTexts: string[], eventNameTexts: string[]? = null, eventTypeTexts: string[]? = null) {
         MethodFuncIndices = methodFuncIndices
         BaseNameTexts = baseNameTexts
         InterfaceNameTexts = interfaceNameTexts
@@ -2048,6 +2067,8 @@ class ColumnarInterfaceOutputTable {
         WhereOwnerTexts = whereOwnerTexts
         WhereItemCodes = whereItemCodes
         WhereTypeTexts = whereTypeTexts
+        EventNameTexts = eventNameTexts ?? new string[](0)
+        EventTypeTexts = eventTypeTexts ?? new string[](0)
     }
 }
 
@@ -9811,7 +9832,7 @@ func ParserDeclarationTokenTextEquals(source: string, start: int, length: int, e
     return true
 }
 
-func ParseInterfaceDeclarationCore(tokens: ParserDeclarationTokenTable, count: int, interfaceIndex: int, decl: InterfaceDeclarationTable, result: ParserDeclarationResultTable): int {
+func ParseInterfaceDeclarationCore(source: string, tokens: ParserDeclarationTokenTable, count: int, interfaceIndex: int, decl: InterfaceDeclarationTable, result: ParserDeclarationResultTable): int {
     pos := interfaceIndex
     if pos >= count || tokens.Kinds[pos] != 10 {
         return -1
@@ -9908,14 +9929,34 @@ func ParseInterfaceDeclarationCore(tokens: ParserDeclarationTokenTable, count: i
     pos = pos + 1
 
     methodCount := 0
+    eventCount := 0
+    eventTypeResult := new ParserDeclarationResultTable(new int[](2))
     while pos < count && tokens.Kinds[pos] != 130 {
+        // AN EVENT MEMBER: `event Name: DelegateType`. `event` is CONTEXTUAL here exactly as it is in a
+        // struct body — the word is an ordinary identifier followed by a NAME and a `:`, which no
+        // other interface member spells — so `event` keeps working as a name everywhere else.
+        if ParseInterfaceDeclarationMemberIsEvent(source, tokens, count, pos) {
+            decl.EventNameStarts[eventCount] = tokens.Starts[pos + 1]
+            decl.EventNameLengths[eventCount] = tokens.ValueLengths[pos + 1]
+            pos = pos + 3
+            pos = ParseDeclarationTypeSpanCore(tokens, count, pos, eventTypeResult)
+            if pos < 0 {
+                return -1
+            }
+
+            decl.EventTypeStarts[eventCount] = eventTypeResult.Values[0]
+            decl.EventTypeLengths[eventCount] = eventTypeResult.Values[1]
+            eventCount = eventCount + 1
+            continue
+        }
+
         if tokens.Kinds[pos] != 7 {
             return -1
         }
 
         decl.MethodFuncIndices[methodCount] = pos
         pos = pos + 1
-        while pos < count && tokens.Kinds[pos] != 7 && tokens.Kinds[pos] != 130 {
+        while pos < count && tokens.Kinds[pos] != 7 && tokens.Kinds[pos] != 130 && !ParseInterfaceDeclarationMemberIsEvent(source, tokens, count, pos) {
             if tokens.Kinds[pos] == 129 {
                 depth := 1
                 pos = pos + 1
@@ -9946,7 +9987,21 @@ func ParseInterfaceDeclarationCore(tokens: ParserDeclarationTokenTable, count: i
         return -1
     }
 
+    if result.Values.Length > 7 {
+        result.Values[7] = eventCount
+    }
+
     return methodCount
+}
+
+// `event Name: …` at this position, read the way the struct body reads it: the word is an ordinary
+// identifier, so the shape after it is what identifies the member.
+func ParseInterfaceDeclarationMemberIsEvent(source: string, tokens: ParserDeclarationTokenTable, count: int, pos: int): bool {
+    if pos + 2 >= count || tokens.Kinds[pos] != 0 || tokens.Kinds[pos + 1] != 0 || tokens.Kinds[pos + 2] != 122 {
+        return false
+    }
+
+    return ParserDeclarationTokenTextEquals(source, tokens.Starts[pos], tokens.ValueLengths[pos], "event")
 }
 
 func ParseEnumMemberValuesCore(source: string, members: EnumMemberTable, memberCount: int, values: EnumMemberValueTable): bool {
@@ -11308,6 +11363,19 @@ func ParseDeclarationMemberFieldModifierWord(memberModifiers: ParserDeclarationR
     }
     if (memberModifiers.Values[2] & 1) != 0 {
         fieldModifierFlags = fieldModifierFlags + 128
+    }
+    // Bits 9, 10 and 11 — the three inheritance words. A plain FIELD can never carry them (a CLR field
+    // has no slot), and the analyzer says so with NL311; an EVENT can, because its accessors are
+    // methods and methods have slots. The bits are packed for every field row all the same, because
+    // the word is one word: the reader decides what a bit MEANS for the row it is on.
+    if (memberModifiers.Values[2] & 32) != 0 {
+        fieldModifierFlags = fieldModifierFlags + 512
+    }
+    if (memberModifiers.Values[2] & 64) != 0 {
+        fieldModifierFlags = fieldModifierFlags + 1024
+    }
+    if (memberModifiers.Values[2] & 65536) != 0 {
+        fieldModifierFlags = fieldModifierFlags + 2048
     }
 
     return fieldModifierFlags
@@ -13505,11 +13573,39 @@ func ParseInterfaceDeclarationSignatureInfoCore(source: string, tokens: ParserTo
 
     declarationTokens := new ParserDeclarationTokenTable(tokens.Kinds, tokens.Starts, tokens.ValueLengths)
     declarationWhere := new ParserDeclarationWhereTable(new int[](count + 1), new int[](count + 1), new int[](count + 1), new int[](count + 1), new int[](count + 1))
-    declaration := new InterfaceDeclarationTable(methodOutputs.FuncIndices, baseOutputs.BaseNameStarts, baseOutputs.BaseNameLengths, new int[](count + 1), new int[](count + 1), declarationWhere)
+    declaration := new InterfaceDeclarationTable(methodOutputs.FuncIndices, baseOutputs.BaseNameStarts, baseOutputs.BaseNameLengths, new int[](count + 1), new int[](count + 1), declarationWhere, new int[](count + 1), new int[](count + 1), new int[](count + 1), new int[](count + 1))
     declarationResult := new ParserDeclarationResultTable(result.Values)
-    methodCount := ParseInterfaceDeclarationCore(declarationTokens, count, interfaceIndex, declaration, declarationResult)
+    methodCount := ParseInterfaceDeclarationCore(source, declarationTokens, count, interfaceIndex, declaration, declarationResult)
     if methodCount < 0 {
         return -1
+    }
+
+    // THE EVENT ROWS, RENDERED. An event's handler type is a TYPE REFERENCE like any other, so it is
+    // canonicalised exactly as a method's return and parameter types are.
+    eventCount := 0
+    if result.Values.Length > 7 {
+        eventCount = result.Values[7]
+    }
+
+    if eventCount > baseOutputs.EventNameTexts.Length || eventCount > baseOutputs.EventTypeTexts.Length {
+        return -1
+    }
+
+    e := 0
+    while e < eventCount {
+        eventName := ParserDeclarationSpanText(source, declaration.EventNameStarts[e], declaration.EventNameLengths[e])
+        if eventName == "" {
+            return -1
+        }
+
+        eventTypeText := ParserDeclarationCanonicalTypeText(source, declaration.EventTypeStarts[e], declaration.EventTypeLengths[e])
+        if eventTypeText == "" {
+            return -1
+        }
+
+        baseOutputs.EventNameTexts[e] = eventName
+        baseOutputs.EventTypeTexts[e] = eventTypeText
+        e = e + 1
     }
 
     baseCount := result.Values[2]
@@ -13656,9 +13752,14 @@ func ParseInterfaceDeclarationSignatureInfoCore(source: string, tokens: ParserTo
         methodOutputs.ParamCounts[methodIndex] = paramCount
         flatParamCount = flatParamCount + paramCount
 
+        // WHAT FOLLOWS A SIGNATURE SAYS WHETHER IT HAS A BODY: a `{` opens one, and the next member or
+        // the closing brace means it is a slot. An EVENT member is one of those "next member" spellings
+        // — it begins with an ordinary identifier rather than a keyword — so it is named here too, or a
+        // bodiless method followed by an event reads as a malformed declaration.
+        declarationTokensAfterSignature := new ParserDeclarationTokenTable(tokens.Kinds, tokens.Starts, tokens.ValueLengths)
         if tokens.Kinds[afterSignature] == 129 {
             methodOutputs.BodyFlags[methodIndex] = 1
-        } else if tokens.Kinds[afterSignature] == 7 || tokens.Kinds[afterSignature] == 130 {
+        } else if tokens.Kinds[afterSignature] == 7 || tokens.Kinds[afterSignature] == 130 || ParseInterfaceDeclarationMemberIsEvent(source, declarationTokensAfterSignature, count, afterSignature) {
             methodOutputs.BodyFlags[methodIndex] = 0
         } else {
             return -1
@@ -14838,6 +14939,21 @@ func ColumnarStructFieldFlagIsEvent(flags: int): bool {
     return (flags & 256) != 0
 }
 
+// Bits 9, 10 and 11: `virtual`, `abstract` and `override` as written on the member. Only an EVENT row
+// can act on them — an event's accessors are ordinary methods, so they take ordinary virtual slots —
+// and a plain field carrying one is refused by the analyzer before emission is asked.
+func ColumnarStructFieldFlagIsVirtual(flags: int): bool {
+    return (flags & 512) != 0
+}
+
+func ColumnarStructFieldFlagIsAbstract(flags: int): bool {
+    return (flags & 1024) != 0
+}
+
+func ColumnarStructFieldFlagIsOverride(flags: int): bool {
+    return (flags & 2048) != 0
+}
+
 // Property prefix flags share the existing integer output column: bit 0 is static, bit 1 is the
 // exact MSBuild RequiredAttribute marker, and bit 2 is the exact MSBuild OutputAttribute marker.
 // Naming the reads here keeps the host from duplicating the packed representation.
@@ -15885,17 +16001,17 @@ func ColumnarEnumMemberNamesDistinct(source: string, scratch: ColumnarEnumMember
     return 1
 }
 
-func ParseColumnarInterfaceInfoInto(source: string, tokenKinds: int[], tokenStarts: int[], tokenValueLengths: int[], count: int, interfaceIndex: int, outMethodFuncIndices: int[], outBaseNameTexts: string[], outInterfaceNameTexts: string[], outMethodNameTexts: string[], outMethodReturnTexts: string[], outMethodParamCounts: int[], outMethodBodyFlags: int[], outMethodParamNameTexts: string[], outMethodParamTypeTexts: string[], outMethodParamModifierKinds: int[], outTypeParamTexts: string[], outWhereOwnerTexts: string[], outWhereItemCodes: int[], outWhereTypeTexts: string[], outResult: int[]): int {
+func ParseColumnarInterfaceInfoInto(source: string, tokenKinds: int[], tokenStarts: int[], tokenValueLengths: int[], count: int, interfaceIndex: int, outMethodFuncIndices: int[], outBaseNameTexts: string[], outInterfaceNameTexts: string[], outMethodNameTexts: string[], outMethodReturnTexts: string[], outMethodParamCounts: int[], outMethodBodyFlags: int[], outMethodParamNameTexts: string[], outMethodParamTypeTexts: string[], outMethodParamModifierKinds: int[], outTypeParamTexts: string[], outWhereOwnerTexts: string[], outWhereItemCodes: int[], outWhereTypeTexts: string[], outResult: int[], outEventNameTexts: string[], outEventTypeTexts: string[]): int {
     tokens := new ColumnarInterfaceTokenTable(tokenKinds, tokenStarts, tokenValueLengths, count)
     scratch := new ColumnarInterfaceBaseScratchTable(new int[](count + 1), new int[](count + 1), new int[](count + 1), new int[](count + 1))
-    outputs := new ColumnarInterfaceOutputTable(outMethodFuncIndices, outBaseNameTexts, outInterfaceNameTexts, outMethodNameTexts, outMethodReturnTexts, outMethodParamCounts, outMethodBodyFlags, outMethodParamNameTexts, outMethodParamTypeTexts, outMethodParamModifierKinds, outTypeParamTexts, outWhereOwnerTexts, outWhereItemCodes, outWhereTypeTexts)
+    outputs := new ColumnarInterfaceOutputTable(outMethodFuncIndices, outBaseNameTexts, outInterfaceNameTexts, outMethodNameTexts, outMethodReturnTexts, outMethodParamCounts, outMethodBodyFlags, outMethodParamNameTexts, outMethodParamTypeTexts, outMethodParamModifierKinds, outTypeParamTexts, outWhereOwnerTexts, outWhereItemCodes, outWhereTypeTexts, outEventNameTexts, outEventTypeTexts)
     result := new ColumnarInterfaceResultTable(outResult)
     return ParseColumnarInterfaceInfoCore(source, tokens, interfaceIndex, scratch, outputs, result)
 }
 
 func ParseColumnarInterfaceInfoCore(source: string, tokens: ColumnarInterfaceTokenTable, interfaceIndex: int, scratch: ColumnarInterfaceBaseScratchTable, outputs: ColumnarInterfaceOutputTable, result: ColumnarInterfaceResultTable): int {
     signatureTokens := new ParserTokenTable(tokens.Kinds, tokens.Starts, tokens.ValueLengths, source)
-    baseOutputs := new InterfaceSignatureBaseOutputTable(scratch.BaseNameStarts, scratch.BaseNameLengths, outputs.BaseNameTexts, outputs.InterfaceNameTexts, outputs.TypeParamTexts, outputs.WhereOwnerTexts, outputs.WhereItemCodes, outputs.WhereTypeTexts)
+    baseOutputs := new InterfaceSignatureBaseOutputTable(scratch.BaseNameStarts, scratch.BaseNameLengths, outputs.BaseNameTexts, outputs.InterfaceNameTexts, outputs.TypeParamTexts, outputs.WhereOwnerTexts, outputs.WhereItemCodes, outputs.WhereTypeTexts, outputs.EventNameTexts, outputs.EventTypeTexts)
     methodOutputs := new InterfaceSignatureMethodOutputTable(outputs.MethodFuncIndices, outputs.MethodNameTexts, outputs.MethodReturnTexts, outputs.MethodParamCounts, outputs.MethodBodyFlags, outputs.MethodParamNameTexts, outputs.MethodParamTypeTexts, outputs.MethodParamModifierKinds)
     typeStack := new ParserArgumentStack(new int[](tokens.Count + 1))
     nodes := new ParserNodeTable(new int[](tokens.Count + 1), new int[](tokens.Count + 1), new int[](tokens.Count + 1), new int[](tokens.Count + 1), new int[](tokens.Count + 1), new int[](tokens.Count + 1), new int[](tokens.Count + 1))

@@ -290,6 +290,12 @@ class ColumnarStructInput {
     // private, stamp it `[CompilerGenerated]`, and define the `add_`/`remove_` accessors and the
     // `EventInfo` row that make the member an event to every other language.
     FieldEventFlags: bool[]
+    // The three inheritance words written on each row. Only an EVENT row can act on them: an event's
+    // accessors are ordinary methods, so `virtual` and `abstract` open a slot and `override` reuses
+    // the base's, exactly as they do on a `func`. A plain field carrying one is NL311 before emission.
+    FieldVirtualFlags: bool[]
+    FieldAbstractFlags: bool[]
+    FieldOverrideFlags: bool[]
     FieldInitKinds: int[]
     FieldInitTexts: string[]
     // The synthesized `.cctor` body: `Name = <expression>` statements, in textual order, for every
@@ -307,7 +313,7 @@ class ColumnarStructInput {
     EnclosingTypeName: string
     NestedVisibilityAttributes: int
 
-    constructor(name: string, fieldNames: string[], fieldTypeCanonicals: string[], methods: IReadOnlyList<ColumnarFunctionInput>, constructors: IReadOnlyList<ColumnarConstructorInput>, properties: IReadOnlyList<ColumnarPropertyInput>, isReference: bool, baseNames: string[]? = null, fieldStaticFlags: bool[]? = null, fieldInitKinds: int[]? = null, fieldInitTexts: string[]? = null, isRecord: bool = false, typeParamNames: string[]? = null, fieldReadonlyFlags: bool[]? = null, sourceFileId: int = 0, isNewtype: bool = false, isRefStruct: bool = false, enclosingTypeName: string? = null, visibilityModifierFlags: int = 0, typeParamSpecialConstraints: int[]? = null, typeParamTypeConstraints: string[][]? = null, fieldPrivateFlags: bool[]? = null, fieldThreadStaticFlags: bool[]? = null, fieldConstFlags: bool[]? = null, fieldVisibilityFlags: int[]? = null, fieldEventFlags: bool[]? = null) {
+    constructor(name: string, fieldNames: string[], fieldTypeCanonicals: string[], methods: IReadOnlyList<ColumnarFunctionInput>, constructors: IReadOnlyList<ColumnarConstructorInput>, properties: IReadOnlyList<ColumnarPropertyInput>, isReference: bool, baseNames: string[]? = null, fieldStaticFlags: bool[]? = null, fieldInitKinds: int[]? = null, fieldInitTexts: string[]? = null, isRecord: bool = false, typeParamNames: string[]? = null, fieldReadonlyFlags: bool[]? = null, sourceFileId: int = 0, isNewtype: bool = false, isRefStruct: bool = false, enclosingTypeName: string? = null, visibilityModifierFlags: int = 0, typeParamSpecialConstraints: int[]? = null, typeParamTypeConstraints: string[][]? = null, fieldPrivateFlags: bool[]? = null, fieldThreadStaticFlags: bool[]? = null, fieldConstFlags: bool[]? = null, fieldVisibilityFlags: int[]? = null, fieldEventFlags: bool[]? = null, fieldVirtualFlags: bool[]? = null, fieldAbstractFlags: bool[]? = null, fieldOverrideFlags: bool[]? = null) {
         Name = name
         FieldNames = fieldNames
         FieldTypeCanonicals = fieldTypeCanonicals
@@ -346,6 +352,9 @@ class ColumnarStructInput {
         FieldThreadStaticFlags = fieldThreadStaticFlags ?? new bool[](fieldNames.Length)
         FieldConstFlags = fieldConstFlags ?? new bool[](fieldNames.Length)
         FieldEventFlags = fieldEventFlags ?? new bool[](fieldNames.Length)
+        FieldVirtualFlags = fieldVirtualFlags ?? new bool[](fieldNames.Length)
+        FieldAbstractFlags = fieldAbstractFlags ?? new bool[](fieldNames.Length)
+        FieldOverrideFlags = fieldOverrideFlags ?? new bool[](fieldNames.Length)
     }
 
     // The attributes written on the field at `index`, or none. Every field column is indexed the
@@ -395,11 +404,16 @@ class ColumnarInterfaceInput {
     MethodParamCanonicals: string[][]
     MethodParamModifierKinds: int[][]
     MethodBodies: ColumnarFunctionInput?[]
+    // `event Name: DelegateType` members. An interface event is two ABSTRACT accessor slots plus an
+    // `EventInfo` row, so the only facts a row carries are the name and the handler delegate type —
+    // there is no body, no storage and no parameter list.
+    EventNames: string[]
+    EventHandlerCanonicals: string[]
     TypeParamSpecialConstraints: int[]
     TypeParamTypeConstraints: string[][]
     SourceFileId: int
 
-    constructor(name: string, baseInterfaceNames: string[], methodNames: string[], methodReturnCanonicals: string[], methodParamNames: string[][], methodParamCanonicals: string[][], methodBodies: ColumnarFunctionInput?[]? = null, typeParamNames: string[]? = null, sourceFileId: int = 0, methodParamModifierKinds: int[][]? = null, typeParamSpecialConstraints: int[]? = null, typeParamTypeConstraints: string[][]? = null) {
+    constructor(name: string, baseInterfaceNames: string[], methodNames: string[], methodReturnCanonicals: string[], methodParamNames: string[][], methodParamCanonicals: string[][], methodBodies: ColumnarFunctionInput?[]? = null, typeParamNames: string[]? = null, sourceFileId: int = 0, methodParamModifierKinds: int[][]? = null, typeParamSpecialConstraints: int[]? = null, typeParamTypeConstraints: string[][]? = null, eventNames: string[]? = null, eventHandlerCanonicals: string[]? = null) {
         Name = name
         BaseInterfaceNames = baseInterfaceNames
         TypeParamNames = typeParamNames ?? new string[](0)
@@ -409,6 +423,8 @@ class ColumnarInterfaceInput {
         MethodParamCanonicals = methodParamCanonicals
         MethodParamModifierKinds = methodParamModifierKinds ?? CreateMethodParamModifierKinds(methodNames, methodParamCanonicals)
         MethodBodies = methodBodies ?? new ColumnarFunctionInput?[](methodNames.Length)
+        EventNames = eventNames ?? new string[](0)
+        EventHandlerCanonicals = eventHandlerCanonicals ?? new string[](0)
         TypeParamSpecialConstraints = ColumnarConstraintColumns.SpecialsOrEmpty(typeParamSpecialConstraints, TypeParamNames.Length)
         TypeParamTypeConstraints = ColumnarConstraintColumns.TypesOrEmpty(typeParamTypeConstraints, TypeParamNames.Length)
         SourceFileId = sourceFileId

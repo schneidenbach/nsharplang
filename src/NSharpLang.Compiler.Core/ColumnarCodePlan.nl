@@ -439,6 +439,16 @@ class ColumnarCodePlanContract {
         return -506
     }
 
+    // ldvirtftn (0xFE07): the entry point of the method a RECEIVER's runtime type selects, rather than
+    // the one its static type names. It is the virtual half of a delegate creation — `dup; ldvirtftn
+    // <m>; newobj <Delegate>..ctor(object, native int)` — and it is what a delegate over a virtual
+    // method must use, so that an override wins exactly as it would at a call site. It POPS the
+    // receiver it reads the v-table from and pushes the pointer, which is why the `dup` above it is
+    // load-bearing: the delegate constructor still needs that same receiver as its first argument.
+    static func Ldvirtftn(): short {
+        return -505
+    }
+
     // Long-form variable opcodes have two-byte ECMA encodings and therefore negative short Values.
     static func Ldarg(): short {
         return -503
@@ -1347,7 +1357,7 @@ class ColumnarCodePlan {
 
     func AppendMethodInstruction(opCodeValue: short, methodIndex: int) {
         EnsureV2Building()
-        if (opCodeValue != ColumnarCodePlanContract.Call() && opCodeValue != ColumnarCodePlanContract.Callvirt() && opCodeValue != ColumnarCodePlanContract.Ldftn()) || methodIndex < 0 || methodIndex >= MethodCount {
+        if (opCodeValue != ColumnarCodePlanContract.Call() && opCodeValue != ColumnarCodePlanContract.Callvirt() && opCodeValue != ColumnarCodePlanContract.Ldftn() && opCodeValue != ColumnarCodePlanContract.Ldvirtftn()) || methodIndex < 0 || methodIndex >= MethodCount {
             throw new InvalidOperationException("The opcode does not use this method pool entry.")
         }
         AppendV2Row(ColumnarCodePlanContract.EmitInstructionOperation(), opCodeValue, ColumnarCodePlanContract.MethodOperand(), methodIndex)

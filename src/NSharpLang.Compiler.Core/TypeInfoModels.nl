@@ -229,12 +229,19 @@ class SourceEventInfo: TypeInfo {
     DeclaringTypeName: string
     HandlerType: TypeInfo
     DeclaringTypeIsValueType: bool
+    // WHETHER THE EVENT IS `abstract`, which is the one shape that has NO STORAGE. Inside its own
+    // declaring type every other event's name IS its backing delegate — that is what makes
+    // `Changed?.Invoke(...)` an ordinary read — and an abstract event has no such field to read, so the
+    // name stays an EVENT even there. A DEFAULTED trailing parameter so every hand-built shape in the
+    // estate keeps its own arity.
+    IsAbstract: bool
 
-    constructor(name: string, declaringTypeName: string, handlerType: TypeInfo, declaringTypeIsValueType: bool) {
+    constructor(name: string, declaringTypeName: string, handlerType: TypeInfo, declaringTypeIsValueType: bool, isAbstract: bool = false) {
         Name = name
         DeclaringTypeName = declaringTypeName
         HandlerType = handlerType
         DeclaringTypeIsValueType = declaringTypeIsValueType
+        IsAbstract = isAbstract
     }
 
     override func ToString(): string {

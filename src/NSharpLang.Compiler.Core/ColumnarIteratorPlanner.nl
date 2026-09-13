@@ -859,6 +859,17 @@ class ColumnarIteratorPlanner {
             WalkExpression(nodes, source, nodes.Child(node, 0), state)
             return false
         }
+        if kind == 80 {
+            // `off <handle>`: one expression in statement position, exactly like `throw`'s operand.
+            // Nothing about it is hoisted — the handle is an ordinary value the expression owner
+            // plans — so the walk only has to read it for suspension points.
+            if nodes.ChildCount(node) != 1 {
+                state.Decline("emit.iterator.unsupported-shape", "`off` has no subscription handle")
+                return false
+            }
+            WalkExpression(nodes, source, nodes.Child(node, 0), state)
+            return !state.Declined
+        }
         if kind == 20 {
             state.Decline("emit.iterator.unsupported-shape", "a `return` statement cannot appear in an iterator body; use `yield` to produce a value and `yield break` to stop")
             return false
@@ -1255,10 +1266,6 @@ class ColumnarIteratorPlanner {
             return
         }
         bodyNode := nodes.Child(node, childCount - 1)
-        if nodes.Kind(bodyNode) == 25 {
-            state.Decline("emit.iterator.lambda-unsupported", "a block-bodied lambda inside an iterator body is not yet lowered; write it as a single expression")
-            return
-        }
         captured := CapturedLoopLocalName(nodes, source, node, state)
         if captured != "" {
             state.Decline("emit.iterator.lambda-unsupported", "a lambda inside an iterator body cannot capture '" + captured + "', which is declared inside a loop: a generator holds one field per local, so every iteration would share it")
@@ -2456,6 +2463,13 @@ class ColumnarIteratorBodyPlanner {
             EmitPostfixStep(emit, node, true)
             return !emit.Context.Declined
         }
+        // AN `on` SUBSCRIPTION IS THE GENERATOR'S OWN SHAPE, for the same reason a lambda is: the rows
+        // it needs — a delegate built over a method the machine itself carries, and a `ldvirtftn` over
+        // the receiver — are plan rows this owner appends, and the ONE expression door declines node
+        // kind 79 wherever it is asked.
+        if emit.Context.Nodes.Kind(node) == 79 {
+            return AppendOnSubscription(emit, node, out resultType)
+        }
         checkpoint := emit.Plan.CreateCheckpoint()
         if emit.Context.RequiredScope().TryAppendValue(emit.Context.Nodes, emit.Context.Source, node, emit.Plan, out resultType) {
             return true
@@ -2478,6 +2492,20 @@ class ColumnarIteratorBodyPlanner {
         }
         // The iterator-owned value forms take the ordinary value path plus the storage conversion; only
         // target-typed forms need the position's type handed down.
+        if emit.Context.Nodes.Kind(node) == 79 {
+            subscriptionType := typeof(int)
+            if !AppendValue(emit, node, out subscriptionType) {
+                return false
+            }
+            if subscriptionType == storageType || storageType.IsAssignableFrom(subscriptionType) {
+                return true
+            }
+            if !emit.Context.RequiredScope().TryAppendStorageConversion(emit.Plan, subscriptionType, storageType) {
+                emit.Context.Decline("emit.iterator.unsupported-shape", "an iterator body value of type '" + subscriptionType.Name + "' cannot be stored as '" + storageType.Name + "'")
+                return false
+            }
+            return true
+        }
         if emit.Context.Nodes.Kind(node) == 44 {
             steppedType := typeof(int)
             if !AppendValue(emit, node, out steppedType) {
@@ -2543,6 +2571,13 @@ class ColumnarIteratorBodyPlanner {
     static func TryDiscoverBoundValueType(emit: ColumnarMoveNextEmit, node: int, out resultType: Type): bool {
         resultType = typeof(int)
         nodes := emit.Context.Nodes
+        // AN `on` SUBSCRIPTION'S TYPE IS KNOWN WITHOUT PLANNING IT, and it MUST be answered that way:
+        // this discovery runs the value into a plan nobody executes, and planning an `on` whose handler
+        // is a lambda would define that lambda's method on the machine a second time.
+        if nodes.Kind(node) == 79 {
+            resultType = typeof(NSharpLang.Runtime.NSharpEventSubscription)
+            return true
+        }
         if nodes.Kind(node) != 53 {
             return emit.Context.RequiredScope().TryDiscoverValueType(nodes, emit.Context.Source, node, out resultType)
         }
@@ -2563,6 +2598,317 @@ class ColumnarIteratorBodyPlanner {
         }
         resultType = getResult.get_ReturnType()
         return !ColumnarCodePlanExecutor.IsVoidType(resultType)
+    }
+
+    // ── `on` / `off` INSIDE A GENERATOR BODY ──────────────────────────────────────────────────
+    //
+    // A subscription made before a `yield` and detached after it is the whole reason this belongs in a
+    // generator: the handle is an ordinary local, so the machine hoists it into a field like every
+    // other local, and the two halves of the feature span a suspension without knowing they did.
+    //
+    // THE LOWERING IS THE ORDINARY EMITTER'S, WRITTEN AS PLAN ROWS. `on` evaluates to a
+    // `NSharpEventSubscription<THandler>`: attach the handler through the event's own `add_`, keep the
+    // `remove_` accessor bound to this receiver as an `Action<THandler>`, and hand both to the handle.
+    // A VIRTUAL remove accessor is taken with `ldvirtftn` over the receiver, so an override wins
+    // exactly as it would at a call site — which is why the plan needed that row at all.
+    //
+    // Nothing here is an event-name table or a modelled-API list: the owner comes from ordinary scoped
+    // resolution (a type name for a static event, the planned receiver's own type otherwise) and every
+    // fact about the event is read off the `EventInfo` reflection already answers, or off the source
+    // definition for a type this compilation is still building.
+    static func AppendOnSubscription(emit: ColumnarMoveNextEmit, node: int, out resultType: Type): bool {
+        resultType = typeof(int)
+        nodes := emit.Context.Nodes
+        source := emit.Context.Source
+        if nodes.ChildCount(node) != 2 {
+            emit.Context.Decline("emit.iterator.on-shape", "`on` subscription is missing its event target or handler")
+            return false
+        }
+        targetNode := nodes.Child(node, 0)
+        handlerNode := nodes.Child(node, 1)
+        eventName := ColumnarNodeTextFacts.Text(nodes, source, targetNode)
+        if eventName.Length == 0 {
+            emit.Context.Decline("emit.iterator.on-shape", "`on` subscription target names no event")
+            return false
+        }
+        if nodes.Kind(targetNode) != 8 || nodes.ChildCount(targetNode) != 1 {
+            // `on base.<Event>` inside a generator reaches its enclosing instance through `<>__this`,
+            // but the machine carries no handle for that instance's BASE type, so the accessors cannot
+            // be found. Said by shape rather than lowered to the wrong pair.
+            emit.Context.Decline("emit.iterator.on-target-shape", "an `on` subscription inside a generator body must name `<receiver>.<Event>`")
+            return false
+        }
+
+        receiverNode := nodes.Child(targetNode, 0)
+        let ownerType: System.Type? = null
+        receiverLocal := 0 - 1
+        let staticOwner: System.Type? = null
+        if TryResolveIteratorEventOwnerTypeName(emit, receiverNode, out staticOwner) && IteratorEventOnChain(emit, staticOwner, eventName, true) {
+            ownerType = staticOwner
+        } else {
+            receiverType := typeof(int)
+            if !AppendValue(emit, receiverNode, out receiverType) {
+                return false
+            }
+            if receiverType.get_IsValueType() {
+                emit.Context.Decline("emit.iterator.on-value-type-receiver", "an instance event cannot be bound through a value-type receiver")
+                return false
+            }
+            receiverLocal = emit.Plan.DeclarePlanLocal(emit.Plan.AddType(emit.Context.StructuralTypeReferences.SelectRuntimeType(receiverType), emit.Context.StructuralTypeReferences))
+            emit.Plan.AppendPlanLocalInstruction(ColumnarCodePlanContract.Stloc(), receiverLocal)
+            ownerType = receiverType
+        }
+
+        let handlerType: System.Type? = null
+        let addMethod: System.Reflection.MethodInfo? = null
+        let removeMethod: System.Reflection.MethodInfo? = null
+        if !TryResolveIteratorEventAccessors(emit, ownerType, eventName, receiverLocal < 0, out handlerType, out addMethod, out removeMethod) {
+            emit.Context.Decline("emit.iterator.on-event-lookup", "no accessible event '" + eventName + "' on '" + ownerType.Name + "'")
+            return false
+        }
+        if addMethod.get_IsStatic() != (receiverLocal < 0) {
+            emit.Context.Decline("emit.iterator.on-receiver-kind", "event '" + eventName + "' does not match the receiver it was given")
+            return false
+        }
+
+        if ColumnarLambdaNodeFacts.IsLambda(nodes.Kind(handlerNode)) {
+            if !AppendLambda(emit, handlerNode, handlerType) {
+                return false
+            }
+        } else if !AppendSiblingMethodGroupHandler(emit, handlerNode, handlerType) && !AppendStoredValue(emit, handlerNode, handlerType) {
+            return false
+        }
+
+        handlerTypeIndex := emit.Plan.AddType(emit.Context.StructuralTypeReferences.SelectRuntimeType(handlerType), emit.Context.StructuralTypeReferences)
+        handlerLocal := emit.Plan.DeclarePlanLocal(handlerTypeIndex)
+        emit.Plan.AppendPlanLocalInstruction(ColumnarCodePlanContract.Stloc(), handlerLocal)
+
+        if receiverLocal >= 0 {
+            emit.Plan.AppendPlanLocalInstruction(ColumnarCodePlanContract.Ldloc(), receiverLocal)
+        }
+        emit.Plan.AppendPlanLocalInstruction(ColumnarCodePlanContract.Ldloc(), handlerLocal)
+        addOpCode := ColumnarCodePlanContract.Callvirt()
+        if addMethod.get_IsStatic() {
+            addOpCode = ColumnarCodePlanContract.Call()
+        }
+        emit.Plan.AppendMethodInstruction(addOpCode, emit.Plan.AddMethod(addMethod))
+
+        // THE REMOVE ACCESSOR, BOUND TO THIS RECEIVER, as the `Action<THandler>` the handle keeps. The
+        // `dup` before `ldvirtftn` is load-bearing: the opcode POPS the receiver it reads the v-table
+        // from, and the delegate constructor still needs that same receiver as its first argument.
+        actionType := typeof(Action<int>).GetGenericTypeDefinition().MakeGenericType([handlerType])
+        actionCtor := actionType.GetConstructor([typeof(object), typeof(IntPtr)])
+        if actionCtor == null {
+            emit.Context.Decline("emit.iterator.on-remove-delegate", "Action<T> has no (object, IntPtr) constructor")
+            return false
+        }
+        if receiverLocal < 0 {
+            emit.Plan.AppendInstructionWithoutOperand(ColumnarCodePlanContract.Ldnull())
+            emit.Plan.AppendMethodInstruction(ColumnarCodePlanContract.Ldftn(), emit.Plan.AddMethod(removeMethod))
+        } else {
+            emit.Plan.AppendPlanLocalInstruction(ColumnarCodePlanContract.Ldloc(), receiverLocal)
+            if removeMethod.get_IsVirtual() && !removeMethod.get_IsFinal() {
+                emit.Plan.AppendInstructionWithoutOperand(ColumnarCodePlanContract.Dup())
+                emit.Plan.AppendMethodInstruction(ColumnarCodePlanContract.Ldvirtftn(), emit.Plan.AddMethod(removeMethod))
+            } else {
+                emit.Plan.AppendMethodInstruction(ColumnarCodePlanContract.Ldftn(), emit.Plan.AddMethod(removeMethod))
+            }
+        }
+        emit.Plan.AppendConstructorInstruction(ColumnarCodePlanContract.Newobj(), emit.Plan.AddConstructor(actionCtor))
+        emit.Plan.AppendPlanLocalInstruction(ColumnarCodePlanContract.Ldloc(), handlerLocal)
+
+        let openSubscription: System.Type? = null
+        if !ColumnarTypeOfPlanner.TryResolveRuntimeGenericDefinition("NSharpLang.Runtime.NSharpEventSubscription`1", "NSharpLang.Runtime", out openSubscription) {
+            emit.Context.Decline("emit.iterator.on-runtime-handle", "the N# runtime's event-subscription handle type could not be resolved")
+            return false
+        }
+        subscriptionType := openSubscription.MakeGenericType([handlerType])
+        subscriptionCtor := subscriptionType.GetConstructor([actionType, handlerType])
+        if subscriptionCtor == null {
+            emit.Context.Decline("emit.iterator.on-runtime-handle", "the N# runtime's event-subscription handle has no (Action<T>, T) constructor")
+            return false
+        }
+        emit.Plan.AppendConstructorInstruction(ColumnarCodePlanContract.Newobj(), emit.Plan.AddConstructor(subscriptionCtor))
+        // THE STATIC TYPE IS THE NON-GENERIC ROOT, the same identity the ordinary emitter and the
+        // analyzer both give the expression, so `off` measures against one thing everywhere.
+        resultType = typeof(NSharpLang.Runtime.NSharpEventSubscription)
+        return true
+    }
+
+    // A FREE FUNCTION NAMED AS THE HANDLER. `on list.CollectionChanged TallyHandler` converts a method
+    // group to the event's delegate exactly as an inline lambda does, and inside a generator the group
+    // is a SIBLING — a top-level `func`, which emits as a static method — so the delegate is built the
+    // way a static one is: `ldnull; ldftn <m>; newobj <Delegate>..ctor`.
+    //
+    // The group is admitted only when its signature IS the delegate's `Invoke`, by exact parameter and
+    // return identity. A near miss falls through to the ordinary value door, which reports the
+    // mismatch against the target type rather than silently binding the wrong method.
+    static func AppendSiblingMethodGroupHandler(emit: ColumnarMoveNextEmit, handlerNode: int, handlerType: Type): bool {
+        nodes := emit.Context.Nodes
+        if nodes.Kind(handlerNode) != 6 {
+            return false
+        }
+        // A BINDING OF THAT SPELLING SHADOWS THE FREE FUNCTION, exactly as a local shadows one in an
+        // ordinary body: a hoisted field of the machine (every parameter and local of the generator is
+        // one), an enclosing member reached through the captured receiver, or a root binding the node
+        // table records. Any of them and the ordinary value door answers instead.
+        name := nodes.Text(emit.Context.Source, handlerNode)
+        if name.Length == 0 || emit.Context.HasHoistedField(name) || emit.Context.EnclosingFieldIndex(name) >= 0 || nodes.HasAdditionalRootBinding(name) {
+            return false
+        }
+        let sibling: NSharpLang.Compiler.Columnar.ColumnarSiblingCallFacts? = null
+        if !emit.Context.RequiredScope().Facts.SiblingCallables.TryGetValue(name, out sibling) {
+            return false
+        }
+        if sibling.TypeParameterCount != 0 || !sibling.Method.get_IsStatic() {
+            return false
+        }
+        invoke := DelegateInvokeOrNull(handlerType)
+        constructor := DelegateConstructorOrNull(handlerType)
+        if invoke == null || constructor == null {
+            return false
+        }
+        invokeParameters := invoke.GetParameters()
+        if invokeParameters.Length != sibling.ParameterTypes.Length || invoke.get_ReturnType() != sibling.ReturnType {
+            return false
+        }
+        index := 0
+        while index < invokeParameters.Length {
+            if invokeParameters[index].get_ParameterType() != sibling.ParameterTypes[index] || sibling.ParameterModifierKinds[index] != 0 {
+                return false
+            }
+            index = index + 1
+        }
+
+        emit.Plan.AppendInstructionWithoutOperand(ColumnarCodePlanContract.Ldnull())
+        emit.Plan.AppendMethodInstruction(ColumnarCodePlanContract.Ldftn(), emit.Plan.AddMethod(sibling.Method))
+        emit.Plan.AppendConstructorInstruction(ColumnarCodePlanContract.Newobj(), emit.Plan.AddConstructor(constructor))
+        return true
+    }
+
+    // `off <handle>`: the handle is an ordinary value — a hoisted field, a parameter, a call result —
+    // and `Unsubscribe()` claims the remove accessor once, which is what makes a second `off` a no-op.
+    static func EmitOffStatement(emit: ColumnarMoveNextEmit, node: int): bool {
+        nodes := emit.Context.Nodes
+        if nodes.ChildCount(node) != 1 {
+            emit.Context.Decline("emit.iterator.off-shape", "`off` has no subscription handle")
+            return false
+        }
+        handleType := typeof(int)
+        if !AppendValue(emit, nodes.Child(node, 0), out handleType) {
+            return false
+        }
+        subscriptionRoot := typeof(NSharpLang.Runtime.NSharpEventSubscription)
+        if !subscriptionRoot.IsAssignableFrom(handleType) {
+            emit.Context.Decline("emit.iterator.off-handle-type", "`off` needs a subscription handle, got '" + handleType.Name + "'")
+            return false
+        }
+        unsubscribe := subscriptionRoot.GetMethod("Unsubscribe", Type.EmptyTypes)
+        if unsubscribe == null {
+            emit.Context.Decline("emit.iterator.off-runtime-handle", "the N# runtime's event-subscription handle has no Unsubscribe()")
+            return false
+        }
+        emit.Plan.AppendMethodInstruction(ColumnarCodePlanContract.Callvirt(), emit.Plan.AddMethod(unsubscribe))
+        return true
+    }
+
+    // WHETHER THE RECEIVER CHAIN NAMES A TYPE RATHER THAN A VALUE. A hoisted binding of the machine or
+    // a sibling function of the same spelling shadows a type name, exactly as a local does in an
+    // ordinary body; what is left is asked of the source registry first (a type this compilation is
+    // still building has no metadata) and then of the external resolver.
+    static func TryResolveIteratorEventOwnerTypeName(emit: ColumnarMoveNextEmit, receiverNode: int, out ownerType: Type): bool {
+        ownerType = null
+        nodes := emit.Context.Nodes
+        scope := nodes.BindingScope
+        ownerName := ""
+        rootName := ""
+        if scope == null || !ColumnarExternalStaticMemberPlanner.TryGetQualifiedName(nodes, emit.Context.Source, receiverNode, 0, out ownerName, out rootName) {
+            return false
+        }
+        if emit.Context.HasHoistedField(rootName) || emit.Context.EnclosingFieldIndex(rootName) >= 0 || nodes.HasAdditionalRootBinding(rootName) {
+            return false
+        }
+        facts := emit.Context.RequiredScope().Facts
+        sourceOwner: Type = null
+        if ownerName == rootName && facts.ExactSourceTypes.TryGetValue(rootName, out sourceOwner) {
+            ownerType = sourceOwner
+            return true
+        }
+        let resolved: System.Type? = null
+        if !scope.TryResolveExternalStaticOwnerType(nodes.EnclosingTypeName, nodes.VisibleTypeParameterNames, rootName, ownerName, out resolved) {
+            return false
+        }
+        ownerType = resolved
+        return true
+    }
+
+    // Whether an event of this name and staticness exists on the owner's chain, asked without reading
+    // its accessors — the static-owner probe, which must not commit to a receiver-less shape before it
+    // knows there is a static event to bind.
+    static func IteratorEventOnChain(emit: ColumnarMoveNextEmit, ownerType: Type, eventName: string, staticOnly: bool): bool {
+        let handlerType: System.Type? = null
+        let addMethod: System.Reflection.MethodInfo? = null
+        let removeMethod: System.Reflection.MethodInfo? = null
+        return TryResolveIteratorEventAccessors(emit, ownerType, eventName, staticOnly, out handlerType, out addMethod, out removeMethod)
+    }
+
+    // THE EVENT, FROM WHICHEVER HALF OF THE SEARCH ANSWERS. A type this compilation declares has no
+    // `EventInfo` while its builder is open, so its accessors come from the definition that made them;
+    // an external one arrives as metadata. Both halves supply the same three facts.
+    static func TryResolveIteratorEventAccessors(emit: ColumnarMoveNextEmit, ownerType: Type, eventName: string, staticOnly: bool, out handlerType: Type, out addMethod: MethodInfo, out removeMethod: MethodInfo): bool {
+        handlerType = null
+        addMethod = null
+        removeMethod = null
+        if ownerType == null {
+            return false
+        }
+
+        sourceEvent := FindIteratorSourceEventOnChain(emit, ownerType, eventName, staticOnly)
+        if sourceEvent != null {
+            handlerType = sourceEvent.HandlerType
+            addMethod = ColumnarSourceSelfInstantiation.BindOn(ColumnarSourceSelfInstantiation.Of(ownerType), sourceEvent.Add)
+            removeMethod = ColumnarSourceSelfInstantiation.BindOn(ColumnarSourceSelfInstantiation.Of(ownerType), sourceEvent.Remove)
+            return handlerType != null && addMethod != null && removeMethod != null
+        }
+
+        flags := BindingFlags.Public | BindingFlags.FlattenHierarchy
+        if staticOnly {
+            flags = flags | BindingFlags.Static
+        } else {
+            flags = flags | BindingFlags.Instance
+        }
+        walk: Type = ownerType
+        while walk != null {
+            // A type still being BUILT answers no reflection question — `TypeBuilder.GetEvent` throws
+            // rather than answering — so a source rung is skipped rather than asked.
+            if walk as TypeBuilder == null && walk as EnumBuilder == null {
+                candidate := walk.GetEvent(eventName, flags)
+                if candidate != null {
+                    handlerType = candidate.get_EventHandlerType()
+                    addMethod = candidate.GetAddMethod(false)
+                    removeMethod = candidate.GetRemoveMethod(false)
+                    return handlerType != null && addMethod != null && removeMethod != null
+                }
+            }
+            walk = walk.get_BaseType()
+        }
+        return false
+    }
+
+    static func FindIteratorSourceEventOnChain(emit: ColumnarMoveNextEmit, ownerType: Type, eventName: string, staticOnly: bool): ColumnarEventDef? {
+        ownerBuilder := ownerType as TypeBuilder
+        if ownerBuilder == null {
+            return null
+        }
+        walk := ColumnarSourceDefinitionResolver.FindByBuilderIdentity(emit.Context.RequiredScope().Facts.StructDefinitions, ownerBuilder)
+        while walk != null {
+            let candidate: NSharpLang.Compiler.Columnar.ColumnarEventDef? = null
+            if walk.Events.TryGetValue(eventName, out candidate) && candidate.IsStatic == staticOnly {
+                return candidate
+            }
+            walk = walk.BaseDef
+        }
+        return null
     }
 
     // A LAMBDA, AS A METHOD ON THE STATE MACHINE ITSELF.
@@ -2665,14 +3011,161 @@ class ColumnarIteratorBodyPlanner {
 
         plan := new ColumnarCodePlan()
         plan.PrepareMethodBody()
-        plan.AddArgument(0, plan.AddType(context.StructuralTypeReferences.SelectRuntimeType(context.StateMachineType), context.StructuralTypeReferences))
-        if !scope.TryAppendTargetTypedValue(context.Nodes, context.Source, bodyNode, plan, returnType) {
+        thisArgument := plan.AddArgument(0, plan.AddType(context.StructuralTypeReferences.SelectRuntimeType(context.StateMachineType), context.StructuralTypeReferences))
+        if context.Nodes.Kind(bodyNode) == 25 {
+            if !AppendLambdaBlockBody(emit, scope, bodyNode, plan, thisArgument, returnType) {
+                return false
+            }
+        } else if !scope.TryAppendTargetTypedValue(context.Nodes, context.Source, bodyNode, plan, returnType) {
             context.Decline("emit.iterator.lambda-unsupported", "the body of a lambda in an iterator body could not be lowered as '" + returnType.Name + "'")
             return false
         }
         plan.AppendInstructionWithoutOperand(ColumnarCodePlanContract.Ret())
         plan.CompleteMethodBody(returnType)
         ColumnarCodePlanExecutor.Execute(plan, lambdaMethod.GetILGenerator())
+        return true
+    }
+
+    // A BLOCK-BODIED LAMBDA'S STATEMENTS, PLANNED INTO ITS OWN METHOD.
+    //
+    // `on list.CollectionChanged (sender, args) => { seen = seen + 1 }` is the shape every event
+    // handler is written in, and a generator that could not lower it could not subscribe to anything
+    // with more than one expression in the handler.
+    //
+    // THE THREE STATEMENT FORMS A HANDLER IS MADE OF, and nothing else is guessed at:
+    //
+    //   * an EXPRESSION statement — a call, almost always — whose value is discarded when it has one;
+    //   * an ASSIGNMENT, which is where the generator differs from an ordinary lambda: a captured name
+    //     is a FIELD of the state machine (the machine IS the closure's display), so `seen = …` is
+    //     `ldarg.0; <value>; stfld`. A member or indexer target goes to the ordinary store owner, and
+    //     a name that is neither is declined rather than silently written somewhere else;
+    //   * a LOCAL DECLARATION, which lands in the plan's own local pool — a lambda's local is the
+    //     lambda's, not the machine's, so it must not be hoisted.
+    //
+    // A `return` is admitted only as the LAST statement, because anything earlier needs a branch to a
+    // shared exit this straight-line plan does not build; a handler returning `void` needs none at all.
+    static func AppendLambdaBlockBody(emit: ColumnarMoveNextEmit, scope: ColumnarIteratorBodyScope, blockNode: int, plan: ColumnarCodePlan, thisArgument: int, returnType: Type): bool {
+        context := emit.Context
+        nodes := context.Nodes
+        source := context.Source
+        statementCount := nodes.ChildCount(blockNode)
+        index := 0
+        while index < statementCount {
+            statement := nodes.Child(blockNode, index)
+            isLast := index == statementCount - 1
+            if !AppendLambdaBlockStatement(emit, scope, statement, plan, thisArgument, returnType, isLast) {
+                return false
+            }
+            index = index + 1
+        }
+
+        // A body that produced no value for a value-returning delegate cannot be completed here: the
+        // `ret` the caller appends would run on an empty stack.
+        if !ColumnarCodePlanExecutor.IsVoidType(returnType) && !LambdaBlockEndsWithReturn(nodes, blockNode) {
+            context.Decline("emit.iterator.lambda-unsupported", "a block-bodied lambda in an iterator body must end with `return` when its delegate returns '" + returnType.Name + "'")
+            return false
+        }
+        return true
+    }
+
+    static func LambdaBlockEndsWithReturn(nodes: ColumnarNodeTable, blockNode: int): bool {
+        statementCount := nodes.ChildCount(blockNode)
+        if statementCount == 0 {
+            return false
+        }
+        return nodes.Kind(nodes.Child(blockNode, statementCount - 1)) == 20
+    }
+
+    static func AppendLambdaBlockStatement(emit: ColumnarMoveNextEmit, scope: ColumnarIteratorBodyScope, statement: int, plan: ColumnarCodePlan, thisArgument: int, returnType: Type, isLast: bool): bool {
+        context := emit.Context
+        nodes := context.Nodes
+        source := context.Source
+        kind := nodes.Kind(statement)
+        if kind == 25 {
+            inner := 0
+            while inner < nodes.ChildCount(statement) {
+                if !AppendLambdaBlockStatement(emit, scope, nodes.Child(statement, inner), plan, thisArgument, returnType, isLast && inner == nodes.ChildCount(statement) - 1) {
+                    return false
+                }
+                inner = inner + 1
+            }
+            return true
+        }
+        if kind == 20 {
+            if !isLast {
+                context.Decline("emit.iterator.lambda-unsupported", "a `return` before the end of a block-bodied lambda in an iterator body is not yet lowered")
+                return false
+            }
+            if nodes.ChildCount(statement) == 0 {
+                return true
+            }
+            if !scope.TryAppendTargetTypedValue(nodes, source, nodes.Child(statement, 0), plan, returnType) {
+                context.Decline("emit.iterator.lambda-unsupported", "the returned value of a lambda in an iterator body could not be lowered as '" + returnType.Name + "'")
+                return false
+            }
+            return true
+        }
+        if kind == 24 || kind == 40 {
+            if !ColumnarMethodBodyPlanner.TryAppendLocalDeclaration(nodes, source, statement, scope.Bindings, plan) {
+                context.Decline("emit.iterator.lambda-unsupported", "a local declaration inside a block-bodied lambda in an iterator body could not be lowered")
+                return false
+            }
+            return true
+        }
+        if kind != 23 || nodes.ChildCount(statement) != 1 {
+            context.Decline("emit.iterator.lambda-unsupported", "a statement (node kind " + kind.ToString() + ") inside a block-bodied lambda in an iterator body is not yet lowered")
+            return false
+        }
+
+        inner := nodes.Child(statement, 0)
+        if nodes.Kind(inner) == 14 {
+            return AppendLambdaBlockAssignment(emit, scope, inner, plan, thisArgument)
+        }
+
+        discardedType := typeof(int)
+        if !scope.TryAppendValue(nodes, source, inner, plan, out discardedType) {
+            context.Decline("emit.iterator.lambda-unsupported", "an expression statement inside a block-bodied lambda in an iterator body could not be lowered")
+            return false
+        }
+        if !ColumnarCodePlanExecutor.IsVoidType(discardedType) {
+            plan.AppendInstructionWithoutOperand(ColumnarCodePlanContract.Pop())
+        }
+        return true
+    }
+
+    // `<name> = <value>` inside a generator's lambda. A captured NAME is a field of the machine the
+    // lambda runs on, so the receiver is argument zero — the same load a read of that name performs.
+    static func AppendLambdaBlockAssignment(emit: ColumnarMoveNextEmit, scope: ColumnarIteratorBodyScope, assignment: int, plan: ColumnarCodePlan, thisArgument: int): bool {
+        context := emit.Context
+        nodes := context.Nodes
+        source := context.Source
+        if nodes.ChildCount(assignment) != 2 || nodes.Text(source, assignment) != "=" {
+            context.Decline("emit.iterator.lambda-unsupported", "a compound assignment inside a block-bodied lambda in an iterator body is not yet lowered")
+            return false
+        }
+        target := nodes.Child(assignment, 0)
+        value := nodes.Child(assignment, 1)
+        if nodes.Kind(target) == 6 {
+            name := nodes.Text(source, target)
+            if !scope.HasField(name) {
+                context.Decline("emit.iterator.lambda-unsupported", "'" + name + "' is not a binding a lambda inside an iterator body can assign to")
+                return false
+            }
+            field := scope.FieldHandle(name)
+            plan.AppendArgumentInstruction(ColumnarCodePlanContract.Ldarg(), thisArgument)
+            if !scope.TryAppendTargetTypedValue(nodes, source, value, plan, field.get_FieldType()) {
+                context.Decline("emit.iterator.lambda-unsupported", "the value assigned to '" + name + "' inside a lambda in an iterator body could not be lowered")
+                return false
+            }
+            plan.AppendFieldInstruction(ColumnarCodePlanContract.Stfld(), plan.AddField(field))
+            return true
+        }
+
+        declineReason := ""
+        if !ColumnarStoreTargetPlanner.ClaimsTarget(nodes, target) || !ColumnarStoreTargetPlanner.TryAppendStore(nodes, source, target, value, scope.Bindings, plan, out declineReason) {
+            context.Decline("emit.iterator.lambda-unsupported", "an assignment inside a block-bodied lambda in an iterator body could not be lowered")
+            return false
+        }
         return true
     }
 
@@ -2876,6 +3369,9 @@ class ColumnarIteratorBodyPlanner {
             // loop variable's field was defined from the annotation, so the element is converted to
             // it — the same conversion the ordinary form performs, once per iteration.
             return EmitForIn(emit, nodes.Child(node, 1), nodes.Child(node, 2), nodes.Text(source, nodes.Child(node, 0)))
+        }
+        if kind == 80 {
+            return EmitOffStatement(emit, node)
         }
         if kind == 48 {
             // throw <expression>: the ordinary value owner builds the exception, then `throw`. A bare

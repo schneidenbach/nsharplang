@@ -91,3 +91,42 @@ test "a STATIC event on an external type subscribes and detaches through the typ
 test "a static event reached through a PROPERTY CHAIN on a static type subscribes and detaches" {
     assert SubscribeAndDetachStaticChainEvent()
 }
+
+test "a FREE FUNCTION returning a maybe-null reference is a handler for the event that declares one" {
+    assert CountResolveThroughFreeFunction() == 1
+}
+
+test "a handler that never returns null reaches the same maybe-null delegate" {
+    assert CountResolveThroughNonNullFreeFunction() == 1
+}
+
+test "an inline lambda against the same event infers its parameters and its result" {
+    assert CountResolveThroughLambda() == 1
+}
+
+test "the delegate handed to `add_` is the event's own handler type" {
+    assert ResolvingHandlerTypeName() == "Func`3"
+}
+
+test "a handler that starts async work and does not await it still runs that work to completion" {
+    tally := new AsyncTally()
+    assert CountThroughDiscardedTaskHandler(NewList(), tally) == 1
+}
+
+test "a subscription made inside a generator spans a `yield` and detaches after it" {
+    observed := DrainWatchWhileYielding(new GeneratorTally())
+    // 1 + 1 (after the raise the subscription saw) + 1 (the raise after `off` was not seen).
+    assert observed.Total == 3
+    assert observed.Hits == 1
+}
+
+test "a METHOD GROUP is a handler inside a generator too" {
+    // The generator yields 1 then 2; the handler saw the one raise made before `off` and not the one
+    // after it.
+    assert DrainWatchWithMethodGroupWhileYielding() == 31
+}
+
+test "`off` twice inside a generator is a no-op, across a suspension" {
+    // 1 + 1 + 1: the first raise was seen, and the two raises after `off` were not.
+    assert DrainDoubleOffWhileYielding() == 3
+}

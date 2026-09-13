@@ -1100,7 +1100,10 @@ test "iterator planner declines a lambda that captures a variable declared insid
     assert probe.Shape.DeclineMessage == "a lambda inside an iterator body cannot capture 'v', which is declared inside a loop: a generator holds one field per local, so every iteration would share it"
 }
 
-test "iterator planner declines a block-bodied lambda inside an iterator body" {
+// A BLOCK-BODIED LAMBDA IS CLASSIFIED LIKE ANY OTHER, and its body is still read for captures. This
+// contract REPLACES the one that refused the shape outright: the statements of such a body are planned
+// into the lambda's own method at realization, so classification has nothing left to refuse here.
+test "iterator planner classifies a block-bodied lambda inside an iterator body" {
     probe := new ColumnarIteratorShapeProbe(
         "func* WithLambda(n: int): IEnumerable<int> { pick: Func<int, int> = x => { return x + n }\n yield pick(1) }",
         "IEnumerable<int>",
@@ -1110,9 +1113,22 @@ test "iterator planner declines a block-bodied lambda inside an iterator body" {
         false
     )
 
-    assert !probe.Shape.Supported
-    assert probe.Shape.DeclineSite == "emit.iterator.lambda-unsupported"
-    assert probe.Shape.DeclineMessage == "a block-bodied lambda inside an iterator body is not yet lowered; write it as a single expression"
+    assert probe.Shape.Supported
+
+    // The capture rule still reads THROUGH the block: a loop-declared local is one field re-used by
+    // every iteration, so closing over it is refused whichever body shape the lambda has.
+    looping := new ColumnarIteratorShapeProbe(
+        "func* WithLambda(values: int[]): IEnumerable<int> { for v in values { pick: Func<int, int> = x => { return x + v }\n yield pick(1) } }",
+        "IEnumerable<int>",
+        IteratorOne("values"),
+        IteratorOne("int[]"),
+        IteratorNoStrings(),
+        false
+    )
+
+    assert !looping.Shape.Supported
+    assert looping.Shape.DeclineSite == "emit.iterator.lambda-unsupported"
+    assert looping.Shape.DeclineMessage == "a lambda inside an iterator body cannot capture 'v', which is declared inside a loop: a generator holds one field per local, so every iteration would share it"
 }
 
 // A LAMBDA'S OWN PARAMETER SHADOWS the body's bindings, so a parameter that happens to share a

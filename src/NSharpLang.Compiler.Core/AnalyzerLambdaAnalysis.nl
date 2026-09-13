@@ -100,6 +100,13 @@ class LambdaAnalysisState {
     TargetsExpressionTree: bool
     ReportInferenceFailure: bool
 
+    // WHETHER THIS LAMBDA IS AN `on` HANDLER, which changes ONE sentence and nothing else. NL334's
+    // ordinary fix is "change the target to return a task"; an EVENT's delegate is the BCL's and the
+    // reader cannot change it, so the handler position names the idiom that works instead. The flag is
+    // about where the lambda was WRITTEN, exactly as `ReportInferenceFailure` is about whether this
+    // pass is the reporting one — no rule is decided by it, only the wording of the fix.
+    TargetsEventHandler: bool
+
     // The parameter-inference failure is reported ONCE PER LAMBDA, not once per parameter: a lambda
     // whose delegate type nothing names has EVERY parameter uninferable, and one sentence about the
     // lambda is the report the user needs.
@@ -135,6 +142,7 @@ class LambdaAnalysisState {
         ExpectedSignature = null
         TargetsExpressionTree = false
         ReportInferenceFailure = reportInferenceFailure
+        TargetsEventHandler = false
         ReportedInferenceFailure = false
         ReportedAsyncTarget = false
         ReportedMissingAsync = false
@@ -812,6 +820,15 @@ class AnalyzerLambdaAnalysis {
             return
         }
 
+        // AN EVENT HANDLER CANNOT CHANGE ITS TARGET, so it is told the idiom instead. Nearly every .NET
+        // event's delegate returns `void`, and the reader does not own that declaration — telling them
+        // to "change the target" names a fix that does not exist. Starting the work and not awaiting it
+        // is what `async void` would have done anyway, spelled so that the discard is visible.
+        if state.TargetsEventHandler {
+            diagnostics.Report(ErrorCode.AsyncLambdaTargetNotTaskLike, "An 'async' lambda produces a task, but this event's handler returns '" + LambdaTypeText(signature.ReturnType) + "'", lambda.Line, lambda.Column, "An event's delegate is the one that declared it, so there is no `async` handler to write. Start the work inside an ordinary handler and discard the task — `on x.E (sender, args) => { _ = RunAsync() }` — or call a `void` method that does the awaiting.", 5)
+            return
+        }
+
         diagnostics.Report(ErrorCode.AsyncLambdaTargetNotTaskLike, "An 'async' lambda produces a task, but this delegate returns '" + LambdaTypeText(signature.ReturnType) + "'", lambda.Line, lambda.Column, "An `async` body's value is wrapped in the task the delegate returns. Change the target to return `Task`, `Task<T>`, `ValueTask` or `ValueTask<T>`, or drop the `async` keyword and return the value directly.", 5)
     }
 
@@ -1003,6 +1020,19 @@ class AnalyzerLambdaAnalysis {
         if !addMethod.get_IsStatic() && HasValueTypeDeclaringType(eventInfo) {
             span := spans.GetExpressionDiagnosticSpan(target)
             diagnostics.Report(ErrorCode.InvalidEventSubscription, "subscribing to '" + eventInfo.Name + "' isn't supported — it's an instance event on a value type (struct)", span.Line, span.Column, "Events on struct receivers can't be bound safely. Subscribe through a reference-type instance instead.", span.Length)
+        }
+
+        // THE EXPECTED HANDLER TYPE IS THE ANNOTATED SPELLING WHEN THE READER COULD SUPPLY ONE.
+        // `AssemblyLoadContext.Resolving` is declared `Func<AssemblyLoadContext, AssemblyName,
+        // Assembly?>`, and the bare CLR type cannot say the `?`: reference nullability is metadata on
+        // the EVENT. Measuring a handler that returns `Assembly?` against the unannotated spelling
+        // reported NL318 over a method group that is exactly the delegate the BCL declares. The
+        // annotated type is the same type with the same identity, so everything downstream — the
+        // lambda's parameter inference, the method-group conversion, the mismatch sentence — reads one
+        // more true fact and nothing else changes.
+        annotatedHandlerType := eventInfo.AnnotatedHandlerType
+        if annotatedHandlerType != null {
+            return EmitHandler(state, annotatedHandlerType, true)
         }
 
         return EmitHandler(state, new ReflectionTypeInfo(handlerDelegateType), true)

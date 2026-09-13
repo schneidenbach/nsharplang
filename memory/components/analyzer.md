@@ -2921,7 +2921,27 @@ Analyzer coverage is split deliberately across:
   instance event on a struct gets. The runtime half — subscribe / raise / detach counts, a static
   event, a struct-declared one, an inherited one, a method-group handler — plus the CLR metadata half
   (`GetEvent`, both accessors, the `[CompilerGenerated]` private backing field, and `EventInfo.AddEventHandler`
-  standing in for a C# caller's `+=`) is all in that project.
+  standing in for a C# caller's `+=`) is all in that project. EVENTS3 added the three INHERITANCE
+  shapes and the INTERFACE one to it. An event's accessors are methods, so `virtual`/`abstract`/
+  `override` mean on an event what they mean on a `func`; what NL311 still refuses is what the CLR
+  cannot carry (a `static` event, a value form, `abstract` outside an abstract class, `virtual` inside
+  a sealed one, and an `override` with no open base event — measured by `ClassifyOverrideEventTarget`,
+  the third member of the walk family `ClassifyOverrideTarget` and `ClassifyOverridePropertyTarget`
+  belong to). An `abstract` event has NO storage, so `SourceEventFacts.IsAbstractDeclaredEvent` keeps
+  it an EVENT even inside its own declaring type and `Ping?.Invoke(...)` there reports NL337 rather
+  than declining at `emit.call.receiver`. NL324 and NL325 both count events now — on the supplied
+  side and on the required side, source and reflected — so `class Chatty: INotifyPropertyChanged {}`
+  names `PropertyChanged` instead of emitting a type the CLR refuses to load.
+- `AnalyzerMemberResolution`'s event arm carries one more true fact since EVENTS3:
+  `ReflectionEventInfo.AnnotatedHandlerType`, read by
+  `NullabilityMetadataReflection.ConvertEventHandlerType`. `EventInfo.EventHandlerType` answers a bare
+  CLR type and reference nullability is metadata on the MEMBER, so
+  `AssemblyLoadContext.Resolving` — declared `event Func<AssemblyLoadContext, AssemblyName,
+  Assembly?>?` — reflected as `Func`3[…, Assembly]` and a handler returning `Assembly?` was refused
+  with NL318 over exactly the delegate the BCL declares. The reader runs the same
+  `NullabilityInfoContext` walk properties, fields and parameters run, and drops the event's own
+  maybe-null shell: `event Func<…>?` says the backing field may hold no handler yet, not that the
+  handler a subscriber attaches may be null.
 - `tests/native/analyzer-binding-map` for what `AnalysisResult.Bindings` answers — `GetBindingAt`
   over interpolation holes, member accesses, and type annotations in every composite position
   (nullable, array, generic argument, delegate argument), and `FindAllReferences` with its WHOLE

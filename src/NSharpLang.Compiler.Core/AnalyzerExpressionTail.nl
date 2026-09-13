@@ -206,6 +206,16 @@ class AnalyzerExpressionTail {
     func ReportSourceEventUsedAsValue(expr: Expression, eventRef: SourceEventInfo) {
         span := spans.GetExpressionDiagnosticSpan(expr)
         target := AnalyzerAssignment.RenderEventTarget(expr)
+
+        // AN ABSTRACT EVENT HAS NO STORAGE ANYWHERE, so the declaring type is not the boundary and
+        // naming it would send the reader to the one place the read is equally impossible. `abstract
+        // event` is a pair of slots; the delegate lives in whichever derived type filled them, and the
+        // only thing this type can do with the name is hand it to `on`.
+        if eventRef.IsAbstract {
+            diagnostics.Report(ErrorCode.SourceEventRequiresOnOff, "'" + eventRef.Name + "' is an abstract event, so there is no handler list here to read or raise", span.Line, span.Column, "An abstract event is a pair of accessor slots with no storage of its own — the delegate belongs to the derived type that overrides it. Subscribe with `on " + target + " (sender, args) => { ... }`, or declare a `protected virtual func` beside the event that a derived type overrides to raise its own.", span.Length)
+            return
+        }
+
         diagnostics.Report(ErrorCode.SourceEventRequiresOnOff, "'" + eventRef.Name + "' is an event declared by '" + eventRef.DeclaringTypeName + "' — outside '" + eventRef.DeclaringTypeName + "' it can only be subscribed to", span.Line, span.Column, "Subscribe with `on " + target + " (sender, args) => { ... }`; the result is a subscription you can later pass to `off`. Reading or raising '" + eventRef.Name + "' is '" + eventRef.DeclaringTypeName + "''s own business, so write a method there if callers need to trigger it.", span.Length)
     }
 

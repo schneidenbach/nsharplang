@@ -1927,6 +1927,8 @@ class ColumnarInterfaceModifierParseProbe {
     WhereItemCodes: int[]
     WhereTypeTexts: string[]
     MethodBodyFlags: int[]
+    EventNames: string[]
+    EventTypes: string[]
     Result: int[]
 
     constructor(source: string) {
@@ -1954,9 +1956,28 @@ class ColumnarInterfaceModifierParseProbe {
         WhereOwnerTexts = new string[](capacity)
         WhereItemCodes = new int[](capacity)
         WhereTypeTexts = new string[](capacity)
-        Result = new int[](8)
-        MethodCount = ParseColumnarInterfaceInfoInto(source, tokenKinds, tokenStarts, tokenValueLengths, tokenCount, 0, methodFuncIndices, baseNames, interfaceNames, MethodNames, methodReturns, MethodParamCounts, MethodBodyFlags, MethodParamNames, MethodParamTypes, MethodParamModifierKinds, typeParams, WhereOwnerTexts, WhereItemCodes, WhereTypeTexts, Result)
+        Result = new int[](9)
+        EventNames = new string[](capacity)
+        EventTypes = new string[](capacity)
+        MethodCount = ParseColumnarInterfaceInfoInto(source, tokenKinds, tokenStarts, tokenValueLengths, tokenCount, 0, methodFuncIndices, baseNames, interfaceNames, MethodNames, methodReturns, MethodParamCounts, MethodBodyFlags, MethodParamNames, MethodParamTypes, MethodParamModifierKinds, typeParams, WhereOwnerTexts, WhereItemCodes, WhereTypeTexts, Result, EventNames, EventTypes)
     }
+}
+
+// AN INTERFACE MAY DECLARE AN EVENT, and the row it produces is the two facts an interface event is:
+// the name and the handler delegate's canonical text. `event` is CONTEXTUAL here exactly as it is in a
+// struct body — an ordinary identifier followed by a NAME and a `:` — so the members around it still
+// parse as themselves and `event` keeps working as a name everywhere else.
+test "columnar interface parser reads event members beside methods" {
+    source := "interface INotifier {\n    event Changed: EventHandler\n    func Touch()\n    event Ticked: Action\n}\n"
+    probe := new ColumnarInterfaceModifierParseProbe(source)
+
+    assert probe.MethodCount == 1
+    assert probe.MethodNames[0] == "Touch"
+    assert probe.Result[7] == 2
+    assert probe.EventNames[0] == "Changed"
+    assert probe.EventTypes[0] == "EventHandler"
+    assert probe.EventNames[1] == "Ticked"
+    assert probe.EventTypes[1] == "Action"
 }
 
 test "columnar interface parser flattens ref out and params modifier facts" {

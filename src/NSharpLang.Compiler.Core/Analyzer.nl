@@ -1953,7 +1953,9 @@ class Analyzer: IDisposable {
                 // written by the `on` walk, where the other three things `on` can say are.
                 handlerLambda := step.Handler as LambdaExpression
                 if handlerLambda != null {
-                    DriveLambda(LambdaAnalysis.BeginLambda(handlerLambda, step.ExpectedType, step.ReportInferenceFailure, false))
+                    handlerState := LambdaAnalysis.BeginLambda(handlerLambda, step.ExpectedType, step.ReportInferenceFailure, false)
+                    handlerState.TargetsEventHandler = true
+                    DriveLambda(handlerState)
                 } else {
                     // The handler is analysed with the event's delegate type as its expected type and
                     // NOTHING relaxed: the slot is an ordinary delegate position, so a bare method name

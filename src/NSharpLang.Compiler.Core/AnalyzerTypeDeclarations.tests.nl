@@ -400,52 +400,50 @@ test "`this` IS DECLARED WITHOUT A BINDING DECLARATION, AND AN INTERFACE DECLARE
     assert interfaceSteps[0].ScopeKindName == "Interface"
 }
 
-// AN EVENT IS A MEMBER EVERYWHERE A MEMBER MAY BE WRITTEN — including an interface, where it binds
-// and then has nowhere to go: an interface's accessors are abstract slots an implementing type has
-// to fill, and nothing yet declares them, matches them or checks that a class supplied them. Saying
-// that AT THE MEMBER is the contract; the backend's own answer is `NL103 … parse.interface`, which
-// names the compiler's internals rather than what the reader wrote.
-test "AN INTERFACE EVENT IS REPORTED AT THE MEMBER, AND A CLASS EVENT IS NOT REPORTED AT ALL" {
+// AN EVENT IS A MEMBER EVERYWHERE A MEMBER MAY BE WRITTEN — including an interface, where it is what
+// it says: a pair of abstract accessor slots an implementing type fills. This contract REPLACES the
+// one that refused it (NL323 "an interface cannot declare the event 'Changed' yet"): the interface
+// emits the slots, the implementing type's own accessors are widened to fill them, and a type that
+// declares the interface and NOT the event is told so by the interface rule (NL325), under the
+// event's own name.
+test "AN INTERFACE MAY DECLARE AN EVENT, AND SO MAY A CLASS" {
     interfaceMembers := new List<Declaration>()
     interfaceMembers.Add(new EventDeclaration("Changed", TypeDeclInt(), Modifiers.None, TypeDeclNoAttributes(), 9, 5))
     interfaceHarness := TypeDeclDefault()
     TypeDeclRun(interfaceHarness, interfaceHarness.Declarations.BeginInterface(TypeDeclInterface("Shape", interfaceMembers, Modifiers.None), interfaceHarness.Assignability), null)
-    assert interfaceHarness.Errors.Count == 1
-    assert interfaceHarness.Errors[0].Code == ErrorCode.FeatureNotImplemented
-    assert interfaceHarness.Errors[0].Message == "an interface cannot declare the event 'Changed' yet"
-    assert interfaceHarness.Errors[0].Line == 9
-    assert interfaceHarness.Errors[0].Column == 5
+    assert interfaceHarness.Errors.Count == 0
 
     classMembers := new List<Declaration>()
     classMembers.Add(new EventDeclaration("Changed", TypeDeclInt(), Modifiers.None, TypeDeclNoAttributes(), 9, 5))
     classHarness := TypeDeclDefault()
     TypeDeclRun(classHarness, classHarness.Declarations.BeginClass(TypeDeclClass("Box", classMembers, null, null, Modifiers.None), classHarness.Assignability), null)
     assert classHarness.Errors.Count == 0
+
+    // An inheritance word on an interface event is redundant rather than wrong-typed, and says so.
+    redundantMembers := new List<Declaration>()
+    redundantMembers.Add(new EventDeclaration("Changed", TypeDeclInt(), Modifiers.Virtual, TypeDeclNoAttributes(), 9, 5))
+    redundantHarness := TypeDeclDefault()
+    TypeDeclRun(redundantHarness, redundantHarness.Declarations.BeginInterface(TypeDeclInterface("Shape", redundantMembers, Modifiers.None), redundantHarness.Assignability), null)
+    assert redundantHarness.Errors.Count == 1
+    assert redundantHarness.Errors[0].Code == ErrorCode.InvalidModifier
+    assert redundantHarness.Errors[0].Message == "'Changed' is declared 'virtual', but an interface's event is already a slot"
 }
 
-// AN EVENT'S ACCESSORS ARE SYNTHESIZED AND NOT YET VIRTUAL SLOTS, so the three inheritance words
-// promise a dispatch that does not happen. They were accepted in SILENCE, which is worse than
-// refusing them: `override event` would HIDE the base's event while a subscriber through the base
-// reference still reached the base's storage.
-test "AN EVENT REFUSES THE THREE INHERITANCE WORDS, AT THE MEMBER NAME" {
-    for modifierName in ["override", "abstract", "virtual"] {
-        modifier := Modifiers.Override
-        if modifierName == "abstract" {
-            modifier = Modifiers.Abstract
-        } else if modifierName == "virtual" {
-            modifier = Modifiers.Virtual
-        }
+// AN EVENT'S ACCESSORS ARE METHODS, so the three inheritance words mean on an event what they mean
+// on a `func`. This contract REPLACES the one that refused all three: `virtual`, `abstract` and
+// `override` are now emitted as real slots, and what is left refused is what the CLR cannot express.
+test "AN EVENT TAKES THE THREE INHERITANCE WORDS WHEN THE TYPE CAN CARRY THEM" {
+    virtualMembers := new List<Declaration>()
+    virtualMembers.Add(new EventDeclaration("Changed", TypeDeclInt(), Modifiers.Virtual, TypeDeclNoAttributes(), 9, 5))
+    virtualHarness := TypeDeclDefault()
+    TypeDeclRun(virtualHarness, virtualHarness.Declarations.BeginClass(TypeDeclClass("Box", virtualMembers, null, null, Modifiers.None), virtualHarness.Assignability), null)
+    assert virtualHarness.Errors.Count == 0
 
-        members := new List<Declaration>()
-        members.Add(new EventDeclaration("Changed", TypeDeclInt(), modifier, TypeDeclNoAttributes(), 9, 5))
-        harness := TypeDeclDefault()
-        TypeDeclRun(harness, harness.Declarations.BeginClass(TypeDeclClass("Box", members, null, null, Modifiers.None), harness.Assignability), null)
-        assert harness.Errors.Count == 1
-        assert harness.Errors[0].Code == ErrorCode.InvalidModifier
-        assert harness.Errors[0].Message == "'Changed' is declared '" + modifierName + "', but an event's accessors are not virtual yet"
-        assert harness.Errors[0].Line == 9
-        assert harness.Errors[0].Column == 5
-    }
+    abstractMembers := new List<Declaration>()
+    abstractMembers.Add(new EventDeclaration("Changed", TypeDeclInt(), Modifiers.Abstract, TypeDeclNoAttributes(), 9, 5))
+    abstractHarness := TypeDeclDefault()
+    TypeDeclRun(abstractHarness, abstractHarness.Declarations.BeginClass(TypeDeclClass("Box", abstractMembers, null, null, Modifiers.Abstract), abstractHarness.Assignability), null)
+    assert abstractHarness.Errors.Count == 0
 
     // A PLAIN event carries none of the three and is reported nowhere.
     plainMembers := new List<Declaration>()
@@ -453,6 +451,75 @@ test "AN EVENT REFUSES THE THREE INHERITANCE WORDS, AT THE MEMBER NAME" {
     plainHarness := TypeDeclDefault()
     TypeDeclRun(plainHarness, plainHarness.Declarations.BeginClass(TypeDeclClass("Box", plainMembers, null, null, Modifiers.None), plainHarness.Assignability), null)
     assert plainHarness.Errors.Count == 0
+}
+
+// WHAT IS STILL REFUSED IS WHAT THE CLR CANNOT EXPRESS, and each refusal names the one thing the
+// reader can change. Without the abstract-class and sealed-class rules the TYPE BUILDER throws
+// ("Type must be declared abstract if any of its methods are abstract") with no line and no sentence.
+test "AN EVENT REFUSES AN INHERITANCE WORD THE CLR CANNOT CARRY, AT THE MEMBER NAME" {
+    staticMembers := new List<Declaration>()
+    staticVirtual := Modifiers.Static
+    staticVirtual = (Modifiers)(Convert.ToInt32(Modifiers.Static) | Convert.ToInt32(Modifiers.Virtual))
+    staticMembers.Add(new EventDeclaration("Changed", TypeDeclInt(), staticVirtual, TypeDeclNoAttributes(), 9, 5))
+    staticHarness := TypeDeclDefault()
+    TypeDeclRun(staticHarness, staticHarness.Declarations.BeginClass(TypeDeclClass("Box", staticMembers, null, null, Modifiers.None), staticHarness.Assignability), null)
+    assert staticHarness.Errors.Count == 1
+    assert staticHarness.Errors[0].Code == ErrorCode.InvalidModifier
+    assert staticHarness.Errors[0].Message == "'Changed' is declared 'static virtual', but a static event has no slot to dispatch through"
+    assert staticHarness.Errors[0].Line == 9
+    assert staticHarness.Errors[0].Column == 5
+
+    structMembers := new List<Declaration>()
+    structMembers.Add(new EventDeclaration("Changed", TypeDeclInt(), Modifiers.Virtual, TypeDeclNoAttributes(), 9, 5))
+    structHarness := TypeDeclDefault()
+    TypeDeclRun(structHarness, structHarness.Declarations.BeginStruct(TypeDeclStruct("Point", structMembers, null, null, Modifiers.None), structHarness.Assignability), null)
+    assert structHarness.Errors.Count == 1
+    assert structHarness.Errors[0].Message == "'Changed' is declared 'virtual', but a struct cannot take part in inheritance"
+
+    concreteMembers := new List<Declaration>()
+    concreteMembers.Add(new EventDeclaration("Changed", TypeDeclInt(), Modifiers.Abstract, TypeDeclNoAttributes(), 9, 5))
+    concreteHarness := TypeDeclDefault()
+    TypeDeclRun(concreteHarness, concreteHarness.Declarations.BeginClass(TypeDeclClass("Box", concreteMembers, null, null, Modifiers.None), concreteHarness.Assignability), null)
+    assert concreteHarness.Errors.Count == 1
+    assert concreteHarness.Errors[0].Message == "'Changed' is declared 'abstract', but 'Box' is not an abstract class"
+
+    sealedMembers := new List<Declaration>()
+    sealedMembers.Add(new EventDeclaration("Changed", TypeDeclInt(), Modifiers.Virtual, TypeDeclNoAttributes(), 9, 5))
+    sealedHarness := TypeDeclDefault()
+    TypeDeclRun(sealedHarness, sealedHarness.Declarations.BeginClass(TypeDeclClass("Box", sealedMembers, null, null, Modifiers.Sealed), sealedHarness.Assignability), null)
+    assert sealedHarness.Errors.Count == 1
+    assert sealedHarness.Errors[0].Message == "'Changed' is declared 'virtual', but 'Box' is sealed"
+
+    // `override` with no base at all: the implicit root is `object`, which declares no events.
+    overrideMembers := new List<Declaration>()
+    overrideMembers.Add(new EventDeclaration("Changed", TypeDeclInt(), Modifiers.Override, TypeDeclNoAttributes(), 9, 5))
+    overrideHarness := TypeDeclDefault()
+    TypeDeclRun(overrideHarness, overrideHarness.Declarations.BeginClass(TypeDeclClass("Box", overrideMembers, null, null, Modifiers.None), overrideHarness.Assignability), null)
+    assert overrideHarness.Errors.Count == 1
+    assert overrideHarness.Errors[0].Message == "'Changed' is declared 'override', but the base type has no event of that name"
+}
+
+// THE OVERRIDE WALK ANSWERS THE SAME FOUR VERDICTS THE `func` AND PROPERTY WALKS DO, over the same
+// base chain: 0 cannot tell, 1 open, 2 shut, 3 absent.
+test "THE EVENT OVERRIDE WALK READS BOTH SOURCE AND METADATA BASES" {
+    harness := TypeDeclDefault()
+
+    open := TypeDeclSourceOwner("Base", TypeDeclMemberInfos(TypeDeclEventMemberInfo("Changed", TypeDeclVirtualBits())))
+    assert harness.Declarations.ClassifyOverrideEventTarget(open, "Changed", 0) == 1
+
+    shut := TypeDeclSourceOwner("Base", TypeDeclMemberInfos(TypeDeclEventMemberInfo("Changed", 0)))
+    assert harness.Declarations.ClassifyOverrideEventTarget(shut, "Changed", 0) == 2
+
+    assert harness.Declarations.ClassifyOverrideEventTarget(open, "Other", 0) == 3
+    assert harness.Declarations.ClassifyOverrideEventTarget(BuiltInTypes.Unknown, "Changed", 0) == 0
+    assert harness.Declarations.ClassifyOverrideEventTarget(open, "Changed", 25) == 0
+
+    // A base FIELD or PROPERTY of the same name is not an event slot.
+    notAnEvent := TypeDeclSourceOwner("Base", TypeDeclMemberInfos(TypeDeclPropertyMemberInfo("Changed", TypeDeclVirtualBits())))
+    assert harness.Declarations.ClassifyOverrideEventTarget(notAnEvent, "Changed", 0) == 3
+
+    // Metadata's half: `object` declares no events, so the implicit root answers absent.
+    assert AnalyzerTypeDeclarations.ClassifyReflectionOverrideEventTarget(typeof(object), "Changed") == 3
 }
 
 test "EACH TYPE FORM OPENS THE SCOPE KIND NAMED FOR IT, AND A UNION OPENS A BLOCK" {
@@ -1402,6 +1469,42 @@ func TypeDeclPropertyMemberInfo(name: string, modifierBits: int): DeclaredMember
     )
 }
 
+func TypeDeclEventMemberInfo(name: string, modifierBits: int): DeclaredMemberInfo {
+    return new DeclaredMemberInfo(
+        name,
+        "Owner",
+        DeclaredMemberKind.Event,
+        "event",
+        null,
+        false,
+        false,
+        true,
+        true,
+        0,
+        new string[](0),
+        new TypeReference[](0),
+        new Ast.ParameterModifier[](0),
+        0,
+        false,
+        false,
+        null,
+        0,
+        new TypeParameter[](0),
+        new GenericConstraint[](0),
+        0,
+        false,
+        false,
+        false,
+        false,
+        "",
+        false,
+        false,
+        1,
+        1,
+        modifierBits
+    )
+}
+
 func TypeDeclProperty(name: string, modifiers: Modifiers): PropertyDeclaration {
     body: Expression = new StringLiteralExpression("\"v\"", 8, 20, false)
     return new PropertyDeclaration(name, TypeDeclInt(), null, null, body, modifiers, PropertyModifier.None, TypeDeclNoAttributes(), 8, 5)
@@ -1814,26 +1917,26 @@ test "a first sighting that is ABSTRACT is missing; a first sighting that is not
     missing := new List<string>()
     seenFunctions := TypeDeclEmptyNames()
     seenProperties := TypeDeclEmptyNames()
-    AnalyzerTypeDeclarations.RecordAbstractCandidate(TypeDeclMemberInfo("Area", TypeDeclAbstractBits()), seenFunctions, seenProperties, missing)
+    AnalyzerTypeDeclarations.RecordAbstractCandidate(TypeDeclMemberInfo("Area", TypeDeclAbstractBits()), seenFunctions, seenProperties, TypeDeclEmptyNames(), missing)
     assert TypeDeclNames(missing) == "Area"
 
     // Seen already — an implementation in the derived type, or a nearer concrete override — is silent.
     closed := new List<string>()
-    AnalyzerTypeDeclarations.RecordAbstractCandidate(TypeDeclMemberInfo("Area", TypeDeclAbstractBits()), TypeDeclNamesOf("Area"), TypeDeclEmptyNames(), closed)
+    AnalyzerTypeDeclarations.RecordAbstractCandidate(TypeDeclMemberInfo("Area", TypeDeclAbstractBits()), TypeDeclNamesOf("Area"), TypeDeclEmptyNames(), TypeDeclEmptyNames(), closed)
     assert closed.Count == 0
 
     // A non-abstract first sighting records the name WITHOUT requiring it: that is how an intermediate
     // class that already overrode the member discharges the obligation for everything below it.
     concrete := new List<string>()
     concreteSeen := TypeDeclEmptyNames()
-    AnalyzerTypeDeclarations.RecordAbstractCandidate(TypeDeclMemberInfo("Area", 0), concreteSeen, TypeDeclEmptyNames(), concrete)
+    AnalyzerTypeDeclarations.RecordAbstractCandidate(TypeDeclMemberInfo("Area", 0), concreteSeen, TypeDeclEmptyNames(), TypeDeclEmptyNames(), concrete)
     assert concrete.Count == 0
     assert concreteSeen.Contains("Area")
 
     // A PROPERTY answers the property slot and a FUNCTION answers the function slot — a field named
     // `Area` does not implement `abstract func Area()`, so the two name sets stay disjoint.
     propertyMissing := new List<string>()
-    AnalyzerTypeDeclarations.RecordAbstractCandidate(TypeDeclPropertyMemberInfo("Area", TypeDeclAbstractBits()), TypeDeclNamesOf("Area"), TypeDeclEmptyNames(), propertyMissing)
+    AnalyzerTypeDeclarations.RecordAbstractCandidate(TypeDeclPropertyMemberInfo("Area", TypeDeclAbstractBits()), TypeDeclNamesOf("Area"), TypeDeclEmptyNames(), TypeDeclEmptyNames(), propertyMissing)
     assert TypeDeclNames(propertyMissing) == "Area"
 }
 
@@ -1845,7 +1948,7 @@ test "METADATA's abstract members come from ONE call, which already walks the CL
     assert streamType != null
     if streamType != null {
         streamMissing := new List<string>()
-        AnalyzerTypeDeclarations.CollectReflectedAbstractMembers(streamType, TypeDeclEmptyNames(), TypeDeclEmptyNames(), streamMissing)
+        AnalyzerTypeDeclarations.CollectReflectedAbstractMembers(streamType, TypeDeclEmptyNames(), TypeDeclEmptyNames(), TypeDeclEmptyNames(), streamMissing)
         assert streamMissing.Count == 10
         assert streamMissing.Contains("Read")
         assert streamMissing.Contains("Write")
@@ -1861,7 +1964,7 @@ test "METADATA's abstract members come from ONE call, which already walks the CL
         // A name the derived type already declares is not required, whatever metadata says — one from
         // the method half and one from the property half, so both subtractions are proven.
         suppliedMissing := new List<string>()
-        AnalyzerTypeDeclarations.CollectReflectedAbstractMembers(streamType, TypeDeclNamesOf("Read"), TypeDeclNamesOf("Length"), suppliedMissing)
+        AnalyzerTypeDeclarations.CollectReflectedAbstractMembers(streamType, TypeDeclNamesOf("Read"), TypeDeclNamesOf("Length"), TypeDeclEmptyNames(), suppliedMissing)
         assert suppliedMissing.Count == 8
         assert !suppliedMissing.Contains("Read")
         assert !suppliedMissing.Contains("Length")
@@ -1874,12 +1977,12 @@ test "METADATA's abstract members come from ONE call, which already walks the CL
     assert memoryStreamType != null
     if memoryStreamType != null {
         concreteMissing := new List<string>()
-        AnalyzerTypeDeclarations.CollectReflectedAbstractMembers(memoryStreamType, TypeDeclEmptyNames(), TypeDeclEmptyNames(), concreteMissing)
+        AnalyzerTypeDeclarations.CollectReflectedAbstractMembers(memoryStreamType, TypeDeclEmptyNames(), TypeDeclEmptyNames(), TypeDeclEmptyNames(), concreteMissing)
         assert concreteMissing.Count == 0
     }
 
     exceptionMissing := new List<string>()
-    AnalyzerTypeDeclarations.CollectReflectedAbstractMembers(typeof(Exception), TypeDeclEmptyNames(), TypeDeclEmptyNames(), exceptionMissing)
+    AnalyzerTypeDeclarations.CollectReflectedAbstractMembers(typeof(Exception), TypeDeclEmptyNames(), TypeDeclEmptyNames(), TypeDeclEmptyNames(), exceptionMissing)
     assert exceptionMissing.Count == 0
 
     assert !AnalyzerTypeDeclarations.IsAbstractPropertyAccessor(null)
@@ -1891,20 +1994,20 @@ test "the chain walk answers CANNOT TELL rather than reporting from half a chain
     // A base that is present and readable: the abstract member is required.
     readable := TypeDeclSourceOwner("Shape", TypeDeclMemberInfos(TypeDeclMemberInfo("Area", TypeDeclAbstractBits())))
     readableMissing := new List<string>()
-    assert harness.Declarations.CollectUnimplementedAbstractMembers(readable, TypeDeclEmptyNames(), TypeDeclEmptyNames(), readableMissing, 0)
+    assert harness.Declarations.CollectUnimplementedAbstractMembers(readable, TypeDeclEmptyNames(), TypeDeclEmptyNames(), TypeDeclEmptyNames(), readableMissing, 0)
     assert TypeDeclNames(readableMissing) == "Area"
 
     // An UNKNOWN link abandons the whole report — false, and the caller reports nothing.
     unknownMissing := new List<string>()
-    assert !harness.Declarations.CollectUnimplementedAbstractMembers(BuiltInTypes.Unknown, TypeDeclEmptyNames(), TypeDeclEmptyNames(), unknownMissing, 0)
+    assert !harness.Declarations.CollectUnimplementedAbstractMembers(BuiltInTypes.Unknown, TypeDeclEmptyNames(), TypeDeclEmptyNames(), TypeDeclEmptyNames(), unknownMissing, 0)
 
     // So does a chain deeper than the cycle brake.
     deepMissing := new List<string>()
-    assert !harness.Declarations.CollectUnimplementedAbstractMembers(readable, TypeDeclEmptyNames(), TypeDeclEmptyNames(), deepMissing, 25)
+    assert !harness.Declarations.CollectUnimplementedAbstractMembers(readable, TypeDeclEmptyNames(), TypeDeclEmptyNames(), TypeDeclEmptyNames(), deepMissing, 25)
 
     // A null candidate is the END of a chain, not a failure: `object` requires nothing.
     endMissing := new List<string>()
-    assert harness.Declarations.CollectUnimplementedAbstractMembers(null, TypeDeclEmptyNames(), TypeDeclEmptyNames(), endMissing, 0)
+    assert harness.Declarations.CollectUnimplementedAbstractMembers(null, TypeDeclEmptyNames(), TypeDeclEmptyNames(), TypeDeclEmptyNames(), endMissing, 0)
     assert endMissing.Count == 0
 }
 

@@ -324,6 +324,8 @@ class ColumnarCodePlanExecutor {
                 il.Emit(OpCodes.Call, plan.Methods[operandIndex])
             } else if opCodeValue == ColumnarCodePlanContract.Ldftn() {
                 il.Emit(OpCodes.Ldftn, plan.Methods[operandIndex])
+            } else if opCodeValue == ColumnarCodePlanContract.Ldvirtftn() {
+                il.Emit(OpCodes.Ldvirtftn, plan.Methods[operandIndex])
             } else {
                 il.Emit(OpCodes.Callvirt, plan.Methods[operandIndex])
             }
@@ -934,6 +936,11 @@ class ColumnarCodePlanExecutor {
             // `ldftn` names a method without calling it: it reads no argument and leaves one value.
             if opCodeValue == ColumnarCodePlanContract.Ldftn() {
                 return 1
+            }
+            // `ldvirtftn` reads the RECEIVER it selects the override from and leaves the pointer, so
+            // the net effect on the stack is nothing.
+            if opCodeValue == ColumnarCodePlanContract.Ldvirtftn() {
+                return 0
             }
             return MethodBodyMethodDelta(plan, operandIndex)
         }
@@ -1748,6 +1755,12 @@ class ColumnarCodePlanExecutor {
             // The function pointer a delegate is built from. `native int` is what the delegate
             // constructor declares as its second parameter, so `IntPtr` is the exact stack type the
             // following `newobj` has to match, not an approximation of one.
+            state.Push(typeof(IntPtr), false, ColumnarCodePlanStackValueKind.Exact(), false, 0)
+        } else if opCodeValue == ColumnarCodePlanContract.Ldvirtftn() {
+            // The same pointer, selected through the receiver this pops. The receiver is a reference —
+            // a virtual slot cannot be reached through anything else — and the pointer that replaces
+            // it is the delegate constructor's `native int`.
+            state.Pop()
             state.Push(typeof(IntPtr), false, ColumnarCodePlanStackValueKind.Exact(), false, 0)
         } else if opCodeValue == ColumnarCodePlanContract.Call() || opCodeValue == ColumnarCodePlanContract.Callvirt() {
             ApplyMethodCall(plan, operationIndex, operandIndex, opCodeValue, state, schemaName)

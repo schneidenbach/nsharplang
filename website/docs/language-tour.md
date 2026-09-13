@@ -1510,6 +1510,25 @@ func main() {
 The handler must begin **on the event's own line**; a handler on the next line is reported as a
 missing one rather than silently swallowing the next statement.
 
+An event that declares a **maybe-null** position reads that annotation from the event's own
+metadata, so a handler written to the same shape fits. `AssemblyLoadContext.Resolving` is
+`Func<AssemblyLoadContext, AssemblyName, Assembly?>`, and a function returning `Assembly?` is a
+handler for it — as is one that never returns null, because the result position is covariant:
+
+```n#
+import System.Reflection
+import System.Runtime.Loader
+
+func resolve(_context: AssemblyLoadContext, _name: AssemblyName): Assembly? {
+    return null
+}
+
+func main() {
+    sub := on AssemblyLoadContext.Default.Resolving resolve
+    off sub
+}
+```
+
 ### Detaching
 
 `off <handle>` detaches exactly the handler that handle attached — including an inline lambda,
@@ -1617,17 +1636,98 @@ func watch(widget: Widget) {
 
 An event's type must be a delegate; anything else reports [NL338](./errors/NL338.md).
 
-**Current limits.** An event declared inside an `interface` reports
-[NL323](./errors/NL323.md): the syntax binds, but an interface's accessors are abstract slots
-nothing yet fills — declare the event on each implementing type instead. For the same reason, an
-event's accessors are not virtual slots yet, so `virtual`, `abstract` and `override` on an event
-report [NL311](./errors/NL311.md) rather than promising a dispatch that does not happen; a derived
-type inherits the event as it is, and a `virtual func` the base's raise goes through is the way to
-let it decide what raising means. An event's storage
+### `virtual`, `abstract` and `override`
+
+An event's accessors are ordinary methods, so the three inheritance words mean on an event exactly
+what they mean on a `func`: `virtual` opens a slot for each accessor, `abstract` opens one and
+supplies no body, and `override` reuses the base's.
+
+```n#
+import System
+
+class Signal {
+    virtual event Fired: EventHandler
+
+    virtual func RaiseOwn() {
+        Fired?.Invoke(this, EventArgs.Empty)
+    }
+}
+
+class LoudSignal: Signal {
+    override event Fired: EventHandler
+
+    override func RaiseOwn() {
+        Fired?.Invoke(this, EventArgs.Empty)
+    }
+}
+
+abstract class Pump {
+    abstract event Ticked: EventHandler
+}
+```
+
+An `abstract` event has **no storage**: it is a pair of slots, so the declaring type has nothing to
+raise and reading the name there reports [NL337](./errors/NL337.md). A concrete class that inherits
+one must fill it, or it reports [NL324](./errors/NL324.md).
+
+:::caution An `override` event keeps its OWN handler list
+This is C#'s behaviour, and it is the one thing about overriding an event that surprises people. A
+subscriber reaching the event through a base reference runs the **override's** `add_`, so the handler
+lands in the **override's** storage — and the base's own `Fired?.Invoke(...)`, which reads the base's
+field, then sees nothing. Put the raise where the storage is: give the base a `virtual func` the
+derived type overrides, as `RaiseOwn` does above.
+:::
+
+What is still refused is what the CLR cannot carry, each with [NL311](./errors/NL311.md): a
+`static` event has no slot to dispatch through; a struct or record struct is sealed, so it can
+neither open a slot nor take one; `abstract` needs an abstract class and `virtual` a class that is
+not sealed; and `override` needs a base event of that name whose accessors are open.
+
+### Events in an interface
+
+An `interface` may declare an event. What it declares is a pair of **abstract accessor slots** plus
+the `EventInfo` row naming them; the implementing type fills both by declaring an event of the same
+name and delegate type, exactly as it fills a `func` slot by declaring that `func`:
+
+```n#
+import System
+
+interface INotifier {
+    event Changed: EventHandler
+
+    func Touch()
+}
+
+class Widget: INotifier {
+    event Changed: EventHandler
+
+    func Touch() {
+        Changed?.Invoke(this, EventArgs.Empty)
+    }
+}
+
+func watch(notifier: INotifier) {
+    sub := on notifier.Changed (sender, args) => { print "changed" }
+    notifier.Touch()
+    off sub
+}
+```
+
+A type that declares the interface and not the event reports [NL325](./errors/NL325.md), under the
+event's own name. The same holds for an interface a referenced assembly declares — `class Chatty:
+INotifyPropertyChanged` must declare `event PropertyChanged: PropertyChangedEventHandler`, and the
+accessors it emits fill that interface's slots.
+
+The three inheritance words are redundant on an interface event — every one of them is a slot already
+— and are reported with [NL311](./errors/NL311.md).
+
+**Current limits.** An event's storage
 is synthesized, so it takes no initializer and no accessor block, and an event must be written among
 the type's fields — before its first `func` — like every other field-shaped member. An instance
 event declared by a **struct** emits and is raised by the struct's own code, but `on` refuses to
-subscribe through a struct receiver, because that receiver is a copy.
+subscribe through a struct receiver, because that receiver is a copy. Inside the type that declared
+it, the event's name is its backing delegate rather than an event, so `on this.Changed …` from within
+that type reports [NL318](./errors/NL318.md) — subscribe from outside, or hold the delegate directly.
 
 ## Working With Nullable Values
 

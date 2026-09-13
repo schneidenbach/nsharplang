@@ -892,7 +892,10 @@ sealed class ColumnarProgramInputBuilder {
                 fieldThreadStaticFlags,
                 fieldConstFlags,
                 fieldVisibilityFlags,
-                fieldColumns.FieldEventFlags
+                fieldColumns.FieldEventFlags,
+                fieldColumns.FieldVirtualFlags,
+                fieldColumns.FieldAbstractFlags,
+                fieldColumns.FieldOverrideFlags
             )
             structInput.SourceAttributes = ColumnarSourceAttributes.Read(source, ck, cs, cv, structIndex)
             // A FIELD'S ATTRIBUTES ARE READ FROM ITS OWN DECLARATION POSITION. The member scan records
@@ -1716,7 +1719,9 @@ sealed class ColumnarProgramInputBuilder {
             outWhereOwnerTexts := new string[](cap)
             outWhereItemCodes := new int[](cap)
             outWhereTypeTexts := new string[](cap)
-            outResult := new int[](8)
+            outEventNameTexts := new string[](cap)
+            outEventTypeTexts := new string[](cap)
+            outResult := new int[](9)
             methodCount := ParseColumnarInterfaceInfoInto(
                 source,
                 ck,
@@ -1738,7 +1743,9 @@ sealed class ColumnarProgramInputBuilder {
                 outWhereOwnerTexts,
                 outWhereItemCodes,
                 outWhereTypeTexts,
-                outResult
+                outResult,
+                outEventNameTexts,
+                outEventTypeTexts
             )
             if methodCount < 0 {
                 return DeclineAtToken(ColumnarParseDeclines.InterfaceDeclaration, cs, cv, interfaceIndex, "")
@@ -1876,6 +1883,33 @@ sealed class ColumnarProgramInputBuilder {
                 typeParamNames,
                 outResult[6]
             )
+            interfaceEventCount := outResult[7]
+            if interfaceEventCount < 0 || interfaceEventCount > outEventNameTexts.Length {
+                return DeclineAtToken(
+                    ColumnarParseDeclines.InterfaceDeclaration,
+                    cs,
+                    cv,
+                    interfaceIndex,
+                    interfaceName
+                )
+            }
+            interfaceEventNames := new string[](interfaceEventCount)
+            interfaceEventHandlers := new string[](interfaceEventCount)
+            ev := 0
+            while ev < interfaceEventCount {
+                if string.IsNullOrWhiteSpace(outEventNameTexts[ev]) || string.IsNullOrWhiteSpace(outEventTypeTexts[ev]) {
+                    return DeclineAtToken(
+                        ColumnarParseDeclines.InterfaceDeclaration,
+                        cs,
+                        cv,
+                        interfaceIndex,
+                        interfaceName
+                    )
+                }
+                interfaceEventNames[ev] = outEventNameTexts[ev]
+                interfaceEventHandlers[ev] = outEventTypeTexts[ev]
+                ev = ev + 1
+            }
             interfaceInputs.Add(new ColumnarInterfaceInput(
                 interfaceName,
                 baseInterfaceNames,
@@ -1888,7 +1922,9 @@ sealed class ColumnarProgramInputBuilder {
                 0,
                 methodParamModifierKinds,
                 interfaceSpecials,
-                interfaceConstraints
+                interfaceConstraints,
+                interfaceEventNames,
+                interfaceEventHandlers
             ))
             interfaceSlot = interfaceSlot + 1
         }

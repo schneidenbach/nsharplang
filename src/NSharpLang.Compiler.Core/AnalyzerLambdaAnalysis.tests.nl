@@ -820,6 +820,13 @@ func OnInstanceAccessor(): MethodInfo {
     return typeof(string).GetMethod("ToUpperInvariant", new Type[](0))
 }
 
+// AN EVENT WHOSE DECLARATION ANNOTATES ITS HANDLER. `AssemblyLoadContext.Resolving` is the BCL's
+// own `event Func<AssemblyLoadContext, AssemblyName, Assembly?>?` — the shape whose annotation is
+// invisible in the CLR type and visible only in the event's metadata.
+func OnAnnotatedEvent(): EventInfo {
+    return typeof(System.Runtime.Loader.AssemblyLoadContext).GetEvent("Resolving")
+}
+
 func OnHandlerDelegate(): Type {
     return typeof(Action<int, int>)
 }
@@ -930,6 +937,33 @@ test "a real event hands its delegate type to the handler and switches the infer
     // `Action`2` is the CLR `Name` of the constructed delegate, which is how a reflection type renders.
     assert steps[1].ExpectedType == "Action`2"
     assert steps[1].ReportInferenceFailure
+}
+
+test "the ANNOTATED handler type wins over the bare CLR delegate when the reader supplied one" {
+    harness := LambdaHarnessOf()
+    annotated := new ReflectionEventInfo("Clicked", OnStaticAccessor(), OnStaticAccessor(), OnHandlerDelegate(), typeof(object), "event Clicked")
+    annotated.AnnotatedHandlerType = NullabilityMetadataReflection.ConvertEventHandlerType(OnAnnotatedEvent())
+    eventInfo: TypeInfo = annotated
+    state := harness.Owner.BeginOnSubscription(OnExpr(), OnRoot())
+
+    steps := OnRun(harness, state, eventInfo)
+
+    assert harness.Errors.Count == 0
+    // `AssemblyLoadContext.Resolving` is declared `Func<AssemblyLoadContext, AssemblyName, Assembly?>?`
+    // and reflects as a bare `Func`3`. The annotated reading keeps the `?` on the RESULT and drops the
+    // event slot's own maybe-null shell, because the handler a subscriber attaches is never the null.
+    assert steps[1].ExpectedType == "Func<AssemblyLoadContext, AssemblyName, Assembly?>"
+    assert steps[1].ReportInferenceFailure
+}
+
+test "an event with no annotated reading keeps the bare CLR delegate" {
+    harness := LambdaHarnessOf()
+    eventInfo: TypeInfo = new ReflectionEventInfo("Clicked", OnStaticAccessor(), OnStaticAccessor(), OnHandlerDelegate(), typeof(object), "event Clicked")
+    state := harness.Owner.BeginOnSubscription(OnExpr(), OnRoot())
+
+    steps := OnRun(harness, state, eventInfo)
+
+    assert steps[1].ExpectedType == "Action`2"
 }
 
 test "a STATIC event on a value type is fine — the rule is about instance receivers" {
@@ -1045,6 +1079,22 @@ test "a void-returning delegate is NOT an async lambda's target — N# has no as
     assert !AnalyzerLambdaAnalysis.IsAsyncLambdaTarget(BuiltInTypes.Void)
     assert AnalyzerLambdaAnalysis.IsAsyncLambdaTarget(LambdaReflectedTask())
     assert AnalyzerLambdaAnalysis.IsAsyncLambdaTarget(LambdaReflectedTaskOfInt())
+}
+
+test "an async handler in an `on` position is told the idiom, not to change the event's delegate" {
+    harness := LambdaHarnessOf()
+    signature := LambdaSignature(LambdaTypes(), BuiltInTypes.Void)
+    state := harness.Owner.BeginLambda(AsyncLambdaExpr(LambdaParams(), LambdaBody()), signature, true, false)
+    state.TargetsEventHandler = true
+
+    LambdaRun(harness, state, BuiltInTypes.Void)
+
+    assert harness.Errors.Count == 1
+    assert harness.Errors[0].Code == ErrorCode.AsyncLambdaTargetNotTaskLike
+    assert harness.Errors[0].Message == "An 'async' lambda produces a task, but this event's handler returns 'void'"
+    // The ordinary fix — change the target — is not one the reader owns here, so it is not offered.
+    assert !harness.Errors[0].Suggestion.Contains("Change the target")
+    assert harness.Errors[0].Suggestion.Contains("_ = RunAsync()")
 }
 
 test "an async lambda with no target at all names the missing delegate type, not the parameters" {

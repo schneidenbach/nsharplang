@@ -1329,6 +1329,39 @@ The lambda needs a delegate type to convert to — a written local type as above
 type names one — and it is lowered as a method on the generator's own state machine, so the capture
 costs no extra allocation.
 
+Its body may be a **block**. A block body's statements are planned into that same method: expression
+statements, local declarations, assignments to a captured binding or a member, and a `return` as the
+last statement.
+
+### Subscribing with `on` / `off` inside a generator
+
+`on` and `off` work inside a `func*` exactly as they do anywhere else, and the point of writing them
+there is that the subscription may **span a suspension**: the handle is an ordinary local, so the
+machine hoists it into a field like every other local.
+
+```n#
+import System.Collections.Generic
+import System.Collections.ObjectModel
+
+func* watchWhileYielding(list: ObservableCollection<string>): IEnumerable<int> {
+    seen := 0
+    sub := on list.CollectionChanged (sender, args) => {
+        seen = seen + 1
+    }
+    yield 1
+    list.Add("during")
+    yield seen          // 1 — the handler ran
+    off sub
+    list.Add("after")
+    yield seen          // still 1 — the handler is detached
+}
+```
+
+The handler may be an inline lambda (block-bodied or not), a delegate value, or a top-level `func`
+named directly. The receiver is any expression whose value owns the event, or a type name for a static
+one. A virtual `remove` accessor is taken over the receiver, so an event overridden by a derived type
+detaches through the override — the same dispatch the subscription used.
+
 An assignment may target an indexer or a member as well as a local: `table[key] = value`,
 `box.Field = value`, `builder.Length = 2`, `values[i] = v`. The member a name selects, the indexer an
 index list selects and the conversion the stored value takes are the same answers the identical
@@ -1386,7 +1419,8 @@ written anywhere in a generator body.
 - a `yield` inside a `try` that declares a `catch`, or inside a `catch` or `finally` handler
   ([NL332](./errors/NL332.md)) — a suspension has to be resumable, and only a `finally` can be
   re-entered that way.
-- a BLOCK-bodied lambda (`x => { ... }`); write it as a single expression.
+- a `return` anywhere but the END of a block-bodied lambda's body, and an assignment inside one whose
+  target is neither a captured binding nor a member.
 - a `using` whose resource is a **struct**. Releasing a value in a state machine would have to reach
   through the machine's own field, which the generator's instruction plan cannot spell, and releasing
   a copy of it would run `Dispose` on something nobody can observe. Hold the resource in a class, or
