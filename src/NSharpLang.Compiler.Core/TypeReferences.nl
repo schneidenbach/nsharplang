@@ -110,9 +110,20 @@ class FunctionTypeReference: TypeReference {
     ParameterTypes: List<TypeReference>
     ReturnType: TypeReference
 
+    // THE NAME THE SOURCE WROTE, AND WITHOUT IT THIS NODE NAMES NO TYPE AT ALL. `Func<int, bool>`
+    // parses into parameter types and a return type, and the identifier `Func` — the one thing that
+    // says which namespace supplies this type — was discarded. NL010 then reported `import System`
+    // unused in every file whose only mention of it was a `Func<…>` annotation, and `nlc fix` offered
+    // to delete that import.
+    //
+    // A HAND-BUILT TREE ANSWERS THE EMPTY STRING, which is the honest answer: it was not written
+    // anywhere, so it mentions no name. Only the parser sets this, from the token it consumed.
+    WrittenName: string
+
     constructor(parameterTypes: List<TypeReference>, returnType: TypeReference) {
         ParameterTypes = parameterTypes
         ReturnType = returnType
+        WrittenName = ""
     }
 
     override func ToString(): string {

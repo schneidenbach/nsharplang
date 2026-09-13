@@ -200,7 +200,8 @@ test "the type half names exactly ten namespaces and nothing else" {
     }
 
     assert namespaces.Length == 10
-    assert total == 131
+    // 142 = 131 at the move, plus the eleven `System` ATTRIBUTE types the row was missing.
+    assert total == 142
 
     // Namespaces that look like table rows but are not.
     assert LinterNamespaceImportUsage.KnownTypeNames("System.Collections").Length == 0
@@ -209,8 +210,10 @@ test "the type half names exactly ten namespaces and nothing else" {
     assert LinterNamespaceImportUsage.KnownTypeNames("").Length == 0
 }
 
+// `System` is 44 + the eleven attribute types the row gained: a file whose only use of the import was
+// `[Obsolete("…")]` or `[Flags]` was told the import was dead. Every other row is its moved count.
 test "each namespace's type row holds exactly the count it was moved with" {
-    assert LinterNamespaceImportUsage.KnownTypeNames("System").Length == 44
+    assert LinterNamespaceImportUsage.KnownTypeNames("System").Length == 55
     assert LinterNamespaceImportUsage.KnownTypeNames("System.Collections.Generic").Length == 24
     assert LinterNamespaceImportUsage.KnownTypeNames("System.IO").Length == 14
     assert LinterNamespaceImportUsage.KnownTypeNames("System.Text.Json").Length == 7

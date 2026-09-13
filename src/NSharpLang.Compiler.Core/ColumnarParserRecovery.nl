@@ -3723,6 +3723,9 @@ class ColumnarParserRecovery {
         }
         // Parser.cs :2017 `new FunctionTypeReference(paramTypes, returnType) { Span = SpanFromTokens(funcToken, greater) }`.
         result := new FunctionTypeReference(paramTypes, returnType)
+        // The identifier this node was written with. The AST node keeps no other record of it, and
+        // NL010 needs it to know which import supplies the type. See `FunctionTypeReference`.
+        result.WrittenName = funcToken.Value
         result.Span = SpanFromTokensSingleLine(funcToken, greater)
         return result
     }

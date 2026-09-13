@@ -386,8 +386,55 @@ class LinterWalkState {
         CheckMissingImportsInType(typeReference)
     }
 
+    // THE NL010 HALF ALONE, for the one position that already asks NL002 its own question. A `new`
+    // expression reports a missing import at the enclosing `new` keyword when the reference carries no
+    // position of its own, so it calls `CheckMissingImportForType` directly; asking through
+    // `TrackTypeReference` as well would report the same name twice at two different columns.
+    func NoteTypeReferenceNames(typeReference: TypeReference?) {
+        LinterTypeReferenceName.CollectMentionedNames(typeReference, allCodeIdentifiers)
+    }
+
     func NoteCodeIdentifier(name: string) {
         allCodeIdentifiers.Add(name)
+    }
+
+    // AN ATTRIBUTE NAMES A TYPE, AND IT IS THE ONE TYPE POSITION THAT IS NOT A `TypeReference`.
+    // `AttributeNode.Name` is the written spelling, so `[Obsolete("old")]` is the file's only mention
+    // of `System` and the ledger never saw it: NL010 called the import dead and `nlc fix` offered to
+    // delete it.
+    //
+    // BOTH CLR SPELLINGS ARE RECORDED. An attribute type called `ObsoleteAttribute` may be written
+    // `[Obsolete]` or `[ObsoleteAttribute]`, so a ledger that holds only what was WRITTEN answers
+    // differently for two spellings of one type. The suffix rule is the CLR's, not a list of names.
+    //
+    // A QUALIFIED SPELLING RECORDS ITS ROOT TOO, for the same reason `IsAliasUsed` matches a dotted
+    // root: `[Serialization.DataContract]` uses whatever supplies `Serialization`.
+    func NoteAttributeName(name: string?) {
+        written := name ?? ""
+        if written.Length == 0 {
+            return
+        }
+
+        allCodeIdentifiers.Add(written)
+
+        dot := written.LastIndexOf('.')
+        simple := written
+        if dot >= 0 {
+            simple = written.Substring(dot + 1)
+            allCodeIdentifiers.Add(written.Substring(0, written.IndexOf('.')))
+        }
+
+        if simple.Length == 0 {
+            return
+        }
+
+        allCodeIdentifiers.Add(simple)
+        suffix := "Attribute"
+        if simple.EndsWith(suffix, StringComparison.Ordinal) {
+            allCodeIdentifiers.Add(simple.Substring(0, simple.Length - suffix.Length))
+        } else {
+            allCodeIdentifiers.Add(simple + suffix)
+        }
     }
 
     func NoteMemberAccessName(name: string) {

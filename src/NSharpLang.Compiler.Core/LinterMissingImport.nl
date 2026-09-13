@@ -198,6 +198,14 @@ class LinterTypeReferenceName {
 
         functionReference := typeReference as FunctionTypeReference
         if functionReference != null {
+            // The written identifier — `Func` — is a name this type MENTIONS, and it is the only one
+            // that says which import supplies the delegate itself. A hand-built node answers the empty
+            // string and contributes nothing.
+            writtenName := functionReference.WrittenName
+            if writtenName.Length > 0 {
+                into.Add(writtenName)
+            }
+
             CollectMentionedNames(functionReference.ReturnType, into)
             parameterTypes := functionReference.ParameterTypes
             parameterIndex := 0
