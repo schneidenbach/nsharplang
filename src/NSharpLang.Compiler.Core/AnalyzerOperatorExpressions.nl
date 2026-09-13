@@ -1530,6 +1530,31 @@ class AnalyzerOperatorExpressions {
             return BuiltInTypes.Unknown
         }
 
+        // TWO SEPARATELY CONSTRUCTED ANSWERS FOR ONE TYPE ARE ONE TYPE. Reference identity alone was
+        // the whole non-numeric rule, and a numeric pair survived it only because the promotion table
+        // below answered anyway — so `IsNullOrWhiteSpace(s) ? $"exited {code}" : s`, whose arms are an
+        // interpolated string and a `string`, came back `unknown` and every use of the result reported
+        // against a type the ternary plainly had. `TypeInfoIdentityFacts.AreEqual` is the analyzer's
+        // own exact semantic identity (nominal leaves by declaration handle, composites by shape), so
+        // this asks the same question the rest of the analyzer asks and gets the same answer.
+        if TypeInfoIdentityFacts.AreEqual(left, right) {
+            return left
+        }
+
+        // NULLABILITY LIFTS TO THE WIDER ARM, as it does in C#: when the two arms differ only in
+        // whether the value may be null, the conditional is worth the nullable one — the non-null arm
+        // converts to it and the reverse does not. `flag ? name : null` and `flag ? maybe : name` are
+        // both `string?`, which is exactly what the value can be.
+        leftNullable := left as NullableTypeInfo
+        rightNullable := right as NullableTypeInfo
+        if leftNullable != null && rightNullable == null && TypeInfoIdentityFacts.AreEqual(leftNullable.InnerType, right) {
+            return left
+        }
+
+        if rightNullable != null && leftNullable == null && TypeInfoIdentityFacts.AreEqual(rightNullable.InnerType, left) {
+            return right
+        }
+
         return BuiltInTypes.Unknown
     }
 

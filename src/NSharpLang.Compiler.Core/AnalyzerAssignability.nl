@@ -597,6 +597,20 @@ class AnalyzerAssignability {
             }
         }
 
+        // A SOURCE ENUM'S BASE CHAIN IS THE CLR'S. An enum declaration names no base type of its own,
+        // so the only place the relation lives is the runtime type every emitted enum derives from:
+        // `System.Enum`, and through it `System.ValueType`, `object` and the interfaces `System.Enum`
+        // implements. The arms above cover a source-declared type's OWN base list, which an enum has
+        // none of, so without this one `flags.HasFlag(other)` — whose parameter is `System.Enum` —
+        // reported "no overload accepts 1 argument with these types" for the one argument the CLR
+        // would have taken. The walk is the identity-aware one, so the reflection world the target
+        // was loaded from does not have to be the compiler's own.
+        enumSource := effectiveSource as EnumTypeInfo
+        enumBaseTarget := target as ReflectionTypeInfo
+        if enumSource != null && enumBaseTarget != null {
+            return AnalyzerConversionFacts.IsReflectionAssignableFrom(enumBaseTarget.Type, typeof(Enum))
+        }
+
         reflectionSource := effectiveSource as ReflectionTypeInfo
         reflectionTarget := target as ReflectionTypeInfo
         if reflectionSource != null && reflectionTarget != null {
@@ -1224,6 +1238,21 @@ class AnalyzerAssignability {
 
         if BuiltInTypes.IsUnknown(resolvedTarget) || BuiltInTypes.IsUnknown(resolvedSource) {
             return false
+        }
+
+        // NULLABILITY IS ARRAY-COVARIANT FOR READS, AND IN ONE DIRECTION ONLY. A reference nullable
+        // annotation is not a CLR type — `string?` and `string` are one runtime type — so viewing a
+        // `T[]` as a `T?[]` is a no-op on the array object and every element read out of the widened
+        // view is honestly typed `T?`. This is the relation `object[]` needs to reach `MethodInfo.Invoke`'s
+        // `object?[]?`, and C# admits it (with a warning about the write).
+        //
+        // THE REVERSE IS NOT ADMITTED. A `T?[]` may already hold a null, so reading it back as `T[]`
+        // would promise something the array does not have — which is why only the TARGET's annotation
+        // is peeled, and a nullable SOURCE stops here exactly as it did before.
+        targetNullableAnnotation := resolvedTarget as NullableTypeInfo
+        sourceNullableAnnotation := resolvedSource as NullableTypeInfo
+        if targetNullableAnnotation != null && sourceNullableAnnotation == null {
+            return IsImplicitReferenceConversion(targetNullableAnnotation.InnerType, resolvedSource)
         }
 
         if !AnalyzerConversionFacts.IsReferenceType(resolvedTarget) || !AnalyzerConversionFacts.IsReferenceType(resolvedSource) {

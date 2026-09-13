@@ -2578,6 +2578,24 @@ sealed class ColumnarIlEmitter {
         return EmitOrdinaryRuntimeCallArgumentsAndDispatch(callIdx, selection, out columnarResolvedType)
     }
 
+    // One argument of an INHERITED `System.Enum` call. A parameter that takes a reference to any value
+    // (`Enum`, `ValueType`, `object`) receives the argument boxed — the same widening the receiver
+    // itself gets one arm above — and every other parameter position is the ordinary declared-argument
+    // emission.
+    private func EmitEnumInheritedArgument(argumentNode: int, parameterType: Type): bool {
+        if (parameterType != typeof(Enum) && parameterType != typeof(ValueType) && parameterType != typeof(object)) {
+            return EmitDeclaredCallArgument(argumentNode, parameterType, true)
+        }
+        let enumArgumentType: System.Type? = null
+        if (!EmitExpression(argumentNode, out enumArgumentType) || enumArgumentType == null) {
+            return false
+        }
+        if (enumArgumentType.get_IsValueType() || IsKnownEnumType(enumArgumentType)) {
+            _il.Emit(OpCodes.Box, enumArgumentType)
+        }
+        return true
+    }
+
     // EVERY ARGUMENT IS CHECKED BEFORE THE FIRST ONE IS EMITTED. This tier runs ahead of the emitter's
     // remaining per-API residuals, so a selection it abandoned halfway would leave the arguments it had
     // already written on the stack in front of whichever arm answered next. The check is the same
@@ -13734,16 +13752,34 @@ sealed class ColumnarIlEmitter {
         return true
     }
 
+    // A BARE NAME THAT IS A MEMBER OF THE TYPE BEING COMPILED IS A VALUE, NOT A TYPE NAME. The call
+    // door uses this to decide whether `Entries.Add(name)` names a receiver or a type; before the
+    // STATIC arm existed it asked only about INSTANCE members, so a static field receiver fell into
+    // the static-call door as a type called `Entries` and the whole statement declined at
+    // `emit.expression-statement.call` — even though the bare READ of that same field emits
+    // (`ldsfld`) two thousand lines below. The anchors differ for the same reason they differ there:
+    // an instance member is in scope only through `_currentStruct`, while a static member belongs to
+    // the TYPE and is in scope through `_enclosingType` in every body the type declares.
     private func IsCurrentInstanceMemberName(name: string): bool {
-        if (_currentStruct == null) {
+        if (_currentStruct != null) {
+            let currentField: System.Reflection.Emit.FieldBuilder = null
+            if (ColumnarSourceMemberChainResolver.TryFindFieldOnChain(_currentStruct, name, out currentField)) {
+                return true
+            }
+            let currentProperty: NSharpLang.Compiler.Columnar.ColumnarPropertyDef = null
+            if (TryFindPropertyOnChain(_currentStruct, name, out currentProperty)) {
+                return true
+            }
+        }
+        if (_enclosingType == null) {
             return false
         }
-        let currentField: System.Reflection.Emit.FieldBuilder = null
-        if (ColumnarSourceMemberChainResolver.TryFindFieldOnChain(_currentStruct, name, out currentField)) {
+        let currentStaticField: System.Reflection.Emit.FieldBuilder = null
+        if (ColumnarSourceMemberChainResolver.TryFindStaticFieldOnChain(_enclosingType, name, out currentStaticField)) {
             return true
         }
-        let currentProperty: NSharpLang.Compiler.Columnar.ColumnarPropertyDef = null
-        return TryFindPropertyOnChain(_currentStruct, name, out currentProperty)
+        let currentStaticProperty: NSharpLang.Compiler.Columnar.ColumnarPropertyDef = null
+        return ColumnarSourceMemberChainResolver.TryFindStaticPropertyOnChain(_enclosingType, name, out currentStaticProperty)
     }
 
     private func TryEmitJsonSerializerSerializeGenericCall(callIdx: int, callee: int, out resolvedClrType: Type): bool {
@@ -19341,6 +19377,31 @@ sealed class ColumnarIlEmitter {
             return true
         }
 
+        // A SOURCE ENUM'S INSTANCE MEMBERS ARE `System.Enum`'S, AND THIS IS THAT DISPATCH. The CLR
+        // gives every enum `System.Enum` as its base type, so `value.ToString()`, `value.HasFlag(other)`
+        // and `value.GetTypeCode()` are ordinary INHERITED calls — the member is chosen by the same
+        // scoped CLR resolution every other runtime call goes through, asked of `System.Enum`, so
+        // there is no per-member table here. The receiver is an i4 on the stack and the callee takes
+        // a reference, so it is boxed, which is what a `constrained.` callvirt on an enum amounts to;
+        // an enum ARGUMENT to an `Enum`, `ValueType` or `object` parameter is boxed the same way.
+        // A REFLECTED enum already resolves through its own type one tier below; this arm answers for
+        // an enum of THIS compilation, whose `EnumBuilder` reflection cannot be queried for members.
+        if (IsKnownEnumType(receiverType)) {
+            enumInheritedSelection := ColumnarOrdinaryRuntimeDirectCallResolver.ResolveUniqueAtArity(typeof(Enum), member, argCount, false)
+            if (enumInheritedSelection.IsSelected && enumInheritedSelection.Method != null) {
+                _il.Emit(OpCodes.Box, receiverType)
+                enumInheritedParameters := enumInheritedSelection.ParameterTypes
+                for enumArgument := 0; enumArgument < enumInheritedParameters.Length; enumArgument++ {
+                    if (!EmitEnumInheritedArgument(Child(callIdx, enumArgument + 1), enumInheritedParameters[enumArgument])) {
+                        return false
+                    }
+                }
+                _il.Emit(OpCodes.Callvirt, enumInheritedSelection.Method)
+                columnarResolvedType = enumInheritedSelection.ReturnType
+                return true
+            }
+        }
+
         // ORDINARY CLR MEMBER RESOLUTION over the receiver's own type, ahead of the per-API residuals
         // below. The direct-call planner owns every external instance call whose arguments it can
         // type; what reaches here is the rest, and a lambda argument is why there is a rest.
@@ -21332,7 +21393,13 @@ sealed class ColumnarIlEmitter {
         // An i4-underlying enum operand is its int on the stack, so `enum as <numeric>` is a cast FROM int:
         // enum->int is identity (no opcode), enum->long/double/etc. widens exactly like int->long/double. The
         // N# backend path emits the same (the underlying-int value, then the same numeric conversion).
-        if (ColumnarTypeOfPlanner.IsEnumType(sourceType)) {
+        //
+        // A SOURCE ENUM IS AN ENUM HERE TOO. This site asked `ColumnarTypeOfPlanner.IsEnumType`, which
+        // knows the REFLECTED enums and not this compilation's own `EnumBuilder`s, so `DayOfWeek as int`
+        // emitted and the identically-shaped `Flags.A as int` declined. The target arm twelve lines above
+        // already asks `IsKnownEnumType`, which is the same question over both registries; this asks it
+        // the same way, so the two directions of one conversion share one definition of "is an enum".
+        if (IsKnownEnumType(sourceType)) {
             sourceType = typeof(int)
         }
         if (!ColumnarNumericFacts.IsCastableScalar(sourceType)) {

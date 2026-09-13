@@ -361,7 +361,7 @@ class AnalyzerMemberResolution {
         }
 
         // AN ENUM MEMBER READ OFF THE ENUM TYPE IS THE ENUM TYPE. Instance access falls to the
-        // inherited `object` surface instead — an enum VALUE has no declared members of its own.
+        // inherited `System.Enum` surface instead — an enum VALUE has no declared members of its own.
         enumType := current as EnumTypeInfo
         if enumType != null {
             if includeStaticMembers {
@@ -377,7 +377,7 @@ class AnalyzerMemberResolution {
 
             if !includeStaticMembers {
                 enumObjectMember: TypeInfo = BuiltInTypes.Unknown
-                if TryResolveSourceObjectMember(memberName, out enumObjectMember) {
+                if TryResolveSourceEnumMember(memberName, out enumObjectMember) {
                     return enumObjectMember
                 }
             }
@@ -665,14 +665,27 @@ class AnalyzerMemberResolution {
     // base type of its own, so the members `object` contributes — `ToString`, `Equals`,
     // `GetHashCode`, `GetType` — are resolved against the runtime type directly rather than through
     // any declared shape. Instance members only: a static `object` member is not inherited.
-    //
+    static func TryResolveSourceObjectMember(memberName: string, out memberType: TypeInfo): bool {
+        return TryResolveInheritedRuntimeMember(typeof(object), memberName, out memberType)
+    }
+
+    // A SOURCE ENUM'S INSTANCE SURFACE IS `System.Enum`, NOT `object`. The CLR gives every enum
+    // `System.Enum` as its base type, so `HasFlag`, `CompareTo`, `GetTypeCode` and — decisively —
+    // `Enum.ToString()`, which returns a NON-NULL `string`, are the members an enum value inherits.
+    // Resolving an enum against `object` instead handed back `object.ToString()`'s `string?`, so
+    // `symbol.Kind.ToString().ToLower()` reported NL905 and `enum.HasFlag(other)` reported NL303
+    // even though both are ordinary inherited members. This is the same ordinary reflection walk the
+    // `object` surface uses, asked of the base type the runtime actually gives an enum.
+    static func TryResolveSourceEnumMember(memberName: string, out memberType: TypeInfo): bool {
+        return TryResolveInheritedRuntimeMember(typeof(Enum), memberName, out memberType)
+    }
+
     // THE PROBE ORDER IS PROPERTY, THEN FIELD, THEN METHOD, and the method arm distinguishes a
     // single method from a group because `Equals` is overloaded on `object` and `ToString` is not.
     // Accessor methods are excluded by the property arm answering first, not by a name test.
-    static func TryResolveSourceObjectMember(memberName: string, out memberType: TypeInfo): bool {
+    static func TryResolveInheritedRuntimeMember(objectType: Type, memberName: string, out memberType: TypeInfo): bool {
         memberType = BuiltInTypes.Unknown
         flags := BindingFlags.Public | BindingFlags.Instance
-        objectType := typeof(object)
 
         property := objectType.GetProperty(memberName, flags)
         if property != null {
