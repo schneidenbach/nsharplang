@@ -2296,3 +2296,44 @@ Executable coverage: `tests/native/census-pattern-foreach` (runtime values and o
 disposal counts on the exhausted / `break` / `return` / throwing paths, and CLR metadata assertions
 that the hidden enumerator local is the STRUCT rather than the interface and that a span loop emits no
 exception-handling clause while a list loop emits one).
+
+### The loop variable's written type — `for x: T in e`, and NL330
+
+The loop variable may carry an annotation, and it is the C# `foreach (T x in e)` form: each element
+is converted to `T` by an EXPLICIT conversion, once per iteration. Three owners carry it.
+
+- **The parsers.** `ForeachStatement.VariableType` is an optional `TypeReference`. The recovery
+  parser decides with the BOUNDED TYPE SCAN the cast disambiguation already owns
+  (`ScanTypeReference` from the `:`, then require `in`) — committing on the `Identifier :` prefix
+  alone would steal a C-style header whose initializer is annotated. The scan is spelled INLINE
+  because `ColumnarParserRecovery` is at the per-class member ceiling (§2.1 of the closeout STATUS).
+  The columnar kernel produces **node kind 76**, TypedForeach: a type TREE cannot share the statement
+  node table, so the annotation rides as a SOURCE SPAN in the value slot exactly as a typed local's
+  (kind 40) does, and the name moves into a leading child — children `[name, collection, body]`.
+- **`ForeachElementConversionFacts.nl`** is the rule, stated as five questions to the ORDINARY
+  assignability oracle rather than as a table of pairs: an implicit conversion element → declared;
+  the same question BACKWARDS (every explicit reference conversion and every unboxing is the reverse
+  of an implicit one — this is what identifies a downcast without a second classification); both
+  sides numeric; an enum against a number or another enum; an interface on either side. A type that
+  is `unknown` or an `ExternalTypeInfo` (a bare NAME, with no base, members or interfaces) is
+  SILENT. Failure is `NL330`, reported at the ANNOTATION's span and naming both types.
+  `AnalyzerLoopSequence.ApplyForeachVariableAnnotation` then makes the written type the loop
+  variable's type for the scope, the semantic model, the binding map and the body — *including when
+  the conversion was refused*, so one mistake stays one diagnostic instead of cascading.
+- **The emitter.** `ColumnarIlEmitter.TryEmitCastConversion` is the kind-16 cast arm's whole
+  conversion body, extracted unchanged, and all four loop shapes run it on the loaded element before
+  storing it into a local declared at the WRITTEN type. The loop and the cast therefore share ONE
+  definition of the explicit conversions. Extracting it also closed a cast gap: a downcast between
+  two types this compilation is EMITTING (`(Square)shape`) declined, and now asks
+  `ColumnarReferenceConversionFacts.TryEmitReferenceConversion` with the two types swapped and emits
+  `castclass`.
+
+An annotated loop inside a generator is not lowered yet: `ColumnarIteratorPlanner` declines kind 76
+by name (`emit.iterator.for-in-unsupported`).
+
+Executable coverage: `tests/native/census-pattern-foreach/AnnotatedLoopVariable.*` — every conversion
+run as emitted IL, the metadata assertion that the hidden local is the ANNOTATED type, the assertion
+that an identity annotation costs no IL bytes, and the `InvalidCastException` a wrong runtime type
+produces. Contracts: `ForeachElementConversionFacts.tests.nl`, the NL330 blocks in
+`AnalyzerLoopSequence.tests.nl`, the parser blocks in `ColumnarParserAst.tests.nl` and the printing
+blocks in `FormatterWalk.tests.nl`.

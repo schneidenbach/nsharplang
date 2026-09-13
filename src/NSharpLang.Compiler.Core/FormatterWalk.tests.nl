@@ -217,6 +217,31 @@ test "a foreach reached directly prints the same way as the disguised one" {
     assert FwkStatementText(direct) == "for item in items {|    inner|}|"
 }
 
+// AN ANNOTATED LOOP VARIABLE PRINTS ITS ANNOTATION, in the declaration's own `name: Type` spelling,
+// so the formatted source re-parses to the same tree. It prints the same way through the disguised
+// `for` wrapper and through a bare foreach, exactly as the unannotated form does.
+test "an annotated loop variable prints its type" {
+    annotation: TypeReference = new SimpleTypeReference("Match", 0, 0)
+    direct := new ForeachStatement("m", FwkIdentifier("matches"), FwkOneStatementBlock(), 0, 0, annotation)
+    assert FwkStatementText(direct) == "for m: Match in matches {|    inner|}|"
+
+    wrapperAnnotation: TypeReference = new SimpleTypeReference("Match", 0, 0)
+    inner := new ForeachStatement("m", FwkIdentifier("matches"), FwkOneStatementBlock(), 0, 0, wrapperAnnotation)
+    disguised := new ForStatement(null, null, null, inner, 0, 0)
+    assert FwkStatementText(disguised) == "for m: Match in matches {|    inner|}|"
+}
+
+// A CONSTRUCTED GENERIC ANNOTATION PRINTS WHOLE, commas and all — the loop head is re-read to the
+// `in` that closes the type, so the round trip survives a type containing one.
+test "a constructed generic annotation prints whole" {
+    arguments := new List<TypeReference>()
+    arguments.Add(new SimpleTypeReference("string", 0, 0))
+    arguments.Add(new SimpleTypeReference("int", 0, 0))
+    annotation: TypeReference = new GenericTypeReference("KeyValuePair", arguments, 0, 0)
+    direct := new ForeachStatement("pair", FwkIdentifier("map"), FwkOneStatementBlock(), 0, 0, annotation)
+    assert FwkStatementText(direct) == "for pair: KeyValuePair<string, int> in map {|    inner|}|"
+}
+
 // ---- (e) the two initializer spellings ------------------------------------------------------------
 
 test "an untyped variable declaration writes := and a typed one writes =" {

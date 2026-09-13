@@ -181,6 +181,47 @@ has a readable Current and a bool MoveNext(), or it must be an array, a string, 
 or an IEnumerable.
 ```
 
+#### Writing the loop variable's type
+
+The loop variable may carry a type, `for x: T in e`, and each element is then converted to `T` once
+per iteration:
+
+```n#
+for m: Match in Regex.Matches(text, "a") {   // MatchCollection's elements are `object`
+    total += m.Length
+}
+```
+
+This is what makes a sequence typed by an interface *wider* than its contents usable at the type its
+elements actually have. `MatchCollection` and `ArrayList` are plain `IEnumerable`s, so without the
+annotation `m` would be an `object` and `.Length` could not be spelled.
+
+The conversion is the one a **cast** performs, not the one an assignment performs — which is exactly
+why the downcast above is allowed. All of these are legal:
+
+```n#
+for m: Match in Regex.Matches(text, "a") { }   // a downcast out of `object`
+for v: int in boxedValues { }                  // an unboxing, from List<object>
+for n: long in numbers { }                     // a numeric widening, from int[]
+for value: object in numbers { }               // a boxing widening
+```
+
+Because it is a cast, the compiler checks only that the conversion *could* apply. An element whose
+runtime type does not satisfy it throws `InvalidCastException` at the loop, exactly as the cast
+written by hand would. A pair of types that convert in **neither** direction is refused outright:
+
+```text
+A 'int' cannot be read as a 'string'
+
+Hint: An annotated loop variable converts each element the way a cast does — a downcast, an
+unboxing, or a numeric conversion. There is no conversion between `int` and `string` in either
+direction, so no element could ever take that type.
+```
+
+See [`NL330`](./errors/NL330.md). The annotated type is what the variable *is* for the rest of the
+loop — hover, completion and the body all read it — so drop the annotation whenever the inferred
+element type is already what you want.
+
 ## Collections
 
 ### Arrays

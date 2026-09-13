@@ -497,7 +497,7 @@ class AstEq {
             return Names("Initializer Condition Iterator Body Line Column")
         }
         if typeName == "ForeachStatement" {
-            return Names("VariableName Collection Body Line Column")
+            return Names("VariableName VariableType Collection Body Line Column")
         }
         if typeName == "AwaitForEachStatement" {
             return Names("VariableName Collection Body Line Column")
@@ -1382,6 +1382,12 @@ class Golden {
 
     static func Foreach(variableName: string, collection: Expression, body: Statement, line: int, column: int): Statement {
         return new ForeachStatement(variableName, collection, body, line, column)
+    }
+
+    // `for name: Type in collection` — the annotated loop variable. The annotation is an ordinary
+    // TypeReference, built exactly as a parameter's or a typed local's is.
+    static func TypedForeach(variableName: string, variableType: TypeReference, collection: Expression, body: Statement, line: int, column: int): Statement {
+        return new ForeachStatement(variableName, collection, body, line, column, variableType)
     }
 
     static func AwaitForeach(variableName: string, collection: Expression, body: Statement, line: int, column: int): Statement {
@@ -4879,6 +4885,64 @@ test "016 N+1c tranche 10: `foreach i in items` materializes a bare ForeachState
     actual := RunBody("foreach i in items { b() }")
     expected := BodyUnit1(Golden.Foreach("i", Golden.Ident("items", 2, 30), Golden.Block1(CallStmt("b", 2, 38), 2, 36), 2, 17))
     assert AstEq.Diff(expected, actual, "unit") == ""
+}
+
+// The one statement a `RunBody` source carries, read back off the tree so a contract can assert a
+// SHAPE rather than a whole golden unit.
+func TypedForeachProbeStatement(unit: CompilationUnit): Statement {
+    declaration := must (unit.Declarations[0] as ClassDeclaration)
+    field := must (declaration.Members[0] as FieldDeclaration)
+    lambda := must (field.Initializer as LambdaExpression)
+    block := must (lambda.BlockBody as BlockStatement)
+    return block.Statements[0]
+}
+
+test "ENUM2: `for i: int in items` carries the annotation on the ForeachStatement the ForStatement wraps" {
+    actual := RunBody("for i: int in items { b() }")
+    inner := Golden.TypedForeach("i", Golden.SimpleT("int", 2, 24, 27), Golden.Ident("items", 2, 31), Golden.Block1(CallStmt("b", 2, 39), 2, 37), 2, 17)
+    expected := BodyUnit1(Golden.For(null, null, null, inner, 2, 17))
+    assert AstEq.Diff(expected, actual, "unit") == ""
+}
+
+test "ENUM2: `foreach i: int in items` carries the annotation on the bare ForeachStatement" {
+    actual := RunBody("foreach i: int in items { b() }")
+    expected := BodyUnit1(Golden.TypedForeach("i", Golden.SimpleT("int", 2, 28, 31), Golden.Ident("items", 2, 35), Golden.Block1(CallStmt("b", 2, 43), 2, 41), 2, 17))
+    assert AstEq.Diff(expected, actual, "unit") == ""
+}
+
+// THE ANNOTATION IS A WHOLE TYPE, not a bare name: a constructed generic's own `,` and `>` are inside
+// it, and the loop head reads to the `in` that closes it rather than to the first one it meets.
+test "ENUM2: an annotated loop variable may name a constructed generic type" {
+    actual := RunBody("for pair: KeyValuePair<string, int> in items { b() }")
+    args := new List<TypeReference>()
+    args.Add(Golden.SimpleT("string", 2, 40, 46))
+    args.Add(Golden.SimpleT("int", 2, 48, 51))
+    inner := Golden.TypedForeach("pair", Golden.GenericT("KeyValuePair", args, 2, 27, 52), Golden.Ident("items", 2, 56), Golden.Block1(CallStmt("b", 2, 64), 2, 62), 2, 17)
+    expected := BodyUnit1(Golden.For(null, null, null, inner, 2, 17))
+    assert AstEq.Diff(expected, actual, "unit") == ""
+}
+
+// AN UNANNOTATED LOOP CARRIES A NULL ANNOTATION, which is the half of the contract that keeps the
+// two spellings distinguishable to every reader downstream.
+test "ENUM2: an unannotated loop variable carries no type at all" {
+    actual := RunBody("for i in items { b() }")
+    inner := Golden.Foreach("i", Golden.Ident("items", 2, 26), Golden.Block1(CallStmt("b", 2, 34), 2, 32), 2, 17)
+    expected := BodyUnit1(Golden.For(null, null, null, inner, 2, 17))
+    assert AstEq.Diff(expected, actual, "unit") == ""
+}
+
+// A C-STYLE HEADER WHOSE INITIALIZER IS ANNOTATED IS NOT AN ANNOTATED LOOP VARIABLE, and the
+// decision is the BOUNDED SCAN rather than the `Identifier :` prefix: this header has no `in`, so
+// the typed arm refuses without consuming a token and the statement reaches the C-style arm, which
+// parses it exactly as it did before — a `for` whose body is a block rather than a foreach. (The
+// C-style arm does not read a type annotation in its initializer at all; that is its own gap, and
+// it is UNCHANGED here, which is the point of the contract.)
+test "ENUM2: an annotated C-style for initializer still parses as a C-style for" {
+    actual := RunBody("for i: int = 0; i < 3; i = i + 1 { b() }")
+    loop := TypedForeachProbeStatement(actual) as ForStatement
+    assert loop != null
+    assert loop.Initializer != null
+    assert (loop.Body as ForeachStatement) == null
 }
 
 test "016 N+1c tranche 10: `await foreach` materializes AwaitForEachStatement anchored on `await` (Parser.cs :2814)" {
