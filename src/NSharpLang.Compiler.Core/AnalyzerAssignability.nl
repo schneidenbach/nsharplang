@@ -240,6 +240,18 @@ class AnalyzerAssignability {
         return inner
     }
 
+    // The same type with a REFERENCE nullable annotation dropped, and every other type unchanged.
+    // `string?` becomes `string`; `int?` stays `int?`, because that one is `Nullable<int>` and losing
+    // it would be losing a CLR type rather than an annotation.
+    func WithoutReferenceNullability(candidate: TypeInfo): TypeInfo {
+        inner := ReferenceNullableInnerType(declarationContext.ResolveDeclaredAlias(candidate))
+        if inner == null {
+            return candidate
+        }
+
+        return inner
+    }
+
     func IsAssignableCore(target: TypeInfo, source: TypeInfo): bool {
         resolvedTarget := declarationContext.ResolveDeclaredAlias(target)
         resolvedSource := declarationContext.ResolveDeclaredAlias(source)
@@ -270,6 +282,17 @@ class AnalyzerAssignability {
         if targetByRef != null || sourceByRef != null {
             if targetByRef == null || sourceByRef == null {
                 return false
+            }
+
+            // AN `out` ARGUMENT'S INCOMING NULLABILITY IS NOT PART OF THE CONTRACT. The callee assigns
+            // the variable before it returns and never reads what was there, so C# accepts a `string?`
+            // variable for an `out string` parameter and gives it the parameter's declared nullability
+            // on the way out. A `ref` argument is the opposite and still has to match in both
+            // directions, which is why the relaxation is keyed on the `out` spelling the call site
+            // recorded rather than on the by-ref shell alone. Only a REFERENCE annotation is dropped:
+            // `int?` and `int` are different CLR types and passing one for the other is a real error.
+            if targetByRef.IsOutArgument || sourceByRef.IsOutArgument {
+                return TypeInfoIdentityFacts.AreEqual(WithoutReferenceNullability(targetByRef.InnerType), WithoutReferenceNullability(sourceByRef.InnerType))
             }
 
             return TypeInfoIdentityFacts.AreEqual(targetByRef.InnerType, sourceByRef.InnerType)

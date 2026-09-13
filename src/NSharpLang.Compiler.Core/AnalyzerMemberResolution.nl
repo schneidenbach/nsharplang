@@ -227,6 +227,24 @@ class AnalyzerMemberResolution {
                         if TryResolveReflectionPropertyOrField(bindingClrType, memberName, includeStaticMembers, out bindingMemberType) && AnswersInPosition(bindingMemberType, invocationPosition) {
                             return bindingMemberType
                         }
+
+                        // A METHOD IS NOT A MEMBER READ, AND THAT IS WHY IT CAN COME THROUGH THE
+                        // SURROGATE. The objection above is about the ANSWER's type: reading
+                        // `Comparer<Item>.Default` off `Comparer<object>` would hand back
+                        // `Comparer<object?>`. A method group is not an answer — it is a set of
+                        // candidates the reflected binder then closes, and that binder already
+                        // rebuilds every signature position from the SPELLED receiver through
+                        // `TryPopulateReceiverGenericTypeBindings`, so `Dictionary<string, Info>`'s
+                        // `TryGetValue` comes back with `out Info` and not with `out object`.
+                        //
+                        // Without this arm the call's callee typed as `unknown` and the call was not
+                        // checked at all: no argument conversion, no arity, and — the census site —
+                        // no `[MaybeNullWhen(false)]`, so `if map.TryGetValue(k, out v)` left `v`
+                        // maybe-null in the branch where the BCL guarantees it is present.
+                        bindingMethodGroup: TypeInfo = BuiltInTypes.Unknown
+                        if TryResolveReflectionMethodGroup(bindingClrType, memberName, includeStaticMembers, true, out bindingMethodGroup) {
+                            return bindingMethodGroup
+                        }
                     }
                 }
             }
@@ -446,6 +464,30 @@ class AnalyzerMemberResolution {
         }
 
         return false
+    }
+
+    // Every method of that name the type declares, as a group. The caller decides whether a group is
+    // an acceptable answer in its position; overload resolution happens later, in the binder.
+    static func TryResolveReflectionMethodGroup(clrType: Type, memberName: string, includeStaticMembers: bool, surrogateBinding: bool, out memberType: TypeInfo): bool {
+        memberType = BuiltInTypes.Unknown
+        methods := clrType.GetMethods(GetReflectionMemberFlags(includeStaticMembers))
+        matching := new List<MethodInfo>()
+        index := 0
+        while index < methods.Length {
+            method := methods[index]
+            if method.get_Name() == memberName {
+                matching.Add(method)
+            }
+
+            index = index + 1
+        }
+
+        if matching.Count == 0 {
+            return false
+        }
+
+        memberType = new ReflectionMethodGroupInfo(matching.ToArray(), matching[0].get_Name() + "(...)", surrogateBinding)
+        return true
     }
 
     static func GetReflectionMemberFlags(includeStaticMembers: bool): BindingFlags {

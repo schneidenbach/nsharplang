@@ -709,6 +709,11 @@ class FunctionTypeInfo: TypeInfo {
     SourceParameterTypes: List<TypeReference>?
     SourceReturnType: TypeReference?
     ParameterModifiers: List<ParameterModifier>?
+
+    // The nullability postcondition attributes each parameter carries, as `NullabilityFlowFacts`
+    // bits and in the same order as `ParameterNames`. Null when the signature declares none, which is
+    // almost every signature.
+    ParameterFlowFacts: List<int>?
     RequiredParameterCount: int?
     HasParamsParameter: bool
     TypeParameters: List<TypeParameter>?
@@ -744,6 +749,7 @@ class FunctionTypeInfo: TypeInfo {
         substituted.SourceParameterTypes = SourceParameterTypes
         substituted.SourceReturnType = SourceReturnType
         substituted.ParameterModifiers = ParameterModifiers
+        substituted.ParameterFlowFacts = ParameterFlowFacts
         substituted.RequiredParameterCount = RequiredParameterCount
         substituted.HasParamsParameter = HasParamsParameter
         substituted.TypeParameters = TypeParameters
@@ -782,13 +788,25 @@ class ObliviousTypeInfo: TypeInfo {
     }
 }
 
+// A BY-REF POSITION, AND WHETHER THE WRITTEN ARGUMENT WAS AN `out` ONE.
+//
+// `IsOutArgument` IS A FACT ABOUT THE CALL SITE, NOT ABOUT THE TYPE, and it is carried here because
+// assignability is the one place that compares the two sides of a by-ref position. C#'s rule is
+// asymmetric: a `ref` argument's variable must match the parameter in BOTH directions, because the
+// callee can both read and write it; an `out` argument's variable may have ANY nullability, because
+// the callee assigns it before the call returns and the variable's incoming value is never read.
+// Only the ARGUMENT side is ever marked — a declared `out` PARAMETER's by-ref shell is an ordinary
+// one — so the flag says "this side was written `out` at a call site" and nothing else.
 class ByRefTypeInfo: TypeInfo {
     innerTypeValue: TypeInfo
+    isOutArgumentValue: bool
 
     InnerType: TypeInfo => innerTypeValue
+    IsOutArgument: bool => isOutArgumentValue
 
-    constructor(innerType: TypeInfo) {
+    constructor(innerType: TypeInfo, isOutArgument: bool = false) {
         innerTypeValue = innerType
+        isOutArgumentValue = isOutArgument
     }
 
     override func ToString(): string {

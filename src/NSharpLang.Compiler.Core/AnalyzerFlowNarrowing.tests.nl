@@ -27,15 +27,18 @@ class FlowNarrowingHarness {
     Owner: AnalyzerFlowNarrowing
     Scopes: AnalyzerScopeStack
     Context: AnalyzerDeclarationContext
+    Postconditions: AnalyzerNullabilityPostconditions
 
     constructor(
         owner: AnalyzerFlowNarrowing,
         scopes: AnalyzerScopeStack,
-        context: AnalyzerDeclarationContext
+        context: AnalyzerDeclarationContext,
+        postconditions: AnalyzerNullabilityPostconditions
     ) {
         Owner = owner
         Scopes = scopes
         Context = context
+        Postconditions = postconditions
     }
 }
 
@@ -75,10 +78,12 @@ func FlowNarrowingDefault(): FlowNarrowingHarness {
     guard := new AnalyzerImplicitConversionGuard()
     assignability := new AnalyzerAssignability(context, facts, structural, substitution, clrConversion, guard)
 
+    postconditions := new AnalyzerNullabilityPostconditions(scopes, context)
     return new FlowNarrowingHarness(
-        new AnalyzerFlowNarrowing(scopes, resolver, assignability),
+        new AnalyzerFlowNarrowing(scopes, resolver, assignability, postconditions),
         scopes,
-        context
+        context,
+        postconditions
     )
 }
 
@@ -763,4 +768,65 @@ test "END TO END: `x != null` extracted and installed makes the scope say not-nu
     harness.Owner.ApplyNarrowingsToScope(split.Else)
 
     assert harness.Scopes.Peek().NullStates["x"] == NullState.Null
+}
+
+// A CALL CAN PROVE SOMETHING NO TYPE SPELLS, and this writer does not work it out — it COLLECTS it.
+// The call's own analysis reads the nullability postcondition attributes off the binding it chose
+// and files the conditional facts against the node; a condition that IS that node hands each branch
+// its own list. A call nothing was filed for proves nothing, which is the common case and the one a
+// guess would get wrong.
+test "a call condition yields the postconditions its own analysis filed against it" {
+    harness := FlowNarrowingDefault()
+    call := new CallExpression(FnName("TryGet"), new List<Argument>(), null, 3, 5)
+    facts := new List<NullabilityPostcondition>()
+    facts.Add(new NullabilityPostcondition("value", 1, NullState.NotNull))
+    facts.Add(new NullabilityPostcondition("value", 2, NullState.MaybeNull))
+    harness.Postconditions.Commit(call, facts)
+
+    split := harness.Owner.ExtractFlowNarrowings(call)
+
+    assert split.Then.Count == 1
+    assert split.Then[0].Path == "value"
+    assert split.Then[0].NullState == NullState.NotNull
+    assert split.Else.Count == 1
+    assert split.Else[0].NullState == NullState.MaybeNull
+}
+
+test "a call nothing was filed for proves nothing in either branch" {
+    harness := FlowNarrowingDefault()
+    call := new CallExpression(FnName("Unrelated"), new List<Argument>(), null, 3, 5)
+
+    split := harness.Owner.ExtractFlowNarrowings(call)
+
+    assert split.Then.Count == 0
+    assert split.Else.Count == 0
+}
+
+test "a negated call condition swaps the two branches the postconditions named" {
+    harness := FlowNarrowingDefault()
+    call := new CallExpression(FnName("TryGet"), new List<Argument>(), null, 3, 5)
+    facts := new List<NullabilityPostcondition>()
+    facts.Add(new NullabilityPostcondition("value", 1, NullState.NotNull))
+    harness.Postconditions.Commit(call, facts)
+
+    negated: Expression = new UnaryExpression(UnaryOperator.Not, call, 3, 5)
+    split := harness.Owner.ExtractFlowNarrowings(negated)
+
+    assert split.Then.Count == 0
+    assert split.Else.Count == 1
+    assert split.Else[0].NullState == NullState.NotNull
+}
+
+test "an && whose right operand is a call carries that call's true-branch facts" {
+    harness := FlowNarrowingDefault()
+    call := new CallExpression(FnName("TryGet"), new List<Argument>(), null, 3, 5)
+    facts := new List<NullabilityPostcondition>()
+    facts.Add(new NullabilityPostcondition("value", 1, NullState.NotNull))
+    harness.Postconditions.Commit(call, facts)
+
+    condition := FnBinary(FnNotEqualNull("map"), BinaryOperator.And, call)
+    split := harness.Owner.ExtractFlowNarrowings(condition)
+
+    assert split.Then.Count == 2
+    assert split.Else.Count == 0
 }

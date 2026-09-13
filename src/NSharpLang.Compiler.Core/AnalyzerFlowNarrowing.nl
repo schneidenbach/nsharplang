@@ -70,11 +70,13 @@ class AnalyzerFlowNarrowing {
     scopesValue: AnalyzerScopeStack
     typeResolverValue: AnalyzerTypeResolver
     assignabilityValue: AnalyzerAssignability
+    postconditionsValue: AnalyzerNullabilityPostconditions
 
-    constructor(scopes: AnalyzerScopeStack, typeResolver: AnalyzerTypeResolver, assignability: AnalyzerAssignability) {
+    constructor(scopes: AnalyzerScopeStack, typeResolver: AnalyzerTypeResolver, assignability: AnalyzerAssignability, postconditions: AnalyzerNullabilityPostconditions) {
         scopesValue = scopes
         typeResolverValue = typeResolver
         assignabilityValue = assignability
+        postconditionsValue = postconditions
     }
 
     // Applies narrowings to the current scope, intersecting duplicate symbols
@@ -213,9 +215,29 @@ class AnalyzerFlowNarrowing {
                 if TryExtractHasValueNarrowing(hasValueAccess, thenNarrowings) {
                 }
             }
+
+            // A CALL CAN PROVE SOMETHING ITS TYPE CANNOT SPELL. `dict.TryGetValue(k, out v)` leaves
+            // `v` present in the TRUE branch and absent in the false one, and `string.IsNullOrEmpty(s)`
+            // proves `s` non-null in the branch where it answered FALSE. Both are written as
+            // nullability postcondition attributes on the signature, and the call's own analysis has
+            // already read them off the binding it chose — this arm only collects the verdict, which
+            // is why a condition whose callee could not be bound proves nothing rather than guessing.
+            callCondition := condition as CallExpression
+            if callCondition != null {
+                AddRange(thenNarrowings, postconditionsValue.BranchNarrowings(callCondition, true))
+                AddRange(elseNarrowings, postconditionsValue.BranchNarrowings(callCondition, false))
+            }
         }
 
         return new FlowNarrowingSplit(thenNarrowings, elseNarrowings)
+    }
+
+    static func AddRange(target: List<FlowNarrowing>, source: List<FlowNarrowing>?) {
+        if source == null {
+            return
+        }
+
+        target.AddRange(source)
     }
 
     // THE SAME TWO LISTS, THE OTHER WAY ROUND. What a condition proves when it is false is exactly

@@ -142,32 +142,7 @@ class AnalyzerNullFlow {
     // other reflected type is OBLIVIOUS rather than not-null — external metadata the analyzer has
     // not been told the nullability of must not produce a confident answer in either direction.
     func GetDefaultNullState(typeInfo: TypeInfo): NullState {
-        resolved := declarationContextValue.ResolveDeclaredAlias(typeInfo)
-
-        if BuiltInTypes.Is(resolved, BuiltInTypes.Null) {
-            return NullState.Null
-        }
-
-        nullable := resolved as NullableTypeInfo
-        if nullable != null {
-            return NullState.MaybeNull
-        }
-
-        unknown := resolved as UnknownTypeInfo
-        if unknown != null {
-            return NullState.Unknown
-        }
-
-        reflectionType := resolved as ReflectionTypeInfo
-        if reflectionType != null {
-            if reflectionType.Type.get_IsValueType() && Nullable.GetUnderlyingType(reflectionType.Type) == null {
-                return NullState.NotNull
-            }
-
-            return NullState.Oblivious
-        }
-
-        return NullState.NotNull
+        return NullStateFacts.DefaultFor(declarationContextValue.ResolveDeclaredAlias(typeInfo))
     }
 
     // UNSAFE means "dereferencing this may throw". OBLIVIOUS is not unsafe: it is the analyzer

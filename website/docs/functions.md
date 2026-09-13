@@ -155,6 +155,82 @@ increment(ref count)
 Console.WriteLine(count)  // 11
 ```
 
+#### Nullability across `out` and `ref`
+
+The two modifiers differ in what the callee is allowed to assume, so they differ in what the caller
+has to prove.
+
+An **`out` argument's variable may have any nullability**. The callee has to assign it before it
+returns and never reads what was there, so a `string?` variable is a legal `out string` argument —
+and after the call the variable holds whatever the PARAMETER says it holds:
+
+```n#
+func trySplit(text: string, out head: string, out tail: string): bool { ... }
+
+head: string? = default
+tail: string? = default
+if !trySplit(line, out head, out tail) {
+    return head          // `string` here: the parameter is `out string`, so the callee left one
+}
+```
+
+A parameter declared `out string?` leaves the variable maybe-null instead, and the caller checks it
+as usual.
+
+A **`ref` argument has to match in both directions**, because the callee can read the value as well
+as write it. Passing a `string?` variable to a `ref string` parameter is an error (NL202) and so is
+the reverse.
+
+Nullability is the only thing `out` forgives. `int?` is `Nullable<int>` and `int` is not, so an
+`int?` variable is not an `out int` argument in either spelling.
+
+#### Saying more than the type can
+
+A signature can also declare what it leaves behind, using the standard .NET nullability
+postcondition attributes. N# reads them off .NET metadata and off its own declarations:
+
+| Attribute | On | Means |
+|---|---|---|
+| `[NotNull]` | any parameter | the argument is not null once the call returns, on every path |
+| `[MaybeNull]` | an `out`/`ref` parameter | the variable may be null afterwards |
+| `[NotNullWhen(b)]` | any parameter | the argument is not null in the branch where the call returned `b` |
+| `[MaybeNullWhen(b)]` | any parameter | the argument may be null in the branch where the call returned `b` |
+
+```n#
+import System.Diagnostics.CodeAnalysis
+
+func tryLookup(entries: List<Entry>, label: string, [NotNullWhen(true)] out found: Entry?): bool {
+    ...
+}
+
+found: Entry? = default
+if tryLookup(entries, "alpha", out found) {
+    return found.Label      // `found` is `Entry` here — the attribute said so
+}
+```
+
+The branch an attribute does not name keeps whatever the declaration alone already said, which is
+what makes the BCL's own spelling work: `Dictionary<K, V>.TryGetValue` declares
+`[MaybeNullWhen(false)] out V value`, so the value is present in the `true` branch and maybe-null in
+the `false` one. `string.IsNullOrEmpty` declares `[NotNullWhen(false)]`, so its argument is proved
+non-null in the branch where it answered `false`:
+
+```n#
+func textLength(text: string?): int {
+    if string.IsNullOrEmpty(text) {
+        return 0
+    }
+
+    return text.Length      // `string` here
+}
+```
+
+These read the same way through `&&` chains, through a negated guard (`if !tryLookup(...) { return }`)
+and through a ternary, because they are ordinary flow facts once the call has produced them.
+
+`[DoesNotReturn]` and `[DoesNotReturnIf]` are not read yet: a call to a method that never returns does
+not currently end the flow that follows it.
+
 ## Return Types
 
 ### Explicit Return Types

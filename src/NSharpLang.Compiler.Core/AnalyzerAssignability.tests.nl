@@ -142,6 +142,39 @@ test "by-ref is symmetric and TOTAL — one by-ref side refuses everything else"
     assert !assignability.IsAssignable(BuiltInTypes.Object, intRef)
 }
 
+// `out` IS THE ONE BY-REF POSITION WHOSE NULLABILITY DOES NOT HAVE TO MATCH, because the callee
+// assigns the variable and never reads what was in it. `ref` is the opposite and still matches in
+// both directions — that asymmetry is C#'s, and getting it backwards would either refuse a legal
+// `out` argument or accept a `ref` one that the callee can read as null.
+//
+// ONLY A REFERENCE ANNOTATION IS DROPPED. `int?` is `Nullable<int>` and `int` is not, so passing one
+// where the other is wanted is a real type error at the CLR level, not a nullability opinion.
+test "an out argument's nullability is the callee's to replace, a ref argument's is not" {
+    assignability := AssignabilityDefault()
+    nullableString: TypeInfo = new NullableTypeInfo(BuiltInTypes.String)
+    stringParameter: TypeInfo = new ByRefTypeInfo(BuiltInTypes.String)
+    nullableOutArgument: TypeInfo = new ByRefTypeInfo(nullableString, true)
+    nullableRefArgument: TypeInfo = new ByRefTypeInfo(nullableString)
+
+    assert assignability.IsAssignable(stringParameter, nullableOutArgument)
+    assert !assignability.IsAssignable(stringParameter, nullableRefArgument)
+
+    // The other direction too: a non-nullable variable is a legal `out string?` argument.
+    nullableParameter: TypeInfo = new ByRefTypeInfo(nullableString)
+    plainOutArgument: TypeInfo = new ByRefTypeInfo(BuiltInTypes.String, true)
+    assert assignability.IsAssignable(nullableParameter, plainOutArgument)
+    assert !assignability.IsAssignable(nullableParameter, new ByRefTypeInfo(BuiltInTypes.String))
+
+    // A NULLABLE VALUE TYPE IS A DIFFERENT TYPE, and `out` does not forgive that.
+    nullableInt: TypeInfo = new NullableTypeInfo(BuiltInTypes.Int)
+    intParameter: TypeInfo = new ByRefTypeInfo(BuiltInTypes.Int)
+    nullableIntOutArgument: TypeInfo = new ByRefTypeInfo(nullableInt, true)
+    assert !assignability.IsAssignable(intParameter, nullableIntOutArgument)
+
+    // And the relaxation is about the ANNOTATION alone: unrelated types still refuse.
+    assert !assignability.IsAssignable(stringParameter, new ByRefTypeInfo(BuiltInTypes.Int, true))
+}
+
 test "a target union needs ONE arm, a source union needs ALL of them" {
     assignability := AssignabilityDefault()
     intOrString: TypeInfo = new AnonymousUnionTypeInfo(AssignabilityTwo(BuiltInTypes.Int, BuiltInTypes.String))

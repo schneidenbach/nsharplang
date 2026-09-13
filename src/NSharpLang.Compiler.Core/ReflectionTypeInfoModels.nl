@@ -26,14 +26,31 @@ class ReflectionMethodGroupInfo: TypeInfo {
     Methods: MethodInfo[]
     displayValue: string
 
+    // Whether this group was read off a SURROGATE instantiation — a constructed external generic
+    // closed over a type the CLR has no handle for while it is being emitted, bound as `object`.
+    // Such a group is a BEST EFFORT: when a candidate binds, the call is typed and checked exactly as
+    // any other reflected call; when none does, the answer is `unknown` and nothing is reported,
+    // because the surrogate — not the program — is what could not represent the argument. Before this
+    // existed the callee typed as `unknown` unconditionally, so silence on failure is the behaviour
+    // that was already there rather than a new hole.
+    IsSurrogateBinding: bool
+
     constructor(methods: MethodInfo[]) {
         Methods = methods
         displayValue = "method group"
+        IsSurrogateBinding = false
     }
 
     constructor(methods: MethodInfo[], displayText: string) {
         Methods = methods
         displayValue = displayText
+        IsSurrogateBinding = false
+    }
+
+    constructor(methods: MethodInfo[], displayText: string, surrogateBinding: bool) {
+        Methods = methods
+        displayValue = displayText
+        IsSurrogateBinding = surrogateBinding
     }
 
     override func ToString(): string {

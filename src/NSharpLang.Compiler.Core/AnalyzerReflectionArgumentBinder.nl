@@ -162,13 +162,15 @@ class AnalyzerReflectionArgumentBinder {
     // place across a toolset rebuild (`SetWellKnownTypes`) rather than replaced, so unlike the
     // conversion beside it, holding it as a field cannot go stale.
     typeResolver: AnalyzerTypeResolver
+    postconditions: AnalyzerNullabilityPostconditions
 
-    constructor(conversion: AnalyzerClrTypeConversion, assignabilityOwner: AnalyzerAssignability, facts: AnalyzerAssignabilityFacts, scoring: AnalyzerOverloadScoring, resolver: AnalyzerTypeResolver) {
+    constructor(conversion: AnalyzerClrTypeConversion, assignabilityOwner: AnalyzerAssignability, facts: AnalyzerAssignabilityFacts, scoring: AnalyzerOverloadScoring, resolver: AnalyzerTypeResolver, postconditionOwner: AnalyzerNullabilityPostconditions) {
         clrTypeConversion = conversion
         assignability = assignabilityOwner
         assignabilityFacts = facts
         overloadScoring = scoring
         typeResolver = resolver
+        postconditions = postconditionOwner
     }
 
     // Phase one and two: PLACE every written argument, then FILL the rest from defaults. Phase
@@ -1285,8 +1287,71 @@ class AnalyzerReflectionArgumentBinder {
         finalized.ParameterTypes = state.ParameterTypes
         finalized.ReturnType = AnalyzerReflectionTypeConversion.ConvertBoundReturn(state.OpenMethod, state.WorkingTypeInfoBindings, state.WorkingBindings, state.HasTypeInfoOverrides)
         state.Result = finalized
+        state.Postconditions = CollectReflectionPostconditions(state)
+        state.NotNullIfNotNullArgumentIndex = FindNotNullIfNotNullArgument(state)
         state.Phase = 2
         return null
+    }
+
+    // `[NotNullIfNotNull("path")]` ON A RETURN NAMES A PARAMETER, and what this answers is the WRITTEN
+    // ARGUMENT that landed on it. `Path.GetFileName(path)` is declared `string?` and is null only when
+    // `path` is, so the call's result is as null as the argument was — and only the flow knows that,
+    // which is why the question is handed on rather than answered here.
+    static func FindNotNullIfNotNullArgument(state: ReflectionCallFinalizeState): int {
+        parameterName := NullabilityFlowAttributeReflection.NotNullIfNotNull(state.OpenMethod.get_ReturnParameter().GetCustomAttributesData())
+        if parameterName == null {
+            return -1
+        }
+
+        index := 0
+        while index < state.SuppliedArguments.Count {
+            supplied := state.SuppliedArguments[index]
+            index = index + 1
+            parameterIndex := supplied.ParameterIndex
+            if parameterIndex < 0 || parameterIndex >= state.OpenParameters.Length {
+                continue
+            }
+
+            if state.OpenParameters[parameterIndex].get_Name() == parameterName {
+                return supplied.ArgumentIndex
+            }
+        }
+
+        return -1
+    }
+
+    // WHAT A REFLECTED SIGNATURE PROVES ABOUT THE ARGUMENTS IT WAS HANDED. The parameter's own
+    // attributes are read off the OPEN parameter — `[MaybeNullWhen(false)]` is written on
+    // `Dictionary<K, V>.TryGetValue`'s definition, not on its construction — while the declared
+    // nullability is read off the CLOSED conversion, because `out V` is only as nullable as the `V`
+    // this call site bound.
+    func CollectReflectionPostconditions(state: ReflectionCallFinalizeState): List<NullabilityPostcondition>? {
+        facts: List<NullabilityPostcondition>? = null
+        index := 0
+        while index < state.SuppliedArguments.Count {
+            supplied := state.SuppliedArguments[index]
+            index = index + 1
+            parameterIndex := supplied.ParameterIndex
+            if parameterIndex < 0 || parameterIndex >= state.OpenParameters.Length {
+                continue
+            }
+
+            parameter := state.OpenParameters[parameterIndex]
+            flowFacts := NullabilityFlowAttributeReflection.FromParameter(parameter)
+            isByRefParameter := parameter.get_ParameterType().get_IsByRef()
+            if !isByRefParameter && flowFacts == NullabilityFlowFacts.None() {
+                continue
+            }
+
+            if facts == null {
+                facts = new List<NullabilityPostcondition>()
+            }
+
+            parameterType := AnalyzerReflectionTypeConversion.ConvertParameterWithOverrides(parameter, state.WorkingTypeInfoBindings, state.WorkingBindings)
+            postconditions.AddArgumentFacts(facts, supplied.Argument, parameterType, isByRefParameter, flowFacts)
+        }
+
+        return facts
     }
 
     // Fold the answer to the outstanding request back in. A phase-one answer INFERS — it matches the

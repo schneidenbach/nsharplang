@@ -61,6 +61,7 @@ class Analyzer: IDisposable {
     private PatternAnalysis: AnalyzerPatternAnalysis
     private readonly DefiniteAssignment: AnalyzerDefiniteAssignment
     private readonly NullFlow: AnalyzerNullFlow
+    private readonly NullabilityPostconditions: AnalyzerNullabilityPostconditions
     private FlowNarrowing: AnalyzerFlowNarrowing
     private VariableDeclaration: AnalyzerVariableDeclaration
     private readonly ExpressionStatements: AnalyzerExpressionStatements
@@ -180,6 +181,7 @@ class Analyzer: IDisposable {
         )
         DefiniteAssignment = new AnalyzerDefiniteAssignment(Diagnostics, TypeResolver)
         NullFlow = new AnalyzerNullFlow(Diagnostics, Spans, Scopes, DeclarationContext)
+        NullabilityPostconditions = new AnalyzerNullabilityPostconditions(Scopes, DeclarationContext)
         SoaEscape = new AnalyzerSoaEscape(Diagnostics, Spans, Scopes, DeclarationContext)
         Conditions = new AnalyzerBooleanConditions(Diagnostics, Spans, SoaEscape)
         Throwability = new AnalyzerThrowability(Scopes, DeclarationContext, TypeSubstitution)
@@ -501,7 +503,7 @@ class Analyzer: IDisposable {
     }
 
     private func CreateFlowNarrowing(): AnalyzerFlowNarrowing {
-        return new AnalyzerFlowNarrowing(Scopes, TypeResolver, Assignability)
+        return new AnalyzerFlowNarrowing(Scopes, TypeResolver, Assignability, NullabilityPostconditions)
     }
 
     private func CreateVariableDeclaration(): AnalyzerVariableDeclaration {
@@ -567,7 +569,9 @@ class Analyzer: IDisposable {
             Scopes,
             Ambient,
             WriteTargets,
-            IdentifierResolution
+            IdentifierResolution,
+            DeclarationContext,
+            NullabilityPostconditions
         )
     }
 
@@ -616,7 +620,8 @@ class Analyzer: IDisposable {
             SyntheticCallReporter,
             Spans,
             Diagnostics,
-            ConstantExpressionFacts
+            ConstantExpressionFacts,
+            NullabilityPostconditions
         )
     }
 
@@ -647,7 +652,8 @@ class Analyzer: IDisposable {
             Assignability,
             AssignabilityFacts,
             OverloadScoring,
-            TypeResolver
+            TypeResolver,
+            NullabilityPostconditions
         )
     }
 
@@ -755,6 +761,7 @@ class Analyzer: IDisposable {
 
         SoaEscape.BeginAnalysis()
         NullFlow.BeginAnalysis()
+        NullabilityPostconditions.BeginAnalysis()
         Ambient.BeginAnalysis()
         ProjectSources.BeginAnalysis(projectRoot)
         Diagnostics.BeginAnalysis(currentFilePath, sourceCode)
