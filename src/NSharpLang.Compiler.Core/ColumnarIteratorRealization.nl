@@ -565,7 +565,12 @@ class ColumnarIteratorRealization {
             fieldType: Type = null
             role := shape.FieldRoles[i]
             if role == ColumnarIteratorPlanner.AwaiterFieldRole() {
-                fieldType = typeof(System.Runtime.CompilerServices.TaskAwaiter)
+                // An awaiter's type is whatever the awaited operand's own `GetAwaiter()` returns —
+                // `TaskAwaiter` for a unit task, `TaskAwaiter<T>` for a value-producing one, and a
+                // user awaitable's own awaiter for anything else. The body lowering defines the field
+                // when it reaches the suspension point, exactly as it defines a `:=` local's.
+                i = i + 1
+                continue
             } else if role == ColumnarIteratorPlanner.PromiseFieldRole() {
                 fieldType = typeof(System.Threading.Tasks.TaskCompletionSource<bool>)
             } else if role == ColumnarIteratorPlanner.ResultFieldRole() {

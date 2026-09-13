@@ -797,7 +797,17 @@ target-typed literal needs.
 
 `for..in` inside a generator enumerates any sequence: an array, a `List<T>`, a call result, or another
 generator. The enumerator is disposed when the loop ends, when the consumer stops early, and when the
-sequence itself is disposed.
+sequence itself is disposed. The loop variable may carry a written type — `for v: int in objects` —
+and each element is converted to it once per iteration, exactly the way a cast converts: a downcast
+out of `object`, an unboxing, or a numeric conversion. An element that is not what the annotation
+claimed raises `InvalidCastException` from `MoveNext`.
+
+An assignment may target an indexer or a member as well as a local: `table[key] = value`,
+`box.Field = value`, `builder.Length = 2`, `values[i] = v`. The member a name selects, the indexer an
+index list selects and the conversion the stored value takes are the same answers the identical
+statement gets outside a generator, and the store lands on the object the generator was handed — so it
+is observable after the sequence has been enumerated, and not before. An instance generator may write
+its enclosing type's members too.
 
 ### Cleanup: `try`/`finally` around a `yield`
 
@@ -837,17 +847,40 @@ written anywhere in a generator body.
   ([NL332](./errors/NL332.md)) — a suspension has to be resumable, and only a `finally` can be
   re-entered that way.
 - a lambda (its capture of the state machine's own `this` is not lowered yet).
-- `await` outside an `async func*`, and `await` in a value position inside one.
+- `await` outside an `async func*`, and — inside one — an `await` NESTED in a larger expression;
+  bind it first (`value := await ...`).
 - a `try` statement inside an `async func*` body, and `lock` inside any generator body.
-- an assignment whose TARGET is an indexer or a member (`table[key] = v`, `obj.Field = v`); the
-  assignment target must be a local or a parameter. Call the member instead (`table.Add(key, v)`).
-- an assignment to an enclosing-type member from an instance generator (those members are read-only
-  inside the body).
+- a COMPOUND assignment (`+=`, `-=`, …) whose target is an indexer or a member; write the plain form
+  (`table[key] = table[key] + 1`).
 
 ### Async generators
 
 `async func*` returns `IAsyncEnumerable<T>` and is consumed with `await foreach`. The same
 ordinary-expression surface applies.
+
+An `await` inside one may be a statement, or the whole value of a declaration, an assignment or a
+`yield`:
+
+```n#
+import System.Collections.Generic
+import System.Threading.Tasks
+
+async func* rows(): IAsyncEnumerable<string> {
+    header := await Task.FromResult("id,name")
+    yield header
+    await Task.Delay(1)
+    yield await Task.FromResult("1,ada")
+}
+```
+
+The awaited operand may be any awaitable — a `Task`, a `Task<T>`, a `ValueTask<T>`, or a type of your
+own — because the compiler asks the operand's own type for `GetAwaiter()`, and that awaiter for
+`IsCompleted`, `OnCompleted(Action)` and `GetResult()`. An `await` nested inside a larger expression
+(`total + await f()`) is not lowered yet; bind it first.
+
+`for..in` over any sequence works inside an async generator as well, and the enumerator it opens is
+released when the loop ends, when an exception passes through, and when a consumer stops the
+`await foreach` part-way.
 
 ```n#
 import System.Collections.Generic

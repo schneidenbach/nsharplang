@@ -2764,10 +2764,83 @@ The three placements a suspension cannot resume from are **NL332**
 `catch` handler, or inside a `finally` handler. `ColumnarIteratorPlanner.WalkTryStatement` refuses the
 same three with the same sentences, so no shape can reach lowering without a diagnostic.
 
+### An assignment target may be a member or an indexer
+
+`ColumnarStoreTargetPlanner` is the WRITE twin of the member and index reads, as code-plan rows, and
+it is a general owner rather than an iterator one: `ClaimsTarget` takes a one-child member access or a
+two-child index access, and `TryAppendStore` appends receiver, index and value in source order.
+
+- A MEMBER is selected by `ColumnarInstanceMemberPlanner.TrySelect` — the same call the READ takes —
+  so a source field, an inherited source field, a reflected field and a settable property all resolve
+  identically on both sides. A property's setter is the `set_X` beside the `get_X` the read selected,
+  on the same declaring type (`SetterFor`); a builder-bound owner cannot answer a reflection query and
+  declines.
+- An INDEXER over an SZ array is `stelem` with the element conversion; every other receiver resolves
+  `set_Item` through `ColumnarOrdinaryRuntimeDirectCallResolver` against the WRITTEN index and value
+  types, which are discovered by planning them into a scratch plan first (overload selection has to
+  finish before a receiver that cannot be reached again goes on the stack).
+- A VALUE-TYPE receiver reached as a value is a COPY, so `IsObservableWriteReceiver` refuses it rather
+  than emitting a store nothing can read back. A read-only field and a get-only property decline for
+  the same reason.
+- The stored value goes through `ColumnarConstructionPlanner.TryAppendTargetTypedValue`, the one
+  target-typed door, so a target-typed literal and an ordinary value both take the conversion a call
+  argument at that type would take.
+
+Inside a generator, `ColumnarIteratorBodyPlanner.EmitStoreTargetAssignment` routes to it, and
+`EmitEnclosingMemberAssignment` writes an instance generator's enclosing member through the captured
+`<>__this` — the same two-hop write the READ of that name already performs. A COMPOUND assignment to a
+member or an indexer still declines (it would evaluate the receiver twice, and this owner does not yet
+hold the single-evaluation temporaries).
+
+### The annotated loop variable, inside a generator
+
+`for v: T in e` (node kind 76) shares ONE classification walk and ONE emission walk with the
+unannotated spelling — `ColumnarIteratorPlanner.WalkForIn` and `ColumnarIteratorBodyPlanner.EmitForIn`
+— because the two differ in exactly one fact: whether the loop variable's type is WRITTEN. An
+annotated variable's hoisted field is defined from the annotation; an inferred one's is defined from
+the element the planned source produces, as before.
+
+The conversion itself is `ColumnarCastConversionPlanner`, the plan-row counterpart of
+`ColumnarIlEmitter.TryEmitCastConversion`: identity and a reference widening cost nothing, a boxing is
+`box`, an unboxing (and every conversion TO a type parameter) is `unbox.any`, a reference downcast is
+`castclass`, and a numeric conversion is the unchecked `conv.*` its TARGET selects (an enum through its
+underlying type). `ForeachElementConversionFacts` still owns the QUESTION — NL330 reports the pair
+that has no conversion — so a program the analyzer accepted is the program the machine runs.
+
+Merging the two walks also closed a latent mismatch: classification hoisted an `<>__index{k}` slot
+only for an array element the index loop can load (`IsLowerableArrayElementCanonical`), while emission
+took the array loop for ANY array element canonical. An `object[]` source therefore hoisted enumerator
+facts and then looked for an index field that was never reserved. Both sides now ask the identical
+question.
+
+### `await`, for any awaitable, in any BOUND position
+
+The `await Task.Delay(<int>)`-only admission is gone. `ColumnarIteratorPlanner.WalkAwait` counts the
+suspension and walks the operand as an ordinary expression;
+`ColumnarIteratorBodyPlanner.AppendAwait` then asks the operand's PLANNED type for `GetAwaiter()`, and
+that awaiter for `get_IsCompleted`, `OnCompleted(Action)` and `GetResult()` — ordinary CLR member
+lookup, no table of known tasks. A `Task`, a `Task<T>`, a `ValueTask<T>` and a user awaitable all
+answer; a struct awaitable is called through the address of a temporary, and a struct awaiter through
+the address of its own field (a copy would throw the continuation state away). The awaiter field is
+hoisted UNRESOLVED (role 5) and defined from that awaiter type when the lowering reaches the
+suspension, so a machine with two awaits of different awaitables carries two differently-typed slots.
+
+An ASYNC machine may enumerate a sequence source too: the hoisted `<>__enum{k}` field is the same one
+the synchronous machine reserves, and only its RELEASE differs — a synchronous machine has a FAULT
+handler for the exceptional path, and the async step core rides the `catch (Exception)` it already has
+(an exception must reach the pending call's promise) plus `DisposeAsync` for the abandonment path.
+
+An `await` may be the WHOLE value of a declaration, an assignment or a `yield`
+(`ColumnarIteratorPlanner.WalkBoundValue` / `ColumnarIteratorBodyPlanner.AppendBoundFieldStore`), and
+nothing else: a suspension branches out of the step core and ECMA requires an EMPTY evaluation stack
+at that branch, so the awaited value is produced FIRST, parked in a plan local, and only then is
+`this` loaded and the field written. An `await` nested inside a larger expression needs a spill this
+owner does not yet hold and declines saying so.
+
 Not yet lowered inside a generator body, each with its own decline: `return <value>`
 (`emit.iterator.unsupported-shape`), a lambda (`emit.iterator.lambda-unsupported`), a `try` inside an
-`async func*` (`emit.iterator.async-unsupported`), `lock`, `await` in a value position, and
-`await foreach`. (`using` is not a statement this language parses at all.)
+`async func*` (`emit.iterator.async-unsupported`), `lock`, an `await` nested in a larger expression,
+and `await foreach`. (`using` is not a statement this language parses at all.)
 
 ## One Exception-Resolution Path
 

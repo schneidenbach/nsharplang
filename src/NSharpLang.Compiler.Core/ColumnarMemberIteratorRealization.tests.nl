@@ -799,7 +799,7 @@ test "member iterator takes the first source row and disposes before field and o
 // An exhausted method source is disposed before AnalyzeShape. The normal twin reaches its shape
 // decline and advances the instance-shape ordinal exactly once without obtaining the factory IL.
 test "member iterator disposes method enumeration before its shape phase" {
-    source := "func* Bad(): IEnumerable<int> { Value = 3\n yield 1 }"
+    source := "func* Bad(): IEnumerable<int> { Absent = 3\n yield 1 }"
     probe := new ColumnarIteratorShapeProbe(
         source,
         "IEnumerable<int>",
