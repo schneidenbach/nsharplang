@@ -2748,8 +2748,12 @@ class ColumnarIteratorBodyPlanner {
         if nodes.Kind(handlerNode) != 6 {
             return false
         }
+        // A BINDING OF THAT SPELLING SHADOWS THE FREE FUNCTION, exactly as a local shadows one in an
+        // ordinary body: a hoisted field of the machine (every parameter and local of the generator is
+        // one), an enclosing member reached through the captured receiver, or a root binding the node
+        // table records. Any of them and the ordinary value door answers instead.
         name := nodes.Text(emit.Context.Source, handlerNode)
-        if name.Length == 0 || emit.Context.HasHoistedField(name) {
+        if name.Length == 0 || emit.Context.HasHoistedField(name) || emit.Context.EnclosingFieldIndex(name) >= 0 || nodes.HasAdditionalRootBinding(name) {
             return false
         }
         let sibling: NSharpLang.Compiler.Columnar.ColumnarSiblingCallFacts? = null
