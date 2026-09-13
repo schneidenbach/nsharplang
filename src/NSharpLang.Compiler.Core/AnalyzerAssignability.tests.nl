@@ -265,6 +265,24 @@ test "an implicit reference conversion is narrower than assignability" {
     assert assignability.IsImplicitReferenceConversion(BuiltInTypes.Object, BuiltInTypes.String)
     assert assignability.IsImplicitReferenceConversion(new ReflectionTypeInfo(typeof(Exception)), new ReflectionTypeInfo(typeof(InvalidOperationException)))
     assert !assignability.IsImplicitReferenceConversion(new ReflectionTypeInfo(typeof(InvalidOperationException)), new ReflectionTypeInfo(typeof(Exception)))
+
+    // And the variant generic interfaces, whose own arguments are resolved by THIS relation rather
+    // than by `IsAssignable` — CLR variance is defined over reference conversions too.
+    enumerableDefinition: TypeInfo = new ReflectionTypeInfo(AssignabilityRuntimeType("System.Collections.Generic.IEnumerable`1, System.Private.CoreLib"))
+    enumerableOfString: TypeInfo = new GenericTypeInfo("IEnumerable", AssignabilityOne(BuiltInTypes.String), enumerableDefinition)
+    enumerableOfObject: TypeInfo = new GenericTypeInfo("IEnumerable", AssignabilityOne(BuiltInTypes.Object), enumerableDefinition)
+    enumerableOfInt: TypeInfo = new GenericTypeInfo("IEnumerable", AssignabilityOne(BuiltInTypes.Int), enumerableDefinition)
+    enumerableOfLong: TypeInfo = new GenericTypeInfo("IEnumerable", AssignabilityOne(BuiltInTypes.Long), enumerableDefinition)
+
+    assert assignability.IsImplicitReferenceConversion(enumerableOfObject, enumerableOfString)
+    // `int` widens to `long` and boxes to `object`, and NEITHER is a reference conversion, so neither
+    // carries the variance — which is what keeps `IEnumerable<int>[]` out of `IEnumerable<long>[]`.
+    assert !assignability.IsImplicitReferenceConversion(enumerableOfLong, enumerableOfInt)
+    assert !assignability.IsImplicitReferenceConversion(enumerableOfObject, enumerableOfInt)
+
+    // Composed into arrays, which is the position the relation exists for.
+    assert assignability.IsAssignable(new ArrayTypeInfo(enumerableOfObject), new ArrayTypeInfo(enumerableOfString))
+    assert !assignability.IsAssignable(new ArrayTypeInfo(enumerableOfLong), new ArrayTypeInfo(enumerableOfInt))
 }
 
 test "the known-generic relation is covariant only where the interface is read-only" {
