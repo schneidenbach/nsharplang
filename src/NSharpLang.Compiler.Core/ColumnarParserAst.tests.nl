@@ -5077,6 +5077,45 @@ test "016 N+1c tranche 10: `using r := open()` synthesizes the declaration on th
     assert AstEq.Diff(expected, actual, "unit") == ""
 }
 
+test "an ANNOTATED using binding materializes the declaration's TYPE, with either operator" {
+    colonAssign := RunBody("using r: Stream := open() { a() }")
+    colonAssignDecl := Golden.VarDecl("r", Golden.SimpleT("Stream", 2, 26, 32), Golden.Call(Golden.Ident("open", 2, 36), Golden.NoArgs(), Golden.NoTypeArgs(), 2, 40), VariableKind.Let, 2, 17)
+    colonAssignExpected := BodyUnit1(Golden.Using(colonAssignDecl, null, Golden.Block1(CallStmt("a", 2, 45), 2, 43), 2, 17))
+    assert AstEq.Diff(colonAssignExpected, colonAssign, "unit") == ""
+
+    // `=` is the ordinary annotated-declaration operator, and it produces the identical node.
+    equals := RunBody("using r: Stream = open() { a() }")
+    equalsDecl := Golden.VarDecl("r", Golden.SimpleT("Stream", 2, 26, 32), Golden.Call(Golden.Ident("open", 2, 35), Golden.NoArgs(), Golden.NoTypeArgs(), 2, 39), VariableKind.Let, 2, 17)
+    equalsExpected := BodyUnit1(Golden.Using(equalsDecl, null, Golden.Block1(CallStmt("a", 2, 44), 2, 42), 2, 17))
+    assert AstEq.Diff(equalsExpected, equals, "unit") == ""
+}
+
+test "a using DECLARATION carries a NULL body — the region it guards is the enclosing block" {
+    actual := RunBody("using r := open() a()")
+    declaration := Golden.VarDecl("r", null, Golden.Call(Golden.Ident("open", 2, 28), Golden.NoArgs(), Golden.NoTypeArgs(), 2, 32), VariableKind.Let, 2, 17)
+    statements := Golden.NoStmts()
+    Golden.Add(statements, Golden.Using(declaration, null, null, 2, 17))
+    Golden.Add(statements, CallStmt("a", 2, 35))
+    expected := BodyUnit(statements)
+    assert AstEq.Diff(expected, actual, "unit") == ""
+}
+
+test "`await using` materializes the SAME node with IsAsync set, anchored on the await keyword" {
+    actual := RunBody("await using r := open() { a() }")
+    declaration := Golden.VarDecl("r", null, Golden.Call(Golden.Ident("open", 2, 34), Golden.NoArgs(), Golden.NoTypeArgs(), 2, 38), VariableKind.Let, 2, 23)
+    expected := BodyUnit1(Golden.AwaitUsing(declaration, null, Golden.Block1(CallStmt("a", 2, 43), 2, 41), 2, 17))
+    assert AstEq.Diff(expected, actual, "unit") == ""
+}
+
+test "the using BODY brace is not an object initializer, and a parenthesised one still is" {
+    // `new Res() { … }` is also a legal object initializer. The first `{` at paren/bracket depth zero
+    // after the resource belongs to the STATEMENT, so the resource stops at `new Res()`.
+    actual := RunBody("using r := new Res() { a() }")
+    declaration := Golden.VarDecl("r", null, Golden.NewE(Golden.SimpleT("Res", 2, 32, 35), Golden.NoArgs(), null, null, 2, 28), VariableKind.Let, 2, 17)
+    expected := BodyUnit1(Golden.Using(declaration, null, Golden.Block1(CallStmt("a", 2, 40), 2, 38), 2, 17))
+    assert AstEq.Diff(expected, actual, "unit") == ""
+}
+
 test "016 N+1c tranche 10: `lock m { }` materializes LockStatement (Parser.cs :3178)" {
     actual := RunBody("lock m { a() }")
     expected := BodyUnit1(Golden.Lock(Golden.Ident("m", 2, 22), Golden.Block1(CallStmt("a", 2, 26), 2, 24), 2, 17))

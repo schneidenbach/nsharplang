@@ -4273,6 +4273,24 @@ test "016 stmt: a using declaration missing ':=' reports NL102 with the 'colonas
     assert e.HumanExplanation == "I was expecting colonassign here, but I found 'open' instead."
 }
 
+test "016 stmt: an UNBOUND using with no block reports NL102 naming both ways out" {
+    errors := RunPreamble("func f(r: Reader) {\n    using r\n    print 1\n}\n")
+    assert errors.Count == 1
+    e := errors[0]
+    assert e.Code == ErrorCode.ExpectedToken
+    assert e.Message == "Expected '{' after the using resource. Got 'print'"
+    assert e.Line == 2
+    assert e.Column == 5
+    assert e.Length == 5
+    assert e.Suggestion == "Add a block: using <resource> { ... }"
+    assert e.ContextualHint == "Write `using <resource> { ... }`, or bind the resource with `using r := <resource>` to dispose it at the end of the enclosing block."
+}
+
+test "016 stmt: a BOUND using with no block is the using DECLARATION and reports nothing" {
+    errors := RunPreamble("func f() {\n    using r := open()\n    print r\n}\n")
+    assert errors.Count == 0
+}
+
 test "016 stmt: a using-let with tuple deconstruction reports the InvalidSyntax NL103 on the pattern span" {
     errors := RunPreamble("func f() {\n    using let (a, b) := open() {\n        print 1\n    }\n}\n")
     assert errors.Count == 1

@@ -205,6 +205,43 @@ test "name lookups answer from the INNERMOST scope that binds the name" {
     assert stack.CurrentScopeSymbol("only-global") == null
 }
 
+// A `using` RESOURCE IS READ-ONLY FOR AS LONG AS IT IS VISIBLE, and the mark lives on the SCOPE so
+// that "as long as it is visible" needs no separate bookkeeping: the walk stops at the first scope
+// that BINDS the name, and asks that scope — so a name rebound in an inner scope is a different
+// binding and is not read-only because an outer one was.
+test "a read-only mark is answered by the scope that BINDS the name, not by the innermost one" {
+    model := new SemanticModel()
+    stack := ScopeStackOf(model, [ScopeKind.Global, ScopeKind.Function])
+
+    outer := stack.GlobalScope()
+    outer.Symbols["resource"] = ScopeSymbolOf("Stream")
+    outer.Symbols["ordinary"] = ScopeSymbolOf("Stream")
+    stack.Push(model, new Scope(ScopeKind.Block), 1, 1)
+
+    // The mark goes into the INNERMOST open scope, which is what makes a block form's mark expire
+    // with the statement's own scope and a using DECLARATION's expire with the enclosing block.
+    inner := stack.Peek()
+    inner.Symbols["local"] = ScopeSymbolOf("Stream")
+    stack.MarkSymbolReadOnly("local")
+
+    assert stack.IsReadOnlySymbol("local")
+    assert !stack.IsReadOnlySymbol("resource")
+    assert !stack.IsReadOnlySymbol("ordinary")
+    assert !stack.IsReadOnlySymbol("missing")
+
+    // An inner REBINDING of a marked name is a DIFFERENT binding, and answers for itself: the walk
+    // stops at the first scope that binds the name and asks THAT scope.
+    stack.Push(model, new Scope(ScopeKind.Block), 2, 1)
+    stack.Peek().Symbols["local"] = ScopeSymbolOf("Stream")
+    assert !stack.IsReadOnlySymbol("local")
+    stack.Pop(model)
+    assert stack.IsReadOnlySymbol("local")
+
+    // The mark dies with the scope that carried it.
+    stack.Pop(model)
+    assert !stack.IsReadOnlySymbol("local")
+}
+
 // BindsToLocalOrParameter — the question NL309's bare-name channel asks before it accuses a FIELD.
 //
 // That channel searches the enclosing type's MEMBER LIST, which knows nothing about locals: without
