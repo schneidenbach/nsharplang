@@ -4,6 +4,7 @@ import System
 import System.Collections.Generic
 import System.Reflection
 import NSharpLang.Compiler.Ast
+import NSharpLang.Compiler.Columnar
 
 
 // ONE EXPRESSION THE FINALISING WALK WANTS ANALYSED, AND EVERYTHING THE ANALYSIS NEEDS.
@@ -89,6 +90,12 @@ class ReflectionCallFinalizeState {
     PendingOpenParameterType: Type?
     PendingExpectedType: TypeInfo?
 
+    // THE CONSTANT THE OUTSTANDING ARGUMENT CARRIES, taken when the request is made rather than when
+    // the answer arrives. A literal analysed against a narrower target still answers `int` — that is
+    // what `b: byte = 0` records too — so the expression's own constant is the only evidence the
+    // validation has that §10.2.11 applies, and by then the walk no longer has the expression.
+    PendingConstant: ConstantOperandFacts
+
     // The finalised call type, or null while the walk is unfinished and forever if it failed.
     Result: FunctionTypeInfo?
 
@@ -131,6 +138,7 @@ class ReflectionCallFinalizeState {
         PendingKind = 0
         PendingOpenParameterType = null
         PendingExpectedType = null
+        PendingConstant = ConstantOperandFacts.None()
         Result = null
         Postconditions = null
         NotNullIfNotNullArgumentIndex = -1

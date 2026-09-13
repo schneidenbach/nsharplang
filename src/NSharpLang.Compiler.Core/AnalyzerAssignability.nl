@@ -146,16 +146,7 @@ class AnalyzerAssignability {
     func IsConstantConvertible(target: TypeInfo, source: TypeInfo, constant: ConstantOperandFacts): bool {
         resolvedTarget := declarationContext.ResolveDeclaredAlias(target)
         clrTarget := clrTypeConversion.TryConvertTypeInfoToClrType(resolvedTarget)
-        if clrTarget == null {
-            return false
-        }
-
-        if clrTarget.get_IsEnum() {
-            return ConstantConversionFacts.IsLiteralZero(constant.LiteralText, constant.IsNegative)
-        }
-
-        constantValue := 0L
-        return ConstantConversionFacts.TryGetInRangeIntegralConstant(clrTarget, constant.LiteralText, constant.IsNegative, out constantValue)
+        return ConstantConversionFacts.AcceptsIntegerConstant(clrTarget, constant.LiteralText, constant.IsNegative)
     }
 
     // A TUPLE CONVERTS TO A TUPLE ELEMENT BY ELEMENT, THROUGH CONVERSIONS THE CLR SPELLS AS IDENTITY.

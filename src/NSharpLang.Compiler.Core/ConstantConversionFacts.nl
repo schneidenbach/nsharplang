@@ -82,16 +82,16 @@ class ConstantConversionFacts {
 
     static func TryGetNegativeConstant(target: Type, magnitude: ulong, out value: long): bool {
         value = 0L
-        if target == typeof(byte) || target == typeof(ushort) || target == typeof(uint) || target == typeof(ulong) {
+        if IsPrimitive(target, "System.Byte") || IsPrimitive(target, "System.UInt16") || IsPrimitive(target, "System.UInt32") || IsPrimitive(target, "System.UInt64") {
             return false
         }
 
         limit := 2147483647UL
-        if target == typeof(sbyte) {
+        if IsPrimitive(target, "System.SByte") {
             limit = 127UL
-        } else if target == typeof(short) {
+        } else if IsPrimitive(target, "System.Int16") {
             limit = 32767UL
-        } else if target != typeof(int) && target != typeof(long) {
+        } else if !IsPrimitive(target, "System.Int32") && !IsPrimitive(target, "System.Int64") {
             return false
         }
 
@@ -106,15 +106,15 @@ class ConstantConversionFacts {
     static func TryGetPositiveConstant(target: Type, magnitude: ulong, out value: long): bool {
         value = 0L
         limit := 0UL
-        if target == typeof(byte) {
+        if IsPrimitive(target, "System.Byte") {
             limit = 255UL
-        } else if target == typeof(sbyte) {
+        } else if IsPrimitive(target, "System.SByte") {
             limit = 127UL
-        } else if target == typeof(short) {
+        } else if IsPrimitive(target, "System.Int16") {
             limit = 32767UL
-        } else if target == typeof(ushort) {
+        } else if IsPrimitive(target, "System.UInt16") {
             limit = 65535UL
-        } else if target == typeof(uint) || target == typeof(long) || target == typeof(ulong) {
+        } else if IsPrimitive(target, "System.UInt32") || IsPrimitive(target, "System.Int64") || IsPrimitive(target, "System.UInt64") {
             limit = 2147483647UL
         } else {
             return false
@@ -128,10 +128,48 @@ class ConstantConversionFacts {
         return true
     }
 
+    // BOTH CONSTANT CONVERSIONS, ASKED OF A CLR TYPE, IN ONE QUESTION.
+    //
+    // The two rules above are a pair at every position that has a TARGET and a LITERAL: §10.2.4 when the
+    // target is an enum, §10.2.11 when it is a narrower integral. The analyzer's assignability owner and
+    // the REFLECTION binder both need exactly that pair — one for `b: byte = 0`, the other for
+    // `roots.TryAdd(root, 0)` against `ConcurrentDictionary<string, byte>.TryAdd(string, byte)` — and a
+    // second spelling of the branch is a second place for the two to drift apart.
+    //
+    // An OPEN type is refused outright: a constant conversion takes no part in method type inference, so
+    // a parameter still mentioning a type parameter must be bound by the standard rules or not at all.
+    static func AcceptsIntegerConstant(target: Type?, literalText: string?, negative: bool): bool {
+        if target == null || target.get_ContainsGenericParameters() || target.get_IsByRef() {
+            return false
+        }
+
+        if target.get_IsEnum() {
+            return IsLiteralZero(literalText, negative)
+        }
+
+        constantValue := 0L
+        return TryGetInRangeIntegralConstant(target, literalText, negative, out constantValue)
+    }
+
     // `long` and `ulong` targets take `ldc.i8`; every narrower target is an `ldc.i4` whose stack type is
     // int32, which is what the CLR's storage conversions expect for a `stelem.i1` or a narrower `stfld`.
     static func IsInt64ConstantTarget(target: Type): bool {
-        return target == typeof(long) || target == typeof(ulong)
+        return IsPrimitive(target, "System.Int64") || IsPrimitive(target, "System.UInt64")
+    }
+
+    // THE TARGET'S PRIMITIVE IDENTITY, READ FROM ITS NAME RATHER THAN FROM ITS INSTANCE.
+    //
+    // These tests used to be `target == typeof(byte)`, which is REFERENCE equality over `Type` and is
+    // therefore false for the very same `System.Byte` when it arrives from a MetadataLoadContext — and
+    // every parameter type the reflection binder asks about arrives from one. The emitter's own runtime
+    // `Type`s answer the same way here (`typeof(byte).FullName` IS `"System.Byte"`), so the decision is
+    // unchanged where it already worked and now has an answer where it silently had none.
+    //
+    // A NULLABLE SHELL IS NOT UNWRAPPED. `Nullable<byte>` is a different target from `byte` and keeps
+    // the answer it had; lifting a constant conversion through it is a separate rule this owner does
+    // not state.
+    static func IsPrimitive(target: Type, fullName: string): bool {
+        return target.FullName == fullName
     }
 }
 

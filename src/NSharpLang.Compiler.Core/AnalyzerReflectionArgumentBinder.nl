@@ -447,6 +447,27 @@ class AnalyzerReflectionArgumentBinder {
 
         if argumentClrType != null {
             if !AnalyzerOverloadFacts.TryMatchReflectionParameter(openParameterType, argumentClrType, bindings, allowsLift) {
+                // AN INTEGER CONSTANT IS APPLICABLE AT A NARROWER PARAMETER, AND A REFLECTED OVERLOAD
+                // SET IS NOT AN EXCEPTION TO THAT. ECMA-334 §10.2.11 converts an in-range `int`
+                // constant to `sbyte`/`byte`/`short`/`ushort`/`uint`, and §10.2.4 converts the
+                // constant zero to any enum; both are implicit conversions, so both are part of
+                // APPLICABILITY (§12.6.4.2) and not something a later pass performs. Without this
+                // `roots.TryAdd(root, 0)` on a `ConcurrentDictionary<string, byte>` reported that no
+                // overload of `TryAdd` accepts `string, int` — for a call whose only overload is the
+                // one the writer meant.
+                //
+                // THE SCORE IS THE IMPLICIT-NUMERIC RUNG, not a rung of its own. A constant conversion
+                // is an implicit conversion of the numeric family, so `f(int)` still beats `f(byte)`
+                // for `0` on identity, and `f(byte)` versus `f(long)` ties here and is separated by
+                // `AnalyzerOverloadSpecificity`'s better-conversion-target rule — which answers
+                // `byte`, exactly as C# does.
+                constantScore := 0
+                if TryScoreConstantExpressionArgument(argumentValue, openParameterType, bindings, expectsByRef, out constantScore) {
+                    PopulateTypeInfoBindingsFromType(openParameterType, argumentType, typeInfoBindings, allowsLift)
+                    score = constantScore
+                    return true
+                }
+
                 // A COLLECTION EXPRESSION IS APPLICABLE ELEMENT BY ELEMENT, AND IT IS SCORED BEFORE A
                 // CANDIDATE IS CHOSEN RATHER THAN AFTER. `[args]` has no type of its own until a
                 // parameter names its element type; the pre-pass had to give it one anyway, and
@@ -905,11 +926,14 @@ class AnalyzerReflectionArgumentBinder {
             while i < genericParameters.Length {
                 resolvedTypeInfo := typeResolver.ResolveType(call.TypeArguments[i])
                 typeArgument := typeof(object)
-                if !TryConvertWrittenTypeArgument(resolvedTypeInfo, out typeArgument) {
+                if TryConvertWrittenTypeArgument(resolvedTypeInfo, out typeArgument) {
+                    bindings[genericParameters[i]] = typeArgument
+                } else if !IsOpenWrittenTypeArgument(resolvedTypeInfo) {
+                    // A written type argument that names nothing the CLR nor the project declares is a
+                    // non-binding, exactly as before.
                     return null
                 }
 
-                bindings[genericParameters[i]] = typeArgument
                 typeInfoBindings[genericParameters[i]] = resolvedTypeInfo
                 i = i + 1
             }
@@ -958,6 +982,25 @@ class AnalyzerReflectionArgumentBinder {
 
         typeArgument = typeof(object)
         return false
+    }
+
+    // A WRITTEN TYPE ARGUMENT THAT IS ITSELF A TYPE PARAMETER OF THE ENCLOSING DECLARATION.
+    //
+    // `static func Read<T>(json: string, options: JsonSerializerOptions): T?` calls
+    // `JsonSerializer.Deserialize<T>(json, options)`, and `T` there is not a type the CLR has a handle
+    // for — it is the type parameter the CALLER will fix. Refusing the candidate for that reported
+    // "no overload of `Deserialize` accepts 2 arguments with these types: string, JsonSerializerOptions"
+    // for a call that is simply generic, which is the SAME failure the argument side already answers
+    // for `HashCode.Combine(state, ok)`, and it is answered the same way: the binding is recorded on
+    // the N# side only and `CloseGenericRuntimeMethod` leaves the method OPEN rather than substituting
+    // a surrogate whose declared constraints would then be checked against a type nobody wrote.
+    //
+    // The analyzer spells a type parameter in scope as a bare `SimpleTypeInfo`. Every BUILT-IN spelled
+    // that way converts to a CLR type and never reaches here; a name that resolves to nothing at all is
+    // `UnknownTypeInfo` and is still a non-binding, which is what keeps `Deserialize<Nonsense>(…)` a
+    // report rather than a silently open call.
+    static func IsOpenWrittenTypeArgument(resolvedTypeInfo: TypeInfo): bool {
+        return resolvedTypeInfo as SimpleTypeInfo != null
     }
 
     // The OPEN form a candidate's signature is read from.
@@ -1596,14 +1639,30 @@ class AnalyzerReflectionArgumentBinder {
             }
         } else if state.PendingKind == 3 {
             expectedType := state.PendingExpectedType
-            if expectedType == null || !overloadScoring.IsAssignableReflectionArgument(expectedType, analyzedType) {
+            if expectedType == null || !IsAcceptedReflectionArgument(expectedType, analyzedType, state.PendingConstant) {
                 state.Failed = true
             }
         }
 
         state.PendingKind = 0
         state.PendingExpectedType = null
+        state.PendingConstant = ConstantOperandFacts.None()
         state.PendingOpenParameterType = null
+    }
+
+    // THE CONVERSION THE FINALISING WALK VALIDATES, WITH THE CONSTANT STILL IN HAND.
+    //
+    // Applicability admitted this position; this is the same question asked again with the argument's
+    // real analysed type, and it must admit exactly what applicability did or a candidate the pre-pass
+    // chose is refused after the fact. A literal analysed against a narrower target still answers
+    // `int` — `b: byte = 0` records `int` too — so without the constant the §10.2.11 positions the
+    // pre-pass accepted would all fail here, which is the NL402 this arm removes rather than moves.
+    func IsAcceptedReflectionArgument(expectedType: TypeInfo, analyzedType: TypeInfo, constant: ConstantOperandFacts): bool {
+        if overloadScoring.IsAssignableReflectionArgument(expectedType, analyzedType) {
+            return true
+        }
+
+        return constant.HasIntegerLiteral && assignability.IsAssignableWithConstant(expectedType, analyzedType, constant)
     }
 
     // The lambda-target signature, with the BROAD fallback behind it. The fallback is not a
@@ -1726,6 +1785,7 @@ class AnalyzerReflectionArgumentBinder {
 
         state.PendingKind = 3
         state.PendingExpectedType = expectedType
+        state.PendingConstant = ConstantOperandFacts.FromExpression(supplied.Argument.Value)
         return new ReflectionAnalysisRequest(supplied.Argument.Value, null, expectedType, false)
     }
 
@@ -1762,7 +1822,18 @@ class AnalyzerReflectionArgumentBinder {
 
         parameterElementTypeInfo := AnalyzerReflectionTypeConversion.ConvertReflectionType(parameterElement)
         if !assignability.IsAssignable(parameterElementTypeInfo, sourceArray.ElementType) {
-            return false
+            // THE ELEMENTS THEMSELVES STILL DECIDE WHEN THEIR PROVISIONAL TYPE DOES NOT. `[0]` is
+            // provisionally `int[]`, and `int` does not convert to `byte` — but the ELEMENT WRITTEN
+            // there is the constant `0`, which does (§10.2.11), which is why the same literal in
+            // `one: byte[] = [0]` is accepted at a local and was refused at
+            // `sha.TransformBlock([0], 0, 1, null, 0)`. Asked element by element, because a literal
+            // whose elements are `[0, 300]` converts at neither position and must stay inapplicable.
+            if !AllElementsAreInRangeConstants(argumentValue, parameterElement) {
+                return false
+            }
+
+            score = 4
+            return true
         }
 
         score = 4
@@ -1771,6 +1842,70 @@ class AnalyzerReflectionArgumentBinder {
         }
 
         return true
+    }
+
+    // WHETHER EVERY ELEMENT WRITTEN IN AN ARRAY LITERAL IS A CONSTANT THIS ELEMENT TYPE ACCEPTS.
+    //
+    // An EMPTY literal answers false rather than true: `[]` has no element to carry a constant, so it
+    // is the ordinary element relation — already asked and already answered — that decides it, and
+    // saying "every element converts" of no elements would make an empty literal applicable at every
+    // array parameter in the set at once.
+    func AllElementsAreInRangeConstants(argumentValue: Expression, parameterElement: Type): bool {
+        literal := argumentValue as ArrayLiteralExpression
+        if literal == null || literal.Elements == null || literal.Elements.Count == 0 {
+            return false
+        }
+
+        index := 0
+        while index < literal.Elements.Count {
+            constant := ConstantOperandFacts.FromExpression(literal.Elements[index])
+            if !constant.HasIntegerLiteral {
+                return false
+            }
+
+            if !ConstantConversionFacts.AcceptsIntegerConstant(parameterElement, constant.LiteralText, constant.IsNegative) {
+                return false
+            }
+
+            index = index + 1
+        }
+
+        return true
+    }
+
+    // WHETHER THE CONSTANT WRITTEN AT THIS POSITION CONVERTS TO THIS PARAMETER'S TYPE.
+    //
+    // The parameter's own bindings are applied first, so a type parameter an earlier position already
+    // fixed is a real target here; one still OPEN is refused by `AcceptsIntegerConstant`, because a
+    // constant conversion drives no method type inference. A BY-REF position is refused for the same
+    // reason C# refuses it: the position is written through as well as read, and a constant is not a
+    // variable.
+    func TryScoreConstantExpressionArgument(argumentValue: Expression, openParameterType: Type, bindings: Dictionary<Type, Type>, expectsByRef: bool, out score: int): bool {
+        score = 0
+        if expectsByRef {
+            return false
+        }
+
+        constant := ConstantOperandFacts.FromExpression(argumentValue)
+        if !constant.HasIntegerLiteral {
+            return false
+        }
+
+        boundParameterType := AnalyzerReflectionTypeConversion.ApplyReflectionBindings(openParameterType, bindings)
+        if !ConstantConversionFacts.AcceptsIntegerConstant(boundParameterType, constant.LiteralText, constant.IsNegative) {
+            return false
+        }
+
+        score = ConstantExpressionConversionScore()
+        return true
+    }
+
+    // WHERE A CONSTANT CONVERSION RANKS: the implicit-numeric rung, because that is what it is.
+    // 6 keeps it below an identity (8) — so `f(int)` still wins for `0` — and above a plain
+    // assignable conversion (4), and ties it with the widening `int` → `long` it competes against,
+    // which is where `AnalyzerOverloadSpecificity` takes over.
+    static func ConstantExpressionConversionScore(): int {
+        return 6
     }
 
     // WHERE A USER-DEFINED CONVERSION RANKS, AND IT IS BELOW EVERYTHING THE LANGUAGE DEFINES.
