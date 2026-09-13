@@ -18,6 +18,19 @@ class CodeIntelligenceService {
 
     func LoadProject(projectRoot: string, config: ProjectConfig?, sourceTextOverrides: IReadOnlyDictionary<string, string>? = null): ProjectSnapshot {
         compiler := new MultiFileCompiler(projectRoot, config, sourceTextOverrides)
+        return Snapshot(projectRoot, compiler)
+    }
+
+    // THE SAME PROJECT, INCLUDING ITS `*.tests.nl` FILES. A test file is N# source: `nlc test` compiles
+    // it with everything else, so a command that reports on a project's health has to READ it or it
+    // answers about a different project than the one that gets built. `nlc check` asks for this arm;
+    // callers that deliberately analyse only the shipped surface keep the arm above.
+    func LoadProjectIncludingTests(projectRoot: string, config: ProjectConfig?, sourceTextOverrides: IReadOnlyDictionary<string, string>?): ProjectSnapshot {
+        compiler := new MultiFileCompiler(projectRoot, config, sourceTextOverrides, true)
+        return Snapshot(projectRoot, compiler)
+    }
+
+    private func Snapshot(projectRoot: string, compiler: MultiFileCompiler): ProjectSnapshot {
         compiler.CompileForAnalysis()
 
         return new ProjectSnapshot(

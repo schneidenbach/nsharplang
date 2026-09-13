@@ -3261,3 +3261,99 @@ test "an UNCONSTRAINED generic type accepts every argument, so the checker is no
     output := ConstraintCheckOutput("class Any<T> {\n    Value: T\n}\n\nfunc main() {\n    a := new Any<string>()\n    b := new Any<int>()\n    ok := a != null && b != null\n    print ok\n}\n")
     assert !output.Contains("NL208"), output
 }
+
+// ═══ `nlc check` READS `*.tests.nl` ════════════════════════════════════════════════════════════
+//
+// A `.tests.nl` file is N# source that happens to declare `test` blocks, and `nlc test` compiles it
+// with the rest of the project. `check` used to skip those files entirely: a project made of test
+// files answered `checkedFiles: 0` with `ok: true` while `nlc test` on the SAME directory stopped at
+// the first lint error in them. The two commands now read one file list, so `check` is an honest
+// answer about the program that gets built rather than about a subset of it.
+//
+// NOTHING IN THE ENVELOPE MOVES FOR THIS. The test files are counted in the existing `checkedFiles`
+// and their diagnostics arrive in the existing `results`, so `schemaVersion` stays 1.
+
+func CountFilesEndingWith(directory: string, suffix: string): int {
+    files := Directory.GetFiles(directory, "*.nl", SearchOption.AllDirectories)
+    seen := 0
+    index := 0
+    while index < files.Length {
+        if files[index].EndsWith(suffix, StringComparison.OrdinalIgnoreCase) {
+            seen = seen + 1
+        }
+
+        index = index + 1
+    }
+
+    return seen
+}
+
+test "nlc check counts every .nl file in a native test project, tests included" {
+    project := Path.Combine(Path.Combine(CliRepositoryRoot(), "tests"), Path.Combine("native", "census-flow-rules"))
+    allFiles := Directory.GetFiles(project, "*.nl", SearchOption.AllDirectories).Length
+    testFiles := CountFilesEndingWith(project, ".tests.nl")
+
+    // The fixture is only interesting while it HAS test files and non-test files both.
+    assert testFiles > 0
+    assert allFiles > testFiles
+
+    run := NlcIn(project, "check")
+
+    assert run.ExitCode == 0, run.Stdout + run.Stderr
+    document := JsonDocument.Parse(run.Stdout)
+    root := document.RootElement
+    assert root.GetProperty("schemaVersion").GetInt32() == 1
+    assert root.GetProperty("checkedFiles").GetInt32() == allFiles, run.Stdout
+    assert root.GetProperty("ok").GetBoolean(), run.Stdout
+    document.Dispose()
+}
+
+test "nlc check reports a lint error that lives only in a .tests.nl file" {
+    directory := NewTempDirectory("nlc-check-tests-nl")
+    try {
+        WriteProjectYml(directory, "name: CheckTestsOnly\nversion: 0.1.0\nbackend: il\noutputType: library\ntargetFramework: net10.0\n")
+        File.WriteAllText(
+            Path.Combine(directory, "Probe.tests.nl"),
+            "namespace CheckTestsOnly\n\nimport System.Text\n\ntest \"arithmetic holds\" {\n    assert 1 + 1 == 2\n}\n"
+        )
+
+        run := NlcIn(directory, "check")
+
+        assert run.ExitCode == 1, run.Stdout + run.Stderr
+        document := JsonDocument.Parse(run.Stdout)
+        root := document.RootElement
+        assert root.GetProperty("checkedFiles").GetInt32() == 1, run.Stdout
+        assert !root.GetProperty("ok").GetBoolean()
+        assert root.GetProperty("results").GetArrayLength() == 1, run.Stdout
+        result := ElementAt(root.GetProperty("results"), 0)
+        assert TextOf(result.GetProperty("code")) == "NL010"
+        assert TextOf(result.GetProperty("file")) == "Probe.tests.nl"
+        assert result.GetProperty("line").GetInt32() == 3
+        document.Dispose()
+    } finally {
+        Directory.Delete(directory, true)
+    }
+}
+
+test "nlc check and nlc test read the same file list, so a clean test file keeps both green" {
+    directory := NewTempDirectory("nlc-check-tests-agree")
+    try {
+        WriteProjectYml(directory, "name: CheckTestsAgree\nversion: 0.1.0\nbackend: il\noutputType: library\ntargetFramework: net10.0\n")
+        File.WriteAllText(Path.Combine(directory, "Math.nl"), "namespace CheckTestsAgree\n\nfunc Twice(value: int): int {\n    return value * 2\n}\n")
+        File.WriteAllText(
+            Path.Combine(directory, "Math.tests.nl"),
+            "namespace CheckTestsAgree\n\ntest \"Twice doubles\" {\n    assert Twice(3) == 6\n}\n"
+        )
+
+        checkRun := NlcIn(directory, "check")
+        assert checkRun.ExitCode == 0, checkRun.Stdout + checkRun.Stderr
+        document := JsonDocument.Parse(checkRun.Stdout)
+        assert document.RootElement.GetProperty("checkedFiles").GetInt32() == 2, checkRun.Stdout
+        document.Dispose()
+
+        testRun := NlcIn(directory, "test")
+        assert testRun.ExitCode == 0, testRun.Stdout + testRun.Stderr
+    } finally {
+        Directory.Delete(directory, true)
+    }
+}
