@@ -1339,6 +1339,15 @@ class ColumnarTypeOfPlanner {
             element := valueType.GetElementType()
             return element != null && IsSupportedElementType(element)
         }
+        // A TUPLE IS A VALUE A POSITION MAY HOLD, AND AN ARRAY IS A POSITION. `(Item: string,
+        // Count: int)[]` is `ValueTuple<string, int>[]`, whose element load, store and address are the
+        // ordinary struct opcodes already emitted for every other admitted value type -- and the
+        // element's own written names are read back through the labelled canonical the array suffix
+        // already carries. Without this the tuple syntax was admitted at every declared position
+        // EXCEPT an array element, which is not a rule anyone can hold in mind.
+        if IsSupportedValueTuple(valueType) {
+            return true
+        }
         return !valueType.get_IsValueType() && IsSupportedCatalogType(valueType)
     }
 
