@@ -98,7 +98,6 @@ func IteratorRealizationControlFunctionWithSignature(
         null,
         null,
         null,
-        null,
         isAsync,
         0,
         sourceFileId

@@ -231,19 +231,23 @@ test "a tuple type may be written wherever a type may be written" {
     assert counted.Count == 2
 
     // A generic ARGUMENT, at every position a type may be written. The names ride on the declaring
-    // member as metadata (asserted below) and the analyser resolves them; the ELEMENT read back out
-    // of an indexer is still positional at the emit boundary -- `rows[0].Item` declines with NL103
-    // today, and `rows[0].Item1` is the spelling that emits.
+    // member as metadata (asserted below), and BOTH spellings of the element read emit: the positional
+    // `ItemN` and the name the type argument declared. (The name half used to decline with NL103 at
+    // the emit boundary even though the analyser had resolved it; `ValueTupleIdentity.tests.nl` is the
+    // file that owns the whole receiver surface.)
     rows: List<(Item: string, Count: int)> = new List<(Item: string, Count: int)>()
     rows.Add(("c", 3))
     assert rows[0].Item1 == "c"
     assert rows[0].Item2 == 3
+    assert rows[0].Item == "c"
+    assert rows[0].Count == 3
 
     // A dictionary VALUE, read back through the indexer -- the census probe's own shape, where the
     // names are written once in the type argument.
     groups := new Dictionary<string, (Item: string, Ranges: List<int>)>()
     groups["k"] = ("d", new List<int>())
     assert groups["k"].Item1 == "d"
+    assert groups["k"].Item == "d"
 }
 
 test "TupleElementNamesAttribute spells a positional element as a null slot" {

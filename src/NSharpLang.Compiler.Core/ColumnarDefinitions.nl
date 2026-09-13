@@ -102,11 +102,14 @@ class ColumnarInstanceMethodDef {
     ParamTypes: Type[]
     ParamModifierKinds: int[]
     ReturnType: Type
-    // The element names of a NAMED tuple return, or null. A `ValueTuple` erases them at the IL level, so a
-    // caller that writes `pair.Min` needs the declaration's names to rewrite the access onto `Item1`. Free
-    // functions have carried this since named tuples landed; a method DECLARED ON A TYPE needs it for the
-    // same reason, and without it every `Type.Method().Name` access declined at emit.
-    ReturnTupleElementNames: string[]?
+    // The return type AS WRITTEN, tuple element labels and all, or null. A `ValueTuple` erases the
+    // labels at the IL level, so a caller that writes `pair.Min` needs the declaration's spelling to
+    // rewrite the access onto `Item1`. Free functions have carried this since named tuples landed; a
+    // method DECLARED ON A TYPE needs it for the same reason, and without it every
+    // `Type.Method().Name` access declined at emit. The whole LABELLED canonical is kept rather than
+    // the outermost names because a caller may read one level further in --
+    // `Type.Rows()[0].Item` -- and only the labelled spelling still has the names there.
+    ReturnLabeledCanonical: string?
     Generics: ColumnarGenericMethodFacts?
 
     constructor(builder: MethodBuilder, paramTypes: Type[], returnType: Type) {
@@ -118,11 +121,11 @@ class ColumnarInstanceMethodDef {
         ParamTypes = paramTypes
         ParamModifierKinds = new int[](0)
         ReturnType = returnType
-        ReturnTupleElementNames = null
+        ReturnLabeledCanonical = null
         Generics = null
     }
 
-    constructor(builder: MethodBuilder, paramTypes: Type[], paramModifierKinds: int[], returnType: Type, returnTupleElementNames: string[]? = null) {
+    constructor(builder: MethodBuilder, paramTypes: Type[], paramModifierKinds: int[], returnType: Type, returnLabeledCanonical: string? = null) {
         if builder == null || paramTypes == null || paramModifierKinds == null || returnType == null {
             throw new InvalidOperationException("Source instance-method definition facts cannot be null.")
         }
@@ -135,7 +138,7 @@ class ColumnarInstanceMethodDef {
         ParamTypes = paramTypes
         ParamModifierKinds = paramModifierKinds
         ReturnType = returnType
-        ReturnTupleElementNames = returnTupleElementNames
+        ReturnLabeledCanonical = returnLabeledCanonical
         Generics = null
     }
 
@@ -158,16 +161,16 @@ class ColumnarStaticMethodDef {
     ParamTypes: Type[]
     ParamModifierKinds: int[]
     ReturnType: Type
-    // The element names of a NAMED tuple return, or null -- see ColumnarInstanceMethodDef.
-    ReturnTupleElementNames: string[]?
+    // The return type AS WRITTEN -- see ColumnarInstanceMethodDef.
+    ReturnLabeledCanonical: string?
     Generics: ColumnarGenericMethodFacts?
 
-    constructor(builder: MethodBuilder, paramTypes: Type[], paramModifierKinds: int[], returnType: Type, returnTupleElementNames: string[]? = null) {
+    constructor(builder: MethodBuilder, paramTypes: Type[], paramModifierKinds: int[], returnType: Type, returnLabeledCanonical: string? = null) {
         Builder = builder
         ParamTypes = paramTypes
         ParamModifierKinds = paramModifierKinds
         ReturnType = returnType
-        ReturnTupleElementNames = returnTupleElementNames
+        ReturnLabeledCanonical = returnLabeledCanonical
         Generics = null
     }
 
@@ -417,6 +420,13 @@ class ColumnarStructDef {
     InstanceInitializerPlan: ColumnarFieldInitPlan?
     InstanceInitializerCtor: ColumnarConstructorInput?
     Properties: Dictionary<string, ColumnarPropertyDef>
+    // A MEMBER'S TYPE AS WRITTEN, tuple element labels included, keyed by member name. The CLR type a
+    // field or property answers has no element names in it -- `(Item: string, Count: int)` IS
+    // `ValueTuple<string, int>` -- so this is the only place a body can learn that `holder.Pair.Item`
+    // names element one. It carries the LABELLED canonical rather than a flat name list because a
+    // receiver's names may sit one level down (`rows: List<(Item: string, Count: int)>`), and only the
+    // labelled spelling still has them there.
+    MemberLabeledCanonicals: Dictionary<string, string>
     RecordEquals: MethodBuilder?
     RecordGetHashCode: MethodBuilder?
     RecordClone: MethodBuilder?
@@ -450,6 +460,7 @@ class ColumnarStructDef {
         Constructors = new List<ColumnarConstructorDef>()
         InstanceInitializerFields = new HashSet<string>(StringComparer.Ordinal)
         Properties = new Dictionary<string, ColumnarPropertyDef>(StringComparer.Ordinal)
+        MemberLabeledCanonicals = new Dictionary<string, string>(StringComparer.Ordinal)
         ExactBaseType = null
     }
 

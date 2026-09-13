@@ -28,6 +28,7 @@ func BindingRawTypeParameters(typeParameters: Dictionary<string, Type>): Columna
         new ColumnarStructDef[](0),
         new ColumnarUnionDef[](0),
         new Dictionary<string, string[]>(StringComparer.Ordinal),
+        new Dictionary<string, string>(StringComparer.Ordinal),
         emptyNames,
         emptyNames,
         emptyNames,

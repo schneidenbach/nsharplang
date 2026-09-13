@@ -1572,3 +1572,58 @@ test "an unterminated literal still reports its OWN diagnostic first, not an esc
     source := "func test() {\n    name := \"Ada\\q\n}\n"
     assert PeCensus(source).StartsWith("NL105@2:13"), PeCensus(source)
 }
+
+// A DECONSTRUCTION REMEMBERS WHICH OPERATOR AND WHICH TARGET-LIST SPELLING WAS WRITTEN.
+//
+// `:=` declares the targets and `=` writes targets that already exist -- the same difference a single
+// variable's two operators carry -- and the parenthesised target list is the spelling the language
+// tour teaches. Both facts ride on the statement so the analyser can report the right thing and the
+// formatter can write back what the source said; before them, `(x, y) = pair` was built as a second
+// DECLARATION of `x` and `y` and reported NL306 on both.
+func PeDeconstruction(source: string): TupleDeconstructionStatement {
+    unit := PeParse(source).CompilationUnit
+    if unit == null {
+        throw new InvalidOperationException("No compilation unit was parsed from: " + source)
+    }
+
+    index := 0
+    while index < unit.Declarations.Count {
+        functionDeclaration := unit.Declarations[index] as FunctionDeclaration
+        if functionDeclaration != null {
+            body := functionDeclaration.Body
+            if body != null {
+                statementIndex := 0
+                while statementIndex < body.Statements.Count {
+                    candidate := body.Statements[statementIndex] as TupleDeconstructionStatement
+                    if candidate != null {
+                        return candidate
+                    }
+
+                    statementIndex = statementIndex + 1
+                }
+            }
+        }
+
+        index = index + 1
+    }
+
+    throw new InvalidOperationException("No tuple deconstruction was parsed from: " + source)
+}
+
+test "a deconstruction records its operator and whether its targets were parenthesised" {
+    parenthesisedDeclaration := PeDeconstruction("func test() {\n    (x, y) := getTuple()\n}")
+    assert !parenthesisedDeclaration.IsAssignment
+    assert parenthesisedDeclaration.HasParentheses
+
+    parenthesisedAssignment := PeDeconstruction("func test() {\n    (x, y) = getTuple()\n}")
+    assert parenthesisedAssignment.IsAssignment
+    assert parenthesisedAssignment.HasParentheses
+
+    bareDeclaration := PeDeconstruction("func test() {\n    x, y := getTuple()\n}")
+    assert !bareDeclaration.IsAssignment
+    assert !bareDeclaration.HasParentheses
+
+    bareAssignment := PeDeconstruction("func test() {\n    x, y = getTuple()\n}")
+    assert bareAssignment.IsAssignment
+    assert !bareAssignment.HasParentheses
+}

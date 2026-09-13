@@ -296,8 +296,16 @@ test "every comma-separated list gets exactly one space after each comma" {
     assert FstFormat("func Test() {\nt := (1,2,3)\nreturn t\n}") == "func Test() {|    t := (1, 2, 3)|    return t|}"
 }
 
-test "a tuple deconstruction LOSES its parentheses, which is the canonical spelling" {
-    assert FstFormat("func Test() {\n(x,y) := GetPair()\nreturn x + y\n}") == "func Test() {|    x, y := GetPair()|    return x + y|}"
+test "a tuple deconstruction keeps the target-list spelling and the operator the source wrote" {
+    // BOTH spellings are one statement, and the formatter writes back the one that was written: the
+    // parenthesised list is what the language tour teaches and what a C# reader expects to see, and
+    // the bare list is the shorter N# form. (This row used to pin the parentheses being DROPPED.)
+    assert FstFormat("func Test() {\n(x,y) := GetPair()\nreturn x + y\n}") == "func Test() {|    (x, y) := GetPair()|    return x + y|}"
+    assert FstFormat("func Test() {\nx,y := GetPair()\nreturn x + y\n}") == "func Test() {|    x, y := GetPair()|    return x + y|}"
+
+    // `=` is an ASSIGNMENT to names that already exist; normalising it to `:=` would change what the
+    // statement does.
+    assert FstFormat("func Test() {\nx := 0\ny := 0\n(x,y) = GetPair()\nreturn x + y\n}") == "func Test() {|    x := 0|    y := 0|    (x, y) = GetPair()|    return x + y|}"
 }
 
 test "a member access chain is written back unchanged" {

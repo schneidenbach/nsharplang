@@ -4731,8 +4731,12 @@ class ColumnarParserRecovery {
 
         // Anchor the required-initializer recovery on ':='/'=' when present, else the CURRENT token
         // (where the initializer is actually expected) after the skip (Parser.cs :2607-2619).
+        // WHICH operator was written decides whether the targets are DECLARED or ASSIGNED; a
+        // recovered statement with neither is read as the declaration it was going to be.
         initializer: Expression? = null
+        isAssignment := false
         if Check(TokenType.ColonAssign) || Check(TokenType.Assign) {
+            isAssignment = Check(TokenType.Assign)
             initializerToken := Advance()
             initializer = ParseRequiredExpressionAfter(initializerToken, "an initializer expression", "This tuple deconstruction", null)
         } else {
@@ -4742,7 +4746,7 @@ class ColumnarParserRecovery {
         if initializer == null {
             return null
         }
-        return new TupleDeconstructionStatement(names, initializer, kind, line, column)
+        return new TupleDeconstructionStatement(names, initializer, kind, line, column, isAssignment, true)
     }
 
     // Parser.cs ParseTupleDeconstruction's ':='/'=' missing report (:2586).
@@ -6073,13 +6077,14 @@ class ColumnarParserRecovery {
                         namesScanning = false
                     }
                 }
+                bareIsAssignment := Check(TokenType.Assign)
                 initializerToken := Advance()
                 // consume := or =
                 tupleInitializer := ParseRequiredExpressionAfter(initializerToken, "an initializer expression", "This tuple deconstruction", new RecoverySpan(line, column, MaxInt(1, initializerToken.Column - column)))
                 if tupleInitializer == null {
                     return null
                 }
-                return new TupleDeconstructionStatement(names, tupleInitializer, VariableKind.Let, line, column)
+                return new TupleDeconstructionStatement(names, tupleInitializer, VariableKind.Let, line, column, bareIsAssignment)
             }
         }
 

@@ -105,32 +105,6 @@ class ColumnarTupleElementNames {
         return ColumnarAttributeBlobs.StringArray(values)
     }
 
-    // The TOP-LEVEL element names of each named-tuple parameter, keyed by parameter name -- what a
-    // body needs to rewrite `x.P` into `x.Item1`. A parameter whose type is not a named tuple has no
-    // entry, and a signature with no named tuple parameter at all answers null.
-    static func ParameterNameMap(parameterNames: string[], parameterTupleElementNames: string[][]?): Dictionary<string, string[]>? {
-        if parameterTupleElementNames == null {
-            return null
-        }
-
-        map: Dictionary<string, string[]>? = null
-        index := 0
-        while index < parameterNames.Length && index < parameterTupleElementNames.Length {
-            elementNames := parameterTupleElementNames[index]
-            if elementNames != null {
-                if map == null {
-                    map = new Dictionary<string, string[]>(StringComparer.Ordinal)
-                }
-
-                map[parameterNames[index]] = elementNames
-            }
-
-            index = index + 1
-        }
-
-        return map
-    }
-
     // The TOP-LEVEL element names of one labelled canonical, or null when it is not a named tuple at
     // its outermost level. This is what a body needs to rewrite `pair.P` into `pair.Item1`, derived
     // from the labelled spelling rather than carried as a separate parser column.
@@ -168,29 +142,197 @@ class ColumnarTupleElementNames {
         return names
     }
 
-    // `ParameterNameMap`, keyed off the labelled canonicals instead of a parser-side name column --
-    // the shape a constructor's parameters arrive in.
-    static func ParameterNameMapFromLabeled(parameterNames: string[], labeledCanonicals: string[]?): Dictionary<string, string[]>? {
+    // EVERY parameter's type AS WRITTEN, keyed by parameter name. The map keeps the whole labelled
+    // spelling rather than the outermost element names, because a body that
+    // reads `rows[0].Item` needs the names that sit INSIDE `List<(Item: string, Count: int)>` and the
+    // top-level answer for that parameter is "not a tuple". A parameter whose written type mentions
+    // no tuple at all is still recorded: the map is "what was written", and every reader asks it a
+    // question that answers null for a type with no names in it.
+    static func ParameterLabeledMap(parameterNames: string[], labeledCanonicals: string[]?): Dictionary<string, string>? {
         if labeledCanonicals == null {
             return null
         }
 
-        map: Dictionary<string, string[]>? = null
+        map: Dictionary<string, string>? = null
         index := 0
         while index < parameterNames.Length && index < labeledCanonicals.Length {
-            elementNames := TopLevelNames(labeledCanonicals[index])
-            if elementNames != null {
+            labeled := labeledCanonicals[index]
+            if labeled != null && labeled.Length > 0 {
                 if map == null {
-                    map = new Dictionary<string, string[]>(StringComparer.Ordinal)
+                    map = new Dictionary<string, string>(StringComparer.Ordinal)
                 }
 
-                map[parameterNames[index]] = elementNames
+                map[parameterNames[index]] = labeled
             }
 
             index = index + 1
         }
 
         return map
+    }
+
+    // THE STRUCTURAL CANONICAL OF A LABELLED ONE: every `name:` element prefix removed, at EVERY
+    // level. `StripTupleElementNames` answers only the outermost tuple, because that is all the
+    // declared positions needed; a walk that resolves an arbitrary WRITTEN sub-type back to its CLR
+    // handle needs the whole spelling cleaned, or `List<(Item:string,Count:int)>` reaches the type
+    // resolver with an element label still in it.
+    static func StripAllElementNames(labeledCanonical: string): string {
+        if labeledCanonical == null || labeledCanonical.Length == 0 {
+            return ""
+        }
+
+        text := labeledCanonical
+        if HasTopLevelUnionBar(text) {
+            return text
+        }
+
+        if text.Length > 1 && text[0] == '&' {
+            return "&" + StripAllElementNames(text.Substring(1))
+        }
+
+        if text.Length > 1 && text[text.Length - 1] == '?' {
+            return StripAllElementNames(text.Substring(0, text.Length - 1)) + "?"
+        }
+
+        if text.Length > 2 && text[text.Length - 2] == '[' && text[text.Length - 1] == ']' {
+            return StripAllElementNames(text.Substring(0, text.Length - 2)) + "[]"
+        }
+
+        builder := new System.Text.StringBuilder()
+        if text.Length >= 2 && text[0] == '(' && text[text.Length - 1] == ')' {
+            elements := ColumnarTypeCanonicalizer.SplitTopLevelCommas(text.Substring(1, text.Length - 2))
+            builder.Append('(')
+            index := 0
+            while index < elements.Count {
+                if index > 0 {
+                    builder.Append(',')
+                }
+
+                builder.Append(StripAllElementNames(ElementTypeText(elements[index])))
+                index = index + 1
+            }
+
+            builder.Append(')')
+            return builder.ToString()
+        }
+
+        open := TopLevelGenericArgumentStart(text)
+        if open < 0 || text[text.Length - 1] != '>' {
+            return text
+        }
+
+        arguments := ColumnarTypeCanonicalizer.SplitTopLevelCommas(text.Substring(open + 1, text.Length - open - 2))
+        builder.Append(text.Substring(0, open))
+        builder.Append('<')
+        argumentIndex := 0
+        while argumentIndex < arguments.Count {
+            if argumentIndex > 0 {
+                builder.Append(',')
+            }
+
+            builder.Append(StripAllElementNames(arguments[argumentIndex]))
+            argumentIndex = argumentIndex + 1
+        }
+
+        builder.Append('>')
+        return builder.ToString()
+    }
+
+    // One tuple element's TYPE, with the `name:` prefix removed when it has one.
+    static func ElementTypeText(element: string): string {
+        colon := element.IndexOf(':')
+        if colon > 0 && ColumnarTypeCanonicalizer.IsBareIdentifier(element.Substring(0, colon)) {
+            return element.Substring(colon + 1)
+        }
+
+        return element
+    }
+
+    // THE TOP-LEVEL TYPE ARGUMENTS of a constructed generic's written spelling, each still labelled,
+    // or null when the text is not a constructed generic.
+    static func TopLevelGenericArguments(labeledCanonical: string?): List<string>? {
+        if labeledCanonical == null {
+            return null
+        }
+
+        text := labeledCanonical
+        open := TopLevelGenericArgumentStart(text)
+        if open < 0 || text.Length == 0 || text[text.Length - 1] != '>' {
+            return null
+        }
+
+        return ColumnarTypeCanonicalizer.SplitTopLevelCommas(text.Substring(open + 1, text.Length - open - 2))
+    }
+
+    // The written ELEMENT type of an array's written spelling, or null when the text is not one.
+    static func ArrayElementText(labeledCanonical: string?): string? {
+        if labeledCanonical == null || labeledCanonical.Length <= 2 {
+            return null
+        }
+
+        if labeledCanonical[labeledCanonical.Length - 2] != '[' || labeledCanonical[labeledCanonical.Length - 1] != ']' {
+            return null
+        }
+
+        return labeledCanonical.Substring(0, labeledCanonical.Length - 2)
+    }
+
+    // EVERY TYPE WRITTEN INSIDE ONE WRITTEN TYPE, itself first, each still labelled. This is what
+    // lets a value read OUT of a declared type find the names that declared type gave it: the
+    // receiver's written type is searched for the one sub-type whose CLR handle the value has.
+    // An anonymous union is not descended into, for the same reason the attribute walk does not:
+    // its arms are not positions of the emitted type.
+    static func CollectSubtrees(labeledCanonical: string, collected: List<string>) {
+        if labeledCanonical == null || labeledCanonical.Length == 0 {
+            return
+        }
+
+        collected.Add(labeledCanonical)
+        CollectChildSubtrees(labeledCanonical, collected)
+    }
+
+    static func CollectChildSubtrees(text: string, collected: List<string>) {
+        if HasTopLevelUnionBar(text) {
+            return
+        }
+
+        if text.Length > 1 && text[0] == '&' {
+            CollectSubtrees(text.Substring(1), collected)
+            return
+        }
+
+        if text.Length > 1 && text[text.Length - 1] == '?' {
+            CollectSubtrees(text.Substring(0, text.Length - 1), collected)
+            return
+        }
+
+        if text.Length > 2 && text[text.Length - 2] == '[' && text[text.Length - 1] == ']' {
+            CollectSubtrees(text.Substring(0, text.Length - 2), collected)
+            return
+        }
+
+        if text.Length >= 2 && text[0] == '(' && text[text.Length - 1] == ')' {
+            elements := ColumnarTypeCanonicalizer.SplitTopLevelCommas(text.Substring(1, text.Length - 2))
+            index := 0
+            while index < elements.Count {
+                CollectSubtrees(ElementTypeText(elements[index]), collected)
+                index = index + 1
+            }
+
+            return
+        }
+
+        open := TopLevelGenericArgumentStart(text)
+        if open < 0 || text[text.Length - 1] != '>' {
+            return
+        }
+
+        arguments := ColumnarTypeCanonicalizer.SplitTopLevelCommas(text.Substring(open + 1, text.Length - open - 2))
+        argumentIndex := 0
+        while argumentIndex < arguments.Count {
+            CollectSubtrees(arguments[argumentIndex], collected)
+            argumentIndex = argumentIndex + 1
+        }
     }
 
     static func Append(labeledCanonical: string, collected: List<string>) {

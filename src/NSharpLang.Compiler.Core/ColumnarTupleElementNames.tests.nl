@@ -1,6 +1,7 @@
 namespace NSharpLang.Compiler.Columnar
 
 import System
+import System.Collections.Generic
 import System.Text
 
 
@@ -228,4 +229,82 @@ test "the element count is a plain four byte little endian integer, not a compre
     assert Convert.ToInt32(blob[3]) == 0
     assert Convert.ToInt32(blob[4]) == 0
     assert Convert.ToInt32(blob[5]) == 0
+}
+
+// ---------------------------------------------------------------------------------------------
+// THE LABELLED SPELLING AS A TYPE TREE.
+//
+// The flattening above answers "what does the attribute say". These rows answer the other question a
+// body asks of the same string: WHICH WRITTEN SUB-TYPE IS THIS VALUE, so an element read out of a
+// receiver can find the names that receiver's declaration gave it. Two operations serve it -- the
+// recursive label strip that turns a labelled canonical back into the structural one the type
+// resolver understands, and the sub-tree walk that enumerates every type written inside one.
+
+test "the recursive strip removes every element label, at every level" {
+    assert ColumnarTupleElementNames.StripAllElementNames("(Min:int,Max:int)") == "(int,int)"
+    assert ColumnarTupleElementNames.StripAllElementNames("List<(Item:string,Count:int)>") == "List<(string,int)>"
+    assert ColumnarTupleElementNames.StripAllElementNames("(A:int,D:(B:int,C:int))") == "(int,(int,int))"
+    assert ColumnarTupleElementNames.StripAllElementNames("Dictionary<string,(Item:string,Ranges:List<int>)>") == "Dictionary<string,(string,List<int>)>"
+
+    // The suffixes stay where they are, and the head inside them is stripped.
+    assert ColumnarTupleElementNames.StripAllElementNames("(Min:int,Max:int)[]") == "(int,int)[]"
+    assert ColumnarTupleElementNames.StripAllElementNames("(Min:int,Max:int)?") == "(int,int)?"
+
+    // A type with nothing labelled is returned unchanged, and so is a union arm list.
+    assert ColumnarTupleElementNames.StripAllElementNames("List<int>") == "List<int>"
+    assert ColumnarTupleElementNames.StripAllElementNames("int|string") == "int|string"
+}
+
+test "the sub-tree walk lists every type written inside one written type, itself first" {
+    collected := new List<string>()
+    ColumnarTupleElementNames.CollectSubtrees("List<(Item:string,Count:int)>", collected)
+    assert collected.Count == 4
+    assert collected[0] == "List<(Item:string,Count:int)>"
+    assert collected[1] == "(Item:string,Count:int)"
+    assert collected[2] == "string"
+    assert collected[3] == "int"
+
+    // An element's LABEL is not part of the sub-type it names.
+    nested := new List<string>()
+    ColumnarTupleElementNames.CollectSubtrees("(A:int,D:(B:int,C:int))", nested)
+    assert nested[0] == "(A:int,D:(B:int,C:int))"
+    assert nested[1] == "int"
+    assert nested[2] == "(B:int,C:int)"
+
+    // An anonymous union is not descended into, for the same reason the attribute walk does not:
+    // its arms are not positions of the emitted type.
+    unionArms := new List<string>()
+    ColumnarTupleElementNames.CollectSubtrees("(Min:int,Max:int)|string", unionArms)
+    assert unionArms.Count == 1
+}
+
+test "the indexed element and the array element are read off the written spelling" {
+    arguments := ColumnarTupleElementNames.TopLevelGenericArguments("Dictionary<string,(Item:string,Ranges:List<int>)>")
+    assert arguments != null
+    assert arguments.Count == 2
+    assert arguments[0] == "string"
+    assert arguments[1] == "(Item:string,Ranges:List<int>)"
+
+    assert ColumnarTupleElementNames.TopLevelGenericArguments("(Item:string,Count:int)") == null
+    assert ColumnarTupleElementNames.ArrayElementText("(Item:string,Count:int)[]") == "(Item:string,Count:int)"
+    assert ColumnarTupleElementNames.ArrayElementText("List<int>") == null
+}
+
+test "a parameter's labelled map keeps the whole written type, not only its outermost names" {
+    names := new string[](2)
+    names[0] = "rows"
+    names[1] = "count"
+    labeled := new string[](2)
+    labeled[0] = "List<(Item:string,Count:int)>"
+    labeled[1] = "int"
+
+    map := ColumnarTupleElementNames.ParameterLabeledMap(names, labeled)
+    assert map != null
+    assert map["rows"] == "List<(Item:string,Count:int)>"
+    assert map["count"] == "int"
+
+    // The outermost answer for `rows` is "not a tuple" -- which is exactly why the map cannot be a
+    // name list.
+    assert ColumnarTupleElementNames.TopLevelNames(map["rows"]) == null
+    assert ColumnarTupleElementNames.ParameterLabeledMap(names, null) == null
 }

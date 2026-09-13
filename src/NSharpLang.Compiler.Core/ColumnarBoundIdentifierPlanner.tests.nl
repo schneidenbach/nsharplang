@@ -386,7 +386,7 @@ test "bound identifier facade reports exact ownership and preserves byref fallba
     _legacyWholeSubtreePlanning := false
     resultType := typeof(object)
 
-    assert ColumnarRangeIndexPlanner.TryGetTypeFromFacts(tree.Nodes, tree.Source, tree.Root, parameterOrdinals, parameterTypes, new Dictionary<string, LocalBuilder>(StringComparer.Ordinal), new Dictionary<string, ColumnarEnumDef>(StringComparer.Ordinal), ColumnarRangePlannerEmptyLiftedFacts(), null, null, null, new ColumnarStructDef[](0), new ColumnarUnionDef[](0), new Dictionary<string, string[]>(StringComparer.Ordinal), emptyNames, emptyNames, emptyNames, plan, out owned, out _legacyWholeSubtreePlanning, out resultType)
+    assert ColumnarRangeIndexPlanner.TryGetTypeFromFacts(tree.Nodes, tree.Source, tree.Root, parameterOrdinals, parameterTypes, new Dictionary<string, LocalBuilder>(StringComparer.Ordinal), new Dictionary<string, ColumnarEnumDef>(StringComparer.Ordinal), ColumnarRangePlannerEmptyLiftedFacts(), null, null, null, new ColumnarStructDef[](0), new ColumnarUnionDef[](0), new Dictionary<string, string[]>(StringComparer.Ordinal), new Dictionary<string, string>(StringComparer.Ordinal), emptyNames, emptyNames, emptyNames, plan, out owned, out _legacyWholeSubtreePlanning, out resultType)
 
     assert owned
     assert resultType == typeof(int)

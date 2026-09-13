@@ -298,7 +298,7 @@ func InstanceFacadeAssertTerminal(tree: ColumnarRangePlannerTestTree, receiverTy
     typeOwned := false
     _typeLegacyWholeSubtreePlanning := false
     typeResult := typeof(object)
-    typeSuccess := ColumnarRangeIndexPlanner.TryGetTypeFromFacts(tree.Nodes, tree.Source, tree.Root, parameterOrdinals, parameterTypes, locals, enums, ColumnarRangePlannerEmptyLiftedFacts(), null, null, null, sourceDefinitions, new ColumnarUnionDef[](0), tupleNames, emptyNames, emptyNames, emptyNames, typePlan, out typeOwned, out _typeLegacyWholeSubtreePlanning, out typeResult)
+    typeSuccess := ColumnarRangeIndexPlanner.TryGetTypeFromFacts(tree.Nodes, tree.Source, tree.Root, parameterOrdinals, parameterTypes, locals, enums, ColumnarRangePlannerEmptyLiftedFacts(), null, null, null, sourceDefinitions, new ColumnarUnionDef[](0), tupleNames, new Dictionary<string, string>(StringComparer.Ordinal), emptyNames, emptyNames, emptyNames, typePlan, out typeOwned, out _typeLegacyWholeSubtreePlanning, out typeResult)
 
     assert typeOwned
     assert typeSuccess == expectedSuccess
@@ -317,7 +317,7 @@ func InstanceFacadeAssertTerminal(tree: ColumnarRangePlannerTestTree, receiverTy
     emitOwned := false
     _emitLegacyWholeSubtreePlanning := false
     emitResult := typeof(object)
-    emitSuccess := ColumnarRangeIndexPlanner.TryEmitFromFacts(tree.Nodes, tree.Source, tree.Root, parameterOrdinals, parameterTypes, locals, enums, ColumnarRangePlannerEmptyLiftedFacts(), null, null, null, sourceDefinitions, new ColumnarUnionDef[](0), tupleNames, emptyNames, emptyNames, emptyNames, emitPlan, dynamicMethod.GetILGenerator(), out emitOwned, out _emitLegacyWholeSubtreePlanning, out emitResult)
+    emitSuccess := ColumnarRangeIndexPlanner.TryEmitFromFacts(tree.Nodes, tree.Source, tree.Root, parameterOrdinals, parameterTypes, locals, enums, ColumnarRangePlannerEmptyLiftedFacts(), null, null, null, sourceDefinitions, new ColumnarUnionDef[](0), tupleNames, new Dictionary<string, string>(StringComparer.Ordinal), emptyNames, emptyNames, emptyNames, emitPlan, dynamicMethod.GetILGenerator(), out emitOwned, out _emitLegacyWholeSubtreePlanning, out emitResult)
 
     assert emitOwned
     assert emitSuccess == expectedSuccess

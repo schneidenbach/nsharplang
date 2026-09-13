@@ -319,12 +319,87 @@ A name the literal writes that the target type does not have is a label on that 
 more — the value's type is the declared one, and a mismatch is never an error, exactly as with a
 mismatched variable annotation above.
 
-Two limits remain. A **field or property** may not itself be declared with a tuple type; locals,
-parameters, return types and generic arguments all accept one. And an element read straight **out of
-an indexer** is positional: `rows[0].Item1` compiles where `rows[0].Item` does not, even though
-`rows` is a `List<(Item: string, Count: int)>` and the names are on its declaration — bind the
-element to a name first (`row := rows[0]` is not enough; annotate it, `row: (Item: string, Count:
-int) = rows[0]`) or use `ItemN`.
+#### `ValueTuple<...>` Is The Same Type
+
+`System.ValueTuple<T1, T2>` and `(T1, T2)` are one type written two ways, exactly as in C#. Either
+spelling may be used in any position, a value flows between them freely, and both answer the same
+`System.ValueTuple` at the CLR level:
+
+```n#
+let written: ValueTuple<string, int> = ("a", 1)   // the ValueTuple spelling
+let tupled: (string, int) = written                // the tuple spelling
+let created: (string, int) = ValueTuple.Create("a", 1)
+```
+
+Element names are still an annotation on the position, so a `ValueTuple<...>` spelling simply
+declares none. `ValueTuple<T>` — a one-element tuple — has no tuple syntax in N# or in C#, and keeps
+its `Item1`.
+
+#### Where The Names Reach
+
+A named tuple's element names follow the value wherever the declaring position can be found, not just
+where the tuple is written directly:
+
+```n#
+rows: List<(Item: string, Count: int)> = new List<(Item: string, Count: int)>()
+rows.Add(("c", 3))
+Console.WriteLine(rows[0].Item)                   // out of an indexer
+
+groups := new Dictionary<string, (Item: string, Ranges: List<int>)>()
+Console.WriteLine(groups["k"].Ranges.Count)       // out of a dictionary's value position
+Console.WriteLine(groups.Values.First().Ranges.Count)  // and through a chain that declares nothing
+
+for group in groups.Values {                      // and onto a foreach variable
+    Console.WriteLine(group.Item)
+}
+```
+
+A **field** and a **property** may be declared with a tuple type, and their names are written to
+metadata the same way a return's and a parameter's are:
+
+```n#
+class Holder {
+    Pair: (Item: string, Count: int) = ("", 0)
+    Bounds: (Min: int, Max: int) => (3, 9)
+}
+
+Console.WriteLine(holder.Pair.Item)
+Console.WriteLine(holder.Bounds.Max)
+```
+
+The one rule that decides all of this: names come from the position that DECLARED them, and a
+receiver whose written type mentions the same tuple shape twice with different names cannot say which
+position a value came from — that value is read positionally (`ItemN`).
+
+#### Deconstruction
+
+A tuple is unpacked into several names at once. `:=` DECLARES the targets; `=` writes targets that
+already exist; `_` discards an element. The parenthesised and bare spellings are the same statement:
+
+```n#
+(item, count) := makeRow()        // declares item and count
+item, count := makeRow()          // the same statement, written bare
+(_, count) := makeRow()           // the first element is discarded
+
+item := ""
+count := 0
+(item, count) = makeRow()         // writes the two names declared above
+```
+
+A type that is not a tuple deconstructs too, when it declares an accessible instance
+`Deconstruct(out ...)` whose out-parameter count matches the target count — the rule C# applies. It
+holds for a type from a referenced assembly and for one declared here alike, which is what makes a
+dictionary walk read the way it should:
+
+```n#
+for pair in scores {
+    (name, score) := pair          // KeyValuePair<string, int>.Deconstruct
+    Console.WriteLine($"{name}: {score}")
+}
+```
+
+A source that is neither a tuple nor deconstructable reports NL103, and so does a target count that
+does not match the element count.
 
 ## Lambda Expressions
 

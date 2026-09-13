@@ -892,7 +892,7 @@ test "range planner raw-facts type facade owns construction and nullable boxed n
     _legacyWholeSubtreePlanning := false
     resultType := typeof(int)
 
-    assert ColumnarRangeIndexPlanner.TryGetTypeFromFacts(tree.Nodes, tree.Source, tree.Root, parameterOrdinals, parameterTypes, locals, enums, lifted, null, null, null, new ColumnarStructDef[](0), new ColumnarUnionDef[](0), new Dictionary<string, string[]>(StringComparer.Ordinal), enclosing, siblings, visibleLocals, plan, out identifierOwned, out _legacyWholeSubtreePlanning, out resultType)
+    assert ColumnarRangeIndexPlanner.TryGetTypeFromFacts(tree.Nodes, tree.Source, tree.Root, parameterOrdinals, parameterTypes, locals, enums, lifted, null, null, null, new ColumnarStructDef[](0), new ColumnarUnionDef[](0), new Dictionary<string, string[]>(StringComparer.Ordinal), new Dictionary<string, string>(StringComparer.Ordinal), enclosing, siblings, visibleLocals, plan, out identifierOwned, out _legacyWholeSubtreePlanning, out resultType)
 
     assert !identifierOwned
     assert resultType == typeof(Index)
@@ -928,6 +928,7 @@ test "range planner raw-facts facade routes object initializers to the N# constr
         new ColumnarStructDef[](0),
         new ColumnarUnionDef[](0),
         new Dictionary<string, string[]>(StringComparer.Ordinal),
+        new Dictionary<string, string>(StringComparer.Ordinal),
         emptyNames,
         emptyNames,
         emptyNames,
@@ -974,7 +975,7 @@ test "range planner raw-facts facades gate ordinary int indexing before facts ha
     typeIdentifierOwned := false
     _typeLegacyWholeSubtreePlanning := false
     typeResult := typeof(object)
-    assert !ColumnarRangeIndexPlanner.TryGetTypeFromFacts(tree.Nodes, tree.Source, tree.Root, null, null, null, null, null, null, null, null, null, null, null, null, null, null, typePlan, out typeIdentifierOwned, out _typeLegacyWholeSubtreePlanning, out typeResult)
+    assert !ColumnarRangeIndexPlanner.TryGetTypeFromFacts(tree.Nodes, tree.Source, tree.Root, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, typePlan, out typeIdentifierOwned, out _typeLegacyWholeSubtreePlanning, out typeResult)
 
     assert !typeIdentifierOwned
     ColumnarRangePlannerAssertEmptyRollback(typePlan)
@@ -983,7 +984,7 @@ test "range planner raw-facts facades gate ordinary int indexing before facts ha
     emitIdentifierOwned := false
     _emitLegacyWholeSubtreePlanning := false
     emitResult := typeof(object)
-    assert !ColumnarRangeIndexPlanner.TryEmitFromFacts(tree.Nodes, tree.Source, tree.Root, null, null, null, null, null, null, null, null, null, null, null, null, null, null, emitPlan, null, out emitIdentifierOwned, out _emitLegacyWholeSubtreePlanning, out emitResult)
+    assert !ColumnarRangeIndexPlanner.TryEmitFromFacts(tree.Nodes, tree.Source, tree.Root, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, emitPlan, null, out emitIdentifierOwned, out _emitLegacyWholeSubtreePlanning, out emitResult)
 
     assert !emitIdentifierOwned
     ColumnarRangePlannerAssertEmptyRollback(emitPlan)
@@ -997,7 +998,7 @@ test "range planner raw-facts facades gate ordinary int indexing before facts ha
     identifierOwned := false
     _identifierLegacyWholeSubtreePlanning := false
     identifierResult := typeof(object)
-    assert !ColumnarRangeIndexPlanner.TryGetTypeFromFacts(identifierTree.Nodes, identifierTree.Source, identifierTree.Root, identifierOrdinals, identifierTypes, new Dictionary<string, System.Reflection.Emit.LocalBuilder>(StringComparer.Ordinal), new Dictionary<string, ColumnarEnumDef>(StringComparer.Ordinal), ColumnarRangePlannerEmptyLiftedFacts(), null, null, null, new ColumnarStructDef[](0), new ColumnarUnionDef[](0), new Dictionary<string, string[]>(StringComparer.Ordinal), new HashSet<string>(StringComparer.Ordinal), new HashSet<string>(StringComparer.Ordinal), new HashSet<string>(StringComparer.Ordinal), identifierPlan, out identifierOwned, out _identifierLegacyWholeSubtreePlanning, out identifierResult)
+    assert !ColumnarRangeIndexPlanner.TryGetTypeFromFacts(identifierTree.Nodes, identifierTree.Source, identifierTree.Root, identifierOrdinals, identifierTypes, new Dictionary<string, System.Reflection.Emit.LocalBuilder>(StringComparer.Ordinal), new Dictionary<string, ColumnarEnumDef>(StringComparer.Ordinal), ColumnarRangePlannerEmptyLiftedFacts(), null, null, null, new ColumnarStructDef[](0), new ColumnarUnionDef[](0), new Dictionary<string, string[]>(StringComparer.Ordinal), new Dictionary<string, string>(StringComparer.Ordinal), new HashSet<string>(StringComparer.Ordinal), new HashSet<string>(StringComparer.Ordinal), new HashSet<string>(StringComparer.Ordinal), identifierPlan, out identifierOwned, out _identifierLegacyWholeSubtreePlanning, out identifierResult)
 
     assert !identifierOwned
     ColumnarRangePlannerAssertEmptyRollback(identifierPlan)
@@ -1017,7 +1018,7 @@ test "range planner raw-facts facade admits an ordinary child beneath an owned r
     _childLegacyWholeSubtreePlanning := false
     resultType := typeof(object)
 
-    assert ColumnarRangeIndexPlanner.TryGetTypeFromFacts(tree.Nodes, tree.Source, tree.Root, parameterOrdinals, parameterTypes, new Dictionary<string, System.Reflection.Emit.LocalBuilder>(StringComparer.Ordinal), new Dictionary<string, ColumnarEnumDef>(StringComparer.Ordinal), ColumnarRangePlannerEmptyLiftedFacts(), null, null, null, new ColumnarStructDef[](0), new ColumnarUnionDef[](0), new Dictionary<string, string[]>(StringComparer.Ordinal), emptyNames, emptyNames, emptyNames, plan, out identifierOwned, out _childLegacyWholeSubtreePlanning, out resultType)
+    assert ColumnarRangeIndexPlanner.TryGetTypeFromFacts(tree.Nodes, tree.Source, tree.Root, parameterOrdinals, parameterTypes, new Dictionary<string, System.Reflection.Emit.LocalBuilder>(StringComparer.Ordinal), new Dictionary<string, ColumnarEnumDef>(StringComparer.Ordinal), ColumnarRangePlannerEmptyLiftedFacts(), null, null, null, new ColumnarStructDef[](0), new ColumnarUnionDef[](0), new Dictionary<string, string[]>(StringComparer.Ordinal), new Dictionary<string, string>(StringComparer.Ordinal), emptyNames, emptyNames, emptyNames, plan, out identifierOwned, out _childLegacyWholeSubtreePlanning, out resultType)
 
     assert !identifierOwned
     assert resultType == typeof(int)
@@ -1040,7 +1041,7 @@ test "range planner raw-facts selector gate recognizes direct Range parameters" 
     _selectorLegacyWholeSubtreePlanning := false
     resultType := typeof(int)
 
-    assert ColumnarRangeIndexPlanner.TryGetTypeFromFacts(tree.Nodes, tree.Source, tree.Root, parameterOrdinals, parameterTypes, new Dictionary<string, System.Reflection.Emit.LocalBuilder>(StringComparer.Ordinal), new Dictionary<string, ColumnarEnumDef>(StringComparer.Ordinal), ColumnarRangePlannerEmptyLiftedFacts(), null, null, null, new ColumnarStructDef[](0), new ColumnarUnionDef[](0), new Dictionary<string, string[]>(StringComparer.Ordinal), emptyNames, emptyNames, emptyNames, plan, out identifierOwned, out _selectorLegacyWholeSubtreePlanning, out resultType)
+    assert ColumnarRangeIndexPlanner.TryGetTypeFromFacts(tree.Nodes, tree.Source, tree.Root, parameterOrdinals, parameterTypes, new Dictionary<string, System.Reflection.Emit.LocalBuilder>(StringComparer.Ordinal), new Dictionary<string, ColumnarEnumDef>(StringComparer.Ordinal), ColumnarRangePlannerEmptyLiftedFacts(), null, null, null, new ColumnarStructDef[](0), new ColumnarUnionDef[](0), new Dictionary<string, string[]>(StringComparer.Ordinal), new Dictionary<string, string>(StringComparer.Ordinal), emptyNames, emptyNames, emptyNames, plan, out identifierOwned, out _selectorLegacyWholeSubtreePlanning, out resultType)
 
     assert !identifierOwned
     assert resultType == typeof(string)

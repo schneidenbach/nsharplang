@@ -527,12 +527,27 @@ test "a preprocessor directive is written through untouched" {
     assert FwkStatementText(new PreprocessorDirective("#if DEBUG", 0, 0)) == "#if DEBUG|"
 }
 
-test "a tuple deconstruction always writes :=" {
+test "a tuple deconstruction writes back the operator and the parentheses the source wrote" {
     names := new List<string>()
     names.Add("a")
     names.Add("b")
+
+    // The bare declaration, which is the default shape.
     statement := new TupleDeconstructionStatement(names, FwkIdentifier("p"), VariableKind.Let, 0, 0)
     assert FwkStatementText(statement) == "a, b := p|"
+
+    // `=` is an ASSIGNMENT to names that already exist, not a second declaration of them, so
+    // normalising it to `:=` would change what the statement does.
+    assigned := new TupleDeconstructionStatement(names, FwkIdentifier("p"), VariableKind.Let, 0, 0, true)
+    assert FwkStatementText(assigned) == "a, b = p|"
+
+    // And the parenthesised target list -- the spelling the language tour teaches -- is written back
+    // as it was written.
+    parenthesised := new TupleDeconstructionStatement(names, FwkIdentifier("p"), VariableKind.Let, 0, 0, false, true)
+    assert FwkStatementText(parenthesised) == "(a, b) := p|"
+
+    parenthesisedAssignment := new TupleDeconstructionStatement(names, FwkIdentifier("p"), VariableKind.Let, 0, 0, true, true)
+    assert FwkStatementText(parenthesisedAssignment) == "(a, b) = p|"
 }
 
 test "a catch clause with a name writes name and type, and one without writes bracketed type" {
