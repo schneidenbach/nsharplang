@@ -97,6 +97,10 @@ sealed class ColumnarIlEmitter {
     private readonly _declaredLocalFuncNodes: Dictionary<int, string>?
     private readonly _visibleLocalFuncs: HashSet<string>
     private readonly _boxedCaptures: Dictionary<string, (BoxField: FieldInfo, ValueType: Type)>?
+    // The display this body's local functions run on — set on the ENCLOSING body (which creates the
+    // instance and fills its boxes) and on each display METHOD body (which reaches the same boxes
+    // through `ldarg.0`). Null when no local function of the body captures anything.
+    private readonly _localFunctionDisplay: ColumnarLocalFunctionDisplay?
 
     // Tuple ELEMENT NAMES per tuple-typed variable (`t.x` -> ItemN): seeded from named param annotations,
     // grown at `:=`/typed-local declarations whose initializers/annotations carry names. The CLR erases
@@ -226,7 +230,7 @@ sealed class ColumnarIlEmitter {
     // generated assignments are `Field = parameter`; when the field and parameter share a name, the left side
     // must bind to the field even though ordinary explicit-constructor assignments keep parameter shadowing.
 
-    private constructor(nodes: ColumnarNodeTable, source: string, paramOrdinals: Dictionary<string, int>, paramTypes: Dictionary<string, Type>, returnType: Type, il: ILGenerator, siblings: IReadOnlyDictionary<string, ColumnarSiblingMethodDefinition>, enumRegistry: Dictionary<string, ColumnarEnumDef>, structRegistry: IReadOnlyDictionary<string, ColumnarStructDef>, unionRegistry: IReadOnlyDictionary<string, ColumnarUnionDef>, unionCaseRegistry: IReadOnlyDictionary<string, ColumnarUnionCaseDef>, currentStruct: ColumnarStructDef?, enclosingType: ColumnarStructDef? = null, isConstructorBody: bool = false, isSynthesizedInitializerBody: bool = false, programType: TypeBuilder? = null, lambdaCounter: int[]? = null, displayClasses: List<TypeBuilder>? = null, boxedCaptures: Dictionary<string, (BoxField: FieldInfo, ValueType: Type)>? = null, localFuncs: Dictionary<string, (Method: MethodBuilder, ParamTypes: Type[], ReturnType: Type)>? = null, declaredLocalFuncNodes: Dictionary<int, string>? = null, visibleLocalFuncs: IEnumerable<string>? = null, siblingReturnTupleNames: IReadOnlyDictionary<string, string[]>? = null, paramTupleNames: IReadOnlyDictionary<string, string[]>? = null, enclosingBindingNames: HashSet<string>? = null, asyncReturnType: Type? = null, asyncBareReturnDeclines: bool = false, referenceAssemblyPaths: IReadOnlyList<string>? = null, genericInterfaceConstraints: IReadOnlyDictionary<Type, Type[]>? = null, typeParameters: IReadOnlyDictionary<string, Type>? = null, typeResolutionEnums: ColumnarSemanticRegistry<ColumnarEnumDef>? = null, typeResolutionStructs: ColumnarSemanticRegistry<ColumnarStructDef>? = null, typeResolutionUnions: ColumnarSemanticRegistry<ColumnarUnionDef>? = null) {
+    private constructor(nodes: ColumnarNodeTable, source: string, paramOrdinals: Dictionary<string, int>, paramTypes: Dictionary<string, Type>, returnType: Type, il: ILGenerator, siblings: IReadOnlyDictionary<string, ColumnarSiblingMethodDefinition>, enumRegistry: Dictionary<string, ColumnarEnumDef>, structRegistry: IReadOnlyDictionary<string, ColumnarStructDef>, unionRegistry: IReadOnlyDictionary<string, ColumnarUnionDef>, unionCaseRegistry: IReadOnlyDictionary<string, ColumnarUnionCaseDef>, currentStruct: ColumnarStructDef?, enclosingType: ColumnarStructDef? = null, isConstructorBody: bool = false, isSynthesizedInitializerBody: bool = false, programType: TypeBuilder? = null, lambdaCounter: int[]? = null, displayClasses: List<TypeBuilder>? = null, boxedCaptures: Dictionary<string, (BoxField: FieldInfo, ValueType: Type)>? = null, localFuncs: Dictionary<string, (Method: MethodBuilder, ParamTypes: Type[], ReturnType: Type)>? = null, declaredLocalFuncNodes: Dictionary<int, string>? = null, visibleLocalFuncs: IEnumerable<string>? = null, siblingReturnTupleNames: IReadOnlyDictionary<string, string[]>? = null, paramTupleNames: IReadOnlyDictionary<string, string[]>? = null, enclosingBindingNames: HashSet<string>? = null, asyncReturnType: Type? = null, asyncBareReturnDeclines: bool = false, referenceAssemblyPaths: IReadOnlyList<string>? = null, genericInterfaceConstraints: IReadOnlyDictionary<Type, Type[]>? = null, typeParameters: IReadOnlyDictionary<string, Type>? = null, typeResolutionEnums: ColumnarSemanticRegistry<ColumnarEnumDef>? = null, typeResolutionStructs: ColumnarSemanticRegistry<ColumnarStructDef>? = null, typeResolutionUnions: ColumnarSemanticRegistry<ColumnarUnionDef>? = null, localFunctionDisplay: ColumnarLocalFunctionDisplay? = null) {
         // CLR object storage starts zeroed before instance field initializers run. Spell the non-nullable
         // fields explicitly so N# constructor validation sees the same initial state on every path.
         _protectedDone = new Label()
@@ -318,6 +322,7 @@ sealed class ColumnarIlEmitter {
         _displayClasses = displayClasses
         _boxedCaptures = boxedCaptures
         _localFuncs = localFuncs
+        _localFunctionDisplay = localFunctionDisplay
         _declaredLocalFuncNodes = declaredLocalFuncNodes
         if (visibleLocalFuncs != null) {
             _visibleLocalFuncs.UnionWith(visibleLocalFuncs)
@@ -4758,10 +4763,32 @@ sealed class ColumnarIlEmitter {
             // Every local function this body declares, visible from the body's FIRST statement — the
             // block-wide scoping rule, so a forward call and a mutually recursive pair both resolve.
             visibleLocalFuncNames: List<string>? = null
+            functionSource := program.GetSourceForFileId(fn.SourceFileId)
+            localFunctionDisplay: ColumnarLocalFunctionDisplay? = null
+            localFunctionParentBindings: HashSet<string>? = null
             if (fn.LocalFunctions != null) {
                 localFuncs = new Dictionary<string, (MethodBuilder, Type[], Type)>(StringComparer.Ordinal)
                 declaredLocalFuncNodes = new Dictionary<int, string>()
                 visibleLocalFuncNames = new List<string>()
+                // WHAT THE LOCAL FUNCTIONS CAPTURE, decided before any of them is declared, because the
+                // answer chooses each one's OWNER: a capture-free local stays a private static on the
+                // program type, and a capturing one becomes an instance method of one display class
+                // shared by the whole body — the same display a capturing lambda gets.
+                localFunctionParentBindings = new HashSet<string>(ordinalsByFunc[f].Keys, StringComparer.Ordinal)
+                ColumnarLocalFunctionClosurePlanner.CollectDeclaringScopeBindingNames(fn.BodyNodes, functionSource, fn.BodyRoot, localFunctionParentBindings)
+                localFunctionPlan := ColumnarLocalFunctionClosurePlanner.Plan(
+                    fn.LocalFunctions,
+                    functionSource,
+                    localFunctionParentBindings,
+                    ColumnarLocalFunctionClosurePlanner.EnclosingInstanceNames(null)
+                )
+                if (localFunctionPlan.NeedsDisplay()) {
+                    localFunctionDisplay = DefineLocalFunctionDisplay(columnarResolvedType, lambdaCounter, localFunctionPlan, null)
+                    if (localFunctionDisplay == null) {
+                        return DeclineStatic("emit.local-function.display", "local function closure display could not be defined", fn.Name, -1, 0)
+                    }
+                    displayClasses.Add(localFunctionDisplay.Builder)
+                }
                 for localFunction in fn.LocalFunctions {
                     nodeIndex := localFunction.NodeIndex
                     localFn := localFunction.Function
@@ -4782,17 +4809,18 @@ sealed class ColumnarIlEmitter {
                             return false
                         }
                     }
-                    if (!ColumnarSemanticTypeRegistryBridge.IsValidSynthesizedMethodSignature(localReturn, localParams, columnarResolvedType)) {
+                    runsOnDisplay := localFunctionDisplay != null && localFunctionDisplay.IsDisplayMethod(localFn.Name)
+                    localMethodOwner := runsOnDisplay ? localFunctionDisplay.Builder : columnarResolvedType
+                    if (!ColumnarSemanticTypeRegistryBridge.IsValidSynthesizedMethodSignature(localReturn, localParams, localMethodOwner)) {
                         return false
                     }
-                    localMethodOwner := columnarResolvedType
                     localMethodParentName := fn.Name
                     localMethodCounter := lambdaCounter
                     localMethodOrdinal := localMethodCounter[0]
                     localMethodCounter[0] = localMethodOrdinal + 1
                     localMethodOrdinalText := localMethodOrdinal.ToString()
                     localMethodName := "<" + localMethodParentName + ">g__" + localMethodOrdinalText
-                    localMethodAttributes := MethodAttributes.Private | MethodAttributes.Static
+                    localMethodAttributes := runsOnDisplay ? MethodAttributes.Public | MethodAttributes.HideBySig : MethodAttributes.Private | MethodAttributes.Static
                     localMethodReturnType := localReturn
                     localMethodParameterTypes := localParams
                     localMethod := localMethodOwner.DefineMethod(
@@ -4814,7 +4842,6 @@ sealed class ColumnarIlEmitter {
             // ASYNC bodies check return values against the INNER type; the method's CLR signature
             // (and every sibling call site) sees the WRAPPED type.
             bodyReturnType := asyncWrappedByFunc[f] != null ? asyncInnerByFunc[f] : returnTypeByFunc[f]
-            functionSource := program.GetSourceForFileId(fn.SourceFileId)
             currentSibling := siblings[fn.Name]
             genericInterfaceConstraintTypeParams := currentSibling.TypeParams
             genericInterfaceConstraintRows := interfaceConstraintsByFunc[f]
@@ -4868,7 +4895,8 @@ sealed class ColumnarIlEmitter {
                 bodyTypeParamMap,
                 typeResolution.Enums,
                 typeResolution.Structs,
-                typeResolution.Unions
+                typeResolution.Unions,
+                localFunctionDisplay
             )
             ColumnarDeclineTrace.SetSourceFileId(fn.SourceFileId)
             try {
@@ -4878,20 +4906,28 @@ sealed class ColumnarIlEmitter {
             } finally {
                 ColumnarDeclineTrace.ClearSourceFileId()
             }
+            if (localFunctionDisplay != null) {
+                unhoistedCapture := localFunctionDisplay.FirstUnhoistedCapture()
+                if (unhoistedCapture != null) {
+                    return DeclineStatic("emit.local-function.capture", "local function captures '" + unhoistedCapture + "', which this body cannot hoist into a shared closure slot", fn.Name, -1, 0)
+                }
+            }
             if (fn.LocalFunctions != null) {
                 // NL316 across the local-function boundary: the pipeline rejects a local-func PARAM or
                 // body binding that shadows a parent binding. Local bodies emit AFTER the parent's, so no
                 // live snapshot exists — use the parent's STRUCTURAL binding superset (params + every name
                 // any parent statement binds; extra declines are safe under-acceptance).
-                parentBindings := new HashSet<string>(ordinalsByFunc[f].Keys, StringComparer.Ordinal)
-                ColumnarClosureBindingPlanner.CollectBindingNames(fn.BodyNodes, functionSource, fn.BodyRoot, parentBindings)
+                parentBindings := localFunctionParentBindings
                 for localFunction in fn.LocalFunctions {
                     localFn := localFunction.Function
                     target := localFuncs[localFn.Name]
+                    // A display method's arg 0 is the closure, so every declared parameter sits one
+                    // ordinal further along — the same shift a capturing lambda's body takes.
+                    localOrdinalShift := localFunctionDisplay != null && localFunctionDisplay.IsDisplayMethod(localFn.Name) ? 1 : 0
                     localOrdinals := new Dictionary<string, int>(StringComparer.Ordinal)
                     localParamTypes := new Dictionary<string, Type>(StringComparer.Ordinal)
                     for lp := 0; lp < localFn.ParamNames.Length; lp++ {
-                        localOrdinals[localFn.ParamNames[lp]] = lp
+                        localOrdinals[localFn.ParamNames[lp]] = lp + localOrdinalShift
                         if (parentBindings.Contains(localFn.ParamNames[lp])) {
                             return false
                         }
@@ -4906,7 +4942,15 @@ sealed class ColumnarIlEmitter {
                     targetMethodForLocalBody := target.Item1
                     localIl := targetMethodForLocalBody.GetILGenerator()
                     // The local body shares the SAME localFuncs map (self/mutual recursion + the parent's
-                    // other local functions); outer locals/params are NOT in scope — captures decline.
+                    // other local functions). A CAPTURED enclosing binding reaches this body through the
+                    // display's boxes — the `_boxedCaptures` route a capturing lambda body already reads
+                    // and writes — so the two closure forms differ only in where the receiver comes from.
+                    localBoxedCaptures: Dictionary<string, (BoxField: FieldInfo, ValueType: Type)>? = null
+                    localDisplayView: ColumnarLocalFunctionDisplay? = null
+                    if (localOrdinalShift == 1) {
+                        localBoxedCaptures = localFunctionDisplay.BoxFields
+                        localDisplayView = localFunctionDisplay.ForDisplayMethodBody()
+                    }
                     localFunctionSource := program.GetSourceForFileId(localFn.SourceFileId)
                     localEmitter := new ColumnarIlEmitter(
                         localFn.BodyNodes,
@@ -4927,7 +4971,7 @@ sealed class ColumnarIlEmitter {
                         columnarResolvedType,
                         lambdaCounter,
                         displayClasses,
-                        null,
+                        localBoxedCaptures,
                         localFuncs,
                         null,
                         visibleLocalFuncNames,
@@ -4941,7 +4985,8 @@ sealed class ColumnarIlEmitter {
                         null,
                         typeResolution.Enums.ForSynthesizedMethod(columnarResolvedType),
                         typeResolution.Structs.ForSynthesizedMethod(columnarResolvedType),
-                        typeResolution.Unions.ForSynthesizedMethod(columnarResolvedType)
+                        typeResolution.Unions.ForSynthesizedMethod(columnarResolvedType),
+                        localDisplayView
                     )
                     ColumnarDeclineTrace.SetSourceFileId(localFn.SourceFileId)
                     try {
@@ -5579,6 +5624,83 @@ sealed class ColumnarIlEmitter {
         return true
     }
 
+    // THE DISPLAY CLASS A BODY'S CAPTURING LOCAL FUNCTIONS RUN ON — one per capturing scope, named out
+    // of the same `<>c__DisplayClass{n}` counter a capturing lambda uses, because they are the same
+    // lowering. A display that reads the enclosing instance is nested inside that type so a private
+    // member stays reachable without widening its metadata; otherwise it is a module-level type.
+    private static func DefineLocalFunctionDisplay(owner: TypeBuilder, lambdaCounter: int[], plan: ColumnarLocalFunctionClosurePlan, enclosingDefinition: ColumnarStructDef?): ColumnarLocalFunctionDisplay? {
+        ownerAsType: Type = owner
+        moduleObject: object? = ownerAsType.get_Module()
+        moduleBuilder := (ModuleBuilder)moduleObject
+        displayOrdinal := lambdaCounter[0]
+        lambdaCounter[0] = displayOrdinal + 1
+        displayTypeName := "<>c__DisplayClass" + displayOrdinal.ToString()
+        let display: TypeBuilder = null
+        if (plan.ReadsEnclosingInstance) {
+            if (enclosingDefinition == null || !enclosingDefinition.IsReference || enclosingDefinition.GenericParameters != null) {
+                return null
+            }
+            display = enclosingDefinition.Builder.DefineNestedType(
+                displayTypeName,
+                TypeAttributes.NestedPrivate | TypeAttributes.Class | TypeAttributes.Sealed
+            )
+        } else {
+            display = moduleBuilder.DefineType(
+                displayTypeName,
+                TypeAttributes.NotPublic | TypeAttributes.Class | TypeAttributes.Sealed
+            )
+        }
+        displayCtor := display.DefineDefaultConstructor(MethodAttributes.Public)
+        result := new ColumnarLocalFunctionDisplay(display, displayCtor, plan)
+        if (plan.ReadsEnclosingInstance) {
+            result.BindEnclosingThisField(display.DefineField("<>4__this", enclosingDefinition.Builder, FieldAttributes.Public))
+        }
+        return result
+    }
+
+    // A CAPTURED BINDING'S BOX JOINS THE DISPLAY AT THE POINT THE BOX IS CREATED. The display instance
+    // exists from the body's first instruction, but a local's box does not exist until its declaration
+    // runs, so the field is defined and stored here rather than up front — which is also why a capture
+    // whose declaration never produced a box is reported by name when the body finishes.
+    private func HoistCaptureIntoLocalFunctionDisplay(name: string, box: LocalBuilder, valueType: Type): bool {
+        if (_localFunctionDisplay == null || _localFunctionDisplay.ReceiverIsArgument || !_localFunctionDisplay.Captures(name)) {
+            return true
+        }
+        captureInstance := _localFunctionDisplay.InstanceLocal()
+        if (captureInstance == null || _localFunctionDisplay.HasCapture(name)) {
+            return false
+        }
+        captureField := _localFunctionDisplay.Builder.DefineField(name, box.get_LocalType(), FieldAttributes.Public)
+        _localFunctionDisplay.AddCapture(name, captureField, valueType)
+        _il.Emit(OpCodes.Ldloc, captureInstance)
+        _il.Emit(OpCodes.Ldloc, box)
+        _il.Emit(OpCodes.Stfld, captureField)
+        return true
+    }
+
+    // The receiver a call to a local function needs: nothing at all for a capture-free local (still a
+    // private static), the enclosing body's display instance, or — inside a display method calling a
+    // sibling display method, self-recursion included — the display it is already running on.
+    private func EmitLocalFunctionCallReceiver(name: string): bool {
+        if (_localFunctionDisplay == null || !_localFunctionDisplay.IsDisplayMethod(name)) {
+            return true
+        }
+        if (_localFunctionDisplay.ReceiverIsArgument) {
+            _il.Emit(OpCodes.Ldarg_0)
+            return true
+        }
+        receiverInstance := _localFunctionDisplay.InstanceLocal()
+        if (receiverInstance == null) {
+            return false
+        }
+        _il.Emit(OpCodes.Ldloc, receiverInstance)
+        return true
+    }
+
+    private func LocalFunctionRunsOnDisplay(name: string): bool {
+        return _localFunctionDisplay != null && _localFunctionDisplay.IsDisplayMethod(name)
+    }
+
     // Emit a function body. A VALUE function (non-void) must always-return on every path (NL305) — else the IL
     // would fall off the end with no `ret`; decline to the analyzer-validated product path. A VOID function (procedure) need not
     // always-return: emit the body, then a trailing `ret` IFF control can fall through to the method end (when
@@ -5638,6 +5760,26 @@ sealed class ColumnarIlEmitter {
         } finally {
             _liftedCandidates = liftedCandidates
         }
+        // A LOCAL FUNCTION CAPTURES THE SAME WAY A LAMBDA DOES. Every name this body's local functions
+        // read or write is lifted into a shared box whether or not anything writes it, because the
+        // display holds the BOX and both sides then see one storage location — which is what
+        // distinguishes a local function's capture from a lambda's never-written by-value snapshot.
+        if (_localFunctionDisplay != null && !_localFunctionDisplay.ReceiverIsArgument) {
+            if (_liftedCandidates == null) {
+                _liftedCandidates = new HashSet<string>(StringComparer.Ordinal)
+            }
+            _liftedCandidates.UnionWith(_localFunctionDisplay.CaptureNames())
+            displayInstanceLocal := _il.DeclareLocal(_localFunctionDisplay.Builder)
+            _il.Emit(OpCodes.Newobj, _localFunctionDisplay.Constructor)
+            _il.Emit(OpCodes.Stloc, displayInstanceLocal)
+            _localFunctionDisplay.BindInstance(displayInstanceLocal)
+            enclosingThisCaptureField := _localFunctionDisplay.EnclosingThisFieldOrNull()
+            if (enclosingThisCaptureField != null) {
+                _il.Emit(OpCodes.Ldloc, displayInstanceLocal)
+                _il.Emit(OpCodes.Ldarg_0)
+                _il.Emit(OpCodes.Stfld, enclosingThisCaptureField)
+            }
+        }
         if (_liftedCandidates != null) {
             for liftedParam in _liftedCandidates {
                 let liftedOrdinal: int = 0
@@ -5655,6 +5797,9 @@ sealed class ColumnarIlEmitter {
                 _il.Emit(OpCodes.Newobj, boxType.GetConstructor([liftedParamType]))
                 _il.Emit(OpCodes.Stloc, boxLocal)
                 _liftedLocals[liftedParam] = (boxLocal, liftedParamType)
+                if (!HoistCaptureIntoLocalFunctionDisplay(liftedParam, boxLocal, liftedParamType)) {
+                    return false
+                }
             }
         }
         if (_asyncReturnType != null) {
@@ -6150,7 +6295,12 @@ sealed class ColumnarIlEmitter {
             }
             retNode := Child(idx, 0)
             let retType: System.Type = null
-            if (IsAdoptableUnionConstruction(retNode, _returnType)) {
+            // `return local` / `return Sibling` on a delegate-returning function: a method group has no
+            // type of its own, so the DECLARED return type is what turns it into a delegate — the same
+            // conversion an argument position and a typed local perform, over the same receiver.
+            if (ColumnarTypeOfPlanner.IsSupportedDelegateType(_returnType) && (TryEmitLocalFunctionMethodGroupAsDelegate(retNode, _returnType) || TryEmitSiblingMethodGroupAsDelegate(retNode, _returnType))) {
+                retType = _returnType
+            } else if (IsAdoptableUnionConstruction(retNode, _returnType)) {
                 if (!EmitAdoptedUnionConstruction(retNode, _returnType, out retType)) {
                     return false
                 }
@@ -6254,7 +6404,7 @@ sealed class ColumnarIlEmitter {
                 _il.Emit(OpCodes.Newobj, liftBoxType.GetConstructor([initType]))
                 _il.Emit(OpCodes.Stloc, liftBox)
                 _liftedLocals[name] = (liftBox, initType)
-                return true
+                return HoistCaptureIntoLocalFunctionDisplay(name, liftBox, initType)
             }
             local := _il.DeclareLocal(initType)
             _il.Emit(OpCodes.Stloc, local)
@@ -6297,7 +6447,10 @@ sealed class ColumnarIlEmitter {
                 if (!TryEmitLambdaLiteral(declaredInit, declaredType)) {
                     return false
                 }
+            } else if (ColumnarTypeOfPlanner.IsSupportedDelegateType(declaredType) && (TryEmitLocalFunctionMethodGroupAsDelegate(declaredInit, declaredType) || TryEmitSiblingMethodGroupAsDelegate(declaredInit, declaredType))) {
             } else {
+                // `let f: Func<int, int> = local` — the declared delegate type converts the method group.
+
                 // A generic-union case construction with NO type args ADOPTS the declared type's arguments
                 // (`n: Opt<int> = new Opt.Some { value: 5 }` — the second pipeline-accepted adoption site).
                 if (IsAdoptableUnionConstruction(declaredInit, declaredType)) {
@@ -6360,7 +6513,7 @@ sealed class ColumnarIlEmitter {
                 _il.Emit(OpCodes.Newobj, typedBoxType.GetConstructor([declaredType]))
                 _il.Emit(OpCodes.Stloc, typedBox)
                 _liftedLocals[declaredName] = (typedBox, declaredType)
-                return true
+                return HoistCaptureIntoLocalFunctionDisplay(declaredName, typedBox, declaredType)
             }
             declaredLocal := _il.DeclareLocal(declaredType)
             _il.Emit(OpCodes.Stloc, declaredLocal)
@@ -9976,6 +10129,11 @@ sealed class ColumnarIlEmitter {
                 if (_localFuncs != null && _visibleLocalFuncs.Contains(name) && _localFuncs.TryGetValue(name, out localTarget)) {
                     localArgCount := _nodes.ChildCount(idx) - 1
                     if (localArgCount != localTarget.ParamTypes.Length) {
+                        return false
+                    }
+                    // A capturing local function is an instance method of the body's display, so its
+                    // receiver is pushed ahead of the argument sequence, exactly like any other call.
+                    if (!EmitLocalFunctionCallReceiver(name)) {
                         return false
                     }
                     for a := 1; a <= localArgCount; a++ {
@@ -20152,7 +20310,17 @@ sealed class ColumnarIlEmitter {
         if (!TryGetVisibleLocalFunctionMethodGroup(argNode, out localTarget) || !TryGetSupportedDelegateSignature(expectedDelegateType, true, out delegateReturnType, out delegateParamTypes, out delegateCtor) || !LocalFunctionSignatureMatchesDelegate(localTarget, delegateReturnType, delegateParamTypes)) {
             return false
         }
-        _il.Emit(OpCodes.Ldnull)
+        // A CAPTURING local function converted to a delegate binds that delegate to the display the
+        // body already created, so the delegate and the enclosing body share one set of boxes — the
+        // same object a call to it would have pushed. A capture-free one stays a null-target static.
+        delegateTargetName := ColumnarNodeTextFacts.Text(_nodes, _source, UnwrapParenthesizedNode(argNode))
+        if (LocalFunctionRunsOnDisplay(delegateTargetName)) {
+            if (!EmitLocalFunctionCallReceiver(delegateTargetName)) {
+                return false
+            }
+        } else {
+            _il.Emit(OpCodes.Ldnull)
+        }
         _il.Emit(OpCodes.Ldftn, localTarget.Method)
         _il.Emit(OpCodes.Newobj, delegateCtor)
         return true
