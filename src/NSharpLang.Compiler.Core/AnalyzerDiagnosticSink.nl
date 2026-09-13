@@ -201,11 +201,6 @@ class AnalyzerDiagnosticSink {
         return true
     }
 
-    func ReportFreeFunctionHolderCollision(namespaceName: string, line: int, column: int): bool {
-        ReportBuilt(ErrorMessageBuilder.FreeFunctionHolderCollision(currentFilePathValue, line, column, SourceSnippet(line), 7, namespaceName))
-        return true
-    }
-
     func ReportAmbiguousFunctionReference(name: string, firstCandidate: string, secondCandidate: string, line: int, column: int): bool {
         ReportBuilt(ErrorMessageBuilder.AmbiguousFunctionReference(currentFilePathValue, line, column, SourceSnippet(line), Math.Max(1, name.Length), name, firstCandidate, secondCandidate))
         return true
