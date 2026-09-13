@@ -331,6 +331,91 @@ class AnalyzerSyntheticCallFacts {
     // name lookup at the leaves and a rebuild through every composite shell above them. An unbound
     // name is left alone rather than replaced with a hole: partial inference must still describe the
     // parameters it did close.
+    // THE TARGET AN ARGUMENT POSITION ACTUALLY OFFERS. A closed position offers itself; a DELEGATE
+    // offers itself even while one of its positions is open, because that open position is what the
+    // lambda written there decides and its closed ones are what that lambda's parameters need; any
+    // other still-open position offers NOTHING, because the surrogate it would otherwise offer is a
+    // type the program never wrote and every comparison against it is an accusation.
+    static func NarrowOpenExpectedArgumentType(expectedType: TypeInfo, typeParameters: List<TypeParameter>?): TypeInfo? {
+        if AnalyzerCallableReferenceFacts.IsInvocableMemberType(expectedType) {
+            return expectedType
+        }
+
+        if MentionsTypeParameter(expectedType, typeParameters) {
+            return null
+        }
+
+        return expectedType
+    }
+
+    // Whether a type STILL NAMES one of this signature's own type parameters after substitution —
+    // the "is this position still open?" question, asked of the already-bound type so a parameter an
+    // earlier argument fixed is gone by the time it is asked.
+    static func MentionsTypeParameter(candidate: TypeInfo, typeParameters: List<TypeParameter>?): bool {
+        if typeParameters == null || typeParameters.Count == 0 {
+            return false
+        }
+
+        simple := candidate as SimpleTypeInfo
+        if simple != null {
+            return NamesTypeParameter(simple.Name, typeParameters)
+        }
+
+        external := candidate as ExternalTypeInfo
+        if external != null {
+            return NamesTypeParameter(external.Name, typeParameters)
+        }
+
+        generic := candidate as GenericTypeInfo
+        if generic != null {
+            index := 0
+            while index < generic.TypeArguments.Count {
+                if MentionsTypeParameter(generic.TypeArguments[index], typeParameters) {
+                    return true
+                }
+
+                index = index + 1
+            }
+
+            return false
+        }
+
+        array := candidate as ArrayTypeInfo
+        if array != null {
+            return MentionsTypeParameter(array.ElementType, typeParameters)
+        }
+
+        nullable := candidate as NullableTypeInfo
+        if nullable != null {
+            return MentionsTypeParameter(nullable.InnerType, typeParameters)
+        }
+
+        byRef := candidate as ByRefTypeInfo
+        if byRef != null {
+            return MentionsTypeParameter(byRef.InnerType, typeParameters)
+        }
+
+        oblivious := candidate as ObliviousTypeInfo
+        if oblivious != null {
+            return MentionsTypeParameter(oblivious.InnerType, typeParameters)
+        }
+
+        return false
+    }
+
+    static func NamesTypeParameter(name: string, typeParameters: List<TypeParameter>): bool {
+        index := 0
+        while index < typeParameters.Count {
+            if typeParameters[index].Name == name {
+                return true
+            }
+
+            index = index + 1
+        }
+
+        return false
+    }
+
     static func ApplyGenericBindings(candidate: TypeInfo, bindings: Dictionary<string, TypeInfo>?): TypeInfo {
         if bindings == null || bindings.Count == 0 {
             return candidate

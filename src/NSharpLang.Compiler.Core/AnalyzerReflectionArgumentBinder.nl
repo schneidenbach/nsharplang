@@ -370,6 +370,18 @@ class AnalyzerReflectionArgumentBinder {
             }
 
             score = 2 + expectedParameterTypes.Count
+
+            // A LAMBDA WHOSE BODY IS AN EXPRESSION HAS A VALUE TO GIVE, and a delegate that would
+            // throw it away is the worse target. `Task.Run(() => 42)` fits both `Run(Action)` and
+            // `Run<TResult>(Func<TResult>)` by arity alone, and choosing by declaration order gave it
+            // a plain `Task`; C# prefers the conversion that keeps the result, so the position that
+            // returns something scores one higher.
+            if lambda.ExpressionBody != null {
+                if !BuiltInTypes.Is(expectedSignature.ReturnType, BuiltInTypes.Void) {
+                    score = score + 1
+                }
+            }
+
             return true
         }
 
