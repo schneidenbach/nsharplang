@@ -485,6 +485,34 @@ p2 := new Point(3, 4)
 distance := p1.distanceFrom(p2)  // 5.0
 ```
 
+### A struct method may write its own fields
+
+A struct's method receives `this` as a pointer to the RECEIVER'S OWN storage whenever the receiver
+has storage — a local, a parameter, or a field of either — so a field it assigns is the caller's:
+
+```n#
+struct Counter {
+    value: int
+
+    func Bump(): bool {
+        value = value + 1
+        return value < 3
+    }
+}
+
+counter := new Counter()
+counter.Bump()
+counter.Bump()
+print counter.value       // 2 — the caller's own variable moved
+```
+
+A receiver with no storage of its own — the result of a call, a literal, a property read — is a
+temporary, and mutating it changes only that temporary. That is the same rule C# applies, and it is
+the reason to bind such a value to a name before calling a method that mutates it.
+
+Value semantics still apply everywhere else: passing a struct copies it, so a method that bumps a
+struct PARAMETER moves that frame's copy and not the caller's variable.
+
 ### Readonly Structs
 
 ```n#

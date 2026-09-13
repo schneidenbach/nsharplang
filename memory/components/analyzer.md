@@ -2773,3 +2773,30 @@ postcondition owner were in the same tree:
   vocabulary, and the walk does not decide whether a condition is worth narrowing by.
   IT IS THE LAST PHASE, AFTER THE MESSAGE: the message is the expression evaluated when the assert
   FAILS, so narrowing before it would hand the failure path a fact only the success path has.
+
+## What a Source Enum Inherits, and What a Conditional Is Worth
+
+- AN ENUM VALUE'S INSTANCE SURFACE IS `System.Enum`, NOT `object`. The CLR gives every enum
+  `System.Enum` as its base type, and `AnalyzerMemberResolution`'s enum arm asks that type through
+  `TryResolveSourceEnumMember` (the same ordinary reflection walk `TryResolveSourceObjectMember`
+  uses, over a different base). Asking `object` handed back `object.ToString()`'s `string?`, so
+  `symbol.Kind.ToString().ToLower()` reported NL905 on a value that cannot be null, and `HasFlag`
+  was NL303 "not found on type". Two owners carry the same fact for the argument side:
+  `AnalyzerClrTypeConversion.TryConvertTypeInfoToClrTypeForBinding` gives a source enum the
+  surrogate `System.Enum` rather than `object` (every other declared family keeps `object`, because
+  nothing else has a CLR base the compiler can name before emission), and
+  `AnalyzerAssignability.IsSubtypeOf` answers the enum's CLR base chain for a reflected target.
+  On the emit side `ColumnarIlEmitter.TryEmitInstanceCall` dispatches an inherited `System.Enum`
+  member by boxing the receiver and calling whatever ordinary CLR resolution over `typeof(Enum)`
+  selects — no per-member table.
+- THE COMMON TYPE OF A CONDITIONAL IS SEMANTIC IDENTITY, THE PROMOTION TABLE, AND THE NULLABLE LIFT.
+  `AnalyzerOperatorExpressions.CommonType`'s non-numeric rule was reference identity alone, so two
+  separately constructed answers for one type — an interpolated string beside a `string` — came back
+  `unknown` and every use of the result reported against a type the conditional plainly had. It asks
+  `TypeInfoIdentityFacts.AreEqual` now, and when the two arms differ only in nullability it answers
+  the nullable one, which is C#'s rule and what the value can actually be.
+- NULLABILITY IS ARRAY-COVARIANT FOR READS, IN ONE DIRECTION. `AnalyzerAssignability.IsImplicitReferenceConversion`
+  peels a nullable annotation off the TARGET before the reference-type gate, so `T[]` converts to
+  `T?[]` (the annotation is not a CLR type; the view is a no-op and every element read out of it is
+  honestly typed `T?`) and `T?[]` still does not convert to `T[]`. This is the relation an `object[]`
+  needs to reach `MethodInfo.Invoke`'s `object?[]?`.
