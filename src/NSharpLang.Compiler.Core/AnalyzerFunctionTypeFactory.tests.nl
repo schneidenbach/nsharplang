@@ -519,6 +519,97 @@ test "a declared member's signature reads its arrays and its required count off 
     assert FactoryTypeName(substitutedTypes[0]) == "double"
 }
 
+// A parameter carrying one nullability postcondition attribute, spelled as the parser leaves it.
+func FactoryAnnotatedParameter(name: string, typeName: string, attributeName: string, arguments: List<Argument>): Parameter {
+    reference: TypeReference = new SimpleTypeReference(typeName)
+    attributes := new List<AttributeNode>()
+    attributes.Add(new AttributeNode(attributeName, arguments, 1, 1, null))
+    return new Parameter(name, reference, null, false, Ast.ParameterModifier.None, attributes, 1, 1, false, null)
+}
+
+// The member record the production factory builds for a declaration written inside a TYPE. The
+// declaration arrives through the untyped door the factory reads every AST shape through.
+func FactoryDeclaredMember(declaration: FunctionDeclaration): DeclaredMemberInfo {
+    node: object = declaration
+    return NominalTypeInfoFactory.CreateDeclaredMemberInfo("Owner", node)
+}
+
+func FactoryBooleanArgument(value: bool): List<Argument> {
+    arguments := new List<Argument>()
+    arguments.Add(new Argument(null, new BoolLiteralExpression(value, 1, 1), Ast.ArgumentModifier.None))
+    return arguments
+}
+
+func FactoryFlowFacts(signature: FunctionTypeInfo, index: int): int {
+    facts := signature.ParameterFlowFacts
+    if facts == null {
+        return -1
+    }
+
+    return facts[index]
+}
+
+// A MEMBER'S NULLABILITY POSTCONDITIONS TRAVEL WITH IT. A member declared on a type reaches its
+// callers through `DeclaredMemberInfo`, and the attributes used to be dropped on the way — so
+// `Assert.NotNull(x)` proved nothing whenever `Assert` was a class rather than a free function. The
+// contract runs the whole route: the member factory reads the attributes off the declaration, and
+// the signature factory hands them to the call validator.
+
+test "a MEMBER's `[NotNull]` and `[NotNullWhen(false)]` reach its signature" {
+    factory := FactoryUnderTest()
+    parameters := new List<Parameter>()
+    parameters.Add(FactoryAnnotatedParameter("asserted", "object", "NotNull", new List<Argument>()))
+    parameters.Add(FactoryAnnotatedParameter("probed", "string", "NotNullWhen", FactoryBooleanArgument(false)))
+    parameters.Add(FactoryParameter("plain", "int"))
+    declaration := FactoryDeclaration("Check", parameters, "bool", Modifiers.None)
+
+    member := FactoryDeclaredMember(declaration)
+    assert member.ParameterNullabilityFacts[0] == NullabilityFlowFacts.NotNull()
+    assert member.ParameterNullabilityFacts[1] == NullabilityFlowFacts.NotNullWhenFalse()
+    assert member.ParameterNullabilityFacts[2] == NullabilityFlowFacts.None()
+
+    signature := factory.CreateFromDeclaredMember(member, null, null)
+    assert FactoryFlowFacts(signature, 0) == NullabilityFlowFacts.NotNull()
+    assert FactoryFlowFacts(signature, 1) == NullabilityFlowFacts.NotNullWhenFalse()
+    assert FactoryFlowFacts(signature, 2) == NullabilityFlowFacts.None()
+
+    // The FREE-FUNCTION route has always answered this, and the two must agree.
+    freeSignature := factory.CreateFromDeclaration(declaration, null)
+    assert FactoryFlowFacts(freeSignature, 0) == NullabilityFlowFacts.NotNull()
+    assert FactoryFlowFacts(freeSignature, 1) == NullabilityFlowFacts.NotNullWhenFalse()
+}
+
+test "a member whose parameters say NOTHING carries a null list, so the cheap skip still skips" {
+    factory := FactoryUnderTest()
+    parameters := new List<Parameter>()
+    parameters.Add(FactoryParameter("value", "int"))
+    declaration := FactoryDeclaration("Plain", parameters, "int", Modifiers.None)
+
+    member := FactoryDeclaredMember(declaration)
+    signature := factory.CreateFromDeclaredMember(member, null, null)
+
+    assert signature.ParameterFlowFacts == null
+    assert signature.ParameterReachabilityFacts == null
+}
+
+test "an attribute whose boolean argument is not a literal contributes nothing" {
+    factory := FactoryUnderTest()
+    reference: TypeReference = new SimpleTypeReference("string")
+    arguments := new List<Argument>()
+    arguments.Add(new Argument(null, new IdentifierExpression("flag", 1, 1), Ast.ArgumentModifier.None))
+    attributes := new List<AttributeNode>()
+    attributes.Add(new AttributeNode("NotNullWhen", arguments, 1, 1, null))
+    parameters := new List<Parameter>()
+    parameters.Add(new Parameter("probed", reference, null, false, Ast.ParameterModifier.None, attributes, 1, 1, false, null))
+    declaration := FactoryDeclaration("Check", parameters, "bool", Modifiers.None)
+
+    member := FactoryDeclaredMember(declaration)
+    signature := factory.CreateFromDeclaredMember(member, null, null)
+
+    assert member.ParameterNullabilityFacts[0] == NullabilityFlowFacts.None()
+    assert signature.ParameterFlowFacts == null
+}
+
 // THE EXPRESSION-TREE LAMBDA TARGET (task 017 slice 20 phase B). Whether a lambda written against
 // an expected type compiles to an expression TREE rather than to a delegate. Two spellings, one
 // question, and the N# one takes its collaborators as PARAMETERS so a rebuilt conversion can never
