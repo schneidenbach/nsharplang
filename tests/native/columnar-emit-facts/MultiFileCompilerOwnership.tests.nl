@@ -244,7 +244,22 @@ test "the N# MultiFileCompiler owns the exact public surface without a Compiler 
     explicitOverrideTypes[2] = configType
     explicitOverrideTypes[3] = overridesType
     assert owner.GetConstructor(explicitOverrideTypes) != null
-    assert owner.GetConstructors(BindingFlags.Instance | BindingFlags.Public).Length == 4
+
+    // THE FIFTH PUBLIC CONSTRUCTOR IS THE TEST-FILE ARM. `nlc check` compiles the same file list
+    // `nlc test` compiles, which means discovery has to be asked for `*.tests.nl` explicitly; the
+    // flag is REQUIRED rather than defaulted, so no existing caller silently changes what it reads.
+    rootIncludeTestsTypes := new Type[](4)
+    rootIncludeTestsTypes[0] = typeof(string)
+    rootIncludeTestsTypes[1] = configType
+    rootIncludeTestsTypes[2] = overridesType
+    rootIncludeTestsTypes[3] = typeof(bool)
+    rootIncludeTests := MultiFileOwnerRequiredConstructor(
+        owner.GetConstructor(rootIncludeTestsTypes),
+        "project root plus config, overrides and includeTests"
+    )
+    assert !rootIncludeTests.GetParameters()[3].get_IsOptional()
+
+    assert owner.GetConstructors(BindingFlags.Instance | BindingFlags.Public).Length == 5
 
     privateConstructors := owner.GetConstructors(BindingFlags.Instance | BindingFlags.NonPublic)
     assert privateConstructors.Length == 1
