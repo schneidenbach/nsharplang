@@ -37,7 +37,19 @@ Facade and MSBuild task lanes are running from `06186dc6d`; CLI/LSP/Playground/R
 Visual Studio is deferred; compiler completion and rename evidence below remain accepted.
 Shared compiler prerequisites, seeds and integration gates remain root-owned.
 
-**Census waves 6 and 7 integrating, 2026-09-13** (systems-language `a755caeea` → pending push): ITER2, EMIT3 (its
+**Census wave 8 integrating, 2026-09-13** (systems-language `17d626dca` → this push): nine streams merged in landing order
+onto `census/merge` — EMIT4, LIFT, EVENTS, AMBIG, ACCESS, USING, OVERLOAD, TOOL2 (its agent died silently; root merged
+its four commits), ASYNC (its agent did the integration merge: NL333→NL336, kinds 77 `using` / 78 async lambda / 79 `on` /
+80 `off` / 81 `await using`), EVENTS2 (source-declared events, kind 82 bare `this`, NL337/NL338) — rows in
+tasks/TOOLCHAIN-NATIVE.md "Census wave 3"; corpus pin 115, 87 native projects, catalog 102 codes / 92 compiler rows; the C# "declining shape" sentinels moved to `await foreach` inside a generator
+(962 lines kept, ratchet repinned thrice: C# row, two ilverify.sh delivery rows). Root fixes on the way: the metadata
+probe answers only visible types (`System.TokenType` is internal). Converter (nsharp-cs2nl) now writes anonymous objects
+as named tuples, type-pattern switch arms as `match`, the `using` statement/declaration, `async` lambdas, the bare
+rethrow, `+=`/`-=` as `on`/`off`, collection initializers as sequence constructors, C# ImplicitUsings as imports, and
+qualifies a simple name only when two PUBLIC types supply it. Converted census at converter `396d94e` / CLI `fa8da2296`: runtime 0, cli 15 (12 warnings), tests 1,
+languageserver 26 (13 warnings) — every remaining error is a filed compiler gap in census-briefs/FOLLOWUPS.md. Fresh gates at `15512b517`: `VSCODE_TESTS=skip` 13m06s and VS Code-enabled 13m53s (smoke 16/16, extension 36 passing), both ALL TESTS PASSED; pushed as systems-language `15512b517`+docs → this commit.
+
+**Census waves 6 and 7 integrated, 2026-09-13** (systems-language `a755caeea` → `17d626dca`): ITER2, EMIT3 (its
 holder-name fix), INHERIT, LAMBDA3, TUPLE3, TESTREFS and FLOW5 merged in landing order onto `census/merge` (rows in
 tasks/TOOLCHAIN-NATIVE.md "Census wave 3"; corpus pin 107, 79 native projects). Converter gained the `using`-declaration
 throw lowering and writes a type name in full when two imports supply the same simple name (TUPLE3's finding: N# binds
