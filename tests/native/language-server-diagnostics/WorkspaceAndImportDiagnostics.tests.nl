@@ -321,3 +321,62 @@ func Release(): int {
         Directory.Delete(tempRoot, true)
     }
 }
+
+// THE EDITOR AND THE BUILD MUST ANSWER THE SAME WAY ABOUT A `.tests.nl` FILE.
+//
+// `nlc check` and `nlc build` add the implicit test-framework package to the config before analysis
+// begins; the language server parses `project.yml` and does not. So `FactAttribute` was a type the
+// build could see and the editor could not, and an attribute deriving from it read as unresolved in
+// the editor alone. The framework's reference rows are now planned for any project whose directory
+// holds `*.tests.nl` sources, which is the fact all three products share.
+test "DocumentManager resolves the test framework for a .tests.nl buffer without a declared dependency" {
+    tempRoot := LsdTempRoot("nsharp-lsp-testrefs-")
+    Directory.CreateDirectory(tempRoot)
+    try {
+        LsdWriteFile(tempRoot, "project.yml", "name: TempTestRefs\ntargetFramework: net10.0")
+        LsdWriteFile(
+            tempRoot,
+            "FactAttributes.tests.nl",
+            LsdDecodedSource(
+                """
+namespace TempTestRefs
+
+import Xunit
+
+sealed class SlowFactAttribute: FactAttribute {
+    public constructor() {
+    }
+}
+"""
+            )
+        )
+
+        suiteSource := LsdDecodedSource(
+            """
+namespace TempTestRefs
+
+import Xunit
+
+class Suite {
+    [SlowFact]
+    func Slow() {
+        Assert.True(true)
+    }
+}
+"""
+        )
+        suitePath := Path.Combine(tempRoot, "Suite.tests.nl")
+        File.WriteAllText(suitePath, suiteSource)
+
+        diagnostics := LsdOpenCompilerDiagnostics(LsdFileUri(suitePath), File.ReadAllText(suitePath))
+
+        // `xunit` IS A PACKAGE, NOT AN ASSEMBLY, so nothing may report it as an unreadable one; and
+        // `SlowFact` is declared one file away and derives from a type only the reference set can
+        // produce, so a missing set reads as "Attribute type 'SlowFact' not found".
+        assert !LsdContains(diagnostics, "ReferenceAssemblyLoadFailed", null)
+        assert !LsdContains(diagnostics, "TypeNotFound", null)
+        assert !LsdContainsSeverity(diagnostics, "Error")
+    } finally {
+        Directory.Delete(tempRoot, true)
+    }
+}
