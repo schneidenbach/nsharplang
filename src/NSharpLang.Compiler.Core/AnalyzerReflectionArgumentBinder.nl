@@ -946,6 +946,15 @@ class AnalyzerReflectionArgumentBinder {
     // is how a selected method group's own parameter and return types flow back into the reflected
     // method's type parameters.
     func PopulateReflectionBindingsFromTypeInfo(openType: Type, sourceType: TypeInfo, bindings: Dictionary<Type, Type>, typeInfoBindings: Dictionary<Type, TypeInfo>) {
+        // `unknown` IS NOT AN INFERENCE. It is the analyzer's answer for an expression it could not
+        // type at all, and recording it would close the method over a type the program never wrote —
+        // a lambda with an unanalysable body would silently fix the very type parameter its body was
+        // supposed to decide. The position stays open, which is a non-finalisation rather than a
+        // guess.
+        if BuiltInTypes.IsUnknown(sourceType) {
+            return
+        }
+
         effectiveOpenType := openType
         if openType.get_IsByRef() {
             element := openType.GetElementType()

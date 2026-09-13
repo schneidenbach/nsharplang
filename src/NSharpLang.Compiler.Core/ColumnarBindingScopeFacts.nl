@@ -136,6 +136,25 @@ class ColumnarExternalTypeCatalog {
         return true
     }
 
+    // THE RAW CANDIDATES UNDER ONE NAME, for the caller that cannot state its argument types yet.
+    // A lambda argument has no type until the delegate it targets is known, and the delegate is one
+    // of the things inference decides, so the contextual resolver runs the phases itself and needs
+    // the unfiltered bucket rather than a selection. The index is the SAME one `TryResolveExtension`
+    // builds and caches: there is no second scan and no second discovery rule.
+    func ExtensionCandidates(memberName: string): List<ColumnarExtensionMethodCandidate> {
+        if !IsPrepared {
+            return new List<ColumnarExtensionMethodCandidate>()
+        }
+        if !extensionIndexBuilt {
+            if preparedScan == null {
+                return new List<ColumnarExtensionMethodCandidate>()
+            }
+            extensionIndex = ColumnarExtensionMethodResolver.BuildIndex(preparedScan)
+            extensionIndexBuilt = true
+        }
+        return ColumnarContextualExtensionInference.Candidates(extensionIndex, memberName)
+    }
+
     func Prepare(referenceAssemblyPaths: IReadOnlyList<string>?, sourceFactsById: Dictionary<int, ColumnarSourceBindingFacts>) {
         resolvedOwners.Clear()
         fileFactsById = sourceFactsById
@@ -510,6 +529,12 @@ class ColumnarBindingScopeFacts {
             return false
         }
         return assemblyCatalog.TryResolveExtension(receiverType, memberName, argumentTypes, argumentFacts, out selection)
+    }
+
+    // The extension candidates exported under one name, for contextual (lambda-carrying) resolution.
+    // Delegated to the shared catalog so the index is built once and reused across every file view.
+    func ExtensionCandidates(memberName: string): List<ColumnarExtensionMethodCandidate> {
+        return assemblyCatalog.ExtensionCandidates(memberName)
     }
 
     // Declared-type positions have their own exact binding rules. This resolver deliberately
