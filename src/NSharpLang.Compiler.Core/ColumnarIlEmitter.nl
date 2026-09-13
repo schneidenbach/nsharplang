@@ -3003,6 +3003,9 @@ sealed class ColumnarIlEmitter {
         persistedCustomAttributes: IEnumerable<CustomAttributeBuilder>? = null
         builder := new PersistedAssemblyBuilder(persistedAssemblyIdentity, coreObjectAssembly, persistedCustomAttributes)
         module := builder.DefineDynamicModule(declarationPlan.ModuleName)
+        // Written attributes are collected here and attached in one phase before the first CreateType;
+        // see ColumnarSourceAttributeQueue for why attachment cannot happen where the attribute is met.
+        sourceAttributeQueue := new ColumnarSourceAttributeQueue()
         program.PrepareExternalTypeBindings(referenceAssemblyPaths)
         enumRegistry := new Dictionary<string, ColumnarEnumDef>(StringComparer.Ordinal)
         for e := 0; e < declarationPlan.EnumCount; e++ {
@@ -3347,7 +3350,7 @@ sealed class ColumnarIlEmitter {
                 typeGenericParams,
                 def.DeclaredTypeName
             )
-            ColumnarSourceAttributes.ApplyType(tb, st.SourceAttributes, typeResolution)
+            sourceAttributeQueue.QueueType(tb, st.SourceAttributes, typeResolution)
             structTypeResolutions[s] = typeResolution
             if (!ColumnarGenericConstraintPlanner.TryApplyDeclaredTypeConstraints(st.TypeParamNames, typeGenericParams, st.TypeParamSpecialConstraints, st.TypeParamTypeConstraints, typeResolution)) {
                 return DeclineStatic("emit.type.generic-constraint", "generic constraints on '" + st.Name + "' are not modeled", st.Name, -1, 0)
@@ -3590,7 +3593,7 @@ sealed class ColumnarIlEmitter {
                         pinvokeMergedImplementationFlagWord := pinvokeImportForMergeFlags.MergeImplementationFlags(pinvokeCurrentImplementationFlagWord)
                         pinvokeMergedImplementationFlags := (MethodImplAttributes)pinvokeMergedImplementationFlagWord
                         pinvokeMethodForSetFlags.SetImplementationFlags(pinvokeMergedImplementationFlags)
-                        if (!ColumnarParameterDefaultEmitter.DefineMethodParameterMetadataWithAttributes(pmb, sParamTypes, m.ParamNames, m.ParamModifierKinds, m.ParamDefaultKinds, m.ParamDefaultTexts, typeResolution.Enums, m.ParameterSourceAttributes, typeResolution, m.ParamLabeledCanonicals)) {
+                        if (!ColumnarParameterDefaultEmitter.DefineMethodParameterMetadataWithAttributes(pmb, sParamTypes, m.ParamNames, m.ParamModifierKinds, m.ParamDefaultKinds, m.ParamDefaultTexts, typeResolution.Enums, m.ParameterSourceAttributes, typeResolution, m.ParamLabeledCanonicals, sourceAttributeQueue)) {
                             return false
                         }
                         ColumnarTupleElementNameEmitter.ApplyToReturn(pmb, m.ReturnLabeledCanonical)
@@ -3607,11 +3610,11 @@ sealed class ColumnarIlEmitter {
                     } else {
                         smb = def.Builder.DefineMethod(m.Name, staticMethodAttributes, sSignatureReturn, sParamTypes)
                     }
-                    ColumnarSourceAttributes.ApplyMethod(smb, m.SourceAttributes, sTypeResolution)
+                    sourceAttributeQueue.QueueMethod(smb, m.SourceAttributes, sTypeResolution)
                     if (!ColumnarMethodImplAttributes.TryApplyToMethod(smb, m.SourceAttributes, sTypeResolution)) {
                         return DeclineStatic("emit.methodimpl.options", "[MethodImpl] needs a compile-time MethodImplOptions value", m.Name, -1, 0)
                     }
-                    if (!ColumnarParameterDefaultEmitter.DefineMethodParameterMetadataWithAttributes(smb, sParamTypes, m.ParamNames, m.ParamModifierKinds, m.ParamDefaultKinds, m.ParamDefaultTexts, sTypeResolution.Enums, m.ParameterSourceAttributes, sTypeResolution, m.ParamLabeledCanonicals)) {
+                    if (!ColumnarParameterDefaultEmitter.DefineMethodParameterMetadataWithAttributes(smb, sParamTypes, m.ParamNames, m.ParamModifierKinds, m.ParamDefaultKinds, m.ParamDefaultTexts, sTypeResolution.Enums, m.ParameterSourceAttributes, sTypeResolution, m.ParamLabeledCanonicals, sourceAttributeQueue)) {
                         return false
                     }
                     ColumnarTupleElementNameEmitter.ApplyToReturn(smb, m.ReturnLabeledCanonical)
@@ -3695,11 +3698,11 @@ sealed class ColumnarIlEmitter {
                     declaredGenericInstance := mGenericBuilder
                     declaredGenericInstance.SetReturnType(mSignatureReturn)
                     declaredGenericInstance.SetParameters(mParamTypes)
-                    ColumnarSourceAttributes.ApplyMethod(declaredGenericInstance, m.SourceAttributes, mTypeResolution)
+                    sourceAttributeQueue.QueueMethod(declaredGenericInstance, m.SourceAttributes, mTypeResolution)
                     if (!ColumnarMethodImplAttributes.TryApplyToMethod(declaredGenericInstance, m.SourceAttributes, mTypeResolution)) {
                         return DeclineStatic("emit.methodimpl.options", "[MethodImpl] needs a compile-time MethodImplOptions value", m.Name, -1, 0)
                     }
-                    if (!ColumnarParameterDefaultEmitter.DefineMethodParameterMetadataWithAttributes(declaredGenericInstance, mParamTypes, m.ParamNames, m.ParamModifierKinds, m.ParamDefaultKinds, m.ParamDefaultTexts, mTypeResolution.Enums, m.ParameterSourceAttributes, mTypeResolution, m.ParamLabeledCanonicals)) {
+                    if (!ColumnarParameterDefaultEmitter.DefineMethodParameterMetadataWithAttributes(declaredGenericInstance, mParamTypes, m.ParamNames, m.ParamModifierKinds, m.ParamDefaultKinds, m.ParamDefaultTexts, mTypeResolution.Enums, m.ParameterSourceAttributes, mTypeResolution, m.ParamLabeledCanonicals, sourceAttributeQueue)) {
                         return false
                     }
                     ColumnarTupleElementNameEmitter.ApplyToReturn(declaredGenericInstance, m.ReturnLabeledCanonical)
@@ -3756,11 +3759,11 @@ sealed class ColumnarIlEmitter {
                     return DeclineStatic(methodOverrideCompletion.DeclineCode, methodOverrideCompletion.DeclineMessage, methodOverrideCompletion.DeclineOwnerName, -1, 0)
                 }
                 mb := methodOverrideCompletion.DefineMethod(def.Builder)
-                ColumnarSourceAttributes.ApplyMethod(mb, m.SourceAttributes, typeResolution)
+                sourceAttributeQueue.QueueMethod(mb, m.SourceAttributes, typeResolution)
                 if (!ColumnarMethodImplAttributes.TryApplyToMethod(mb, m.SourceAttributes, typeResolution)) {
                     return DeclineStatic("emit.methodimpl.options", "[MethodImpl] needs a compile-time MethodImplOptions value", m.Name, -1, 0)
                 }
-                if (!ColumnarParameterDefaultEmitter.DefineMethodParameterMetadataWithAttributes(mb, mParamTypes, m.ParamNames, m.ParamModifierKinds, m.ParamDefaultKinds, m.ParamDefaultTexts, typeResolution.Enums, m.ParameterSourceAttributes, typeResolution, m.ParamLabeledCanonicals)) {
+                if (!ColumnarParameterDefaultEmitter.DefineMethodParameterMetadataWithAttributes(mb, mParamTypes, m.ParamNames, m.ParamModifierKinds, m.ParamDefaultKinds, m.ParamDefaultTexts, typeResolution.Enums, m.ParameterSourceAttributes, typeResolution, m.ParamLabeledCanonicals, sourceAttributeQueue)) {
                     return false
                 }
                 ColumnarTupleElementNameEmitter.ApplyToReturn(mb, m.ReturnLabeledCanonical)
@@ -4594,11 +4597,11 @@ sealed class ColumnarIlEmitter {
                     nonGenericMethodParameterTypes
                 )
             }
-            ColumnarSourceAttributes.ApplyMethod(methods[f], fn.SourceAttributes, typeResolution)
+            sourceAttributeQueue.QueueMethod(methods[f], fn.SourceAttributes, typeResolution)
             if (!ColumnarMethodImplAttributes.TryApplyToMethod(methods[f], fn.SourceAttributes, typeResolution)) {
                 return DeclineStatic("emit.methodimpl.options", "[MethodImpl] needs a compile-time MethodImplOptions value", fn.Name, -1, 0)
             }
-            if (!ColumnarParameterDefaultEmitter.DefineMethodParameterMetadataWithAttributes(methods[f], paramTypes, fn.ParamNames, fn.ParamModifierKinds, fn.ParamDefaultKinds, fn.ParamDefaultTexts, typeResolution.Enums, fn.ParameterSourceAttributes, typeResolution, fn.ParamLabeledCanonicals)) {
+            if (!ColumnarParameterDefaultEmitter.DefineMethodParameterMetadataWithAttributes(methods[f], paramTypes, fn.ParamNames, fn.ParamModifierKinds, fn.ParamDefaultKinds, fn.ParamDefaultTexts, typeResolution.Enums, fn.ParameterSourceAttributes, typeResolution, fn.ParamLabeledCanonicals, sourceAttributeQueue)) {
                 return false
             }
             ColumnarTupleElementNameEmitter.ApplyToReturn(methods[f], fn.ReturnLabeledCanonical)
@@ -4731,7 +4734,7 @@ sealed class ColumnarIlEmitter {
                         localMethodReturnType,
                         localMethodParameterTypes
                     )
-                    if (!ColumnarParameterDefaultEmitter.DefineMethodParameterMetadataWithAttributes(localMethod, localParams, localFn.ParamNames, localFn.ParamModifierKinds, localFn.ParamDefaultKinds, localFn.ParamDefaultTexts, typeResolution.Enums, null, null, localFn.ParamLabeledCanonicals)) {
+                    if (!ColumnarParameterDefaultEmitter.DefineMethodParameterMetadataWithAttributes(localMethod, localParams, localFn.ParamNames, localFn.ParamModifierKinds, localFn.ParamDefaultKinds, localFn.ParamDefaultTexts, typeResolution.Enums, null, null, localFn.ParamLabeledCanonicals, sourceAttributeQueue)) {
                         return false
                     }
                     ColumnarTupleElementNameEmitter.ApplyToReturn(localMethod, localFn.ReturnLabeledCanonical)
@@ -5317,6 +5320,9 @@ sealed class ColumnarIlEmitter {
         // defined, so CreateType bakes the type metadata; methods that reference un-finalized builders resolve to
         // the finalized types at Save. Enums were baked in pass 0 because no later user type can affect them.
         // Interfaces bake BEFORE their implementers, and base interfaces bake before derived interfaces.
+        // Every builder the written attributes can name now exists. Bind and attach them before the
+        // first CreateType bakes a type whose CustomAttribute rows would then be closed.
+        sourceAttributeQueue.Flush()
         ColumnarInterfaceRealization.FinalizeInterfaces(interfaces, interfaceDefsInOrder, interfaceDepths)
         // Struct/class types bake BASE-BEFORE-DERIVED (depth ascending): CreateType on a derived TypeBuilder
         // requires its parent to be created first. Depth 0 (no base) covers every value-type struct and standalone
