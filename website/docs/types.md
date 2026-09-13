@@ -1637,13 +1637,11 @@ Two rules the compiler enforces about the type-argument list itself:
   lambda's body) but does not EMIT yet. A generic FREE function with a delegate parameter is
   unaffected, and so is every generic method on an external type; write the type argument out
   (`Match<string>(...)`) or move the call into a free function.
-- A **nullable over a value type outside the modelled set** does not resolve at any declared
-  position. `T?` works for the integral and floating scalars, `bool`, `char`, `decimal`, `TimeSpan`,
-  an enum and a tuple; `DateTime?`, `Guid?` and a `T?` over **your own struct** report
-  [NL103](./errors/NL103.md) on the parameter, return or local that spells them. The lifted operators
-  above follow that set — the rule itself is general (it lifts any user-defined operator on a
-  non-nullable value type), so those types gain it as soon as the nullable itself resolves. Use the
-  non-nullable type with a separate presence flag, or a reference wrapper, until then.
+- Calling a **generic function whose return is a nullable over its own type parameter**
+  (`func First<T>(items: T[]): T? where T : struct`) reports [NL103](./errors/NL103.md) at the call,
+  on the statement that reads the result. The declaration itself compiles, and a generic function
+  that returns a plain `T` is unaffected; write the non-generic shape, or return the element with a
+  separate presence flag, until then.
 - **Null-conditional INDEXING** (`items?[0]`) is not compiled yet; `?.` on a member or a method is
   unaffected, and an explicit null check reads the element.
 - An argument that must be **boxed into an `object` parameter of a GENERIC function**
@@ -1756,6 +1754,34 @@ if age != null {
 displayAge := age ?? 0
 ```
 
+**Any** non-`ref struct` value type can be the `T` in a `T?`: the scalars, `bool`, `char`, `decimal`,
+`DateTime`, `Guid`, a tuple, and an enum, a struct or a struct record **you declare yourself**. A
+`T?` is `System.Nullable<T>` in metadata whatever `T` is, so a C# caller sees exactly the type it
+expects.
+
+`Nullable<T>`'s own surface comes with it, also whatever `T` is — `HasValue`, `Value` and both
+`GetValueOrDefault` overloads:
+
+```n#
+struct Money {
+    Amount: int
+}
+
+func Spend(budget: Money?, fallback: Money): int {
+    if !budget.HasValue {
+        return budget.GetValueOrDefault(fallback).Amount
+    }
+
+    return budget.GetValueOrDefault().Amount
+}
+```
+
+`GetValueOrDefault()` answers `T`'s own `default` when the value is absent and never throws, so it
+needs no guard. `Value` does throw, so the compiler warns when you read it without proving the value
+is there ([NL907](./errors/NL907.md)) — `must`, a null check or `GetValueOrDefault` are the three
+ways to say what you mean. A name that `T` itself declares still binds on `T`; only a name `T` does
+not have falls through to `Nullable<T>`'s.
+
 `==` and `!=` are **lifted** over a nullable value type: two absent values are equal, an absent one
 differs from every present one, and the answer is a plain `bool` rather than a `bool?`. One side may
 be the non-nullable type.
@@ -1815,15 +1841,25 @@ count++                    // still absent if it was absent
 count += 5                 // int? — absent stays absent
 ```
 
-User-defined operators lift the same way. `decimal?`, `TimeSpan?` and any other value type that
-declares `op_Addition`, `op_LessThan` or `op_Equality` gets the lifted form of each; a nullable enum
-lifts its bitwise operators through the underlying type and keeps the enum as the result.
+User-defined operators lift the same way. `decimal?`, `TimeSpan?`, a struct **you** declare, and any
+other value type that declares `op_Addition`, `op_LessThan` or `op_Equality` gets the lifted form of
+each; a nullable enum lifts its bitwise operators through the underlying type and keeps the enum as
+the result.
 
 ```n#
 elapsed: TimeSpan? = Measure()
 total := elapsed + TimeSpan.FromSeconds(1)   // TimeSpan?
 access: Access? = LoadAccess()
 combined := access | Access.Write            // Access?
+
+struct Cents {
+    Value: int
+
+    static func operator +(a: Cents, b: Cents): Cents => new Cents { Value: a.Value + b.Value }
+}
+
+owed: Cents? = LoadOwed()
+billed := owed + new Cents { Value: 5 }      // Cents? — absent when `owed` is absent
 ```
 
 #### Three-valued `bool?` logic
@@ -2080,6 +2116,58 @@ func FirstLongWord(items: List<string>): string {
 
 `Enumerable.First` follows the argument; `Enumerable.FirstOrDefault`, `Enumerable.LastOrDefault`,
 `List<T>.Find` and a `Dictionary<K, V>.TryGetValue` `out` value are all annotated and stay maybe-null.
+
+### `T?` on a type parameter is an annotation, and a value argument erases it
+
+That `?` is a **reference** annotation. It says "may be the default", it has no runtime form, and a
+value type substituting the parameter erases it — so the same `FirstOrDefault` that is maybe-null
+over a `List<string>` is a plain `DateTime` over a `List<DateTime>`:
+
+```n#
+func LatestYear(moments: List<DateTime>): int {
+    // `DateTime` is a value type, so the `?` is gone: there is no absent value to guard, and an
+    // empty list answers `default(DateTime)`.
+    return moments.LastOrDefault().Year
+}
+
+func LatestWord(words: List<string>): string {
+    // `string` is a reference type, so the `?` stays and the guard is required.
+    found := words.LastOrDefault()
+    return found ?? ""
+}
+```
+
+**Your own generic functions and types spell the same two things.** An unconstrained `T?` is that
+annotation; `where T : struct` is a real `Nullable<T>`:
+
+```n#
+func FirstOrDefaultOf<T>(items: T[]): T? {
+    if items.Length > 0 {
+        return items[0]
+    }
+
+    return default                       // `default`, not `null` — `T` may be a value type
+}
+
+func FirstOrAbsent<T>(items: T[]): T? where T : struct {
+    if items.Length > 0 {
+        return items[0]
+    }
+
+    return null                          // a real `Nullable<T>`, so `null` is one of its values
+}
+
+func Count(values: int[]): int {
+    return FirstOrDefaultOf(values)      // int — the annotation erased
+}
+
+func Name(names: string[]): string {
+    return FirstOrDefaultOf(names) ?? "" // string? — the annotation survived
+}
+```
+
+Passing `null` to an unconstrained `T?` parameter that a value argument has closed is an error, for
+the same reason: the parameter is an `int`, and `null` is not one.
 
 ## Type Aliases
 
