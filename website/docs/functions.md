@@ -1178,6 +1178,19 @@ stops enumerating part-way and disposes the enumerator — which is what `for..i
 `break`s or throws. It does **not** run when the generator merely suspends at a `yield`. Nested
 regions unwind innermost first, exactly as they do in a plain function.
 
+A resource that is only being *released* needs none of that ceremony: write
+[`using`](./language-tour.md), which is this `try`/`finally` and releases on exactly the same three
+paths.
+
+```n#
+func* firstTwoLines(path: string): IEnumerable<string?> {
+    using reader := new StreamReader(path) {
+        yield reader.ReadLine()
+        yield reader.ReadLine()
+    }
+}
+```
+
 `catch` and `finally` handlers that contain no `yield` are ordinary protected regions and may be
 written anywhere in a generator body.
 
@@ -1188,6 +1201,12 @@ written anywhere in a generator body.
   ([NL332](./errors/NL332.md)) — a suspension has to be resumable, and only a `finally` can be
   re-entered that way.
 - a BLOCK-bodied lambda (`x => { ... }`); write it as a single expression.
+- a `using` whose resource is a **struct**. Releasing a value in a state machine would have to reach
+  through the machine's own field, which the generator's instruction plan cannot spell, and releasing
+  a copy of it would run `Dispose` on something nobody can observe. Hold the resource in a class, or
+  put the `using` outside the generator.
+- `await using` — releasing asynchronously needs an `await` inside a handler, where a suspension has
+  no resume point to come back to. This is the same wall `await foreach` meets in a generator body.
 - a lambda that captures a variable declared INSIDE a loop — a generator holds one field per local,
   so every iteration would share it rather than getting the fresh binding the language promises.
 - `await` outside an `async func*`, and — inside one — an `await` NESTED in a larger expression;
