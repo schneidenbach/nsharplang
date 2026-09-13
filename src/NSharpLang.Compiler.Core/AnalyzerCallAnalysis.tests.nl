@@ -294,12 +294,12 @@ func CallWalkTypeText(resolved: TypeInfo?): string {
 // expected-type analysis and the action of every escape report written out. This IS the protocol:
 // any change to which step happens, in what order, or how many times, changes this string.
 //
-// KIND 6 IS RENDERED IN TWO FORMS BECAUSE THE WALK ASKS IT FOR TWO REASONS. `6(callee)` is the
-// callee's own analysis, taken under the three callee-position suppressions the walk opens and
-// closes around it; a bare `6` is a member-access RECEIVER — either the ordinary one, or the
-// reflected bind's SECOND read of it. The DRIVER cannot tell them apart and does not need to — both
-// are `AnalyzeExpression(node)` — but a contract about how many times the receiver is read must not
-// count the callee as one of them.
+// KIND 6 IS THE CALLEE AND KIND 16 IS THE RECEIVER, and they are two kinds rather than one because
+// the driver answers them differently. `6(callee)` is the callee's own analysis, taken under the
+// three callee-position suppressions the walk opens and closes around it, and it is the ONE walk of
+// the receiver's subtree; every `16` after it is a RE-READ of the receiver the callee walk already
+// analysed, which the driver answers by re-running the expression tail on the kept dispatched type.
+// A contract about how many times the receiver is read counts `16`, and never the callee.
 //
 // KIND 4 CARRIES ITS EXPECTED TYPE AND KIND 15 CARRIES ITS TREE FLAG, because those are exactly what
 // distinguishes the reflected bind's argument pre-pass (`4(<null>)`) from an ordinary argument, and
@@ -311,11 +311,7 @@ func CallWalkStepText(step: CallAnalysisRequest, call: CallExpression): string {
     }
 
     if kind == 6 {
-        if Object.ReferenceEquals(step.Node, call.Callee) {
-            return "6(callee)"
-        }
-
-        return "6"
+        return "6(callee)"
     }
 
     if kind == 7 {
@@ -364,11 +360,9 @@ func CallWalkRun(
         if kind == 4 {
             answer = argumentAnswer
         } else if kind == 6 {
-            if Object.ReferenceEquals(step.Node, call.Callee) {
-                answer = calleeType
-            } else {
-                answer = receiverType
-            }
+            answer = calleeType
+        } else if kind == 16 {
+            answer = receiverType
         } else if kind == 15 {
             answer = lambdaAnswer
         } else if kind == firedGate {
@@ -753,11 +747,11 @@ test "a receiver-style generic call reads the member-access receiver EXACTLY thr
         0
     )
 
-    // 6 before the arguments (closing the inference), then 6 again for validation and 6 again for
-    // the return type. Each one is a real analysis that reports again. The leading `6(callee)` is
-    // the callee itself and is NOT one of them.
-    assert CallWalkCount(transcript, "6") == 3
-    assert transcript == "6(callee) 3 6 4(string) 8 6 6"
+    // 16 before the arguments (closing the inference), then 16 again for validation and 16 again
+    // for the return type. The leading `6(callee)` is the callee itself — the one walk of the
+    // receiver's subtree — and is NOT one of them.
+    assert CallWalkCount(transcript, "16") == 3
+    assert transcript == "6(callee) 3 16 4(string) 8 16 16"
 }
 
 test "the same signature called WITHOUT a member access reads no receiver at all" {
@@ -778,7 +772,7 @@ test "the same signature called WITHOUT a member access reads no receiver at all
         0
     )
 
-    assert CallWalkCount(transcript, "6") == 0
+    assert CallWalkCount(transcript, "16") == 0
     assert CallWalkCount(transcript, "6(callee)") == 0
 }
 
@@ -804,10 +798,10 @@ test "an overload group whose winner is not receiver-style generic reads the rec
         0
     )
 
-    assert CallWalkCount(transcript, "6") == 1
+    assert CallWalkCount(transcript, "16") == 1
     // 14 is the semantic-model record for the chosen overload, and it happens between the binding
     // read and the validation the winner did not need.
-    assert transcript == "6(callee) 3 4(<null>) 8 6 14"
+    assert transcript == "6(callee) 3 4(<null>) 8 16 14"
     assert CallWalkTypeText(state.Result) == "string"
 }
 
@@ -829,8 +823,8 @@ test "an overload group whose winner IS receiver-style generic reads the receive
         0
     )
 
-    assert CallWalkCount(transcript, "6") == 3
-    assert transcript == "6(callee) 3 4(<null>) 8 6 14 6 6"
+    assert CallWalkCount(transcript, "16") == 3
+    assert transcript == "6(callee) 3 4(<null>) 8 16 14 16 16"
 }
 
 // ------------------------------------------------------------------ dispatch and the gates
@@ -1259,7 +1253,71 @@ test "an argument's expected type comes from the signature, closed once before t
 
     // `p2: T` with the receiver binding `T = int` — the expected type is the CLOSED one, and it is
     // closed from the receiver read before the loop rather than from the arguments analysed so far.
-    assert transcript == "6(callee) 3 6 4(int) 8 6 6"
+    assert transcript == "6(callee) 3 16 4(int) 8 16 16"
+}
+
+// ------------------------------------------------------- the receiver is walked ONCE per link
+
+// THE COMPLEXITY CONTRACT, STATED AS A COUNT RATHER THAN AS A CLOCK.
+//
+// A fluent chain's receiver is itself a call whose receiver is a call, and the call walk reads the
+// member-access receiver more than once (three times for a receiver-style generic, once for a group
+// whose winner is not). While each of those reads RE-WALKED the receiver's subtree, an N-link chain
+// was analysed once per PATH through it — exponential — and the analysis of a 27-link
+// `.WithHandler<T>()` registration did not terminate.
+//
+// A REPORT IS THE COUNT MADE OBSERVABLE. `Seed(1)` is an arity fault whose answer is still `Chain`,
+// so the chain above it resolves normally and the fault is analysed once per walk of the receiver.
+// The raw analyzer error list is what is counted here, deliberately: `nlc check` distincts its
+// results and would hide the repeat, which is how the exponential stayed invisible until a project
+// stopped finishing. One report at one link and one report at twenty-four is the same statement as
+// "the receiver's subtree is walked once", and at twenty-four links the old walk would not have
+// finished at all.
+func ChainedReceiverSource(links: int): string {
+    source := "namespace Probe\n\nclass Chain {\n    public func Next(): Chain {\n        return this\n    }\n}\n\nfunc Seed(): Chain {\n    return new Chain()\n}\n\nfunc Run(): Chain {\n    return Seed(1)"
+    index := 0
+    while index < links {
+        source = source + ".Next()"
+        index = index + 1
+    }
+
+    return source + "\n}\n"
+}
+
+func ChainedReceiverArityReports(links: int): int {
+    source := ChainedReceiverSource(links)
+    projectRoot := Path.Combine(Path.GetTempPath(), "nsharp-chain-receiver-" + Guid.NewGuid().ToString("N"))
+    filePath := Path.Combine(projectRoot, "Probe.nl")
+    parsed := ColumnarParserRecovery.ParseFileAst(source, filePath)
+    assert parsed.Errors.Count == 0
+    unit := parsed.CompilationUnit
+    assert unit != null
+    Directory.CreateDirectory(projectRoot)
+    analyzer := new Analyzer()
+    total := 0
+    try {
+        result := analyzer.Analyze(unit, filePath, projectRoot, source)
+        for error in result.Errors {
+            if error.Code == ErrorCode.WrongArgumentCount {
+                total = total + 1
+            }
+        }
+    } finally {
+        analyzer.Dispose()
+        Directory.Delete(projectRoot, true)
+    }
+
+    return total
+}
+
+test "a fault in a chained call's receiver is reported ONCE however long the chain" {
+    // Non-vacuity first: the fault is real and is found at the shortest chain there is.
+    assert ChainedReceiverArityReports(1) == 1
+
+    // The same one report twelve and twenty-four links up. A walk that re-walked the receiver would
+    // report 2^links times and would not reach the third of these.
+    assert ChainedReceiverArityReports(12) == 1
+    assert ChainedReceiverArityReports(24) == 1
 }
 
 func AssertCallArgumentSourceChecks(source: string) {

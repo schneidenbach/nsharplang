@@ -1100,6 +1100,36 @@ every time (measured: 1,332 positions, zero reaching the type-resolver formatter
 observable for a document opened OUTSIDE the workspace root, which is the loose-`.nl`-file case.
 Completion is the live consumer.
 
+### The call walk's receiver is walked ONCE
+
+A call whose callee is a member access analyses that member access, which analyses the RECEIVER —
+and then the call walk asks for the same receiver AGAIN, once per receiver-shaped question the bind
+has: six `AcquireReceiver` sites (a receiver-style generic candidate's inference, its validation and
+its return type, and the same three for the bound member of an overload group) plus
+`AcquireReflectionReceiver` for the reflected bind's CLR receiver. How MANY of those fire is the
+walk's own decision and is unchanged — three for a receiver-style generic, one for a group whose
+winner is not.
+
+What changed is what a repeat COSTS. Each repeat used to re-walk the receiver's whole subtree, and a
+fluent chain's receiver is itself a call whose receiver is a call, so an N-link chain was analysed
+once per PATH through it — 2^N. Measured on `items.Select(x => x)…`: 14 links 6 s, 16 links 18 s, 18
+links 66 s, a clean doubling per link; a 27-link `.WithHandler<T>()` server registration did not
+terminate, which is what made `nlc check` never finish on a 31-file converted LanguageServer.
+
+The repeats now ask for step KIND 16 instead of kind 6. `Analyzer.DriveMemberAccess` publishes the
+receiver's DISPATCHED type — the value `AnalyzerExpressionTail.Finish` has not yet folded null flow
+and the four value-misuse guards into — into a single slot, and `Analyzer.AnalyzeCall` keeps it in
+LOCALS for the length of that call's walk. Every kind-16 read re-runs the tail on the kept type where
+it stands, so each site still judges the receiver at its OWN ambient position (the callee frame
+suppresses the method-group and SoA-operation guards; a later site does not), and nothing walks the
+subtree twice. A member access that answered without a walk step — an import alias, a qualified type
+name — publishes no receiver, and its reads fall back to a full analysis, which is how
+`System.Console.WriteLine` still resolves its receiver as a TYPE the second time.
+
+The visible consequence is that a receiver whose own analysis reports now reports ONCE. It used to
+report once per repeat: `nlc check` distincted its result set and hid it, `nlc build` rendered the
+same NL401 up to four times per pass.
+
 ### Method Overload Resolution
 For external methods with multiple overloads:
 - Create a `ReflectionMethodGroupInfo` with the complete applicable method surface. For CLR

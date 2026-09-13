@@ -257,6 +257,16 @@ N# is near-zero-warnings: every active linter rule is a build-blocking **error**
 | NL016 | Error | `redundant-null-check` | Null-equality check on an expression that is always non-null (`new`, array literal, numeric/bool literal) |
 | NL020 | Error | `shadowed-variable` | Local variable declaration shadows a variable in an outer scope |
 
+**How deep an expression the linter walks.** `LinterWalk` refuses to descend past
+`MaxRecursionDepth()` = **1000 frames** and throws, which aborts the whole `check`/`lint` run rather
+than reporting anything. The real malformed-tree guard beside it is the visiting set (a node that is
+its own descendant), so the counter's only job is to fail with a message before the CLR stack fails
+without one. The cap was 100, which refused ORDINARY SOURCE: a C#-style keyword test
+`word == "func" || word == "class" || …` parses left-associatively into one parenthesised binary per
+alternative — two frames each — so seventy alternatives took the whole run down. 1000 frames is 500
+such alternatives; the columnar parser itself overflows the stack between 1,800 and 2,000, so the
+walk now stops well inside what the parser already accepted.
+
 **Deleted (pure-style):** `NL005` (use-pattern-matching), `NL008` (camel-case-local), `NL013` (prefer-interpolation), `NL014` (unnecessary-type-annotation), `NL015` (prefer-const), `NL018` (prefer-readonly), `NL019` (empty-block). These slots are retired and not reused.
 
 **Deleted (pure-style, now handled by `nlc format`):** `NL005` (use-pattern-matching), `NL008` (camel-case-local), `NL013` (prefer-interpolation), `NL014` (unnecessary-type-annotation), `NL015` (prefer-const), `NL018` (prefer-readonly), `NL019` (empty-block). These slots are retired and not reused.

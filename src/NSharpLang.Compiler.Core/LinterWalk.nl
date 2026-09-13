@@ -38,9 +38,26 @@ class LinterWalk {
         recursionDepth = 0
     }
 
-    // Deliberately low: the point is to catch a malformed tree quickly, not to support deep ones.
+    // THE DEPTH THE WALK REFUSES TO GO PAST, AND IT IS A STACK BOUND RATHER THAN A SHAPE BOUND.
+    //
+    // The malformed tree this guard was written for is caught by `visitingStack` below — a node that
+    // is its own descendant ends the descent at the NODE rather than at a counter — so the only job
+    // left for the counter is to fail with a message before the CLR stack fails without one.
+    //
+    // A CAP OF 100 DID THAT BY REFUSING ORDINARY SOURCE. A keyword test written the way C# writes
+    // one — `word == "func" || word == "class" || ...` — parses left-associatively into one
+    // parenthesised binary per alternative, so it costs TWO frames per alternative: SEVENTY
+    // alternatives, a perfectly ordinary keyword list, tripped a guard meant for broken trees, and
+    // because the guard THROWS it took the whole `nlc check` down with it rather than reporting
+    // anything about the project.
+    //
+    // 1000 IS MEASURED, NOT CHOSEN. The columnar parser is itself recursive and overflows the stack
+    // somewhere between 1,800 and 2,000 alternatives of that same shape, so anything this walk is
+    // ever handed has already survived a deeper descent than it is about to make; 1,000 frames is
+    // 500 alternatives, an order of magnitude past the deepest shape a real source file has, and
+    // still inside what the walk itself is measured to survive.
     static func MaxRecursionDepth(): int {
-        return 100
+        return 1000
     }
 
     // ---- the function arm -------------------------------------------------------------------------

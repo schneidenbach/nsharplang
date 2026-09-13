@@ -28,9 +28,8 @@ import NSharpLang.Compiler.Ast
 //      argument pre-pass (no expected type, suppression ON), or one of the reflected bind's
 //      finalising analyses. A NULL `CarriedType` is not the same as `unknown`: the analyzer's
 //      target-typed door leaves the ambient slot ALONE when no expected type is provided.
-//   6  a plain expression analysis: the CALLEE (under the callee-position suppressions, which this
-//      owner opens before asking and closes when the answer arrives), the member-access RECEIVER, or
-//      the reflected bind's SECOND read of that same receiver
+//   6  a plain expression analysis: the CALLEE, under the callee-position suppressions, which this
+//      owner opens before asking and closes when the answer arrives
 //   7  one SoA row-view escape report
 //   8  the SoA direct-column call rule (answers only whether it reported)
 //   14 the semantic-model record for a bound N# overload
@@ -39,6 +38,11 @@ import NSharpLang.Compiler.Ast
 //      operations differ: kind 4's door short-circuits a lambda with the expected type as an
 //      argument and NO tree flag, and a tree target is exactly what changes which expressions the
 //      body may contain.
+//   16 the MEMBER-ACCESS RECEIVER, read again after the callee walk has already analysed it. It is a
+//      kind of its own rather than a kind 6 precisely because the driver may answer it WITHOUT
+//      re-walking the receiver: the callee walk kept the receiver's dispatched type, so the driver
+//      re-runs the expression tail on it where it stands. That is a different operation from kind 6,
+//      and a driver that treated the two alike would put the exponential back.
 //
 // THE GAPS AT 1, 2, 5, 9, 10, 11, 12 AND 13 ARE KEPT ON PURPOSE. Each was a round trip that relayed
 // a decision this walk now makes for itself — the `Ok`/`Err` probe (1), the callee's own fork between
@@ -204,11 +208,15 @@ class CallAnalysisState {
 // therefore a function of an answer the walk does not have until it has already suspended once, so
 // no schedule computed up front reproduces it.
 //
-// AND THE COUNT IS USER-VISIBLE, WHICH IS WHY IT IS PRESERVED EXACTLY. A receiver whose own analysis
-// reports — an arity error, a missing member, an unbound name, a bad argument — reports again on
-// every repeat: 27 of 30 measured triple-fires reported THREE times, and `nlc build` renders the
-// same NL401 twelve times on a `Bad(1, 2).Tag("x")` receiver where the analyses are four per pass.
-// `nlc check` distincts its result set and hides this; the unsorted build transcript does not.
+// THE COUNT IS STILL THE WALK'S, BUT A REPEAT IS NO LONGER A RE-WALK. The repeats used to re-analyse
+// the receiver's whole subtree, and a fluent chain's receiver IS a call whose receiver is a call, so
+// a chain of N links was analysed once per PATH through it — 2^N — and a 27-link
+// `.WithHandler<T>()` registration never finished. The receiver sites therefore ask for KIND 16, and
+// the driver answers them from the walk the callee already did: the same value-misuse guards run, at
+// each site's own ambient position, and the subtree is not walked again. What that deletes is the
+// DUPLICATE REPORT the old repeat produced — `nlc build` rendered the same NL401 twelve times on a
+// `Bad(1, 2).Tag("x")` receiver where the analyses were four per pass, while `nlc check` distincted
+// its result set and hid it. One report per fault is the contract now, in both commands.
 //
 // The receiver's own GUARD stays here for the same reason it did in `AnalyzerSyntheticCallWalk`:
 // the driver may not analyse an expression the walk would not have analysed, nor skip one it would.
@@ -439,10 +447,15 @@ class AnalyzerCallAnalysis {
         return AdvanceFinalizeReflectionCall(state)
     }
 
-    // PHASE 30 — THE RECEIVER, ANALYSED AGAIN. The callee walk already analysed the whole member
-    // access, which analysed this receiver once; the bind analyses it a SECOND time. That is what
-    // `Analyzer.cs` did, the repeat is visible in the unsorted build transcript whenever the receiver
-    // itself reports, and a bind that shared the earlier answer would silently delete those repeats.
+    // PHASE 30 — THE RECEIVER, READ AGAIN. The callee walk already analysed the whole member access,
+    // which analysed this receiver once; the bind needs the same receiver as a value a second time.
+    // It asks for it as KIND 16 rather than kind 6, which is what lets the driver answer from the
+    // walk it already did: a re-walk of the receiver's subtree costs whatever that subtree costs and
+    // a chained receiver is itself a call, so re-walking here made the analysis exponential in the
+    // length of a fluent chain. What the repeat cost that was WORTH keeping — the receiver's own
+    // value-misuse guards, judged at THIS ambient position rather than the callee's — the driver
+    // still runs; what it cost that was not is a second copy of every diagnostic the subtree already
+    // reported, which `nlc check` distincted away and `nlc build` rendered twice.
     func AcquireReflectionReceiver(state: CallAnalysisState): CallAnalysisRequest? {
         memberAccess := state.Call.Callee as MemberAccessExpression
         if memberAccess == null {
@@ -452,7 +465,7 @@ class AnalyzerCallAnalysis {
 
         state.Phase = 31
         state.Pending = 30
-        request := new CallAnalysisRequest(6)
+        request := new CallAnalysisRequest(16)
         request.Node = memberAccess.Object
         return request
     }
@@ -1413,7 +1426,7 @@ class AnalyzerCallAnalysis {
         }
 
         state.Pending = 6
-        request := new CallAnalysisRequest(6)
+        request := new CallAnalysisRequest(16)
         request.Node = memberAccess.Object
         return request
     }
